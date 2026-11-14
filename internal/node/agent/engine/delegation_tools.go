@@ -17,7 +17,7 @@ import (
 const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}}}`
 
 func delegationAvailable(x *execution) bool {
-	return x.inv.Session.Delegation == nil && x.inv.Turn.Config.Resource == nil && x.inv.Turn.Roles.Execution == protocol.ConversationExecutionTeam
+	return x.inv.Session.Delegation == nil && (x.inv.Turn.Config.Resource == nil || x.inv.Turn.Config.Assistant != nil) && x.inv.Turn.Roles.Execution == protocol.ConversationExecutionTeam
 }
 
 func (r *Runtime) delegationTools(x *execution) []Tool {

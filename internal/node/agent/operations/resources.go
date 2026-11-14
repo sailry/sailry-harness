@@ -47,16 +47,13 @@ type Resources struct {
 type SkillText struct{ Content, Directory string }
 
 // CaptureResources resolves only the exact package versions admitted by a turn.
-func CaptureResources(ctx context.Context, profile string, references []protocol.PluginReference, assistant *protocol.PluginConversationBinding) (*Resources, error) {
+func CaptureResources(ctx context.Context, profile string, references []protocol.PluginReference) (*Resources, error) {
 	catalog, err := Bundled()
 	if err != nil {
 		return nil, err
 	}
 	value := &Resources{catalog: catalog, profile: profile}
 	for _, reference := range references {
-		if assistant != nil && assistant.Package != reference {
-			continue
-		}
 		index := slices.IndexFunc(catalog.Packages, func(p Package) bool {
 			return p.Reference.Name == reference.Name && p.Reference.Digest == reference.Digest
 		})

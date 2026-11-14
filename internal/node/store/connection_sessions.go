@@ -68,13 +68,15 @@ func connectionSharing(ctx context.Context, db *sql.Conn, resource protocol.Conn
 	return nil, false, invalid("invalid connection resource")
 }
 
-// ConnectionPermits is the execution Node's sharing decision. A bound
-// conversation reaches only its own resource; a project conversation reaches
-// resources shared globally or with its project; any other conversation
-// reaches none.
+// ConnectionPermits is the execution Node's sharing decision. An SSH
+// conversation's primary connection is its default, not an access boundary:
+// it can manage this Node's saved SSH profiles. Database conversations keep
+// their resource boundary; project conversations use their sharing rules.
 func ConnectionPermits(bound *protocol.ConnectionResource, project *protocol.ProjectID, target protocol.ConnectionResource, sharing *protocol.ConnectionSharing) bool {
 	if bound != nil {
-		return sameConnection(*bound, target)
+		kind, id, valid := connectionIdentity(target)
+		primaryKind, primaryID, primaryValid := connectionIdentity(*bound)
+		return valid && primaryValid && (primaryKind == "ssh" && kind == "ssh" || primaryKind == kind && primaryID == id)
 	}
 	if project == nil || sharing == nil {
 		return false

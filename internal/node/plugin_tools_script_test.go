@@ -153,15 +153,15 @@ func TestPluginTurnInput(t *testing.T) {
 			}
 		}
 	})
-	t.Run("resources belong to the assistant's package", func(t *testing.T) {
+	t.Run("each captured package retains its own resources in an assistant", func(t *testing.T) {
 		value := invocation()
 		value.Turn.Config.Assistant = &protocol.PluginConversationBinding{Package: plugins.PackageReference(info), ID: "assistant"}
 		if input := build(t, value, names); input["resources"] != true {
 			t.Fatal("the assistant's own package lost its resources")
 		}
 		value.Turn.Config.Assistant.Package.Name = "another"
-		if input := build(t, value, names); input["resources"] != false {
-			t.Fatal("an imported package was given the assistant's resources")
+		if input := build(t, value, names); input["resources"] != true {
+			t.Fatal("another captured package lost its own resources")
 		}
 	})
 	t.Run("options violating the schema fail the turn", func(t *testing.T) {

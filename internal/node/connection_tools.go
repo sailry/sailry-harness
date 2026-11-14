@@ -35,14 +35,14 @@ func connectionBound(inv *store.AgentInvocation) string {
 }
 
 // connectionTools binds the captured database and SSH operations of a turn.
-// The connections a turn may reach are captured once here: the bound resource
-// of a connection conversation, or the connections shared with a project
-// conversation. The store repeats that decision for every call.
+// The connections a turn may reach are captured once here: this Node's SSH
+// profiles for an SSH assistant, the bound database, or the connections shared
+// with a project conversation. The store repeats that decision for every call.
 func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocation, catalog *operations.Catalog) ([]engine.Tool, error) {
 	var declarations []operations.Declaration
 	for _, declaration := range catalog.Tools {
 		if operations.ConnectionOperation(declaration.Operation) && slices.Contains(inv.Turn.Plugins, declaration.Owner) &&
-			declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) &&
+			availableOperationTool(inv, declaration) &&
 			(inv.Turn.Config.Resource == nil || inv.Turn.Config.Assistant != nil || len(declaration.Contexts) != 0) {
 			declarations = append(declarations, declaration)
 		}

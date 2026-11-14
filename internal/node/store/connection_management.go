@@ -107,7 +107,7 @@ func connectionSaveDatabase(ctx context.Context, db *sql.Conn, turn protocol.Tur
 	if previous != nil {
 		profile = *previous
 	} else {
-		if err := connectionCreation(ctx, db, turn); err != nil {
+		if err := connectionCreation(ctx, db, turn, "database"); err != nil {
 			return protocol.Command{}, err
 		}
 		sharing, err := connectionTurnSharing(ctx, db, turn)
@@ -258,7 +258,7 @@ func connectionSaveSsh(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		if previous == nil {
 			return protocol.Command{}, fault(protocol.ErrorCodeNotFound, "SSH connection does not exist")
 		}
-	} else if err := connectionCreation(ctx, db, turn); err != nil {
+	} else if err := connectionCreation(ctx, db, turn, "ssh"); err != nil {
 		return protocol.Command{}, err
 	}
 	saved := protocol.SshProfile{}
@@ -349,9 +349,9 @@ func connectionKeyPath(path string) error {
 	return nil
 }
 
-// connectionCreation refuses a new connection from a conversation that is
-// already bound to one.
-func connectionCreation(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+// connectionCreation keeps database bindings scoped to their resource. An SSH
+// primary only selects the default, so its assistant can create SSH profiles.
+func connectionCreation(ctx context.Context, db *sql.Conn, turn protocol.TurnID, kind string) error {
 	if _, err := activeAgentRun(ctx, db, turn); err != nil {
 		return err
 	}
@@ -359,7 +359,7 @@ func connectionCreation(ctx context.Context, db *sql.Conn, turn protocol.TurnID)
 	if err != nil {
 		return err
 	}
-	if capture.Config.Resource != nil {
+	if capture.Config.Resource != nil && (capture.Config.Resource.Kind != "ssh" || kind != "ssh") {
 		return fault(protocol.ErrorCodePermissionDenied, "bound conversations cannot create another connection")
 	}
 	return nil

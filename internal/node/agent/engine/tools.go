@@ -116,9 +116,6 @@ func (r *Runtime) captureTools(x *execution) error {
 			x.toolCleanup = append(x.toolCleanup, tool.Close)
 		}
 	}
-	if err := r.applyAssistant(x); err != nil {
-		return err
-	}
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
 		if x.childRole != nil && x.childRole.Tools != nil {
 			for _, selection := range *x.childRole.Tools {
@@ -130,6 +127,9 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool { return !roleAllowsTool(x.childRole, tool) })
 	}
 	if err := r.deferTools(x); err != nil {
+		return err
+	}
+	if err := r.applyAssistant(x); err != nil {
 		return err
 	}
 	if search := r.builtinSearch(x); search != nil {
@@ -175,12 +175,12 @@ func (r *Runtime) closeTools(x *execution) error {
 
 // deferTools keeps the everyday worktree capabilities on the first request
 // and leaves every other captured tool discoverable, as the source selection
-// does. An assistant turn and a child whose role lists its tools defer
-// nothing. Until here Deferred carries the declaration: a package tool that
+// does. A child whose role lists its tools defers nothing. Until here
+// Deferred carries the declaration: a package tool that
 // is not deferred declared itself initial.
 func (r *Runtime) deferTools(x *execution) error {
 	child := x.inv.Session.Delegation != nil
-	if x.inv.Turn.Config.Assistant != nil || child && x.childRole != nil && x.childRole.Tools != nil {
+	if child && x.childRole != nil && x.childRole.Tools != nil {
 		for index := range x.tools {
 			x.tools[index].Deferred = false
 		}

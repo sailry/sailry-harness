@@ -157,8 +157,8 @@ func ConnectionCommand(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 }
 
 // ConnectionCreated reports whether this turn's package created the target
-// through its own approved and completed save. An unbound conversation may
-// keep using such a connection before it is shared with its project.
+// through its own approved and completed save. Such a connection is available
+// in the same turn before another admission captures its new identifier.
 func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, owner protocol.PluginReference, target protocol.ConnectionResource) (bool, error) {
 	if _, err := activeAgentRun(ctx, db, turn); err != nil {
 		return false, err
@@ -167,10 +167,14 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if err != nil {
 		return false, err
 	}
-	if capture.Config.Resource != nil {
+	if capture.Config.Resource != nil && (capture.Config.Resource.Kind != "ssh" || target.Kind != "ssh") {
 		return false, nil
 	}
-	rows, err := db.QueryContext(ctx, "SELECT a.prepared,r.result,a.binding FROM agent_approvals a JOIN turns t ON t.id=a.turn JOIN requests r ON r.id=a.request AND r.caller=t.caller WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND r.status='completed'", turn.String())
+	node, err := nodeIdentity(ctx, db)
+	if err != nil {
+		return false, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT a.prepared,r.result,a.binding FROM agent_approvals a JOIN requests r ON r.id=a.request AND r.caller=?2 WHERE a.turn=?1 AND a.claimed=1 AND json_extract(a.body,'$.state')='approved' AND json_extract(a.body,'$.turn')=?1 AND json_extract(a.body,'$.session')=?3 AND r.status='completed'", turn.String(), node[:], capture.Session.String())
 	if err != nil {
 		return false, err
 	}
@@ -186,7 +190,7 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		if err := json.Unmarshal(bound, &binding); err != nil {
 			return false, err
 		}
-		if binding == nil || binding.Owner != owner {
+		if binding == nil || binding.Owner != owner || binding.Operation == nil {
 			continue
 		}
 		// The approval keeps the save without its secret; the ledger keeps
@@ -212,14 +216,14 @@ func ConnectionCreated(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		case "database":
 			command, issued := dispatchValue[protocol.CommandSaveDatabasePayload](request.Command.Data)
 			saved, completed := dispatchValue[protocol.DatabaseProfile](outcome.Ok.Data)
-			if request.Command.Kind == "save_database" && issued && completed && command.ExpectedRevision == 0 &&
+			if *binding.Operation == protocol.ToolOperationSaveDatabaseConnection && request.Command.Kind == "save_database" && issued && completed && command.ExpectedRevision == 0 &&
 				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 {
 				return true, nil
 			}
 		case "ssh":
 			command, issued := dispatchValue[protocol.CommandSaveSshPayload](request.Command.Data)
 			saved, completed := dispatchValue[protocol.SshProfile](outcome.Ok.Data)
-			if request.Command.Kind == "save_ssh" && issued && completed && command.ExpectedRevision == 0 &&
+			if *binding.Operation == protocol.ToolOperationSaveSshConnection && request.Command.Kind == "save_ssh" && issued && completed && command.ExpectedRevision == 0 &&
 				command.Profile.ID.String() == identity && saved.ID.String() == identity && saved.Revision == 1 {
 				return true, nil
 			}

@@ -106,7 +106,7 @@ func builtinsFixture(t *testing.T, catalog *operations.Catalog) (*Runtime, *exec
 	f, x := delegationFixture(t)
 	x.inv.Session.Delegation, x.inv.Turn.Config.Resource = nil, nil
 	x.inv.Turn.Roles.Execution = protocol.ConversationExecutionTeam
-	resources, err := operations.CaptureResources(x.ctx, f.r.profile, catalog.References, nil)
+	resources, err := operations.CaptureResources(x.ctx, f.r.profile, catalog.References)
 	if err != nil {
 		t.Fatal(err)
 	}

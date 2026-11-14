@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,9 +25,10 @@ import (
 
 type pluginAssistantScript struct {
 	fantasy.LanguageModel
-	mu     sync.Mutex
-	tools  []string
-	prompt string
+	mu      sync.Mutex
+	tools   []string
+	prompt  string
+	pending []fantasy.StreamPart
 }
 
 func (script *pluginAssistantScript) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
@@ -39,8 +41,19 @@ func (script *pluginAssistantScript) Stream(_ context.Context, call fantasy.Call
 	for _, tool := range call.Tools {
 		script.tools = append(script.tools, tool.GetName())
 	}
+	pending := script.pending
+	script.pending = nil
 	script.mu.Unlock()
 	return func(yield func(fantasy.StreamPart) bool) {
+		if len(pending) > 0 {
+			for _, part := range pending {
+				if !yield(part) {
+					return
+				}
+			}
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+			return
+		}
 		if yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "answer", Delta: "Assistant answered"}) {
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
 		}
@@ -51,11 +64,17 @@ func (script *pluginAssistantScript) Stream(_ context.Context, call fantasy.Call
 // declared resource, shared workspace, frozen packages, tools and context.
 func pluginAssistantAcceptance(t *testing.T) {
 	script := &pluginAssistantScript{}
+	var launches atomic.Int32
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
-		Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
-		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(context.Context, process.Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
-			return protocol.ProcessCompletion{}, errors.New("assistant acceptance must not launch a process")
+		MCP: fixtureMCPOptions(), Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
+		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+			if launch.Command != "fixture inherited command" || launch.Access != protocol.ProcessAccessUnrestricted {
+				return protocol.ProcessCompletion{}, errors.New("assistant command lost its captured input or access")
+			}
+			launches.Add(1)
+			emit(protocol.ProcessOutputOutputStreamStdout, []byte("Inherited command ran"))
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		}},
 	})
 	if err != nil {
@@ -66,7 +85,7 @@ func pluginAssistantAcceptance(t *testing.T) {
 	source := t.TempDir()
 	entry := "dev.sailry.platform/desktop/main.js"
 	for name, body := range map[string]string{
-		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"assistant-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["files.read"],"tools":[{"name":"read_note","operation":"files.read"},{"name":"list_notes","operation":"files.list"}],"desktop":{"entry":"` + entry + `","resources":["` + entry + `"],"conversations":[{"id":"notes","resource":"plugin","context":"Fixture assistant context","tools":[{"kind":"plugin","name":"read_note"},{"kind":"package","package":"native-approval-fixture","name":"write"},{"kind":"builtin","name":"ask_user"}]},{"id":"project","resource":"workspace","context":"","tools":[]},{"id":"delegating","resource":"plugin","context":"","tools":[{"kind":"builtin","name":"spawn_agent"}]}]}}}}`,
+		"plugin.json": `{"$schema":"` + plugins.ManifestSchema + `","name":"assistant-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["files.read"],"tools":[{"name":"read_note","operation":"files.read"},{"name":"list_notes","operation":"files.list"}],"desktop":{"entry":"` + entry + `","resources":["` + entry + `"],"conversations":[{"id":"notes","resource":"plugin","context":"Fixture assistant context","tools":[{"kind":"plugin","name":"read_note"},{"kind":"package","package":"native-approval-fixture","name":"write"},{"kind":"builtin","name":"ask_user"}]},{"id":"project","resource":"workspace","context":"","tools":[]},{"id":"delegating","resource":"plugin","context":"","tools":[{"kind":"builtin","name":"spawn_agent"}]},{"id":"ssh","resource":"ssh","context":"Fixture SSH context","tools":[]}]}}}}`,
 		entry:         `export default function main(){return null;}`,
 	} {
 		filename := filepath.Join(source, filepath.FromSlash(name))
@@ -167,8 +186,8 @@ func pluginAssistantAcceptance(t *testing.T) {
 	queued := commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
 		Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Read my note"},
 	}}).Data.(protocol.QueuedTurn)
-	if !slices.Equal(queued.Plugins, []protocol.PluginReference{binding.Package, plugins.PackageReference(imported)}) {
-		t.Fatalf("assistant turn froze other packages: %+v", queued.Plugins)
+	if !slices.Contains(queued.Plugins, binding.Package) || !slices.Contains(queued.Plugins, plugins.PackageReference(imported)) || len(queued.Plugins) <= 2 {
+		t.Fatalf("assistant turn lost its ordinary captured catalog: %+v", queued.Plugins)
 	}
 	for completed := false; !completed; {
 		var history protocol.ConversationHistory
@@ -196,11 +215,13 @@ func pluginAssistantAcceptance(t *testing.T) {
 	script.mu.Lock()
 	tools, prompt := slices.Clone(script.tools), script.prompt
 	script.mu.Unlock()
-	slices.Sort(tools)
-	allowed := []string{"ask_user", "read_note", "write", "read_tool_output"}
-	slices.Sort(allowed)
-	if !slices.Equal(tools, allowed) {
-		t.Fatalf("assistant request offered %v, declared %v", tools, allowed)
+	for _, name := range []string{"ask_user", "set_session_title", "read_note", "list_notes", "write", "read_tool_output", "read_file", "run_command", "tool_search", "load_skill"} {
+		if !slices.Contains(tools, name) {
+			t.Fatalf("assistant omitted preferred or ordinary tool %s: %v", name, tools)
+		}
+	}
+	if slices.Contains(tools, "read_session") || !strings.Contains(prompt, "read_session") {
+		t.Fatal("assistant bypassed ordinary deferred tool discovery")
 	}
 	if !strings.Contains(prompt, "Fixture assistant context") {
 		t.Fatal("assistant request omitted its declared context")
@@ -215,7 +236,71 @@ func pluginAssistantAcceptance(t *testing.T) {
 		t.Fatalf("assistant workspace is not its private profile directory: %s, %v", path, err)
 	}
 
-	// An agent reference is admitted only when the assistant declares delegation.
+	// A bound SSH assistant can use ordinary local tools with normal approvals.
+	ssh := commandFixture(t, node, protocol.Command{Kind: "save_ssh", Data: protocol.CommandSaveSshPayload{
+		Profile:    protocol.SshProfile{ID: protocol.NewSshID(), Name: "Fixture", Host: "fixture.invalid", Port: 22, Username: "fixture", Authentication: protocol.SshAuthenticationPassword},
+		Credential: &protocol.SshCredential{Kind: "password", Data: &protocol.SshCredentialPasswordPayload{Password: protocol.NewSecret("fixture-password")}},
+	}}).Data.(protocol.SshProfile)
+	sshConfig := config
+	sshConfig.Assistant = &protocol.PluginConversationBinding{Package: binding.Package, ID: "ssh"}
+	sshConfig.Resource = &protocol.ConnectionResource{Kind: "ssh", Data: ssh.ID}
+	sshSession, failure := create(sshConfig, nil)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	sshRoot, err := node.workspaceRoot(t.Context(), sshSession.Worktree, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sshRoot, "local.txt"), []byte("Inherited local file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script.mu.Lock()
+	script.pending = []fantasy.StreamPart{
+		{Type: fantasy.StreamPartTypeToolCall, ID: "local-read", ToolCallName: "read_file", ToolCallInput: `{"path":"local.txt"}`},
+		{Type: fantasy.StreamPartTypeToolCall, ID: "local-command", ToolCallName: "run_command", ToolCallInput: `{"command":"fixture inherited command","access":"unrestricted"}`},
+	}
+	script.mu.Unlock()
+	commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: sshSession.ID, ExpectedRevision: sshSession.Revision, Message: protocol.ConversationInput{Text: "Read local.txt and run the local fixture command"}}})
+	approved := false
+	for completed := false; !completed; {
+		var history protocol.ConversationHistory
+		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+			var err error
+			history, err = store.ReadConversation(t.Context(), db, sshSession.ID, nil, 100)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		for _, approval := range history.Page.Approvals {
+			if approval.State == protocol.ConversationApprovalStatePending {
+				if launches.Load() != 0 {
+					t.Fatal("the inherited command ran before ordinary approval")
+				}
+				commandFixture(t, node, protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: sshSession.ID, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: "approve"}}})
+				approved = true
+			}
+		}
+		for _, run := range history.Page.Runs {
+			if run.Status == protocol.ConversationStatusCompleted {
+				completed = true
+			} else if run.Status == protocol.ConversationStatusFailed || run.Status == protocol.ConversationStatusInterrupted || run.Status == protocol.ConversationStatusCancelled {
+				t.Fatalf("inherited assistant tools failed: %+v", run)
+			}
+		}
+		if !completed {
+			if _, err := subscription.Next(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	script.mu.Lock()
+	inherited := script.prompt
+	script.mu.Unlock()
+	if !approved || launches.Load() != 1 || !strings.Contains(inherited, "Inherited local file") || !strings.Contains(inherited, "Inherited command ran") {
+		t.Fatalf("SSH assistant did not execute ordinary tools with normal authority: approved=%t launches=%d prompt=%s", approved, launches.Load(), inherited)
+	}
+	// Agent references use the ordinary roster even without a preferred delegation tool.
 	delegating := config
 	delegating.Assistant = &protocol.PluginConversationBinding{Package: binding.Package, ID: "delegating"}
 	delegated, failure := create(delegating, nil)
@@ -243,22 +328,22 @@ func pluginAssistantAcceptance(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+		wantRuns := 1
 		if target.ID == session.ID {
-			if response.Fault == nil || response.Fault.Code != protocol.ErrorCodePermissionDenied || response.Fault.Message != "plugin assistant does not allow delegation" || runs != 1 {
-				t.Fatalf("assistant without delegation admitted an agent reference: %+v, %d turns", response.Fault, runs)
-			}
-		} else if response.Fault != nil || runs != 1 {
-			t.Fatalf("delegating assistant rejected an agent reference: %+v, %d turns", response.Fault, runs)
+			wantRuns = 2
+		}
+		if response.Fault != nil || runs != wantRuns {
+			t.Fatalf("assistant rejected an ordinary agent reference: %+v, %d turns", response.Fault, runs)
 		}
 	}
-	// An assistant conversation references only its own package.
+	// Enabled package references are shared with ordinary conversations.
 	foreign := imported.Summary.Name
 	response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
 		Session: second.ID, ExpectedRevision: second.Revision, Message: protocol.ConversationInput{Text: "Use this", References: []protocol.ConversationReference{{
 			Target: protocol.ConversationReferenceTarget{Kind: "plugin", Data: &foreign}, Label: foreign,
 		}}},
 	}}))
-	if response.Fault == nil || response.Fault.Code != protocol.ErrorCodeInvalidRequest || response.Fault.Message != "referenced plugin is disabled or unavailable" {
-		t.Fatalf("assistant conversation admitted another package's reference: %+v", response.Fault)
+	if response.Fault != nil {
+		t.Fatalf("assistant conversation rejected an ordinary package reference: %+v", response.Fault)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
@@ -14,7 +15,8 @@ import (
 
 // captureTurnPlugins names the packages a new turn freezes: the enabled
 // compatible inventory, or the bundled packages before the first inventory.
-func captureTurnPlugins(ctx context.Context, db *sql.Conn) ([]protocol.PluginReference, error) {
+// An assistant retains the package version that owns its declaration.
+func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.PluginConversationBinding) ([]protocol.PluginReference, error) {
 	catalog, err := operations.Bundled()
 	if err != nil {
 		return nil, err
@@ -34,6 +36,18 @@ func captureTurnPlugins(ctx context.Context, db *sql.Conn) ([]protocol.PluginRef
 			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" {
 				references = append(references, protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision})
 			}
+		}
+	}
+	if assistant != nil {
+		owner, err := assistantPackage(ctx, db, *assistant)
+		if err != nil {
+			return nil, err
+		}
+		reference := plugins.PackageReference(owner)
+		if index := slices.IndexFunc(references, func(candidate protocol.PluginReference) bool { return candidate.Name == reference.Name }); index >= 0 {
+			references[index] = reference
+		} else {
+			references = append(references, reference)
 		}
 	}
 	return references, nil
@@ -125,7 +139,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	}
 	value.Kind = kind
 	var err error
-	if value.Plugins, err = captureTurnPlugins(ctx, db); err != nil {
+	if value.Plugins, err = captureTurnPlugins(ctx, db, session.Config.Assistant); err != nil {
 		return value, err
 	}
 	if session.Delegation != nil {
@@ -133,17 +147,6 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	}
 	if err := validateConfig(ctx, db, node, session.Config); err != nil {
 		return value, err
-	}
-	if session.Config.Assistant != nil {
-		// An assistant turn freezes only its owner and the packages it imports.
-		packages, err := assistantPackages(ctx, db, *session.Config.Assistant)
-		if err != nil {
-			return value, err
-		}
-		value.Plugins = []protocol.PluginReference{}
-		for _, info := range packages {
-			value.Plugins = append(value.Plugins, plugins.PackageReference(info))
-		}
 	}
 	var count uint64
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1", session.ID.String()).Scan(&count); err != nil {

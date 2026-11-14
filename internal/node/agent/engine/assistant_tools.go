@@ -19,8 +19,8 @@ var assistantBuiltins = []string{
 	"inspect_image", "generate_image", "generate_video",
 }
 
-// applyAssistant narrows the captured tools to the frozen assistant declaration
-// and adds its context. Every remaining tool is offered on the first request.
+// applyAssistant adds the frozen assistant's context and offers its preferred
+// tools on the first request. Other captured tools keep normal discovery.
 func (r *Runtime) applyAssistant(x *execution) error {
 	binding := x.inv.Turn.Config.Assistant
 	if binding == nil {
@@ -30,35 +30,29 @@ func (r *Runtime) applyAssistant(x *execution) error {
 	if declaration == nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant declaration is unavailable"}
 	}
-	allowed := map[string]bool{}
+	initial := map[string]bool{}
 	for _, tool := range declaration.Tools {
 		switch value := tool.Data.(type) {
 		case *protocol.PluginConversationToolBuiltinPayload:
 			if !slices.Contains(assistantBuiltins, value.Name) {
 				return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant references an unknown native tool"}
 			}
-			allowed[value.Name] = true
+			initial[value.Name] = true
 		case *protocol.PluginConversationToolPluginPayload:
 			if value.Server != nil {
-				allowed[mcp.Alias(binding.Package.Name, *value.Server, value.Name)] = true
+				initial[mcp.Alias(binding.Package.Name, *value.Server, value.Name)] = true
 			} else {
-				allowed[operations.Alias(binding.Package.Name, value.Name)] = true
+				initial[operations.Alias(binding.Package.Name, value.Name)] = true
 			}
 		case *protocol.PluginConversationToolPackagePayload:
-			allowed[operations.Alias(value.Package, value.Name)] = true
+			initial[operations.Alias(value.Package, value.Name)] = true
 		}
 	}
-	if selectedRole(x.inv.Message) != nil && !slices.ContainsFunc(x.tools, func(tool Tool) bool {
-		return tool.Delegation && allowed[tool.Definition.Name]
-	}) {
-		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin assistant does not allow delegation"}
-	}
-	x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool {
-		return tool.Definition.Name != "read_tool_output" && !allowed[tool.Definition.Name]
-	})
 	for index := range x.tools {
-		x.tools[index].Deferred = false
+		if initial[x.tools[index].Definition.Name] {
+			x.tools[index].Deferred = false
+		}
 	}
-	x.assistantContext = declaration.Context
+	x.assistantContext = declaration.Context + "\n\nAssistant runtime capabilities\nAssistant tool selectors prioritize initial tools; they do not restrict the ordinary conversation catalog or skills. A bound resource is the default target, and runtime checks determine which targets and operations the captured mode, caller and permissions allow."
 	return nil
 }

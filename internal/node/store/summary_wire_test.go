@@ -120,3 +120,28 @@ func TestUndeclaredSummaryDoesNotAcquireOutput(t *testing.T) {
 		t.Fatalf("undeclared output leaked into the conversation projection: %s", wire)
 	}
 }
+
+func TestFailureOverridesSuccessPreview(t *testing.T) {
+	const message = "bound conversations cannot create another connection"
+	const original = `{"error":{"code":"permission_denied","message":"bound conversations cannot create another connection"}}`
+	result := json.RawMessage(original)
+	punctuation := "@:"
+	for _, mode := range []protocol.ToolPresentation{protocol.ToolPresentationDetails, protocol.ToolPresentationContent} {
+		t.Run(string(mode), func(t *testing.T) {
+			raw := &rawAgentTool{Name: "ssh_save_connection", Arguments: json.RawMessage(`{"name":"Another host"}`), Result: &result,
+				Presentation: mode, Grouping: protocol.ToolGroupingSequence, Failure: &protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime},
+				Display: &protocol.ToolDisplay{Label: "Save SSH connection", Input: &protocol.ToolDisplayInput{Summary: &protocol.ToolDisplayField{Path: "/name"}},
+					Output: &protocol.ToolDisplayProjectionOutput{Preview: &protocol.ToolDisplayProjectionText{Parts: []protocol.ToolDisplayProjectionPart{{Text: &punctuation}}}}},
+			}
+			for _, full := range []bool{false, true} {
+				resolved := raw.resolved(full)
+				if resolved.Output == nil || resolved.Output.Preview != message || resolved.Output.Body != nil || resolved.Input.Summary == nil || resolved.Input.Summary.Text != "Another host" {
+					t.Fatalf("failure was replaced by a success recipe: %+v", resolved)
+				}
+			}
+			if string(*raw.Result) != original {
+				t.Fatal("failure projection changed the original result")
+			}
+		})
+	}
+}

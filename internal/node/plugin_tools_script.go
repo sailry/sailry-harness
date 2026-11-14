@@ -68,9 +68,9 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	declarations := []protocol.ToolDeclaration{}
 	names := []string{}
 	for _, declaration := range info.Extension.Tools {
-		if declaration.Handler != nil && availablePluginTool(invocation, declaration) && selectedPluginTool(invocation, info, "", declaration.Name) {
+		if declaration.Handler != nil && availablePluginTool(invocation, declaration) {
 			if operation := declaration.Handler.Operation; operation != nil && (*operation == protocol.ToolOperationDelegateAgent || *operation == protocol.ToolOperationGuideAgent) &&
-				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
+				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil && invocation.Turn.Config.Assistant == nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
 				continue
 			}
 			// The media tools are the Node's own: a package's declaration of a
@@ -322,9 +322,8 @@ func pluginTurnInput(invocation *store.AgentInvocation, info protocol.PluginInfo
 				"read_only": profile.ReadOnly, "tools": pluginRoleTools(roster, profile)})
 		}
 	}
-	assistant := invocation.Turn.Config.Assistant
 	input := map[string]any{"tools": names, "project": invocation.Worktree.Project,
-		"resources": assistant == nil || assistant.Package == plugins.PackageReference(info),
+		"resources": true,
 		"roles":     roles, "options": options, "session_revision": nil, "automatic": automatic, "notice": invocation.Run.Notice,
 		"mode": invocation.Turn.Config.Mode, "config": nil, "execution": nil, "team": nil, "models": nil, "message": nil,
 		"connections": map[string]any{"bound": invocation.Turn.Config.Resource, "databases": []any{}, "ssh": []any{}}}

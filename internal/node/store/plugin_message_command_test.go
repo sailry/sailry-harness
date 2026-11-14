@@ -135,7 +135,7 @@ func testPluginMessageCommandResolution(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("assistant captures only its owner and declared package tools", func(t *testing.T) {
+	t.Run("assistant shares ordinary commands and retains its owner", func(t *testing.T) {
 		storage, node, session := pluginMessageSessionFixture(t)
 		err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
 			dependency, err := InstallPlugin(t.Context(), db, pluginMessageInfo("dependency-fixture", 'a', "dependency"), 0, true)
@@ -173,29 +173,29 @@ func testPluginMessageCommandResolution(t *testing.T) {
 			for _, scenario := range []struct {
 				name    string
 				present bool
-			}{{"assistant", true}, {"dependency", true}, {"unrelated", false}} {
+			}{{"assistant", true}, {"dependency", true}, {"unrelated", true}} {
 				request := protocol.NewRequest(node, protocol.Command{Kind: "submit_task", Data: protocol.CommandSubmitTaskPayload{Session: session.ID, Message: protocol.ConversationInput{Text: "/" + scenario.name}}})
 				child, err := ResolvePluginMessageCommand(t.Context(), db, node, request)
 				if err != nil || (child != nil) != scenario.present {
 					return fmt.Errorf("assistant command %s: %#v %v", scenario.name, child, err)
 				}
 			}
-			packages, err := assistantPackages(t.Context(), db, binding)
-			if err != nil || len(packages) != 2 {
-				return fmt.Errorf("assistant dependency references were duplicated: %#v %v", packages, err)
+			packages, err := pluginMessageCommandPackages(t.Context(), db, &binding)
+			if err != nil || len(packages) != 3 {
+				return fmt.Errorf("assistant command catalog lost or duplicated a package: %#v %v", packages, err)
 			}
 			if _, err := SetPluginEnabled(t.Context(), db, unrelated.Summary.Name, unrelated.Summary.Revision, false); err != nil {
 				return err
 			}
-			if _, err := assistantPackages(t.Context(), db, binding); err != nil {
+			if _, err := pluginMessageCommandPackages(t.Context(), db, &binding); err != nil {
 				return fmt.Errorf("unrelated package affected assistant commands: %v", err)
 			}
 			disabled, err := SetPluginEnabled(t.Context(), db, dependency.Summary.Name, dependency.Summary.Revision, false)
 			if err != nil {
 				return err
 			}
-			if _, err := assistantPackages(t.Context(), db, binding); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
-				return fmt.Errorf("disabled assistant dependency remained available: %v", err)
+			if packages, err := pluginMessageCommandPackages(t.Context(), db, &binding); err != nil || len(packages) != 1 || packages[0].Summary.Name != owner.Summary.Name {
+				return fmt.Errorf("a disabled preferred package blocked the assistant or remained available: %#v %v", packages, err)
 			}
 			if _, err := SetPluginEnabled(t.Context(), db, disabled.Summary.Name, disabled.Summary.Revision, true); err != nil {
 				return err
@@ -203,7 +203,7 @@ func testPluginMessageCommandResolution(t *testing.T) {
 			if _, err := RemovePlugin(t.Context(), db, owner.Summary.Name, owner.Summary.Revision); err != nil {
 				return err
 			}
-			if _, err := assistantPackages(t.Context(), db, binding); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
+			if _, err := pluginMessageCommandPackages(t.Context(), db, &binding); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
 				return fmt.Errorf("removed assistant owner remained available: %v", err)
 			}
 			return nil

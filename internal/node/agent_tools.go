@@ -33,8 +33,8 @@ type agentTool struct {
 // assistant declaration names them.
 func (node *Node) agentTools(inv *store.AgentInvocation) ([]engine.Tool, error) {
 	var declared []agentTool
-	restricted := inv.Turn.Config.Resource != nil
-	if !restricted || inv.Turn.Config.Assistant != nil {
+	restricted := inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil
+	if !restricted {
 		declared = append(declared, node.skillManager(inv), node.mcpManager(inv), node.pluginManager(inv))
 	}
 	if !restricted && (inv.Session.Delegation == nil || *inv.Session.Delegation == nil) && inv.Worktree.Project != nil {

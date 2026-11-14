@@ -37,7 +37,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	}
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
-		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
+		if !availableOperationTool(inv, declaration) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
 			continue
 		}
 		// A connection conversation without an assistant offers only tools that name a context.

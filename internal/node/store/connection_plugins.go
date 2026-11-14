@@ -168,12 +168,8 @@ func PluginConnectionAction(ctx context.Context, db *sql.Conn, request protocol.
 	}
 	switch {
 	case creation:
-		bound, err := ConnectionBound(ctx, db, *scope.Turn)
-		if err != nil {
+		if err := connectionCreation(ctx, db, *scope.Turn, target.Kind); err != nil {
 			return "", false, err
-		}
-		if bound != nil {
-			return "", false, connectionDenied("bound conversations cannot create another connection")
 		}
 	case target != nil:
 		if err := CheckPluginConnectionTarget(ctx, db, *scope, *target); err != nil {
@@ -322,17 +318,21 @@ func authorizeConnectionManagement(ctx context.Context, db *sql.Conn, request pr
 	if err := json.Unmarshal(bound, &binding); err != nil {
 		return false, err
 	}
-	if approval.State != protocol.ConversationApprovalStateApproved || scope.Session == nil || approval.Session != *scope.Session ||
+	if approval.State != protocol.ConversationApprovalStateApproved || approval.Turn != *scope.Turn || scope.Session == nil || approval.Session != *scope.Session ||
 		binding == nil || binding.Owner != scope.Package || binding.Operation == nil || *binding.Operation != operation {
 		return false, connectionDenied("connection save differs from its claimed approval")
 	}
-	return creation, recordConnectionSave(ctx, db, request)
+	return creation, nil
 }
 
-// recordConnectionSave keeps the approved save on its approval without the
-// secret it carries. The request ledger holds only the digest of such a
-// command, so ConnectionCreated reads this record.
-func recordConnectionSave(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+// RecordConnectionSave keeps an authorized turn's save without its secret.
+// Call it after authorization in the save's writer transaction, so a failed
+// save rolls back its proof. Controller saves have no turn proof to record.
+// The request ledger holds only the digest; ConnectionCreated reads this row.
+func RecordConnectionSave(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	if request.Plugin == nil || request.Plugin.Turn == nil {
+		return nil
+	}
 	command := request.Command
 	encoded, err := encode(command)
 	if err != nil {

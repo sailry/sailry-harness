@@ -214,6 +214,10 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 			var object map[string]json.RawMessage
 			_ = json.Unmarshal(body, &object)
 			object["type"] = json.RawMessage(`"model_retry"`)
+			// Records identify attempts; the observation identifies their shared request.
+			if execution.Observation != nil {
+				object["id"], _ = encode(execution.Observation.ID)
+			}
 			value.Parts = append(value.Parts, resourcePart(object))
 		}
 		if execution.ToolStarted != nil {

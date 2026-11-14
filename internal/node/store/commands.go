@@ -25,7 +25,12 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return createSession(ctx, db, node, profile, *request.Command.Data.(*protocol.CommandCreateSessionPayload))
 	case "import_session":
 		return importSession(ctx, db, node, caller, profile, *request.Command.Data.(*protocol.SessionImport))
-	case "save_database", "remove_database":
+	case "save_database":
+		if err := RecordConnectionSave(ctx, db, request); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		return ExecuteDatabaseCommand(ctx, db, request.Command)
+	case "remove_database":
 		return ExecuteDatabaseCommand(ctx, db, request.Command)
 	case "rename_session":
 		return renameSession(ctx, db, *request.Command.Data.(*protocol.CommandRenameSessionPayload))

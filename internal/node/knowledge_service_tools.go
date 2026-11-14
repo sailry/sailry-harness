@@ -132,7 +132,7 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
 		if !knowledgeOperation(declaration.Operation) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) ||
-			!declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) ||
+			!availableOperationTool(inv, declaration) ||
 			inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil && len(declaration.Contexts) == 0 {
 			continue
 		}

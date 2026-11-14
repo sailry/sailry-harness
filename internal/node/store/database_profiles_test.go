@@ -586,6 +586,9 @@ func testConnectionWorkspaces(t *testing.T) {
 			if creation, err := authorizeConnectionManagement(ctx, db, save); err != nil || !creation {
 				return fmt.Errorf("approved save was not authorized as a creation: %v", err)
 			}
+			if err = RecordConnectionSave(ctx, db, save); err != nil {
+				return err
+			}
 			added.Revision = 1
 			if err = admission.Complete(ctx, db, node, save.ID, link.Response{Output: protocol.Output{Kind: "database_profile", Data: added}}); err != nil {
 				return err

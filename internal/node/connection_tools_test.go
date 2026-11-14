@@ -530,4 +530,6 @@ func testConnectionTools(t *testing.T) {
 			t.Errorf("turn input = %s %v", text, err)
 		}
 	})
+	t.Run("SSH primary", func(t *testing.T) { testSSHPrimary(t, node, session, bastion, declarations) })
+	t.Run("database save proof", func(t *testing.T) { testDatabaseSaveProof(t, node, inv, declarations) })
 }

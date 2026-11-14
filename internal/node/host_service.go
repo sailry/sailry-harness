@@ -129,7 +129,13 @@ func (node *Node) executeHost(caller protocol.NodeID, request protocol.Request) 
 			if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_ssh_configuration"); err != nil {
 				return err
 			}
-			output, events, operationErr = store.ExecuteSshCommand(node.ctx, db, request.Command)
+			operationErr = node.validatePluginRequestDB(node.ctx, db, caller, request)
+			if operationErr == nil && request.Command.Kind == "save_ssh" {
+				operationErr = store.RecordConnectionSave(node.ctx, db, request)
+			}
+			if operationErr == nil {
+				output, events, operationErr = store.ExecuteSshCommand(node.ctx, db, request.Command)
+			}
 			if operationErr != nil {
 				events = nil
 				if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_ssh_configuration"); err != nil {

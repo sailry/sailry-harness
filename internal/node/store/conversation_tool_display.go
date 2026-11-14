@@ -299,6 +299,15 @@ func (raw *rawAgentTool) resolved(full bool) *protocol.ToolDetailResolved {
 	// requests still resolve the complete declared output.
 	if recipe := display.Output; recipe != nil && (full || raw.Presentation != protocol.ToolPresentationSummary && raw.Presentation != protocol.ToolPresentationHidden) {
 		out := protocol.DefaultToolDetailOutput()
+		if raw.Failure != nil {
+			// A success recipe can still emit its literal punctuation when
+			// the failed result has no profile or other expected data.
+			if message := raw.errorText(metadata); message != nil {
+				out.Preview = *message
+			}
+			resolved.Output = &out
+			return &resolved
+		}
 		if recipe.Preview != nil {
 			if full || !agentTextDeferred(*recipe.Preview) {
 				out.Preview = agentText(*recipe.Preview, args, result, nil)

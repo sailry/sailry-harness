@@ -339,8 +339,10 @@ translations. They do not measure each plugin's complete Go or native allocation
 
 Plugin assistants mount the shared conversation UI with an immutable package,
 assistant and resource binding. Mounting alone creates no session; the first send
-uses normal admission. They share model selection, approvals, questions and
-history, while the package owns its assistant declaration and selected tools.
+uses normal admission. They share the ordinary tool catalog, model selection,
+mode, permissions, approvals, questions and history. The package adds assistant
+context and preferred initial tools; its resource binding selects the default
+target without replacing the ordinary conversation capabilities.
 These sessions stay in their assistant's history rather than ordinary conversation
 navigation; their transcripts remain available to explicit session links.
 

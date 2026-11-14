@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -59,7 +60,8 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 		languageModel = x.renewedModel
 	}
-	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)}
+	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil),
+		fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)}
 	parts = append(parts, r.delegationContext(x, state), x.skillContext, r.deferredContext(x, state), childBudgetContext(x, state))
 	if state.Context.Environment != nil {
 		parts = append(parts, *state.Context.Environment)

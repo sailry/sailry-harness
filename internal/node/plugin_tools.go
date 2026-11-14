@@ -103,9 +103,6 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 			if allowed, exists := settings.MCPAllowed[entry.Name]; exists && !allowed {
 				continue
 			}
-			if !selectedMCPServer(invocation, info, entry.Name) {
-				continue
-			}
 			server, exists := configuration.Servers[entry.Name]
 			if !exists {
 				continue
@@ -119,19 +116,6 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 		tools[index].SearchLabels = labels[tools[index].Definition.Name]
 	}
 	return tools, err
-}
-
-// selectedMCPServer keeps only the owner's servers an assistant declares.
-func selectedMCPServer(invocation *store.AgentInvocation, info protocol.PluginInfo, server string) bool {
-	binding := invocation.Turn.Config.Assistant
-	if binding == nil {
-		return true
-	}
-	return binding.Package.Name == info.Summary.Name && invocation.Assistant != nil &&
-		slices.ContainsFunc(invocation.Assistant.Tools, func(selection protocol.PluginConversationTool) bool {
-			value, valid := selection.Data.(*protocol.PluginConversationToolPluginPayload)
-			return valid && value.Server != nil && *value.Server == server
-		})
 }
 
 func selectedMCPTool(invocation *store.AgentInvocation, info protocol.PluginInfo, server, name string) (*protocol.ToolDeclaration, bool) {
@@ -148,7 +132,15 @@ func selectedMCPTool(invocation *store.AgentInvocation, info protocol.PluginInfo
 	if declaration != nil && !availablePluginTool(invocation, *declaration) {
 		return nil, false
 	}
-	return declaration, selectedPluginTool(invocation, info, server, name)
+	return declaration, true
+}
+
+// An assistant's bound resource adds specialized tools to the ordinary
+// conversation context; it does not replace local workspace capabilities.
+func availableOperationTool(invocation *store.AgentInvocation, declaration operations.Declaration) bool {
+	project := invocation.Worktree.Project != nil
+	return declaration.Available(project, connectionBound(invocation)) ||
+		invocation.Turn.Config.Assistant != nil && declaration.Available(project)
 }
 
 func availablePluginTool(invocation *store.AgentInvocation, tool protocol.ToolDeclaration) bool {
@@ -162,6 +154,9 @@ func availablePluginTool(invocation *store.AgentInvocation, tool protocol.ToolDe
 	if invocation.Worktree.Project != nil {
 		resource = protocol.PluginConversationResourceWorkspace
 	}
+	if invocation.Turn.Config.Assistant != nil && slices.Contains(tool.Contexts, resource) {
+		return true
+	}
 	if invocation.Turn.Config.Resource != nil {
 		switch invocation.Turn.Config.Resource.Kind {
 		case "database":
@@ -171,29 +166,6 @@ func availablePluginTool(invocation *store.AgentInvocation, tool protocol.ToolDe
 		}
 	}
 	return slices.Contains(tool.Contexts, resource)
-}
-
-// selectedPluginTool applies the frozen assistant declaration: the owner's
-// declared tools, and package tools the assistant imports explicitly. Imported
-// packages contribute no other tool, skill or MCP server.
-func selectedPluginTool(invocation *store.AgentInvocation, info protocol.PluginInfo, server, name string) bool {
-	binding := invocation.Turn.Config.Assistant
-	if binding == nil {
-		return true
-	}
-	if invocation.Assistant == nil {
-		return false
-	}
-	owner := binding.Package.Name == info.Summary.Name
-	return slices.ContainsFunc(invocation.Assistant.Tools, func(selection protocol.PluginConversationTool) bool {
-		switch value := selection.Data.(type) {
-		case *protocol.PluginConversationToolPluginPayload:
-			return owner && value.Name == name && (value.Server == nil && server == "" || value.Server != nil && *value.Server == server)
-		case *protocol.PluginConversationToolPackagePayload:
-			return server == "" && value.Package == info.Summary.Name && value.Name == name
-		}
-		return false
-	})
 }
 
 func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.PluginReference, server string, lease *mcp.Lease, descriptor *sdk.Tool, declaration *protocol.ToolDeclaration, options protocol.PluginMcpOptions) (engine.Tool, error) {

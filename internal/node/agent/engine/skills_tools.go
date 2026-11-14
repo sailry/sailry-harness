@@ -15,7 +15,7 @@ import (
 
 func (r *Runtime) captureResources(x *execution) error {
 	var err error
-	x.resources, err = operations.CaptureResources(x.ctx, r.profile, x.inv.Turn.Plugins, x.inv.Turn.Config.Assistant)
+	x.resources, err = operations.CaptureResources(x.ctx, r.profile, x.inv.Turn.Plugins)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func (r *Runtime) captureResources(x *execution) error {
 }
 
 func (r *Runtime) skillTools(x *execution) []Tool {
-	if x.resources == nil || len(x.resources.Skills()) == 0 || x.inv.Turn.Config.Resource != nil {
+	if x.resources == nil || len(x.resources.Skills()) == 0 || x.inv.Turn.Config.Resource != nil && x.inv.Turn.Config.Assistant == nil {
 		return nil
 	}
 	keys := []string{}

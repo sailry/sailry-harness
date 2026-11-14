@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -103,9 +104,6 @@ func ResolvePluginMessageCommand(ctx context.Context, db *sql.Conn, node protoco
 }
 
 func pluginMessageCommandPackages(ctx context.Context, db *sql.Conn, assistant *protocol.PluginConversationBinding) ([]protocol.PluginInfo, error) {
-	if assistant != nil {
-		return assistantPackages(ctx, db, *assistant)
-	}
 	inventory, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return nil, err
@@ -122,6 +120,17 @@ func pluginMessageCommandPackages(ctx context.Context, db *sql.Conn, assistant *
 			return nil, err
 		}
 		packages = append(packages, captured)
+	}
+	if assistant != nil {
+		owner, err := assistantPackage(ctx, db, *assistant)
+		if err != nil {
+			return nil, err
+		}
+		if index := slices.IndexFunc(packages, func(candidate protocol.PluginInfo) bool { return candidate.Summary.Name == owner.Summary.Name }); index >= 0 {
+			packages[index] = owner
+		} else {
+			packages = append(packages, owner)
+		}
 	}
 	return packages, nil
 }

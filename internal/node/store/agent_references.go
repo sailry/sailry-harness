@@ -194,7 +194,7 @@ func validateAgentReferences(ctx context.Context, db *sql.Conn, session protocol
 		}
 		targets = append(targets, string(target))
 		kind := reference.Target.Kind
-		if session.Config.Resource != nil && kind != "database" && kind != "ssh" && kind != "session" && kind != "attachment" {
+		if session.Config.Resource != nil && session.Config.Assistant == nil && kind != "database" && kind != "ssh" && kind != "session" && kind != "attachment" {
 			return fault(protocol.ErrorCodePermissionDenied, "connection conversations only accept connection references")
 		}
 		switch kind {
@@ -237,9 +237,6 @@ func validateAgentReferences(ctx context.Context, db *sql.Conn, session protocol
 				return err
 			}
 		case "agent":
-			if err = validateAssistantDelegation(ctx, db, session.Config.Assistant, message, captured); err != nil {
-				return err
-			}
 			selected, _ := dispatchValue[protocol.RoleReference](reference.Target.Data)
 			if role || !slices.ContainsFunc(session.Roles.Profiles, func(profile protocol.RoleProfile) bool {
 				return profile.ID == selected.ID && profile.Revision == selected.Revision
@@ -267,15 +264,12 @@ func validateAgentReferences(ctx context.Context, db *sql.Conn, session protocol
 }
 
 // validateReferencedPlugin admits a plugin or skill reference only for a
-// package the turn freezes that an agent can use. An assistant conversation
-// references only its own package.
+// package the turn freezes that an agent can use.
 func validateReferencedPlugin(ctx context.Context, db *sql.Conn, session protocol.Session, name string, skill *string, captured []protocol.PluginReference) error {
 	references := captured
-	if session.Config.Assistant != nil {
-		references = []protocol.PluginReference{session.Config.Assistant.Package}
-	} else if captured == nil {
+	if captured == nil {
 		var err error
-		if references, err = captureTurnPlugins(ctx, db); err != nil {
+		if references, err = captureTurnPlugins(ctx, db, session.Config.Assistant); err != nil {
 			return err
 		}
 	}

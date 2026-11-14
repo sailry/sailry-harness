@@ -63,7 +63,7 @@ func TestSkillLoad(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(profile, "plugins", "packages", installed.Digest), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := CaptureResources(ctx, profile, []protocol.PluginReference{installed}, nil); !errors.Is(err, context.Canceled) {
+		if _, err := CaptureResources(ctx, profile, []protocol.PluginReference{installed}); !errors.Is(err, context.Canceled) {
 			t.Fatalf("capture after stop=%v", err)
 		}
 	})
@@ -92,7 +92,7 @@ func TestSkillLoad(t *testing.T) {
 			}
 			if !native {
 				found = true
-				captured, err := CaptureResources(t.Context(), t.TempDir(), []protocol.PluginReference{p.Reference}, nil)
+				captured, err := CaptureResources(t.Context(), t.TempDir(), []protocol.PluginReference{p.Reference})
 				if err != nil || len(captured.Skills()) != len(p.Skills) {
 					t.Fatal("skill-only package missing from admission", p.Reference, err)
 				}
