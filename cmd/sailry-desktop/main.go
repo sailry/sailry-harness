@@ -197,7 +197,10 @@ func run() error {
 		present := nativeConfirmations(entry)
 		entry.window = mygo.NewWindow(mygo.WindowOptions{
 			Title: i18n.In(i18n.Match(mygo.App.Locale()), "app"), Width: 1280, Height: 820, MinWidth: 760, MinHeight: 560,
-			StateKey: "main", TitleBarStyle: mygo.TitleBarHidden, TrafficLightPosition: &mygo.Point{X: 12, Y: 16}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(func(c *ui.Context) {
+			StateKey: "main", TitleBarStyle: mygo.TitleBarHidden,
+			// Windows' caption buttons fill the header's height and Linux's
+			// sit centered in it, as macOS's lights do at (12, 16).
+			TitleBarHeight: int(shell.HeaderHeight), TrafficLightPosition: &mygo.Point{X: 12, Y: 16}, Vibrancy: mygo.VibrancySidebar, Content: ui.View(func(c *ui.Context) {
 				kit.BindConfirmations(c, present)
 				app.View(c)
 			}),
