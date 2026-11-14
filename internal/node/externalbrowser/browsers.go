@@ -153,17 +153,27 @@ func (browsers *Browsers) Execute(ctx context.Context, call Call) (protocol.Outp
 	defer cancel()
 	defer context.AfterFunc(ctx, cancel)()
 	defer context.AfterFunc(browsers.ctx, cancel)()
+	return browsers.operate(operation, slot, call, arguments, started)
+}
+
+// operate holds the acquired slot until its worker has stopped, including when
+// completion and cancellation race. Execute owns the slot's eventual release.
+func (browsers *Browsers) operate(operation context.Context, slot *slot, call Call, arguments map[string]any, started bool) (protocol.Output, error) {
 	type outcome struct {
 		value map[string]any
 		err   error
 	}
-	done := make(chan outcome, 1)
+	var result outcome
+	// Completion can be observed by both the result and cancellation paths.
+	// A cancellation racing a received result must not wait for a second send.
+	done := make(chan struct{})
 	go func() {
 		value, err := browsers.run(operation, slot.session, call, arguments)
-		done <- outcome{value, err}
+		result = outcome{value, err}
+		close(done)
 	}()
 	select {
-	case result := <-done:
+	case <-done:
 		// A fault raised by an interrupted protocol call is not an answer.
 		if operation.Err() == nil {
 			if result.err != nil {
