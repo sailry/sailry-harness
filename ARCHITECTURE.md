@@ -337,8 +337,9 @@ the SDK exposes scoped services rather than raw OS access. Plugin memory diagnos
 estimate reachable JavaScript heaps for mounted views, tools, callbacks and model
 translations. They do not measure each plugin's complete Go or native allocation.
 
-Plugin assistants mount the shared conversation UI with an immutable package,
-assistant and resource binding. Mounting alone creates no session; the first send
+Plugin assistants mount the shared conversation UI with an immutable package name,
+assistant ID and resource binding; each new turn freezes the current enabled,
+compatible package version. Mounting alone creates no session; the first send
 uses normal admission. They share the ordinary tool catalog, model selection,
 mode, permissions, approvals, questions and history. The package adds assistant
 context and preferred initial tools; its resource binding selects the default

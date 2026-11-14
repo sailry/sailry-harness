@@ -24,7 +24,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 	var selected *protocol.PluginConversationDeclaration
 	if binding := config.Assistant; binding != nil {
 		for _, info := range catalog {
-			if !pluginNativePackageAvailable(info) || packageReference(info.Summary) != binding.Package ||
+			if !pluginNativePackageAvailable(info) || info.Summary.Name != binding.Package.Name ||
 				info.Extension == nil || info.Extension.Desktop == nil {
 				continue
 			}
@@ -70,7 +70,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 				switch entry.Kind {
 				case "plugin":
 					value, valid := detail[protocol.PluginConversationToolPluginPayload](entry.Data)
-					return valid && value.Server == nil && config.Assistant.Package == packageReference(info.Summary) && value.Name == tool.Name
+					return valid && value.Server == nil && config.Assistant.Package.Name == info.Summary.Name && value.Name == tool.Name
 				case "package":
 					value, valid := detail[protocol.PluginConversationToolPackagePayload](entry.Data)
 					return valid && value.Package == info.Summary.Name && value.Name == tool.Name

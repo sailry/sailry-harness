@@ -15,7 +15,7 @@ import (
 
 // captureTurnPlugins names the packages a new turn freezes: the enabled
 // compatible inventory, or the bundled packages before the first inventory.
-// An assistant retains the package version that owns its declaration.
+// An assistant resolves its current owner here; the turn then retains it.
 func captureTurnPlugins(ctx context.Context, db *sql.Conn, assistant *protocol.PluginConversationBinding) ([]protocol.PluginReference, error) {
 	catalog, err := operations.Bundled()
 	if err != nil {
@@ -121,6 +121,9 @@ func readTurnCapture(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (p
 	if err = json.Unmarshal(plugins, &value.Plugins); err != nil {
 		return value, err
 	}
+	if err = bindTurnAssistant(&value); err != nil {
+		return value, err
+	}
 	return value, nil
 }
 func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, session protocol.Session, kind protocol.ConversationRunKind, ready bool) (protocol.QueuedTurn, error) {
@@ -140,6 +143,12 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	value.Kind = kind
 	var err error
 	if value.Plugins, err = captureTurnPlugins(ctx, db, session.Config.Assistant); err != nil {
+		return value, err
+	}
+	if err = bindTurnAssistant(&value); err != nil {
+		return value, err
+	}
+	if err = validateAssistant(ctx, db, session.Project, value.Config); err != nil {
 		return value, err
 	}
 	if session.Delegation != nil {

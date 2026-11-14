@@ -10,8 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// assistantDeclaration resolves assistant policy only from its admitted
-// immutable package version.
+// assistantDeclaration resolves an assistant ID in a package version.
 func assistantDeclaration(binding protocol.PluginConversationBinding, owner protocol.PluginInfo) (protocol.PluginConversationDeclaration, error) {
 	if owner.Extension != nil && owner.Extension.Desktop != nil {
 		for _, declaration := range owner.Extension.Desktop.Conversations {
@@ -23,8 +22,7 @@ func assistantDeclaration(binding protocol.PluginConversationBinding, owner prot
 	return protocol.PluginConversationDeclaration{}, fault(protocol.ErrorCodeNotConfigured, "plugin assistant declaration is unavailable")
 }
 
-// ReadAssistantDeclaration returns the declaration frozen by a session's
-// assistant binding.
+// ReadAssistantDeclaration returns the declaration in an exact package capture.
 func ReadAssistantDeclaration(ctx context.Context, db *sql.Conn, binding protocol.PluginConversationBinding) (protocol.PluginConversationDeclaration, error) {
 	owner, err := ReadPluginVersion(ctx, db, binding.Package)
 	if err != nil {
@@ -34,6 +32,9 @@ func ReadAssistantDeclaration(ctx context.Context, db *sql.Conn, binding protoco
 }
 
 func captureAssistant(ctx context.Context, db *sql.Conn, invocation *AgentInvocation) error {
+	if err := bindTurnAssistant(&invocation.Turn); err != nil {
+		return err
+	}
 	binding := invocation.Turn.Config.Assistant
 	if binding == nil {
 		return nil
@@ -43,8 +44,26 @@ func captureAssistant(ctx context.Context, db *sql.Conn, invocation *AgentInvoca
 	return err
 }
 
-// validateAssistant admits a new assistant conversation only for the current
-// package version and the resource its declaration names.
+// bindTurnAssistant resolves the session's assistant identity through this
+// turn's frozen inventory. Copy the binding: a session revision can also be
+// held by an older running turn and is never updated by this projection.
+func bindTurnAssistant(turn *protocol.QueuedTurn) error {
+	if turn.Config.Assistant == nil {
+		return nil
+	}
+	for _, reference := range turn.Plugins {
+		if reference.Name == turn.Config.Assistant.Package.Name {
+			binding := *turn.Config.Assistant
+			binding.Package = reference
+			turn.Config.Assistant = &binding
+			return nil
+		}
+	}
+	return fault(protocol.ErrorCodeNotConfigured, "assistant plugin is outside the captured turn")
+}
+
+// validateAssistant admits an assistant capture only for the current package
+// version and the resource its declaration names.
 func validateAssistant(ctx context.Context, db *sql.Conn, project *protocol.ProjectID, config protocol.SessionConfig) error {
 	binding := config.Assistant
 	if binding == nil {
@@ -108,7 +127,8 @@ func assistantWorkspace(ctx context.Context, db *sql.Conn, profile string, bindi
 	return id, err
 }
 
-// assistantPackage resolves the package that owns the frozen assistant declaration.
+// assistantPackage resolves the current package for a new admission. Existing
+// turns read their declaration only through their frozen package references.
 func assistantPackage(ctx context.Context, db *sql.Conn, binding protocol.PluginConversationBinding) (protocol.PluginInfo, error) {
 	current, err := ReadPlugin(ctx, db, binding.Package.Name)
 	if err != nil {
@@ -117,12 +137,8 @@ func assistantPackage(ctx context.Context, db *sql.Conn, binding protocol.Plugin
 	if current == nil || !current.Summary.Enabled || current.Summary.Compatibility.Kind != "compatible" {
 		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "assistant plugin is disabled or removed")
 	}
-	owner, err := ReadPluginVersion(ctx, db, binding.Package)
-	if err != nil {
+	if _, err := assistantDeclaration(binding, *current); err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	if _, err := assistantDeclaration(binding, owner); err != nil {
-		return protocol.PluginInfo{}, err
-	}
-	return owner, nil
+	return *current, nil
 }

@@ -9,16 +9,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func skillPackages(snapshot protocol.Snapshot, assistant *protocol.PluginConversationBinding) []protocol.PluginReference {
+func skillPackages(snapshot protocol.Snapshot) []protocol.PluginReference {
 	var packages []protocol.PluginReference
 	for _, installed := range snapshot.Plugins {
 		if !installed.Enabled {
-			continue
-		}
-		if assistant != nil {
-			if assistant.Package.Name == installed.Name {
-				packages = append(packages, assistant.Package)
-			}
 			continue
 		}
 		packages = append(packages, protocol.PluginReference{Name: installed.Name, Digest: installed.Digest, SettingsRevision: installed.SettingsRevision})
@@ -59,11 +53,7 @@ func (r *Runtime) bindSkillReferences(cv *viewmodel.Conversation, comp *composer
 		if r.teams == nil {
 			return
 		}
-		var assistant *protocol.PluginConversationBinding
-		if session, ok := r.session(cv.ID); ok {
-			assistant = session.Config.Assistant
-		}
-		r.teams.retrySkillReads(skillPackages(r.snapshot(), assistant))
+		r.teams.retrySkillReads(skillPackages(r.snapshot()))
 		r.skillReferences(cv)
 	})
 }
@@ -72,12 +62,8 @@ func (r *Runtime) skillReferences(cv *viewmodel.Conversation) []composer.Referen
 	if r.teams == nil {
 		return nil
 	}
-	var assistant *protocol.PluginConversationBinding
-	if session, ok := r.session(cv.ID); ok {
-		assistant = session.Config.Assistant
-	}
 	var rows []composer.Reference
-	for _, reference := range skillPackages(r.snapshot(), assistant) {
+	for _, reference := range skillPackages(r.snapshot()) {
 		if info, ok := r.teams.skills[reference]; ok {
 			rows = append(rows, skillRows(reference, info, r.teams.locale)...)
 			continue

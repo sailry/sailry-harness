@@ -3,7 +3,6 @@ package live
 import (
 	"context"
 	"encoding/json"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"image/png"
 	"io/fs"
 	"os"
@@ -17,6 +16,7 @@ import (
 	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -279,10 +279,12 @@ func testNativeAssistantDraft(t *testing.T) {
 // panel is for.
 func testNativeAssistantSessions(t *testing.T) {
 	node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
-	reference := protocol.PluginReference{Name: "assistant-fixture", Digest: strings.Repeat("a", 64), SettingsRevision: 3}
+	reference := protocol.PluginReference{Name: "assistant-fixture", Digest: strings.Repeat("b", 64), SettingsRevision: 4}
+	previous := protocol.PluginReference{Name: reference.Name, Digest: strings.Repeat("a", 64), SettingsRevision: 3}
 	older, newer, foreign := protocol.SessionID{10}, protocol.SessionID{11}, protocol.SessionID{12}
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Node = node
+	snapshot.Plugins = []protocol.PluginSummary{{Name: reference.Name, Digest: reference.Digest, SettingsRevision: reference.SettingsRevision, Enabled: true, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}}
 	snapshot.Projects = []protocol.Project{{ID: project, Name: "Captured project", Path: "/fixture/project"}}
 	snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/project", Main: true}}
 	snapshot.Providers = []protocol.ConversationProvider{{
@@ -293,7 +295,7 @@ func testNativeAssistantSessions(t *testing.T) {
 	config.Provider, config.Model, config.Mode, config.Permission = provider, "fixture", protocol.WorkModeCode, protocol.PermissionAsk
 	config.Effort = protocol.Effort{Kind: "default"}
 	bound := config
-	bound.Assistant = &protocol.PluginConversationBinding{Package: reference, ID: "review"}
+	bound.Assistant = &protocol.PluginConversationBinding{Package: previous, ID: "review"}
 	for index, row := range []struct {
 		id     protocol.SessionID
 		title  string
@@ -301,6 +303,25 @@ func testNativeAssistantSessions(t *testing.T) {
 	}{{older, "Older review", bound}, {newer, "Newer review", bound}, {foreign, "Ordinary session", config}} {
 		session := protocol.Session{ID: row.id, CreationOrder: uint64(index + 1), Revision: 1, Project: &project, Worktree: worktree, Config: row.config, Roles: protocol.DefaultRoleSnapshot()}
 		session.Activity.Title = row.title
+		snapshot.Sessions = append(snapshot.Sessions, session)
+	}
+	for index, changed := range []func(*protocol.Session){
+		func(session *protocol.Session) {
+			session.Config.Assistant = &protocol.PluginConversationBinding{Package: protocol.PluginReference{Name: "another-package", Digest: reference.Digest}, ID: "review"}
+		},
+		func(session *protocol.Session) {
+			session.Config.Assistant = &protocol.PluginConversationBinding{Package: reference, ID: "another-assistant"}
+		},
+		func(session *protocol.Session) {
+			session.Config.Resource = &protocol.ConnectionResource{Kind: "ssh", Data: protocol.SshID{17}}
+		},
+		func(session *protocol.Session) { session.Project = new(protocol.ProjectID{18}) },
+		func(session *protocol.Session) { session.Worktree = protocol.WorktreeID{19} },
+	} {
+		session := snapshot.Sessions[0]
+		session.ID, session.CreationOrder = protocol.SessionID{byte(30 + index)}, uint64(30+index)
+		session.Activity.Title = "Another assistant resource"
+		changed(&session)
 		snapshot.Sessions = append(snapshot.Sessions, session)
 	}
 	transport := &conversationTestTransport{snapshot: snapshot}
@@ -317,9 +338,10 @@ func testNativeAssistantSessions(t *testing.T) {
 	}
 	defer runtime.Close()
 	info := protocol.PluginInfo{Extension: &protocol.PluginExtension{
-		Actions: []protocol.PluginAction{protocol.PluginActionReadConversation, protocol.PluginActionControlConversation},
+		Actions: []protocol.PluginAction{protocol.PluginActionReadConversation, protocol.PluginActionControlConversation, protocol.PluginActionReadFiles},
+		Tools:   []protocol.ToolDeclaration{{Name: "read_note", Operation: new(protocol.ToolOperationReadFile), Contexts: []protocol.PluginConversationResource{protocol.PluginConversationResourceWorkspace}}},
 		Desktop: &protocol.PluginDesktopManifest{Conversations: []protocol.PluginConversationDeclaration{
-			{ID: "review", Resource: protocol.PluginConversationResourceWorkspace},
+			{ID: "review", Resource: protocol.PluginConversationResourceWorkspace, Tools: []protocol.PluginConversationTool{{Kind: "plugin", Data: &protocol.PluginConversationToolPluginPayload{Name: "read_note"}}}},
 		}},
 	}}
 	info.Summary.Name, info.Summary.Digest = reference.Name, reference.Digest
@@ -374,6 +396,12 @@ func testNativeAssistantSessions(t *testing.T) {
 	if mounted := state.conversations["assistant-chat"]; mounted == nil || mounted.session != newer {
 		t.Fatalf("the panel did not open on the latest session: %+v", mounted)
 	}
+	if sessions := state.assistantSessions(snapshot.Sessions[0]); len(sessions) != 2 || sessions[0].ID != newer || sessions[1].ID != older {
+		t.Fatalf("package update joined another assistant or resource: %+v", sessions)
+	}
+	if operations := state.composerOperationsAvailable(bound); !slices.Contains(operations, protocol.ToolOperationReadFile) {
+		t.Fatalf("an old session binding hid the upgraded assistant's composer tools: %v", operations)
+	}
 	if runtime.App.Sidebar.Data.Find(newer.String()) != nil || runtime.App.Sidebar.Data.Find(older.String()) != nil || runtime.App.Data.Find(newer.String()) == nil {
 		t.Fatal("assistant history leaked into ordinary navigation or lost its embedded transcript")
 	}
@@ -400,7 +428,7 @@ func testNativeAssistantSessions(t *testing.T) {
 	// New starts a draft for the same assistant and workspace.
 	press(text("chat_new"))
 	mounted := state.conversations["assistant-chat"]
-	if mounted.draft == nil || mounted.session != (protocol.SessionID{}) || mounted.draft.Config.Assistant == nil || *mounted.draft.Config.Assistant != *bound.Assistant ||
+	if mounted.draft == nil || mounted.session != (protocol.SessionID{}) || mounted.draft.Config.Assistant == nil || mounted.draft.Config.Assistant.Package != reference || mounted.draft.Config.Assistant.ID != bound.Assistant.ID ||
 		mounted.draft.Project == nil || *mounted.draft.Project != project || mounted.composer.Permission != composer.AskFirst {
 		t.Fatalf("New left the panel on %+v", mounted)
 	}

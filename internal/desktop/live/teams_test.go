@@ -202,10 +202,11 @@ func TestTeamsProjection(t *testing.T) {
 	})
 	t.Run("skills use enabled exact package versions", func(t *testing.T) {
 		reference := protocol.PluginReference{Name: "fixture", Digest: "captured", SettingsRevision: 7}
-		snapshot := protocol.Snapshot{Plugins: []protocol.PluginSummary{{Name: "fixture", Digest: "current", SettingsRevision: 9, Enabled: true}, {Name: "disabled", Enabled: false}}}
-		packages := skillPackages(snapshot, &protocol.PluginConversationBinding{Package: reference})
-		if len(packages) != 1 || packages[0] != reference {
-			t.Fatal("assistant replaced its captured package", packages)
+		snapshot := protocol.Snapshot{Plugins: []protocol.PluginSummary{{Name: "fixture", Digest: "current", SettingsRevision: 9, Enabled: true}, {Name: "ordinary", Digest: "ordinary-current", Enabled: true}, {Name: "disabled", Enabled: false}}}
+		packages := skillPackages(snapshot)
+		current := protocol.PluginReference{Name: "fixture", Digest: "current", SettingsRevision: 9}
+		if len(packages) != 2 || packages[0] != current || packages[1].Name != "ordinary" {
+			t.Fatal("skill picker omitted ordinary current packages or kept a session's old version", packages)
 		}
 		name := "Review"
 		info := protocol.PluginInfo{Summary: protocol.PluginSummary{Name: reference.Name, Digest: reference.Digest, SettingsRevision: reference.SettingsRevision}, Skills: []protocol.PluginSkill{{Name: "review", DisplayName: &name, DisplayLocales: map[string]string{"zh-CN": "审阅"}}}}

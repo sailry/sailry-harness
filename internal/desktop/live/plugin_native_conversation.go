@@ -183,7 +183,7 @@ func (state *pluginNativeState) assistantSessions(like protocol.Session) []proto
 	for index := len(all) - 1; index >= 0; index-- {
 		session := all[index]
 		assistant := session.Config.Assistant
-		if session.Archived || session.Delegation != nil || assistant == nil || like.Config.Assistant == nil || *assistant != *like.Config.Assistant ||
+		if session.Archived || session.Delegation != nil || assistant == nil || !pluginNativeAssistantEqual(assistant, like.Config.Assistant) ||
 			!pluginNativeResourceEqual(session.Config.Resource, like.Config.Resource) || !pluginNativeProjectEqual(session.Project, like.Project) ||
 			like.Project != nil && session.Worktree != like.Worktree {
 			continue
@@ -210,8 +210,16 @@ func (state *pluginNativeState) sessionControls(view *ui.Context, identity strin
 		if to != nil {
 			next.session = to.ID
 		} else {
+			info, available := state.packageInfo()
+			if !available || !slices.ContainsFunc(state.runtime.snapshot().Plugins, func(current protocol.PluginSummary) bool {
+				return current.Enabled && current.Compatibility.Kind == "compatible" && packageReference(current) == packageReference(info.Summary)
+			}) {
+				state.runtime.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "assistant package changed; reopen its view"))
+				return
+			}
 			draft := protocol.Session{Project: like.Project, Config: protocol.DefaultSessionConfig()}
-			draft.Config.Assistant, draft.Config.Resource = like.Config.Assistant, like.Config.Resource
+			draft.Config.Assistant = &protocol.PluginConversationBinding{Package: packageReference(info.Summary), ID: like.Config.Assistant.ID}
+			draft.Config.Resource = like.Config.Resource
 			if like.Project != nil {
 				draft.Worktree = like.Worktree
 			}
@@ -412,7 +420,7 @@ func (state *pluginNativeState) conversationSession(request pluginNativeConversa
 		session := snapshot.Sessions[index]
 		assistant := session.Config.Assistant
 		if session.Archived || session.Delegation != nil || assistant == nil || assistant.ID != declaration.ID ||
-			assistant.Package != state.scope.Package || !pluginNativeResourceEqual(session.Config.Resource, request.Resource) || !pluginNativeProjectEqual(session.Project, project) ||
+			assistant.Package.Name != state.scope.Package.Name || !pluginNativeResourceEqual(session.Config.Resource, request.Resource) || !pluginNativeProjectEqual(session.Project, project) ||
 			project != nil && session.Worktree != *state.scope.Worktree {
 			continue
 		}
@@ -425,6 +433,10 @@ func (state *pluginNativeState) conversationSession(request pluginNativeConversa
 		session.Worktree = *state.scope.Worktree
 	}
 	return session, nil
+}
+
+func pluginNativeAssistantEqual(first, second *protocol.PluginConversationBinding) bool {
+	return first != nil && second != nil && first.ID == second.ID && first.Package.Name == second.Package.Name
 }
 
 func pluginNativeResourceEqual(first, second *protocol.ConnectionResource) bool {
