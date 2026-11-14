@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -96,8 +95,6 @@ type pairing struct {
 	shared                  map[string]*bool // the projects shared with, by ID
 	distribution            int              // of status.Distributions
 	revoking                *viewmodel.Device
-	tabs                    ui.ScrollState // the method tabs
-	widen                   float32        // what the tabs overflowed the dialog by
 	status                  ConnectionStatus
 }
 
@@ -356,6 +353,7 @@ func addHost(c *ui.Context, m *Model) {
 	// The title over its hint; the relay network; the method as segments;
 	// the pairing code centered, or the SSH login with host and port on one
 	// row.
+	var tabs float32
 	kit.Dialog(c.Key("add-host"), &pr.adding, func() {
 		ui.Column(c.Key("head")).Gap(4).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
@@ -369,16 +367,11 @@ func addHost(c *ui.Context, m *Model) {
 			}
 			choice := max(slices.Index(offered, Method(pr.method)), 0)
 			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, true)
-			// The tabs keep their size: where their labels run longer than
-			// the dialog, it widens by what overflowed last frame, and in a
-			// window too narrow for that they scroll.
-			ui.ScrollHorizontal(c.Key("methods")).TrackScroll(&pr.tabs).Scrollbars(false).Children(func() {
-				kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{}).Shrink(0).Disabled(locked).Label(i18n.T(c, "connection"))
-			})
-			if over := float32(math.Ceil(float64(pr.tabs.MaxX))); over > 0 && pr.widen < 480 {
-				pr.widen += over
-				c.After(0)
-			}
+			// The tabs keep their labels whole and span the fields: the
+			// dialog widens where they run longer than its width.
+			props := kit.SegmentedProps{Block: true, Natural: true}
+			tabs = kit.SegmentedWidth(c, names, props)
+			kit.Segmented(c, "method", &choice, names, props).Disabled(locked).Label(i18n.T(c, "connection"))
 			pr.method = int(offered[choice])
 			switch method := Method(pr.method); {
 			case method == ByPairing:
@@ -440,7 +433,7 @@ func addHost(c *ui.Context, m *Model) {
 				m.ConnectionActions.Add(draft, completed)
 			})
 		})
-	}).Width(min(pairingWidth+pr.widen, width(c)-48)).Label(title)
+	}).Width(min(max(pairingWidth, tabs+2*kit.DialogInset), width(c)-48)).Label(title)
 }
 
 // sshFields are the name, the host and port on one row, the user, then the

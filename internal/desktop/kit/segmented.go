@@ -33,6 +33,7 @@
 package kit
 
 import (
+	"math"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -56,6 +57,9 @@ type SegmentedProps struct {
 	// Block stretches the track across its parent and shares the width
 	// between the segments.
 	Block bool
+	// Natural keeps each Block segment at least as wide as its label, so
+	// that a track too narrow for equal shares does not shorten one.
+	Natural bool
 	// Icons, when set, puts Icons[i] (nil for none) before option i's label.
 	Icons []*ui.SVG
 	// Disabled keeps the choice from changing.
@@ -64,6 +68,41 @@ type SegmentedProps struct {
 
 // EaseOut is Lobe MyGo's motion.EaseOut.
 var EaseOut = ui.CubicBezier(0.215, 0.61, 0.355, 1)
+
+// segmentMetrics are a segment's padding and font for its size. The track
+// pads 3 around segments padded py: with the 14 DIP font, the default is a
+// text input's height (MyGo's: 6 DIP padding and a 1 DIP border around the
+// line).
+func segmentMetrics(size Size) (py, px, font float32) {
+	switch size {
+	case SizeSmall:
+		return 2, 10, 12
+	case SizeLarge:
+		return 6, 16, 14
+	}
+	return 4, 12, 14
+}
+
+// SegmentedWidth is how wide a Segmented of options is with every label
+// whole, for a container sized to fit it.
+func SegmentedWidth(c *ui.Context, options []string, o SegmentedProps) float32 {
+	width := float32(2*3 + 4*max(len(options)-1, 0))
+	for i, option := range options {
+		width += segmentWidth(c, option, i < len(o.Icons) && o.Icons[i] != nil, o.Size)
+	}
+	return width
+}
+
+// segmentWidth is a segment's width with its label whole.
+func segmentWidth(c *ui.Context, label string, icon bool, size Size) float32 {
+	_, px, font := segmentMetrics(size)
+	w, _ := c.MeasureText(0, ui.Span{Text: label, Size: font, Weight: 500})
+	w += 2 * px
+	if icon {
+		w += font + 6
+	}
+	return float32(math.Ceil(float64(w)))
+}
 
 type segmentedMatch struct{ selected *int }
 
@@ -77,16 +116,7 @@ var segmentPress = ui.Animation{Duration: 120 * time.Millisecond, Ease: EaseOut}
 // new choice; Label names it.
 func Segmented(c *ui.Context, key any, selected *int, options []string, o SegmentedProps) ui.Element {
 	p := theme.Of(c)
-	// The track pads 3 around segments padded py: with the 14 DIP font,
-	// the default is a text input's height (MyGo's: 6 DIP padding and a
-	// 1 DIP border around the line).
-	py, px, font := float32(4), float32(12), float32(14)
-	switch o.Size {
-	case SizeSmall:
-		py, px, font = 2, 10, 12
-	case SizeLarge:
-		py, px = 6, 16
-	}
+	py, px, font := segmentMetrics(o.Size)
 	parts := ui.SegmentedBase(c.Key(key), selected, len(options))
 	track := parts.Track.Padding(3).Gap(4).Radius(p.RadiusLg).Background(p.Muted)
 	if o.Block {
@@ -102,6 +132,9 @@ func Segmented(c *ui.Context, key any, selected *int, options []string, o Segmen
 				Cursor(ui.CursorPointer).Center().Gap(6)
 			if o.Block {
 				seg.Grow(1).Basis(0)
+				if o.Natural {
+					seg.MinWidth(segmentWidth(c, option, i < len(o.Icons) && o.Icons[i] != nil, o.Size))
+				}
 			}
 			text := p.MutedForeground
 			switch {

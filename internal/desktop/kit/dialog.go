@@ -68,6 +68,14 @@ func Dialog(c *ui.Context, open *bool, fn func(), options ...DialogOptions) ui.E
 	return dialog(c, open, true, o, fn)
 }
 
+// dialogPadding is a Dialog's padding around its content.
+const dialogPadding = 20
+
+// DialogInset is how far a Dialog's content sits from each side of the
+// panel: its padding and the panel's 1 DIP edge. A dialog sized to fit
+// content of a known width adds it on both sides.
+const DialogInset = dialogPadding + 1
+
 // DialogOptions change how Dialog frames its content.
 type DialogOptions struct {
 	// Bleed is a dialog whose content draws to the panel's edges, as a file
@@ -126,7 +134,7 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 			panel.Padding(0).Gap(0).MaxWidth(w - 48).MaxHeight(h - 48).Clip()
 		} else {
 			back.Justify(ui.Start).Padding(h/10, 0, 0, 0)
-			panel.Padding(20).Gap(12).MaxWidth(w - 40).MaxHeight(h*0.9 - 20)
+			panel.Padding(dialogPadding).Gap(12).MaxWidth(w - 40).MaxHeight(h*0.9 - 20)
 		}
 		Floating(c, panel).Scale(scale, scale).Opacity(shown)
 		fn()
