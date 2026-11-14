@@ -53,7 +53,11 @@ func ParseRepositorySource(source protocol.PluginSkillsSource) (RepositorySelect
 	}
 	input := selected.Repository
 	if filepath.IsAbs(input) {
-		selected.Repository = (&url.URL{Scheme: "file", Path: filepath.ToSlash(input)}).String()
+		localPath := filepath.ToSlash(input)
+		if !strings.HasPrefix(localPath, "/") {
+			localPath = "/" + localPath
+		}
+		selected.Repository = (&url.URL{Scheme: "file", Path: localPath}).String()
 		return selected, nil
 	}
 	if !strings.Contains(input, ":") {
@@ -67,7 +71,7 @@ func ParseRepositorySource(source protocol.PluginSkillsSource) (RepositorySelect
 	if err == nil && address.Scheme != "" {
 		if !slices.Contains([]string{"https", "http", "git", "ssh", "ssh+git", "git+ssh", "file"}, address.Scheme) ||
 			address.RawQuery != "" || address.Fragment != "" || address.Scheme != "file" && address.Hostname() == "" ||
-			address.Scheme == "file" && address.Host != "" && address.Host != "localhost" {
+			address.Scheme == "file" && (address.Path == "" || address.Opaque != "" || address.Host != "" && address.Host != "localhost") {
 			return selected, packageFault("a Git repository URL without embedded credentials is required")
 		}
 		if address.User != nil {
@@ -116,8 +120,7 @@ func ParseRepositorySource(source protocol.PluginSkillsSource) (RepositorySelect
 	return selected, packageFault("a Git repository URL is required")
 }
 
-// One acquisition transfers a single revision within the limits the Rust
-// service applied to every plugin and skill repository.
+// One acquisition transfers a bounded revision of a plugin or skill repository.
 const (
 	maxRepositoryTransferBytes = 512 * 1024 * 1024
 	repositoryTransferTimeout  = 120 * time.Second
@@ -143,9 +146,15 @@ func (storage *transferStorage) PackfileWriter() (io.WriteCloser, error) {
 type transferWriter struct {
 	io.WriteCloser
 	storage *transferStorage
+	ctx     context.Context
 }
 
 func (writer *transferWriter) Write(data []byte) (int, error) {
+	if writer.ctx != nil {
+		if err := writer.ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
 	if int64(len(data)) > writer.storage.remaining {
 		writer.storage.exceeded = true
 		return 0, packageFault("Git transfer exceeds its size limit")
@@ -190,21 +199,27 @@ func acquireRepository(ctx context.Context, selected RepositorySelection, expect
 	}
 	limited, cancel := context.WithTimeout(ctx, repositoryTransferTimeout)
 	defer cancel()
-	remote := git.NewRemote(storage, &config.RemoteConfig{Name: "origin", URLs: []string{selected.Repository}})
-	fetch := func(depth int, specs ...config.RefSpec) error {
-		err := remote.FetchContext(limited, &git.FetchOptions{RefSpecs: specs, Depth: depth, Tags: git.NoTags})
-		if errors.Is(err, git.NoErrAlreadyUpToDate) {
-			return nil
-		}
-		return err
-	}
 	target := plumbing.Revision(repositoryRevision)
-	err = fetch(1, config.RefSpec("+"+revision+":"+repositoryRevision))
-	if errors.Is(err, git.ErrExactSHA1NotSupported) {
-		// This server does not serve a commit by its identifier. Look for it in
-		// the branches and tags instead, under the same size and time limits.
-		target = plumbing.Revision(revision)
-		err = fetch(0, "+refs/heads/*:refs/sailry/heads/*", "+refs/tags/*:refs/sailry/tags/*")
+	if location, parseErr := url.Parse(selected.Repository); parseErr == nil && location.Scheme == "file" {
+		var hash plumbing.Hash
+		hash, err = acquireLocalRepository(limited, location, revision, directory, storage)
+		target = plumbing.Revision(hash.String())
+	} else {
+		remote := git.NewRemote(storage, &config.RemoteConfig{Name: "origin", URLs: []string{selected.Repository}})
+		fetch := func(depth int, specs ...config.RefSpec) error {
+			err := remote.FetchContext(limited, &git.FetchOptions{RefSpecs: specs, Depth: depth, Tags: git.NoTags})
+			if errors.Is(err, git.NoErrAlreadyUpToDate) {
+				return nil
+			}
+			return err
+		}
+		err = fetch(1, config.RefSpec("+"+revision+":"+repositoryRevision))
+		if errors.Is(err, git.ErrExactSHA1NotSupported) {
+			// This server does not serve a commit by its identifier. Look for it in
+			// the branches and tags instead, under the same size and time limits.
+			target = plumbing.Revision(revision)
+			err = fetch(0, "+refs/heads/*:refs/sailry/heads/*", "+refs/tags/*:refs/sailry/tags/*")
+		}
 	}
 	switch {
 	case err == nil:
@@ -214,7 +229,7 @@ func acquireRepository(ctx context.Context, selected RepositorySelection, expect
 		return resolved, nil, nil, packageFault("Git transfer exceeds its size limit")
 	case limited.Err() != nil:
 		return resolved, nil, nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Git transfer timed out"}
-	case errors.Is(err, git.NoMatchingRefSpecError{}):
+	case errors.Is(err, git.NoMatchingRefSpecError{}), errors.Is(err, plumbing.ErrReferenceNotFound):
 		return resolved, nil, nil, packageFault("plugin repository revision is unavailable")
 	default:
 		return resolved, nil, nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "plugin repository is unavailable"}

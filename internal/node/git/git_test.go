@@ -34,6 +34,14 @@ func fixture(t *testing.T) (string, *gogit.Repository, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	settings, err := r.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.Raw.Section("core").SetOption("autocrlf", "false")
+	if err := r.SetConfig(settings); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\ntwo\nthree\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +115,9 @@ func TestGitReadMapping(t *testing.T) {
 		main, linked := t.TempDir(), t.TempDir()
 		stale := filepath.Join(t.TempDir(), "removed")
 		head := strings.Repeat("a", 40)
-		listing := "worktree " + main + "\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00" +
-			"worktree " + stale + "\x00HEAD " + head + "\x00branch refs/heads/stale\x00prunable gitdir file points to non-existent location\x00\x00" +
-			"worktree " + linked + "\x00HEAD " + head + "\x00detached\x00locked in use\x00\x00"
+		listing := "worktree " + filepath.ToSlash(main) + "\x00HEAD " + head + "\x00branch refs/heads/main\x00\x00" +
+			"worktree " + filepath.ToSlash(stale) + "\x00HEAD " + head + "\x00branch refs/heads/stale\x00prunable gitdir file points to non-existent location\x00\x00" +
+			"worktree " + filepath.ToSlash(linked) + "\x00HEAD " + head + "\x00detached\x00locked in use\x00\x00"
 		result, err := ParseWorktrees([]byte(listing), protocol.RepositoryKindReady, false)
 		if err != nil || len(result.Entries) != 3 || result.Truncated {
 			t.Fatal(result, err)
@@ -390,11 +398,14 @@ func TestGitReadMapping(t *testing.T) {
 		}; !reflect.DeepEqual(got, want) {
 			t.Fatalf("statistics without time = %+v, want %+v", got, want)
 		}
+		// Use enough text to exceed the clock's resolution on every platform.
 		// A comparison cut short reports its coarse counts as uncounted.
-		before, after := content{data: []byte("a\nb\n"), exists: true, hash: plumbing.NewHash("01")}, content{data: []byte("a\nc\n"), exists: true, hash: plumbing.NewHash("02")}
-		if got := lineStats(before, after, nil, nil, time.Nanosecond); !got.Truncated {
+		cutBefore := content{data: []byte(strings.Repeat("a\nb\n", 16384)), exists: true, hash: plumbing.NewHash("01")}
+		cutAfter := content{data: []byte(strings.Repeat("a\nc\n", 16384)), exists: true, hash: plumbing.NewHash("02")}
+		if got := lineStats(cutBefore, cutAfter, nil, nil, time.Nanosecond); !got.Truncated {
 			t.Fatalf("cut comparison = %+v", got)
 		}
+		before, after := content{data: []byte("a\nb\n"), exists: true, hash: plumbing.NewHash("01")}, content{data: []byte("a\nc\n"), exists: true, hash: plumbing.NewHash("02")}
 		if got := lineStats(before, after, nil, nil, time.Minute); got != (protocol.GitLineStats{Additions: 1, Deletions: 1}) {
 			t.Fatalf("comparison = %+v", got)
 		}

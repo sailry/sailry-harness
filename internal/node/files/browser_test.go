@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -20,6 +21,8 @@ func TestBrowseLocations(t *testing.T) {
 	// exist and can be listed are offered.
 	t.Run("places", func(t *testing.T) {
 		home := t.TempDir()
+		incoming := filepath.Join(t.TempDir(), "incoming")
+		documents := filepath.Join(t.TempDir(), `My "Docs"`)
 		none := func(string) string { return "" }
 		kinds := func(places []place) (out []string) {
 			for _, entry := range places {
@@ -34,10 +37,10 @@ func TestBrowseLocations(t *testing.T) {
 		// Without a user-dirs.dirs file the environment names a folder, and
 		// the usual names the rest.
 		env := func(name string) string {
-			return map[string]string{"XDG_DOWNLOAD_DIR": "/srv/incoming", "XDG_DESKTOP_DIR": "relative"}[name]
+			return map[string]string{"XDG_DOWNLOAD_DIR": incoming, "XDG_DESKTOP_DIR": "relative"}[name]
 		}
 		if got, want := kinds(userPlaces("linux", home, env)), []string{"desktop=" + filepath.Join(home, "Desktop"),
-			"documents=" + filepath.Join(home, "Documents"), "downloads=/srv/incoming"}; !slices.Equal(got, want) {
+			"documents=" + filepath.Join(home, "Documents"), "downloads=" + incoming}; !slices.Equal(got, want) {
 			t.Errorf("the places of Linux without a file are %q, want %q", got, want)
 		}
 		// The file outranks the environment: localized names, an absolute
@@ -47,20 +50,20 @@ func TestBrowseLocations(t *testing.T) {
 		if err := os.MkdirAll(config, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		dirs := "# written by xdg-user-dirs-update\n\nXDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\n  XDG_DOCUMENTS_DIR = \"/data/My \\\"Docs\\\"\"\n" +
+		dirs := "# written by xdg-user-dirs-update\n\nXDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\n  XDG_DOCUMENTS_DIR = " + strconv.Quote(documents) + "\n" +
 			"XDG_DOWNLOAD_DIR=\"$HOME/\"\nXDG_MUSIC_DIR=\"$HOMEWORK/Music\"\nXDG_PICTURES_DIR=relative\nOTHER=\"/x\"\n"
 		if err := os.WriteFile(filepath.Join(config, "user-dirs.dirs"), []byte(dirs), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		listed := xdgUserDirs(dirs, home)
-		if len(listed) != 3 || listed["XDG_DESKTOP_DIR"] != filepath.Join(home, "Schreibtisch") || listed["XDG_DOCUMENTS_DIR"] != `/data/My "Docs"` || listed["XDG_DOWNLOAD_DIR"] != home {
+		if len(listed) != 3 || listed["XDG_DESKTOP_DIR"] != filepath.Join(home, "Schreibtisch") || listed["XDG_DOCUMENTS_DIR"] != documents || listed["XDG_DOWNLOAD_DIR"] != home {
 			t.Errorf("the file reads as %q", listed)
 		}
 		env = func(name string) string {
 			return map[string]string{"XDG_CONFIG_HOME": config, "XDG_DESKTOP_DIR": "/elsewhere"}[name]
 		}
 		if got, want := kinds(userPlaces("linux", home, env)), []string{"desktop=" + filepath.Join(home, "Schreibtisch"),
-			`documents=/data/My "Docs"`, "downloads=" + home}; !slices.Equal(got, want) {
+			"documents=" + documents, "downloads=" + home}; !slices.Equal(got, want) {
 			t.Errorf("the places of Linux are %q, want %q", got, want)
 		}
 
@@ -213,7 +216,8 @@ func TestBrowseLocations(t *testing.T) {
 		if err := os.Symlink(filepath.Join(directory, "Work"), filepath.Join(directory, "Alias")); err != nil {
 			t.Skip(err)
 		}
-		if err := os.Symlink("/", filepath.Join(directory, "Macintosh HD")); err != nil {
+		root := filepath.VolumeName(directory) + string(filepath.Separator)
+		if err := os.Symlink(root, filepath.Join(directory, "Macintosh HD")); err != nil {
 			t.Fatal(err)
 		}
 		if name := startupName(directory); name != "Macintosh HD" {

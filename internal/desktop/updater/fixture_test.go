@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -229,13 +230,21 @@ func bundleArchive(t *testing.T, target, version, minimum string) []byte {
 			t.Fatal(err)
 		}
 	}
-	link := &zip.FileHeader{Name: "Sailry.app/Contents/Resources/current.json", Modified: modified}
-	link.SetMode(0o777 | os.ModeSymlink)
-	entry, err := writer.CreateHeader(link)
+	resource := &zip.FileHeader{Name: "Sailry.app/Contents/Resources/current.json", Modified: modified}
+	content := []byte("build.json")
+	if runtime.GOOS == "windows" {
+		// Windows does not extract Unix symbolic links. The portable fixture
+		// keeps the same metadata in a regular resource instead.
+		resource.SetMode(0o644)
+		content = files["Contents/Resources/build.json"]
+	} else {
+		resource.SetMode(0o777 | os.ModeSymlink)
+	}
+	entry, err := writer.CreateHeader(resource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := entry.Write([]byte("build.json")); err != nil {
+	if _, err := entry.Write(content); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {

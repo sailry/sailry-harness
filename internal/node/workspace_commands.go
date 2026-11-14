@@ -105,7 +105,12 @@ func (node *Node) workspaceRoot(ctx context.Context, id protocol.WorktreeID, int
 	if err != nil {
 		return "", err
 	}
-	if err = profile.CreatePrivateDirectories(filepath.ToSlash(relative)); err != nil {
+	if err = profile.CreatePrivateDirectories(filepath.ToSlash(filepath.Dir(relative))); err != nil {
+		return "", err
+	}
+	// The managed root itself needs an explicit private ACL on Windows;
+	// inheriting its private parent's access still fails profile validation.
+	if err = core.PrivateDirectory(root); err != nil {
 		return "", err
 	}
 	return root, nil

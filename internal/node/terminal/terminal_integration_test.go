@@ -81,7 +81,7 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 			if _, err := service.Resize(caller, protocol.CommandResizeTerminalPayload{Terminal: info.ID, Revision: info.Revision, Viewport: protocol.TerminalViewport{Columns: 53, Rows: 18}}); err != nil {
 				t.Fatal(err)
 			}
-			client.Send([]byte("ordered input 中文\n"))
+			client.Send([]byte("ordered input 中文\r"))
 			wait("received ordered input 中文")
 			snapshot, err := service.Snapshot(info.ID)
 			if err != nil || snapshot.Screen.VT == nil || snapshot.Screen.VT.Viewport.Columns != 53 {

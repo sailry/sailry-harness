@@ -155,11 +155,16 @@ func (s *Service) CreateManagedWorktree(ctx context.Context, source, main string
 	if err != nil {
 		return "", unknown()
 	}
-	_, err = s.publishIndex(ctx, target, revision, &base, func(r *gogit.Repository, idx *idxfmt.Index, _ *object.Tree) error {
+	_, err = s.publishIndex(ctx, target, revision, &base, func(_ *gogit.Repository, idx *idxfmt.Index, _ *object.Tree) error {
 		for _, change := range changes {
-			if err := setIndexContent(r, idx, change.path, change.index); err != nil {
-				return err
+			if !change.index.exists {
+				dropIndexEntries(idx, change.path, false)
+				continue
 			}
+			// Linked worktrees share their object store. Reuse the captured
+			// reference, including packed objects and non-blob index modes.
+			dropIndexEntries(idx, change.path, true)
+			idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: change.path, Hash: change.index.hash, Mode: change.index.mode})
 		}
 		return nil
 	}, nil)

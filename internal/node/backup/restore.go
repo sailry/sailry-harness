@@ -182,7 +182,9 @@ func Finish(ctx context.Context, staged *Staged, target string, retained []strin
 	}
 	name := ".sailry-restore-" + uuid.NewString()
 	staging := filepath.Join(filepath.Dir(target), name)
-	if err := core.PrivateDirectory(filepath.Join(staging, "storage")); err != nil {
+	// This directory becomes the profile itself. Creating only its storage
+	// child would leave the profile root with an inherited Windows DACL.
+	if err := core.PrivateDirectory(staging); err != nil {
 		return ioFault(err)
 	}
 	published := false
@@ -191,6 +193,9 @@ func Finish(ctx context.Context, staged *Staged, target string, retained []strin
 			_ = parent.RemoveAll(name)
 		}
 	}()
+	if err := core.PrivateDirectory(filepath.Join(staging, "storage")); err != nil {
+		return ioFault(err)
+	}
 	destination, err := parent.OpenRoot(name)
 	if err != nil {
 		return ioFault(err)

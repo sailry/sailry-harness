@@ -25,11 +25,15 @@ func TestSettingsRowBrandIcons(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			native := NewNativeBinding(t.Context())
 			var failure error
+			var reference ui.Rect
 			rows := make([]ui.Rect, len(cases))
 			clicked := ""
 			tester := ui.NewTesterWith(func(view *ui.Context) {
 				theme.Apply(view, "", mode)
 				ui.Column(view).Fill().Padding(24).Background(view.Theme().Background).Children(func() {
+					kit.Row(view, "reference", "Reference", "", func() {
+						ui.Button(view, "Configure reference")
+					}).DrawOver(func(_ *ui.Painter, bounds ui.Rect) { reference = bounds })
 					for index, item := range cases {
 						props, _ := json.Marshal([]any{item.name, map[string]any{"label": item.name, "icon": item.icon}})
 						row, err := native.renderLayout(view.Key(index), NativeElement{ID: uint64(index + 1), Module: "sailry/ui", Export: "SettingsRow", Props: props,
@@ -51,9 +55,14 @@ func TestSettingsRowBrandIcons(t *testing.T) {
 			}
 			picture := tester.Image()
 			ground := picture.RGBAAt(1, 1)
+			// A native button may exceed the minimum row height on a system
+			// font. Brand icons must retain the same geometry as the core row.
+			if reference.H < kit.RowMinHeight {
+				t.Fatalf("core row is below its minimum height: %v", reference)
+			}
 			for index, item := range cases {
 				label, exists := tester.Find(item.name)
-				if !exists || label.X != 24+kit.RowIcon+kit.RowIconGap || rows[index].H != kit.RowMinHeight {
+				if !exists || label.X != 24+kit.RowIcon+kit.RowIconGap || rows[index].H != reference.H {
 					t.Fatalf("%s changed row geometry: row %v, label %v", item.name, rows[index], label)
 				}
 				inked, colored := 0, 0

@@ -646,6 +646,20 @@ func TestNativeGitIntegration(t *testing.T) {
 	t.Run("managed_snapshot_and_targeted_removal", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := service(t)
+		if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("staged\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		working, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := working.Add("file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		captured, err := indexContent(r, "file.txt", maxFile)
+		if err != nil || !captured.exists || string(captured.data) != "staged\n" {
+			t.Fatalf("source index = %q, %v", captured.data, err)
+		}
 		index, err := indexRevision(root, r)
 		if err != nil {
 			t.Fatal(err)
@@ -662,12 +676,23 @@ func TestNativeGitIntegration(t *testing.T) {
 		if err != nil || string(body) != "changed\n" {
 			t.Fatal(string(body), err)
 		}
+		created, err := open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		copied, err := indexContent(created, "file.txt", maxFile)
+		if err != nil || !copied.exists || copied.hash != captured.hash || copied.mode != captured.mode || string(copied.data) != "staged\n" {
+			t.Fatalf("copied index = %+v, %v; source = %+v", copied, err, captured)
+		}
 		sourceIndex, err := indexRevision(root, r)
 		if err != nil || sourceIndex != index {
 			t.Fatal("source index changed", sourceIndex, err)
 		}
+		if body, err := os.ReadFile(filepath.Join(root, "file.txt")); err != nil || string(body) != "changed\n" {
+			t.Fatalf("source worktree changed: %q, %v", body, err)
+		}
 		requireFault(t, s.RemoveWorktree(ctx, path, commit, "managed-fixture"), protocol.ErrorCodeConflict)
-		if _, err := s.command(ctx, path, []string{"restore", "--source=HEAD", "--worktree", "--", ":(literal)file.txt"}, nil, false); err != nil {
+		if _, err := s.command(ctx, path, []string{"restore", "--source=HEAD", "--staged", "--worktree", "--", ":(literal)file.txt"}, nil, false); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.RemoveWorktree(ctx, path, commit, "managed-fixture"); err != nil {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,7 +16,40 @@ import (
 
 const fileAllAccess = 0x001f01ff
 
+var windowsFileOwner struct {
+	once sync.Once
+	err  error
+}
+
+// PrepareWindowsProcessFileOwner makes newly created storage belong to this user.
+// Elevated tokens may default to the Administrators group. SQLite sidecars,
+// identity files and atomic replacements inherit a directory's DACL, but their
+// owner comes from the creating token, so setting directory ownership alone is
+// insufficient. This changes no privileges, access lists or existing files.
+func PrepareWindowsProcessFileOwner() error {
+	windowsFileOwner.once.Do(func() {
+		var token windows.Token
+		if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_ADJUST_DEFAULT, &token); err != nil {
+			windowsFileOwner.err = err
+			return
+		}
+		defer token.Close()
+		user, err := token.GetTokenUser()
+		if err != nil {
+			windowsFileOwner.err = err
+			return
+		}
+		owner := user.User.Sid
+		windowsFileOwner.err = windows.SetTokenInformation(token, windows.TokenOwner, (*byte)(unsafe.Pointer(&owner)), uint32(unsafe.Sizeof(owner)))
+		runtime.KeepAlive(user)
+	})
+	return windowsFileOwner.err
+}
+
 func PrivateDirectory(path string) error {
+	if err := PrepareWindowsProcessFileOwner(); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(path); err == nil {
 		return validateWindowsStorage(path, true)
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -95,6 +129,9 @@ func unlockProfile(lock *os.File) error {
 
 // PrepareDatabase checks inherited privacy before the database engine can create sidecars.
 func PrepareDatabase(path string) error {
+	if err := PrepareWindowsProcessFileOwner(); err != nil {
+		return err
+	}
 	parent := filepath.Dir(path)
 	if parent == path {
 		return invalidProfile(path, "database directory is missing")

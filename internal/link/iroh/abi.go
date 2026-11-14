@@ -136,7 +136,9 @@ func Load(path string) error {
 	return nil
 }
 
-func complete(operation, status uintptr, pointer unsafe.Pointer, length uintptr) {
+// Windows callback thunks require a uintptr result. The native completion ABI
+// returns void, so its caller ignores this adapter's zero result.
+func complete(operation, status uintptr, pointer unsafe.Pointer, length uintptr) uintptr {
 	var data []byte
 	if pointer != nil {
 		data = append([]byte(nil), unsafe.Slice((*byte)(pointer), int(length))...)
@@ -149,6 +151,7 @@ func complete(operation, status uintptr, pointer unsafe.Pointer, length uintptr)
 	if waiter != nil {
 		waiter <- completion{status: status, data: data}
 	}
+	return 0
 }
 
 func invoke(ctx context.Context, schedule func(*abi) uintptr) (completion, error) {

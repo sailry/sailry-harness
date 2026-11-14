@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -258,6 +259,13 @@ func TestCountersAndInterfaceReports(t *testing.T) {
 	})
 
 	t.Run("a crash is reduced, kept and reported once", func(t *testing.T) {
+		// The runtime keeps its own duplicated descriptor until the next
+		// SetCrashOutput call; release it before TempDir cleanup runs.
+		defer func() {
+			if err := debug.SetCrashOutput(nil, debug.CrashOptions{}); err != nil {
+				t.Error(err)
+			}
+		}()
 		reduced := reduce([]byte(crashTrace))
 		assertReduced(t, reduced)
 		want := "panic.nil_dereference\n" +

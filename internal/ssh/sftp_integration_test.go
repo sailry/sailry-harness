@@ -166,6 +166,16 @@ func canonicalTemp(t *testing.T) string {
 	return directory
 }
 
+// sftpPath encodes a fixture's native absolute path for its SFTP server.
+// Windows drives use /C:/... on the wire and C:\... for local os calls.
+func sftpPath(local string) string {
+	wire := filepath.ToSlash(local)
+	if filepath.VolumeName(local) != "" && !strings.HasPrefix(wire, "/") {
+		return "/" + wire
+	}
+	return wire
+}
+
 func code(err error) protocol.ErrorCode {
 	var fault *protocol.Fault
 	if errors.As(err, &fault) {
@@ -245,8 +255,8 @@ func TestSftpIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		first, err := ssh.List(client, paged+"/.", nil)
-		if err != nil || first.Path != paged || len(first.Entries) != protocol.MAX_DIRECTORY_ENTRIES || first.Next == nil {
+		first, err := ssh.List(client, sftpPath(paged)+"/.", nil)
+		if err != nil || first.Path != sftpPath(paged) || len(first.Entries) != protocol.MAX_DIRECTORY_ENTRIES || first.Next == nil {
 			t.Fatalf("first page = %q, %d entries, next %v, %v", first.Path, len(first.Entries), first.Next, err)
 		}
 		if first.Entries[0].Name != "folder" || first.Entries[0].Kind != protocol.EntryKindDirectory || first.Entries[1].Name != "file-0000" {
@@ -256,7 +266,7 @@ func TestSftpIntegration(t *testing.T) {
 		if err != nil || len(last.Entries) != 1 || last.Entries[0].Name != "file-0499" || last.Next != nil {
 			t.Fatalf("last page = %v, %v", last, err)
 		}
-		if _, err = ssh.List(client, filepath.Join(remote, "absent"), nil); code(err) != protocol.ErrorCodeNotFound {
+		if _, err = ssh.List(client, sftpPath(filepath.Join(remote, "absent")), nil); code(err) != protocol.ErrorCodeNotFound {
 			t.Fatalf("missing directory = %v", err)
 		}
 	})
@@ -277,10 +287,10 @@ func TestSftpIntegration(t *testing.T) {
 			{"create existing", base, create(true), protocol.ErrorCodeConflict},
 			{"create nested", base + "/nested/", create(true), ""},
 			{"create file", base + "/nested/empty", create(false), ""},
-			{"copy tree", base, protocol.SshFileAction{Kind: "copy", Data: &protocol.SshFileActionCopyPayload{Destination: remote + "/copied"}}, ""},
-			{"move tree", remote + "/copied", protocol.SshFileAction{Kind: "move", Data: &protocol.SshFileActionMovePayload{Destination: remote + "/moved ' 目录"}}, ""},
-			{"copy into itself", base, protocol.SshFileAction{Kind: "copy", Data: &protocol.SshFileActionCopyPayload{Destination: base + "/nested/copy"}}, protocol.ErrorCodeInvalidRequest},
-			{"move onto existing", base, protocol.SshFileAction{Kind: "move", Data: &protocol.SshFileActionMovePayload{Destination: remote + "/moved ' 目录"}}, protocol.ErrorCodeConflict},
+			{"copy tree", base, protocol.SshFileAction{Kind: "copy", Data: &protocol.SshFileActionCopyPayload{Destination: sftpPath(remote + "/copied")}}, ""},
+			{"move tree", remote + "/copied", protocol.SshFileAction{Kind: "move", Data: &protocol.SshFileActionMovePayload{Destination: sftpPath(remote + "/moved ' 目录")}}, ""},
+			{"copy into itself", base, protocol.SshFileAction{Kind: "copy", Data: &protocol.SshFileActionCopyPayload{Destination: sftpPath(base + "/nested/copy")}}, protocol.ErrorCodeInvalidRequest},
+			{"move onto existing", base, protocol.SshFileAction{Kind: "move", Data: &protocol.SshFileActionMovePayload{Destination: sftpPath(remote + "/moved ' 目录")}}, protocol.ErrorCodeConflict},
 			{"remove root", "/", protocol.SshFileAction{Kind: "remove"}, protocol.ErrorCodeInvalidRequest},
 			{"remove tree", remote + "/moved ' 目录", protocol.SshFileAction{Kind: "remove"}, ""},
 		}
@@ -293,7 +303,7 @@ func TestSftpIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := ssh.Modify(client, step.path, step.action); code(err) != step.code {
+			if err := ssh.Modify(client, sftpPath(step.path), step.action); code(err) != step.code {
 				t.Fatalf("%s = %v, want code %q", step.name, err, step.code)
 			}
 			if step.name == "move tree" {
@@ -320,12 +330,13 @@ func TestSftpIntegration(t *testing.T) {
 		transfers := files.NewTransfers(canonicalTemp(t))
 		t.Cleanup(func() { _ = transfers.Close() })
 		path := filepath.Join(remote, "文件 ' $(touch unexpected).bin")
-		spec := protocol.SshUploadSpec{Profile: fixture.profile.ID, ExpectedRevision: fixture.profile.Revision, Path: path, Size: uint64(len(data)), Revision: strings.ToUpper(digest(data))}
+		target := sftpPath(path)
+		spec := protocol.SshUploadSpec{Profile: fixture.profile.ID, ExpectedRevision: fixture.profile.Revision, Path: target, Size: uint64(len(data)), Revision: strings.ToUpper(digest(data))}
 		upload, err := transfers.StageSSHUpload(t.Context(), caller, spec)
 		if err != nil || upload.Spec.Revision != digest(data) {
 			t.Fatalf("stage = %+v, %v", upload, err)
 		}
-		if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, path, upload.Stream); code(err) != protocol.ErrorCodeConflict {
+		if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, target, upload.Stream); code(err) != protocol.ErrorCodeConflict {
 			t.Fatalf("finish before bytes = %v", err)
 		}
 		sendUpload(t, transfers, caller, upload.Stream, data)
@@ -338,9 +349,9 @@ func TestSftpIntegration(t *testing.T) {
 			profile protocol.SshProfile
 			path    string
 		}{
-			{"another caller", other, fixture.profile, path},
-			{"another path", caller, fixture.profile, path + ".other"},
-			{"another revision", caller, stale, path},
+			{"another caller", other, fixture.profile, target},
+			{"another path", caller, fixture.profile, target + ".other"},
+			{"another revision", caller, stale, target},
 		} {
 			if _, err = transfers.FinishSSHUpload(test.caller, client, test.profile, test.path, upload.Stream); code(err) != protocol.ErrorCodeNotFound {
 				t.Fatalf("%s = %v", test.name, err)
@@ -349,7 +360,7 @@ func TestSftpIntegration(t *testing.T) {
 		if _, err = os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("rejected finish published: %v", err)
 		}
-		size, err := transfers.FinishSSHUpload(caller, client, fixture.profile, path, upload.Stream)
+		size, err := transfers.FinishSSHUpload(caller, client, fixture.profile, target, upload.Stream)
 		published, readErr := os.ReadFile(path)
 		if err != nil || size != uint64(len(data)) || readErr != nil || !bytes.Equal(published, data) {
 			t.Fatalf("finish = %d, %v, %v", size, err, readErr)
@@ -357,7 +368,7 @@ func TestSftpIntegration(t *testing.T) {
 		if _, err = os.Lstat(filepath.Join(remote, "unexpected")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("remote path was interpreted by a shell")
 		}
-		if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, path, upload.Stream); code(err) != protocol.ErrorCodeNotFound {
+		if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, target, upload.Stream); code(err) != protocol.ErrorCodeNotFound {
 			t.Fatalf("second finish = %v", err)
 		}
 
@@ -371,7 +382,7 @@ func TestSftpIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			sendUpload(t, transfers, caller, upload.Stream, data)
-			_, err = transfers.FinishSSHUpload(caller, client, fixture.profile, path, upload.Stream)
+			_, err = transfers.FinishSSHUpload(caller, client, fixture.profile, target, upload.Stream)
 			published, _ = os.ReadFile(path)
 			if !overwrite && (code(err) != protocol.ErrorCodeConflict || string(published) != "changed") {
 				t.Fatalf("conflicting finish = %v, %d bytes", err, len(published))
@@ -379,13 +390,13 @@ func TestSftpIntegration(t *testing.T) {
 			if overwrite && (err != nil || !bytes.Equal(published, data)) {
 				t.Fatalf("overwriting finish = %v, %d bytes", err, len(published))
 			}
-			if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, path, upload.Stream); code(err) != protocol.ErrorCodeNotFound {
+			if _, err = transfers.FinishSSHUpload(caller, client, fixture.profile, target, upload.Stream); code(err) != protocol.ErrorCodeNotFound {
 				t.Fatalf("consumed stage finished again: %v", err)
 			}
 		}
 
-		download, err := transfers.DownloadSSH(t.Context(), caller, client, path)
-		if err != nil || download.Path != path || download.Size != uint64(len(data)) || download.Revision != digest(data) {
+		download, err := transfers.DownloadSSH(t.Context(), caller, client, target)
+		if err != nil || download.Path != target || download.Size != uint64(len(data)) || download.Revision != digest(data) {
 			t.Fatalf("download = %+v, %v", download, err)
 		}
 		if _, err = transfers.Open(t.Context(), other, download.Stream); err == nil {
@@ -403,7 +414,7 @@ func TestSftpIntegration(t *testing.T) {
 		if _, err = transfers.Open(t.Context(), caller, download.Stream); err == nil {
 			t.Fatal("download stream opened twice")
 		}
-		if _, err = transfers.DownloadSSH(t.Context(), caller, client, remote); code(err) != protocol.ErrorCodeInvalidRequest {
+		if _, err = transfers.DownloadSSH(t.Context(), caller, client, sftpPath(remote)); code(err) != protocol.ErrorCodeInvalidRequest {
 			t.Fatalf("directory download = %v", err)
 		}
 	})
@@ -423,7 +434,7 @@ func TestSftpIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		transfer := func(direction protocol.SshDirection, path, remotePath string) (uint64, error) {
-			return transfers.TransferSSH(t.Context(), fixture.connect(t), root, core.ManualFiles, protocol.SshTransfer{Path: path, RemotePath: remotePath, Direction: direction})
+			return transfers.TransferSSH(t.Context(), fixture.connect(t), root, core.ManualFiles, protocol.SshTransfer{Path: path, RemotePath: sftpPath(remotePath), Direction: direction})
 		}
 		uploaded := filepath.Join(remote, "uploaded.bin")
 		for _, destination := range []string{uploaded, filepath.Join(remote, "inbox") + "/"} {
@@ -495,7 +506,7 @@ func TestSftpIntegration(t *testing.T) {
 
 		inside := files.NewTransfers(root)
 		t.Cleanup(func() { _ = inside.Close() })
-		if _, err = inside.TransferSSH(t.Context(), fixture.connect(t), root, core.ManualFiles, protocol.SshTransfer{Path: "source.bin", RemotePath: uploaded, Direction: protocol.SshDirectionUpload}); code(err) != protocol.ErrorCodePermissionDenied {
+		if _, err = inside.TransferSSH(t.Context(), fixture.connect(t), root, core.ManualFiles, protocol.SshTransfer{Path: "source.bin", RemotePath: sftpPath(uploaded), Direction: protocol.SshDirectionUpload}); code(err) != protocol.ErrorCodePermissionDenied {
 			t.Fatalf("Node storage transfer = %v", err)
 		}
 
@@ -515,7 +526,7 @@ func TestSftpIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		managed := func(direction protocol.SshDirection, path, remotePath string) (uint64, error) {
-			return inside.TransferSSH(t.Context(), fixture.connect(t), workspace, core.ManualFiles, protocol.SshTransfer{Path: path, RemotePath: remotePath, Direction: direction})
+			return inside.TransferSSH(t.Context(), fixture.connect(t), workspace, core.ManualFiles, protocol.SshTransfer{Path: path, RemotePath: sftpPath(remotePath), Direction: direction})
 		}
 		sent := filepath.Join(remote, "workspace.bin")
 		if size, err := managed(protocol.SshDirectionUpload, "source.bin", sent); err != nil || size != uint64(len(data)) {

@@ -153,6 +153,12 @@ func pluginAssistantAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if root, err := node.workspaceRoot(t.Context(), session.Worktree, false); err != nil || root != expected {
+		t.Fatalf("assistant workspace preparation = %q, %v", root, err)
+	}
+	if err := core.PrivateDirectory(expected); err != nil {
+		t.Fatalf("prepared assistant workspace is not private: %v", err)
+	}
 	subscription, err := node.Subscribe(t.Context(), node.ID(), protocol.Topic{Kind: "node"})
 	if err != nil {
 		t.Fatal(err)

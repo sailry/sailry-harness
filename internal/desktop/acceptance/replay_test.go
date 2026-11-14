@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	core "github.com/sailry/sailry-harness/internal/acceptance"
 	"github.com/sailry/sailry-harness/internal/client"
+	profile "github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -75,7 +76,10 @@ func TestRecordedReplay(t *testing.T) {
 		recording := replayFixture()
 		directory := filepath.Join(t.TempDir(), "acceptance")
 		path := core.RecordingPath(directory, recording.Session)
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		if err := profile.PrivateDirectory(directory); err != nil {
+			t.Fatal(err)
+		}
+		if err := profile.PrivateDirectory(filepath.Dir(path)); err != nil {
 			t.Fatal(err)
 		}
 		original, err := json.Marshal(recording)

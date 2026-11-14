@@ -14,14 +14,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// maxSkillPages is the Rust read cache capacity: once this many catalog pages
-// are held, storing another drops the least recently used one.
+// maxSkillPages bounds catalog pages; storing another drops the least recently
+// used one.
 const maxSkillPages = 32
 
 type cachedSkillCatalog struct {
 	page protocol.PluginSkillcatalogPage
 	at   time.Time
-	used time.Time
+	used uint64
 }
 
 func officialSkillEntry(packageName string, skill protocol.PluginSkill, bundled bool, commit string) protocol.PluginSkillcatalogEntry {
@@ -75,7 +75,8 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 	manager.repositoryMu.Lock()
 	cached, exists := manager.skillPages[key]
 	if exists {
-		cached.used = time.Now()
+		manager.skillPageUse++
+		cached.used = manager.skillPageUse
 		manager.skillPages[key] = cached
 	}
 	manager.repositoryMu.Unlock()
@@ -283,13 +284,15 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 		if _, held := manager.skillPages[key]; !held && len(manager.skillPages) >= maxSkillPages {
 			oldest := ""
 			for candidate, value := range manager.skillPages {
-				if oldest == "" || value.used.Before(manager.skillPages[oldest].used) {
+				if oldest == "" || value.used < manager.skillPages[oldest].used {
 					oldest = candidate
 				}
 			}
 			delete(manager.skillPages, oldest)
 		}
-		manager.skillPages[key] = cachedSkillCatalog{page: result, at: now, used: now}
+		// Access order must not depend on the clock's timestamp resolution.
+		manager.skillPageUse++
+		manager.skillPages[key] = cachedSkillCatalog{page: result, at: now, used: manager.skillPageUse}
 		manager.repositoryMu.Unlock()
 	}
 	return result, nil

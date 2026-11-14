@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sailry/sailry-harness/internal/core"
 )
 
 func TestLogPrivacyFilter(t *testing.T) {
@@ -46,18 +48,44 @@ func TestLogPrivacyFilter(t *testing.T) {
 			}
 		}
 	})
-	t.Run("file", func(t *testing.T) {
-		profile, err := filepath.EvalSymlinks(t.TempDir())
+	t.Run("first install creates private storage", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {
 			t.Fatal(err)
 		}
+		profile := filepath.Join(root, "profile")
+		closeLog, err := Install(profile, "host")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer closeLog()
+		for _, path := range []string{profile, filepath.Join(profile, "logs"), filepath.Join(profile, "logs", "host")} {
+			if err := core.PrivateDirectory(path); err != nil {
+				t.Fatalf("created logging directory is not private: %v", err)
+			}
+		}
+		Emit(slog.LevelInfo, slog.String("area", "startup"))
+		path, err := CurrentFile()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertLogPrivacy(t, path)
+	})
+	t.Run("file", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile := filepath.Join(root, "profile")
 		Emit(slog.LevelError, slog.String("area", "before")) // nothing is installed
 		if _, err := Install(profile, "other"); err == nil {
 			t.Fatal("an unknown application was installed")
 		}
 		directory := filepath.Join(profile, "logs", "desktop")
-		if err := os.MkdirAll(directory, 0o700); err != nil {
-			t.Fatal(err)
+		for _, path := range []string{profile, filepath.Join(profile, "logs"), directory} {
+			if err := core.PrivateDirectory(path); err != nil {
+				t.Fatal(err)
+			}
 		}
 		for _, name := range []string{"2026-11-09.log", "2026-11-10.log", "notes.log"} {
 			if err := os.WriteFile(filepath.Join(directory, name), []byte("earlier\n"), 0o600); err != nil {
@@ -144,9 +172,7 @@ func TestLogPrivacyFilter(t *testing.T) {
 		if strings.Contains(string(data), "SECRET") || strings.Contains(string(data), "foreign") {
 			t.Fatalf("the file kept a payload or another library's record: %s", data)
 		}
-		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
-			t.Fatalf("file mode = %v, %v", info.Mode(), err)
-		}
+		assertLogPrivacy(t, path)
 		if !reflect.DeepEqual(levels, []slog.Level{slog.LevelWarn, slog.LevelError}) || reported[1]["package"] != "someone.package" {
 			t.Fatalf("reported %v %v", levels, reported)
 		}

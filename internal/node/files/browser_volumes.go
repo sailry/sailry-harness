@@ -2,6 +2,7 @@ package files
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -77,32 +78,32 @@ func volumes(goos string, mounts []disk.PartitionStat, account, startup string, 
 		}
 	}
 	for _, mount := range mounts {
-		path := mount.Mountpoint
+		mountpoint := mount.Mountpoint
 		switch goos {
 		case "windows":
-			if len(path) != 2 || path[1] != ':' {
+			if len(mountpoint) != 2 || mountpoint[1] != ':' {
 				continue
 			}
-			root := path + `\`
+			root := mountpoint + `\`
 			label, kind := detail(root)
-			name := path
+			name := mountpoint
 			if label != "" {
-				name = label + " (" + path + ")"
+				name = label + " (" + mountpoint + ")"
 			}
 			add(protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindVolume, Name: name, Path: root, Medium: kind})
 		case "darwin":
-			name := filepath.Base(path)
-			if filepath.Dir(path) != "/Volumes" || strings.HasPrefix(name, ".") {
+			name := path.Base(mountpoint)
+			if path.Dir(mountpoint) != "/Volumes" || strings.HasPrefix(name, ".") {
 				continue
 			}
-			location := protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindVolume, Name: name, Path: path}
+			location := protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindVolume, Name: name, Path: mountpoint}
 			if !slices.Contains(mount.Opts, "local") {
 				location.Medium = medium(protocol.FileBrowserMediumNetwork)
 			}
 			add(location)
 		case "linux":
-			parent, name := filepath.Dir(path), filepath.Base(path)
-			location := protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindVolume, Name: name, Path: path}
+			parent, name := path.Dir(mountpoint), path.Base(mountpoint)
+			location := protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindVolume, Name: name, Path: mountpoint}
 			switch {
 			case strings.HasPrefix(name, "."):
 				continue
@@ -125,11 +126,12 @@ func startupName(directory string) string {
 	if err != nil {
 		return ""
 	}
+	root := filepath.VolumeName(directory) + string(filepath.Separator)
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink == 0 {
 			continue
 		}
-		if target, err := os.Readlink(filepath.Join(directory, entry.Name())); err == nil && target == "/" {
+		if target, err := os.Readlink(filepath.Join(directory, entry.Name())); err == nil && filepath.Clean(target) == root {
 			return entry.Name()
 		}
 	}

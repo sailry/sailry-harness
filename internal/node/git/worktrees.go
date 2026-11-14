@@ -70,6 +70,7 @@ func ParseWorktrees(data []byte, kind protocol.RepositoryKind, truncated bool) (
 				current = nil
 				continue
 			}
+			path = filepath.Clean(path)
 			current = &protocol.GitWorktree{Path: path, Main: len(result.Entries) == 0}
 			info, err := os.Stat(path)
 			current.Available = err == nil && info.IsDir()

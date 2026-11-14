@@ -89,13 +89,26 @@ func TestProjectRemovalClosesResources(t *testing.T) {
 	})
 	t.Run("background_commands_of_the_project_stop", func(t *testing.T) {
 		node := nodeFixture(t)
+		if err := node.processes.Close(); err != nil {
+			t.Fatal(err)
+		}
+		// Resource ownership needs live commands, not native shell programs or
+		// fabricated agent turns passed to the durable completion callback.
+		service, err := process.New(process.Options{Profile: node.profile.Ownership.Path, Run: func(ctx context.Context, _ process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+			<-ctx.Done()
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		node.processes = service
 		project, _ := projectFixture(t, node)
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model, config.Mode, config.Permission = protocol.NewProviderID(), "fixture", protocol.WorkModeCode, protocol.PermissionProject
 		inside := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 		outside := sessionFixture(t, node)
 		for _, session := range []protocol.SessionID{inside.ID, outside.ID} {
-			if _, err := node.processes.Start(process.Launch{ID: protocol.NewRequestID(), Session: session, Turn: protocol.NewTurnID(), Root: project.Path, Command: "sleep 60", Access: protocol.ProcessAccessUnrestricted, TimeoutMs: 60_000}); err != nil {
+			if _, err := node.processes.Start(process.Launch{ID: protocol.NewRequestID(), Session: session, Turn: protocol.NewTurnID(), Root: project.Path, Command: "fixture", Access: protocol.ProcessAccessUnrestricted, TimeoutMs: 60_000}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -106,6 +119,10 @@ func TestProjectRemovalClosesResources(t *testing.T) {
 		for {
 			items := node.processes.List(inside.ID)
 			if len(items) == 1 && items[0].Status.Kind != "running" && items[0].Status.Kind != "stopping" {
+				outcome, ok := items[0].Status.Data.(protocol.ProcessOutcome)
+				if items[0].Status.Kind != "finished" || !ok || outcome.Kind != "cancelled" {
+					t.Fatalf("project command did not finish by cancellation: %#v", items)
+				}
 				break
 			}
 			if time.Now().After(deadline) {

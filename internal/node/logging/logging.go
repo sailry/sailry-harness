@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -63,8 +64,12 @@ func Install(profile, application string) (func(), error) {
 		return nil, ErrUnavailable
 	}
 	directory := filepath.Join(profile, "logs", application)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, ErrUnavailable
+	// Logging precedes Node startup, so it must create the profile with the
+	// same privacy as the Node instead of leaving an inherited Windows DACL.
+	for _, path := range []string{profile, filepath.Join(profile, "logs"), directory} {
+		if err := core.PrivateDirectory(path); err != nil {
+			return nil, ErrUnavailable
+		}
 	}
 	// The Node names its profile by the resolved path.
 	directory, err := filepath.EvalSymlinks(directory)

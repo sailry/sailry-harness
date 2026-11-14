@@ -329,8 +329,8 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 			}
 		})
 		t.Run("Host process signal keeps the listed identity", func(t *testing.T) {
-			signal := func(pid uint32, started uint64, scope *protocol.PluginContext) *protocol.Fault {
-				request := protocol.NewRequest(reopened.ID(), protocol.Command{Kind: "stop_host_process", Data: protocol.CommandStopHostProcessPayload{Pid: pid, StartedAtSecs: started}})
+			signal := func(pid uint32, started uint64, force bool, scope *protocol.PluginContext) *protocol.Fault {
+				request := protocol.NewRequest(reopened.ID(), protocol.Command{Kind: "stop_host_process", Data: protocol.CommandStopHostProcessPayload{Pid: pid, StartedAtSecs: started, Force: force}})
 				request.Plugin = scope
 				accepted, err := reopened.Dispatch(t.Context(), reopened.ID(), request)
 				if err != nil {
@@ -349,16 +349,22 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 				"execution Node": {uint32(os.Getpid()), protocol.ErrorCodePermissionDenied},
 				"reused ID":      {uint32(os.Getppid()), protocol.ErrorCodeConflict},
 			} {
-				if fault := signal(row.pid, 0, nil); fault == nil || fault.Code != row.code {
+				if fault := signal(row.pid, 0, runtime.GOOS == "windows", nil); fault == nil || fault.Code != row.code {
 					t.Fatalf("%s: %v", name, fault)
 				}
 			}
-			if fault := signal(uint32(os.Getppid()), 0, &scope); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied {
+			if fault := signal(uint32(os.Getppid()), 0, runtime.GOOS == "windows", &scope); fault == nil || fault.Code != protocol.ErrorCodePermissionDenied {
 				t.Fatalf("plugin action signalled a Host process: %v", fault)
 			}
+			if runtime.GOOS == "windows" {
+				if fault := signal(uint32(os.Getppid()), 0, false, nil); fault == nil || fault.Code != protocol.ErrorCodeUnavailable || fault.Message != "process signal is unsupported on this host" {
+					t.Fatalf("unsupported graceful termination: %v", fault)
+				}
+				return
+			}
 			sleep, err := exec.LookPath("sleep")
-			if err != nil || runtime.GOOS == "windows" {
-				return // Windows has no termination request.
+			if err != nil {
+				return
 			}
 			child := exec.Command(sleep, "60")
 			if err := child.Start(); err != nil {
@@ -373,10 +379,10 @@ export async function readonlyWrite(){return completeRequest(setValue("value",0,
 			if err != nil {
 				t.Fatal(err)
 			}
-			if fault := signal(uint32(child.Process.Pid), uint64(created/1000)+1, nil); fault == nil || fault.Code != protocol.ErrorCodeConflict {
+			if fault := signal(uint32(child.Process.Pid), uint64(created/1000)+1, false, nil); fault == nil || fault.Code != protocol.ErrorCodeConflict {
 				t.Fatalf("another start time signalled the process: %v", fault)
 			}
-			if fault := signal(uint32(child.Process.Pid), uint64(created/1000), nil); fault != nil {
+			if fault := signal(uint32(child.Process.Pid), uint64(created/1000), false, nil); fault != nil {
 				t.Fatal(fault)
 			}
 			var exit *exec.ExitError

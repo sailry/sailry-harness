@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -267,11 +268,19 @@ func fixtureArchive(target, version string) []byte {
 			panic(err)
 		}
 	}
-	link := &zip.FileHeader{Name: "Sailry.app/Contents/Resources/current.json", Modified: modified}
-	link.SetMode(0o777 | os.ModeSymlink)
-	entry, err := writer.CreateHeader(link)
+	resource := &zip.FileHeader{Name: "Sailry.app/Contents/Resources/current.json", Modified: modified}
+	content := []byte("build.json")
+	if runtime.GOOS == "windows" {
+		// Windows does not extract Unix symbolic links. The portable fixture
+		// keeps the same metadata in a regular resource instead.
+		resource.SetMode(0o644)
+		content = files["Contents/Resources/build.json"]
+	} else {
+		resource.SetMode(0o777 | os.ModeSymlink)
+	}
+	entry, err := writer.CreateHeader(resource)
 	if err == nil {
-		_, err = entry.Write([]byte("build.json"))
+		_, err = entry.Write(content)
 	}
 	if err == nil {
 		err = writer.Close()

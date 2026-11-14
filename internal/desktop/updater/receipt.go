@@ -36,7 +36,14 @@ func readReceipt(directory, installed, running string) (string, error) {
 	if err != nil {
 		return "", ioFailure(err)
 	}
-	defer file.Close()
+	data, readErr := io.ReadAll(io.LimitReader(file, 64*1024+1))
+	closeErr := file.Close()
+	if readErr != nil {
+		return "", ioFailure(readErr)
+	}
+	if closeErr != nil {
+		return "", ioFailure(closeErr)
+	}
 	receipts := filepath.Join(directory, "receipts")
 	if err := os.MkdirAll(receipts, 0o700); err != nil {
 		return "", ioFailure(err)
@@ -48,10 +55,6 @@ func readReceipt(directory, installed, running string) (string, error) {
 	archived.Close()
 	if err := os.Rename(path, archived.Name()); err != nil {
 		_ = os.Remove(archived.Name())
-		return "", ioFailure(err)
-	}
-	data, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
-	if err != nil {
 		return "", ioFailure(err)
 	}
 	if len(data) > 64*1024 {

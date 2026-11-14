@@ -51,6 +51,41 @@ func TestWindowsProfileSecurity(t *testing.T) {
 		}
 		defer reopened.Close()
 	})
+	t.Run("reject an existing administrator owner", func(t *testing.T) {
+		if !windows.GetCurrentProcessToken().IsElevated() {
+			t.Skip("an elevated token is required to create an administrator-owned fixture")
+		}
+		user, err := windows.GetCurrentProcessToken().GetTokenUser()
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "profile")
+		createWindowsProfileFixture(t, path, "O:BAD:P(A;OICI;FA;;;"+user.User.Sid.String()+")")
+		before := windowsProfileDescriptor(t, path)
+		marker := filepath.Join(path, "existing.bin")
+		const contents = "preserved administrator-owned profile"
+		if err := os.WriteFile(marker, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		profile, err := AcquireProfile(path)
+		if err == nil {
+			_ = profile.Close()
+			t.Fatal("an existing administrator-owned profile was accepted")
+		}
+		var invalid *InvalidProfileError
+		if !errors.As(err, &invalid) || invalid.Path != path || invalid.Reason != "profile storage must belong to the current user" {
+			t.Fatalf("owner refusal did not identify the existing directory: %v", err)
+		}
+		if after := windowsProfileDescriptor(t, path); after != before {
+			t.Fatal("refusal changed existing ownership or access")
+		}
+		if data, err := os.ReadFile(marker); err != nil || string(data) != contents {
+			t.Fatalf("refusal changed the existing data: %v", err)
+		}
+		if _, err := os.Lstat(filepath.Join(path, "node.lock")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owner refusal created a lock: %v", err)
+		}
+	})
 	for _, target := range []string{"directory", "identity", "lock", "database", "node.sqlite-wal", "node.sqlite-shm", "node.sqlite-journal"} {
 		t.Run("reject shared "+target, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "profile")

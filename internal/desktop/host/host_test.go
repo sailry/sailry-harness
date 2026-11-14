@@ -586,7 +586,8 @@ func TestPage(t *testing.T) {
 		// The application's table look (kit.TableFrame, kit.TableCell), as a
 		// package's tables: rows exactly 36 apart under a filled header, a
 		// line between them, and plain cells.
-		title, headed := tt.Find(en("host_process_name"))
+		header, headed := tt.AccessByRole(ui.RoleColumnHeader, en("host_process_name"))
+		title := header.Bounds
 		first, shown := tt.Find("sailry-node")
 		second, also := tt.Find("launchd")
 		if !headed || !shown || !also {
@@ -603,7 +604,7 @@ func TestPage(t *testing.T) {
 		middle := first.Y + first.H/2
 		ground := at(middle)
 		if at(title.Y+title.H/2) == ground {
-			t.Errorf("the header is not filled: %v", ground)
+			t.Errorf("the header is not filled: %v; title %v, first %v, second %v, image %v", ground, title, first, second, tt.Image().Bounds())
 		}
 		separated := false
 		for y := middle + 12; y <= middle+24; y++ {
@@ -632,9 +633,12 @@ func TestPage(t *testing.T) {
 			}
 			return r.X + r.W
 		}
-		pid, _ := tt.Find(en("host_pid"))
-		if a, b := edge(Percent(3), first), edge(Percent(1), second); a != b || a <= first.X+first.W || a >= pid.X {
-			t.Errorf("the loads end at %v and %v, want one edge before the PID's column at %v", a, b, pid.X)
+		pid, headed := tt.AccessByRole(ui.RoleColumnHeader, en("host_pid"))
+		if !headed {
+			t.Fatalf("the process table has no PID column: %q", tt.Texts())
+		}
+		if a, b := edge(Percent(3), first), edge(Percent(1), second); a != b || a <= first.X+first.W || a >= pid.Bounds.X {
+			t.Errorf("the loads end at %v and %v, want one edge before the PID's column at %v", a, b, pid.Bounds.X)
 		}
 	})
 	t.Run("process menu", func(t *testing.T) {

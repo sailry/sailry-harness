@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/filemode"
 	idxfmt "github.com/go-git/go-git/v5/plumbing/format/index"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -61,36 +60,6 @@ func dropIndexEntries(idx *idxfmt.Index, path string, adding bool) {
 		kept = append(kept, entry)
 	}
 	idx.Entries = kept
-}
-func setIndexContent(r *gogit.Repository, idx *idxfmt.Index, path string, value content) error {
-	if !value.exists {
-		dropIndexEntries(idx, path, false)
-		return nil
-	}
-	obj := r.Storer.NewEncodedObject()
-	obj.SetType(plumbing.BlobObject)
-	obj.SetSize(int64(len(value.data)))
-	writer, err := obj.Writer()
-	if err != nil {
-		return mapError(err)
-	}
-	if _, err = writer.Write(value.data); err != nil {
-		writer.Close()
-		return mapError(err)
-	}
-	if err = writer.Close(); err != nil {
-		return mapError(err)
-	}
-	hash, err := r.Storer.SetEncodedObject(obj)
-	if err != nil {
-		return mapError(err)
-	}
-	if err := syncBlob(r, hash); err != nil {
-		return err
-	}
-	dropIndexEntries(idx, path, true)
-	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash, Mode: value.mode, Size: uint32(len(value.data))})
-	return nil
 }
 func (s *Service) publishIndex(ctx context.Context, root, expected string, expectedHead *string, mutate func(*gogit.Repository, *idxfmt.Index, *object.Tree) error, verify func() error) (protocol.GitIndex, error) {
 	limited, cancel := context.WithTimeout(ctx, readTimeout)

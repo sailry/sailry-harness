@@ -31,10 +31,10 @@ func snapshotDatabase(path, parent string) (_ *schemaPreview, failure error) {
 			_ = os.RemoveAll(directory)
 		}
 	}()
+	// MkdirTemp reserves only the cleanup container. Database files live in the
+	// child with explicit private permissions, including a protected Windows
+	// DACL; the container may keep the parent's inherited permissions.
 	storage := filepath.Join(directory, "storage")
-	if err := core.PrivateDirectory(directory); err != nil {
-		return nil, err
-	}
 	if err := core.PrivateDirectory(storage); err != nil {
 		return nil, err
 	}

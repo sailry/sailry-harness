@@ -38,6 +38,7 @@ type Manager struct {
 	repositoryMu       sync.Mutex
 	repositories       map[string][]packageEntry
 	skillPages         map[string]cachedSkillCatalog
+	skillPageUse       uint64
 }
 
 type packageEntry struct {

@@ -17,10 +17,34 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func databaseDirectory(t *testing.T) string {
+	t.Helper()
+	directory := filepath.Join(t.TempDir(), "storage")
+	if err := core.PrivateDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func assertPrivateDatabase(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("database is not a regular file: %v, %v", info, err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := validateDatabasePrivacy(path); err != nil {
+			t.Fatalf("database storage is not private: %v", err)
+		}
+	} else if info.Mode().Perm() != 0o600 {
+		t.Fatalf("database mode: %v", info)
+	}
+}
+
 func driverFixture(t *testing.T) (*Handle, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	handle, err := OpenHandle(ctx, filepath.Join(t.TempDir(), "node.sqlite"))
+	handle, err := OpenHandle(ctx, filepath.Join(databaseDirectory(t), "node.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +349,7 @@ func TestPauseBlocksLeases(t *testing.T) {
 func TestOpenRejectsLinks(t *testing.T) {
 	t.Parallel()
 	t.Run("existing journal mode stays unchanged", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "other.sqlite")
+		path := filepath.Join(databaseDirectory(t), "other.sqlite")
 		database, err := sql.Open("sqlite", path)
 		if err != nil {
 			t.Fatal(err)
@@ -356,7 +380,7 @@ func TestOpenRejectsLinks(t *testing.T) {
 		for _, kind := range []string{"symlink", "hardlink", "directory"} {
 			t.Run(kind+name, func(t *testing.T) {
 				t.Parallel()
-				path := filepath.Join(t.TempDir(), "node.sqlite")
+				path := filepath.Join(databaseDirectory(t), "node.sqlite")
 				target := filepath.Join(t.TempDir(), "target")
 				if err := os.WriteFile(target, []byte("fixture"), 0o600); err != nil {
 					t.Fatal(err)

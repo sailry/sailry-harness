@@ -412,6 +412,10 @@ func TestUpdateBackupBeforeApply(t *testing.T) {
 			if len(backups) != 1 {
 				t.Fatalf("private backups: %v", backups)
 			}
+			if err := core.PrivateDirectory(filepath.Dir(backups[0])); err != nil {
+				t.Fatalf("backup directory is not private: %v", err)
+			}
+			assertPrivateDatabase(t, backups[0])
 			if got := readOnlySchemaInteger(t, backups[0], "SELECT count(*) FROM sqlite_schema WHERE name='session_association_identity'"); got != 0 {
 				t.Fatal("backup was captured after the update")
 			}

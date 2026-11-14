@@ -88,7 +88,16 @@ func TestUpdaterLocalFeed(t *testing.T) {
 		if version := packaged(t, installed); version != "1.1.0" {
 			t.Fatalf("installed version = %s", version)
 		}
-		if runtime.GOOS != "windows" {
+		if runtime.GOOS == "windows" {
+			metadata, err := os.ReadFile(filepath.Join(installed, "Contents", "Resources", "build.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := os.ReadFile(filepath.Join(installed, "Contents", "Resources", "current.json"))
+			if err != nil || string(current) != string(metadata) {
+				t.Fatalf("metadata resource = %q %v", current, err)
+			}
+		} else {
 			if target, err := os.Readlink(filepath.Join(installed, "Contents", "Resources", "current.json")); err != nil || target != "build.json" {
 				t.Fatalf("symbolic link = %q %v", target, err)
 			}

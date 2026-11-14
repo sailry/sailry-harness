@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/Bios-Marcel/wastebasket/v2"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -172,6 +174,10 @@ func restoreTrashFixture(t *testing.T, original, destination string) {
 		t.Error("native Trash did not return the fixture's recovery location")
 		return
 	}
+	if runtime.GOOS == "windows" {
+		restoreWindowsTrashFixture(t, original)
+		return
+	}
 	result, err := wastebasket.Query(wastebasket.QueryOptions{Search: []string{original}})
 	if err != nil {
 		t.Errorf("query fixture in Trash: %v", err)
@@ -184,6 +190,58 @@ func restoreTrashFixture(t *testing.T, original, destination string) {
 	}
 	if err := matches[0].Restore(false); err != nil {
 		t.Errorf("restore fixture from Trash: %v", err)
+	}
+}
+
+func restoreWindowsTrashFixture(t *testing.T, original string) {
+	t.Helper()
+	// wastebasket.Query follows the recycled entry with os.Stat, hiding broken
+	// links. The Shell restores the exact fixture without dereferencing it.
+	const script = `param([string]$original)
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$shell = New-Object -ComObject Shell.Application
+$bin = $shell.NameSpace(10)
+if ($null -eq $bin) { throw 'The Shell Recycle Bin is unavailable' }
+$parent = [System.IO.Path]::GetDirectoryName($original)
+$name = [System.IO.Path]::GetFileName($original)
+$matches = @(foreach ($item in $bin.Items()) {
+    $from = [string]$item.ExtendedProperty('System.Recycle.DeletedFrom')
+    $leaf = [string]$item.ExtendedProperty('System.FileName')
+    if ([string]::Equals($from, $parent, [System.StringComparison]::OrdinalIgnoreCase) -and [string]::Equals($leaf, $name, [System.StringComparison]::OrdinalIgnoreCase)) { $item }
+})
+if ($matches.Count -ne 1) { throw ('Fixture has ' + $matches.Count + ' recovery matches, want one') }
+$matches[0].InvokeVerb('undelete')
+`
+	path := filepath.Join(t.TempDir(), "restore.ps1")
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Errorf("prepare fixture restore: %v", err)
+		return
+	}
+	// Shell verbs can finish asynchronously. This bounds the one invocation
+	// and observes its result; cleanup also runs after t.Context is cancelled.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path, original).CombinedOutput()
+	if err != nil {
+		t.Errorf("restore fixture from the Shell Recycle Bin: %v: %s", err, output)
+		return
+	}
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if _, err := os.Lstat(original); err == nil {
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("inspect restored fixture: %v", err)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Errorf("the Shell did not restore the fixture: %v", ctx.Err())
+			return
+		case <-tick.C:
+		}
 	}
 }
 

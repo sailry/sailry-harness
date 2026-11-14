@@ -984,6 +984,7 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 			}
 			var context *ui.Context
+			var toastDuration time.Duration
 			var frame func(*ui.Context)
 			var fixedStatus *pluginStatusFeed
 			if row.name == "replace_references" {
@@ -1004,6 +1005,7 @@ func TestComposerSendRouting(t *testing.T) {
 				if !hold {
 					r.drain(c)
 				}
+				toastDuration = kit.ToastDuration(c)
 				if frame != nil {
 					frame(c)
 				}
@@ -1037,6 +1039,7 @@ func TestComposerSendRouting(t *testing.T) {
 			view := func(c *ui.Context) {
 				_, act := r.conversation(c, cv, comp)
 				ui.Column(c).Fill().Children(func() { conversation.View(c, r.App.Messages, id, cv.Turns, &cv.Session, act) })
+				kit.ToastHost(c)
 				r.finishFrame()
 			}
 			settle := func() {
@@ -1329,7 +1332,12 @@ func TestComposerSendRouting(t *testing.T) {
 					transport.mu.Lock()
 					transport.failure = ""
 					transport.mu.Unlock()
-					tester.Click("Cancel")
+					// Let this outcome's toast leave before the next interaction.
+					tester.Move(0, 0)
+					tester.Advance(toastDuration + time.Second)
+					if err := tester.Click("Cancel"); err != nil {
+						t.Fatal(err)
+					}
 					tester.Frame()
 					tester.Frame()
 				}

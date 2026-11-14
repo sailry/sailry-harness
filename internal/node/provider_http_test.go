@@ -1,19 +1,34 @@
 package node
 
 import (
+	"context"
 	"errors"
 	"net/http"
-	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+type providerWaitingContext struct {
+	context.Context
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func (ctx *providerWaitingContext) Done() <-chan struct{} {
+	ctx.once.Do(func() { close(ctx.waiting) })
+	return ctx.Context.Done()
+}
+
 func TestProviderResourceWaiterFetchesAfterAnotherCallersFailure(t *testing.T) {
 	node := &Node{auth: &authControls{resources: map[[32]byte]*providerDocument{}}}
 	key := [32]byte{1}
 	started, release, first := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
 	go func() {
 		_, err := node.providerResourceCached(t.Context(), key, time.Minute, func() (protocol.PluginHttpResponse, error) {
 			close(started)
@@ -23,28 +38,25 @@ func TestProviderResourceWaiterFetchesAfterAnotherCallersFailure(t *testing.T) {
 		first <- err
 	}()
 	<-started
-	node.auth.mu.Lock()
-	document := node.auth.resources[key]
-	used := document.used
-	node.auth.mu.Unlock()
 	type outcome struct {
 		response protocol.PluginHttpResponse
 		err      error
 	}
 	second := make(chan outcome, 1)
+	ctx := &providerWaitingContext{Context: t.Context(), waiting: make(chan struct{})}
 	go func() {
-		response, err := node.providerResourceCached(t.Context(), key, time.Minute, func() (protocol.PluginHttpResponse, error) {
+		response, err := node.providerResourceCached(ctx, key, time.Minute, func() (protocol.PluginHttpResponse, error) {
 			return protocol.PluginHttpResponse{Status: http.StatusOK}, nil
 		})
 		second <- outcome{response, err}
 	}()
-	// The second caller marks the document used on its way to waiting.
-	for waiting := false; !waiting; runtime.Gosched() {
-		node.auth.mu.Lock()
-		waiting = document.used != used
-		node.auth.mu.Unlock()
+	// Observe the wait itself; successive time.Now calls can be equal.
+	select {
+	case <-ctx.waiting:
+	case got := <-second:
+		t.Fatalf("second caller returned before waiting: %+v, %v", got.response, got.err)
 	}
-	close(release)
+	unblock()
 	if err := <-first; err == nil {
 		t.Fatal("first caller lost its own failure")
 	}

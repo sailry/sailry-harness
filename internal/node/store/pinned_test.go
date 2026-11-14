@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/sailry/sailry-harness/internal/core"
 )
 
 func TestPinnedCopy(t *testing.T) {
@@ -31,7 +33,7 @@ func TestPinnedCopy(t *testing.T) {
 			return nil
 		})
 	}
-	directory := t.TempDir()
+	directory := databaseDirectory(t)
 	handle, err := OpenHandle(ctx, filepath.Join(directory, "node.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +78,7 @@ func TestPinnedCopy(t *testing.T) {
 	})
 
 	target := filepath.Join(directory, "copy", "node.sqlite")
-	if err := os.Mkdir(filepath.Dir(target), 0o700); err != nil {
+	if err := core.PrivateDirectory(filepath.Dir(target)); err != nil {
 		t.Fatal(err)
 	}
 	t.Run("the copy is the pinned state", func(t *testing.T) {
@@ -91,9 +93,7 @@ func TestPinnedCopy(t *testing.T) {
 		if err != nil || len(entries) != 1 {
 			t.Fatalf("the copy is not one complete file: %v, %v", entries, err)
 		}
-		if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o600 {
-			t.Fatalf("copy mode: %v, %v", info, err)
-		}
+		assertPrivateDatabase(t, target)
 		// It opens as any Node database does, which requires WAL mode.
 		copied, err := OpenHandle(ctx, target)
 		if err != nil {

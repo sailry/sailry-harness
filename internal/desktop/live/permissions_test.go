@@ -3,6 +3,7 @@ package live
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -262,7 +263,8 @@ func TestPermissionsMapping(t *testing.T) {
 		}
 	})
 	t.Run("bundle", func(t *testing.T) {
-		if bundle := permissionBundle("/Applications/Sailry.app/Contents/MacOS/sailry-desktop"); bundle != "/Applications/Sailry.app" {
+		want := filepath.FromSlash("/Applications/Sailry.app")
+		if bundle := permissionBundle(filepath.Join(want, "Contents", "MacOS", "sailry-desktop")); bundle != want {
 			t.Fatal(bundle)
 		}
 		if bundle := permissionBundle("/work/bin/sailry-desktop"); bundle != "" {

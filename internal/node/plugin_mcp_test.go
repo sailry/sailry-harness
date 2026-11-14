@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -155,6 +156,11 @@ export function format(input) { return {captured:input.output}; }
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			if err := launch.Release(); err != nil {
+				t.Error(err)
+			}
+		})
 		projection := launch.Launch.Env["SAILRY_PLUGIN_SETTINGS_FILE"]
 		body, err := os.ReadFile(projection)
 		if err != nil || string(body) != `{"label":"Public"}` {
@@ -162,8 +168,27 @@ export function format(input) { return {captured:input.output}; }
 		}
 		owned := filepath.Dir(projection)
 		retained := owned + "-retained"
-		if err := os.Rename(owned, retained); err != nil {
-			t.Fatal(err)
+		renameErr := os.Rename(owned, retained)
+		if runtime.GOOS == "windows" {
+			// OpenRoot pins a Windows directory against renaming. Releasing
+			// the launch must remove its projection and release that pin.
+			if renameErr == nil {
+				t.Fatal("the active launch did not pin its data directory")
+			}
+			if body, err := os.ReadFile(projection); err != nil || string(body) != `{"label":"Public"}` {
+				t.Fatalf("active projection changed: %q, %v", body, err)
+			}
+			if err := launch.Release(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(projection); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("released projection remained: %v", err)
+			}
+			if err := os.Rename(owned, retained); err != nil {
+				t.Fatalf("released launch retained its directory handle: %v", err)
+			}
+		} else if renameErr != nil {
+			t.Fatal(renameErr)
 		}
 		if err := os.Mkdir(owned, 0o700); err != nil {
 			t.Fatal(err)

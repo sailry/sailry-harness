@@ -68,33 +68,44 @@ func LevelTop(c *ui.Context, e ui.Element, size, height float32) ui.Element {
 // span's own font and size (a mono detail a DIP smaller). The line is not
 // the span's: spanLine.
 func LevelSpan(c *ui.Context, e ui.Element, span ui.Span, size float32) ui.Element {
-	ascent, descent := spanLine(c, span)
+	ascent, descent := spanLine(c, e, span)
 	return levelled(e, size, ascent, descent)
 }
 
 // LevelSpanTop is LevelTop for a ui.RichText of span (LevelSpan).
 func LevelSpanTop(c *ui.Context, e ui.Element, span ui.Span, size, height float32) ui.Element {
-	ascent, descent := spanLine(c, span)
+	ascent, descent := spanLine(c, e, span)
 	return levelledTop(e, size, height, ascent, descent)
+}
+
+type spanLineKey struct{}
+
+type spanMetrics struct {
+	font            ui.Font
+	span            ui.Span
+	locale          string
+	ascent, descent float32
 }
 
 // spanLine is the ascent and the descent of the line of a ui.RichText of
 // span. MyGo starts a RichText's line from the theme's font at the theme's
 // size, its strut, and grows it to what a span needs: a span smaller than
-// the theme's size stands on the theme's line, and a larger one, or one of
-// a taller font, on its own. The element must take the theme's font size,
-// as it does where no ancestor sets another.
-func spanLine(c *ui.Context, span ui.Span) (ascent, descent float32) {
+// the theme's size stands on the theme's line. The shaped line also includes
+// fallback fonts, which Font.Metrics cannot see (for example Segoe UI's CJK
+// fallback). Keep its geometry on the element so repeated frames do not shape
+// the same text again. The element must take the theme's font size, as it does
+// where no ancestor sets another.
+func spanLine(c *ui.Context, e ui.Element, span ui.Span) (ascent, descent float32) {
 	t := c.Theme()
-	family, size := span.Font, span.Size
-	if family == "" {
-		family = t.Font
+	font := ui.Font{Family: t.Font, Size: t.FontSize}
+	locale := c.Locale()
+	m := ui.Local(e, spanLineKey{}, func() spanMetrics { return spanMetrics{} })
+	if m.font != font || m.span != span || m.locale != locale {
+		line := ui.ShapeRichText([]ui.Span{span}, font, 0).Lines()[0]
+		m.font, m.span, m.locale = font, span, locale
+		m.ascent, m.descent = line.Baseline, line.Rect.H-line.Baseline
 	}
-	if size == 0 {
-		size = t.FontSize
-	}
-	strut, own := metricsOf(t.Font, t.FontSize), metricsOf(family, size)
-	return max(strut.Ascent, own.Ascent), max(strut.Descent, own.Descent)
+	return m.ascent, m.descent
 }
 
 // levelled moves e, whose line has that ascent and descent, for the

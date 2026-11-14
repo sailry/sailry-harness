@@ -580,8 +580,9 @@ func TestKnowledgeStorage(t *testing.T) {
 			}
 			return ids
 		}
-		// gone waits until the collection and its derived index are removed.
-		gone := func(names ...string) {
+		// Capture the collection identities before removing their owner, then
+		// wait until both the collections and their derived index are removed.
+		removal := func(names ...string) func() {
 			t.Helper()
 			var ids []string
 			for _, name := range names {
@@ -591,15 +592,18 @@ func TestKnowledgeStorage(t *testing.T) {
 				}
 				ids = append(ids, current.ID.String())
 			}
-			eventually(strings.Join(names, ", ")+" removal", func() bool {
-				for _, name := range names {
-					if collection(name) != nil {
-						return false
+			return func() {
+				t.Helper()
+				eventually(strings.Join(names, ", ")+" removal", func() bool {
+					for _, name := range names {
+						if collection(name) != nil {
+							return false
+						}
 					}
-				}
-				left := indexed()
-				return !slices.ContainsFunc(ids, func(id string) bool { return slices.Contains(left, id) })
-			})
+					left := indexed()
+					return !slices.ContainsFunc(ids, func(id string) bool { return slices.Contains(left, id) })
+				})
+			}
 		}
 
 		revision := func() uint64 {
@@ -616,18 +620,21 @@ func TestKnowledgeStorage(t *testing.T) {
 
 		// A disabled package still owns its collections: the pass that
 		// removes the conversation's collection keeps the others.
+		conversationRemoved := removal("Conversation notes")
 		must("", "set_plugin_enabled", &protocol.CommandSetPluginEnabledPayload{Name: notes, Enabled: false, ExpectedRevision: revision()})
 		must("", "remove_session", &protocol.CommandRemoveSessionPayload{Session: talk.ID, ExpectedRevision: talk.Revision})
-		gone("Conversation notes")
+		conversationRemoved()
 		if collection("Notes") == nil || collection("Other notes") == nil || collection("Project files") == nil {
 			t.Fatal("removing a conversation removed a collection it does not own")
 		}
 
+		projectRemoved := removal("Project files")
 		must("", "remove_project", &protocol.CommandRemoveProjectPayload{Expected: project})
-		gone("Project files")
+		projectRemoved()
 
+		notesRemoved := removal("Notes", "Other notes")
 		must("", "remove_plugin", &protocol.CommandRemovePluginPayload{Name: notes, ExpectedRevision: revision()})
-		gone("Notes", "Other notes")
+		notesRemoved()
 		if collection("memory storage") == nil {
 			t.Fatal("removing a package removed another package's collection")
 		}

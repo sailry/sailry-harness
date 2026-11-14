@@ -656,6 +656,14 @@ func skillSourceArchive(t *testing.T, format protocol.PluginSkillsArchiveFormat)
 
 func TestPackageCatalogAndSources(t *testing.T) {
 	t.Parallel()
+	local, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: filepath.Join(t.TempDir(), "repository with spaces")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: local.Repository})
+	if err != nil || retained != local {
+		t.Fatalf("local repository source did not retain its identity: %+v, %+v, %v", local, retained, err)
+	}
 	for _, repository := range []string{
 		"https://example.test/team/skills.git", "git://example.test/team/skills.git",
 		"ssh://git@example.test/team/skills.git", "ssh+git://git@example.test/team/skills.git",
@@ -674,7 +682,7 @@ func TestPackageCatalogAndSources(t *testing.T) {
 	for _, repository := range []string{
 		"https://user:secret@example.test/repo.git", "https://user@example.test/repo.git",
 		"ssh://user:secret@example.test/repo.git", "git://user@example.test/repo.git",
-		"https://example.test/repo.git?token=value", "file://server/path/repo.git", "ext::command",
+		"https://example.test/repo.git?token=value", "file://server/path/repo.git", "file:", "file:E:/repo", "file://localhost", "ext::command",
 	} {
 		if _, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: repository}); err == nil {
 			t.Errorf("unsafe Git URL accepted: %s", repository)

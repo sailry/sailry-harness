@@ -134,17 +134,9 @@ func TestSwapRestoredProfile(t *testing.T) {
 	untouched(restored)
 
 	t.Run("a failure halfway leaves both profiles as they were", func(t *testing.T) {
-		if os.Geteuid() == 0 {
-			t.Skip("the superuser renames inside a read-only directory")
-		}
-		// Nothing can be renamed into or out of the profile's directory.
-		if err := os.Chmod(home, 0o500); err != nil {
-			t.Fatal(err)
-		}
+		release := preventProfileRename(t, profile)
 		_, err := SwapProfile(ctx, profile, restored, now)
-		if restoreErr := os.Chmod(home, 0o700); restoreErr != nil {
-			t.Fatal(restoreErr)
-		}
+		release()
 		if err == nil {
 			t.Fatal("a swap that cannot rename succeeded")
 		}

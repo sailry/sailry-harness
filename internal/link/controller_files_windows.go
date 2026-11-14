@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"golang.org/x/sys/windows"
 )
 
@@ -54,6 +55,9 @@ func prepareControllerFiles(path string) (string, *os.File, error) {
 }
 
 func privateControllerDirectory(path string) error {
+	if err := core.PrepareWindowsProcessFileOwner(); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(path); err == nil {
 		return validateWindowsControllerPath(path, true)
 	} else if !errors.Is(err, os.ErrNotExist) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"runtime"
 	"testing"
 	"time"
 
@@ -67,9 +68,10 @@ func inkMiddle(img *image.RGBA, scale float32, r ui.Rect) float64 {
 
 // A row's texts are level with its icon (Level): the middle of a Latin
 // label's capitals, of a Chinese label's ideographs and of a mono detail's
-// capitals are within half a DIP of the icon's middle and of each other, at
-// scale 1 and 2, in a centred row and on the first line of a row that wraps
-// (LevelTop). Unlevelled, as MyGo centres the line box, they are not.
+// capitals are within half a DIP of the icon's middle, at scale 1 and 2, in
+// a centred row and on the first line of a row that wraps (LevelTop). Their
+// baselines agree; different fonts' ink centres need not agree. Unlevelled,
+// as MyGo centres the line box, they are not.
 //
 // The label laid out as a sweep takes it, a RichText of its span, and the
 // detail, a RichText a DIP smaller in the mono font, are levelled from
@@ -115,8 +117,10 @@ func testLevel(t *testing.T) {
 		}
 		for _, scale := range []float32{1, 2} {
 			for _, label := range []string{"HIDE", "田口"} {
+				var font ui.Font
 				tt := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Dark)
+					font = ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize}
 					ui.Column(c).Fill().Background(theme.Of(c).Background).Padding(20).Gap(12).Children(func() {
 						row(c, "plain", label, size, false, false)
 						row(c, "level", label, size, true, false)
@@ -133,13 +137,41 @@ func testLevel(t *testing.T) {
 					}
 					return measure(img, scale, r)
 				}
+				baseline := func(name string, layout *ui.TextLayout) float32 {
+					r, ok := tt.Find(name)
+					if !ok {
+						t.Fatalf("no %q", name)
+					}
+					// Compare the baselines the renderer paints. DirectWrite rounds
+					// to a device pixel; Core Text and Pango snap down and up in
+					// screen coordinates, with their small whole-pixel epsilon.
+					y := float64((r.Y + layout.Lines()[0].Baseline) * scale)
+					switch runtime.GOOS {
+					case "darwin":
+						y = math.Ceil(y - 1e-3)
+					case "linux":
+						y = math.Floor(y + 1e-3)
+					default:
+						y = math.Round(y)
+					}
+					return float32(y) / scale
+				}
+				plain := ui.ShapeText(label, ui.Font{Family: font.Family, Size: size}, 0)
+				sweptLine := ui.ShapeRichText([]ui.Span{{Text: label, Size: size}}, font, 0)
+				detailLine := ui.ShapeRichText([]ui.Span{{Text: "HIDE", Size: size - 1, Font: "monospace"}}, font, 0)
 				var report string
 				for _, key := range []string{"plain", "level", "wrap"} {
 					icon, text, swept, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" swept", inkCentre), at(key+" detail", inkCentre)
 					report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, swept %+.2f, detail %+.2f;", key, icon, text-icon, swept-icon, detail-icon)
-					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(detail-icon), math.Abs(text-detail), math.Abs(text-swept))
+					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(detail-icon), math.Abs(text-swept))
 					if key != "plain" && off > limit {
 						t.Errorf("size %v, scale %v, %q, %s row: icon %.2f, label %.2f, swept %.2f, detail %.2f: %.2f DIPs apart", size, scale, label, key, icon, text, swept, detail, off)
+					}
+					if key != "plain" {
+						labelY, sweptY, detailY := baseline(key+" label", plain), baseline(key+" swept", sweptLine), baseline(key+" detail", detailLine)
+						if labelY != sweptY || labelY != detailY {
+							t.Errorf("size %v, scale %v, %q, %s row: baselines %.3f, %.3f, %.3f do not agree", size, scale, label, key, labelY, sweptY, detailY)
+						}
 					}
 				}
 				t.Logf("size %v, scale %v, %q:%s", size, scale, label, report)
