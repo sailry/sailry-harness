@@ -24,9 +24,17 @@ const (
 
 // agent-desktop v1.2.0's fresh session manifest supports custom PNG cursors on
 // macOS and Windows; its X11 renderer only draws the built-in arrow.
+// cursor.png is cursor.svg rasterized at 64 pixels. The renderer draws an
+// image at its own size times the style's size and rasterizes it at the
+// display's scale, so a size of cursorScale shows it at 32 points, sharp on
+// a 2x display. The hotspot is the arrow's tip, in image pixels.
 //
 //go:embed cursor.png
 var cursor []byte
+
+const cursorScale = 0.5
+
+var cursorHotspot = map[string]int{"x": 12, "y": 10}
 
 // Overlay owns one cursor-overlay session per helper home. The overlay never
 // moves the physical pointer. A failed step leaves the launch headless.
@@ -334,8 +342,8 @@ func configure(home, session string) string {
 		if os.WriteFile(image, cursor, 0o600) != nil {
 			return "CURSOR_WRITE"
 		}
-		style = map[string]any{"accent": "#4299FF", "images": map[string]any{
-			"arrow": map[string]any{"path": image, "hotspot": map[string]int{"x": 16, "y": 16}},
+		style = map[string]any{"accent": "#4299FF", "size": cursorScale, "images": map[string]any{
+			"arrow": map[string]any{"path": image, "hotspot": cursorHotspot},
 		}}
 	}
 	overlay, err := json.Marshal(map[string]any{"enabled": true, "style": style})

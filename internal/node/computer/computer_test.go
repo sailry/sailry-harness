@@ -218,7 +218,7 @@ func TestComputerHelperLocator(t *testing.T) {
 		}
 		if image := configured.Overlay.Style.Images.Arrow; runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 			written, err := os.ReadFile(image.Path)
-			if err != nil || len(written) != len(cursor) || image.Hotspot["x"] != 16 || image.Path != filepath.Join(home, "sessions", "run-1", "cursor.png") {
+			if err != nil || len(written) != len(cursor) || image.Hotspot["x"] != cursorHotspot["x"] || image.Hotspot["y"] != cursorHotspot["y"] || configured.Overlay.Style.Size != cursorScale || image.Path != filepath.Join(home, "sessions", "run-1", "cursor.png") {
 				t.Fatal(image, err)
 			}
 		} else if configured.Overlay.Style.Size != 0.75 || image.Path != "" {
