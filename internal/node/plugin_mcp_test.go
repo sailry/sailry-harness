@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -36,10 +39,56 @@ func TestMCPPackageAndScriptCapture(t *testing.T) {
 			}
 		}
 		unknown := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "cleanup could not be confirmed"}
-		_, err = (&Node{}).bindMCPTools(t.Context(), invocation, []pluginMCPBinding{{info: info, server: "third", failure: errors.Join(unavailable, unknown)}})
-		var failure *protocol.Fault
-		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeOutcomeUnknown {
-			t.Fatalf("unknown cleanup was hidden by startup failure: %v", err)
+		cancelled := &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "fixture cancellation"}
+		contextCancelled := &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "MCP startup was cancelled"}
+		for _, row := range []struct {
+			name string
+			err  error
+			want *protocol.Fault
+		}{
+			{"ordinary before cleanup", errors.Join(unavailable, unknown), unknown},
+			{"cleanup before ordinary", errors.Join(unknown, unavailable), unknown},
+			{"cancel before cleanup", errors.Join(context.Canceled, unknown), unknown},
+			{"cleanup before cancel", errors.Join(unknown, context.Canceled), unknown},
+			{"nested cancel before cleanup", fmt.Errorf("wrapped: %w", errors.Join(context.Canceled, fmt.Errorf("cleanup: %w", errors.Join(unknown)))), unknown},
+			{"nested cleanup before cancel", fmt.Errorf("wrapped: %w", errors.Join(fmt.Errorf("cleanup: %w", errors.Join(unknown)), context.Canceled)), unknown},
+			{"context cancellation", context.Canceled, contextCancelled},
+			{"wrapped cancellation", fmt.Errorf("wrapped: %w", context.Canceled), contextCancelled},
+			{"declared cancellation", cancelled, cancelled},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				_, err := (&Node{}).bindMCPTools(t.Context(), &store.AgentInvocation{}, []pluginMCPBinding{{info: info, server: "third", failure: row.err}})
+				var failure *protocol.Fault
+				if !errors.As(err, &failure) || failure.Code != row.want.Code || failure.Message != row.want.Message {
+					t.Fatalf("terminal MCP failure = %v, want %v", err, row.want)
+				}
+			})
+		}
+	})
+	t.Run("MCP check keeps uncertain cleanup after cancellation", func(t *testing.T) {
+		unknown := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture cleanup was not acknowledged"}
+		owner, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: &mcp.Options{
+			Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+				return nil, errors.Join(context.Canceled, unknown)
+			},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := owner.Stop(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+		const name = "mcp-cleanup"
+		commandFixture(t, owner, protocol.Command{Kind: "install_mcp", Data: protocol.CommandInstallMcpPayload{Name: name,
+			Definition: protocol.PluginMcpDefinition{Kind: "streamable-http", Data: &protocol.PluginMcpDefinitionStreamableHttpPayload{Url: "https://fixture.test/mcp", Headers: []string{}}}}})
+		info := commandFixture(t, owner, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: name}}).Data.(protocol.PluginInfo)
+		result := dispatchFixture(t, owner, owner.ID(), protocol.NewRequest(owner.ID(), protocol.Command{Kind: "check_plugin_mcp", Data: protocol.CommandCheckPluginMcpPayload{
+			Package: plugins.PackageReference(info), Server: "server",
+		}}))
+		if result.Fault == nil || result.Fault.Code != unknown.Code || result.Fault.Message != unknown.Message {
+			t.Fatalf("MCP check hid its unconfirmed cleanup: %+v", result)
 		}
 	})
 	t.Run("script native wrapper preserves exact approval lifecycle", func(t *testing.T) {

@@ -76,7 +76,13 @@ func (node *Node) readPluginMCP(ctx context.Context, request protocol.Request) (
 	return protocol.Output{Kind: "plugin_mcp", Data: protocol.PluginMcpState{Package: input.Package, Configuration: configuration}}, err
 }
 
-func (node *Node) checkPluginMCP(ctx context.Context, request protocol.Request) (protocol.Output, error) {
+func (node *Node) checkPluginMCP(ctx context.Context, request protocol.Request) (output protocol.Output, resultErr error) {
+	// Launch or listing failures do not settle unconfirmed resource cleanup.
+	defer func() {
+		if terminal := terminalMCPBindingError(resultErr); terminal != nil {
+			resultErr = terminal
+		}
+	}()
 	if request.Plugin != nil {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "MCP checks are not exposed to plugin actions"}
 	}

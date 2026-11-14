@@ -113,9 +113,11 @@ func (node *Node) connectMCPTools(ctx context.Context, invocation *store.AgentIn
 	return tools, nil
 }
 
-func terminalMCPBindingError(err error) error {
+func terminalMCPBindingError(err error) *protocol.Fault {
+	// Cancelling the original operation does not confirm resource cleanup.
+	var cancelled *protocol.Fault
 	if errors.Is(err, context.Canceled) {
-		return &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "MCP startup was cancelled"}
+		cancelled = &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "MCP startup was cancelled"}
 	}
 	if failure, ok := err.(*protocol.Fault); ok && (failure.Code == protocol.ErrorCodeCancelled || failure.Code == protocol.ErrorCodeOutcomeUnknown) {
 		return failure
@@ -123,11 +125,18 @@ func terminalMCPBindingError(err error) error {
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, cause := range joined.Unwrap() {
 			if failure := terminalMCPBindingError(cause); failure != nil {
-				return failure
+				if failure.Code == protocol.ErrorCodeOutcomeUnknown {
+					return failure
+				}
+				if cancelled == nil {
+					cancelled = failure
+				}
 			}
 		}
 	} else if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return terminalMCPBindingError(wrapped.Unwrap())
+		if failure := terminalMCPBindingError(wrapped.Unwrap()); failure != nil && (failure.Code == protocol.ErrorCodeOutcomeUnknown || cancelled == nil) {
+			return failure
+		}
 	}
-	return nil
+	return cancelled
 }

@@ -1249,8 +1249,11 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	shots("connectors-helper-missing-details")
 	press(zh("close"))
 
-	// A server added by hand connects, lists its tools and reconnects.
-	fixture := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, nil)
+	// This stateful server retains a session whose termination must be
+	// acknowledged; the newer stateless protocol has no session to close.
+	fixture := sdk.NewServer(&sdk.Implementation{Name: "fixture", Version: "1"}, &sdk.ServerOptions{
+		SupportedProtocolVersions: []string{"2025-11-25"},
+	})
 	for _, name := range []string{"echo", "ping"} {
 		sdk.AddTool(fixture, &sdk.Tool{Name: name}, func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, any, error) {
 			return &sdk.CallToolResult{}, nil, nil
@@ -1267,8 +1270,20 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 		keys = nil
 		return seen
 	}
+	var loseReplies atomic.Bool
 	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fixture }, nil)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if loseReplies.Load() {
+			if request.Method != http.MethodDelete {
+				// Fail the response body, not request admission: the SDK keeps
+				// sessions usable when it cannot send an HTTP request at all.
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Length", "1")
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+			}
+			panic(http.ErrAbortHandler)
+		}
 		if request.Header.Get("Mcp-Session-Id") == "" {
 			keysMu.Lock()
 			keys = append(keys, request.Header.Get("X-Key"))
@@ -1351,18 +1366,20 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	}
 	press(zh("settings_cancel"))
 
-	// With the endpoint gone the kept connection cannot be closed for sure:
-	// that Reconnect is uncertain, said as such, and the row has failed. The
-	// next one fails outright with its reason: in the toast, on the row and
-	// in the details.
-	endpoint.CloseClientConnections() // a kept stream would hold Close
-	endpoint.Close()
+	// Lose the listing and session-termination replies while the listener
+	// remains reachable. Closing it first lets connection refusal race the
+	// kept session's cleanup, which can produce a settled unavailable result.
+	loseReplies.Store(true)
 	choose("fixture", manual, "connector_mcp_reconnect")
 	settle()
 	if st := service("fixture"); count("check_plugin_mcp") != 5 || !st.Failed || !tester.HasText(zh("connector_unknown")) {
 		t.Fatalf("Reconnect over a lost connection: %d checks, %+v: %q", count("check_plugin_mcp"), *st, tester.Texts())
 	}
 	dismiss()
+	// With the uncertain session retired, a new attempt at the closed
+	// endpoint fails outright and gives its reason in the toast and details.
+	endpoint.CloseClientConnections()
+	endpoint.Close()
 	choose("fixture", manual, "connector_mcp_reconnect")
 	settle()
 	failed := service("fixture")
