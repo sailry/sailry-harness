@@ -38,14 +38,23 @@ func (a *App) header(c *ui.Context, f frame) {
 		// Its padding stays inside that width: padding wider than the column
 		// would widen it, and the lights' room would be counted again in the
 		// page's header.
-		lead := min(max(lights, 12), max(left-12, 0))
-		ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(lead).PaddingEnd(12).ClipX().Children(func() {
-			if f.nav > 0.001 {
-				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(f.nav)
+		// Without the lights (Windows, Linux) nothing else names the window,
+		// so the name stays on every page: the column is at least as wide as
+		// it, whether the sidebar shows or not. With them it fades with the
+		// sidebar, the lights taking its place.
+		name, shown, brand := i18n.T(c, "app"), f.nav, left
+		if lights == 0 {
+			w, _ := c.MeasureText(0, ui.Span{Text: name, Size: 14})
+			shown, brand = 1, max(left, w+24)
+		}
+		lead := min(max(lights, 12), max(brand-12, 0))
+		ui.Row(c.Key("brand")).Width(brand).Height(HeaderHeight).PaddingStart(lead).PaddingEnd(12).ClipX().Children(func() {
+			if shown > 0.001 {
+				ui.Text(c, name).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(shown)
 				// A short divider over the sidebar's edge, apart from the
 				// edge's own line below the band.
 				ui.Box(c.Key("divider")).Absolute().Right(0).Top((HeaderHeight-dividerHeight)/2).Size(1, dividerHeight).
-					Background(p.TitleBarBorder).Opacity(f.nav)
+					Background(p.TitleBarBorder).Opacity(shown)
 			}
 		})
 		pad := max(lights-left, 0) + 12
@@ -91,7 +100,7 @@ func (a *App) header(c *ui.Context, f frame) {
 				// controls leave: the title at its start, the status at its
 				// end, directly before the page's actions.
 				lead := ui.Row(c.Key("lead")).Grow(1).MinWidth(0).Height(HeaderHeight).Gap(ButtonGap)
-				room := a.band.room(c, lead, width-left-sideWidth(f, end)-pad-padEnd, known)
+				room := a.band.room(c, lead, width-brand-sideWidth(f, end)-pad-padEnd, known)
 				lead.Children(func() {
 					// The title gives way first and is cut at its own
 					// edge: breadcrumbs keep a least width per item, which

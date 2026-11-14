@@ -299,7 +299,9 @@ func testSideColumns(t *testing.T) {
 	}
 	a.Navigate(ConversationPage)
 	tt.Frame()
-	if button, ok := headerButton(tt, toggle); !ok || a.NavOpen || sessionsShown(tt) || button.Bounds.X > RailWidth+13 {
+	// Past the app's name, which a window without traffic lights keeps.
+	name, _ := tt.Find(i18n.In("en", "app"))
+	if button, ok := headerButton(tt, toggle); !ok || a.NavOpen || sessionsShown(tt) || button.Bounds.X > max(RailWidth, name.W+24)+13 {
 		t.Errorf("the conversation came back with open %v, toggle %v", a.NavOpen, button.Bounds)
 	}
 	a.Navigate(FilesPage)

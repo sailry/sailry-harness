@@ -316,8 +316,11 @@ func testLivePluginNavigation(t *testing.T) {
 	if _, ok := headerButton(tester, toggle); ok || sessionsShown(tester) || tester.HasText("Listed session") || app.HasNavigation() {
 		t.Fatalf("the plugin page shows the session sidebar: %q", tester.Texts())
 	}
-	if title, ok := tester.Find(features[0].Label); !ok || title.X != RailWidth+12 {
-		t.Fatalf("the plugin page's header starts at %v, want the rail's edge", title)
+	// The tester's window has no traffic lights, as Windows: the app's name
+	// stays over the rail and the page's header starts past it.
+	name, named := tester.Find(i18n.In("en", "app"))
+	if title, ok := tester.Find(features[0].Label); !named || !ok || title.X != max(RailWidth, name.W+24)+12 {
+		t.Fatalf("the plugin page's header starts at %v, want past the name %v", title, name)
 	}
 	if body, ok := tester.Find("Mounted " + features[0].ID); !ok || body.X > RailWidth+1 {
 		t.Fatalf("the plugin page starts at %v, want the rail's edge", body)
