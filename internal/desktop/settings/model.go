@@ -311,12 +311,15 @@ type Model struct {
 	env             envEditor
 
 	// Connections.
-	Devices              []viewmodel.Device
-	Relays               []string
-	ConnectionRelays     []RelayChoice
-	ConnectionActions    *ConnectionActions
-	ConnectionPending    bool
-	ConnectionStage      string
+	Devices           []viewmodel.Device
+	Relays            []string
+	ConnectionRelays  []RelayChoice
+	ConnectionActions *ConnectionActions
+	ConnectionPending bool
+	ConnectionStage   string
+	// ConnectionFailure is how the Add host dialog's last attempt ended,
+	// said in the dialog while it stays open; closing it forgets it.
+	ConnectionFailure    *ConnectionFailure
 	Share                ShareState
 	NetworkEditor        *NetworkEditor
 	HostTrust            *HostTrust
@@ -408,4 +411,11 @@ func NewModel(d *preview.Settings) *Model {
 	}
 	m.MarketLoad.Start()
 	return m
+}
+
+// ConnectionFailure is a failed or uncertain Add host attempt: Title is the
+// outcome's i18n key, Detail the reason as the Node or the host gave it.
+type ConnectionFailure struct {
+	Tone          kit.Tone
+	Title, Detail string
 }

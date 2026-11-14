@@ -1825,6 +1825,8 @@ host_install_failed: 호스트를 추가할 수 없음
 host_install_installing: 호스트 설치 중
 host_install_pairing: 페어링
 host_install_unknown: 설치 결과 확인되지 않음; 호스트를 확인하고 다시 시도하십시오
+host_step_connect: 호스트에 연결
+host_step_pair: 페어링
 host_network_conflict: 네트워크 설정이 변경되었습니다. 다시 시도하세요
 host_network_edit: 호스트 편집
 host_network_failed: 네트워크를 변경할 수 없습니다

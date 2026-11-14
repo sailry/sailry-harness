@@ -1825,6 +1825,8 @@ host_install_failed: Impossible d'ajouter l'hôte
 host_install_installing: Installation de l’hôte
 host_install_pairing: Appairage
 host_install_unknown: Résultat d'installation non confirmé; vérifiez l'hôte et réessayez
+host_step_connect: Se connecter à l’hôte
+host_step_pair: Associer
 host_network_conflict: Les paramètres réseau ont changé ; réessayez
 host_network_edit: Modifier l’hôte
 host_network_failed: Impossible de changer de réseau

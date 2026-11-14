@@ -386,6 +386,28 @@ func TestDraftChecks(t *testing.T) {
 		if len(added) != 1 || Method(m.pairing.method) != ByAgent {
 			t.Fatalf("pending dialog acted: %d installs, method %d", len(added), m.pairing.method)
 		}
+		// An installation under way lists its steps.
+		m.ConnectionStage = "host_install_installing"
+		tt.Frame()
+		for _, key := range []string{"host_step_connect", "host_install_detecting", "host_install_installing", "host_step_pair"} {
+			if !tt.HasText(en(key)) {
+				t.Fatalf("no %q step under way: %q", key, tt.Texts())
+			}
+		}
+		shot("connections-add-progress-en")
+		// A failed one says why in the dialog, until the next attempt.
+		m.ConnectionPending, m.ConnectionStage = false, ""
+		m.ConnectionFailure = &ConnectionFailure{Tone: kit.Negative, Title: "host_install_failed", Detail: "permission denied (publickey)"}
+		tt.Frame()
+		if !slices.Contains(tt.Texts(), en("host_install_failed")+"\npermission denied (publickey)") || tt.HasText(en("host_step_connect")) {
+			t.Fatalf("the failure is not in the dialog: %q", tt.Texts())
+		}
+		shot("connections-add-failed-en")
+		click(en("host_install"))
+		if m.ConnectionFailure != nil || len(added) != 2 {
+			t.Fatalf("another attempt kept the failure %+v, %d installs", m.ConnectionFailure, len(added))
+		}
+		added = added[:1]
 		// An uncertain installation is checked, never sent again.
 		m.ConnectionPending = false
 		m.SetConnectionStatus(ConnectionStatus{Recovery: true, Projects: []ProjectChoice{alpha, beta}})

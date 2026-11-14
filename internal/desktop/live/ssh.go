@@ -431,7 +431,23 @@ func (r *Runtime) toastSSH(c *ui.Context, err error, updating, uncertain bool) {
 	case uncertain:
 		key, tone = "host_install_unknown", kit.Uncertain
 	}
-	kit.Toast(c, tone, i18n.T(c, key))
+	if updating || !r.addFailed(tone, key, err) {
+		kit.Toast(c, tone, i18n.T(c, key))
+	}
+}
+
+// addFailed has the Add host dialog, while it is open, say how its attempt
+// ended and why, in place of the toast: whether it did.
+func (r *Runtime) addFailed(outcome kit.Outcome, key string, err error) bool {
+	if !r.App.Settings.Adding() {
+		return false
+	}
+	tone := kit.Negative
+	if outcome != kit.Failed {
+		tone = kit.Caution
+	}
+	r.App.Settings.ConnectionFailure = &settings.ConnectionFailure{Tone: tone, Title: key, Detail: faultDetail(err)}
+	return true
 }
 
 func (r *Runtime) sshProgress() string {

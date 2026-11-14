@@ -308,7 +308,9 @@ func (r *Runtime) addConnection(draft settings.ConnectionDraft, completed func(b
 				} else if faultCode(err) == protocol.ErrorCodeConflict {
 					outcome = kit.Conflict
 				}
-				kit.Toast(c, outcome, i18n.T(c, key))
+				if !r.addFailed(outcome, key, err) {
+					kit.Toast(c, outcome, i18n.T(c, key))
+				}
 			} else {
 				kit.Toast(c, kit.Done, i18n.T(c, "pairing_success"))
 			}

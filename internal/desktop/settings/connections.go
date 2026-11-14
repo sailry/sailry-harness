@@ -345,6 +345,7 @@ func relayFields(c *ui.Context, pr *pairing, relays []string, bare bool) {
 func addHost(c *ui.Context, m *Model) {
 	pr := &m.pairing
 	if !pr.adding {
+		m.ConnectionFailure = nil
 		return
 	}
 	p := theme.Of(c)
@@ -385,12 +386,15 @@ func addHost(c *ui.Context, m *Model) {
 				sshFields(c, pr, m, locked)
 				scopeFields(c, pr, locked)
 			}
-			if m.ConnectionPending {
-				stage := m.ConnectionStage
-				if stage == "" {
-					stage = "connection_connecting"
+			switch failure := m.ConnectionFailure; {
+			case m.ConnectionPending:
+				installProgress(c, m.ConnectionStage, Method(pr.method) != ByPairing && !pr.status.Recovery)
+			case failure != nil:
+				text := i18n.T(c, failure.Title)
+				if failure.Detail != "" {
+					text += "\n" + failure.Detail
 				}
-				kit.Shimmer(c.Key("progress"), i18n.T(c, stage), 14, p.MutedForeground)
+				kit.Alert(c, "failure", failure.Tone, text, nil)
 			}
 		})
 		action := i18n.T(c, "pairing_connect")
@@ -403,12 +407,8 @@ func addHost(c *ui.Context, m *Model) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pr.adding = false })
 			// A step under way shows in its button, which cannot start another.
-			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending || !pr.status.Recovery && !pr.installable()).Children(func() {
-				if m.ConnectionPending {
-					kit.Busy(c)
-				}
-				ui.Text(c, action).FontSize(14)
-			}).OnClick(func() {
+			kit.PrimaryBusy(c.Key("ok"), action, !pr.status.Recovery && !pr.installable(), m.ConnectionPending).OnClick(func() {
+				m.ConnectionFailure = nil
 				if m.ConnectionActions == nil || m.ConnectionActions.Add == nil {
 					notice(c)
 					return
@@ -434,6 +434,59 @@ func addHost(c *ui.Context, m *Model) {
 			})
 		})
 	}).Width(min(max(pairingWidth, tabs+2*kit.DialogInset), width(c)-48)).Label(title)
+}
+
+// installSteps are an installation's stages in order, by the keys its
+// progress reports (live sshProgressKey) and the label each shows as a step.
+var installSteps = [...][2]string{
+	{"connection_connecting", "host_step_connect"},
+	{"host_install_detecting", "host_install_detecting"},
+	{"host_install_installing", "host_install_installing"},
+	{"host_install_pairing", "host_step_pair"},
+}
+
+// installProgress is the attempt under way: an installation's steps, those
+// done checked, the current one turning and those ahead faint, in a muted
+// panel; pairing or checking an installation, its one stage turning.
+func installProgress(c *ui.Context, stage string, installing bool) {
+	p := theme.Of(c)
+	if stage == "" {
+		stage = "connection_connecting"
+	}
+	current := -1
+	for index, step := range installSteps {
+		if step[0] == stage {
+			current = index
+		}
+	}
+	ui.Column(c.Key("progress")).FillWidth().Gap(10).Padding(12).Radius(p.Radius).Background(p.Muted).Role(ui.RoleStatus).Children(func() {
+		row := func(key any, label string, state int) {
+			ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
+					switch {
+					case state < 0:
+						ui.Icon(c, icons.Check).FontSize(14).TextColor(p.Success)
+					case state == 0:
+						kit.BusySized(c, 14)
+					default:
+						ui.Box(c).Size(6, 6).Radius(3).Background(p.MutedForeground.Alpha(0.4))
+					}
+				})
+				color := p.Foreground
+				if state != 0 {
+					color = p.MutedForeground
+				}
+				ui.Text(c, label).FontSize(14).SingleLine().TextColor(color)
+			})
+		}
+		if !installing || current < 0 {
+			row("stage", i18n.T(c, stage), 0)
+			return
+		}
+		for index, step := range installSteps {
+			row(step[0], i18n.T(c, step[1]), index-current)
+		}
+	})
 }
 
 // sshFields are the name, the host and port on one row, the user, then the
