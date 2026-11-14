@@ -757,7 +757,10 @@ column's toggle. The Shell owns header alignment, dividers and visibility. Call
 hidden sidebar without changing its resized width. Do not call it on every render.
 
 `PanelHeader` has a fixed 48px height, or 32px for `size: "row"`. `bordered`
-draws its bottom edge; `surface: "content"` fills the content background.
+draws its bottom edge; `surface: "content"` fills the content background. On a
+Workspace page, the first 48px `PanelHeader` the details draw becomes the
+Shell's right-column header: its children appear beside the column toggle
+instead of as a separate row. Row headers stay in place.
 
 A scripted settings page reads its immutable bundle and mounts on first use. Section switches reuse the mount while its captured scope remains valid. A settings page without a script uses the shared schema form.
 

@@ -165,6 +165,20 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		if nativeProp(props, "size", "") == "row" {
 			height = 32
 		}
+		// The details' first full header is the Shell sidebar header's: its
+		// content sits beside the column's toggle rather than in a row of
+		// its own under it. Row headers stay where the details draw them.
+		if height == 48 && binding.state.drawingDetails && binding.state.detailsHeading == nil {
+			gap, content := nativeProp(props, "gap", float32(8)), element.Children
+			binding.SetDetailsHeading(func(header *ui.Context) error {
+				var err error
+				ui.Row(header.Key("panel-header")).Grow(1).MinWidth(0).FillHeight().AlignItems(ui.Center).Gap(gap).Children(func() {
+					err = renderNativeChildren(header, element, content)
+				})
+				return err
+			})
+			return ui.Box(view).Size(0, 0), nil
+		}
 		header := ui.Row(view).FillWidth().Height(height).Shrink(0).PaddingX(nativeProp(props, "padding", float32(12))).Gap(nativeProp(props, "gap", float32(8)))
 		if nativeProp(props, "bordered", false) {
 			header.BorderWidth(0, 0, 1, 0).BorderColor(palette.Border)
@@ -351,12 +365,14 @@ func (binding *NativeBinding) DrawingDetails() bool { return binding.state.drawi
 
 // SetDetailsHeading gives the sidebar's header what the details being drawn
 // would otherwise show as their own first row.
-func (binding *NativeBinding) SetDetailsHeading(draw func(*ui.Context)) {
+func (binding *NativeBinding) SetDetailsHeading(draw func(*ui.Context) error) {
 	binding.state.detailsHeading = draw
 }
 
 // DetailsHeading is what the details last drawn gave the sidebar's header.
-func (binding *NativeBinding) DetailsHeading() func(*ui.Context) { return binding.state.detailsHeading }
+func (binding *NativeBinding) DetailsHeading() func(*ui.Context) error {
+	return binding.state.detailsHeading
+}
 
 // rowIconSize is a row's leading icon inside Kit's RowIcon slot.
 const rowIconSize = 20

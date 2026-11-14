@@ -121,9 +121,10 @@ func (state *pluginNativeState) renderConversation(view *ui.Context, element plu
 		if request.Assistant != nil && heading != "" && state.native.DrawingDetails() {
 			// In the Shell's right sidebar the heading and the session
 			// controls are the sidebar header's.
-			state.native.SetDetailsHeading(func(header *ui.Context) {
+			state.native.SetDetailsHeading(func(header *ui.Context) error {
 				ui.Text(header, heading).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 				state.sessionControls(header, identity, mounted, target, suspended)
+				return nil
 			})
 		} else if request.Assistant != nil {
 			// An assistant's panel moves between its own sessions: the

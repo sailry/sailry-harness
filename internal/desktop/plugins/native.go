@@ -60,7 +60,7 @@ type nativeState struct {
 	focus        string
 	// drawingDetails and detailsHeading belong to the frame's goroutine.
 	drawingDetails bool
-	detailsHeading func(*ui.Context)
+	detailsHeading func(*ui.Context) error
 	workspace      WorkspaceLayout
 	navigationID   uint64
 	// rowLead is set while a group whose rows have icons draws its rows;

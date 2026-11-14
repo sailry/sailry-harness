@@ -83,7 +83,7 @@ type pluginMountedView struct {
 	workspaceLayout    func() desktopplugins.WorkspaceLayout
 	projectedWorkspace desktopplugins.WorkspaceLayout
 	// detailsHeading is what those details gave the column's header.
-	detailsHeading  func() func(*ui.Context)
+	detailsHeading  func() func(*ui.Context) error
 	activityVisible func(bool)
 	loading         bool
 	failure         error

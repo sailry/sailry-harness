@@ -239,7 +239,9 @@ func (r *Runtime) showPluginDetails(mounted *pluginMountedView) {
 				return
 			}
 			if draw := mounted.detailsHeading(); draw != nil {
-				draw(view.Key(mounted.generation))
+				if err := draw(view.Key(mounted.generation)); err != nil {
+					r.failPluginView(view, mounted, err, "plugin_callback_failed")
+				}
 			}
 		}
 		render := mounted.details

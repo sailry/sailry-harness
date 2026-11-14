@@ -208,3 +208,65 @@ func TestHeaderKeepsValidContent(t *testing.T) {
 		t.Fatal("a valid header did not recover after invalid content")
 	}
 }
+
+// TestDetailsHeaderJoinsSidebar asserts that the details' first full
+// PanelHeader is drawn in the Shell sidebar's header, not as a row of the
+// details, and that a row header and headers outside the details stay put.
+func TestDetailsHeaderJoinsSidebar(t *testing.T) {
+	header := func(props string) *NativeElement {
+		tabs, _ := json.Marshal([]any{map[string]any{"text": "Tabs"}})
+		element := &NativeElement{ID: 1, Module: "sailry/ui", Export: "PanelHeader", Props: json.RawMessage(props),
+			Children: []*NativeElement{{ID: 2, Module: "test", Export: "Label", Props: tabs}}}
+		element.RenderChild = func(view *ui.Context, child *NativeElement) (ui.Element, error) {
+			return ui.Text(view.Key(child.ID), "Tabs"), nil
+		}
+		return element
+	}
+	draw := func(t *testing.T, props string, details bool) (*NativeBinding, *ui.Tester) {
+		native := NewNativeBinding(t.Context())
+		element := header(props)
+		tester := ui.NewTester(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			native.state.detailsHeading, native.state.drawingDetails = nil, details
+			if _, err := native.renderLayout(view, *element, func() {
+				for _, child := range element.Children {
+					_, _ = element.RenderChild(view, child)
+				}
+			}, nil); err != nil {
+				t.Fatal(err)
+			}
+			native.state.drawingDetails = false
+		}, 400, 200)
+		tester.Frame()
+		return &native, tester
+	}
+	t.Run("full header moves", func(t *testing.T) {
+		native, tester := draw(t, `["header",{"bordered":true}]`, true)
+		if native.DetailsHeading() == nil || tester.HasText("Tabs") {
+			t.Fatalf("heading claimed %v, texts %q: want the header's content in the sidebar header only", native.DetailsHeading() != nil, tester.Texts())
+		}
+		sidebar := ui.NewTester(func(view *ui.Context) {
+			theme.Apply(view, "", theme.Light)
+			ui.Row(view).Height(48).Children(func() {
+				if err := native.DetailsHeading()(view); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}, 400, 48)
+		sidebar.Frame()
+		if !sidebar.HasText("Tabs") {
+			t.Fatalf("the sidebar header shows %q", sidebar.Texts())
+		}
+	})
+	for name, c := range map[string]struct {
+		props   string
+		details bool
+	}{"row header stays": {`["header",{"size":"row"}]`, true}, "page header stays": {`["header",{}]`, false}} {
+		t.Run(name, func(t *testing.T) {
+			native, tester := draw(t, c.props, c.details)
+			if native.DetailsHeading() != nil || !tester.HasText("Tabs") {
+				t.Fatalf("heading claimed %v, texts %q: want the header in place", native.DetailsHeading() != nil, tester.Texts())
+			}
+		})
+	}
+}
