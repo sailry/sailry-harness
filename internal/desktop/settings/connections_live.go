@@ -89,7 +89,7 @@ func connectionDialogs(c *ui.Context, m *Model) {
 				kit.Shimmer(c, i18n.T(c, "host_runtime_loading"), 14, theme.Of(c).MutedForeground)
 			} else {
 				draft := pairing{relay: editor.Relay, address: editor.Address}
-				connectionRelayFields(c, &draft, m.Relays, editor.Relays, editor.Pending || editor.Locked || editor.Unavailable)
+				connectionRelayFields(c, &draft, m.Relays, editor.Relays, editor.Pending || editor.Locked || editor.Unavailable, false)
 				editor.Relay, editor.Address = draft.relay, draft.address
 			}
 			ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {

@@ -49,6 +49,9 @@ type InputOTPProps struct {
 	// Size is the cells' size: 32 square by default, 48 by 56 with a 24
 	// DIP character for SizeLarge (a pairing code).
 	Size Size
+	// Fill stretches the row to its container's width, the cells sharing
+	// it, so the code lines up with the fields above and below it.
+	Fill bool
 }
 
 // InputOTP edits a one-time code in a row of cells, one character each,
@@ -75,6 +78,9 @@ func InputOTP(c *ui.Context, key any, value *string, o InputOTPProps) ui.Element
 		w, h, font, radius = 48, 56, 24, p.RadiusLg
 	}
 	root := ui.Row(c.Key(key)).Gap(8).AlignItems(ui.Center).AlignSelf(ui.Start).Shrink(0)
+	if o.Fill {
+		root.AlignSelf(ui.Stretch)
+	}
 	last := ui.Local(root, "last", func() string { return *value })
 	if *value != *last {
 		*last = *value
@@ -93,7 +99,13 @@ func InputOTP(c *ui.Context, key any, value *string, o InputOTPProps) ui.Element
 			if active {
 				border = t.Focus
 			}
-			ui.Row(c.Key(i)).Width(w).MinHeight(h).Radius(radius).Background(t.Surface).Border(1, border).
+			cell := ui.Row(c.Key(i))
+			if o.Fill {
+				cell.Grow(1).Basis(0).MinWidth(w)
+			} else {
+				cell.Width(w)
+			}
+			cell.MinHeight(h).Radius(radius).Background(t.Surface).Border(1, border).
 				AlignItems(ui.Center).Justify(ui.Center).FontSize(font).TextColor(p.Foreground).IgnoreInput(true).
 				Children(func() {
 					if i < len(clean) {

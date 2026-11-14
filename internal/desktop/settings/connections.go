@@ -327,13 +327,13 @@ func platformIcon(d viewmodel.Device) *ui.SVG {
 
 // relayFields are relay::controls: the server, and its address when
 // custom.
-func relayFields(c *ui.Context, pr *pairing, relays []string) {
+func relayFields(c *ui.Context, pr *pairing, relays []string, bare bool) {
 	options := relayOptions(c, relays)
 	label := i18n.T(c, "pairing_relay_server")
-	kit.Field(c, "relay", label, "", func() { pick(c, "relay", label, &pr.relay, options, false).Fill() })
+	relayField(c, "relay", label, bare, func() { pick(c, "relay", label, &pr.relay, options, false).Fill() })
 	if pr.relay == len(options)-1 {
 		title := i18n.T(c, "pairing_relay_address")
-		kit.Field(c, "address", title, "", func() {
+		relayField(c, "address", title, bare, func() {
 			ui.TextInput(c.Key("input"), &pr.address).Label(title).Placeholder(i18n.T(c, "pairing_relay_address_hint")).FillWidth()
 		})
 	}
@@ -365,15 +365,13 @@ func addHost(c *ui.Context, m *Model) {
 				names[index] = i18n.T(c, methodLabels[method])
 			}
 			choice := max(slices.Index(offered, Method(pr.method)), 0)
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked)
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, true)
 			kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{}).AlignSelf(ui.Start).Disabled(locked).Label(i18n.T(c, "connection"))
 			pr.method = int(offered[choice])
 			switch method := Method(pr.method); {
 			case method == ByPairing:
 				codePanel(c, func() {
-					ui.Row(c.Key("cells")).FillWidth().Justify(ui.Center).Children(func() {
-						kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(locked).Label(i18n.T(c, "host_pairing_mode"))
-					})
+					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge, Fill: true}).Disabled(locked).Label(i18n.T(c, "host_pairing_mode"))
 					ui.Text(c, i18n.T(c, "pairing_pin_hint")).FontSize(13).TextColor(p.MutedForeground)
 				})
 			case method == ByWSL:
@@ -430,7 +428,7 @@ func addHost(c *ui.Context, m *Model) {
 				m.ConnectionActions.Add(draft, completed)
 			})
 		})
-	}).Width(min(620, width(c)-48)).Label(title)
+	}).Width(min(pairingWidth, width(c)-48)).Label(title)
 }
 
 // sshFields are the name, the host and port on one row, the user, then the
@@ -560,18 +558,18 @@ func shareCode(c *ui.Context, m *Model) {
 			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Column(c.Key("body")).Gap(16).Padding(4, 0, 0, 0).Children(func() {
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false)
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false, true)
 			codePanel(c, func() {
 				ready := m.Live && len(m.Share.Code) == 6
 				// The cells of a large InputOTP, so the code reads as the one
 				// typed on the other device.
-				ui.Row(c.Key("digits")).Gap(8).Children(func() {
+				ui.Row(c.Key("digits")).AlignSelf(ui.Stretch).Gap(8).Children(func() {
 					for i := range 6 {
 						digit, color := "–", p.MutedForeground
 						if ready {
 							digit, color = m.Share.Code[i:i+1], p.Foreground
 						}
-						ui.Row(c.Key(i)).Size(48, 56).AlignItems(ui.Center).Justify(ui.Center).Radius(p.RadiusLg).
+						ui.Row(c.Key(i)).Grow(1).Basis(0).MinWidth(48).Height(56).AlignItems(ui.Center).Justify(ui.Center).Radius(p.RadiusLg).
 							Background(t.Surface).Border(1, p.Input).Children(func() {
 							ui.Text(c, digit).FontSize(24).FontWeight(600).FontFeatures("tnum").TextColor(color)
 						})
@@ -598,11 +596,15 @@ func shareCode(c *ui.Context, m *Model) {
 				}
 			})
 		})
-	}).Width(min(460, width(c)-48)).Label(title)
+	}).Width(min(pairingWidth, width(c)-48)).Label(title)
 }
 
-// codePanel centers a pairing code on the dialog with its status line
-// below.
+// pairingWidth is the pairing dialogs' width: the code's cells span it
+// as the fields do, at about the cells' height.
+const pairingWidth = 440
+
+// codePanel holds a pairing code as wide as the dialog's fields, with its
+// status line centered below.
 func codePanel(c *ui.Context, children func()) {
 	ui.Column(c.Key("code")).FillWidth().PaddingY(12).Gap(12).AlignItems(ui.Center).Children(children)
 }
@@ -616,9 +618,19 @@ func (m *Model) openAddHost() {
 	m.pairing = pairing{adding: true, port: "22", status: m.pairing.status}
 }
 
-func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices []RelayChoice, disabled bool) {
+// relayField is a relay control under its label, or alone where the
+// dialog says what it is for (bare): the control still names itself.
+func relayField(c *ui.Context, key, label string, bare bool, control func()) {
+	if bare {
+		ui.Column(c.Key(key)).Children(control)
+		return
+	}
+	kit.Field(c, key, label, "", control)
+}
+
+func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices []RelayChoice, disabled, bare bool) {
 	if len(choices) == 0 {
-		relayFields(c, pr, relays)
+		relayFields(c, pr, relays, bare)
 		return
 	}
 	options := make([]string, len(choices))
@@ -636,10 +648,10 @@ func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices 
 		options[index] = label + " · " + timing
 	}
 	label := i18n.T(c, "pairing_relay_server")
-	kit.Field(c, "relay", label, "", func() { pick(c, "relay", label, &pr.relay, options, disabled).Fill() })
+	relayField(c, "relay", label, bare, func() { pick(c, "relay", label, &pr.relay, options, disabled).Fill() })
 	if pr.relay >= 0 && pr.relay < len(choices) && choices[pr.relay].Custom {
 		title := i18n.T(c, "pairing_relay_address")
-		kit.Field(c, "address", title, "", func() {
+		relayField(c, "address", title, bare, func() {
 			ui.TextInput(c.Key("input"), &pr.address).Disabled(disabled).Label(title).Placeholder(i18n.T(c, "pairing_relay_address_hint")).FillWidth()
 		})
 	}
