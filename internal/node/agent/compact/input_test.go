@@ -159,3 +159,19 @@ func TestPrepareFitsSmallWindows(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareNeverDropsPreviousSummary(t *testing.T) {
+	old := selectionMessage(canonical.User, canonical.Text(0, "Already summarized"))
+	constraint := "Original constraint: " + strings.Repeat("keep every unresolved requirement; ", 100)
+	summary := canonical.NewRecord(old.Turn, "compaction", &canonical.Compaction{Boundary: old.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, constraint))}, time.Time{})
+	disposable := selectionMessage(canonical.User, canonical.Text(0, strings.Repeat("Outdated transcript ", 4000)))
+	latest := selectionMessage(canonical.User, canonical.Text(0, "Newest progress"))
+	prepared, err := Prepare([]canonical.Record{old, summary, disposable, latest}, 4096, Output(4096))
+	if err != nil || !strings.Contains(prepared, constraint) || !strings.Contains(prepared, "Newest progress") || strings.Contains(prepared, "Outdated transcript") {
+		t.Fatalf("summary was dropped while shortening later history: %v", err)
+	}
+	tooLarge := canonical.NewRecord(old.Turn, "compaction", &canonical.Compaction{Boundary: old.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, strings.Repeat("Essential prior state ", 4000)))}, time.Time{})
+	if _, err := Prepare([]canonical.Record{old, tooLarge, latest}, 4096, Output(4096)); err == nil || err.Error() != "previous summary exceeds the summary context limit" {
+		t.Fatalf("oversized prior summary = %v", err)
+	}
+}

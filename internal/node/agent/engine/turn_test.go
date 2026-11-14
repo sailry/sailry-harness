@@ -873,7 +873,7 @@ func TestSummaryRetryRecord(t *testing.T) {
 func TestReactiveCompactionAtMostTwo(t *testing.T) {
 	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
-	m := &scriptedModel{scripts: []script{response(overflow), summary, response(overflow), summary, response(overflow)}}
+	m := &scriptedModel{scripts: []script{response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, response(text("Third partial evidence"), overflow)}}
 	f := newFixture(t, m)
 	f.start()
 	turn := f.submit("Task")
@@ -886,9 +886,23 @@ func TestReactiveCompactionAtMostTwo(t *testing.T) {
 	}
 }
 
-func TestThresholdCompactionAttemptsTheMainRequest(t *testing.T) {
+func TestReactiveCompactionStopsWithoutNewMaterial(t *testing.T) {
+	overflow := fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}}
 	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
-	m := &scriptedModel{scripts: []script{summary, response(call("probe", "probe", `{}`), finish()), summary, response(text("Done"), finish())}}
+	m := &scriptedModel{scripts: []script{response(overflow), summary, response(overflow)}}
+	f := newFixture(t, m)
+	f.start()
+	f.waitRun(f.submit("Task"), protocol.ConversationStatusFailed)
+	if m.count() != 3 {
+		t.Fatalf("requests = %d, want two main attempts and one useful summary", m.count())
+	}
+	if count := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); count != 1 {
+		t.Fatalf("compactions = %d, want no repeated compaction of the same handoff", count)
+	}
+}
+
+func TestThresholdCompactionSkipsWhenAllHistoryIsRetained(t *testing.T) {
+	m := &scriptedModel{scripts: []script{response(call("probe", "probe", `{}`), finish()), response(text("Done"), finish())}}
 	probe := objectTool("probe", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		return ToolResult{Value: "Tool completed"}
 	})
@@ -901,19 +915,19 @@ func TestThresholdCompactionAttemptsTheMainRequest(t *testing.T) {
 	}
 	f.start()
 	f.waitRun(f.submit(strings.Repeat("Retain this exact requirement. ", 100)), protocol.ConversationStatusCompleted)
-	if m.count() != 4 {
-		t.Fatalf("requests = %d, want summary, main, summary, main", m.count())
+	if m.count() != 2 {
+		t.Fatalf("requests = %d, want two main requests without a redundant summary", m.count())
 	}
-	if count := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); count != 2 {
-		t.Fatalf("compactions = %d, want one before each main request", count)
+	if count := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); count != 0 {
+		t.Fatalf("compactions = %d, want no summary without a compressible prefix", count)
 	}
 	mustHaveText(t, f.state().Records, "Done")
 }
 
 func TestThresholdCompactionKeepsReactiveRecoveryBounded(t *testing.T) {
-	overflow := response(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}})
+	overflow := response(text("New partial evidence"), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.ContextOverflow, Message: "context full"}})
 	summary := response(text(`{"user_intent":["Continue task"]}`), finish())
-	m := &scriptedModel{scripts: []script{summary, overflow, summary, overflow, summary, overflow}}
+	m := &scriptedModel{scripts: []script{overflow, summary, overflow, summary, overflow}}
 	f := newFixture(t, m)
 	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
 		_, err := db.ExecContext(f.ctx, "UPDATE providers SET body=json_set(body,'$.provider.models[0].compaction_tokens',200)")
@@ -923,14 +937,17 @@ func TestThresholdCompactionKeepsReactiveRecoveryBounded(t *testing.T) {
 	}
 	f.start()
 	f.waitRun(f.submit(strings.Repeat("Retain this exact requirement. ", 100)), protocol.ConversationStatusFailed)
-	if m.count() != 6 {
-		t.Fatalf("requests = %d, want one threshold and two reactive summaries", m.count())
+	if m.count() != 5 {
+		t.Fatalf("requests = %d, want two reactive summaries and three main requests", m.count())
+	}
+	if count := f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.kind')='compaction'"); count != 2 {
+		t.Fatalf("compactions = %d, want exactly two reactive summaries", count)
 	}
 }
 
 func TestCompactionKeepsPendingAttachmentsWithoutReadingOldOnes(t *testing.T) {
 	m := &scriptedModel{scripts: []script{
-		response(text("Read the old note"), finish()),
+		response(text("Read the old note. "+strings.Repeat("Older completed evidence. ", 2000)), finish()),
 		response(text(`{"user_intent":["Read the pending attachment"]}`), finish()),
 		response(text("Read the pending note"), finish()),
 	}}
@@ -1426,7 +1443,7 @@ func TestGuidanceBatchOverflow(t *testing.T) {
 	summary := response(text(`{"user_intent":["Continue task"],"pending_tasks":["Finish"]}`), finish())
 	m := &scriptedModel{scripts: []script{
 		held(first, text("Working"), finish()),
-		response(overflow), summary, response(overflow), summary, held(second, overflow),
+		response(text("First partial evidence"), overflow), summary, response(text("Second partial evidence"), overflow), summary, held(second, overflow),
 		response(text("Answered"), finish()),
 	}}
 	f := newFixture(t, m)

@@ -105,9 +105,6 @@ func digest(value string) string {
 	sum := blake3.Sum256([]byte(value))
 	return fmt.Sprintf("%x", sum[:])
 }
-func visible(record canonical.Record) bool {
-	return record.Metadata.Runtime == nil || record.Metadata.Runtime.AgentVisible
-}
 func contextIdentity(record canonical.Record) *canonical.PromptContext {
 	runtime := record.Metadata.Runtime
 	if runtime == nil || !runtime.TurnContext || !runtime.AgentVisible || runtime.Notes == nil {
@@ -115,36 +112,82 @@ func contextIdentity(record canonical.Record) *canonical.PromptContext {
 	}
 	return runtime.Notes.Context
 }
-func recordMessage(record canonical.Record) *canonical.Message {
-	if record.Kind != "message" {
-		return nil
-	}
-	return record.Message()
-}
 
 // Pending repeats ordinary state once per task or when changed. Retained owner
 // parts repeat only after their earlier context is no longer model-visible.
 func Pending(records []canonical.Record, owned, parts []string) []string {
 	start := 0
+	summary := -1
+	boundary := ""
+	visibility := map[string]bool{}
 	for i, record := range records {
 		if record.Kind == "compaction" {
-			start = i + 1
+			start, summary, boundary = i+1, i, ""
+			switch value := record.Data.(type) {
+			case *canonical.Compaction:
+				boundary = value.Boundary
+			case canonical.Compaction:
+				boundary = value.Boundary
+			}
+		}
+		if record.Kind == "operation" {
+			var operation *canonical.Operation
+			switch value := record.Data.(type) {
+			case *canonical.Operation:
+				operation = value
+			case canonical.Operation:
+				operation = &value
+			}
+			if operation != nil && operation.Kind == "visibility" {
+				switch change := operation.Data.(type) {
+				case *canonical.Visibility:
+					visibility[change.Message] = change.AgentVisible
+				case canonical.Visibility:
+					visibility[change.Message] = change.AgentVisible
+				}
+			}
 		}
 	}
-	records = records[start:]
+	// Rolling summaries are appended after the retained tail. Its context
+	// remains present until the summary's boundary actually covers it.
+	for i := 0; i < summary; i++ {
+		if records[i].ID == boundary {
+			start = i + 1
+			break
+		}
+	}
+	// Identity matching needs only metadata; tool payloads stay shared and are
+	// never copied or changed by this projection.
+	current := make([]canonical.Record, 0, len(records)-start)
+	for _, record := range records[start:] {
+		if record.Kind != "message" {
+			continue
+		}
+		visible := record.Metadata.Runtime == nil || record.Metadata.Runtime.AgentVisible
+		if override, ok := visibility[record.ID]; ok {
+			visible = override
+		}
+		if !visible {
+			continue
+		}
+		if record.Metadata.Runtime != nil && !record.Metadata.Runtime.AgentVisible {
+			runtime := *record.Metadata.Runtime
+			runtime.AgentVisible = true
+			record.Metadata.Runtime = &runtime
+		}
+		current = append(current, record)
+	}
+	records = current
 	retained := map[string]bool{}
 	kickoff := -1
 	fallback := -1
 	for i, record := range records {
-		if !visible(record) {
-			continue
-		}
 		if identity := contextIdentity(record); identity != nil {
 			for _, id := range identity.Retained {
 				retained[id] = true
 			}
 		}
-		message := recordMessage(record)
+		message := record.Message()
 		if message == nil || message.Role != canonical.User {
 			continue
 		}

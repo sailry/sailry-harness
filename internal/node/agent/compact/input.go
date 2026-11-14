@@ -44,10 +44,19 @@ func instructions(limit uint64, messages string) string {
 
 func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, request ...string) (string, error) {
 	limit := Cap(contextLimit, outputLimit)
+	previousID := ""
+	for _, record := range records {
+		if record.Kind == "compaction" {
+			previousID = record.ID
+		}
+	}
 	records = Visible(records)
 	filtered := records[:0]
+	previous := ""
 	for _, record := range records {
-		if record.Metadata.Runtime == nil || !record.Metadata.Runtime.TurnContext {
+		if record.ID == previousID {
+			previous = transcript([]canonical.Record{record}, -1)
+		} else if !turnContext(record) {
 			filtered = append(filtered, record)
 		}
 	}
@@ -62,6 +71,22 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		return "", fmt.Errorf("summary prompt and output exceed the context limit")
 	}
 	budget := contextLimit - reserve
+	if previous != "" {
+		retained := tokens.Text(previous) + 2
+		if retained > budget {
+			return "", fmt.Errorf("previous summary exceeds the summary context limit")
+		}
+		budget -= retained
+	}
+	prepared := func(body string) string {
+		if previous != "" {
+			body = strings.TrimRight(previous+"\n"+body, "\n")
+		}
+		if body != "" {
+			body = "[user]: " + body
+		}
+		return instructions(limit, body)
+	}
 	var turns [][]canonical.Record
 	for _, record := range records {
 		if len(turns) == 0 || kickoff(record.Message()) {
@@ -70,7 +95,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 		turns[len(turns)-1] = append(turns[len(turns)-1], record)
 	}
 	if len(turns) == 0 {
-		return base, nil
+		return prepared(""), nil
 	}
 	last := len(turns) - 1
 	history := make([]string, len(turns))
@@ -133,9 +158,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 			return "", err
 		}
 	}
-	// The source summary request serializes its user transcript once more.
-	body = "[user]: " + body
-	return instructions(limit, body), nil
+	return prepared(body), nil
 }
 
 // kickoff reports a message the user wrote, which starts a turn.
@@ -145,7 +168,7 @@ func kickoff(message *canonical.Message) bool {
 	}
 	hasInput, hasTool := false, false
 	for _, block := range message.Content {
-		hasInput = hasInput || block.Kind == "text" || block.Kind == "image" || block.Kind == "document"
+		hasInput = hasInput || block.Kind == "text" || block.Kind == "image" || block.Kind == "document" || block.Kind == "file"
 		hasTool = hasTool || block.Kind == "tool_response" || block.Kind == "tool_request"
 	}
 	return hasInput && !hasTool

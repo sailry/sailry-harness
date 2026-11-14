@@ -280,6 +280,7 @@ func TestCompactionHandoff(t *testing.T) {
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: row.scripts})
+				before = compactionOverflow(t, f, x)
 				if row.context > 0 {
 					binding.Provider.Models[0].Context, binding.Provider.Models[0].Output = row.context, row.context
 				}
@@ -321,6 +322,7 @@ func TestCompactionHandoff(t *testing.T) {
 		}
 		m := &scriptedModel{scripts: []script{refused, refused, refused, refused, refused, response(text(`{"user_intent":["Continue task"]}`), finish())}}
 		f, x, binding, state := compactionFixture(t, m)
+		state = compactionPrefix(t, f, x)
 		trigger := uint32(1)
 		binding.Provider.Models[0].CompactionTokens = &trigger
 		other := binding
@@ -379,7 +381,7 @@ func TestCompactionHandoff(t *testing.T) {
 			t.Fatal("a successful compaction left the threshold paused")
 		}
 	})
-	t.Run("automatic continuation", func(t *testing.T) {
+	t.Run("overflow continuation", func(t *testing.T) {
 		for _, merged := range []bool{false, true} {
 			f, x, binding, state := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue task"]}`), finish())}})
 			if merged {
@@ -396,6 +398,7 @@ func TestCompactionHandoff(t *testing.T) {
 				}
 				state = f.state()
 			}
+			state = compactionOverflow(t, f, x)
 			if err := f.r.compact(x, binding, state, false); err != nil {
 				t.Fatal(err)
 			}
@@ -434,7 +437,7 @@ func TestCompactionHandoff(t *testing.T) {
 				if err := f.r.save(f.ctx, f.session.ID, records...); err != nil {
 					t.Fatal(err)
 				}
-				before := f.state()
+				before := compactionOverflow(t, f, x)
 				if err := f.r.compact(x, binding, before, false); err != nil {
 					t.Fatal(err)
 				}

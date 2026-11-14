@@ -35,7 +35,7 @@ const agentContextObservationQuery = `SELECT h.sequence,
  (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
   WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
  coalesce(json_extract(e.body,'$.kind')='compaction',0),json_extract(revision.config,'$.model'),json_extract(e.body,'$.created'),
- CASE WHEN json_type(e.body,'$.metadata.execution.context_tokens')='integer' AND json_extract(e.body,'$.metadata.execution.context_tokens')>=0
+ CASE WHEN json_extract(e.body,'$.kind')!='compaction' AND json_type(e.body,'$.metadata.execution.context_tokens')='integer' AND json_extract(e.body,'$.metadata.execution.context_tokens')>=0
   THEN json_extract(e.body,'$.metadata.execution.context_tokens') END
  FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
  LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn

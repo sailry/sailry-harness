@@ -223,12 +223,25 @@ uses the captured model and defaults to 80% of its context window. Summaries do 
 delete original records or raw tool output. Context-length failures allow up to two
 reactive compactions.
 
-Compaction sends a bounded text transcript without tool definitions or attachment
-payloads. Attachment references remain recoverable, and pending user attachments
-survive into the next main request. Hidden history is filtered before attachment
-materialization. A successful compaction must reach a main request before another
-threshold compaction. Provider-reported usage alone enters usage and cost totals;
-local token estimates inform context budgeting without inventing billed usage.
+Compaction merges the previous summary and older messages into one bounded text
+handoff, retaining recent complete exchanges and tool-call/result groups in their
+original records. The retained tail targets at most 20,000 estimated tokens or
+20% of the model window, whichever is smaller; the newest indivisible exchange
+can exceed that soft target. The summary is projected before
+that tail even though its checkpoint is appended later in storage. Summaries
+contain attachment references rather than payloads and use no tool definitions;
+loaded tool declarations are retained only where used or discovered in the tail.
+An overflow recovery may summarize the full visible history while carrying the
+latest user request and its pending attachments. The previous summary is never
+silently omitted to make the summary request fit. A failed request leaves the
+original context intact; there is no background compaction or second summary pass.
+
+Hidden history is filtered before attachment materialization. A successful
+compaction must reach a main request before another threshold compaction.
+Provider-reported usage alone enters usage and cost totals; local token estimates
+inform context budgeting without inventing billed usage. After a checkpoint,
+context estimates count the summary and retained tail until a new main-model
+measurement is available.
 
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;

@@ -252,11 +252,12 @@ func copilotHeaders(request Request, records []canonical.Record, prompt fantasy.
 }
 
 // VisibleRecords selects what a request carries without changing its messages:
-// agent-visible records after the latest summary's boundary, with that summary
-// in place of the rest. It also accepts an already projected record list.
+// the latest summary followed by agent-visible records after its boundary.
+// It also accepts an already projected record list.
 func VisibleRecords(records []canonical.Record) []canonical.Record {
 	visibility := map[string]bool{}
 	boundary, summary := -1, -1
+	boundaryID := ""
 	for index, record := range records {
 		var operation *canonical.Operation
 		var compaction *canonical.Compaction
@@ -279,24 +280,32 @@ func VisibleRecords(records []canonical.Record) []canonical.Record {
 			}
 		}
 		if record.Kind == "compaction" && compaction != nil {
-			summary = index
-			for earlier := range index {
-				if records[earlier].ID == compaction.Boundary {
-					boundary, summary = earlier, index
-					break
-				}
-			}
+			summary, boundaryID = index, compaction.Boundary
+		}
+	}
+	for index := 0; index < summary; index++ {
+		if records[index].ID == boundaryID {
+			boundary = index
+			break
 		}
 	}
 	result := []canonical.Record{}
-	for index, record := range records {
-		if index > boundary && (record.Kind != "compaction" || index == summary) && agentVisible(record, visibility) {
+	appendRecord := func(record canonical.Record) {
+		if agentVisible(record, visibility) {
 			if record.Metadata.Runtime != nil && !record.Metadata.Runtime.AgentVisible {
 				runtime := *record.Metadata.Runtime
 				runtime.AgentVisible = true
 				record.Metadata.Runtime = &runtime
 			}
 			result = append(result, record)
+		}
+	}
+	if summary >= 0 {
+		appendRecord(records[summary])
+	}
+	for index, record := range records {
+		if index > boundary && record.Kind != "compaction" {
+			appendRecord(record)
 		}
 	}
 	return result

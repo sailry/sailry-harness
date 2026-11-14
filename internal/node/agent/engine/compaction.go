@@ -47,7 +47,10 @@ func contextTokens(records []canonical.Record) uint64 {
 			break
 		}
 	}
-	return pendingTokens(records[start:])
+	// Retained messages can precede the checkpoint in storage. Their old
+	// measurements describe the pre-compaction request, but their content
+	// still belongs to the new context alongside the latest summary.
+	return pendingTokens(records)
 }
 func pendingTokens(records []canonical.Record) uint64 {
 	var cache output.Cache
@@ -130,6 +133,20 @@ func (r *Runtime) compactionFailure(x *execution, binding model.Binding, earlier
 	return record
 }
 func (r *Runtime) compact(x *execution, binding model.Binding, state store.AgentState, manual bool) error {
+	selected := capturedModel(binding)
+	keepRecent := true
+	if last := lastMessage(state.Records); last != nil && last.Error != nil && last.Error.Code != nil && *last.Error.Code == "context_overflow" {
+		keepRecent = false
+	}
+	selection, useful := handoff.Select(state.Records, uint64(selected.Context), keepRecent)
+	if manual && !useful {
+		// An explicit request can summarize a short conversation whose entire
+		// history would otherwise fit in the retained tail.
+		selection, useful = handoff.Select(state.Records, uint64(selected.Context), false)
+	}
+	if !useful {
+		return nil
+	}
 	summaryID := protocol.NewRequestID().String()
 	if !manual {
 		progress, _ := json.Marshal(map[string]any{"type": "compacting", "started_ms": r.clock.Now().UnixMilli()})
@@ -139,7 +156,6 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if err != nil {
 		return err
 	}
-	selected := capturedModel(binding)
 	summaryBinding := model.Summary(binding)
 	output := model.OutputLimit(summaryBinding, true)
 	requestText := handoff.Request
@@ -162,7 +178,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		}
 		return failure
 	}
-	system, err := handoff.Prepare(state.Records, uint64(selected.Context), uint64(output), requestText)
+	system, err := handoff.Prepare(selection.Prefix, uint64(selected.Context), uint64(output), requestText)
 	if err != nil {
 		return failed(protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, err)
 	}
@@ -233,16 +249,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}
 	rendered := summary.Render()
-	var boundary *canonical.Record
-	for i := len(state.Records) - 1; i >= 0; i-- {
-		if state.Records[i].Message() != nil {
-			boundary = &state.Records[i]
-			break
-		}
-	}
-	if boundary == nil {
-		return failed(protocol.ConversationCompactionStageHistory, protocol.ConversationCompactionReasonHistoryMismatch, fmt.Errorf("conversation has no compaction boundary"))
-	}
+	boundary := selection.Boundary
 	message := canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
 	message.Model = &binding.Config.Model
 	message.Usage = &usage
@@ -262,8 +269,24 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	runtime := canonical.DefaultRuntime()
 	runtime.UserVisible = false
 	record.Metadata.Runtime = &runtime
-	loaded := retainedTools(state)
+	tailState := state
+	tailState.Records = selection.Tail
+	loaded := retainedTools(tailState)
 	record.Metadata.Context = &canonical.Context{LoadedTools: &loaded}
+	var records []canonical.Record
+	if len(attempts) > 0 {
+		for _, attempt := range attempts[:len(attempts)-1] {
+			records = append(records, r.observationRecord(x, binding, canonical.PurposeCompaction, attempt))
+		}
+		last := r.observationRecord(x, binding, canonical.PurposeCompaction, attempts[len(attempts)-1])
+		record.Metadata.Execution = last.Metadata.Execution
+	}
+	records = append(records, record)
+	if len(selection.Tail) > 0 {
+		// The original tail remains after Boundary. Projection puts the new
+		// summary before it, so no copied messages or synthetic reply is needed.
+		return r.save(x.ctx, x.inv.Session.ID, records...)
+	}
 	continuation := "Your context was compacted. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nContinue calling tools as necessary to complete the task."
 	if manual {
 		continuation = "Your context was compacted at the user's request. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
@@ -308,15 +331,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	continued := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, continuation)), r.clock.Now())
 	continued.Provenance.Author = "assistant"
 	continued.Metadata.Runtime = &runtime
-	var records []canonical.Record
-	if len(attempts) > 0 {
-		for _, attempt := range attempts[:len(attempts)-1] {
-			records = append(records, r.observationRecord(x, binding, canonical.PurposeCompaction, attempt))
-		}
-		last := r.observationRecord(x, binding, canonical.PurposeCompaction, attempts[len(attempts)-1])
-		record.Metadata.Execution = last.Metadata.Execution
-	}
-	records = append(records, record, continued)
+	records = append(records, continued)
 	if preserved != nil {
 		var blocks []canonical.Block
 		for _, block := range preserved.Message().Content {

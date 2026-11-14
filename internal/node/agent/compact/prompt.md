@@ -1,5 +1,5 @@
 ## Task
-You are writing a handoff for yourself. The conversation below reached its context budget, and the next model request will see only this handoff in place of the history. Produce the handoff only: do not continue the task, answer questions, or call tools.
+You are updating a handoff for yourself. The conversation below is the older history being replaced. The next model request receives this handoff followed by any recent messages retained separately. Summarize only the supplied history; do not invent later progress. Produce the handoff only: do not continue the task, answer questions, or call tools.
 
 **Conversation History:**
 {{ messages }}
@@ -14,7 +14,7 @@ Keep only what is needed to continue the work correctly:
 - Essential context: exact paths, symbols, commands, error strings, commit, task or child session IDs, and where to retrieve original records again
 
 ## Rules
-- If the history starts with an earlier summary, merge it with the newer progress into one current handoff. Drop details that are resolved, stale, or duplicated. A merged handoff must not grow just because more work happened: reduce finished work to one line and drop it once it no longer affects the next steps
+- If the history starts with an earlier summary, update it with the supplied progress into one current handoff. Preserve every still-active goal, constraint and unresolved task from it. Drop details only when the supplied history establishes that they are resolved, stale, or duplicated. A merged handoff must not grow just because more work happened: reduce finished work to one line and drop it once it no longer affects the next steps
 - Do not copy full source files, diffs, long logs, tool argument lists, or documentation that can be read again. Reference them by path or command instead
 - Do not repeat system rules, environment details, skill bodies, or other instructions that are re-injected automatically. Name a skill that is still in use instead of copying it
 - Keep key identifiers exact. Never state an unverified guess as a fact; mark uncertainty explicitly
