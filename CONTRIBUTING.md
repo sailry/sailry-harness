@@ -223,8 +223,7 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
   that GNU libc through cargo-zigbuild, then check that the library needs
   nothing newer and that `internal/node/wsl/preflight.sh` names the same
   version.
-- `apps/mobile`: Flutter analysis and tests only for `apps/mobile` or
-  `internal/mobile` changes.
+- `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds for Mobile, shared Client/Link/Protocol, native iroh or build-input changes; CI uses a disposable APK signer and disables iOS signing.
 - `integration`: never on pull requests or main. Manually with the
   `integration` input it tests `integration_packages`; left empty, and in a
   release, it tests the release set named in the workflow: packages that need

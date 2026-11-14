@@ -299,7 +299,11 @@
 			);
 			name = "Build Sailry Native";
 			outputPaths = (
+				"$(SAILRY_NATIVE_DIR)/libsailry_mobile.a",
+				"$(SAILRY_NATIVE_DIR)/SailryIroh.framework/SailryIroh",
+				"$(SAILRY_NATIVE_DIR)/SailryIroh.framework/Info.plist",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/SailryIroh.framework/SailryIroh",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/SailryIroh.framework/Info.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

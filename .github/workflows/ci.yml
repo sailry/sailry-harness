@@ -1,7 +1,7 @@
 name: CI
 
-# Checks only. release.yml calls this workflow on a version tag and owns
-# every packaging and publishing step.
+# Checks and build verification only. release.yml owns distribution signing
+# and publishing, and calls this workflow on a version tag.
 on:
   pull_request:
   push:
@@ -70,7 +70,7 @@ jobs:
           if [ -n "$base" ]; then
             changed=$(git diff --name-only "$base" HEAD)
             printf '%s\n' "$changed" | grep -Eq '^native/(iroh|capture)/' || native=false
-            printf '%s\n' "$changed" | grep -Eq '^(apps/mobile|internal/mobile)/' || mobile=false
+            printf '%s\n' "$changed" | grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol)|native/iroh)/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$' || mobile=false
           fi
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
@@ -248,21 +248,73 @@ jobs:
           if-no-files-found: error
 
   mobile:
-    name: apps/mobile
+    name: apps/mobile (Android)
     needs: lint
     if: needs.lint.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: ''
     defaults:
       run:
         working-directory: apps/mobile
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.44.7'
+          channel: stable
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+        with:
+          cmdline-tools-version: '15859902'
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
+      - name: Native prerequisites
+        working-directory: native/iroh
+        run: |
+          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
+          rustup toolchain install
+          rustup target add aarch64-linux-android
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
+      - name: Build ARM64 release APK
+        run: flutter build apk --release --no-pub --target-platform android-arm64
+
+  mobile-ios:
+    name: apps/mobile (iOS)
+    needs: lint
+    if: needs.lint.outputs.mobile == 'true'
+    runs-on: macos-15
+    env:
+      CGO_ENABLED: ''
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Native prerequisites
+        working-directory: native/iroh
+        run: |
+          xcodebuild -version
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+      - run: flutter pub get --enforce-lockfile
+      - name: Build unsigned iOS release
+        run: flutter build ios --release --no-pub --no-codesign
 
   # Integration tests never run on pull requests or main. A manual run chooses
   # its packages; a release runs RELEASE_PACKAGES.

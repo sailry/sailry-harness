@@ -4,7 +4,12 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 platform=${1:?A platform is required}
 target=${2:?A target is required}
-cargo=$(rustup which --toolchain 1.98.0 cargo)
+# Cargo also launches rustc from the caller's directory, outside native/iroh.
+# Pin its subprocesses as well as Cargo itself.
+export RUSTUP_TOOLCHAIN=1.98.0
+cargo=$(rustup which cargo)
+RUSTC=$(rustup which rustc)
+export RUSTC
 unset GOROOT
 export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 
