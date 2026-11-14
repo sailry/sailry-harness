@@ -2,17 +2,19 @@ package settings
 
 import (
 	"cmp"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // permissions is each permission with its status, its system settings and the
-// request, the check of them all, and the full disk access help while it is
-// not granted. Asking the system and opening its settings are the system's,
+// request, the check of them all, and the help for the grants made by adding
+// the application to a list while one of them is missing. Asking the system and opening its settings are the system's,
 // which the preview does not do.
 func permissions(c *ui.Context, m *Model) {
 	// The live page checks, asks and opens the system's settings; a row is
@@ -57,10 +59,17 @@ func permissions(c *ui.Context, m *Model) {
 			}
 		})
 	})
-	for _, x := range m.Permissions {
-		if x.Resource != "permission_full_disk" || x.Status == "permission_granted" || x.Status == "permission_remote" || x.Status == "permission_unavailable" {
-			continue
+	// Full disk access, accessibility and screen recording are granted by
+	// adding the application to a list in the system's settings: the help
+	// and Show app stay while any of them is missing here.
+	if slices.ContainsFunc(m.Permissions, func(x preview.Permission) bool {
+		switch x.Resource {
+		case "permission_full_disk", "permission_accessibility", "permission_screen":
+		default:
+			return false
 		}
+		return x.Status != "permission_granted" && x.Status != "permission_not_needed" && x.Status != "permission_remote" && x.Status != "permission_unavailable"
+	}) {
 		kit.Alert(c, "disk-help", kit.Info, i18n.T(c, "permission_disk_help"), func() {
 			label := i18n.T(c, "permission_show_app")
 			ghostIcon(c, icons.FolderOpen, label).OnClick(act(func(a *PermissionActions) { a.ShowApp() }))
