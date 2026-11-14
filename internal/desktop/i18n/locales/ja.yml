@@ -636,7 +636,7 @@ turn_compacting: 圧縮中
 turn_tools_running: 実行中
 composer_mode_code: 標準
 composer_mode_plan: 計画
-composer_mode_flagship: フラッグシップ
+composer_mode_flagship: 協働
 composer_mode_code_description: コードやファイル、資料を扱い、幅広い作業に対応
 composer_mode_plan_description: プロジェクトや方針を計画し、コード実行やファイル書き込みは行いません
 composer_mode_flagship_description: 複数エージェントでコードやファイルを扱い、リファクタリングや整理に対応

@@ -636,7 +636,7 @@ turn_compacting: 正在壓縮
 turn_tools_running: 正在執行
 composer_mode_code: 標準
 composer_mode_plan: 計畫
-composer_mode_flagship: 旗艦
+composer_mode_flagship: 協作
 composer_mode_code_description: 處理程式碼、檔案和資料，適合大多數任務
 composer_mode_plan_description: 規劃專案與方案，不執行程式碼或寫入檔案
 composer_mode_flagship_description: 多代理協作處理程式碼和檔案，適合重構與整理

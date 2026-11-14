@@ -48,7 +48,7 @@ to your code and data, driven from the desktop app or your phone on the
 ### An agent beyond code
 
 - **Code** — three work modes (Standard; Plan, which plans without running code or writing
-  files; Flagship, which runs an agent team), multi-file edits, Git and worktrees, terminals
+  files; Collaborate, which runs an agent team), multi-file edits, Git and worktrees, terminals
   and code review.
 - **Browse and operate** — a built-in browser the agent reads, clicks and screenshots; pick page
   elements straight into the conversation; desktop computer use.
@@ -62,7 +62,7 @@ to your code and data, driven from the desktop app or your phone on the
 
 ### Agent teams, one model per seat
 
-Flagship mode fans work out to parallel subagents, each on its own model — DeepSeek writes the
+Collaborate mode fans work out to parallel subagents, each on its own model — DeepSeek writes the
 code, Claude plans, Codex takes the hard problems — and every step stays visible in the
 conversation, where you approve actions as they run.
 

@@ -1252,7 +1252,7 @@ composer_mode_code: "标准"
 composer_mode_plan: "计划"
 composer_mode_code_description: "处理代码、文件和资料，适合大多数任务"
 composer_mode_plan_description: "规划项目与方案，不运行代码或写入文件"
-composer_mode_flagship: "旗舰"
+composer_mode_flagship: "协作"
 composer_mode_flagship_description: "多代理协作处理代码和文件，适合重构与整理"
 composer_context: 上下文 —
 composer_no_project: 对话
