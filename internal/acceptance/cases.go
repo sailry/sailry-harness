@@ -32,6 +32,8 @@ func backendCases() []backendCase {
 		{"F03", "Write input and stop a background process", false, commands, caseCommandInput},
 		{"F07", "Retain bounded large command output", false, commands, caseLargeCommand},
 		{"I01", "Approve only the requested fixture write", true, files, caseApprove},
+		{"I02-sandbox-ask", "Sandbox denial and one exact unrestricted retry", false, commands, caseSandboxAsk},
+		{"I03-sandbox-full", "Full permission executes default and workspace requests unrestricted", false, commands, caseSandboxFull},
 		{"I04", "Deny a fixture write without changing the file", false, files, caseDeny},
 		{"J01", "Answer a concrete choice question", true, nil, caseQuestionChoice},
 		{"J02", "Answer a yes-or-no question", false, nil, caseQuestionText},

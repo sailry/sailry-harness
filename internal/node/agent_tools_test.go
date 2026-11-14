@@ -97,9 +97,14 @@ func (script *agentToolScript) Stream(_ context.Context, call fantasy.Call) (fan
 func TestAgentManagementTools(t *testing.T) {
 	script := &agentToolScript{}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	var processMu sync.Mutex
+	var processCalls []process.Launch
 	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{
 		Environment: &environment, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil },
-		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(context.Context, process.Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
+		Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(_ context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+			processMu.Lock()
+			processCalls = append(processCalls, launch)
+			processMu.Unlock()
 			return protocol.ProcessCompletion{}, errors.New("management tools must not launch a process")
 		}},
 	})
@@ -595,6 +600,48 @@ func TestAgentManagementTools(t *testing.T) {
 		}
 	})
 
+	t.Run("full access commands bypass the workspace sandbox", func(t *testing.T) {
+		current := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
+		if !current.Enabled {
+			t.Fatal("fixture requires the default enabled sandbox")
+		}
+		processMu.Lock()
+		before := len(processCalls)
+		processMu.Unlock()
+		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string {
+			t.Fatal("full permission commands must not ask")
+			return "deny"
+		}, func(step int, _ map[string]string) [][3]string {
+			if step == 1 {
+				return [][3]string{
+					{"default", "run_command", `{"command":"git --no-pager diff"}`},
+					{"workspace", "run_command", `{"command":"git --no-pager diff","access":"workspace"}`},
+					{"unrestricted", "run_command", `{"command":"git --no-pager diff","access":"unrestricted"}`},
+				}
+			}
+			return nil
+		})
+		if len(approvals) != 3 {
+			t.Fatalf("command approvals = %d, want 3", len(approvals))
+		}
+		for _, approval := range approvals {
+			if approval.Source != protocol.ConversationApprovalSourceFull || approval.State != protocol.ConversationApprovalStateApproved || approval.Access == nil || *approval.Access != protocol.ProcessAccessUnrestricted {
+				t.Fatalf("full command retained workspace access: %+v", approval)
+			}
+		}
+		processMu.Lock()
+		launches := slices.Clone(processCalls[before:])
+		processMu.Unlock()
+		if len(launches) != 3 {
+			t.Fatalf("prepared command launches = %d, want 3", len(launches))
+		}
+		for _, launch := range launches {
+			if launch.Access != protocol.ProcessAccessUnrestricted {
+				t.Fatalf("executed command differs from full approval: %s", launch.Access)
+			}
+		}
+	})
+
 	// With the sandbox setting off a command is an ordinary approval the
 	// session can remember, and each command reads the setting as it is now.
 	// The fixture launches nothing: the calls fail after their approval.
@@ -793,6 +840,7 @@ func TestAgentManagementTools(t *testing.T) {
 					{"agent", "add_agent", `{"key":"planner","name":"Planner","instructions":"Plan"}`},
 					{"keep", roles("drop"), `{"role":"` + protocol.NewRoleID().String() + `","expected_revision":"1"}`},
 					{"ocr-install", ocr("install_ocr_model"), `{"id":"` + unknown + `"}`},
+					{"command", "run_command", `{"command":"git --no-pager diff"}`},
 				}
 			}
 			return nil
@@ -808,6 +856,7 @@ func TestAgentManagementTools(t *testing.T) {
 			"agent":         {"permission_denied", "planning mode permits read-only tools"},
 			"keep":          {"permission_denied", "planning mode permits read-only tools"},
 			"ocr-install":   {"permission_denied", "planning mode permits read-only tools"},
+			"command":       {"permission_denied", "planning mode permits read-only tools"},
 		})
 		if len(approvals) != 0 {
 			t.Fatalf("plan mode recorded approvals: %+v", approvals)

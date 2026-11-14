@@ -68,7 +68,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					return err
 				}
 			}
-			command, err := operations.Command(declaration.Operation, call.Arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled)
+			// Full access is the admitted turn's policy, including for children.
+			// Normalize access before approval captures the command to execute.
+			command, err := operations.Command(declaration.Operation, call.Arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull)
 			if declaration.Operation == protocol.ToolOperationApplyChanges {
 				var patch struct {
 					Input string `json:"input"`
