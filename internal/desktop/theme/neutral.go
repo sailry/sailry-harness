@@ -7,7 +7,10 @@ import "github.com/egoist/mygo/ui"
 // leaves out keeps these values.
 func neutral(dark bool) map[string]string {
 	base, fg, mfg := "#ffffff", "#000000e0", "#00000099"
-	surface, inset, hover, active, border := "#00000006", "#00000006", "#00000010", "#00000008", "#00000010"
+	// Light fills step up from the page: the composer's inset fill reads as
+	// a box, the selected row is stronger than the hovered one, and a border
+	// (input edges, dashed empty states) shows on white.
+	surface, inset, hover, active, border := "#00000008", "#00000012", "#0000000d", "#00000014", "#0000001a"
 	box, button := "#00000000", "#00000000" // light group boxes and buttons are clear
 	m := map[string]string{
 		"sidebar.background":               "#fafafa",

@@ -183,8 +183,13 @@ func foldTests(t *testing.T) {
 		scale := float32(img.Bounds().Dx()) / 760
 		ground := img.At(int((header.X+header.W/2)*scale), int((header.Y+header.H-2)*scale))
 		y := int((header.Y + header.H + 4.5) * scale)
+		// The frosted fills carry a level or two of dither, and the tray's
+		// differs that little from the composer's under it; the hairline is
+		// the border, tens of levels darker.
+		gr, gg, gb, _ := ground.RGBA()
 		for x := int((header.X + 16) * scale); x < int((header.X+header.W-16)*scale); x++ {
-			if img.At(x, y) == ground {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if max(diff(r, gr), diff(g, gg), diff(b, gb)) <= 4<<8 {
 				return false
 			}
 		}
@@ -626,4 +631,11 @@ func TestQueueLead(t *testing.T) {
 	if cv := preview.Demo("en", "local").Find(preview.DemoStart); !slices.ContainsFunc(cv.Queue, func(q composer.Queued) bool { return q.Notice }) {
 		t.Error("the demo's queue has no background notice")
 	}
+}
+
+func diff(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
 }

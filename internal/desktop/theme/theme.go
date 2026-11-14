@@ -329,7 +329,7 @@ func (p *Palette) SidebarItem(selected, hovered bool) ui.Color {
 	if !p.Dark {
 		switch {
 		case selected && hovered:
-			return p.Active.MixOklab(p.Hover, 0.75)
+			return p.Selected()
 		case selected:
 			return p.Active
 		case hovered:
@@ -352,7 +352,7 @@ func (p *Palette) SidebarItem(selected, hovered bool) ui.Color {
 // Selected is the neutral fill of the chosen row of a list that marks its
 // choice by the fill alone, as the model picker's: Active laid over Hover.
 // It is therefore stronger than Hover, the fill of the row under the
-// pointer, in every theme; the built-in light theme's Active alone is
+// pointer, in every theme, including a package whose Active alone is
 // fainter than its Hover.
 func (p *Palette) Selected() ui.Color {
 	top, under := float32(p.Active.A)/255, float32(p.Hover.A)/255
