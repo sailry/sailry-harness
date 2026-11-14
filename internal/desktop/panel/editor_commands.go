@@ -20,8 +20,9 @@ func (pr *Project) runEditorAction(c *ui.Context, path, action string) {
 	}
 	if action == "find" || action == "replace" {
 		item.source = 1
+		state.pendingEdit = false
 		state.pending = func(native *editor.State) {
-			if action == "replace" && item.writable {
+			if action == "replace" && pr.fileWritable(item) {
 				native.Run(editor.FindReplace)
 			} else {
 				native.Find("")
@@ -29,7 +30,7 @@ func (pr *Project) runEditorAction(c *ui.Context, path, action string) {
 		}
 		return
 	}
-	if !item.writable {
+	if !pr.fileWritable(item) {
 		return
 	}
 	rich := markdownFile(path) && item.source == 0 && state.richSafe && state.rich != nil
@@ -69,6 +70,10 @@ func (pr *Project) runEditorAction(c *ui.Context, path, action string) {
 			label, fields, values = "files_insert_image", []string{"content_image_address", "content_image_alt"}, []string{"", ""}
 		}
 		pr.Prompt(label, fields, values, func(values []string, finish func(bool)) {
+			if !pr.fileWritable(item) {
+				finish(false)
+				return
+			}
 			switch {
 			case rich && action == "link":
 				state.rich.SetLink(strings.TrimSpace(values[0]))

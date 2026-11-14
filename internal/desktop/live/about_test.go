@@ -5,11 +5,141 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestUpdateDocumentLock(t *testing.T) {
+	for kind := updater.Idle; kind <= updater.Stopped; kind++ {
+		want := kind == updater.Installing || kind == updater.Restarting || kind == updater.Stopped
+		if got := updateLocksDocuments(kind); got != want {
+			t.Fatalf("document lock for state %d = %v, want %v", kind, got, want)
+		}
+	}
+}
+
+func updateEditorWindow(fixture pluginLocationTestFixture, path string) (*ui.Tester, *workspaceProject) {
+	root := fixture.root
+	project := root.workspaceFor(fixture.main)
+	project.panel.Data = &viewmodel.Workspace{Files: &viewmodel.FileNode{Children: []*viewmodel.FileNode{{Path: path, Name: path, Text: "Original text"}}}}
+	project.panel.Actions = &panel.Actions{}
+	project.panel.SetFile(path, "Original text")
+	project.panel.SetFileWritable(path, true)
+	project.panel.Files.Show(path)
+	tester := ui.NewTester(func(c *ui.Context) {
+		root.beforeUpdateFrame()
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { panel.Page(c, panel.Files, project.panel, func() {}) })
+		root.afterUpdateFrame()
+	}, 1000, 650)
+	tester.SetLocale("en")
+	return tester, project
+}
+
+func TestUpdatePendingNativeInput(t *testing.T) {
+	for _, path := range []string{"note.txt", "note.md"} {
+		t.Run(path, func(t *testing.T) {
+			first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
+			updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+			t.Cleanup(updates.Service.Close)
+			first.root.SetUpdates(updates, func() bool { return true })
+			second.root.SetUpdates(updates, func() bool { return false })
+			window, project := updateEditorWindow(second, path)
+			label := "Code editor"
+			if path == "note.md" {
+				label = "Rich text"
+			}
+			field, ok := window.Access(label)
+			if !ok {
+				t.Fatal("editor is missing", label)
+			}
+			window.ClickAt(field.Bounds.X+40, field.Bounds.Y+8)
+			// The first window has applied its lock, while the second has
+			// not rendered since the request. Type delivers native input
+			// before its next frame invokes beforeUpdateFrame.
+			updates.install = &updateInstall{requester: first.root, windows: map[*Runtime]uint8{first.root: 2, second.root: 0}}
+			window.Type("late input")
+			if updates.install != nil || first.root.documentsLocked() || second.root.documentsLocked() {
+				t.Fatal("pending native input did not cancel installation")
+			}
+			if draft, dirty := project.panel.FileDraft(path); !dirty || !strings.Contains(draft, "late input") {
+				t.Fatal("pending native input was not retained", draft, dirty)
+			}
+		})
+	}
+}
+
+func TestUpdateFlushPendingWindows(t *testing.T) {
+	for _, hidden := range []bool{false, true} {
+		name := "already rendered"
+		if hidden {
+			name = "hidden"
+		}
+		t.Run(name, func(t *testing.T) {
+			first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
+			updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+			t.Cleanup(updates.Service.Close)
+			first.root.SetUpdates(updates, func() bool { return true })
+			second.root.SetUpdates(updates, func() bool { return false })
+			visible, _ := updateEditorWindow(first, "first.txt")
+			other, _ := updateEditorWindow(second, "second.md")
+			var callbacks []func()
+			first.root.SetUpdate(func(fn func()) { callbacks = append(callbacks, fn) })
+			callbacks = nil
+			flushes := 0
+			first.root.updatesFlush = func() error {
+				t.Fatal("the active frame's window was captured recursively")
+				return nil
+			}
+			second.root.updatesFlush = func() error {
+				flushes++
+				other.Frame()
+				return nil
+			}
+			updates.install = &updateInstall{requester: first.root, windows: map[*Runtime]uint8{first.root: 0, second.root: 0}}
+			if !hidden {
+				other.Frame()
+			}
+			visible.Frame()
+			for len(callbacks) > 0 {
+				fn := callbacks[0]
+				callbacks = callbacks[1:]
+				fn()
+			}
+			want := 0
+			if hidden {
+				want = 1
+			}
+			if flushes != want || updates.install != nil {
+				t.Fatalf("flushes=%d want=%d pending=%v", flushes, want, updates.install != nil)
+			}
+		})
+	}
+}
+
+func TestUpdateFlushWithoutLockFrame(t *testing.T) {
+	first, second := newPluginLocationTestFixture(t), newPluginLocationTestFixture(t)
+	updates := NewUpdates(first.root.Preferences, t.TempDir(), nil, nil)
+	t.Cleanup(updates.Service.Close)
+	first.root.SetUpdates(updates, func() bool { return true })
+	second.root.SetUpdates(updates, func() bool { return false }, func() error { return nil })
+	updates.install = &updateInstall{requester: first.root, windows: map[*Runtime]uint8{first.root: 2, second.root: 0}}
+	updates.flushInstall(updates.install)
+	if updates.install != nil || first.root.documentsLocked() || second.root.documentsLocked() {
+		t.Fatal("an unacknowledged refresh left installation waiting or editors locked")
+	}
+	window := closeTestWindow(first.root)
+	if !window.HasText(i18n.In("en", "updates_install_failed")) {
+		t.Fatal("the rejected installation did not report its failure")
+	}
+}
 
 // checkSystemHelpers covers the About, diagnostics and selection mappings.
 func checkSystemHelpers(t *testing.T) {

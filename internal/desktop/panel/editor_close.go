@@ -31,7 +31,7 @@ func (pr *Project) editorCloseDialog(c *ui.Context) {
 	}
 	buttons := []string{i18n.T(c, "settings_cancel"), i18n.T(c, "files_discard")}
 	defaultButton := 1
-	if item.writable && pr.Actions.SaveFile != nil {
+	if pr.fileWritable(item) && pr.Actions.SaveFile != nil {
 		buttons = append(buttons, i18n.T(c, "files_save"))
 		defaultButton = 2
 	}

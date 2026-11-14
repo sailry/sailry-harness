@@ -22,6 +22,9 @@ type Project struct {
 	Data     *preview.Workspace
 	Files    FileView
 	Git      GitView
+	// DocumentsLocked temporarily prevents new edits while the application
+	// installs an update and the local Node can no longer save drafts.
+	DocumentsLocked func() bool
 	// reveal shows a file of the tree in the host's Files, as the host
 	// showing the project last sets it.
 	reveal func(path string)
@@ -58,6 +61,7 @@ type fileItem struct {
 	loaded, dirty       bool
 	writable            bool
 	editor              *editor.State
+	editorVersion       uint64
 	document            *documentEditor
 	pendingLine         int
 	source              int // 0 the document, 1 its source, for markdown

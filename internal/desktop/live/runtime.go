@@ -125,6 +125,7 @@ type Runtime struct {
 	compactionObserved    uint64
 	updates               *Updates
 	updatesFocused        func() bool
+	updatesFlush          func() error
 	prefsRevision         uint64
 	conversationWatches   map[protocol.SessionID]func()
 	conversationSeen      map[protocol.SessionID]bool
@@ -338,6 +339,11 @@ func (r *Runtime) Close() error {
 	}
 	r.closed = true
 	r.mu.Unlock()
+	if r.updates != nil {
+		// A closing window no longer needs to acknowledge an installation's
+		// read-only frame. The remaining UI frames remove it from the wait.
+		r.updates.changed()
+	}
 	if r.unsubscribe != nil {
 		r.unsubscribe()
 	}
@@ -411,6 +417,7 @@ func (r *Runtime) enqueue(f func(*ui.Context)) {
 // drain is called only by App.View on MyGo's UI thread. Background callbacks
 // touch the mutex-protected queue, never presentation fields.
 func (r *Runtime) drain(c *ui.Context) {
+	r.beforeUpdateFrame()
 	r.conversationSeen, r.conversationCopies = map[protocol.SessionID]bool{}, map[protocol.SessionID]conversationCopy{}
 	r.syncNetwork()
 	for _, bound := range r.bindings {
@@ -536,6 +543,7 @@ func (r *Runtime) afterFrame() {
 		}
 	}
 	r.savePreferences()
+	r.afterUpdateFrame()
 }
 
 func (r *Runtime) finishFrame() {

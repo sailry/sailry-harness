@@ -21,10 +21,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 )
 
-// topButton is the highest of the visible buttons named name: a toast's
-// action, above the page's button of the same name.
+// aboutActions excludes the shell's disabled Details toggle from the updater's
+// actionable Details buttons on its toast and page.
+func aboutActions(w *terminalUI, name string) []ui.AccessInfo {
+	return slices.DeleteFunc(w.buttons(name), func(button ui.AccessInfo) bool { return button.Disabled })
+}
+
+// topButton is the highest enabled button named name: a toast's action,
+// above the page's button of the same name.
 func topButton(w *terminalUI, name string, count int) (ui.AccessInfo, bool) {
-	found := w.buttons(name)
+	found := aboutActions(w, name)
 	if len(found) != count {
 		return ui.AccessInfo{}, false
 	}
@@ -155,7 +161,7 @@ func TestSystemAboutUI(t *testing.T) {
 	for range 30 {
 		window.frame()
 	}
-	if u.Failure != nil || len(window.buttons("Details")) != 0 || shown(window, "Sailry is up to date") != 0 {
+	if u.Failure != nil || len(aboutActions(window, "Details")) != 0 || shown(window, "Sailry is up to date") != 0 {
 		t.Fatalf("a cancelled check reported %+v; visible text: %q", u.Failure, window.tester.Texts())
 	}
 	press(window, "Check for updates")
@@ -207,7 +213,7 @@ func TestSystemAboutUI(t *testing.T) {
 	for range 30 {
 		window.frame()
 	}
-	if u.Failure != nil || len(window.buttons("Details")) != 0 {
+	if u.Failure != nil || len(aboutActions(window, "Details")) != 0 {
 		t.Fatalf("a cancelled download reported %+v", u.Failure)
 	}
 	untouched("after a cancelled download")
@@ -268,7 +274,12 @@ func TestSystemAboutUI(t *testing.T) {
 	settle(window, "the toast's Details opens the failure's detail", systemUIWait, func() bool { return detail != "" && visible(window, detail) })
 	window.tester.Key(0, ui.KeyEscape)
 	settle(window, "the details close", systemUIWait, func() bool { return !visible(window, detail) })
-	press(window, "Details")
+	settle(window, "the page's Details action", systemUIWait, func() bool {
+		var found bool
+		action, found = topButton(window, "Details", 1)
+		return found
+	})
+	window.clickOn(action)
 	settle(window, "the page's Details opens the failure's detail", systemUIWait, func() bool { return visible(window, detail) })
 	window.tester.Key(0, ui.KeyEscape)
 	settle(window, "the details close again", systemUIWait, func() bool { return !visible(window, detail) })

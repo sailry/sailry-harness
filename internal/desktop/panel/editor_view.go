@@ -22,6 +22,11 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 		return
 	}
 	item := pr.Files.item(path)
+	if own {
+		// A page can take over a closing panel's editor before its next
+		// Changed callback. Retain that native input before rebinding it.
+		pr.syncDocument(path, item)
+	}
 	if item.documentState().unavailable && !item.dirty {
 		empty(c, icons.File, "file_empty")
 		return
@@ -46,8 +51,8 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 	case notebook && item.source == 0:
 		pr.notebookEditorPreview(c, path, own)
 	case markdown && item.source == 0 && state.richSafe:
-		ui.Column(c.Key("document")).Bind(state.focusFor(own)).Grow(1).MinHeight(0).Padding(12, 16).Children(func() {
-			options := richtext.EditorOptions{ReadOnly: !item.writable, OnLinkCommand: func() { pr.runEditorAction(c, path, "link") }, OnKey: func(key ui.Key, mods ui.Modifiers) bool { return pr.editorKey(c, path, key, mods) }}
+		ui.Column(c.Key("document")).Bind(state.focusFor(own)).Disabled(!own || pr.documentsLocked()).Grow(1).MinHeight(0).Padding(12, 16).Children(func() {
+			options := richtext.EditorOptions{ReadOnly: !own || !pr.fileWritable(item), OnLinkCommand: func() { pr.runEditorAction(c, path, "link") }, OnKey: func(key ui.Key, mods ui.Modifiers) bool { return pr.editorKey(c, path, key, mods) }}
 			if richtext.EditorBase(c.Key(path), state.rich, options).Grow(1).MinHeight(0).Changed() {
 				pr.syncRichDraft(path)
 			}
@@ -55,8 +60,8 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 	case markdown && item.source == 0:
 		ui.Scroll(c.Key("document")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 16).Children(func() { kit.Markdown(c, item.draft+item.suffix, kit.MarkdownProps{}) })
 	default:
-		ui.Scroll(c.Key("text")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 0).Children(func() {
-			kit.Code(c, ui.Column(c.Key(path)), item.draft, kit.CodeOptions{Language: editor.LanguageFor(path), Numbers: true, Editable: item.writable, Changed: func(text string) {
+		ui.Scroll(c.Key("text")).Bind(state.focusFor(own)).Disabled(!own || pr.documentsLocked()).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 0).Children(func() {
+			kit.Code(c, ui.Column(c.Key(path)), item.draft, kit.CodeOptions{Language: editor.LanguageFor(path), Numbers: true, Editable: own && pr.fileWritable(item), Changed: func(text string) {
 				pr.FileChanged(path, text)
 			}, Bind: func(native *editor.State) {
 				if !own || item.editor != native {
@@ -67,12 +72,13 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 				if own {
 					pr.bindEditor(path, native)
 				}
-				native.ReadOnly = !item.writable
+				native.ReadOnly = !own || !pr.fileWritable(item)
 				native.OnInput = func(event ui.InputEvent) bool {
 					return event.Kind == ui.InputKeyDown && pr.editorKey(c, path, event.Key, event.Mods)
 				}
-				if pending := state.pending; own && pending != nil {
+				if pending := state.pending; own && pending != nil && (!state.pendingEdit || pr.fileWritable(item)) {
 					state.pending = nil
+					state.pendingEdit = false
 					pending(native)
 				}
 			}})
@@ -95,7 +101,7 @@ func (pr *Project) editorKey(c *ui.Context, path string, key ui.Key, mods ui.Mod
 		pr.saveEditor(c, path)
 		return true
 	}
-	if !markdownFile(path) || !pr.Files.item(path).writable {
+	if !markdownFile(path) || !pr.fileWritable(pr.Files.item(path)) {
 		return false
 	}
 	action := ""
@@ -117,7 +123,7 @@ func (pr *Project) editorKey(c *ui.Context, path string, key ui.Key, mods ui.Mod
 }
 func (pr *Project) saveEditor(c *ui.Context, path string) {
 	item := pr.Files.item(path)
-	if item.writable && item.loaded && item.dirty && !item.documentState().saving && !item.documentState().partial && pr.Actions != nil && pr.Actions.SaveFile != nil {
+	if pr.fileWritable(item) && item.loaded && item.dirty && !item.documentState().saving && !item.documentState().partial && pr.Actions != nil && pr.Actions.SaveFile != nil {
 		pr.Actions.SaveFile(c, path, item.draft+item.suffix)
 	}
 }

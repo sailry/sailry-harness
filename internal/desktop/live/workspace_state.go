@@ -219,6 +219,7 @@ func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	}
 	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]viewmodel.FileChange{}, reviewTurns: map[string]protocol.TurnID{}}
 	project.panel = panel.NewLiveProject(worktree.ID.String(), project.data, project.actions())
+	project.panel.DocumentsLocked = r.documentsLocked
 	r.workspace.projects[worktree.ID] = project
 	return project
 }

@@ -14,6 +14,7 @@ func (pr *Project) Unsaved() []string {
 		return nil
 	}
 	for path, item := range pr.Files.items {
+		pr.syncDocument(path, item)
 		if item.dirty {
 			paths = append(paths, path)
 		}
@@ -32,6 +33,17 @@ func (pr *Project) Saving() bool {
 	return false
 }
 
+// PendingEdits reports document mutations queued for the source editor's next
+// frame. Installation must not lock the editor before those edits are retained.
+func (pr *Project) PendingEdits() bool {
+	for _, item := range pr.Files.items {
+		if state := item.document; state != nil && state.pending != nil && state.pendingEdit {
+			return true
+		}
+	}
+	return false
+}
+
 // SaveUnsaved starts saving every unsaved draft. It reports false when a
 // draft cannot be saved at all (read-only, partially loaded or without a
 // save action); that draft stays as it is.
@@ -43,7 +55,7 @@ func (pr *Project) SaveUnsaved(c *ui.Context) bool {
 		if state.saving {
 			continue
 		}
-		if !item.writable || !item.loaded || state.partial || pr.Actions.SaveFile == nil {
+		if !pr.fileWritable(item) || !item.loaded || state.partial || pr.Actions.SaveFile == nil {
 			saved = false
 			continue
 		}

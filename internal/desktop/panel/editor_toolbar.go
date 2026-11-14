@@ -146,7 +146,7 @@ func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook 
 	}
 	preview := notebook && item.source == 0
 	control := func(action, label string, icon *ui.SVG, selected bool) editorControl {
-		return editorControl{action: action, label: label, icon: icon, selected: selected, disabled: !item.writable}
+		return editorControl{action: action, label: label, icon: icon, selected: selected, disabled: !pr.fileWritable(item)}
 	}
 	find := control("find", "files_find", icons.Search, false)
 	find.disabled = false
@@ -185,20 +185,20 @@ func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook 
 	}
 	visible, hidden := fitEditorControls(groups, room)
 	bar.Children(func() {
-		kit.IconButtonHint(c.Key("save"), icons.Save, i18n.T(c, "files_save"), editorShortcut("save"), 28, false).KeepFocus().Disabled(!item.writable || !item.dirty || state.saving).OnClick(func() { pr.saveEditor(c, path) })
+		kit.IconButtonHint(c.Key("save"), icons.Save, i18n.T(c, "files_save"), editorShortcut("save"), 28, false).KeepFocus().Disabled(!pr.fileWritable(item) || !item.dirty || state.saving).OnClick(func() { pr.saveEditor(c, path) })
 		if !preview {
 			separator(c)
 			undo, redo := item.editor != nil && item.editor.Buffer.CanUndo(), item.editor != nil && item.editor.Buffer.CanRedo()
 			if markdown && item.source == 0 && state.richSafe && state.rich != nil {
 				undo, redo = state.rich.CanUndo(), state.rich.CanRedo()
 			}
-			kit.IconButtonHint(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), editorShortcut("undo"), 28, false).KeepFocus().Disabled(!item.writable || !undo).OnClick(func() { pr.runEditorAction(c, path, "undo") })
-			kit.IconButtonHint(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), editorShortcut("redo"), 28, false).KeepFocus().Disabled(!item.writable || !redo).OnClick(func() { pr.runEditorAction(c, path, "redo") })
+			kit.IconButtonHint(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), editorShortcut("undo"), 28, false).KeepFocus().Disabled(!pr.fileWritable(item) || !undo).OnClick(func() { pr.runEditorAction(c, path, "undo") })
+			kit.IconButtonHint(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), editorShortcut("redo"), 28, false).KeepFocus().Disabled(!pr.fileWritable(item) || !redo).OnClick(func() { pr.runEditorAction(c, path, "redo") })
 		}
 		if markdown {
 			separator(c)
 			kit.MenuButton(c.Key("block"), "file-block-menu", func(button ui.Element) {
-				kit.GhostLook(c, button, false).Row().Height(28).MinWidth(100).Gap(4).PaddingX(8).Disabled(!item.writable).Children(func() {
+				kit.GhostLook(c, button, false).Row().Height(28).MinWidth(100).Gap(4).PaddingX(8).Disabled(!pr.fileWritable(item)).Children(func() {
 					ui.Text(c, editorBlockLabel(c, format.block)).FontSize(12)
 					ui.Icon(c, icons.ChevronDown).FontSize(12)
 				})
@@ -207,7 +207,7 @@ func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook 
 					if block == "code" {
 						menu.Separator()
 					}
-					choice := menu.Item(editorBlockLabel(c, block)).Shortcut(editorShortcut("block:" + block)).Checked(format.block == block).Disabled(!item.writable)
+					choice := menu.Item(editorBlockLabel(c, block)).Shortcut(editorShortcut("block:" + block)).Checked(format.block == block).Disabled(!pr.fileWritable(item))
 					if choice.Chosen() {
 						pr.runEditorAction(c, path, "block:"+block)
 					}

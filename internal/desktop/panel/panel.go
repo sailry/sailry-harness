@@ -502,20 +502,20 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	}
 	md := strings.HasSuffix(f.Name, ".md")
 	toolbar(c, "toolbar", func() {
-		kit.IconButton(c.Key("save"), icons.Save, i18n.T(c, "files_save"), 28, false).Disabled(pr.Actions == nil || !v.dirty || !v.writable).OnClick(func() {
+		kit.IconButton(c.Key("save"), icons.Save, i18n.T(c, "files_save"), 28, false).Disabled(pr.Actions == nil || !v.dirty || !pr.fileWritable(v)).OnClick(func() {
 			if pr.Actions != nil && pr.Actions.SaveFile != nil {
 				text, _ := pr.FileDraft(path)
 				pr.Actions.SaveFile(c, path, text)
 			}
 		})
 		separator(c)
-		kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), 28, false).Disabled(v.editor == nil || !v.editor.Buffer.CanUndo()).OnClick(func() {
-			if v.editor != nil && v.editor.Buffer.Undo() {
+		kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), 28, false).Disabled(!pr.fileWritable(v) || v.editor == nil || !v.editor.Buffer.CanUndo()).OnClick(func() {
+			if pr.fileWritable(v) && v.editor != nil && v.editor.Buffer.Undo() {
 				pr.FileChanged(path, v.editor.Buffer.String())
 			}
 		})
-		kit.IconButton(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), 28, false).Disabled(v.editor == nil || !v.editor.Buffer.CanRedo()).OnClick(func() {
-			if v.editor != nil && v.editor.Buffer.Redo() {
+		kit.IconButton(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), 28, false).Disabled(!pr.fileWritable(v) || v.editor == nil || !v.editor.Buffer.CanRedo()).OnClick(func() {
+			if pr.fileWritable(v) && v.editor != nil && v.editor.Buffer.Redo() {
 				pr.FileChanged(path, v.editor.Buffer.String())
 			}
 		})
@@ -545,7 +545,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 		text := f.Text
 		options := kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true, Editable: true}
 		if pr.Actions != nil {
-			options.Editable = v.writable
+			options.Editable = pr.fileWritable(v)
 			text = v.draft
 			options.Changed = func(text string) { pr.FileChanged(path, text) }
 			options.Bind = func(state *editor.State) { pr.bindEditor(path, state) }

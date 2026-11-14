@@ -17,6 +17,26 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestComposerAttachmentIdentity(t *testing.T) {
+	first := &composer.Attachment{Name: "pasted.png", Data: []byte("image"), Status: composer.Preparing}
+	state := &composer.State{Draft: "message", Attachments: []*composer.Attachment{first}}
+	captured := composerFingerprint(state)
+	first.ID, first.Status, first.Progress = "published", composer.Ready, 1
+	first.Data = nil
+	if composerFingerprint(state) != captured {
+		t.Fatal("upload progress changed the identity of the draft")
+	}
+	copy := *first
+	state.Attachments = []*composer.Attachment{&copy}
+	if composerFingerprint(state) == captured {
+		t.Fatal("replacing an attachment retained the old draft identity")
+	}
+	state.Attachments = nil
+	if composerFingerprint(state) == captured {
+		t.Fatal("removing an attachment retained the old draft identity")
+	}
+}
+
 func TestOutgoingMessageProjection(t *testing.T) {
 	node, session, turn, request := protocol.NodeID{1}, protocol.SessionID{2}, protocol.TurnID{3}, protocol.RequestID{4}
 	snapshot := protocol.DefaultSnapshot()

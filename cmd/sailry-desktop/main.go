@@ -110,8 +110,9 @@ func run() error {
 	}
 	var updates *live.Updates
 	if backend.Client != nil && backend.Preferences != nil {
-		// The updater quits after it replaced the application: nothing is
-		// left to ask about.
+		// Installation retains pending native input and waits for every
+		// window's read-only frame before stopping the Node. Its successful
+		// handoff therefore needs no further exit prompt.
 		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Stop, func() { mygo.RunOnMain(guard.pass) })
 		defer updates.Service.Close()
 	}
@@ -237,7 +238,14 @@ func run() error {
 				})
 			})
 			if updates != nil {
-				runtime.SetUpdates(updates, func() bool { return active == entry })
+				runtime.SetUpdates(updates, func() bool { return active == entry }, func() error {
+					// MyGo defers hidden/occluded windows' requested frames.
+					// CapturePage is its public way to build that pending frame;
+					// installation needs the editor lock applied before shutdown.
+					// The image is discarded and never stored or published.
+					_, err := entry.window.CapturePage()
+					return err
+				})
 			}
 			runtime.SetPickKeyFile(func(selected func(string)) {
 				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "ssh_key_file")})

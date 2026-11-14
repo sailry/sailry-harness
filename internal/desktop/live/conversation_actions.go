@@ -702,10 +702,17 @@ func composerFingerprint(s *composer.State) string {
 	for _, ref := range s.References {
 		refs = append(refs, reference{ref.ID, ref.Label, ref.Kind})
 	}
+	// Upload progress and publication change an attachment in place. Draft
+	// identity follows the owned cards, including files not yet assigned an ID.
+	attachments := make([]string, 0, len(s.Attachments))
+	for _, attachment := range s.Attachments {
+		attachments = append(attachments, fmt.Sprintf("%p", attachment))
+	}
 	b, _ := json.Marshal(struct {
-		Text       string
-		References []reference
-	}{s.Draft, refs})
+		Text        string
+		References  []reference
+		Attachments []string
+	}{s.Draft, refs, attachments})
 	return string(b)
 }
 

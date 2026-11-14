@@ -198,9 +198,15 @@ func (pr *Project) DiffOpen(path, scope string) {
 	pr.readDiff(path, scope)
 }
 func (pr *Project) FileChanged(path, text string) {
+	if pr.documentsLocked() {
+		return
+	}
 	item := pr.Files.item(path)
 	item.draft = text
 	item.dirty = text+item.suffix != item.base
+	if item.editor != nil {
+		item.editorVersion = item.editor.Buffer.Version()
+	}
 }
 func (pr *Project) FileOpenAt(path string, line int) {
 	pr.FileOpen(path)
@@ -211,6 +217,7 @@ func (pr *Project) FileOpenAt(path string, line int) {
 func (pr *Project) bindEditor(path string, state *editor.State) {
 	item := pr.Files.item(path)
 	item.editor = state
+	item.editorVersion = state.Buffer.Version()
 	if item.loaded && item.pendingLine > 0 {
 		line := item.pendingLine - 1
 		state.GoTo(editor.Pos{Line: line})

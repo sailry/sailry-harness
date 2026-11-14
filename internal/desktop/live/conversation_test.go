@@ -841,6 +841,9 @@ func TestComposerSendRouting(t *testing.T) {
 		{"replace_references", "existing", "replace_turn", false, "", false},
 		{"new_session_after_navigation", "draft/1", "submit_turn", false, "", false},
 		{"new_session_base_keeps_later_input", "draft/1", "submit_turn", false, "", false},
+		{"existing_keeps_later_attachment", "existing", "submit_turn", false, "", false},
+		{"new_session_keeps_later_attachment", "draft/1", "submit_turn", false, "", false},
+		{"new_session_base_keeps_later_attachment", "draft/1", "submit_turn", false, "", false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
@@ -873,7 +876,8 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 			transport := &conversationTestTransport{snapshot: snapshot, failure: row.failure}
 			// based sends from a draft whose base worktree is created first.
-			based, baseTree := row.name == "new_session_base_keeps_later_input", protocol.Worktree{ID: protocol.WorktreeID{4}, Project: &project, Path: "/fixture/base"}
+			lateAttachment := strings.HasSuffix(row.name, "keeps_later_attachment")
+			based, baseTree := strings.HasPrefix(row.name, "new_session_base_keeps_later_"), protocol.Worktree{ID: protocol.WorktreeID{4}, Project: &project, Path: "/fixture/base"}
 			if based {
 				transport.handle = func(request protocol.Request) (link.Response, bool) {
 					if request.Command.Kind != "create_managed_worktree" {
@@ -1137,7 +1141,7 @@ func TestComposerSendRouting(t *testing.T) {
 				comp.Draft = ""
 			} else if row.running {
 				actions.Guide(message)
-			} else if row.name == "existing" || row.name == "new_project_session" {
+			} else if row.name == "existing" || row.name == "new_project_session" || lateAttachment && !based {
 				// Hold both session creation and turn admission. The captured
 				// input must already be visible in the actual transcript.
 				transport.mu.Lock()
@@ -1152,7 +1156,16 @@ func TestComposerSendRouting(t *testing.T) {
 			} else {
 				actions.Send(message)
 			}
-			if based {
+			var added *composer.Attachment
+			if lateAttachment {
+				// Only attachments change while submission or session creation
+				// is pending. Pasted images have no published ID yet.
+				added = &composer.Attachment{Name: "later.txt", Path: "/fixture/later.txt", Status: composer.Preparing}
+				if row.session != "existing" {
+					added = &composer.Attachment{Name: "pasted.png", Mime: "image/png", Data: []byte("fixture image"), Status: composer.Preparing}
+				}
+				comp.Attachments = append(comp.Attachments, added)
+			} else if based {
 				// Typed while the base worktree is being created.
 				comp.Draft = "Typed meanwhile"
 				comp.References = []composer.Reference{{ID: "host", Kind: composer.Location, Label: "Host"}}
@@ -1514,7 +1527,15 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.failure != "" && r.composerOutgoing[id] != nil {
 				t.Fatal("failed or unconfirmed request retained a successful-looking user message")
 			}
-			if based {
+			if lateAttachment {
+				sent := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)
+				if len(sent.Message.Attachments) != 0 || sent.Message.Text != message.Text {
+					t.Fatalf("submission included a later attachment: %+v", sent.Message)
+				}
+				if comp.Draft != message.Text || len(comp.Attachments) != 1 || comp.Attachments[0] != added {
+					t.Fatal("successful submission discarded a later file or pasted image", comp.Draft, comp.Attachments)
+				}
+			} else if based {
 				// The first submission was sent as captured, and what was typed
 				// while its worktree was created is still the composer's.
 				sent := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)

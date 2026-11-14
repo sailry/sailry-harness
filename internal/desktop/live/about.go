@@ -27,6 +27,16 @@ type Updates struct {
 	channel atomic.Int32 // settings' channel index the service checks for
 	mu      sync.Mutex
 	windows []*Runtime
+	// install is owned by the UI thread. Each window must build its read-only
+	// editors before installation may stop the Node.
+	install *updateInstall
+}
+
+type updateInstall struct {
+	requester *Runtime
+	windows   map[*Runtime]uint8 // 0: requested, 1: building locked, 2: built
+	flushed   bool
+	flushing  bool
 }
 
 // NewUpdates starts no work: Service.Startup begins the launch check. The
@@ -61,8 +71,11 @@ func (u *Updates) changed() {
 
 // SetUpdates binds the window to the updater. focused reports whether this
 // window is the one that shows the updater's toasts.
-func (r *Runtime) SetUpdates(updates *Updates, focused func() bool) {
+func (r *Runtime) SetUpdates(updates *Updates, focused func() bool, flush ...func() error) {
 	r.updates, r.updatesFocused = updates, focused
+	if len(flush) > 0 {
+		r.updatesFlush = flush[0]
+	}
 	updates.mu.Lock()
 	updates.windows = append(slices.DeleteFunc(updates.windows, func(window *Runtime) bool {
 		window.mu.Lock()
@@ -70,29 +83,183 @@ func (r *Runtime) SetUpdates(updates *Updates, focused func() bool) {
 		return window.closed
 	}), r)
 	updates.mu.Unlock()
+	if updates.install != nil {
+		// A new window has no prior native input surface. Its first frame,
+		// which MyGo builds even while hidden, joins the same lock request.
+		updates.install.windows[r] = 0
+	}
 	m := r.App.Settings
 	m.Version, m.Build = link.ProductVersion, "settings_build_debug"
 	if telemetry.BuildRevision != "" {
 		m.Build = "settings_build_release"
 	}
 	service := updates.Service
-	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: func() {
-		// An installation stops the Node and ends the process, so unsaved
-		// documents in any window are saved first.
-		updates.mu.Lock()
-		windows := slices.Clone(updates.windows)
-		updates.mu.Unlock()
-		for _, window := range windows {
-			window.mu.Lock()
-			closed := window.closed
-			window.mu.Unlock()
-			if !closed && len(window.UnsavedDocuments()) > 0 {
-				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "updates_save_first")) })
-				return
-			}
+	m.UpdateActions = &settings.UpdateActions{Check: service.Check, Download: service.Download, Cancel: service.Cancel, Install: r.requestUpdateInstall, Restart: service.Restart}
+}
+
+func (r *Runtime) documentsLocked() bool {
+	root := r.localRuntime()
+	updates := root.updates
+	if updates == nil {
+		return false
+	}
+	if pending := updates.install; pending != nil && pending.windows[root] > 0 {
+		return true
+	}
+	state, _ := updates.Service.Snapshot()
+	return updateLocksDocuments(state.Kind)
+}
+
+func (r *Runtime) requestUpdateInstall() {
+	u := r.updates
+	state, _ := u.Service.Snapshot()
+	if state.Kind != updater.Ready || u.install != nil {
+		return
+	}
+	u.mu.Lock()
+	windows := slices.Clone(u.windows)
+	u.mu.Unlock()
+	pending := &updateInstall{requester: r, windows: map[*Runtime]uint8{}}
+	for _, window := range windows {
+		if window.updateWindowClosed() {
+			continue
 		}
-		service.Install()
-	}, Restart: service.Restart}
+		if window.updateDocumentsPending() {
+			r.updateInstallFailure("updates_save_first")
+			return
+		}
+		pending.windows[window] = 0
+	}
+	u.install = pending
+	u.changed()
+}
+
+func (r *Runtime) updateWindowClosed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.closed
+}
+
+func (r *Runtime) updateDocumentsPending() bool {
+	if len(r.UnsavedDocuments()) > 0 || r.SavingDocuments() {
+		return true
+	}
+	pending := false
+	r.workspaces(func(project *workspaceProject) { pending = pending || project.panel.PendingEdits() })
+	return pending
+}
+
+func (r *Runtime) updateInstallFailure(key string) {
+	r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
+}
+
+func (u *Updates) cancelInstall(pending *updateInstall, key string) {
+	if u.install != pending {
+		return
+	}
+	u.install = nil
+	pending.requester.updateInstallFailure(key)
+	u.changed()
+}
+
+// beforeUpdateFrame captures input delivered since the installation request.
+// Until its own frame begins, a window remains writable and keeps that input.
+func (r *Runtime) beforeUpdateFrame() {
+	u := r.updates
+	if u == nil || u.install == nil {
+		return
+	}
+	pending := u.install
+	if phase, ok := pending.windows[r]; !ok || phase != 0 {
+		return
+	}
+	if r.updateDocumentsPending() {
+		u.cancelInstall(pending, "updates_save_first")
+		return
+	}
+	pending.windows[r] = 1
+}
+
+func (r *Runtime) afterUpdateFrame() {
+	u := r.updates
+	if u == nil || u.install == nil {
+		return
+	}
+	pending := u.install
+	phase, ok := pending.windows[r]
+	if !ok || phase == 0 {
+		return
+	}
+	pending.windows[r] = 2
+	u.finishInstall(pending)
+	if u.install != pending || pending.flushed {
+		return
+	}
+	r.mu.Lock()
+	update := r.update
+	r.mu.Unlock()
+	if update != nil {
+		pending.flushed = true
+		// Run after this frame, never recursively build its window. Ordinary
+		// windows can finish their requested frames before this fallback.
+		update(func() { u.flushInstall(pending) })
+	}
+}
+
+func (u *Updates) flushInstall(pending *updateInstall) {
+	if u.install != pending {
+		return
+	}
+	pending.flushing = true
+	for window, phase := range pending.windows {
+		if window.updateWindowClosed() || phase == 2 || window.updatesFlush == nil {
+			continue
+		}
+		if err := window.updatesFlush(); err != nil {
+			u.cancelInstall(pending, "updates_install_failed")
+			return
+		}
+		if u.install != pending {
+			return
+		}
+		if !window.updateWindowClosed() && pending.windows[window] != 2 {
+			// A capture can return the old frame of a visible window. Without
+			// an acknowledged lock, abort instead of waiting indefinitely if
+			// it becomes hidden before its requested frame is delivered.
+			u.cancelInstall(pending, "updates_install_failed")
+			return
+		}
+	}
+	pending.flushing = false
+	u.finishInstall(pending)
+}
+
+func (u *Updates) finishInstall(pending *updateInstall) {
+	if u.install != pending || pending.flushing {
+		return
+	}
+	for window, phase := range pending.windows {
+		if window.updateWindowClosed() {
+			delete(pending.windows, window)
+			continue
+		}
+		if phase != 2 {
+			return
+		}
+		if window.updateDocumentsPending() {
+			u.cancelInstall(pending, "updates_save_first")
+			return
+		}
+	}
+	u.install = nil
+	// Install enters Installing synchronously, so no input can enter between
+	// the acknowledged read-only frames and the shared service's lock.
+	u.Service.Install()
+	u.changed()
+}
+
+func updateLocksDocuments(kind updater.Kind) bool {
+	return kind == updater.Installing || kind == updater.Restarting || kind == updater.Stopped
 }
 
 // updateView is the service's state as the About page shows it. The failure
@@ -149,6 +316,9 @@ func (r *Runtime) aboutFrame(c *ui.Context) {
 	state, failure := service.Snapshot()
 	u := &m.Updater
 	updateView(u, state, failure)
+	if updates.install != nil {
+		u.State = settings.UpdateInstalling
+	}
 	if r.updatesFocused != nil && !r.updatesFocused() {
 		return
 	}

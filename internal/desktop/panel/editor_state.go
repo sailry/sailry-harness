@@ -19,6 +19,7 @@ type documentEditor struct {
 	richVersion                 uint64
 	richSafe                    bool
 	pending                     func(*editor.State)
+	pendingEdit                 bool
 	notebook                    *viewmodel.EditorNotebook
 	notebookRequested           bool
 	notebookDraft               string
@@ -46,6 +47,25 @@ func (state *documentEditor) focusFor(own bool) *ui.Handle {
 		return &state.focus[1]
 	}
 	return &state.focus[0]
+}
+
+func (pr *Project) documentsLocked() bool {
+	return pr.DocumentsLocked != nil && pr.DocumentsLocked()
+}
+
+func (pr *Project) fileWritable(item *fileItem) bool {
+	return item.writable && !pr.documentsLocked()
+}
+
+// syncDocument retains native input before a close/install check, even when
+// that window has not rendered since the input arrived. Only the active source
+// participates; a hidden source editor may still contain the old Markdown.
+func (pr *Project) syncDocument(path string, item *fileItem) {
+	if markdownFile(path) && item.source == 0 {
+		pr.syncRichDraft(path)
+	} else if item.editor != nil && item.editor.Buffer.Version() != item.editorVersion {
+		pr.FileChanged(path, item.editor.Buffer.String())
+	}
 }
 func (pr *Project) SetFileStatus(path string, saving, partial bool) {
 	state := pr.Files.item(path).documentState()
@@ -110,7 +130,7 @@ func (pr *Project) ResetEditorNotebook(path string) {
 // clean documents whose Save action is currently a no-op.
 func (pr *Project) CanSaveFocused(c *ui.Context) bool {
 	_, item := pr.focusedEditor(c)
-	return item != nil && item.writable && item.loaded && !item.documentState().partial && !item.documentState().saving
+	return item != nil && pr.fileWritable(item) && item.loaded && !item.documentState().partial && !item.documentState().saving
 }
 func (pr *Project) SaveFocused(c *ui.Context) bool {
 	path, item := pr.focusedEditor(c)
@@ -133,7 +153,7 @@ func (pr *Project) focusedEditor(c *ui.Context) (string, *fileItem) {
 }
 func (pr *Project) editorSourceAction(c *ui.Context, path, action, value string) {
 	item := pr.Files.item(path)
-	if !item.writable {
+	if !pr.fileWritable(item) {
 		return
 	}
 	state := item.documentState()
@@ -150,7 +170,11 @@ func (pr *Project) editorSourceAction(c *ui.Context, path, action, value string)
 	}
 	expected := item.draft
 	item.source = 1
+	state.pendingEdit = true
 	state.pending = func(native *editor.State) {
+		if !pr.fileWritable(item) {
+			return
+		}
 		current, selection := native.Buffer.String(), native.Selection()
 		if selected != nil {
 			if current != expected {
