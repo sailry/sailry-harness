@@ -17,16 +17,34 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// avatarPixel is the color of an avatar's picture at (fx, fy) of its side,
-// drawn on its own.
-func avatarPixel(t *testing.T, avatar string, fx, fy float32) color.RGBA {
+// avatarBody is a point of an avatar's face, as fractions of its side,
+// where its body shows in its own color, and that color: the faces differ
+// in shape, so the point is found on the face drawn on its own.
+func avatarBody(t *testing.T, avatar string) (float32, float32, color.RGBA) {
 	t.Helper()
 	picture := icons.Avatar(avatar)
 	if picture == nil {
 		t.Fatalf("no picture of %q", avatar)
 	}
-	const side = 192
-	return picture.Image(side, side, nil).RGBAAt(int(fx*side), int(fy*side))
+	const side = 64
+	face := picture.Face.Image(side, side, nil)
+	body := color.RGBA{picture.Body.R, picture.Body.G, picture.Body.B, 255}
+	// Out from the middle, clear of the edges a scaled picture blends.
+	for r := 0; r < side/3; r++ {
+		for _, at := range [][2]int{{side / 2, side/2 + r}, {side / 2, side/2 - r}, {side/2 + r, side / 2}, {side/2 - r, side / 2}} {
+			ok := true
+			for dy := -2; dy <= 2 && ok; dy++ {
+				for dx := -2; dx <= 2 && ok; dx++ {
+					ok = face.RGBAAt(at[0]+dx, at[1]+dy) == body
+				}
+			}
+			if ok {
+				return float32(at[0]) / side, float32(at[1]) / side, body
+			}
+		}
+	}
+	t.Fatalf("no body in the face of %q", avatar)
+	return 0, 0, body
 }
 
 // near reports whether two colors are the same within a scaled picture's
@@ -76,8 +94,8 @@ func TestRoleAvatars(t *testing.T) {
 		return i18n.In("en", "role_avatar_seed", "seed", strings.TrimPrefix(avatar, icons.AvatarPrefix))
 	}
 	// tile is whether the Roles list draws the avatar's picture in the
-	// row of the role named name: the color of the picture's left middle,
-	// which is its plain ground, is there in the row's tile.
+	// row of the role named name: the face's body color is there in the
+	// row's tile, where the face has it.
 	tile := func(t *testing.T, tt *ui.Tester, name, avatar string) bool {
 		t.Helper()
 		title, ok := tt.Find(name)
@@ -87,9 +105,10 @@ func TestRoleAvatars(t *testing.T) {
 		// MediaRow: the tile's slot, a gap of 12, then the title, whose
 		// line starts within a few DIPs of the tile's top.
 		x := title.X - 12 - kit.TileSize
+		fx, fy, body := avatarBody(t, avatar)
 		for dy := float32(-6); dy <= 6; dy += 2 {
-			at := tt.Image().RGBAAt(int(x+0.08*kit.TileSize), int(title.Y+dy+0.5*kit.TileSize))
-			if near(at, avatarPixel(t, avatar, 0.08, 0.5)) {
+			at := tt.Image().RGBAAt(int(x+fx*kit.TileSize), int(title.Y+dy+fy*kit.TileSize))
+			if near(at, body) {
 				return true
 			}
 		}
@@ -162,8 +181,11 @@ func TestRoleAvatars(t *testing.T) {
 		if len(cells(tt)) != 0 {
 			t.Error("the picker stayed open")
 		}
-		if !tt.HasText(name(avatar)) {
-			t.Errorf("the field does not name the avatar: %q", tt.Texts())
+		// The trigger is the chosen face itself, with no name beside it.
+		trigger, _ := tt.AccessByRole(ui.RoleButton, en("role_avatar"))
+		fx, fy, body := avatarBody(t, avatar)
+		if at := tt.Image().RGBAAt(int(trigger.Bounds.X+fx*trigger.Bounds.W), int(trigger.Bounds.Y+fy*trigger.Bounds.H)); !near(at, body) || trigger.Bounds.W != avatarTrigger || tt.HasText(name(avatar)) {
+			t.Errorf("the trigger %v shows %v, want the face's %v and no name", trigger.Bounds, at, body)
 		}
 		if m.role("tester").Avatar != "" {
 			t.Error("the role changed before Save")

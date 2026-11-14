@@ -43,8 +43,8 @@ func (st *avatarPicker) deal(chosen string) {
 	}
 }
 
-// avatarName is what an avatar is called: "Avatar" and its seed, or "No
-// avatar" for a role that shows its mark.
+// avatarName is what assistive technology calls an avatar: "Avatar" and
+// its seed, or "Default" for a role that shows the default face.
 func avatarName(c *ui.Context, avatar string) string {
 	if seed, ok := protocol.RoleAvatarSeed(avatar); ok {
 		return i18n.T(c, "role_avatar_seed", "seed", seed)
@@ -52,31 +52,36 @@ func avatarName(c *ui.Context, avatar string) string {
 	return i18n.T(c, "role_avatar_none")
 }
 
-// avatarField is the role editor's Avatar row: a select's trigger showing
-// the role as it looks now, with the avatar's name, that opens the
+// avatarTrigger is the side of the role editor's avatar button.
+const avatarTrigger = 48
+
+// avatarField is the role editor's Avatar row: the role's avatar as it
+// looks now, avatarTrigger across, with a pencil badge, that opens the
 // pictures to choose from. Choosing one sets the draft's avatar and closes
 // the popover; the editor's Save stores it with the rest.
 func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
-	p, th := theme.Of(c), c.Theme()
+	p := theme.Of(c)
 	label := i18n.T(c, "role_avatar")
 	kit.Field(c, "avatar", label, "", func() {
 		holder := ui.Row(c.Key("holder"))
 		st := ui.Local(holder, "picker", func() avatarPicker { return avatarPicker{} })
 		holder.Children(func() {
-			// The Select's trigger (kit.SelectTrigger) with the role's
-			// picture or mark before the name.
 			b := ui.ButtonBase(c.Key("trigger")).Label(label).Disabled(disabled).HasPopup(ui.PopupDialog).Expanded(st.open)
-			b.Padding(th.Space(1.5), th.Space(2.5)).Gap(8).MinWidth(180).Radius(p.Radius).
-				Border(1, p.Input).Background(th.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
+			b.Size(avatarTrigger, avatarTrigger).Radius(avatarTrigger / 4).Cursor(ui.CursorPointer)
 			if b.IsDisabled() {
 				b.Opacity(0.5)
 			}
 			b.Children(func() {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(func() {
-					kit.RoleAvatar(c, role.ID, role.Avatar, 20)
-					ui.Text(c, avatarName(c, role.Avatar)).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+				kit.RoleAvatar(c, role.ID, role.Avatar, avatarTrigger)
+				if ring := avatarRing(c, b, st.open); ring != (ui.Color{}) {
+					ui.Box(c).Absolute().Top(-3).Left(-3).Size(avatarTrigger+6, avatarTrigger+6).Radius(avatarTrigger/4+3).Border(2, ring)
+				}
+				// The badge says the picture changes; it sits on the
+				// corner, ringed in the dialog's color.
+				ui.Box(c).Absolute().Right(-4).Bottom(-4).Size(18, 18).Radius(9).Center().
+					Background(p.Floating()).Border(1, p.Border).TextColor(p.MutedForeground).Children(func() {
+					ui.Icon(c, icons.Pencil).FontSize(10)
 				})
-				ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
 			}).OnClick(func() {
 				if st.open, st.enter = !st.open, true; st.open {
 					st.deal(role.Avatar)
@@ -90,8 +95,21 @@ func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
 	})
 }
 
-// avatarChoices is the popover's content: No avatar, which gives the role
-// its mark again, and Shuffle, which deals new random pictures, over the
+// avatarRing is the ring around a picture button: the emphasis color
+// while chosen, a faint one under the pointer, none otherwise.
+func avatarRing(c *ui.Context, b ui.Element, chosen bool) ui.Color {
+	p := theme.Of(c)
+	switch {
+	case chosen:
+		return p.Primary
+	case b.Hovered() || b.Pressed():
+		return p.Foreground.Alpha(0.35)
+	}
+	return ui.Color{}
+}
+
+// avatarChoices is the popover's content: Default, which gives the role
+// the default face again, and Shuffle, which deals new random pictures, over the
 // pictures in rows of avatarColumns. The chosen
 // picture has a ring in the emphasis color around it, since a fill would
 // be under the picture; the one under the pointer has a faint one. Left
@@ -129,13 +147,7 @@ func avatarChoices(c *ui.Context, st *avatarPicker, role *preview.Role) {
 				}
 				b := ui.ButtonBase(c.Key(avatar)).Label(avatarName(c, avatar)).Size(avatarCell, avatarCell).
 					Radius(avatarCell / 4).Cursor(ui.CursorPointer).AccessSelected(selected)
-				ring := ui.Color{}
-				switch {
-				case selected:
-					ring = p.Primary
-				case b.Hovered() || b.Pressed():
-					ring = p.Foreground.Alpha(0.35)
-				}
+				ring := avatarRing(c, b, selected)
 				b.Children(func() {
 					kit.Avatar(c, avatar, avatarCell)
 					if ring != (ui.Color{}) {

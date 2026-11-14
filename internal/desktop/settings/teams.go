@@ -236,21 +236,20 @@ func teamRows(c *ui.Context, m *Model) {
 				b.Background(p.Hover)
 			}
 			b.Children(func() {
-				kit.MediaRow(c, name, desc, func() { kit.Tile(c, name, icons.Users) }, func() {
+				faces := make([]kit.TeamMember, 0, len(members))
+				for _, id := range members {
+					if r := m.role(id); r != nil {
+						faces = append(faces, kit.TeamMember{ID: r.ID, Avatar: r.Avatar})
+					}
+				}
+				kit.MediaRow(c, name, desc, func() { kit.TeamAvatar(c, key, faces, kit.TileSize) }, func() {
 					if builtin {
 						kit.Tag(c, i18n.T(c, "team_builtin"))
 					}
 				})
 				ui.Row(c).Shrink(0).Gap(4).Children(func() {
-					for i, id := range members[:min(5, len(members))] {
-						if r := m.role(id); r != nil {
-							if _, drawn := kit.Avatar(c.Key(i), r.Avatar, 20); drawn {
-								continue
-							}
-							ui.Row(c.Key(i)).Size(20, 20).Radius(10).Center().Background(kit.AgentColor(c, r.ID)).TextColor(theme.OnTint).Children(func() {
-								ui.Text(c, string([]rune(r.Name)[:1])).FontSize(10).FontWeight(600)
-							})
-						}
+					for i, f := range faces[:min(5, len(faces))] {
+						kit.RoleAvatar(c.Key(i), f.ID, f.Avatar, 20)
 					}
 				})
 				ui.Text(c, meta).FontSize(14).Shrink(0).TextColor(p.MutedForeground)

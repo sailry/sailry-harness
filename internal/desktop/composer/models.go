@@ -191,7 +191,7 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 			badge(f)
 		}
 		if team != nil {
-			avatar(c, icons.Users, kit.AgentColor(c, team.ID), 20, true, false)
+			teamAvatar(c, *team, 20)
 			ui.Text(c, team.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 		} else {
 			ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
@@ -476,15 +476,19 @@ func (s *State) features(c *ui.Context, m Model) {
 func (s *State) teamRow(c *ui.Context, ctx *Context) {
 	p := theme.Of(c)
 	team := s.team(ctx)
-	name, icon, fill := i18n.T(c, "composer_execution_model"), icons.Bot, p.Primary
+	name := i18n.T(c, "composer_execution_model")
 	if team != nil {
-		name, icon, fill = team.Name, icons.Users, kit.AgentColor(c, team.ID)
+		name = team.Name
 	}
 	ui.Row(c.Key("team-row")).FillWidth().MinWidth(0).Height(32).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
 		b := kit.GhostLook(c, ui.ButtonBase(c.Key("team")), false).Label(name)
 		kit.Tooltip(c, b, name)
-		b.Height(member).PaddingStart(0).PaddingEnd(4).Gap(2).Radius(member / 2).Children(func() {
-			avatar(c, icon, fill, member, true, false)
+		b.Height(member).PaddingStart(0).PaddingEnd(4).Gap(2).Radius(member / 4).Children(func() {
+			if team != nil {
+				teamAvatar(c, *team, member)
+			} else {
+				avatar(c, icons.Bot, p.Primary, member, true, false)
+			}
 			ui.Icon(c, icons.ChevronRight).FontSize(12)
 		}).OnClick(func() { s.layer = layerTeams })
 		ui.Spacer(c)
@@ -492,9 +496,9 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 			return
 		}
 		lead := i18n.T(c, "composer_team_lead")
-		memberButton(c, "lead", lead, "", icons.Crown, p.Primary, false, s.member == "", func() { s.member = "" })
+		memberButton(c, "lead", lead, func() ui.Element { return kit.LeadAvatar(c, member) }, false, s.member == "", func() { s.member = "" })
 		for _, m := range team.Members {
-			memberButton(c, m.ID, m.Name, m.Avatar, icons.Bot, kit.AgentColor(c, m.ID), m.Overridden, s.member == m.ID,
+			memberButton(c, m.ID, m.Name, func() ui.Element { return kit.RoleAvatar(c, m.ID, m.Avatar, member) }, m.Overridden, s.member == m.ID,
 				func() { s.member = m.ID })
 		}
 	})
@@ -503,28 +507,32 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 	ui.Box(c.Key("team-divider")).FillWidth().Height(1).Shrink(0).Background(p.Border)
 }
 
-// memberButton is a member of the row: the role's avatar (picture, an
-// identifier of icons.Avatar) where it has one, else icon on fill.
-func memberButton(c *ui.Context, key, name, picture string, icon *ui.SVG, fill ui.Color, overridden, selected bool, pick func()) {
+// memberButton is a member of the row: its avatar (face), faded unless
+// selected, with a dot where its model was set apart.
+func memberButton(c *ui.Context, key, name string, face func() ui.Element, overridden, selected bool, pick func()) {
+	p := theme.Of(c)
 	b := ui.ButtonBase(c.Key("member-" + key)).Label(name)
 	kit.Tooltip(c, b, name)
-	b.Size(member, member).Radius(member / 2).Cursor(ui.CursorPointer).AccessSelected(selected)
+	b.Size(member, member).Radius(member / 4).Cursor(ui.CursorPointer).AccessSelected(selected)
 	b.Children(func() {
-		if icons.Avatar(picture) == nil {
-			avatar(c, icon, fill, member, selected, overridden)
-			return
-		}
-		// The picture stands for the icon on its fill: faded unless
-		// selected, with the same dot.
 		ui.Box(c).Size(member, member).Shrink(0).Children(func() {
-			if face, _ := kit.Avatar(c, picture, member); !selected {
-				face.Opacity(0.35)
+			if drawn := face(); !selected {
+				drawn.Opacity(0.35)
 			}
 			if overridden {
-				ui.Box(c).Absolute().Top(-1).Right(-1).Size(8, 8).Radius(4).Background(theme.Of(c).Primary).Border(1, theme.Of(c).Floating())
+				ui.Box(c).Absolute().Top(-1).Right(-1).Size(8, 8).Radius(4).Background(p.Primary).Border(1, p.Floating())
 			}
 		})
 	}).OnClick(pick)
+}
+
+// teamAvatar is a team's members' faces in its tile (kit.TeamAvatar).
+func teamAvatar(c *ui.Context, team Team, size float32) ui.Element {
+	members := make([]kit.TeamMember, len(team.Members))
+	for i, m := range team.Members {
+		members[i] = kit.TeamMember{ID: m.ID, Avatar: m.Avatar}
+	}
+	return kit.TeamAvatar(c, team.ID, members, size)
 }
 
 // avatar is the identity's icon on its fill, faded unless selected, with a
@@ -552,14 +560,14 @@ func avatar(c *ui.Context, icon *ui.SVG, fill ui.Color, size float32, selected, 
 // technology has it as selected.
 func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
-	row := func(key, name string, icon *ui.SVG, fill ui.Color, count int, selected bool, pick func()) {
+	row := func(key, name string, face func(), count int, selected bool, pick func()) {
 		b := kit.Ghost(c.Key(key), name, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
 			AccessSelected(selected)
 		if selected {
 			b.Background(p.Selected())
 		}
 		b.Children(func() {
-			avatar(c, icon, fill, member, true, false)
+			face()
 			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 			if count >= 0 {
 				ui.Textf(c, "%d", count).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
@@ -572,7 +580,7 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 				ui.Icon(c, icons.ArrowLeft).FontSize(14)
 				ui.Text(c, i18n.T(c, "composer_back")).FontSize(14)
 			}).OnClick(func() { s.layer = layerMain })
-		row("model-only", i18n.T(c, "composer_execution_model"), icons.Bot, p.Primary, -1, s.Team == "", func() {
+		row("model-only", i18n.T(c, "composer_execution_model"), func() { avatar(c, icons.Bot, p.Primary, member, true, false) }, -1, s.Team == "", func() {
 			if s.SelectTeam != nil && !s.SelectTeam("") {
 				return
 			}
@@ -580,7 +588,7 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 			s.MemberModels = nil
 		})
 		for _, t := range ctx.Teams {
-			row("team-"+t.ID, t.Name, icons.Users, kit.AgentColor(c, t.ID), len(t.Members), s.Team == t.ID, func() {
+			row("team-"+t.ID, t.Name, func() { teamAvatar(c, t, member) }, len(t.Members), s.Team == t.ID, func() {
 				if s.SelectTeam != nil {
 					if !s.SelectTeam(t.ID) {
 						return

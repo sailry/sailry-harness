@@ -1326,7 +1326,7 @@ teams_role_saved: 역할을 저장했습니다
 role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
 role_avatar_shuffle: Shuffle
-role_avatar_none: No avatar
+role_avatar_none: Default
 market_plugin_details: 플러그인 세부 정보
 market_skill_details: 스킬 세부 정보
 market_theme_details: 테마 세부 정보

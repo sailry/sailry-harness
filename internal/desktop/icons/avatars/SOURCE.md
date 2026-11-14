@@ -1,10 +1,10 @@
 # Role avatar source
 
-`voxel-bot.json` is the Voxel Bot style definition from DiceBear Styles
-v10.6.0 (https://github.com/dicebear/styles, `src/voxel-bot.json`), unchanged.
-SHA-256: `14bde18ad78d9c80876d4357bf8dc0dd55e6ecf41c8529974fb14c5ae8142fba`.
+`gaze.json` is the Gaze style definition from DiceBear Styles
+v10.6.0 (https://github.com/dicebear/styles, `src/gaze.json`), unchanged.
+SHA-256: `03d83e72adc01c52af10337803d6d66a034d43648e5870c8764d1a7fdbdd30dd`.
 
-Voxel Bot by DiceBear (https://www.dicebear.com) is licensed under CC0 1.0
+Gaze by DiceBear (https://www.dicebear.com) is licensed under CC0 1.0
 (https://creativecommons.org/publicdomain/zero/1.0/). The definition repeats
 this in its `meta` block.
 

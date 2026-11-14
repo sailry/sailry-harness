@@ -1326,7 +1326,7 @@ teams_role_saved: Role saved
 role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
 role_avatar_shuffle: Shuffle
-role_avatar_none: No avatar
+role_avatar_none: Default
 market_plugin_details: Plugin details
 market_skill_details: Skill details
 market_theme_details: Theme details

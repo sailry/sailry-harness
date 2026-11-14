@@ -1326,7 +1326,7 @@ teams_role_saved: 角色已保存
 role_avatar: 头像
 role_avatar_seed: 头像 %{seed}
 role_avatar_shuffle: 换一批
-role_avatar_none: 无头像
+role_avatar_none: 默认头像
 market_plugin_details: 插件详情
 market_skill_details: 技能详情
 market_theme_details: 主题详情

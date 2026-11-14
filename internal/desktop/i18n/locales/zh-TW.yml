@@ -1326,7 +1326,7 @@ teams_role_saved: 已儲存角色
 role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
 role_avatar_shuffle: Shuffle
-role_avatar_none: No avatar
+role_avatar_none: Default
 market_plugin_details: 外掛詳情
 market_skill_details: 技能詳情
 market_theme_details: 主題詳情

@@ -1326,7 +1326,7 @@ teams_role_saved: Função salva
 role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
 role_avatar_shuffle: Shuffle
-role_avatar_none: No avatar
+role_avatar_none: Default
 market_plugin_details: Detalhes do plugin
 market_skill_details: Detalhes do skill
 market_theme_details: Detalhes do tema
