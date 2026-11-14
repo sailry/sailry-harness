@@ -108,7 +108,9 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 	gone := false
 	var out ui.Element
 	NoteModal(c)
-	ui.DialogBase(c, &st.shown, func(back, panel ui.Element) {
+	// Earlier overlays can appear as the pointer moves. Keep the dialog's
+	// controls attached to its own state so a press survives that change.
+	ui.DialogBase(c.Key(st), &st.shown, func(back, panel ui.Element) {
 		out = panel
 		if !st.entered {
 			st.entered = true

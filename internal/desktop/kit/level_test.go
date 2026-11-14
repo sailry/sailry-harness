@@ -67,11 +67,11 @@ func inkMiddle(img *image.RGBA, scale float32, r ui.Rect) float64 {
 }
 
 // A row's texts are level with its icon (Level): the middle of a Latin
-// label's capitals, of a Chinese label's ideographs and of a mono detail's
-// capitals are within half a DIP of the icon's middle, at scale 1 and 2, in
-// a centred row and on the first line of a row that wraps (LevelTop). Their
-// baselines agree; different fonts' ink centres need not agree. Unlevelled,
-// as MyGo centres the line box, they are not.
+// label's capitals and of a Chinese label's ideographs are within half a
+// DIP of the icon's middle, at scale 1 and 2, in a centred row and on the
+// first line of a row that wraps (LevelTop). The smaller mono detail shares
+// their painted baseline; its font's ink centre can differ. Unlevelled, as
+// MyGo centres the line box, they are not.
 //
 // The label laid out as a sweep takes it, a RichText of its span, and the
 // detail, a RichText a DIP smaller in the mono font, are levelled from
@@ -163,7 +163,7 @@ func testLevel(t *testing.T) {
 				for _, key := range []string{"plain", "level", "wrap"} {
 					icon, text, swept, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" swept", inkCentre), at(key+" detail", inkCentre)
 					report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, swept %+.2f, detail %+.2f;", key, icon, text-icon, swept-icon, detail-icon)
-					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(detail-icon), math.Abs(text-swept))
+					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(text-swept))
 					if key != "plain" && off > limit {
 						t.Errorf("size %v, scale %v, %q, %s row: icon %.2f, label %.2f, swept %.2f, detail %.2f: %.2f DIPs apart", size, scale, label, key, icon, text, swept, detail, off)
 					}

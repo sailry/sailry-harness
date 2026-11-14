@@ -79,6 +79,12 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 		}
 		return strings.Compare(a.Name, b.Name)
 	}
+	type candidate struct {
+		value  protocol.FileEntry
+		source os.DirEntry
+	}
+	var selected []candidate
+	compareCandidate := func(a, b candidate) int { return compare(a.value, b.value) }
 	for {
 		if err := ctx.Err(); err != nil {
 			return out, err
@@ -111,10 +117,11 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 					continue
 				}
 			}
-			index, _ := slices.BinarySearchFunc(out.Entries, item, compare)
-			out.Entries = slices.Insert(out.Entries, index, item)
-			if len(out.Entries) > protocol.MAX_DIRECTORY_ENTRIES+1 {
-				out.Entries = out.Entries[:protocol.MAX_DIRECTORY_ENTRIES+1]
+			itemCandidate := candidate{value: item, source: entry}
+			index, _ := slices.BinarySearchFunc(selected, itemCandidate, compareCandidate)
+			selected = slices.Insert(selected, index, itemCandidate)
+			if len(selected) > protocol.MAX_DIRECTORY_ENTRIES+1 {
+				selected = selected[:protocol.MAX_DIRECTORY_ENTRIES+1]
 			}
 		}
 		if e != nil {
@@ -131,22 +138,24 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 	if current != out.Revision {
 		return out, fileConflict()
 	}
-	if len(out.Entries) > protocol.MAX_DIRECTORY_ENTRIES {
+	if len(selected) > protocol.MAX_DIRECTORY_ENTRIES {
 		out.Truncated = true
-		out.Entries = out.Entries[:protocol.MAX_DIRECTORY_ENTRIES]
-		last := out.Entries[len(out.Entries)-1]
+		selected = selected[:protocol.MAX_DIRECTORY_ENTRIES]
+		last := selected[len(selected)-1].value
 		out.Next = &protocol.DirectoryCursor{Revision: out.Revision, Directory: last.Kind == protocol.EntryKindDirectory, Name: last.Name}
 	}
-	for index := range out.Entries {
-		m, e := dir.Lstat(out.Entries[index].Name)
+	for _, item := range selected {
+		m, e := fileDirectoryInfo(dir, item.source)
 		if e != nil {
 			return out, fileConflict()
 		}
-		out.Entries[index].Size = uint64(m.Size())
+		value := item.value
+		value.Size = uint64(m.Size())
 		if modified := m.ModTime().UnixMilli(); modified > 0 {
 			stamp := uint64(modified)
-			out.Entries[index].ModifiedMs = &stamp
+			value.ModifiedMs = &stamp
 		}
+		out.Entries = append(out.Entries, value)
 	}
 	return out, nil
 }

@@ -37,12 +37,9 @@ func open(path string, create bool) (*os.Root, error) {
 			return nil, storage(err)
 		}
 	}
-	resolved, err := filepath.EvalSymlinks(absolute)
+	absolute, err = directoryPath(absolute)
 	if err != nil {
-		return nil, storage(err)
-	}
-	if resolved != absolute {
-		return nil, storageMessage("model asset directory path is invalid")
+		return nil, err
 	}
 	root, err := os.OpenRoot(absolute)
 	if err != nil {

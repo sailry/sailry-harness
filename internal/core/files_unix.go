@@ -27,6 +27,10 @@ func fileNativeIdentity(file *os.File) (nativeFileIdentity, error) {
 func regularFileFlags() int   { return os.O_RDONLY | unix.O_NOFOLLOW | unix.O_NONBLOCK }
 func exclusiveFileFlags() int { return os.O_WRONLY | os.O_CREATE | os.O_EXCL | unix.O_NOFOLLOW }
 
+func fileDirectoryInfo(root *os.Root, entry os.DirEntry) (fs.FileInfo, error) {
+	return root.Lstat(entry.Name())
+}
+
 func fileReadonly(metadata fs.FileInfo) bool { return metadata.Mode().Perm()&0o222 == 0 }
 
 func syncFileDirectory(root *os.Root) error {

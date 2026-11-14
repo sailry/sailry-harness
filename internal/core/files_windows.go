@@ -41,6 +41,13 @@ func fileNativeIdentity(file *os.File) (nativeFileIdentity, error) {
 func regularFileFlags() int   { return os.O_RDONLY }
 func exclusiveFileFlags() int { return os.O_WRONLY | os.O_CREATE | os.O_EXCL }
 
+func fileDirectoryInfo(_ *os.Root, entry os.DirEntry) (fs.FileInfo, error) {
+	// Windows supplies metadata with the directory entry. Reopening it for
+	// Lstat fails on share-locked files such as the account's NTUSER.DAT and
+	// would make its entire otherwise readable directory unavailable.
+	return entry.Info()
+}
+
 func fileReadonly(metadata fs.FileInfo) bool {
 	return metadata.Sys().(*syscall.Win32FileAttributeData).FileAttributes&windows.FILE_ATTRIBUTE_READONLY != 0
 }

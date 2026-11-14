@@ -3,6 +3,7 @@ package shell
 import (
 	"image"
 	"math"
+	"runtime"
 	"testing"
 	"time"
 
@@ -76,8 +77,9 @@ func inkHeight(img *image.RGBA, scale float32, r ui.Rect) (height, middle float6
 // The demo's running conversation shows the loading marks in their places:
 // the loader on the sidebar's running rows and in the running capsules, no
 // larger than the capsules' icons, and the thinking marks on the phase row.
-// Its pending rows' icons, labels and details are level within half a DIP
-// at scale 1 and 2, the question's too. A sidebar with no session running
+// Each pending row's label and detail are within half a DIP of its icon
+// at scale 1 and 2, with matching painted baselines, the question's too.
+// Different fonts' ink centres need not coincide. A sidebar with no session running
 // has no loader and asks for no frame, and none with Reduce Motion.
 // $SAILRY_SNAPSHOTS takes the frames of the review's contact sheet.
 func testLoadingMarks(t *testing.T) {
@@ -89,7 +91,11 @@ func testLoadingMarks(t *testing.T) {
 		a.Settings.Model.DemoMode = true
 		// The marks are measured at 14, the size they were drawn for.
 		a.Settings.TextSize = 14
-		tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+		var font ui.Font
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			a.View(c)
+			font = ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize}
+		}, 1280, 820, opaque)
 		tt.SetLocale("zh-CN")
 		tt.SetScale(2)
 		tt.Frame()
@@ -165,14 +171,36 @@ func testLoadingMarks(t *testing.T) {
 						if !ok {
 							t.Fatalf("%s: no detail %q", name, r.detail)
 						}
-						mono := inkCentre(img, scale, detail)
-						off = max(off, math.Abs(mono-icon), math.Abs(mono-text))
-						t.Logf("%s, scale %v, %q: icon %.2f, label %+.2f, detail %+.2f", name, scale, r.label, icon, text-icon, mono-icon)
+						// The capitals' geometric middle is independent of how
+						// their strokes distribute ink above and below it.
+						mono := inkMiddle(img, scale, detail)
+						off = max(off, math.Abs(mono-icon))
+						// Match the actual painted baselines, including fallback
+						// fonts and the renderer's device-pixel snapping.
+						baseline := func(box ui.Rect, span ui.Span) float64 {
+							line := ui.ShapeRichText([]ui.Span{span}, font, 0).Lines()[0]
+							y := float64((box.Y + line.Baseline) * scale)
+							switch runtime.GOOS {
+							case "darwin":
+								y = math.Ceil(y - 1e-3)
+							case "linux":
+								y = math.Floor(y + 1e-3)
+							default:
+								y = math.Round(y)
+							}
+							return y / float64(scale)
+						}
+						labelY := baseline(label, ui.Span{Text: r.label, Size: 14})
+						detailY := baseline(detail, ui.Span{Text: r.detail, Font: "monospace", Size: 13})
+						if labelY != detailY {
+							t.Errorf("%s, scale %v, %q: label baseline %.9f, detail %.9f", name, scale, r.label, labelY, detailY)
+						}
+						t.Logf("%s, scale %v, %q: icon %.9f, label %+.9f, detail cap %+.9f (ink centroid %+.9f)", name, scale, r.label, icon, text-icon, mono-icon, inkCentre(img, scale, detail)-icon)
 					} else {
 						t.Logf("%s, scale %v, %q: icon %.2f, label %+.2f", name, scale, r.label, icon, text-icon)
 					}
 					if off > 0.5 {
-						t.Errorf("%s, scale %v: the row %q is %.2f DIPs off level", name, scale, r.label, off)
+						t.Errorf("%s, scale %v: the row %q is %.9f DIPs off level", name, scale, r.label, off)
 					}
 				}
 			}

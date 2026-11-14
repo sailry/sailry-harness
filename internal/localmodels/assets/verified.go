@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
 )
@@ -63,11 +61,8 @@ func Candidate(path string, files []File) *Stamp {
 		return nil
 	}
 	defer root.Close()
-	directory, err := os.Lstat(path)
+	directory, err := root.Stat(".")
 	if err != nil || !directory.IsDir() {
-		return nil
-	}
-	if resolved, err := filepath.EvalSymlinks(path); err != nil || resolved != path {
 		return nil
 	}
 	identities := make([]identity, 0, len(files))
@@ -78,7 +73,7 @@ func Candidate(path string, files []File) *Stamp {
 		}
 		identities = append(identities, identity{bytes: uint64(info.Size()), modified: info.ModTime(), native: nativeOf(info)})
 	}
-	return &Stamp{path: path, files: identities, directory: nativeOf(directory)}
+	return &Stamp{path: root.Name(), files: identities, directory: nativeOf(directory)}
 }
 
 // StampOf observes the directory when it carries the expected marker.

@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // probe reads a composer's frame by pixel, at twice the size so a text's
@@ -53,6 +54,29 @@ func (p probe) color(box ui.Rect) (most int, warning, danger bool) {
 		}
 	}
 	return most, warning, danger
+}
+
+// textInk reads the fully covered strokes. ClearType's separate channel
+// coverage gives neutral text colored edges; extrema recover its ink color.
+func (p probe) textInk(box ui.Rect, dark bool) [3]int {
+	ink := [3]int{255, 255, 255}
+	if dark {
+		ink = [3]int{}
+	}
+	img := p.tt.Image()
+	for y := int(box.Y * 2); y < int((box.Y+box.H)*2); y++ {
+		for x := int(box.X * 2); x < int((box.X+box.W)*2); x++ {
+			c := img.RGBAAt(x, y)
+			for i, value := range [3]int{int(c.R), int(c.G), int(c.B)} {
+				if dark {
+					ink[i] = max(ink[i], value)
+				} else {
+					ink[i] = min(ink[i], value)
+				}
+			}
+		}
+	}
+	return ink
 }
 
 // row is the choice named name: a menu's item, or a button of the settings
@@ -136,8 +160,12 @@ func composerMenus(t *testing.T) {
 			}
 			if plain, ok := tt.Find(zh("composer_permission_ask_description")); !ok {
 				t.Errorf("no description of asking")
-			} else if most, _, _ := p.color(plain); most > 40 {
-				t.Errorf("the description of asking is %d apart, want the muted color", most)
+			} else {
+				background := p.edge(rest)
+				muted := theme.Look("", mode == "dark").MutedForeground.Over(ui.RGB(uint8(background[0]), uint8(background[1]), uint8(background[2])))
+				if got, want := p.textInk(plain, mode == "dark"), [3]int{int(muted.R), int(muted.G), int(muted.B)}; !same(got, want) {
+					t.Errorf("the description of asking is %v, want the muted color %v", got, want)
+				}
 			}
 			p.hover(other)
 			if got, want := p.edge(other), p.edge(rest); same(got, want) {
