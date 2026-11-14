@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -95,6 +96,8 @@ type pairing struct {
 	shared                  map[string]*bool // the projects shared with, by ID
 	distribution            int              // of status.Distributions
 	revoking                *viewmodel.Device
+	tabs                    ui.ScrollState // the method tabs
+	widen                   float32        // what the tabs overflowed the dialog by
 	status                  ConnectionStatus
 }
 
@@ -366,7 +369,16 @@ func addHost(c *ui.Context, m *Model) {
 			}
 			choice := max(slices.Index(offered, Method(pr.method)), 0)
 			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, true)
-			kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{}).AlignSelf(ui.Start).Disabled(locked).Label(i18n.T(c, "connection"))
+			// The tabs keep their size: where their labels run longer than
+			// the dialog, it widens by what overflowed last frame, and in a
+			// window too narrow for that they scroll.
+			ui.ScrollHorizontal(c.Key("methods")).TrackScroll(&pr.tabs).Scrollbars(false).Children(func() {
+				kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{}).Shrink(0).Disabled(locked).Label(i18n.T(c, "connection"))
+			})
+			if over := float32(math.Ceil(float64(pr.tabs.MaxX))); over > 0 && pr.widen < 480 {
+				pr.widen += over
+				c.After(0)
+			}
 			pr.method = int(offered[choice])
 			switch method := Method(pr.method); {
 			case method == ByPairing:
@@ -428,7 +440,7 @@ func addHost(c *ui.Context, m *Model) {
 				m.ConnectionActions.Add(draft, completed)
 			})
 		})
-	}).Width(min(pairingWidth, width(c)-48)).Label(title)
+	}).Width(min(pairingWidth+pr.widen, width(c)-48)).Label(title)
 }
 
 // sshFields are the name, the host and port on one row, the user, then the
