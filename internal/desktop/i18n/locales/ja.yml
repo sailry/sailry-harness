@@ -953,6 +953,7 @@ settings_decision_description: ローカル判断モデルを設定
 settings_dictation_description: メッセージの草稿にローカルに書き込む
 settings_empty: アイテムなし
 settings_execution: 実行
+settings_font_default: デフォルト
 settings_font_family: フォント
 settings_font_size: フォントサイズ
 settings_general_description: 通知とデバイスペアリングサービスの管理Name

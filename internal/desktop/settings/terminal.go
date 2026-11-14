@@ -126,7 +126,8 @@ func terminal(c *ui.Context, m *Model) {
 			})
 			title = i18n.T(c, "settings_font_family")
 			kit.WideRow(c, "font", title, "", func() {
-				ui.TextInput(c.Key("input"), &m.Font).Label(title).Placeholder("Menlo").FillWidth()
+				el, _ := kit.SelectField(c, "terminal-font", &m.Font, kit.SelectProps{Label: title, Options: fontOptions(c, m.Font)})
+				el.FillWidth().MinWidth(0)
 			})
 		})
 	})
@@ -183,4 +184,22 @@ func shellTitle(c *ui.Context, s preview.Shell) string {
 		return i18n.T(c, "terminal_shell_default")
 	}
 	return filepath.Base(s.Path)
+}
+
+// fontOptions are the terminal's fonts: the default, then the system's
+// monospaced families, and a saved family the system does not list, so
+// that the choice still shows.
+func fontOptions(c *ui.Context, saved string) []kit.SelectOption {
+	options := []kit.SelectOption{{Value: "", Label: i18n.T(c, "settings_font_default")}}
+	listed := saved == ""
+	for _, family := range ui.FontFamilies() {
+		if family.Monospaced {
+			options = append(options, kit.SelectOption{Value: family.Name, Label: family.Name})
+			listed = listed || family.Name == saved
+		}
+	}
+	if !listed {
+		options = append(options, kit.SelectOption{Value: saved, Label: saved})
+	}
+	return options
 }

@@ -953,6 +953,7 @@ settings_decision_description: 設定本機決策模型
 settings_dictation_description: 在本機識別語音，結果填入訊息草稿
 settings_empty: 暫無內容
 settings_execution: 執行
+settings_font_default: 預設
 settings_font_family: 字型
 settings_font_size: 字號
 settings_general_description: 管理通知偏好和裝置配對服務

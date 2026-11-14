@@ -972,6 +972,7 @@ settings_decision_description
 settings_dictation_description
 settings_empty
 settings_execution
+settings_font_default
 settings_font_family
 settings_font_size
 settings_general_description

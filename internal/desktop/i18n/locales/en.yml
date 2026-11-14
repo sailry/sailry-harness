@@ -953,6 +953,7 @@ settings_decision_description: Configure local decision models
 settings_dictation_description: Transcribe locally into the message draft
 settings_empty: No items
 settings_execution: Execution
+settings_font_default: Default
 settings_font_family: Font
 settings_font_size: Font size
 settings_general_description: Manage notifications and device pairing service

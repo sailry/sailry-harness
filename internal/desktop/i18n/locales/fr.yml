@@ -953,6 +953,7 @@ settings_decision_description: Configurer les modèles de décision locaux
 settings_dictation_description: Transcrire localement dans le brouillon du message
 settings_empty: Aucun article
 settings_execution: Exécution
+settings_font_default: Par défaut
 settings_font_family: Police
 settings_font_size: Taille de police
 settings_general_description: Gérer les notifications et le service d'appairage des appareils

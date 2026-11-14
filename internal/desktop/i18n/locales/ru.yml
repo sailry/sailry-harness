@@ -953,6 +953,7 @@ settings_decision_description: Настройка локальных модел�
 settings_dictation_description: Переписать локально в черновой текст сообщения
 settings_empty: Нет пунктов
 settings_execution: Выполнение
+settings_font_default: По умолчанию
 settings_font_family: Шрифт
 settings_font_size: Размер шрифта
 settings_general_description: Управление уведомлениями и службой парирования устройств

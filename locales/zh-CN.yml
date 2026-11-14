@@ -1538,6 +1538,7 @@ settings_theme_builtin: 默认
 settings_terminal_display: 显示与输入
 settings_paste_protection: 多行粘贴保护
 settings_font_family: 字体
+settings_font_default: 默认
 settings_font_size: 字号
 settings_execution_permissions: 执行权限
 settings_shell_commands: Shell 命令执行

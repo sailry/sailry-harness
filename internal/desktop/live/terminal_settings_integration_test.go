@@ -505,7 +505,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	if app.Settings.FontSize != 20 || !window.tester.HasText("20") {
 		t.Fatalf("the font size is %v, want 20", app.Settings.FontSize)
 	}
-	window.replace("Menlo", "Courier New")
+	pickOption(window, "Font", "Courier New")
 	stored := func() (terminal struct {
 		FontSize        uint8  `json:"font_size"`
 		FontFamily      string `json:"font_family"`
@@ -689,7 +689,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	if guard := window.one(ui.RoleSwitch, "Multiline paste protection"); guard.Checked {
 		t.Fatal("the paste protection switch is on after the relaunch")
 	}
-	if value := window.field("Menlo").Value; value != "Courier New" || !window.tester.HasText("20") {
+	if value := app.Settings.Font; value != "Courier New" || !window.tester.HasText("Courier New") || !window.tester.HasText("20") {
 		t.Fatalf("the page shows font %q after the relaunch", value)
 	}
 	t.Log("step 18 passed: a new Runtime kept paste protection off and Courier New 20 on the reattached terminal; the Node kept no variables and " + chosen.Path)

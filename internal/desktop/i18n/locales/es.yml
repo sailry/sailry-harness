@@ -953,6 +953,7 @@ settings_decision_description: Configurar modelos de decisión locales
 settings_dictation_description: Transcribir localmente en el borrador del mensaje
 settings_empty: No hay artículos
 settings_execution: Ejecución
+settings_font_default: Predeterminada
 settings_font_family: Fuente
 settings_font_size: Tamaño de fuente
 settings_general_description: Gestionar notificaciones y servicio de emparejamiento de dispositivos

@@ -953,6 +953,7 @@ settings_decision_description: 로컬 판단 모델 설정
 settings_dictation_description: 메시지 초안에 로컬로 쓰기
 settings_empty: 항목 없음
 settings_execution: 실행
+settings_font_default: 기본값
 settings_font_family: 글꼴
 settings_font_size: 글꼴 크기
 settings_general_description: 알림 및 장치 페어링 서비스 관리

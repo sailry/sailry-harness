@@ -953,6 +953,7 @@ settings_decision_description: 配置本地决策模型
 settings_dictation_description: 在本机识别语音，结果填入消息草稿
 settings_empty: 暂无内容
 settings_execution: 执行
+settings_font_default: 默认
 settings_font_family: 字体
 settings_font_size: 字号
 settings_general_description: 管理通知偏好和设备配对服务

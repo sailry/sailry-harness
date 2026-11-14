@@ -953,6 +953,7 @@ settings_decision_description: Lokale Entscheidungsmodelle konfigurieren
 settings_dictation_description: Lokal in den Nachrichtenentwurf transkribieren
 settings_empty: Keine Artikel gefunden
 settings_execution: Ausführung
+settings_font_default: Standard
 settings_font_family: Schriftart
 settings_font_size: Schriftgröße
 settings_general_description: Verwalten von Benachrichtigungen und Gerätekopplungsdienst
