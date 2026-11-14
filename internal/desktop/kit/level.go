@@ -2,7 +2,6 @@ package kit
 
 import (
 	"math"
-	"sync"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -12,23 +11,6 @@ import (
 // system fonts stand about 0.7 em, and the body of a CJK ideograph has its
 // middle close to theirs.
 const capHeight = 0.7
-
-type fontKey struct {
-	family string
-	size   float32
-}
-
-var fontMetrics sync.Map // fontKey -> ui.FontMetrics
-
-func metricsOf(family string, size float32) ui.FontMetrics {
-	key := fontKey{family, size}
-	if m, ok := fontMetrics.Load(key); ok {
-		return m.(ui.FontMetrics)
-	}
-	m := ui.Font{Family: family, Size: size}.Metrics()
-	fontMetrics.Store(key, m)
-	return m
-}
 
 // capBaseline is how far below a row's middle the baseline of a text of
 // size is for its capitals to stand in the middle: half their height, to a
@@ -47,19 +29,20 @@ func capBaseline(size float32) float32 {
 // scale 1 and half of one at scale 2. Level moves the box by the difference
 // between that baseline and the capitals' (capBaseline), with a margin
 // above and its opposite below, which keeps the box's size and the row's
-// height. The line of a ui.RichText is not its text's: LevelSpan levels
-// one.
-func Level(c *ui.Context, e ui.Element, size float32) ui.Element {
-	m := metricsOf(c.Theme().Font, size)
-	return levelled(e, size, m.Ascent, m.Descent)
+// height. Label is the element's text, including the fallback fonts its
+// characters require. The line of a ui.RichText is not its text's:
+// LevelSpan levels one.
+func Level(c *ui.Context, e ui.Element, size float32, label string) ui.Element {
+	ascent, descent := spanLine(c, e, ui.Span{Text: label, Size: size}, size)
+	return levelled(e, size, ascent, descent)
 }
 
 // LevelTop is Level for a text that may wrap, in a row aligned to its top
 // whose icons are height/2 from it: the first line is where a centred row
 // of height has its line, and a text of one line makes the row that high.
-func LevelTop(c *ui.Context, e ui.Element, size, height float32) ui.Element {
-	m := metricsOf(c.Theme().Font, size)
-	return levelledTop(e, size, height, m.Ascent, m.Descent)
+func LevelTop(c *ui.Context, e ui.Element, size, height float32, label string) ui.Element {
+	ascent, descent := spanLine(c, e, ui.Span{Text: label, Size: size}, size)
+	return levelledTop(e, size, height, ascent, descent)
 }
 
 // LevelSpan is Level for a single-line ui.RichText of span in a row whose
@@ -68,13 +51,13 @@ func LevelTop(c *ui.Context, e ui.Element, size, height float32) ui.Element {
 // span's own font and size (a mono detail a DIP smaller). The line is not
 // the span's: spanLine.
 func LevelSpan(c *ui.Context, e ui.Element, span ui.Span, size float32) ui.Element {
-	ascent, descent := spanLine(c, e, span)
+	ascent, descent := spanLine(c, e, span, c.Theme().FontSize)
 	return levelled(e, size, ascent, descent)
 }
 
 // LevelSpanTop is LevelTop for a ui.RichText of span (LevelSpan).
 func LevelSpanTop(c *ui.Context, e ui.Element, span ui.Span, size, height float32) ui.Element {
-	ascent, descent := spanLine(c, e, span)
+	ascent, descent := spanLine(c, e, span, c.Theme().FontSize)
 	return levelledTop(e, size, height, ascent, descent)
 }
 
@@ -87,17 +70,13 @@ type spanMetrics struct {
 	ascent, descent float32
 }
 
-// spanLine is the ascent and the descent of the line of a ui.RichText of
-// span. MyGo starts a RichText's line from the theme's font at the theme's
-// size, its strut, and grows it to what a span needs: a span smaller than
-// the theme's size stands on the theme's line. The shaped line also includes
-// fallback fonts, which Font.Metrics cannot see (for example Segoe UI's CJK
-// fallback). Keep its geometry on the element so repeated frames do not shape
-// the same text again. The element must take the theme's font size, as it does
-// where no ancestor sets another.
-func spanLine(c *ui.Context, e ui.Element, span ui.Span) (ascent, descent float32) {
+// spanLine measures the shaped line, including fallback fonts that Font.Metrics
+// cannot see. Plain text starts from its own size; RichText starts from the
+// theme's size, its strut, and grows to fit the span. Keep the geometry on the
+// element so repeated frames do not reshape it or retain old labels globally.
+func spanLine(c *ui.Context, e ui.Element, span ui.Span, baseSize float32) (ascent, descent float32) {
 	t := c.Theme()
-	font := ui.Font{Family: t.Font, Size: t.FontSize}
+	font := ui.Font{Family: t.Font, Size: baseSize}
 	locale := c.Locale()
 	m := ui.Local(e, spanLineKey{}, func() spanMetrics { return spanMetrics{} })
 	if m.font != font || m.span != span || m.locale != locale {

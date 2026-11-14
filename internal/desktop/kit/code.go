@@ -187,7 +187,7 @@ func CodeBlock(c *ui.Context, b *markdown.CodeBlockView) {
 	ui.Column(c).AlignSelf(ui.Stretch).Background(p.Background.Mix(p.Foreground, 0.035)).Border(1, p.Border).
 		Radius(p.Radius).Clip().Children(func() {
 		ui.Row(c).AlignItems(ui.Center).Padding(4, 6, 0, 12).Children(func() {
-			Level(c, ui.Text(c, b.Language).FontSize(12).TextColor(p.MutedForeground).Unselectable(), 12)
+			Level(c, ui.Text(c, b.Language).FontSize(12).TextColor(p.MutedForeground).Unselectable(), 12, b.Language)
 			ui.Spacer(c)
 			IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 24, false).TextColor(p.MutedForeground).
 				Disabled(b.Open).OnClick(func() {

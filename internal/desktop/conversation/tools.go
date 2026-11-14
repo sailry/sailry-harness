@@ -127,7 +127,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 			sw.Text(c, t, span)
 		}
 	case call.wrap:
-		level(c, ui.Text(c, label).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(color), size, true)
+		level(c, ui.Text(c, label).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(color), size, true, label)
 	}
 	detail, code := call.Detail, call.Code
 	if detail != "" {
@@ -165,11 +165,11 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 
 // level puts a row's text of size level with its icon (kit.Level): centred
 // in the row, or on the first line of a row that wraps.
-func level(c *ui.Context, e ui.Element, size float32, wrap bool) ui.Element {
+func level(c *ui.Context, e ui.Element, size float32, wrap bool, label string) ui.Element {
 	if wrap {
-		return kit.LevelTop(c, e, size, rowHeight(size))
+		return kit.LevelTop(c, e, size, rowHeight(size), label)
 	}
-	return kit.Level(c, e, size)
+	return kit.Level(c, e, size, label)
 }
 
 // levelSpan is level for a single-line ui.RichText of span in a row whose
@@ -555,11 +555,11 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 			}
 			switch {
 			case st.State == StepInProgress && active:
-				levelSpan(c, kit.Shimmer(c, st.Text, size, p.Foreground), ui.Span{Size: size}, size, false)
+				levelSpan(c, kit.Shimmer(c, st.Text, size, p.Foreground), ui.Span{Text: st.Text, Size: size}, size, false)
 			case st.State == StepCompleted || st.State == StepSkipped:
-				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().Strikethrough().TextColor(p.MutedForeground), size, false)
+				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().Strikethrough().TextColor(p.MutedForeground), size, false, st.Text)
 			default:
-				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().TextColor(p.Foreground), size, false)
+				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().TextColor(p.Foreground), size, false, st.Text)
 			}
 		})
 	}
@@ -663,11 +663,12 @@ func child(c *ui.Context, k Child, actions Actions) {
 			kit.RoleIdenticon(c, k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
 		}
 		if !k.Unsynced && k.Status.Active() {
-			levelSpan(c, kit.Shimmer(c, title, size, color), ui.Span{Size: size}, size, false)
+			levelSpan(c, kit.Shimmer(c, title, size, color), ui.Span{Text: title, Size: size}, size, false)
 		} else {
-			level(c, ui.Text(c, title).FontSize(size).SingleLine().TextColor(color), size, false)
+			level(c, ui.Text(c, title).FontSize(size).SingleLine().TextColor(color), size, false, title)
 		}
-		level(c, ui.Text(c, strings.TrimSpace(k.Model+" "+k.Effort)).FontSize(size).SingleLine().TextColor(p.MutedForeground.Alpha(0.65)), size, false)
+		model := strings.TrimSpace(k.Model + " " + k.Effort)
+		level(c, ui.Text(c, model).FontSize(size).SingleLine().TextColor(p.MutedForeground.Alpha(0.65)), size, false, model)
 		ch := ui.Icon(c, icons.ChevronRight).FontSize(caretSize(size)).TextColor(color)
 		if !hovered {
 			ch.Opacity(0)

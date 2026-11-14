@@ -101,6 +101,21 @@ func testLoadingMarks(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		snapshot(t, tt, "loading-demo-"+name)
+		// Compare the baselines the platform renderer paints, including fallback
+		// fonts and its device-pixel snapping.
+		baseline := func(box ui.Rect, span ui.Span, scale float32) float64 {
+			line := ui.ShapeRichText([]ui.Span{span}, font, 0).Lines()[0]
+			y := float64((box.Y + line.Baseline) * scale)
+			switch runtime.GOOS {
+			case "darwin":
+				y = math.Ceil(y - 1e-3)
+			case "linux":
+				y = math.Floor(y + 1e-3)
+			default:
+				y = math.Round(y)
+			}
+			return y / float64(scale)
+		}
 
 		// The first running row's loader, in the side column.
 		if r, ok := tt.Find(running); !ok || r.W != 12 || r.H != 12 || r.X > RailWidth+a.NavWidth {
@@ -175,23 +190,8 @@ func testLoadingMarks(t *testing.T) {
 						// their strokes distribute ink above and below it.
 						mono := inkMiddle(img, scale, detail)
 						off = max(off, math.Abs(mono-icon))
-						// Match the actual painted baselines, including fallback
-						// fonts and the renderer's device-pixel snapping.
-						baseline := func(box ui.Rect, span ui.Span) float64 {
-							line := ui.ShapeRichText([]ui.Span{span}, font, 0).Lines()[0]
-							y := float64((box.Y + line.Baseline) * scale)
-							switch runtime.GOOS {
-							case "darwin":
-								y = math.Ceil(y - 1e-3)
-							case "linux":
-								y = math.Floor(y + 1e-3)
-							default:
-								y = math.Round(y)
-							}
-							return y / float64(scale)
-						}
-						labelY := baseline(label, ui.Span{Text: r.label, Size: 14})
-						detailY := baseline(detail, ui.Span{Text: r.detail, Font: "monospace", Size: 13})
+						labelY := baseline(label, ui.Span{Text: r.label, Size: 14}, scale)
+						detailY := baseline(detail, ui.Span{Text: r.detail, Font: "monospace", Size: 13}, scale)
 						if labelY != detailY {
 							t.Errorf("%s, scale %v, %q: label baseline %.9f, detail %.9f", name, scale, r.label, labelY, detailY)
 						}
@@ -214,19 +214,29 @@ func testLoadingMarks(t *testing.T) {
 			key   string
 		}{{conversation.Thinking, "turn_thinking"}, {conversation.Generating, "turn_generating"}} {
 			reply.Phase = phase.phase
+			a.Messages.List(cv.ID).ScrollToEnd()
 			tt.Frame()
 			tt.Advance(300 * time.Millisecond)
-			label, ok := tt.Find(i18n.In("zh-CN", phase.key))
+			text := i18n.In("zh-CN", phase.key)
+			label, ok := tt.Find(text)
 			if !ok {
 				t.Fatalf("%s: no phase row %q", name, phase.key)
 			}
+			// LevelSpan puts the 14-DIP text's baseline 5 DIPs below the mark's
+			// centre. The CJK fallback font's line-box centre is a different point.
+			middle := baseline(label, ui.Span{Text: text, Size: 14}, 2) - 5
 			mark := false
+			var candidates []ui.Rect
 			for _, e := range tt.AccessAll() {
 				b := e.Bounds
-				mark = mark || e.Role == ui.RoleProgress && b.H == 16 && b.X < label.X && label.X-b.X-b.W == 8 && math.Abs(float64(b.Y+b.H/2-label.Y-label.H/2)) < 1
+				if e.Role != ui.RoleProgress || b.W != 16 || b.H != 16 {
+					continue
+				}
+				candidates = append(candidates, b)
+				mark = mark || !e.Offscreen && b.X < label.X && label.X-b.X-b.W == 8 && math.Abs(float64(b.Y+b.H/2)-middle) < 1
 			}
 			if !mark {
-				t.Errorf("%s: no mark before %q", name, phase.key)
+				t.Errorf("%s: no visible 16-DIP mark before %q at %v, cap centre %.3f, progress marks %v", name, phase.key, label, middle, candidates)
 			}
 			snapshot(t, tt, "loading-"+phase.key+"-"+name)
 		}

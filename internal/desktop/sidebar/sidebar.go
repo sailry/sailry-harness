@@ -281,7 +281,7 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 				if icon := groupIcons[key]; kit.HasArtIcon(c, icon) {
 					kit.ArtIcon(c, icon, nil, 16, ui.Color{}).Margin(0, 4, 0, 0)
 				}
-				kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine(), 14)
+				kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine(), 14, title)
 				chevron := ui.Icon(c, icons.ChevronDown).FontSize(12).Rotate(-90 * (1 - parts.Progress()))
 				if !hovered {
 					chevron.Opacity(0)
@@ -351,7 +351,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 		parts.Trigger.Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground).
 			Cursor(ui.CursorPointer).ContextMenu(func(m *ui.Menu) { s.projectMenu(c, m, pr) }).Children(func() {
 			kit.ProjectGlyph(c, pr.Icon, pr.Color, 14).Label(i18n.T(c, "project_icon_"+appearanceIcon(pr.Icon)))
-			kit.Level(c, ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1), 14)
+			kit.Level(c, ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, pr.Name)
 			label := i18n.T(c, "workspace_collapse")
 			if !*s.opened("project/" + pr.ID) {
 				label = i18n.T(c, "workspace_expand")
@@ -425,7 +425,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	}
 	b.TextColor(text).Children(func() {
 		status(c, cv.Status, text)
-		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14)
+		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
 		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)
 		}

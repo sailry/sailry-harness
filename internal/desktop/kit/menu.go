@@ -343,7 +343,7 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 				}
 			}
 			ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
-				Level(c, ui.Text(c, it.label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0), 14)
+				Level(c, ui.Text(c, it.label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0), 14, it.label)
 				if it.trailing != "" {
 					ui.Text(c, it.trailing).FontSize(12).SingleLine().Shrink(0).TextColor(muted)
 				}

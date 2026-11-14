@@ -100,11 +100,11 @@ func testLevel(t *testing.T) {
 			switch {
 			case wrap:
 				icon.Margin((height-mark)/2, 0, 0, 0)
-				LevelTop(c, text, size, height)
+				LevelTop(c, text, size, height, label)
 				LevelSpanTop(c, swept, run, size, height)
 				LevelSpanTop(c, detail, span, size, height)
 			case level:
-				Level(c, text.SingleLine(), size)
+				Level(c, text.SingleLine(), size, label)
 				LevelSpan(c, swept, run, size)
 				LevelSpan(c, detail, span, size)
 			}

@@ -136,7 +136,7 @@ func loadingSheet(t *testing.T) {
 						ui.Text(c, s.Name).FontSize(10).TextColor(p.MutedForeground.Alpha(0.6))
 						ui.Row(c).Gap(8).Height(24).Children(func() {
 							s.New(c, loading.Options{Size: 16, Color: p.MutedForeground})
-							Level(c, ui.Text(c, "正在思考 Thinking").FontSize(14).SingleLine().TextColor(p.MutedForeground), 14)
+							Level(c, ui.Text(c, "正在思考 Thinking").FontSize(14).SingleLine().TextColor(p.MutedForeground), 14, "正在思考 Thinking")
 						})
 					})
 				}
@@ -169,7 +169,7 @@ func loadingSheet(t *testing.T) {
 					}{{Searching, "正在思考"}, {Composing, "正在回复"}, {Working, "等待 2 个子代理"}, {Waiting, "等待处理"}} {
 						ui.Row(c.Key(phase.label)).Gap(8).Height(24).Children(func() {
 							Indicator(c, phase.st, 16)
-							Level(c, ui.Text(c, phase.label).FontSize(14).SingleLine().TextColor(p.MutedForeground), 14)
+							Level(c, ui.Text(c, phase.label).FontSize(14).SingleLine().TextColor(p.MutedForeground), 14, phase.label)
 						})
 					}
 				})
@@ -177,11 +177,12 @@ func loadingSheet(t *testing.T) {
 					ui.Row(c.Key(level)).Gap(8).Height(24).Children(func() {
 						ui.Icon(c, icons.Help).FontSize(16).Shrink(0).TextColor(p.Foreground)
 						label := ui.Text(c, "命令 Command").FontSize(14).SingleLine().Shrink(0).TextColor(p.Foreground)
-						detail := ui.RichText(c, ui.Span{Text: "make migrate", Size: 13, Font: "monospace", Color: p.MutedForeground}).SingleLine()
+						span := ui.Span{Text: "make migrate", Size: 13, Font: "monospace", Color: p.MutedForeground}
+						detail := ui.RichText(c, span).SingleLine()
 						note := "MyGo's centring"
 						if level {
-							Level(c, label, 14)
-							Level(c, detail, 14)
+							Level(c, label, 14, "命令 Command")
+							LevelSpan(c, detail, span, 14)
 							note = "kit.Level"
 						}
 						ui.Text(c, note).FontSize(10).TextColor(p.MutedForeground.Alpha(0.6))

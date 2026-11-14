@@ -261,7 +261,7 @@ func chip(c *ui.Context, label string, open bool, children func()) ui.Element {
 // chipText is a chip's text, 14 DIPs on one line, level with the chip's
 // icon (kit.Level).
 func chipText(c *ui.Context, text string) ui.Element {
-	return kit.Level(c, ui.Text(c, text).FontSize(14).SingleLine(), 14)
+	return kit.Level(c, ui.Text(c, text).FontSize(14).SingleLine(), 14, text)
 }
 
 // place puts a capsule's popover (MyGo's, as it is) anchored at its bottom
