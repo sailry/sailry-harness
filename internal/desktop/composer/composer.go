@@ -510,10 +510,14 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			s.renderPluginControls(c, "context", ControlStart)
 		})
-		s.scoreFigure(c, ctx)
-		if s.Metrics != nil {
-			s.Metrics(c, compact, &s.stats)
-		}
+		// The score is one of the figures: the usage's 12 DIP apart, not the
+		// bar's 4.
+		ui.Row(c.Key("figures")).Shrink(0).Gap(12).AlignItems(ui.Center).Children(func() {
+			s.scoreFigure(c, ctx)
+			if s.Metrics != nil {
+				s.Metrics(c, compact, &s.stats)
+			}
+		})
 	})
 }
 
