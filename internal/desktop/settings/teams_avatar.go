@@ -63,7 +63,8 @@ func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
 	p := theme.Of(c)
 	label := i18n.T(c, "role_avatar")
 	kit.Field(c, "avatar", label, "", func() {
-		holder := ui.Row(c.Key("holder"))
+		// Room for the badge, which reaches past the picture's corner.
+		holder := ui.Row(c.Key("holder")).Padding(0, 4, 4, 0)
 		st := ui.Local(holder, "picker", func() avatarPicker { return avatarPicker{} })
 		holder.Children(func() {
 			b := ui.ButtonBase(c.Key("trigger")).Label(label).Disabled(disabled).HasPopup(ui.PopupDialog).Expanded(st.open)
@@ -74,7 +75,9 @@ func avatarField(c *ui.Context, role *preview.Role, disabled bool) {
 			b.Children(func() {
 				kit.RoleAvatar(c, role.ID, role.Avatar, avatarTrigger)
 				if ring := avatarRing(c, b, st.open); ring != (ui.Color{}) {
-					ui.Box(c).Absolute().Top(-3).Left(-3).Size(avatarTrigger+6, avatarTrigger+6).Radius(avatarTrigger/4+3).Border(2, ring)
+					// Inside the picture's edge: the editor's scroll area
+					// clips anything past the field's start.
+					ui.Box(c).Absolute().Top(0).Left(0).Size(avatarTrigger, avatarTrigger).Radius(avatarTrigger/4).Border(2, ring)
 				}
 				// The badge says the picture changes; it sits on the
 				// corner, ringed in the dialog's color.
