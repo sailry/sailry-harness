@@ -300,6 +300,8 @@ func (a *App) View(c *ui.Context) {
 		a.OnMode(a.Mode)
 	}
 	a.applied = a.Mode
+	// The system's appearance, before the app's mode replaces it.
+	system := c.Theme().Dark
 	theme.Apply(c, a.Theme, a.Mode)
 	kit.SetEffects(a.Effects)
 	a.shortcuts(c)
@@ -310,11 +312,13 @@ func (a *App) View(c *ui.Context) {
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, panel := p.TitleBar, p.Background
-	if c.Vibrancy() && a.Mode == theme.System {
+	if c.Vibrancy() && theme.IsDark(c, a.Mode) == system {
 		// The window material shows through: the outer band at 45% of the title
-		// bar, the panel at 83.5% of the background. Only while the app follows the
-		// system: a forced mode paints opaque, so the band never shows a material
-		// of the other appearance.
+		// bar, the panel at 83.5% of the background. The material takes the
+		// system's appearance, which MyGo cannot override, so only while the app
+		// shows that appearance too, followed or forced: a forced mode of the
+		// other appearance paints opaque, so the band never shows a material of
+		// the other appearance.
 		band, panel = p.TitleBar.Alpha(a.Surfaces.Sidebar), p.Background.Alpha(a.Surfaces.Main)
 	}
 	c.Root().Background(band)
