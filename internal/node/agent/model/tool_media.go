@@ -26,8 +26,12 @@ const (
 var toolImageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 // ReadsImages reports whether the bound model takes image input: its listed
-// capability, or the provider's default for a model the provider does not list.
+// capability, or the provider's default for a model the provider does not list,
+// bounded by the adapter's declared input capabilities.
 func ReadsImages(binding Binding) bool {
+	if PluginBound(binding.Provider) && !(**binding.Provider.Binding).Adapter.Capabilities.Vision {
+		return false
+	}
 	if model := metadata(binding); model != nil {
 		return model.Vision
 	}
@@ -197,10 +201,11 @@ func dataURL(file fantasy.FilePart) string {
 	return "data:" + file.MediaType + ";base64," + base64.StdEncoding.EncodeToString(file.Data)
 }
 
-// toolMediaParts appends a tool result's media to the content of the stored
-// MCP result a model adapter receives.
+// toolMediaParts projects a stored MCP result's images for the bound model and
+// appends the lifted media of a JSON result. It never changes canonical history.
 func toolMediaParts(binding Binding, raw json.RawMessage, response canonical.ToolResponse, assets map[string][]byte) (json.RawMessage, error) {
-	if len(response.Attachments) == 0 {
+	readsImages := ReadsImages(binding)
+	if len(response.Attachments) == 0 && (readsImages || response.Format != canonical.MCP) {
 		return raw, nil
 	}
 	var envelope map[string]json.RawMessage
@@ -209,6 +214,24 @@ func toolMediaParts(binding Binding, raw json.RawMessage, response canonical.Too
 	}
 	var content []json.RawMessage
 	_ = json.Unmarshal(envelope["content"], &content)
+	changed := false
+	if !readsImages && response.Format == canonical.MCP {
+		content = slices.DeleteFunc(content, func(raw json.RawMessage) bool {
+			var part struct {
+				Type     string `json:"type"`
+				Resource struct {
+					Mime string          `json:"mimeType"`
+					Blob json.RawMessage `json:"blob"`
+				} `json:"resource"`
+			}
+			if json.Unmarshal(raw, &part) != nil {
+				return false
+			}
+			image := part.Type == "image" || part.Type == "resource" && strings.HasPrefix(part.Resource.Mime, "image/") && len(part.Resource.Blob) > 0
+			changed = changed || image
+			return image
+		})
+	}
 	for _, attachment := range response.Attachments {
 		asset := attachment.Asset
 		if !SendsToolMedia(binding, asset.Mime, asset.Size) || !slices.Contains(toolImageTypes, asset.Mime) {
@@ -220,6 +243,10 @@ func toolMediaParts(binding Binding, raw json.RawMessage, response canonical.Too
 		}
 		part, _ := json.Marshal(map[string]any{"type": "image", "data": base64.StdEncoding.EncodeToString(data), "mimeType": asset.Mime})
 		content = append(content, part)
+		changed = true
+	}
+	if !changed {
+		return raw, nil
 	}
 	envelope["content"], _ = json.Marshal(content)
 	return json.Marshal(envelope)

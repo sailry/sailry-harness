@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -34,13 +35,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 	request := slices.Clone(records)
 	assets := map[string][]byte{}
 	remaining := uint64(64 << 20)
-	vision := false
-	for _, model := range x.inv.Provider.Models {
-		if model.ID == x.inv.Turn.Config.Model {
-			vision = model.Vision
-			break
-		}
-	}
+	vision := model.ReadsImages(model.Binding{Provider: *x.inv.Provider, Config: x.inv.Turn.Config})
 	if x.attachments == nil {
 		x.attachments = map[protocol.AttachmentID]*attachmentMaterial{}
 	}
