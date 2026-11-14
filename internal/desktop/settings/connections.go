@@ -350,9 +350,9 @@ func addHost(c *ui.Context, m *Model) {
 	p := theme.Of(c)
 	title := i18n.T(c, "host_add")
 	locked := m.ConnectionPending || pr.status.Recovery
-	// The title over its hint; the method as segments; the pairing code
-	// large and centered, or the SSH login with host and port on one row;
-	// the relay network last, as it rarely changes.
+	// The title over its hint; the relay network; the method as segments;
+	// the pairing code centered, or the SSH login with host and port on one
+	// row.
 	kit.Dialog(c.Key("add-host"), &pr.adding, func() {
 		ui.Column(c.Key("head")).Gap(4).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
@@ -365,7 +365,8 @@ func addHost(c *ui.Context, m *Model) {
 				names[index] = i18n.T(c, methodLabels[method])
 			}
 			choice := max(slices.Index(offered, Method(pr.method)), 0)
-			kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{Block: true, Size: kit.SizeSmall}).Disabled(locked).Label(i18n.T(c, "connection"))
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked)
+			kit.Segmented(c, "method", &choice, names, kit.SegmentedProps{}).AlignSelf(ui.Start).Disabled(locked).Label(i18n.T(c, "connection"))
 			pr.method = int(offered[choice])
 			switch method := Method(pr.method); {
 			case method == ByPairing:
@@ -381,7 +382,6 @@ func addHost(c *ui.Context, m *Model) {
 				sshFields(c, pr, m, locked)
 				scopeFields(c, pr, locked)
 			}
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked)
 			if m.ConnectionPending {
 				stage := m.ConnectionStage
 				if stage == "" {
@@ -544,10 +544,9 @@ func wslFields(c *ui.Context, pr *pairing, locked bool) {
 	})
 }
 
-// shareCode is the share dialog: the title over how to use the code, this
-// computer's pairing code in a panel with its validity or progress, and the
-// network last, as in Add host. The preview has no pairing service, so it
-// shows no code.
+// shareCode is the share dialog: the title over how to use the code, the
+// network, and this computer's pairing code with its validity or progress,
+// as in Add host. The preview has no pairing service, so it shows no code.
 func shareCode(c *ui.Context, m *Model) {
 	pr := &m.pairing
 	if !pr.sharing {
@@ -561,6 +560,7 @@ func shareCode(c *ui.Context, m *Model) {
 			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Column(c.Key("body")).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false)
 			codePanel(c, func() {
 				ready := m.Live && len(m.Share.Code) == 6
 				// The cells of a large InputOTP, so the code reads as the one
@@ -597,17 +597,14 @@ func shareCode(c *ui.Context, m *Model) {
 					status("pairing_refresh_hint")
 				}
 			})
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false)
 		})
 	}).Width(min(460, width(c)-48)).Label(title)
 }
 
-// codePanel is the inset panel a pairing code sits in, centered with its
-// status line below.
+// codePanel centers a pairing code on the dialog with its status line
+// below.
 func codePanel(c *ui.Context, children func()) {
-	p := theme.Of(c)
-	ui.Column(c.Key("code")).FillWidth().Padding(24, 16).Gap(12).AlignItems(ui.Center).
-		Radius(p.RadiusLg).Background(p.Background).Border(1, p.Border).Children(children)
+	ui.Column(c.Key("code")).FillWidth().PaddingY(12).Gap(12).AlignItems(ui.Center).Children(children)
 }
 
 // AddHost opens the Add host dialog (Shell::add_host), as the rail's Add
