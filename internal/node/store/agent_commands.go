@@ -381,7 +381,12 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		return protocol.Output{}, nil, err
 	}
 	if current.Delegation != nil {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child queued input is read-only")
+		switch request.Command.Data.(type) {
+		case *protocol.CommandRemoveQueuedTurnPayload, *protocol.CommandWithdrawGuidancePayload:
+			// Removing unconsumed input does not change the child's captured task.
+		default:
+			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child queued input is read-only")
+		}
 	}
 	queue, err := ReadQueue(ctx, db, session)
 	if err != nil {

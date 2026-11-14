@@ -132,9 +132,13 @@ func TestWaitAgent(t *testing.T) {
 }
 
 func TestDelegationHandoff(t *testing.T) {
-	for _, outcome := range []string{"completed", "failed recipient", "cancelled successor"} {
+	for _, outcome := range []string{"completed", "failed recipient", "cancelled successor", "cancelled queued successor"} {
 		t.Run("final boundary guidance "+outcome, func(t *testing.T) {
 			successorStarted := make(chan struct{})
+			successorRelease := make(chan struct{})
+			var successorReleased sync.Once
+			releaseSuccessor := func() { successorReleased.Do(func() { close(successorRelease) }) }
+			t.Cleanup(releaseSuccessor)
 			language := &scriptedModel{scripts: []script{
 				response(text("Initial child response"), finish()),
 				func(ctx context.Context, input fantasy.Call, yield func(fantasy.StreamPart) bool) {
@@ -143,10 +147,17 @@ func TestDelegationHandoff(t *testing.T) {
 						<-ctx.Done()
 						return
 					}
+					select {
+					case <-successorRelease:
+					case <-ctx.Done():
+						return
+					}
 					response(text("Final successor response"), finish())(ctx, input, yield)
 				},
 			}}
 			f, parent := delegationFixture(t, language)
+			stopped := make(chan protocol.SessionID, 4)
+			f.r.stopCommands = func(session protocol.SessionID) { stopped <- session }
 			spawn := saveDelegationCall(t, f, parent, "late guidance", false)
 			result := f.r.spawnChild(parent, spawn, spawn.Arguments)
 			if result.Failure != nil {
@@ -154,6 +165,32 @@ func TestDelegationHandoff(t *testing.T) {
 			}
 			f.r.workers.Wait()
 			child := parent.foreground[0]
+			queuedStop := make(chan error, 1)
+			if outcome == "cancelled queued successor" {
+				publish := f.r.publish
+				var cancelled sync.Once
+				f.r.publish = func() {
+					f.r.mu.Lock()
+					next := child.successor
+					f.r.mu.Unlock()
+					if next != nil {
+						cancelled.Do(func() {
+							// The handoff still holds publication ownership, so the
+							// successor cannot be claimed before this controller stop.
+							queuedStop <- f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+								request := protocol.NewRequest(f.node, protocol.Command{Kind: "stop_turn", Data: &protocol.CommandStopTurnPayload{Turn: next.turn}})
+								_, events, err := store.ExecuteAgentCommand(f.ctx, db, f.node, f.r.profile, f.node, request, f.r.clock.Now())
+								if err != nil {
+									return err
+								}
+								_, err = store.RecordEvents(f.ctx, db, f.node, events)
+								return err
+							})
+						})
+					}
+					publish()
+				}
+			}
 			batch := canonical.NewRecord(parent.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(0, spawn, result)), f.r.clock.Now())
 			batch.Provenance.Author = "tool"
 			if err := f.r.save(parent.ctx, parent.inv.Session.ID, batch); err != nil {
@@ -230,7 +267,26 @@ func TestDelegationHandoff(t *testing.T) {
 			if language.count() != 1 {
 				t.Fatal("guidance began while its recipient was still running")
 			}
+			f.r.mu.Lock()
+			owner := f.r.active[recipient.Turn]
+			f.r.mu.Unlock()
+			if owner == nil {
+				t.Fatal("recipient lost its execution owner before settlement")
+			}
 			unblock()
+			select {
+			case <-owner.done:
+			case <-f.ctx.Done():
+				t.Fatal("recipient did not settle")
+			}
+			if outcome == "completed" || outcome == "cancelled successor" {
+				select {
+				case <-stopped:
+					t.Fatal("recipient stopped commands handed to its successor")
+				default:
+				}
+			}
+			releaseSuccessor()
 			if outcome == "cancelled successor" {
 				select {
 				case <-successorStarted:
@@ -258,6 +314,29 @@ func TestDelegationHandoff(t *testing.T) {
 				}
 			case <-f.ctx.Done():
 				t.Fatal(f.ctx.Err())
+			}
+			select {
+			case session := <-stopped:
+				if session != child.session || len(stopped) != 0 {
+					t.Fatalf("terminal child stopped commands for %s and %d more sessions", session, len(stopped))
+				}
+			case <-f.ctx.Done():
+				t.Fatal("terminal child did not stop its commands")
+			}
+			if outcome == "cancelled queued successor" {
+				select {
+				case err := <-queuedStop:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-f.ctx.Done():
+					t.Fatal("queued successor was not stopped")
+				}
+				cancelled := f.waitRun(successor, protocol.ConversationStatusCancelled)
+				if cancelled.StartedMs != nil || language.count() != 1 {
+					t.Fatal("cancelled queued successor started before command cleanup")
+				}
+				return
 			}
 			if outcome == "failed recipient" {
 				f.waitRun(recipient.Turn, protocol.ConversationStatusFailed)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -141,7 +142,13 @@ func PublishPlanReview(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 				if request, ok := block.Data.(*canonical.ToolRequest); ok && request.Name == "ask_user" && request.Error == nil {
 					var spec protocol.ConversationQuestionSpec
 					if json.Unmarshal(request.Arguments, &spec) == nil && spec.Input.Kind == "plan" && spec.Prompt != "" && validateQuestionSpec(spec) == nil {
-						return nil, nil, nil, nil
+						question, e := readBody[protocol.ConversationQuestion](ctx, db, "SELECT body FROM agent_questions WHERE turn=?1 AND call=?2", turn.String(), request.ID)
+						if e != nil {
+							return nil, nil, nil, e
+						}
+						if question == nil || !planFeedback(*question) {
+							return nil, nil, nil, nil
+						}
 					}
 				}
 			}
@@ -383,8 +390,16 @@ func ApplyReviewCommand(ctx context.Context, db *sql.Conn, request protocol.Requ
 	return nil, nil, nil
 }
 
-// AgentTurnReviewed follows the closed planning input, independently of whether
-// its tool response has already been projected into a conversation page.
+func planFeedback(question protocol.ConversationQuestion) bool {
+	answer, ok := question.State.Data.(*protocol.ConversationQuestionAnswer)
+	if question.State.Kind != "answered" || !ok || answer.Kind != "text" {
+		return false
+	}
+	return strings.TrimSpace(*answer.Data.(*string)) != ""
+}
+
+// AgentTurnReviewed follows explicit completion of a planning input. Nonempty
+// feedback returns through the tool response so the model can revise its plan.
 func AgentTurnReviewed(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (bool, error) {
 	questions, err := readBodies[protocol.ConversationQuestion](ctx, db, "SELECT body FROM agent_questions WHERE turn=?1 AND json_extract(body,'$.state.kind')='answered'", turn.String())
 	if err != nil {
@@ -399,7 +414,7 @@ func AgentTurnReviewed(ctx context.Context, db *sql.Conn, turn protocol.TurnID) 
 		if err != nil {
 			return false, err
 		}
-		if spec.Input.Kind == "plan" {
+		if spec.Input.Kind == "plan" && !planFeedback(question) {
 			return true, nil
 		}
 	}

@@ -39,7 +39,7 @@ void main() {
     expect(draft.input.text, 'Focus here');
     expect(sent, {
       'recipient': 'parent',
-      'expected_revision': 4,
+      'expected_revision': 9,
       'message': {
         'text': 'Focus here',
         'attachments': ['file'],
@@ -91,6 +91,7 @@ void main() {
         expect(kind, 'guide_turn');
         expect(data?['recipient'], 'parent');
         expect(data?.containsKey('session'), isFalse);
+        expect(data?['expected_revision'], 9);
         return {
           'data': {'id': 'guidance'},
         };
@@ -101,6 +102,63 @@ void main() {
     addTearDown(host.dispose);
     await draft.send(9, recipient: recipient);
     expect(draft.input.text, isEmpty);
+  });
+
+  test(
+    'ordinary guidance follows configuration changed during a turn',
+    () async {
+      var revision = 9;
+      final sent = <int>[];
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        command: (kind, data) async {
+          expect(kind, 'guide_turn');
+          if (data?['expected_revision'] != revision) {
+            throw const CommandFailure('revision_conflict');
+          }
+          sent.add(data!['expected_revision'] as int);
+          return {
+            'data': {'id': 'guidance-$revision'},
+          };
+        },
+      );
+      final draft = TurnDraft(host: host, session: 'session', text: 'First');
+      addTearDown(draft.dispose);
+      addTearDown(host.dispose);
+      await draft.send(revision, recipient: recipient);
+      expect(draft.input.text, isEmpty);
+      revision++;
+      draft.input.text = 'Use the changed configuration';
+      await draft.send(revision, recipient: recipient);
+      expect(sent, [9, 10]);
+      expect(draft.input.text, isEmpty);
+      expect(draft.guidance?.turn, 'guidance-10');
+    },
+  );
+
+  test('child guidance keeps the recipient capture revision', () async {
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      command: (kind, data) async {
+        expect(kind, 'guide_turn');
+        expect(data, {
+          'recipient': 'parent',
+          'expected_revision': 4,
+          'message': {'text': 'Focus here', 'attachments': []},
+        });
+        return {
+          'data': {'id': 'child-guidance'},
+        };
+      },
+    );
+    final draft = TurnDraft(host: host, session: 'child', text: 'Focus here');
+    addTearDown(draft.dispose);
+    addTearDown(host.dispose);
+    await draft.send(9, recipient: recipient, delegated: true);
+    expect(draft.input.text, isEmpty);
+    expect(draft.guidance?.turn, 'child-guidance');
   });
 
   test('rejected guidance retains the complete draft', () async {

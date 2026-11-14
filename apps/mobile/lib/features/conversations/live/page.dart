@@ -341,6 +341,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     try {
       await _submission.send(
         _session['revision'] as int,
+        delegated: _session['delegation'] != null,
         recipient: recipient == null
             ? null
             : (
@@ -365,6 +366,34 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   Future<void> _sendArtifact(String message) async {
     if (!_artifactActions.writable()) throw const CommandFailure('unavailable');
     await _submission.send(_session['revision'] as int, message: message);
+  }
+
+  String? _pendingPlanFeedback(String question) =>
+      _pendingSend?.question == question ? _pendingSend?.text : null;
+
+  Future<void> _sendPlanFeedback(String question, String message) async {
+    final pending = _pendingSend;
+    if (pending != null) {
+      if (pending.question != question || !await _submission.check()) {
+        throw const CommandFailure('unavailable');
+      }
+      return;
+    }
+    if (!_artifactActions.writable() ||
+        object(_session['config'])['mode'] != 'plan' ||
+        !objects(_page['questions']).any(
+          (item) =>
+              item['id'] == question &&
+              object(item['state'])['kind'] == 'pending',
+        )) {
+      throw const CommandFailure('conflict');
+    }
+    // New input atomically supersedes the completed review in the Node.
+    await _submission.send(
+      _session['revision'] as int,
+      message: message,
+      question: question,
+    );
   }
 
   Future<void> _stop() async {
@@ -755,6 +784,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                           session: _session,
                           host: widget.host,
                           command: _command,
+                          onPlanFeedback: _sendPlanFeedback,
+                          pendingPlanFeedback: _pendingPlanFeedback,
                           toolOutput: _trackTools,
                           onOpenChild: _openChild,
                           onOpenLink: _openReplyLink,

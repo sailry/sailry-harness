@@ -51,24 +51,18 @@ func (r *Runtime) executeOwned(x *execution) {
 		}
 	}()
 	r.execute(x)
-	r.stopChildCommands(x)
 }
 
 // stopChildCommands ends the background commands of a child whose run has
 // ended. Their completion is never delivered to a delegated session and no
 // record hands them to the parent, so they would otherwise outlive every
-// reader. A continued run keeps them for its successor.
-func (r *Runtime) stopChildCommands(x *execution) {
+// reader. Call under the publication lock only when settlement has no successor,
+// before an idle child can admit another turn and reuse the same command scope.
+func (r *Runtime) stopChildCommands(x *execution, run protocol.ConversationRun) {
 	if r.stopCommands == nil || r.ctx.Err() != nil || x.inv.Session.Delegation == nil || *x.inv.Session.Delegation == nil {
 		return
 	}
-	var run protocol.ConversationRun
-	err := r.db.Read(r.ctx, func(db *sql.Conn) error {
-		var err error
-		run, err = store.ReadAgentRun(r.ctx, db, x.inv.Run.Turn)
-		return err
-	})
-	if err != nil || childActive(run.Status) || run.Status == protocol.ConversationStatusContinued {
+	if childActive(run.Status) || run.Status == protocol.ConversationStatusContinued {
 		return
 	}
 	r.stopCommands(x.inv.Session.ID)

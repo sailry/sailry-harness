@@ -26,6 +26,8 @@ type delegatedChild struct {
 	released  bool
 	delivered bool
 	successor *delegatedChild
+	// A queued successor owns its predecessor's commands even before it starts.
+	commandsInherited bool
 }
 
 type collectedChild struct {
@@ -125,16 +127,17 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background
 
 // claimInvocation extends the existing claim pass. Every admitted child enters
 // the same execute/turn pipeline after Store grants its FIFO concurrency slot.
-func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+// Ended owners are released by the caller only after the writer commits.
+func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, []*delegatedChild, error) {
 	inv, events, err := store.ClaimNext(ctx, db, r.clock.Now())
 	if err != nil || inv != nil {
-		return inv, events, err
+		return inv, events, nil, err
 	}
-	// A queued child stopped by a controller is finished here; its owner is
-	// dropped below with every other child that is no longer active.
+	// A queued child stopped by a controller is finished here; its owner joins
+	// the ended owners returned below.
 	settled, err := store.SettleStoppedChildren(ctx, db, r.clock.Now())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	events = append(events, settled...)
 	r.mu.Lock()
@@ -154,16 +157,14 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 		}
 		return 0
 	})
+	var ended []*delegatedChild
 	for _, child := range children {
 		run, err := store.ReadAgentRun(ctx, db, child.turn)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if !childActive(run.Status) {
-			child.cancel()
-			r.mu.Lock()
-			delete(r.children, child.turn)
-			r.mu.Unlock()
+			ended = append(ended, child)
 			continue
 		}
 		if child.ctx.Err() != nil {
@@ -173,24 +174,22 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 			}
 			changed, err := store.FinishQueuedChild(ctx, db, child.turn, status, nil, r.clock.Now())
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			events = append(events, changed...)
-			r.mu.Lock()
-			delete(r.children, child.turn)
-			r.mu.Unlock()
+			ended = append(ended, child)
 			continue
 		}
 		claimed, changed, err := store.ClaimChild(ctx, db, child.turn, r.clock.Now())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		events = append(events, changed...)
 		if claimed != nil {
-			return claimed, events, nil
+			return claimed, events, ended, nil
 		}
 	}
-	return nil, events, nil
+	return nil, events, ended, nil
 }
 
 // preflightChildWorkspace checks the worktree the child will run in before it

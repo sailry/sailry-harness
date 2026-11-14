@@ -9,6 +9,8 @@ typedef PendingMessage = ({
   String text,
   List<PickedAttachment> attachments,
   bool composer,
+  // Identifies a completed review using this page-owned send for feedback.
+  String? question,
 });
 
 typedef GuidancePreview = ({
@@ -43,7 +45,9 @@ class TurnDraft extends ChangeNotifier {
   Future<void> send(
     int revision, {
     String? message,
+    String? question,
     ({String turn, int revision})? recipient,
+    bool delegated = false,
   }) async {
     final composer = message == null;
     final text = message ?? input.text;
@@ -61,7 +65,10 @@ class TurnDraft extends ChangeNotifier {
         {
           if (recipient == null) 'session': session,
           if (recipient != null) 'recipient': recipient.turn,
-          'expected_revision': recipient?.revision ?? revision,
+          // Child guidance keeps its capture; ordinary input uses live config.
+          'expected_revision': delegated && recipient != null
+              ? recipient.revision
+              : revision,
           'message': {
             'text': text,
             'attachments': files.map((item) => item.attachment['id']).toList(),
@@ -79,6 +86,7 @@ class TurnDraft extends ChangeNotifier {
           text: text,
           attachments: files,
           composer: composer,
+          question: question,
         );
       } else if (!_disposed) {
         _guidance = null;

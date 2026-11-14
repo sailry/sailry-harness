@@ -52,6 +52,8 @@ class LiveTimeline extends StatefulWidget {
     required this.session,
     required this.host,
     required this.command,
+    this.onPlanFeedback,
+    this.pendingPlanFeedback,
     this.onOpenChild,
     this.onOpenLink,
     this.onTurnAction,
@@ -72,6 +74,8 @@ class LiveTimeline extends StatefulWidget {
   final Map<String, dynamic> session;
   final HostConnection host;
   final ConversationCommand command;
+  final Future<void> Function(String question, String message)? onPlanFeedback;
+  final String? Function(String question)? pendingPlanFeedback;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
 
   /// Opens a reply link before Markdown's defaults and reports whether it did.
@@ -256,6 +260,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
             page: page,
             session: session,
             command: command,
+            onPlanFeedback: widget.onPlanFeedback,
+            pendingPlanFeedback: widget.pendingPlanFeedback,
             enabled: connected,
             continuing: continuing,
             interactive: interactive,

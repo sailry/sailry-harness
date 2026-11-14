@@ -41,6 +41,8 @@ class ToolRecord extends StatefulWidget {
     required this.page,
     required this.session,
     required this.command,
+    this.onPlanFeedback,
+    this.pendingPlanFeedback,
     required this.enabled,
     this.continuing = false,
     this.interactive = true,
@@ -50,6 +52,8 @@ class ToolRecord extends StatefulWidget {
   final Map<String, dynamic> page;
   final Map<String, dynamic> session;
   final ConversationCommand command;
+  final Future<void> Function(String question, String message)? onPlanFeedback;
+  final String? Function(String question)? pendingPlanFeedback;
   final bool enabled;
   final bool continuing;
 
@@ -237,6 +241,18 @@ class _ToolRecordState extends State<ToolRecord> {
                           question: question,
                           session: widget.session,
                           command: widget.command,
+                          onPlanFeedback:
+                              call['name'] == 'plan_review' &&
+                                  objects(widget.page['runs']).any(
+                                    (run) =>
+                                        run['turn'] == question['turn'] &&
+                                        run['kind'] == 'task' &&
+                                        run['status'] == 'completed' &&
+                                        run['error'] == null,
+                                  )
+                              ? widget.onPlanFeedback
+                              : null,
+                          pendingPlanFeedback: widget.pendingPlanFeedback,
                         ),
                       )
                     : null,

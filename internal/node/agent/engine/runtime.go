@@ -195,11 +195,12 @@ func (r *Runtime) run() {
 		for r.ctx.Err() == nil {
 			unlock := r.LockPublication()
 			var inv *store.AgentInvocation
+			var ended []*delegatedChild
 			changed := false
 			err := r.db.Write(r.ctx, func(db *sql.Conn) error {
 				var changes []protocol.Event
 				var err error
-				inv, changes, err = r.claimInvocation(r.ctx, db)
+				inv, changes, ended, err = r.claimInvocation(r.ctx, db)
 				changed = len(changes) > 0
 				if err != nil {
 					return err
@@ -207,6 +208,17 @@ func (r *Runtime) run() {
 				_, err = store.RecordEvents(r.ctx, db, r.node, changes)
 				return err
 			})
+			if err == nil {
+				for _, child := range ended {
+					child.cancel()
+					r.mu.Lock()
+					delete(r.children, child.turn)
+					r.mu.Unlock()
+					if child.commandsInherited && r.stopCommands != nil && r.ctx.Err() == nil {
+						r.stopCommands(child.session)
+					}
+				}
+			}
 			if err != nil || inv == nil {
 				if err == nil && changed {
 					r.publish()

@@ -11,11 +11,15 @@ class ConversationQuestion extends StatefulWidget {
     required this.question,
     required this.session,
     required this.command,
+    this.onPlanFeedback,
+    this.pendingPlanFeedback,
   });
   final Map<String, dynamic> spec;
   final Map<String, dynamic> question;
   final Map<String, dynamic> session;
   final ConversationCommand command;
+  final Future<void> Function(String question, String message)? onPlanFeedback;
+  final String? Function(String question)? pendingPlanFeedback;
   @override
   State<ConversationQuestion> createState() => _ConversationQuestionState();
 }
@@ -26,9 +30,12 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
   final Map<String, dynamic> _form = {};
   bool _busy = false;
   String? _error;
+  String? get _pendingFeedback =>
+      widget.pendingPlanFeedback?.call(widget.question['id'] as String);
   @override
   void initState() {
     super.initState();
+    _text.text = _pendingFeedback ?? '';
     for (final field in objects(object(widget.spec['input'])['fields'])) {
       if (field['required'] == true &&
           object(field['input'])['kind'] == 'boolean') {
@@ -50,11 +57,21 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
       _error = null;
     });
     try {
-      await widget.command('resolve_question', {
-        'session': widget.session['id'],
-        'question': widget.question['id'],
-        'response': response,
-      });
+      if (widget.onPlanFeedback != null &&
+          response['kind'] == 'answer' &&
+          object(widget.spec['input'])['kind'] == 'plan' &&
+          _text.text.trim().isNotEmpty) {
+        await widget.onPlanFeedback!(
+          widget.question['id'] as String,
+          _text.text,
+        );
+      } else {
+        await widget.command('resolve_question', {
+          'session': widget.session['id'],
+          'question': widget.question['id'],
+          'response': response,
+        });
+      }
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) {
@@ -177,7 +194,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
             kind == 'choice' && input['allow_other'] == true)
           TextField(
             controller: _text,
-            enabled: !_busy,
+            enabled: !_busy && _pendingFeedback == null,
             onChanged: kind == 'choice' && input['multiple'] != true
                 ? (_) => setState(_selected.clear)
                 : null,
@@ -238,7 +255,9 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
           spacing: 8,
           children: [
             TextButton(
-              onPressed: _busy ? null : () => _send({'kind': 'cancel'}),
+              onPressed: _busy || _pendingFeedback != null
+                  ? null
+                  : () => _send({'kind': 'cancel'}),
               child: Text(context.tr('cancel')),
             ),
             if (kind == 'form' || kind == 'url')
@@ -248,7 +267,7 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
               ),
             if (kind == 'plan')
               FilledButton(
-                onPressed: _busy
+                onPressed: _busy || _pendingFeedback != null
                     ? null
                     : () => _send({
                         'kind': 'start_coding',
@@ -284,7 +303,13 @@ class _ConversationQuestionState extends State<ConversationQuestion> {
                         };
                         _send({'kind': 'answer', 'data': answer});
                       },
-                child: Text(context.tr('conversationSubmit')),
+                child: Text(
+                  context.tr(
+                    _pendingFeedback == null
+                        ? 'conversationSubmit'
+                        : 'conversationCheckResult',
+                  ),
+                ),
               ),
           ],
         ),
