@@ -113,8 +113,9 @@ type acpAgent struct {
 	images  bool
 	// metaSystem: the agent takes the system text in `session/new`.
 	metaSystem bool
-	// argument is the model the program was started with.
-	argument string
+	// identity binds this process to its captured adapter and launch inputs.
+	// Only a digest is retained; credentials never become a pool key or log.
+	identity string
 	// owner is the Sailry session whose history the agent's session holds.
 	owner   protocol.SessionID
 	claimed bool
@@ -262,8 +263,7 @@ func (model *acpModel) fill(value, selected string) string {
 	return value
 }
 
-// start runs the program and completes the protocol handshake.
-func (model *acpModel) start(ctx context.Context, selected string) (*program.Process, *acpAgent, error) {
+func (model *acpModel) specification(selected string) program.Spec {
 	declared := model.capture.Program
 	spec := program.Spec{Command: declared.Command, Dir: model.capture.Dir, Host: model.capture.Host, Env: map[string]string{}, Log: model.capture.Owner + "/" + declared.ID}
 	for _, argument := range declared.Args {
@@ -282,14 +282,46 @@ func (model *acpModel) start(ctx context.Context, selected string) (*program.Pro
 	for _, file := range declared.Files {
 		spec.Files = append(spec.Files, program.File{Path: filepath.FromSlash(file.Path), Content: file.Content})
 	}
+	return spec
+}
+
+func (model *acpModel) identity(spec program.Spec, argument string) string {
+	// Host entries have map semantics. Ignore variables the process service
+	// never inherits, so environment ordering and unrelated Node settings do
+	// not discard a compatible process.
+	host := map[string]string{}
+	for _, entry := range spec.Host {
+		if name, value, ok := strings.Cut(entry, "="); ok && program.Inherited(name) {
+			host[name] = value
+		}
+	}
+	spec.Host = nil
+	return acpDigest(struct {
+		Spec           program.Spec
+		Host           map[string]string
+		Adapter        protocol.PluginModelAdapterDeclaration
+		Provider       protocol.ProviderID
+		Binding        **protocol.ConversationPresetsBinding
+		Endpoint       string
+		Authentication protocol.Authentication
+		Credential     *protocol.CredentialRef
+		Secret         *protocol.Secret
+		Version, Model string
+	}{spec, host, model.capture.Adapter, model.binding.Provider.ID, model.binding.Provider.Binding,
+		model.binding.Provider.Endpoint, model.binding.Provider.Authentication, model.binding.Provider.Credential,
+		model.binding.Secret, model.capture.Version, argument})
+}
+
+// start runs the captured specification and completes the protocol handshake.
+func (model *acpModel) start(ctx context.Context, spec program.Spec, identity string) (*program.Process, *acpAgent, error) {
 	process, err := program.Start(spec)
 	if errors.Is(err, program.ErrNotInstalled) {
-		return nil, nil, &Failure{Kind: NotConfigured, Message: fmt.Sprintf("%s is not installed or not on the search path", declared.Command)}
+		return nil, nil, &Failure{Kind: NotConfigured, Message: fmt.Sprintf("%s is not installed or not on the search path", spec.Command)}
 	}
 	if err != nil {
-		return nil, nil, &Failure{Kind: Unavailable, Message: fmt.Sprintf("%s could not be started", declared.Command)}
+		return nil, nil, &Failure{Kind: Unavailable, Message: fmt.Sprintf("%s could not be started", spec.Command)}
 	}
-	agent := &acpAgent{process: process, argument: selected}
+	agent := &acpAgent{process: process, identity: identity}
 	agent.conn = acp.NewConnection(agent.handle, process.Stdin, process.Stdout)
 	initialized, err := acpCall[acpInitialized](ctx, agent, acp.AgentMethodInitialize, map[string]any{
 		"protocolVersion": 1,
@@ -465,11 +497,13 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 	if model.capture.Adapter.Acp.ModelArgument && !discovery {
 		argument = model.binding.Config.Model
 	}
+	spec := model.specification(argument)
+	identity := model.identity(spec, argument)
 	// The session's own program is preferred over one no session has used.
 	rank := func(entry *program.Entry) int {
 		agent, ok := entry.Value.(*acpAgent)
 		switch {
-		case !ok || agent.argument != argument:
+		case !ok || agent.identity != identity:
 			return 0
 		case !discovery && agent.claimed && agent.owner == model.binding.Session:
 			return 2
@@ -479,7 +513,7 @@ func (model *acpModel) lease(ctx context.Context, discovery bool) (*program.Entr
 		return 0
 	}
 	entry, err := model.capture.Pool.Lease(model.capture.Owner, rank, func() (*program.Process, any, error) {
-		process, agent, err := model.start(ctx, argument)
+		process, agent, err := model.start(ctx, spec, identity)
 		return process, agent, err
 	})
 	if errors.Is(err, program.ErrBusy) {

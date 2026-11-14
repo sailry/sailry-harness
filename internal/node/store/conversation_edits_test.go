@@ -151,3 +151,54 @@ func TestRepeatedEditsKeepSessionAndRequestIdentity(t *testing.T) {
 		head = replaced.Turn.ID
 	}
 }
+
+func TestIndependentlyExecutedGuidanceRemainsEditable(t *testing.T) {
+	t.Parallel()
+	storage, node, session, recipient, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if err := queueFixtureInput(ctx, db, session.ID, recipient, now); err != nil {
+			return err
+		}
+		output, err := queueFixtureCommand(ctx, db, storage, node, "guide_turn", &protocol.CommandGuideTurnPayload{Recipient: recipient, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Input not consumed by the recipient"}}, now)
+		if err != nil {
+			return err
+		}
+		guidance := output.Data.(protocol.QueuedTurn).ID
+		if _, _, err = FinishTurn(ctx, db, recipient, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		invocation, _, err := ClaimNext(ctx, db, now)
+		if err != nil || invocation == nil || invocation.Run.Turn != guidance || invocation.Run.Guidance == nil || invocation.Run.Joined != nil {
+			return fmt.Errorf("unconsumed guidance did not start independently: %v", err)
+		}
+		if err = queueFixtureInput(ctx, db, session.ID, guidance, now); err != nil {
+			return err
+		}
+		if _, _, err = FinishTurn(ctx, db, guidance, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		revision, err := historyRevision(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
+		output, err = queueFixtureCommand(ctx, db, storage, node, "replace_turn", &protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: guidance, ExpectedHead: guidance, ExpectedRevision: session.Revision, ExpectedHistoryRevision: revision, Message: protocol.ConversationInput{Text: "Edited independent input"}}, now)
+		if err != nil {
+			return err
+		}
+		replaced := output.Data.(protocol.OutputTurnReplacedPayload)
+		if replaced.History == nil || replaced.History.Backup != nil || replaced.History.Through == nil || *replaced.History.Through != recipient || replaced.Turn.Session != session.ID {
+			return errors.New("independent guidance edit lost the preceding task or created a backup")
+		}
+		page, err := ReadConversation(ctx, db, session.ID, nil, 20)
+		if err != nil {
+			return err
+		}
+		if len(page.Page.Runs) != 2 || page.Page.Runs[0].Turn != recipient || page.Page.Runs[1].Turn != replaced.Turn.ID {
+			return errors.New("independent guidance edit changed the wrong task")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

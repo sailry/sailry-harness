@@ -189,7 +189,7 @@ func (s *Service) branchPush(ctx context.Context, root, branch string) ([]string
 			}
 		}
 	}
-	if name(remote) != nil || !strings.HasPrefix(destination, "refs/heads/") || plumbing.ReferenceName(destination).Validate() != nil {
+	if name(remote) != nil || !strings.HasPrefix(destination, "refs/") || plumbing.ReferenceName(destination).Validate() != nil {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "Git branch push destination is not configured")
 	}
 	return []string{"push", remote, ref + ":" + destination}, nil

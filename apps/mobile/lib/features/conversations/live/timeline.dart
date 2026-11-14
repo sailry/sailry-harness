@@ -334,7 +334,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           .join('\n\n');
       final canEdit =
           canChangeHistory &&
-          !noticeTurn(run) &&
+          transcript.canEdit(run['turn']) &&
           segments.any(
             (segment) => segment.inputs.any((input) => input.canonical),
           );
@@ -424,7 +424,10 @@ class _LiveTimelineState extends State<LiveTimeline> {
             UserBubble(
               key: ValueKey(('input', input.turn, segmentIndex, position)),
               onEdit:
-                  onTurnAction == null || !canChangeHistory || !input.canonical
+                  onTurnAction == null ||
+                      !canChangeHistory ||
+                      !input.canonical ||
+                      !transcript.canEdit(input.turn)
                   ? null
                   : () => onTurnAction('edit', input.turn),
               text: input.text,

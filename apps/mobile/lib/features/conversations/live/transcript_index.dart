@@ -88,6 +88,8 @@ class TranscriptIndex {
 
   List<Map<String, dynamic>> callsOf(Object? turn) => _turnCalls[turn] ?? [];
 
+  bool canEdit(Object? turn) => editableTurn(_runs[turn]);
+
   /// Committed entries followed by drafts of a turn.
   List<Map<String, dynamic>> entriesOf(Object? turn) => [
     ...?_turnEntries[turn],

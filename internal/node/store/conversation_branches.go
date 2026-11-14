@@ -244,6 +244,11 @@ func replaceConversationTurn(ctx context.Context, db *sql.Conn, node, caller pro
 	if target.Kind != protocol.ConversationRunKindTask {
 		return protocol.Output{}, nil, invalid("only task turns can be edited")
 	}
+	if target.Joined != nil {
+		// Replacement rewinds a whole task. Joined guidance has no independent
+		// response boundary and must not replace its recipient's request.
+		return protocol.Output{}, nil, invalid("consumed guidance cannot be edited independently")
+	}
 	groups, err := conversationGroups(ctx, db, input.Session)
 	if err != nil {
 		return protocol.Output{}, nil, err

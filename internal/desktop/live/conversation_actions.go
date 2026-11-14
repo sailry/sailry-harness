@@ -380,9 +380,10 @@ func (x *conversationActions) pageControls() func(protocol.TurnID) conversation.
 	blocked := !x.r.controller.Connected() || operating || replacing && edit.pending
 	busy := pageBusy(page)
 	movable := x.r.canMoveWorkspace(x.cv, x.comp)
-	ended, sent := map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}
+	ended, sent, editable := map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}
 	for _, run := range page.Runs {
 		ended[run.Turn] = run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning && run.Status != protocol.ConversationStatusStopping
+		editable[run.Turn] = run.Kind == protocol.ConversationRunKindTask && run.Joined == nil
 		if input := run.Input; input != nil && (input.Message.Text != "" || len(input.Message.References) > 0 || len(input.Message.Attachments) > 0) {
 			sent[run.Turn] = true
 		}
@@ -399,7 +400,7 @@ func (x *conversationActions) pageControls() func(protocol.TurnID) conversation.
 	return func(turn protocol.TurnID) conversation.Controls {
 		_, found := ended[turn]
 		return conversation.Controls{
-			NoEdit:     blocked || busy || len(page.Runs) == 0 || !sent[turn],
+			NoEdit:     blocked || busy || !editable[turn] || !sent[turn],
 			NoFork:     blocked || !ended[turn],
 			NoRewind:   blocked || busy || !found || head == turn,
 			NoWorktree: blocked || !ended[turn] || !movable,

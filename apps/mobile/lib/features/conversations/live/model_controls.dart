@@ -204,8 +204,8 @@ class _ModelControlsState extends State<ModelControls> {
                   );
                   if (choice == null || !mounted) return;
                   if (member == null) {
-                    final latest = widget.team?.read().config ?? config;
-                    _commit({...latest, ...choice});
+                    // The form owns the draft, including edits made while open.
+                    _commit({...widget.config, ...choice});
                   } else {
                     await _setMember(role, state!.choose(member, choice));
                   }

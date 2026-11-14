@@ -78,6 +78,7 @@ extension _HistoryActions on _LiveConversationPageState {
       page['runs'],
     ).where((run) => run['turn'] == turn).firstOrNull;
     if (run == null || activeRun(run)) return;
+    if (action == 'edit' && !editableTurn(run)) return;
     final head = objects(page['runs']).last['turn'];
     final revision = page['revision'];
     final sessionRevision = _session['revision'];

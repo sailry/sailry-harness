@@ -16,7 +16,7 @@ import (
 
 func TestHistoryBoundariesFollowExecutionAndGuidance(t *testing.T) {
 	t.Parallel()
-	for _, operation := range []string{"fork recipient", "fork reordered", "rewind recipient", "rewind reordered", "edit recipient", "edit reordered"} {
+	for _, operation := range []string{"fork recipient", "fork reordered", "rewind recipient", "rewind reordered", "edit recipient", "edit reordered", "reject consumed guidance edit"} {
 		t.Run(operation, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, recipient, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -119,10 +119,19 @@ func TestHistoryBoundariesFollowExecutionAndGuidance(t *testing.T) {
 				if _, _, err = rewindConversation(ctx, db, protocol.CommandRewindConversationPayload{Session: session.ID, Through: &recipient, ExpectedHead: recipient, ExpectedRevision: revision}, false); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
 					return fmt.Errorf("stale public history head was accepted: %v", err)
 				}
-				var beforeRecords, beforeSessions int
-				if err = db.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM sessions)").Scan(&beforeRecords, &beforeSessions); err != nil {
+				var beforeRecords, beforeSessions, beforeTurns int
+				if err = db.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM sessions),(SELECT count(*) FROM turns)").Scan(&beforeRecords, &beforeSessions, &beforeTurns); err != nil {
 					return err
 				}
+				beforeState, err := LoadAgentState(ctx, db, session.ID)
+				if err != nil {
+					return err
+				}
+				beforeHistory, err := encode(beforeState)
+				if err != nil {
+					return err
+				}
+				rejected := operation == "reject consumed guidance edit"
 				target := recipient
 				want := []protocol.TurnID{recipient, guide}
 				wantCheckpoint := `"guidance"`
@@ -134,6 +143,22 @@ func TestHistoryBoundariesFollowExecutionAndGuidance(t *testing.T) {
 				view := session.ID
 				var backup *protocol.Session
 				switch operation {
+				case "reject consumed guidance edit":
+					request := protocol.NewRequest(node, protocol.Command{Kind: "replace_turn", Data: &protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: guide, ExpectedHead: *head, ExpectedRevision: session.Revision, ExpectedHistoryRevision: revision, Message: protocol.ConversationInput{Text: "Edited guidance"}}})
+					body, err := encode(request)
+					if err != nil {
+						return err
+					}
+					if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
+						return err
+					}
+					// Call without an enclosing command rollback: rejection itself
+					// must precede any history, checkpoint or admission mutation.
+					_, events, err := replaceConversationTurn(ctx, db, node, node, request)
+					if !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) || len(events) != 0 {
+						return fmt.Errorf("consumed guidance edit was not rejected: %v", err)
+					}
+					want, wantCheckpoint = []protocol.TurnID{recipient, guide, second, first}, `"first"`
 				case "fork recipient", "fork reordered":
 					fork, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: session.ID, Through: target, ExpectedRevision: session.Revision})
 					if err != nil {
@@ -212,22 +237,39 @@ func TestHistoryBoundariesFollowExecutionAndGuidance(t *testing.T) {
 					}
 				}
 				latest, err := ReadPluginConversationValue(ctx, db, reference, view, "latest")
-				if err != nil || latest.Present {
+				if err != nil || latest.Present != rejected || rejected && string(latest.Value) != `"after the last execution"` {
 					return fmt.Errorf("history inherited plugin data from a later execution: %v", err)
 				}
 				value, err := ReadPluginConversationValue(ctx, db, reference, view, "checkpoint")
 				if err != nil || value.Present != (wantCheckpoint != "") || value.Present && string(value.Value) != wantCheckpoint {
 					return fmt.Errorf("plugin checkpoint does not match history: %+v, %v", value, err)
 				}
-				var afterRecords, afterSessions int
-				if err = db.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM sessions)").Scan(&afterRecords, &afterSessions); err != nil {
+				if rejected && (value.Revision != checkpoint.Revision || value.Restored != checkpoint.Restored) {
+					return errors.New("rejected guidance edit changed the plugin checkpoint")
+				}
+				var afterRecords, afterSessions, afterTurns int
+				if err = db.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM agent_events),(SELECT count(*) FROM sessions),(SELECT count(*) FROM turns)").Scan(&afterRecords, &afterSessions, &afterTurns); err != nil {
 					return err
 				}
 				if afterRecords != beforeRecords {
 					return errors.New("branch operation modified immutable canonical records")
 				}
-				if (operation == "edit recipient" || operation == "edit reordered") && afterSessions != beforeSessions {
+				if (operation == "edit recipient" || operation == "edit reordered" || rejected) && afterSessions != beforeSessions {
 					return errors.New("edit created an unsolicited session")
+				}
+				if rejected {
+					afterState, err := LoadAgentState(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					afterHistory, err := encode(afterState)
+					if err != nil {
+						return err
+					}
+					afterRevision, err := historyRevision(ctx, db, session.ID)
+					if err != nil || afterRevision != revision || afterTurns != beforeTurns || string(afterHistory) != string(beforeHistory) {
+						return fmt.Errorf("rejected guidance edit changed original history: %v", err)
+					}
 				}
 				return nil
 			}); err != nil {

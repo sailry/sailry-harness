@@ -118,6 +118,9 @@ void main() {
       },
     ]);
     expect(inputs.every((input) => input.canonical), isTrue);
+    expect(index.canEdit('primary'), isTrue);
+    expect(inputs.any((input) => index.canEdit(input.turn)), isFalse);
+    expect(index.canEdit('missing'), isFalse);
     expect(index.worktree(inputs.first.turn, {}), 'second-tree');
     expect(segments.last.rows.single.$3['data'], 'Current answer');
     expect(index.segmentsOf('first-guide'), isEmpty);

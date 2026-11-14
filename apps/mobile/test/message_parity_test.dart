@@ -3,6 +3,22 @@ import 'package:sailry_mobile/content/diff.dart';
 import 'package:sailry_mobile/features/conversations/live/message_data.dart';
 
 void main() {
+  test('replacement accepts tasks but not consumed guidance', () {
+    expect(editableTurn({'kind': 'task'}), isTrue);
+    expect(editableTurn({'kind': 'task', 'guidance': 'primary'}), isTrue);
+    expect(
+      editableTurn({
+        'kind': 'task',
+        'guidance': 'primary',
+        'joined': 'primary',
+      }),
+      isFalse,
+    );
+    expect(editableTurn({'kind': 'task', 'notice': true}), isFalse);
+    expect(editableTurn({'kind': 'compaction'}), isFalse);
+    expect(editableTurn(null), isFalse);
+  });
+
   test('only rewind exposes the recovery copy returned by Node', () {
     const backup = {'id': 'backup', 'title': 'Original conversation'};
     expect(

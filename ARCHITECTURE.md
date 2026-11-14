@@ -108,9 +108,10 @@ atomically. An optional immutable association (`namespace`, `kind`, `id`) links 
 session to an external object without granting resource access. Defaults initialize
 new sessions; revision-checked commands change existing configuration. A turn
 captures its model or team, configuration, permissions and referenced revisions.
-Editing a message updates the visible history and admits its replacement turn in
-the same session atomically. Original records remain stored. Explicit forks and
-rewind backups copy history into a separate session.
+Editing a task's original input updates the visible history and admits its
+replacement turn in the same session atomically. Consumed guidance belongs to
+its recipient task and cannot be replaced independently. Original records remain
+stored. Explicit forks and rewind backups copy history into a separate session.
 History boundaries follow recorded execution order and retain consumed guidance
 with its recipient turn. Queue admission order remains the public history-head
 concurrency token; it does not determine which messages a history action retains.

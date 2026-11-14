@@ -13,6 +13,10 @@ Map<String, dynamic>? historyBackup(
 String turnOwner(Map<String, dynamic> view, String turn) =>
     text(object(view['owners'])[turn], turn);
 
+/// Replacement edits a whole task, not guidance consumed within another task.
+bool editableTurn(Map<String, dynamic>? run) =>
+    run?['kind'] == 'task' && run?['joined'] == null && run?['notice'] != true;
+
 typedef InputContent = ({
   String turn,
   String text,
