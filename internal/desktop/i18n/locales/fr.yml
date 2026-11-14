@@ -1658,6 +1658,8 @@ notification_result: Résultat
 notification_seconds: '%{count} secondes'
 notification_source: Source
 notification_time: Heure
+notification_technical: Détails techniques
+notification_exit_code: Code de sortie
 preferences_read_failed: Impossible de lire les paramètres locaux; vérifier la configuration et redémarrer
 preferences_save_failed: Les paramètres n'ont pas été sauvegardés; réessayez
 session_changed: La session a changé; réessayez

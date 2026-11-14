@@ -1658,6 +1658,8 @@ notification_result: Resultado
 notification_seconds: '%{count} segundos'
 notification_source: Origen
 notification_time: Hora
+notification_technical: Detalles técnicos
+notification_exit_code: Código de salida
 preferences_read_failed: No se pudo leer la configuración local; compruebe la configuración y reinicie
 preferences_save_failed: La configuración no se ha guardado; inténtelo de nuevo
 session_changed: Sesión cambiada; inténtelo de nuevo

@@ -1658,6 +1658,8 @@ notification_result: 結果
 notification_seconds: '%{count} 秒'
 notification_source: 送信元
 notification_time: 日時
+notification_technical: 技術的な詳細
+notification_exit_code: 終了コード
 preferences_read_failed: ローカルの設定を読み込めませんでした。設定を確認して再起動してください
 preferences_save_failed: 設定が保存されませんでした。もう一度試してください
 session_changed: セッションが変更されました。やり直してください

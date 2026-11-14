@@ -174,10 +174,12 @@ func noticeID(n client.Notice) string {
 	return string(b)
 }
 
+// reportID names a notice in its report. The Node is its hex name, as
+// NodeID shows it: the array itself would be a list of byte values.
 type reportID struct {
-	Node   protocol.NodeID `json:"node"`
-	Cursor uint64          `json:"cursor"`
-	Target map[string]any  `json:"target"`
+	Node   string         `json:"node"`
+	Cursor uint64         `json:"cursor"`
+	Target map[string]any `json:"target"`
 }
 
 func technicalID(id client.NoticeID) reportID {
@@ -190,7 +192,7 @@ func technicalID(id client.NoticeID) reportID {
 	case "terminal":
 		target["Terminal"] = id.Target.Terminal
 	}
-	return reportID{id.Node, id.Cursor, target}
+	return reportID{id.Node.String(), id.Cursor, target}
 }
 
 func headingKey(n client.Notice) string {

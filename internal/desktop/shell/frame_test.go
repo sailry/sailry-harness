@@ -866,7 +866,7 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 				messages++
 			}
 		}
-		if a.noticeDetail != second.ID || !second.Read || !row(second).Expanded || messages != 1 || !facts() || !tt.HasText(en("notification_source")) {
+		if a.noticeDetail != second.ID || !second.Read || !row(second).Expanded || messages != 1 || !facts() || !tt.HasText(en("notification_time")) {
 			t.Fatalf("the row did not open its details: open %v, read %v, texts %q", a.noticeDetail == second.ID, second.Read, tt.Texts())
 		}
 		// A live window projects its notices anew when one is read: the
@@ -875,14 +875,14 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 		again := *second
 		a.Data.Notices[at] = &again
 		tt.Frame()
-		if !tt.HasText(en("notification_source")) {
+		if !tt.HasText(en("notification_time")) {
 			t.Fatal("the details closed when the notices were projected again")
 		}
 		a.Data.Notices[at] = second
 		tt.Frame()
 		tt.ClickAt(target.X+target.W/2, target.Y+target.H/2)
 		tt.Frame()
-		if a.noticeDetail != "" || tt.HasText(en("notification_source")) || !tt.HasText(second.Message) || facts() {
+		if a.noticeDetail != "" || tt.HasText(en("notification_time")) || !tt.HasText(second.Message) || facts() {
 			t.Fatal("a second click left the details open")
 		}
 		// Unread hides what was read.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -181,15 +182,23 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 }
 
 // notificationDetails is an open notice's text, facts and report under its
-// row, in line with the row's title.
+// row, in line with the row's title. The facts are a muted label column
+// beside their values, without those the row's line already shows: the
+// kind and the host, and the conversation when it is the title. The report
+// is folded under Technical details, a tinted code block that scrolls past
+// reportHeight, with Copy at its header's end.
 func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
-	ui.Column(c.Key("body")).Padding(0, 0, kit.RowPad, kit.RowIcon+kit.RowIconGap).Gap(12).Children(func() {
+	p := theme.Of(c)
+	body := ui.Column(c.Key("body")).Padding(0, 0, kit.RowPad, kit.RowIcon+kit.RowIconGap).Gap(12)
+	report := ui.Local(body, "report", func() bool { return false })
+	body.Children(func() {
 		for _, text := range []string{n.Message, n.DetailText} {
 			if text != "" {
 				ui.Text(c, text).FontSize(14).Selectable()
 			}
 		}
-		facts := [][2]string{{i18n.T(c, "notification_source"), a.noticeSource(c, n)}}
+		_, _, kind := noticeLook(p, n.Kind)
+		var facts [][2]string
 		if !n.Time.IsZero() {
 			facts = append(facts, [2]string{i18n.T(c, "notification_time"), n.Time.Local().Format("2006-01-02 15:04:05")})
 		}
@@ -198,25 +207,78 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 			if cv := a.Data.Find(n.Session); cv != nil {
 				title = cv.Title
 			}
-			facts = append(facts, [2]string{i18n.T(c, "settings_conversation"), title})
+			if title != noticeTitle(c, n) {
+				facts = append(facts, [2]string{i18n.T(c, "settings_conversation"), title})
+			}
 		}
 		if n.Details != nil {
 			switch value := n.Details.Data.(type) {
 			case *protocol.NotificationDetailsTask:
-				facts = append(facts, [2]string{i18n.T(c, "notification_result"), i18n.T(c, statusKey(value.Status))})
+				if result := i18n.T(c, statusKey(value.Status)); result != i18n.T(c, kind) {
+					facts = append(facts, [2]string{i18n.T(c, "notification_result"), result})
+				}
 				if value.StartedMs != nil && value.FinishedMs != nil {
 					facts = append(facts, [2]string{i18n.T(c, "notification_duration"), i18n.T(c, "notification_seconds", "count", max(0, (*value.FinishedMs-*value.StartedMs)/int64(time.Second/time.Millisecond)))})
 				}
 			case *protocol.NotificationDetailsPowerPayload:
-				facts = append(facts, [2]string{i18n.T(c, "notification_result"), fmt.Sprint(value.Code)})
+				facts = append(facts, [2]string{i18n.T(c, "notification_exit_code"), fmt.Sprint(value.Code)})
 			}
 		}
-		for _, fact := range facts {
-			kit.Record(c, fact[0], fact[1])
+		if len(facts) > 0 {
+			ui.Column(c.Key("facts")).Gap(6).Children(func() {
+				for i, fact := range facts {
+					ui.Row(c.Key(i)).Gap(16).AlignItems(ui.Start).Children(func() {
+						ui.Text(c, fact[0]).FontSize(13).Width(factLabel).Shrink(0).SingleLine().TextColor(p.MutedForeground)
+						ui.Text(c, fact[1]).FontSize(13).Grow(1).Shrink(1).MinWidth(0).Selectable().TextColor(p.SurfaceForeground)
+					})
+				}
+			})
 		}
 		if n.Report != "" {
-			kit.Secondary(c.Key("copy"), i18n.T(c, "notification_copy_report")).OnClick(func() { c.WriteClipboard(n.Report); kit.Toast(c, kit.Done, i18n.T(c, "notification_report_copied")) })
-			ui.Text(c, n.Report).FontSize(12).Selectable()
+			noticeReport(c, n.Report, report)
+		}
+	})
+}
+
+// factLabel is the width of a notice's fact labels; reportHeight bounds
+// its open report, which scrolls past it.
+const (
+	factLabel    = 72
+	reportHeight = 240
+)
+
+// noticeReport is a notice's technical report, folded while !*open: a
+// disclosure header with Copy at its end over the JSON, as code in
+// messages looks (kit.CodeBlock).
+func noticeReport(c *ui.Context, report string, open *bool) {
+	p := theme.Of(c)
+	ui.Column(c.Key("report")).Background(p.Background.Mix(p.Foreground, 0.035)).Border(1, p.Border).
+		Radius(p.Radius).Clip().Children(func() {
+		ui.Row(c.Key("header")).AlignItems(ui.Center).Padding(2, 6, 2, 4).Children(func() {
+			label := i18n.T(c, "notification_technical")
+			chevron := icons.ChevronRight
+			if *open {
+				chevron = icons.ChevronDown
+			}
+			toggle := ui.ButtonBase(c.Key("toggle")).Label(label).Expanded(*open).Grow(1).Height(28).PaddingX(6).Gap(6).
+				Justify(ui.Start).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+			if toggle.Hovered() {
+				toggle.TextColor(p.SurfaceForeground)
+			}
+			toggle.Children(func() {
+				ui.Icon(c, chevron).FontSize(12)
+				ui.Text(c, label).FontSize(12).SingleLine()
+			}).OnClick(func() { *open = !*open })
+			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "notification_copy_report"), 24, false).TextColor(p.MutedForeground).
+				OnClick(func() {
+					c.WriteClipboard(report)
+					kit.Toast(c, kit.Done, i18n.T(c, "notification_report_copied"))
+				})
+		})
+		if *open {
+			ui.Divider(c.Key("divider")).Background(p.Border)
+			scroll := ui.Scroll(c.Key("json")).FillWidth().MaxHeight(reportHeight).Padding(6, 0, 8, 4)
+			kit.Code(c, scroll, report, kit.CodeOptions{Language: editor.LanguageNamed("json"), Tint: true})
 		}
 	})
 }

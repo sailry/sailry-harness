@@ -1658,6 +1658,8 @@ notification_result: 결과
 notification_seconds: '%{count}초'
 notification_source: 출처
 notification_time: 시간
+notification_technical: 기술 세부 정보
+notification_exit_code: 종료 코드
 preferences_read_failed: 로컬 설정을 읽을 수 없습니다. 설정을 확인하고 다시 시작하십시오
 preferences_save_failed: 설정이 저장되지 않았습니다. 다시 시도하십시오
 session_changed: 세션이 변경되었습니다. 다시 시도하십시오

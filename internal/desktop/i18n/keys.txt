@@ -1670,6 +1670,8 @@ notification_result
 notification_seconds
 notification_source
 notification_time
+notification_technical
+notification_exit_code
 preferences_read_failed
 preferences_save_failed
 session_changed

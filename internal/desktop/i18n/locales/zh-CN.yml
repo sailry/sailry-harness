@@ -1658,6 +1658,8 @@ notification_result: 结果
 notification_seconds: '%{count} 秒'
 notification_source: 来源
 notification_time: 时间
+notification_technical: 技术详情
+notification_exit_code: 退出码
 preferences_read_failed: 无法读取本地设置，请检查配置后重启
 preferences_save_failed: 设置未保存，请重试
 session_changed: 会话已变化，请重新操作

@@ -1658,6 +1658,8 @@ notification_result: Результат
 notification_seconds: '%{count} секунд'
 notification_source: Источник
 notification_time: Время
+notification_technical: Технические сведения
+notification_exit_code: Код завершения
 preferences_read_failed: Не удалось прочитать локальные настройки; проверьте конфигурацию и перезапустите
 preferences_save_failed: Настройки не сохранены; попробуйте снова
 session_changed: Сессия изменена; попробуйте снова
