@@ -240,6 +240,9 @@ func testNativeAssistantDraft(t *testing.T) {
 		mounted.composer.Draft != message.Text {
 		t.Fatal("first admission changed the embedding page or lost its uncertain draft")
 	}
+	if runtime.App.Sidebar.Data.Find(mounted.session.String()) != nil || runtime.App.Data.Find(mounted.session.String()) == nil {
+		t.Fatal("first admission leaked the assistant into ordinary navigation or lost its mounted view")
+	}
 	if runtime.pluginComposerView(draftID) != nil {
 		t.Fatal("admitted assistant retained its obsolete draft presentation")
 	}
@@ -370,6 +373,9 @@ func testNativeAssistantSessions(t *testing.T) {
 	// The panel opens on the assistant's latest session.
 	if mounted := state.conversations["assistant-chat"]; mounted == nil || mounted.session != newer {
 		t.Fatalf("the panel did not open on the latest session: %+v", mounted)
+	}
+	if runtime.App.Sidebar.Data.Find(newer.String()) != nil || runtime.App.Sidebar.Data.Find(older.String()) != nil || runtime.App.Data.Find(newer.String()) == nil {
+		t.Fatal("assistant history leaked into ordinary navigation or lost its embedded transcript")
 	}
 	if !tester.HasText("Review assistant") {
 		t.Fatalf("no heading: %q", tester.Texts())

@@ -10,20 +10,36 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail) {
-	if resolved := loaded.Resolved; resolved != nil && resolved.Output != nil && resolved.Output.Body != nil {
-		body := resolved.Output.Body
-		if body.Diff != nil && *body.Diff == protocol.ToolDisplayProjectionFormatUnified {
-			if call.Output == nil {
-				call.Output = &conversation.Output{}
+func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail, locales ...string) {
+	language := ""
+	if len(locales) > 0 {
+		language = locales[0]
+	}
+	var declared *protocol.ToolDetailOutput
+	if loaded.Resolved != nil {
+		declared = loaded.Resolved.Output
+	}
+	if declared != nil {
+		if call.Output == nil {
+			call.Output = &conversation.Output{}
+		}
+		if table := declared.Table; table != nil {
+			call.Output.Table = &conversation.Table{Columns: table.Columns, Rows: table.Rows}
+			call.Output.Partial = call.Output.Partial || table.Truncated
+		}
+		for _, notice := range declared.Notices {
+			call.Output.Notices = append(call.Output.Notices, toolLocalText(notice, language))
+		}
+		if body := declared.Body; body != nil {
+			if body.Diff != nil && *body.Diff == protocol.ToolDisplayProjectionFormatUnified {
+				name := ""
+				if body.Path != nil {
+					name = *body.Path
+				}
+				call.Output.Diff = projectOutputDiff(name, body.Text)
+				call.Output.Text = ""
+				return
 			}
-			name := ""
-			if body.Path != nil {
-				name = *body.Path
-			}
-			call.Output.Diff = projectOutputDiff(name, body.Text)
-			call.Output.Text = ""
-			return
 		}
 	}
 	if loaded.Result != nil {
@@ -38,6 +54,11 @@ func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail) {
 		}
 	}
 	if loaded.Content == nil {
+		// A declared output owns its presentation, including an empty result.
+		// Failed executions retain the original result for inspection.
+		if declared != nil && call.Error == "" {
+			return
+		}
 		if call.Output == nil {
 			call.Output = &conversation.Output{}
 		}
@@ -87,12 +108,12 @@ func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail) {
 					}
 				}
 				for _, notice := range text.Notices {
-					call.Output.Notices = append(call.Output.Notices, notice.Label)
+					call.Output.Notices = append(call.Output.Notices, toolLocalText(protocol.ToolResultLocalText{Label: notice.Label, Locales: notice.Locales}, language))
 				}
 			}
 		case "notice":
 			if notice, ok := detail[protocol.ToolContentBlockNoticePayload](block.Data); ok {
-				call.Output.Notices = append(call.Output.Notices, notice.Message.Label)
+				call.Output.Notices = append(call.Output.Notices, toolLocalText(protocol.ToolResultLocalText{Label: notice.Message.Label, Locales: notice.Message.Locales}, language))
 			}
 		case "table":
 			if table, ok := detail[protocol.ToolContentTable](block.Data); ok {

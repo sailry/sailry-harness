@@ -42,9 +42,8 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		session.Diagnostic = &conversation.Diagnostic{Title: "live_read_busy", Detail: state.Err.Error()}
 	default:
 		if state.Err != nil {
-			if !state.Connected {
-				session.Connection = conversation.Offline
-			}
+			// A rejected conversation update does not imply the Host disconnected.
+			// The runtime projects the actual Host connection separately.
 			session.Diagnostic = &conversation.Diagnostic{Title: "chat_sync_failed", Detail: state.Err.Error()}
 		}
 	}
@@ -119,7 +118,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 			}
 		}
 		if t.Reply.Status.Active() {
-			if r.StartedMs != nil {
+			if state.Connected && r.StartedMs != nil {
 				t.Reply.Elapsed = max(0, time.Since(time.UnixMilli(*r.StartedMs)))
 			}
 			t.Reply.Phase = conversation.AwaitingResponse
@@ -150,6 +149,9 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				t.Compaction.State = conversation.CompactionInterrupted
 			case "cancelled":
 				t.Compaction.State = conversation.CompactionCancelled
+			}
+			if !state.Connected && t.Reply.Status == conversation.Unsynced {
+				t.Compaction.State = conversation.CompactionUnsynced
 			}
 			if r.Error != nil {
 				t.Compaction.Cause = r.Error.Message
@@ -429,7 +431,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				status = conversation.ChildCancelled
 			}
 			title := childTitle(&page, child, language)
-			children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status})
+			children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status, Unsynced: !state.Connected})
 		}
 	}
 	for owner, list := range children {
@@ -736,10 +738,12 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						if matches[0].Hidden {
 							continue
 						}
+						if result.Summary != nil && result.Summary.Progress != nil {
+							// A pending plan becomes progress only after its validated result arrives.
+							reply.Blocks[matches[0].Block] = conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)}
+							continue
+						}
 						if matches[0].Progress {
-							if result.Summary != nil && result.Summary.Progress != nil {
-								reply.Blocks[matches[0].Block].Steps = projectSteps(*result.Summary.Progress)
-							}
 							continue
 						}
 						call = projectedCall(reply, matches[0].ID)
@@ -782,7 +786,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 					matches := pending[toolPendingKey(turn, branch, started.ID)]
 					if len(matches) == 1 && matches[0].Name == started.Name {
 						if call := projectedCall(reply, matches[0].ID); call != nil {
-							call.Running = reply.Status.Active()
+							call.Running = reply.Status.Active() && reply.Status != conversation.Unsynced
 							call.State = conversation.StateNone
 							call.Warning = false
 						}
@@ -1024,13 +1028,13 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	}
 	if resolved := summary.Resolved; resolved != nil {
 		if resolved.Label != nil {
-			call.Label = resolved.Label.Label
+			call.Label = toolLocalText(*resolved.Label, language)
 		}
 		if resolved.Input.Summary != nil {
 			call.Detail = resolved.Input.Summary.Text
 			call.Code = resolved.Input.Summary.Code
 		}
-		if output := resolved.Output; output != nil {
+		if output := resolved.Output; summary.HasDetails && output != nil {
 			call.Output = &conversation.Output{Text: output.Preview, Paths: slices.Clone(output.Paths), Command: resolved.Command != nil}
 			if output.Body != nil {
 				call.Output.Text = output.Body.Text

@@ -422,8 +422,8 @@ func TestConversationProjection(t *testing.T) {
 			// A lasting interruption the Client keeps retrying: no fault text.
 			{"retrying", false, fault(protocol.ErrorCodeUnavailable), conversation.Reconnecting, ""},
 			{"busy", true, fault(protocol.ErrorCodeBusy), conversation.Connected, "live_read_busy"},
-			{"ended", false, fault(protocol.ErrorCodeInvalidRequest), conversation.Offline, "chat_sync_failed"},
-			{"removed", false, fault(protocol.ErrorCodeNotFound), conversation.Offline, "chat_sync_failed"},
+			{"ended", false, fault(protocol.ErrorCodeInvalidRequest), conversation.Connected, "chat_sync_failed"},
+			{"removed", false, fault(protocol.ErrorCodeNotFound), conversation.Connected, "chat_sync_failed"},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				state := client.ConversationState{Connected: row.connected, Err: row.err}

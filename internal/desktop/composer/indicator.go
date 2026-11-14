@@ -41,7 +41,9 @@ const ringInset = 4
 func (s *State) indicators(c *ui.Context, ctx *Context, start bool) {
 	for i := range ctx.Indicators {
 		if in := &ctx.Indicators[i]; in.Start == start {
-			s.indicator(c.Key("indicator/"+in.ID), in)
+			shown := *in
+			shown.Loading = shown.Loading && !ctx.Activity.Unsynced
+			s.indicator(c.Key("indicator/"+in.ID), &shown)
 		}
 	}
 }

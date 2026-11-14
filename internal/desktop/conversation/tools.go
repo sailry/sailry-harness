@@ -72,7 +72,7 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 // interrupted or unexecuted call, or one whose background command ended
 // badly. Only a failed call (Failed: the call itself did not run) is red;
 // an error the tool returned from a call that ran (Warning without a state)
-// reads as a plain row with its error line.
+// reads as a plain row.
 func flagged(call Call) bool {
 	return call.Warning && call.State != StateNone || backgroundFailed(call.Background)
 }
@@ -91,38 +91,7 @@ func backgroundFailed(b *Background) bool {
 	return false
 }
 
-// backgroundText is the state of a call's background command: running, or
-// how it ended, a failed command's exit code, and that its result has not
-// reached the model yet.
-func backgroundText(c *ui.Context, b *Background) string {
-	if b.Running {
-		return i18n.T(c, "background_running")
-	}
-	text := i18n.T(c, outcomeKey(b.Outcome))
-	if b.Exit != nil && b.Outcome == OutcomeFailed {
-		text = i18n.T(c, "background_exit", "code", *b.Exit)
-	}
-	if b.Waiting {
-		text += " · " + i18n.T(c, "background_result_waiting")
-	}
-	return text
-}
-
-// stateText is the state a row names after its detail; pending and failed
-// rows say it by color instead.
-func stateText(c *ui.Context, st RowState) string {
-	switch st {
-	case Denied:
-		return i18n.T(c, "approval_rejected")
-	case StateInterrupted:
-		return i18n.T(c, "tool_interrupted")
-	case NotExecuted:
-		return i18n.T(c, "tool_not_executed")
-	}
-	return ""
-}
-
-// summary builds a row's content: icon, label, detail, state and caret.
+// summary builds a row's content: status icon, label, input detail and caret.
 // A running row shimmers its label and detail with one band across the
 // row, sw's; the icon has none.
 func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep) {
@@ -161,9 +130,6 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		level(c, ui.Text(c, label).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(color), size, true)
 	}
 	detail, code := call.Detail, call.Code
-	if (call.Failed || call.Warning) && call.State != Denied && call.Error != "" {
-		detail, code = call.Error, false
-	}
 	if detail != "" {
 		dc := p.MutedForeground.Alpha(0.65)
 		if !quiet {
@@ -181,16 +147,6 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		if shimmer {
 			sw.Text(c, d, span)
 		}
-	}
-	st := stateText(c, call.State)
-	if call.note != "" {
-		st = call.note
-	}
-	if st == "" && call.Background != nil {
-		st = backgroundText(c, call.Background)
-	}
-	if st != "" {
-		level(c, ui.Text(c, st).FontSize(size).SingleLine().Shrink(0).TextColor(color), size, call.wrap)
 	}
 	if caret {
 		chevron := icons.ChevronRight
@@ -228,7 +184,7 @@ func levelSpan(c *ui.Context, e ui.Element, span ui.Span, size float32, wrap boo
 
 // rowSize gives a row the summary's height for text of size: 24 DIPs at
 // 14, or, for a label that wraps, the full width, at least that tall, with
-// the icon, state and caret where a row of one line has them, level with
+// the icon and caret where a row of one line has them, level with
 // the first line (kit.LevelTop).
 func rowSize(e ui.Element, size float32, wrap bool) ui.Element {
 	if wrap {
@@ -391,15 +347,13 @@ func (s *State) row(c *ui.Context, call Call) {
 	})
 }
 
-// bare tells that a call's output draws nothing its row does not: no
-// table, diff, text, picture or note, and a failure only where the row
-// shows it as its detail (summary).
+// bare reports an output with nothing to display below its row.
 func bare(call Call) bool {
 	o := call.Output
 	if o.Table != nil || o.Diff != nil || o.Text != "" || len(o.Images) > 0 || len(o.Notices) > 0 || o.Partial {
 		return false
 	}
-	return o.Failure == "" || o.Failure == call.Error && (call.Failed || call.Warning) && call.State != Denied
+	return o.Failure == ""
 }
 
 func failureTone(c *ui.Context, o *Output) ui.Color {
@@ -653,7 +607,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		if k.Status == ChildCompleted {
 			done++
 		}
-		running = running || k.Status.Active()
+		running = running || !k.Unsynced && k.Status.Active()
 	}
 	label := i18n.T(c, "subagent_count", "completed", done, "total", len(kids))
 	s.disclosure(c, "children-"+kids[0].ID, func(hovered, open bool, sw *kit.Sweep) {
@@ -663,7 +617,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		}
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
-				kit.RoleIdenticon(c.Key(k.ID), k.ID, k.Avatar, k.Status.Active(), rowIcon(size))
+				kit.RoleIdenticon(c.Key(k.ID), k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
 			}
 		})
 		// Laid out as the sweep draws it, running or not (summary).
@@ -706,9 +660,9 @@ func child(c *ui.Context, k Child, actions Actions) {
 		if k.Status == ChildContinued {
 			ui.Icon(c, icons.ArrowRight).FontSize(rowIcon(size)).TextColor(color)
 		} else {
-			kit.RoleIdenticon(c, k.ID, k.Avatar, k.Status.Active(), rowIcon(size))
+			kit.RoleIdenticon(c, k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
 		}
-		if k.Status.Active() {
+		if !k.Unsynced && k.Status.Active() {
 			levelSpan(c, kit.Shimmer(c, title, size, color), ui.Span{Size: size}, size, false)
 		} else {
 			level(c, ui.Text(c, title).FontSize(size).SingleLine().TextColor(color), size, false)

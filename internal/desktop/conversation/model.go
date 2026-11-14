@@ -24,11 +24,11 @@ const (
 	Cancelled
 	Interrupted
 	Failed
-	Unsynced // active, but the host's status is not synced
+	Unsynced // last accepted run is active, but conversation updates are unavailable
 )
 
-// Active reports a run still going: the work region stays open and the
-// phase row shows.
+// Active reports a run whose end has not been observed, keeping its work
+// region and actions available. Unsynced runs do not show live animation.
 func (s RunStatus) Active() bool {
 	return s == Queued || s == Running || s == Stopping || s == Unsynced
 }
@@ -288,6 +288,7 @@ const (
 	CompactionCancelled
 	CompactionUnneeded
 	CompactionInterrupted
+	CompactionUnsynced
 )
 
 // Compaction is a compaction turn: its state, the summary it wrote and,
@@ -333,16 +334,15 @@ type Call struct {
 	// Label is empty, is the i18n key of a built-in tool's (tool_load_skill).
 	Label, LabelKey string
 	Icon            string // icons.ByName; "" falls back to settings-2
-	// Detail is the summary line; Code draws it in mono. Error replaces it
-	// while the call failed or warns, unless it was denied.
+	// Detail is the captured execution content or path; Code draws it in mono.
 	Detail string
 	Code   bool
 	Error  string
 	State  RowState
 	// Failed is a failed call, the only red row: the tool could not run
 	// (unknown, invalid arguments, execution or transport error). Warning
-	// is an error the tool returned from a call that ran, shown plain with
-	// its error line, or, with a State, a denied, interrupted or unexecuted
+	// is an error the tool returned from a call that ran, shown plain,
+	// or, with a State, a denied, interrupted or unexecuted
 	// call (warning color).
 	Failed, Warning, Pending, Running bool
 	// Standalone calls never group; Terminal ones (ask_user, plan review)
@@ -351,13 +351,12 @@ type Call struct {
 	// Output is what expanding the row shows; nil rows have no caret.
 	Output *Output
 	// Background is the command the call sent to the background; nil for a
-	// call that ran in place. The row names its state after the detail.
+	// call that ran in place. Its outcome contributes to the row's status color.
 	Background *Background
 	// Load requests revision-scoped details when this disclosure first opens.
 	Load func()
 
-	note string // view-only: state text in place of State's
-	wrap bool   // view-only: the label wraps rather than truncates
+	wrap bool // view-only: the label wraps rather than truncates
 }
 
 // Background is where a command that runs apart from its turn is: running,
@@ -469,6 +468,8 @@ type Child struct {
 	ID, Title     string
 	Model, Effort string
 	Status        ChildStatus
+	// Unsynced freezes animation while retaining the last accepted run status.
+	Unsynced bool
 	// Avatar is the avatar of the role it runs as (icons.Avatar), "" for
 	// its identicon.
 	Avatar string

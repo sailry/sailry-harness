@@ -156,6 +156,7 @@ func (c *Client) waitConversationSequence(ctx context.Context, w *conversationWa
 		c.conversationMu.Lock()
 		valid := c.conversations[w.session] == w && w.projection.generation == generation
 		ready := valid && w.projection.snapshot != nil && w.projection.snapshot.Sequence >= sequence
+		observationErr := w.state.Err
 		signal := w.signal
 		c.conversationMu.Unlock()
 		if !valid {
@@ -163,6 +164,9 @@ func (c *Client) waitConversationSequence(ctx context.Context, w *conversationWa
 		}
 		if ready {
 			return nil
+		}
+		if observationErr != nil && !retryConversation(observationErr) {
+			return observationErr
 		}
 		select {
 		case <-ctx.Done():

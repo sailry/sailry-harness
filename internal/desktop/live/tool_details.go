@@ -130,7 +130,7 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 		projected.Failed = false
 		projected.Running = false
 	}
-	projectToolContent(&projected, loaded)
+	projectToolContent(&projected, loaded, language)
 	if call.Output != nil && len(call.Output.Images) > 0 {
 		if projected.Output == nil {
 			projected.Output = &conversation.Output{}

@@ -65,7 +65,7 @@ func (r *Runtime) projectConversations() {
 					owner.projectConversationAssets(cv, state)
 					owner.bindAttachmentSources(cv.ID, state.Snapshot.Page)
 					owner.projectAttachmentImages(cv)
-					cv.Animating = len(state.Snapshot.Drafts) > 0
+					cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 				}
 			} else {
 				owner.projectOutgoing(cv, protocol.ConversationPage{})
@@ -191,6 +191,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	}
 	snapshot := r.snapshot()
 	var page protocol.ConversationPage
+	unsynced := false
 	if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 		r.conversationSeen[id] = true
 		if _, ok := r.conversationWatches[id]; !ok {
@@ -203,8 +204,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 		if state, ok := r.conversationState(id); ok {
 			page = state.Snapshot.Page
+			unsynced = !state.Connected
 			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state, c.Locale())
-			cv.Animating = len(state.Snapshot.Drafts) > 0
+			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.enrichDetails(cv, state, c.Locale())
@@ -265,7 +267,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 		r.composerRevisions[cv.ID] = s.Revision
 	}
-	ctx := &composer.Context{Models: r.models(), Interactions: cv.Waiting, Queue: cv.Queue, Readonly: !r.controller.Connected(), Repository: composer.Repository{Kind: composer.Directory}, Activity: composer.Activity{Connected: r.controller.Connected()}}
+	ctx := &composer.Context{Models: r.models(), Interactions: cv.Waiting, Queue: cv.Queue, Readonly: !r.controller.Connected(), Repository: composer.Repository{Kind: composer.Directory}, Activity: composer.Activity{Connected: r.controller.Connected(), Unsynced: unsynced}}
 	if !r.controller.Connected() {
 		cv.Session.Connection = conversation.Offline
 		if r.controller.Err() == nil || faultCode(r.controller.Err()) == protocol.ErrorCodeUnavailable || faultCode(r.controller.Err()) == protocol.ErrorCodeBusy {

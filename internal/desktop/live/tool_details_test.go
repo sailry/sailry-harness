@@ -27,6 +27,7 @@ func TestProjectToolDetailKeepsCanonicalStateAndImages(t *testing.T) {
 			call := conversation.Call{ID: "fixture-call", Name: "run_command", State: test.state, Pending: test.pending,
 				Running: true, Standalone: true, Terminal: true, Background: background, Output: &conversation.Output{Images: []conversation.Image{image}}}
 			summary := protocol.DefaultToolDetailSummary()
+			summary.HasDetails = true
 			summary.Failure = &protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime}
 			raw := json.RawMessage(`{"kind":"command_result","stdout":"fixture"}`)
 			loaded := protocol.DefaultToolDetail()

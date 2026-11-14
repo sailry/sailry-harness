@@ -186,7 +186,7 @@ func (raw *rawAgentTool) errorText(metadata *protocol.ToolResultResultDisplay) *
 	return nil
 }
 func (raw *rawAgentTool) progress() *protocol.ConversationProgress {
-	if raw.Presentation != protocol.ToolPresentationProgress {
+	if raw.Presentation != protocol.ToolPresentationProgress || raw.Failure != nil {
 		return nil
 	}
 	var expected protocol.ConversationProgress
@@ -311,9 +311,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 		visible = literal != nil && *literal != ""
 	}
 	summarized := raw.Presentation == protocol.ToolPresentationSummary || raw.Presentation == protocol.ToolPresentationHidden
-	fullError := raw.errorText(metadata)
-	failureDetails := value.Diagnostics && !(summarized && fullError != nil && len(*fullError) <= 1024)
-	value.HasDetails = raw.Result != nil && (failureDetails || len(raw.Images) > 0 || value.Progress != nil || !summarized && (raw.Display != nil && raw.Display.RawResult || visible))
+	value.HasDetails = raw.Result != nil && (value.Diagnostics || len(raw.Images) > 0 || value.Progress != nil || !summarized && (raw.Display != nil && raw.Display.RawResult || visible))
 	if content != nil {
 		for _, block := range content.Blocks {
 			if block.Kind == "file" || block.Kind == "artifact" || block.Kind == "card" {

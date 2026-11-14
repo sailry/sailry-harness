@@ -24,7 +24,7 @@ func historyRevision(ctx context.Context, db *sql.Conn, session protocol.Session
 }
 func hydratePublicRun(ctx context.Context, db *sql.Conn, run protocol.ConversationRun) (protocol.ConversationRun, error) {
 	run.Input = nil
-	if run.Kind != protocol.ConversationRunKindTask || run.Continuation != nil {
+	if run.Kind != protocol.ConversationRunKindTask || run.Continuation != nil || run.Notice {
 		return run, nil
 	}
 	var body []byte

@@ -1290,6 +1290,11 @@ retain their existing interactions. These declarations change no model result,
 canonical tool output, permissions or execution scope. Captured explicit modes
 remain part of historical calls; omitted modes use the current v1 default.
 
+Core owns these presentation types and their renderers; any tool can select them
+through its declaration. Rows show the localized tool name and captured input,
+without appending result text. Summary-only results carry no output preview in
+conversation synchronization; failed calls keep details available on demand.
+
 Prefer `display.output` references for the actual body, paths, table or diff.
 An explicitly declared output that resolves empty does not fall back to arbitrary
 JSON. Conditional `preview.parts` and notices let a mixed tool keep queries brief
@@ -1339,7 +1344,10 @@ Content allows 1–16 blocks and at most 256 KiB of serialized JSON. Tables allo
 
 Desktop renders these blocks with the common Kit table, diff and authenticated image viewer. Native call state, approval, cancellation, folding and history order still belong to the conversation. Explicit raw inspection preserves the unchanged result when a standard block cannot be rendered. History remains readable after package removal and Node restart; no plugin script runs to render saved tool content. The built-in database query uses this same contract.
 
-Plans retain `presentation: "progress"` and the `progress.update` operation. Questions and plan confirmation retain `ask_user` and the existing question state; external MCP servers can use form or URL elicitation. Content blocks cannot create approvals or questions or submit answers.
+Plans retain `presentation: "progress"` and the `progress.update` operation.
+Node validates the successful result as core `ConversationProgress`; Desktop
+uses that typed message for the plan component and composer indicator, regardless
+of the tool name. Questions and plan confirmation retain `ask_user` and the existing question state; external MCP servers can use form or URL elicitation. Content blocks cannot create approvals or questions or submit answers.
 
 The runnable [tool-content MCP example](../plugins/examples/tool-content) returns a table, diff and image without a desktop entry.
 

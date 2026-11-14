@@ -8,6 +8,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // A draft is a conversation of the desktop alone until its first send creates
@@ -96,22 +97,60 @@ func (r *Runtime) removeDraft(id string) {
 		p.Conversations = remove(p.Conversations)
 	}
 	delete(r.openDrafts, id)
-	r.App.ApplyData(r.App.Data)
-	r.listSidebar()
+	r.applyConversationData(r.App.Data)
 }
 
-// listSidebar gives the navigation column the data without drafts. The shell
-// keeps the whole data, so the selected draft still shows.
+// applyConversationData retains open transcripts and drafts, but chooses an
+// ordinary session when the previous selection has disappeared.
+func (r *Runtime) applyConversationData(data *viewmodel.Data) {
+	selected := r.App.Sidebar.Selected
+	r.App.ApplyData(data)
+	r.listSidebar()
+	if data.Find(selected) == nil {
+		r.App.Sidebar.Selected = ""
+		if ids := r.App.Sidebar.Order(); len(ids) > 0 {
+			r.App.Sidebar.Selected = ids[0]
+		}
+	}
+}
+
+// listSidebar excludes drafts and resource-owned assistants from ordinary
+// navigation. The shell keeps them for embedded views and explicit session links.
 func (r *Runtime) listSidebar() {
+	type key struct{ node, session string }
+	owned := map[key]bool{}
+	collect := func(owner *Runtime) {
+		node := owner.controller.Target().String()
+		add := func(session protocol.Session) {
+			if session.Config.Assistant != nil || session.Config.Resource != nil {
+				owned[key{node, session.ID.String()}] = true
+			}
+		}
+		for _, session := range owner.snapshot().Sessions {
+			add(session)
+		}
+		// First admission may reach the mounted view before its snapshot.
+		for _, session := range owner.admittedSessions {
+			add(session)
+		}
+	}
+	root := r.localRuntime()
+	collect(root)
+	for _, owner := range root.bindings {
+		collect(owner)
+	}
+	excluded := func(cv *viewmodel.Conversation) bool {
+		return unsentDraft(cv) || owned[key{cv.Node, cv.ID}]
+	}
 	data := r.App.Data
 	listed := *data
-	listed.Unassigned = slices.DeleteFunc(slices.Clone(data.Unassigned), unsentDraft)
+	listed.Unassigned = slices.DeleteFunc(slices.Clone(data.Unassigned), excluded)
 	hidden := len(listed.Unassigned) != len(data.Unassigned)
 	listed.Projects = slices.Clone(data.Projects)
 	for index, project := range listed.Projects {
-		if slices.ContainsFunc(project.Conversations, unsentDraft) {
+		if slices.ContainsFunc(project.Conversations, excluded) {
 			copied := *project
-			copied.Conversations = slices.DeleteFunc(slices.Clone(project.Conversations), unsentDraft)
+			copied.Conversations = slices.DeleteFunc(slices.Clone(project.Conversations), excluded)
 			listed.Projects[index] = &copied
 			hidden = true
 		}

@@ -278,6 +278,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.conversationPending = map[string]protocol.TurnID{}
 	r.conversationCreations = map[string]conversationCreation{}
 	r.conversationCreating = map[string]bool{}
+	r.listSidebar()
 	if ids := r.App.Sidebar.Order(); len(ids) > 0 {
 		r.App.Sidebar.Selected = ids[0]
 	} else {
@@ -579,9 +580,8 @@ func (r *Runtime) project() {
 		bound.pruneSessions(peerSnapshot)
 	}
 	r.projectHosts(d)
-	r.App.ApplyData(d)
+	r.applyConversationData(d)
 	r.selectPendingSession()
-	r.listSidebar()
 	r.projectConversations()
 	if owner := r.shownSettings(); owner != nil {
 		owner.projectProviderSnapshot()

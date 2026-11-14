@@ -495,6 +495,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 	blocks := Compact(cited(r.Blocks, r.Citations))
 	from := AnswerFrom(blocks)
 	active := r.Status.Active()
+	live := active && r.Status != Unsynced
 	gap := float32(8)
 	if from > 0 {
 		gap = workGap
@@ -541,7 +542,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 			ui.Divider(c).Background(p.Border)
 			if from > 0 && workOpen {
 				ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-					s.blocks(c, t.ID, blocks[:from], active && from == len(blocks), actions)
+					s.blocks(c, t.ID, blocks[:from], live && from == len(blocks), actions)
 				})
 			}
 		})
@@ -551,13 +552,13 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, t.ID, answer, active, actions)
+				s.blocks(c, t.ID, answer, live, actions)
 			})
 		}
 		if !active && r.Changes != nil {
 			s.changes(c, t.ID, r.Changes, actions)
 		}
-		if active && showPhase(r, blocks) {
+		if live && showPhase(r, blocks) {
 			phaseRow(c, r)
 		}
 		if !active {

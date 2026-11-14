@@ -89,7 +89,7 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 			}
 			session, ok := owner.session(cv.ID)
 			return ok && session.Project != nil && session.Project.String() == project.ID &&
-				session.Config.Resource == nil && session.Delegation == nil
+				session.Config.Assistant == nil && session.Config.Resource == nil && session.Delegation == nil
 		},
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
 			root.openProjectSession(project, cv, done)
@@ -151,7 +151,7 @@ func (r *Runtime) openProjectSession(project *viewmodel.Project, cv *viewmodel.C
 	}
 	session, ok := owner.session(cv.ID)
 	if !ok || session.Project == nil || session.Project.String() != project.ID ||
-		session.Config.Resource != nil || session.Delegation != nil {
+		session.Config.Assistant != nil || session.Config.Resource != nil || session.Delegation != nil {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")); done(false) })
 		return
 	}

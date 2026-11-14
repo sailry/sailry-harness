@@ -234,7 +234,7 @@ func (c *Client) observeConversation(w *conversationWatch) {
 				continue
 			}
 		}
-		if !transient(err) && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, context.Canceled) {
+		if !retryConversation(err) {
 			c.conversationMu.Lock()
 			w.state.Err = err
 			w.state.Connected = false
@@ -269,6 +269,10 @@ func (c *Client) observeConversation(w *conversationWatch) {
 		}
 		delay = min(delay*2, 5*time.Second)
 	}
+}
+
+func retryConversation(err error) bool {
+	return transient(err) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.Canceled)
 }
 
 func (c *Client) consumeConversation(w *conversationWatch, sub link.Subscription, generation uint64, desired conversationExtent) error {

@@ -77,8 +77,8 @@ func (b *demo) handbook() *Conversation {
 }
 
 // staging is a session whose host is reconnecting: a diagnostic of what
-// failed, a run whose status is not synced, a question that cannot be
-// answered meanwhile, and an older page that did not load.
+// failed, a run and compaction whose outcomes are not synced, a delegated
+// task, a question that cannot be answered, and an older page that did not load.
 func (b *demo) staging() *Conversation {
 	const id = "chat/staging"
 	health := b.user(id+"/0", "staging.0.user")
@@ -88,13 +88,17 @@ func (b *demo) staging() *Conversation {
 	health.Reply.Blocks = []cv.Block{tools(probe), text(b.t("staging.0.answer"))}
 	tail := b.user(id+"/1", "staging.1.user")
 	logs := b.call(tail.ID, "command", "command", "kubectl logs deploy/harbor-api --since=10m | grep ERROR")
-	logs.Running = true
-	tail.Reply = cv.Reply{Status: cv.Unsynced, Elapsed: secs(33), Phase: cv.AwaitingResponse}
-	tail.Reply.Blocks = []cv.Block{tools(logs), question(tail.ID+"/ask", cv.QuestionPending, b.t("staging.ask.prompt"), nil)}
+	tail.Reply = cv.Reply{Status: cv.Unsynced, Phase: cv.AwaitingResponse}
+	tail.Reply.Blocks = []cv.Block{
+		tools(logs),
+		{Kind: cv.ChildrenBlock, Children: []cv.Child{{ID: tail.ID + "/logs", Title: b.t("staging.1.user"), Model: demoFast, Status: cv.ChildRunning, Unsynced: true}}},
+		question(tail.ID+"/ask", cv.QuestionPending, b.t("staging.ask.prompt"), nil),
+	}
+	compact := cv.Turn{ID: id + "/compact", Compaction: &cv.Compaction{State: cv.CompactionUnsynced}, Reply: cv.Reply{Status: cv.Unsynced}}
 	// Nothing is exported or answered while the host does not answer.
 	health.Controls = cv.Controls{NoExport: true, NoWorktree: true}
 	tail.Controls = cv.Controls{NoExport: true, NoWorktree: true, NoEdit: true, NoFork: true, NoRewind: true}
-	c := b.conv(id, "staging.title", Running, 7*time.Minute, cv.Usage{Tokens: 9200, Speed: 55.0, Cost: 0.0058, Cached: 6100, Context: 0.05}, health, tail)
+	c := b.conv(id, "staging.title", Waiting, 7*time.Minute, cv.Usage{Tokens: 9200, Speed: 55.0, Cost: 0.0058, Cached: 6100, Context: 0.05}, health, tail, compact)
 	c.Waiting.Question = &composer.Ask{ID: tail.ID + "/ask", Prompt: b.t("staging.ask.prompt"),
 		Options: strings.Split(b.t("staging.ask.options"), "\n"), Disabled: true}
 	c.Session.Older, c.Session.OlderFailed = 12, true

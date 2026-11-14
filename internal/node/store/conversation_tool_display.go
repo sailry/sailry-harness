@@ -295,7 +295,9 @@ func (raw *rawAgentTool) resolved(full bool) *protocol.ToolDetailResolved {
 			resolved.Approval = append(resolved.Approval, *v)
 		}
 	}
-	if recipe := display.Output; recipe != nil {
+	// Summary rows carry input and status, not result previews. Explicit detail
+	// requests still resolve the complete declared output.
+	if recipe := display.Output; recipe != nil && (full || raw.Presentation != protocol.ToolPresentationSummary && raw.Presentation != protocol.ToolPresentationHidden) {
 		out := protocol.DefaultToolDetailOutput()
 		if recipe.Preview != nil {
 			if full || !agentTextDeferred(*recipe.Preview) {

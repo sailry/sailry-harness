@@ -335,10 +335,8 @@ func testSummary(t *testing.T) {
 	}
 }
 
-// A command sent to the background names its state after the detail of the
-// call that started it, at the message text size: running, how it ended, a
-// failed command's exit code and that its result has not been delivered.
-// Only one that ended badly takes the warning color.
+// Background outcomes keep their status color without adding result text
+// to the captured command. The command follows the message text size.
 func testBackground(t *testing.T) {
 	exit := 2
 	rows := []struct {
@@ -377,15 +375,9 @@ func testBackground(t *testing.T) {
 				blocks = append(blocks, Block{Kind: ToolsBlock, Calls: []Call{call}})
 			}
 			turns := []Turn{{ID: "turn", User: "Go", Reply: Reply{Status: Completed, Blocks: append(blocks, Block{Kind: TextBlock, Text: "Done"})}}}
-			widths := map[string]float32{}
 			tt := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Light)
 				kit.SetPreferences(c, kit.Preferences{MessageTextSize: uint8(size)})
-				for _, row := range rows {
-					for _, text := range []string{row.en, row.zh} {
-						widths[text], _ = c.MeasureText(0, ui.Span{Text: text, Size: size})
-					}
-				}
 				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { View(c, s, "session", turns, nil, still{}) })
 			}, 900, 700)
 			tt.SetLocale(lang)
@@ -396,17 +388,12 @@ func testBackground(t *testing.T) {
 			}
 			tt.Frame()
 			for _, row := range rows {
-				want := row.en
-				if lang == "zh-CN" {
-					want = row.zh
+				if tt.HasText(row.en) || tt.HasText(row.zh) {
+					t.Fatalf("%s size %v: background result entered the tool row: %q", lang, size, tt.Texts())
 				}
-				bounds, ok := tt.Find(want)
-				if !ok {
-					t.Fatalf("%s size %v: %q is not shown in %q", lang, size, want, tt.Texts())
-				}
-				if d := float64(bounds.W - widths[want]); math.Abs(d) > 1 {
-					t.Errorf("%s size %v: %q is %v wide, %v at the message text size", lang, size, want, bounds.W, widths[want])
-				}
+			}
+			if !tt.HasText("Run") || !tt.HasText("make") {
+				t.Errorf("%s size %v: background status replaced the command: %q", lang, size, tt.Texts())
 			}
 		}
 	}

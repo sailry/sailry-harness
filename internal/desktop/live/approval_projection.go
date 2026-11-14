@@ -21,13 +21,13 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 		if call.Summary != nil && call.Summary.Resolved != nil {
 			resolved := call.Summary.Resolved
 			if resolved.Label != nil {
-				view.Title = approvalLocalText(*resolved.Label, locale)
+				view.Title = toolLocalText(*resolved.Label, locale)
 			}
 			if resolved.Input.Context != nil {
 				view.Context = resolved.Input.Context.Text
 			}
 			for _, notice := range resolved.Approval {
-				view.Notices = append(view.Notices, approvalLocalText(notice, locale))
+				view.Notices = append(view.Notices, toolLocalText(notice, locale))
 			}
 			// The card says what is being approved: the call's content, else
 			// its first approval notice, else its target, else its summary.
@@ -68,7 +68,7 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 	return view
 }
 
-func approvalLocalText(value protocol.ToolResultLocalText, locale string) string {
+func toolLocalText(value protocol.ToolResultLocalText, locale string) string {
 	if translated := value.Locales[i18n.Match(locale)]; translated != "" {
 		return translated
 	}

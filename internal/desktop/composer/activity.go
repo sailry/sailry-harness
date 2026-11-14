@@ -34,8 +34,10 @@ type Activity struct {
 	Commands []Command
 	// Children are the session's running subagents.
 	Children []conversation.Child
-	// Connected is the session's link: the busy capsules spin while it is up.
+	// Connected keeps Host controls available while the transport is up.
 	Connected bool
+	// Unsynced pauses conversation animations without disabling Host actions.
+	Unsynced bool
 }
 
 // Changes are the totals of the worktree's Git status and its files
@@ -158,7 +160,7 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 		for _, b := range a.Badges {
 			s.badge(c, b, actions)
 		}
-		s.progress(c, a.Progress, a.Connected)
+		s.progress(c, a.Progress, a.Connected && !a.Unsynced)
 		s.commandActivity(c, a, actions)
 		if !ctx.Readonly {
 			s.subagents(c, a, actions)
@@ -513,12 +515,13 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 	label := count(c, "composer_subagent_one", "composer_subagent_count", len(a.Children))
 	running := false
 	for _, child := range a.Children {
-		running = running || child.Status.Active()
+		running = running || !child.Unsynced && child.Status.Active()
 	}
-	trigger := working(c.Key("subagents"), icons.Bot, label, a.Connected && running, s.act.children).
+	live := a.Connected && !a.Unsynced
+	trigger := working(c.Key("subagents"), icons.Bot, label, live && running, s.act.children).
 		OnClick(func() { s.act.children = !s.act.children })
 	placeStart(kit.Popover(c, trigger, &s.act.children, func() {
-		if a.Connected {
+		if live {
 			c.After(time.Second)
 		}
 		ui.Scroll(c.Key("subagent-rows")).MaxHeight(6 * 28).Gap(2).Children(func() {
@@ -530,14 +533,14 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 				stop := s.ActivityCallbacks != nil && s.ActivityCallbacks.StopChild != nil && (k.Status == conversation.ChildRunning || k.Status == conversation.ChildStopping)
 				if stop {
 					ui.Row(c.Key("row-" + k.ID)).Gap(2).AlignItems(ui.Center).Children(func() {
-						s.subagentRow(c, k, name, actions).Grow(1).Shrink(1).MinWidth(0)
+						s.subagentRow(c, k, name, live, actions).Grow(1).Shrink(1).MinWidth(0)
 						busy := k.Status == conversation.ChildStopping || s.ActivityCallbacks.ChildBusy != nil && s.ActivityCallbacks.ChildBusy(k.ID)
 						kit.IconButton(c.Key("stop-"+k.ID), icons.Square, i18n.T(c, "subagent_stop"), 24, false).
 							Disabled(!a.Connected || busy).OnClick(func() { s.ActivityCallbacks.StopChild(k.ID) })
 					})
 					continue
 				}
-				s.subagentRow(c, k, name, actions).FillWidth()
+				s.subagentRow(c, k, name, live, actions).FillWidth()
 			}
 		})
 	}), trigger, 360, 8, 0)
@@ -545,12 +548,12 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 
 // subagentRow is a subagent's identicon, title and running time; a click opens
 // its session.
-func (s *State) subagentRow(c *ui.Context, k conversation.Child, name string, actions Actions) ui.Element {
+func (s *State) subagentRow(c *ui.Context, k conversation.Child, name string, live bool, actions Actions) ui.Element {
 	row := kit.Ghost(c.Key(k.ID), name, false).Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
 		Children(func() {
-			kit.RoleIdenticon(c, k.ID, k.Avatar, k.Status.Active(), 16)
+			kit.RoleIdenticon(c, k.ID, k.Avatar, live && !k.Unsynced && k.Status.Active(), 16)
 			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-			if s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
+			if live && !k.Unsynced && s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
 				if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {
 					ui.Text(c, elapsed).FontSize(12).Shrink(0).TextColor(theme.Of(c).MutedForeground)
 				}

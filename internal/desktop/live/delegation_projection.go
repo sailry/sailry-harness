@@ -50,6 +50,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 			if child.Run.Status == protocol.ConversationStatusRunning {
 				view := childView(&state.Snapshot.Page, child, childSession, language)
 				view.Avatar = childAvatar(r.snapshot().Roles, child)
+				view.Unsynced = !state.Connected
 				ctx.Activity.Children = append(ctx.Activity.Children, view)
 			}
 			// The parent's page carries each child's run. Only a child waiting

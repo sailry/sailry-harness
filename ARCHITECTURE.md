@@ -333,6 +333,8 @@ Plugin assistants mount the shared conversation UI with an immutable package,
 assistant and resource binding. Mounting alone creates no session; the first send
 uses normal admission. They share model selection, approvals, questions and
 history, while the package owns its assistant declaration and selected tools.
+These sessions stay in their assistant's history rather than ordinary conversation
+navigation; their transcripts remain available to explicit session links.
 
 Model plugins handle their configured providers' messages and credentials under
 the installed trust decision. Changed OAuth identity, scopes or flow require new

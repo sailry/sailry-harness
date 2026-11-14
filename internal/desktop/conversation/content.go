@@ -391,6 +391,7 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 		Compacted: "chat_compacted", CompactionRunning: "chat_compacting", CompactionQueued: "chat_compact_queued",
 		CompactionFailed: "chat_compact_failed", CompactionCancelled: "chat_compact_cancelled", CompactionUnneeded: "chat_compact_unneeded",
 		CompactionInterrupted: "chat_compact_interrupted",
+		CompactionUnsynced:    "chat_status_unsynced",
 	}[k.State]
 	label := i18n.T(c, key)
 	// The state and how long the compaction ran, as a run's header.
