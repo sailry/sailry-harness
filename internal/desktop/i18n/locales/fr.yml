@@ -876,10 +876,10 @@ live_revoke: Supprimer l'appairage
 live_revoke_confirm: Déconnecter « %{name} » et supprimer l’appairage? La reconnection nécessitera un nouvel appairage
 local_models_available: Disponibles
 local_models_empty: Aucun modèle installé
+local_models_recommended: Recommandés
 local_models_status: État
 message_display_compact: Compact
 message_display_detailed: Détaillé
-model_library_manage: Gérer les modèles
 model_library_select: Sélectionner
 model_library_selected: Sélectionné
 model_library_source: Source
@@ -1359,8 +1359,8 @@ market_installed: Installé
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Rechercher des modèles
-model_library_search: Rechercher
-model_library_empty: Rechercher des modèles
+model_library_no_results: Aucun modèle trouvé
+model_library_available: Modèles disponibles
 knowledge_delete: Supprimer
 knowledge_model_size: Taille
 knowledge_delete_model_effect: Supprimer %{name} ; les collections concernées utiliseront la recherche par mots-clés
@@ -2008,7 +2008,6 @@ model_library_failed: Impossible de charger les modèles
 model_library_partial: Certains résultats sont indisponibles
 model_library_conflict: Les fichiers de cette version ont changé
 model_library_version: Version
-model_library_more: Charger plus
 model_library_query_prefix: Préfixe de recherche
 model_library_document_prefix: Préfixe de document
 knowledge_up_to_date: Déjà à jour

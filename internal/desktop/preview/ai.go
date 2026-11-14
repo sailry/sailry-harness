@@ -350,6 +350,11 @@ func ExtensionsData() *Extensions {
 			{ID: "ppocr", Name: "PP-OCRv5", Repo: "PaddlePaddle/PP-OCRv5_mobile", Kind: "model_library_ocr", Source: "model_library_huggingface", Size: "16 MB", License: "Apache-2.0", Status: ModelInstalled},
 			{ID: "whisper-small", Name: "Whisper Small", Repo: "openai/whisper-small", Kind: "model_library_speech", Source: "model_library_huggingface", Size: "967 MB", License: "Apache-2.0"},
 			{ID: "qwen3-0.6b", Name: "Qwen3 0.6B", Repo: "Qwen/Qwen3-0.6B", Kind: "model_library_decision", Source: "model_library_huggingface", Size: "1.5 GB", License: "Apache-2.0"},
+			{ID: "bge-small-zh", Name: "BGE Small Chinese", Repo: "BAAI/bge-small-zh-v1.5", Kind: "model_library_embedding", Source: "model_library_huggingface", Size: "96 MB", License: "MIT"},
+			{ID: "granite-embed", Name: "Granite Multilingual", Repo: "ibm-granite/granite-embedding-97m-multilingual-r2", Kind: "model_library_embedding", Source: "model_library_huggingface", Size: "390 MB", License: "Apache-2.0"},
+			{ID: "rapidocr", Name: "RapidOCR", Repo: "RapidAI/RapidOCR", Kind: "model_library_ocr", Source: "model_library_modelscope", Size: "15 MB", License: "Apache-2.0"},
+			{ID: "whisper-turbo", Name: "Whisper Large v3 Turbo", Repo: "openai/whisper-large-v3-turbo", Kind: "model_library_speech", Source: "model_library_huggingface", Size: "1.6 GB", License: "MIT"},
+			{ID: "qwen3-1.7b", Name: "Qwen3 1.7B", Repo: "Qwen/Qwen3-1.7B", Kind: "model_library_decision", Source: "model_library_huggingface", Size: "3.4 GB", License: "Apache-2.0"},
 		},
 	}
 }

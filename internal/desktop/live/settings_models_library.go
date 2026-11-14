@@ -14,11 +14,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// The model library dialog: a hub search for the kind of the page that
-// opened it, run by the Node shown, with each result's state from that
+// The model library: the hub search of a model page's Available tab, for
+// the page's kind, run by the Node shown, with each result's state from that
 // Node's registry.
 
-// modelLibraryState is the local runtime's library dialog: the request
+// modelLibraryState is the local runtime's library: the request
 // searched and the Node that searched it, the hub's results and the cursor
 // of its next page, and what the details dialog read, by row ID: the
 // model's versions and the definition of the version shown.
@@ -36,9 +36,9 @@ type modelLibraryState struct {
 	cancel     context.CancelFunc
 }
 
-// libraryFrame searches when the dialog opens, when its hub changes and
-// when the user searches, and shows the results. Closing the dialog drops
-// them and abandons a search under way.
+// libraryFrame searches when an Available tab shows, when its kind or hub
+// changes and when the user searches, and shows the results. Leaving the
+// tab drops them and abandons a search under way.
 func (r *Runtime) libraryFrame(owner *Runtime) {
 	lib := &r.localModels.library
 	m := r.App.Settings
@@ -60,7 +60,7 @@ func (r *Runtime) libraryFrame(owner *Runtime) {
 }
 
 // searchLibrary reads the hub's first page for the request. A failure is
-// the model_library_failed toast and leaves the dialog a Retry.
+// the model_library_failed toast and leaves the tab a Retry.
 func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest) {
 	lib := &r.localModels.library
 	if lib.cancel != nil {
@@ -73,7 +73,8 @@ func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest)
 	r.readLibraryPage()
 }
 
-// moreLibrary reads the hub's next page under the results shown.
+// moreLibrary reads the hub's next page under the results shown, as the
+// page nears its end.
 func (r *Runtime) moreLibrary() {
 	lib := &r.localModels.library
 	if lib.owner != nil && lib.next != nil && !r.App.Settings.LibraryLoad.Loading {
@@ -133,7 +134,7 @@ func (r *Runtime) readLibraryPage() {
 // libraryAnswers bounds the answers one search follows. A Node skips up to
 // three hub pages without a compatible model per answer, so a query that
 // matches only other kinds of model stops after nine hub pages instead of
-// reading the hub's whole listing while the dialog waits.
+// reading the hub's whole listing while the tab waits.
 const libraryAnswers = 3
 
 // followLibrary reads the first answer with results. An answer without any
@@ -562,7 +563,7 @@ func (r *Runtime) cancelLocalModel(id string) {
 	})
 }
 
-// libraryRows are the hub's results as the dialog's rows: each with the
+// libraryRows are the hub's results as the tab's rows: each with the
 // state of the model held from the same source, and the version, size and
 // license its details show: those of the definition resolved for them, or
 // of the model held. A held version the hub does not list is the last of
@@ -683,7 +684,7 @@ func libraryID(source protocol.ModelsSource) string {
 	return string(source.Hub) + "/" + source.Repository + "@" + source.Revision
 }
 
-// libraryHub is the hub of the dialog's picker.
+// libraryHub is the hub of the tab's picker.
 func libraryHub(index int) protocol.ModelsHub {
 	if index == 1 {
 		return protocol.ModelsHubModelScope

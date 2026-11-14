@@ -103,9 +103,9 @@ type LocalModels struct {
 	Query   string
 	Models  []preview.LocalModel
 	Catalog []preview.LocalModel
-	// A live page's: its kind (a Models* key), the chosen model's name when
-	// the host no longer has it installed (the picker's last choice), and
-	// whether the host cannot run this kind.
+	// Its kind (a Models* key), and a live page's: the chosen model's name
+	// when the host no longer has it installed (the picker's last choice),
+	// and whether the host cannot run this kind.
 	Kind        string
 	Missing     string
 	Unavailable bool
@@ -281,7 +281,10 @@ type Model struct {
 	// its first page, a spinner over the results after. LibraryMore marks
 	// a hub with a further page and LibraryFailed a search that failed,
 	// which Retry runs again.
-	LibraryLoad   preview.Fetch
+	LibraryLoad preview.Fetch
+	// pageScroll is where the section's page is scrolled, of scrolled.
+	pageScroll    ui.ScrollState
+	scrolled      Section
 	LibraryMore   bool
 	LibraryFailed bool
 	config        pluginConfig
@@ -394,9 +397,9 @@ func NewModel(d *preview.Settings) *Model {
 		Devices: d.Devices, Relays: d.Relays,
 		Hooks:         stored(HookSettings{Enabled: d.HooksOn, Scripts: d.Hooks}),
 		PythonVersion: d.Python, Indexes: d.Indexes, Python: stored(Python{}),
-		OCR:         LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog},
-		Knowledge:   LocalModels{Enabled: stored(true), Models: d.Embedding, Catalog: d.Embedding},
-		Decision:    LocalModels{Enabled: stored(false), Model: -1, Models: d.Decision, Catalog: d.Decision},
+		OCR:         LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog, Kind: ModelsOCR},
+		Knowledge:   LocalModels{Enabled: stored(true), Models: d.Embedding, Catalog: d.Embedding, Kind: ModelsEmbedding},
+		Decision:    LocalModels{Enabled: stored(false), Model: -1, Models: d.Decision, Catalog: d.Decision, Kind: ModelsDecision},
 		Permissions: d.Permissions,
 		Backup: stored(BackupTarget{Endpoint: "https://dav.example.com/remote.php/dav", Prefix: "sailry",
 			Schedule: true, Time: time.Date(2026, 1, 1, 3, 0, 0, 0, time.Local), Timezone: "Asia/Shanghai", PassphraseSet: true, CredentialsSet: true}),

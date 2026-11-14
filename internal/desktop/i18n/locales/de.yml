@@ -876,10 +876,10 @@ live_revoke: Kopplung entfernen
 live_revoke_confirm: Trennen Sie die Verbindung zu „%{name}“ und entfernen Sie die Kopplung
 local_models_available: Verfügbar
 local_models_empty: Keine installierten Modelle
+local_models_recommended: Empfohlen
 local_models_status: Status
 message_display_compact: Kompakt
 message_display_detailed: Detailliert
-model_library_manage: Modelle verwalten
 model_library_select: Auswählen
 model_library_selected: Ausgewählt
 model_library_source: Quelle
@@ -1359,8 +1359,8 @@ market_installed: Installiert
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Modelle suchen
-model_library_search: Suchen
-model_library_empty: Modelle suchen
+model_library_no_results: Keine Modelle gefunden
+model_library_available: Verfügbare Modelle
 knowledge_delete: Löschen
 knowledge_model_size: Größe
 knowledge_delete_model_effect: '%{name} löschen; betroffene Sammlungen verwenden dann die Stichwortsuche'
@@ -2008,7 +2008,6 @@ model_library_failed: Modelle konnten nicht geladen werden
 model_library_partial: Einige Ergebnisse sind nicht verfügbar
 model_library_conflict: Die Dateien dieser Version wurden geändert
 model_library_version: Version
-model_library_more: Mehr laden
 model_library_query_prefix: Suchpräfix
 model_library_document_prefix: Dokumentpräfix
 knowledge_up_to_date: Bereits aktuell

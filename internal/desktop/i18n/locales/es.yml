@@ -876,10 +876,10 @@ live_revoke: Eliminar el emparejamiento
 live_revoke_confirm: ¿Desconectar “%{name}” y quitar el emparejamiento? La reconexión requerirá emparejamiento de nuevo
 local_models_available: Disponibles
 local_models_empty: No hay modelos instalados
+local_models_recommended: Recomendados
 local_models_status: Estado
 message_display_compact: Compacto
 message_display_detailed: Detallada
-model_library_manage: Gestionar modelos
 model_library_select: Seleccionar
 model_library_selected: Seleccionado
 model_library_source: Fuente
@@ -1359,8 +1359,8 @@ market_installed: Instalado
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Buscar modelos
-model_library_search: Buscar
-model_library_empty: Buscar modelos
+model_library_no_results: No se encontraron modelos
+model_library_available: Modelos disponibles
 knowledge_delete: Eliminar
 knowledge_model_size: Tamaño
 knowledge_delete_model_effect: Eliminar %{name}; las colecciones que lo usan recurrirán a palabras clave
@@ -2008,7 +2008,6 @@ model_library_failed: No se pudieron cargar los modelos
 model_library_partial: Algunos resultados no están disponibles
 model_library_conflict: Los archivos de esta versión han cambiado
 model_library_version: Versión
-model_library_more: Cargar más
 model_library_query_prefix: Prefijo de consulta
 model_library_document_prefix: Prefijo de documento
 knowledge_up_to_date: Ya está actualizado

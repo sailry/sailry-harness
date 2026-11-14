@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -12,20 +13,31 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The model library (settings/model_library*): a dialog opened by Manage
-// models, with the hub, the query and Search over the models found, each
-// with its kind, size and status, its download's progress, its details
-// and its removal.
+// The model library (settings/model_library*): a model page's Available
+// tab, with the hub and the query beside the tabs over the page's
+// recommended models and the hub's models of the page's kind, each with its
+// size and status, its download's progress, its details and its removal.
+// The hub's next page loads as the page scrolls to its end.
 
 var libraryHubs = []string{"model_library_huggingface", "model_library_modelscope"}
 
+// searchDelay is how long the query rests before the hub searches it;
+// Enter searches at once.
+const searchDelay = 400 * time.Millisecond
+
+// moreDistance is how near the page's end the hub's next page loads.
+const moreDistance = 320
+
 // library is the hub, the query as typed and as searched, and the model whose
-// details or removal show. A live library is opened for a page's kind and
-// counts the searches run (LibraryRequest).
+// details or removal show. It is open while a page's Available tab shows
+// (Page clears it each frame), for that page's kind, and counts the
+// searches run (LibraryRequest).
 type library struct {
 	open            bool
 	hub             int
 	query, searched string
+	typed           time.Time // when the query last changed
+	rows            int       // the hub's rows the page last laid out
 	info, removing  string
 	kind            string
 	serial          uint64
@@ -45,84 +57,158 @@ func (m *Model) libraryModel(id string) *preview.LibraryModel {
 	return nil
 }
 
-func libraryDialog(c *ui.Context, m *Model) {
+// showLibrary opens the library for a page's kind as its Available tab
+// shows. Another kind starts empty on the kind's hub (ModelScope for OCR)
+// with its first page on the way; the preview keeps its models.
+func (m *Model) showLibrary(kind, query string) {
 	e := &m.library
-	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
-	if e.open {
-		title := t("model_library_manage")
-		load := &m.LibraryLoad
-		// A live library's pages come from the host's hub search, which
-		// follows LibraryRequest and sets the load; the preview plays its
-		// own on the frame clock.
-		if !m.Live {
-			if !load.Loaded && !load.Loading {
-				load.Start() // the first page, as the dialog opens
-			}
-			if load.Advance(c.Now()) {
-				c.After(preview.Tick)
-			}
+	if e.kind != kind {
+		*e = library{kind: kind, query: query, searched: strings.TrimSpace(query)}
+		if kind == ModelsOCR {
+			e.hub = 1
 		}
-		search := func() {
-			e.searched = e.query
-			e.serial++
-			if !m.Live {
-				load.Start()
-			}
+		m.LibraryLoad = preview.Fetch{}
+		if m.Live {
+			m.Library, m.LibraryLoad = nil, preview.Fetch{Loading: true}
+			m.LibraryMore, m.LibraryFailed = false, false
 		}
-		kit.Dialog(c.Key("model-library"), &e.open, func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Row(c.Key("controls")).Gap(12).Children(func() {
-				pick(c, "hub", t("model_library_source"), &e.hub, labels(c, libraryHubs), false).Width(192)
-				ui.TextInput(c.Key("query"), &e.query).Label(t("model_library_query")).Placeholder(t("model_library_query")).Grow(1).
-					OnSubmit(search)
-				kit.Action(c.Key("search"), icons.Search, t("model_library_search"), false).OnClick(search)
-			})
-			q := strings.ToLower(strings.TrimSpace(e.searched))
-			var shown []*preview.LibraryModel
-			for i := range m.Library {
-				x := &m.Library[i]
-				// A live library holds what the hub found for the request.
-				if m.Live || x.Source == libraryHubs[e.hub] && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
-					shown = append(shown, x)
-				}
-			}
-			ui.Scroll(c.Key("results")).MaxHeight(420).Children(func() {
-				if load.Loading && !load.Loaded {
-					librarySkeleton(c)
-					return
-				}
-				if len(shown) == 0 {
-					props := kit.ResultProps{Icon: icons.Search, Title: t("model_library_empty"), Card: true}
-					if m.Live && m.LibraryFailed {
-						// The failure was the toast; the search runs again from here.
-						props.Extra = func() { kit.Secondary(c.Key("retry"), t("settings_retry")).OnClick(search) }
-					}
-					kit.Result(c, props)
-					return
-				}
-				ui.Column(c.Key("found")).FillWidth().Gap(12).Children(func() {
-					libraryRows(c, m, shown)
-					if m.Live && m.LibraryMore {
-						ui.Row(c.Key("more")).Justify(ui.Center).Children(func() {
-							kit.Secondary(c.Key("load"), t("model_library_more")).OnClick(func() {
-								if m.ModelActions != nil && m.ModelActions.LibraryMore != nil && !load.Loading {
-									m.ModelActions.LibraryMore()
-								}
-							})
-						})
-					}
-					if load.Loading {
-						// A later search keeps the rows under a spinner.
-						ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 20) })
-					}
-				})
-			})
-		}).Width(min(640, width(c)-48)).Label(title)
 	}
-	libraryDialogs(c, m)
+	e.open = true
 }
 
-// libraryRows are the models found.
+// searchLibrary searches the hub for the query as typed.
+func (m *Model) searchLibrary(query string) {
+	e := &m.library
+	e.searched = strings.TrimSpace(query)
+	e.serial++
+	if !m.Live {
+		m.LibraryLoad.Start()
+	}
+}
+
+// libraryBar is a model page's Installed and Available tabs; Available
+// adds the hub and the query, which filters the recommended models at once
+// and searches the hub once it rests or on Enter.
+func libraryBar(c *ui.Context, m *Model, kind, title string, tab *int, query *string) {
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	e := &m.library
+	if *tab == 1 {
+		m.showLibrary(kind, *query)
+		if *query != e.query {
+			e.query, e.typed = *query, c.Now()
+		}
+		if q := strings.TrimSpace(*query); q != e.searched {
+			if wait := searchDelay - c.Now().Sub(e.typed); wait > 0 {
+				c.After(wait)
+			} else {
+				m.searchLibrary(q)
+			}
+		}
+	}
+	ui.Row(c).Gap(12).Wrap().Children(func() {
+		kit.Segmented(c, "tabs", tab, []string{t("knowledge_installed"), t("local_models_available")}, kit.SegmentedProps{}).Label(title)
+		if *tab != 1 {
+			return
+		}
+		if pick(c, "hub", t("model_library_source"), &e.hub, labels(c, libraryHubs), false).Width(160).Changed() && !m.Live {
+			m.LibraryLoad.Start()
+		}
+		ui.SearchField(c.Key("search"), query).Label(t("model_library_query")).Placeholder(t("model_library_query")).Width(260).
+			OnSubmit(func() { m.searchLibrary(*query) })
+	})
+}
+
+// recommendedModels is the page's recommended models the query matches,
+// under their heading; none hides it.
+func recommendedModels(c *ui.Context, count int, rows func()) {
+	if count == 0 {
+		return
+	}
+	kit.Group(c, "recommended", i18n.T(c, "local_models_recommended"), "", nil, func() { kit.Card(c, rows) })
+}
+
+// hubModels are the hub's models of the library's kind under their heading,
+// but for those the page recommends (repos): placeholder rows before the
+// first page, a spinner over the rows during a later search, and the next
+// page as the page nears its end.
+func hubModels(c *ui.Context, m *Model, repos map[string]bool) {
+	e := &m.library
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	load := &m.LibraryLoad
+	// A live library's pages come from the host's hub search, which
+	// follows LibraryRequest and sets the load; the preview plays its own
+	// on the frame clock.
+	if !m.Live {
+		if !load.Loaded && !load.Loading {
+			load.Start() // the first page, as the tab shows
+		}
+		if load.Advance(c.Now()) {
+			c.After(preview.Tick)
+		}
+	}
+	q := strings.ToLower(e.searched)
+	var shown []*preview.LibraryModel
+	for i := range m.Library {
+		x := &m.Library[i]
+		if repos[x.Repo] {
+			continue
+		}
+		// A live library holds what the hub found for the request.
+		if m.Live || x.Kind == e.kind && x.Source == libraryHubs[e.hub] && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
+			shown = append(shown, x)
+		}
+	}
+	kit.Group(c, "hub", t("model_library_available"), "", nil, func() {
+		if load.Loading && !load.Loaded {
+			librarySkeleton(c)
+			return
+		}
+		if len(shown) == 0 {
+			props := kit.ResultProps{Icon: icons.Search, Title: t("model_library_no_results"), Card: true}
+			if m.Live && m.LibraryFailed {
+				// The failure was the toast; the search runs again from here.
+				props.Extra = func() {
+					kit.Secondary(c.Key("retry"), t("settings_retry")).OnClick(func() { m.searchLibrary(e.searched) })
+				}
+			}
+			kit.Result(c, props)
+			return
+		}
+		ui.Column(c.Key("found")).FillWidth().Gap(12).Children(func() {
+			libraryRows(c, m, shown)
+			if load.Loading && m.Live && m.LibraryMore {
+				// The next page loads under the rows.
+				ui.Row(c.Key("more")).Justify(ui.Center).PaddingY(4).Busy(true).Children(func() { kit.Loader(c, 16) })
+			} else if load.Loading {
+				// A later search keeps the rows under a spinner.
+				ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 20) })
+			}
+		})
+		moreLibrary(c, m, len(shown))
+	})
+}
+
+// moreLibrary reads the hub's next page once the page is scrolled near its
+// end, or does not fill its height, as the frame laid it out with the rows
+// shown: a page whose rows just arrived waits for the next layout.
+func moreLibrary(c *ui.Context, m *Model, rows int) {
+	e := &m.library
+	if rows != e.rows {
+		e.rows = rows
+		c.After(time.Millisecond)
+		return
+	}
+	s := &m.pageScroll
+	if !m.Live || !m.LibraryMore || m.LibraryLoad.Loading || s.MaxY-s.Y > moreDistance {
+		return
+	}
+	if m.ModelActions != nil && m.ModelActions.LibraryMore != nil {
+		m.ModelActions.LibraryMore()
+	}
+}
+
+// libraryRows are the hub's models, with the recommended rows' details
+// entry.
 func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 	e := &m.library
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
@@ -130,7 +216,8 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 	kit.Card(c, func() {
 		for _, x := range shown {
 			kit.Entry(c, x.ID, func() {
-				detail := x.Repo + " · " + t(x.Kind)
+				// The page names the kind.
+				detail := x.Repo
 				if x.Size != "" { // a hub's result has no size until it is resolved
 					detail += " · " + x.Size
 				}
@@ -146,7 +233,7 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 					kit.Badge(c, t("knowledge_installed"), kit.Positive)
 				}
 			}, func() {
-				kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() {
+				kit.Action(c.Key("info"), icons.Settings2, t("knowledge_model_details"), false).OnClick(func() {
 					e.info, e.prefixed = x.ID, ""
 					if m.Live && m.ModelActions != nil {
 						m.ModelActions.LibraryDetails(x.ID)

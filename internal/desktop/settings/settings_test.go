@@ -2274,28 +2274,48 @@ func TestExtensions(t *testing.T) {
 			},
 			LibraryDetails: func(id string) { calls = append(calls, "details "+id) },
 			LibraryVersion: func(id string, version int) { calls = append(calls, fmt.Sprint("version ", id, " ", version)) },
-			LibraryMore:    func() { calls = append(calls, "more") },
+			LibraryMore:    func() { calls = append(calls, "more"); m.LibraryMore = false },
 			Update:         func(kind, id string) { calls = append(calls, "update "+kind+" "+id) },
 			Delete:         func(kind, id string) { calls = append(calls, "delete "+kind+" "+id) },
 			Cancel:         func(kind, id string) { calls = append(calls, "cancel "+kind+" "+id) },
 		}
 		tt := ui.NewTesterWith(func(c *ui.Context) {
+			m.library.open = false
 			dictation(c, m)
-			libraryDialog(c, m)
+			libraryDialogs(c, m)
 		}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tt.SetLocale("en")
 		tt.Frame()
-		clickButton(t, tt, en("model_library_manage"))
+		m.SpeechTab = 1
+		tt.Frame()
 		if !m.library.open || m.library.kind != ModelsSpeech {
-			t.Fatalf("Manage models opened %+v", m.library)
+			t.Fatalf("Available opened %+v", m.library)
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("model_library_manage")); ok {
+			t.Error("the page still offers Manage models")
 		}
 		m.Library = []preview.LibraryModel{{ID: "hub/a", Name: "Embedder", Repo: "org/a", Kind: ModelsEmbedding, Source: "model_library_huggingface",
 			Size: "1.0 MiB", License: "mit", Versions: []string{"main", "v1"}, Resolved: true, QueryPrefix: "query: "}}
 		m.LibraryLoad, m.LibraryMore = preview.Fetch{Loaded: true}, true
+		// The rows arrive, the page lays them out, and the page not
+		// filling its height reads the next page once.
+		for range 3 {
+			tt.Frame()
+			tt.Advance(time.Second)
+		}
+		m.LibraryMore = false
 		tt.Frame()
-		tt.Advance(time.Second)
-		clickButton(t, tt, en("model_library_more"))
-		clickButton(t, tt, en("knowledge_model_details"))
+		if !tt.HasText(en("model_library_available")) || !tt.HasText("Embedder") {
+			t.Fatalf("Available shows no hub models: %q", tt.Texts())
+		}
+		var details ui.AccessInfo
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == en("knowledge_model_details") && x.Bounds.Y > details.Bounds.Y {
+				details = x // the hub's row is last
+			}
+		}
+		tt.ClickAt(details.Bounds.X+details.Bounds.W/2, details.Bounds.Y+details.Bounds.H/2)
+		tt.Frame()
 		tt.Advance(time.Second)
 		for _, name := range []string{"model_library_query_prefix", "model_library_document_prefix"} {
 			if _, ok := tt.AccessByRole(ui.RoleTextField, en(name)); !ok {

@@ -876,10 +876,10 @@ live_revoke: Удалить пары
 live_revoke_confirm: Отключить “%{name}” и удалить пары? Повторное подключение потребует повторной пары
 local_models_available: Доступные
 local_models_empty: Нет установленных моделей
+local_models_recommended: Рекомендуемые
 local_models_status: Статус
 message_display_compact: Компактно
 message_display_detailed: Подробная информация
-model_library_manage: Управление моделями
 model_library_select: Выбрать
 model_library_selected: Выбрано
 model_library_source: Источник
@@ -1359,8 +1359,8 @@ market_installed: Установлено
 model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Поиск моделей
-model_library_search: Поиск
-model_library_empty: Найдите модели
+model_library_no_results: Модели не найдены
+model_library_available: Доступные модели
 knowledge_delete: Удалить
 knowledge_model_size: Размер
 knowledge_delete_model_effect: Удалить %{name}; связанные коллекции перейдут на поиск по ключевым словам
@@ -2008,7 +2008,6 @@ model_library_failed: Не удалось загрузить модели
 model_library_partial: Некоторые результаты недоступны
 model_library_conflict: Файлы этой версии изменились
 model_library_version: Версия
-model_library_more: Загрузить ещё
 model_library_query_prefix: Префикс запроса
 model_library_document_prefix: Префикс документа
 knowledge_up_to_date: Уже обновлено

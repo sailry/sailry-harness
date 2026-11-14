@@ -31,7 +31,7 @@ var localModelKinds = map[string]protocol.ModelsKind{
 // settings saved, the choices a save has not confirmed (drafts), the
 // registry's models and what the Node can run. shown, visible and library
 // are the local runtime's: the Node the pages hold, whether one of them
-// showed last frame, and the model library dialog.
+// showed last frame, and the Available tab's hub search.
 type localModelState struct {
 	settings     protocol.ModelsLocalSettings
 	drafts       map[protocol.ModelsKind]protocol.ModelsLocalChoice

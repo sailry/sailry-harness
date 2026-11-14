@@ -65,8 +65,8 @@ var CollectionMessages = Messages{Failed: "runtime_failed", Conflict: "runtime_c
 // LocalModelMessages are the toasts of a local-model settings save.
 var LocalModelMessages = Messages{Done: "knowledge_saved", Failed: "runtime_failed", Conflict: "runtime_conflict", Uncertain: "runtime_unknown"}
 
-// LibraryRequest is what the model library dialog asks for: the kind it
-// was opened for, the hub (0 Hugging Face, 1 ModelScope) and the query as
+// LibraryRequest is what a model page's Available tab asks of the hub:
+// whether it shows, the page's kind, the hub (0 Hugging Face, 1 ModelScope) and the query as
 // searched. Serial counts the searches the user ran, so that the same
 // query searches again.
 type LibraryRequest struct {
@@ -77,31 +77,16 @@ type LibraryRequest struct {
 	Serial uint64
 }
 
-// LibraryRequest reports the library dialog's request.
+// LibraryRequest reports the Available tab's request.
 func (m *Model) LibraryRequest() LibraryRequest {
 	e := &m.library
 	return LibraryRequest{Open: e.open, Kind: e.kind, Hub: e.hub, Query: strings.TrimSpace(e.searched), Serial: e.serial}
 }
 
-// CloseModelDialogs closes the library and the models' details, as when
-// the page turns to another host.
+// CloseModelDialogs drops the library's search and closes the models'
+// details, as when the page turns to another host.
 func (m *Model) CloseModelDialogs() {
 	m.library, m.info, m.dropping = library{}, nil, nil
-}
-
-// openLibrary opens the library for a page's kind. A live library starts
-// empty on the kind's hub (ModelScope for OCR) with its first page on the
-// way; the preview's keeps its query.
-func (m *Model) openLibrary(kind string) {
-	if m.Live {
-		m.library = library{}
-		if kind == ModelsOCR {
-			m.library.hub = 1
-		}
-		m.Library, m.LibraryLoad = nil, preview.Fetch{Loading: true}
-		m.LibraryMore, m.LibraryFailed = false, false
-	}
-	m.library.open, m.library.kind = true, kind
 }
 
 // modelAction runs a live action; in the preview it is preview_notice.

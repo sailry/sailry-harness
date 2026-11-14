@@ -876,10 +876,10 @@ live_revoke: 移除配對
 live_revoke_confirm: 確認斷開“%{name}”並取消配對？再次連線需重新配對
 local_models_available: 可安裝
 local_models_empty: 尚無已安裝模型
+local_models_recommended: 推薦
 local_models_status: 狀態
 message_display_compact: 簡潔
 message_display_detailed: 詳細
-model_library_manage: 管理模型
 model_library_select: 選擇
 model_library_selected: 已選擇
 model_library_source: 來源
@@ -1359,8 +1359,8 @@ market_installed: 已安裝
 model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
 model_library_query: 搜尋模型
-model_library_search: 搜尋
-model_library_empty: 搜尋模型
+model_library_no_results: 找不到模型
+model_library_available: 可用模型
 knowledge_delete: 刪除
 knowledge_model_size: 大小
 knowledge_delete_model_effect: 刪除 %{name}；使用此模型的集合將改用關鍵字搜尋
@@ -2008,7 +2008,6 @@ model_library_failed: 無法載入模型
 model_library_partial: 部分結果無法取得
 model_library_conflict: 此版本的檔案已變更
 model_library_version: 版本
-model_library_more: 載入更多
 model_library_query_prefix: 查詢前綴
 model_library_document_prefix: 文件前綴
 knowledge_up_to_date: 已是最新

@@ -677,23 +677,24 @@ func clickLibraryRow(w *terminalUI, repository, name string) {
 	w.clickOn(button)
 }
 
-// searchLibrary opens the page's model library, which lists the hub's
+// searchLibrary shows the page's Available tab, which lists the hub's
 // models of the page's kind, and searches the hub for query.
 func searchLibrary(w *terminalUI, hub *modelsUIHub, query string) {
 	w.t.Helper()
-	press(w, "Manage models")
-	settle(w, "the model library dialog", modelsUIWait, func() bool {
+	press(w, "Available")
+	settle(w, "the Available tab's hub models", modelsUIWait, func() bool {
 		return w.runtime.App.Settings.LibraryRequest().Open && w.runtime.App.Settings.LibraryLoad.Loaded
 	})
 	w.replace("Search models", query)
-	press(w, "Search")
+	w.tester.Key(0, ui.KeyEnter)
+	w.frame()
 	settle(w, fmt.Sprintf("the hub search for %q", query), modelsUIWait, func() bool {
 		return len(hub.seen("search:"+query)) > 0 && w.runtime.App.Settings.LibraryLoad.Loaded
 	})
 }
 
 // TestModelSettingsUI is the acceptance of Settings › Knowledge, OCR and
-// Decisions and of the model library dialog, against a real Node that runs
+// Decisions and of their Available tabs' hub search, against a real Node that runs
 // the real ONNX Runtime and llama.cpp engines.
 func TestModelSettingsUI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 900*time.Second)
@@ -935,7 +936,7 @@ func TestModelSettingsUI(t *testing.T) {
 		modelsUIJuliaRepository, downloading.Percent, decision.ID, installedRow.Size)
 
 	// (5) Decisions: the switch and the picker save.
-	press(window, "Close")
+	press(window, "Installed")
 	settle(window, "the library closes", modelsUIWait, func() bool { return !app.Settings.LibraryRequest().Open })
 	var decisionName string
 	settle(window, "the installed decision row", modelsUIWait, func() bool {

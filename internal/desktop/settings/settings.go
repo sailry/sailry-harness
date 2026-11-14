@@ -145,6 +145,13 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	} else {
 		desc = i18n.T(c, desc)
 	}
+	// Each section's page starts at its top; the model pages' Available
+	// tab loads the hub's next page as it nears the end (moreLibrary).
+	if s.scrolled != s.Section {
+		s.scrolled, s.pageScroll = s.Section, ui.ScrollState{}
+	}
+	// The library is open while a page's Available tab shows this frame.
+	s.library.open = false
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
 		switch s.Section {
 		case General:
@@ -196,6 +203,6 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			// The AI pages still to come (phase 5b).
 			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
 		}
-		libraryDialog(c, s.Model)
-	})
+		libraryDialogs(c, s.Model)
+	}).TrackScroll(&s.pageScroll)
 }

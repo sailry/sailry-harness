@@ -67,27 +67,34 @@ func TestSettingsSkeletons(t *testing.T) {
 	a.Navigate(SettingsPage)
 	a.Settings.Open(settings.Knowledge)
 	tt.Frame()
-	click(t, tt, i18n.In("en", "model_library_manage"))
-	tt.Advance(300 * time.Millisecond) // the dialog opens
+	a.Settings.Knowledge.Tab = 1 // Available
 	tt.Frame()
-	if !a.Settings.LibraryLoad.Loading || !busy(tt) || tt.HasText("Whisper Small") {
+	tt.Frame()
+	if !a.Settings.LibraryLoad.Loading || !busy(tt) || tt.HasText("BGE Small Chinese") {
 		t.Fatalf("no library skeleton: %q", tt.Texts())
 	}
 	snapshot(t, tt, "library-loading")
 	tt.Advance(time.Second)
 	tt.Frame()
-	if busy(tt) || !tt.HasText("Whisper Small") {
+	if busy(tt) || !tt.HasText("BGE Small Chinese") {
 		t.Fatalf("library not loaded: %q", tt.Texts())
 	}
 	// A later search keeps the rows under the spinner.
-	click(t, tt, i18n.In("en", "model_library_search"))
-	if !busy(tt) || !tt.HasText("Whisper Small") {
+	field, ok := tt.Access(i18n.In("en", "model_library_query"))
+	if !ok {
+		t.Fatalf("no model search: %q", tt.Texts())
+	}
+	tt.ClickAt(field.Bounds.X+field.Bounds.W/2, field.Bounds.Y+field.Bounds.H/2)
+	tt.Type("bge")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !busy(tt) || !tt.HasText("BGE Small Chinese") {
 		t.Fatalf("search hid the rows: %q", tt.Texts())
 	}
 	tt.Advance(time.Second)
 	tt.Frame()
-	if busy(tt) {
-		t.Error("the search kept loading")
+	if busy(tt) || tt.HasText("Granite Multilingual") {
+		t.Errorf("the search kept loading or did not filter: %q", tt.Texts())
 	}
 }
 

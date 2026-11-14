@@ -42,32 +42,24 @@ func dictation(c *ui.Context, m *Model) {
 			})
 		})
 	})
-	// The speech models in the page's Installed and Available tabs, as
-	// the Decision and Knowledge pages show theirs, with the same Manage
-	// models entry to the library for adding and removing others.
+	// The speech models in the page's Installed and Available tabs, as the
+	// other model pages show theirs: Available is the recommended models
+	// and the hub's.
 	kit.Group(c, "models", "", "", nil, func() {
-		ui.Row(c).Gap(12).Wrap().Children(func() {
-			kit.Segmented(c, "tabs", &m.SpeechTab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
-				Label(i18n.T(c, "dictation_local_model"))
-			if m.SpeechTab == 1 {
-				ui.SearchField(c.Key("search"), &m.SpeechQuery).Placeholder(i18n.T(c, "search")).Width(220)
-			}
-			ui.Spacer(c)
-			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.openLibrary(ModelsSpeech) })
-		})
+		libraryBar(c, m, ModelsSpeech, i18n.T(c, "dictation_local_model"), &m.SpeechTab, &m.SpeechQuery)
 		q := strings.ToLower(strings.TrimSpace(m.SpeechQuery))
 		var shown []int
+		repos := map[string]bool{}
 		for i, x := range m.Speech {
 			installed := x.Status == preview.ModelInstalled
+			if !installed {
+				repos[x.Repo] = true
+			}
 			if m.SpeechTab == 0 && installed || m.SpeechTab == 1 && !installed && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
 				shown = append(shown, i)
 			}
 		}
-		if len(shown) == 0 {
-			kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "local_models_empty"), Card: true})
-			return
-		}
-		kit.Card(c, func() {
+		rows := func() {
 			for _, i := range shown {
 				x := &m.Speech[i]
 				name := x.Name
@@ -76,7 +68,17 @@ func dictation(c *ui.Context, m *Model) {
 				}
 				modelRow(c, m, ModelsSpeech, x, name, i == m.SpeechModel, false, func() { m.SpeechModel = i }, func() { m.info = &modelInfo{name, ModelsSpeech, *x} })
 			}
-		})
+		}
+		if m.SpeechTab == 1 {
+			recommendedModels(c, len(shown), rows)
+			hubModels(c, m, repos)
+			return
+		}
+		if len(shown) == 0 {
+			kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "local_models_empty"), Card: true})
+			return
+		}
+		kit.Card(c, rows)
 	})
 	m.followModel(m.Speech)
 	modelDetails(c, m)
@@ -134,34 +136,36 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 		})
 	})
 	ui.Column(c.Key("library")).Gap(16).Children(func() {
-		ui.Row(c).Gap(12).Wrap().Children(func() {
-			kit.Segmented(c, "tabs", &lm.Tab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
-				Label(i18n.T(c, title))
-			if lm.Tab == 1 {
-				ui.SearchField(c.Key("search"), &lm.Query).Placeholder(i18n.T(c, "search")).Width(220)
-			}
-			ui.Spacer(c)
-			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.openLibrary(lm.Kind) })
-		})
-		list := installed
+		libraryBar(c, m, lm.Kind, i18n.T(c, title), &lm.Tab, &lm.Query)
 		if lm.Tab == 1 {
-			list = nil
+			// Available: the recommended models the query matches, then
+			// the hub's others.
+			var list []preview.LocalModel
+			repos := map[string]bool{}
 			q := strings.ToLower(strings.TrimSpace(lm.Query))
 			for _, x := range lm.Catalog {
+				repos[x.Repo] = true
 				if q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q) {
 					list = append(list, x)
 				}
 			}
+			recommendedModels(c, len(list), func() {
+				for i := range list {
+					x := list[i]
+					modelRow(c, m, lm.Kind, &x, x.Name, false, locked, func() {}, func() { m.info = &modelInfo{x.Name, lm.Kind, x} })
+				}
+			})
+			hubModels(c, m, repos)
+			return
 		}
-		if len(list) == 0 {
+		if len(installed) == 0 {
 			kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "local_models_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {
-			for i := range list {
-				x := list[i]
-				selected := lm.Tab == 0 && i == lm.Model
-				modelRow(c, m, lm.Kind, &x, x.Name, selected, locked, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, lm.Kind, x} })
+			for i := range installed {
+				x := installed[i]
+				modelRow(c, m, lm.Kind, &x, x.Name, i == lm.Model, locked, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, lm.Kind, x} })
 			}
 		})
 	})
