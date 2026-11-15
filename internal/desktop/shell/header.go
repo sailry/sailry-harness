@@ -191,7 +191,7 @@ func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size 
 	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), size, a.Messages.SearchOpenIn(cv.ID)).
 		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
 	entry := a.overviewEntry(cv.ID)
-	composer.OverviewButton(c, &entry.state, a.conversationOverview(c, cv, entry.act), &a.OverviewHidden, size)
+	composer.OverviewButton(c, &entry.state, a.conversationOverview(c, cv, entry.act), size)
 }
 
 // overviewPopover is a conversation's session overview popover, kept while

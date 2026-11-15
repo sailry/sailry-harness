@@ -11,11 +11,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// overviewDockMin is the least width of a conversation shown alone that
-// holds its overview as a column: the column, and the transcript's content
-// with 24 on each side. Narrower, or in a pane of a split, the overview is
-// the header button's popover.
-const overviewDockMin = composer.OverviewWidth + theme.ContentWidth + 2*24
+// overviewDockMin is the least width of a conversation shown alone whose
+// margin beside the centered transcript holds the floating overview card
+// clear of the transcript's content. Narrower, or in a pane of a split, the
+// overview is the header button's popover.
+const overviewDockMin = theme.ContentWidth + 2*(composer.OverviewWidth+2*overviewCardInset+8)
+
+// overviewCardInset is the floating card's distance from the pane's top and
+// end; overviewCardMax its greatest height, past which it scrolls within.
+const (
+	overviewCardInset = 12
+	overviewCardMax   = 520
+)
 
 // conversationOverview is cv's overview with what its transcript tells:
 // the current turn's status and the tool call under way, and the files its

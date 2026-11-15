@@ -25,7 +25,7 @@ import (
 type Prefs struct {
 	NavWidth float32 `json:"navWidth"`
 	NavOpen  bool    `json:"navOpen"`
-	// OverviewHidden hides the overview column beside a wide conversation.
+	// OverviewHidden folds the overview card beside a wide conversation.
 	OverviewHidden bool        `json:"overviewHidden,omitempty"`
 	PanelWidth     float32     `json:"panelWidth"`
 	PanelOpen      bool        `json:"panelOpen"`

@@ -97,8 +97,8 @@ type App struct {
 	// pages that have one (HasNavigation); a page without one hides the
 	// column and leaves the choice as it is.
 	NavOpen bool
-	// OverviewHidden is the saved choice to hide a wide conversation's
-	// overview column.
+	// OverviewHidden is the saved choice to fold a wide conversation's
+	// overview card to its head.
 	OverviewHidden bool
 	NavWidth       float32
 	// PluginNavigation is the resource navigation supplied by the mounted
@@ -747,15 +747,18 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	// A conversation shown alone and wide enough has its overview beside
-	// them, as a column the header's button shows and hides; the width is
-	// the row's in the last frame.
+	// A conversation shown alone whose margin beside the transcript holds
+	// its overview has it as a card floating at the margin's top, over the
+	// pane and taking no width from the transcript; narrower, in a split or
+	// with nothing to list, the overview is the header button's popover.
+	// The width is the row's in the last frame.
 	entry := a.overviewEntry(cv.ID)
 	entry.act = act
-	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
-	entry.state.Docked = a.panes.Displayed() == nil && row.Bounds().W >= overviewDockMin
-	column := entry.state.Docked && !a.OverviewHidden
 	overview := a.conversationOverview(c, cv, act)
+	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+	bounds := row.Bounds()
+	entry.state.Docked = a.panes.Displayed() == nil && bounds.W >= overviewDockMin && composer.OverviewCardShown(overview)
+	docked := entry.state.Docked
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
@@ -763,11 +766,13 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 			})
 			conversation.Navigation(c, a.Messages)
 		})
-		if column {
-			composer.OverviewColumn(c, &entry.state, overview)
+		if docked {
+			ui.Box(c.Key("overview-float")).Absolute().Top(overviewCardInset).Right(overviewCardInset + 8).Children(func() {
+				composer.OverviewCard(c, &entry.state, overview, &a.OverviewHidden, min(bounds.H-2*overviewCardInset, overviewCardMax))
+			})
 		}
 	})
-	if !column {
+	if !docked {
 		composer.OverviewClosed(&entry.state, overview)
 	}
 }

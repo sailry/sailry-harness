@@ -2190,6 +2190,8 @@ chat_assets_title
 chat_assets_activity
 chat_assets_changes
 chat_assets_waiting
+chat_assets_fold
+chat_assets_unfold
 chat_assets_progress
 chat_assets_output
 chat_assets_sources

@@ -2178,6 +2178,8 @@ chat_assets_title: Активность
 chat_assets_activity: Субагенты
 chat_assets_changes: Изменения
 chat_assets_waiting: Здесь появятся прогресс, изменения и источники, когда агент начнёт работу
+chat_assets_fold: Свернуть
+chat_assets_unfold: Развернуть
 chat_assets_progress: Прогресс
 chat_assets_output: Результаты
 chat_assets_sources: Источники

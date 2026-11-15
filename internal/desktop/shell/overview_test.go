@@ -10,8 +10,9 @@ import (
 )
 
 // A conversation shown alone with room beside its transcript has its
-// overview as a column, which the header's button hides and shows again as
-// the saved choice; narrower, the button opens the popover.
+// overview as a floating card, no taller than what it holds, whose head
+// folds and unfolds it as the saved choice; the header has no button then.
+// Narrower, the header's button opens the popover.
 func TestOverviewDocksWhereItFits(t *testing.T) {
 	title := i18n.In("en", "chat_assets_title")
 	settle := func(tt *ui.Tester) {
@@ -21,60 +22,68 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 		}
 		tt.Frame()
 	}
-	button := func(t *testing.T, tt *ui.Tester) ui.AccessInfo {
-		t.Helper()
+	button := func(tt *ui.Tester) (ui.AccessInfo, bool) {
 		for _, e := range tt.AccessAll() {
 			if e.Role == ui.RoleButton && e.Name == title && e.Bounds.Y < HeaderHeight {
-				return e
+				return e, true
 			}
 		}
-		t.Fatalf("no overview button: %q", tt.Texts())
-		return ui.AccessInfo{}
+		return ui.AccessInfo{}, false
 	}
-	press := func(t *testing.T, tt *ui.Tester) {
-		b := button(t, tt).Bounds
-		tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+	click := func(tt *ui.Tester, e ui.AccessInfo) {
+		tt.ClickAt(e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2)
 		settle(tt)
 	}
-	docked := func(tt *ui.Tester) bool {
-		_, ok := tt.AccessByRole(ui.RoleComplementary, title)
-		return ok
-	}
+	card := func(tt *ui.Tester) (ui.AccessInfo, bool) { return tt.AccessByRole(ui.RoleComplementary, title) }
 
 	a := New(preview.Load())
-	tt := ui.NewTesterWith(a.View, 1760, 900, opaque)
+	tt := ui.NewTesterWith(a.View, 2100, 900, opaque)
 	tt.SetLocale("en")
 	settle(tt)
 	snapshot(t, tt, "overview-docked")
-	if !docked(tt) || !tt.HasText(i18n.In("en", "chat_assets_changes")) || !button(t, tt).Expanded {
-		t.Fatalf("a wide conversation has no overview column: %q", tt.Texts())
+	shown, ok := card(tt)
+	if !ok || !tt.HasText(i18n.In("en", "chat_assets_changes")) {
+		t.Fatalf("a wide conversation has no overview card: %q", tt.Texts())
 	}
-	// Sections without rows do not show.
+	if _, ok := button(tt); ok {
+		t.Error("the header keeps the overview button beside the card")
+	}
+	if shown.Bounds.H > overviewCardMax+8 {
+		t.Errorf("the card %v is taller than %v: a column, not a card", shown.Bounds, overviewCardMax)
+	}
 	if tt.HasText(i18n.In("en", "chat_assets_waiting")) {
 		t.Errorf("an overview with rows says it waits: %q", tt.Texts())
 	}
-	press(t, tt)
-	if docked(tt) || !a.OverviewHidden || !a.prefs().OverviewHidden {
-		t.Fatalf("the button left the column: docked %v, hidden %v", docked(tt), a.OverviewHidden)
+	head, ok := tt.Access(i18n.In("en", "chat_assets_fold"))
+	if !ok {
+		t.Fatalf("the card has no fold: %q", tt.Texts())
 	}
-	if _, open := tt.AccessByRole(ui.RoleDialog, title); open {
-		t.Error("hiding the column opened the popover")
+	click(tt, head)
+	folded, _ := card(tt)
+	if !a.OverviewHidden || !a.prefs().OverviewHidden || tt.HasText(i18n.In("en", "chat_assets_changes")) || folded.Bounds.H >= shown.Bounds.H {
+		t.Fatalf("the head did not fold the card: hidden %v, %v from %v", a.OverviewHidden, folded.Bounds, shown.Bounds)
 	}
-	press(t, tt)
-	if !docked(tt) || a.OverviewHidden {
-		t.Fatal("the button did not show the column again")
+	snapshot(t, tt, "overview-folded")
+	head, _ = tt.Access(i18n.In("en", "chat_assets_unfold"))
+	click(tt, head)
+	if a.OverviewHidden || !tt.HasText(i18n.In("en", "chat_assets_changes")) {
+		t.Fatal("the head did not unfold the card")
 	}
 
 	b := New(preview.Load())
 	narrow := ui.NewTesterWith(b.View, 1280, 820, opaque)
 	narrow.SetLocale("en")
 	settle(narrow)
-	if docked(narrow) {
+	if _, ok := card(narrow); ok {
 		t.Fatal("a narrow conversation docks its overview")
 	}
-	press(t, narrow)
+	open, ok := button(narrow)
+	if !ok {
+		t.Fatalf("no overview button: %q", narrow.Texts())
+	}
+	click(narrow, open)
 	snapshot(t, narrow, "overview-popover")
-	if !narrow.HasText(i18n.In("en", "chat_assets_changes")) || docked(narrow) {
+	if _, docked := card(narrow); !narrow.HasText(i18n.In("en", "chat_assets_changes")) || docked {
 		t.Fatalf("the narrow overview did not open as a popover: %q", narrow.Texts())
 	}
 }

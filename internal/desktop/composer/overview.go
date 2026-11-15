@@ -94,8 +94,8 @@ type OverviewAsset struct {
 type OverviewState struct {
 	open, was bool
 	more      bool // the read that failed was for a further page
-	// Docked is whether the conversation showed the overview as a column
-	// in the last frame, where its button shows or hides the column.
+	// Docked is whether the conversation showed the overview as a card in
+	// the last frame, where the header has no button.
 	Docked bool
 }
 
@@ -119,27 +119,20 @@ func (s *OverviewState) sync(o *Overview) {
 // the popover, or, while the overview is a column (Docked), shows and hides
 // the column, hidden being the saved choice. While a turn runs and the
 // overview does not show, a dot on it tells.
-func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, hidden *bool, size float32) {
+func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32) {
+	// Where the conversation holds the overview as a card, the card is the
+	// control and the header has no button.
 	if !o.Session || s.Docked {
 		s.open = false
 	}
-	if !s.Docked {
-		s.sync(o)
-	}
-	title := i18n.T(c, "chat_assets_title")
-	shown := s.open || s.Docked && !*hidden
-	trigger := kit.IconButton(c.Key("overview"), icons.Tasks, title, size, shown).Disabled(!o.Session).OnClick(func() {
-		if s.Docked {
-			*hidden = !*hidden
-			return
-		}
-		s.open = !s.open
-	})
 	if s.Docked {
-		trigger.Expanded(!*hidden)
-	} else {
-		trigger.HasPopup(ui.PopupDialog)
+		return
 	}
+	s.sync(o)
+	title := i18n.T(c, "chat_assets_title")
+	shown := s.open
+	trigger := kit.IconButton(c.Key("overview"), icons.Tasks, title, size, shown).Disabled(!o.Session).
+		OnClick(func() { s.open = !s.open }).HasPopup(ui.PopupDialog)
 	if o.Active && !shown {
 		p := theme.Of(c)
 		trigger.Children(func() {
@@ -148,29 +141,97 @@ func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, hidden *bool, 
 	}
 	_, height := c.Size()
 	panel := kit.Popover(c, trigger, &s.open, func() {
-		ui.Scroll(c.Key("overview-body")).MaxHeight(max(height-128, 120)).Children(func() { s.body(c, o, true) })
+		ui.Scroll(c.Key("overview-body")).MaxHeight(max(height-128, 120)).Children(func() { s.body(c, o, true, false) })
 	})
 	if panel != (ui.Element{}) {
 		panel.AttachTo(trigger, ui.AnchorBottomEnd, ui.AnchorTopEnd).Padding(12).Width(OverviewWidth).Label(title)
 	}
 }
 
-// OverviewWidth is the overview's width, as a popover and as a column.
+// OverviewCardShown reports whether the overview has rows a card would list:
+// a status alone is the transcript's to show.
+func OverviewCardShown(o *Overview) bool { return o.Session && !o.empty() }
+
+// OverviewWidth is the overview's width, as a popover and as a card.
 const OverviewWidth = 320
 
-// OverviewColumn is the overview beside the transcript: what the popover
-// holds, in a column that scrolls, while the conversation has room for it
-// and the user has not hidden it. It tells the owner it shows as the
-// popover's opening does, so the inventory is read for it.
-func OverviewColumn(c *ui.Context, s *OverviewState, o *Overview) {
+// OverviewCard is the overview as a card floating in a wide transcript's
+// margin, as long as what it holds: its head is the
+// current turn's status, or the overview's title before a turn, and a
+// chevron that folds the card to that head (*folded, the saved choice).
+// The sections scroll within maxHeight only past it. A session with no
+// rows to list has no card (OverviewCardShown). It tells the owner it shows as the popover's opening does,
+// so the inventory is read for it.
+func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, folded *bool, maxHeight float32) {
 	if !s.was {
 		s.was = true
 		if o.Opened != nil {
 			o.Opened(true)
 		}
 	}
-	ui.Scroll(c.Key("overview-column")).Width(OverviewWidth).Shrink(0).Padding(20, 16, 20, 4).Role(ui.RoleComplementary).
-		Label(i18n.T(c, "chat_assets_title")).Children(func() { s.body(c, o, false) })
+	if !OverviewCardShown(o) {
+		return
+	}
+	p := theme.Of(c)
+	title := i18n.T(c, "chat_assets_title")
+	card := kit.Floating(c, ui.Column(c.Key("overview-card"))).Width(OverviewWidth).Shrink(0).Clip().
+		Role(ui.RoleComplementary).Label(title)
+	card.Children(func() {
+		label := i18n.T(c, "chat_assets_fold")
+		if *folded {
+			label = i18n.T(c, "chat_assets_unfold")
+		}
+		head := ui.ButtonBase(c.Key("head")).Label(label).FillWidth().MinWidth(0).Padding(12, 14).Gap(8).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Expanded(!*folded).OnClick(func() { *folded = !*folded })
+		if head.Hovered() {
+			head.Background(p.Hover)
+		}
+		head.Children(func() {
+			ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
+				switch {
+				case !o.Turn:
+					ui.Icon(c, icons.Tasks).FontSize(16).TextColor(p.MutedForeground)
+				case o.Status.Active():
+					kit.BusySized(c, 14)
+				case o.Status == conversation.Completed:
+					ui.Icon(c, icons.CircleCheck).FontSize(16).TextColor(p.Success)
+				case o.Status == conversation.Failed:
+					ui.Icon(c, icons.CircleX).FontSize(16).TextColor(p.Danger)
+				default:
+					ui.Box(c).Size(8, 8).Radius(4).Background(p.MutedForeground)
+				}
+			})
+			ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+				state := title
+				if o.Turn {
+					state = i18n.T(c, conversation.StatusKey(o.Status))
+				}
+				ui.Text(c, state).FontSize(14).FontWeight(500).SingleLine().MinWidth(0)
+				if o.Turn && o.Status.Active() && o.Doing != "" {
+					doing := o.Doing
+					if o.DoingDetail != "" {
+						doing += " · " + o.DoingDetail
+					}
+					ui.Text(c, doing).FontSize(12).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
+				}
+			})
+			if o.Turn && o.Elapsed > 0 {
+				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
+					TextColor(p.MutedForeground)
+			}
+			icon := icons.ChevronUp
+			if *folded {
+				icon = icons.ChevronDown
+			}
+			ui.Icon(c, icon).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+		})
+		if *folded {
+			return
+		}
+		ui.Divider(c.Key("divider")).Background(p.Border)
+		ui.Scroll(c.Key("overview-body")).FillWidth().MaxHeight(max(maxHeight-56, 120)).Padding(12, 6, 12, 6).
+			Children(func() { s.body(c, o, false, true) })
+	})
 }
 
 // OverviewClosed tells the owner a column no longer shows, as a popover's
@@ -187,10 +248,11 @@ func OverviewClosed(s *OverviewState, o *Overview) {
 // body is the overview: the current turn's status, then each section that
 // has rows, its count beside its name; a session with nothing yet says
 // what will show. popover closes the popover as a row opens what it names.
-func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
+func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 	p := theme.Of(c)
 	ui.Column(c.Key("overview")).FillWidth().MinWidth(0).Gap(20).Children(func() {
-		if o.Turn {
+		// The card's head is the status.
+		if o.Turn && !card {
 			s.status(c, o)
 		}
 		if o.empty() {

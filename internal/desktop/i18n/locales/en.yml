@@ -2178,6 +2178,8 @@ chat_assets_title: Activity
 chat_assets_activity: Subagents
 chat_assets_changes: Changes
 chat_assets_waiting: Progress, changes and sources show here as the agent works
+chat_assets_fold: Collapse
+chat_assets_unfold: Expand
 chat_assets_progress: Progress
 chat_assets_output: Output
 chat_assets_sources: Sources

@@ -2178,6 +2178,8 @@ chat_assets_title: 活動
 chat_assets_activity: 子智慧體
 chat_assets_changes: 變更
 chat_assets_waiting: 智慧體開始工作後，這裡會顯示進度、變更和來源
+chat_assets_fold: 收合
+chat_assets_unfold: 展開
 chat_assets_progress: 進度
 chat_assets_output: 輸出
 chat_assets_sources: 來源
