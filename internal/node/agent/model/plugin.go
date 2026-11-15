@@ -23,6 +23,7 @@ const pluginResponseBytes = 64 * 1024 * 1024
 const pluginDiscoveryBytes = 8 * 1024 * 1024
 
 type PluginCapture struct {
+	User        string
 	Declaration protocol.PluginModelAdapterDeclaration
 	Bundle      plugins.ScriptBundle
 	Memory      *plugins.MemoryTracker
@@ -122,7 +123,7 @@ func (model *pluginModel) Stream(ctx context.Context, call fantasy.Call) (fantas
 }
 
 func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModelAdapterWireRequest, yield func(fantasy.StreamPart) bool) (result error) {
-	worker, err := plugins.NewTranslation(model.capture.Memory.Context(ctx, *(**model.binding.Provider.Binding).Package, "model"), model.capture.Bundle)
+	worker, err := plugins.NewTranslation(model.capture.Memory.Context(ctx, *(**model.binding.Provider.Binding).Package, "model", model.capture.User), model.capture.Bundle)
 	if err != nil {
 		return pluginTranslationFailure(err)
 	}

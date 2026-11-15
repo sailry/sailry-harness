@@ -180,3 +180,28 @@ func TestScriptMemory(t *testing.T) {
 		}
 	})
 }
+
+func TestScriptMemoryUserIsolation(t *testing.T) {
+	t.Parallel()
+	tracker := NewMemoryTracker()
+	pkg := scriptTestEnvironment().Context.Package
+	first, err := NewTranslation(tracker.Context(t.Context(), pkg, "model", "first"), scriptTestBundle(`const held=new ArrayBuffer(262144);export function keep(){return held.byteLength}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := NewTranslation(tracker.Context(t.Context(), pkg, "model", "second"), scriptTestBundle(`const held=new ArrayBuffer(524288);export function keep(){return held.byteLength}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	for _, user := range []string{"first", "second"} {
+		snapshot := tracker.Read(user)
+		if len(snapshot.Samples) != 1 || snapshot.Samples[0].Instances != 1 {
+			t.Fatalf("user %s saw another runtime: %#v", user, snapshot)
+		}
+	}
+	if snapshot := tracker.Read("other"); len(snapshot.Samples) != 0 {
+		t.Fatalf("unrelated user saw runtime diagnostics: %#v", snapshot)
+	}
+}

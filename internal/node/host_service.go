@@ -96,7 +96,8 @@ func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request 
 		value, err := node.hostSampler.Sample(ctx, node.ID(), input.Detailed)
 		return response(protocol.Output{Kind: "host_metrics", Data: value}, err)
 	case "read_plugin_memory":
-		return response(protocol.Output{Kind: "plugin_memory", Data: node.plugins.memory.Read()}, nil)
+		value, err := node.readPluginMemory(ctx)
+		return response(protocol.Output{Kind: "plugin_memory", Data: value}, err)
 	case "read_host_install":
 		input := request.Command.Data.(*protocol.CommandReadHostInstallPayload)
 		value, err := node.hostInstalls.Read(caller, input.Request, request.Plugin)

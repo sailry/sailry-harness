@@ -63,6 +63,7 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 	}
 	captured.Bundle = plugins.ScriptBundle{Entry: captured.Declaration.Script.Entry, Files: files}
 	captured.Memory = node.plugins.memory
+	captured.User = pluginMemoryUser(ctx)
 	// A setting is the user's current choice, so the installed package's
 	// values are read now, not those of the provider's captured revision.
 	captured.Settings = plugins.SettingDefaults(info.Settings)

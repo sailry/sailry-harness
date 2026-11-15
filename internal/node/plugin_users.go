@@ -63,3 +63,43 @@ func (node *Node) pluginOwnerContext(ctx context.Context) (context.Context, erro
 	}
 	return store.WithCapturedUser(store.WithUser(node.ctx, user), storage), nil
 }
+
+func pluginMemoryUser(ctx context.Context) string {
+	user, ok := store.UserFromContext(ctx)
+	if !ok {
+		return ""
+	}
+	return user.ID.String()
+}
+
+func (node *Node) readPluginMemory(ctx context.Context) (*protocol.PluginMemorySnapshot, error) {
+	var owners []string
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		user, err := store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		owners = append(owners, user.ID.String())
+		users, err := store.ListUsers(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range users {
+			if candidate.ID == user.ID || candidate.MergedInto == nil {
+				continue
+			}
+			resolved, err := store.ResolveUser(ctx, db, candidate.ID)
+			if err != nil {
+				return err
+			}
+			if resolved.ID == user.ID {
+				owners = append(owners, candidate.ID.String())
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return node.plugins.memory.Read(owners...), nil
+}
