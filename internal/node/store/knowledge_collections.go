@@ -299,8 +299,12 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 			if err != nil {
 				return false, err
 			}
+			owner := user.ID
+			if strings.HasPrefix(stored.Capture.Space, "user:") && stored.Capture.User != nil {
+				owner = *stored.Capture.User
+			}
 			query = "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1 AND user=?2)"
-			arguments = append(arguments, user.ID.String())
+			arguments = append(arguments, owner.String())
 		}
 		if err := db.QueryRowContext(ctx, query, arguments...).Scan(&present); err != nil {
 			return false, err

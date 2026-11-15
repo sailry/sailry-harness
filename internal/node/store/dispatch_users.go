@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -47,4 +48,10 @@ func DispatchJobContext(ctx context.Context, db *sql.Conn, identity protocol.Job
 		return nil, err
 	}
 	return WithCapturedUser(WithUser(ctx, user), captured), nil
+}
+
+// A promoted job keeps its globally unique ID and captured storage user. Fresh
+// target reads see all live jobs; an old source capture sees only its own jobs.
+func dispatchJobFilter(alias string, owner, actor int) string {
+	return fmt.Sprintf("(%[1]suser=?%[2]d OR (%[1]suser=?%[3]d AND coalesce(%[1]sstorage_user,%[1]suser)=?%[2]d))", alias, owner, actor)
 }

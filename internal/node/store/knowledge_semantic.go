@@ -250,7 +250,7 @@ func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) 
 			if user.State != "active" {
 				continue
 			}
-			registered, err := RegisterKnowledgeSemantic(WithUser(ctx, user), db)
+			registered, err := RegisterKnowledgeSemantic(WithCapturedUser(WithUser(ctx, user), user.ID), db)
 			if err != nil {
 				return false, err
 			}

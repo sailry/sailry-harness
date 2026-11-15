@@ -93,7 +93,7 @@ func (node *Node) retainPackagePython(ctx context.Context) error {
 			if user.State != "active" {
 				continue
 			}
-			owned, err := store.ReadPluginInfos(store.WithUser(ctx, user), db)
+			owned, err := store.ReadPluginInfos(store.WithCapturedUser(store.WithUser(ctx, user), user.ID), db)
 			if err != nil {
 				return err
 			}

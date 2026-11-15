@@ -68,7 +68,7 @@ func (node *Node) publishMCP(pending []mcp.Change) {
 		if user.State != "active" {
 			continue
 		}
-		ctx := store.WithUser(node.ctx, user)
+		ctx := store.WithCapturedUser(store.WithUser(node.ctx, user), user.ID)
 		var changes []protocol.Event
 		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			for _, change := range pending {
@@ -112,7 +112,7 @@ func (node *Node) warmUserMCP(ctx context.Context, warmed map[protocol.UserID]ma
 			inventory = map[string]string{}
 			warmed[user.ID] = inventory
 		}
-		node.warmMCP(store.WithUser(ctx, user), inventory)
+		node.warmMCP(store.WithCapturedUser(store.WithUser(ctx, user), user.ID), inventory)
 	}
 	for user := range warmed {
 		if !active[user] {

@@ -28,7 +28,7 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		return protocol.PluginInfo{}, invalid("invalid plugin configuration revision")
 	}
 	if reference.SettingsRevision != 0 {
-		user, err := pluginCapturedUserID(ctx, db)
+		user, err := pluginUserID(ctx, db)
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}

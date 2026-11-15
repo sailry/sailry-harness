@@ -292,7 +292,18 @@ func dispatchRequired[Value any](ctx context.Context, db *sql.Conn, table, packa
 		var empty Value
 		return empty, userErr
 	}
-	value, err := readBody[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 AND "+key+"=?2 AND user=?3", packageName, identity, user)
+	query := "SELECT body FROM " + table + " WHERE package=?1 AND " + key + "=?2 AND user=?3"
+	arguments := []any{packageName, identity, user}
+	if table == "dispatch_jobs" {
+		_, actor, err := pluginUserIDs(ctx, db)
+		if err != nil {
+			var empty Value
+			return empty, err
+		}
+		query = "SELECT body FROM dispatch_jobs WHERE package=?1 AND " + key + "=?2 AND " + dispatchJobFilter("", 3, 4)
+		arguments = append(arguments, actor)
+	}
+	value, err := readBody[Value](ctx, db, query, arguments...)
 	if err != nil {
 		var empty Value
 		return empty, err
@@ -309,7 +320,17 @@ func dispatchList[Value any](ctx context.Context, db *sql.Conn, table, packageNa
 	if err != nil {
 		return nil, err
 	}
-	return readBodies[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 AND user=?2 ORDER BY rowid", packageName, user)
+	query := "SELECT body FROM " + table + " WHERE package=?1 AND user=?2 ORDER BY rowid"
+	arguments := []any{packageName, user}
+	if table == "dispatch_jobs" {
+		_, actor, err := pluginUserIDs(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		query = "SELECT body FROM dispatch_jobs WHERE package=?1 AND " + dispatchJobFilter("", 2, 3) + " ORDER BY rowid"
+		arguments = append(arguments, actor)
+	}
+	return readBodies[Value](ctx, db, query, arguments...)
 }
 
 func dispatchChanged(owners []string) protocol.Event {

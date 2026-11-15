@@ -52,6 +52,13 @@ func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeSto
 		}
 		owned = owner.ID == user.ID
 	}
+	if strings.HasPrefix(stored.Capture.Space, "user:") {
+		storage, err := CapturedUser(ctx, db)
+		if err != nil {
+			return false, err
+		}
+		return stored.Capture.Space == "user:"+storage.String(), nil
+	}
 	var allowed bool
 	if project, ok := strings.CutPrefix(stored.Capture.Space, "project:"); ok {
 		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM projects p WHERE p.id=?1 AND (p.owner=?2 OR p.visibility='shared') AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=p.id))", project, user.ID.String()).Scan(&allowed)
@@ -101,12 +108,9 @@ func knowledgeStorageContext(ctx context.Context, db *sql.Conn, stored Knowledge
 	return ctx, nil
 }
 
+// Explicit admitted storage capture remains stable across a merge. Fresh
+// public reads have no capture and follow the canonical current user.
 func pluginUserID(ctx context.Context, db *sql.Conn) (string, error) {
-	user, err := CurrentUser(ctx, db)
-	return user.ID.String(), err
-}
-
-func pluginCapturedUserID(ctx context.Context, db *sql.Conn) (string, error) {
 	user, err := CapturedUser(ctx, db)
 	return user.String(), err
 }
@@ -208,7 +212,7 @@ func PluginStorageRequestContext(ctx context.Context, db *sql.Conn, request prot
 	return pluginStorageContext(ctx, db, *request.Plugin, storage)
 }
 
-func connectorUserIDs(ctx context.Context, db *sql.Conn) (string, string, error) {
+func pluginUserIDs(ctx context.Context, db *sql.Conn) (string, string, error) {
 	captured, err := CapturedUser(ctx, db)
 	if err != nil {
 		return "", "", err
@@ -222,7 +226,7 @@ func connectorUserIDs(ctx context.Context, db *sql.Conn) (string, string, error)
 		return "", "", err
 	}
 	if owner.ID != current.ID {
-		return "", "", fault(protocol.ErrorCodePermissionDenied, "connection storage principal differs from its actor")
+		return "", "", fault(protocol.ErrorCodePermissionDenied, "plugin storage principal differs from its actor")
 	}
 	return captured.String(), current.ID.String(), nil
 }

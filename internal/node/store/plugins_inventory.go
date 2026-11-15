@@ -174,7 +174,7 @@ func stopPluginContinuations(ctx context.Context, db *sql.Conn, name string) err
 	}
 	runs, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_continuations c JOIN agent_runs a ON a.turn=c.turn
 JOIN turns t ON t.id=a.turn
-WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status')='running' AND t.user=?2`, name, user)
+WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status')='running' AND coalesce((SELECT user FROM identity_turn_origins o WHERE o.turn=t.id),t.user)=?2`, name, user)
 	if err != nil {
 		return err
 	}
@@ -269,7 +269,7 @@ func ResolvePluginInfo(ctx context.Context, db *sql.Conn, reference protocol.Plu
 }
 
 func PluginSettingsBody(ctx context.Context, db *sql.Conn, name string, revision uint64) (json.RawMessage, error) {
-	user, err := pluginCapturedUserID(ctx, db)
+	user, err := pluginUserID(ctx, db)
 	if err != nil {
 		return nil, err
 	}

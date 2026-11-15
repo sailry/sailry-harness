@@ -113,7 +113,7 @@ func ConnectorDeclaration(ctx context.Context, db *sql.Conn, reference protocol.
 }
 
 func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginConnectorID) (ConnectorRecord, error) {
-	raw, current, err := connectorUserIDs(ctx, db)
+	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return ConnectorRecord{}, err
 	}
@@ -129,7 +129,7 @@ func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginCo
 }
 
 func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorRecord) error {
-	raw, current, err := connectorUserIDs(ctx, db)
+	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorReco
 }
 
 func connectorRecords(ctx context.Context, db *sql.Conn) ([]ConnectorRecord, error) {
-	raw, current, err := connectorUserIDs(ctx, db)
+	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 		}
 	} else {
 		var exists bool
-		user, err := pluginCapturedUserID(ctx, db)
+		user, err := pluginUserID(ctx, db)
 		if err != nil {
 			return capture, err
 		}
@@ -427,7 +427,7 @@ func StartConnectorLogin(ctx context.Context, db *sql.Conn, capture ConnectorLog
 	}
 	if capture.Previous == 0 {
 		var exists bool
-		user, err := pluginCapturedUserID(ctx, db)
+		user, err := pluginUserID(ctx, db)
 		if err != nil {
 			return err
 		}
@@ -531,7 +531,7 @@ func ConnectorAuthorization(ctx context.Context, db *sql.Conn, reference protoco
 		record, err = ReadConnectorRecord(ctx, db, *selected)
 	} else {
 		var saved *ConnectorRecord
-		raw, current, userErr := connectorUserIDs(ctx, db)
+		raw, current, userErr := pluginUserIDs(ctx, db)
 		if userErr != nil {
 			return record, declaration, userErr
 		}

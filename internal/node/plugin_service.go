@@ -412,12 +412,10 @@ func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.
 	if len(contexts) != 0 {
 		ctx = contexts[0]
 	}
-	var actor protocol.User
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; actor, err = store.CurrentUser(ctx, db); return err }); err != nil {
+	user, err := node.pluginRuntimeUser(ctx)
+	if err != nil {
 		return
 	}
-	user := actor.ID
-	ctx = store.WithCapturedUser(ctx, user)
 	packagesChanged := false
 	for _, change := range changes {
 		if change.Kind == "plugin_changed" {

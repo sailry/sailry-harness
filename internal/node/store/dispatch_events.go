@@ -91,11 +91,11 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 }
 
 func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64, sessionStart bool) (protocol.DispatchJob, error) {
-	user, userErr := pluginUserID(ctx, db)
+	user, actor, userErr := pluginUserIDs(ctx, db)
 	if userErr != nil {
 		return protocol.DispatchJob{}, userErr
 	}
-	storage, storageErr := pluginCapturedUserID(ctx, db)
+	storage, storageErr := pluginUserID(ctx, db)
 	if storageErr != nil {
 		return protocol.DispatchJob{}, storageErr
 	}
@@ -112,7 +112,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	// published event is not a schedule and always runs.
 	if event.Schedule != nil {
 		var busy bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status IN ('queued','running') AND package=?1 AND json_extract(body,'$.handler')=?2 AND user=?3)", owner, handler.Name, user).Scan(&busy); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status IN ('queued','running') AND package=?1 AND json_extract(body,'$.handler')=?2 AND "+dispatchJobFilter("", 3, 4)+")", owner, handler.Name, user, actor).Scan(&busy); err != nil {
 			return protocol.DispatchJob{}, err
 		}
 		if busy {
@@ -122,7 +122,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	}
 	if job.Status == protocol.DispatchStatusQueued {
 		var pending int
-		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued' AND user=?1", user).Scan(&pending); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued' AND "+dispatchJobFilter("", 1, 2), user, actor).Scan(&pending); err != nil {
 			return protocol.DispatchJob{}, err
 		}
 		if pending >= dispatchMaxPending {
