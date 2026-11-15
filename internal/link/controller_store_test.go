@@ -157,3 +157,62 @@ func TestControllerRecordRejectsBindingAndCapacity(t *testing.T) {
 		t.Fatal("cancelled controller write was accepted")
 	}
 }
+
+func TestControllerPeerDirectionsMigrateAndPersist(t *testing.T) {
+	t.Parallel()
+	peer := protocol.NodeID{7}
+	encoded, err := json.Marshal(struct {
+		Version uint32           `json:"version"`
+		Peers   []map[string]any `json:"peers"`
+	}{Version: 1, Peers: []map[string]any{{"id": peer}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := decodeControllerRecord(encoded)
+	if err != nil || legacy.Peers[0].Direction != DirectionHost {
+		t.Fatalf("legacy controller peers were not outbound hosts: %#v, %v", legacy, err)
+	}
+	path := filepath.Join(t.TempDir(), "controller")
+	_, store, err := openControllerStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.PairPeer(t.Context(), peer, DirectionHost); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PairPeer(t.Context(), peer, DirectionController); err != nil {
+		t.Fatal(err)
+	}
+	values, err := store.Directions(t.Context())
+	if err != nil || !reflect.DeepEqual(values, []PeerTrust{{ID: peer, Direction: DirectionBoth}}) {
+		t.Fatalf("opposite pairings: %#v, %v", values, err)
+	}
+	if err := store.SetDirection(t.Context(), peer, DirectionHost); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, reopened, err := openControllerStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	values, err = reopened.Directions(t.Context())
+	if err != nil || !reflect.DeepEqual(values, []PeerTrust{{ID: peer, Direction: DirectionHost}}) {
+		t.Fatalf("persisted narrowing: %#v, %v", values, err)
+	}
+	if err := reopened.SetDirection(t.Context(), protocol.NodeID{8}, DirectionController); err == nil {
+		t.Fatal("direction change created a new pairing")
+	}
+	if err := reopened.SetDirection(t.Context(), peer, "invalid"); err == nil {
+		t.Fatal("invalid peer direction was persisted")
+	}
+	if err := reopened.SetTrust(t.Context(), peer, false); err != nil {
+		t.Fatal(err)
+	}
+	if values, err := reopened.Directions(t.Context()); err != nil || len(values) != 0 {
+		t.Fatalf("revoked directions: %#v, %v", values, err)
+	}
+}

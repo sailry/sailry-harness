@@ -114,7 +114,7 @@ func (link *Link) currentAddress(address EndpointAddress) EndpointAddress {
 }
 
 func (link *Link) connection(ctx context.Context, address EndpointAddress, execution bool) (*iroh.Connection, bool, error) {
-	if !link.isTrusted(address.ID) {
+	if !link.isTrusted(address.ID) || execution && !link.Direction(address.ID).AllowsOutbound() {
 		return nil, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not paired"}
 	}
 	slot, err := link.slot(ctx, address.ID)
@@ -132,6 +132,9 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 	defer func() { slot.dial <- struct{}{} }()
 	if err := link.registered(address.ID, slot); err != nil {
 		return nil, false, err
+	}
+	if execution && !link.Direction(address.ID).AllowsOutbound() {
+		return nil, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not an execution host"}
 	}
 	slotContext, release := link.operation(ctx, false)
 	stopSlot := context.AfterFunc(slot.ctx, release)
@@ -184,6 +187,9 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 	defer link.trustUpdate.Unlock()
 	if err := link.registered(address.ID, slot); err != nil {
 		return nil, false, err
+	}
+	if execution && !link.Direction(address.ID).AllowsOutbound() {
+		return nil, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not an execution host"}
 	}
 	current := link.currentAddress(address)
 	if !addressIncludes(target, current) || !addressIncludes(current, target) {

@@ -20,16 +20,20 @@ type PeerStore interface {
 	Addresses(context.Context) ([]EndpointAddress, error)
 	Remember(context.Context, EndpointAddress) error
 	SetTrust(context.Context, protocol.NodeID, bool) error
+	Directions(context.Context) ([]PeerTrust, error)
+	PairPeer(context.Context, protocol.NodeID, PeerDirection) error
+	SetDirection(context.Context, protocol.NodeID, PeerDirection) error
 }
 
 type controllerPeer struct {
-	ID      protocol.NodeID  `json:"id"`
-	Address *EndpointAddress `json:"address"`
+	ID        protocol.NodeID  `json:"id"`
+	Address   *EndpointAddress `json:"address"`
+	Direction PeerDirection    `json:"direction"`
 }
 
 func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {
 	type plain controllerPeer
-	var decoded plain
+	decoded := plain{Direction: DirectionHost}
 	if err := protocol.DecodeObject(encoded, &decoded, []string{"id"}, false); err != nil {
 		return err
 	}
@@ -120,7 +124,7 @@ func decodeControllerRecord(encoded []byte) (controllerRecord, error) {
 	unique := make(map[protocol.NodeID]struct{}, len(record.Peers))
 	for _, peer := range record.Peers {
 		_, duplicate := unique[peer.ID]
-		if duplicate || peer.Address != nil && peer.Address.ID != peer.ID {
+		if duplicate || !peer.Direction.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
 			return controllerRecord{}, controllerStorage(errors.New("invalid peer identity binding"))
 		}
 		unique[peer.ID] = struct{}{}
@@ -180,9 +184,53 @@ func (store *controllerStore) SetTrust(ctx context.Context, id protocol.NodeID, 
 			}
 		}
 		if trusted {
-			*peers = append(*peers, controllerPeer{ID: id})
+			*peers = append(*peers, controllerPeer{ID: id, Direction: DirectionHost})
 		}
 		return nil
+	})
+}
+
+func (store *controllerStore) Directions(ctx context.Context) ([]PeerTrust, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	values := make([]PeerTrust, 0, len(store.peers))
+	for _, peer := range store.peers {
+		values = append(values, PeerTrust{ID: peer.ID, Direction: peer.Direction})
+	}
+	return values, nil
+}
+
+func (store *controllerStore) PairPeer(ctx context.Context, id protocol.NodeID, direction PeerDirection) error {
+	if !direction.Valid() {
+		return invalidLink("invalid peer direction")
+	}
+	return store.update(ctx, func(peers *[]controllerPeer) error {
+		for index := range *peers {
+			if (*peers)[index].ID == id {
+				(*peers)[index].Direction = mergeDirection((*peers)[index].Direction, direction)
+				return nil
+			}
+		}
+		*peers = append(*peers, controllerPeer{ID: id, Direction: direction})
+		return nil
+	})
+}
+
+func (store *controllerStore) SetDirection(ctx context.Context, id protocol.NodeID, direction PeerDirection) error {
+	if !direction.Valid() {
+		return invalidLink("invalid peer direction")
+	}
+	return store.update(ctx, func(peers *[]controllerPeer) error {
+		for index := range *peers {
+			if (*peers)[index].ID == id {
+				(*peers)[index].Direction = direction
+				return nil
+			}
+		}
+		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not paired"}
 	})
 }
 

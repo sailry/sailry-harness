@@ -149,6 +149,9 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 	if err := link.acceptPairing(t.Context(), offer.token, winner, EndpointAddress{ID: winner}); err != nil {
 		t.Fatalf("certified winner could not retry its valid ticket: %v", err)
 	}
+	if link.Direction(winner) != DirectionController {
+		t.Fatal("accepting a claimant granted reverse execution access")
+	}
 	if err := link.SetTrust(t.Context(), winner, false); err != nil {
 		t.Fatal(err)
 	}

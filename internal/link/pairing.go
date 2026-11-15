@@ -252,7 +252,7 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if accepted.Fault != nil {
 		return EndpointAddress{}, accepted.Fault
 	}
-	if err := link.SetTrust(ctx, info.RemoteID, true); err != nil {
+	if err := link.pairPeer(ctx, info.RemoteID, DirectionHost); err != nil {
 		return EndpointAddress{}, err
 	}
 	if err := link.remember(ctx, ticket.Address); err != nil {
@@ -364,7 +364,7 @@ func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer pr
 	claimed := peer
 	offer.peer = &claimed
 	link.offerMu.Unlock()
-	if err := link.SetTrust(ctx, peer, true); err != nil {
+	if err := link.pairPeer(ctx, peer, DirectionController); err != nil {
 		// A claimant that gained no trust leaves the invitation to the others.
 		link.offerMu.Lock()
 		if offer.peer == &claimed && !link.isTrusted(peer) {
