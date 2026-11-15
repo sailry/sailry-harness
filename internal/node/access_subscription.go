@@ -20,7 +20,8 @@ func (node *Node) authenticate(ctx context.Context, caller protocol.NodeID) (con
 	var user protocol.User
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		if caller == node.ID() {
+		captured, _ := ctx.Value(capturedDispatchKey{}).(bool)
+		if caller == node.ID() || captured {
 			user, err = store.CurrentUser(ctx, db)
 		} else {
 			user, err = store.CallerUser(ctx, db, node.ID(), caller)

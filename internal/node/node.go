@@ -124,6 +124,7 @@ func projectEffect(kind string) bool {
 
 type commandJob struct {
 	user       protocol.User
+	scope      context.Context
 	caller     protocol.NodeID
 	request    protocol.Request
 	body       []byte
@@ -449,12 +450,12 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if err != nil {
 		return link.Admission{}, err
 	}
-	if request.Plugin != nil {
-		if request.Command.Durable() {
-			if accepted, handled, err := node.replayPluginAdmission(ctx, caller, request, encoded); handled || err != nil {
-				return accepted, err
-			}
+	if request.Command.Durable() {
+		if accepted, handled, err := node.replayAdmission(ctx, caller, request, encoded); handled || err != nil {
+			return accepted, err
 		}
+	}
+	if request.Plugin != nil {
 		if err := node.validatePluginRequest(ctx, caller, request); err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
@@ -530,7 +531,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		return link.Admission{}, nodeFault(err)
 	}
 	if !externalCommand(request.Command) {
-		result, err := node.execute(commandJob{user: userFromContext(ctx), caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
+		result, err := node.execute(commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
 		if err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
@@ -560,7 +561,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if projectEffect(request.Command.Kind) {
 		lane = &node.lanes[projectLane]
 	}
-	lane.queue = append(lane.queue, commandJob{user: userFromContext(ctx), caller: caller, request: request, admitted: true, completion: completion})
+	lane.queue = append(lane.queue, commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, admitted: true, completion: completion})
 	node.signal(lane)
 	return accepted, nil
 }
@@ -774,8 +775,10 @@ func (node *Node) run(lane *commandLane) {
 	defer close(lane.done)
 	for job, ok := node.next(lane); ok; job, ok = node.next(lane) {
 		projectEffect := projectEffect(job.request.Command.Kind)
-		ctx := store.WithUser(node.ctx, job.user)
-		_, prepareErr := node.authorizeCommand(ctx, job.caller, job.request)
+		ctx := node.commandContext(job)
+		prepareErr := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			return node.authorizeCommandDB(ctx, db, job.caller, job.request)
+		})
 		var prepared store.PreparedPaths
 		if prepareErr == nil {
 			prepared, prepareErr = node.prepare(ctx, job.request.Command)
@@ -813,8 +816,22 @@ func (node *Node) run(lane *commandLane) {
 	}
 }
 
-func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareErr error) (link.Response, error) {
+// commandContext uses the Node lifetime and only the admitted actor's values.
+func (node *Node) commandContext(job commandJob) context.Context {
 	ctx := store.WithUser(node.ctx, job.user)
+	if job.scope != nil {
+		if storage, ok := store.CapturedUserFromContext(job.scope); ok {
+			ctx = store.WithCapturedUser(ctx, storage)
+		}
+		if captured, _ := job.scope.Value(capturedDispatchKey{}).(bool); captured {
+			ctx = context.WithValue(ctx, capturedDispatchKey{}, true)
+		}
+	}
+	return ctx
+}
+
+func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareErr error) (link.Response, error) {
+	ctx := node.commandContext(job)
 	unlock := node.agent.LockDecision(job.request.Command)
 	defer unlock()
 	publication := node.agent.LockPublication()

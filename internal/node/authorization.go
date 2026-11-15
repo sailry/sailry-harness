@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -48,14 +49,26 @@ func permissionDenied() error {
 	return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource access is unavailable"}
 }
 
+type capturedDispatchKey struct{}
+
+// dispatchCaptured retains the verified actor of admitted in-process callbacks.
+// The original device remains the ledger caller after its trust is revoked.
+func (node *Node) dispatchCaptured(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	if _, ok := store.UserFromContext(ctx); !ok {
+		return link.Admission{}, permissionDenied()
+	}
+	return node.Dispatch(context.WithValue(ctx, capturedDispatchKey{}, true), caller, request)
+}
+
 func (node *Node) authorizeCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (context.Context, error) {
 	var verified context.Context
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var user protocol.User
 		var err error
-		// Only trusted in-process work can carry a principal. Authenticated peers
-		// always resolve their current membership, including after revocation.
-		if caller == node.ID() {
+		// Only the private callback entry point can retain an admitted principal.
+		// Public peers always resolve current membership, including revocation.
+		captured, _ := ctx.Value(capturedDispatchKey{}).(bool)
+		if caller == node.ID() || captured {
 			user, err = store.CurrentUser(ctx, db)
 		} else {
 			user, err = store.CallerUser(ctx, db, node.ID(), caller)
@@ -64,6 +77,13 @@ func (node *Node) authorizeCommand(ctx context.Context, caller protocol.NodeID, 
 			return err
 		}
 		verified = store.WithUser(ctx, user)
+		if request.Command.Durable() {
+			storage, err := store.CapturedUser(verified, db)
+			if err != nil {
+				return err
+			}
+			verified = store.WithCapturedUser(verified, storage)
+		}
 		return node.authorizeCommandDB(verified, db, caller, request)
 	})
 	return verified, nodeFault(err)

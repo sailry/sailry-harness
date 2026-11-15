@@ -159,6 +159,9 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			if user, ok := store.UserFromContext(ctx); ok {
 				owner = store.WithUser(owner, user)
 			}
+			if user, ok := store.CapturedUserFromContext(ctx); ok {
+				owner = store.WithCapturedUser(owner, user)
+			}
 			operation, cancel := context.WithCancel(owner)
 			defer cancel()
 			node.auth.mu.Lock()
@@ -190,6 +193,10 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 				err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 					var err error
 					changes, err = store.CompleteProviderLogin(recording, db, node.ID(), capture, grant)
+					if err == nil {
+						err = store.RefreshConfigurationAuthorization(recording, db)
+						changes = append(changes, protocol.Event{Kind: "configuration_follow_changed"})
+					}
 					if err == nil {
 						_, err = store.RecordEvents(recording, db, node.ID(), changes)
 					}
@@ -356,6 +363,9 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 	err := node.tasks.Submit(func(owner context.Context) {
 		if user, ok := store.UserFromContext(ctx); ok {
 			owner = store.WithUser(owner, user)
+		}
+		if user, ok := store.CapturedUserFromContext(ctx); ok {
+			owner = store.WithCapturedUser(owner, user)
 		}
 		err := node.runProviderRenewal(owner, provider, reference)
 		node.auth.mu.Lock()

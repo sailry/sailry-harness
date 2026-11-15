@@ -30,8 +30,13 @@ func WithCapturedUser(ctx context.Context, user protocol.UserID) context.Context
 	return context.WithValue(ctx, capturedUserKey{}, user)
 }
 
+func CapturedUserFromContext(ctx context.Context) (protocol.UserID, bool) {
+	user, ok := ctx.Value(capturedUserKey{}).(protocol.UserID)
+	return user, ok
+}
+
 func CapturedUser(ctx context.Context, db *sql.Conn) (protocol.UserID, error) {
-	if user, ok := ctx.Value(capturedUserKey{}).(protocol.UserID); ok {
+	if user, ok := CapturedUserFromContext(ctx); ok {
 		return user, nil
 	}
 	user, err := CurrentUser(ctx, db)
@@ -44,6 +49,24 @@ func OriginalTurnUser(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (
 	return readUser(ctx, db, `SELECT u.id,u.name,u.administrator,u.local,u.state,u.merged_into
 FROM turns t JOIN users u ON u.id=coalesce((SELECT user FROM identity_turn_origins WHERE turn=t.id),t.user,(SELECT id FROM users WHERE local=1))
 WHERE t.id=?1`, turn.String())
+}
+
+// retainTurnOrigin keeps captured settings addressable for derived admitted work.
+func retainTurnOrigin(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+	user, err := CapturedUser(ctx, db)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO identity_turn_origins(turn,user) VALUES(?1,?2)", turn.String(), user.String())
+	return err
+}
+
+func inheritTurnOrigin(ctx context.Context, db *sql.Conn, turn, source protocol.TurnID) error {
+	user, err := OriginalTurnUser(ctx, db, source)
+	if err != nil {
+		return err
+	}
+	return retainTurnOrigin(WithCapturedUser(ctx, user.ID), db, turn)
 }
 
 // ResolveUser follows only stored merge relationships; request bodies cannot

@@ -209,6 +209,9 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid,user) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", value.ID.String(), session.ID.String(), session.Revision, request.ID.String(), caller[:], string(kind), plugins, roles, seq, user.ID.String()); err != nil {
 		return value, err
 	}
+	if err = retainTurnOrigin(ctx, db, value.ID); err != nil {
+		return value, err
+	}
 	run := protocol.DefaultConversationRun()
 	run.Turn = value.ID
 	run.Session = value.Session

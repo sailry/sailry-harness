@@ -100,10 +100,22 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 		return eventAudience{Kind: "reset"}, nil
 	case "provider_changed", "provider_removed", "provider_quota_changed":
 		return eventAudience{Kind: "reset"}, nil
-	case "projection_invalidated":
+	case "knowledge_collections_changed", "projection_invalidated":
 		return eventAudience{Kind: "reset"}, nil
 	case "model_catalog_changed":
 		return eventAudience{Kind: "host"}, nil
+	}
+	if event.Kind == "plugin_values_changed" {
+		var payload *protocol.EventPluginValuesChangedPayload
+		switch value := event.Data.(type) {
+		case protocol.EventPluginValuesChangedPayload:
+			payload = &value
+		case *protocol.EventPluginValuesChangedPayload:
+			payload = value
+		}
+		if payload != nil && payload.Project != nil {
+			return projectAudience(ctx, db, *payload.Project)
+		}
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
@@ -192,13 +204,21 @@ func audienceVisible(ctx context.Context, db *sql.Conn, a eventAudience, user pr
 		if a.Project == nil {
 			return false, nil
 		}
-		if !a.Shared && (a.Owner == nil || *a.Owner != user.ID) {
+		owned := false
+		if a.Owner != nil {
+			owner, err := ResolveUser(ctx, db, *a.Owner)
+			if err != nil {
+				return false, err
+			}
+			owned = owner.ID == user.ID
+		}
+		if !a.Shared && !owned {
 			return false, nil
 		}
 		var allowed bool
 		err := db.QueryRowContext(ctx, "SELECT visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?2 FROM projects WHERE id=?1", a.Project.String(), user.ID.String()).Scan(&allowed)
 		if errors.Is(err, sql.ErrNoRows) {
-			return a.Owner != nil && *a.Owner == user.ID, nil
+			return owned, nil
 		}
 		return allowed, err
 	case "user":

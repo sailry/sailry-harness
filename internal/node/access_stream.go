@@ -19,7 +19,7 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 	if err != nil {
 		return nil, err
 	}
-	root, found, err := node.transfers.Scope(caller, id)
+	worktree, found, err := node.transfers.Scope(caller, id)
 	if err != nil {
 		return nil, err
 	}
@@ -29,23 +29,16 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 		if err != nil {
 			return err
 		}
-		if !found || root == "" {
+		if !found || worktree == (protocol.WorktreeID{}) {
 			return nil
 		}
 		return node.profile.Store.Node.Read(current, func(db *sql.Conn) error {
-			var text string
-			err := db.QueryRowContext(current, "SELECT id FROM worktrees WHERE path=?1", root).Scan(&text)
-			// Non-workspace package/backup streams remain device-scoped. Their own
-			// services enforce the admitted resource and exact originating device.
-			if err == sql.ErrNoRows {
-				return nil
-			}
-			if err != nil {
+			var present bool
+			if err := db.QueryRowContext(current, "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)", worktree.String()).Scan(&present); err != nil {
 				return err
 			}
-			worktree, err := protocol.ParseWorktreeID(text)
-			if err != nil {
-				return err
+			if !present {
+				return permissionDenied()
 			}
 			return store.CheckWorktreeAccess(current, db, worktree)
 		})

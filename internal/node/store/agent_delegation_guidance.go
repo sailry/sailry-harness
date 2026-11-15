@@ -111,6 +111,9 @@ func guideDelegatedTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeI
 	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,instructions,rowid,user) SELECT ?1,'task',session,revision,?2,?3,?4,?5,instructions,?6,user FROM turns WHERE id=?7", turn.ID.String(), request.ID.String(), caller[:], plugins, roles, sequence, target.Turn.String()); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if err = inheritTurnOrigin(ctx, db, turn.ID, target.Turn); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	association, err := encode(origin)
 	if err != nil {
 		return protocol.Output{}, nil, err

@@ -3,10 +3,12 @@ package node
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -86,6 +88,18 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 	if len(snapshot(other).Projects) != 1 {
 		t.Fatal("shared project absent")
 	}
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model = protocol.NewProviderID(), "fixture"
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	createdSession := send(owner, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}})
+	if createdSession.Fault != nil {
+		t.Fatal(createdSession.Fault)
+	}
+	session := createdSession.Output.Data.(protocol.Session)
+	rename := protocol.NewRequest(node.ID(), protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{Session: session.ID, ExpectedRevision: session.Revision, Title: "Shared edit"}})
+	if result := dispatchFixture(t, node, other, rename); result.Fault != nil {
+		t.Fatal(result.Fault)
+	}
 	stream, err := node.Subscribe(ctx, other, protocol.Topic{Kind: "files", Data: tree})
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +120,30 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 	}
 	if len(snapshot(other).Projects) != 0 {
 		t.Fatal("revoked project remains projected")
+	}
+	body, err := json.Marshal(rename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection := send(other, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: rename.ID, Digest: admission.Digest(body)}})
+	if inspection.Fault != nil {
+		t.Fatal(inspection.Fault)
+	}
+	outcome := inspection.Output.Data.(protocol.OutputRequestOutcomePayload).Outcome
+	resultBody, err := json.Marshal(outcome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded protocol.RequestOutcome
+	if err = json.Unmarshal(resultBody, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	denial := decoded.Data.(*protocol.Result[protocol.Output, protocol.Fault]).Err
+	if decoded.Kind != "completed" || denial == nil || denial.Code != protocol.ErrorCodePermissionDenied {
+		t.Fatalf("private result disclosed by inspection: %s", resultBody)
+	}
+	if replay := dispatchFixture(t, node, other, rename); replay.Fault == nil || replay.Fault.Code != protocol.ErrorCodePermissionDenied {
+		t.Fatalf("private result disclosed by replay: %+v", replay)
 	}
 	admin := send(other, protocol.Command{Kind: "save_power_settings", Data: protocol.PowerSettings{}})
 	if admin.Fault == nil || admin.Fault.Code != protocol.ErrorCodePermissionDenied {

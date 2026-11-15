@@ -9,7 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) replayPluginAdmission(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, bool, error) {
+func (node *Node) replayAdmission(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, bool, error) {
 	if err := node.begin(); err != nil {
 		return link.Admission{}, false, err
 	}
@@ -18,6 +18,16 @@ func (node *Node) replayPluginAdmission(ctx context.Context, caller protocol.Nod
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		previous, err = admission.Existing(ctx, db, caller, request, body)
+		if err == nil && previous != nil && previous.Fault == nil {
+			outcome := protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &previous.Output}}
+			filtered, filterErr := node.inspectOutcomeAccess(ctx, db, caller, request.ID, outcome)
+			if filterErr != nil {
+				return filterErr
+			}
+			if result, ok := filtered.Data.(protocol.Result[protocol.Output, protocol.Fault]); ok && result.Err != nil {
+				previous = &link.Response{Fault: result.Err}
+			}
+		}
 		return err
 	})
 	if err != nil || previous == nil {

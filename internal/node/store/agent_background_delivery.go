@@ -398,6 +398,23 @@ func admitBackground(ctx context.Context, db *sql.Conn, node protocol.NodeID, id
 	if !eligible {
 		return nil, nil, nil
 	}
+	var sourceText string
+	if err := db.QueryRowContext(ctx, "SELECT json_extract(body,'$.task.turn') FROM agent_background WHERE "+backgroundEligible+" ORDER BY sequence LIMIT 1", id.String()).Scan(&sourceText); err != nil {
+		return nil, nil, err
+	}
+	source, err := protocol.ParseTurnID(sourceText)
+	if err != nil {
+		return nil, nil, err
+	}
+	origin, err := OriginalTurnUser(ctx, db, source)
+	if err != nil {
+		return nil, nil, err
+	}
+	user, err := ResolveUser(ctx, db, origin.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx = WithCapturedUser(WithUser(ctx, user), origin.ID)
 	refusal, err := automaticRefusal(ctx, db, id)
 	if err != nil || refusal != nil {
 		return nil, nil, err

@@ -362,6 +362,9 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,instructions,rowid,user) SELECT ?1,?2,?3,?4,?5,'task',?6,?7,?8,?9,user FROM turns WHERE id=?10", turn.ID.String(), session.ID.String(), turn.Revision, capture.Request.String(), caller, plugins, roles, instructions, seq, parent.String()); err != nil {
 		return empty, nil, err
 	}
+	if err = inheritTurnOrigin(ctx, db, turn.ID, inherit); err != nil {
+		return empty, nil, err
+	}
 	origin := protocol.Delegation{Session: parentRun.Session, Turn: parent, Entry: entry, Index: part}
 	if role != nil {
 		origin.Role = &role.ID
