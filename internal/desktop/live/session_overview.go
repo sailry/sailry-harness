@@ -288,8 +288,8 @@ func overviewAssets(groups []protocol.ConversationAssetsGroup) []overviewAsset {
 	return rows
 }
 
-// openOverviewAsset opens a row: an attachment, picture, document or output
-// file in the panel's preview, a source file in the workspace's Files tab.
+// openOverviewAsset opens pictures in the image viewer, other attachments,
+// documents and output files in the panel, and source files in Files.
 func (r *Runtime) openOverviewAsset(session protocol.Session, row overviewAsset) {
 	id := "overview/" + row.view.ID
 	file := conversation.File{ID: id, Path: row.view.Name}

@@ -54,9 +54,6 @@ func overviewLayout(t *testing.T, tt *ui.Tester) (ui.Rect, ui.Rect) {
 	if !found || input.Bounds.W <= 0 {
 		t.Fatalf("the conversation has no composer: %q", tt.Texts())
 	}
-	if math.Abs(float64(log.Bounds.X+log.Bounds.W/2-input.Bounds.X-input.Bounds.W/2)) > 0.5 {
-		t.Fatalf("the composer %v is not centered in its transcript column %v", input.Bounds, log.Bounds)
-	}
 	return log.Bounds, input.Bounds
 }
 
@@ -99,11 +96,15 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 			a, tt := overviewLayoutFixture(t, width)
 			log, input := overviewLayout(t, tt)
 			card := overviewLayoutCard(t, tt)
-			if math.Abs(float64(a.mainLayoutWidth-log.W-overviewSide)) > 0.5 || math.Abs(float64(card.W-composer.OverviewWidth)) > 0.5 {
-				t.Fatalf("main width %v contains transcript %v and card %v, want a %v overview column", a.mainLayoutWidth, log, card, overviewSide)
+			if math.Abs(float64(a.mainLayoutWidth-log.W)) > 0.5 || math.Abs(float64(card.W-composer.OverviewWidth)) > 0.5 || math.Abs(float64(log.X+log.W-float32(width))) > 0.5 {
+				t.Fatalf("main width %v has scroll viewport %v and card %v; the viewport must reach the window's right edge", a.mainLayoutWidth, log, card)
 			}
-			if input.X+input.W > card.X || card.X < log.X+log.W || card.H > overviewCardMax+8 {
-				t.Fatalf("the card %v overlaps or exceeds the transcript %v and composer %v", card, log, input)
+			contentRight := log.X + log.W - overviewSide
+			if math.Abs(float64(log.X+(log.W-overviewSide)/2-input.X-input.W/2)) > 0.5 {
+				t.Fatalf("the composer %v is not centered beside the activity card in viewport %v", input, log)
+			}
+			if input.X+input.W > contentRight || card.X < contentRight || card.X+card.W > log.X+log.W || card.H > overviewCardMax+8 {
+				t.Fatalf("the card %v overlaps the content or lies outside the viewport %v; composer %v", card, log, input)
 			}
 			if !tt.HasText("Fixture output") || tt.HasText(i18n.In("en", "chat_assets_waiting")) {
 				t.Fatalf("the card does not show its inventory: %q", tt.Texts())
@@ -130,6 +131,9 @@ func TestOverviewPopoverAndDirectResize(t *testing.T) {
 	}
 	if math.Abs(float64(log.W-a.mainLayoutWidth)) > 0.5 {
 		t.Fatalf("the narrow transcript %v does not fill its main column %v", log, a.mainLayoutWidth)
+	}
+	if math.Abs(float64(log.X+log.W/2-input.X-input.W/2)) > 0.5 {
+		t.Fatalf("the narrow composer %v is not centered in its viewport %v", input, log)
 	}
 	clickOverviewHeader(t, tt)
 	if !a.overviews["overview-layout"].state.Open() || !tt.HasText("Fixture output") {
@@ -162,12 +166,15 @@ func TestOverviewPopoverAndDirectResize(t *testing.T) {
 			reserved = overviewSide
 			card := overviewLayoutCard(t, tt)
 			overviewHasNoCollapse(t, tt)
-			if card.X < immediate.X+immediate.W {
+			if card.X < immediate.X+immediate.W-reserved {
 				t.Fatalf("resizing to %d overlapped the overview and transcript", width)
 			}
 		}
-		if math.Abs(float64(a.mainLayoutWidth-immediate.W-reserved)) > 0.5 {
-			t.Fatalf("resizing to %d left an intermediate transcript width %v; main %v, reserved %v", width, immediate.W, a.mainLayoutWidth, reserved)
+		if math.Abs(float64(a.mainLayoutWidth-immediate.W)) > 0.5 || math.Abs(float64(immediate.X+immediate.W-float32(width))) > 0.5 {
+			t.Fatalf("resizing to %d left a narrowed scroll viewport %v; main width %v", width, immediate, a.mainLayoutWidth)
+		}
+		if math.Abs(float64(immediate.X+(immediate.W-reserved)/2-immediateInput.X-immediateInput.W/2)) > 0.5 {
+			t.Fatalf("resizing to %d left composer %v outside the content center of viewport %v", width, immediateInput, immediate)
 		}
 		settleOverviewLayout(t, tt)
 		settled, settledInput := overviewLayout(t, tt)

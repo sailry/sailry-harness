@@ -157,10 +157,35 @@ func Content(c *ui.Context, v *View, key string, f conversation.File, cb Callbac
 	})
 }
 
-// Dialog is the preview as a window over the page: the file's bar, then its
-// content, as large as the window leaves room for. Escape, the backdrop and
-// the close button close it.
+// Dialog opens pictures in the shared image viewer and other files in a
+// preview over the page. Escape, the backdrop and the close button close it.
 func Dialog(c *ui.Context, key any, v *View, f conversation.File, open *bool, cb Callbacks) {
+	if f.Kind == conversation.ImageFile && (f.State == conversation.PreviewReady || f.State == conversation.PreviewLoading) {
+		if !*open {
+			v.images.Open = false
+			return
+		}
+		image := conversation.Image{ID: f.ID, Name: f.Name()}
+		if f.Image != nil {
+			image = *f.Image
+		}
+		if !v.images.Open || len(v.images.Images) != 1 || v.images.Images[0].ID != image.ID {
+			v.images.Show([]conversation.Image{image}, 0)
+		} else {
+			// A completed read replaces the loading picture without resetting
+			// the viewer or the user's zoom and rotation.
+			v.images.Images[0] = image
+		}
+		kit.ImageViewer(c.Key(key), &v.images, func(im conversation.Image) kit.ViewerItem {
+			return kit.ViewerItem{Source: im.Source, Name: im.Name}
+		}, func(action kit.ImageAction, image conversation.Image) {
+			if cb.Image != nil {
+				cb.Image(action, image)
+			}
+		})
+		*open = v.images.Open
+		return
+	}
 	p := theme.Of(c)
 	w, h := c.Size()
 	kit.Dialog(c.Key(key), open, func() {

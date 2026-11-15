@@ -754,8 +754,9 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	// The activity column reserves its width independently of loading or
-	// inventory. The transcript and composer center together in what remains.
+	// The activity card reserves content width independently of loading or
+	// inventory. The scroll viewport still fills the pane; only the turns,
+	// composer and navigation center in the space beside the card.
 	entry := a.overviewEntry(cv.ID)
 	entry.act = act
 	overview := a.conversationOverview(c, cv, act)
@@ -765,13 +766,17 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	docked := entry.state.Docked
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
+			if docked {
+				a.Messages.Aside = overviewSide
+				defer func() { a.Messages.Aside = 0 }()
+			}
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
 				composer.View(c, comp, ctx, act)
 			})
 			conversation.Navigation(c, a.Messages)
 		})
 		if docked {
-			ui.Column(c.Key("overview-column")).Width(overviewSide).Shrink(0).Padding(overviewCardInset, overviewCardInset+8, overviewCardInset, overviewCardInset).
+			ui.Column(c.Key("overview-column")).Absolute().Top(overviewCardInset).Right(overviewCardInset+8).
 				Translate(a.mainLayoutShift, 0).
 				Children(func() {
 					composer.OverviewCard(c, &entry.state, overview, min(bounds.H-2*overviewCardInset, overviewCardMax))

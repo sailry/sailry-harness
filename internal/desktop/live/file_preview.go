@@ -12,15 +12,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// filePreview is the preview dialog of a file outside a conversation, read
-// by whoever holds it: a package's remote files today, a host's file
-// manager later. The window has one; a newer preview replaces it.
+// filePreview is the window's file or image preview, read by the captured
+// source owner. A newer preview replaces it and cancels its pending read.
 type filePreview struct {
-	open       bool
-	file       conversation.File
-	view       fileview.View
-	generation uint64
-	cancel     context.CancelFunc
+	open      bool
+	file      conversation.File
+	view      fileview.View
+	callbacks fileview.Callbacks
+	cancel    context.CancelFunc
+}
+
+func (r *Runtime) beginFilePreview(file conversation.File, callbacks fileview.Callbacks) (*filePreview, context.Context) {
+	root := r.localRuntime()
+	if previous := root.filePreview; previous != nil && previous.cancel != nil {
+		previous.cancel()
+	}
+	ctx, cancel := context.WithCancel(r.ctx)
+	preview := &filePreview{open: true, file: file, callbacks: callbacks, cancel: cancel}
+	root.filePreview = preview
+	return preview, ctx
 }
 
 // errPreviewLarge is a read refused at fileview.Limit.
@@ -36,25 +46,13 @@ func (*previewBuffer) Close() error { return nil }
 // the dialog names it.
 func (r *Runtime) openFilePreview(path string, read func(context.Context, func(copied, size uint64)) ([]byte, error)) {
 	root := r.localRuntime()
-	if root.filePreview == nil {
-		root.filePreview = &filePreview{}
-	}
-	preview := root.filePreview
-	if preview.cancel != nil {
-		preview.cancel()
-	}
-	preview.generation++
-	generation := preview.generation
 	file := conversation.File{ID: "file-preview", Path: path, Kind: attachmentFileKind(path, "")}
-	preview.open, preview.view = true, fileview.View{}
+	preview, ctx := r.beginFilePreview(file, fileview.Callbacks{})
 	if file.Kind == conversation.OtherFile {
-		preview.file, preview.cancel = file, nil
 		return
 	}
 	file.State = conversation.PreviewLoading
 	preview.file = file
-	ctx, cancel := context.WithCancel(root.ctx)
-	preview.cancel = cancel
 	if !root.async(func() {
 		data, err := read(ctx, func(copied, size uint64) {
 			if size == 0 {
@@ -62,7 +60,7 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context, func(c
 			}
 			share := float64(copied) / float64(size)
 			root.enqueue(func(*ui.Context) {
-				if preview.generation == generation {
+				if root.filePreview == preview && preview.open && ctx.Err() == nil {
 					preview.view.Progress = share
 				}
 			})
@@ -92,16 +90,16 @@ func (r *Runtime) openFilePreview(path string, read func(context.Context, func(c
 			loaded.Text = string(data)
 		}
 		root.enqueue(func(c *ui.Context) {
-			if preview.generation != generation || !preview.open {
+			if root.filePreview != preview || !preview.open || ctx.Err() != nil {
 				return
 			}
-			if err != nil && ctx.Err() == nil {
+			if err != nil {
 				root.downloadOutcome(c, err)
 			}
 			preview.file = loaded
 		})
 	}) {
-		cancel()
+		preview.cancel()
 		preview.file.State = conversation.PreviewFailed
 	}
 }
@@ -113,7 +111,7 @@ func (r *Runtime) renderFilePreview(c *ui.Context) {
 	if preview == nil || !preview.open {
 		return
 	}
-	fileview.Dialog(c, "file-preview", &preview.view, preview.file, &preview.open, fileview.Callbacks{})
+	fileview.Dialog(c, "file-preview", &preview.view, preview.file, &preview.open, preview.callbacks)
 	if !preview.open && preview.cancel != nil {
 		preview.cancel()
 		preview.cancel = nil

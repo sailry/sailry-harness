@@ -216,7 +216,7 @@ const (
 )
 
 // File is a file a message attached or a turn produced, as a card that opens
-// its preview in the right panel.
+// its preview. Pictures use the shared image viewer.
 type File struct {
 	ID   string
 	Path string // worktree-relative; its last element is the label
@@ -540,7 +540,7 @@ type Actions interface {
 	Edit(turn string)
 	SaveEdit(turn, text string)
 	CancelEdit(turn string)
-	// OpenFile shows a file in the right panel's preview.
+	// OpenFile previews a file, using the image viewer for pictures.
 	OpenFile(f File)
 	// FileAction is a file card's menu: open it in another app, save it,
 	// or ask the model to edit it.

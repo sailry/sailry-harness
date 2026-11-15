@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -73,11 +74,11 @@ func TestConversationWidthDuringNavigation(t *testing.T) {
 			return card.Bounds.X + card.Bounds.W
 		}
 		edge := cardRight()
-		beforeCenter := before.X + before.W/2
+		beforeCenter := before.X + (before.W-overviewSide)/2
 		a.NavOpen = open
 		tt.Frame()
 		start, startInput := conversationLayoutRects(t, tt)
-		wantWidth := float32(width - RailWidth - 1 - overviewSide)
+		wantWidth := float32(width - RailWidth - 1)
 		wantLeft := float32(RailWidth + 1)
 		if open {
 			wantWidth -= NavWidth
@@ -86,7 +87,7 @@ func TestConversationWidthDuringNavigation(t *testing.T) {
 		if !layoutNear(start.W, wantWidth) {
 			t.Fatalf("navigation open %v starts at list width %.1f, want destination %.1f", open, start.W, wantWidth)
 		}
-		if !layoutNear(start.X+start.W/2, beforeCenter) || !layoutNear(startInput.X+startInput.W/2, beforeCenter) {
+		if !layoutNear(start.X+(start.W-overviewSide)/2, beforeCenter) || !layoutNear(startInput.X+startInput.W/2, beforeCenter) {
 			t.Fatalf("navigation open %v jumped the content center from %.1f: list %v, composer %v", open, beforeCenter, start, startInput)
 		}
 		if !layoutNear(cardRight(), edge) {
@@ -102,10 +103,10 @@ func TestConversationWidthDuringNavigation(t *testing.T) {
 		}
 		tt.Advance(time.Second)
 		end, endInput := conversationLayoutRects(t, tt)
-		if !layoutNear(end.W, wantWidth) || !layoutNear(end.X, wantLeft) || !layoutNear(endInput.W, startInput.W) {
+		if !layoutNear(end.W, wantWidth) || !layoutNear(end.X, wantLeft) || !layoutNear(end.X+end.W, float32(width)) || !layoutNear(endInput.W, startInput.W) {
 			t.Fatalf("navigation open %v ended at list %v and composer %v", open, end, endInput)
 		}
-		startCenter, middleCenter, endCenter := start.X+start.W/2, middle.X+middle.W/2, end.X+end.W/2
+		startCenter, middleCenter, endCenter := start.X+(start.W-overviewSide)/2, middle.X+(middle.W-overviewSide)/2, end.X+(end.W-overviewSide)/2
 		if middleCenter <= min(startCenter, endCenter) || middleCenter >= max(startCenter, endCenter) || !layoutNear(middleInput.X+middleInput.W/2, middleCenter) {
 			t.Fatalf("navigation open %v did not move list and composer together: centers %.1f -> %.1f -> %.1f; composer %v", open, startCenter, middleCenter, endCenter, middleInput)
 		}
@@ -120,18 +121,73 @@ func TestConversationWindowResizeIsImmediate(t *testing.T) {
 		tt.SetSize(width, 820)
 		list, input := conversationLayoutRects(t, tt)
 		mainWidth := float32(width - RailWidth - 1 - NavWidth)
-		wantWidth := mainWidth
+		reserved := float32(0)
 		if mainWidth >= overviewSideMin {
-			wantWidth -= overviewSide
+			reserved = overviewSide
 		}
-		wantCenter := float32(RailWidth+1+NavWidth) + wantWidth/2
-		if !layoutNear(a.mainLayoutWidth, mainWidth) || !layoutNear(list.W, wantWidth) || !layoutNear(list.X+list.W/2, wantCenter) || !layoutNear(input.X+input.W/2, wantCenter) {
-			t.Fatalf("window width %d did not apply immediately: main %.1f, list %v, composer %v; want list width %.1f centered %.1f", width, a.mainLayoutWidth, list, input, wantWidth, wantCenter)
+		wantCenter := float32(RailWidth+1+NavWidth) + (mainWidth-reserved)/2
+		if !layoutNear(a.mainLayoutWidth, mainWidth) || !layoutNear(list.W, mainWidth) || !layoutNear(list.X+list.W, float32(width)) || !layoutNear(input.X+input.W/2, wantCenter) {
+			t.Fatalf("window width %d did not apply immediately: main %.1f, list %v, composer %v; want full viewport %.1f with content centered %.1f", width, a.mainLayoutWidth, list, input, mainWidth, wantCenter)
 		}
 		tt.Advance(300 * time.Millisecond)
 		after, afterInput := conversationLayoutRects(t, tt)
 		if !layoutNear(after.X, list.X) || !layoutNear(after.W, list.W) || !layoutNear(afterInput.X, input.X) || !layoutNear(afterInput.W, input.W) {
 			t.Fatalf("window width %d left a trailing resize animation: list %v -> %v, composer %v -> %v", width, list, after, input, afterInput)
 		}
+	}
+}
+
+// The activity card reserves message space inside the viewport, so the
+// transcript's own scrollbar remains reachable at the main pane's far edge.
+func TestConversationScrollViewportBesideActivity(t *testing.T) {
+	for _, panelOpen := range []bool{false, true} {
+		t.Run(fmt.Sprintf("details_%t", panelOpen), func(t *testing.T) {
+			const width = 2300
+			a, tt := conversationLayoutFixture(t, width)
+			cv := a.Data.Find(a.Sidebar.Selected)
+			cv.Turns = make([]conversation.Turn, 36)
+			for i := range cv.Turns {
+				cv.Turns[i] = conversation.Turn{
+					ID: fmt.Sprintf("scroll-%d", i), User: "Scroll the transcript",
+					Reply: conversation.Reply{Status: conversation.Completed, Blocks: []conversation.Block{{
+						Kind: conversation.TextBlock,
+						Text: strings.Repeat("The activity stays beside this scrollable conversation. ", 12),
+					}}},
+				}
+			}
+			a.PanelOpen = panelOpen
+			tt.Frame()
+			tt.Advance(time.Second)
+			tt.Frame()
+			list, input := conversationLayoutRects(t, tt)
+			right := float32(width)
+			if panelOpen {
+				right -= a.PanelWidth
+			}
+			if !layoutNear(list.X+list.W, right) || !layoutNear(list.W, a.mainLayoutWidth) {
+				t.Fatalf("activity narrowed the transcript viewport %v; want right edge %.1f and width %.1f", list, right, a.mainLayoutWidth)
+			}
+			card, ok := tt.AccessByRole(ui.RoleComplementary, i18n.In("en", "chat_assets_title"))
+			if !ok || !layoutNear(card.Bounds.X+card.Bounds.W, right-overviewCardInset-8) {
+				t.Fatalf("activity card does not stay inside the right edge: %v", card.Bounds)
+			}
+			if !layoutNear(input.X+input.W/2, list.X+(list.W-overviewSide)/2) {
+				t.Fatalf("composer %v is not centered left of the activity card in %v", input, list)
+			}
+			state := a.Messages.List(cv.ID)
+			if !state.AtEnd() {
+				t.Fatal("the scroll fixture did not start at its end")
+			}
+			// Reveal the native scrollbar, then page up on its track past the
+			// activity card. This must scroll the transcript, not the card.
+			x, y := right-5, list.Y+24
+			tt.Move(x, y)
+			tt.Advance(300 * time.Millisecond)
+			tt.ClickAt(x, y)
+			tt.Frame()
+			if state.AtEnd() {
+				t.Fatal("the transcript scrollbar at the main pane's far right did not page the conversation")
+			}
+		})
 	}
 }

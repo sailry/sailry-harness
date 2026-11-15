@@ -9,6 +9,7 @@ import (
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -34,12 +35,21 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 	r.attachments.previewGeneration[file.ID]++
 	generation := r.attachments.previewGeneration[file.ID]
 	file.State = conversation.PreviewLoading
-	r.App.Panel.ShowArtifact(file)
-	r.App.PanelOpen = true
+	ctx := r.attachments.ctx
+	var preview *filePreview
+	if file.Kind == conversation.ImageFile {
+		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: r.localRuntime().ArtifactImageAction})
+	} else {
+		r.App.Panel.ShowArtifact(file)
+		r.App.PanelOpen = true
+	}
 	r.async(func() {
-		loaded, content, err := r.readAttachmentPreview(r.attachments.ctx, descriptor, file)
+		loaded, content, err := r.readAttachmentPreview(ctx, descriptor, file)
 		r.enqueue(func(c *ui.Context) {
-			if r.attachments.previewGeneration[file.ID] != generation {
+			if r.attachments.previewGeneration[file.ID] != generation || ctx.Err() != nil {
+				return
+			}
+			if preview != nil && (r.localRuntime().filePreview != preview || !preview.open) {
 				return
 			}
 			if err != nil {
@@ -51,7 +61,11 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 			} else if content != nil {
 				r.attachments.previewHTML[file.ID] = content.Html
 			}
-			r.App.Panel.UpdateArtifact(loaded)
+			if preview != nil {
+				preview.file = loaded
+			} else {
+				r.App.Panel.UpdateArtifact(loaded)
+			}
 		})
 	})
 }

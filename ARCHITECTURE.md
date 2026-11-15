@@ -379,19 +379,23 @@ keyboard behavior. CrychicUI components use the adapters where external data or
 presentation needs them. Floating surfaces remain Kit's frost; right-click menus
 and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
 
-Wide conversations reserve a fixed activity column at the right and center both
-the transcript and composer in the remaining column. Narrow or split panes use
-the header popover and return that space to the transcript. Loading activity never
-changes that layout. During sidebar and detail-panel transitions the transcript
-is laid out at its destination width and translated into place, preserving its
-measured row heights. Direct window and divider resizing follows the current
-width without an additional layout animation.
+Wide conversations reserve fixed content space for an activity card at the right
+and center the messages and composer in the remaining space. The transcript's
+scroll viewport fills the main pane, with its scrollbar at the pane's right edge.
+Narrow or split panes use the header popover and return that content space to the
+transcript. Loading activity never changes that layout. During sidebar and
+detail-panel transitions the transcript is laid out at its destination width and
+translated into place, preserving its measured row heights. Direct window and
+divider resizing follows the current width without an additional layout animation.
 
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses
 Untie. These render natively and keep source text on failure. File preview draws
 text, code, Markdown, notebooks and images; unsupported formats open in the system
-application. Session HTML uses a sandboxed MyGo WebView with no privileged bridge.
+application. Conversation image assets open directly in the shared window image
+viewer without changing the detail panel. The captured source owner supplies the
+read and image actions; closing or replacing the viewer cancels its pending read.
+Session HTML uses a sandboxed MyGo WebView with no privileged bridge.
 
 Voice capture, speech recognition, voice reading and global selection shortcuts
 are controller-local. `--preview` opens no profile and starts no Node. Explicit

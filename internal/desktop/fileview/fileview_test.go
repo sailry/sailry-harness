@@ -1,11 +1,14 @@
 package fileview
 
 import (
+	"image"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -82,4 +85,59 @@ func TestDialog(t *testing.T) {
 			t.Error("Copy shows for a file with no text read")
 		}
 	})
+}
+
+func TestImageDialog(t *testing.T) {
+	file := conversation.File{ID: "picture", Path: "picture.png", Kind: conversation.ImageFile, State: conversation.PreviewLoading}
+	open, view := true, &View{}
+	var actions []kit.ImageAction
+	cb := Callbacks{Image: func(action kit.ImageAction, shown conversation.Image) {
+		if shown.ID != file.ID || shown.Source != file.Image.Source {
+			t.Error("image action lost the picture's captured source")
+		}
+		actions = append(actions, action)
+	}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		Dialog(c, "preview", view, file, &open, cb)
+	}, 1200, 800)
+	tester.SetLocale("en")
+	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tester.Frame()
+	tester.Frame()
+	assertViewer := func() {
+		t.Helper()
+		dialog, ok := tester.AccessByRole(ui.RoleDialog, i18n.In("en", "chat_image_preview"))
+		if !ok || dialog.Bounds.W != 1200 || dialog.Bounds.H != 800 {
+			t.Fatalf("picture did not open in the window's image viewer: %+v, %q", dialog, tester.Texts())
+		}
+	}
+	assertViewer()
+	tester.Key(0, ui.KeyEqual)
+	tester.Frame()
+	bitmap := ui.NewBitmap(image.NewNRGBA(image.Rect(0, 0, 400, 300)))
+	file.State = conversation.PreviewReady
+	file.Image = &conversation.Image{ID: file.ID, Name: file.Name(), Width: 400, Height: 300, Source: bitmap}
+	tester.Frame()
+	assertViewer()
+	if !tester.HasText("125%") {
+		t.Fatal("finishing the image read reset the viewer's zoom")
+	}
+	for _, key := range []string{"content_copy", "files_download", "files_open_system"} {
+		if err := tester.Click(i18n.In("en", key)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(actions, []kit.ImageAction{kit.ImageCopy, kit.ImageSave, kit.ImageOpen}) {
+		t.Fatalf("image toolbar actions = %v", actions)
+	}
+	tester.Key(0, ui.KeyEscape)
+	tester.Frame()
+	tester.Frame()
+	if open {
+		t.Fatal("Escape left the image viewer open")
+	}
+	if _, ok := tester.AccessByRole(ui.RoleDialog, i18n.In("en", "chat_image_preview")); ok {
+		t.Fatal("a closed image viewer reopened on the next frame")
+	}
 }
