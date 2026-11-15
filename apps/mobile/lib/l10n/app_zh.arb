@@ -358,7 +358,7 @@
   "apiPlugin": "插件",
   "providerNew": "新建服务",
   "providerEmpty": "暂无模型服务",
-  "providerDesktopHint": "预设服务和账号登录在桌面端添加，这里也会列出并可编辑模型",
+  "providerDesktopHint": "OAuth 模型使用桌面端操作",
   "providerConnection": "连接",
   "providerKeyUnset": "未设置",
   "providerShowKey": "显示密钥",

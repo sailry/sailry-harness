@@ -694,7 +694,7 @@
   "apiPlugin": "Плагин",
   "providerNew": "Новый сервис",
   "providerEmpty": "Нет сервисов",
-  "providerDesktopHint": "Пресеты и входы в аккаунт добавляются на Desktop; их модели можно изменить здесь",
+  "providerDesktopHint": "Модели OAuth настраиваются на Desktop",
   "providerConnection": "Подключение",
   "providerKeyUnset": "Не задан",
   "providerShowKey": "Показать ключ",

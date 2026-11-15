@@ -1749,8 +1749,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get providerEmpty => '모델 서비스 없음';
 
   @override
-  String get providerDesktopHint =>
-      '프리셋과 계정 로그인은 데스크톱에서 추가하며 여기서도 모델을 편집할 수 있습니다';
+  String get providerDesktopHint => 'OAuth 모델은 데스크톱에서 관리합니다';
 
   @override
   String get providerConnection => '연결';

@@ -1778,8 +1778,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get providerEmpty => 'Нет сервисов';
 
   @override
-  String get providerDesktopHint =>
-      'Пресеты и входы в аккаунт добавляются на Desktop; их модели можно изменить здесь';
+  String get providerDesktopHint => 'Модели OAuth настраиваются на Desktop';
 
   @override
   String get providerConnection => 'Подключение';

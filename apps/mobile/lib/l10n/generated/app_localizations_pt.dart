@@ -1778,8 +1778,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get providerEmpty => 'Nenhum serviço';
 
   @override
-  String get providerDesktopHint =>
-      'Adicione predefinições e logins de conta no Desktop; os modelos podem ser editados aqui';
+  String get providerDesktopHint => 'Gerencie modelos OAuth no Desktop';
 
   @override
   String get providerConnection => 'Conexão';

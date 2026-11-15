@@ -1787,8 +1787,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get providerEmpty => 'Aucun service';
 
   @override
-  String get providerDesktopHint =>
-      'Ajoutez les préréglages et connexions de compte sur Desktop ; leurs modèles restent modifiables ici';
+  String get providerDesktopHint => 'Gérez les modèles OAuth sur Desktop';
 
   @override
   String get providerConnection => 'Connexion';

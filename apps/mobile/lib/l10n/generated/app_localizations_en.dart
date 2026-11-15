@@ -1768,8 +1768,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get providerEmpty => 'No providers';
 
   @override
-  String get providerDesktopHint =>
-      'Add presets and account logins on Desktop; their models are editable here';
+  String get providerDesktopHint => 'Use Desktop for OAuth models';
 
   @override
   String get providerConnection => 'Connection';

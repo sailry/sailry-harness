@@ -1745,7 +1745,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerEmpty => '暂无模型服务';
 
   @override
-  String get providerDesktopHint => '预设服务和账号登录在桌面端添加，这里也会列出并可编辑模型';
+  String get providerDesktopHint => 'OAuth 模型使用桌面端操作';
 
   @override
   String get providerConnection => '连接';
@@ -4021,7 +4021,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerEmpty => '尚無模型服務';
 
   @override
-  String get providerDesktopHint => '預設服務和帳號登入在桌面端新增，這裡也會列出並可編輯模型';
+  String get providerDesktopHint => 'OAuth 模型使用桌面端操作';
 
   @override
   String get providerConnection => '連線';

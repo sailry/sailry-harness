@@ -694,7 +694,7 @@
   "apiPlugin": "Plug-in",
   "providerNew": "Neuer Dienst",
   "providerEmpty": "Keine Dienste",
-  "providerDesktopHint": "Voreinstellungen und Kontoanmeldungen am Desktop hinzufügen; ihre Modelle lassen sich hier bearbeiten",
+  "providerDesktopHint": "OAuth-Modelle am Desktop verwalten",
   "providerConnection": "Verbindung",
   "providerKeyUnset": "Nicht festgelegt",
   "providerShowKey": "Schlüssel anzeigen",

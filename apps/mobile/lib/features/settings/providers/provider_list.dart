@@ -185,13 +185,17 @@ class _ProviderRow extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        detail,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: dimText(context, 12),
-                      ),
+                      // No detail line when there is none (an account
+                      // login has no endpoint), so the name centers.
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: dimText(context, 12),
+                        ),
+                      ],
                     ],
                   ),
                 ),

@@ -708,7 +708,7 @@
   "apiPlugin": "Plugin",
   "providerNew": "New provider",
   "providerEmpty": "No providers",
-  "providerDesktopHint": "Add presets and account logins on Desktop; their models are editable here",
+  "providerDesktopHint": "Use Desktop for OAuth models",
   "providerConnection": "Connection",
   "providerKeyUnset": "Not set",
   "providerShowKey": "Show key",

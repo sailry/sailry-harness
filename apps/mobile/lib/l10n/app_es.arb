@@ -694,7 +694,7 @@
   "apiPlugin": "Complemento",
   "providerNew": "Nuevo servicio",
   "providerEmpty": "Sin servicios",
-  "providerDesktopHint": "Añade preajustes e inicios de sesión en Desktop; sus modelos se pueden editar aquí",
+  "providerDesktopHint": "Gestiona los modelos OAuth en Desktop",
   "providerConnection": "Conexión",
   "providerKeyUnset": "Sin configurar",
   "providerShowKey": "Mostrar clave",

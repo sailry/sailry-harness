@@ -694,7 +694,7 @@
   "apiPlugin": "プラグイン",
   "providerNew": "新しいサービス",
   "providerEmpty": "モデルサービスはありません",
-  "providerDesktopHint": "プリセットとアカウントログインはデスクトップで追加し、ここでもモデルを編集できます",
+  "providerDesktopHint": "OAuth モデルはデスクトップで操作します",
   "providerConnection": "接続",
   "providerKeyUnset": "未設定",
   "providerShowKey": "キーを表示",

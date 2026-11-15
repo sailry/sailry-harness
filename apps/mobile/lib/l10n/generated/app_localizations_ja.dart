@@ -1748,7 +1748,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerEmpty => 'モデルサービスはありません';
 
   @override
-  String get providerDesktopHint => 'プリセットとアカウントログインはデスクトップで追加し、ここでもモデルを編集できます';
+  String get providerDesktopHint => 'OAuth モデルはデスクトップで操作します';
 
   @override
   String get providerConnection => '接続';

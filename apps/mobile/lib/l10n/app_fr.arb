@@ -694,7 +694,7 @@
   "apiPlugin": "Plug-in",
   "providerNew": "Nouveau service",
   "providerEmpty": "Aucun service",
-  "providerDesktopHint": "Ajoutez les préréglages et connexions de compte sur Desktop ; leurs modèles restent modifiables ici",
+  "providerDesktopHint": "Gérez les modèles OAuth sur Desktop",
   "providerConnection": "Connexion",
   "providerKeyUnset": "Non défini",
   "providerShowKey": "Afficher la clé",
