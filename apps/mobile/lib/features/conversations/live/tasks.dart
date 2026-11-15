@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
 import '../../../l10n/strings.dart';
+import '../../../runtime/catalog.dart';
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
@@ -61,8 +62,21 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     super.dispose();
   }
 
+  HostConnection? get _creationHost =>
+      widget.session.host(_projectHost) ?? widget.session.selectedHost;
+
+  bool _includes(HostConnection host, Object? project) =>
+      (_projectHost == null || _projectHost == host.id) &&
+      inProject(_project, project);
+
+  Future<void> _refresh() async {
+    await Future.wait([
+      for (final host in widget.session.hosts) host.refresh(),
+    ]);
+  }
+
   Future<void> _terminal() async {
-    final host = widget.session.selectedHost;
+    final host = _creationHost;
     if (host == null || !host.connected) {
       _error(context.tr('conversationNoHost'));
       return;
@@ -98,7 +112,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
   }
 
   Future<void> _create() async {
-    final selected = widget.session.selectedHost;
+    final selected = _creationHost;
     if (selected == null || !selected.connected) {
       _error(context.tr('conversationNoHost'));
       return;
@@ -170,52 +184,64 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     builder: (context, _) {
       final hosts = widget.session.hosts;
       final selected = widget.session.selectedHost;
-      final projectId = _projectHost == selected?.id ? _project : null;
-      final projects = objects(selected?.snapshot['projects']);
+      if (_projectHost != null && widget.session.host(_projectHost) == null) {
+        _projectHost = null;
+        _project = null;
+      }
+      final projectId = _project;
+      final projects = hostRecords(hosts, 'projects');
+      final sessions = hostRecords(hosts, 'sessions');
+      final allTerminals = hostRecords(hosts, 'terminals');
+      final creationHost = _creationHost;
       final selectedProject = projects
-          .where((project) => project['id'] == projectId)
-          .firstOrNull;
-      final tasks = <(HostConnection, Map<String, dynamic>)>[
-        for (final host in hosts.where((host) => host.id == selected?.id))
-          for (final session in objects(host.snapshot['sessions']))
-            if (ordinarySession(session) &&
-                inProject(projectId, session['project']) &&
-                (session['archived'] == true) == (_filter == 'archived') &&
-                (_filter == 'all' ||
-                    _filter == 'archived' ||
-                    status(session) == _filter) &&
-                title(
-                  session,
-                  translate: context.tr,
-                ).toLowerCase().contains(_search.toLowerCase()))
-              (host, session),
+          .where(
+            (entry) =>
+                entry.$1.id == _projectHost && entry.$2['id'] == projectId,
+          )
+          .firstOrNull
+          ?.$2;
+      final tasks = <HostRecord>[
+        for (final (host, session) in sessions)
+          if (ordinarySession(session) &&
+              _includes(host, session['project']) &&
+              (session['archived'] == true) == (_filter == 'archived') &&
+              (_filter == 'all' ||
+                  _filter == 'archived' ||
+                  status(session) == _filter) &&
+              title(
+                session,
+                translate: context.tr,
+              ).toLowerCase().contains(_search.toLowerCase()))
+            (host, session),
       ];
       final colors = Theme.of(context).colorScheme;
       final now = DateTime.now();
       final groups = groupTasks(tasks, (task) => sessionGroup(task.$2, now));
-      final terminals = objects(selected?.snapshot['terminals']).where((
-        terminal,
-      ) {
-        if (widget.sessionsOnly && _filter != 'terminal') return false;
-        if (!activeTerminal(terminal)) return false;
-        final tree = objects(
-          selected?.snapshot['worktrees'],
-        ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
-        return inProject(projectId, tree?['project']) &&
-            (_filter == 'all' ||
-                _filter == 'terminal' ||
-                terminalStatus(terminal) == _filter) &&
-            terminalTitle(
-              terminal,
-              translate: context.tr,
-            ).toLowerCase().contains(_search.toLowerCase());
-      }).toList();
+      Object? terminalProject(
+        HostConnection host,
+        Map<String, dynamic> terminal,
+      ) => objects(host.snapshot['worktrees'])
+          .where((tree) => tree['id'] == terminal['worktree'])
+          .firstOrNull?['project'];
+      final terminals = <HostRecord>[
+        for (final (host, terminal) in allTerminals)
+          if (!(widget.sessionsOnly && _filter != 'terminal') &&
+              activeTerminal(terminal) &&
+              _includes(host, terminalProject(host, terminal)) &&
+              (_filter == 'all' ||
+                  _filter == 'terminal' ||
+                  terminalStatus(terminal) == _filter) &&
+              terminalTitle(
+                terminal,
+                translate: context.tr,
+              ).toLowerCase().contains(_search.toLowerCase()))
+            (host, terminal),
+      ];
       // Tab counts ignore search so they stay stable while typing.
       final counts = <String, int>{};
       var archived = 0;
-      for (final session in objects(selected?.snapshot['sessions'])) {
-        if (!ordinarySession(session) ||
-            !inProject(projectId, session['project'])) {
+      for (final (host, session) in sessions) {
+        if (!ordinarySession(session) || !_includes(host, session['project'])) {
           continue;
         }
         if (session['archived'] == true) {
@@ -224,23 +250,26 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
           counts.update(status(session), (n) => n + 1, ifAbsent: () => 1);
         }
       }
-      for (final terminal in objects(selected?.snapshot['terminals'])) {
-        if (!activeTerminal(terminal)) continue;
-        final tree = objects(
-          selected?.snapshot['worktrees'],
-        ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
-        if (!inProject(projectId, tree?['project'])) continue;
+      for (final (host, terminal) in allTerminals) {
+        if (!activeTerminal(terminal) ||
+            !_includes(host, terminalProject(host, terminal))) {
+          continue;
+        }
         counts.update(
           terminalStatus(terminal),
           (n) => n + 1,
           ifAbsent: () => 1,
         );
       }
+      final hasRecords = tasks.isNotEmpty || terminals.isNotEmpty;
+      final hasCatalog =
+          projects.isNotEmpty || sessions.isNotEmpty || allTerminals.isNotEmpty;
+      final connected = hosts.any((host) => host.connected);
       return PageFrame(
         title: context.tr('brand'),
         titleSize: 28,
-        onRefresh: selected?.refresh,
-        failure: selected?.connected != true
+        onRefresh: hosts.isEmpty ? null : _refresh,
+        failure: !connected && !hasCatalog
             ? HostState(
                 added: selected != null,
                 failure: selected?.error,
@@ -275,6 +304,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         selected: selected?.id == host.id,
                         onTap: () {
                           setState(() {
+                            _projectHost = null;
                             _project = null;
                           });
                           widget.session.selectHost(host.id);
@@ -285,9 +315,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 ),
               ),
             ),
-          // Actions that need the host stand only while it is connected;
-          // an open search keeps its close button.
-          if (selected?.connected == true || _searching)
+          if (connected || hasCatalog || _searching)
             RoundButton(
               icon: _searching ? 'close' : 'search',
               tooltip: context.tr('searchTasks'),
@@ -296,7 +324,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 if (!_searching) _search = '';
               }),
             ),
-          if (selected?.connected == true) ...[
+          if (creationHost?.connected == true) ...[
             RoundButton(
               icon: 'terminal',
               tooltip: context.tr('newTerminal'),
@@ -309,7 +337,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ),
           ],
         ],
-        empty: selected?.connected == true && tasks.isEmpty && terminals.isEmpty
+        empty: (connected || hasCatalog) && !hasRecords
             ? EmptyState(
                 icon: 'chat',
                 message: context.tr(
@@ -349,7 +377,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                   context,
                   context.tr('filterProjects'),
                   actions: [
-                    if (selected?.connected == true)
+                    if (creationHost?.connected == true)
                       ListTile(
                         leading: const AppIcon('plus'),
                         title: Text(context.tr('hostRegisterProject')),
@@ -358,7 +386,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                           showAppSheet(
                             context,
                             context.tr('hostRegisterProject'),
-                            child: ProjectForm(host: selected!),
+                            child: ProjectForm(host: creationHost!),
                           );
                         },
                       ),
@@ -370,7 +398,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         leading: const AppIcon('folder'),
                         title: Text(context.tr('allProjects')),
                         onTap: () {
-                          setState(() => _project = null);
+                          setState(() {
+                            _projectHost = null;
+                            _project = null;
+                          });
                           Navigator.pop(context);
                         },
                       ),
@@ -379,19 +410,19 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         title: Text(context.tr('unassignedChats')),
                         onTap: () {
                           setState(() {
-                            _projectHost = selected?.id;
+                            _projectHost = null;
                             _project = unassignedProject;
                           });
                           Navigator.pop(context);
                         },
                       ),
-                      for (final project in projects)
+                      for (final (host, project) in projects)
                         ListTile(
                           leading: ProjectIcon(project: project),
                           title: Text(project['name'] as String),
                           onTap: () {
                             setState(() {
-                              _projectHost = selected?.id;
+                              _projectHost = host.id;
                               _project = project['id'] as String;
                             });
                             Navigator.pop(context);
@@ -422,7 +453,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                 _GroupTitle(context.tr(group.key)),
                 for (final (index, (host, session)) in items.indexed)
                   Slidable(
-                    key: ValueKey('${host.id}-${session['id']}'),
+                    key: ValueKey((host.id, session['id'])),
                     endActionPane: ActionPane(
                       motion: const DrawerMotion(),
                       extentRatio: .46,
@@ -452,13 +483,13 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                       ],
                     ),
                     child: ConversationTask(
-                      key: ValueKey('preview-${host.id}-${session['id']}'),
+                      key: ValueKey(('preview', host.id, session['id'])),
                       host: host,
                       session: session,
                       now: now,
                       divider: index < items.length - 1,
                       project:
-                          projects
+                          objects(host.snapshot['projects'])
                               .where(
                                 (project) =>
                                     project['id'] == session['project'],
@@ -468,18 +499,18 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     ),
                   ),
               ],
-              if (selected != null && terminals.isNotEmpty) ...[
+              if (terminals.isNotEmpty) ...[
                 _GroupTitle(context.tr('terminal')),
-                for (final (index, terminal) in terminals.indexed)
+                for (final (index, (host, terminal)) in terminals.indexed)
                   Slidable(
-                    key: ValueKey('terminal-${selected.id}-${terminal['id']}'),
+                    key: ValueKey(('terminal', host.id, terminal['id'])),
                     endActionPane: ActionPane(
                       motion: const DrawerMotion(),
                       extentRatio: .24,
                       children: [
                         SwipeAction(
-                          onPressed: selected.connected
-                              ? (_) => _closeTerminal(selected, terminal)
+                          onPressed: host.connected
+                              ? (_) => _closeTerminal(host, terminal)
                               : null,
                           color: colors.error,
                           foreground: colors.onError,
@@ -489,7 +520,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                       ],
                     ),
                     child: TerminalTask(
-                      host: selected,
+                      host: host,
                       terminal: terminal,
                       divider: index < terminals.length - 1,
                     ),
