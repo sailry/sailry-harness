@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: 장치 %{id}
 connections_hosts: 호스트
 connections_mobile: 모바일
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: 오프라인
 connections_online: 온라인
 connections_revoke_confirm: 페어링을 제거하려면 다시 연결해야 합니다

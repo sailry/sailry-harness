@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: Appareil %{id}
 connections_hosts: Hôtes
 connections_mobile: Mobile
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Hors ligne
 connections_online: En ligne
 connections_revoke_confirm: La suppression de l'appairage nécessite une reconnection

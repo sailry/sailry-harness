@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: Gerät %{id}
 connections_hosts: Hosts
 connections_mobile: Mobil
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Offline
 connections_online: Online
 connections_revoke_confirm: Das Entfernen der Kopplung erfordert eine Neuverbindung

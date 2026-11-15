@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: Устройство %{id}
 connections_hosts: Хосты
 connections_mobile: Мобильный
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Не в сети
 connections_online: В сети
 connections_revoke_confirm: Удаление пары требует повторного подключения

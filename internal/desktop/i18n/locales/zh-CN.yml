@@ -823,7 +823,12 @@ connection_route_p2p: P2P
 connection_route_relay: 中继
 connections_device: 设备 %{id}
 connections_hosts: 主机
-connections_mobile: 移动端
+connections_mobile: 主控设备
+connections_bidirectional: 双向
+connections_legacy_bidirectional: 旧版双向
+connections_only_host: 仅主机
+connections_only_controller: 仅主控
+connections_direction_saved: 已更新设备访问方向
 connections_offline: 离线
 connections_online: 在线
 connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。

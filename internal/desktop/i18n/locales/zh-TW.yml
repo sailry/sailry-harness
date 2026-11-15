@@ -824,6 +824,11 @@ connection_route_relay: 中繼
 connections_device: 裝置 %{id}
 connections_hosts: 主機
 connections_mobile: 移動端
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: 離線
 connections_online: 線上
 connections_revoke_confirm: 解除配對後需要重新連線

@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: Dispositivo %{id}
 connections_hosts: Hosts
 connections_mobile: Móvil
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Sin conexión
 connections_online: En línea
 connections_revoke_confirm: La eliminación del emparejamiento requiere volver a conectarse

@@ -824,6 +824,11 @@ connection_route_relay: Relay
 connections_device: デバイス %{id}
 connections_hosts: ホスト
 connections_mobile: モバイル
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: オフライン
 connections_online: オンライン
 connections_revoke_confirm: ペアリングを削除するには再接続が必要です

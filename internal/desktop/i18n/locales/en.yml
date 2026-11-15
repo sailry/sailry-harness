@@ -823,7 +823,12 @@ connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Device %{id}
 connections_hosts: Hosts
-connections_mobile: Mobile
+connections_mobile: Controllers
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Offline
 connections_online: Online
 connections_revoke_confirm: Remove this pairing? Removing a user's last device leaves its data without device access.
