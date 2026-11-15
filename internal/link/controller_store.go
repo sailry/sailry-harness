@@ -26,13 +26,14 @@ type PeerStore interface {
 }
 
 type controllerPeer struct {
-	ID        protocol.NodeID   `json:"id"`
-	Address   *EndpointAddress  `json:"address"`
-	Direction PeerDirection     `json:"direction"`
-	Direct    bool              `json:"direct"`
-	MyDevice  bool              `json:"my_device"`
-	Removed   bool              `json:"removed"`
-	Sources   []protocol.NodeID `json:"sources"`
+	ID                protocol.NodeID   `json:"id"`
+	Address           *EndpointAddress  `json:"address"`
+	Direction         PeerDirection     `json:"direction"`
+	Direct            bool              `json:"direct"`
+	MyDevice          bool              `json:"my_device"`
+	Removed           bool              `json:"removed"`
+	Sources           []protocol.NodeID `json:"sources"`
+	DirectoryRevision uint64            `json:"directory_revision"`
 }
 
 func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {

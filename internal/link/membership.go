@@ -16,11 +16,12 @@ type InvitationScope struct {
 }
 
 type PeerRelationship struct {
-	ID       protocol.NodeID   `json:"id"`
-	Direct   bool              `json:"direct"`
-	MyDevice bool              `json:"my_device"`
-	Removed  bool              `json:"removed"`
-	Sources  []protocol.NodeID `json:"sources"`
+	ID                protocol.NodeID   `json:"id"`
+	Direct            bool              `json:"direct"`
+	MyDevice          bool              `json:"my_device"`
+	Removed           bool              `json:"removed"`
+	Sources           []protocol.NodeID `json:"sources"`
+	DirectoryRevision uint64            `json:"directory_revision"`
 }
 
 // MembershipStore extends persistent peer stores. The base interface remains
@@ -28,7 +29,7 @@ type PeerRelationship struct {
 type MembershipStore interface {
 	PairMember(context.Context, protocol.NodeID, PeerDirection, InvitationScope) error
 	Relationships(context.Context) ([]PeerRelationship, error)
-	ApplyDirectory(context.Context, protocol.NodeID, []EndpointAddress) error
+	ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress) error
 }
 
 func (link *Link) pairMember(ctx context.Context, peer protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
@@ -101,7 +102,7 @@ func (link *Link) ApplyDirectory(ctx context.Context, directory protocol.HostDir
 	if !ok {
 		return invalidLink("peer store does not support host directories")
 	}
-	if err := store.ApplyDirectory(ctx, directory.Source, addresses); err != nil {
+	if err := store.ApplyDirectory(ctx, directory.Source, directory.Revision, addresses); err != nil {
 		return err
 	}
 	return link.RefreshPeers(ctx)

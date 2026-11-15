@@ -13,6 +13,7 @@ import (
 // tombstone) wins a conflict; source originals remain in the merge archive.
 func MergePluginUsers(ctx context.Context, db *sql.Conn, source, target protocol.User) error {
 	statements := []string{
+		`INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user=?1 ON CONFLICT(connection,user) DO NOTHING`,
 		`INSERT INTO plugin_user_settings(user,plugin,revision,body)
 SELECT ?2,s.plugin,s.revision,s.body FROM plugin_user_settings s
 WHERE s.user=?1 AND NOT EXISTS(SELECT 1 FROM plugin_user_installations t WHERE t.user=?2 AND t.name=s.plugin)
@@ -73,5 +74,5 @@ ON CONFLICT(space,name,key) DO NOTHING`, sourceSpace, targetSpace); err != nil {
 			return err
 		}
 	}
-	return nil
+	return mergeIdentityDispatch(ctx, db, source, target)
 }

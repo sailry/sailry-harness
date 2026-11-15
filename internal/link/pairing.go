@@ -86,36 +86,28 @@ func (result pairingResult) MarshalJSON() ([]byte, error) {
 }
 
 func (result *pairingResult) UnmarshalJSON(encoded []byte) error {
-	if !bytes.HasPrefix(bytes.TrimSpace(encoded), []byte("{")) {
+	var fields struct {
+		OK       json.RawMessage `json:"Ok"`
+		Err      json.RawMessage `json:"Err"`
+		MyDevice bool            `json:"my_device"`
+	}
+	if protocol.DecodeObject(encoded, &fields, nil, true) != nil || (len(fields.OK) == 0) == (len(fields.Err) == 0) {
 		return pairingRejected()
 	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(encoded, &fields) != nil {
-		return pairingRejected()
-	}
-	result.MyDevice = false
-	if proof, ok := fields["my_device"]; ok {
-		if json.Unmarshal(proof, &result.MyDevice) != nil {
+	result.Fault, result.MyDevice = nil, fields.MyDevice
+	if len(fields.OK) != 0 {
+		if !bytes.Equal(bytes.TrimSpace(fields.OK), []byte("null")) {
 			return pairingRejected()
 		}
-		delete(fields, "my_device")
-	}
-	union, err := json.Marshal(fields)
-	if err != nil {
-		return pairingRejected()
-	}
-	kind, payload, err := protocol.UnmarshalUnion(union, "", "", map[string]func() any{
-		"Ok": nil, "Err": func() any { return new(protocol.Fault) },
-	}, false)
-	if err != nil {
-		return pairingRejected()
-	}
-	result.Fault = nil
-	if kind == "Err" {
-		if result.MyDevice {
+	} else {
+		if result.MyDevice || bytes.Equal(bytes.TrimSpace(fields.Err), []byte("null")) {
 			return pairingRejected()
 		}
-		result.Fault = payload.(*protocol.Fault)
+		var failure protocol.Fault
+		if json.Unmarshal(fields.Err, &failure) != nil {
+			return pairingRejected()
+		}
+		result.Fault = &failure
 	}
 	return nil
 }

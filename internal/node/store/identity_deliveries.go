@@ -74,7 +74,7 @@ WHERE m.user=?1 AND p.user=m.user AND p.direction IN ('controller','both') AND m
 			if host.ID == value.device {
 				continue
 			}
-			command := protocol.IdentityCommand{Kind: "sponsor_device", Data: protocol.SponsorDevice{Device: value.device, Address: value.address}}
+			command := protocol.IdentityCommand{Kind: "sponsor_device", Data: protocol.SponsorDevice{Device: value.device, Address: value.address, Generation: value.generation}}
 			if err := queueIdentityDelivery(ctx, db, local.ID, host, value.device, value.generation, "sponsor", command); err != nil {
 				return err
 			}
@@ -122,7 +122,7 @@ func queueIdentityRevocations(ctx context.Context, db *sql.Conn, device protocol
 		return err
 	}
 	for _, target := range targets {
-		command := protocol.IdentityCommand{Kind: "revoke_device", Data: protocol.RevokeDevice{Device: device, ConfirmLast: true, Sponsored: true}}
+		command := protocol.IdentityCommand{Kind: "revoke_device", Data: protocol.RevokeDevice{Device: device, ConfirmLast: true, Sponsored: true, Generation: target.generation}}
 		if err := queueIdentityDelivery(ctx, db, target.user, target.address, device, target.generation, "revoke", command); err != nil {
 			return err
 		}

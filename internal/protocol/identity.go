@@ -115,14 +115,15 @@ func (value *IdentityState) UnmarshalJSON(data []byte) error {
 }
 
 type SponsorDevice struct {
-	Device  NodeID `json:"device"`
-	Address string `json:"address"`
+	Device     NodeID `json:"device"`
+	Address    string `json:"address"`
+	Generation uint64 `json:"generation"`
 }
 
 func (value *SponsorDevice) UnmarshalJSON(data []byte) error {
 	type plain SponsorDevice
 	var decoded plain
-	if err := DecodeObject(data, &decoded, []string{"device", "address"}, false); err != nil {
+	if err := DecodeObject(data, &decoded, []string{"device", "address", "generation"}, false); err != nil {
 		return err
 	}
 	*value = SponsorDevice(decoded)
@@ -148,6 +149,7 @@ type RevokeDevice struct {
 	Device      NodeID `json:"device"`
 	ConfirmLast bool   `json:"confirm_last"`
 	Sponsored   bool   `json:"sponsored"`
+	Generation  uint64 `json:"generation"`
 }
 
 func (value *RevokeDevice) UnmarshalJSON(data []byte) error {

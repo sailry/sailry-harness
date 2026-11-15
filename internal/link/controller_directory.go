@@ -15,7 +15,7 @@ func (store *controllerStore) Relationships(ctx context.Context) ([]PeerRelation
 	defer store.mu.Unlock()
 	values := make([]PeerRelationship, 0, len(store.peers))
 	for _, peer := range store.peers {
-		values = append(values, PeerRelationship{ID: peer.ID, Direct: peer.Direct, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...)})
+		values = append(values, PeerRelationship{ID: peer.ID, Direct: peer.Direct, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...), DirectoryRevision: peer.DirectoryRevision})
 	}
 	return values, nil
 }
@@ -28,16 +28,24 @@ func removeControllerSource(peers *[]controllerPeer, source protocol.NodeID) {
 	*peers = slices.DeleteFunc(*peers, func(peer controllerPeer) bool { return !peer.Direct && !peer.Removed && len(peer.Sources) == 0 })
 }
 
-func (store *controllerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, addresses []EndpointAddress) error {
+func (store *controllerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, revision uint64, addresses []EndpointAddress) error {
 	return store.update(ctx, func(peers *[]controllerPeer) error {
 		verified := false
 		for _, peer := range *peers {
 			if peer.ID == source && peer.MyDevice && !peer.Removed {
+				if revision < peer.DirectoryRevision {
+					return nil
+				}
 				verified = true
 			}
 		}
 		if !verified {
 			return pairingRejected()
+		}
+		for index := range *peers {
+			if (*peers)[index].ID == source {
+				(*peers)[index].DirectoryRevision = revision
+			}
 		}
 		// Remove just this source's origins. Other sources and direct pairings
 		// continue to own the same deduplicated peer identity.

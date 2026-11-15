@@ -691,7 +691,16 @@ CREATE TABLE identity_peer_origins (
     direct INTEGER NOT NULL CHECK(direct IN (0,1)),
     my_device INTEGER NOT NULL CHECK(my_device IN (0,1)),
     removed INTEGER NOT NULL CHECK(removed IN (0,1)),
-    sources BLOB NOT NULL
+    sources BLOB NOT NULL,
+    directory_revision INTEGER NOT NULL DEFAULT 0 CHECK(directory_revision>=0)
+);
+
+CREATE TABLE identity_sponsor_epochs (
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    device BLOB NOT NULL CHECK(length(device)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    revoked INTEGER NOT NULL CHECK(revoked IN (0,1)),
+    PRIMARY KEY(sponsor,device)
 );
 CREATE TABLE IF NOT EXISTS configuration_follow_sources (
  user TEXT PRIMARY KEY REFERENCES users(id),

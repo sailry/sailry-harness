@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -149,6 +150,9 @@ func SponsorIdentityDevice(ctx context.Context, db *sql.Conn, node, caller proto
 	if input.Device == node || input.Device == caller || input.Device == (protocol.NodeID{}) {
 		return result, invalid("invalid sponsored device")
 	}
+	if input.Generation == 0 || input.Generation > math.MaxInt64 {
+		return result, invalid("invalid sponsorship generation")
+	}
 	address, err := identityAddress(input.Device, input.Address)
 	if err != nil {
 		return result, err
@@ -161,6 +165,24 @@ func SponsorIdentityDevice(ctx context.Context, db *sql.Conn, node, caller proto
 		return existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
+		return result, err
+	}
+	var removed bool
+	if err := db.QueryRowContext(ctx, "SELECT coalesce((SELECT removed FROM identity_peer_origins WHERE peer=?1),0)", input.Device[:]).Scan(&removed); err != nil {
+		return result, err
+	}
+	var generation uint64
+	var revoked bool
+	err = db.QueryRowContext(ctx, "SELECT generation,revoked FROM identity_sponsor_epochs WHERE sponsor=?1 AND device=?2", caller[:], input.Device[:]).Scan(&generation, &revoked)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return result, err
+	}
+	if removed || input.Generation < generation || input.Generation == generation && revoked {
+		result.State = "cancelled"
+		_, err = db.ExecContext(ctx, "INSERT INTO identity_sponsorships(sponsor,request,device,user,address,state) VALUES(?1,?2,?3,?4,?5,'cancelled')", caller[:], request.String(), input.Device[:], actor.ID.String(), input.Address)
+		return result, err
+	}
+	if _, err = db.ExecContext(ctx, `INSERT INTO identity_sponsor_epochs(sponsor,device,generation,revoked) VALUES(?1,?2,?3,0) ON CONFLICT(sponsor,device) DO UPDATE SET generation=excluded.generation,revoked=0`, caller[:], input.Device[:], input.Generation); err != nil {
 		return result, err
 	}
 	var owner sql.NullString
@@ -239,6 +261,25 @@ func RevokeIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protoc
 	if input.Device == node {
 		return invalid("the built-in local device cannot be removed")
 	}
+	if input.Sponsored {
+		if input.Generation == 0 || input.Generation > math.MaxInt64 {
+			return invalid("invalid sponsorship generation")
+		}
+		var previous uint64
+		err := db.QueryRowContext(ctx, "SELECT generation FROM identity_sponsor_epochs WHERE sponsor=?1 AND device=?2", caller[:], input.Device[:]).Scan(&previous)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if input.Generation < previous {
+			return nil
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO identity_sponsor_epochs(sponsor,device,generation,revoked) VALUES(?1,?2,?3,1) ON CONFLICT(sponsor,device) DO UPDATE SET generation=excluded.generation,revoked=1`, caller[:], input.Device[:], input.Generation); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE identity_sponsorships SET state='cancelled' WHERE sponsor=?1 AND device=?2", caller[:], input.Device[:]); err != nil {
+			return err
+		}
+	}
 	var owner sql.NullString
 	err = db.QueryRowContext(ctx, "SELECT user FROM link_peers WHERE identity=?1", input.Device[:]).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -249,7 +290,7 @@ func RevokeIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protoc
 	}
 	if input.Sponsored {
 		var sponsored bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM identity_sponsorships WHERE sponsor=?1 AND device=?2 AND user=?3 AND state IN ('pending','accepted'))", caller[:], input.Device[:], actor.ID.String()).Scan(&sponsored); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM identity_sponsorships WHERE sponsor=?1 AND device=?2 AND user=?3)", caller[:], input.Device[:], actor.ID.String()).Scan(&sponsored); err != nil {
 			return err
 		}
 		if !sponsored || !owner.Valid || owner.String != actor.ID.String() {
@@ -267,12 +308,16 @@ func RevokeIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protoc
 			return invalid("confirm removal of the user's last device; its data will remain without device access")
 		}
 	}
-	return RemoveIdentityPeer(ctx, db, input.Device)
+	return removeIdentityPeer(ctx, db, input.Device, !input.Sponsored)
 }
 
 // RemoveIdentityPeer runs at an already authenticated revocation boundary. The
 // durable negative deliveries survive an offline target and keep their IDs.
 func RemoveIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeID) error {
+	return removeIdentityPeer(ctx, db, device, true)
+}
+
+func removeIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeID, localRemoval bool) error {
 	if err := queueIdentityRevocations(ctx, db, device); err != nil {
 		return err
 	}
@@ -282,7 +327,7 @@ func RemoveIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeI
 	if _, err := db.ExecContext(ctx, "UPDATE identity_sponsorships SET state='cancelled' WHERE device=?1 OR sponsor=?1", device[:]); err != nil {
 		return err
 	}
-	if err := removeIdentityPeerOrigins(ctx, db, device); err != nil {
+	if err := removeIdentityPeerOrigins(ctx, db, device, localRemoval); err != nil {
 		return err
 	}
 	return SetLinkTrust(ctx, db, device, false)

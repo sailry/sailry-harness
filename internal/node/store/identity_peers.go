@@ -11,8 +11,8 @@ import (
 )
 
 func IdentityPeerRelationships(ctx context.Context, db *sql.Conn) ([]link.PeerRelationship, error) {
-	rows, err := db.QueryContext(ctx, `SELECT p.identity,coalesce(o.direct,1),coalesce(o.my_device,0),coalesce(o.removed,0),coalesce(o.sources,'[]') FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity
-UNION ALL SELECT peer,direct,my_device,removed,sources FROM identity_peer_origins WHERE NOT EXISTS(SELECT 1 FROM link_peers WHERE identity=peer) ORDER BY 1`)
+	rows, err := db.QueryContext(ctx, `SELECT p.identity,coalesce(o.direct,1),coalesce(o.my_device,0),coalesce(o.removed,0),coalesce(o.sources,'[]'),coalesce(o.directory_revision,0) FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity
+UNION ALL SELECT peer,direct,my_device,removed,sources,directory_revision FROM identity_peer_origins WHERE NOT EXISTS(SELECT 1 FROM link_peers WHERE identity=peer) ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +21,7 @@ UNION ALL SELECT peer,direct,my_device,removed,sources FROM identity_peer_origin
 	for rows.Next() {
 		var value link.PeerRelationship
 		var id, sources []byte
-		if err := rows.Scan(&id, &value.Direct, &value.MyDevice, &value.Removed, &sources); err != nil {
+		if err := rows.Scan(&id, &value.Direct, &value.MyDevice, &value.Removed, &sources, &value.DirectoryRevision); err != nil {
 			return nil, err
 		}
 		if len(id) != len(protocol.NodeID{}) || json.Unmarshal(sources, &value.Sources) != nil {
@@ -38,8 +38,8 @@ func writeIdentityPeer(ctx context.Context, db *sql.Conn, value link.PeerRelatio
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO identity_peer_origins(peer,direct,my_device,removed,sources) VALUES(?1,?2,?3,?4,?5)
-ON CONFLICT(peer) DO UPDATE SET direct=excluded.direct,my_device=excluded.my_device,removed=excluded.removed,sources=excluded.sources`, value.ID[:], value.Direct, value.MyDevice, value.Removed, body)
+	_, err = db.ExecContext(ctx, `INSERT INTO identity_peer_origins(peer,direct,my_device,removed,sources,directory_revision) VALUES(?1,?2,?3,?4,?5,?6)
+ON CONFLICT(peer) DO UPDATE SET direct=excluded.direct,my_device=excluded.my_device,removed=excluded.removed,sources=excluded.sources,directory_revision=excluded.directory_revision`, value.ID[:], value.Direct, value.MyDevice, value.Removed, body, value.DirectoryRevision)
 	return err
 }
 
@@ -63,20 +63,20 @@ func PairIdentityPeer(ctx context.Context, db *sql.Conn, node, peer protocol.Nod
 	return writeIdentityPeer(ctx, db, value)
 }
 
-func removeIdentityPeerOrigins(ctx context.Context, db *sql.Conn, peer protocol.NodeID) error {
+func removeIdentityPeerOrigins(ctx context.Context, db *sql.Conn, peer protocol.NodeID, localRemoval bool) error {
 	values, err := IdentityPeerRelationships(ctx, db)
 	if err != nil {
 		return err
 	}
 	for _, value := range values {
 		if value.ID == peer {
-			value.Direct, value.MyDevice, value.Removed = false, false, true
+			value.Direct, value.MyDevice, value.Removed = false, false, localRemoval
 		}
 		value.Sources = slices.DeleteFunc(value.Sources, func(source protocol.NodeID) bool { return source == peer })
 		if err := writeIdentityPeer(ctx, db, value); err != nil {
 			return err
 		}
-		if !value.Direct && len(value.Sources) == 0 && value.ID != peer {
+		if !value.Direct && len(value.Sources) == 0 && (value.ID != peer || !localRemoval) {
 			if err := SetLinkTrust(ctx, db, value.ID, false); err != nil {
 				return err
 			}
@@ -90,7 +90,7 @@ func removeIdentityPeerOrigins(ctx context.Context, db *sql.Conn, peer protocol.
 	return nil
 }
 
-func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.NodeID, addresses []link.EndpointAddress) error {
+func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.NodeID, revision uint64, addresses []link.EndpointAddress) error {
 	values, err := IdentityPeerRelationships(ctx, db)
 	if err != nil {
 		return err
@@ -99,7 +99,11 @@ func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.N
 	byID := map[protocol.NodeID]link.PeerRelationship{}
 	for _, value := range values {
 		if value.ID == source && value.MyDevice && !value.Removed {
+			if revision < value.DirectoryRevision {
+				return nil
+			}
 			verified = true
+			value.DirectoryRevision = revision
 		}
 		value.Sources = slices.DeleteFunc(value.Sources, func(id protocol.NodeID) bool { return id == source })
 		byID[value.ID] = value

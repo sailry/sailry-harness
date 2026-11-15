@@ -92,8 +92,8 @@ func (peers nodePeerStore) Relationships(ctx context.Context) ([]link.PeerRelati
 	return values, nodeFault(err)
 }
 
-func (peers nodePeerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, addresses []link.EndpointAddress) error {
-	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.ApplyIdentityDirectory(ctx, db, source, addresses) }))
+func (peers nodePeerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, revision uint64, addresses []link.EndpointAddress) error {
+	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.ApplyIdentityDirectory(ctx, db, source, revision, addresses) }))
 }
 
 func StartWithNetwork(ctx context.Context, path string, scope link.NetworkScope) (*Node, error) {

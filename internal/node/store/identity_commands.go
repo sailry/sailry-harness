@@ -63,7 +63,7 @@ func ExecuteIdentityCommand(ctx context.Context, db *sql.Conn, node, caller prot
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		err := RevokeIdentityDevice(ctx, db, node, caller, value)
+		err = RevokeIdentityDevice(ctx, db, node, caller, value)
 		return protocol.Output{Kind: "device_revoked", Data: protocol.DeviceRevoked{Device: value.Device}}, nil, err
 	case "set_user_administrator":
 		value, err := identityPayload[protocol.UserAdministrator](action.Data)
