@@ -2177,7 +2177,7 @@ queue_read: 表示
 chat_assets_title: アクティビティ
 chat_assets_activity: サブエージェント
 chat_assets_changes: 変更
-chat_assets_waiting: エージェントが作業を始めると、進捗・変更・ソースがここに表示されます
+chat_assets_waiting: 進捗や変更はまだありません
 chat_assets_fold: 折りたたむ
 chat_assets_unfold: 展開
 chat_assets_progress: 進捗

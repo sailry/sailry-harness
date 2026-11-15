@@ -228,22 +228,33 @@ func OverviewClosed(s *OverviewState, o *Overview) {
 // what will show. popover closes the popover as a row opens what it names.
 func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 	p := theme.Of(c)
-	ui.Column(c.Key("overview")).FillWidth().MinWidth(0).Gap(20).Children(func() {
-		// The card's head is the status.
+	ui.Column(c.Key("overview")).FillWidth().MinWidth(0).Gap(12).Children(func() {
+		// Every part is a heading over its rows, the parts set apart by a
+		// rule inset to the rows' text. The card's head is the status.
+		first := true
+		rule := func(key string) {
+			if first {
+				first = false
+				return
+			}
+			ui.Row(c.Key("rule-" + key)).FillWidth().PaddingX(8).Children(func() {
+				ui.Box(c).FillWidth().Height(1).Background(p.Border)
+			})
+		}
 		if o.Turn && !card {
+			rule("status")
 			s.status(c, o)
 		}
 		if o.empty() {
-			ui.Column(c.Key("empty")).FillWidth().PaddingY(12).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Box(c).Size(40, 40).Radius(20).Center().Background(p.Muted).Children(func() {
-					ui.Icon(c, icons.Tasks).FontSize(20).TextColor(p.MutedForeground)
-				})
-				ui.Text(c, i18n.T(c, "chat_assets_waiting")).FontSize(14).LineHeight(20.0 / 14).TextAlign(ui.Center).
-					TextColor(p.MutedForeground)
+			// One quiet line: what will come, not instructions.
+			ui.Column(c.Key("empty")).FillWidth().PaddingY(16).Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+				ui.Icon(c, icons.Tasks).FontSize(18)
+				ui.Text(c, i18n.T(c, "chat_assets_waiting")).FontSize(13).TextAlign(ui.Center)
 			})
 			return
 		}
 		section := func(key, label, tally string, rows func()) {
+			rule(key)
 			ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(2).Children(func() {
 				ui.Row(c.Key("heading")).FillWidth().Height(24).Gap(8).Padding(0, 8, 4, 8).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, i18n.T(c, label)).FontSize(13).FontWeight(500).SingleLine().Grow(1).Shrink(1).MinWidth(0).
@@ -252,7 +263,8 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 						ui.Text(c, tally).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
 					}
 				})
-				rows()
+				// The rows stand in from their heading, under it.
+				ui.Column(c.Key("rows")).FillWidth().MinWidth(0).PaddingStart(8).Children(rows)
 			})
 		}
 		row := func(key, name string, content func(), click func()) ui.Element {
@@ -275,16 +287,10 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 				}
 			}
 			section("progress", "chat_assets_progress", fmt.Sprintf("%d/%d", done, n), func() {
-				// The share done, a thin bar over the steps.
-				ui.Row(c.Key("bar")).FillWidth().Padding(0, 8, 6, 8).Children(func() {
-					ui.Box(c.Key("track")).FillWidth().Height(4).Radius(2).Background(p.Muted).Clip().Children(func() {
-						ui.Box(c).WidthPercent(float32(done) * 100 / float32(n)).FillHeight().Radius(2).Background(p.Success)
-					})
-				})
 				// The steps' marks stand under the heading's text, as the
-				// other sections' rows do.
+				// other sections' rows do; the tally tells how far it is.
 				ui.Column(c.Key("steps")).FillWidth().MinWidth(0).PaddingX(8).Children(func() {
-					conversation.Steps(c, o.Steps, o.Active)
+					conversation.QuietSteps(c, o.Steps, o.Active)
 				})
 			})
 		}

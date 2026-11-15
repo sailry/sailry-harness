@@ -520,7 +520,7 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 	ui.Column(c.Key("progress-" + key)).Children(func() {
 		plain(c, "head", head)
 		Rail(c).Padding(4, 0, 8, railPad(textSize(c))).Children(func() {
-			ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { stepRows(c, steps, active, textSize(c)) })
+			ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { stepRows(c, steps, active, textSize(c), false) })
 		})
 	})
 }
@@ -529,11 +529,17 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 // ones struck through, the step in progress shimmering while active. The
 // composer's task capsule shows them, in Kit's 14; the transcript shows
 // them in its text size (stepRows).
-func Steps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, active, 14) }
+func Steps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, active, 14, false) }
+
+// QuietSteps are Steps for a summary that lists a whole plan at a glance
+// (the session overview): a step to a line of 32 DIPs, cut short with its
+// whole text as the tooltip, the settled ones muted but not struck through.
+func QuietSteps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, active, 14, true) }
 
 // stepRows are Steps for text of size: each row 32 DIPs at 14 for a step
-// of one line, a long step wrapping whole under its first line's icon.
-func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
+// of one line, a long step wrapping whole under its first line's icon, or
+// cut to its one line in a summary.
+func stepRows(c *ui.Context, steps []Step, active bool, size float32, summary bool) {
 	p := theme.Of(c)
 	for i, st := range steps {
 		icon, color := icons.CircleCheck, p.MutedForeground
@@ -551,10 +557,20 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 		case StepFailed:
 			icon, color = icons.CircleX, p.Danger
 		}
-		rowSize(ui.Row(c.Key(i)), size, true).Padding(4, 8, 4, 0).Gap(8).Children(func() {
+		row := ui.Row(c.Key(i)).Gap(8)
+		if summary {
+			row.FillWidth().Height(32).PaddingEnd(8).AlignItems(ui.Center)
+		} else {
+			rowSize(row, size, true).Padding(4, 8, 4, 0)
+		}
+		row.Children(func() {
 			// The step in progress turns while the run does, and stands
 			// still once it stopped; the mark is level with the first line.
-			ui.Box(c.Key("mark")).Height(rowHeight(size)).Shrink(0).Center().Children(func() {
+			mark := ui.Box(c.Key("mark")).Shrink(0).Center()
+			if !summary {
+				mark.Height(rowHeight(size))
+			}
+			mark.Children(func() {
 				if st.State == StepInProgress && active {
 					kit.BusySized(c, rowIcon(size)).Label(i18n.T(c, "chat_running"))
 				} else {
@@ -563,7 +579,14 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 			})
 			text := ui.Text(c, st.Text).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(p.Foreground)
 			if st.State == StepCompleted || st.State == StepSkipped {
-				text.Strikethrough().TextColor(p.MutedForeground)
+				text.TextColor(p.MutedForeground)
+				if !summary {
+					text.Strikethrough()
+				}
+			}
+			if summary {
+				level(c, text.SingleLine().Tooltip(st.Text), size, false, st.Text)
+				return
 			}
 			level(c, text, size, true, st.Text)
 		})

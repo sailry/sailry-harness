@@ -2177,7 +2177,7 @@ queue_read: Lire
 chat_assets_title: Activité
 chat_assets_activity: Sous-agents
 chat_assets_changes: Modifications
-chat_assets_waiting: La progression, les modifications et les sources s’affichent ici pendant que l’agent travaille
+chat_assets_waiting: Aucune progression ni modification pour l’instant
 chat_assets_fold: Réduire
 chat_assets_unfold: Développer
 chat_assets_progress: Progression
