@@ -95,7 +95,8 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		}
 		return kit.LeadRow(view, identity, lead, label, description, control), nil
 	case "CardList":
-		return ui.Column(view).FillWidth().Gap(12).Children(func() {
+		// Rows stand 8 apart, as a card SelectableRow list's gap_2 does.
+		return ui.Column(view).FillWidth().Gap(8).Children(func() {
 			if len(element.Children) > 0 {
 				children()
 				return
