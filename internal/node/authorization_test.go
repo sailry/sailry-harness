@@ -46,6 +46,7 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 	}
 	draft := protocol.DefaultProjectsDraft()
 	draft.Name = "Private"
+	draft.Source = protocol.ProjectsSource{Kind: "local"}
 	draft.Path = t.TempDir()
 	created := send(owner, protocol.Command{Kind: "create_project", Data: draft})
 	if created.Fault != nil {

@@ -55,7 +55,7 @@ func DigestOnly(kind string) bool {
 		"save_plugin_settings", "save_plugin_mcp", "install_mcp",
 		"start_connector_login", "submit_connector_input", "update_connection",
 		"save_backup_settings", "restore_backup", "restore_backup_file",
-		"dispatch", "plugin_transaction":
+		"dispatch", "plugin_transaction", "configuration_follow":
 		return true
 	default:
 		return false
@@ -76,7 +76,7 @@ func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request pr
 	if err != nil || previous != nil {
 		return previous, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,at) VALUES(?1,?2,?3,'admitted',?4)", caller[:], request.ID.String(), Body(request.Command, encoded), time.Now().Unix())
+	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,at,scope) VALUES(?1,?2,?3,'admitted',?4,?5)", caller[:], request.ID.String(), Body(request.Command, encoded), time.Now().Unix(), scopeBody(ctx, request))
 	return nil, err
 }
 

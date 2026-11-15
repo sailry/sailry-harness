@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -12,7 +13,7 @@ type userContextKey struct{}
 // WithUser carries a Node-verified principal through admitted asynchronous work.
 // A peer never supplies this value in its request body.
 func WithUser(ctx context.Context, user protocol.User) context.Context {
-	return context.WithValue(ctx, userContextKey{}, user)
+	return context.WithValue(admission.WithUser(ctx, user.ID), userContextKey{}, user)
 }
 
 // CurrentUser defaults only trusted internal maintenance to the local user.

@@ -47,7 +47,7 @@ func (peers nodePeerStore) Remember(ctx context.Context, address link.EndpointAd
 func (peers nodePeerStore) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bool) error {
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error {
 		if !trusted {
-			return store.RemoveIdentityPeer(ctx, db, peer)
+			return store.RevokeIdentityDevice(ctx, db, peers.node, peers.node, protocol.RevokeDevice{Device: peer})
 		}
 		return store.SetLinkTrust(ctx, db, peer, trusted)
 	}))

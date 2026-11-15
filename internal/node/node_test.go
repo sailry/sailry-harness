@@ -1245,6 +1245,7 @@ func secretCommands(canary string) map[string]protocol.Command {
 	imported := protocol.DefaultSessionImport()
 	imported.Source, imported.Config, imported.Provider, imported.Secret = protocol.NodeID{1}, config, provider, &secret
 	return map[string]protocol.Command{
+		"configuration_follow":    {Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &protocol.ConfigurationManifest{Source: protocol.NodeID{1}, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{{ID: provider.ID.String(), Revision: 1, Digest: strings.Repeat("a", 64), Body: json.RawMessage(`{}`), Secret: &secret}}}}},
 		"save_provider":           {Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}},
 		"complete_provider_login": {Kind: "complete_provider_login", Data: &protocol.CommandCompleteProviderLoginPayload{Attempt: protocol.NewRequestID(), Callback: secret}},
 		"import_session":          {Kind: "import_session", Data: &imported},
