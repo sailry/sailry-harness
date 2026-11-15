@@ -479,7 +479,7 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop
 	if s.Running {
 		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
 		if v != nil {
-			kit.Fill(b, v.Composer.Stop, false)
+			kit.Fill(c, b, v.Composer.Stop, false)
 		}
 		kit.Tooltip(c, b, i18n.T(c, "chat_stop"))
 		b.Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
@@ -488,7 +488,7 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop
 	blocked := !s.deliverable(ctx)
 	b := kit.Primary(c.Key("send"), i18n.T(c, "send"), blocked).Size(32, 32).PaddingX(0).Radius(16)
 	if v != nil {
-		kit.Fill(b, v.Composer.Send, blocked)
+		kit.Fill(c, b, v.Composer.Send, blocked)
 	}
 	kit.Tooltip(c, b, i18n.T(c, "send"))
 	b.Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(func() { submit() })

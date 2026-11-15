@@ -170,8 +170,10 @@ func Banner(c *ui.Context, slot string) {
 
 // Fill colors a filled button b with a package's action colors in b's
 // state, as a left-to-right gradient where they have one, with its glow
-// and edge; disabled, it keeps them slightly faded. nil leaves b.
-func Fill(b ui.Element, a *theme.Action, disabled bool) {
+// and edge, its radius, a light inside its rim and one running around its
+// edge where the package sets them; disabled, it keeps them slightly
+// faded. nil leaves b.
+func Fill(c *ui.Context, b ui.Element, a *theme.Action, disabled bool) {
 	if a == nil {
 		return
 	}
@@ -183,6 +185,9 @@ func Fill(b ui.Element, a *theme.Action, disabled bool) {
 	}
 	if a.Border.OK {
 		b.Border(1, a.Border.V)
+	}
+	if a.Radius > 0 {
+		b.Radius(a.Radius)
 	}
 	bg := a.Background.Or(ui.Transparent)
 	switch {
@@ -198,6 +203,20 @@ func Fill(b ui.Element, a *theme.Action, disabled bool) {
 	}
 	if a.Foreground.OK {
 		b.TextColor(a.Foreground.V)
+	}
+	radius := a.Radius
+	if radius <= 0 {
+		radius = theme.Of(c).Radius
+	}
+	glow, end := a.InnerGlow, a.Gradient.Or(bg)
+	flow := a.Flow.OK && moving(c)
+	if glow > 0 || flow {
+		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+			InnerGlow(pt, r, radius, glow, Opaque(bg).Mix(white, 0.35), Opaque(end).Mix(white, 0.35))
+			if flow {
+				EdgeFlow(pt, r, radius, a.Flow.V)
+			}
+		})
 	}
 }
 
@@ -243,7 +262,12 @@ func NewSessionArt(c *ui.Context, b ui.Element) ui.Element {
 		return b
 	}
 	radius := p.Radius
-	return b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+	if a := p.Variant.NewSession; a != nil && a.Radius > 0 {
+		radius = a.Radius
+	}
+	// Under the label, as its Draw: Fill's rim light and running light are
+	// the button's DrawOver.
+	return b.Draw(func(pt *ui.Painter, r ui.Rect) {
 		strip := ui.Rect{X: r.X, Y: r.Y, W: r.W, H: min(r.H, d.Height)}
 		if o := d.Outset; o > 0 {
 			Picture(pt, d, ui.Rect{X: strip.X - o, Y: strip.Y - o, W: strip.W + 2*o, H: strip.H + 2*o})
@@ -285,4 +309,63 @@ func InnerGlow(pt *ui.Painter, r ui.Rect, radius, strength float32, from, to ui.
 			GradientEdge(pt, grown, radius+h, ring.width, from.Alpha(a), to.Alpha(a))
 		}
 	})
+}
+
+// white is the rim's highlight.
+var white = ui.Color{R: 255, G: 255, B: 255, A: 255}
+
+// EdgeFlow paints two lights in color running around r's rounded edge,
+// opposite each other, each a bright head with a fading tail, one lap in
+// four seconds, and asks for the next frame. Custom drawing: MyGo animates
+// properties, not a point along a path.
+func EdgeFlow(pt *ui.Painter, r ui.Rect, radius float32, color ui.Color) {
+	pt.AnimationFrameRate(FPS)
+	rad := max(0, min(radius, r.W/2, r.H/2))
+	phase := float32(pt.Now().UnixMilli()%4000) / 4000
+	const tail = 28
+	for _, start := range []float32{0, 0.5} {
+		for i := tail; i >= 0; i-- {
+			t := phase + start - float32(i)*0.004
+			x, y := edgePoint(r, rad, t-float32(math.Floor(float64(t))))
+			fade := 1 - float32(i)/tail
+			size := 0.5 + 1.5*fade
+			pt.FillRadialGradient(ui.Rect{X: x - size*2, Y: y - size*2, W: size * 4, H: size * 4}, ui.RadialGradient{
+				Radius: size * 2,
+				Stops:  []ui.GradientStop{{At: 0, Color: color.Alpha(0.85 * fade * fade)}, {At: 1, Color: color.Alpha(0)}},
+			}, 0)
+		}
+		x, y := edgePoint(r, rad, phase+start-float32(math.Floor(float64(phase+start))))
+		pt.Fill(ui.Rect{X: x - 1, Y: y - 1, W: 2, H: 2}, white.Alpha(0.95), 1)
+	}
+}
+
+// edgePoint is the point at t, from 0 to 1, along r's edge rounded by rad,
+// clockwise from the top's left end.
+func edgePoint(r ui.Rect, rad, t float32) (float32, float32) {
+	sw, sh := r.W-2*rad, r.H-2*rad
+	arc := rad * math.Pi / 2
+	d := t * (2*sw + 2*sh + 4*arc)
+	corner := func(cx, cy, from float32) (float32, float32) {
+		a := float64(from + d/max(arc, 0.001)*math.Pi/2)
+		return cx + rad*float32(math.Cos(a)), cy + rad*float32(math.Sin(a))
+	}
+	for _, seg := range []struct {
+		length float32
+		at     func() (float32, float32)
+	}{
+		{sw, func() (float32, float32) { return r.X + rad + d, r.Y }},
+		{arc, func() (float32, float32) { return corner(r.X+r.W-rad, r.Y+rad, -math.Pi/2) }},
+		{sh, func() (float32, float32) { return r.X + r.W, r.Y + rad + d }},
+		{arc, func() (float32, float32) { return corner(r.X+r.W-rad, r.Y+r.H-rad, 0) }},
+		{sw, func() (float32, float32) { return r.X + r.W - rad - d, r.Y + r.H }},
+		{arc, func() (float32, float32) { return corner(r.X+rad, r.Y+r.H-rad, math.Pi/2) }},
+		{sh, func() (float32, float32) { return r.X, r.Y + r.H - rad - d }},
+		{arc, func() (float32, float32) { return corner(r.X+rad, r.Y+rad, math.Pi) }},
+	} {
+		if d <= seg.length {
+			return seg.at()
+		}
+		d -= seg.length
+	}
+	return r.X + rad, r.Y
 }

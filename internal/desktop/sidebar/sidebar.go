@@ -219,7 +219,7 @@ func View(c *ui.Context, s *State) {
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
 		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
 		if v := theme.Of(c).Variant; v != nil {
-			kit.Fill(b, v.NewSession, false)
+			kit.Fill(c, b, v.NewSession, false)
 		}
 		kit.NewSessionArt(c, b).Children(func() {
 			ui.Icon(c, icons.Plus).FontSize(16)

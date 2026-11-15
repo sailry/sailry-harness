@@ -146,6 +146,9 @@ func card(c *ui.Context, m mode, stacked bool, prompt func(string)) {
 	if texture := kit.Backdrop(c, "background.card."+m.key); texture != nil {
 		b.Draw(func(pt *ui.Painter, r ui.Rect) { pt.Clip(r, radius, func() { texture(pt, r) }) })
 	}
+	if glow, edge := style.InnerGlow, style.Border.Or(color); glow > 0 {
+		b.DrawOver(func(pt *ui.Painter, r ui.Rect) { kit.InnerGlow(pt, r, radius, glow, edge, edge) })
+	}
 	b.Children(func() {
 		ui.Column(c).FillWidth().MinWidth(0).Gap(16).Children(func() {
 			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {

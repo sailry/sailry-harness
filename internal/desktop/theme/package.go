@@ -122,6 +122,15 @@ type Action struct {
 	// Glow is a soft light around the button; Border a hairline edge.
 	Glow   Color `json:"glow"`
 	Border Color `json:"border"`
+	// Radius, when above 0, rounds the button in place of Kit's radius;
+	// half its height or more makes a pill.
+	Radius float32 `json:"radius"`
+	// InnerGlow, from 0 to 1, lights the button's rim from inside, from
+	// its fill's color on the left to Gradient on the right.
+	InnerGlow float32 `json:"inner_glow"`
+	// Flow, when set, is a light running around the button's edge while
+	// theme motion is on.
+	Flow Color `json:"flow"`
 }
 
 // Card styles a new-session mode card (explore, build, review, plan).
@@ -142,6 +151,9 @@ type Card struct {
 	// Gradient, when set, is the fill's bottom color: the card runs from
 	// its state's color at the top to it.
 	Gradient Color `json:"gradient"`
+	// InnerGlow, from 0 to 1, lights the card's rim from inside in its
+	// border color.
+	InnerGlow float32 `json:"inner_glow"`
 }
 
 // Message styles the user's bubble or the assistant's text.

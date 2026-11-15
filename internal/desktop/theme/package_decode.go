@@ -220,28 +220,35 @@ func (value *Action) UnmarshalJSON(data []byte) error {
 	if !decoded.Background.OK || !decoded.Foreground.OK || !decoded.Hover.OK || !decoded.Active.OK {
 		return errors.New("theme action colors must be strings")
 	}
+	if !themeInteger(decoded.Radius, 0, 32) || !themeRange(decoded.InnerGlow, 0, 1) {
+		return errors.New("invalid theme action dimensions")
+	}
 	*value = Action(decoded)
 	return nil
 }
 func (value *Card) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		Background     *Color `json:"background"`
-		Foreground     *Color `json:"foreground"`
-		Detail         *Color `json:"detail"`
-		Icon           *Color `json:"icon"`
-		Hover          *Color `json:"hover"`
-		Active         *Color `json:"active"`
-		Border         *Color `json:"border"`
-		BorderWidth    uint8  `json:"border_width"`
-		Radius         *uint8 `json:"radius"`
-		Glow           *Color `json:"glow"`
-		IconBackground *Color `json:"icon_background"`
-		Gradient       *Color `json:"gradient"`
+		Background     *Color  `json:"background"`
+		Foreground     *Color  `json:"foreground"`
+		Detail         *Color  `json:"detail"`
+		Icon           *Color  `json:"icon"`
+		Hover          *Color  `json:"hover"`
+		Active         *Color  `json:"active"`
+		Border         *Color  `json:"border"`
+		BorderWidth    uint8   `json:"border_width"`
+		Radius         *uint8  `json:"radius"`
+		Glow           *Color  `json:"glow"`
+		IconBackground *Color  `json:"icon_background"`
+		Gradient       *Color  `json:"gradient"`
+		InnerGlow      float32 `json:"inner_glow"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
 	}
-	*value = Card{}
+	if !themeRange(decoded.InnerGlow, 0, 1) {
+		return errors.New("invalid welcome card inner glow")
+	}
+	*value = Card{InnerGlow: decoded.InnerGlow}
 	if decoded.Background != nil {
 		value.Background = *decoded.Background
 	}

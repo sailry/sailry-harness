@@ -212,14 +212,14 @@ func TestThemeInvalidFixtures(t *testing.T) {
 		setThemeField(value, "/light/assets/composer.top_left/outset", 12)
 		setThemeField(value, "/light/assets/hero.new_session.figure/float", 6)
 		setThemeField(value, "/light/wordmark", map[string]any{"foreground": "#7fe7ff", "gradient": "#ff8ad0", "base": 0.9})
-		gradient := map[string]any{"background": "#58c9f2", "gradient": "#f08acf", "foreground": "#fff", "hover": "#72d4f6", "active": "#43b3dc"}
+		gradient := map[string]any{"background": "#58c9f2", "gradient": "#f08acf", "foreground": "#fff", "hover": "#72d4f6", "active": "#43b3dc", "radius": 16, "inner_glow": 0.9, "flow": "#c9f6ff"}
 		setThemeField(value, "/light/new_session", gradient)
 		data, _ := json.Marshal(value)
 		pkg, err := Parse(data, files)
 		if err != nil {
 			t.Fatalf("a tall floating figure, a corner outset and gradients: %v", err)
 		}
-		if l := pkg.Light; l.NewSession == nil || !l.NewSession.Gradient.OK || l.Wordmark.Base != 0.9 || !l.Wordmark.Gradient.OK || l.Assets["hero.new_session.figure"].Float != 6 {
+		if l := pkg.Light; l.NewSession == nil || !l.NewSession.Gradient.OK || l.NewSession.Radius != 16 || l.NewSession.InnerGlow != 0.9 || !l.NewSession.Flow.OK || l.Wordmark.Base != 0.9 || !l.Wordmark.Gradient.OK || l.Assets["hero.new_session.figure"].Float != 6 {
 			t.Fatalf("the extensions did not decode: %+v %+v", l.NewSession, l.Wordmark)
 		}
 		value, files = themeFixture(t)
@@ -230,6 +230,7 @@ func TestThemeInvalidFixtures(t *testing.T) {
 		setThemeField(value, "/light/cards/explore/gradient", "#163650")
 		setThemeField(value, "/light/composer/background", "#26366e")
 		setThemeField(value, "/light/composer/inner_glow", 0.8)
+		setThemeField(value, "/light/cards/explore/inner_glow", 0.7)
 		setThemeField(value, "/light/composer/send/border", "#ffffff66")
 		setThemeField(value, "/light/hero", map[string]any{"border": "#7fe7ff", "border_gradient": "#ff8ad0", "glow": "#b48cff70"})
 		data, _ = json.Marshal(value)
@@ -238,7 +239,7 @@ func TestThemeInvalidFixtures(t *testing.T) {
 			t.Fatalf("a surfaces preset, composer and card styles: %v", err)
 		}
 		if pkg.Preset() != (Surfaces{Main: 0.7, Sidebar: 0.6, Blur: 0.35}) || !pkg.Light.Composer.BorderGradient.OK || !pkg.Light.Cards["explore"].IconBackground.OK ||
-			!pkg.Light.Cards["explore"].Gradient.OK || !pkg.Light.Composer.Background.OK || pkg.Light.Composer.InnerGlow != 0.8 || !pkg.Light.Composer.Send.Border.OK || !pkg.Light.Hero.Glow.OK {
+			!pkg.Light.Cards["explore"].Gradient.OK || !pkg.Light.Composer.Background.OK || pkg.Light.Composer.InnerGlow != 0.8 || pkg.Light.Cards["explore"].InnerGlow != 0.7 || !pkg.Light.Composer.Send.Border.OK || !pkg.Light.Hero.Glow.OK {
 			t.Fatalf("the extensions did not decode: %+v %+v", pkg.Surfaces, pkg.Light.Composer)
 		}
 		value["surfaces"] = map[string]any{"main": 0.2, "sidebar": 0.6, "blur": 0.35}
@@ -247,7 +248,8 @@ func TestThemeInvalidFixtures(t *testing.T) {
 			t.Fatal("a main opacity below the sliders' range was accepted")
 		}
 		delete(value, "surfaces")
-		for pointer, bad := range map[string]any{"/light/assets/hero.new_session/float": 4, "/light/assets/hero.new_session.figure/float": 13, "/light/wordmark/base": 1.5, "/light/composer/inner_glow": 1.5} {
+		for pointer, bad := range map[string]any{"/light/assets/hero.new_session/float": 4, "/light/assets/hero.new_session.figure/float": 13, "/light/wordmark/base": 1.5, "/light/composer/inner_glow": 1.5,
+			"/light/cards/explore/inner_glow": 2, "/light/composer/send/radius": 33, "/light/composer/send/inner_glow": -1} {
 			value, files := themeFixture(t)
 			setThemeField(value, "/light/wordmark", map[string]any{"foreground": "#aaa"})
 			setThemeField(value, pointer, bad)
