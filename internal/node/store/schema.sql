@@ -693,3 +693,57 @@ CREATE TABLE identity_peer_origins (
     removed INTEGER NOT NULL CHECK(removed IN (0,1)),
     sources BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS configuration_follow_sources (
+ user TEXT PRIMARY KEY REFERENCES users(id),
+ source BLOB CHECK(source IS NULL OR length(source)=32),
+ revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_targets (
+ user TEXT NOT NULL REFERENCES users(id),
+ host BLOB NOT NULL CHECK(length(host)=32),
+ revision INTEGER NOT NULL,
+ configuration INTEGER NOT NULL CHECK(configuration IN (0,1)),
+ secrets INTEGER NOT NULL CHECK(secrets IN (0,1)),
+ failure BLOB,
+ PRIMARY KEY(user,host)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_records (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ id TEXT NOT NULL,
+ source BLOB NOT NULL CHECK(length(source)=32),
+ revision INTEGER NOT NULL,
+ digest TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('applied','pending','conflict','authorization')),
+ materialized INTEGER NOT NULL DEFAULT 0 CHECK(materialized IN (0,1)),
+ message TEXT NOT NULL,
+ body BLOB,
+ PRIMARY KEY(user,category,id)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_versions (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ source BLOB NOT NULL CHECK(length(source)=32),
+ revision INTEGER NOT NULL,
+ digest TEXT NOT NULL,
+ PRIMARY KEY(user,category,source)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_deliveries (
+ user TEXT NOT NULL REFERENCES users(id),
+ host BLOB NOT NULL CHECK(length(host)=32),
+ category TEXT NOT NULL,
+ request BLOB NOT NULL,
+ PRIMARY KEY(user,host,category)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_mcp_overrides (
+ user TEXT NOT NULL REFERENCES users(id),
+ plugin TEXT NOT NULL,
+ server TEXT NOT NULL,
+ PRIMARY KEY(user,plugin,server)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_packages (
+ digest TEXT PRIMARY KEY,
+ name TEXT NOT NULL,
+ body BLOB NOT NULL,
+ mcp BLOB NOT NULL
+);

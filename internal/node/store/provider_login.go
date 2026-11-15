@@ -100,7 +100,7 @@ func providerAuthDeclaration(ctx context.Context, db *sql.Conn, provider protoco
 
 func CaptureProviderLogin(ctx context.Context, db *sql.Conn, id protocol.ProviderID, expected uint64, attempt protocol.RequestID) (ProviderLoginCapture, error) {
 	var capture ProviderLoginCapture
-	if err := checkProviderWrite(ctx, db, id); err != nil {
+	if err := checkProviderWrite(configurationApplyContext(ctx), db, id); err != nil {
 		return capture, err
 	}
 	saved, err := currentProvider(ctx, db, id, &expected)

@@ -16,6 +16,18 @@ func (command Command) Durable() bool {
 		}
 		return true
 	}
+	if command.Kind == "configuration_follow" {
+		var action ConfigurationFollowCommand
+		switch value := command.Data.(type) {
+		case ConfigurationFollowCommand:
+			action = value
+		case *ConfigurationFollowCommand:
+			if value != nil {
+				action = *value
+			}
+		}
+		return action.Action != "read" && action.Action != "manifest" && action.Action != "cache_package" && action.Action != "package_state"
+	}
 	if command.Kind == "dispatch" {
 		var action DispatchCommand
 		switch payload := command.Data.(type) {

@@ -136,6 +136,9 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 		_, err = db.ExecContext(ctx, "UPDATE ssh_profiles SET body=?2 WHERE id=?1", profile.ID.String(), body)
 		return protocol.Output{Kind: "ssh_profile", Data: profile}, []protocol.Event{{Kind: "ssh_changed", Data: profile}}, err
 	case *protocol.CommandRemoveSshPayload:
+		if err := CheckConfigurationEditable(ctx, db, "ssh_profiles", input.Profile.String()); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if _, _, err := ReadSsh(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}

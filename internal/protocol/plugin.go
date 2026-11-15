@@ -463,14 +463,15 @@ func (value *PluginCompatibility) UnmarshalJSON(data []byte) error {
 }
 
 type PluginSummary struct {
-	Compatibility    PluginCompatibility `json:"compatibility"`
-	Name             string              `json:"name"`
-	Revision         uint64              `json:"revision"`
-	Digest           string              `json:"digest"`
-	SettingsRevision uint64              `json:"settings_revision"`
-	Enabled          bool                `json:"enabled"`
-	Version          *string             `json:"version"`
-	Description      *string             `json:"description"`
+	Source           *ConfigurationOrigin `json:"source,omitempty"`
+	Compatibility    PluginCompatibility  `json:"compatibility"`
+	Name             string               `json:"name"`
+	Revision         uint64               `json:"revision"`
+	Digest           string               `json:"digest"`
+	SettingsRevision uint64               `json:"settings_revision"`
+	Enabled          bool                 `json:"enabled"`
+	Version          *string              `json:"version"`
+	Description      *string              `json:"description"`
 }
 
 func DefaultPluginSummary() PluginSummary {

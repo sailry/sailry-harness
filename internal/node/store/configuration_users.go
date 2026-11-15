@@ -44,6 +44,9 @@ func configurationOwner(ctx context.Context, db *sql.Conn, table, id string) (pr
 }
 
 func checkConfigurationOwner(ctx context.Context, db *sql.Conn, table, id string) error {
+	if err := CheckConfigurationEditable(ctx, db, table, id); err != nil {
+		return err
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err

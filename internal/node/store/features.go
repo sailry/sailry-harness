@@ -188,11 +188,15 @@ func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) 
 		return value, err
 	}
 	value.Config = &config
-	return value, nil
+	value.Source, err = configurationOrigin(ctx, db, "defaults", "default")
+	return value, err
 }
 
 // SaveDefaults replaces only the active user's default session configuration.
 func SaveDefaults(ctx context.Context, db *sql.Conn, node protocol.NodeID, input protocol.Defaults) (protocol.Defaults, error) {
+	if err := CheckConfigurationEditable(ctx, db, "defaults", "default"); err != nil {
+		return protocol.Defaults{}, err
+	}
 	current, err := ReadDefaults(ctx, db)
 	if err != nil {
 		return protocol.Defaults{}, err

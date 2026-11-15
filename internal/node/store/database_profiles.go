@@ -52,6 +52,9 @@ func ExecuteDatabaseCommand(ctx context.Context, db *sql.Conn, command protocol.
 		if !valid {
 			break
 		}
+		if err := CheckConfigurationEditable(ctx, db, "database_profiles", input.Profile.String()); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if _, err := currentDatabase(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}

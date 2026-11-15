@@ -81,6 +81,9 @@ func capturedProviderConfiguration(ctx context.Context, db *sql.Conn, captured p
 }
 
 func checkProviderWrite(ctx context.Context, db *sql.Conn, id protocol.ProviderID) error {
+	if err := CheckConfigurationEditable(ctx, db, "providers", id.String()); err != nil {
+		return err
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err

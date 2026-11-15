@@ -853,6 +853,7 @@ func (value *PluginConnectorState) UnmarshalText(data []byte) error {
 }
 
 type PluginConnectorConnection struct {
+	Source        *ConfigurationOrigin     `json:"source,omitempty"`
 	ID            PluginConnectorID        `json:"id"`
 	Package       PluginReference          `json:"package"`
 	Connector     string                   `json:"connector"`

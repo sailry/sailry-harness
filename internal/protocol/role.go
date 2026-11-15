@@ -136,6 +136,7 @@ func (value RoleModel) MarshalJSON() ([]byte, error) {
 }
 
 type RoleProfile struct {
+	Source       *ConfigurationOrigin      `json:"source,omitempty"`
 	ID           RoleID                    `json:"id"`
 	Revision     uint64                    `json:"revision"`
 	Key          string                    `json:"key"`
