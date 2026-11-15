@@ -66,17 +66,17 @@ func appearance(c *ui.Context, look Look) {
 		d.actions = look.Actions
 		gallery.Children(func() {
 			for _, pkg := range theme.Packages() {
-				themeCard(c, pkg, look.Theme, d)
+				themeCard(c, pkg, look, d)
 			}
 		})
-		details(c, d, look.Theme)
+		details(c, d, look)
 		if pkg := d.removing; pkg != nil {
 			open := true
 			if confirm(c, "remove-theme", &open, i18n.T(c, "appearance_uninstall"), i18n.T(c, "appearance_remove", "name", pkg.Name), i18n.T(c, "appearance_uninstall")) {
 				if d.actions != nil && d.actions.Uninstall != nil {
 					d.actions.Uninstall(pkg, func(ok bool) {
 						if ok && *look.Theme == pkg.ID {
-							*look.Theme = ""
+							apply(theme.Builtin, look)
 						}
 					})
 				}
@@ -92,7 +92,7 @@ func appearance(c *ui.Context, look Look) {
 				if imported.details == nil {
 					imported.details = &themeDetails{pkg: imported.Package, open: true, importing: imported}
 				}
-				details(c, imported.details, look.Theme)
+				details(c, imported.details, look)
 				imported.Open = imported.details.open
 			}
 		}
@@ -119,10 +119,15 @@ func appearanceNotice(c *ui.Context, live bool) {
 }
 
 // apply makes pkg the theme.
-func apply(pkg *theme.Package, chosen *string) {
-	*chosen = pkg.ID
+func apply(pkg *theme.Package, look Look) {
+	*look.Theme = pkg.ID
 	if pkg == theme.Builtin {
-		*chosen = ""
+		*look.Theme = ""
+	}
+	// Choosing a theme starts from its transparency preset; the sliders
+	// adjust it from there.
+	if look.Surfaces != nil {
+		*look.Surfaces = pkg.Preset()
 	}
 }
 
@@ -139,9 +144,9 @@ func name(c *ui.Context, pkg *theme.Package) string {
 // it applies the theme; its right-click menu is the system's: Apply, Details,
 // Homepage, Export and Uninstall, the last two for installed packages (the
 // built-in theme is not one).
-func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetails) {
+func themeCard(c *ui.Context, pkg *theme.Package, look Look, d *themeDetails) {
 	p := theme.Of(c)
-	selected := theme.Find(*chosen) == pkg
+	selected := theme.Find(*look.Theme) == pkg
 	title := name(c, pkg)
 	b := ui.ButtonBase(c.Key(pkg.ID)).Label(title).MinWidth(0).Radius(p.RadiusLg).Border(1, p.Border).Clip().
 		Cursor(ui.CursorPointer).AccessSelected(selected)
@@ -160,14 +165,14 @@ func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetail
 				}
 			})
 		})
-	}).OnClick(func() { apply(pkg, chosen) })
+	}).OnClick(func() { apply(pkg, look) })
 	installed := pkg != theme.Builtin
 	if d.live {
 		installed = d.actions != nil && d.actions.Installed != nil && d.actions.Installed(pkg.ID)
 	}
 	b.ContextMenu(func(m *ui.Menu) {
 		if m.Item(i18n.T(c, "appearance_select")).Checked(selected).Chosen() {
-			apply(pkg, chosen)
+			apply(pkg, look)
 		}
 		if m.Item(i18n.T(c, "appearance_details")).Disabled(pkg == theme.Builtin).Chosen() {
 			d.pkg, d.open, d.license = pkg, true, false
@@ -229,7 +234,7 @@ func miniature(c *ui.Context, pkg *theme.Package, dark bool) {
 // the theme in miniature light and dark side by side (stacked under 520), the
 // description, the author, version and identifier, and the license folding
 // its text, over Close and Apply.
-func details(c *ui.Context, d *themeDetails, chosen *string) {
+func details(c *ui.Context, d *themeDetails, look Look) {
 	if !d.open || d.pkg == nil {
 		return
 	}
@@ -301,7 +306,7 @@ func details(c *ui.Context, d *themeDetails, chosen *string) {
 					})
 				})
 			} else {
-				kit.Secondary(c.Key("apply"), i18n.T(c, "appearance_select")).OnClick(func() { apply(pkg, chosen) })
+				kit.Secondary(c.Key("apply"), i18n.T(c, "appearance_select")).OnClick(func() { apply(pkg, look) })
 			}
 		})
 	}).Width(w).Label(title)

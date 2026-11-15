@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"math"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -99,11 +101,12 @@ func Draws(e ui.Element, fn func(*ui.Painter, ui.Rect)) ui.Element {
 // when the theme has no picture there.
 //
 // A cover or fill picture is a card: clipped to the theme's large radius and
-// edged like the composer, its effects over it. A contain picture is a cutout
-// drawn unclipped over its effects, so a halo fades out past the strip. The
-// slot's optional .figure stands on the card's bottom edge, placed across it
-// by its horizontal alignment, and rises above the card where it is taller:
-// the strip reserves that room so it covers nothing above.
+// edged like the composer. A contain picture is a cutout drawn unclipped over
+// its effects, so a halo fades out past the strip. The slot's optional .figure
+// stands on the card's bottom edge, placed across it by its horizontal
+// alignment, rises above the card where it is taller and drifts by its float;
+// the strip reserves that room so it covers nothing above. Over a card the
+// effects drift over the whole strip, figure and frame included.
 func Banner(c *ui.Context, slot string) {
 	p := theme.Of(c)
 	v := p.Variant
@@ -113,28 +116,77 @@ func Banner(c *ui.Context, slot string) {
 	}
 	layers := effects(c, v, slot)
 	figure := v.Asset(slot + ".figure")
-	var rise float32
+	var rise, drift float32
 	if figure != nil {
 		rise = max(0, figure.Height-d.Height)
+		if moving(c) {
+			drift = figure.Float
+		}
 	}
 	card := d.Fit == theme.Cover || d.Fit == theme.Fill
 	radius, edge := p.Radius2xl(), p.Input
-	ui.Box(c.Key(slot)).FillWidth().Height(d.Height + rise).Shrink(0).PassThrough().Draw(func(pt *ui.Painter, r ui.Rect) {
+	strip := ui.Box(c.Key(slot)).FillWidth().Height(d.Height + rise).Shrink(0).PassThrough()
+	if card {
+		strip.Margin(0, 0, 12, 0) // a card keeps clear of the wordmark under it
+	}
+	strip.Draw(func(pt *ui.Painter, r ui.Rect) {
 		band := ui.Rect{X: r.X, Y: r.Y + rise, W: r.W, H: d.Height}
 		if card {
-			pt.Clip(band, radius, func() {
-				Picture(pt, d, band)
-				paintEffects(pt, band, layers)
-			})
+			pt.Clip(band, radius, func() { Picture(pt, d, band) })
 			pt.Stroke(band, edge, radius, 1)
 		} else {
 			paintEffects(pt, band, layers)
 			Picture(pt, d, band)
 		}
 		if figure != nil {
-			Picture(pt, figure, ui.Rect{X: band.X, Y: band.Y + band.H - figure.Height, W: band.W, H: figure.Height})
+			y := band.Y + band.H - figure.Height
+			if drift > 0 {
+				// One slow breath every six seconds; the bottom edge rises
+				// with it, so the waist never shows a gap below the card.
+				pt.AnimationFrameRate(FPS)
+				phase := float64(pt.Now().UnixMilli()%6000) / 6000
+				y -= drift * float32(0.5-0.5*math.Cos(2*math.Pi*phase))
+			}
+			fr := ui.Rect{X: band.X, Y: y, W: band.W, H: figure.Height}
+			// The figure is clipped at the card's bottom, so a rising waist
+			// ends at the card's edge.
+			pt.Clip(ui.Rect{X: r.X, Y: r.Y - figure.Height, W: r.W, H: band.Y + band.H - r.Y + figure.Height}, 0, func() {
+				Picture(pt, figure, fr)
+			})
+		}
+		if card {
+			paintEffects(pt, r, layers)
 		}
 	})
+}
+
+// Fill colors a filled button b with a package's action colors in b's
+// state, as a left-to-right gradient where they have one, with its glow;
+// disabled, it keeps those colors faded. nil leaves b.
+func Fill(b ui.Element, a *theme.Action, disabled bool) {
+	if a == nil {
+		return
+	}
+	if disabled {
+		b.Opacity(0.5)
+	} else if a.Glow.OK {
+		b.Shadow(0, 0, 18, 0, a.Glow.V)
+	}
+	bg := a.Background.Or(ui.Transparent)
+	switch {
+	case disabled:
+	case b.Pressed():
+		bg = a.Active.Or(bg)
+	case b.Hovered():
+		bg = a.Hover.Or(bg)
+	}
+	b.Background(bg)
+	if a.Gradient.OK {
+		b.LinearGradient(ui.LinearGradient{From: bg, To: a.Gradient.V, Angle: 90, Oklab: true})
+	}
+	if a.Foreground.OK {
+		b.TextColor(a.Foreground.V)
+	}
 }
 
 // Brand is the theme's brand mark, a size square. It builds nothing when the
@@ -187,4 +239,19 @@ func NewSessionArt(c *ui.Context, b ui.Element) ui.Element {
 		}
 		pt.Clip(r, radius, func() { Picture(pt, d, strip) })
 	})
+}
+
+// GradientEdge strokes r's rounded edge, width DIPs inside it, from from on
+// the left to to on the right. Custom drawing: an element's Border takes one
+// color.
+func GradientEdge(pt *ui.Painter, r ui.Rect, radius, width float32, from, to ui.Color) {
+	h := width / 2
+	x, y, w, ht := r.X+h, r.Y+h, r.W-width, r.H-width
+	rad := max(0, min(radius-h, w/2, ht/2))
+	k := rad * 0.4477 // 1 - the cubic quarter circle's 0.5523
+	path := new(ui.Path).MoveTo(x+rad, y).LineTo(x+w-rad, y).CubeTo(x+w-k, y, x+w, y+k, x+w, y+rad).
+		LineTo(x+w, y+ht-rad).CubeTo(x+w, y+ht-k, x+w-k, y+ht, x+w-rad, y+ht).
+		LineTo(x+rad, y+ht).CubeTo(x+k, y+ht, x, y+ht-k, x, y+ht-rad).
+		LineTo(x, y+rad).CubeTo(x, y+k, x+k, y, x+rad, y).Close()
+	pt.StrokePathGradient(path, width, ui.LinearGradient{From: from, To: to, Angle: 90, Oklab: true})
 }

@@ -31,7 +31,7 @@ func SetEffects(on bool) { effectsOff.Store(!on) }
 // effects returns the theme's visible effect layers of a surface, or nil
 // when effects are off.
 func effects(c *ui.Context, v *theme.Variant, surface string) []theme.Effect {
-	if v == nil || effectsOff.Load() || c.Preferences().ReduceMotion || c.WindowHidden() {
+	if v == nil || !moving(c) {
 		return nil
 	}
 	var out []theme.Effect
@@ -41,6 +41,12 @@ func effects(c *ui.Context, v *theme.Variant, surface string) []theme.Effect {
 		}
 	}
 	return out
+}
+
+// moving reports whether theme motion is on: effects enabled, motion not
+// reduced and the window showing.
+func moving(c *ui.Context) bool {
+	return !effectsOff.Load() && !c.Preferences().ReduceMotion && !c.WindowHidden()
 }
 
 // paintEffects paints effect layers into r at the current frame's time,

@@ -27,6 +27,17 @@ type Package struct {
 	License  License  `json:"license"`
 	Light    *Variant `json:"light"`
 	Dark     *Variant `json:"dark"`
+	// Surfaces, when set, are the window materials' opacities and blur
+	// that choosing the theme applies (Appearance › Transparency).
+	Surfaces *Surfaces `json:"surfaces"`
+}
+
+// Preset is the Surfaces choosing pkg applies: its own, else the defaults.
+func (pkg *Package) Preset() Surfaces {
+	if pkg == nil || pkg.Surfaces == nil {
+		return DefaultSurfaces
+	}
+	return *pkg.Surfaces
 }
 
 // License covers the package and the assets without one of their own.
@@ -45,6 +56,9 @@ type Variant struct {
 	Messages map[string]Message     `json:"messages"`
 	Wordmark Wordmark               `json:"wordmark"`
 	Effects  map[string][]Effect    `json:"effects"`
+	// NewSession colors the sidebar's New Conversation button, nil for
+	// Kit's primary button.
+	NewSession *Action `json:"new_session"`
 }
 
 // Config is the Kit theme: its colors by key and its radii.
@@ -65,9 +79,17 @@ type Config struct {
 
 // Composer styles the composer surface and its send and stop buttons.
 type Composer struct {
-	// BorderWidth draws the surface's edge in the input border color; zero
-	// keeps the borderless surface.
+	// BorderWidth draws the surface's edge in the input border color, or
+	// Border; zero keeps the borderless surface.
 	BorderWidth float32 `json:"border_width"`
+	Border      Color   `json:"border"`
+	// BorderGradient, when set, is the edge's end color: it runs from
+	// Border on the left to it on the right.
+	BorderGradient Color `json:"border_gradient"`
+	// Glow is a soft light around the surface; Placeholder the empty
+	// draft's text color.
+	Glow        Color   `json:"glow"`
+	Placeholder Color   `json:"placeholder"`
 	Send        *Action `json:"send"`
 	Stop        *Action `json:"stop"`
 }
@@ -78,6 +100,11 @@ type Action struct {
 	Foreground Color `json:"foreground"`
 	Hover      Color `json:"hover"`
 	Active     Color `json:"active"`
+	// Gradient, when set, is the fill's end color: the fill runs from the
+	// state's color on the left to it on the right.
+	Gradient Color `json:"gradient"`
+	// Glow is a soft light around the button.
+	Glow Color `json:"glow"`
 }
 
 // Card styles a new-session mode card (explore, build, review, plan).
@@ -91,6 +118,10 @@ type Card struct {
 	Border      Color    `json:"border"`
 	BorderWidth float32  `json:"border_width"`
 	Radius      *float32 `json:"radius"`
+	// Glow is a soft light around the card; IconBackground a rounded tile
+	// behind its icon.
+	Glow           Color `json:"glow"`
+	IconBackground Color `json:"icon_background"`
 }
 
 // Message styles the user's bubble or the assistant's text.
@@ -102,10 +133,19 @@ type Message struct {
 	Radius      *float32 `json:"radius"`
 }
 
+// WordmarkBase is the wordmark's strength at rest when a package leaves it.
+const WordmarkBase = 0.18
+
 // Wordmark colors the welcome wordmark and its glow.
 type Wordmark struct {
 	Foreground Color `json:"foreground"`
 	Glow       Color `json:"glow"`
+	// Gradient, when set, shades the lettering from Foreground at its left
+	// to it at its right.
+	Gradient Color `json:"gradient"`
+	// Base is the lettering's strength at rest, from 0 to 1, before the
+	// light passing over it.
+	Base float32 `json:"base"`
 }
 
 // Fit is how a decoration fills its box.
@@ -131,7 +171,9 @@ type Decoration struct {
 	TileSize float32 `json:"tile_size"`
 	// Outset is how far corner art and the new session button's ornament
 	// reach past their element's edges, so an ornament can break the frame.
-	Outset  float32  `json:"outset"`
+	Outset float32 `json:"outset"`
+	// Float is how far a hero figure drifts up and down, slowly.
+	Float   float32  `json:"float"`
 	License *License `json:"license"`
 
 	pic *picture
@@ -152,13 +194,14 @@ func (d *Decoration) UnmarshalJSON(b []byte) error {
 		Height    uint16     `json:"height"`
 		TileSize  uint16     `json:"tile_size"`
 		Outset    uint16     `json:"outset"`
+		Float     uint16     `json:"float"`
 		License   *License   `json:"license"`
 	}
 	decoded.Fit, decoded.Alignment, decoded.Opacity, decoded.Height, decoded.TileSize = Cover, [2]float32{0.5, 0.5}, 1, 64, 256
 	if err := decodeThemeObject(b, &decoded, "path"); err != nil {
 		return err
 	}
-	*d = Decoration{Path: decoded.Path, Fit: decoded.Fit, Alignment: decoded.Alignment, Opacity: decoded.Opacity, Height: float32(decoded.Height), TileSize: float32(decoded.TileSize), Outset: float32(decoded.Outset), License: decoded.License}
+	*d = Decoration{Path: decoded.Path, Fit: decoded.Fit, Alignment: decoded.Alignment, Opacity: decoded.Opacity, Height: float32(decoded.Height), TileSize: float32(decoded.TileSize), Outset: float32(decoded.Outset), Float: float32(decoded.Float), License: decoded.License}
 	return nil
 }
 

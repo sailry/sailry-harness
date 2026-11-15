@@ -46,6 +46,9 @@ type Palette struct {
 	SidebarForeground       ui.Color
 	SidebarBorder           ui.Color
 	SidebarAccentForeground ui.Color
+	// SidebarAccent is a package's sidebar.accent.background, the fill of
+	// the chosen sidebar row; zero keeps the mode's neutral fill.
+	SidebarAccent ui.Color
 
 	Surface           ui.Color // group_box: settings groups, cards
 	SurfaceForeground ui.Color
@@ -157,6 +160,9 @@ func palette(pkg *Package, dark bool) *Palette {
 				*f(p) = c.V
 				set[k] = true
 			}
+		}
+		if c := v.Theme.Colors["sidebar.accent.background"]; c.OK {
+			p.SidebarAccent = c.V
 		}
 		if v.Theme.Radius != nil {
 			p.Radius = *v.Theme.Radius
@@ -327,6 +333,9 @@ func Apply(c *ui.Context, id string, m Mode) {
 
 // SidebarItem is the sidebar row fill.
 func (p *Palette) SidebarItem(selected, hovered bool) ui.Color {
+	if selected && p.SidebarAccent.A > 0 {
+		return p.SidebarAccent
+	}
 	if !p.Dark {
 		switch {
 		case selected && hovered:

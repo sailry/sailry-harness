@@ -27,6 +27,11 @@ func (value *Package) UnmarshalJSON(data []byte) error {
 		License     License  `json:"license"`
 		Light       *Variant `json:"light"`
 		Dark        *Variant `json:"dark"`
+		Surfaces    *struct {
+			Main    float32 `json:"main"`
+			Sidebar float32 `json:"sidebar"`
+			Blur    float32 `json:"blur"`
+		} `json:"surfaces"`
 	}
 	if err := decodeThemeObject(data, &decoded, "version", "id", "name", "license", "light", "dark"); err != nil {
 		return err
@@ -50,6 +55,13 @@ func (value *Package) UnmarshalJSON(data []byte) error {
 		}
 	}
 	*value = Package{Version: decoded.Version, ID: decoded.ID, Name: decoded.Name, License: decoded.License, Light: decoded.Light, Dark: decoded.Dark}
+	if s := decoded.Surfaces; s != nil {
+		// The Appearance sliders' ranges: opacity 45–100%, blur 0–100%.
+		if !themeRange(s.Main, 0.45, 1) || !themeRange(s.Sidebar, 0.45, 1) || !themeRange(s.Blur, 0, 1) {
+			return errors.New("invalid theme surfaces")
+		}
+		value.Surfaces = &Surfaces{Main: s.Main, Sidebar: s.Sidebar, Blur: s.Blur}
+	}
 	if decoded.Description != nil {
 		value.Description = *decoded.Description
 	}
@@ -175,14 +187,23 @@ func (value *Config) UnmarshalJSON(data []byte) error {
 
 func (value *Composer) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		BorderWidth uint8   `json:"border_width"`
-		Send        *Action `json:"send"`
-		Stop        *Action `json:"stop"`
+		BorderWidth    uint8   `json:"border_width"`
+		Border         *Color  `json:"border"`
+		BorderGradient *Color  `json:"border_gradient"`
+		Glow           *Color  `json:"glow"`
+		Placeholder    *Color  `json:"placeholder"`
+		Send           *Action `json:"send"`
+		Stop           *Action `json:"stop"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
 	}
 	*value = Composer{BorderWidth: float32(decoded.BorderWidth), Send: decoded.Send, Stop: decoded.Stop}
+	for _, c := range []struct{ from, to *Color }{{decoded.Border, &value.Border}, {decoded.BorderGradient, &value.BorderGradient}, {decoded.Glow, &value.Glow}, {decoded.Placeholder, &value.Placeholder}} {
+		if c.from != nil {
+			*c.to = *c.from
+		}
+	}
 	return nil
 }
 func (value *Action) UnmarshalJSON(data []byte) error {
@@ -199,15 +220,17 @@ func (value *Action) UnmarshalJSON(data []byte) error {
 }
 func (value *Card) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		Background  *Color `json:"background"`
-		Foreground  *Color `json:"foreground"`
-		Detail      *Color `json:"detail"`
-		Icon        *Color `json:"icon"`
-		Hover       *Color `json:"hover"`
-		Active      *Color `json:"active"`
-		Border      *Color `json:"border"`
-		BorderWidth uint8  `json:"border_width"`
-		Radius      *uint8 `json:"radius"`
+		Background     *Color `json:"background"`
+		Foreground     *Color `json:"foreground"`
+		Detail         *Color `json:"detail"`
+		Icon           *Color `json:"icon"`
+		Hover          *Color `json:"hover"`
+		Active         *Color `json:"active"`
+		Border         *Color `json:"border"`
+		BorderWidth    uint8  `json:"border_width"`
+		Radius         *uint8 `json:"radius"`
+		Glow           *Color `json:"glow"`
+		IconBackground *Color `json:"icon_background"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
@@ -238,6 +261,12 @@ func (value *Card) UnmarshalJSON(data []byte) error {
 	if decoded.Radius != nil {
 		radius := float32(*decoded.Radius)
 		value.Radius = &radius
+	}
+	if decoded.Glow != nil {
+		value.Glow = *decoded.Glow
+	}
+	if decoded.IconBackground != nil {
+		value.IconBackground = *decoded.IconBackground
 	}
 	return nil
 }
@@ -275,13 +304,21 @@ func (value *Message) UnmarshalJSON(data []byte) error {
 
 func (value *Wordmark) UnmarshalJSON(data []byte) error {
 	var decoded struct {
-		Foreground *Color `json:"foreground"`
-		Glow       *Color `json:"glow"`
+		Foreground *Color   `json:"foreground"`
+		Glow       *Color   `json:"glow"`
+		Gradient   *Color   `json:"gradient"`
+		Base       *float32 `json:"base"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
 	}
-	*value = Wordmark{}
+	*value = Wordmark{Base: WordmarkBase}
+	if decoded.Gradient != nil {
+		value.Gradient = *decoded.Gradient
+	}
+	if decoded.Base != nil {
+		value.Base = *decoded.Base
+	}
 	if decoded.Foreground != nil {
 		value.Foreground = *decoded.Foreground
 	}

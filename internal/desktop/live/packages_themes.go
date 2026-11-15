@@ -132,7 +132,7 @@ func (r *Runtime) installMarketTheme(id string) {
 	selection := state.themeCatalog.Selection(id)
 	pkg := theme.Find(id)
 	if pkg.ID == id && (selection == nil || !selection.Entry.Newer(pkg)) {
-		root.App.Theme = id
+		root.App.Theme, root.App.Surfaces = id, pkg.Preset()
 		return
 	}
 	if selection == nil {
@@ -232,7 +232,7 @@ func (r *Runtime) uninstallTheme(pkg *theme.Package, done func(bool)) {
 		r.enqueue(func(c *ui.Context) {
 			if err == nil {
 				if r.App.Theme == pkg.ID {
-					r.App.Theme = ""
+					r.App.Theme, r.App.Surfaces = "", theme.DefaultSurfaces
 				}
 			}
 			r.themeReport(c, err, "appearance_removed", "appearance_remove_failed", "workspace_action_unknown")

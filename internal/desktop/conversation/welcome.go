@@ -137,13 +137,21 @@ func card(c *ui.Context, m mode, stacked bool, prompt func(string)) {
 	if style.BorderWidth > 0 {
 		b.Border(style.BorderWidth, style.Border.Or(p.Border))
 	}
+	if style.Glow.OK {
+		b.Shadow(0, 0, 20, 0, style.Glow.V)
+	}
 	if texture := kit.Backdrop(c, "background.card."+m.key); texture != nil {
 		b.Draw(func(pt *ui.Painter, r ui.Rect) { pt.Clip(r, radius, func() { texture(pt, r) }) })
 	}
 	b.Children(func() {
 		ui.Column(c).FillWidth().MinWidth(0).Gap(16).Children(func() {
 			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {
-				kit.ArtIcon(c, m.key, m.icon, 24, icon)
+				if tile := style.IconBackground; tile.OK {
+					ui.Row(c).Size(36, 36).Shrink(0).Radius(10).Background(tile.V).AlignItems(ui.Center).Justify(ui.Center).
+						Children(func() { kit.ArtIcon(c, m.key, m.icon, 22, icon) })
+				} else {
+					kit.ArtIcon(c, m.key, m.icon, 24, icon)
+				}
 				ui.Icon(c, icons.ArrowRight).FontSize(16).TextColor(icon.Alpha(0.5))
 			})
 			ui.Column(c).MinWidth(0).Gap(4).Children(func() {
@@ -199,17 +207,25 @@ func depth(x, y float32) float32 {
 	return stops[len(stops)-1][1]
 }
 
-// wordmark draws the square-dot lettering: its dim base at 18% of the ink,
-// and the particles under a beam that follows the pointer lit up to 86%, the
-// lit particles in the package's glow color, the ink by default; nothing is
-// drawn outside the lettering. Custom drawing: MyGo's Icon tints a picture in
+// wordmark draws the square-dot lettering: its base at the package's rest
+// strength (18% of the ink by default), shaded across to the package's
+// gradient color where it has one, and the particles under a beam that
+// follows the pointer lit up to 86%, the lit particles in the package's glow
+// color, the ink by default; nothing is drawn outside the lettering. Custom drawing: MyGo's Icon tints a picture in
 // one color; the light varies per particle.
 func wordmark(c *ui.Context, s *State, height float32) {
 	p := theme.Of(c)
 	ink, glow := p.Foreground, p.Foreground
+	end, base := ui.Color{}, float32(theme.WordmarkBase)
 	if v := p.Variant; v != nil {
 		ink = v.Wordmark.Foreground.Or(ink)
 		glow = v.Wordmark.Glow.Or(ink)
+		end = v.Wordmark.Gradient.Or(ink)
+		if v.Wordmark.Base > 0 {
+			base = v.Wordmark.Base
+		}
+	} else {
+		end = ink
 	}
 	light, lit := s.light, s.lit
 	ui.Box(c.Key("wordmark")).Size(height*markW/markH, height).Shrink(0).Label(i18n.T(c, "welcome_name")).
@@ -223,7 +239,7 @@ func wordmark(c *ui.Context, s *State, height float32) {
 		for _, q := range particles {
 			x, y := q[0], q[1]
 			rect := ui.Rect{X: r.X + x*sx, Y: r.Y + y*sy, W: dot * sx, H: dot * sy}
-			pt.Fill(rect, ink.Alpha(0.18*depth(x, y)), 0)
+			pt.Fill(rect, ink.Mix(end, x/markW).Alpha(base*depth(x, y)), 0)
 			d := (x + 3 - center) / (markW * 0.13)
 			if strength := float32(math.Exp(float64(-0.5 * d * d))); strength > 0.01 {
 				// The light shows only through the particles, in the

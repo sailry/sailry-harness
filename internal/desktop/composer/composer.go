@@ -291,7 +291,15 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), p.Muted, kit.SurfaceTint)
 	if v := p.Variant; v != nil {
 		if w := v.Composer.BorderWidth; w > 0 {
-			surface.Border(w, p.Input)
+			edge, radius := v.Composer.Border.Or(p.Input), p.Radius2xl()
+			if end := v.Composer.BorderGradient; end.OK {
+				surface.DrawOver(func(pt *ui.Painter, r ui.Rect) { kit.GradientEdge(pt, r, radius, w, edge, end.V) })
+			} else {
+				surface.Border(w, edge)
+			}
+		}
+		if g := v.Composer.Glow; g.OK {
+			surface.Shadow(0, 0, 24, 0, g.V)
 		}
 		if v.Asset("composer.top_left") != nil || v.Asset("composer.bottom_right") != nil {
 			surface.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "composer") })
@@ -316,6 +324,14 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	return surface
 }
 
+// placeholder is the empty draft's color: the package's, else muted.
+func placeholder(p *theme.Palette) ui.Color {
+	if v := p.Variant; v != nil {
+		return v.Composer.Placeholder.Or(p.MutedForeground)
+	}
+	return p.MutedForeground
+}
+
 // input is the draft: Enter sends, or guides the running reply, and in an
 // empty draft sends the first queued message (promote_queued); Shift+Enter
 // breaks the line, Tab queues it while a reply runs, Up puts the last message
@@ -324,7 +340,7 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func() bool) {
 	p := theme.Of(c)
 	area := ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
-		PlaceholderColor(p.MutedForeground).Lines(2, 6).FontSize(14).LineHeight(1.5).TextColor(p.Foreground).
+		PlaceholderColor(placeholder(p)).Lines(2, 6).FontSize(14).LineHeight(1.5).TextColor(p.Foreground).
 		ReadOnly(ctx.Readonly)
 	s.area = area
 	if s.caret >= 0 {
@@ -454,7 +470,7 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop
 	if s.Running {
 		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
 		if v != nil {
-			action(b, v.Composer.Stop, false)
+			kit.Fill(b, v.Composer.Stop, false)
 		}
 		kit.Tooltip(c, b, i18n.T(c, "chat_stop"))
 		b.Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
@@ -463,29 +479,10 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit func() bool, stop
 	blocked := !s.deliverable(ctx)
 	b := kit.Primary(c.Key("send"), i18n.T(c, "send"), blocked).Size(32, 32).PaddingX(0).Radius(16)
 	if v != nil {
-		action(b, v.Composer.Send, blocked)
+		kit.Fill(b, v.Composer.Send, blocked)
 	}
 	kit.Tooltip(c, b, i18n.T(c, "send"))
 	b.Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(func() { submit() })
-}
-
-// action paints send or stop in the package's colors; disabled, the button
-// keeps Kit's look.
-func action(b ui.Element, a *theme.Action, disabled bool) {
-	if a == nil || disabled {
-		return
-	}
-	bg := a.Background.Or(ui.Transparent)
-	switch {
-	case b.Pressed():
-		bg = a.Active.Or(bg)
-	case b.Hovered():
-		bg = a.Hover.Or(bg)
-	}
-	b.Background(bg)
-	if a.Foreground.OK {
-		b.TextColor(a.Foreground.V)
-	}
 }
 
 // contextBar is under the surface: the project and the worktree, then the

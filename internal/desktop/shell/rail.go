@@ -147,7 +147,7 @@ func (a *App) rail(c *ui.Context) {
 				continue
 			}
 			label := i18n.T(c, f.Label)
-			kit.IconButton(c.Key(f.ID), f.Icon, label, RailButton, a.feature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
+			railChosen(c, kit.IconButton(c.Key(f.ID), f.Icon, label, RailButton, a.feature() == f.ID), a.feature() == f.ID).OnClick(func() { a.openFeature(c, f.ID) })
 		}
 		a.moreButton(c)
 		ui.Spacer(c)
@@ -162,9 +162,9 @@ func (a *App) rail(c *ui.Context) {
 			transfers.Button(c, a.installs, &a.installsOpen, retry)
 		}
 		a.hostPicker(c)
-		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open).
+		railChosen(c, kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open), a.search.open).
 			OnClick(func() { a.openSearch() })
-		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage).
+		railChosen(c, kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage), a.Page == SettingsPage).
 			OnClick(a.ToggleSettings)
 	})
 }
@@ -316,7 +316,7 @@ func (a *App) hostPicker(c *ui.Context) {
 		update = update || h.Update
 	}
 	b := kit.MenuButton(c.Key("hosts"), "hosts", func(b ui.Element) {
-		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", RailButton, a.Page == HostPage)
+		railChosen(c, kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", RailButton, a.Page == HostPage), a.Page == HostPage)
 	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
 			// No trailing Update: the right-click menu and the host's
@@ -354,4 +354,14 @@ func (a *App) hostPicker(c *ui.Context) {
 			pt.Fill(ui.Rect{X: r.X + r.W - 12, Y: r.Y + 6, W: 6, H: 6}, p.Primary, 3)
 		})
 	}
+}
+
+// railChosen marks b, the rail's chosen destination, in the package's
+// navigation accent (sidebar.accent.*), as the sidebar marks its chosen row;
+// without one it keeps Kit's selected look.
+func railChosen(c *ui.Context, b ui.Element, chosen bool) ui.Element {
+	if p := theme.Of(c); chosen && p.SidebarAccent.A > 0 {
+		b.Background(p.SidebarAccent).TextColor(p.SidebarAccentForeground)
+	}
+	return b
 }

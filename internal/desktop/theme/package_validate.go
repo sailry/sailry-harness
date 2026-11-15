@@ -87,6 +87,9 @@ func (value *Package) validate() error {
 				return fmt.Errorf("invalid message dimensions: %s", key)
 			}
 		}
+		if !themeRange(variant.Wordmark.Base, 0, 1) {
+			return errors.New("invalid theme wordmark base")
+		}
 		if !themeInteger(variant.Composer.BorderWidth, 0, 4) {
 			return errors.New("invalid composer border width")
 		}
@@ -137,6 +140,9 @@ func (value *Package) validate() error {
 			outset := strings.HasSuffix(slot, ".top_left") || strings.HasSuffix(slot, ".bottom_right") || slot == "button.new_session"
 			if !themeInteger(asset.Outset, 0, 32) || (asset.Outset > 0 && !outset) {
 				return fmt.Errorf("invalid theme decoration outset: %s", slot)
+			}
+			if !themeInteger(asset.Float, 0, 12) || (asset.Float > 0 && slot != "hero.new_session.figure") {
+				return fmt.Errorf("invalid theme decoration float: %s", slot)
 			}
 			if asset.License != nil {
 				if err := asset.License.validate(); err != nil {
