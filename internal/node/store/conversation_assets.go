@@ -209,6 +209,10 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 						targets.push("attachment", &attachment)
 					}
 				case *canonical.ToolResponse:
+					if path, ok := generatedImageAssetFile(value); ok {
+						targets.file(path)
+						break
+					}
 					for index, asset := range agentImageAssets(value) {
 						if err := targets.image(record, worktree, part, uint64(index), asset); err != nil {
 							return nil, err
@@ -264,4 +268,26 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 		}
 	}
 	return targets.items, targets.err
+}
+
+func generatedImageAssetFile(response *canonical.ToolResponse) (string, bool) {
+	if response.Name != "generate_image" || response.Status != canonical.ToolSuccess || response.Format != canonical.JSON || len(response.Attachments) != 1 || len(response.Result.Assets) != 0 {
+		return "", false
+	}
+	asset := response.Attachments[0].Asset
+	if !supportedAgentImage(asset) {
+		return "", false
+	}
+	var result struct {
+		Path      string `json:"path"`
+		MediaType string `json:"media_type"`
+		Size      uint64 `json:"size"`
+	}
+	if json.Unmarshal(response.Result.Value, &result) != nil || !validAssetRelative(result.Path) || result.MediaType != asset.Mime || result.Size != asset.Size {
+		return "", false
+	}
+	// Native generation stores the same bytes in its file and preview attachment.
+	// Prefer its literal workspace path so a later Markdown image publication
+	// refers to one inventory target while canonical image access stays intact.
+	return result.Path, true
 }

@@ -577,8 +577,8 @@ func (node *Node) generateMedia(ctx context.Context, inv *store.AgentInvocation,
 	}
 	result := engine.ToolResult{Value: data}
 	if kind == protocol.MediaKindImage {
-		// The stored image is shown with the tool result; it is never sent
-		// back to the model.
+		// The stored preview remains available to reply embeds and the output
+		// inventory; it is never sent back to the model.
 		var digest string
 		err := node.profile.Store.Node.Write(context.WithoutCancel(ctx), func(db *sql.Conn) error {
 			var err error

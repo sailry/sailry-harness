@@ -410,6 +410,10 @@ text, code, Markdown, notebooks and images; unsupported formats open in the syst
 application. Conversation image assets open directly in the shared window image
 viewer without changing the detail panel. The captured source owner supplies the
 read and image actions; closing or replacing the viewer cancels its pending read.
+Generated-image tool details retain status and parameters while the answer shows
+the image. Its preview attachment remains available to reply embeds; the output
+inventory identifies native generation by its workspace file, so publishing that
+file in the answer does not add another output.
 Session HTML uses a sandboxed MyGo WebView with no privileged bridge.
 
 Voice capture, speech recognition, voice reading and global selection shortcuts

@@ -317,6 +317,13 @@ func (s *State) group(c *ui.Context, run []Call) {
 
 // row is one call: its body is its output.
 func (s *State) row(c *ui.Context, call Call) {
+	if call.Name == "generate_image" && call.Output != nil && len(call.Output.Images) > 0 {
+		// Generated pictures belong in the answer and output inventory. Keep the
+		// original references for reply embeds without repeating the preview here.
+		output := *call.Output
+		output.Images = nil
+		call.Output = &output
+	}
 	if call.Load != nil {
 		if s.requestedDetails == nil {
 			s.requestedDetails = map[string]bool{}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,11 +10,153 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
+
+func TestConversationAssetGeneratedImageAliases(t *testing.T) {
+	t.Parallel()
+	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := context.Background()
+	firstPath, secondPath := "assets/generated/first.png", "assets/generated/second.png"
+	firstBytes, secondBytes := []byte("first generated image"), []byte("second generated image")
+	var preview protocol.ConversationImage
+	var generatedEntry string
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		assets := []canonical.AssetRef{}
+		for _, body := range [][]byte{firstBytes, secondBytes} {
+			digest, err := PutBlob(ctx, db, body)
+			if err != nil {
+				return err
+			}
+			assets = append(assets, canonical.AssetRef{Digest: digest, Mime: "image/png", Size: uint64(len(body))})
+		}
+		input := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Text(0, "See [Input]("+firstPath+")"))), now)
+		input.Provenance.Author = "user"
+		if _, _, err := AppendCanonical(ctx, db, session.ID, input); err != nil {
+			return err
+		}
+		blocks := []canonical.Block{}
+		for index, path := range []string{firstPath, secondPath} {
+			response := conversationGeneratedImageResponse(path, assets[index])
+			response.ID = fmt.Sprintf("generate-%d", index)
+			blocks = append(blocks, canonical.Block{Index: uint64(index), Kind: "tool_response", Data: response})
+		}
+		// A screenshot and a standalone image keep their own targets even when
+		// their bytes match one of the generated files.
+		screenshot := conversationGeneratedImageResponse(firstPath, assets[0])
+		screenshot.ID, screenshot.Name = "screenshot", "computer"
+		blocks = append(blocks,
+			canonical.Block{Index: 2, Kind: "tool_response", Data: screenshot},
+			canonical.Block{Index: 3, Kind: "image", Data: &canonical.AssetContent{Asset: assets[0]}},
+		)
+		generated := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, blocks...)), now.Add(time.Millisecond))
+		generated.Provenance.Author = "tool"
+		entry, _, err := AppendCanonical(ctx, db, session.ID, generated)
+		if err != nil {
+			return err
+		}
+		generatedEntry = entry.ID
+		preview = entry.Parts[0].Data.(*protocol.ConversationPartToolResultPayload).Images[0]
+		publication := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0,
+			"![First]("+firstPath+")\n\n![Second]("+secondPath+")"))), now.Add(2*time.Millisecond))
+		publication.Provenance.Author = "assistant"
+		_, _, err = AppendCanonical(ctx, db, session.ID, publication)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = storage.Node.Read(ctx, func(db *sql.Conn) error {
+		page, err := ListConversationAssets(ctx, db, session.ID, protocol.ConversationAssetsQuery{Limit: 20})
+		if err != nil {
+			return err
+		}
+		if len(page.Groups) != 3 || page.Groups[0].Kind != protocol.ConversationAssetsKindArtifact || page.Groups[1].Kind != protocol.ConversationAssetsKindArtifact || page.Groups[2].Kind != protocol.ConversationAssetsKindResource {
+			return fmt.Errorf("generated output changed inventory ownership: %+v", page.Groups)
+		}
+		for group, paths := range [][]string{{firstPath, secondPath}, {firstPath, secondPath}, {firstPath}} {
+			items := page.Groups[group].Items
+			wantCount := len(paths)
+			if group == 1 {
+				wantCount += 2
+			}
+			if len(items) != wantCount || page.Groups[group].Worktree != session.Worktree {
+				return fmt.Errorf("generated output lost scoped targets: %+v", page.Groups[group])
+			}
+			for index, path := range paths {
+				file, ok := items[index].Data.(*protocol.ConversationAssetsTargetFilePayload)
+				if items[index].Kind != "file" || !ok || file.Path != path {
+					return fmt.Errorf("generation and publication did not share file identity: %+v", items[index])
+				}
+			}
+		}
+		for index, part := range []uint64{2, 3} {
+			item := page.Groups[1].Items[index+2]
+			image, ok := item.Data.(*protocol.ConversationImage)
+			if item.Kind != "image" || !ok || image.Entry != generatedEntry || image.Part != part {
+				return fmt.Errorf("independent image was merged into a generated file: %+v", item)
+			}
+		}
+		body, err := ReadCanonicalImage(ctx, db, session.ID, preview)
+		if err != nil || !bytes.Equal(body, firstBytes) {
+			return fmt.Errorf("inventory changed canonical preview access: %q, %v", body, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGeneratedImageAssetFileRequiresNativeReceipt(t *testing.T) {
+	t.Parallel()
+	asset := canonical.AssetRef{Digest: strings.Repeat("a", 64), Mime: "image/png", Size: 10}
+	for _, test := range []struct {
+		name   string
+		change func(*canonical.ToolResponse)
+		want   string
+	}{
+		{"native", func(*canonical.ToolResponse) {}, "assets/generated/image.png"},
+		{"literal path", func(response *canonical.ToolResponse) {
+			*response = *conversationGeneratedImageResponse("assets/generated/a%20b#1?.png", asset)
+		}, "assets/generated/a%20b#1?.png"},
+		{"other tool", func(response *canonical.ToolResponse) { response.Name = "fixture_publish" }, ""},
+		{"failed generation", func(response *canonical.ToolResponse) { response.Status = canonical.ToolErrorStatus }, ""},
+		{"MCP result", func(response *canonical.ToolResponse) { response.Format = canonical.MCP }, ""},
+		{"different size", func(response *canonical.ToolResponse) { response.Attachments[0].Asset.Size++ }, ""},
+		{"different MIME", func(response *canonical.ToolResponse) { response.Attachments[0].Asset.Mime = "image/jpeg" }, ""},
+		{"multiple images", func(response *canonical.ToolResponse) {
+			response.Attachments = append(response.Attachments, response.Attachments[0])
+		}, ""},
+		{"outside worktree", func(response *canonical.ToolResponse) {
+			*response = *conversationGeneratedImageResponse("../image.png", asset)
+		}, ""},
+		{"encoded JSON string", func(response *canonical.ToolResponse) {
+			response.Result.Value, _ = json.Marshal(string(response.Result.Value))
+		}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := conversationGeneratedImageResponse("assets/generated/image.png", asset)
+			test.change(response)
+			path, ok := generatedImageAssetFile(response)
+			if path != test.want || ok != (test.want != "") {
+				t.Fatalf("ambiguous generation preview alias: %q, %v", path, ok)
+			}
+		})
+	}
+}
+
+func conversationGeneratedImageResponse(path string, asset canonical.AssetRef) *canonical.ToolResponse {
+	body, _ := json.Marshal(map[string]any{"path": path, "media_type": asset.Mime, "size": asset.Size, "provider": "fixture-provider", "model": "fixture-model"})
+	return &canonical.ToolResponse{
+		ID: "generate", Name: "generate_image", Status: canonical.ToolSuccess, Revision: fmt.Sprintf("%x", blake3.Sum256(body)),
+		Result: canonical.Payload{Value: body}, Attachments: []canonical.Attachment{{Asset: asset}},
+	}
+}
 
 func TestConversationAssetInventory(t *testing.T) {
 	t.Parallel()
