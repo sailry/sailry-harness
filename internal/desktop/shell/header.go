@@ -193,7 +193,7 @@ func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size 
 	entry := a.overviewEntry(cv.ID)
 	overview := a.conversationOverview(c, cv, entry.act)
 	entry.state.Docked = a.overviewDocked(overview)
-	composer.OverviewButton(c, &entry.state, overview, size)
+	composer.OverviewButton(c, &entry.state, overview, size, &a.OverviewHidden)
 }
 
 // overviewPopover is a conversation's session overview popover, kept while

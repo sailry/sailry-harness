@@ -11,11 +11,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The overview has a fixed column beside the transcript. The transcript and
-// composer center in the remaining column; narrower windows use a popover.
+// The overview fits in the centered transcript's right margin. A narrower
+// pane uses a popover without shifting the transcript or its composer.
 const (
 	overviewSide    = composer.OverviewWidth + 2*overviewCardInset + 8
-	overviewSideMin = theme.ContentWidth + overviewSide
+	overviewSideMin = theme.ContentWidth + 2*overviewSide
 )
 
 func (a *App) overviewDocked(o *composer.Overview) bool {

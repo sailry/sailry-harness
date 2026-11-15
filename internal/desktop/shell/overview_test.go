@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -30,6 +31,72 @@ func overviewLayoutFixture(t *testing.T, width int) (*App, *ui.Tester) {
 	tt.SetLocale("en")
 	settleOverviewLayout(t, tt)
 	return a, tt
+}
+
+func TestOverviewToggleKeepsConversationCentered(t *testing.T) {
+	f := newOverviewLifecycleFixture(t, 1800)
+	f.loading, f.complete = false, true
+	f.settle()
+	before, input := overviewLayout(t, f.tester)
+	if !layoutNear(input.X+input.W/2, before.X+before.W/2) {
+		t.Fatalf("the visible activity card moved the composer off the pane's center: %v, %v", before, input)
+	}
+	for _, hidden := range []bool{true, false, true} {
+		clickOverviewHeader(t, f.tester)
+		if f.app.OverviewHidden != hidden || f.app.overviews["overview-session"].state.Open() {
+			t.Fatalf("the wide activity button did not toggle its card to hidden=%v", hidden)
+		}
+		_, card := f.tester.AccessByRole(ui.RoleComplementary, i18n.In("en", "chat_assets_title"))
+		if card == hidden {
+			t.Fatalf("activity visibility does not match hidden=%v", hidden)
+		}
+		after, afterInput := overviewLayout(t, f.tester)
+		if after != before || afterInput != input {
+			t.Fatalf("toggling activity shifted the conversation: %v -> %v, %v -> %v", before, after, input, afterInput)
+		}
+	}
+	if !slices.Equal(f.opened, []bool{true, false, true, false}) {
+		t.Fatalf("activity toggle notified its inventory owner %v", f.opened)
+	}
+	prefs := f.app.prefs()
+	restored := NewLive(f.app.Data)
+	restored.SetPrefs(prefs)
+	if !restored.OverviewHidden {
+		t.Fatal("the activity button's visibility choice was not restored")
+	}
+	f.tester.SetSize(1100, 820)
+	settleOverviewLayout(t, f.tester)
+	clickOverviewHeader(t, f.tester)
+	if !f.app.OverviewHidden || !f.app.overviews["overview-session"].state.Open() {
+		t.Fatal("the narrow activity button changed the wide choice or failed to open its popover")
+	}
+	f.tester.SetSize(1800, 820)
+	settleOverviewLayout(t, f.tester)
+	if _, card := f.tester.AccessByRole(ui.RoleComplementary, i18n.In("en", "chat_assets_title")); card || !f.app.OverviewHidden {
+		t.Fatal("returning to a wide pane lost the explicit hidden choice")
+	}
+}
+
+// Crossing the activity breakpoint must not move or rewrap the conversation.
+func TestOverviewBreakpointPreservesCenter(t *testing.T) {
+	boundary := int(RailWidth + 1 + overviewSideMin)
+	a, tt := overviewLayoutFixture(t, boundary)
+	var previousInput ui.Rect
+	for index, width := range []int{boundary - 1, boundary, boundary + 1, boundary - 1} {
+		tt.SetSize(width, 820)
+		log, input := overviewLayout(t, tt)
+		if !layoutNear(input.X+input.W/2, log.X+log.W/2) || !layoutNear(log.X+log.W, float32(width)) {
+			t.Fatalf("crossing the activity breakpoint moved the content or narrowed scrolling: %v, %v", log, input)
+		}
+		_, card := tt.AccessByRole(ui.RoleComplementary, i18n.In("en", "chat_assets_title"))
+		if card != (width >= boundary) || a.OverviewHidden {
+			t.Fatalf("width %d did not adapt activity without changing its visibility choice", width)
+		}
+		if index > 0 && !layoutNear(previousInput.W, input.W) {
+			t.Fatalf("crossing the activity breakpoint rewrapped content: composer width %.1f -> %.1f", previousInput.W, input.W)
+		}
+		previousInput = input
+	}
 }
 
 func settleOverviewLayout(t *testing.T, tt *ui.Tester) {
@@ -66,10 +133,10 @@ func overviewLayoutCard(t *testing.T, tt *ui.Tester) ui.Rect {
 	return card.Bounds
 }
 
-func overviewHasNoCollapse(t *testing.T, tt *ui.Tester) {
+func overviewHasToggle(t *testing.T, tt *ui.Tester) {
 	t.Helper()
-	if _, found := headerButton(tt, i18n.In("en", "chat_assets_title")); found {
-		t.Fatal("the wide conversation keeps an overview button in the header")
+	if _, found := headerButton(tt, i18n.In("en", "chat_assets_title")); !found {
+		t.Fatal("the wide conversation has no activity toggle in the header")
 	}
 	for _, entry := range tt.AccessAll() {
 		if entry.Name == i18n.In("en", "chat_assets_fold") || entry.Name == i18n.In("en", "chat_assets_unfold") {
@@ -88,10 +155,10 @@ func clickOverviewHeader(t *testing.T, tt *ui.Tester) {
 	settleOverviewLayout(t, tt)
 }
 
-// The activity column reserves the same width at medium and wide sizes;
-// it follows the available width without a manual visibility control.
+// The activity card fits beside fully centered content at wide sizes and
+// never narrows the transcript's scroll viewport.
 func TestOverviewDocksWhereItFits(t *testing.T) {
-	for _, width := range []int{1500, 2100} {
+	for _, width := range []int{1700, 2100} {
 		t.Run(strconv.Itoa(width), func(t *testing.T) {
 			a, tt := overviewLayoutFixture(t, width)
 			log, input := overviewLayout(t, tt)
@@ -99,9 +166,9 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 			if math.Abs(float64(a.mainLayoutWidth-log.W)) > 0.5 || math.Abs(float64(card.W-composer.OverviewWidth)) > 0.5 || math.Abs(float64(log.X+log.W-float32(width))) > 0.5 {
 				t.Fatalf("main width %v has scroll viewport %v and card %v; the viewport must reach the window's right edge", a.mainLayoutWidth, log, card)
 			}
-			contentRight := log.X + log.W - overviewSide
-			if math.Abs(float64(log.X+(log.W-overviewSide)/2-input.X-input.W/2)) > 0.5 {
-				t.Fatalf("the composer %v is not centered beside the activity card in viewport %v", input, log)
+			contentRight := log.X + (log.W+theme.ContentWidth)/2
+			if math.Abs(float64(log.X+log.W/2-input.X-input.W/2)) > 0.5 {
+				t.Fatalf("the composer %v is not centered in the full viewport %v", input, log)
 			}
 			if input.X+input.W > contentRight || card.X < contentRight || card.X+card.W > log.X+log.W || card.H > overviewCardMax+8 {
 				t.Fatalf("the card %v overlaps the content or lies outside the viewport %v; composer %v", card, log, input)
@@ -109,7 +176,7 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 			if !tt.HasText("Fixture output") || tt.HasText(i18n.In("en", "chat_assets_waiting")) {
 				t.Fatalf("the card does not show its inventory: %q", tt.Texts())
 			}
-			overviewHasNoCollapse(t, tt)
+			overviewHasToggle(t, tt)
 			snapshot(t, tt, "overview-column-"+strconv.Itoa(width))
 		})
 	}
@@ -157,23 +224,21 @@ func TestOverviewPopoverAndDirectResize(t *testing.T) {
 
 	// A window resize lays out at its destination immediately. Advancing past
 	// the former 200 ms aside animation must not move either column again.
-	for _, width := range []int{1500, 2100, 1500, 1100} {
+	for _, width := range []int{1700, 2100, 1700, 1100} {
 		tt.SetSize(width, 820)
 		tt.Frame()
 		immediate, immediateInput := overviewLayout(t, tt)
-		reserved := float32(0)
-		if width >= 1500 {
-			reserved = overviewSide
+		if width >= 1700 {
 			card := overviewLayoutCard(t, tt)
-			overviewHasNoCollapse(t, tt)
-			if card.X < immediate.X+immediate.W-reserved {
+			overviewHasToggle(t, tt)
+			if card.X < immediate.X+(immediate.W+theme.ContentWidth)/2 {
 				t.Fatalf("resizing to %d overlapped the overview and transcript", width)
 			}
 		}
 		if math.Abs(float64(a.mainLayoutWidth-immediate.W)) > 0.5 || math.Abs(float64(immediate.X+immediate.W-float32(width))) > 0.5 {
 			t.Fatalf("resizing to %d left a narrowed scroll viewport %v; main width %v", width, immediate, a.mainLayoutWidth)
 		}
-		if math.Abs(float64(immediate.X+(immediate.W-reserved)/2-immediateInput.X-immediateInput.W/2)) > 0.5 {
+		if math.Abs(float64(immediate.X+immediate.W/2-immediateInput.X-immediateInput.W/2)) > 0.5 {
 			t.Fatalf("resizing to %d left composer %v outside the content center of viewport %v", width, immediateInput, immediate)
 		}
 		settleOverviewLayout(t, tt)
@@ -182,7 +247,7 @@ func TestOverviewPopoverAndDirectResize(t *testing.T) {
 			t.Fatalf("resizing to %d lagged: transcript %v -> %v, composer %v -> %v", width, immediate, settled, immediateInput, settledInput)
 		}
 		entry := a.overviews["overview-layout"]
-		if width >= 1500 {
+		if width >= 1700 {
 			if entry.state.Open() || !entry.state.Docked || !slices.Equal(notifications, []bool{true, false, true}) {
 				t.Fatalf("the automatic overview column changed ownership: %+v, %v", entry, notifications)
 			}

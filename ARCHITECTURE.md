@@ -379,11 +379,12 @@ keyboard behavior. CrychicUI components use the adapters where external data or
 presentation needs them. Floating surfaces remain Kit's frost; right-click menus
 and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
 
-Wide conversations reserve fixed content space for an activity card at the right
-and center the messages and composer in the remaining space. The transcript's
-scroll viewport fills the main pane, with its scrollbar at the pane's right edge.
-Narrow or split panes use the header popover and return that content space to the
-transcript. Loading activity never changes that layout. During sidebar and
+Conversations center the messages and composer in the whole main pane. The
+transcript's scroll viewport fills that pane, with its scrollbar at the right
+edge. Wide panes show an activity card in the transcript's right margin, with a
+header button that saves its visibility choice. Narrow or split panes use the
+header popover without changing that choice or shifting the transcript. Loading
+activity never changes that layout. During sidebar and
 detail-panel transitions the transcript is laid out at its destination width and
 translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.

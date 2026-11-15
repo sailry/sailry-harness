@@ -98,6 +98,9 @@ type App struct {
 	// column and leaves the choice as it is.
 	NavOpen  bool
 	NavWidth float32
+	// OverviewHidden is the header button's saved choice. A narrow pane
+	// uses a popover without changing the wide pane's choice.
+	OverviewHidden bool
 	// PluginNavigation is the resource navigation supplied by the mounted
 	// package page. The Shell owns its position, width and fold toggle.
 	PluginNavigation func(*ui.Context)
@@ -754,22 +757,17 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	// The activity card reserves content width independently of loading or
-	// inventory. The scroll viewport still fills the pane; only the turns,
-	// composer and navigation center in the space beside the card.
+	// The turns and composer stay centered in the full pane. The activity
+	// card fits in its right margin, or uses the header popover when narrow.
 	entry := a.overviewEntry(cv.ID)
 	entry.act = act
 	overview := a.conversationOverview(c, cv, act)
 	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 	bounds := row.Bounds()
 	entry.state.Docked = a.overviewDocked(overview)
-	docked := entry.state.Docked
+	docked := entry.state.Docked && !a.OverviewHidden
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
-			if docked {
-				a.Messages.Aside = overviewSide
-				defer func() { a.Messages.Aside = 0 }()
-			}
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
 				composer.View(c, comp, ctx, act)
 			})

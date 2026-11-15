@@ -114,26 +114,39 @@ func (s *OverviewState) sync(o *Overview) {
 	}
 }
 
-// OverviewButton opens the activity popover when the pane has no room for
-// its fixed column. Wide panes show the column without a visibility toggle.
-func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32) {
+// OverviewButton toggles the activity card in a wide pane and opens the
+// popover in a narrow pane. The card's visibility is a window preference.
+func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32, hidden *bool) {
 	if !o.Session || s.Docked {
 		s.open = false
 	}
-	if s.Docked {
-		return
+	if !s.Docked {
+		s.sync(o)
 	}
-	s.sync(o)
 	title := i18n.T(c, "chat_assets_title")
 	shown := s.open
+	docked := s.Docked
+	if docked {
+		shown = !*hidden
+	}
 	trigger := kit.IconButton(c.Key("overview"), icons.Tasks, title, size, shown).Disabled(!o.Session).
-		OnClick(func() { s.open = !s.open }).HasPopup(ui.PopupDialog)
+		OnClick(func() {
+			if docked {
+				*hidden = !*hidden
+			} else {
+				s.open = !s.open
+			}
+		})
 	if o.Active && !shown {
 		p := theme.Of(c)
 		trigger.Children(func() {
 			ui.Box(c.Key("running")).Absolute().Top(size/2-9).Right(size/2-9).Size(6, 6).Radius(3).Background(p.Primary).PassThrough()
 		})
 	}
+	if docked {
+		return
+	}
+	trigger.HasPopup(ui.PopupDialog)
 	_, height := c.Size()
 	panel := kit.Popover(c, trigger, &s.open, func() {
 		ui.Scroll(c.Key("overview-body")).MaxHeight(max(height-128, 120)).Children(func() { s.body(c, o, true, false) })

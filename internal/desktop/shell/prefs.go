@@ -25,7 +25,7 @@ import (
 type Prefs struct {
 	NavWidth float32 `json:"navWidth"`
 	NavOpen  bool    `json:"navOpen"`
-	// OverviewHidden is a legacy preference, ignored by the responsive column.
+	// OverviewHidden hides the activity card in a wide conversation pane.
 	OverviewHidden bool        `json:"overviewHidden,omitempty"`
 	PanelWidth     float32     `json:"panelWidth"`
 	PanelOpen      bool        `json:"panelOpen"`
@@ -104,7 +104,7 @@ func SavePrefs(dir string, p Prefs) error {
 // prefs are the preferences of the stage on the window (Prefs).
 func (a *App) prefs() Prefs {
 	p := Prefs{
-		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
+		NavWidth: a.NavWidth, NavOpen: a.NavOpen, OverviewHidden: a.OverviewHidden, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
 		Panels:           a.savedPanels(),
 		PluginWorkspaces: a.savedPluginWorkspaces(),
@@ -133,6 +133,7 @@ func (a *App) prefs() Prefs {
 // SetPrefs applies preferences, as at start-up.
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
+	a.OverviewHidden = p.OverviewHidden
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
 	a.pluginWorkspaces = make(map[string]*PluginWorkspacePrefs, len(p.PluginWorkspaces))
 	for key, value := range p.PluginWorkspaces {
