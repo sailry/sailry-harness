@@ -198,3 +198,119 @@ func toastChannelDifference(a, b uint8) int {
 	}
 	return int(b - a)
 }
+
+func TestToastPublishedFromOpenDialog(t *testing.T) {
+	for _, source := range []string{"dialog action", "queued result"} {
+		t.Run(source, func(t *testing.T) {
+			outer, inner, queued := true, true, false
+			var danger ui.Color
+			const message = "Unable to read folder"
+			window := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				danger = theme.Of(c).Danger
+				if queued {
+					queued = false
+					Toast(c, Failed, message)
+				}
+				Dialog(c.Key("outer"), &outer, func() { ui.Box(c).Size(480, 280) })
+				Dialog(c.Key("inner"), &inner, func() {
+					ui.Column(c).Width(552).Height(352).Padding(40).Children(func() {
+						Secondary(c, "Read folder").OnClick(func() {
+							if source == "dialog action" {
+								Toast(c, Failed, message)
+							} else {
+								queued = true
+							}
+						})
+					})
+				}, DialogOptions{Bleed: true})
+				ToastHost(c)
+			}, 600, 400)
+			window.SetLocale("en")
+			window.Frame()
+			window.Advance(time.Second)
+			if err := window.Click("Read folder"); err != nil {
+				t.Fatal(err)
+			}
+			window.Frame()
+			window.Advance(time.Second)
+			if !window.HasText(message) || !outer || !inner {
+				t.Fatalf("the open modal swallowed the result: outer=%v inner=%v texts=%q", outer, inner, window.Texts())
+			}
+			var bounds ui.Rect
+			for _, item := range window.AccessAll() {
+				if item.Role == ui.RoleStatus {
+					bounds = item.Bounds
+				}
+			}
+			pixels, solid := window.Image(), 0
+			for y := int(bounds.Y); y < int(bounds.Y+bounds.H); y++ {
+				for x := int(bounds.X); x < int(bounds.X+bounds.W); x++ {
+					p := pixels.RGBAAt(x, y)
+					if toastChannelDifference(p.R, danger.R) <= 2 && toastChannelDifference(p.G, danger.G) <= 2 && toastChannelDifference(p.B, danger.B) <= 2 {
+						solid++
+					}
+				}
+			}
+			if solid < 4 {
+				t.Fatalf("the modal covered or dimmed the new toast's error icon: %d solid pixels, bounds=%v", solid, bounds)
+			}
+		})
+	}
+}
+
+func TestToastSurfaceResistsModalBackdropDimming(t *testing.T) {
+	outer, inner, publish, fresh := false, false, true, false
+	window := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		c.Root().Background(theme.Of(c).Background)
+		if publish {
+			publish = false
+			c.AddToast(ui.Toast{ID: "surface-before", Type: "error", Title: "Unable to read folder", Timeout: time.Minute})
+		}
+		Dialog(c.Key("outer"), &outer, func() { ui.Box(c).Size(640, 440) })
+		Dialog(c.Key("inner"), &inner, func() {
+			ui.Box(c).Size(952, 680)
+			if fresh {
+				fresh = false
+				c.CloseToast("surface-before")
+				c.AddToast(ui.Toast{ID: "surface-after", Type: "error", Title: "Unable to read folder", Timeout: time.Minute})
+			}
+		}, DialogOptions{Bleed: true}).Label("Folder picker")
+		ToastHost(c)
+	}, 1000, 1000)
+	window.SetLocale("en")
+	status := func() ui.Rect {
+		t.Helper()
+		for _, item := range window.AccessAll() {
+			if item.Role == ui.RoleStatus {
+				return item.Bounds
+			}
+		}
+		t.Fatal("the fixture toast did not appear")
+		return ui.Rect{}
+	}
+	window.Frame()
+	window.Advance(time.Second)
+	beforeBounds := status()
+	// The lower centre is the surface itself, clear of text, icon, border
+	// and rounded corners. A tall window leaves the toast over the modal
+	// masks above both centred panels, as in the reported folder picker.
+	point := image.Pt(int(beforeBounds.X+beforeBounds.W/2), int(beforeBounds.Y+beforeBounds.H-6))
+	before := window.Image().RGBAAt(point.X, point.Y)
+	outer, inner = true, true
+	window.Frame()
+	window.Advance(time.Second)
+	fresh = true
+	window.Frame()
+	window.Advance(time.Second)
+	afterBounds := status()
+	panel, ok := window.AccessByRole(ui.RoleDialog, "Folder picker")
+	if !ok || afterBounds.Y+afterBounds.H >= panel.Bounds.Y || point.X <= int(afterBounds.X) || point.X >= int(afterBounds.X+afterBounds.W) {
+		t.Fatalf("the fixture toast no longer sits over the masks outside the panels: toast=%v panel=%+v", afterBounds, panel)
+	}
+	after := window.Image().RGBAAt(point.X, point.Y)
+	if toastChannelDifference(before.R, after.R) > 16 || toastChannelDifference(before.G, after.G) > 16 || toastChannelDifference(before.B, after.B) > 16 {
+		t.Fatalf("the modal masks visibly dimmed the foreground notification surface: %v became %v", before, after)
+	}
+}

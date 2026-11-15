@@ -14,12 +14,16 @@ import (
 // 1 DIP edge a step off that surface. No background or shadow. It is the
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
+	return floating(c, el, FloatingTint)
+}
+
+func floating(c *ui.Context, el ui.Element, tint float32) ui.Element {
 	p := theme.Of(c)
 	surface := p.Floating().Over(Opaque(p.Background))
 	if p.Dark {
 		surface = surface.Mix(Opaque(p.Foreground), FloatingLift)
 	}
-	m := frost{blur: FloatingBlur, base: surface, tint: surface.Alpha(FloatingTint)}
+	m := frost{blur: FloatingBlur, base: surface, tint: surface.Alpha(tint)}
 	return m.on(c, el.Radius(p.RadiusLg)).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
 }
 

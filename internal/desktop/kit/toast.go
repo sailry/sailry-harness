@@ -46,6 +46,9 @@ const (
 	toastMax  = 420
 	toastGap  = 12
 	toastPeek = 12
+	// A toast stays visually above a modal even where its frost samples
+	// the darkened page outside the dialog's panel.
+	toastTint = 0.9
 )
 
 // ToastBodyAction in ui.Toast.Data makes the toast's body run its Action
@@ -137,7 +140,7 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 	var root ui.Element
 	lane.Children(func() {
 		parts = ui.ToastBase(c, t)
-		root = Floating(c, parts.Root.MinWidth(toastMin).MaxWidthPercent(100).TransformOrigin(0.5, 0).Clip()).FontSize(14)
+		root = floating(c, parts.Root.MinWidth(toastMin).MaxWidthPercent(100).TransformOrigin(0.5, 0).Clip(), toastTint).FontSize(14)
 	})
 	root.Transition(toastEnter)
 	height := heights[t.ID]
