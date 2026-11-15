@@ -209,7 +209,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 				hint = t("authorization_browser")
 			}
 			if hint != "" {
-				ui.Text(c, hint).FontSize(12).TextAlign(ui.Center).Margin(4, 0, 0, 0).TextColor(p.MutedForeground)
+				ui.Text(c, hint).FontSize(14).TextAlign(ui.Center).Margin(4, 0, 0, 0).TextColor(p.MutedForeground)
 			}
 			if a.Code != "" && a.Flow != FlowBrowser && a.Flow != FlowStarting {
 				ui.Row(c.Key("code")).Gap(4).Margin(22, 0, 0, 0).Opacity(map[bool]float32{true: 0.5, false: 1}[a.Flow != FlowDevice]).Children(func() {
@@ -245,7 +245,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 				}
 			}
 			if status != "" {
-				ui.Row(c.Key("status")).Height(18).Gap(6).Margin(16, 0, 0, 0).Children(func() {
+				ui.Row(c.Key("status")).Height(20).Gap(6).Margin(16, 0, 0, 0).Children(func() {
 					if spin {
 						kit.Busy(c)
 					}
@@ -253,7 +253,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 					if warn {
 						col = p.Warning
 					}
-					ui.Text(c, status).FontSize(12).TextColor(col)
+					ui.Text(c, status).FontSize(14).TextColor(col)
 				})
 			}
 			callback := a.Callback && a.Flow == FlowBrowser && !a.Busy && !a.Cancelling
