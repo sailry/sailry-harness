@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'icons.dart';
+import 'theme.dart';
 
 /// A choice among a few equal segments, after Desktop's segmented tabs: a
 /// muted track whose chosen segment is inverted (the text color behind the
@@ -54,7 +55,7 @@ class Segments<T> extends StatelessWidget {
                 heightFactor: 1,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: colors.onSurface,
+                    color: SailryTheme.brand(context).color,
                     borderRadius: BorderRadius.circular(7),
                   ),
                 ),
@@ -74,7 +75,14 @@ class Segments<T> extends StatelessWidget {
 
   Widget _segment(BuildContext context, T value, bool chosen) {
     final colors = Theme.of(context).colorScheme;
-    final color = chosen ? colors.surface : colors.onSurfaceVariant;
+    final brand = SailryTheme.brand(context).color;
+    // The chosen segment's text and icon read on the brand fill: light on
+    // a deep brand color, dark on a pale one.
+    final onBrand =
+        ThemeData.estimateBrightnessForColor(brand) == Brightness.dark
+        ? Colors.white
+        : const Color(0xff1c1b17);
+    final color = chosen ? onBrand : colors.onSurfaceVariant;
     final text = label(value);
     final content = icon == null
         ? AnimatedDefaultTextStyle(

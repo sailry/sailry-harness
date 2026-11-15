@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'theme.dart';
+
 /// The platform's switch at four fifths of its size, laid out at that size:
 /// the stock one reads heavy beside the app's 15-point rows. Neither theme
 /// can size a switch, so it is scaled here, once for every row.
@@ -17,6 +19,8 @@ class AppSwitch extends StatelessWidget {
       child: Switch.adaptive(
         value: value,
         onChanged: onChanged,
+        // On in the chosen brand color, as the app's other selections.
+        activeTrackColor: SailryTheme.brand(context).color,
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     ),
