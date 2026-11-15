@@ -1302,13 +1302,13 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 			}
 		}
 	}
+	// A group is a row of the capability table: its label in the first
+	// column, sized to the longest, and its boxes beside it.
 	group := func(key string, boxes func()) {
-		ui.Row(c.Key(key)).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, t(key)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
-			boxes()
-		})
+		ui.Text(c.Key(key+"-label"), t(key)).FontSize(12).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
+		ui.Row(c.Key(key)).Wrap().GapX(16).GapY(6).AlignItems(ui.Center).MinWidth(0).Children(boxes)
 	}
-	ui.Column(c.Key("capabilities")).Gap(6).Children(func() {
+	ui.Column(c.Key("capabilities")).Gap(10).Children(func() {
 		ui.Row(c.Key("heading")).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, t("provider_capabilities")).FontSize(14).FontWeight(500).Grow(1).Shrink(1).MinWidth(0).SingleLine().TextColor(p.PopoverForeground)
 			if x.CustomCapabilities {
@@ -1325,7 +1325,7 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 		surface := *c.Theme()
 		surface.Background = ui.Transparent
 		ui.Themed(c, &surface).Background(ui.Transparent).Children(func() {
-			ui.Row(c).Wrap().Gap(20).Children(func() {
+			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(16).GapY(10).Children(func() {
 				group("provider_cap_understands", func() { check("provider_cap_understands", "vision", "media_image", &x.Vision) })
 				group("provider_cap_can", func() {
 					check("provider_cap_can", "tools", "provider_cap_tools", &x.Tools)
