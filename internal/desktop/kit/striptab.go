@@ -44,32 +44,36 @@ func StripTabBody(c *ui.Context, b ui.Element, icon *ui.SVG, label string, activ
 // StripTabBodyWith is a strip tab's content: its lead, as an icon or a
 // session's status mark, the title, and its close button. The button takes
 // no room, so the strip never moves: while the pointer is over the tab or
-// the button has the keyboard focus, it floats at the tab's end and the tab
-// keeps the width it had. The lead then gives way, the title moving into
-// its place, so the button covers none of the title; a tab without a lead
-// cuts its title short instead. A nil lead has none, and a nil close no
-// button.
+// the button has the keyboard focus, it floats over the title's end, the
+// tab keeping the width it had and the title clipped before the button. A
+// nil lead has none, and a nil close no button.
 func StripTabBodyWith(c *ui.Context, b ui.Element, lead func(), label string, active, hovered bool, closeLabel string, close func()) ui.Element {
 	return b.Children(func() {
-		var x ui.Element
-		shown := false
-		if close != nil {
-			x = IconButton(c.Key("close"), icons.Close, closeLabel, 20, false).OnClick(close).
-				Absolute().Right(4).Top((StripTabHeight - 20) / 2)
-			shown = hovered || x.FocusVisible()
-			if !shown {
-				x.Opacity(0)
-			} else if w := b.LayoutBounds().W; w > 0 {
-				b.Width(w)
-			}
-		}
-		if lead != nil && !shown {
+		if lead != nil {
 			ui.Row(c.Key("lead")).Shrink(0).AlignItems(ui.Center).Children(lead)
 		}
-		text := ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-		if shown && lead == nil {
-			text.PaddingEnd(20)
+		// At rest a long title ends in an ellipsis; under the button it is
+		// clipped instead.
+		title := ui.Row(c.Key("title")).Shrink(1).MinWidth(0).ClipX().Children(func() {
+			text := ui.Text(c, label).FontSize(14).SingleLine().MinWidth(0)
+			if close != nil && hovered {
+				text.Shrink(0)
+			}
+		})
+		if close == nil {
+			return
 		}
+		x := IconButton(c.Key("close"), icons.Close, closeLabel, 20, false).OnClick(close).
+			Absolute().Right(4).Top((StripTabHeight - 20) / 2)
+		if !hovered && !x.FocusVisible() {
+			x.Opacity(0)
+			return
+		}
+		if w := b.LayoutBounds().W; w > 0 {
+			b.Width(w)
+		}
+		// Clear of the button, 4 from the tab's end: past the padding's 8.
+		title.MarginEnd(16)
 	})
 }
 
