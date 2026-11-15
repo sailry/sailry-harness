@@ -204,4 +204,26 @@ func TestThemeInvalidFixtures(t *testing.T) {
 			t.Fatalf("missing effect artwork: %v", err)
 		}
 	})
+	// A hero figure may be taller than other decorations, but needs the
+	// hero it stands on; only corners and the button ornament take an outset.
+	t.Run("hero figure and outset", func(t *testing.T) {
+		value, files := themeFixture(t)
+		setThemeField(value, "/light/assets/hero.new_session.figure/height", 300)
+		setThemeField(value, "/light/assets/composer.top_left/outset", 12)
+		data, _ := json.Marshal(value)
+		if _, err := Parse(data, files); err != nil {
+			t.Fatalf("a tall figure and a corner outset: %v", err)
+		}
+		delete(value["light"].(map[string]any)["assets"].(map[string]any), "hero.new_session")
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err == nil || !strings.Contains(err.Error(), "requires artwork") {
+			t.Fatalf("a figure without its hero: %v", err)
+		}
+		value, files = themeFixture(t)
+		setThemeField(value, "/light/assets/hero.new_session/outset", 4)
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err == nil || !strings.Contains(err.Error(), "outset") {
+			t.Fatalf("an outset on the hero: %v", err)
+		}
+	})
 }

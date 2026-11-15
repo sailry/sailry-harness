@@ -159,6 +159,7 @@ var themeSlots = map[string]struct{}{
 	"banner.conversation.bottom":     {},
 	"banner.new_session":             {},
 	"hero.new_session":               {},
+	"hero.new_session.figure":        {},
 	"composer.top_left":              {},
 	"composer.bottom_right":          {},
 	"button.send":                    {},

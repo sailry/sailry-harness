@@ -97,18 +97,43 @@ func Draws(e ui.Element, fn func(*ui.Painter, ui.Rect)) ui.Element {
 // Banner is a slot's full-width strip, as the new session's hero: the
 // decoration's height, its effect layers under its picture. It builds nothing
 // when the theme has no picture there.
+//
+// A cover or fill picture is a card: clipped to the theme's large radius and
+// edged like the composer, its effects over it. A contain picture is a cutout
+// drawn unclipped over its effects, so a halo fades out past the strip. The
+// slot's optional .figure stands on the card's bottom edge, placed across it
+// by its horizontal alignment, and rises above the card where it is taller:
+// the strip reserves that room so it covers nothing above.
 func Banner(c *ui.Context, slot string) {
-	v := theme.Of(c).Variant
+	p := theme.Of(c)
+	v := p.Variant
 	d := v.Asset(slot)
 	if d == nil {
 		return
 	}
 	layers := effects(c, v, slot)
-	// Unclipped, so a halo fades out past the strip instead of being cut
-	// at its edges.
-	ui.Box(c.Key(slot)).FillWidth().Height(d.Height).Shrink(0).PassThrough().Draw(func(pt *ui.Painter, r ui.Rect) {
-		paintEffects(pt, r, layers)
-		Picture(pt, d, r)
+	figure := v.Asset(slot + ".figure")
+	var rise float32
+	if figure != nil {
+		rise = max(0, figure.Height-d.Height)
+	}
+	card := d.Fit == theme.Cover || d.Fit == theme.Fill
+	radius, edge := p.Radius2xl(), p.Input
+	ui.Box(c.Key(slot)).FillWidth().Height(d.Height + rise).Shrink(0).PassThrough().Draw(func(pt *ui.Painter, r ui.Rect) {
+		band := ui.Rect{X: r.X, Y: r.Y + rise, W: r.W, H: d.Height}
+		if card {
+			pt.Clip(band, radius, func() {
+				Picture(pt, d, band)
+				paintEffects(pt, band, layers)
+			})
+			pt.Stroke(band, edge, radius, 1)
+		} else {
+			paintEffects(pt, band, layers)
+			Picture(pt, d, band)
+		}
+		if figure != nil {
+			Picture(pt, figure, ui.Rect{X: band.X, Y: band.Y + band.H - figure.Height, W: band.W, H: figure.Height})
+		}
 	})
 }
 

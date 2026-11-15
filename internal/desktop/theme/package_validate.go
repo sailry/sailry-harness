@@ -122,6 +122,12 @@ func (value *Package) validate() error {
 			if slot == "hero.new_session" {
 				maximum = 240
 			}
+			if slot == "hero.new_session.figure" {
+				maximum = 360
+				if variant.Assets["hero.new_session"] == nil {
+					return fmt.Errorf("theme decoration requires artwork: %s", slot)
+				}
+			}
 			if slot == "button.new_session" {
 				minimum = 4
 			}
