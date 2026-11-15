@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -96,6 +97,62 @@ type ContextMeterState struct {
 	Open, Expanded bool
 	Selected       string
 	folds          map[string]bool
+	// The summary opens as the pointer rests on the meter and closes as it
+	// leaves the meter and the popover, unless a click pinned it or the
+	// details were opened: rest and left are when those began, pinned that
+	// a click opened it, over that the pointer was on the popover last frame.
+	// A popover closed under the pointer (a click, Escape) stays closed
+	// until the pointer leaves (shut); was is whether it was open last frame.
+	rest, left              time.Time
+	pinned, over, shut, was bool
+}
+
+// Hover timing of the meter's popover: the rest before it opens and the
+// grace after the pointer leaves, so crossing the gap to it keeps it.
+const (
+	meterRest  = 250 * time.Millisecond
+	meterGrace = 200 * time.Millisecond
+)
+
+// hover opens and closes the popover by where the pointer is, inside
+// meaning on the meter or the popover.
+func (s *ContextMeterState) hover(c *ui.Context, inside bool) {
+	now := c.Now()
+	closed := s.was && !s.Open
+	s.was = s.Open
+	if inside {
+		s.left = time.Time{}
+		if closed {
+			s.shut = true
+		}
+		// Another popover or menu open keeps it closed, as it does tips.
+		if s.Open || s.shut || kit.TipsHidden(c) {
+			s.rest = time.Time{}
+			return
+		}
+		if s.rest.IsZero() {
+			s.rest = now
+		}
+		if wait := meterRest - now.Sub(s.rest); wait > 0 {
+			c.After(wait)
+			return
+		}
+		s.Open, s.pinned = true, false
+		return
+	}
+	s.rest, s.shut = time.Time{}, false
+	if !s.Open || s.pinned || s.Expanded {
+		s.left = time.Time{}
+		return
+	}
+	if s.left.IsZero() {
+		s.left = now
+	}
+	if wait := meterGrace - now.Sub(s.left); wait > 0 {
+		c.After(wait)
+		return
+	}
+	s.Open, s.left, s.was = false, time.Time{}, false
 }
 
 func (s *ContextMeterState) fold(id string) bool { return s.folds[id] }
@@ -171,14 +228,20 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	}
 	hint := i18n.T(c, "meter_title") + " · " + i18n.T(c, key)
 	percent := max(d.percent(), 0)
-	open := s.Open
-	b := kit.GhostLook(c, ui.ButtonBase(c.Key("context-meter")), open).Label(hint).Height(24).PaddingX(4).Radius(12).Shrink(0)
-	if !open {
-		kit.Tooltip(c, b, hint)
-	}
-	b.HasPopup(ui.PopupDialog).Expanded(open).
+	// The ring needs no hover background or tooltip: resting on it shows
+	// the summary itself, and a click pins it open.
+	b := ui.ButtonBase(c.Key("context-meter")).Label(hint).Height(24).PaddingX(4).Radius(12).Shrink(0).
+		Center().Cursor(ui.CursorPointer)
+	s.hover(c, b.Hovered() || s.over)
+	b.HasPopup(ui.PopupDialog).Expanded(s.Open).
 		Children(func() { kit.Ring(c, percent, d.Compacting, tone, "") }).
-		OnClick(func() { s.Open = !s.Open })
+		OnClick(func() {
+			if s.Open && !s.pinned {
+				s.pinned = true
+				return
+			}
+			s.Open, s.pinned = !s.Open, !s.Open
+		})
 	panel := kit.Popover(c, b, &s.Open, func() {
 		if s.Expanded {
 			contextFull(c, s, d)
@@ -194,6 +257,7 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 		}
 		panel.AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(0).Width(width)
 	}
+	s.over = panel != (ui.Element{}) && panel.Hovered()
 }
 
 // contextSummary is the popover's first view: the gauge with the percent

@@ -67,6 +67,20 @@ func hoverStill(t *testing.T, tt *ui.Tester, role ui.Role, x, y float32) {
 	}
 }
 
+// restSummary rests the pointer on the context ring at x, y and reports
+// whether its summary opens, with no click.
+func restSummary(tt *ui.Tester, x, y float32) bool {
+	tt.Move(x, y)
+	for range 30 {
+		tt.Advance(50 * time.Millisecond)
+		tt.Frame()
+		if len(panels(tt, ui.RolePopup)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 // restTip rests the pointer at x, y and reports whether a tooltip shows.
 func restTip(tt *ui.Tester, x, y float32) bool {
 	tt.Move(x, y)
@@ -93,6 +107,8 @@ func TestTooltips(t *testing.T) {
 // were named by their place in MyGo's overlay layer, so the context ring's
 // tooltip, built before the model chip, took the model popover's place:
 // the popover replayed its entrance and the tip drew from its old frames.
+// The ring now opens its summary on rest rather than a tip; with another
+// popover open it opens nothing.
 func testTooltipKeepsPopover(t *testing.T) {
 	a, tt := newTester(t)
 	m := a.Composer(a.Sidebar.Selected).Chosen(a.Data.Models)
@@ -107,15 +123,17 @@ func testTooltipKeepsPopover(t *testing.T) {
 	r := ring(t, a, tt)
 	hoverStill(t, tt, ui.RolePopup, r.X+10, r.Y+10)
 	snapshot(t, tt, "popover-tooltip")
-	// Closed, the ring's tooltip shows again.
+	// Closed, resting on the ring opens its summary. The pointer leaves
+	// first, so Escape is seen to close the popover alone.
+	tt.Move(4, 4)
 	tt.Key(0, ui.KeyEscape)
 	tt.Advance(time.Second)
 	tt.Frame()
 	if len(panels(tt, ui.RolePopup)) != 0 {
 		t.Fatal("Escape left the popover open")
 	}
-	if !restTip(tt, r.X+10, r.Y+10) {
-		t.Error("the ring's tooltip does not show once the popover closed")
+	if !restSummary(tt, r.X+10, r.Y+10) {
+		t.Error("resting on the ring does not open its summary once the popover closed")
 	}
 }
 
@@ -123,8 +141,8 @@ func testTooltipKeepsPopover(t *testing.T) {
 func testTooltipShowsWhenNothingOpen(t *testing.T) {
 	a, tt := newTester(t)
 	r := ring(t, a, tt)
-	if !restTip(tt, r.X+10, r.Y+10) {
-		t.Fatal("the ring's tooltip does not show")
+	if !restSummary(tt, r.X+10, r.Y+10) {
+		t.Fatal("resting on the ring does not open its summary")
 	}
 	attach, ok := tt.Access(i18n.In("en", "composer_attachment"))
 	if !ok {

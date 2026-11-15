@@ -124,6 +124,38 @@ func TestContextMeterExpands(t *testing.T) {
 	}
 }
 
+// Resting on the meter opens the summary without a click, and it stays while
+// the pointer crosses to it; leaving both closes it after the grace.
+func TestContextMeterHover(t *testing.T) {
+	s := &conversation.ContextMeterState{}
+	tt := meterTester(t, s, meterStats())
+	name := i18n.In("en", "meter_title") + " · " + i18n.In("en", "meter_state_plenty")
+	meter, ok := tt.Access(name)
+	if !ok {
+		t.Fatalf("no meter %q: %q", name, tt.Texts())
+	}
+	tt.Move(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
+	tt.Frame()
+	if s.Open {
+		t.Fatal("the summary opened before the pointer rested")
+	}
+	meterSettle(tt)
+	if !s.Open || !tt.HasText("$0.14") {
+		t.Fatalf("resting on the meter left the summary closed: %q", tt.Texts())
+	}
+	figure, _ := tt.Access("$0.14")
+	tt.Move(figure.Bounds.X+2, figure.Bounds.Y+2)
+	meterSettle(tt)
+	if !s.Open {
+		t.Fatal("moving onto the summary closed it")
+	}
+	tt.Move(4, 4)
+	meterSettle(tt)
+	if s.Open {
+		t.Error("leaving the meter and the summary kept it open")
+	}
+}
+
 // A step of the history chooses the details' categories; again, the whole.
 func TestContextMeterStep(t *testing.T) {
 	s := &conversation.ContextMeterState{Open: true, Expanded: true}
