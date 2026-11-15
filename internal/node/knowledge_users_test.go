@@ -77,7 +77,7 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := t.TempDir()
-	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"knowledge-users","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","storage.write","knowledge.read","knowledge.write"],"storage":{"collections":[{"scope":"node","prefix":"","schema":{"type":"object","properties":{"text":{"type":"string"}}},"index":{"semantic":true}},{"scope":"project","prefix":"","schema":{"type":"object","properties":{"text":{"type":"string"}}},"index":{"semantic":true}}]}}}}`
+	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"knowledge-users","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","storage.write","knowledge.read","knowledge.write"],"storage":{"collections":[{"scope":"node","prefix":"entry/","schema":{"type":"object","properties":{"text":{"type":"string"}}},"index":{"semantic":true}},{"scope":"project","prefix":"entry/","schema":{"type":"object","properties":{"text":{"type":"string"}}},"index":{"semantic":true}}]}}}}`
 	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +151,8 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 			storage = protocol.PluginStorageScopeProject
 		}
 		body, _ := json.Marshal(map[string]string{"text": text})
-		must(user, scope(user, project), protocol.Command{Kind: "write_plugin_value", Data: &protocol.CommandWritePluginValuePayload{Key: "raw", Value: body, Scope: storage}})
-		must(user, scope(user, project), protocol.Command{Kind: "write_indexed_plugin_value", Data: &protocol.CommandWriteIndexedPluginValuePayload{Key: "record", Value: body, Scope: storage, Index: protocol.PluginStorageIndex{Fields: [2]string{text, ""}, Source: &protocol.PluginStorageSource{Key: "raw", Pointer: "/text"}}}})
+		must(user, scope(user, project), protocol.Command{Kind: "write_plugin_value", Data: &protocol.CommandWritePluginValuePayload{Key: "entry/raw", Value: body, Scope: storage}})
+		must(user, scope(user, project), protocol.Command{Kind: "write_indexed_plugin_value", Data: &protocol.CommandWriteIndexedPluginValuePayload{Key: "entry/record", Value: body, Scope: storage, Index: protocol.PluginStorageIndex{Fields: [2]string{text, ""}, Source: &protocol.PluginStorageSource{Key: "entry/raw", Pointer: "/text"}}}})
 	}
 	write(first, false, "alpha personal source")
 	write(second, false, "beta personal source")
@@ -250,7 +250,7 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 	assertValue(second, true, "sharedprojectsource")
 	private := protocol.ProjectVisibilityPrivate
 	must(first, nil, protocol.Command{Kind: "update_project", Data: &protocol.CommandUpdateProjectPayload{Expected: project, Name: project.Name, Path: project.Path, Appearance: project.Appearance, Visibility: &private}})
-	_, failure := call(second, scope(second, true), protocol.Command{Kind: "read_plugin_value", Data: &protocol.CommandReadPluginValuePayload{Key: "record", Scope: protocol.PluginStorageScopeProject}})
+	_, failure := call(second, scope(second, true), protocol.Command{Kind: "read_plugin_value", Data: &protocol.CommandReadPluginValuePayload{Key: "entry/record", Scope: protocol.PluginStorageScopeProject}})
 	if failure == nil {
 		t.Fatal("project storage survived visibility revocation")
 	}
