@@ -373,27 +373,32 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 	}
 	var output protocol.Output
 	var operationErr error
-	err = node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-		if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_knowledge"); err != nil {
+	operation := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+	err = node.profile.Store.Node.Write(operation, func(db *sql.Conn) error {
+		if _, err := db.ExecContext(operation, "SAVEPOINT sailry_knowledge"); err != nil {
 			return err
 		}
 		var events []protocol.Event
-		if operationErr = node.validatePluginRequestDB(node.ctx, db, caller, request); operationErr == nil {
-			output, events, operationErr = store.ExecuteKnowledge(node.ctx, db, request)
+		operationErr = node.authorizeCommandDB(operation, db, caller, request)
+		if operationErr == nil {
+			operationErr = node.validatePluginRequestDB(operation, db, caller, request)
+		}
+		if operationErr == nil {
+			output, events, operationErr = store.ExecuteKnowledge(operation, db, request)
 		}
 		if operationErr != nil {
 			events = nil
-			if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_knowledge"); err != nil {
+			if _, err := db.ExecContext(operation, "ROLLBACK TO sailry_knowledge"); err != nil {
 				return err
 			}
 		}
-		if _, err := db.ExecContext(node.ctx, "RELEASE sailry_knowledge"); err != nil {
+		if _, err := db.ExecContext(operation, "RELEASE sailry_knowledge"); err != nil {
 			return err
 		}
-		if _, err := store.RecordEvents(node.ctx, db, node.ID(), events); err != nil {
+		if _, err := store.RecordEvents(operation, db, node.ID(), events); err != nil {
 			return err
 		}
-		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
+		return admission.Complete(operation, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
 		completion <- node.unapplied(caller, request.ID, err)
