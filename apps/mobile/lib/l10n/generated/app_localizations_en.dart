@@ -216,7 +216,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationPlan => 'Plan';
 
   @override
-  String get conversationFlagship => 'Flagship';
+  String get conversationFlagship => 'Collaborate';
 
   @override
   String get conversationAsk => 'Ask each time';

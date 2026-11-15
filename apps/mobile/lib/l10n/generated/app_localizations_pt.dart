@@ -217,7 +217,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationPlan => 'Plano';
 
   @override
-  String get conversationFlagship => 'Carro-chefe';
+  String get conversationFlagship => 'Colaboração';
 
   @override
   String get conversationAsk => 'Pergunte cada vez';

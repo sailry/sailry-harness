@@ -212,7 +212,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationPlan => '계획';
 
   @override
-  String get conversationFlagship => '플래그십';
+  String get conversationFlagship => '협업';
 
   @override
   String get conversationAsk => '매번 물어보기';

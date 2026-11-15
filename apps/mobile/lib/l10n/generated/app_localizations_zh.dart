@@ -209,7 +209,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationPlan => '计划';
 
   @override
-  String get conversationFlagship => '旗舰';
+  String get conversationFlagship => '协作';
 
   @override
   String get conversationAsk => '每次询问';
@@ -2439,7 +2439,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationPlan => '計畫';
 
   @override
-  String get conversationFlagship => '旗艦';
+  String get conversationFlagship => '協作';
 
   @override
   String get conversationAsk => '每次詢問';

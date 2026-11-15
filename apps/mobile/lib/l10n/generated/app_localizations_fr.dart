@@ -219,7 +219,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationPlan => 'Plan';
 
   @override
-  String get conversationFlagship => 'Phare';
+  String get conversationFlagship => 'Collaboration';
 
   @override
   String get conversationAsk => 'Demandez à chaque fois';

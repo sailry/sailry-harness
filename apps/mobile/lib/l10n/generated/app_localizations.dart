@@ -501,7 +501,7 @@ abstract class AppLocalizations {
   /// No description provided for @conversationFlagship.
   ///
   /// In en, this message translates to:
-  /// **'Flagship'**
+  /// **'Collaborate'**
   String get conversationFlagship;
 
   /// No description provided for @conversationAsk.

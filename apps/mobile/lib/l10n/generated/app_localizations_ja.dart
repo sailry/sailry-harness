@@ -211,7 +211,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationPlan => '計画';
 
   @override
-  String get conversationFlagship => 'フラッグシップ';
+  String get conversationFlagship => '協働';
 
   @override
   String get conversationAsk => '毎回尋ねる';
