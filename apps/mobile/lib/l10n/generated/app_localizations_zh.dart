@@ -2234,16 +2234,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationOutputLimit => '回复已达输出上限';
 
   @override
-  String get demoHost => '演示主机';
+  String get demoHost => 'MacBook Pro';
 
   @override
-  String get demoOffline => '离线演示';
-
-  @override
-  String get demoNotice => '演示主机 · 离线模拟，未连接主机、模型或工具。';
-
-  @override
-  String get demoUnavailable => '离线演示不支持此操作。';
+  String get demoUnavailable => '当前无法执行此操作。';
 
   @override
   String get demoConversationTitle => '优化登录表单';
@@ -2256,28 +2250,26 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get demoReply =>
-      '示例登录表单采用了更清晰的间距和更大的点击区域。\n\n- 表单间距增至 20 px。\n- 按钮最小高度设为 44 px。\n- 保留现有字段顺序。\n\n```css\nmin-height: 44px;\n```\n\n可以查看项目文件、检查示例 Git 差异，或发送消息体验模拟回复。以上均为演示内容，未运行工具或测试。';
+      '已调整登录表单的间距与点击区域。\n\n- 表单间距设为 20 px。\n- 按钮最小高度设为 44 px。\n- 保留字段顺序与键盘导航。\n\n```css\nmin-height: 44px;\n```\n\n变更位于 `src/pages/Login.tsx` 与 `src/styles/login.css`。';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\n用于离线演示的示例登录项目。\n\n## 体验内容\n\n- 查看源代码文件。\n- 预览并在内存中编辑本文档。\n- 检查示例 Git 变更。\n- 打开模拟终端。\n\n所有内容均为本地示例数据，重启应用后恢复。不会使用真实文件、模型或工具。\n';
+      '# Lumen Web\n\n支持响应式布局、无障碍输入与键盘导航的登录页面。\n\n## 项目结构\n\n- `src/pages/Login.tsx`：登录表单。\n- `src/styles/login.css`：布局与交互样式。\n- `docs/review.md`：发布评审清单。\n\n## 界面规范\n\n字段之间保留 20 px 间距，点击区域至少为 44 px。保留字段顺序与清晰的焦点样式。\n';
 
   @override
   String get demoReviewNotes =>
-      '# 发布评审\n\n| 功能 | 体验内容 |\n| --- | --- |\n| 会话 | 查看历史并发送模拟回复 |\n| 工作区 | 浏览和编辑示例文件 |\n| Git | 检查和暂存示例变更 |\n| 终端 | 在模拟终端输入内容 |\n| 外观 | 切换语言、主题与品牌色 |\n\n所有结果均在本地模拟，无需连接主机。\n';
+      '# 发布评审\n\n| 范围 | 检查内容 |\n| --- | --- |\n| 输入字段 | 检查标签与必填提示 |\n| 键盘导航 | 检查 Tab 顺序与可见焦点 |\n| 点击区域 | 登录按钮高度至少为 44 px |\n| 页面布局 | 检查窄屏与宽屏显示 |\n| 代码变更 | 发布前检查登录页与样式 |\n';
 
   @override
-  String get demoNotesPrompt => '为移动应用整理一份简短的评审清单。';
+  String get demoNotesPrompt => '为登录页面整理一份简短的发布评审清单。';
 
   @override
   String get demoSimulatedReply =>
-      '这是离线演示生成的模拟回复。\n\n可以查看会话历史、创建新会话、浏览示例项目、编辑文件和检查 Git 变更。终端也会给出固定的本地回复。\n\n消息仅保留在当前演示会话中，关闭应用后清除。未发起模型请求或执行工具。';
+      '我会围绕登录页面继续完善，并保留现有布局。\n\n1. 检查字段间距与键盘焦点。\n2. 保持点击区域至少为 44 px。\n3. 对照检查 `src/pages/Login.tsx` 与 `src/styles/login.css`。\n\n发布评审清单位于 `docs/review.md`。';
 
   @override
-  String get demoTerminalWelcome => '离线演示终端。输入仅作模拟，不会执行命令。';
-
-  @override
-  String get demoTerminalReply => '演示回复：未启动任何进程。可以继续浏览示例文件和 Git 变更。';
+  String get demoTerminalWelcome =>
+      'Last login: Sun Nov 15 09:00:00 on ttys001';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4510,52 +4502,40 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationOutputLimit => '回覆已達輸出上限';
 
   @override
-  String get demoHost => '示範主機';
+  String get demoHost => 'MacBook Pro';
 
   @override
-  String get demoOffline => '離線示範';
+  String get demoUnavailable => '目前無法執行此操作。';
 
   @override
-  String get demoNotice => '示範主機 · 離線模擬，未連線主機、模型或工具。';
+  String get demoConversationTitle => '最佳化登入表單';
 
   @override
-  String get demoUnavailable => '離線示範不支援此操作。';
+  String get demoNotesTitle => '準備發布評審';
 
   @override
-  String get demoConversationTitle => 'Improve the sign-in form';
-
-  @override
-  String get demoNotesTitle => 'Prepare the release review';
-
-  @override
-  String get demoUserMessage =>
-      'Improve the sign-in form spacing and keyboard focus. Keep the existing layout.';
+  String get demoUserMessage => '最佳化登入表單的間距與鍵盤焦點，保留現有版面配置。';
 
   @override
   String get demoReply =>
-      'The sample sign-in form has clearer spacing and larger touch targets.\n\n- Increased the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Kept the existing field order.\n\n```css\nmin-height: 44px;\n```\n\nYou can inspect the project files, review the sample Git diff, or send a message to try a simulated reply. This is demonstration content; no tools or tests ran.';
+      '已調整登入表單的間距與點選區域。\n\n- 表單間距設為 20 px。\n- 按鈕最小高度設為 44 px。\n- 保留欄位順序與鍵盤導覽。\n\n```css\nmin-height: 44px;\n```\n\n變更位於 `src/pages/Login.tsx` 與 `src/styles/login.css`。';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\nAn example sign-in project for the offline demonstration.\n\n## Review\n\n- Inspect the source files.\n- Preview and edit this document in memory.\n- Review the sample Git changes.\n- Open the simulated terminal.\n\nAll content is local sample data. Changes reset when the app restarts. No real files, models or tools are used.\n';
+      '# Lumen Web\n\n支援響應式版面配置、無障礙輸入與鍵盤導覽的登入頁面。\n\n## 專案結構\n\n- `src/pages/Login.tsx`：登入表單。\n- `src/styles/login.css`：版面配置與互動樣式。\n- `docs/review.md`：發布評審清單。\n\n## 介面規範\n\n欄位之間保留 20 px 間距，點選區域至少為 44 px。保留欄位順序與清晰的焦點樣式。\n';
 
   @override
   String get demoReviewNotes =>
-      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Conversation | Read history and send a simulated reply |\n| Workspace | Browse and edit sample files |\n| Git | Inspect and stage sample changes |\n| Terminal | Type into the simulated shell |\n| Appearance | Switch language, theme and brand color |\n\nAll results are simulated locally. No host connection is required.\n';
+      '# 發布評審\n\n| 範圍 | 檢查內容 |\n| --- | --- |\n| 輸入欄位 | 檢查標籤與必填提示 |\n| 鍵盤導覽 | 檢查 Tab 順序與可見焦點 |\n| 點選區域 | 登入按鈕高度至少為 44 px |\n| 頁面配置 | 檢查窄螢幕與寬螢幕顯示 |\n| 程式碼變更 | 發布前檢查登入頁面與樣式 |\n';
 
   @override
-  String get demoNotesPrompt =>
-      'Create a short review checklist for the mobile app.';
+  String get demoNotesPrompt => '為登入頁面整理一份簡短的發布評審清單。';
 
   @override
   String get demoSimulatedReply =>
-      'This is a simulated reply from the offline demo.\n\nYou can explore the conversation history, create another conversation, browse the sample project, edit a file, and review the Git changes. The terminal also responds with a fixed local message.\n\nYour message stays in this demo session until the app closes. No model request or tool execution was made.';
+      '我會圍繞登入頁面繼續完善，並保留現有版面配置。\n\n1. 檢查欄位間距與鍵盤焦點。\n2. 保持點選區域至少為 44 px。\n3. 對照檢查 `src/pages/Login.tsx` 與 `src/styles/login.css`。\n\n發布評審清單位於 `docs/review.md`。';
 
   @override
   String get demoTerminalWelcome =>
-      'Offline demo shell. Input is simulated; no commands execute.';
-
-  @override
-  String get demoTerminalReply =>
-      'Demo response: no process was started. Browse the sample files and Git changes to continue.';
+      'Last login: Sun Nov 15 09:00:00 on ttys001';
 }

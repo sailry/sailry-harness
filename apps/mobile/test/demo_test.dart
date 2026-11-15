@@ -388,7 +388,7 @@ void main() {
           )
           .join('\n');
       expect(visible, contains('echo offline'));
-      expect(visible, contains(tr('demoTerminalReply')));
+      expect(visible, contains('offline'));
       expect(session.controller, isNull);
       await updates.close();
       updates.dispose();
@@ -397,7 +397,7 @@ void main() {
     },
   );
 
-  testWidgets('demo renders production conversations without update requests', (
+  testWidgets('local host uses normal presentation without update requests', (
     tester,
   ) async {
     var checks = 0;
@@ -436,7 +436,10 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(session.selectedHost?.isDemo, isTrue);
     expect(find.byType(PairForm), findsNothing);
-    expect(find.byKey(const ValueKey('demo-notice')), findsOneWidget);
+    expect(find.byKey(const ValueKey('demo-notice')), findsNothing);
+    expect(find.text('MacBook Pro'), findsOneWidget);
+    expect(find.text('macOS 26.1'), findsWidgets);
+    expect(find.textContaining('demonstration'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('tab-0')));
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
@@ -447,7 +450,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('conversation-settings')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('configuration-mode')), findsOneWidget);
-    expect(find.byKey(const ValueKey('demo-notice')), findsOneWidget);
+    expect(find.byKey(const ValueKey('demo-notice')), findsNothing);
     expect(tester.takeException(), isNull);
     expect(checks, 0);
     await tester.pumpWidget(const SizedBox.shrink());

@@ -3513,7 +3513,7 @@ abstract class AppLocalizations {
   /// No description provided for @providerDesktopHint.
   ///
   /// In en, this message translates to:
-  /// **'Add presets and account logins on Desktop; their models are editable here'**
+  /// **'Use Desktop for OAuth models'**
   String get providerDesktopHint;
 
   /// No description provided for @providerConnection.
@@ -4407,25 +4407,13 @@ abstract class AppLocalizations {
   /// No description provided for @demoHost.
   ///
   /// In en, this message translates to:
-  /// **'Demo host'**
+  /// **'MacBook Pro'**
   String get demoHost;
-
-  /// No description provided for @demoOffline.
-  ///
-  /// In en, this message translates to:
-  /// **'Offline demonstration'**
-  String get demoOffline;
-
-  /// No description provided for @demoNotice.
-  ///
-  /// In en, this message translates to:
-  /// **'Demo host · Offline simulation. No host, model or tools are connected.'**
-  String get demoNotice;
 
   /// No description provided for @demoUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'This action is unavailable in the offline demonstration.'**
+  /// **'This action is unavailable.'**
   String get demoUnavailable;
 
   /// No description provided for @demoConversationTitle.
@@ -4449,44 +4437,38 @@ abstract class AppLocalizations {
   /// No description provided for @demoReply.
   ///
   /// In en, this message translates to:
-  /// **'The sample sign-in form has clearer spacing and larger touch targets.\n\n- Increased the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Kept the existing field order.\n\n```css\nmin-height: 44px;\n```\n\nYou can inspect the project files, review the sample Git diff, or send a message to try a simulated reply. This is demonstration content; no tools or tests ran.'**
+  /// **'Updated the sign-in form spacing and touch targets.\n\n- Set the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Preserved the field order and keyboard navigation.\n\n```css\nmin-height: 44px;\n```\n\nThe changes are in `src/pages/Login.tsx` and `src/styles/login.css`.'**
   String get demoReply;
 
   /// No description provided for @demoReadme.
   ///
   /// In en, this message translates to:
-  /// **'# Lumen Web\n\nAn example sign-in project for the offline demonstration.\n\n## Review\n\n- Inspect the source files.\n- Preview and edit this document in memory.\n- Review the sample Git changes.\n- Open the simulated terminal.\n\nAll content is local sample data. Changes reset when the app restarts. No real files, models or tools are used.\n'**
+  /// **'# Lumen Web\n\nA responsive sign-in page with accessible inputs and clear keyboard navigation.\n\n## Project structure\n\n- `src/pages/Login.tsx` — sign-in form.\n- `src/styles/login.css` — layout and interaction styles.\n- `docs/review.md` — release checklist.\n\n## Interface guidelines\n\nKeep 20 px between fields and use touch targets of at least 44 px. Preserve the field order and visible focus styles.\n'**
   String get demoReadme;
 
   /// No description provided for @demoReviewNotes.
   ///
   /// In en, this message translates to:
-  /// **'# Release review\n\n| Area | Review |\n| --- | --- |\n| Conversation | Read history and send a simulated reply |\n| Workspace | Browse and edit sample files |\n| Git | Inspect and stage sample changes |\n| Terminal | Type into the simulated shell |\n| Appearance | Switch language, theme and brand color |\n\nAll results are simulated locally. No host connection is required.\n'**
+  /// **'# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n'**
   String get demoReviewNotes;
 
   /// No description provided for @demoNotesPrompt.
   ///
   /// In en, this message translates to:
-  /// **'Create a short review checklist for the mobile app.'**
+  /// **'Create a short release review checklist for the sign-in page.'**
   String get demoNotesPrompt;
 
   /// No description provided for @demoSimulatedReply.
   ///
   /// In en, this message translates to:
-  /// **'This is a simulated reply from the offline demo.\n\nYou can explore the conversation history, create another conversation, browse the sample project, edit a file, and review the Git changes. The terminal also responds with a fixed local message.\n\nYour message stays in this demo session until the app closes. No model request or tool execution was made.'**
+  /// **'I\'ll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.'**
   String get demoSimulatedReply;
 
   /// No description provided for @demoTerminalWelcome.
   ///
   /// In en, this message translates to:
-  /// **'Offline demo shell. Input is simulated; no commands execute.'**
+  /// **'Last login: Sun Nov 15 09:00:00 on ttys001'**
   String get demoTerminalWelcome;
-
-  /// No description provided for @demoTerminalReply.
-  ///
-  /// In en, this message translates to:
-  /// **'Demo response: no process was started. Browse the sample files and Git changes to continue.'**
-  String get demoTerminalReply;
 }
 
 class _AppLocalizationsDelegate

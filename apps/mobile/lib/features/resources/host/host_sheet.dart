@@ -29,11 +29,7 @@ class HostBar extends StatelessWidget {
     return ProjectBar(
       project: null,
       title: host.label,
-      detail: host.isDemo
-          ? context.tr('demoOffline')
-          : system.isEmpty
-          ? null
-          : system,
+      detail: system.isEmpty ? null : system,
       leading: AppIcon('server', size: 15, color: _hostTone(context, host)),
       status: StatusDot(
         color: statusDotColor(context, hostStatus(host.connected, host.error)),
@@ -182,21 +178,17 @@ class HostRow extends StatelessWidget {
     final status = hostStatus(host.connected, host.error);
     final route = linkRoute(host.transport);
     final latency = linkLatency(host.transport);
-    final detail = host.isDemo
-        ? context.tr('demoOffline')
-        : switch (status) {
-            HostStatus.online => [
-              if (route != null)
-                context.tr(
-                  route == 'p2p'
-                      ? 'connectionRouteP2p'
-                      : 'connectionRouteRelay',
-                ),
-              if (latency != null) '${latency.round()} ms',
-            ].join('  '),
-            HostStatus.connecting => context.tr('hostConnecting'),
-            HostStatus.offline => context.tr('offline'),
-          };
+    final detail = switch (status) {
+      HostStatus.online => [
+        if (route != null)
+          context.tr(
+            route == 'p2p' ? 'connectionRouteP2p' : 'connectionRouteRelay',
+          ),
+        if (latency != null) '${latency.round()} ms',
+      ].join('  '),
+      HostStatus.connecting => context.tr('hostConnecting'),
+      HostStatus.offline => context.tr('offline'),
+    };
     return Semantics(
       selected: selected,
       child: Ink(

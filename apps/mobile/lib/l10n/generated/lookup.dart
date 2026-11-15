@@ -738,8 +738,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationContextOverflow' => strings.conversationContextOverflow,
   'conversationOutputLimit' => strings.conversationOutputLimit,
   'demoHost' => strings.demoHost,
-  'demoOffline' => strings.demoOffline,
-  'demoNotice' => strings.demoNotice,
   'demoUnavailable' => strings.demoUnavailable,
   'demoConversationTitle' => strings.demoConversationTitle,
   'demoNotesTitle' => strings.demoNotesTitle,
@@ -750,6 +748,5 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'demoNotesPrompt' => strings.demoNotesPrompt,
   'demoSimulatedReply' => strings.demoSimulatedReply,
   'demoTerminalWelcome' => strings.demoTerminalWelcome,
-  'demoTerminalReply' => strings.demoTerminalReply,
   _ => null,
 };

@@ -46,12 +46,14 @@ class DemoConnection implements Connection {
       translate('demoNotesPrompt'),
       translate('demoReviewNotes'),
     );
-    _terminalText = '${translate('demoTerminalWelcome')}\r\n\$ ';
+    _terminalText = '${translate('demoTerminalWelcome')}\r\n';
   }
 
   static const pairingCode = '888888';
   static const hostId = 'local-demo';
   static const controllerId = 'demo-controller';
+  static const _home = '/Users/alex';
+  static const _projectPath = '$_home/Projects/lumen-web';
   final Translator translate;
   final _feeds = <_DemoUpdates>{};
   final _sessions = <Map<String, dynamic>>[];
@@ -67,30 +69,34 @@ class DemoConnection implements Connection {
   bool _committed = false;
   String _branch = 'feature/sign-in';
   String _terminalText = '';
-  String _terminalInput = '';
+  final _terminalInput = <int>[];
+  final _terminalHistory = <String>[];
+  int _terminalCursor = 0;
+  int _terminalHistoryIndex = 0;
+  String _terminalDraft = '';
+  String _terminalDirectory = _projectPath;
+  bool _terminalCR = false;
+  final _terminalViewport = <String, int>{'columns': 80, 'rows': 24};
+  Map<String, dynamic> _terminalAppearance = {};
   final int _terminalRevision = 1;
 
   Map<String, dynamic> get _config => {
     'mode': 'code',
     'permission': 'ask',
-    'provider': 'demo',
-    'model': 'demo-script',
+    'provider': 'openai',
+    'model': 'gpt-6.1-sol',
     'effort': 'default',
     'options': <String, dynamic>{},
   };
 
   Map<String, dynamic> get _provider => {
-    'id': 'demo',
-    'name': translate('demoOffline'),
+    'id': 'openai',
+    'name': 'OpenAI',
     'enabled': true,
     'revision': 1,
-    'default_model': 'demo-script',
+    'default_model': 'gpt-6.1-sol',
     'models': [
-      {
-        'id': 'demo-script',
-        'name': translate('demoOffline'),
-        'default_effort': 'default',
-      },
+      {'id': 'gpt-6.1-sol', 'name': 'GPT-6.1 Sol', 'default_effort': 'default'},
     ],
   };
 
@@ -112,7 +118,7 @@ class DemoConnection implements Connection {
   Map<String, dynamic> get _terminal => {
     'id': 'demo-terminal',
     'worktree': 'demo-lumen-main',
-    'title': translate('demoOffline'),
+    'title': 'zsh',
     'access': 'unrestricted',
     'status': {'kind': 'running'},
     'owner': controllerId,
@@ -124,30 +130,30 @@ class DemoConnection implements Connection {
       {
         'id': 'demo-lumen',
         'name': 'lumen-web',
-        'path': '/demo/lumen-web',
+        'path': _projectPath,
         'icon': 'code',
         'color': 'violet',
       },
       {
         'id': 'demo-notes',
         'name': 'growth-notes',
-        'path': '/demo/growth-notes',
+        'path': '$_home/Projects/growth-notes',
         'icon': 'file',
         'color': 'amber',
       },
     ],
     'worktrees': [
-      {
-        'id': 'demo-lumen-main',
-        'project': 'demo-lumen',
-        'path': '/demo/lumen-web',
-      },
+      {'id': 'demo-lumen-main', 'project': 'demo-lumen', 'path': _projectPath},
       {
         'id': 'demo-notes-main',
         'project': 'demo-notes',
-        'path': '/demo/growth-notes',
+        'path': '$_home/Projects/growth-notes',
       },
-      {'id': 'demo-workspace', 'project': null, 'path': '/demo/chats'},
+      {
+        'id': 'demo-workspace',
+        'project': null,
+        'path': '$_home/Library/Application Support/Sailry/workspaces/chats',
+      },
     ],
     'sessions': _sessions,
     'providers': [_provider],
@@ -295,8 +301,13 @@ class DemoConnection implements Connection {
   }
 
   @override
-  Future<Updates> watch() async =>
-      _watch(() => {'connected': true, 'snapshot': snapshot});
+  Future<Updates> watch() async => _watch(
+    () => {
+      'connected': true,
+      'connection': {'route': 'p2p', 'rtt_ms': 3},
+      'snapshot': snapshot,
+    },
+  );
 
   @override
   Future<ConversationUpdates> watchConversation({
@@ -321,11 +332,10 @@ class DemoConnection implements Connection {
           'snapshot': {
             'info': _terminal,
             'screen': {
+              ..._terminalAppearance,
               'vt': {
-                'viewport': {'columns': 80, 'rows': 24},
-                'bytes': utf8.encode(
-                  '\x1b[2J\x1b[H$_terminalText$_terminalInput',
-                ),
+                'viewport': _terminalViewport,
+                'bytes': utf8.encode(_terminalScreen),
               },
             },
           },
@@ -447,13 +457,13 @@ class DemoConnection implements Connection {
           'processes': [
             {
               'pid': 101,
-              'name': 'sailry-host (demo)',
+              'name': 'sailry-host',
               'cpu_basis_points': 120,
               'memory_bytes': 134217728,
             },
             {
               'pid': 102,
-              'name': 'lumen-web (demo)',
+              'name': 'lumen-web',
               'cpu_basis_points': 320,
               'memory_bytes': 268435456,
             },
@@ -632,7 +642,7 @@ class DemoConnection implements Connection {
             {
               'id': 'a12b34c56d78e90f',
               'message': translate('demoConversationTitle'),
-              'author': 'Demo',
+              'author': 'Alex Rivera',
               'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000 - 3600,
               'references': ['heads/$_branch'],
             },
@@ -656,27 +666,23 @@ class DemoConnection implements Connection {
         return <dynamic>[];
       case 'open_terminal':
       case 'create_terminal':
+        _resizeTerminal(data['viewport']);
+        _terminalAppearance = object(data['appearance']);
+        return _terminal;
       case 'claim_terminal':
         return _terminal;
       case 'resize_terminal':
+        _resizeTerminal(data['viewport']);
+        _publish();
+        return <String, dynamic>{};
+      case 'set_terminal_appearance':
+        _terminalAppearance = object(data['appearance']);
         return <String, dynamic>{};
       case 'input_terminal':
         for (final input in objects(data['inputs'])) {
-          _terminalInput += text(object(input['text'])['text']);
-          _terminalInput += text(object(input['paste'])['text']);
-          final key = object(object(input['key'])['event'])['key'];
-          if (key == 'enter') _terminalInput += '\n';
-          if (key == 'backspace' && _terminalInput.isNotEmpty) {
-            _terminalInput = _terminalInput.substring(
-              0,
-              _terminalInput.length - 1,
-            );
-          }
-        }
-        if (_terminalInput.contains('\n') || _terminalInput.contains('\r')) {
-          _terminalText +=
-              '${_terminalInput.trim()}\r\n${translate('demoTerminalReply')}\r\n\$ ';
-          _terminalInput = '';
+          _terminalInsert(text(object(input['text'])['text']));
+          _terminalInsert(text(object(input['paste'])['text']));
+          _terminalKey(object(object(input['key'])['event']));
         }
         _publish();
         return <String, dynamic>{};
@@ -684,6 +690,304 @@ class DemoConnection implements Connection {
         throw UnsupportedError(
           'Operation is unavailable in the local demonstration',
         );
+    }
+  }
+
+  void _resizeTerminal(Object? value) {
+    final viewport = object(value);
+    if (viewport.isEmpty) return;
+    _terminalViewport['columns'] = number(
+      viewport['columns'],
+      _terminalViewport['columns']!,
+    ).toInt().clamp(1, 500);
+    _terminalViewport['rows'] = number(
+      viewport['rows'],
+      _terminalViewport['rows']!,
+    ).toInt().clamp(1, 200);
+  }
+
+  String get _terminalPrompt {
+    final directory = _terminalDirectory == _home
+        ? '~'
+        : _terminalDirectory == '/'
+        ? '/'
+        : _terminalDirectory.split('/').last;
+    return 'alex@MacBook-Pro $directory % ';
+  }
+
+  String get _terminalScreen {
+    final input = String.fromCharCodes(_terminalInput);
+    final left = _terminalInput.length - _terminalCursor;
+    return '\x1b[2J\x1b[H$_terminalText$_terminalPrompt$input'
+        '${left > 0 ? '\x1b[${left}D' : ''}';
+  }
+
+  void _terminalInsert(String value) {
+    for (final codepoint in value.runes) {
+      if (codepoint == 10 && _terminalCR) {
+        _terminalCR = false;
+        continue;
+      }
+      _terminalCR = codepoint == 13;
+      if (codepoint == 10 || codepoint == 13) {
+        _terminalSubmit();
+      } else if (codepoint == 3) {
+        _terminalCancel();
+      } else if (codepoint == 8 || codepoint == 127) {
+        _terminalBackspace();
+      } else if (codepoint >= 32) {
+        _terminalInput.insert(_terminalCursor++, codepoint);
+      }
+    }
+  }
+
+  void _terminalBackspace() {
+    if (_terminalCursor > 0) {
+      _terminalInput.removeAt(--_terminalCursor);
+    }
+  }
+
+  void _terminalCancel() {
+    _terminalText +=
+        '$_terminalPrompt${String.fromCharCodes(_terminalInput)}^C\r\n';
+    _terminalInput.clear();
+    _terminalCursor = 0;
+  }
+
+  void _terminalHistoryMove(int direction) {
+    if (_terminalHistory.isEmpty) return;
+    if (_terminalHistoryIndex == _terminalHistory.length) {
+      _terminalDraft = String.fromCharCodes(_terminalInput);
+    }
+    _terminalHistoryIndex = (_terminalHistoryIndex + direction).clamp(
+      0,
+      _terminalHistory.length,
+    );
+    final value = _terminalHistoryIndex == _terminalHistory.length
+        ? _terminalDraft
+        : _terminalHistory[_terminalHistoryIndex];
+    _terminalInput
+      ..clear()
+      ..addAll(value.runes);
+    _terminalCursor = _terminalInput.length;
+  }
+
+  void _terminalKey(Map<String, dynamic> event) {
+    if (event['action'] == 'release') return;
+    final key = event['key'];
+    final character = text(event['utf8']);
+    if (object(event['modifiers'])['control'] == true) {
+      switch (character.toLowerCase()) {
+        case 'c':
+          _terminalCancel();
+        case 'l':
+          _terminalText = '';
+        case 'u':
+          _terminalInput.removeRange(0, _terminalCursor);
+          _terminalCursor = 0;
+        case 'a':
+          _terminalCursor = 0;
+        case 'e':
+          _terminalCursor = _terminalInput.length;
+      }
+      return;
+    }
+    switch (key) {
+      case 'enter':
+        _terminalSubmit();
+      case 'backspace':
+        _terminalBackspace();
+      case 'delete':
+        if (_terminalCursor < _terminalInput.length) {
+          _terminalInput.removeAt(_terminalCursor);
+        }
+      case 'arrow_left':
+        _terminalCursor = (_terminalCursor - 1).clamp(0, _terminalInput.length);
+      case 'arrow_right':
+        _terminalCursor = (_terminalCursor + 1).clamp(0, _terminalInput.length);
+      case 'home':
+        _terminalCursor = 0;
+      case 'end':
+        _terminalCursor = _terminalInput.length;
+      case 'arrow_up':
+        _terminalHistoryMove(-1);
+      case 'arrow_down':
+        _terminalHistoryMove(1);
+      default:
+        final codepoint = object(object(key)['character'])['codepoint'];
+        if (character.isNotEmpty) {
+          _terminalInsert(character);
+        } else if (codepoint is int) {
+          _terminalInsert(String.fromCharCode(codepoint));
+        }
+    }
+  }
+
+  void _terminalSubmit() {
+    final line = String.fromCharCodes(_terminalInput);
+    _terminalText += '$_terminalPrompt$line\r\n';
+    _terminalInput.clear();
+    _terminalCursor = 0;
+    if (line.trim().isNotEmpty) _terminalHistory.add(line);
+    _terminalHistoryIndex = _terminalHistory.length;
+    _terminalDraft = '';
+    final result = _terminalCommand(line.trim());
+    if (result.isNotEmpty) {
+      _terminalText +=
+          '${result.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n')}\r\n';
+    }
+  }
+
+  String _terminalPath(String input) {
+    var value = input;
+    if (value == '~' || value.startsWith('~/')) {
+      value = '$_home${value.substring(1)}';
+    }
+    final parts = <String>[];
+    for (final part
+        in (value.startsWith('/') ? value : '$_terminalDirectory/$value').split(
+          '/',
+        )) {
+      if (part.isEmpty || part == '.') continue;
+      if (part == '..') {
+        if (parts.isNotEmpty) parts.removeLast();
+      } else {
+        parts.add(part);
+      }
+    }
+    return '/${parts.join('/')}';
+  }
+
+  List<String>? _terminalEntries(String path) {
+    if (path == '/') return ['Applications', 'Library', 'System', 'Users'];
+    if (path == '/Users') return ['alex'];
+    if (path == _home) {
+      return ['Desktop', 'Documents', 'Downloads', 'Library', 'Projects'];
+    }
+    if (path == '$_home/Projects') return ['growth-notes', 'lumen-web'];
+    if (path != _projectPath && !path.startsWith('$_projectPath/')) {
+      return null;
+    }
+    final relative = path == _projectPath
+        ? ''
+        : path.substring(_projectPath.length + 1);
+    final prefix = relative.isEmpty ? '' : '$relative/';
+    final entries = {
+      for (final file in _files.keys)
+        if (file.startsWith(prefix))
+          file.substring(prefix.length).split('/').first,
+    }.toList()..sort();
+    return entries.isEmpty && relative.isNotEmpty ? null : entries;
+  }
+
+  String _terminalCommand(String line) {
+    if (line.isEmpty) return '';
+    final words = line.split(RegExp(r'\s+'));
+    final command = words.first;
+    switch (command) {
+      case 'clear':
+        _terminalText = '';
+        return '';
+      case 'pwd':
+        return _terminalDirectory;
+      case 'whoami':
+        return 'alex';
+      case 'hostname':
+        return 'MacBook-Pro.local';
+      case 'uname':
+        return words.length > 1
+            ? 'Darwin MacBook-Pro.local 25.1.0 Darwin Kernel Version 25.1.0 arm64'
+            : 'Darwin';
+      case 'date':
+        return 'Sun Nov 15 09:00:00 CST 2026';
+      case 'echo':
+        var value = line.substring(command.length).trimLeft();
+        if (value.length > 1 &&
+            ((value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'")))) {
+          value = value.substring(1, value.length - 1);
+        }
+        return value;
+      case 'cd':
+        final target = _terminalPath(words.length == 1 ? '~' : words[1]);
+        if (_terminalEntries(target) == null) {
+          return 'cd: no such file or directory: ${words.skip(1).join(' ')}';
+        }
+        _terminalDirectory = target;
+        return '';
+      case 'ls':
+        final arguments = words.skip(1).where((word) => !word.startsWith('-'));
+        final path = _terminalPath(arguments.isEmpty ? '.' : arguments.first);
+        final entries = _terminalEntries(path);
+        return entries?.join('  ') ??
+            'ls: ${arguments.first}: No such file or directory';
+      case 'cat':
+        if (words.length < 2) return '';
+        final output = <String>[];
+        for (final name in words.skip(1)) {
+          final path = _terminalPath(name);
+          final relative = path.startsWith('$_projectPath/')
+              ? path.substring(_projectPath.length + 1)
+              : null;
+          output.add(
+            _files[relative] ?? 'cat: $name: No such file or directory',
+          );
+        }
+        return output.join('\n');
+      case 'git':
+        final action = words.length > 1 ? words[1] : '';
+        if (action == 'status') {
+          if (_committed) {
+            return 'On branch $_branch\nnothing to commit, working tree clean';
+          }
+          if (words.contains('--short') || words.contains('-s')) {
+            return '${_staged ? 'M ' : ' M'} src/styles/login.css';
+          }
+          return 'On branch $_branch\nYour branch is ahead of origin/$_branch by 1 commit.\n\n'
+              '${_staged ? 'Changes to be committed:' : 'Changes not staged for commit:'}\n'
+              '  modified:   src/styles/login.css';
+        }
+        if (action == 'diff') {
+          if (_committed || words.contains('--cached') != _staged) return '';
+          return 'diff --git a/src/styles/login.css b/src/styles/login.css\n'
+              '--- a/src/styles/login.css\n+++ b/src/styles/login.css\n'
+              '@@ -1,4 +1,4 @@\n .login-form {\n-  gap: 12px;\n+  gap: 20px;\n }\n'
+              '-  height: 36px;\n+  min-height: 44px;';
+        }
+        if (action == 'branch') {
+          return words.contains('--show-current')
+              ? _branch
+              : '* $_branch\n  main';
+        }
+        if (action == 'log') {
+          return words.contains('--oneline')
+              ? 'a12b34c Improve sign-in form spacing and accessibility'
+              : 'commit a12b34c56d78e90f\nAuthor: Alex Rivera <alex@example.com>\n\n'
+                    '    Improve sign-in form spacing and accessibility';
+        }
+        return 'git: \'$action\' is not a git command. See \'git --help\'.';
+      case 'npm':
+        if (words.skip(1).join(' ') == 'run build') {
+          return '> lumen-web@1.0.0 build\n> vite build\n\n'
+              'building client bundle for production...\n'
+              '42 modules transformed.\n'
+              'dist/index.html                   0.46 kB\n'
+              'dist/assets/index.js             68.23 kB\n'
+              'built in 428ms';
+        }
+        if (words.length > 1 && words[1] == 'test') {
+          return '> lumen-web@1.0.0 test\n\n'
+              ' PASS  src/pages/Login.test.tsx\n'
+              '  ✓ submits a valid email address\n'
+              '  ✓ keeps the primary action accessible\n\n'
+              ' Test Files  1 passed\n      Tests  2 passed';
+        }
+        return 'npm error Missing script: "${words.skip(1).join(' ')}"';
+      case 'help':
+        return 'Shell commands: pwd, ls, cd, cat, echo, clear, whoami, hostname, uname, date\n'
+            'Project commands: git status, git diff, git branch, git log, npm test, npm run build';
+      default:
+        return 'zsh: command not found: $command';
     }
   }
 

@@ -2258,18 +2258,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationOutputLimit => 'Reply cut at the output limit';
 
   @override
-  String get demoHost => 'Demo host';
+  String get demoHost => 'MacBook Pro';
 
   @override
-  String get demoOffline => 'Offline demonstration';
-
-  @override
-  String get demoNotice =>
-      'Demo host · Offline simulation. No host, model or tools are connected.';
-
-  @override
-  String get demoUnavailable =>
-      'This action is unavailable in the offline demonstration.';
+  String get demoUnavailable => 'This action is unavailable.';
 
   @override
   String get demoConversationTitle => 'Improve the sign-in form';
@@ -2283,29 +2275,25 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get demoReply =>
-      'The sample sign-in form has clearer spacing and larger touch targets.\n\n- Increased the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Kept the existing field order.\n\n```css\nmin-height: 44px;\n```\n\nYou can inspect the project files, review the sample Git diff, or send a message to try a simulated reply. This is demonstration content; no tools or tests ran.';
+      'Updated the sign-in form spacing and touch targets.\n\n- Set the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Preserved the field order and keyboard navigation.\n\n```css\nmin-height: 44px;\n```\n\nThe changes are in `src/pages/Login.tsx` and `src/styles/login.css`.';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\nAn example sign-in project for the offline demonstration.\n\n## Review\n\n- Inspect the source files.\n- Preview and edit this document in memory.\n- Review the sample Git changes.\n- Open the simulated terminal.\n\nAll content is local sample data. Changes reset when the app restarts. No real files, models or tools are used.\n';
+      '# Lumen Web\n\nA responsive sign-in page with accessible inputs and clear keyboard navigation.\n\n## Project structure\n\n- `src/pages/Login.tsx` — sign-in form.\n- `src/styles/login.css` — layout and interaction styles.\n- `docs/review.md` — release checklist.\n\n## Interface guidelines\n\nKeep 20 px between fields and use touch targets of at least 44 px. Preserve the field order and visible focus styles.\n';
 
   @override
   String get demoReviewNotes =>
-      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Conversation | Read history and send a simulated reply |\n| Workspace | Browse and edit sample files |\n| Git | Inspect and stage sample changes |\n| Terminal | Type into the simulated shell |\n| Appearance | Switch language, theme and brand color |\n\nAll results are simulated locally. No host connection is required.\n';
+      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n';
 
   @override
   String get demoNotesPrompt =>
-      'Create a short review checklist for the mobile app.';
+      'Create a short release review checklist for the sign-in page.';
 
   @override
   String get demoSimulatedReply =>
-      'This is a simulated reply from the offline demo.\n\nYou can explore the conversation history, create another conversation, browse the sample project, edit a file, and review the Git changes. The terminal also responds with a fixed local message.\n\nYour message stays in this demo session until the app closes. No model request or tool execution was made.';
+      'I\'ll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.';
 
   @override
   String get demoTerminalWelcome =>
-      'Offline demo shell. Input is simulated; no commands execute.';
-
-  @override
-  String get demoTerminalReply =>
-      'Demo response: no process was started. Browse the sample files and Git changes to continue.';
+      'Last login: Sun Nov 15 09:00:00 on ttys001';
 }

@@ -85,10 +85,7 @@ class HostInfoCard extends StatelessWidget {
                 Expanded(
                   child: Text(context.tr('hostInfo'), style: titleStyle),
                 ),
-                if (host.isDemo)
-                  Text(context.tr('demoOffline'), style: dimStyle(context))
-                else
-                  RoutePill(route: linkRoute(host.transport)),
+                RoutePill(route: linkRoute(host.transport)),
               ],
             ),
           ),

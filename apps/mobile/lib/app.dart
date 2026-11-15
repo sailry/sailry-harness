@@ -91,46 +91,12 @@ class _SailryAppState extends State<SailryApp> {
           builder: (context, child) {
             _session?.background.localize(context.tr);
             _session?.localize(context.tr);
-            final demo = _session?.selectedHost?.isDemo == true;
             return ColoredBox(
               color: Theme.of(context).colorScheme.surface,
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 520),
-                  child: AppBackground(
-                    child: Column(
-                      children: [
-                        if (demo)
-                          SafeArea(
-                            bottom: false,
-                            child: Material(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHigh,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 9,
-                                ),
-                                child: Text(
-                                  context.tr('demoNotice'),
-                                  key: const ValueKey('demo-notice'),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                          ),
-                        Expanded(
-                          child: MediaQuery.removePadding(
-                            context: context,
-                            removeTop: demo,
-                            child: child!,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: AppBackground(child: child!),
                 ),
               ),
             );
