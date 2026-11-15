@@ -32,12 +32,12 @@ import (
 )
 
 // firstRunTransport records the kind of every command the desktop sends. A
-// kind in hold is not forwarded: it waits for its gate and then fails.
+// kind in hold is not forwarded: it fails after its optional gate is released.
 type firstRunTransport struct {
 	link.Transport
 	mu    *sync.Mutex
 	kinds *[]string
-	hold  map[string]chan struct{}
+	hold  map[string]*atomic.Pointer[chan struct{}]
 	// gate, when set, keeps create_project from the Node until it is closed.
 	gate *atomic.Pointer[chan struct{}]
 	// flying, when set, counts the commands the Node has not answered yet. A
@@ -53,12 +53,14 @@ func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Reques
 	t.mu.Lock()
 	*t.kinds = append(*t.kinds, name)
 	t.mu.Unlock()
-	if gate := t.hold[name]; gate != nil {
-		select {
-		case <-gate:
-		case <-ctx.Done():
+	if held := t.hold[name]; held != nil {
+		if gate := held.Load(); gate != nil {
+			select {
+			case <-*gate:
+			case <-ctx.Done():
+			}
 		}
-		return link.Admission{}, errors.New("held command released")
+		return link.Admission{}, errors.New("fixture command unavailable")
 	}
 	if t.flying == nil {
 		if t.gate != nil && name == "create_project" {
@@ -209,12 +211,12 @@ func firstRun(t *testing.T) {
 	defer owner.Stop(context.Background())
 	var mu sync.Mutex
 	var kinds []string
-	// The catalog refresh would ask the network: it is held, then fails.
-	refresh := make(chan struct{})
+	// Catalog refreshes fail locally; only the later manual refresh is held.
+	var refresh atomic.Pointer[chan struct{}]
 	var gate atomic.Pointer[chan struct{}]
 	var flying atomic.Int64
 	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds,
-		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}, gate: &gate, flying: &flying})
+		hold: map[string]*atomic.Pointer[chan struct{}]{"refresh_model_catalog": &refresh}, gate: &gate, flying: &flying})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -406,12 +408,19 @@ func firstRun(t *testing.T) {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
 	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate, &flying)
+	if count("refresh_model_catalog") != 1 {
+		t.Fatalf("the first visit sent %d automatic catalog refreshes", count("refresh_model_catalog"))
+	}
 
 	// The Chinese pass ends on a conversation; Update is on the providers'
 	// settings.
 	r.App.Settings.Open(settings.Providers)
 	r.App.Navigate(shell.SettingsPage)
 	settle()
+	automatic := count("refresh_model_catalog")
+	if automatic != 2 {
+		t.Fatalf("returning to the empty catalog sent %d refreshes, want 2", automatic)
+	}
 
 	// Model data's Update is busy from the press until the Node answers: a
 	// second press sends nothing, and the answer gives the button back.
@@ -434,17 +443,21 @@ func firstRun(t *testing.T) {
 	if info := update(); info.Busy || info.Disabled {
 		t.Fatalf("Update is busy before a press: %+v", info)
 	}
+	manual := make(chan struct{})
+	refresh.Store(&manual)
+	releaseRefresh := sync.OnceFunc(func() { close(manual) })
+	defer releaseRefresh()
 	press()
-	if info := update(); !info.Busy || !info.Disabled || count("refresh_model_catalog") != 1 {
+	if info := update(); !info.Busy || !info.Disabled || count("refresh_model_catalog") != automatic+1 {
 		t.Fatalf("the pressed Update is %+v after %d refreshes", info, count("refresh_model_catalog"))
 	}
 	press()
-	if count("refresh_model_catalog") != 1 {
+	if count("refresh_model_catalog") != automatic+1 {
 		t.Fatalf("the busy Update sent %d refreshes", count("refresh_model_catalog"))
 	}
-	close(refresh)
+	releaseRefresh()
 	settle()
-	if info := update(); info.Busy || info.Disabled || count("refresh_model_catalog") != 1 {
+	if info := update(); info.Busy || info.Disabled || count("refresh_model_catalog") != automatic+1 {
 		t.Fatalf("the finished Update is %+v after %d refreshes", info, count("refresh_model_catalog"))
 	}
 }

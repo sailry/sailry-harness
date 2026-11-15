@@ -85,6 +85,8 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
+      - name: Test lane routing
+        run: bash .github/scripts/test_test.sh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
@@ -130,8 +132,8 @@ jobs:
       run:
         shell: bash
     steps:
-      # Native libraries are not loaded by these tests. Each shell batch
-      # gets its own runner rather than competing with another rasterizer.
+      # Native libraries are not loaded by these tests. Each UI batch runs
+      # its live and shell tests sequentially on its own runner.
       - name: Repository line endings
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
@@ -155,7 +157,7 @@ jobs:
           path: ${{ steps.go-cache.outputs.modules }}
           key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
       # On full runs the packages lane compiles the production tree, including
-      # shell through its consumers. It is the only writer; shell lanes
+      # live and shell through their consumers. It is the only writer; UI lanes
       # restore the same compiler cache without saving duplicate archives.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         if: matrix.lane == 'packages'

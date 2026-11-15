@@ -246,15 +246,40 @@ func (f *goalFixture) control(kind string) {
 	f.call("call_plugin", "control", map[string]any{"kind": kind, "goal_id": goal["id"]})
 }
 
-// read returns the session's runs and its stored goal, approving whatever
-// waits for the user.
+func goalRows[T any](ctx context.Context, db *sql.Conn, query string, session protocol.SessionID) ([]T, error) {
+	rows, err := db.QueryContext(ctx, query, session.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []T
+	for rows.Next() {
+		var body []byte
+		var value T
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(body, &value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, errors.Join(rows.Err(), rows.Close())
+}
+
+// read observes run and approval facts without rebuilding the transcript at
+// every poll. It returns the stored goal and approves whatever waits for the user.
 func (f *goalFixture) read() ([]protocol.ConversationRun, map[string]any) {
 	f.t.Helper()
-	var history protocol.ConversationHistory
+	var runs []protocol.ConversationRun
+	var approvals []protocol.ConversationApproval
 	var goal map[string]any
 	if err := f.node.profile.Store.Node.Read(f.ctx, func(db *sql.Conn) error {
 		var err error
-		if history, err = store.ReadConversation(f.ctx, db, f.session.ID, nil, 100); err != nil {
+		if runs, err = goalRows[protocol.ConversationRun](f.ctx, db, "SELECT a.body FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=h.turn WHERE h.session=?1 ORDER BY t.rowid", f.session.ID); err != nil {
+			return err
+		}
+		if approvals, err = goalRows[protocol.ConversationApproval](f.ctx, db, "SELECT a.body FROM agent_approvals a JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND json_extract(a.body,'$.state')='pending' ORDER BY a.rowid", f.session.ID); err != nil {
 			return err
 		}
 		entry, err := store.ReadPluginConversationValue(f.ctx, db, f.reference, f.session.ID, "goal")
@@ -265,13 +290,12 @@ func (f *goalFixture) read() ([]protocol.ConversationRun, map[string]any) {
 	}); err != nil {
 		f.t.Fatal(err)
 	}
-	for _, approval := range history.Page.Approvals {
-		if approval.State == protocol.ConversationApprovalStatePending {
-			f.approved++
-			commandFixture(f.t, f.node, protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: approval.Session, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: "approve"}}})
-		}
+	for _, approval := range approvals {
+		approval.Session = f.session.ID
+		f.approved++
+		commandFixture(f.t, f.node, protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: approval.Session, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: "approve"}}})
 	}
-	return history.Page.Runs, goal
+	return runs, goal
 }
 
 func (f *goalFixture) wait(name string, done func([]protocol.ConversationRun, map[string]any) bool) ([]protocol.ConversationRun, map[string]any) {
@@ -294,7 +318,7 @@ func (f *goalFixture) wait(name string, done func([]protocol.ConversationRun, ma
 			f.script.mu.Unlock()
 			f.t.Fatalf("%s: timed out with runs %v, goal %v, %d unexpected and %d unused model steps", name, statuses, goal, extra, left)
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

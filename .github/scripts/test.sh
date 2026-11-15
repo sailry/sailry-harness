@@ -53,11 +53,11 @@ if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
 fi
 
 packages=()
-shell_package=
+ui_packages=()
 while IFS= read -r package; do
   [ -n "$package" ] || continue
   case "$package" in
-    */internal/desktop/shell) shell_package=$package ;;
+    */internal/desktop/live|*/internal/desktop/shell) ui_packages+=("$package") ;;
     *) packages+=("$package") ;;
   esac
 done < "$RUNNER_TEMP/affected.txt"
@@ -70,17 +70,20 @@ if [ "$lane" = packages ]; then
   else
     echo 'No affected Go packages in this lane'
   fi
-elif [ -n "$shell_package" ]; then
-  go test -list . "$shell_package" > "$RUNNER_TEMP/shell-tests.txt"
-  pattern=$(awk -v batch="${lane#shell-}" '
-    /^(Test|Example|Fuzz)/ {
-      if (count++ % 3 == batch) { printf "%s%s", separator, $0; separator = "|" }
-    }
-    END { print "" }
-  ' "$RUNNER_TEMP/shell-tests.txt")
-  if [ -n "$pattern" ]; then
-    go test -p 1 -timeout 20m "$shell_package" -run "^($pattern)$"
-  fi
+elif [ "${#ui_packages[@]}" -gt 0 ]; then
+  for package in "${ui_packages[@]}"; do
+    list="$RUNNER_TEMP/${package##*/}-tests.txt"
+    go test -list . "$package" > "$list"
+    pattern=$(awk -v batch="${lane#shell-}" '
+      /^(Test|Example|Fuzz)/ {
+        if (count++ % 3 == batch) { printf "%s%s", separator, $0; separator = "|" }
+      }
+      END { print "" }
+    ' "$list")
+    if [ -n "$pattern" ]; then
+      go test -p 1 -timeout 20m "$package" -run "^($pattern)$"
+    fi
+  done
 else
-  echo 'No affected shell tests'
+  echo 'No affected UI tests'
 fi
