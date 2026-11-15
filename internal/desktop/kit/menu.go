@@ -292,7 +292,8 @@ func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice
 	for i, it := range m.items {
 		if it.separator {
 			if i > 0 && i < len(m.items)-1 {
-				ui.Box(c).Height(2).Margin(2, -4).Background(p.Border).Shrink(0)
+				// A hairline: at 2 DIP in the border color it reads as a bar.
+				ui.Box(c).Height(1).Margin(4, -4).Background(p.Separator()).Shrink(0)
 			}
 			continue
 		}
