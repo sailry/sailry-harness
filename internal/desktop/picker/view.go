@@ -219,8 +219,9 @@ func placeName(c *ui.Context, loc Location) string {
 func (s *State) places(c *ui.Context, valid bool, title string) {
 	p := theme.Of(c)
 	// The wash is the step the window's sidebar takes off its background,
-	// translucent so the dialog's frost shows through it.
-	ui.Column(c.Key("places")).Width(204).Shrink(0).Background(p.Muted).Children(func() {
+	// laid on the dialog's own fill and only slightly translucent: the frost
+	// behind it blurs the dimmed window, which alone reads dark in light mode.
+	ui.Column(c.Key("places")).Width(204).Shrink(0).Background(p.Muted.Over(kit.Opaque(p.Popover)).Alpha(0.88)).Children(func() {
 		s.grip(ui.Row(c.Key("title")).Height(52).Shrink(0).PaddingX(16).AlignItems(ui.Center)).Children(func() { s.heading(c, title) })
 		ui.Scroll(c.Key("locations")).Grow(1).MinHeight(0).Padding(0, 8, 12, 8).Gap(2).Children(func() {
 			groups, near := s.groups()
