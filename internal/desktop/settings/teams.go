@@ -67,17 +67,22 @@ func (m *Model) modelChoices(c *ui.Context, follow string) (ids, names []string)
 
 // modelOptions are the enabled channels' models as kit.ModelSelect offers
 // them, named "channel/model" as modelChoices names them, each under its
-// channel with the channel's mark.
+// channel with the channel's mark and filed under its brand.
 func (m *Model) modelOptions() []kit.ModelOption {
 	var out []kit.ModelOption
+	families := m.families()
 	for i := range m.Channels {
 		ch := &m.Channels[i]
 		if !ch.Enabled {
 			continue
 		}
+		brand := ""
+		if at := slices.IndexFunc(families, func(f family) bool { return f.id == ch.Brand }); at >= 0 {
+			brand = families[at].name
+		}
 		for _, x := range ch.Models {
 			out = append(out, kit.ModelOption{ID: ch.ID + "/" + x.ID, Name: x.Name, Provider: ch.Name, Mark: channelMark(ch),
-				Efforts: x.Efforts, DefaultEffort: x.DefaultEffort})
+				Brand: ch.Brand, BrandName: brand, Efforts: x.Efforts, DefaultEffort: x.DefaultEffort})
 		}
 	}
 	return out

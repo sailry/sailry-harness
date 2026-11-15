@@ -1839,6 +1839,7 @@ host_install_pairing
 host_install_unknown
 host_step_connect
 host_step_pair
+model_effort
 host_network_conflict
 host_network_edit
 host_network_failed

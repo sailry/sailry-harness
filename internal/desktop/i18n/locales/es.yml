@@ -1827,6 +1827,7 @@ host_install_pairing: Vinculación
 host_install_unknown: Resultado de instalación no confirmado; compruebe el host y vuelva a intentarlo
 host_step_connect: Conectar al host
 host_step_pair: Emparejar
+model_effort: Esfuerzo
 host_network_conflict: La configuración de red cambió; vuelve a intentarlo
 host_network_edit: Editar host
 host_network_failed: No se pudo cambiar la red

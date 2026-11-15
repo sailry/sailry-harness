@@ -1827,6 +1827,7 @@ host_install_pairing: 正在配对
 host_install_unknown: 安装结果未确认，请检查主机后重试
 host_step_connect: 连接主机
 host_step_pair: 配对
+model_effort: 强度
 host_network_conflict: 网络设置已变化，请重试
 host_network_edit: 编辑主机
 host_network_failed: 无法切换网络

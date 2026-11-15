@@ -302,7 +302,7 @@ func (binding *NativeBinding) renderModelPopup(view *ui.Context, identity string
 		id := nativeProp(model, "id", "")
 		option := kit.ModelOption{ID: id, Name: nativeProp(model, "name", nativeProp(model, "model", id)), Provider: nativeProp(model, "provider", "")}
 		if at := slices.IndexFunc(known, func(named kit.ModelOption) bool { return named.ID == id }); at >= 0 {
-			option.Name, option.Mark, option.Score = known[at].Name, known[at].Mark, known[at].Score
+			option.Name, option.Mark, option.Score, option.Brand, option.BrandName = known[at].Name, known[at].Mark, known[at].Score, known[at].Brand, known[at].BrandName
 		}
 		sent[id] = map[string]json.RawMessage{}
 		for _, effort := range nativeProp(model, "efforts", []json.RawMessage{}) {

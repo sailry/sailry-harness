@@ -15,9 +15,10 @@ import (
 // ModelSelect is the one control that chooses a model outside the composer:
 // in the settings pages and in the forms and views of packages. It is a
 // select's trigger over a popover of its own, since a Menu has neither
-// groups with a mark, a query, nor a second column: the models under their
-// providers, and beside them the efforts of the model the keys are on, of
-// the chosen one until then. The rows are the composer picker's: 32 high,
+// groups with a mark, a query, nor more columns: as the composer's picker,
+// the brands' rail where the models come from more than one, the models
+// under their providers, each group folding under its name, and beside them
+// the efforts of the model the keys are on, of the chosen one until then. The rows are the composer picker's: 32 high,
 // the chosen one told by the neutral Palette.Selected alone, a score and
 // nothing else at a row's end (AGENTS.md, Removed UI).
 
@@ -30,6 +31,11 @@ type ModelOption struct {
 	// without one the provider's initial stands for it.
 	Provider string
 	Mark     *ui.SVG
+	// Brand is the family the rail files the model under, an icons.Brand
+	// name ("openai", "anthropic"); BrandName labels its tile, by the
+	// "provider_" key of Brand without one. A tile's mark is the brand's,
+	// else the generic one.
+	Brand, BrandName string
 	// Efforts are the levels the model takes, none for a model without
 	// reasoning; DefaultEffort is the one it starts at.
 	Efforts       []string
@@ -79,6 +85,11 @@ const (
 	// modelSearchAt is how many models a list has before it gets a query.
 	modelSearchAt  = 8
 	modelRowHeight = 32
+	// The brands' rail, as the composer picker's: tiles of modelRailTile
+	// with modelRailPad around them.
+	modelRailTile  = 32
+	modelRailPad   = 6
+	modelRailWidth = modelRailTile + 2*modelRailPad
 )
 
 // modelSelectState is what a ModelSelect keeps while it shows.
@@ -93,6 +104,12 @@ type modelSelectState struct {
 	// enter gives the chosen row the focus as the popover opens, and
 	// efforts gives it to the effort a model was just chosen at.
 	enter, efforts bool
+	// brand is the rail's filter, "" for all; folded are the provider
+	// groups folded, kept from one opening to the next.
+	brand  string
+	folded map[string]bool
+	// rail tells that the brands' rail shows, which widens the popover.
+	rail bool
 }
 
 type modelSelectKey struct{}
@@ -155,7 +172,7 @@ func ModelSelect(c *ui.Context, o ModelSelectProps) ui.Element {
 		if o.ReadOnly {
 			return
 		}
-		*st = modelSelectState{open: !st.open, enter: true}
+		*st = modelSelectState{open: !st.open, enter: true, folded: st.folded}
 	})
 	panel := Popover(c, b, &st.open, func() { o.panel(c, st, chosen, listed) })
 	if panel != (ui.Element{}) {
@@ -165,6 +182,9 @@ func ModelSelect(c *ui.Context, o ModelSelectProps) ui.Element {
 		width := max(modelPanelWidth, b.Bounds().W)
 		if column := float32(modelEffortWidth + 2*modelColumnGap + 1); st.column && width < modelPanelWidth+column {
 			width += column
+		}
+		if st.rail {
+			width += modelRailWidth + 2*modelColumnGap + 1
 		}
 		window, _ := c.Size()
 		Snapped(panel.Padding(6).Width(min(width, window-16)))
@@ -257,6 +277,52 @@ func modelRow(c *ui.Context, key any, label string, selected bool, content func(
 	})
 }
 
+// ModelColumnHeading heads a column of model choices: a row's height, its
+// text as muted as a provider group's name and as large, the efforts'
+// column's in both pickers.
+func ModelColumnHeading(c *ui.Context, text string) ui.Element {
+	return ui.Row(c.Key("heading")).FillWidth().Height(modelRowHeight).Shrink(0).PaddingX(8).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, text).FontSize(14).LineHeight(20.0 / 14).SingleLine().Shrink(1).MinWidth(0).TextColor(theme.Of(c).MutedForeground)
+	})
+}
+
+// rail is the brands' tiles, All first, as the composer picker's families:
+// a brand's mark in a rounded square, filled as a chosen row while it is the
+// filter, named by its tooltip.
+func (o ModelSelectProps) rail(c *ui.Context, st *modelSelectState, brands []ModelOption) {
+	p := theme.Of(c)
+	ui.Scroll(c.Key("brands")).Width(modelRailWidth).Shrink(0).MaxHeight(modelListHeight).Padding(modelRailPad).Gap(4).
+		Radius(p.Radius2xl()).Background(p.Secondary).Role(ui.RoleListBox).Label(i18n.T(c, "provider_type")).Children(func() {
+		tile := func(id, label string, mark *ui.SVG) {
+			selected := st.brand == id
+			b := ui.ButtonBase(c.Key("brand-"+id)).Label(label).Role(ui.RoleOption).AccessSelected(selected).
+				Size(modelRailTile, modelRailTile).Shrink(0).Radius(p.RadiusLg).Center().Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+			Tooltip(c, b, label)
+			switch {
+			case selected || b.Pressed():
+				b.Background(p.Selected()).TextColor(p.Foreground)
+			case b.Hovered():
+				b.Background(p.Hover)
+			}
+			b.Children(func() { ui.Icon(c, mark).FontSize(18) }).OnClick(func() { st.brand, st.cursor = id, "" })
+		}
+		tile("", i18n.T(c, "provider_all"), icons.Settings2)
+		for _, m := range brands {
+			label := m.BrandName
+			if label == "" {
+				if label = i18n.T(c, "provider_"+m.Brand); label == "provider_"+m.Brand {
+					label = m.Brand
+				}
+			}
+			mark := icons.Brand(m.Brand)
+			if mark == nil {
+				mark = icons.Settings2
+			}
+			tile(m.Brand, label, mark)
+		}
+	})
+}
+
 // panel is the popover's content: the query over a list of many models,
 // then the models and, a hairline apart, the efforts of the one the keys
 // are on or that is chosen, where it has any. Up and Down move in a
@@ -280,10 +346,23 @@ func (o ModelSelectProps) panel(c *ui.Context, st *modelSelectState, chosen Mode
 		}
 	}
 	query := strings.ToLower(strings.TrimSpace(st.query))
+	// The rail shows where the models come from more than one brand.
+	var brands []ModelOption
+	for _, m := range o.Models {
+		if m.Brand != "" && !slices.ContainsFunc(brands, func(b ModelOption) bool { return b.Brand == m.Brand }) {
+			brands = append(brands, m)
+		}
+	}
+	if st.rail = len(brands) > 1; !st.rail {
+		st.brand = ""
+	}
+	if st.folded == nil {
+		st.folded = map[string]bool{}
+	}
 	var shown []ModelOption
 	var providers []string
 	for _, m := range o.Models {
-		if query != "" && !strings.Contains(strings.ToLower(m.Name+" "+m.Provider), query) {
+		if query != "" && !strings.Contains(strings.ToLower(m.Name+" "+m.Provider), query) || st.brand != "" && m.Brand != st.brand {
 			continue
 		}
 		shown = append(shown, m)
@@ -311,6 +390,10 @@ func (o ModelSelectProps) panel(c *ui.Context, st *modelSelectState, chosen Mode
 			}
 		}
 		ui.Row(c.Key("columns")).FillWidth().Gap(modelColumnGap).AlignItems(ui.Stretch).Children(func() {
+			if st.rail {
+				o.rail(c, st, brands)
+				ui.Box(c.Key("rail-line")).Width(1).Shrink(0).Background(p.Border)
+			}
 			rows := map[string]ui.Element{}
 			var first ui.Element
 			list := ui.Scroll(c.Key("models")).Grow(1).Basis(0).MinWidth(0).MaxHeight(modelListHeight).Gap(2).
@@ -327,21 +410,38 @@ func (o ModelSelectProps) panel(c *ui.Context, st *modelSelectState, chosen Mode
 					ui.Text(c, i18n.T(c, "composer_model_empty")).FontSize(14).LineHeight(20.0/14).Padding(6, 8).TextColor(p.MutedForeground)
 				}
 				for i, provider := range providers {
+					// A provider's name heads its models at the rows' size,
+					// and folds and unfolds them, by a click, Enter or Space:
+					// a disclosure, its chevron down while they show. A query
+					// shows every match, folded or not.
+					open := provider == "" || query != "" || !st.folded[provider]
 					if provider != "" {
-						top := float32(8)
-						if i == 0 && first == (ui.Element{}) {
-							top = 4
+						if i > 0 || first != (ui.Element{}) {
+							ui.Box(c.Key("gap-" + provider)).Height(4).Shrink(0)
 						}
-						ui.Row(c.Key("provider-"+provider)).FillWidth().Shrink(0).Padding(top, 8, 4, 8).Gap(6).AlignItems(ui.Center).
-							TextColor(p.MutedForeground).Children(func() {
+						group := ui.ButtonBase(c.Key("provider-" + provider)).Role(ui.RoleDisclosure).Label(provider).Expanded(open).
+							FillWidth().MinWidth(0).Height(modelRowHeight).Shrink(0).PaddingX(8).Gap(8).Radius(p.RadiusLg).
+							AlignItems(ui.Center).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+						group.Children(func() {
 							for _, m := range shown {
 								if m.Provider == provider {
-									modelMark(c, m, 14, p.MutedForeground)
+									modelMark(c, m, 16, p.MutedForeground)
 									break
 								}
 							}
-							ui.Text(c, provider).FontSize(12).FontWeight(500).SingleLine().Shrink(1).MinWidth(0)
+							ui.Text(c, provider).FontSize(14).LineHeight(20.0 / 14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+							chevron := icons.ChevronRight
+							if open {
+								chevron = icons.ChevronDown
+							}
+							ui.Icon(c, chevron).FontSize(14).Shrink(0)
 						})
+						if query == "" {
+							group.OnClick(func() { st.folded[provider] = open })
+						}
+					}
+					if !open {
+						continue
 					}
 					for _, m := range shown {
 						if m.Provider != provider {
@@ -410,8 +510,14 @@ func (o ModelSelectProps) panel(c *ui.Context, st *modelSelectState, chosen Mode
 			if o.AutoEffort != "" {
 				levels = append([]string{""}, levels...)
 			}
-			efforts := ui.Scroll(c.Key("efforts")).Width(modelEffortWidth).Shrink(0).MaxHeight(modelListHeight).Gap(2).
-				Role(ui.RoleListBox).Label(i18n.T(c, "composer_effort")).FocusGroup(ui.Vertical)
+			// The efforts under their heading, as high and as muted as a
+			// provider's.
+			var efforts ui.Element
+			ui.Column(c.Key("effort-column")).Width(modelEffortWidth).Shrink(0).Gap(2).Children(func() {
+				ModelColumnHeading(c, i18n.T(c, "model_effort"))
+				efforts = ui.Scroll(c.Key("efforts")).FillWidth().MaxHeight(modelListHeight - modelRowHeight - 2).Gap(2).
+					Role(ui.RoleListBox).Label(i18n.T(c, "composer_effort")).FocusGroup(ui.Vertical)
+			})
 			efforts.Children(func() {
 				for i, level := range levels {
 					label := level

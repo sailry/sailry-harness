@@ -1827,6 +1827,7 @@ host_install_pairing: Koppeln
 host_install_unknown: Installationsergebnis nicht bestätigt; Host überprüfen und erneut versuchen
 host_step_connect: Mit Host verbinden
 host_step_pair: Koppeln
+model_effort: Aufwand
 host_network_conflict: Netzwerkeinstellungen wurden geändert; erneut versuchen
 host_network_edit: Host bearbeiten
 host_network_failed: Netzwerk konnte nicht geändert werden

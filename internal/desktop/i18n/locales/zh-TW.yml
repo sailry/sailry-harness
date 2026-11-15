@@ -1827,6 +1827,7 @@ host_install_pairing: 正在配對
 host_install_unknown: 安裝結果未確認，請檢查主機後重試
 host_step_connect: 連線主機
 host_step_pair: 配對
+model_effort: 強度
 host_network_conflict: 網路設定已變更，請重試
 host_network_edit: 編輯主機
 host_network_failed: 無法切換網路

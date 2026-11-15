@@ -1827,6 +1827,7 @@ host_install_pairing: Pairing
 host_install_unknown: Install result unconfirmed; check host and retry
 host_step_connect: Connect to host
 host_step_pair: Pair
+model_effort: Effort
 host_network_conflict: Network settings changed; retry
 host_network_edit: Edit host
 host_network_failed: Could not change network

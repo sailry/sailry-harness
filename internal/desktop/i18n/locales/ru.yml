@@ -1827,6 +1827,7 @@ host_install_pairing: Сопряжение
 host_install_unknown: Результат установки не подтвержден; проверьте хост и повторите попытку
 host_step_connect: Подключение к узлу
 host_step_pair: Сопряжение
+model_effort: Усилие
 host_network_conflict: Настройки сети изменились; повторите попытку
 host_network_edit: Изменить хост
 host_network_failed: Не удалось изменить сеть

@@ -1827,6 +1827,7 @@ host_install_pairing: Pareamento
 host_install_unknown: Resultado da instalação não confirmado; verifique o host e tente novamente
 host_step_connect: Conectar ao host
 host_step_pair: Parear
+model_effort: Esforço
 host_network_conflict: As configurações de rede mudaram; tente novamente
 host_network_edit: Editar host
 host_network_failed: Não foi possível alterar a rede

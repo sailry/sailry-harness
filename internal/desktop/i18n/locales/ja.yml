@@ -1827,6 +1827,7 @@ host_install_pairing: ペアリング
 host_install_unknown: インストール結果が確認されていません。ホストをチェックしてやり直してください
 host_step_connect: ホストに接続
 host_step_pair: ペアリング
+model_effort: 強度
 host_network_conflict: ネットワーク設定が変更されました。再試行してください
 host_network_edit: ホストを編集
 host_network_failed: ネットワークを変更できませんでした

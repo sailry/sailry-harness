@@ -473,6 +473,11 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			} else {
 				s.controls(c, ctx, actions)
 			}
+			// The model picker and the team list are pages of their own:
+			// the menu's other rows wait under them until Back.
+			if len(ctx.Models) > 0 && s.layer != layerMain {
+				return
+			}
 			row("mode-page", modeIcon, modeLabel, p.Foreground, settingsMode)
 			row("permission-page", pm.icon, i18n.T(c, pm.label), permissionColor(p, s.Permission), settingsPermission)
 			s.renderPluginControls(c, "composer", ControlMenu)

@@ -59,6 +59,7 @@ func modelSelectTester(props *ModelSelectProps, mode theme.Mode, changes *[]stri
 // model that has any beside the list, and reports what is chosen.
 func TestModelSelect(t *testing.T) {
 	efforts := i18n.In("en", "composer_effort")
+	en := func(key string) string { return i18n.In("en", key) }
 	rest := func(tt *ui.Tester) {
 		tt.Frame()
 		tt.Advance(300 * time.Millisecond)
@@ -268,13 +269,16 @@ func TestModelSelect(t *testing.T) {
 			tt.Key(0, k)
 			rest(tt)
 		}
-		// The focus opens on the chosen row; Down moves, Enter chooses.
+		// The focus opens on the chosen row; Down moves, past the next
+		// group's heading, and Enter chooses.
+		key(ui.KeyDown)
 		key(ui.KeyDown)
 		key(ui.KeyEnter)
 		if !slices.Equal(changes, []string{models[5].ID + "@"}) {
 			t.Fatalf("Down and Enter reported %q", changes)
 		}
 		open(t, tt)
+		key(ui.KeyUp)
 		key(ui.KeyUp)
 		key(ui.KeyUp)
 		// Claude Opus 5.5 has efforts, which show as the keys reach it.
@@ -291,6 +295,47 @@ func TestModelSelect(t *testing.T) {
 		key(ui.KeyEscape)
 		if _, ok := tt.AccessByRole(ui.RoleListBox, "Model"); ok {
 			t.Error("Escape leaves the popover open")
+		}
+	})
+
+	// Models of more than one brand get the brands' rail, which filters
+	// them; a provider's heading, at the rows' size, folds its models; the
+	// efforts have their heading.
+	t.Run("brands and folds", func(t *testing.T) {
+		models := modelSelectFixture()
+		for i := range models {
+			models[i].Brand = map[string]string{"OpenAI": "openai", "Anthropic": "anthropic", "Team gateway": "qwen"}[models[i].Provider]
+		}
+		models[5].BrandName = "Qwen"
+		props := &ModelSelectProps{Label: "Model", Models: models, Model: models[0].ID}
+		tt := modelSelectTester(props, theme.Dark, nil)
+		open(t, tt)
+		rail := names(options(tt, en("provider_type")))
+		if !slices.Equal(rail, []string{en("provider_all"), "OpenAI", "Anthropic", "Qwen"}) {
+			t.Fatalf("the rail offers %q", rail)
+		}
+		if _, ok := tt.Access(en("model_effort")); !ok && !tt.HasText(en("model_effort")) {
+			t.Errorf("the efforts have no heading: %q", tt.Texts())
+		}
+		click(t, tt, en("provider_type"), "Anthropic")
+		if got := names(options(tt, "Model")); !slices.Equal(got, []string{"Claude Opus 5.5", "Claude Haiku 5.5"}) {
+			t.Fatalf("Anthropic's tile leaves %q", got)
+		}
+		click(t, tt, en("provider_type"), en("provider_all"))
+		heading, ok := tt.AccessByRole(ui.RoleDisclosure, "OpenAI")
+		if !ok || !heading.Expanded || heading.Bounds.H != modelRowHeight {
+			t.Fatalf("the OpenAI heading reads %+v", heading)
+		}
+		tt.ClickAt(heading.Bounds.X+heading.Bounds.W/2, heading.Bounds.Y+heading.Bounds.H/2)
+		rest(tt)
+		if got := names(options(tt, "Model")); slices.Contains(got, "GPT-6 Sol") || !slices.Contains(got, "Qwen Max") {
+			t.Fatalf("a folded group leaves %q", got)
+		}
+		// One brand gets no rail.
+		props.Models = modelSelectFixture()
+		rest(tt)
+		if _, ok := tt.AccessByRole(ui.RoleListBox, en("provider_type")); ok {
+			t.Error("models of no brand show the rail")
 		}
 	})
 

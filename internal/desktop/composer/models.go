@@ -702,9 +702,9 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 				// Enter or Space: a disclosure, expanded while they show,
 				// its chevron down then and to the right while folded. The
 				// fold is kept in s.open, false for a folded group.
-				group := ui.ButtonBase(c.Key("group-"+pr)).Role(ui.RoleDisclosure).Label(pr).FillWidth().Padding(6, 14, 6, 8).Gap(4).
+				group := ui.ButtonBase(c.Key("group-"+pr)).Role(ui.RoleDisclosure).Label(pr).FillWidth().Height(32).Shrink(0).Padding(0, 14, 0, 8).Gap(4).AlignItems(ui.Center).
 					Justify(ui.SpaceBetween).Expanded(open).Cursor(ui.CursorPointer).TextColor(p.MutedForeground).Children(func() {
-					ui.Text(c, pr).FontSize(14).SingleLine()
+					ui.Text(c, pr).FontSize(14).LineHeight(20.0 / 14).SingleLine()
 					chevron := icons.ChevronRight
 					if open {
 						chevron = icons.ChevronDown
@@ -875,8 +875,9 @@ func (s *State) carried(m, chosen Model) int {
 	return defaultEffort(m)
 }
 
-// effortColumn is the efforts of a model, with no heading over them
-// (AGENTS.md, Removed UI), rows as the models' are: the level and, at the row's end, the score measured at it.
+// effortColumn is the efforts of a model under their heading, as high and as
+// muted as a group's name (kit.ModelColumnHeading), rows as the models' are:
+// the level and, at the row's end, the score measured at it.
 // The one the model's row chooses is filled and selected. A model without
 // efforts has a muted line for them, so the column keeps its place. focus
 // gives the selected row the keyboard focus.
@@ -887,8 +888,11 @@ func (s *State) effortColumn(c *ui.Context, m, chosen Model, focus bool) {
 	current := s.carried(m, chosen)
 	// It scrolls, as the models do: a model declares as many levels as it
 	// has.
-	column := ui.Scroll(c.Key("efforts")).Width(effortWidth).Shrink(0).MaxHeight(panelHeight).Role(ui.RoleListBox).Label(name).
-		FocusGroup(ui.Vertical)
+	var column ui.Element
+	ui.Column(c.Key("effort-column")).Width(effortWidth).Shrink(0).Children(func() {
+		kit.ModelColumnHeading(c, i18n.T(c, "model_effort"))
+		column = ui.Scroll(c.Key("efforts")).FillWidth().Grow(1).MinHeight(0).Role(ui.RoleListBox).Label(name).FocusGroup(ui.Vertical)
+	})
 	column.Children(func() {
 		if len(list) == 0 {
 			ui.Text(c.Key("none"), i18n.T(c, "composer_effort_unavailable")).FontSize(14).LineHeight(20.0/14).

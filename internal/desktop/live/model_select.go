@@ -9,7 +9,8 @@ import (
 // kit.ModelSelect offers them outside the settings pages, in a package's
 // form or view: named as the composer names them (modelKey), each under its
 // provider with the mark the provider's channel has in the settings, its
-// preset's or else its API's brand, and the score the composer shows. They
+// preset's or else its API's brand, filed under the composer's families,
+// and the score the composer shows. They
 // carry no efforts: a form that chooses one takes them from the catalog it
 // was given.
 func (r *Runtime) modelOptions() []kit.ModelOption {
@@ -25,7 +26,7 @@ func (r *Runtime) modelOptions() []kit.ModelOption {
 			}
 		}
 		for _, m := range p.Models {
-			option := kit.ModelOption{ID: modelKey(p.ID, m.ID), Name: m.ID, Provider: p.Name, Mark: mark}
+			option := kit.ModelOption{ID: modelKey(p.ID, m.ID), Name: m.ID, Provider: p.Name, Mark: mark, Brand: modelFamily(p.Api)}
 			if m.DisplayName != nil {
 				option.Name = *m.DisplayName
 			}
