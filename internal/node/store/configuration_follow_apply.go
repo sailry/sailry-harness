@@ -88,7 +88,8 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 		if _, err := db.ExecContext(ctx, "RELEASE follow_record"); err != nil {
 			return nil, err
 		}
-		state, message = "applied", ""
+		state = "applied"
+		message := ""
 		if failure != nil {
 			var reported *protocol.Fault
 			if !errors.As(failure, &reported) {
