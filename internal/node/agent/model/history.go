@@ -37,6 +37,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		call.Tools = append(call.Tools, tool)
 	}
 	records := VisibleRecords(request.Records)
+	origins := map[int]string{}
 	active := -1
 	for i := range records {
 		if message := records[i].Message(); message != nil && message.Role == canonical.User {
@@ -61,6 +62,13 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		current := fantasy.Message{Role: role}
 		flush := func() {
 			if len(current.Content) > 0 {
+				if role == fantasy.MessageRoleAssistant {
+					prefix := ""
+					if runtime := record.Metadata.Runtime; runtime != nil && runtime.Inference != nil {
+						prefix = runtime.Inference.ReplayPrefix
+					}
+					origins[len(call.Prompt)] = prefix
+				}
 				call.Prompt = append(call.Prompt, current)
 				current = fantasy.Message{Role: role}
 			}
@@ -216,6 +224,13 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	}
 	if binding.Provider.Authentication == protocol.AuthenticationCopilot {
 		call.Headers = copilotHeaders(request, records, call.Prompt)
+	}
+	prefix, err := scopeReplay(binding, &call, origins)
+	if err != nil {
+		return call, err
+	}
+	if prefix != "" {
+		call.ProviderOptions[replayContextKey] = &replayContext{Prefix: prefix}
 	}
 	return call, nil
 }

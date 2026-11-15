@@ -144,7 +144,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		out.record.Provenance.Author = "assistant"
 		scope := model.Scope(binding)
 		out.record.Metadata.Execution = &canonical.Execution{Source: &scope, Purpose: &purpose}
-		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model}}
+		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model, ReplayPrefix: model.ReplayPrefix(call)}}
 		return out
 	}
 	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {

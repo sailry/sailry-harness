@@ -68,6 +68,7 @@ func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
 				message(canonical.Assistant, canonical.Text(0, "The project is ready")),
 				message(canonical.User, canonical.Text(0, "Continue on Claude")),
 			}
+			lastPrefix := ""
 			send := func(selected Binding) capturedRequest {
 				before, err := json.Marshal(records)
 				if err != nil {
@@ -77,6 +78,7 @@ func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				lastPrefix = ReplayPrefix(call)
 				model, err := New(t.Context(), selected)
 				if err != nil {
 					t.Fatal(err)
@@ -102,7 +104,9 @@ func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
 					t.Errorf("Claude request carried GPT-only data %q", foreign)
 				}
 			}
-			records = append(records, assistant(claude, "claude-signed-thinking", "I will verify the status", "toolu_claude"), result("toolu_claude", "Project status from Claude's tool"))
+			continued := assistant(claude, "claude-signed-thinking", "I will verify the status", "toolu_claude")
+			continued.Metadata.Runtime.Inference.ReplayPrefix = lastPrefix
+			records = append(records, continued, result("toolu_claude", "Project status from Claude's tool"))
 			second := send(claude)
 			checkValue(t, second.Body, "messages.5.content.0.signature", "claude-signed-thinking")
 			checkValue(t, second.Body, "messages.5.content.2.id", "toolu_claude")

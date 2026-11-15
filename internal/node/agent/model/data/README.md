@@ -4,8 +4,8 @@ parameter policy, including adaptive thinking and dated snapshot lookup.
 See ../LICENSE.rig. No runtime or build access to a source checkout is needed.
 
 `catalog.go` applies two reviewed lookup corrections without changing this source:
-Claude Haiku 5.5 supports adaptive thinking, and the dotted `5.5` spellings of
-Haiku, Sonnet and Opus share their canonical `5-5` capabilities. These corrections
+Claude Haiku 5.5 supports adaptive, context-bound thinking, and the dotted `5.5`
+spellings of Haiku, Sonnet and Opus share their canonical `5-5` capabilities. These corrections
 also apply after dated snapshot lookup. They do not rewrite the requested model
 ID or infer capabilities for other model versions or providers.
 

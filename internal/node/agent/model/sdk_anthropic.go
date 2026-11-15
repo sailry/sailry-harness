@@ -95,6 +95,12 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 					return
 				}
 			}
+			if block.kind == "thinking" {
+				block.text = wireString(content["thinking"])
+				if block.text != "" && !emitter.emitIndexed(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningDelta, ID: block.id, Delta: block.text}, index) {
+					return
+				}
+			}
 		case "content_block_delta":
 			if block == nil {
 				emitter.fail(fmt.Errorf("model content delta has no open block"))

@@ -32,8 +32,9 @@ type catalogModel struct {
 		Values []*string `json:"values"`
 	} `json:"reasoning_options"`
 	Rig struct {
-		Adaptive    bool   `json:"adaptive_thinking"`
-		ThinkingOff string `json:"thinking_off"`
+		Adaptive     bool   `json:"adaptive_thinking"`
+		BindsContext bool   `json:"binds_context"`
+		ThinkingOff  string `json:"thinking_off"`
 	} `json:"rig"`
 	Limit struct {
 		Context uint32 `json:"context"`
@@ -65,6 +66,7 @@ func catalogEntry(provider, model string) (catalogModel, bool) {
 			// The pinned catalog lists its efforts but omits adaptive thinking.
 			// Apply the reviewed correction to this copy, keeping the source intact.
 			entry.Rig.Adaptive = true
+			entry.Rig.BindsContext = true
 		}
 		return entry, ok
 	}

@@ -304,6 +304,11 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	switch api {
 	case protocol.ConversationModelApiAnthropic:
 		config.Kind = "anthropic"
+		if provider.Authentication == protocol.AuthenticationApiKey && binding.Session != (protocol.SessionID{}) {
+			// Compatible account pools can derive affinity from cache content.
+			// Keep that routing identity stable when tool results move cache markers.
+			config.JSON["metadata"] = claudeMetadata(provider.ID.String(), binding.Session.String(), "")
+		}
 	case protocol.ConversationModelApiResponses:
 		config.Kind = "responses"
 		u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/responses")

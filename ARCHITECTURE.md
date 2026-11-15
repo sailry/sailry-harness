@@ -228,6 +228,13 @@ private reasoning is replayed only to its producing provider and model. Reviewed
 capability lookup corrections recognize supported model aliases without renaming
 the provider's requested model or changing stored records.
 
+Anthropic API-key requests carry an opaque, stable session identity so compatible
+account pools do not infer a new route when cache breakpoints move. Replies with
+context-bound thinking retain a digest of the projected request that produced
+them. When that prefix changes or an older block has no verified prefix, private
+reasoning is omitted from the outgoing projection; canonical text, tool calls and
+results remain intact.
+
 Provider editing can switch a declared protocol route while retaining the
 provider identity, credentials and model settings. The editor masks explicitly
 read API keys and omits unchanged keys from saves. Image capability editing

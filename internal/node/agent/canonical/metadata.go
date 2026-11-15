@@ -133,4 +133,6 @@ type Inference struct {
 	RequestedModel  string  `json:"requested_model"`
 	ResolvedModel   *string `json:"resolved_model,omitempty"`
 	ProviderSession *string `json:"provider_session,omitempty"`
+	// ReplayPrefix is the digest of the request that produced bound reasoning.
+	ReplayPrefix string `json:"replay_prefix,omitempty"`
 }
