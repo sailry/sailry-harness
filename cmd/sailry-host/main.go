@@ -70,6 +70,7 @@ func run(args []string) (int, error) {
 		defer closeLogs()
 	}
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
+		Headless:    true,
 		MCP:         &mcp.Options{Warm: true},
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},

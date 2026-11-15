@@ -152,7 +152,7 @@ func (network *Network) inspect(id protocol.NodeID) {
 		defer network.workers.Done()
 		info, err := network.endpoint.Inspect(network.ctx, address)
 		discovered := err == nil
-		if err == nil && info.Execution {
+		if err == nil && info.Execution && network.endpoint.Direction(id).AllowsOutbound() {
 			err = info.Compatibility()
 		}
 		network.mu.Lock()
@@ -163,7 +163,7 @@ func (network *Network) inspect(id protocol.NodeID) {
 		if discovered {
 			peer.info = info
 		}
-		create := err == nil && info.Execution && peer.controller == nil
+		create := err == nil && info.Execution && network.endpoint.Direction(id).AllowsOutbound() && peer.controller == nil
 		controller := peer.controller
 		if create {
 			controller = client.New(network.endpoint.Remote(address))

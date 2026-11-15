@@ -340,6 +340,11 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	case !bytes.Equal(stored, node[:]):
 		return errors.New("Node identity does not match its database")
 	}
+	if definition.state != schemaCurrent {
+		if err := initializeUsers(ctx, connection); err != nil {
+			return err
+		}
+	}
 	validate := validateStored
 	if definition.state == schemaCurrent {
 		validate = validateStartup

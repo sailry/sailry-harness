@@ -133,6 +133,7 @@ var _ link.Handler = (*Node)(nil)
 
 // Options injects native process and clock boundaries for deterministic owners.
 type Options struct {
+	Headless       bool
 	MCP            *mcp.Options
 	Python         *python.Options
 	DispatchClock  clockwork.Clock
@@ -160,6 +161,11 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if options.Headless {
+			if err := store.MigrateHeadlessPeers(ctx, db); err != nil {
+				return err
+			}
+		}
 		if err := admission.Recover(ctx, db); err != nil {
 			return err
 		}

@@ -76,7 +76,7 @@ func SetLinkTrust(ctx context.Context, db *sql.Conn, peer protocol.NodeID, trust
 	if count >= 128 && !present {
 		return fault(protocol.ErrorCodeBusy, "paired device capacity exhausted")
 	}
-	_, err := db.ExecContext(ctx, "INSERT OR IGNORE INTO link_peers(identity) VALUES(?1)", peer[:])
+	_, err := db.ExecContext(ctx, "INSERT OR IGNORE INTO link_peers(identity,user) VALUES(?1,(SELECT id FROM users WHERE local=1))", peer[:])
 	return err
 }
 
@@ -106,4 +106,86 @@ func SaveNetworkSelection(ctx context.Context, db *sql.Conn, expected uint64, se
 	}
 	_, err = db.ExecContext(ctx, "INSERT INTO network_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
 	return revision, err
+}
+
+// LinkDirections loads persisted direction independently of reachability.
+func LinkDirections(ctx context.Context, db *sql.Conn) ([]link.PeerTrust, error) {
+	rows, err := db.QueryContext(ctx, "SELECT identity,direction FROM link_peers ORDER BY identity")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []link.PeerTrust{}
+	for rows.Next() {
+		var identity []byte
+		var direction link.PeerDirection
+		if err := rows.Scan(&identity, &direction); err != nil {
+			return nil, err
+		}
+		if len(identity) != len(protocol.NodeID{}) || !direction.Valid() {
+			return nil, errors.New("invalid stored peer trust")
+		}
+		values = append(values, link.PeerTrust{ID: protocol.NodeID(identity), Direction: direction})
+	}
+	return values, rows.Err()
+}
+
+// PairLinkPeer unions two explicit pairings without moving a device between
+// users. Only a newly admitted controller creates a new local user.
+func PairLinkPeer(ctx context.Context, db *sql.Conn, peer protocol.NodeID, direction link.PeerDirection) error {
+	if !direction.Valid() {
+		return invalid("invalid peer direction")
+	}
+	var previous link.PeerDirection
+	err := db.QueryRowContext(ctx, "SELECT direction FROM link_peers WHERE identity=?1", peer[:]).Scan(&previous)
+	if err == nil {
+		if previous != direction {
+			direction = link.DirectionBoth
+		}
+		return SetLinkDirection(ctx, db, peer, direction)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err := SetLinkTrust(ctx, db, peer, true); err != nil {
+		return err
+	}
+	var user any
+	if direction.AllowsInbound() {
+		value, err := CreateUser(ctx, db, "Paired user")
+		if err != nil {
+			return err
+		}
+		user = value.ID.String()
+	}
+	_, err = db.ExecContext(ctx, "UPDATE link_peers SET direction=?2,legacy=0,user=?3 WHERE identity=?1", peer[:], string(direction), user)
+	return err
+}
+
+func SetLinkDirection(ctx context.Context, db *sql.Conn, peer protocol.NodeID, direction link.PeerDirection) error {
+	if !direction.Valid() {
+		return invalid("invalid peer direction")
+	}
+	var user sql.NullString
+	if err := db.QueryRowContext(ctx, "SELECT user FROM link_peers WHERE identity=?1", peer[:]).Scan(&user); errors.Is(err, sql.ErrNoRows) {
+		return fault(protocol.ErrorCodeNotFound, "peer is unavailable")
+	} else if err != nil {
+		return err
+	}
+	if direction.AllowsInbound() && !user.Valid {
+		value, err := CreateUser(ctx, db, "Paired user")
+		if err != nil {
+			return err
+		}
+		user = sql.NullString{String: value.ID.String(), Valid: true}
+	}
+	_, err := db.ExecContext(ctx, "UPDATE link_peers SET direction=?2,legacy=0,user=?3 WHERE identity=?1", peer[:], string(direction), user)
+	return err
+}
+
+// MigrateHeadlessPeers preserves inbound access without treating legacy Host
+// controllers as outbound execution services.
+func MigrateHeadlessPeers(ctx context.Context, db *sql.Conn) error {
+	_, err := db.ExecContext(ctx, "UPDATE link_peers SET direction='controller',legacy=0 WHERE legacy=1")
+	return err
 }

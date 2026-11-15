@@ -91,6 +91,9 @@ func validateStartup(ctx context.Context, connection *sql.Conn) error {
 }
 
 func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) error {
+	if err := validateUsers(ctx, connection); err != nil {
+		return err
+	}
 	for _, record := range []struct {
 		table, column string
 		factory       func() any

@@ -465,6 +465,19 @@ records.
 
 ## Pairing and operations
 
+Each Node records local users independently of device identities. The local user
+is an administrator; existing paired devices migrate into that user without
+losing access. New inbound pairings create a separate user, with the first paired
+user also becoming an administrator. Revoking a device preserves its user's data.
+This identity foundation does not itself partition resource projections.
+
+Peer trust records an inbound controller, an outbound host, or both directions.
+An invitation grants inbound controller access on the inviter and outbound host
+access on the claimant. A separate invitation in the opposite direction combines
+the permissions. Paired endpoint inspection remains available for device metadata;
+commands, observations and byte streams enforce the execution direction. Legacy
+Desktop peers retain both directions; headless Host peers migrate to controllers.
+
 Link uses iroh endpoint identity for authenticated transport. The pairing service
 exchanges a six-digit, one-minute code for an opaque invitation ticket; Link
 authenticates the endpoint and persists trust. Reconnect reuses that trust. An
