@@ -80,7 +80,7 @@ func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: *info.Extension.Host.Turn.AfterTurn, Input: input}})
 		request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "workspace"}, Package: plugins.PackageReference(info), Worktree: new(inv.Run.Worktree), Session: new(inv.Session.ID)}
 		var failure *protocol.Fault
-		accepted, err := node.Dispatch(ctx, inv.Caller, request)
+		accepted, err := node.dispatchCaptured(ctx, inv.Caller, request)
 		if err != nil {
 			failure = &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: err.Error()}
 			if value, ok := err.(*protocol.Fault); ok {

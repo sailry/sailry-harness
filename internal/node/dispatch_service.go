@@ -128,7 +128,7 @@ func (node *Node) executeDispatchCallback(ctx context.Context, work dispatcher.W
 }
 
 func (node *Node) dispatchCallbackResult(ctx context.Context, request protocol.Request) (protocol.Output, error) {
-	accepted, err := node.Dispatch(ctx, node.ID(), request)
+	accepted, err := node.dispatchCaptured(ctx, node.ID(), request)
 	if err != nil {
 		return protocol.Output{}, err
 	}
