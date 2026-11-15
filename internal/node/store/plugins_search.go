@@ -269,27 +269,35 @@ func PluginSearchDefinitions(ctx context.Context, db *sql.Conn) ([]string, error
 		return nil, err
 	}
 	if scoped {
-		local, err := LegacyStorageUser(ctx, db)
-		if err != nil {
-			return nil, err
-		}
 		rows, err := db.QueryContext(ctx, "SELECT space,name FROM plugin_search_spaces ORDER BY space,name")
 		if err != nil {
 			return nil, err
 		}
+		type scopedName struct{ space, name string }
+		var records []scopedName
 		for rows.Next() {
-			var space, name string
-			if err := rows.Scan(&space, &name); err != nil {
+			var entry scopedName
+			if err := rows.Scan(&entry.space, &entry.name); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			if space != "user:"+local.String() {
-				name = space + "\x00" + name
-			}
-			names[name] = true
+			records = append(records, entry)
 		}
 		if err := closeRows(rows); err != nil {
 			return nil, err
+		}
+		if len(records) != 0 {
+			local, err := pluginLegacyStorageUser(ctx, db)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range records {
+				name := entry.name
+				if entry.space != "user:"+local.String() {
+					name = entry.space + "\x00" + name
+				}
+				names[name] = true
+			}
 		}
 	}
 	definitions := []string{}

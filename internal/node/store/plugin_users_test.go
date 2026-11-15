@@ -86,7 +86,7 @@ func TestPluginUserNamespaces(t *testing.T) {
 		if err != nil || settings.Secrets["token"].Expose() != "0" {
 			return fmt.Errorf("admitted storage principal was lost: %v", err)
 		}
-		record := ConnectorRecord{ID: protocol.PluginConnectorID(protocol.NewRequestID()), Plugin: info.Summary.Name, Connector: "fixture", Revision: 1, Enabled: true, State: protocol.PluginConnectorStateNotConnected}
+		record := ConnectorRecord{ID: protocol.PluginConnectorID(protocol.NewRequestID()), Plugin: info.Summary.Name, Connector: "fixture", Revision: 1, AuthRevision: 1, Method: protocol.PluginConnectorKindSecret, Enabled: true, State: protocol.PluginConnectorStateNotConnected}
 		if err := saveConnectorRecord(contexts[0], db, record); err != nil {
 			return err
 		}

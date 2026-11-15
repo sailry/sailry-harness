@@ -138,7 +138,7 @@ func pluginSearchName(ctx context.Context, db *sql.Conn, name string) (string, e
 	if err != nil {
 		return "", err
 	}
-	local, err := LegacyStorageUser(ctx, db)
+	local, err := pluginLegacyStorageUser(ctx, db)
 	if err != nil {
 		return "", err
 	}
@@ -225,4 +225,19 @@ func connectorUserIDs(ctx context.Context, db *sql.Conn) (string, string, error)
 		return "", "", fault(protocol.ErrorCodePermissionDenied, "connection storage principal differs from its actor")
 	}
 	return captured.String(), current.ID.String(), nil
+}
+
+// Schema rehearsal reads search definitions before newly added identity tables
+// exist. The fixed origin is authoritative once present; older databases still
+// use their original local user until the additive migration records it.
+func pluginLegacyStorageUser(ctx context.Context, db *sql.Conn) (protocol.UserID, error) {
+	var recorded bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='identity_storage_origin')").Scan(&recorded); err != nil {
+		return protocol.UserID{}, err
+	}
+	if recorded {
+		return LegacyStorageUser(ctx, db)
+	}
+	local, err := LocalUser(ctx, db)
+	return local.ID, err
 }
