@@ -24,7 +24,8 @@ func (node *Node) RefreshIdentity(ctx context.Context) error {
 }
 
 func (node *Node) startIdentitySync() error {
-	return node.tasks.Submit(func(ctx context.Context) {
+	return node.tasks.Submit(func(context.Context) {
+		ctx := node.ctx
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {

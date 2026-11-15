@@ -83,7 +83,7 @@ func TestSessionForwardingIntegration(test *testing.T) {
 	}
 	replay, err := local.Execute(ctx, request)
 	replayed, valid := dispatchPayload[protocol.Session](replay.Data)
-	if err != nil || !valid || replayed.ID != session.ID || len(snapshotFixture(test, b).Sessions) != 1 || len(snapshotFixture(test, a).Sessions) != 0 {
+	if err != nil || !valid || replayed.ID != session.ID || len(snapshotFixture(test, a).Sessions) != 0 {
 		test.Fatalf("forward replay: %v", err)
 	}
 	for name, node := range map[string]*Node{"source": a, "target": b} {
@@ -96,6 +96,11 @@ func TestSessionForwardingIntegration(test *testing.T) {
 	defer remote.Close()
 	if err := remote.Start(ctx); err != nil {
 		test.Fatal(err)
+	}
+	projection, err := remote.Do(ctx, protocol.Command{Kind: "snapshot"})
+	visible, ok := dispatchPayload[protocol.Snapshot](projection.Data)
+	if err != nil || !ok || len(visible.Sessions) != 1 || visible.Sessions[0].ID != session.ID || len(snapshotFixture(test, b).Sessions) != 0 {
+		test.Fatalf("forwarded session tenant projection: %+v: %v", projection, err)
 	}
 	input := protocol.DefaultConversationInput()
 	input.Text = "Say hello"

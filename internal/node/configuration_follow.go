@@ -39,7 +39,8 @@ func (node *Node) StartConfigurationFollow() error {
 	if _, loaded := configurationFollowers.LoadOrStore(node, runtime); loaded {
 		return nil
 	}
-	err := node.tasks.Submit(func(ctx context.Context) {
+	err := node.tasks.Submit(func(context.Context) {
+		ctx := node.ctx
 		defer configurationFollowers.Delete(node)
 		changed := make(chan struct{}, 1)
 		wake := func() {

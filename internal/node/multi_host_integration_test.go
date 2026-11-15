@@ -39,7 +39,7 @@ func TestMultiHostIdentityAndOfflineRevocationIntegration(t *testing.T) {
 		return node
 	}
 	a, b := start(pathA, "127.0.0.1:0"), start(pathB, bindB)
-	phone, err := link.OpenController(ctx, t.TempDir(), link.NetworkScope{Bind: "127.0.0.1:0"})
+	phone, err := link.OpenController(ctx, filepath.Join(t.TempDir(), "controller"), link.NetworkScope{Bind: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
 	}
