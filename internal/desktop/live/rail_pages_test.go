@@ -235,11 +235,12 @@ func railPages(t *testing.T) {
 		t.Fatal("the pages opened the right panel")
 	}
 
-	// The conversation's panel lists what the pages opened.
+	// The conversation's panel lists what the pages opened: notes.txt took
+	// the passing tab of main.go.
 	rail("shell_sessions")
 	app.PanelOpen = true
 	settle()
-	for _, tab := range []panel.Tab{{Kind: panel.Files, ID: "main.go"}, {Kind: panel.Files, ID: "notes.txt"}, {Kind: panel.Changes, ID: "notes.txt"}} {
+	for _, tab := range []panel.Tab{{Kind: panel.Files, ID: "notes.txt"}, {Kind: panel.Changes, ID: "notes.txt"}} {
 		found := false
 		for _, open := range app.Panel.Tabs {
 			found = found || open == tab

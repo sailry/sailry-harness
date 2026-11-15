@@ -67,6 +67,13 @@ func (a *App) ClosePage() bool {
 	return true
 }
 
+// closePageTab closes the tab a Files or Git page shows, as ⌘W does before
+// it closes the page, and reports whether there was one.
+func (a *App) closePageTab() bool {
+	k, pr := a.paged(), a.project()
+	return k != "" && pr != nil && pr.CloseShown(k)
+}
+
 // closable reports whether the page shown is an independent page, which
 // ⌘W closes.
 func (a *App) closable() bool {

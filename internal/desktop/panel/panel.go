@@ -220,24 +220,58 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 					if k == Changes {
 						label = pr.gitDocumentLabel(path, label)
 					}
-					tab(c, path, icon, label, "", path == pr.shown(k), false, func() { pr.show(k, path) }, func() { pr.close(k, path) })
+					tab(c, path, tabLook{icon: icon, label: label, active: path == pr.shown(k), passing: pr.passes(k, path)},
+						func() { pr.show(k, path) }, func() { pr.close(k, path) },
+						func() { pr.keep(k, path) }, func() { pr.release(k, path) })
 				}
 			})
 		})
 	})
 }
 
+// tabLook is how a strip's tab shows: its icon and title, its tip, and
+// whether it is the active one, busy, or only passing.
+type tabLook struct {
+	icon                  *ui.SVG
+	label, tip            string
+	active, busy, passing bool
+}
+
 // tab is a strip's tab: 28 DIPs up to 180 wide, the icon and the title, the
-// active one in tab_active, its close button showing on hover or on the
-// active tab. show and close run after the build, as MyGo runs OnClick: they act
-// themselves, as nothing set by them is read in the pass that built the tab.
-func tab(c *ui.Context, key any, icon *ui.SVG, label, tip string, active, busy bool, show, close func()) {
-	b, hovered := kit.StripTab(c, key, label, active, tabMax)
+// active one in tab_active, its close button showing on hover. It works as
+// the title band's tabs do: a passing tab is in italics until a double
+// click keeps it, and its system menu keeps or stops keeping it and closes
+// it. keep and release are nil for a tab that is always kept. show and
+// close run after the build, as MyGo runs OnClick: they act themselves, as
+// nothing set by them is read in the pass that built the tab.
+func tab(c *ui.Context, key any, l tabLook, show, close, keep, release func()) {
+	b, hovered := kit.StripTab(c, key, l.label, l.active, tabMax)
 	// A tab names its item short; the tip is the whole, a file's path.
-	if tip != "" && tip != label {
-		kit.Tooltip(c, b, tip)
+	if l.tip != "" && l.tip != l.label {
+		kit.Tooltip(c, b, l.tip)
 	}
-	kit.StripTabBody(c, b, icon, label, active, hovered, busy, i18n.T(c, "close"), close).OnClick(show)
+	if l.passing {
+		b.Italic()
+		if b.DoubleClicked() && keep != nil {
+			keep()
+		}
+	}
+	b.ContextMenu(func(m *ui.Menu) {
+		if keep != nil {
+			if !l.passing {
+				if m.Item(i18n.T(c, "workspace_tab_release")).Chosen() {
+					release()
+				}
+			} else if m.Item(i18n.T(c, "workspace_tab_keep")).Chosen() {
+				keep()
+			}
+			m.Separator()
+		}
+		if m.Item(i18n.T(c, "close")).Chosen() {
+			close()
+		}
+	})
+	kit.StripTabBody(c, b, l.icon, l.label, l.active, hovered, l.busy, i18n.T(c, "close"), close).OnClick(show)
 }
 
 // view is the Files or Git component in either host for the item path,
@@ -316,14 +350,16 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 				if f, ok := s.artifacts[t.ID]; ok && t.Kind == Artifact {
 					tip = f.Path
 				}
-				tab(c, t, icon, label, tip, t == s.Active, s.busy(t), func() { s.Show(t) }, func() {
-					// The button that closed is in the header: the focus
-					// goes to the panel, where ⌘W closes the next tab.
-					s.Close(t)
-					if s.Focus != nil {
-						s.Focus(c)
-					}
-				})
+				keep, release := s.keeper(t)
+				tab(c, t, tabLook{icon: icon, label: label, tip: tip, active: t == s.Active, busy: s.busy(t), passing: s.passes(t)},
+					func() { s.Show(t) }, func() {
+						// The button that closed is in the header: the focus
+						// goes to the panel, where ⌘W closes the next tab.
+						s.Close(t)
+						if s.Focus != nil {
+							s.Focus(c)
+						}
+					}, keep, release)
 			}
 		})
 	})

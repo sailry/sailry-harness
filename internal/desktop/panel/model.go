@@ -216,14 +216,37 @@ func (s *State) Show(t Tab) {
 	if !t.valid() {
 		return
 	}
+	// A file or diff opens in the passing tab, in the place of the one
+	// that passed before.
 	if item(t.Kind) && t.ID != "" && s.pr != nil {
+		old := Tab{t.Kind, *s.pr.passingOf(t.Kind)}
 		s.pr.show(t.Kind, t.ID)
+		if i := slices.Index(s.Tabs, old); old.ID != "" && i >= 0 && !slices.Contains(s.pr.items(t.Kind), old.ID) && !slices.Contains(s.Tabs, t) {
+			s.Tabs = slices.Clone(s.Tabs)
+			s.Tabs[i] = t
+		}
 	}
 	if !slices.Contains(s.Tabs, t) {
 		s.opened = append(s.opened, t.Kind)
 	}
 	s.Tabs, s.Active = Opened(s.Tabs, t), t
 	s.Reserve(t)
+}
+
+// passes reports whether t's tab only passes: a file's or a diff's, until
+// kept. A terminal, a browser page and the others are opened on purpose and
+// kept.
+func (s *State) passes(t Tab) bool {
+	return item(t.Kind) && s.pr != nil && s.pr.passes(t.Kind, t.ID)
+}
+
+// keeper is t's keep and release, nil for a tab that is always kept.
+func (s *State) keeper(t Tab) (keep, release func()) {
+	if !item(t.Kind) || s.pr == nil || t.ID == "" {
+		return nil, nil
+	}
+	pr := s.pr
+	return func() { pr.keep(t.Kind, t.ID) }, func() { pr.release(t.Kind, t.ID) }
 }
 
 // Reserve keeps the numbers of browser pages and preview terminals unique in
@@ -363,13 +386,16 @@ func (s *State) Sync(pr *Project) {
 	}
 	if !s.synced {
 		s.synced = true
+		// Restored tabs are kept ones.
 		for _, t := range s.Tabs {
 			if item(t.Kind) && t.ID != "" {
 				pr.show(t.Kind, t.ID)
+				pr.keep(t.Kind, t.ID)
 			}
 		}
 		if item(s.Active.Kind) && s.Active.ID != "" {
 			pr.show(s.Active.Kind, s.Active.ID)
+			pr.keep(s.Active.Kind, s.Active.ID)
 		}
 	}
 	var tabs []Tab

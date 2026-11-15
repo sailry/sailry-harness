@@ -351,7 +351,7 @@ func (a *App) View(c *ui.Context) {
 				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
 				// On the conversation standing alone ⌘W closes its tab.
 				a.pane(c, main, &a.mainPane, a.closable() || a.tabClosable(), func() {
-					if !a.ClosePage() {
+					if !a.closePageTab() && !a.ClosePage() {
 						a.closeShownTab(c)
 					}
 				})

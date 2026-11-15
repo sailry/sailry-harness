@@ -36,19 +36,39 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	if a.Panel.Active.Kind != panel.Files || !tt.HasText("README.md") {
 		t.Fatalf("⌘P did not show the file tree: %q", tt.Texts())
 	}
-	// The tab shows the project's file beside the tree; choosing another
-	// opens it in its own tab, the tree staying beside it.
+	// The tab shows the project's file beside the tree, passing until its
+	// menu keeps it; choosing another then opens it in its own tab, the
+	// tree staying beside it.
 	if !tt.HasText("A native desktop Agent workspace.") {
 		t.Fatalf("the Files tab does not show the file: %q", tt.Texts())
 	}
+	// keepShown keeps the panel's shown tab from its menu.
+	keepShown := func() {
+		t.Helper()
+		for _, info := range tt.AccessAll() {
+			if b := info.Bounds; info.Role == ui.RoleButton && info.Checked && b.Y+b.H <= HeaderHeight && b.X >= 1280-a.PanelWidth {
+				tt.RightClickAt(b.X+b.W/2, b.Y+b.H/2)
+				tt.Frame()
+				if err := tt.ChooseMenuItem(i18n.In("en", "workspace_tab_keep")); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				return
+			}
+		}
+		t.Fatalf("no shown tab in the panel's strip: %q", tt.Texts())
+	}
+	keepShown()
 	clickTree(t, tt, "go.mod")
 	tt.Frame()
 	if len(a.Panel.Tabs) != 2 || a.Panel.Active != (panel.Tab{Kind: panel.Files, ID: "sailry-go/go.mod"}) || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the file did not show in the Files tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "panel-files")
+	keepShown()
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
 	tt.Frame()
+	keepShown()
 	clickTree(t, tt, "example.md")
 	tt.Frame()
 	if len(a.Panel.Tabs) != 4 || a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) ||

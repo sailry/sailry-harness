@@ -266,7 +266,8 @@ func TestFirstFileIsTheWorkspaceReadme(t *testing.T) {
 }
 
 // Each open file and diff is its own tab, the same items as the page's
-// strip; another project's items replace them.
+// strip; another project's items replace them. A file shown opens in the
+// passing tab, in the place of the one passing before, until it is kept.
 func testItemTabs(t *testing.T) {
 	w := preview.Load().Workspace
 	ps := NewProjects(w)
@@ -276,6 +277,16 @@ func testItemTabs(t *testing.T) {
 	s.Open(Files)
 	s.Show(Tab{Files, "a.go"})
 	s.Show(Tab{Files, "b.go"})
+	if want := []Tab{{Files, "b.go"}}; !slices.Equal(s.Tabs, want) || !s.passes(want[0]) {
+		t.Fatalf("passing tabs %v", s.Tabs)
+	}
+	s.Show(Tab{Files, "sailry-go/README.md"})
+	keep, _ := s.keeper(Tab{Files, "sailry-go/README.md"})
+	keep()
+	s.Show(Tab{Files, "a.go"})
+	one.keep(Files, "a.go")
+	s.Show(Tab{Files, "b.go"})
+	one.keep(Files, "b.go")
 	s.Open(Changes)
 	s.Sync(one)
 	readme, diff := Tab{Files, "sailry-go/README.md"}, Tab{Changes, w.Changes[0].Path}
@@ -316,5 +327,38 @@ func testBrowserHistory(t *testing.T) {
 	b.Step(1)
 	if len(b.history) != 2 || b.address != "https://example.org" {
 		t.Fatalf("history %v at %q", b.history, b.address)
+	}
+}
+
+// A file shown passes in one tab until kept or edited; closing the shown
+// item closes its tab, as ⌘W does on a page before closing the page.
+func TestPassingFileTab(t *testing.T) {
+	pr := NewProjects(&preview.Workspace{}).Of("p")
+	pr.Files.Show("a")
+	pr.Files.Show("b")
+	if !slices.Equal(pr.Files.Open(), []string{"b"}) || !pr.passes(Files, "b") {
+		t.Fatalf("passing %v", pr.Files.Open())
+	}
+	pr.Files.item("b").dirty = true
+	pr.Files.Show("c")
+	if !slices.Equal(pr.Files.Open(), []string{"b", "c"}) || pr.passes(Files, "b") || !pr.passes(Files, "c") {
+		t.Fatalf("an edited file did not stay: %v", pr.Files.Open())
+	}
+	pr.keep(Files, "c")
+	pr.Files.Show("d")
+	if !slices.Equal(pr.Files.Open(), []string{"b", "c", "d"}) {
+		t.Fatalf("a kept file was replaced: %v", pr.Files.Open())
+	}
+	pr.release(Files, "c")
+	if !pr.passes(Files, "c") || pr.passes(Files, "d") {
+		t.Fatal("releasing did not make the tab the passing one")
+	}
+	pr.Files.Show("c")
+	pr.Files.item("b").dirty = false
+	if !pr.CloseShown(Files) || slices.Contains(pr.Files.Open(), "c") || pr.passes(Files, "c") {
+		t.Fatalf("closing the shown tab: %v", pr.Files.Open())
+	}
+	if NewProjects(&preview.Workspace{}).Of("q").CloseShown(Files) {
+		t.Fatal("a page without a tab closed one")
 	}
 }

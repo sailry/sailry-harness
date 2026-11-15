@@ -37,8 +37,11 @@ type Project struct {
 // FileView is the Files component's state: the files open, each with its
 // own view, and the tree's: its open folders and its selection.
 type FileView struct {
-	file    string   // the file shown last, by path
-	open    []string // the files open, in order
+	file string   // the file shown last, by path
+	open []string // the files open, in order
+	// passing is the open file whose tab only passes, in italics, until a
+	// double click keeps it: the next file shown takes its place.
+	passing string
 	items   map[string]*fileItem
 	folders map[string]*bool
 	sel     selection
@@ -79,6 +82,7 @@ type GitView struct {
 	sampleCommits int
 	change        string   // the changed file shown last, by path, or allChanges
 	open          []string // the diffs open, in order
+	passing       string   // the diff whose tab only passes (FileView.passing)
 	scope         string   // the scope the diff shown opened in: all, staged, unstaged
 	nav           changeNav
 	expanded      map[string]*bool // the list's groups and folders, by row
@@ -116,14 +120,24 @@ func (v *FileView) File() string { return v.file }
 // Open are the files open, in order.
 func (v *FileView) Open() []string { return v.open }
 
-// Show opens a file, or focuses it when open.
+// Show opens a file in the passing tab, or focuses it when open. A file
+// edited in the passing tab is kept, and the next file takes a tab of its
+// own.
 func (v *FileView) Show(path string) {
 	if path == "" {
 		return
 	}
 	v.file = path
-	if !slices.Contains(v.open, path) {
-		v.open = append(v.open, path)
+	if slices.Contains(v.open, path) {
+		return
+	}
+	old := v.passing
+	if it := v.items[old]; it != nil && it.dirty {
+		old = ""
+	}
+	v.open, v.passing = openPassing(v.open, old, path)
+	if old != "" {
+		delete(v.items, old)
 	}
 }
 
@@ -131,7 +145,21 @@ func (v *FileView) Show(path string) {
 // before it.
 func (v *FileView) Close(path string) {
 	v.open, v.file = closeItem(v.open, path, v.file)
+	if v.passing == path {
+		v.passing = ""
+	}
 	delete(v.items, path)
+}
+
+// openPassing opens path in the passing tab: in old's place while old
+// passes, else after the others.
+func openPassing(open []string, old, path string) ([]string, string) {
+	open = slices.Clone(open)
+	if i := slices.Index(open, old); old != "" && i >= 0 {
+		open[i] = path
+		return open, path
+	}
+	return append(open, path), path
 }
 
 // item is an open file's view, made on first use.
@@ -161,7 +189,11 @@ func (v *GitView) Show(path string) {
 	}
 	v.change = path
 	if !slices.Contains(v.open, path) {
-		v.open = append(v.open, path)
+		old := v.passing
+		v.open, v.passing = openPassing(v.open, old, path)
+		if old != "" {
+			delete(v.documents, old)
+		}
 	}
 }
 
@@ -176,6 +208,9 @@ func (v *GitView) First(path string) {
 // Close closes a diff, as FileView.Close.
 func (v *GitView) Close(path string) {
 	v.open, v.change = closeItem(v.open, path, v.change)
+	if v.passing == path {
+		v.passing = ""
+	}
 	delete(v.documents, path)
 }
 
@@ -217,6 +252,50 @@ func (pr *Project) show(k Kind, path string) {
 	} else {
 		pr.Git.Show(path)
 	}
+}
+
+// passingOf is k's passing item, which an edit keeps: a file with
+// unsaved changes does not pass.
+func (pr *Project) passingOf(k Kind) *string {
+	if k == Files {
+		if it := pr.Files.items[pr.Files.passing]; it != nil && it.dirty {
+			pr.Files.passing = ""
+		}
+		return &pr.Files.passing
+	}
+	return &pr.Git.passing
+}
+
+// passes reports whether path's tab of k only passes.
+func (pr *Project) passes(k Kind, path string) bool {
+	return path != "" && *pr.passingOf(k) == path
+}
+
+// keep keeps path's tab of k: the next item shown opens another.
+func (pr *Project) keep(k Kind, path string) {
+	if ref := pr.passingOf(k); *ref == path {
+		*ref = ""
+	}
+}
+
+// release makes path's tab of k the passing one; the one passing before
+// is kept, so no tab closes.
+func (pr *Project) release(k Kind, path string) {
+	if slices.Contains(pr.items(k), path) {
+		*pr.passingOf(k) = path
+	}
+}
+
+// CloseShown closes the item k shows, as its tab's close button does, and
+// reports whether there was one: ⌘W on a Files or Git page closes its tab
+// before the page.
+func (pr *Project) CloseShown(k Kind) bool {
+	path := pr.shown(k)
+	if path == "" || !slices.Contains(pr.items(k), path) {
+		return false
+	}
+	pr.close(k, path)
+	return true
 }
 
 func (pr *Project) close(k Kind, path string) {

@@ -71,7 +71,10 @@ func (pr *Project) setGitDocument(id string, document *gitDocument) {
 		document.folded = previous.folded
 	}
 	pr.Git.documents[id] = document
+	// A document made here cannot be read again: its tab is kept, not
+	// passing for the next diff to replace.
 	pr.Git.Show(id)
+	pr.keep(Changes, id)
 }
 
 func (pr *Project) gitDocumentKnown(id string) bool { return pr.Git.documents[id] != nil }
