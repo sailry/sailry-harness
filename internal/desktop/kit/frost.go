@@ -71,7 +71,7 @@ func Opaque(c ui.Color) ui.Color {
 	return c
 }
 
-// Frost gives el the floating panels' backdrop blur toned by base instead
+// Frost gives el a backdrop blur of SurfaceBlur toned by base instead
 // of a flat background: the composer's surface and its queue tray and
 // the surface cards (settings cards, resource and market cards, lists),
 // so what is under them, and a theme's backdrop, shows through blurred.
@@ -87,13 +87,18 @@ func Frost(c *ui.Context, el ui.Element, base ui.Color, tint float32) ui.Element
 		tint = max(tint, FloatingTintLight)
 	}
 	solid := base.Over(Opaque(p.Background))
-	return frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(tint)}.on(c, el)
+	return frost{blur: SurfaceBlur, base: solid, tint: solid.Alpha(tint)}.on(c, el)
 }
 
 const (
 	// SurfaceTint is the composer's and its queue tray's: they keep their
 	// fill's tone and the page under them only shows faintly.
 	SurfaceTint = 0.6
+	// SurfaceBlur is the in-page surfaces' blur radius in DIP, below
+	// FloatingBlur: the blur reads two to three radii around a box and
+	// cannot be held to it, so at the floating radius a light control
+	// beside a card, the button over a list, hazes the card's edge.
+	SurfaceBlur = 8
 	// CardTint is the surface cards' (settings, resource, market and panel
 	// cards, lists): the theme's backdrop shows through them clearly.
 	CardTint = 0.45

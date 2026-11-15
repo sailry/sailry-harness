@@ -6,7 +6,11 @@ import "github.com/egoist/mygo/ui"
 // theme.json's theme.colors. A package overlays them key by key, so what it
 // leaves out keeps these values.
 func neutral(dark bool) map[string]string {
-	base, fg, mfg := "#ffffff", "#000000e0", "#0000008c"
+	base, fg, mfg := "#ffffff", "#000000e0", "#00000099"
+	// Secondary text steps further from the foreground than the other
+	// muted inks (ring, slider, scrollbar), so a description reads below
+	// its title.
+	muted := "#0000008c"
 	// Light fills step up from the page: the composer's inset fill reads as
 	// a box, the selected row is stronger than the hovered one, and a border
 	// (input edges, dashed empty states) shows on white.
@@ -27,7 +31,7 @@ func neutral(dark bool) map[string]string {
 		"tab.active.foreground":            "#181818",
 	}
 	if dark {
-		base, fg, mfg = "#181818", "#ffffffd9", "#ffffff99"
+		base, fg, mfg, muted = "#181818", "#ffffffd9", "#ffffff99", "#ffffff8c"
 		surface, inset, hover, active, border = "#ffffff0a", "#ffffff12", "#ffffff0f", "#ffffff1f", "#ffffff10"
 		box, button = surface, surface
 		m = map[string]string{
@@ -53,7 +57,7 @@ func neutral(dark bool) map[string]string {
 		"sidebar.accent.foreground": fg, "caret": fg,
 		"button.primary.background": fg, "progress.bar.background": fg,
 		"primary.foreground": base, "button.primary.foreground": base,
-		"muted.foreground": mfg, "ring": mfg, "slider.background": mfg,
+		"muted.foreground": muted, "ring": mfg, "slider.background": mfg,
 		"scrollbar.thumb.hover.background": mfg,
 		"group_box.background":             box, "button.background": button, "button.secondary.background": button,
 		"list.background": surface, "table.background": surface,
