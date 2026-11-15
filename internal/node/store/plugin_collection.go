@@ -57,6 +57,23 @@ func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, err
 	if err = closeRows(rows); err != nil {
 		return nil, err
 	}
+	// A verified follow package can be pending reconciliation after transfer.
+	// Its cache record is an explicit holder until the source copy is applied.
+	rows, err = db.QueryContext(ctx, "SELECT digest FROM configuration_follow_packages")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var digest string
+		if err = rows.Scan(&digest); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		packages[digest] = struct{}{}
+	}
+	if err = closeRows(rows); err != nil {
+		return nil, err
+	}
 	rows, err = db.QueryContext(ctx, pluginHolders)
 	if err != nil {
 		return nil, err

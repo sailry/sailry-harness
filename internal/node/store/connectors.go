@@ -192,6 +192,10 @@ func ConnectionProjection(ctx context.Context, db *sql.Conn, record ConnectorRec
 		CanDisconnect: record.State != protocol.PluginConnectorStateConnecting && record.Login == nil &&
 			(record.Grant != nil || len(record.Secrets) > 0 || record.Method == protocol.PluginConnectorKindLocalCli && record.Identity != nil),
 	}
+	value.Source, err = configurationOrigin(ctx, db, "connections", record.ID.String())
+	if err != nil {
+		return value, err
+	}
 	for name := range record.Secrets {
 		value.Configured = append(value.Configured, name)
 	}

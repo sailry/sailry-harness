@@ -163,7 +163,8 @@ func exportPluginFollowRecords(ctx context.Context, db *sql.Conn, category strin
 	return records, nil
 }
 
-func pluginFollowCollision(ctx context.Context, db *sql.Conn, category, id string) error {
+func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, record protocol.ConfigurationFollowRecord) error {
+	id := record.ID
 	if origin, err := configurationOrigin(ctx, db, category, id); err != nil {
 		return err
 	} else if origin != nil {
@@ -176,6 +177,19 @@ func pluginFollowCollision(ctx context.Context, db *sql.Conn, category, id strin
 	var exists bool
 	switch category {
 	case "plugins":
+		var incoming protocol.PluginInfo
+		if err := decodeConfigurationRecord(record, &incoming); err != nil {
+			return err
+		}
+		current, err := ReadPlugin(ctx, db, id)
+		if err != nil {
+			return err
+		}
+		// Untouched bundled installations are the target's bootstrap baseline,
+		// not a conflicting personal edit. Explicit removals remain protected.
+		if current != nil && current.Origin != nil && current.Origin.Kind == "bundled" && incoming.Origin != nil && incoming.Origin.Kind == "bundled" && current.Summary.Digest == incoming.Summary.Digest && current.Summary.Revision == 1 && current.Summary.SettingsRevision == 0 {
+			return nil
+		}
 		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE user=?1 AND name=?2)", user.ID.String(), id).Scan(&exists)
 	case "plugin_settings":
 		// Settings follow the package accepted from this source, never an unrelated
@@ -200,7 +214,7 @@ func pluginFollowCollision(ctx context.Context, db *sql.Conn, category, id strin
 	return nil
 }
 func applyPluginFollowRecord(ctx context.Context, db *sql.Conn, node protocol.NodeID, category string, record protocol.ConfigurationFollowRecord) ([]protocol.Event, bool, error) {
-	if err := pluginFollowCollision(ctx, db, category, record.ID); err != nil {
+	if err := pluginFollowCollision(ctx, db, category, record); err != nil {
 		return nil, false, err
 	}
 	switch category {

@@ -270,3 +270,62 @@ func TestConfigurationFollowWaitsForExactPluginVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestConfigurationFollowResumesOnlyOriginalSource(t *testing.T) {
+	t.Parallel()
+	storage, node, source, ctx := followFixture(t)
+	value := protocol.DefaultRoleProfile()
+	value.ID, value.Key, value.Name, value.Revision = protocol.NewRoleID(), "resume-fixture", "Resume", 1
+	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, followRecord(t, value.ID.String(), 1, value, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		status, err := ReadConfigurationFollow(ctx, db)
+		if err != nil {
+			return err
+		}
+		if err := SetConfigurationSource(ctx, db, node, source, nil, status.Revision); err != nil {
+			return err
+		}
+		status, err = ReadConfigurationFollow(ctx, db)
+		if err != nil {
+			return err
+		}
+		return SetConfigurationSource(ctx, db, node, source, &source, status.Revision)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfigurationFollowAdoptsUntouchedBundledPlugin(t *testing.T) {
+	t.Parallel()
+	storage, node, source, ctx := followFixture(t)
+	info := pluginTestInfo("bundled-follow", 'b')
+	info.Origin = &protocol.PluginOrigin{Kind: "bundled"}
+	info.Summary.Enabled = true
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		info, err = InstallPlugin(ctx, db, info, 0, true)
+		if err != nil {
+			return err
+		}
+		return CacheConfigurationPackage(ctx, db, info, protocol.PluginMcpConfiguration{Servers: map[string]protocol.PluginMcpServer{}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyFollowFixture(t, storage, ctx, node, source, "plugins", 1, followRecord(t, info.Summary.Name, 1, info, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		status, err := ReadConfigurationFollow(ctx, db)
+		if err != nil {
+			return err
+		}
+		if len(status.Issues) != 0 {
+			return errors.New("pristine bundled installation was treated as a personal conflict")
+		}
+		return CheckConfigurationEditable(ctx, db, "plugins", info.Summary.Name)
+	}); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+		t.Fatalf("followed bundled package must be readonly: %v", err)
+	}
+}

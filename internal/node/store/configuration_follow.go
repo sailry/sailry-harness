@@ -149,7 +149,7 @@ func SetConfigurationSource(ctx context.Context, db *sql.Conn, node, caller prot
 	}
 	if current.Source == nil || *current.Source != *source {
 		var copied bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_records WHERE user=?1 AND materialized=1)", user.ID.String()).Scan(&copied); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_records WHERE user=?1 AND materialized=1 AND source!=?2)", user.ID.String(), source[:]).Scan(&copied); err != nil {
 			return err
 		}
 		if copied {
@@ -173,7 +173,7 @@ func SaveConfigurationTarget(ctx context.Context, db *sql.Conn, target protocol.
 		return fault(protocol.ErrorCodePermissionDenied, "only this Node's local user can publish configuration")
 	}
 	var outbound bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM link_peers WHERE identity=?1 AND direction IN ('host','both'))", target.Host[:]).Scan(&outbound); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity WHERE p.identity=?1 AND p.direction IN ('host','both') AND coalesce(o.direct,1)=1 AND coalesce(o.removed,0)=0)", target.Host[:]).Scan(&outbound); err != nil {
 		return err
 	}
 	if !outbound {

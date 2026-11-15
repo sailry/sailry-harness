@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -106,11 +107,19 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 	if err != nil {
 		return
 	}
+	relationships, err := node.network.Relationships(ctx)
+	if err != nil {
+		return
+	}
+	direct := map[protocol.NodeID]bool{}
+	for _, peer := range relationships {
+		direct[peer.ID] = peer.Direct && !peer.Removed
+	}
 	seen := map[protocol.NodeID]bool{}
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	for _, address := range peers {
-		if !node.network.Direction(address.ID).AllowsOutbound() {
+		if !direct[address.ID] || !node.network.Direction(address.ID).AllowsOutbound() {
 			continue
 		}
 		seen[address.ID] = true
@@ -179,6 +188,13 @@ func configurationRemote(ctx context.Context, transport link.Transport, request 
 }
 
 func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.EndpointAddress, discover bool) {
+	relationships, err := node.network.Relationships(ctx)
+	if err != nil {
+		return
+	}
+	if !slices.ContainsFunc(relationships, func(peer link.PeerRelationship) bool { return peer.ID == address.ID && peer.Direct && !peer.Removed }) || !node.network.Direction(address.ID).AllowsOutbound() {
+		return
+	}
 	remote := node.network.Remote(address)
 	var local protocol.User
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; local, err = store.LocalUser(ctx, db); return err }); err != nil {
