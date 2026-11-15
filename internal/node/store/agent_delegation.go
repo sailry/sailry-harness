@@ -420,6 +420,14 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 		}
 	}
 	inv := AgentInvocation{Session: session, Run: run, Turn: turn, Message: message, Provider: provider}
+	inv.User, err = CurrentUser(ctx, db)
+	if err != nil {
+		return empty, nil, err
+	}
+	inv.StorageUser, err = CapturedUser(ctx, db)
+	if err != nil {
+		return empty, nil, err
+	}
 	if err = captureAssistant(ctx, db, &inv); err != nil {
 		return empty, nil, err
 	}

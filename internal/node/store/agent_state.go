@@ -19,6 +19,7 @@ type AgentInstruction struct {
 }
 type AgentInvocation struct {
 	User                 protocol.User
+	StorageUser          protocol.UserID
 	Hooks                protocol.HooksSettings
 	Session              protocol.Session
 	Worktree             protocol.Worktree

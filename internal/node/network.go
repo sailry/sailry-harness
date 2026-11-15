@@ -15,6 +15,7 @@ import (
 type nodePeerStore struct {
 	handle *store.Handle
 	node   protocol.NodeID
+	owner  *Node
 }
 
 func (peers nodePeerStore) Peers(ctx context.Context) ([]protocol.NodeID, error) {
@@ -65,7 +66,20 @@ func (peers nodePeerStore) SetDirection(ctx context.Context, peer protocol.NodeI
 }
 
 func (peers nodePeerStore) PairMember(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection, scope link.InvitationScope) error {
-	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.PairIdentityPeer(ctx, db, peers.node, peer, direction, scope) }))
+	err := peers.handle.Write(ctx, func(db *sql.Conn) error { return store.PairIdentityPeer(ctx, db, peers.node, peer, direction, scope) })
+	if err != nil || !direction.AllowsInbound() || peers.owner == nil {
+		return nodeFault(err)
+	}
+	var user protocol.User
+	err = peers.handle.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		user, err = store.CallerUser(ctx, db, peers.node, peer)
+		return err
+	})
+	if err == nil {
+		err = peers.owner.InitializeUserPlugins(ctx, user)
+	}
+	return nodeFault(err)
 }
 
 func (peers nodePeerStore) Relationships(ctx context.Context) ([]link.PeerRelationship, error) {
@@ -116,10 +130,13 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 	node.network, err = link.Bind(node.ctx, link.EndpointOptions{
 		Identity: node.profile.Identity,
 		Scope:    scope, Handler: node,
-		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID()}, Name: name,
+		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID(), owner: node}, Name: name,
 	})
 	if err == nil {
 		err = node.startIdentitySync()
+	}
+	if err == nil {
+		err = node.StartConfigurationFollow()
 	}
 	return err
 }

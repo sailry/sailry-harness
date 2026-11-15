@@ -47,7 +47,7 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	if value.Databases, err = ListDatabases(ctx, db); err != nil {
 		return value, err
 	}
-	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+	plugins, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return value, err
 	}

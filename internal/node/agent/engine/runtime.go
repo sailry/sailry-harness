@@ -235,7 +235,7 @@ func (r *Runtime) run() {
 				child.started = true
 			}
 			r.mu.Unlock()
-			ctx, cancel := context.WithCancel(store.WithUser(parent, inv.User))
+			ctx, cancel := context.WithCancel(store.WithCapturedUser(store.WithUser(parent, inv.User), inv.StorageUser))
 			x := &execution{inv: inv, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
 			// A turn has one owner. A claim that finds an earlier owner waits
 			// for it in its worker instead of taking its place.

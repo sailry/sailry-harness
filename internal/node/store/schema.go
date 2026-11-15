@@ -344,6 +344,12 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := initializeUsers(ctx, connection); err != nil {
 			return err
 		}
+		if err := InitializeIdentity(ctx, connection); err != nil {
+			return err
+		}
+		if err := initializePluginUsers(ctx, connection); err != nil {
+			return err
+		}
 		if err := InitializeConfigurationUsers(ctx, connection); err != nil {
 			return err
 		}

@@ -444,6 +444,7 @@ func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.
 	if packagesChanged {
 		node.authChanged()
 	}
+	node.NotifyConfigurationFollow(changes)
 	node.wakeDispatch()
 	node.publish()
 	node.agent.Committed()

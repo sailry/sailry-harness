@@ -614,7 +614,7 @@ func externalCommand(command protocol.Command) bool {
 }
 
 func supportedCommand(kind string) bool {
-	if store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) || store.SupportsTeamRead(kind) || store.SupportsTeamCommand(kind) {
+	if kind == "identity" || SupportsConfigurationFollow(kind) || store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) || store.SupportsTeamRead(kind) || store.SupportsTeamCommand(kind) {
 		return true
 	}
 	switch kind {
@@ -656,6 +656,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		return response(protocol.Output{Kind: "command_output_page", Data: page}, err)
 	}
 
+	if SupportsConfigurationFollow(request.Command.Kind) {
+		output, err := node.ReadConfigurationFollow(ctx, caller, request.Command)
+		return response(output, err)
+	}
 	if store.SupportsProviderCommand(request.Command.Kind) {
 		if err := node.renewCommandProvider(ctx, request); err != nil {
 			return response(protocol.Output{}, err)
@@ -681,6 +685,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			}
 		}
 		switch request.Command.Kind {
+		case "identity":
+			var err error
+			output, err = store.ReadIdentityCommand(ctx, db, node.ID(), caller, request.Command)
+			return err
 		case "snapshot":
 			value, err := store.Snapshot(ctx, db, node.ID())
 			output = protocol.Output{Kind: "snapshot", Data: value}
@@ -836,6 +844,13 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 		if operationErr == nil {
 			switch {
+			case job.request.Command.Kind == "identity":
+				output, changes, operationErr = store.ExecuteIdentityCommand(ctx, db, node.ID(), job.caller, job.request)
+				if operationErr == nil {
+					changes = append(changes, protocol.Event{Kind: "projection_invalidated"})
+				}
+			case SupportsConfigurationFollow(job.request.Command.Kind):
+				output, changes, operationErr = ExecuteConfigurationFollow(ctx, db, node.ID(), job.caller, job.request.Command)
 			case store.SupportsTeamCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteTeamCommand(ctx, db, job.request.Command)
 			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
@@ -880,6 +895,15 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 		node.conversationEvents(changes)
 		node.systemEvents(changes)
+		node.NotifyConfigurationFollow(changes)
+		if operationErr == nil && job.request.Command.Kind == "identity" {
+			if refreshErr := node.RefreshIdentity(ctx); refreshErr != nil {
+				slog.Warn("Identity connection refresh failed", "error", refreshErr)
+			}
+		}
+		if operationErr == nil && SupportsConfigurationFollow(job.request.Command.Kind) {
+			node.pluginCommitted(changes, ctx)
+		}
 		if operationErr == nil {
 			node.refreshKnowledgeStorage(job.request.Command, nil)
 		}

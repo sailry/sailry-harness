@@ -100,6 +100,8 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 		return eventAudience{Kind: "reset"}, nil
 	case "provider_changed", "provider_removed", "provider_quota_changed":
 		return eventAudience{Kind: "reset"}, nil
+	case "projection_invalidated":
+		return eventAudience{Kind: "reset"}, nil
 	case "model_catalog_changed":
 		return eventAudience{Kind: "host"}, nil
 	}
@@ -203,7 +205,7 @@ func audienceVisible(ctx context.Context, db *sql.Conn, a eventAudience, user pr
 		if a.Owner == nil {
 			return false, nil
 		}
-		owner, err := resolveUser(ctx, db, *a.Owner)
+		owner, err := ResolveUser(ctx, db, *a.Owner)
 		if err != nil {
 			return false, err
 		}

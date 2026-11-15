@@ -186,10 +186,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			}
 			var changes []protocol.Event
 			if err == nil {
-				recording := context.WithoutCancel(node.ctx)
-				if user, ok := store.UserFromContext(ctx); ok {
-					recording = store.WithUser(recording, user)
-				}
+				recording := context.WithoutCancel(ctx)
 				err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 					var err error
 					changes, err = store.CompleteProviderLogin(recording, db, node.ID(), capture, grant)
@@ -207,7 +204,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 				_ = node.setProviderLogin(entry, state)
 				return
 			}
-			node.pluginCommitted(changes)
+			node.pluginCommitted(changes, ctx)
 			for _, change := range changes {
 				if change.Kind != "provider_changed" {
 					continue
@@ -472,10 +469,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		}
 	}
 	var changes []protocol.Event
-	recording := context.WithoutCancel(node.ctx)
-	if user, ok := store.UserFromContext(ctx); ok {
-		recording = store.WithUser(recording, user)
-	}
+	recording := context.WithoutCancel(ctx)
 	err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 		var err error
 		changes, err = store.CompleteProviderRenewal(recording, db, node.ID(), *renewal, grant)
@@ -485,7 +479,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		return err
 	})
 	if err == nil {
-		node.pluginCommitted(changes)
+		node.pluginCommitted(changes, ctx)
 		err = failure
 	}
 	return err
