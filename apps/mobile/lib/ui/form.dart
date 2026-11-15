@@ -12,11 +12,16 @@ class FormBody extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    spacing: 16,
-    children: children,
+  Widget build(BuildContext context) => Padding(
+    // An outlined field's floating label rises above the field's own box;
+    // without room here a sheet's scroll view clips it at its top.
+    padding: const EdgeInsets.only(top: 8),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: 16,
+      children: children,
+    ),
   );
 }
 

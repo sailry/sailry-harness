@@ -44,27 +44,38 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  void _appearance() {
-    showAppSheet(
-      context,
-      context.tr('appearance'),
-      child: Builder(
-        builder: (sheetContext) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final mode in [ThemeMode.light, ThemeMode.dark])
-              ListTile(
-                leading: AppIcon(mode == ThemeMode.dark ? 'moon' : 'sun'),
-                title: Text(context.tr(mode.name)),
-                trailing: Theme.of(context).brightness.name == mode.name
-                    ? const AppIcon('check')
-                    : null,
-                onTap: () {
-                  widget.onThemeChanged(mode);
-                  Navigator.pop(sheetContext);
-                },
-              ),
-          ],
+  /// The theme as an icon segment pair in its row, chosen in place.
+  Widget _appearance() {
+    final colors = Theme.of(context).colorScheme;
+    final current = Theme.of(context).brightness == Brightness.dark
+        ? ThemeMode.dark
+        : ThemeMode.light;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      leading: AppIcon('sun', color: colors.onSurfaceVariant),
+      title: Text(context.tr('appearance')),
+      trailing: SegmentedButton<ThemeMode>(
+        showSelectedIcon: false,
+        segments: [
+          for (final mode in [ThemeMode.light, ThemeMode.dark])
+            ButtonSegment(
+              value: mode,
+              tooltip: context.tr(mode.name),
+              icon: AppIcon(mode == ThemeMode.dark ? 'moon' : 'sun', size: 18),
+            ),
+        ],
+        selected: {current},
+        onSelectionChanged: (selection) =>
+            widget.onThemeChanged(selection.single),
+        style: SegmentedButton.styleFrom(
+          side: BorderSide.none,
+          backgroundColor: colors.surfaceContainer,
+          foregroundColor: colors.onSurfaceVariant,
+          selectedBackgroundColor: colors.surfaceContainerHigh,
+          selectedForegroundColor: colors.onSurface,
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
         ),
       ),
     );
@@ -181,12 +192,7 @@ class _SettingsPageState extends State<SettingsPage> {
               widget.onLanguageChanged == null ? null : _language,
               context.tr(widget.language.labelKey),
             ),
-            _row(
-              'sun',
-              'appearance',
-              _appearance,
-              context.tr(Theme.of(context).brightness.name),
-            ),
+            _appearance(),
             SwitchListTile.adaptive(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               secondary: AppIcon('bell', color: colors.onSurfaceVariant),

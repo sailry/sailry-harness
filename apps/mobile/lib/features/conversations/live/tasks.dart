@@ -9,6 +9,7 @@ import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
 import '../../../ui/toast.dart';
+import '../../resources/host/host_sheet.dart';
 import '../../resources/project_form.dart';
 import '../../resources/workspace.dart';
 import '../../terminal/terminal_page.dart';
@@ -254,11 +255,8 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         for (final host in hosts)
-                          ListTile(
-                            title: Text(host.label),
-                            subtitle: Text(
-                              context.tr(host.connected ? 'online' : 'offline'),
-                            ),
+                          HostRow(
+                            host: host,
                             trailing: selected?.id == host.id
                                 ? const AppIcon('check')
                                 : null,

@@ -123,13 +123,19 @@ class _HostListState extends State<_HostList> {
       children: [
         for (final (index, host) in widget.session.hosts.indexed) ...[
           if (index > 0) const Divider(),
-          _HostRow(
+          HostRow(
             host: host,
             onTap: () {
               Navigator.pop(context);
               widget.session.selectHost(host.id);
             },
-            onRemove: _removing.contains(host.id) ? null : () => _remove(host),
+            trailing: IconButton(
+              tooltip: context.tr('hostRemove'),
+              onPressed: _removing.contains(host.id)
+                  ? null
+                  : () => _remove(host),
+              icon: const AppIcon('trash', size: 18),
+            ),
           ),
         ],
         const SizedBox(height: 14),
@@ -150,15 +156,18 @@ class _HostListState extends State<_HostList> {
   );
 }
 
-class _HostRow extends StatelessWidget {
-  const _HostRow({
+/// Host row with its route icon, status dot and link detail; the host list
+/// places a remove action in [trailing] and pickers a selection mark.
+class HostRow extends StatelessWidget {
+  const HostRow({
+    super.key,
     required this.host,
     required this.onTap,
-    required this.onRemove,
+    this.trailing,
   });
   final HostConnection host;
   final VoidCallback onTap;
-  final VoidCallback? onRemove;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -235,11 +244,7 @@ class _HostRow extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              tooltip: context.tr('hostRemove'),
-              onPressed: onRemove,
-              icon: const AppIcon('trash', size: 18),
-            ),
+            ?trailing,
           ],
         ),
       ),

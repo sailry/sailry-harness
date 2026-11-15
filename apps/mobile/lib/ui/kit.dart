@@ -169,7 +169,7 @@ class PageFrame extends StatelessWidget {
             child: SizedBox.expand(child: child),
           );
     final header = Padding(
-      padding: const EdgeInsets.fromLTRB(20, 19, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 19, 20, _headerFade),
       child: Row(
         children: [
           Expanded(
@@ -282,8 +282,13 @@ class PageFrame extends StatelessWidget {
   }
 }
 
-/// Lays the page header over its content with a background that fades from
-/// opaque to clear, so content scrolling up dissolves under the header.
+/// The page header's bottom padding, where its background fades out.
+const double _headerFade = 16;
+
+/// Lays the page header over its content with a background that is opaque
+/// behind the heading and fades to clear across its bottom padding, so
+/// content scrolling up dissolves under the header without showing through
+/// a title or subtitle.
 class _FadingHeader extends StatefulWidget {
   const _FadingHeader({required this.header, required this.builder});
 
@@ -322,10 +327,14 @@ class _FadingHeaderState extends State<_FadingHeader> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: const [0, .55, 1],
+                  stops: [
+                    0,
+                    ((_height - _headerFade) / _height).clamp(0.0, 1.0),
+                    1,
+                  ],
                   colors: [
                     background,
-                    background.withValues(alpha: .92),
+                    background,
                     background.withValues(alpha: 0),
                   ],
                 ),

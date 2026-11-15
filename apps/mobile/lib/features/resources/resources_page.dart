@@ -10,6 +10,7 @@ import '../terminal/terminal_page.dart';
 import 'files_page.dart';
 import 'git/summary.dart';
 import 'git_page.dart';
+import 'host/host_sheet.dart';
 import 'overview_cards.dart';
 import 'ports_page.dart';
 import 'workspace.dart';
@@ -44,6 +45,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
 
   Future<void> _host() async {
     final session = AppSession.of(context);
+    final current = _hostId ?? session.selectedHost?.id;
     final id = await showAppSheet<String>(
       context,
       context.tr('selectHost'),
@@ -52,15 +54,9 @@ class _ResourcesPageState extends State<ResourcesPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             for (final host in session.hosts)
-              ListTile(
-                title: Text(host.label),
-                subtitle: host.connected
-                    ? null
-                    : Text(
-                        context.tr(
-                          versionMismatchKey(host.error) ?? 'hostDisconnected',
-                        ),
-                      ),
+              HostRow(
+                host: host,
+                trailing: host.id == current ? const AppIcon('check') : null,
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],
