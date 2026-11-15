@@ -114,14 +114,14 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	}
 	snapshot(t, tt, "panel-terminal")
 	// A tab's close button closes it, the shown one and one behind it: the
-	// button shows in the place of the tab's icon as the tab is hovered.
+	// button floats at the tab's end as the tab is hovered.
 	closeTab := func(title string) {
 		t.Helper()
 		for _, info := range tt.AccessAll() {
 			if info.Role != ui.RoleButton || info.Name != title || info.Bounds.H != 28 || info.Bounds.Y+info.Bounds.H > HeaderHeight || info.Bounds.X < 1280-a.PanelWidth {
 				continue
 			}
-			x, y := info.Bounds.X+15, info.Bounds.Y+info.Bounds.H/2
+			x, y := info.Bounds.X+info.Bounds.W-14, info.Bounds.Y+info.Bounds.H/2
 			tt.Move(x, y)
 			tt.Frame()
 			tt.ClickAt(x, y)
@@ -1302,8 +1302,7 @@ func testHeaderSplit(t *testing.T) {
 	}
 	// A tab chosen in the band takes ⌘W, and its close button closes it.
 	n := len(a.Panel.Tabs)
-	// Its title, not its icon, where the close button shows on hover.
-	tt.ClickAt(tabs[1].X+tabs[1].W-12, tabs[1].Y+tabs[1].H/2)
+	tt.ClickAt(tabs[1].X+12, tabs[1].Y+tabs[1].H/2)
 	still(tt)
 	if a.Panel.Active != a.Panel.Tabs[1] {
 		t.Fatalf("the band's tab did not show: %v", a.Panel.Active)

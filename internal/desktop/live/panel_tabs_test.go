@@ -197,16 +197,15 @@ func panelTabs(t *testing.T) {
 			}
 			if by == "⌘W" {
 				// The focus goes into the panel as its tab is chosen.
-				// On its title: its icon's place has the close button on hover.
-				tester.ClickAt(button.Bounds.X+button.Bounds.W-12, button.Bounds.Y+button.Bounds.H/2)
+				tester.ClickAt(button.Bounds.X+12, button.Bounds.Y+button.Bounds.H/2)
 				settle()
 				if !has(tab) {
 					t.Fatalf("%s: choosing the tab closed it", name)
 				}
 				tester.Key(ui.Cmd, ui.KeyW)
 			} else {
-				// The close button shows in the place of the tab's icon.
-				x, y := button.Bounds.X+15, button.Bounds.Y+button.Bounds.H/2
+				// The close button floats at the tab's end.
+				x, y := button.Bounds.X+button.Bounds.W-14, button.Bounds.Y+button.Bounds.H/2
 				tester.Move(x, y)
 				tester.Frame()
 				tester.ClickAt(x, y)
@@ -486,7 +485,7 @@ func panelTabs(t *testing.T) {
 	if !found {
 		t.Fatalf("no History tab among three: %q", tester.Texts())
 	}
-	x, y := button.Bounds.X+15, button.Bounds.Y+button.Bounds.H/2
+	x, y := button.Bounds.X+button.Bounds.W-14, button.Bounds.Y+button.Bounds.H/2
 	tester.Move(x, y)
 	tester.Frame()
 	tester.ClickAt(x, y)
@@ -905,8 +904,8 @@ func panelConversations(t *testing.T, f panelFixture) {
 			button = found[index]
 			return button.Bounds.X == previous
 		})
-		// The close button shows in the place of the tab's icon.
-		x, y := button.Bounds.X+15, button.Bounds.Y+button.Bounds.H/2
+		// The close button floats at the tab's end.
+		x, y := button.Bounds.X+button.Bounds.W-14, button.Bounds.Y+button.Bounds.H/2
 		tester.Move(x, y)
 		tester.Frame()
 		tester.ClickAt(x, y)

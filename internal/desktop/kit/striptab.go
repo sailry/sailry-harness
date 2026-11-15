@@ -44,38 +44,30 @@ func StripTabBody(c *ui.Context, b ui.Element, icon *ui.SVG, label string, activ
 // StripTabBodyWith is a strip tab's content: its lead, as an icon or a
 // session's status mark, the title, and its close button. The button takes
 // no room, so the strip never moves: while the pointer is over the tab or
-// the button has the keyboard focus, it shows in the lead's place, the
-// lead hidden. A tab without a lead shows it at its end instead, keeping
-// its width, the title cut short for it. A nil lead has none, and a nil
-// close no button.
+// the button has the keyboard focus, it floats at the tab's end and the tab
+// keeps the width it had. The lead then gives way, the title moving into
+// its place, so the button covers none of the title; a tab without a lead
+// cuts its title short instead. A nil lead has none, and a nil close no
+// button.
 func StripTabBodyWith(c *ui.Context, b ui.Element, lead func(), label string, active, hovered bool, closeLabel string, close func()) ui.Element {
 	return b.Children(func() {
-		var slot ui.Element
-		if lead != nil {
-			slot = ui.Row(c.Key("lead")).Shrink(0).AlignItems(ui.Center).Children(lead)
-		}
-		text := ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-		if close == nil {
-			return
-		}
-		x := IconButton(c.Key("close"), icons.Close, closeLabel, 20, false).OnClick(close).
-			Absolute().Top((StripTabHeight - 20) / 2)
-		if !hovered && !x.FocusVisible() {
-			x.Opacity(0)
-		}
-		if lead != nil {
-			// Centred on the lead, which the padding starts 8 in.
-			x.Left(8 + max(slot.LayoutBounds().W, 0)/2 - 10)
-			if hovered || x.FocusVisible() {
-				slot.Opacity(0)
-			}
-			return
-		}
-		x.Right(4)
-		if hovered || x.FocusVisible() {
-			if w := b.LayoutBounds().W; w > 0 {
+		var x ui.Element
+		shown := false
+		if close != nil {
+			x = IconButton(c.Key("close"), icons.Close, closeLabel, 20, false).OnClick(close).
+				Absolute().Right(4).Top((StripTabHeight - 20) / 2)
+			shown = hovered || x.FocusVisible()
+			if !shown {
+				x.Opacity(0)
+			} else if w := b.LayoutBounds().W; w > 0 {
 				b.Width(w)
 			}
+		}
+		if lead != nil && !shown {
+			ui.Row(c.Key("lead")).Shrink(0).AlignItems(ui.Center).Children(lead)
+		}
+		text := ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		if shown && lead == nil {
 			text.PaddingEnd(20)
 		}
 	})

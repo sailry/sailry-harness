@@ -579,7 +579,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		secondTab = found[1]
 		return secondTab.Bounds.X == previous && secondTab.Bounds.X+secondTab.Bounds.W <= 1440
 	})
-	closeX, closeY := secondTab.Bounds.X+15, secondTab.Bounds.Y+secondTab.Bounds.H/2
+	closeX, closeY := secondTab.Bounds.X+secondTab.Bounds.W-14, secondTab.Bounds.Y+secondTab.Bounds.H/2
 	window.tester.Move(closeX, closeY)
 	window.frame()
 	window.tester.ClickAt(closeX, closeY)
@@ -806,7 +806,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		strip = found[1]
 		return strip.Bounds.X == previous && strip.Bounds.X+strip.Bounds.W <= 1440
 	})
-	closeX, closeY = strip.Bounds.X+15, strip.Bounds.Y+strip.Bounds.H/2
+	closeX, closeY = strip.Bounds.X+strip.Bounds.W-14, strip.Bounds.Y+strip.Bounds.H/2
 	window.tester.Move(closeX, closeY)
 	window.frame()
 	window.tester.ClickAt(closeX, closeY)

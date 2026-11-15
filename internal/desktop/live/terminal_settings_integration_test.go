@@ -588,7 +588,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 		freshTab = found[1]
 		return freshTab.Bounds.X == previous && freshTab.Bounds.X+freshTab.Bounds.W <= 1440
 	})
-	closeX, closeY := freshTab.Bounds.X+15, freshTab.Bounds.Y+freshTab.Bounds.H/2
+	closeX, closeY := freshTab.Bounds.X+freshTab.Bounds.W-14, freshTab.Bounds.Y+freshTab.Bounds.H/2
 	window.tester.Move(closeX, closeY)
 	window.frame()
 	window.tester.ClickAt(closeX, closeY)
