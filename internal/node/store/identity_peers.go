@@ -67,7 +67,11 @@ func PairIdentityPeer(ctx context.Context, db *sql.Conn, node, peer protocol.Nod
 	value.Direct, value.Removed = true, false
 	value.DirectDirection = mergeIdentityDirection(value.DirectDirection, direction)
 	value.MyDevice = value.MyDevice || scope.Kind == protocol.InvitationMyDevice
-	return writeIdentityPeer(ctx, db, value)
+	if err := writeIdentityPeer(ctx, db, value); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "UPDATE identity_host_removals SET active=0 WHERE host=?1 AND active=1", peer[:])
+	return err
 }
 
 func removeIdentityPeerOrigins(ctx context.Context, db *sql.Conn, peer protocol.NodeID, localRemoval bool) error {

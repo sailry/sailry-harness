@@ -532,6 +532,12 @@ generations prevent delayed grants or revocations restoring removed access.
 Directories and sponsorship do not propagate another inbound user's namespace
 through a Node's single Link identity, and they do not form a mesh.
 
+Removing an outbound host first attempts remote self-revocation, then removes
+local trust even when the host is unavailable. The controller peer store or
+Node store retains the exact remote request and its known or uncertain outcome
+after local removal. This is diagnostic history without a retry worker; another
+explicit pairing starts a new attempt and preserves earlier records.
+
 Personal configuration follows a single selected source over direct authenticated
 host connections. Per-host switches control configuration and static secrets
 independently. Manifests reconcile versions, deletions and digests in dependency

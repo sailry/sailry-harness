@@ -26,16 +26,17 @@ type PeerStore interface {
 }
 
 type controllerPeer struct {
-	ID                protocol.NodeID   `json:"id"`
-	Name              string            `json:"name,omitempty"`
-	Address           *EndpointAddress  `json:"address"`
-	Direction         PeerDirection     `json:"direction"`
-	Direct            bool              `json:"direct"`
-	DirectDirection   PeerDirection     `json:"direct_direction,omitempty"`
-	MyDevice          bool              `json:"my_device"`
-	Removed           bool              `json:"removed"`
-	Sources           []protocol.NodeID `json:"sources,omitempty"`
-	DirectoryRevision uint64            `json:"directory_revision"`
+	ID                protocol.NodeID      `json:"id"`
+	Name              string               `json:"name,omitempty"`
+	Removals          []HostRemovalAttempt `json:"removals,omitempty"`
+	Address           *EndpointAddress     `json:"address"`
+	Direction         PeerDirection        `json:"direction"`
+	Direct            bool                 `json:"direct"`
+	DirectDirection   PeerDirection        `json:"direct_direction,omitempty"`
+	MyDevice          bool                 `json:"my_device"`
+	Removed           bool                 `json:"removed"`
+	Sources           []protocol.NodeID    `json:"sources,omitempty"`
+	DirectoryRevision uint64               `json:"directory_revision"`
 }
 
 func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {
@@ -247,6 +248,9 @@ func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID
 	return store.update(ctx, func(peers *[]controllerPeer) error {
 		for index := range *peers {
 			if (*peers)[index].ID == id {
+				for removal := range (*peers)[index].Removals {
+					(*peers)[index].Removals[removal].Active = false
+				}
 				if (*peers)[index].Removed {
 					(*peers)[index].DirectoryRevision = 0
 					(*peers)[index].Direction = ""
@@ -294,6 +298,7 @@ func (store *controllerStore) update(ctx context.Context, update func(*[]control
 	peers := append([]controllerPeer{}, store.peers...)
 	for index := range peers {
 		peers[index].Sources = append([]protocol.NodeID{}, peers[index].Sources...)
+		peers[index].Removals = append([]HostRemovalAttempt{}, peers[index].Removals...)
 	}
 	if err := update(&peers); err != nil {
 		return err

@@ -364,7 +364,9 @@ func (r *Runtime) revokeNode(node string, finished func()) {
 	}
 	controller := r.controller
 	r.async(func() {
-		_, err := controller.Settle(r.ctx, request)
+		var address link.EndpointAddress
+		address.ID = id
+		_, err := client.RemoveHost(r.ctx, state.endpoint, address, func(local context.Context) error { _, err := controller.Settle(local, request); return err })
 		r.enqueue(func(c *ui.Context) {
 			delete(state.revoking, node)
 			if !client.Retained(err) {

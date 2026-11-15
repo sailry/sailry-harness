@@ -710,6 +710,16 @@ CREATE TABLE identity_sponsor_epochs (
     revoked INTEGER NOT NULL CHECK(revoked IN (0,1)),
     PRIMARY KEY(sponsor,device)
 );
+
+CREATE TABLE identity_host_removals (
+    request TEXT PRIMARY KEY,
+    host BLOB NOT NULL CHECK(length(host)=32),
+    body BLOB NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','unknown','completed','failed')),
+    fault BLOB,
+    active INTEGER NOT NULL CHECK(active IN (0,1))
+);
+CREATE UNIQUE INDEX identity_host_removals_active ON identity_host_removals(host) WHERE active=1;
 CREATE TABLE IF NOT EXISTS configuration_follow_sources (
  user TEXT PRIMARY KEY REFERENCES users(id),
  source BLOB CHECK(source IS NULL OR length(source)=32),

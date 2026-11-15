@@ -147,7 +147,8 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		if err := json.Unmarshal([]byte(values.Address), &address); err != nil {
 			return nil, invalid("invalid peer address")
 		}
-		return nil, owner.endpoint.SetTrust(ctx, address.ID, false)
+		_, err := client.RemoveHost(ctx, owner.endpoint, address, func(local context.Context) error { return owner.endpoint.SetTrust(local, address.ID, false) })
+		return nil, err
 	case "network_changed":
 		return nil, owner.endpoint.NetworkChanged(ctx)
 	case "connect":
