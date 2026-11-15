@@ -2087,7 +2087,6 @@ provider_capabilities
 provider_cap_understands
 provider_cap_can
 provider_cap_generates
-provider_cap_reset
 media_image
 media_video
 media_speech

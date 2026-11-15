@@ -41,7 +41,7 @@ import (
 // hint under it ("" for none).
 func Field(c *ui.Context, key any, label, hint string, control func()) {
 	p := theme.Of(c)
-	ui.Column(c.Key(key)).Gap(6).Children(func() {
+	ui.Column(c.Key(key)).Gap(8).Children(func() {
 		ui.Text(c, label).FontSize(14).FontWeight(500).TextColor(p.PopoverForeground)
 		control()
 		if hint != "" {

@@ -835,28 +835,6 @@ func TestProviderEditor(t *testing.T) {
 		if got, _ := boxes(1); got != [6]bool{false, false, false, true, true, false} {
 			t.Fatalf("plain model's boxes after edits %v", got)
 		}
-		// Tags that are the user's own can be reset: the boxes show the tags
-		// the model came with, which a save leaves to the catalog.
-		resets := func() (found []ui.AccessInfo) {
-			for _, x := range tt.AccessAll() {
-				if x.Role == ui.RoleButton && x.Name == "Reset to model data" {
-					found = append(found, x)
-				}
-			}
-			return
-		}
-		at := resets()
-		if len(at) != 2 {
-			t.Fatalf("%d resets for two edited models", len(at))
-		}
-		tt.ClickAt(at[1].Bounds.X+at[1].Bounds.W/2, at[1].Bounds.Y+at[1].Bounds.H/2)
-		tt.Frame()
-		if got, _ := boxes(1); got != [6]bool{true, false, false, false, false, false} || plain.CustomCapabilities || len(plain.Generates) != 0 || len(resets()) != 1 {
-			t.Fatalf("plain model after its reset: boxes %v, %+v, %d resets", got, plain, len(resets()))
-		}
-		click(1, 3)
-		click(1, 4)
-		click(1, 0)
 		if problem := m.provider.save(m); problem != "" || len(saved) != 1 {
 			t.Fatalf("save: %q, %d drafts", problem, len(saved))
 		}

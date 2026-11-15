@@ -2075,7 +2075,6 @@ provider_capabilities: 能力
 provider_cap_understands: 理解
 provider_cap_can: 支持
 provider_cap_generates: 生成
-provider_cap_reset: 恢复模型数据
 media_image: 图片
 media_video: 视频
 media_speech: 语音

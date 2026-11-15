@@ -445,7 +445,11 @@ type modelDraft struct {
 	efforts []string
 	effort  string // the effort being added
 	def     int    // the default effort
-	open    bool
+	// effortInput is the efforts field's input, which a click in the field
+	// focuses; rejected asks the next frame to say an effort was refused.
+	effortInput ui.Handle
+	rejected    bool
+	open        bool
 	// hosted keeps the image tool the model came with: ticking Image again
 	// restores it rather than the images endpoint.
 	hosted bool
@@ -1223,13 +1227,13 @@ func modelForm(c *ui.Context, d *modelDraft, api string) {
 	if api == "azure_open_ai" {
 		name = t("provider_deployment_id")
 	}
-	ui.Column(c.Key("model-form")).Gap(12).Children(func() {
+	ui.Column(c.Key("model-form")).Gap(16).Children(func() {
 		kit.Field(c, "id", name, "", func() {
 			ui.TextInput(c.Key("input"), &d.id).Label(name).Placeholder(t("form_model_hint")).FillWidth().Disabled(d.pending)
 		})
 		// The label with the common sizes at its right, the input under
 		// them at full width.
-		ui.Column(c.Key("context")).Gap(6).Children(func() {
+		ui.Column(c.Key("context")).Gap(8).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t("provider_context")).FontSize(14).FontWeight(500).Grow(1).Shrink(1).MinWidth(0).SingleLine().
 					TextColor(p.PopoverForeground)
@@ -1248,59 +1252,113 @@ func modelForm(c *ui.Context, d *modelDraft, api string) {
 	})
 }
 
-// effortsForm is the model's reasoning efforts as a table: each a row of
-// its name, editable in place, then its default mark and its removal, and
-// a last row that adds one. The default stays the effort it was as others
-// go.
+// effortsForm is the model's reasoning efforts as tags in one field, an
+// input after them: Enter or a comma adds what it holds, Backspace in it
+// empty removes the last, and each tag has its removal. A click on a tag
+// makes it the default, which shows in the primary tint and stays the
+// effort it was as others go. CrychicUI's TagInput has neither a default
+// nor a tag's own removal, and takes its input apart from its tags.
 func effortsForm(c *ui.Context, d *modelDraft) {
 	p := theme.Of(c)
+	th := c.Theme()
 	t := func(k string) string { return i18n.T(c, k) }
-	ui.Column(c.Key("efforts")).Gap(6).Children(func() {
-		ui.Text(c, t("provider_efforts")).FontSize(14).FontWeight(500).SingleLine().TextColor(p.PopoverForeground)
-		for j := range d.efforts {
-			// Keyed by place, so editing a name keeps the input's focus.
-			ui.Row(c.Key(j)).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.TextInput(c.Key("input"), &d.efforts[j]).Label(t("provider_efforts")).Grow(1).Disabled(d.pending)
-				tip := t("provider_set_default")
-				if j == d.def {
-					tip = t("provider_effort_default")
-				}
-				b := kit.Action(c.Key("default"), icons.Check, tip, j == d.def).Disabled(d.pending)
-				if j == d.def {
-					b.TextColor(p.Success).Opacity(1)
-				}
-				b.OnClick(func() { d.def = j })
-				kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).Disabled(d.pending).OnClick(func() {
-					d.efforts = slices.Delete(d.efforts, j, j+1)
-					if d.def > j {
-						d.def--
-					}
-					if d.def >= len(d.efforts) {
-						d.def = 0
-					}
-				})
-			})
+	if d.rejected {
+		d.rejected = false
+		kit.Toast(c, kit.Failed, t("provider_effort_invalid"))
+	}
+	// add takes a typed effort; it reports whether the input may clear.
+	add := func(text string) bool {
+		x := strings.TrimSpace(text)
+		switch {
+		case x == "":
+			return true
+		case slices.Contains(d.efforts, x):
+			d.rejected = true
+			return false
 		}
-		ui.Row(c.Key("add")).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).Grow(1).Disabled(d.pending)
-			kit.Secondary(c.Key("add"), t("settings_add")).Disabled(d.pending).OnClick(func() {
-				x := strings.TrimSpace(d.effort)
-				if x == "" || slices.Contains(d.efforts, x) {
-					kit.Toast(c, kit.Failed, t("provider_effort_invalid"))
-					return
+		d.efforts = append(d.efforts, x)
+		return true
+	}
+	remove := func(j int) {
+		d.efforts = slices.Delete(d.efforts, j, j+1)
+		if d.def > j {
+			d.def--
+		}
+		if d.def >= len(d.efforts) {
+			d.def = 0
+		}
+	}
+	kit.Field(c, "efforts", t("provider_efforts"), "", func() {
+		field := ui.Row(c.Key("field")).FillWidth().Wrap().GapX(6).GapY(6).AlignItems(ui.Center).
+			Padding(th.Space(1.5), th.Space(2.5)).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
+		if c.FocusWithin(d.effortInput) {
+			field.Border(1, p.Ring)
+		}
+		field.Children(func() {
+			for j, x := range d.efforts {
+				effortTag(c, j, x, j == d.def, d.pending, func() { d.def = j }, func() { remove(j) })
+			}
+			in := ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).
+				Grow(1).MinWidth(120).Padding(0).Background(ui.Transparent).Border(0, ui.Transparent).Disabled(d.pending).Bind(&d.effortInput)
+			in.OnTextKey(func(k ui.TextKey) bool {
+				switch {
+				case k.Key == ui.KeyEnter && k.Mods == 0:
+					if add(k.Text()) {
+						k.SetText("")
+					}
+					return true
+				case k.Key == ui.KeyBackspace && k.Text() == "" && len(d.efforts) > 0:
+					remove(len(d.efforts) - 1)
+					return true
 				}
-				d.efforts, d.effort = append(d.efforts, x), ""
+				return false
 			})
+			if typed, ok := strings.CutSuffix(d.effort, ","); ok {
+				d.effort = typed
+				if add(typed) {
+					d.effort = ""
+				}
+			}
 		})
+	})
+}
+
+// effortTag is one effort in the efforts field: its name, a click on which
+// makes it the default, and beside it its removal, two buttons in one
+// pill.
+func effortTag(c *ui.Context, j int, name string, isDefault, pending bool, choose, remove func()) {
+	p := theme.Of(c)
+	tip := i18n.T(c, "provider_set_default")
+	if isDefault {
+		tip = i18n.T(c, "provider_effort_default")
+	}
+	pill := ui.Row(c.Key(j)).Height(24).PaddingEnd(2).Radius(999).AlignItems(ui.Center).Shrink(0).TextColor(p.Foreground)
+	pill.Children(func() {
+		b := ui.ButtonBase(c.Key("choose")).Label(name + " · " + tip).Height(24).PaddingStart(8).PaddingEnd(2).Gap(2).
+			AlignItems(ui.Center).Cursor(ui.CursorPointer).Disabled(pending).AccessSelected(isDefault)
+		kit.Tooltip(c, b, tip)
+		b.OnClick(choose).Children(func() {
+			if isDefault {
+				ui.Icon(c, icons.Check).FontSize(12).Shrink(0)
+			}
+			ui.Text(c, name).FontSize(13).SingleLine()
+		})
+		switch {
+		case isDefault:
+			pill.Background(p.Primary.Alpha(0.14)).TextColor(p.Primary)
+		case b.Hovered():
+			pill.Background(p.Hover)
+		default:
+			pill.Background(p.Muted)
+		}
+		kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "settings_delete"), 20, false).Disabled(pending).OnClick(remove)
 	})
 }
 
 // capabilityForm is the model's capability tags as checkboxes in three
 // groups: what it understands, what it can do and what it generates. A
 // change marks the tags as the user's (CustomCapabilities), which a save
-// then keeps over the catalog's. Tags that are the user's can be reset: a
-// save then leaves them to the catalog again, and the boxes show the
-// catalog's tags where the model came with them.
+// then keeps over the catalog's.
 func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
@@ -1329,19 +1387,8 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 		ui.Text(c.Key(key+"-label"), t(key)).FontSize(14).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
 		ui.Row(c.Key(key)).Wrap().GapX(16).GapY(6).AlignItems(ui.Center).MinWidth(0).Children(boxes)
 	}
-	ui.Column(c.Key("capabilities")).Gap(10).Children(func() {
-		ui.Row(c.Key("heading")).Gap(6).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, t("provider_capabilities")).FontSize(14).FontWeight(500).Grow(1).Shrink(1).MinWidth(0).SingleLine().TextColor(p.PopoverForeground)
-			if x.CustomCapabilities {
-				b := kit.Ghost(c.Key("reset"), t("provider_cap_reset"), false).Height(24).PaddingX(8).Border(1, p.Border).Shrink(0).Disabled(d.pending)
-				b.Children(func() { ui.Text(c, t("provider_cap_reset")).FontSize(12) }).OnClick(func() {
-					x.CustomCapabilities = false
-					if d.catalog != nil {
-						x.Vision, x.Tools, x.Reasoning, x.Generates = d.catalog.Vision, d.catalog.Tools, d.catalog.Reasoning, slices.Clone(d.catalog.Generates)
-					}
-				})
-			}
-		})
+	ui.Column(c.Key("capabilities")).Gap(8).Children(func() {
+		ui.Text(c.Key("heading"), t("provider_capabilities")).FontSize(14).FontWeight(500).SingleLine().TextColor(p.PopoverForeground)
 		// The form's surface, not the window's, under the unchecked boxes.
 		surface := *c.Theme()
 		surface.Background = ui.Transparent
