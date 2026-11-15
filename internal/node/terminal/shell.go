@@ -14,11 +14,20 @@ import (
 )
 
 // Environment returns the Node's terminal environment with the saved
-// variables applied over it.
+// variables applied over it. MyGo merges these values into the process
+// environment, so the account's home must replace a parent's ZDOTDIR when
+// the launch has no explicit startup directory.
 func Environment(base []string, settings protocol.TerminalSettings) []string {
 	values := slices.Clone(base)
 	for _, key := range slices.Sorted(maps.Keys(settings.Environment)) {
 		values = append(values, key+"="+settings.Environment[key])
+	}
+	if runtime.GOOS != "windows" && !slices.ContainsFunc(values, func(entry string) bool {
+		return strings.HasPrefix(entry, "ZDOTDIR=")
+	}) {
+		if home := environmentValue(values, "HOME"); home != "" {
+			values = append(values, "ZDOTDIR="+home)
+		}
 	}
 	return values
 }

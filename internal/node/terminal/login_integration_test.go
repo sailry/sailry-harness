@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -19,21 +20,45 @@ func TestTerminalCapturedLoginEnvironmentIntegration(t *testing.T) {
 	if err != nil {
 		t.Skip("zsh is not installed")
 	}
-	// The inherited shell deliberately disagrees with the Node's capture.
-	// Every startup file belongs to this test, including zsh integration's
-	// restored ZDOTDIR; no account configuration is read or modified.
 	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("ZDOTDIR", filepath.Join(t.TempDir(), "editor-hooks"))
+	for _, mode := range []string{"account home", "startup-selected directory", "explicit directory"} {
+		t.Run(mode, func(t *testing.T) {
+			testTerminalLoginEnvironment(t, zsh, mode)
+		})
+	}
+}
+
+func testTerminalLoginEnvironment(t *testing.T, zsh, mode string) {
+	t.Helper()
 	home := t.TempDir()
+	directory := home
+	if mode != "account home" {
+		directory = filepath.Join(home, "config")
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	bin := filepath.Join(home, "login-bin")
 	for name, source := range map[string]string{
 		".zshenv":   "export SAILRY_LOGIN_TRACE=env\n",
 		".zprofile": "export SAILRY_LOGIN_TRACE=${SAILRY_LOGIN_TRACE}:profile\nexport PATH='" + strings.ReplaceAll(bin, "'", "'\\''") + "':$PATH\n",
-		".zshrc":    "export SAILRY_LOGIN_TRACE=${SAILRY_LOGIN_TRACE}:rc\n",
+		".zshrc":    "export SAILRY_LOGIN_TRACE=${SAILRY_LOGIN_TRACE}:rc\nPROMPT='sailry-configured-prompt> '\n",
 		".zlogin":   "export SAILRY_LOGIN_TRACE=${SAILRY_LOGIN_TRACE}:login\n",
 	} {
-		if err := os.WriteFile(filepath.Join(home, name), []byte(source), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(source), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if mode == "startup-selected directory" {
+		source := "export SAILRY_LOGIN_TRACE=env\nexport ZDOTDIR='" + strings.ReplaceAll(directory, "'", "'\\''") + "'\n"
+		if err := os.WriteFile(filepath.Join(home, ".zshenv"), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environment := process.NewEnvironment([]string{"HOME=" + home, "SHELL=" + zsh, "PATH=/usr/bin:/bin"}).TerminalValues()
+	if mode == "explicit directory" {
+		environment = append(environment, "ZDOTDIR="+directory)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -50,7 +75,7 @@ func TestTerminalCapturedLoginEnvironmentIntegration(t *testing.T) {
 	caller := protocol.NodeID{2}
 	info, err := service.Start(ctx, Launch{
 		Caller: caller, Worktree: protocol.WorktreeID{3}, Root: home,
-		Environment: []string{"HOME=" + home, "ZDOTDIR=" + home, "SHELL=" + zsh, "PATH=/usr/bin:/bin"},
+		Environment: environment,
 		Access:      protocol.ProcessAccessUnrestricted, Viewport: protocol.TerminalViewport{Columns: 500, Rows: 24},
 	})
 	if err != nil {
@@ -64,7 +89,7 @@ func TestTerminalCapturedLoginEnvironmentIntegration(t *testing.T) {
 	if _, err := service.Input(caller, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte(command)}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"sailry-login:env:profile:rc:login", "sailry-path:" + bin + ":", "sailry-shell:" + zsh + ":on"}
+	want := []string{"sailry-login:env:profile:rc:login", "sailry-path:" + bin + ":", "sailry-shell:" + zsh + ":on", "sailry-configured-prompt> "}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	var screen string

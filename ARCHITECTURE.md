@@ -301,9 +301,12 @@ Opted-in completions can continue an idle session through its normal queue.
 Agent file operations exclude managed-checkout descendants and protected Git
 metadata. Authenticated manual workflows can access registered managed worktrees
 through the scoped resource services. User-created terminals use their login-shell
-environment. Configured HTTP proxies are trusted to route public hostnames;
-failure does not silently bypass the proxy. Local model downloads require an
-installation action, and an unavailable engine reports that state.
+environment. Zsh starts from the Node account's home unless its launch specifies
+a startup directory; parent terminal hooks cannot replace that directory, and
+the user's `.zshenv` can select a custom one. Configured HTTP proxies are trusted
+to route public hostnames; failure does not silently bypass the proxy. Local model
+downloads require an installation action, and an unavailable engine reports that
+state.
 
 ## Extensions and plugins
 
