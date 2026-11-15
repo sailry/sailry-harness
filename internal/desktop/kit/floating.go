@@ -10,7 +10,7 @@ import (
 // backdrop blur of FloatingBlur DIP (it samples the elements painted under
 // the panel in the same frame: overlays paint above the content in one
 // scene) over the opaque popover color, toned by that color again at
-// FloatingTint, at the large radius, in the popover's text color, with a
+// FloatingTint (FloatingTintLight at least in light mode), at the large radius, in the popover's text color, with a
 // 1 DIP edge a step off that surface. No background or shadow. It is the
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
@@ -22,6 +22,8 @@ func floating(c *ui.Context, el ui.Element, tint float32) ui.Element {
 	surface := p.Floating().Over(Opaque(p.Background))
 	if p.Dark {
 		surface = surface.Mix(Opaque(p.Foreground), FloatingLift)
+	} else {
+		tint = max(tint, FloatingTintLight)
 	}
 	m := frost{blur: FloatingBlur, base: surface, tint: surface.Alpha(tint)}
 	return m.on(c, el.Radius(p.RadiusLg)).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
@@ -42,6 +44,9 @@ const (
 	// FloatingTint is how strongly the popover color covers the blurred
 	// backdrop, from 0 (the backdrop alone) to 1 (opaque).
 	FloatingTint = 0.4
+	// FloatingTintLight is light mode's least tint: a light panel over a
+	// busy or dimmed page reads gray and see-through at FloatingTint.
+	FloatingTintLight = 0.9
 	// FloatingLift is how far dark mode's surface moves from the popover
 	// color toward the foreground, so the panels read lighter than the page.
 	FloatingLift = 0.1

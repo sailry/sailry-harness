@@ -80,7 +80,13 @@ func Opaque(c ui.Color) ui.Color {
 // tint is how strongly the color covers the blurred backdrop (SurfaceTint,
 // CardTint): the app sets it, never a theme.
 func Frost(c *ui.Context, el ui.Element, base ui.Color, tint float32) ui.Element {
-	solid := base.Over(Opaque(theme.Of(c).Background))
+	p := theme.Of(c)
+	if !p.Dark {
+		// As a floating panel's: a light card over a dark control nearby
+		// takes its blur as a gray smudge at the dark tints.
+		tint = max(tint, FloatingTintLight)
+	}
+	solid := base.Over(Opaque(p.Background))
 	return frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(tint)}.on(c, el)
 }
 

@@ -130,7 +130,12 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 			from = 0.98
 		}
 		scale := from + (1-from)*shown
-		back.Background(p.Backdrop().Alpha(0.4 * dim))
+		// Light mode dims less: a dark veil over a light page reads heavy.
+		veil := float32(0.4)
+		if !p.Dark {
+			veil = 0.25
+		}
+		back.Background(p.Backdrop().Alpha(veil * dim))
 		if o.Bleed {
 			back.Justify(ui.Center)
 			panel.Padding(0).Gap(0).MaxWidth(w - 48).MaxHeight(h - 48).Clip()
