@@ -309,6 +309,14 @@ func KnowledgeStorageChanged(ctx context.Context, db *sql.Conn, request protocol
 		}
 		return changed, nil
 	}
+	switch input := request.Command.Data.(type) {
+	case *protocol.CommandWritePluginConversationValuePayload, *protocol.CommandRemovePluginConversationValuePayload:
+		return false, nil
+	case *protocol.CommandContinueTurnPayload:
+		if input.Scope == protocol.PluginStorageScopeConversation {
+			return false, nil
+		}
+	}
 	var scopeErr error
 	ctx, scopeErr = PluginStorageRequestContext(ctx, db, request)
 	if scopeErr != nil {

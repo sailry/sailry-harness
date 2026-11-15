@@ -195,6 +195,9 @@ func PluginStorageRequestContext(ctx context.Context, db *sql.Conn, request prot
 	case *protocol.PluginStorageSearch:
 		storage = input.Scope
 	case *protocol.CommandContinueTurnPayload:
+		if input.Scope == protocol.PluginStorageScopeConversation {
+			return ctx, nil
+		}
 		storage = input.Scope
 	default:
 		return ctx, nil
