@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
-    appearance BLOB NOT NULL
+    appearance BLOB NOT NULL,
+    owner TEXT REFERENCES users(id),
+    visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared'))
 );
 CREATE TABLE IF NOT EXISTS defaults (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),

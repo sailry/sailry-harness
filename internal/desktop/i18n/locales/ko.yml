@@ -340,6 +340,9 @@ project_remove_named: 프로젝트 “%{name}”을 제거할까요? 터미널�
 project_remove_preview: 미리보기 레코드 제거
 project_name: 프로젝트 이름
 project_host: 호스트
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: 프로젝트 경로
 project_destination: 대상
 project_repository: 저장소

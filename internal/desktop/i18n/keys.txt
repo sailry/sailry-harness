@@ -354,6 +354,9 @@ project_remove_named
 project_remove_preview
 project_name
 project_host
+project_visibility
+project_visibility_private
+project_visibility_shared
 project_path
 project_destination
 project_repository

@@ -218,6 +218,9 @@ workspace_native_menu_platform: 当前平台暂不支持系统右键菜单
 workspace_project: 项目概览
 project_add: 添加项目
 project_host: 主机
+project_visibility: 可见范围
+project_visibility_private: 私有
+project_visibility_shared: 主机共享
 project_new: 新建项目
 project_edit: 编辑项目
 project_path_in_use: 路径已关联会话或 worktree，不能直接修改

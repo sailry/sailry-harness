@@ -340,6 +340,9 @@ project_remove_named: 确认移除项目“%{name}”？将关闭其终端，文
 project_remove_preview: 移除示例记录
 project_name: 项目名称
 project_host: 主机
+project_visibility: 可见范围
+project_visibility_private: 私有
+project_visibility_shared: 主机共享
 project_path: 项目路径
 project_destination: 保存位置
 project_repository: 仓库

@@ -340,6 +340,9 @@ project_remove_named: 確認移除專案“%{name}”？將關閉其終端，檔
 project_remove_preview: 移除示例記錄
 project_name: 專案名稱
 project_host: 主機
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: 專案路徑
 project_destination: 儲存位置
 project_repository: 倉庫

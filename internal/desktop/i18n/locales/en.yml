@@ -340,6 +340,9 @@ project_remove_named: Remove project “%{name}”? Its terminals will close; fi
 project_remove_preview: Remove preview record
 project_name: Project name
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Project path
 project_destination: Destination
 project_repository: Repository

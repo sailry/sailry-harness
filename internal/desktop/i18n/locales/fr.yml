@@ -340,6 +340,9 @@ project_remove_named: Retirer le projet « %{name} » ? Ses terminaux seront fer
 project_remove_preview: Supprimer l'enregistrement d'aperçu
 project_name: Nom du projet
 project_host: Hôte
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Chemin du projet
 project_destination: Destination
 project_repository: Dépôt

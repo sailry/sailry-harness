@@ -340,6 +340,9 @@ project_remove_named: Remover o projeto “%{name}”? Seus terminais serão fec
 project_remove_preview: Remover registro de visualização
 project_name: Nome do projeto
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Caminho do projeto
 project_destination: Destino
 project_repository: Repositório

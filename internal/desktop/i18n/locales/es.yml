@@ -340,6 +340,9 @@ project_remove_named: ¿Eliminar el proyecto «%{name}»? Sus terminales se cerr
 project_remove_preview: Eliminar registro de vista previa
 project_name: Nombre del proyecto
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Ruta del proyecto
 project_destination: Destino
 project_repository: Repositorio

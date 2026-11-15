@@ -12,20 +12,22 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Editor is the project editor's draft: a new project, local or cloned, or an
-// existing one's name, path and appearance.
+// existing one's name, path, appearance and visibility.
 type Editor struct {
-	Open    bool
-	Pending bool
-	Project *preview.Project // nil for a new project
-	Clone   int              // 0 local, 1 clone (new projects only)
-	Name    string
-	Host    string // the host's name as the select shows it
-	Path    string
-	Repo    string
-	Branch  string
+	Open       bool
+	Pending    bool
+	Project    *preview.Project // nil for a new project
+	Clone      int              // 0 local, 1 clone (new projects only)
+	Name       string
+	Host       string // the host's name as the select shows it
+	Visibility string
+	Path       string
+	Repo       string
+	Branch     string
 	// Icon and Color are the project's appearance: folder and none on a new
 	// project.
 	Icon, Color string
@@ -47,10 +49,13 @@ func (s *State) Editing() bool { return s.editor.Open }
 // OpenEditor opens the project editor for pr, or for a new project.
 func (s *State) OpenEditor(pr *preview.Project) {
 	s.editorGeneration++
-	s.editor = Editor{Open: true, Project: pr, Icon: "folder", Color: "none"}
+	s.editor = Editor{Open: true, Project: pr, Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityPrivate)}
 	if pr != nil {
 		s.editor.Name, s.editor.Path, s.editor.source = pr.Name, pr.Path, pr.Path
 		s.editor.host = pr.Host
+		if pr.Visibility != "" {
+			s.editor.Visibility = string(pr.Visibility)
+		}
 		if pr.Icon != "" {
 			s.editor.Icon = pr.Icon
 		}
@@ -219,6 +224,12 @@ func (s *State) editorDialog(c *ui.Context) {
 					e.Path, e.other = "", ""
 					e.suggestName()
 				}
+			})
+			kit.Field(c, "visibility", i18n.T(c, "project_visibility"), "", func() {
+				b, _ := kit.Select(c.Key("select"), "project-visibility", i18n.T(c, "project_visibility"), &e.Visibility,
+					[]string{i18n.T(c, "project_visibility_private"), i18n.T(c, "project_visibility_shared")}, e.Pending,
+					[]string{string(protocol.ProjectVisibilityPrivate), string(protocol.ProjectVisibilityShared)})
+				b.FillWidth()
 			})
 			if e.cloning() {
 				kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {
@@ -427,7 +438,7 @@ func (s *State) browse(c *ui.Context, register bool) {
 // dataset, the demo's too, lists the sample catalog's directories.
 func (s *State) OpenFolder(c *ui.Context, host string) {
 	s.editorGeneration++
-	s.editor = Editor{Icon: "folder", Color: "none", host: host, folder: true}
+	s.editor = Editor{Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityPrivate), host: host, folder: true}
 	if host == "" && len(s.Data.Hosts) > 0 {
 		s.editor.host = s.Data.Hosts[0].ID
 	}
@@ -476,6 +487,7 @@ func (s *State) saveProject(host string) {
 	}
 	if pr := e.Project; pr != nil {
 		pr.Name, pr.Path, pr.Icon, pr.Color = name, path, e.Icon, e.Color
+		pr.Visibility = protocol.ProjectVisibility(e.Visibility)
 		pr.Worktrees[0].Path = path
 	} else {
 		s.created++
@@ -486,6 +498,7 @@ func (s *State) saveProject(host string) {
 		pr := &preview.Project{
 			ID: fmt.Sprintf("project/new-%d", s.created), Name: name, Path: path, Branch: branch, Host: host,
 			Icon: e.Icon, Color: e.Color, Worktrees: []preview.Worktree{{Branch: branch, Path: path, Main: true}},
+			Visibility: protocol.ProjectVisibility(e.Visibility),
 		}
 		s.Data.Projects = append(s.Data.Projects, pr)
 		s.Reveal(pr.ID)

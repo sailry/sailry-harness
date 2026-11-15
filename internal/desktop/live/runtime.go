@@ -921,7 +921,7 @@ func (r *Runtime) removeSession(cv *viewmodel.Conversation) {
 
 func expectedProject(p *viewmodel.Project) (protocol.Project, error) {
 	id, err := protocol.ParseProjectID(p.ID)
-	return protocol.Project{ID: id, Name: p.Name, Path: p.Path, Appearance: protocol.ProjectsAppearance{Icon: p.Icon, Color: p.Color}}, err
+	return protocol.Project{ID: id, Name: p.Name, Path: p.Path, Appearance: protocol.ProjectsAppearance{Icon: p.Icon, Color: p.Color}, Owner: p.Owner, Visibility: p.Visibility}, err
 }
 
 // removeProject removes a project from its Node's inventory. The outcome is
@@ -1021,14 +1021,19 @@ func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 		path = sidebar.Destination(path, e.Name)
 		source = protocol.ProjectsSource{Kind: "clone", Data: protocol.ProjectsSourceClonePayload{Url: strings.TrimSpace(e.Repo), Branch: branch}}
 	}
-	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: path, Appearance: appearance, Source: source}}
+	visibility := protocol.ProjectVisibility(e.Visibility)
+	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: path, Appearance: appearance, Source: source, Visibility: visibility}}
 	if e.Project != nil {
 		expected, err := expectedProject(e.Project)
 		if err != nil {
 			done(false)
 			return
 		}
-		command = protocol.Command{Kind: "update_project", Data: protocol.CommandUpdateProjectPayload{Expected: expected, Name: e.Name, Path: path, Appearance: appearance}}
+		var updatedVisibility *protocol.ProjectVisibility
+		if e.Visibility != "" {
+			updatedVisibility = &visibility
+		}
+		command = protocol.Command{Kind: "update_project", Data: protocol.CommandUpdateProjectPayload{Expected: expected, Name: e.Name, Path: path, Appearance: appearance, Visibility: updatedVisibility}}
 	}
 	root := r.localRuntime()
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {

@@ -340,6 +340,9 @@ project_remove_named: Projekt „%{name}“ entfernen? Seine Terminals werden ge
 project_remove_preview: Vorschaudatensatz entfernen
 project_name: Name des Projekts
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Projektpfad
 project_destination: Ziel
 project_repository: Repository
