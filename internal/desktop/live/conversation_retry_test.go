@@ -91,7 +91,7 @@ func TestModelRetryOutcomeSurvivesCanonicalReloadAndProjection(t *testing.T) {
 					appendEntry(protocol.ConversationPart{Kind: "text", Data: part.Delta})
 				}
 				return true
-			})
+			}, nil)
 			if err == nil || language.calls != model.MainRetries+1 || len(clock.waits) != model.MainRetries {
 				t.Fatalf("unexpected fixture recovery: calls=%d waits=%v error=%v", language.calls, clock.waits, err)
 			}

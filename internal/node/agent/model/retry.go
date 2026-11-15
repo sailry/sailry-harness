@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"charm.land/fantasy"
@@ -79,7 +80,9 @@ func mergeUsage(previous, current canonical.Usage) canonical.Usage {
 // the request's cumulative wait budget, regardless of the transient cause.
 const MainRetries = 9
 
-func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool) error {
+// Run uses reset to discard provisional output before replaying an interrupted attempt.
+// Without it, main output that escaped to the consumer cannot be retried safely.
+func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.Call, purpose Purpose, timer clock.Clock, observe func(Attempt) error, yield func(fantasy.StreamPart) bool, reset func()) error {
 	retries := uint64(MainRetries)
 	buffered := purpose == SummaryPurpose
 	schedule := newRetryPolicy()
@@ -132,7 +135,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				if buffered {
 					pending = append(pending, part)
 				} else {
-					escaped = true
+					escaped = escaped || yield != nil && outputPart(part)
 					if yield != nil && !yield(part) {
 						released = true
 						err = context.Canceled
@@ -142,7 +145,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			}
 		}
 		if err == nil && !finished {
-			err = &Failure{Kind: InvalidResponse, Message: "Model stream ended before a completion event"}
+			err = io.ErrUnexpectedEOF
 		}
 		if ctx.Err() != nil {
 			err = ctx.Err()
@@ -156,7 +159,7 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			if attempt.Failure.status != nil {
 				attempt.Status = attempt.Failure.status
 			}
-			if !released && !escaped && attempt.Failure.Retryable() && ctx.Err() == nil {
+			if !released && (!escaped || reset != nil) && attempt.Failure.Retryable() && ctx.Err() == nil {
 				if index >= retries {
 					exhausted = true
 				} else if delay, allowed := schedule.next(attempt.Failure, timer.Now()); allowed {
@@ -170,6 +173,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 			if observationErr := observe(attempt); observationErr != nil {
 				return observationErr
 			}
+		}
+		if attempt.RetryDelay != nil && reset != nil {
+			// The observer may have durably replaced the old draft. Release
+			// its local output even if cancellation arrived during that commit.
+			reset()
 		}
 		if contextErr := ctx.Err(); contextErr != nil {
 			return Classify(contextErr)

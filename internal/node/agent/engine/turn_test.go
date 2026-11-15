@@ -53,7 +53,7 @@ func TestOneRequestPerStep(t *testing.T) {
 			case "partial failure":
 				m.scripts = []script{response(text("Partial"), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}
 			case "failed stream with a tool call":
-				m.scripts = []script{response(text("Partial"), call("partial", "probe", `{}`), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.RateLimited, Message: "fixture failure"}})}
+				m.scripts = []script{response(text("Partial"), call("partial", "probe", `{}`), fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})}
 			case "tool panic":
 				m.scripts = []script{response(call("boom", "probe", `{}`), call("fine", "probe", `{}`), finish()), response(text("Done"), finish())}
 			case "turn panic":
@@ -142,7 +142,7 @@ func TestOneRequestPerStep(t *testing.T) {
 				if requests != 0 || len(responses) != 0 || executed.Load() != 0 {
 					t.Fatalf("failed response ran its call: requests=%d responses=%v executed=%d", requests, responses, executed.Load())
 				}
-				if failure, _ := json.Marshal(run.Error); !strings.Contains(string(failure), `"`+string(protocol.ModelFailureRateLimited)+`"`) {
+				if failure, _ := json.Marshal(run.Error); !strings.Contains(string(failure), `"`+string(protocol.ModelFailureRequest)+`"`) {
 					t.Fatalf("failure lost its kind: %s", failure)
 				}
 			case "tool panic":

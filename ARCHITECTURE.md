@@ -253,10 +253,12 @@ measurement is available.
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;
 rate limits and overload use five seconds to one minute, with jitter. Provider
-wait hints are minimums, never shortened to fit the budget. Ordinary streaming
-requests stop automatic retry after emitting an event; summary requests buffer
-their output. Cancellation interrupts waits. Permanent failures terminate the
-request, and completed tools are not replayed.
+wait hints are minimums, never shortened to fit the budget. Interrupted main
+requests clear the failed attempt's provisional draft before retrying the same
+model step; tool calls execute only after that step completes. Consumers without
+a draft-reset boundary stop automatic retry after emitting content. Summary
+requests buffer their output. Cancellation interrupts waits. Permanent failures
+terminate the request, and completed tools are not replayed.
 
 Tools come from the captured enabled declarations. Everyday file, command, Git,
 code and web tools are initially exposed; `tool_search` discovers other declared

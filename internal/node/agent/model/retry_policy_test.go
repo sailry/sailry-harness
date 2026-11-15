@@ -30,7 +30,7 @@ func TestRetryWaitBudgetIsSharedAcrossFailures(t *testing.T) {
 				err := Run(t.Context(), fake, fantasy.Call{}, purpose, timer, func(attempt Attempt) error {
 					attempts = append(attempts, attempt)
 					return nil
-				}, nil)
+				}, nil, nil)
 				failure := Classify(err)
 				if failure == nil || !failure.WaitExhausted || failure.Exhausted || failure.Kind != Unavailable {
 					t.Fatalf("the shared wait budget lost its cause: %+v", failure)

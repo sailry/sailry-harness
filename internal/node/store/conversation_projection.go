@@ -138,6 +138,9 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 				value.Parts = append(value.Parts, resourcePart(map[string]any{"type": "provider_context"}))
 				continue
 			}
+			if redundantErrorText(message, *block) {
+				continue
+			}
 			var part protocol.ConversationPart
 			switch v := block.Data.(type) {
 			case *canonical.TextContent:
@@ -231,6 +234,14 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 	value.Parts = append(value.Parts, parts...)
 	return value, nil
 }
+
+// Earlier failures copied their structured diagnostic into assistant text.
+// Suppress only that exact duplicate without changing canonical history.
+func redundantErrorText(message *canonical.Message, block canonical.Block) bool {
+	text, ok := block.Data.(*canonical.TextContent)
+	return ok && message.Error != nil && text.Text == message.Error.Message
+}
+
 func optionalUint(v *uint64) uint64 {
 	if v == nil {
 		return 0
@@ -259,6 +270,7 @@ func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Reco
 		}
 	}
 	position := 0
+parts:
 	for i := skip; i < message.PartCount; i++ {
 		if input := record.Metadata.Input; input != nil && ((input.CapabilityPart != nil && i == *input.CapabilityPart) || (input.NoticePart != nil && i == *input.NoticePart)) {
 			continue
@@ -266,6 +278,9 @@ func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Reco
 		for _, block := range message.Content {
 			if block.Index != i {
 				continue
+			}
+			if redundantErrorText(message, block) {
+				continue parts
 			}
 			if file, ok := block.Data.(*canonical.FileContent); ok && strings.HasPrefix(file.File.URI, "sailry-attachment://") {
 				id, err := protocol.ParseAttachmentID(strings.TrimPrefix(file.File.URI, "sailry-attachment://"))

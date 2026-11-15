@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -192,7 +193,7 @@ func (accumulator *pluginAccumulator) push(deltas []protocol.PluginModelAdapterW
 
 func (accumulator *pluginAccumulator) finish() ([]fantasy.StreamPart, error) {
 	if !accumulator.finished {
-		return nil, &Failure{Kind: InvalidResponse, Message: "model stream ended before completion"}
+		return nil, Classify(io.ErrUnexpectedEOF)
 	}
 	parts := []fantasy.StreamPart{}
 	keys := []uint64{}

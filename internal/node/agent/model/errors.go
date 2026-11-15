@@ -45,11 +45,13 @@ type Failure struct {
 	retryAfter    []string
 	retryAfterMs  *uint64
 	overloaded    bool
+	// A transport EOF can recover; other invalid responses remain permanent.
+	truncated bool
 }
 
 func (f *Failure) Error() string { return f.Message }
 func (f *Failure) Retryable() bool {
-	return f.Kind == RateLimited || f.Kind == Network || f.Kind == Unavailable
+	return f.Kind == RateLimited || f.Kind == Network || f.Kind == Unavailable || f.truncated
 }
 
 // httpResponseFailure carries only retry advice across a transport's decoding
@@ -191,12 +193,12 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = Unavailable
 		case errors.Is(provider.Cause, context.Canceled):
 			f.Kind = Cancelled
+		case status >= 400 && status <= 499:
+			f.Kind = InvalidRequest
 		case errors.Is(provider.Cause, io.ErrUnexpectedEOF) || errors.As(provider.Cause, &malformed):
 			f.Kind = InvalidResponse
 		case errors.As(provider.Cause, &network) || errors.Is(provider.Cause, context.DeadlineExceeded):
 			f.Kind = Network
-		case status >= 400 && status <= 499:
-			f.Kind = InvalidRequest
 		default:
 			f.Kind = InvalidResponse
 		}
@@ -206,7 +208,8 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	case errors.As(err, &network) || errors.Is(err, context.DeadlineExceeded):
 		f.Kind = Network
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	if f.Kind == InvalidResponse && errors.Is(err, io.ErrUnexpectedEOF) {
+		f.truncated = true
 		f.Message = "Model stream ended before a completion event"
 	}
 	if errors.Is(err, stallError{}) {

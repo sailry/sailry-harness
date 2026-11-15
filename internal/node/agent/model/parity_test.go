@@ -1075,7 +1075,7 @@ func stallFixture(t *testing.T) {
 						texts = append(texts, part.Delta)
 					}
 					return true
-				})
+				}, nil)
 				<-released
 				if len(attempts) == 0 || attempts[0].Failure == nil || attempts[0].Failure.Kind != Network || !attempts[0].Failure.Retryable() || attempts[0].Failure.Message != "Model stream sent no data for 600 seconds" {
 					t.Fatalf("stalled attempt = %+v", attempts)

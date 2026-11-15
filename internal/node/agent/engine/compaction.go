@@ -220,7 +220,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 			}
 		}
 		return x.ctx.Err() == nil
-	})
+	}, nil)
 	if err != nil {
 		reason := protocol.ConversationCompactionReasonRequestFailed
 		switch model.Classify(err).Kind {

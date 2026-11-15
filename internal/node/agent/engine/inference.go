@@ -138,13 +138,17 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	call.ProviderOptions[observation.ProviderKey] = inventory
 	// Source empty-response recovery is separate from transient HTTP recovery.
 	// Every retry reuses this exact request without prompt rewriting.
-	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {
+	purpose := canonical.PurposeMain
+	newOutput := func() streamOutput {
 		out := streamOutput{record: canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant), r.clock.Now()), slots: map[string]int{}, calls: map[string]bool{}}
 		out.record.Provenance.Author = "assistant"
 		scope := model.Scope(binding)
-		purpose := canonical.PurposeMain
 		out.record.Metadata.Execution = &canonical.Execution{Source: &scope, Purpose: &purpose}
 		out.record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, AgentVisible: true, Inference: &canonical.Inference{Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model}}
+		return out
+	}
+	for emptyAttempt := 0; emptyAttempt <= 3; emptyAttempt++ {
+		out := newOutput()
 		var streamErr error
 		var attempts []model.Attempt
 		metric := r.telemetry.Capture()
@@ -152,7 +156,12 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			r.observeModel(metric, binding, attempt)
 			x.timeline.attempt(attempt)
 			if attempt.RetryDelay != nil {
-				return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, r.retryRecord(x, binding, purpose, attempt))
+				record := r.retryRecord(x, binding, purpose, attempt)
+				// Committing this draft's ID clears provisional text on every
+				// controller before the next attempt, without persisting failed
+				// tool calls or repeating an already completed model step.
+				record.ID = out.record.ID
+				return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
 			}
 			attempts = append(attempts, attempt)
 			return nil
@@ -172,7 +181,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 				streamErr = r.feed.Delta(x.inv.Session.ID, protocol.ConversationDraft{ID: out.record.ID, Turn: x.inv.Run.Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: kind, Data: part.Delta}}})
 			}
 			return streamErr == nil
-		})
+		}, func() { out = newOutput() })
 		if streamErr != nil {
 			err = streamErr
 		}
@@ -235,7 +244,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			if err != nil {
 				failure := model.Classify(err)
 				code := string(failure.Kind)
-				failed := canonical.NewMessage(canonical.Assistant, canonical.Text(0, failure.Message))
+				failed := canonical.NewMessage(canonical.Assistant)
 				failed.Error = &canonical.ResponseError{Code: &code, Message: failure.Message, RetryExhausted: failure.Exhausted, RetryWaitExhausted: failure.WaitExhausted}
 				failed.Finish = &finish
 				record := canonical.NewRecord(x.inv.Run.Turn, "message", failed, r.clock.Now())

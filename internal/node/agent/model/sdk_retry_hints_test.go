@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -29,6 +30,10 @@ func TestSDKResponseFailuresRetainAllRetryAfterValues(t *testing.T) {
 						_, _ = io.WriteString(writer, `{"error":{"code":"overloaded_error","message":"busy"}}`)
 					} else {
 						writer.Header().Set("Content-Type", "text/event-stream")
+						if kind == "anthropic" {
+							// Anthropic ignores unnamed events before decoding JSON.
+							_, _ = io.WriteString(writer, "event: content_block_delta\n")
+						}
 						_, _ = io.WriteString(writer, "data: {broken\n\n")
 					}
 				}))
@@ -54,6 +59,12 @@ func TestSDKResponseFailuresRetainAllRetryAfterValues(t *testing.T) {
 				var provider *fantasy.ProviderError
 				if caught == nil || !errors.As(caught, &provider) || provider.StatusCode != status {
 					t.Fatal("response failure lost its inspectable provider cause")
+				}
+				if kind == "anthropic" && status == 200 {
+					var syntax *json.SyntaxError
+					if !errors.As(provider.Cause, &syntax) {
+						t.Fatal("Anthropic did not decode the malformed event payload")
+					}
 				}
 				failure := Classify(caught)
 				if !slices.Equal(failure.retryAfter, []string{"4", "Wed, 21 Oct 2037 07:28:00 GMT"}) {
