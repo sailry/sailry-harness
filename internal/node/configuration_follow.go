@@ -114,7 +114,7 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 	}
 	direct := map[protocol.NodeID]bool{}
 	for _, peer := range relationships {
-		direct[peer.ID] = peer.Direct && !peer.Removed
+		direct[peer.ID] = peer.Direct && peer.DirectDirection.AllowsOutbound() && !peer.Removed
 	}
 	seen := map[protocol.NodeID]bool{}
 	runtime.mu.Lock()
@@ -207,7 +207,9 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 	if err != nil {
 		return
 	}
-	if !slices.ContainsFunc(relationships, func(peer link.PeerRelationship) bool { return peer.ID == address.ID && peer.Direct && !peer.Removed }) || !node.network.Direction(address.ID).AllowsOutbound() {
+	if !slices.ContainsFunc(relationships, func(peer link.PeerRelationship) bool {
+		return peer.ID == address.ID && peer.Direct && peer.DirectDirection.AllowsOutbound() && !peer.Removed
+	}) || !node.network.Direction(address.ID).AllowsOutbound() {
 		return
 	}
 	remote := node.network.Remote(address)

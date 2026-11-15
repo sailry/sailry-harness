@@ -889,6 +889,9 @@ model_library_selected: Selecionado
 model_library_source: Fonte
 pairing_connect: Conecte o dispositivo
 pairing_local_code: Código de emparelhamento local
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: Introduza o código de emparelhamento de 6 dígitos
 pairing_preview_disabled: A visualização da IU não conecta dispositivos reais; comece com --data-dir para emparelhar
 pairing_relay_address: Endereço de iroh
@@ -2341,3 +2344,22 @@ meter_tokens: Tokens
 meter_speed: Velocidade
 meter_show_details: Mostrar detalhes
 meter_hide_details: Mostrar menos
+configuration_follow_title: Configuration follow
+configuration_follow_source: Source host
+configuration_follow_source_description: Followed copies are edited on their source host.
+configuration_follow_disabled: Disabled
+configuration_follow_this_host: This host
+configuration_follow_targets: Following hosts
+configuration_follow_configuration: Configuration
+configuration_follow_secrets: Static credentials
+configuration_follow_secrets_description: The host administrator can access credentials stored on this host.
+configuration_follow_mcp: Local MCP servers
+configuration_follow_mcp_description: Keep this server's configuration on this host.
+configuration_follow_issues: Pending configuration
+configuration_follow_authorize: Authorize
+configuration_follow_detach: Keep as local copies
+configuration_follow_from_source: From source host
+configuration_follow_saved: Configuration follow saved
+configuration_follow_failed: Configuration follow failed
+configuration_follow_conflict: Configuration changed; reload before saving
+configuration_follow_unknown: The save outcome is unknown; check status before retrying

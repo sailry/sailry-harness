@@ -889,6 +889,9 @@ model_library_selected: 선택됨
 model_library_source: 소스
 pairing_connect: 장치 연결
 pairing_local_code: 로컬 페어링 코드
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: 6자리 페어링 코드 입력
 pairing_preview_disabled: UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다
 pairing_relay_address: 주소
@@ -2341,3 +2344,22 @@ meter_tokens: 토큰
 meter_speed: 속도
 meter_show_details: 자세히 보기
 meter_hide_details: 접기
+configuration_follow_title: Configuration follow
+configuration_follow_source: Source host
+configuration_follow_source_description: Followed copies are edited on their source host.
+configuration_follow_disabled: Disabled
+configuration_follow_this_host: This host
+configuration_follow_targets: Following hosts
+configuration_follow_configuration: Configuration
+configuration_follow_secrets: Static credentials
+configuration_follow_secrets_description: The host administrator can access credentials stored on this host.
+configuration_follow_mcp: Local MCP servers
+configuration_follow_mcp_description: Keep this server's configuration on this host.
+configuration_follow_issues: Pending configuration
+configuration_follow_authorize: Authorize
+configuration_follow_detach: Keep as local copies
+configuration_follow_from_source: From source host
+configuration_follow_saved: Configuration follow saved
+configuration_follow_failed: Configuration follow failed
+configuration_follow_conflict: Configuration changed; reload before saving
+configuration_follow_unknown: The save outcome is unknown; check status before retrying

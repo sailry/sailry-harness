@@ -306,8 +306,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
               final ids = <String>{};
               for (final address in addresses) {
                 final id = text(object(jsonDecode(address))['id']);
-                if (id.isEmpty)
+                if (id.isEmpty) {
                   throw const FormatException('endpoint has no identity');
+                }
                 ids.add(id);
               }
               for (final target in List.of(_hosts)) {

@@ -62,7 +62,7 @@ func (peers nodePeerStore) PairPeer(ctx context.Context, peer protocol.NodeID, d
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.PairLinkPeer(ctx, db, peer, direction) }))
 }
 func (peers nodePeerStore) SetDirection(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection) error {
-	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.SetLinkDirection(ctx, db, peer, direction) }))
+	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.SetIdentityPeerDirection(ctx, db, peer, direction) }))
 }
 
 func (peers nodePeerStore) PairMember(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection, scope link.InvitationScope) error {
