@@ -16,6 +16,8 @@ type subscription struct {
 	mirror   *myterminal.Mirror
 	ticker   *time.Ticker
 	closed   chan struct{}
+	finished chan struct{}
+	final    []byte
 	once     sync.Once
 	next     sync.Mutex
 	initial  bool
@@ -29,12 +31,27 @@ func (service *Service) Subscribe(id protocol.TerminalID) (link.Subscription, er
 		return nil, err
 	}
 	value.mu.Lock()
+	defer value.mu.Unlock()
+	if value.info.Status.Kind != "running" {
+		return nil, fault(protocol.ErrorCodeNotFound, "terminal is not running on this Node")
+	}
 	mirror, err := value.terminal.NewMirror()
-	value.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return &subscription{handle: value, mirror: mirror, ticker: time.NewTicker(time.Second / 60), closed: make(chan struct{}), initial: true}, nil
+	stream := &subscription{handle: value, mirror: mirror, ticker: time.NewTicker(time.Second / 60), closed: make(chan struct{}), finished: make(chan struct{}), initial: true}
+	value.streams[stream] = struct{}{}
+	return stream, nil
+}
+
+// finishLocked preserves the last frame while releasing the stream's native
+// mirror and timer. The handle lock also serializes Frame and Close.
+func (stream *subscription) finishLocked() {
+	stream.final, _ = stream.mirror.Frame()
+	stream.mirror.Close()
+	stream.mirror = nil
+	stream.ticker.Stop()
+	close(stream.finished)
 }
 
 func (service *Service) Snapshot(id protocol.TerminalID) (protocol.TerminalSnapshot, error) {
@@ -55,7 +72,12 @@ func (stream *subscription) Close() error {
 		close(stream.closed)
 		stream.ticker.Stop()
 		stream.handle.mu.Lock()
-		stream.mirror.Close()
+		if stream.mirror != nil {
+			stream.mirror.Close()
+			stream.mirror = nil
+		}
+		stream.final = nil
+		delete(stream.handle.streams, stream)
 		stream.handle.mu.Unlock()
 	})
 	return nil
@@ -76,7 +98,11 @@ func (stream *subscription) Next(ctx context.Context) (protocol.Update, error) {
 		}
 		value := stream.handle
 		value.mu.Lock()
-		frame, _ := stream.mirror.Frame()
+		frame := stream.final
+		stream.final = nil
+		if stream.mirror != nil {
+			frame, _ = stream.mirror.Frame()
+		}
 		info, viewport := value.info, value.viewport
 		value.mu.Unlock()
 		changed := stream.last.Status.Kind != info.Status.Kind || stream.last.Revision != info.Revision || stringPointer(stream.last.Title) != stringPointer(info.Title)
@@ -92,7 +118,8 @@ func (stream *subscription) Next(ctx context.Context) (protocol.Update, error) {
 			stream.sequence++
 			return protocol.Update{Kind: "terminal_frame", Data: protocol.TerminalFrame{Node: value.service.node, Info: info, Sequence: stream.sequence, Screen: protocol.TerminalScreenScreenUpdate{Kind: "replace", Data: protocol.TerminalScreenScreenUpdateReplacePayload{Screen: screen}}}}, nil
 		}
-		if info.Status.Kind == "closed" || info.Status.Kind == "stopped" {
+		if info.Status.Kind != "running" {
+			_ = stream.Close()
 			return protocol.Update{}, io.EOF
 		}
 		select {
@@ -102,6 +129,7 @@ func (stream *subscription) Next(ctx context.Context) (protocol.Update, error) {
 			return protocol.Update{}, io.EOF
 		case <-stream.handle.service.ctx.Done():
 			return protocol.Update{}, io.EOF
+		case <-stream.finished:
 		case <-stream.ticker.C:
 		}
 	}

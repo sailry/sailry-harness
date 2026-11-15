@@ -202,16 +202,20 @@ func (w *terminalUI) showTerminal(session protocol.Session, id string) {
 	app.PanelOpen = true
 	app.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
 	w.runtime.terminalInventory().focus = id
-	var rest float32
+	var tab ui.AccessInfo
 	w.wait("terminal "+id+" shows with the focus", func() bool {
 		state := w.runtime.packages.terminals[id]
-		found := w.buttons("Create terminal")
-		if state == nil || state.terminal == nil || w.runtime.terminalInventory().focus == id || len(found) != 1 {
+		if state == nil || state.terminal == nil || w.runtime.terminalInventory().focus == id || app.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: id}) {
 			return false
 		}
-		previous := rest
-		rest = found[0].Bounds.X
-		return rest == previous && rest+found[0].Bounds.W <= 1440
+		index := slices.Index(w.terminalTabs(), id)
+		found := w.buttons("Terminal")
+		if index < 0 || index >= len(found) {
+			return false
+		}
+		previous := tab.Bounds.X
+		tab = found[index]
+		return tab.Bounds.X == previous && tab.Bounds.X+tab.Bounds.W <= 1440 && w.tester.Focused("Terminal")
 	})
 }
 
@@ -243,8 +247,8 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 
 	// (10) Find: ⌘F with the focus in the terminal opens the find bar; the
 	// query's matches, which scrolled off the screen, are counted and one is
-	// selected; Enter goes to the next; the toolbar button and the native
-	// menu's command open the same bar.
+	// selected; Enter goes to the next; the native menu's command opens the
+	// same bar.
 	window.showTerminal(session, first)
 	window.run("find fixture", first, "for i in 1 2 3; do echo b10find-$((6+1)); done; seq 1 120; echo b10done-$((2*4))", "b10done-8")
 	// The terminal's text includes its scrollback: the matches are there
@@ -298,8 +302,9 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	window.wait("Escape closes the find bar and ends the search", func() bool {
 		return !attached().find && attached().terminal.SearchStatus().Text == "" && len(window.named(ui.RoleTextField, "Find")) == 0
 	})
-	window.clickOn(window.one(ui.RoleButton, "Search terminal"))
-	window.wait("the toolbar's Find opens the find bar", func() bool {
+	window.showTerminal(session, first)
+	window.tester.Key(ui.Cmd, ui.KeyF)
+	window.wait("reopening Find restores its query and matches", func() bool {
 		return attached().find && attached().terminal.SearchStatus().Total == 3 && len(window.named(ui.RoleTextField, "Find")) == 1
 	})
 	window.tester.Key(0, ui.KeyEscape)
@@ -311,7 +316,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 		return attached().find && attached().terminal.SearchStatus().Total == 3 && len(window.named(ui.RoleTextField, "Find")) == 1
 	})
 	window.tester.Key(0, ui.KeyEscape)
-	window.wait("the find bar closes a third time", func() bool { return !attached().find })
+	window.wait("the native menu's find bar closes", func() bool { return !attached().find })
 	// KEY-013: from the conversation's input ⌘F opens the conversation's
 	// find bar instead.
 	window.clickOn(window.one(ui.RoleTextField, "Describe what you want to accomplish…"))
@@ -323,7 +328,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	// as its Done does.
 	app.Messages.CloseSearch()
 	window.frame()
-	t.Log("step 10 passed: ⌘F, the toolbar and the native menu's command opened the find bar; 3 scrollback matches were counted and stepped through round both ends, the bar's count following the terminal's selection; ⌘F from the conversation's input opened the conversation's find instead")
+	t.Log("step 10 passed: ⌘F and the native menu's command opened the find bar; 3 scrollback matches were counted and stepped through round both ends, the bar's count following the terminal's selection; reopening Find restored the query; ⌘F from the conversation's input opened the conversation's find instead")
 
 	// (11) Paste protection is on in a new profile: a paste of several
 	// lines asks first, Cancel sends nothing and Paste sends the lines.
@@ -340,6 +345,9 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	window.wait("Cancel drops the paste", func() bool {
 		return window.runtime.terminalInventory().paste == nil && !window.tester.HasText("Paste multiple lines")
 	})
+	// Dismissing a confirmation releases its focus scope; focus the terminal
+	// explicitly before sending another keyboard event in the harness.
+	window.showTerminal(session, first)
 	window.run("a command after the cancelled paste", first, "echo b10after-$((5+5))", "b10after-10")
 	if screen := window.screen(first) + window.mirror(first); strings.Contains(screen, "b10guard") {
 		t.Fatalf("the cancelled paste reached the shell: %q", screen)
@@ -353,6 +361,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 		screen := window.screen(first)
 		return window.runtime.terminalInventory().paste == nil && strings.Contains(screen, "b10guard-$((1+1))-a") && strings.Contains(screen, "b10guard-$((2+2))-b")
 	})
+	window.showTerminal(session, first)
 	window.tester.Key(0, ui.KeyEnter)
 	window.wait("the shell runs the pasted lines", func() bool {
 		screen := window.screen(first)
@@ -550,7 +559,7 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 		screen := window.screen(first)
 		return strings.Contains(screen, "b10free-6-a") && strings.Contains(screen, "b10free-8-b")
 	})
-	window.click("Create terminal")
+	window.tester.Key(ui.Ctrl, ui.KeyBackquote)
 	window.wait("New terminal creates a Node terminal", func() bool {
 		tabs := window.terminalTabs()
 		return len(tabs) == 2 && window.status(tabs[1]) == "running"
@@ -569,9 +578,27 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	window.wait("the new terminal runs the chosen shell with the edited variable", func() bool {
 		return started.MatchString(window.screen(fresh))
 	})
-	window.clickOn(window.one(ui.RoleButton, "Close terminal"))
+	var freshTab ui.AccessInfo
+	window.wait("the new terminal's tab at rest", func() bool {
+		found := window.buttons("Terminal")
+		if len(found) != 2 {
+			return false
+		}
+		previous := freshTab.Bounds.X
+		freshTab = found[1]
+		return freshTab.Bounds.X == previous && freshTab.Bounds.X+freshTab.Bounds.W <= 1440
+	})
+	closeX, closeY := freshTab.Bounds.X+freshTab.Bounds.W-14, freshTab.Bounds.Y+freshTab.Bounds.H/2
+	window.tester.Move(closeX, closeY)
+	window.frame()
+	window.tester.ClickAt(closeX, closeY)
+	window.wait("the new terminal's close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
+	if window.status(fresh) != "running" || !slices.Contains(window.terminalTabs(), fresh) {
+		t.Fatal("the new terminal closed before confirmation")
+	}
+	window.clickOn(window.one(ui.RoleButton, "Close"))
 	window.wait("the new terminal closes", func() bool {
-		return slices.Equal(window.terminalTabs(), []string{first}) && window.status(fresh) == "closed"
+		return slices.Equal(window.terminalTabs(), []string{first}) && window.status(fresh) == "" && window.runtime.packages.terminals[fresh] == nil
 	})
 	t.Logf("step 15 passed: the terminal drew with Courier New 20 (%d columns, was %d), a multi-line paste went unasked, and Node terminal %s ran %s with %s=b10edited", narrowed, columns, fresh, chosen.Path, name)
 

@@ -413,7 +413,7 @@ func TestSSHTerminalIntegration(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("the remote shell's channel stayed open after close_ssh_terminal")
 	}
-	eventually("the Node reports the terminal closed", func() bool { return terminalStatus(info.ID) == "closed" })
+	eventually("the Node removes the closed terminal", func() bool { return terminalStatus(info.ID) == "" })
 	if ids := listed(profile.ID); len(ids) != 0 {
 		t.Fatalf("a closed SSH terminal is still listed: %v", ids)
 	}

@@ -79,23 +79,15 @@ func (r *Runtime) openLiveTerminal(owner *Runtime, info protocol.TerminalInfo) {
 	root.attachLiveTerminal(state, info)
 }
 
-// attachLiveTerminal subscribes state to its Node terminal. A terminal that
-// is not running, as a saved tab's after its Node restarted, is opened again
-// under the same ID first.
+// attachLiveTerminal subscribes state to its running Node terminal.
 func (r *Runtime) attachLiveTerminal(state *liveTerminal, info protocol.TerminalInfo) {
 	root, owner := r.localRuntime(), state.owner
 	id := info.ID.String()
 	inventory := root.terminalInventory()
-	display, appearance := inventory.display, inventory.appearance
+	display := inventory.display
 	ctx, cancel := context.WithCancel(owner.ctx)
 	state.cancel = cancel
 	if !owner.async(func() {
-		if info.Status.Kind != "running" {
-			output, err := owner.controller.Do(ctx, protocol.Command{Kind: "open_terminal", Data: protocol.CommandOpenTerminalPayload{Terminal: info.ID, Viewport: terminalViewport, Appearance: appearance}})
-			if opened, valid := detail[protocol.TerminalInfo](output.Data); err == nil && valid {
-				info = opened
-			}
-		}
 		stream, err := owner.controller.Subscribe(ctx, protocol.Topic{Kind: "terminal", Data: info.ID})
 		var terminal *myterminal.Terminal
 		var connection *terminalConn

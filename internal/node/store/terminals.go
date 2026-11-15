@@ -16,12 +16,21 @@ func SaveTerminal(ctx context.Context, db *sql.Conn, value protocol.TerminalInfo
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	stored := err == nil
+	if !stored {
+		// A command can finish storing its outcome after the terminal exits.
+		// The final event prevents that older result from recreating its row.
+		err = db.QueryRowContext(ctx, "SELECT json_extract(body,'$.data') FROM events WHERE json_extract(body,'$.kind')='terminal_changed' AND json_extract(body,'$.data.id')=?1 ORDER BY cursor DESC LIMIT 1", value.ID.String()).Scan(&body)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
 	if err == nil {
 		var previous protocol.TerminalInfo
 		if err := json.Unmarshal(body, &previous); err != nil {
 			return nil, err
 		}
-		if previous.Revision > value.Revision || previous.Revision == value.Revision && (!event || previous.Status.Kind != "running" && value.Status.Kind == "running") {
+		if previous.Revision > value.Revision || previous.Revision == value.Revision && !event && !(stored && terminalFinished(value.Status.Kind)) || terminalFinished(previous.Status.Kind) && value.Status.Kind == "running" {
 			return nil, nil
 		}
 	}
@@ -29,14 +38,18 @@ func SaveTerminal(ctx context.Context, db *sql.Conn, value protocol.TerminalInfo
 	if err != nil {
 		return nil, err
 	}
-	if bytes.Equal(body, next) {
+	if bytes.Equal(body, next) && !(stored && terminalFinished(value.Status.Kind)) {
 		return nil, nil
 	}
-	var worktree any
-	if value.Worktree != nil {
-		worktree = value.Worktree.String()
+	if terminalFinished(value.Status.Kind) {
+		_, err = db.ExecContext(ctx, "DELETE FROM terminals WHERE id=?1", value.ID.String())
+	} else {
+		var worktree any
+		if value.Worktree != nil {
+			worktree = value.Worktree.String()
+		}
+		_, err = db.ExecContext(ctx, "INSERT INTO terminals(id,worktree,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET worktree=excluded.worktree,body=excluded.body", value.ID.String(), worktree, next)
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO terminals(id,worktree,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET worktree=excluded.worktree,body=excluded.body", value.ID.String(), worktree, next)
 	if err != nil {
 		return nil, err
 	}
@@ -59,16 +72,38 @@ func RecoverTerminals(ctx context.Context, db *sql.Conn) error {
 	if err != nil {
 		return err
 	}
+	changes := make([]protocol.Event, 0, len(values))
 	for _, value := range values {
-		if value.Status.Kind != "running" {
-			continue
+		if value.Status.Kind == "running" {
+			value.Status = protocol.TerminalStatus{Kind: "stopped"}
+			value.Revision, err = nextRevision(value.Revision)
+			if err != nil {
+				return err
+			}
 		}
-		value.Status = protocol.TerminalStatus{Kind: "stopped"}
 		value.Owner = nil
-		value.Revision++
-		if _, err := SaveTerminal(ctx, db, value, false); err != nil {
-			return err
-		}
+		changes = append(changes, protocol.Event{Kind: "terminal_changed", Data: value})
 	}
-	return nil
+	if len(changes) == 0 {
+		return nil
+	}
+	// PTYs belong to one Node process. Keep request outcomes and the event
+	// cursor intact while retiring the preceding process's inventory.
+	node, err := nodeIdentity(ctx, db)
+	if err != nil {
+		return err
+	}
+	if _, err := RecordEvents(ctx, db, node, changes); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "DELETE FROM terminals")
+	return err
+}
+
+func terminalFinished(status string) bool {
+	switch status {
+	case "closed", "stopped", "exited", "failed":
+		return true
+	}
+	return false
 }

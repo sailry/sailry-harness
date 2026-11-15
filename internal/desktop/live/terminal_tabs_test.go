@@ -104,21 +104,22 @@ func terminalTabsTestTabs(root *Runtime) []string {
 }
 
 // testTerminalTabsPrune covers PANEL-056 and PANE-016: only a terminal its
-// Node reports and has not closed keeps its tab.
+// Node reports as active keeps its tab.
 func testTerminalTabsPrune(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		worktree := protocol.WorktreeID{1}
 		running, closed := terminalTabsTestInfo(1, worktree, "running"), terminalTabsTestInfo(2, worktree, "closed")
-		stopped := terminalTabsTestInfo(3, worktree, "stopped")
-		root, _ := terminalTabsFixture(t, running, closed, stopped)
-		missing, pending := protocol.TerminalID{4}.String(), protocol.TerminalID{5}.String()
-		for _, id := range []string{running.ID.String(), closed.ID.String(), stopped.ID.String(), missing, pending, "1"} {
+		stopped, exited := terminalTabsTestInfo(3, worktree, "stopped"), terminalTabsTestInfo(4, worktree, "exited")
+		failed := terminalTabsTestInfo(5, worktree, "failed")
+		root, _ := terminalTabsFixture(t, running, closed, stopped, exited, failed)
+		missing, pending := protocol.TerminalID{6}.String(), protocol.TerminalID{7}.String()
+		for _, id := range []string{running.ID.String(), closed.ID.String(), stopped.ID.String(), exited.ID.String(), failed.ID.String(), missing, pending, "1"} {
 			root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
 		}
 		root.App.Panel.Show(panel.Tab{Kind: panel.Browser, ID: "1"})
 		root.terminalInventory().pending[pending] = true
 		root.terminalsFrame(nil)
-		want := []string{running.ID.String(), stopped.ID.String(), pending}
+		want := []string{running.ID.String(), pending}
 		if got := terminalTabsTestTabs(root); !slices.Equal(got, want) {
 			t.Fatalf("terminal tabs after prune = %v, want %v", got, want)
 		}
@@ -128,6 +129,45 @@ func testTerminalTabsPrune(t *testing.T) {
 		if node, known := root.terminalInventory().nodes[running.ID.String()]; !known || node != root.controller.Target() {
 			t.Fatal("a reported terminal did not record its Node")
 		}
+	})
+	t.Run("an ended terminal drops an attached tab when it leaves the inventory", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			worktree := protocol.WorktreeID{1}
+			running, ended := terminalTabsTestInfo(1, worktree, "running"), terminalTabsTestInfo(2, worktree, "running")
+			root, source := terminalTabsFixture(t, running, ended)
+			id := ended.ID.String()
+			root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: running.ID.String()})
+			root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+			root.terminalsFrame(nil)
+			connection := terminalConnFixture(t, root, ended)
+			stream := &pluginViewTestSubscription{closed: make(chan struct{})}
+			connection.stream = stream
+			root.packages.terminals[id] = &liveTerminal{owner: root, conn: connection}
+			ended.Status = protocol.TerminalStatus{Kind: "exited"}
+			source.snapshot.Terminals = []protocol.TerminalInfo{running, ended}
+			if err := root.controller.Refresh(root.ctx); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			root.terminalsFrame(nil)
+			if got := terminalTabsTestTabs(root); !slices.Equal(got, []string{running.ID.String()}) {
+				t.Fatalf("terminal tabs after exit = %v", got)
+			}
+			if root.packages.terminals[id] != nil || connection.ctx.Err() == nil {
+				t.Fatal("the ended terminal stayed attached")
+			}
+			select {
+			case <-stream.closed:
+			default:
+				t.Fatal("the ended terminal kept its subscription")
+			}
+			if _, exists := root.terminalInventory().nodes[id]; exists {
+				t.Fatal("the ended terminal kept its inventory owner")
+			}
+			if len(source.sent("close_terminal"))+len(source.sent("open_terminal")) != 0 {
+				t.Fatal("removing an ended terminal sent another terminal command")
+			}
+		})
 	})
 }
 
@@ -208,13 +248,15 @@ func testTerminalTabsClose(t *testing.T) {
 }
 
 // testTerminalTabsProject covers PROJ-028: a project's Terminal records are
-// its worktrees' terminals the Node has not closed.
+// its worktrees' active terminals.
 func testTerminalTabsProject(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		worktree := protocol.WorktreeID{1}
 		running, closed := terminalTabsTestInfo(1, worktree, "running"), terminalTabsTestInfo(2, worktree, "closed")
 		other := terminalTabsTestInfo(3, protocol.WorktreeID{9}, "running")
-		root, _ := terminalTabsFixture(t, running, closed, other)
+		stopped, exited := terminalTabsTestInfo(4, worktree, "stopped"), terminalTabsTestInfo(5, worktree, "exited")
+		failed := terminalTabsTestInfo(6, worktree, "failed")
+		root, _ := terminalTabsFixture(t, running, closed, stopped, exited, failed, other)
 		project := &viewmodel.Project{ID: protocol.ProjectID{1}.String(), Host: root.controller.Target().String()}
 		terminals := root.projectTerminals(project)
 		if len(terminals) != 1 || terminals[0].ID != running.ID.String() || terminals[0].Path != "/fixture" {

@@ -59,18 +59,18 @@ func TestProjectRemovalClosesResources(t *testing.T) {
 		t.Helper()
 		return dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: expected}})).Fault
 	}
-	t.Run("a_terminal_left_by_an_earlier_process_closes_with_the_project", func(t *testing.T) {
+	t.Run("an_ended_terminal_does_not_block_project_removal", func(t *testing.T) {
 		node := nodeFixture(t)
 		project, worktree := projectFixture(t, node)
-		terminal := record(t, node, worktree, "stopped")
+		record(t, node, worktree, "stopped")
 		if fault := remove(t, node, project); fault != nil {
 			t.Fatal("a stopped terminal refused the removal its confirmation promises:", fault)
 		}
 		if len(snapshotFixture(t, node).Projects) != 0 {
 			t.Fatal("removed project remained visible")
 		}
-		if closed := terminalFixture(t, node, terminal); closed.Status.Kind != "closed" || closed.Revision != 2 {
-			t.Fatalf("terminal record = %#v", closed)
+		if terminals := snapshotFixture(t, node).Terminals; len(terminals) != 0 {
+			t.Fatalf("ended terminals remained visible: %#v", terminals)
 		}
 	})
 	t.Run("a_terminal_that_could_not_be_closed_keeps_the_project", func(t *testing.T) {

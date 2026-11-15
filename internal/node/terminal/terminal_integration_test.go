@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,8 +26,11 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 		for index := range 80 {
 			fmt.Printf("history %03d\r\n", index)
 		}
-		text, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		reader := bufio.NewReader(os.Stdin)
+		text, _ := reader.ReadString('\n')
 		fmt.Printf("received %s\r\n", strings.TrimSpace(text))
+		_, _ = reader.ReadString('\n')
+		fmt.Print("final output\r\n")
 		os.Exit(0)
 	}
 	for _, encoded := range []bool{false, true} {
@@ -34,7 +38,12 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			node, caller := protocol.NodeID{1}, protocol.NodeID{2}
-			service := New(ctx, node, nil)
+			ended := make(chan protocol.TerminalInfo, 1)
+			service := New(ctx, node, func(info protocol.TerminalInfo) {
+				if info.Status.Kind != "running" {
+					ended <- info
+				}
+			})
 			defer service.Close()
 			executable, err := os.Executable()
 			if err != nil {
@@ -90,11 +99,33 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 			if _, err := service.Input(protocol.NodeID{3}, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte("blocked")}); err == nil {
 				t.Fatal("another controller wrote terminal input")
 			}
-			if _, err := service.CloseTerminal(info.Worktree, info.ID); err != nil {
+			if _, err := service.Input(caller, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte("exit\r")}); err != nil {
 				t.Fatal(err)
 			}
+			wait("final output")
+			select {
+			case final := <-ended:
+				if final.Status.Kind != "exited" || final.Owner != nil || final.Revision != info.Revision+1 {
+					t.Fatalf("exit event = %#v", final)
+				}
+			case <-ctx.Done():
+				t.Fatal("terminal exit did not release its inventory")
+			}
 			if len(service.List(*info.Worktree)) != 0 {
-				t.Fatal("closed terminal remained in inventory")
+				t.Fatal("exited terminal remained in inventory")
+			}
+			if _, err := service.Subscribe(info.ID); err == nil {
+				t.Fatal("exited terminal accepted a new subscription")
+			}
+			closed := make(chan error, 1)
+			go func() { closed <- service.Close() }()
+			select {
+			case err := <-closed:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-ctx.Done():
+				t.Fatal("terminal exit deadlocked service shutdown")
 			}
 		})
 	}
@@ -166,4 +197,59 @@ func (connection *fixtureConnection) Close() error {
 	var err error
 	connection.close.Do(func() { err = connection.stream.Close() })
 	return err
+}
+
+// Closing during MyGo's process startup also releases its mirror without
+// re-entering the callback's finish-once section.
+func TestTerminalCloseBeforeLaunch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	service := New(ctx, protocol.NodeID{1}, nil)
+	defer service.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := service.Start(ctx, Launch{
+		Caller: protocol.NodeID{2}, Worktree: protocol.NewWorktreeID(), Root: t.TempDir(),
+		Command:     []string{executable, "-test.run=^TestTerminalMirrorIntegration$"},
+		Environment: []string{"SAILRY_TERMINAL_FIXTURE=1"}, Access: protocol.ProcessAccessUnrestricted,
+		Viewport: protocol.TerminalViewport{Columns: 80, Rows: 24},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attached, err := service.Subscribe(info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer attached.Close()
+	stream := attached.(*subscription)
+	value := stream.handle
+	closed := make(chan error, 1)
+	go func() {
+		_, err := service.CloseTerminal(info.Worktree, info.ID)
+		closed <- err
+	}()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("closing before process launch deadlocked")
+	}
+	value.mu.Lock()
+	retained := value.terminal != nil || stream.mirror != nil || len(value.streams) != 0
+	value.mu.Unlock()
+	if retained {
+		t.Fatal("closed terminal retained its native terminal or mirrors")
+	}
+	update, err := stream.Next(ctx)
+	if err != nil || update.Kind != "terminal_snapshot" || update.Data.(protocol.TerminalSnapshot).Info.Status.Kind != "closed" {
+		t.Fatalf("final snapshot = %#v %v", update, err)
+	}
+	if _, err := stream.Next(ctx); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal stream after final frame = %v", err)
+	}
 }

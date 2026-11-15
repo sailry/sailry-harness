@@ -3,6 +3,17 @@ import 'package:sailry_mobile/features/conversations/live/terminal_tasks.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 
 void main() {
+  test('inventory contains live terminals without stopped history', () {
+    for (final kind in ['running', 'stopped', 'exited', 'failed', 'closed']) {
+      expect(
+        activeTerminal({
+          'status': {'kind': kind},
+        }),
+        kind == 'running',
+      );
+    }
+  });
+
   test('routes captured terminals to their owning close command', () async {
     final requests = <Map<String, dynamic>>[];
     final host = HostConnection.test(

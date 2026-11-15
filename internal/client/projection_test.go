@@ -37,6 +37,29 @@ func TestProjectionOrder(t *testing.T) {
 	t.Run("conversation", testConversationProjectionOrder)
 	t.Run("activity lanes", testActivityLanes)
 	t.Run("plugin_change_cursors", testPluginChangeCursors)
+	t.Run("finished_terminals_leave_inventory", func(t *testing.T) {
+		snapshot := projectionSnapshot(0)
+		for index, kind := range []string{"running", "stopped", "exited", "failed", "closed"} {
+			terminal := protocol.DefaultTerminalInfo()
+			terminal.ID = protocol.TerminalID{byte(index + 1)}
+			terminal.Status.Kind = kind
+			snapshot.Terminals = append(snapshot.Terminals, terminal)
+		}
+		projection := NewProjection(snapshot.Node, 1)
+		mustApply(t, projection, 1, protocol.Update{Kind: "snapshot", Data: snapshot}, Applied)
+		if terminals := projection.Snapshot().Terminals; len(terminals) != 1 || terminals[0].Status.Kind != "running" {
+			t.Fatalf("terminal inventory includes history: %#v", terminals)
+		}
+		for index, kind := range []string{"stopped", "exited", "failed", "closed"} {
+			terminal := snapshot.Terminals[0]
+			mustApply(t, projection, 1, projectionEvent(uint64(2*index+1), "terminal_changed", terminal), Applied)
+			terminal.Status.Kind = kind
+			mustApply(t, projection, 1, projectionEvent(uint64(2*index+2), "terminal_changed", terminal), Applied)
+			if terminals := projection.Snapshot().Terminals; len(terminals) != 0 {
+				t.Fatalf("%s terminal remained: %#v", kind, terminals)
+			}
+		}
+	})
 	t.Run("sessions_keep_authority_order", func(t *testing.T) {
 		first, second, created := projectionSession(1, 1), projectionSession(2, 2), projectionSession(3, 3)
 		snapshot := projectionSnapshot(0)

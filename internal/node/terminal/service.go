@@ -60,7 +60,13 @@ type starting struct {
 type handle struct {
 	service  *Service
 	mu       sync.Mutex
+	changes  sync.Mutex
 	terminal *myterminal.Terminal
+	starting bool
+	streams  map[*subscription]struct{}
+	finished chan struct{}
+	// publishedFinal is guarded by changes, like publication itself.
+	publishedFinal bool
 	// release removes a workspace terminal's sandbox state.
 	release  func()
 	info     protocol.TerminalInfo
@@ -85,9 +91,8 @@ func (value *handle) track(output []byte) {
 		report.Sequence = value.info.Activity.Sequence + 1
 	}
 	value.info.Activity = &report
-	info := value.info
 	value.mu.Unlock()
-	value.service.publish(info)
+	value.publish()
 }
 
 func New(ctx context.Context, node protocol.NodeID, changed func(protocol.TerminalInfo)) *Service {
@@ -193,7 +198,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		}
 		command, environment, release = confined, append(environment, variables...), sync.OnceFunc(free)
 	}
-	value := &handle{service: service, viewport: launch.Viewport, release: release, info: protocol.TerminalInfo{
+	value := &handle{service: service, viewport: launch.Viewport, release: release, starting: true, streams: map[*subscription]struct{}{}, finished: make(chan struct{}), info: protocol.TerminalInfo{
 		ID: launch.ID, Worktree: &launch.Worktree, Tool: launch.Tool, Access: &access,
 		Status: protocol.TerminalStatus{Kind: "running"}, Title: &title, Directory: &launch.Root,
 		Owner: &launch.Caller, Revision: launch.Revision,
@@ -219,31 +224,8 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 			return
 		}
 		value.info.Title = &title
-		info := value.info
 		value.mu.Unlock()
-		service.publish(info)
-	}
-	options.OnExit = func(code int) {
-		release()
-		value.mu.Lock()
-		if value.info.Status.Kind != "running" {
-			value.mu.Unlock()
-			return
-		}
-		switch {
-		case launch.Connection != nil:
-			// A connection always reports code zero; the session has the status.
-			value.info.Status = launch.Connection.status()
-		case code < 0:
-			value.info.Status = protocol.TerminalStatus{Kind: "failed", Data: protocol.TerminalStatusFailedPayload{Message: "terminal process could not start"}}
-		default:
-			value.info.Status = protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: uint32(code)}}
-		}
-		value.info.Owner = nil
-		value.info.Revision++
-		info := value.info
-		value.mu.Unlock()
-		service.publish(info)
+		value.publish()
 	}
 	terminal, err := myterminal.New(options)
 	if err != nil {
@@ -271,14 +253,77 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	}
 	service.handles[launch.ID] = value
 	value.mu.Lock()
+	value.starting = false
 	info := value.info
 	value.mu.Unlock()
+	service.work.Add(1)
 	pending.info = info
 	delete(service.starts, launch.ID)
 	close(pending.done)
 	service.mu.Unlock()
-	service.publish(info)
+	// Done is observed outside OnExit: MyGo invokes that callback inside its
+	// finish-once section, which a pre-launch Close would enter again.
+	go func() {
+		defer service.work.Done()
+		<-terminal.Done()
+		status := protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: uint32(terminal.ExitCode())}}
+		switch {
+		case launch.Connection != nil:
+			status = launch.Connection.status()
+		case terminal.ExitCode() < 0:
+			status = protocol.TerminalStatus{Kind: "failed", Data: protocol.TerminalStatusFailedPayload{Message: "terminal process could not start"}}
+		}
+		value.finish(status)
+	}()
+	value.publish()
 	return info, nil
+}
+
+// publish captures state in publication order so a delayed title or claim
+// callback cannot restore a running terminal after its final event.
+func (value *handle) publish() {
+	value.changes.Lock()
+	defer value.changes.Unlock()
+	value.mu.Lock()
+	info, starting := value.info, value.starting
+	value.mu.Unlock()
+	if starting || value.publishedFinal {
+		return
+	}
+	value.publishedFinal = info.Status.Kind != "running"
+	value.service.publish(info)
+}
+
+func (value *handle) finish(status protocol.TerminalStatus) protocol.TerminalInfo {
+	value.mu.Lock()
+	if value.info.Status.Kind != "running" {
+		info := value.info
+		value.mu.Unlock()
+		<-value.finished
+		return info
+	}
+	value.info.Status, value.info.Owner = status, nil
+	value.info.Revision++
+	info := value.info
+	for stream := range value.streams {
+		stream.finishLocked()
+	}
+	value.streams = nil
+	terminal := value.terminal
+	value.terminal = nil
+	value.mu.Unlock()
+	value.service.mu.Lock()
+	if value.service.handles[info.ID] == value {
+		delete(value.service.handles, info.ID)
+	}
+	value.service.mu.Unlock()
+	// Each attached stream already captured its last frame and released its
+	// mirror. Neither a detached view nor an unread stream retains the PTY.
+	_ = terminal.Close()
+	value.release()
+	value.publish()
+	close(value.finished)
+	return info
 }
 
 func (service *Service) publish(info protocol.TerminalInfo) {
@@ -307,6 +352,9 @@ func (service *Service) Info(id protocol.TerminalID) (protocol.TerminalInfo, err
 	}
 	value.mu.Lock()
 	defer value.mu.Unlock()
+	if value.info.Status.Kind != "running" {
+		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeNotFound, "terminal is not running on this Node")
+	}
 	return value.info, nil
 }
 
@@ -316,7 +364,7 @@ func (service *Service) List(worktree protocol.WorktreeID) []protocol.TerminalIn
 	values := []protocol.TerminalInfo{}
 	for _, value := range service.handles {
 		value.mu.Lock()
-		if value.info.Worktree != nil && (*value.info.Worktree == worktree || worktree == (protocol.WorktreeID{})) {
+		if value.info.Status.Kind == "running" && value.info.Worktree != nil && (*value.info.Worktree == worktree || worktree == (protocol.WorktreeID{})) {
 			values = append(values, value.info)
 		}
 		value.mu.Unlock()
@@ -348,12 +396,7 @@ func (service *Service) Close() error {
 	service.handles = map[protocol.TerminalID]*handle{}
 	service.mu.Unlock()
 	for _, value := range handles {
-		value.mu.Lock()
-		value.info.Status = protocol.TerminalStatus{Kind: "stopped"}
-		value.info.Owner = nil
-		value.mu.Unlock()
-		_ = value.terminal.Close()
-		value.release()
+		value.finish(protocol.TerminalStatus{Kind: "stopped"})
 	}
 	service.work.Wait()
 	close(service.done)

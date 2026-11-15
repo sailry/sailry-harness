@@ -196,8 +196,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         terminal,
       ) {
         if (widget.sessionsOnly && _filter != 'terminal') return false;
-        // Like Desktop, closed terminals leave the list.
-        if (object(terminal['status'])['kind'] == 'closed') return false;
+        if (!activeTerminal(terminal)) return false;
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;
@@ -225,7 +224,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         }
       }
       for (final terminal in objects(selected?.snapshot['terminals'])) {
-        if (object(terminal['status'])['kind'] == 'closed') continue;
+        if (!activeTerminal(terminal)) continue;
         final tree = objects(
           selected?.snapshot['worktrees'],
         ).where((tree) => tree['id'] == terminal['worktree']).firstOrNull;

@@ -65,6 +65,7 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			return Ignored, nil
 		}
 		snapshot = copyValue(snapshot)
+		snapshot.Terminals = slices.DeleteFunc(snapshot.Terminals, terminalFinished)
 		retainQuotas(&snapshot)
 		if err := projection.changes.reset(snapshot); err != nil {
 			return Ignored, err
@@ -115,6 +116,15 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			return Ignored, nil
 		}
 		return Ignored, fault(protocol.ErrorCodeInvalidRequest, "resource update on Node subscription")
+	}
+}
+
+func terminalFinished(terminal protocol.TerminalInfo) bool {
+	switch terminal.Status.Kind {
+	case "closed", "stopped", "exited", "failed":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -311,6 +321,12 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		terminal, err := payload[protocol.TerminalInfo](event.Data)
 		if err != nil {
 			return false, err
+		}
+		if terminalFinished(terminal) {
+			snapshot.Terminals = slices.DeleteFunc(snapshot.Terminals, func(current protocol.TerminalInfo) bool {
+				return current.ID == terminal.ID
+			})
+			break
 		}
 		found := false
 		for index := range snapshot.Terminals {

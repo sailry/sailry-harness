@@ -182,8 +182,16 @@ func TestTerminalControllerIntegration(test *testing.T) {
 				test.Fatal(err)
 			}
 			snapshot, err := owner.Snapshot(ctx)
-			if err != nil || len(snapshot.Terminals) != 1 || snapshot.Terminals[0].Status.Kind != "closed" {
+			if err != nil || len(snapshot.Terminals) != 0 {
 				test.Fatalf("terminal close inventory: %v %v", snapshot.Terminals, err)
+			}
+			replay, err = controller.Execute(ctx, request)
+			replayed, valid = dispatchPayload[protocol.TerminalInfo](replay.Data)
+			if err != nil || !valid || replayed.ID != info.ID || len(owner.terminals.List(session.Worktree)) != 0 {
+				test.Fatalf("ended terminal receipt replay: %#v %v", replay, err)
+			}
+			if _, err := controller.Do(ctx, protocol.Command{Kind: "open_terminal", Data: protocol.CommandOpenTerminalPayload{Terminal: info.ID, Viewport: launch.Viewport, Appearance: launch.Appearance}}); err == nil {
+				test.Fatal("an ended terminal was reopened")
 			}
 		})
 	}

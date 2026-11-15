@@ -68,7 +68,7 @@ func testPluginActivityReads(t *testing.T) {
 		for _, index := range []byte{2, 1} {
 			terminal := protocol.DefaultTerminalInfo()
 			terminal.ID, terminal.Worktree, terminal.Revision = protocol.TerminalID{index}, &session.Worktree, 1
-			terminal.Status.Kind = "stopped"
+			terminal.Status.Kind = "running"
 			if _, err := SaveTerminal(ctx, db, terminal, false); err != nil {
 				return err
 			}

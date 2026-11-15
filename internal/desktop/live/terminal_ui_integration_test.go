@@ -278,8 +278,8 @@ func (w *terminalUI) close() {
 }
 
 // TestLiveTerminalIntegration is the terminal acceptance against a real
-// Node and real PTYs: creation by the shortcut, input and output, the folder
-// label, split panes, pane and terminal closing, reattachment by a new
+// Node and real PTYs: creation by the shortcut, input and output, the starting
+// folder, split panes, pane and terminal closing, reattachment by a new
 // window and the Node's terminal settings. terminalFindAndSettings goes on
 // with the find bar, the rest of Settings › Terminal and the terminal
 // preferences of the window.
@@ -393,7 +393,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.run("first terminal", first, "echo sailry-b10-$((40+2))-scrollback", marker)
 	t.Log("step 2 passed: the shell's output is on the window's screen and in the Node mirror")
 
-	// (3) The toolbar names the folder the terminal started in.
+	// (3) The terminal starts in its session's worktree; the tab has no folder bar.
 	directory := window.info(first).Directory
 	if directory == nil {
 		t.Fatalf("the Node reports no starting folder: %+v", window.info(first))
@@ -401,8 +401,10 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(*directory); err != nil || resolved != folder {
 		t.Fatalf("the terminal started in %q (%v), want the project folder %q", *directory, err, folder)
 	}
-	window.wait("toolbar folder label", func() bool { return slices.Contains(window.tester.Texts(), *directory) })
-	t.Log("step 3 passed: the toolbar shows " + *directory)
+	if path, known := window.runtime.terminalFolder(first); !known || path != *directory {
+		t.Fatalf("the attached terminal's folder = %q, known %v; Node folder %q", path, known, *directory)
+	}
+	t.Log("step 3 passed: the terminal starts in " + *directory)
 
 	// (4) The tab dragged onto the conversation shows its terminal in a
 	// pane; ⌘D in that pane starts a second Node terminal beside it.
@@ -495,15 +497,34 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	})
 	t.Log("step 5 passed: the pane closed, Node terminal " + first + " kept running and its tab stayed")
 
-	// (6) Close terminal ends the Node terminal and removes its tab and pane.
+	// (6) Closing a terminal tab asks first, then removes its shell, tab and pane.
 	app.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: second})
 	window.wait("the second terminal's tab", func() bool {
-		return app.Panel.Active.ID == second && len(window.buttons("Close terminal")) == 1
+		return app.Panel.Active.ID == second && len(window.buttons("Terminal")) == 2
 	})
-	window.click("Close terminal")
-	window.wait("Close terminal ends the Node terminal", func() bool {
-		status := window.status(second)
-		return (status == "" || status == "closed") && !slices.Contains(window.terminalTabs(), second) && !window.paned(second)
+	var secondTab ui.AccessInfo
+	window.wait("the second terminal's tab at rest", func() bool {
+		found := window.buttons("Terminal")
+		if len(found) != 2 {
+			return false
+		}
+		previous := secondTab.Bounds.X
+		secondTab = found[1]
+		return secondTab.Bounds.X == previous && secondTab.Bounds.X+secondTab.Bounds.W <= 1440
+	})
+	closeX, closeY := secondTab.Bounds.X+secondTab.Bounds.W-14, secondTab.Bounds.Y+secondTab.Bounds.H/2
+	window.tester.Move(closeX, closeY)
+	window.frame()
+	window.tester.ClickAt(closeX, closeY)
+	window.wait("terminal close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
+	if window.status(second) != "running" || !slices.Contains(window.terminalTabs(), second) || !window.paned(second) {
+		t.Fatal("the terminal closed before confirmation")
+	}
+	confirmClose := window.buttons("Close")
+	cx, cy := center(confirmClose[len(confirmClose)-1].Bounds)
+	window.tester.ClickAt(cx, cy)
+	window.wait("the confirmed close ends the Node terminal", func() bool {
+		return window.status(second) == "" && !slices.Contains(window.terminalTabs(), second) && !window.paned(second)
 	})
 	if window.runtime.packages.terminals[second] != nil {
 		t.Fatal("the closed terminal is still attached to the window")
@@ -511,7 +532,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if window.status(first) != "running" || !slices.Equal(window.terminalTabs(), []string{first}) {
 		t.Fatalf("closing one terminal disturbed the other: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
 	}
-	t.Log("step 6 passed: Close terminal ended Node terminal " + second + " and removed its tab and pane")
+	t.Log("step 6 passed: the confirmed tab close ended Node terminal " + second + " and removed its tab and pane")
 
 	// (7) A new window on the same Node with the saved tabs shows the
 	// terminal that kept running, with its scrollback.
@@ -536,8 +557,8 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.wait("the saved tab reattaches with its scrollback", func() bool {
 		return slices.Equal(window.terminalTabs(), []string{first}) && strings.Contains(window.screen(first), marker)
 	})
-	// The Node keeps the closed terminal listed; reattaching starts none.
-	if window.status(first) != "running" || window.status(second) != "closed" || len(window.controller.Snapshot().Terminals) != 2 {
+	// Reattaching starts none, and the ended terminal stays out of the inventory.
+	if window.status(first) != "running" || window.status(second) != "" || len(window.controller.Snapshot().Terminals) != 1 {
 		t.Fatalf("reattaching changed the Node's terminals: %s", window.nodeTerminals())
 	}
 	if !app.PanelOpen || app.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: first}) {
@@ -598,20 +619,34 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	app.Navigate(shell.ConversationPage)
 	window.runtime.OpenSession(session.ID.String())
-	// The panel slides back in beside the conversation: the toolbar is
-	// ready once its button has come to rest inside the window.
-	var rest float32
-	window.wait("terminal toolbar", func() bool {
-		found := window.buttons("Create terminal")
-		if len(found) != 1 {
-			return false
+	// The strip's + menu creates a terminal in the selected conversation.
+	var add ui.AccessInfo
+	window.wait("the panel add button at rest", func() bool {
+		for _, entry := range window.tester.AccessAll() {
+			if entry.Role != ui.RoleMenuButton || entry.Name != "Details" || entry.Bounds.X < 1440-app.PanelWidth || entry.Bounds.Y+entry.Bounds.H > shell.HeaderHeight {
+				continue
+			}
+			previous := add.Bounds.X
+			add = entry
+			return add.Bounds.X == previous && add.Bounds.X+add.Bounds.W <= 1440
 		}
-		previous := rest
-		rest = found[0].Bounds.X
-		return rest == previous && rest+found[0].Bounds.W <= 1440
+		return false
 	})
-	window.click("Create terminal")
-	window.wait("New terminal creates a Node terminal", func() bool {
+	addX, addY := center(add.Bounds)
+	window.tester.ClickAt(addX, addY)
+	var createTerminal ui.AccessInfo
+	window.wait("the panel menu offers Terminal", func() bool {
+		for _, entry := range window.tester.AccessAll() {
+			if (entry.Role == ui.RoleMenuItem || entry.Role == ui.RoleMenuItemCheckBox || entry.Role == ui.RoleMenuItemRadio) && entry.Name == "Terminal" {
+				createTerminal = entry
+				return true
+			}
+		}
+		return false
+	})
+	createX, createY := center(createTerminal.Bounds)
+	window.tester.ClickAt(createX, createY)
+	window.wait("the panel menu creates a Node terminal", func() bool {
 		tabs := window.terminalTabs()
 		return len(tabs) == 2 && window.status(tabs[1]) == "running"
 	})
@@ -620,7 +655,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	t.Log("step 8 passed: the page read the Node's settings and shells, saved " + name + " and Node terminal " + third + " saw it")
 
 	// (9) A shell that exits closes its terminal: typing exit in a pane
-	// removes the pane and the tab, and the Node reports the terminal closed.
+	// removes the pane and the tab, and the terminal leaves the inventory.
 	tabs = window.buttons("Terminal")
 	if len(tabs) != 2 {
 		t.Fatalf("want the two terminal tabs to drag the second; found %d, visible text: %q", len(tabs), window.tester.Texts())
@@ -636,7 +671,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.tester.Type("exit")
 	window.tester.Key(0, ui.KeyEnter)
 	window.wait("exit closes the terminal, its tab and its pane", func() bool {
-		return window.status(third) == "closed" && !slices.Contains(window.terminalTabs(), third) && !window.paned(third)
+		return window.status(third) == "" && !slices.Contains(window.terminalTabs(), third) && !window.paned(third)
 	})
 	if window.runtime.packages.terminals[third] != nil {
 		t.Fatal("the exited terminal is still attached to the window")
@@ -713,7 +748,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		strip = found[1]
 		return strip.Bounds.X == previous && strip.Bounds.X+strip.Bounds.W <= 1440
 	})
-	closeX, closeY := strip.Bounds.X+strip.Bounds.W-14, strip.Bounds.Y+strip.Bounds.H/2
+	closeX, closeY = strip.Bounds.X+strip.Bounds.W-14, strip.Bounds.Y+strip.Bounds.H/2
 	window.tester.Move(closeX, closeY)
 	window.frame()
 	window.tester.ClickAt(closeX, closeY)
@@ -722,10 +757,10 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		t.Fatalf("the tab closed before it was confirmed: %s", window.nodeTerminals())
 	}
 	confirm := window.buttons("Close")
-	cx, cy := center(confirm[len(confirm)-1].Bounds)
+	cx, cy = center(confirm[len(confirm)-1].Bounds)
 	window.tester.ClickAt(cx, cy)
 	window.wait("closing the tab ends its Node terminal", func() bool {
-		return window.status(fourth) == "closed" && slices.Equal(window.terminalTabs(), []string{first}) && window.runtime.packages.terminals[fourth] == nil
+		return window.status(fourth) == "" && slices.Equal(window.terminalTabs(), []string{first}) && window.runtime.packages.terminals[fourth] == nil
 	})
 	if window.status(first) != "running" || window.status(fifth) != "running" {
 		t.Fatalf("closing one tab disturbed another terminal: %s", window.nodeTerminals())
@@ -742,7 +777,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: other.ID, ExpectedRevision: current.Revision, Archived: true}})
 	window.wait("archiving a conversation ends its terminals", func() bool {
-		return window.status(fifth) == "closed" && len(app.ConversationTabs(other.ID.String())) == 0 && !app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: fifth})
+		return window.status(fifth) == "" && len(app.ConversationTabs(other.ID.String())) == 0 && !app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: fifth})
 	})
 	if window.status(first) != "running" || !slices.Equal(window.terminalTabs(), []string{first}) {
 		t.Fatalf("the archive disturbed the shown conversation: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())

@@ -39,7 +39,7 @@ class TerminalSession {
                         info['access'] == 'unrestricted' &&
                         info['tool'] == null &&
                         info['ssh'] == null &&
-                        object(info['status'])['kind'] != 'closed',
+                        object(info['status'])['kind'] == 'running',
                   )
                   .firstOrNull?['id']
               as String?;

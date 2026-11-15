@@ -74,6 +74,9 @@ void main() {
       {...info(id: 'tool'), 'tool': 'codex'},
       {...info(id: 'ssh'), 'ssh': 'connection-1'},
       info(id: 'closed', status: 'closed'),
+      info(id: 'stopped', status: 'stopped'),
+      info(id: 'exited', status: 'exited'),
+      info(id: 'failed', status: 'failed'),
       {...info(id: 'elsewhere'), 'worktree': 'worktree-2'},
     ]);
     expect(fixture.sent.single.$1, 'create_terminal');
@@ -104,10 +107,11 @@ void main() {
     expect(opened['owner'], other);
   });
 
-  test('restarting uses the newly admitted revision', () async {
+  test('stopped terminals require a new launch identity', () async {
     final fixture = Fixture()..result = info(revision: 5);
     final page = fixture.page();
     final opened = await page.open(launch, [info(status: 'stopped')]);
+    expect(fixture.sent.single.$1, 'create_terminal');
     expect(page.lease(opened), 5);
     expect(page.lease(info(status: 'exited')), isNull);
   });

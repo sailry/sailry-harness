@@ -298,6 +298,13 @@ Opted-in completions can continue an idle session through its normal queue.
 | Hooks | Captured worktree scripts; launched groups are not replayed after cancellation or a crash |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
 
+Terminal inventory contains live processes only. Exiting or explicitly stopping
+a terminal releases its PTY, mirrors and subscriptions and removes its inventory
+row. Final events and durable command outcomes remain available for observation
+and request recovery; they never restart the process. Node startup retires rows
+left by its previous process. Closing a view only detaches it, so a running
+terminal remains available to other controllers.
+
 Agent file operations exclude managed-checkout descendants and protected Git
 metadata. Authenticated manual workflows can access registered managed worktrees
 through the scoped resource services. User-created terminals use their login-shell

@@ -96,33 +96,3 @@ func ListSshTerminals(ctx context.Context, db *sql.Conn, profile protocol.SshID,
 		return info.Ssh == nil || *info.Ssh != profile || info.Owner == nil || *info.Owner != caller || info.Status.Kind == "closed"
 	}), nil
 }
-
-// ClosedTerminal resolves a close command for a terminal this Node process no
-// longer runs: a stored terminal that matches the command and is not running
-// becomes closed. It returns nil when the command's own fault stands.
-func ClosedTerminal(ctx context.Context, db *sql.Conn, command protocol.Command) (*protocol.TerminalInfo, error) {
-	var id protocol.TerminalID
-	var worktree *protocol.WorktreeID
-	switch input := command.Data.(type) {
-	case *protocol.CommandCloseTerminalPayload:
-		id, worktree = input.Terminal, &input.Worktree
-	case *protocol.CommandCloseSshTerminalPayload:
-		id = input.Terminal
-	default:
-		return nil, nil
-	}
-	info, err := readBody[protocol.TerminalInfo](ctx, db, "SELECT body FROM terminals WHERE id=?1", id.String())
-	if err != nil || info == nil {
-		return nil, err
-	}
-	matches := info.Ssh != nil
-	if worktree != nil {
-		matches = info.Worktree != nil && *info.Worktree == *worktree
-	}
-	if !matches || info.Status.Kind == "running" {
-		return nil, nil
-	}
-	info.Status, info.Owner = protocol.TerminalStatus{Kind: "closed"}, nil
-	info.Revision++
-	return info, nil
-}

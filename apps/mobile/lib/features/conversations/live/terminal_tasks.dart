@@ -8,6 +8,9 @@ import '../task_row.dart';
 import '../../../ui/theme.dart';
 import '../../terminal/terminal_page.dart';
 
+bool activeTerminal(Map<String, dynamic> terminal) =>
+    object(terminal['status'])['kind'] == 'running';
+
 String terminalTitle(
   Map<String, dynamic> terminal, {
   Translator translate = tr,

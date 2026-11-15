@@ -48,7 +48,7 @@ func (service *Service) Claim(caller protocol.NodeID, id protocol.TerminalID, ex
 	}
 	info := value.info
 	value.mu.Unlock()
-	service.publish(info)
+	value.publish()
 	return info, nil
 }
 
@@ -156,19 +156,8 @@ func (service *Service) CloseTerminal(worktree *protocol.WorktreeID, id protocol
 		value.mu.Unlock()
 		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeWrongTarget, "terminal belongs to another worktree")
 	}
-	value.info.Status = protocol.TerminalStatus{Kind: "closed"}
-	value.info.Owner = nil
-	value.info.Revision++
-	info := value.info
 	value.mu.Unlock()
-	// The terminal is closed either way; a teardown error changes nothing.
-	_ = value.terminal.Close()
-	value.release()
-	service.mu.Lock()
-	delete(service.handles, id)
-	service.mu.Unlock()
-	service.publish(info)
-	return info, nil
+	return value.finish(protocol.TerminalStatus{Kind: "closed"}), nil
 }
 
 func payload[Value any](data any) (Value, bool) {

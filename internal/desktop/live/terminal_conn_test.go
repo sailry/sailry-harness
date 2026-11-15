@@ -229,11 +229,11 @@ func TestTerminalControl(t *testing.T) {
 			}
 		})
 	})
-	t.Run("Retry attaches a failed terminal again", func(t *testing.T) {
+	t.Run("Retry attaches a running terminal after its attachment failed", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			stopped := terminalTabsTestInfo(1, protocol.WorktreeID{1}, "stopped")
-			root, source := terminalTabsFixture(t, stopped)
-			id := stopped.ID.String()
+			running := terminalTabsTestInfo(1, protocol.WorktreeID{1}, "running")
+			root, source := terminalTabsFixture(t, running)
+			id := running.ID.String()
 			state := &liveTerminal{owner: root, failed: true}
 			root.packages.terminals[id] = state
 			root.retryLiveTerminal(id, state)
@@ -241,13 +241,13 @@ func TestTerminalControl(t *testing.T) {
 				t.Fatal("Retry did not start an attach")
 			}
 			synctest.Wait()
-			if len(source.sent("open_terminal")) != 1 {
-				t.Fatalf("open_terminal commands = %d, want 1", len(source.sent("open_terminal")))
+			if len(source.sent("open_terminal")) != 0 {
+				t.Fatal("Retry tried to reopen a running terminal")
 			}
 			root.retryLiveTerminal(id, state)
 			synctest.Wait()
-			if len(source.sent("open_terminal")) != 1 {
-				t.Fatal("Retry attached a terminal that was already attaching or attached")
+			if len(source.sent("open_terminal")) != 0 {
+				t.Fatal("Retry tried to recreate a terminal that was already attaching")
 			}
 		})
 	})

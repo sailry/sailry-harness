@@ -114,9 +114,7 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		}
 		return protocol.Output{Kind: "ssh_outcome", Data: outcome}, err
 	case *protocol.CommandCloseSshTerminalPayload:
-		if info, err = service.CloseTerminal(nil, input.Terminal); err != nil {
-			info, err = node.closedTerminal(ctx, request.Command, err)
-		}
+		info, err = service.CloseTerminal(nil, input.Terminal)
 	case *protocol.CommandListTerminalsPayload:
 		var values []protocol.TerminalInfo
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -136,10 +134,6 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		}
 	case *protocol.CommandOpenTerminalPayload:
 		info, err = service.Info(input.Terminal)
-		var missing *protocol.Fault
-		if errors.As(err, &missing) && missing.Code == protocol.ErrorCodeNotFound {
-			info, err = node.openStoredTerminal(ctx, caller, *input)
-		}
 	case *protocol.CommandInspectTerminalPayload:
 		snapshot, err := service.Snapshot(input.Terminal)
 		return protocol.Output{Kind: "terminal_snapshot", Data: snapshot}, err
@@ -153,9 +147,7 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 	case *protocol.CommandSetTerminalAppearancePayload:
 		info, err = service.Appearance(caller, *input)
 	case *protocol.CommandCloseTerminalPayload:
-		if info, err = service.CloseTerminal(&input.Worktree, input.Terminal); err != nil {
-			info, err = node.closedTerminal(ctx, request.Command, err)
-		}
+		info, err = service.CloseTerminal(&input.Worktree, input.Terminal)
 	default:
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "terminal command is invalid"}
 	}
@@ -171,33 +163,6 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		return output, changes, err
 	}
 	return protocol.Output{Kind: "terminal", Data: info}, nil
-}
-
-func (node *Node) openStoredTerminal(ctx context.Context, caller protocol.NodeID, input protocol.CommandOpenTerminalPayload) (protocol.TerminalInfo, error) {
-	var previous protocol.TerminalInfo
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		previous, err = store.ReadTerminal(ctx, db, input.Terminal)
-		return err
-	}); err != nil {
-		return protocol.TerminalInfo{}, err
-	}
-	if previous.Status.Kind == "closed" {
-		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "terminal has been closed"}
-	}
-	if previous.Ssh != nil || previous.Tool != nil {
-		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "terminal requires an explicit new launch"}
-	}
-	if previous.Worktree == nil {
-		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "terminal has no worktree"}
-	}
-	if previous.Access == nil {
-		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "local terminal has no access policy"}
-	}
-	return node.startTerminal(ctx, terminal.Launch{
-		ID: previous.ID, Caller: caller, Worktree: *previous.Worktree, Access: *previous.Access,
-		Viewport: input.Viewport, Appearance: input.Appearance, Revision: previous.Revision + 1,
-	})
 }
 
 func (node *Node) terminalSettings(ctx context.Context) (protocol.TerminalSettings, error) {
@@ -222,27 +187,6 @@ func (node *Node) startTerminal(ctx context.Context, launch terminal.Launch) (pr
 	}
 	launch.Root, launch.Environment, launch.Sandbox = root, node.environment.TerminalValues(), node.processes.SandboxTerminal
 	return node.terminals.Start(ctx, launch)
-}
-
-// closedTerminal answers a close command whose terminal no longer runs in
-// this process: the stored record becomes closed so controllers drop it.
-func (node *Node) closedTerminal(ctx context.Context, command protocol.Command, failure error) (protocol.TerminalInfo, error) {
-	var missing *protocol.Fault
-	if !errors.As(failure, &missing) || missing.Code != protocol.ErrorCodeNotFound {
-		return protocol.TerminalInfo{}, failure
-	}
-	var closed *protocol.TerminalInfo
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		closed, err = store.ClosedTerminal(ctx, db, command)
-		return err
-	}); err != nil {
-		return protocol.TerminalInfo{}, err
-	}
-	if closed == nil {
-		return protocol.TerminalInfo{}, failure
-	}
-	return *closed, nil
 }
 
 // sshTerminalTimeout bounds connecting and requesting the remote shell.

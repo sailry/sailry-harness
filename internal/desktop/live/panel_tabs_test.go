@@ -773,7 +773,7 @@ func panelConversations(t *testing.T, f panelFixture) {
 	// with it. The other conversations' terminals are not touched.
 	wait("a removed draft ends its terminal", func() bool {
 		r.OpenSession(first)
-		return app.Sidebar.Selected == first && app.Data.Find(folderDraft) == nil && status(four.ID) == "closed" && !app.HasPanelTab(four)
+		return app.Sidebar.Selected == first && app.Data.Find(folderDraft) == nil && status(four.ID) == "" && !app.HasPanelTab(four)
 	})
 	if running() != 3 || !slices.Equal(app.Panel.Tabs, firstTabs) || !slices.Equal(terminals(app.ConversationTabs(second)), []string{three.ID}) {
 		t.Fatalf("removing a draft disturbed the others: running %d, tabs %v, second %v", running(), app.Panel.Tabs, app.ConversationTabs(second))
@@ -917,7 +917,7 @@ func panelConversations(t *testing.T, f panelFixture) {
 	closeButton(1)
 	confirm("close")
 	wait("the confirmed close ends the Node terminal", func() bool {
-		return status(two.ID) == "closed" && slices.Equal(app.Panel.Tabs, []panel.Tab{one}) && r.packages.terminals[two.ID] == nil
+		return status(two.ID) == "" && slices.Equal(app.Panel.Tabs, []panel.Tab{one}) && r.packages.terminals[two.ID] == nil
 	})
 	if status(one.ID) != "running" || status(three.ID) != "running" {
 		t.Fatalf("closing one terminal ended another: %s %s", status(one.ID), status(three.ID))
@@ -930,7 +930,7 @@ func panelConversations(t *testing.T, f panelFixture) {
 	settle()
 	tester.Key(ui.Cmd, ui.KeyW)
 	confirm("close")
-	wait("⌘W ends the last terminal", func() bool { return status(one.ID) == "closed" && len(app.Panel.Tabs) == 0 })
+	wait("⌘W ends the last terminal", func() bool { return status(one.ID) == "" && len(app.Panel.Tabs) == 0 })
 
 	// An archived session takes its terminal and its tabs with it.
 	var current protocol.Session
@@ -941,7 +941,7 @@ func panelConversations(t *testing.T, f panelFixture) {
 	}
 	f.do(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: current.ID, ExpectedRevision: current.Revision, Archived: true}})
 	wait("an archived session ends its terminal", func() bool {
-		return status(three.ID) == "closed" && len(app.ConversationTabs(second)) == 0 && !slices.Contains(app.PanelConversations(), second)
+		return status(three.ID) == "" && len(app.ConversationTabs(second)) == 0 && !slices.Contains(app.PanelConversations(), second)
 	})
 	if running() != 0 || len(app.AllPanelTabs()) != 0 || app.Sidebar.Selected != first {
 		t.Fatalf("after the archive: running %d, tabs %v, selected %q", running(), app.AllPanelTabs(), app.Sidebar.Selected)
