@@ -208,8 +208,8 @@ func usageDetails(c *ui.Context, m Metric) {
 	})
 }
 
-// usageButton is a small round button in muted text with the chart icon and
-// the first figure, the tokens. A hover shows every figure and its rows in a
+// usageButton is a button in muted text with the chart icon and the first
+// figure, the tokens. A hover shows every figure and its rows in a
 // card, group after group with a divider between; a click holds them in a
 // popover (conversation/usage/summary.rs).
 func usageButton(c *ui.Context, groups [][]Metric, open *bool) {
@@ -224,8 +224,13 @@ func usageButton(c *ui.Context, groups [][]Metric, open *bool) {
 		return
 	}
 	p := theme.Of(c)
-	b := kit.GhostLook(c, ui.ButtonBase(c.Key("usage")).Label(i18n.T(c, "composer_statistics")), *open).
-		Height(28).PaddingX(8).Gap(4).Radius(14).Shrink(0).TextColor(p.MutedForeground)
+	// It looks as the figures beside it do, with no fill: the pointer over
+	// it or its popover open brighten its text.
+	b := ui.ButtonBase(c.Key("usage")).Label(i18n.T(c, "composer_statistics")).
+		Height(28).Gap(4).Shrink(0).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+	if *open || b.Hovered() {
+		b.TextColor(p.Foreground)
+	}
 	b.HasPopup(ui.PopupDialog).Expanded(*open).OnClick(func() { *open = !*open })
 	b.Children(func() {
 		ui.Icon(c, icons.ChartPie).FontSize(14)
