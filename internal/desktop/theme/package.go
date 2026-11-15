@@ -101,10 +101,13 @@ type Composer struct {
 	Background Color `json:"background"`
 	// Glow is a soft light around the surface; Placeholder the empty
 	// draft's text color.
-	Glow        Color   `json:"glow"`
-	Placeholder Color   `json:"placeholder"`
-	Send        *Action `json:"send"`
-	Stop        *Action `json:"stop"`
+	Glow        Color `json:"glow"`
+	Placeholder Color `json:"placeholder"`
+	// InnerGlow, from 0 to 1, is a light inside the edge in its colors,
+	// as glass catches it at its rim.
+	InnerGlow float32 `json:"inner_glow"`
+	Send      *Action `json:"send"`
+	Stop      *Action `json:"stop"`
 }
 
 // Action colors a filled button in its states.

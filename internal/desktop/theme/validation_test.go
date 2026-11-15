@@ -229,6 +229,7 @@ func TestThemeInvalidFixtures(t *testing.T) {
 		setThemeField(value, "/light/cards/explore/icon_background", "#7fe7ff2e")
 		setThemeField(value, "/light/cards/explore/gradient", "#163650")
 		setThemeField(value, "/light/composer/background", "#26366e")
+		setThemeField(value, "/light/composer/inner_glow", 0.8)
 		setThemeField(value, "/light/composer/send/border", "#ffffff66")
 		setThemeField(value, "/light/hero", map[string]any{"border": "#7fe7ff", "border_gradient": "#ff8ad0", "glow": "#b48cff70"})
 		data, _ = json.Marshal(value)
@@ -237,7 +238,7 @@ func TestThemeInvalidFixtures(t *testing.T) {
 			t.Fatalf("a surfaces preset, composer and card styles: %v", err)
 		}
 		if pkg.Preset() != (Surfaces{Main: 0.7, Sidebar: 0.6, Blur: 0.35}) || !pkg.Light.Composer.BorderGradient.OK || !pkg.Light.Cards["explore"].IconBackground.OK ||
-			!pkg.Light.Cards["explore"].Gradient.OK || !pkg.Light.Composer.Background.OK || !pkg.Light.Composer.Send.Border.OK || !pkg.Light.Hero.Glow.OK {
+			!pkg.Light.Cards["explore"].Gradient.OK || !pkg.Light.Composer.Background.OK || pkg.Light.Composer.InnerGlow != 0.8 || !pkg.Light.Composer.Send.Border.OK || !pkg.Light.Hero.Glow.OK {
 			t.Fatalf("the extensions did not decode: %+v %+v", pkg.Surfaces, pkg.Light.Composer)
 		}
 		value["surfaces"] = map[string]any{"main": 0.2, "sidebar": 0.6, "blur": 0.35}
@@ -246,7 +247,7 @@ func TestThemeInvalidFixtures(t *testing.T) {
 			t.Fatal("a main opacity below the sliders' range was accepted")
 		}
 		delete(value, "surfaces")
-		for pointer, bad := range map[string]any{"/light/assets/hero.new_session/float": 4, "/light/assets/hero.new_session.figure/float": 13, "/light/wordmark/base": 1.5} {
+		for pointer, bad := range map[string]any{"/light/assets/hero.new_session/float": 4, "/light/assets/hero.new_session.figure/float": 13, "/light/wordmark/base": 1.5, "/light/composer/inner_glow": 1.5} {
 			value, files := themeFixture(t)
 			setThemeField(value, "/light/wordmark", map[string]any{"foreground": "#aaa"})
 			setThemeField(value, pointer, bad)

@@ -296,8 +296,13 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	if v := p.Variant; v != nil {
 		if w := v.Composer.BorderWidth; w > 0 {
 			edge, radius := v.Composer.Border.Or(p.Input), p.Radius2xl()
-			if end := v.Composer.BorderGradient; end.OK {
-				surface.DrawOver(func(pt *ui.Painter, r ui.Rect) { kit.GradientEdge(pt, r, radius, w, edge, end.V) })
+			end := v.Composer.BorderGradient.Or(edge)
+			glow := v.Composer.InnerGlow
+			if v.Composer.BorderGradient.OK || glow > 0 {
+				surface.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+					kit.InnerGlow(pt, r, radius, glow, edge, end)
+					kit.GradientEdge(pt, r, radius, w, edge, end)
+				})
 			} else {
 				surface.Border(w, edge)
 			}

@@ -267,3 +267,22 @@ func GradientEdge(pt *ui.Painter, r ui.Rect, radius, width float32, from, to ui.
 		LineTo(x, y+rad).CubeTo(x, y+k, x+k, y, x+rad, y).Close()
 	pt.StrokePathGradient(path, width, ui.LinearGradient{From: from, To: to, Angle: 90, Oklab: true})
 }
+
+// InnerGlow is a light inside r's rounded edge, fading inward from it in
+// the edge's colors at strength: strokes centered on the edge, each
+// narrower and stronger, so the light deepens toward the rim,
+// clipped to the box so only their inner halves show. Custom drawing:
+// MyGo's shadows fall outside a box only.
+func InnerGlow(pt *ui.Painter, r ui.Rect, radius, strength float32, from, to ui.Color) {
+	if strength <= 0 {
+		return
+	}
+	pt.Clip(r, radius, func() {
+		for _, ring := range []struct{ width, alpha float32 }{{36, 0.05}, {28, 0.06}, {20, 0.08}, {13, 0.11}, {7, 0.16}, {3, 0.3}} {
+			h := ring.width / 2
+			grown := ui.Rect{X: r.X - h, Y: r.Y - h, W: r.W + ring.width, H: r.H + ring.width}
+			a := strength * ring.alpha
+			GradientEdge(pt, grown, radius+h, ring.width, from.Alpha(a), to.Alpha(a))
+		}
+	})
+}

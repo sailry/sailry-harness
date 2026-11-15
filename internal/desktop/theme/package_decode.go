@@ -193,13 +193,17 @@ func (value *Composer) UnmarshalJSON(data []byte) error {
 		Background     *Color  `json:"background"`
 		Glow           *Color  `json:"glow"`
 		Placeholder    *Color  `json:"placeholder"`
+		InnerGlow      float32 `json:"inner_glow"`
 		Send           *Action `json:"send"`
 		Stop           *Action `json:"stop"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
 	}
-	*value = Composer{BorderWidth: float32(decoded.BorderWidth), Send: decoded.Send, Stop: decoded.Stop}
+	if !themeRange(decoded.InnerGlow, 0, 1) {
+		return errors.New("invalid composer inner glow")
+	}
+	*value = Composer{BorderWidth: float32(decoded.BorderWidth), InnerGlow: decoded.InnerGlow, Send: decoded.Send, Stop: decoded.Stop}
 	for _, c := range []struct{ from, to *Color }{{decoded.Border, &value.Border}, {decoded.BorderGradient, &value.BorderGradient}, {decoded.Background, &value.Background}, {decoded.Glow, &value.Glow}, {decoded.Placeholder, &value.Placeholder}} {
 		if c.from != nil {
 			*c.to = *c.from
