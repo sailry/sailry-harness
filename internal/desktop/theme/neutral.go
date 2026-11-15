@@ -6,7 +6,7 @@ import "github.com/egoist/mygo/ui"
 // theme.json's theme.colors. A package overlays them key by key, so what it
 // leaves out keeps these values.
 func neutral(dark bool) map[string]string {
-	base, fg, mfg := "#ffffff", "#000000e0", "#00000099"
+	base, fg, mfg := "#ffffff", "#000000e0", "#0000008c"
 	// Light fills step up from the page: the composer's inset fill reads as
 	// a box, the selected row is stronger than the hovered one, and a border
 	// (input edges, dashed empty states) shows on white.
