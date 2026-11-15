@@ -644,7 +644,7 @@
   "pairExpired": "Code d'appairage expiré; obtenir un nouveau code",
   "pairing": "Connexion en cours",
   "hostRemove": "Retirer l’hôte",
-  "hostRemoveConfirm": "Retirer « {name} » de cet appareil ? Associez-le à nouveau pour vous reconnecter",
+  "hostRemoveConfirm": "Retirer « {name} » et y révoquer cet appareil ? Les données restent sur l’hôte. Si c’est votre dernier appareil, un administrateur devra rétablir l’accès.",
   "hostRemoved": "Hôte retiré",
   "hostRemoveFailed": "Impossible de retirer l’hôte",
   "hostMetricsFailed": "Impossible de lire l'état de l'hôte",

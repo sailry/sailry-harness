@@ -644,7 +644,7 @@
   "pairExpired": "O código de emparelhamento expirou; obtenha um novo código",
   "pairing": "Conectando",
   "hostRemove": "Remover host",
-  "hostRemoveConfirm": "Remover “{name}” deste dispositivo? Emparelhe novamente para reconectar",
+  "hostRemoveConfirm": "Remover “{name}” e revogar o acesso deste dispositivo? Os dados permanecem no host. Se este for seu último dispositivo, um administrador precisará restaurar o acesso.",
   "hostRemoved": "Host removido",
   "hostRemoveFailed": "Não foi possível remover o host",
   "hostMetricsFailed": "Não é possível ler o status do host",

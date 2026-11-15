@@ -756,7 +756,7 @@
   "pairExpired": "配对码已失效，请获取新码",
   "pairing": "正在连接",
   "hostRemove": "移除主机",
-  "hostRemoveConfirm": "从此设备移除“{name}”？重新连接需再次配对",
+  "hostRemoveConfirm": "移除“{name}”并撤销此设备的访问？主机数据保留；若这是最后一台设备，需要管理员恢复访问。",
   "hostRemoved": "已移除主机",
   "hostOriginDirect": "直接配对",
   "hostOriginSource": "来自 {name}",

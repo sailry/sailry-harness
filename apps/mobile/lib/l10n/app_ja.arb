@@ -644,7 +644,7 @@
   "pairExpired": "ペアリングコードが失効しました。新しいコードを取得してください",
   "pairing": "接続中",
   "hostRemove": "ホストを削除",
-  "hostRemoveConfirm": "この端末から「{name}」を削除しますか？再接続には再ペアリングが必要です",
+  "hostRemoveConfirm": "「{name}」を削除し、この端末のアクセスを取り消しますか？データはホストに残ります。最後の端末の場合、アクセスの復元には管理者が必要です。",
   "hostRemoved": "ホストを削除しました",
   "hostRemoveFailed": "ホストを削除できませんでした",
   "hostMetricsFailed": "ホストの状態を読めません",

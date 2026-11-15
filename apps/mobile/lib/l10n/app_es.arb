@@ -644,7 +644,7 @@
   "pairExpired": "El código de emparejamiento ha caducado; obtén un código nuevo",
   "pairing": "Conectando",
   "hostRemove": "Eliminar host",
-  "hostRemoveConfirm": "¿Eliminar «{name}» de este dispositivo? Vuelve a emparejarlo para conectar",
+  "hostRemoveConfirm": "¿Eliminar «{name}» y revocar allí este dispositivo? Los datos permanecen en el host. Si es tu último dispositivo, un administrador deberá restablecer el acceso.",
   "hostRemoved": "Host eliminado",
   "hostRemoveFailed": "No se pudo eliminar el host",
   "hostMetricsFailed": "No se puede leer el estado del host",

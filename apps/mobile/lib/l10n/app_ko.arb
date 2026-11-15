@@ -644,7 +644,7 @@
   "pairExpired": "페어링 코드가 만료되었습니다. 새 코드 가져오기",
   "pairing": "연결 중",
   "hostRemove": "호스트 제거",
-  "hostRemoveConfirm": "이 기기에서 ‘{name}’을 제거할까요? 다시 연결하려면 재페어링이 필요합니다",
+  "hostRemoveConfirm": "‘{name}’을 제거하고 이 기기의 접근 권한을 취소할까요? 데이터는 호스트에 남습니다. 마지막 기기라면 관리자가 접근 권한을 복구해야 합니다.",
   "hostRemoved": "호스트를 제거했습니다",
   "hostRemoveFailed": "호스트를 제거할 수 없습니다",
   "hostMetricsFailed": "호스트 상태를 읽을 수 없음",

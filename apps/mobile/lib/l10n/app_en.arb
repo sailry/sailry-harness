@@ -651,7 +651,7 @@
   "pairExpired": "Pairing code expired; get a new code",
   "pairing": "Connecting",
   "hostRemove": "Remove host",
-  "hostRemoveConfirm": "Remove “{name}” from this device? Pair again to reconnect",
+  "hostRemoveConfirm": "Remove “{name}” and revoke this device there? Host data remains. If this is your last device, an administrator must restore access.",
   "@hostRemoveConfirm": {
     "placeholders": {
       "name": {

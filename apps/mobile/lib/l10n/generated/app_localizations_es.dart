@@ -1626,7 +1626,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return '¿Eliminar «$name» de este dispositivo? Vuelve a emparejarlo para conectar';
+    return '¿Eliminar «$name» y revocar allí este dispositivo? Los datos permanecen en el host. Si es tu último dispositivo, un administrador deberá restablecer el acceso.';
   }
 
   @override

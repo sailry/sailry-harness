@@ -1628,7 +1628,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return '„$name“ von diesem Gerät entfernen? Zum erneuten Verbinden neu koppeln';
+    return '„$name“ entfernen und diesem Gerät dort den Zugriff entziehen? Die Daten bleiben auf dem Host. Ist dies Ihr letztes Gerät, muss ein Administrator den Zugriff wiederherstellen.';
   }
 
   @override

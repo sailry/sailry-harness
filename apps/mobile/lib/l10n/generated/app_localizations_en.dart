@@ -1616,7 +1616,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Remove “$name” from this device? Pair again to reconnect';
+    return 'Remove “$name” and revoke this device there? Host data remains. If this is your last device, an administrator must restore access.';
   }
 
   @override

@@ -1622,7 +1622,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Remover “$name” deste dispositivo? Emparelhe novamente para reconectar';
+    return 'Remover “$name” e revogar o acesso deste dispositivo? Os dados permanecem no host. Se este for seu último dispositivo, um administrador precisará restaurar o acesso.';
   }
 
   @override

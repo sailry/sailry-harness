@@ -1597,7 +1597,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'この端末から「$name」を削除しますか？再接続には再ペアリングが必要です';
+    return '「$name」を削除し、この端末のアクセスを取り消しますか？データはホストに残ります。最後の端末の場合、アクセスの復元には管理者が必要です。';
   }
 
   @override

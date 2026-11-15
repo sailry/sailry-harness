@@ -1623,7 +1623,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Удалить «$name» с этого устройства? Для подключения потребуется повторное сопряжение';
+    return 'Удалить «$name» и отозвать доступ этого устройства? Данные останутся на хосте. Если это последнее устройство, доступ должен восстановить администратор.';
   }
 
   @override

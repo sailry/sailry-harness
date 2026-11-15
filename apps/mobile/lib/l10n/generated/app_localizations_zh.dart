@@ -1594,7 +1594,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return '从此设备移除“$name”？重新连接需再次配对';
+    return '移除“$name”并撤销此设备的访问？主机数据保留；若这是最后一台设备，需要管理员恢复访问。';
   }
 
   @override
@@ -3870,7 +3870,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String hostRemoveConfirm(String name) {
-    return '從此裝置移除「$name」？重新連線需再次配對';
+    return '移除「$name」並撤銷此裝置的存取權？主機資料保留；若這是最後一台裝置，需要管理員恢復存取。';
   }
 
   @override
