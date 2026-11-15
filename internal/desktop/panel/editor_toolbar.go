@@ -163,8 +163,9 @@ func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook 
 			{control("block:bullet", "files_block_bullet", icons.EditorBullet, format.block == "bullet"), control("block:ordered", "files_block_ordered", icons.EditorOrdered, format.block == "ordered"), control("block:task", "files_block_task", icons.EditorTask, format.block == "task"), control("block:quote", "files_block_quote", icons.Quote, format.block == "quote"), control("insert:table", "files_insert_table", icons.EditorTable, false), insert},
 			{find},
 		}
+		// Find and soft wrap are one group at the bar's end.
 		if item.source == 1 {
-			groups = append(groups, []editorControl{wrap})
+			groups[2] = append(groups[2], wrap)
 		}
 	}
 	palette := theme.Of(c)
@@ -215,18 +216,24 @@ func (pr *Project) editorToolbar(c *ui.Context, path string, markdown, notebook 
 			})
 			pr.editorControl(c, path, control("bold", "files_bold", icons.EditorBold, format.bold))
 		}
+		// A Markdown file's find group stands at the bar's end, after the one
+		// spacer, with no divider before it.
+		spaced := false
 		for gi, group := range visible {
-			if !markdown || gi > 0 {
-				separator(c)
-			}
-			if markdown && gi == 2 {
+			switch {
+			case markdown && gi == 2:
 				ui.Spacer(c)
+				spaced = true
+			case !markdown || gi > 0:
+				separator(c)
 			}
 			for _, item := range group {
 				pr.editorControl(c, path, item)
 			}
 		}
-		ui.Spacer(c)
+		if !spaced {
+			ui.Spacer(c)
+		}
 		if len(hidden) > 0 {
 			kit.MenuButton(c.Key("more"), "file-more-menu", func(button ui.Element) {
 				kit.IconLook(c, button, icons.Ellipsis, i18n.T(c, "files_more"), "", 28, false)
