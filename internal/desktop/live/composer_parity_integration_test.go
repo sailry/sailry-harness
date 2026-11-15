@@ -38,9 +38,13 @@ func auditSessionOverview(t *testing.T, runtime *Runtime, tester *ui.Tester, ses
 		}
 		return read != nil && read.open && read.loaded && !read.loading
 	})
-	for _, key := range []string{"chat_assets_activity", "chat_assets_no_activity", "chat_assets_progress", "chat_assets_no_progress", "chat_assets_output", "chat_assets_no_output", "chat_assets_sources", "chat_assets_no_sources"} {
-		if !tester.HasText(text(key)) {
-			t.Fatalf("the overview of an untouched session lacks %s: %q", key, tester.Texts())
+	// It has no section, only what will show there.
+	if !tester.HasText(text("chat_assets_waiting")) {
+		t.Fatalf("the overview of an untouched session does not say what will show: %q", tester.Texts())
+	}
+	for _, key := range []string{"chat_assets_progress", "chat_assets_changes", "chat_assets_output", "chat_assets_sources"} {
+		if tester.HasText(text(key)) {
+			t.Fatalf("the overview of an untouched session shows %s: %q", key, tester.Texts())
 		}
 	}
 	if tester.HasText(text("chat_assets_failed")) || tester.HasText(text("chat_assets_more")) {

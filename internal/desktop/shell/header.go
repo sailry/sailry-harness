@@ -190,20 +190,24 @@ func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size 
 	}
 	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), size, a.Messages.SearchOpenIn(cv.ID)).
 		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
-	composer.OverviewButton(c, a.overviewOf(cv.ID), a.sessionOverview(c, cv), size)
+	entry := a.overviewEntry(cv.ID)
+	composer.OverviewButton(c, &entry.state, a.conversationOverview(c, cv, entry.act), &a.OverviewHidden, size)
 }
 
 // overviewPopover is a conversation's session overview popover, kept while
 // its button shows.
 type overviewPopover struct {
 	state composer.OverviewState
+	// act is the conversation's actions as its view built them last,
+	// which review a changed file from the header's popover.
+	act ConversationActions
 	// shown is whether this frame built its button.
 	shown bool
 }
 
-// overviewOf is conversation id's overview popover: each conversation has
+// overviewEntry is conversation id's overview popover: each conversation has
 // its own, so one opening in a pane leaves another pane's as it is.
-func (a *App) overviewOf(id string) *composer.OverviewState {
+func (a *App) overviewEntry(id string) *overviewPopover {
 	o := a.overviews[id]
 	if o == nil {
 		if a.overviews == nil {
@@ -213,7 +217,7 @@ func (a *App) overviewOf(id string) *composer.OverviewState {
 		a.overviews[id] = o
 	}
 	o.shown = true
-	return &o.state
+	return o
 }
 
 // sweepOverviews forgets, at the start of a frame, the popovers whose

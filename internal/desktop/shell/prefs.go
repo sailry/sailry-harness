@@ -23,12 +23,14 @@ import (
 // live window neither reads Features and Unpinned nor changes them: it
 // writes back the ones it loaded.
 type Prefs struct {
-	NavWidth   float32     `json:"navWidth"`
-	NavOpen    bool        `json:"navOpen"`
-	PanelWidth float32     `json:"panelWidth"`
-	PanelOpen  bool        `json:"panelOpen"`
-	PanelTabs  []panel.Tab `json:"panelTabs,omitempty"`
-	PanelTab   panel.Tab   `json:"panelTab"`
+	NavWidth float32 `json:"navWidth"`
+	NavOpen  bool    `json:"navOpen"`
+	// OverviewHidden hides the overview column beside a wide conversation.
+	OverviewHidden bool        `json:"overviewHidden,omitempty"`
+	PanelWidth     float32     `json:"panelWidth"`
+	PanelOpen      bool        `json:"panelOpen"`
+	PanelTabs      []panel.Tab `json:"panelTabs,omitempty"`
+	PanelTab       panel.Tab   `json:"panelTab"`
 	// PanelOf is the conversation PanelTabs, PanelTab and PanelOpen belong
 	// to, the one shown last; empty in a file from before the panel belonged
 	// to conversations, whose tabs the first conversation shown takes.
@@ -102,7 +104,7 @@ func SavePrefs(dir string, p Prefs) error {
 // prefs are the preferences of the stage on the window (Prefs).
 func (a *App) prefs() Prefs {
 	p := Prefs{
-		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
+		NavWidth: a.NavWidth, NavOpen: a.NavOpen, OverviewHidden: a.OverviewHidden, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: keptTabs(a.Panel.Tabs), Collapsed: a.Sidebar.Collapsed(),
 		Panels:           a.savedPanels(),
 		PluginWorkspaces: a.savedPluginWorkspaces(),
@@ -130,7 +132,7 @@ func (a *App) prefs() Prefs {
 
 // SetPrefs applies preferences, as at start-up.
 func (a *App) SetPrefs(p Prefs) {
-	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
+	a.NavWidth, a.NavOpen, a.OverviewHidden = ClampNav(p.NavWidth), p.NavOpen, p.OverviewHidden
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
 	a.pluginWorkspaces = make(map[string]*PluginWorkspacePrefs, len(p.PluginWorkspaces))
 	for key, value := range p.PluginWorkspaces {

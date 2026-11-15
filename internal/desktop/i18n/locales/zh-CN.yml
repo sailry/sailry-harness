@@ -2175,7 +2175,9 @@ tool_read_skill_resource: 读取技能资源
 tool_session_title: 设置会话标题
 queue_read: 查看
 chat_assets_title: 活动
-chat_assets_activity: 活动
+chat_assets_activity: 子智能体
+chat_assets_changes: 改动
+chat_assets_waiting: 智能体开始工作后，这里会显示进度、改动和来源
 chat_assets_progress: 进度
 chat_assets_output: 输出
 chat_assets_sources: 来源

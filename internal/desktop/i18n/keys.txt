@@ -2188,6 +2188,8 @@ tool_session_title
 queue_read
 chat_assets_title
 chat_assets_activity
+chat_assets_changes
+chat_assets_waiting
 chat_assets_progress
 chat_assets_output
 chat_assets_sources

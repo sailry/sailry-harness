@@ -450,8 +450,8 @@ func (s *State) messageTheme(c *ui.Context) {
 	s.mdSize = size
 }
 
-// statusKey is the run's status label (frame::status).
-func statusKey(st RunStatus) string {
+// StatusKey is the run's status label (frame::status).
+func StatusKey(st RunStatus) string {
 	switch st {
 	case Queued:
 		return "turn_queued"
@@ -508,7 +508,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 			if !chosen {
 				workOpen = active && !s.CompactDisplay
 			}
-			label := i18n.T(c, statusKey(r.Status))
+			label := i18n.T(c, StatusKey(r.Status))
 			status := func() {
 				row := ui.Row(c).Gap(8).Grow(1).MinWidth(0)
 				if r.Status == Failed || r.Status == Interrupted {

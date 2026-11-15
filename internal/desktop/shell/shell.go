@@ -96,8 +96,11 @@ type App struct {
 	// NavOpen and NavWidth are the side column's saved choice, shared by the
 	// pages that have one (HasNavigation); a page without one hides the
 	// column and leaves the choice as it is.
-	NavOpen  bool
-	NavWidth float32
+	NavOpen bool
+	// OverviewHidden is the saved choice to hide a wide conversation's
+	// overview column.
+	OverviewHidden bool
+	NavWidth       float32
 	// PluginNavigation is the resource navigation supplied by the mounted
 	// package page. The Shell owns its position, width and fold toggle.
 	PluginNavigation func(*ui.Context)
@@ -743,10 +746,29 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
-		composer.View(c, comp, ctx, act)
+	// A conversation shown alone and wide enough has its overview beside
+	// them, as a column the header's button shows and hides; the width is
+	// the row's in the last frame.
+	entry := a.overviewEntry(cv.ID)
+	entry.act = act
+	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
+	entry.state.Docked = a.panes.Displayed() == nil && row.Bounds().W >= overviewDockMin
+	column := entry.state.Docked && !a.OverviewHidden
+	overview := a.conversationOverview(c, cv, act)
+	row.Children(func() {
+		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
+			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
+				composer.View(c, comp, ctx, act)
+			})
+			conversation.Navigation(c, a.Messages)
+		})
+		if column {
+			composer.OverviewColumn(c, &entry.state, overview)
+		}
 	})
-	conversation.Navigation(c, a.Messages)
+	if !column {
+		composer.OverviewClosed(&entry.state, overview)
+	}
 }
 
 // actions carries out the page's actions on the preview data. Preview

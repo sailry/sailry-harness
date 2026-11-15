@@ -2175,7 +2175,9 @@ tool_read_skill_resource: Ler recurso de habilidade
 tool_session_title: Definir título da sessão
 queue_read: Ler
 chat_assets_title: Atividade
-chat_assets_activity: Atividade
+chat_assets_activity: Subagentes
+chat_assets_changes: Alterações
+chat_assets_waiting: O progresso, as alterações e as fontes aparecem aqui enquanto o agente trabalha
 chat_assets_progress: Progresso
 chat_assets_output: Resultados
 chat_assets_sources: Fontes

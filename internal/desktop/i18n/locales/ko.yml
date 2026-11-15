@@ -2175,7 +2175,9 @@ tool_read_skill_resource: 읽기 기술 자원
 tool_session_title: 세션 제목 설정
 queue_read: 보기
 chat_assets_title: 활동
-chat_assets_activity: 활동
+chat_assets_activity: 하위 에이전트
+chat_assets_changes: 변경
+chat_assets_waiting: 에이전트가 작업을 시작하면 진행 상황, 변경 사항, 출처가 여기에 표시됩니다
 chat_assets_progress: 진행 상황
 chat_assets_output: 출력
 chat_assets_sources: 출처

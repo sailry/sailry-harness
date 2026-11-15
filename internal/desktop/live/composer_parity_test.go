@@ -310,7 +310,12 @@ func composerParityCommands(t *testing.T) {
 	if payload := reads[0].Command.Data.(protocol.CommandListConversationAssetsPayload); payload.Session != session || payload.Query.Limit != overviewLimit || payload.Query.Before != nil {
 		t.Fatalf("list_conversation_assets payload %+v", payload)
 	}
-	for _, want := range []string{text("chat_assets_activity"), text("chat_assets_no_activity"), text("chat_assets_output"), "out/report.md", text("chat_assets_sources"), "guide.md", text("chat_assets_more")} {
+	// The sections with rows show, each once; one without, as the
+	// subagents here, does not.
+	if tester.HasText(text("chat_assets_activity")) {
+		t.Fatalf("the overview shows the empty subagents: %q", tester.Texts())
+	}
+	for _, want := range []string{text("chat_assets_output"), "out/report.md", text("chat_assets_sources"), "guide.md", text("chat_assets_more")} {
 		if !tester.HasText(want) {
 			t.Fatalf("the overview lacks %q: %q", want, tester.Texts())
 		}
