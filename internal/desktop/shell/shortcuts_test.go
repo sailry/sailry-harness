@@ -50,7 +50,8 @@ func testCloseTabInFocusedPanel(t *testing.T) {
 	if len(a.Panel.Tabs) != 0 || a.PanelOpen {
 		t.Fatalf("the last tab left tabs %v, open %v", a.Panel.Tabs, a.PanelOpen)
 	}
-	// The focus is back in the conversation, where ⌘W closes nothing.
+	// The focus is back in the conversation, where ⌘W closes its tab, not
+	// the panel.
 	tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
 	settle(tt)
 	tt.Key(ui.Cmd, ui.KeyW)

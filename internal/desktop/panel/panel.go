@@ -309,7 +309,7 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		ui.Row(c).Gap(kit.StripGap).Height(barHeight).AlignItems(ui.Center).Children(func() {
 			for i, t := range s.Tabs {
 				if i > 0 {
-					kit.StripDivider(c, "divider-"+string(t.Kind)+t.ID, s.Tabs[i-1] != s.Active && t != s.Active)
+					kit.StripDivider(c, "divider-"+string(t.Kind)+t.ID)
 				}
 				icon, label := s.look(c, t)
 				tip := ""

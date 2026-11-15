@@ -609,13 +609,18 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 	})
 }
 
-// status puts the conversation's state in the 12x12 slot on the elbow: the
-// loader, in the color of the row's text and named as running, while it
-// runs, the status dot in its tone while it waits or is unread, and a small
-// dim dot at rest. A row that does not run has no loader and asks for no
-// frame.
+// status puts the conversation's status mark in the 12x12 slot on the
+// elbow.
 func status(c *ui.Context, st preview.Status, color ui.Color) {
-	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
+	StatusMark(c, st, color).Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
+}
+
+// StatusMark is a conversation's state in a 12x12 slot, a row's and a
+// tab's alike: the loader, in color and named as running, while it runs,
+// the status dot in its tone while it waits or is unread, and a small dim
+// dot at rest. One that does not run has no loader and asks for no frame.
+func StatusMark(c *ui.Context, st preview.Status, color ui.Color) ui.Element {
+	slot := ui.Box(c).Size(12, 12).Shrink(0).Center()
 	switch st {
 	case preview.Running:
 		slot.Children(func() { kit.LoaderIn(c, 12, color) })
@@ -624,9 +629,10 @@ func status(c *ui.Context, st preview.Status, color ui.Color) {
 	case preview.Unread:
 		slot.Children(func() { kit.StatusDot(c, kit.Info, i18n.T(c, "notification_unread")) })
 	default:
-		// At rest: a small dim dot, so every row has its mark.
+		// At rest: a small dim dot, so every one has its mark.
 		slot.Children(func() { ui.Box(c).Size(6, 6).Shrink(0).Radius(3).Background(theme.Of(c).MutedForeground.Alpha(0.45)) })
 	}
+	return slot
 }
 
 // ageAt is the short age of sidebar rows: 45s, 12m, 3h, 2d.

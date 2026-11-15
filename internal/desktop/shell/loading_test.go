@@ -117,8 +117,20 @@ func testLoadingMarks(t *testing.T) {
 			return y / float64(scale)
 		}
 
-		// The first running row's loader, in the side column.
-		if r, ok := tt.Find(running); !ok || r.W != 12 || r.H != 12 || r.X > RailWidth+a.NavWidth {
+		// The first running row's loader, in the side column: with a
+		// session at rest shown, the header's tab has no loader of its own.
+		selected := a.Sidebar.Selected
+		for _, cv := range a.Data.Unassigned {
+			if cv.Status != preview.Running {
+				a.Sidebar.Selected = cv.ID
+				break
+			}
+		}
+		tt.Frame()
+		r, ok := tt.Find(running)
+		a.Sidebar.Selected = selected
+		tt.Frame()
+		if !ok || r.W != 12 || r.H != 12 || r.X > RailWidth+a.NavWidth {
 			t.Fatalf("%s: the sidebar's loader: %+v, %v", name, r, ok)
 		}
 		// A running capsule's loader is where the port capsule's globe is,

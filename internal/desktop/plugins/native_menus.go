@@ -204,8 +204,7 @@ func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, prop
 					// A page's tabs are the right panel's strip tabs.
 					active := selected != nil && itemID == *selected
 					if at > 0 {
-						previous := selected != nil && nativeProp(items[at-1], "id", "") == *selected
-						kit.StripDivider(view, "divider-"+itemID, !active && !previous)
+						kit.StripDivider(view, "divider-"+itemID)
 					}
 					button, hovered := kit.StripTab(view, itemID, label, active, nativeProp(props, "max_width", float32(240)))
 					var close func()

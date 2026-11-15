@@ -216,8 +216,9 @@ func (d *ContextStats) remaining(c *ui.Context) string {
 // ContextMeter is the composer's context indicator left of the model chip:
 // Kit's ring of the window used, which opens the session's context and usage
 // in a popover. The popover shows a summary first: a gauge with the state in
-// a word and the room left, the cost, tokens and speed; Show details expands
-// it to every section. The toolbar ring is muted until compaction is near.
+// a word, the room left and the model; Show details expands it to every
+// section. The cost, tokens and speed are the usage bar's under the
+// composer, so the summary does not repeat them. The toolbar ring is muted until compaction is near.
 func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 	if d == nil {
 		return
@@ -261,8 +262,7 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 }
 
 // contextSummary is the popover's first view: the gauge with the percent
-// in it beside the state and the room left, then the cost, the tokens and
-// the speed as figures, those unknown left out.
+// in it beside the state, the room left and the model.
 func contextSummary(c *ui.Context, d *ContextStats) {
 	p := theme.Of(c)
 	key, tone := d.State()
@@ -295,33 +295,6 @@ func contextSummary(c *ui.Context, d *ContextStats) {
 				kit.Level(c, ui.Text(c, d.Model).FontSize(12).TextColor(p.MutedForeground).SingleLine().MinWidth(0), 12, d.Model)
 			}
 		})
-	})
-	type figure struct{ label, value string }
-	var figures []figure
-	if d.Cost != "" {
-		figures = append(figures, figure{i18n.T(c, "meter_cost"), "$" + d.Cost})
-	}
-	if d.Input != nil {
-		total := *d.Input
-		if d.Output != nil {
-			total += *d.Output
-		}
-		figures = append(figures, figure{i18n.T(c, "meter_tokens"), Count(int(total))})
-	}
-	if d.Speed != nil {
-		figures = append(figures, figure{i18n.T(c, "meter_speed"), fmt.Sprintf("%.1f %s", *d.Speed, i18n.T(c, "meter_speed_unit"))})
-	}
-	if len(figures) == 0 {
-		return
-	}
-	ui.Divider(c.Key("figures-divider")).Background(p.Border).Margin(0, 16, 0, 16)
-	ui.Row(c.Key("figures")).FillWidth().Padding(12, 16, 12, 16).Gap(12).Children(func() {
-		for i, f := range figures {
-			ui.Column(c.Key(fmt.Sprint("figure/", i))).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(c, f.label).FontSize(12).TextColor(p.MutedForeground).SingleLine()
-				ui.Text(c, f.value).FontSize(16).FontWeight(500).FontFeatures("tnum").SingleLine()
-			})
-		}
 	})
 }
 

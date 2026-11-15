@@ -236,6 +236,20 @@ func TestHeaderTabsKeep(t *testing.T) {
 	if b, ok := headerButton(tt, "Conversation f"); !ok || !b.Checked {
 		t.Fatalf("the passing tab is not shown: %+v", b)
 	}
+	// The tabs are in the order they opened: the groups, then e, then f.
+	group := func(n int) string { return i18n.In("en", "pane_group", "number", n) }
+	order := []string{group(1), group(2), "Conversation e", "Conversation f"}
+	x := -1.0
+	for _, name := range order {
+		b, ok := headerButton(tt, name)
+		if !ok || float64(b.Bounds.X) <= x {
+			t.Fatalf("the tabs are not in the order %q: %q at %+v", order, name, b.Bounds)
+		}
+		x = float64(b.Bounds.X)
+	}
+	if saved := a.prefs().TabOrder; len(saved) != 4 || saved[2] != session("e") || saved[3] != session("f") {
+		t.Fatalf("saved order %v", saved)
+	}
 	if saved := a.prefs().Tabs; !slices.Equal(saved, []panes.Target{session("e")}) {
 		t.Fatalf("saved tabs %v", saved)
 	}
@@ -250,6 +264,20 @@ func TestHeaderTabsKeep(t *testing.T) {
 	menu("Conversation e", "close")
 	if len(a.panes.Kept) != 0 || a.panes.Displayed() == nil {
 		t.Fatalf("closing the shown tab: kept %v, active %v", a.panes.Kept, a.panes.Active)
+	}
+	// ⌘W in a conversation standing alone closes its tab and stops keeping
+	// it; the session stays.
+	a.panes.Keep(session("e"))
+	show("e")
+	// Choosing the tab puts the focus in the conversation.
+	b, _ := headerButton(tt, "Conversation e")
+	tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyW)
+	tt.Frame()
+	tt.Frame()
+	if len(a.panes.Kept) != 0 || a.Data.Find("e") == nil {
+		t.Fatalf("⌘W on the tab: kept %v", a.panes.Kept)
 	}
 	menu(i18n.In("en", "pane_group", "number", 1), "workspace_tab_unsplit")
 	if len(a.panes.Groups) != 1 {

@@ -28,6 +28,9 @@ type workspace struct {
 	// terminals are the main workspace's terminal surfaces, independent of
 	// conversation-owned right-panel tabs.
 	terminals []WorkspaceTerminal
+	// order is the header tabs' opening order: each tab holds its place by
+	// its first target here (orderTabs).
+	order []panes.Target
 	// groupFocus remembers the last focused member of each split group.
 	groupFocus map[panes.Target]panes.Target
 	// splits counts the panes split off (Usage).

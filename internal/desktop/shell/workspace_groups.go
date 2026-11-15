@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
@@ -68,11 +69,11 @@ func (t headerTab) key() any {
 	return t.alone
 }
 
-// headerTabs are the conversation page's tabs, as an editor's: the kept
-// ones, then a passing one for what shows alone otherwise, then the split
-// groups. With nothing to show the band shows the title. A kept target
-// that joined a group shows in its group's tab, and one not loaded yet is
-// left out until it is.
+// headerTabs are the conversation page's tabs, as an editor's, in the
+// order they opened: the kept ones, a passing one for what shows alone
+// otherwise, and the split groups. With nothing to show the band shows the
+// title. A kept target that joined a group shows in its group's tab, and
+// one not loaded yet is left out until it is.
 func (a *App) headerTabs(c *ui.Context) []headerTab {
 	w := &a.panes
 	if a.Page != ConversationPage {
@@ -102,7 +103,44 @@ func (a *App) headerTabs(c *ui.Context) []headerTab {
 	if len(tabs) == 0 {
 		return nil
 	}
+	a.orderTabs(tabs)
 	return tabs
+}
+
+// orderTabs sorts the tabs by the order they opened in: each holds its
+// place by its first target in the workspace's order, and a new one goes
+// after the others. A group made of tabs takes the first one's place. The
+// places of tabs gone are forgotten, so one that opens again comes last,
+// except a kept tab's or a saved group's not loaded yet, which come back.
+func (a *App) orderTabs(tabs []headerTab) {
+	w := &a.panes
+	targets := func(t headerTab) []panes.Target {
+		if t.group != nil {
+			return t.group.Targets()
+		}
+		return []panes.Target{t.alone}
+	}
+	place := func(t headerTab) int {
+		members := targets(t)
+		return slices.IndexFunc(w.order, func(o panes.Target) bool { return slices.Contains(members, o) })
+	}
+	for _, t := range tabs {
+		if place(t) < 0 {
+			w.order = append(w.order, targets(t)[0])
+		}
+	}
+	slices.SortStableFunc(tabs, func(x, y headerTab) int { return place(x) - place(y) })
+	used := map[panes.Target]bool{}
+	for _, t := range tabs {
+		used[w.order[place(t)]] = true
+	}
+	var saved []panes.Target
+	for _, g := range w.Saved() {
+		saved = append(saved, g.Targets()...)
+	}
+	w.order = slices.DeleteFunc(w.order, func(o panes.Target) bool {
+		return !used[o] && (a.paneExists(o) || !slices.Contains(w.Kept, o) && !slices.Contains(saved, o))
+	})
 }
 
 // workspaceGroupWidth is the tabs' width in the room the strip leaves, each
@@ -118,22 +156,17 @@ func (a *App) workspaceGroupWidth(c *ui.Context, room float32) float32 {
 	width := float32(len(tabs)-1) * (2*kit.StripGap + 1)
 	for _, t := range tabs {
 		w, _ := c.MeasureText(0, ui.Span{Text: t.title, Size: 14})
-		chrome := float32(groupTabChrome)
-		if t.group == nil {
-			chrome += closeChrome - 14 - 6
-		}
-		width += min(w+chrome, groupTabMax)
+		width += min(w+tabChrome, groupTabMax)
 	}
 	return min(width, max(room, 0))
 }
 
-// groupTabMax is a tab's widest; groupTabChrome what a group tab adds to
-// its text: the padding, the split mark and the gap beside it, and
-// closeChrome what a tab standing alone adds for its close button.
+// groupTabMax is a tab's widest; tabChrome what a tab adds to its text:
+// the padding, and its split mark, status mark or icon with the gap beside
+// it, a status mark's 12 counted as an icon's 14.
 const (
-	groupTabMax    = 220
-	groupTabChrome = 8 + 8 + 14 + 6
-	closeChrome    = 6 + 20 - 4
+	groupTabMax = 220
+	tabChrome   = 8 + 8 + 14 + 6
 )
 
 // groupTitle names a split group by its panes' titles, in order.
@@ -146,7 +179,7 @@ func (a *App) groupTitle(c *ui.Context, group *panes.Node) string {
 }
 
 // workspaceGroups are the band's tabs in the strip tabs' look, a short
-// divider between two that are not shown. A group's has the split mark and
+// divider between each two. A group's has the split mark and
 // its panes' titles; one standing alone its title and a close button, in
 // italics while it only passes. A double click keeps a passing tab, and
 // each has its system menu: keep or stop keeping and close, or undo the
@@ -180,7 +213,7 @@ func (a *App) workspaceGroups(c *ui.Context, width float32) {
 	strip.Children(func() {
 		for i, t := range tabs {
 			if i > 0 {
-				kit.StripDivider(c, "divider-"+strconv.Itoa(i), !t.shown && !tabs[i-1].shown)
+				kit.StripDivider(c, "divider-"+strconv.Itoa(i))
 			}
 			// Shown in the strip tabs' fill, but revealed only when it
 			// changes: StripTab's active tab would scroll back every frame.
@@ -222,11 +255,22 @@ func (a *App) groupTab(c *ui.Context, b ui.Element, t headerTab, hovered bool) {
 // passing in italics until a double click keeps it. Closing it stops
 // keeping it and, while it shows, shows its neighbour.
 func (a *App) aloneTab(c *ui.Context, b ui.Element, t headerTab, tabs []headerTab, hovered bool) {
+	p := theme.Of(c)
 	if !t.kept {
 		b.Italic()
 	}
 	close := func() { a.closeHeaderTab(c, t, tabs) }
-	kit.StripTabBody(c, b, nil, t.title, t.shown, hovered, false, i18n.T(c, "close"), close)
+	// A session's tab leads with its status mark, as its sidebar row.
+	// A terminal's leads with its mark.
+	lead := func() { ui.Icon(c, icons.Terminal).FontSize(14).Shrink(0) }
+	if cv := a.Data.Find(t.alone.ID); t.alone.Kind == panes.Session && cv != nil {
+		ink := p.MutedForeground
+		if t.shown {
+			ink = p.TabActiveText
+		}
+		lead = func() { sidebar.StatusMark(c, cv.Status, ink) }
+	}
+	kit.StripTabBodyWith(c, b, lead, t.title, t.shown, hovered, i18n.T(c, "close"), close)
 	kit.Tooltip(c, b, t.title)
 	if b.DoubleClicked() {
 		a.panes.Keep(t.alone)
@@ -260,7 +304,33 @@ func (a *App) showTab(c *ui.Context, t headerTab) {
 	}
 	a.Page = ConversationPage
 	a.focusPane(target)
+	// A session standing alone shows in the main column, whose focus
+	// takes ⌘W; a split's pane and a terminal have their own.
+	if t.group == nil && target.Kind == panes.Session {
+		a.mainPane.Focus(c)
+		return
+	}
 	a.panes.handle(target).Focus(c)
+}
+
+// tabClosable reports whether ⌘W in the main column closes the shown tab:
+// a session standing alone on the conversation page. In a split each pane
+// takes it and leaves the split first.
+func (a *App) tabClosable() bool {
+	return a.Page == ConversationPage && a.panes.Displayed() == nil && a.panes.Active.Kind == panes.Session
+}
+
+// closeShownTab is ⌘W on a session standing alone: its tab closes as its
+// close button does, kept no more, and the next tab shows. Only the
+// window's tab goes; the session runs on.
+func (a *App) closeShownTab(c *ui.Context) {
+	tabs := a.headerTabs(c)
+	for _, t := range tabs {
+		if t.shown && t.group == nil {
+			a.closeHeaderTab(c, t, tabs)
+			return
+		}
+	}
 }
 
 // closeHeaderTab closes a session's or terminal's tab: it is kept no more, and

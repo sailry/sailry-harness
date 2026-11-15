@@ -39,7 +39,8 @@ func window(all []Shortcut) []Shortcut {
 
 // CloseFocused is ⌘W. The reference binds it on the panes that close, not on
 // the window: the right panel and an independent page take it while the focus
-// is inside them (App.pane), and anywhere else it does nothing.
+// is inside them (App.pane), a split's pane leaves its split, a conversation
+// standing alone closes its tab, and anywhere else it does nothing.
 var CloseFocused = Shortcut{ID: "close", Label: "menu_close_tab", Mods: ui.Cmd, Key: ui.KeyW}
 
 // binding is a shortcut on the key the user gave it; false when turned
@@ -144,9 +145,12 @@ func (a *App) closeFocused(c *ui.Context) {
 	case a.PanelOpen && c.FocusWithin(a.panelPane):
 		a.closeTab(c)
 	case c.FocusWithin(a.mainPane):
-		if a.Page == ConversationPage && (a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal) {
+		switch {
+		case a.Page == ConversationPage && (a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal):
 			a.closePane(c, a.panes.Active)
-		} else {
+		case a.tabClosable():
+			a.closeShownTab(c)
+		default:
 			a.ClosePage()
 		}
 	}

@@ -349,7 +349,12 @@ func (a *App) View(c *ui.Context) {
 				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
 				a.nav(c, f, panel)
 				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
-				a.pane(c, main, &a.mainPane, a.closable(), func() { a.ClosePage() })
+				// On the conversation standing alone ⌘W closes its tab.
+				a.pane(c, main, &a.mainPane, a.closable() || a.tabClosable(), func() {
+					if !a.ClosePage() {
+						a.closeShownTab(c)
+					}
+				})
 				a.mainColumn(c, main, f)
 				a.details(c, f, panel)
 			})
