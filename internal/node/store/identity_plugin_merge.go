@@ -74,5 +74,8 @@ ON CONFLICT(space,name,key) DO NOTHING`, sourceSpace, targetSpace); err != nil {
 			return err
 		}
 	}
+	if _, err := RegisterKnowledgeSemantic(ctx, db); err != nil {
+		return err
+	}
 	return mergeIdentityDispatch(ctx, db, source, target)
 }
