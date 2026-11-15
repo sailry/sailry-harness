@@ -197,6 +197,11 @@ CREATE TABLE plugin_connections (
 );
 CREATE INDEX plugin_connections_owner ON plugin_connections(plugin,connector);
 CREATE INDEX plugin_connections_user ON plugin_connections(user,plugin,connector);
+CREATE TABLE plugin_connection_captures (
+    connection TEXT NOT NULL REFERENCES plugin_connections(id) ON DELETE CASCADE,
+    user TEXT NOT NULL REFERENCES users(id),
+    PRIMARY KEY(connection,user)
+);
 CREATE TABLE turn_connections (
     turn TEXT NOT NULL REFERENCES turns(id),
     plugin TEXT NOT NULL,

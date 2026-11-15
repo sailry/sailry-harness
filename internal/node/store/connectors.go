@@ -112,11 +112,12 @@ func ConnectorDeclaration(ctx context.Context, db *sql.Conn, reference protocol.
 }
 
 func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginConnectorID) (ConnectorRecord, error) {
-	user, err := pluginCapturedUserID(ctx, db)
+	raw, current, err := connectorUserIDs(ctx, db)
 	if err != nil {
 		return ConnectorRecord{}, err
 	}
-	record, err := readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE id=?1 AND user=?2", id.String(), user)
+	record, err := readBody[ConnectorRecord](ctx, db, `SELECT body FROM plugin_connections WHERE id=?1 AND
+ (user=?2 OR (user=?3 AND EXISTS(SELECT 1 FROM plugin_connection_captures c WHERE c.connection=plugin_connections.id AND c.user=?2)))`, id.String(), raw, current)
 	if err != nil {
 		return ConnectorRecord{}, err
 	}
@@ -127,8 +128,14 @@ func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginCo
 }
 
 func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorRecord) error {
-	user, err := pluginCapturedUserID(ctx, db)
+	raw, current, err := connectorUserIDs(ctx, db)
 	if err != nil {
+		return err
+	}
+	owner := raw
+	err = db.QueryRowContext(ctx, `SELECT user FROM plugin_connections WHERE id=?1 AND
+ (user=?2 OR (user=?3 AND EXISTS(SELECT 1 FROM plugin_connection_captures c WHERE c.connection=plugin_connections.id AND c.user=?2)))`, record.ID.String(), raw, current).Scan(&owner)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	body, err := json.Marshal(record)
@@ -136,24 +143,29 @@ func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorReco
 		return err
 	}
 	result, err := db.ExecContext(ctx, `INSERT INTO plugin_connections(id,plugin,connector,revision,body,user) VALUES(?1,?2,?3,?4,?5,?6)
-ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector AND user=excluded.user`,
-		record.ID.String(), record.Plugin, record.Connector, record.Revision, body, user)
+ ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector AND user=excluded.user`, record.ID.String(), record.Plugin, record.Connector, record.Revision, body, owner)
 	if err != nil {
 		return err
 	}
 	changed, err := result.RowsAffected()
-	if err == nil && changed == 0 {
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
 		return fault(protocol.ErrorCodeNotFound, "connection is unavailable")
 	}
+	_, err = db.ExecContext(ctx, "INSERT INTO plugin_connection_captures(connection,user) VALUES(?1,?2) ON CONFLICT(connection,user) DO NOTHING", record.ID.String(), owner)
 	return err
 }
 
 func connectorRecords(ctx context.Context, db *sql.Conn) ([]ConnectorRecord, error) {
-	user, err := pluginCapturedUserID(ctx, db)
+	raw, current, err := connectorUserIDs(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	return readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE user=?1 ORDER BY plugin,connector,id", user)
+	return readBodies[ConnectorRecord](ctx, db, `SELECT body FROM plugin_connections WHERE user=?1 OR
+ (user=?2 AND EXISTS(SELECT 1 FROM plugin_connection_captures c WHERE c.connection=plugin_connections.id AND c.user=?1))
+ ORDER BY plugin,connector,CASE WHEN user=?1 THEN 0 ELSE 1 END,id`, raw, current)
 }
 
 func connectorBound(info protocol.PluginInfo, declaration protocol.PluginConnectorDeclaration, method protocol.PluginConnectorKind) *ConnectorBound {
@@ -272,7 +284,7 @@ func RecoverConnectorLogins(ctx context.Context, db *sql.Conn) error {
 		return err
 	}
 	for _, user := range users {
-		if err := recoverConnectorUserLogins(WithUser(ctx, user), db); err != nil {
+		if err := recoverConnectorUserLogins(WithCapturedUser(WithUser(ctx, user), user.ID), db); err != nil {
 			return err
 		}
 	}
@@ -514,11 +526,13 @@ func ConnectorAuthorization(ctx context.Context, db *sql.Conn, reference protoco
 		record, err = ReadConnectorRecord(ctx, db, *selected)
 	} else {
 		var saved *ConnectorRecord
-		user, userErr := pluginCapturedUserID(ctx, db)
+		raw, current, userErr := connectorUserIDs(ctx, db)
 		if userErr != nil {
 			return record, declaration, userErr
 		}
-		saved, err = readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE plugin=?1 AND connector=?2 AND user=?3", reference.Name, connector, user)
+		saved, err = readBody[ConnectorRecord](ctx, db, `SELECT body FROM plugin_connections WHERE plugin=?1 AND connector=?2 AND
+ (user=?3 OR (user=?4 AND EXISTS(SELECT 1 FROM plugin_connection_captures c WHERE c.connection=plugin_connections.id AND c.user=?3)))
+ ORDER BY CASE WHEN user=?3 THEN 0 ELSE 1 END,id LIMIT 1`, reference.Name, connector, raw, current)
 		if err == nil && saved == nil {
 			err = fault(protocol.ErrorCodeNotConfigured, "connector is not connected")
 		}

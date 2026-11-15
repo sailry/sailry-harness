@@ -72,7 +72,7 @@ func TestPluginUserNamespaces(t *testing.T) {
 				return fmt.Errorf("personal values crossed user boundary: %s", value.Value)
 			}
 			query := protocol.DefaultPluginStorageSearch()
-			query.Terms, query.Limit = []string{"isolated"}, 10
+			query.Terms, query.Limit, query.Weights = []string{"isolated"}, 10, [2]uint16{2, 1}
 			page, err := SearchPluginValues(owner, db, refs[index], query)
 			if err != nil {
 				return err
@@ -81,7 +81,7 @@ func TestPluginUserNamespaces(t *testing.T) {
 				return fmt.Errorf("search crossed user boundary: %#v", page)
 			}
 		}
-		captured := WithCapturedUser(contexts[1], local.ID)
+		captured := WithCapturedUser(contexts[0], local.ID)
 		settings, err := ResolvePluginSettings(captured, db, refs[0])
 		if err != nil || settings.Secrets["token"].Expose() != "0" {
 			return fmt.Errorf("admitted storage principal was lost: %v", err)

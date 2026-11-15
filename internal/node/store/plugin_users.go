@@ -23,6 +23,7 @@ func initializePluginUsers(ctx context.Context, db *sql.Conn) error {
 		"INSERT INTO plugin_search_spaces(space,name) SELECT 'user:'||?1,name FROM plugin_values WHERE index_data IS NOT NULL ON CONFLICT(space,name) DO NOTHING",
 		"INSERT INTO plugin_search_spaces(space,name) SELECT 'user:'||?1,name FROM plugins WHERE true ON CONFLICT(space,name) DO NOTHING",
 		"UPDATE plugin_connections SET user=?1 WHERE user IS NULL",
+		"INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user IS NOT NULL ON CONFLICT(connection,user) DO NOTHING",
 		"UPDATE knowledge_collections SET body=json_set(body,'$.capture.user',?1) WHERE json_extract(body,'$.capture.user') IS NULL",
 		"UPDATE knowledge_collections SET body=json_set(body,'$.capture.space','user:'||?1) WHERE json_extract(body,'$.collection.definition.source.kind')='storage' AND json_extract(body,'$.collection.definition.source.scope')='node' AND json_extract(body,'$.capture.space') IS NULL",
 	} {
@@ -202,4 +203,23 @@ func PluginStorageRequestContext(ctx context.Context, db *sql.Conn, request prot
 		return nil, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
 	}
 	return pluginStorageContext(ctx, db, *request.Plugin, storage)
+}
+
+func connectorUserIDs(ctx context.Context, db *sql.Conn) (string, string, error) {
+	captured, err := CapturedUser(ctx, db)
+	if err != nil {
+		return "", "", err
+	}
+	current, err := CurrentUser(ctx, db)
+	if err != nil {
+		return "", "", err
+	}
+	owner, err := ResolveUser(ctx, db, captured)
+	if err != nil {
+		return "", "", err
+	}
+	if owner.ID != current.ID {
+		return "", "", fault(protocol.ErrorCodePermissionDenied, "connection storage principal differs from its actor")
+	}
+	return captured.String(), current.ID.String(), nil
 }
