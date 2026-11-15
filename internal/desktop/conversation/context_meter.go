@@ -197,6 +197,15 @@ func (d *ContextStats) State() (string, kit.Tone) {
 	return "meter_state_near", kit.Caution
 }
 
+// used is the window used of its size, 345k / 1M; "" where either is
+// unknown.
+func (d *ContextStats) used() string {
+	if d.Tokens == nil || d.Limit == 0 {
+		return ""
+	}
+	return Count(int(*d.Tokens)) + " / " + Count(int(d.Limit))
+}
+
 // remaining is the room before compaction, or before the window's end
 // without a threshold; "" where either is unknown.
 func (d *ContextStats) remaining(c *ui.Context) string {
@@ -216,7 +225,7 @@ func (d *ContextStats) remaining(c *ui.Context) string {
 // ContextMeter is the composer's context indicator left of the model chip:
 // Kit's ring of the window used, which opens the session's context and usage
 // in a popover. The popover shows a summary first: a gauge with the state in
-// a word, the room left and the model; Show details expands it to every
+// a word and the window used of its size; Show details expands it to every
 // section. The cost, tokens and speed are the usage bar's under the
 // composer, so the summary does not repeat them. The toolbar ring is muted until compaction is near.
 func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
@@ -262,7 +271,8 @@ func ContextMeter(c *ui.Context, s *ContextMeterState, d *ContextStats) {
 }
 
 // contextSummary is the popover's first view: the gauge with the percent
-// in it beside the state, the room left and the model.
+// in it beside the state and the window used of its size. The model and the
+// room before compaction are in the details.
 func contextSummary(c *ui.Context, d *ContextStats) {
 	p := theme.Of(c)
 	key, tone := d.State()
@@ -288,11 +298,8 @@ func contextSummary(c *ui.Context, d *ContextStats) {
 		})
 		ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
 			ui.Text(c, i18n.T(c, key)).FontSize(15).FontWeight(500).TextColor(color).SingleLine()
-			if room := d.remaining(c); room != "" {
-				ui.Text(c, room).FontSize(13).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
-			}
-			if d.Model != "" {
-				kit.Level(c, ui.Text(c, d.Model).FontSize(12).TextColor(p.MutedForeground).SingleLine().MinWidth(0), 12, d.Model)
+			if used := d.used(); used != "" {
+				ui.Text(c, used).FontSize(13).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
 			}
 		})
 	})

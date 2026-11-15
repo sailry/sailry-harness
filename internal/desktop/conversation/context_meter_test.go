@@ -74,8 +74,8 @@ func TestContextMeterState(t *testing.T) {
 	}
 }
 
-// A click opens the summary: the state and the room before compaction, no
-// ratio of used to window and none of the usage bar's figures. Show details expands every section,
+// A click opens the summary: the state and the window used of its size,
+// none of the usage bar's figures. Show details expands every section,
 // Show less returns.
 func TestContextMeterExpands(t *testing.T) {
 	s := &conversation.ContextMeterState{}
@@ -88,12 +88,12 @@ func TestContextMeterExpands(t *testing.T) {
 	tt.ClickAt(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
 	meterSettle(tt)
 	texts := tt.Texts()
-	for _, want := range []string{"4.7%", i18n.In("en", "meter_state_plenty"), "Until compaction 752.8k"} {
+	for _, want := range []string{"4.7%", i18n.In("en", "meter_state_plenty"), "47.2k / 1M"} {
 		if !slices.Contains(texts, want) {
 			t.Errorf("the summary lacks %q: %q", want, texts)
 		}
 	}
-	if slices.Contains(texts, "/ 1M") || slices.Contains(texts, i18n.In("en", "meter_session_usage")) || slices.Contains(texts, "$0.14") {
+	if slices.Contains(texts, "claude-sonnet-5-5") || slices.Contains(texts, i18n.In("en", "meter_session_usage")) || slices.Contains(texts, "$0.14") {
 		t.Errorf("the summary shows the details: %q", texts)
 	}
 	details, ok := tt.Access(i18n.In("en", "meter_show_details"))
@@ -140,10 +140,10 @@ func TestContextMeterHover(t *testing.T) {
 		t.Fatal("the summary opened before the pointer rested")
 	}
 	meterSettle(tt)
-	if !s.Open || !tt.HasText("Until compaction 752.8k") {
+	if !s.Open || !tt.HasText("47.2k / 1M") {
 		t.Fatalf("resting on the meter left the summary closed: %q", tt.Texts())
 	}
-	figure, _ := tt.Access("Until compaction 752.8k")
+	figure, _ := tt.Access("47.2k / 1M")
 	tt.Move(figure.Bounds.X+2, figure.Bounds.Y+2)
 	meterSettle(tt)
 	if !s.Open {
