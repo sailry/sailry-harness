@@ -202,8 +202,13 @@ func TestMediaDrivers(t *testing.T) {
 		failure(err, InvalidResponse)
 	})
 
-	t.Run("hosted image tool", func(t *testing.T) {
+	t.Run("hosted image tool on a compatible Responses service", func(t *testing.T) {
 		handle("POST /v1/responses", func(writer http.ResponseWriter, _ *http.Request) {
+			if _, added := last().Body["max_tool_calls"]; added {
+				writer.WriteHeader(http.StatusBadRequest)
+				_, _ = writer.Write([]byte(`{"error":{"message":"Unsupported parameter: max_tool_calls"}}`))
+				return
+			}
 			writer.Header().Set("Content-Type", "text/event-stream")
 			for _, event := range []string{
 				`{"type":"response.created"}`,
@@ -218,7 +223,7 @@ func TestMediaDrivers(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := map[string]any{
-			"model": "gpt-fixture", "store": false, "stream": true, "max_tool_calls": float64(1),
+			"model": "gpt-fixture", "store": false, "stream": true,
 			"input":       []any{map[string]any{"role": "user", "content": "a fox"}},
 			"tools":       []any{map[string]any{"type": "image_generation", "output_format": "png"}},
 			"tool_choice": map[string]any{"type": "image_generation"},

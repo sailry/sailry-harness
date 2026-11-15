@@ -437,7 +437,6 @@ func (call *mediaCall) imageTool(ctx context.Context, prompt string) (MediaOutpu
 	body["tool_choice"] = map[string]any{"type": "image_generation"}
 	if call.binding.Provider.Authentication == protocol.AuthenticationApiKey {
 		body["input"] = []any{map[string]any{"role": "user", "content": prompt}}
-		body["max_tool_calls"] = 1
 	} else {
 		body["input"] = []any{map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": prompt}}}}
 	}
