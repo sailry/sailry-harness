@@ -128,8 +128,11 @@ type Decoration struct {
 	// Height is the banner, hero and button-edge height, or a corner's side.
 	Height float32 `json:"height"`
 	// TileSize is a tile's width; its aspect ratio is the picture's.
-	TileSize float32  `json:"tile_size"`
-	License  *License `json:"license"`
+	TileSize float32 `json:"tile_size"`
+	// Outset is how far corner art and the new session button's ornament
+	// reach past their element's edges, so an ornament can break the frame.
+	Outset  float32  `json:"outset"`
+	License *License `json:"license"`
 
 	pic *picture
 }
@@ -148,13 +151,14 @@ func (d *Decoration) UnmarshalJSON(b []byte) error {
 		Opacity   float32    `json:"opacity"`
 		Height    uint16     `json:"height"`
 		TileSize  uint16     `json:"tile_size"`
+		Outset    uint16     `json:"outset"`
 		License   *License   `json:"license"`
 	}
 	decoded.Fit, decoded.Alignment, decoded.Opacity, decoded.Height, decoded.TileSize = Cover, [2]float32{0.5, 0.5}, 1, 64, 256
 	if err := decodeThemeObject(b, &decoded, "path"); err != nil {
 		return err
 	}
-	*d = Decoration{Path: decoded.Path, Fit: decoded.Fit, Alignment: decoded.Alignment, Opacity: decoded.Opacity, Height: float32(decoded.Height), TileSize: float32(decoded.TileSize), License: decoded.License}
+	*d = Decoration{Path: decoded.Path, Fit: decoded.Fit, Alignment: decoded.Alignment, Opacity: decoded.Opacity, Height: float32(decoded.Height), TileSize: float32(decoded.TileSize), Outset: float32(decoded.Outset), License: decoded.License}
 	return nil
 }
 

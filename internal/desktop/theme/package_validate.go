@@ -128,6 +128,10 @@ func (value *Package) validate() error {
 			if !themeRange(asset.Opacity, 0, 1) || !themeRange(asset.Alignment[0], 0, 1) || !themeRange(asset.Alignment[1], 0, 1) || !themeInteger(asset.Height, minimum, maximum) {
 				return fmt.Errorf("invalid theme decoration dimensions: %s", slot)
 			}
+			outset := strings.HasSuffix(slot, ".top_left") || strings.HasSuffix(slot, ".bottom_right") || slot == "button.new_session"
+			if !themeInteger(asset.Outset, 0, 32) || (asset.Outset > 0 && !outset) {
+				return fmt.Errorf("invalid theme decoration outset: %s", slot)
+			}
 			if asset.License != nil {
 				if err := asset.License.validate(); err != nil {
 					return err

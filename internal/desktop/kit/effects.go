@@ -85,12 +85,14 @@ func particles(pt *ui.Painter, r ui.Rect, e theme.Effect, phase float32) {
 		switch e.Kind {
 		case theme.Pulse:
 			// A soft halo 24% wide and 20% high, blurred by a quarter of
-			// the height, as a radial fade.
-			rad := max(r.W*0.12, r.H*0.10) + r.H*0.25
+			// the height, as a radial fade; no wider than two thirds of the
+			// height either way, so on a wide strip it stays behind its
+			// picture and fades out just past the strip.
+			rad := min(max(r.W*0.12, r.H*0.10)+r.H*0.25, r.H*0.65)
 			pt.FillRadialGradient(ui.Rect{X: cx - rad, Y: cy - rad, W: 2 * rad, H: 2 * rad}, ui.RadialGradient{
 				Radius: rad,
 				Stops: []ui.GradientStop{
-					{At: 0, Color: ink}, {At: 0.4, Color: ink.Alpha(0.75)}, {At: 0.7, Color: ink.Alpha(0.3)}, {At: 1, Color: ink.Alpha(0)},
+					{At: 0, Color: ink}, {At: 0.35, Color: ink.Alpha(0.6)}, {At: 0.65, Color: ink.Alpha(0.22)}, {At: 1, Color: ink.Alpha(0)},
 				},
 			}, 0)
 		case theme.Scan:

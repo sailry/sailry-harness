@@ -56,13 +56,13 @@ func Picture(pt *ui.Painter, d *theme.Decoration, r ui.Rect) {
 }
 
 // Corners paints the slot's top_left and bottom_right corner art: squares of
-// the decoration's height in r's corners.
+// the decoration's height in r's corners, moved out past them by its outset.
 func Corners(pt *ui.Painter, r ui.Rect, v *theme.Variant, slot string) {
 	if d := v.Asset(slot + ".top_left"); d != nil {
-		Picture(pt, d, ui.Rect{X: r.X, Y: r.Y, W: d.Height, H: d.Height})
+		Picture(pt, d, ui.Rect{X: r.X - d.Outset, Y: r.Y - d.Outset, W: d.Height, H: d.Height})
 	}
 	if d := v.Asset(slot + ".bottom_right"); d != nil {
-		Picture(pt, d, ui.Rect{X: r.X + r.W - d.Height, Y: r.Y + r.H - d.Height, W: d.Height, H: d.Height})
+		Picture(pt, d, ui.Rect{X: r.X + r.W - d.Height + d.Outset, Y: r.Y + r.H - d.Height + d.Outset, W: d.Height, H: d.Height})
 	}
 }
 
@@ -104,11 +104,11 @@ func Banner(c *ui.Context, slot string) {
 		return
 	}
 	layers := effects(c, v, slot)
+	// Unclipped, so a halo fades out past the strip instead of being cut
+	// at its edges.
 	ui.Box(c.Key(slot)).FillWidth().Height(d.Height).Shrink(0).PassThrough().Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.Clip(r, 0, func() {
-			paintEffects(pt, r, layers)
-			Picture(pt, d, r)
-		})
+		paintEffects(pt, r, layers)
+		Picture(pt, d, r)
 	})
 }
 
@@ -145,7 +145,8 @@ func HasArtIcon(c *ui.Context, key string) bool {
 
 // NewSessionArt lays the theme's button.new_session ornament over the
 // primary button it is called on: a strip of the decoration's height from
-// its top, rounded to the theme radius, taking no input.
+// its top, taking no input. Without an outset it is clipped to the button's
+// rounded box; with one it reaches that far past the button's edges.
 func NewSessionArt(c *ui.Context, b ui.Element) ui.Element {
 	p := theme.Of(c)
 	d := p.Variant.Asset("button.new_session")
@@ -154,8 +155,11 @@ func NewSessionArt(c *ui.Context, b ui.Element) ui.Element {
 	}
 	radius := p.Radius
 	return b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-		pt.Clip(r, radius, func() {
-			Picture(pt, d, ui.Rect{X: r.X, Y: r.Y, W: r.W, H: min(r.H, d.Height)})
-		})
+		strip := ui.Rect{X: r.X, Y: r.Y, W: r.W, H: min(r.H, d.Height)}
+		if o := d.Outset; o > 0 {
+			Picture(pt, d, ui.Rect{X: strip.X - o, Y: strip.Y - o, W: strip.W + 2*o, H: strip.H + 2*o})
+			return
+		}
+		pt.Clip(r, radius, func() { Picture(pt, d, strip) })
 	})
 }
