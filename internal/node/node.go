@@ -839,7 +839,6 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	unlock := node.agent.LockDecision(job.request.Command)
 	defer unlock()
 	publication := node.agent.LockPublication()
-	defer publication()
 	var output protocol.Output
 	var operationErr error
 	var changes []protocol.Event
@@ -908,6 +907,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		return admission.Complete(ctx, db, job.caller, job.request.ID, response(output, operationErr))
 	})
 	if previous != nil {
+		publication()
 		return *previous, err
 	}
 	if err == nil {
@@ -916,6 +916,9 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 		node.conversationEvents(changes)
 		node.systemEvents(changes)
+	}
+	publication()
+	if err == nil {
 		node.NotifyConfigurationFollow(changes)
 		if operationErr == nil && job.request.Command.Kind == "identity" {
 			if refreshErr := node.RefreshIdentity(ctx); refreshErr != nil {

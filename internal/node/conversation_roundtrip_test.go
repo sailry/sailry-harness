@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -104,6 +105,12 @@ func TestAgentRoundTrip(t *testing.T) {
 	streaming := wait(func(state protocol.ConversationSnapshot) bool { return len(state.Drafts) > 0 })
 	if len(streaming.Page.Queue.Items) != 0 {
 		t.Fatal("committed input remained in the pending queue during streaming")
+	}
+	update, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	_, followErr := controller.ConfigurationFollow(update, protocol.ConfigurationFollowCommand{Action: "sync"})
+	cancel()
+	if followErr != nil {
+		t.Fatalf("configuration lifecycle blocked a running turn: %v", followErr)
 	}
 	finish()
 	state := wait(func(state protocol.ConversationSnapshot) bool {
