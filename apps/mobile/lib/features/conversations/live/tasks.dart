@@ -11,6 +11,7 @@ import '../../../ui/project_icon.dart';
 import '../../../ui/swipe_action.dart';
 import '../../../ui/toast.dart';
 import '../../resources/host/host_sheet.dart';
+import '../../resources/pair_form.dart';
 import '../../resources/project_form.dart';
 import '../../resources/workspace.dart';
 import '../../terminal/terminal_page.dart';
@@ -240,7 +241,22 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         titleSize: 28,
         onRefresh: selected?.refresh,
         failure: selected?.connected != true
-            ? HostState(added: selected != null, failure: selected?.error)
+            ? HostState(
+                added: selected != null,
+                failure: selected?.error,
+                // The first screen offers pairing, so an offline or missing
+                // host is not a dead end.
+                action: FilledButton(
+                  onPressed: widget.session.ready
+                      ? () => showAppSheet<void>(
+                          context,
+                          context.tr('pairTitle'),
+                          child: PairForm(session: widget.session),
+                        )
+                      : null,
+                  child: Text(context.tr('pair')),
+                ),
+              )
             : null,
         actions: [
           if (hosts.isNotEmpty)
