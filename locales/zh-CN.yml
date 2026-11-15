@@ -2241,7 +2241,12 @@ usage_column_provider: 供应商
 usage_column_project: 归属
 usage_column_first_token: TTFT
 connections_hosts: 主机
-connections_mobile: 移动端
+connections_mobile: 主控设备
+connections_bidirectional: 双向
+connections_legacy_bidirectional: 旧版双向
+connections_only_host: 仅主机
+connections_only_controller: 仅主控
+connections_direction_saved: 已更新设备访问方向
 connections_online: 在线
 connections_offline: 离线
 connections_device: '设备 %{id}'

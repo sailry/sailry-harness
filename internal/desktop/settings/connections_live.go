@@ -24,6 +24,7 @@ type ConnectionActions struct {
 	Add         func(ConnectionDraft, func(bool))
 	CheckStatus func(func(bool))
 	Revoke      func(viewmodel.Device)
+	Narrow      func(viewmodel.Device, string)
 	EditNetwork func(viewmodel.Device)
 	SaveNetwork func(*NetworkEditor)
 	BrowseKey   func(func(string))

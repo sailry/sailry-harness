@@ -13,6 +13,7 @@ import (
 )
 
 type networkPeer struct {
+	trust      link.PeerTrust
 	address    link.EndpointAddress
 	info       link.PeerInfo
 	controller *client.Client
@@ -106,8 +107,17 @@ func (network *Network) discover() {
 	if err != nil {
 		return
 	}
+	directions, err := network.endpoint.PeerDirections(network.ctx)
+	if err != nil {
+		return
+	}
+	trust := map[protocol.NodeID]link.PeerTrust{}
+	for _, value := range directions {
+		trust[value.ID] = value
+	}
 	present := map[protocol.NodeID]bool{}
 	var removed []*networkPeer
+	var detached []*networkPeer
 	network.mu.Lock()
 	if network.closed {
 		network.mu.Unlock()
@@ -120,6 +130,12 @@ func (network *Network) discover() {
 		} else {
 			network.peers[address.ID].address = address
 		}
+		network.peers[address.ID].trust = trust[address.ID]
+		peer := network.peers[address.ID]
+		if peer.controller != nil && !peer.trust.Direction.AllowsOutbound() {
+			detached = append(detached, &networkPeer{controller: peer.controller, release: peer.release})
+			peer.controller, peer.release = nil, nil
+		}
 	}
 	for id, peer := range network.peers {
 		if !present[id] {
@@ -129,6 +145,9 @@ func (network *Network) discover() {
 	}
 	network.mu.Unlock()
 	for _, peer := range removed {
+		network.closePeer(peer)
+	}
+	for _, peer := range detached {
 		network.closePeer(peer)
 	}
 	for _, address := range addresses {
@@ -146,12 +165,16 @@ func (network *Network) inspect(id protocol.NodeID) {
 	}
 	peer.inspecting = true
 	address := peer.address
+	legacy := peer.trust.Legacy && peer.trust.Direction == link.DirectionBoth
 	network.workers.Add(1)
 	network.mu.Unlock()
 	go func() {
 		defer network.workers.Done()
 		info, err := network.endpoint.Inspect(network.ctx, address)
 		discovered := err == nil
+		if discovered && !info.Execution && legacy {
+			_ = network.endpoint.NarrowLegacyController(network.ctx, id)
+		}
 		if err == nil && info.Execution && network.endpoint.Direction(id).AllowsOutbound() {
 			err = info.Compatibility()
 		}
@@ -184,15 +207,19 @@ func (network *Network) inspect(id protocol.NodeID) {
 		}
 		network.mu.Lock()
 		retained := !network.closed && network.peers[id] == peer
+		outbound := network.endpoint.Direction(id).AllowsOutbound()
+		if !outbound && discovered {
+			err = nil
+		}
 		if retained {
 			peer.inspecting, peer.err, peer.online = false, err, err == nil
-			if create && err == nil {
+			if create && err == nil && outbound {
 				peer.controller = controller
 				peer.release = controller.OnChange(network.changed)
 			}
 		}
 		network.mu.Unlock()
-		if create && (!retained || err != nil) {
+		if create && (!retained || err != nil || !outbound) {
 			_ = controller.Close()
 		}
 		if !retained {

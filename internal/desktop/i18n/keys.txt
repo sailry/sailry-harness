@@ -843,6 +843,11 @@ connection_route_relay
 connections_device
 connections_hosts
 connections_mobile
+connections_bidirectional
+connections_legacy_bidirectional
+connections_only_host
+connections_only_controller
+connections_direction_saved
 connections_offline
 connections_online
 connections_revoke_confirm

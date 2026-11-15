@@ -73,7 +73,8 @@ type ConnectionStatus struct {
 	Distributions                             []string
 	DistributionsLoading, DistributionsLoaded bool
 	// Revoking are the devices whose pairing is being removed, by ID.
-	Revoking map[string]bool
+	Revoking  map[string]bool
+	Narrowing map[string]bool
 }
 
 // SetConnectionStatus is the backend's report, each frame.
@@ -192,6 +193,13 @@ func devices(c *ui.Context, m *Model, execution bool) {
 		for _, d := range list {
 			row := ui.Row(c.Key(d.ID)).Padding(12, 0).Gap(12)
 			row.ContextMenu(func(menu *ui.Menu) {
+				if !d.Local && d.Direction == "both" {
+					for _, choice := range []struct{ direction, key string }{{"host", "connections_only_host"}, {"controller", "connections_only_controller"}} {
+						if menu.Item(i18n.T(c, choice.key)).Disabled(m.pairing.status.Narrowing[d.ID]).Chosen() && m.ConnectionActions != nil && m.ConnectionActions.Narrow != nil {
+							m.ConnectionActions.Narrow(d, choice.direction)
+						}
+					}
+				}
 				// Editing a host's network asks the host for it.
 				if execution && menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
 					if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {
@@ -214,6 +222,13 @@ func devices(c *ui.Context, m *Model, execution bool) {
 					// One muted line: the system, the Sailry release and the
 					// start of the Node ID, whose tooltip is the whole ID.
 					ui.Row(c).MinWidth(0).Gap(4).Children(func() {
+						if d.Direction == "both" {
+							key := "connections_bidirectional"
+							if d.Legacy {
+								key = "connections_legacy_bidirectional"
+							}
+							ui.Text(c, i18n.T(c, key)+" ·").FontSize(14).LineHeight(1.3).SingleLine().Shrink(1).TextColor(p.Description())
+						}
 						if detail := deviceDetail(d); detail != "" {
 							ui.Text(c, detail+" ·").FontSize(14).LineHeight(1.3).SingleLine().Shrink(1).TextColor(p.Description())
 						}

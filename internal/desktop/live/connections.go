@@ -36,6 +36,7 @@ type connectionState struct {
 	localName       string
 	revoking        map[string]bool
 	revocations     map[protocol.NodeID]protocol.Request
+	narrowing       map[string]bool
 	wsl             wslDistributions
 }
 
@@ -65,6 +66,7 @@ func (r *Runtime) initConnectionActions() {
 		Add:         r.addConnection,
 		CheckStatus: r.checkSSHHost,
 		Revoke:      r.revokeConnection,
+		Narrow:      r.narrowConnection,
 		EditNetwork: r.editConnectionNetwork,
 		SaveNetwork: r.saveConnectionNetwork,
 		RetryShare:  func() { r.startConnectionShare(0) },
@@ -178,7 +180,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 func (r *Runtime) connectionStatus() settings.ConnectionStatus {
 	state := r.connections
 	status := settings.ConnectionStatus{
-		Revoking: state.revoking, Distributions: state.wsl.names,
+		Revoking: state.revoking, Narrowing: state.narrowing, Distributions: state.wsl.names,
 		DistributionsLoading: state.wsl.loading, DistributionsLoaded: state.wsl.loaded,
 	}
 	if !r.App.Settings.Adding() {
@@ -407,7 +409,7 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 		for _, peer := range r.network.snapshot() {
 			id := peer.address.ID.String()
 			remembered, exists := known[id]
-			device := viewmodel.Device{ID: id, Execution: true, Online: peer.online}
+			device := viewmodel.Device{ID: id, Execution: true, Online: peer.online, Direction: string(peer.trust.Direction), Legacy: peer.trust.Legacy}
 			if exists {
 				device.Execution = remembered.Execution
 				if remembered.Name != nil {
@@ -429,6 +431,9 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 				if peer.connection.RTTMS != nil {
 					device.RTT = int(*peer.connection.RTTMS)
 				}
+			}
+			if peer.trust.Direction.Valid() {
+				device.Execution = peer.trust.Direction.AllowsOutbound() && device.Execution
 			}
 			devices = append(devices, device)
 		}

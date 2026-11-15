@@ -548,7 +548,10 @@ An invitation grants inbound controller access on the inviter and outbound host
 access on the claimant. A separate invitation in the opposite direction combines
 the permissions. Paired endpoint inspection remains available for device metadata;
 commands, observations and byte streams enforce the execution direction. Legacy
-Desktop peers retain both directions; headless Host peers migrate to controllers.
+Desktop peers retain both directions until narrowed; authenticated inspection can
+narrow a legacy nonexecution endpoint to controller without changing membership.
+The existing connection menu exposes host-only/controller-only choices and marks
+legacy bidirectional access. Headless Host peers migrate to controllers.
 
 Link uses iroh endpoint identity for authenticated transport. The pairing service
 exchanges a six-digit, one-minute code for an opaque invitation ticket; Link

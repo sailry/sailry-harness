@@ -33,6 +33,7 @@ func (direction PeerDirection) AllowsOutbound() bool {
 type PeerTrust struct {
 	ID        protocol.NodeID `json:"id"`
 	Direction PeerDirection   `json:"direction"`
+	Legacy    bool            `json:"legacy,omitempty"`
 }
 
 func mergeDirection(current, added PeerDirection) PeerDirection {
@@ -49,6 +50,23 @@ func (link *Link) Direction(peer protocol.NodeID) PeerDirection {
 		return ""
 	}
 	return link.directions[peer]
+}
+
+func (link *Link) PeerDirections(ctx context.Context) ([]PeerTrust, error) {
+	return link.store.Directions(ctx)
+}
+
+// NarrowLegacyController runs only after authenticated inspection positively
+// identifies a controller without execution. The store checks legacy state in
+// the same write, so a newer explicit pairing cannot be narrowed by a stale read.
+func (link *Link) NarrowLegacyController(ctx context.Context, peer protocol.NodeID) error {
+	store, ok := link.store.(interface {
+		NarrowLegacyController(context.Context, protocol.NodeID) error
+	})
+	if !ok {
+		return nil
+	}
+	return link.updateTrust(ctx, peer, func() error { return store.NarrowLegacyController(ctx, peer) })
 }
 
 // SetDirection changes an existing relationship and releases connections that

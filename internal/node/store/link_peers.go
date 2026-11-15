@@ -110,7 +110,7 @@ func SaveNetworkSelection(ctx context.Context, db *sql.Conn, expected uint64, se
 
 // LinkDirections loads persisted direction independently of reachability.
 func LinkDirections(ctx context.Context, db *sql.Conn) ([]link.PeerTrust, error) {
-	rows, err := db.QueryContext(ctx, "SELECT identity,direction FROM link_peers ORDER BY identity")
+	rows, err := db.QueryContext(ctx, "SELECT identity,direction,legacy FROM link_peers ORDER BY identity")
 	if err != nil {
 		return nil, err
 	}
@@ -119,13 +119,14 @@ func LinkDirections(ctx context.Context, db *sql.Conn) ([]link.PeerTrust, error)
 	for rows.Next() {
 		var identity []byte
 		var direction link.PeerDirection
-		if err := rows.Scan(&identity, &direction); err != nil {
+		var legacy bool
+		if err := rows.Scan(&identity, &direction, &legacy); err != nil {
 			return nil, err
 		}
 		if len(identity) != len(protocol.NodeID{}) || !direction.Valid() {
 			return nil, errors.New("invalid stored peer trust")
 		}
-		values = append(values, link.PeerTrust{ID: protocol.NodeID(identity), Direction: direction})
+		values = append(values, link.PeerTrust{ID: protocol.NodeID(identity), Direction: direction, Legacy: legacy})
 	}
 	return values, rows.Err()
 }
