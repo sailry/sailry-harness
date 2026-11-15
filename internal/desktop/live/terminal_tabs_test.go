@@ -248,28 +248,6 @@ func testTerminalTabsClose(t *testing.T) {
 	})
 }
 
-// testTerminalTabsProject covers PROJ-028: a project's Terminal records are
-// its worktrees' active terminals.
-func testTerminalTabsProject(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		worktree := protocol.WorktreeID{1}
-		running, closed := terminalTabsTestInfo(1, worktree, "running"), terminalTabsTestInfo(2, worktree, "closed")
-		other := terminalTabsTestInfo(3, protocol.WorktreeID{9}, "running")
-		stopped, exited := terminalTabsTestInfo(4, worktree, "stopped"), terminalTabsTestInfo(5, worktree, "exited")
-		failed := terminalTabsTestInfo(6, worktree, "failed")
-		root, _ := terminalTabsFixture(t, running, closed, stopped, exited, failed, other)
-		project := &viewmodel.Project{ID: protocol.ProjectID{1}.String(), Host: root.controller.Target().String()}
-		terminals := root.projectTerminals(project)
-		if len(terminals) != 1 || terminals[0].ID != running.ID.String() || terminals[0].Path != "/fixture" {
-			t.Fatalf("project terminals = %+v", terminals)
-		}
-		root.showWorkspaceTerminal(running.ID.String())
-		if !root.App.HasWorkspaceTerminal(running.ID.String()) || root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: running.ID.String()}) {
-			t.Fatal("opening a project terminal record did not show its independent workspace")
-		}
-	})
-}
-
 // testTerminalTabsClosePending covers a tab closed before create_terminal
 // answered: the answer closes the terminal and the tab leaves.
 func testTerminalTabsClosePending(t *testing.T) {

@@ -34,7 +34,7 @@ func (a *App) OpenWorkspaceTerminal(id, title string) {
 }
 
 // DropWorkspaceTerminal closes only a main terminal's surface. Its running
-// process remains in the Node's inventory and can be reopened from its project.
+// process remains in the Node's inventory and can be opened from terminal activity.
 func (a *App) DropWorkspaceTerminal(id string) {
 	w := &a.panes
 	t := panes.Target{Kind: panes.Terminal, ID: id}

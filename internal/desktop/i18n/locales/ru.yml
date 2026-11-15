@@ -32,6 +32,7 @@ activity_running: Выполняется
 activity_waiting: Требует внимания
 notification_unread: Непрочитанные
 project_sessions_empty: Сессий не проводится
+project_archived: Archived
 settings_group_app: Применение
 settings_group_ai: AI
 settings_group_tools: Инструменты и соединения

@@ -408,8 +408,9 @@ split groups with conversations. Header number buttons switch those groups and
 restore each group's focused pane. Terminal tabs opened in the right panel stay
 with that conversation and do not join splits. A terminal ID has one surface at a
 time; moving it keeps its Node attachment. Closing a main surface releases its
-observation while the Node process continues, available from the project's
-terminal inventory. Explicitly closing a right-panel terminal stops its shell.
+observation while the Node process continues, available through terminal activity.
+Explicitly closing a right-panel terminal stops its shell. Project overview lists
+active and archived conversations separately.
 
 Desktop reuses read-only conversation source copies until a Client observation
 changes, including pagination and connection state. Completed history projections

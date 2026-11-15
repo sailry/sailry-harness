@@ -121,6 +121,9 @@ func TestProjectMenu(t *testing.T) {
 		a, tt := demo(t)
 		choose(t, tt, name, en("workspace_project"))
 		pr := a.overviewProject()
+		archived := pr.Conversations[len(pr.Conversations)-1]
+		archived.Archived = true
+		settle(tt)
 		rows := func() []ui.AccessInfo {
 			var out []ui.AccessInfo
 			for _, cv := range pr.Conversations {
@@ -134,8 +137,8 @@ func TestProjectMenu(t *testing.T) {
 			return out
 		}
 		list := rows()
-		if len(list) != len(pr.Conversations) {
-			t.Fatalf("%d record rows for %d sessions", len(list), len(pr.Conversations))
+		if len(list) != len(pr.Conversations)-1 {
+			t.Fatalf("%d record rows for %d active sessions", len(list), len(pr.Conversations)-1)
 		}
 		for i, row := range list {
 			if row.Bounds.H < 56 || row.Bounds.X != list[0].Bounds.X || row.Bounds.W != list[0].Bounds.W {
@@ -195,18 +198,32 @@ func TestProjectMenu(t *testing.T) {
 		if len(rows()) != 0 || !tt.HasText(en("connection_search_empty")) {
 			t.Fatalf("no empty search state: %q", tt.Texts())
 		}
-		a.overview.search, a.overview.tab = "", 1
+		a.overview.search = ""
+		click(t, tt, en("project_archived"))
 		settle(tt)
-		if !tt.HasText(en("workspace_no_terminal")) {
-			t.Fatalf("no empty terminals state: %q", tt.Texts())
+		if got := rows(); len(got) != 1 || got[0].Name != archived.Title || !archived.Archived {
+			t.Fatalf("the archive tab did not isolate the archived session: %v", got)
 		}
-		// A terminal made from the page lists in the Terminals tab.
-		clickButton(t, tt, en("workspace_new_terminal"))
+		a.overview.search = pr.Conversations[0].Title
 		settle(tt)
-		a.Navigate(ProjectPage)
+		if len(rows()) != 0 || !tt.HasText(en("connection_search_empty")) {
+			t.Fatalf("an active session matched the archive search: %q", tt.Texts())
+		}
+		a.overview.search = ""
 		settle(tt)
-		if tt.HasText(en("workspace_no_terminal")) || !tt.HasText(pr.Path) {
-			t.Fatalf("the new terminal is not listed: %q", tt.Texts())
+		row := rows()[0]
+		tt.RightClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		if err := tt.ChooseMenuItem(en("backup_unarchive")); err != nil {
+			t.Fatal(err)
+		}
+		settle(tt)
+		if archived.Archived || len(rows()) != 0 || !tt.HasText(en("backup_no_archived")) {
+			t.Fatalf("restoring an archived session left its archive row: %q", tt.Texts())
+		}
+		click(t, tt, en("workspace_sessions"))
+		settle(tt)
+		if len(rows()) != len(pr.Conversations) {
+			t.Fatal("the restored session did not return to the active list")
 		}
 	})
 

@@ -24,19 +24,10 @@ type ProjectActions struct {
 	OpenSession    func(*viewmodel.Conversation, func(bool))
 	Repository     func() ProjectRepository
 	Initialize     func(func(bool))
-	// NewTerminal starts a terminal in the project's main worktree and shows
-	// its tab. Terminals lists the project's terminals the Node has not
-	// closed, and OpenTerminal shows one's tab.
-	NewTerminal  func(*viewmodel.Project)
-	Terminals    func() []ProjectTerminal
-	OpenTerminal func(id string)
+	// NewTerminal opens an independent terminal in the project's worktree.
+	NewTerminal func(*viewmodel.Project)
 	// Controls draws the controls packages add to the page, after its own.
 	Controls func(*ui.Context)
-}
-
-// ProjectTerminal is one row of a project's Terminal records.
-type ProjectTerminal struct {
-	ID, Title, Path string
 }
 
 type projectOverview struct {
@@ -97,34 +88,36 @@ func (a *App) projectView(c *ui.Context) {
 					}
 				}
 			})
-			ui.Text(c, project.Path).FontSize(14).SingleLine().TextColor(palette.MutedForeground)
-			repository := ProjectRepository{Known: project.Branch != "", Branch: project.Branch}
-			if state.actions.Repository != nil {
-				repository = state.actions.Repository()
-			}
-			ui.Row(c.Key("repository")).Gap(8).Children(func() {
-				if repository.Known && repository.Directory {
-					label := i18n.T(c, "git_initialize")
-					kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
-						Disabled(state.pending || state.actions.Initialize == nil).Children(func() {
-						if state.pending && state.opening == "" && !state.initialize {
-							kit.Busy(c)
-						} else {
-							ui.Icon(c, icons.Network).FontSize(16)
-						}
-						ui.Text(c, label).FontSize(14)
-					}).OnClick(func() {
-						if len(repository.Repositories) > 0 {
-							state.repositories = append([]string(nil), repository.Repositories...)
-							state.initialize = true
-						} else {
-							state.initializeGit()
-						}
-					})
-				} else if repository.Branch != "" {
-					ui.Icon(c, icons.Network).FontSize(16).TextColor(palette.MutedForeground)
-					ui.Text(c, repository.Branch).FontSize(14).TextColor(palette.MutedForeground)
+			ui.Column(c.Key("location")).FillWidth().Gap(4).Children(func() {
+				ui.Text(c, project.Path).FontSize(14).SingleLine().TextColor(palette.MutedForeground)
+				repository := ProjectRepository{Known: project.Branch != "", Branch: project.Branch}
+				if state.actions.Repository != nil {
+					repository = state.actions.Repository()
 				}
+				ui.Row(c.Key("repository")).Gap(8).Children(func() {
+					if repository.Known && repository.Directory {
+						label := i18n.T(c, "git_initialize")
+						kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
+							Disabled(state.pending || state.actions.Initialize == nil).Children(func() {
+							if state.pending && state.opening == "" && !state.initialize {
+								kit.Busy(c)
+							} else {
+								ui.Icon(c, icons.Network).FontSize(16)
+							}
+							ui.Text(c, label).FontSize(14)
+						}).OnClick(func() {
+							if len(repository.Repositories) > 0 {
+								state.repositories = append([]string(nil), repository.Repositories...)
+								state.initialize = true
+							} else {
+								state.initializeGit()
+							}
+						})
+					} else if repository.Branch != "" {
+						ui.Icon(c, icons.Network).FontSize(16).TextColor(palette.MutedForeground)
+						ui.Text(c, repository.Branch).FontSize(14).TextColor(palette.MutedForeground)
+					}
+				})
 			})
 			ui.Row(c.Key("actions")).Gap(8).Wrap().Children(func() {
 				label := i18n.T(c, "workspace_new_session")
@@ -152,13 +145,13 @@ func (a *App) projectView(c *ui.Context) {
 	state.initializeDialog(c)
 }
 
-// projectRecordsView is the project's records: its sessions or its
-// terminals, searched, in the list Settings pages use (kit.List: the filled
+// projectRecordsView is the project's active or archived sessions, searched
+// in the list Settings pages use (kit.List: the filled
 // card, rows apart by hairlines, the empty state inside it).
 func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, state *projectOverview) {
 	ui.Column(c.Key("project-records")).FillWidth().Gap(12).Padding(16, 0, 0, 0).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(16).Wrap().Children(func() {
-			kit.Segmented(c, "tabs", &state.tab, []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "terminal")}, kit.SegmentedProps{})
+			kit.Segmented(c, "tabs", &state.tab, []string{i18n.T(c, "workspace_sessions"), i18n.T(c, "project_archived")}, kit.SegmentedProps{})
 			ui.Spacer(c)
 			label := i18n.T(c, "search")
 			ui.SearchField(c.Key("search"), &state.search).Placeholder(label).Label(label).Width(240).MinWidth(0)
@@ -169,47 +162,31 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 		}
 		var rows []func()
 		icon, none := icons.Bot, "project_sessions_empty"
-		switch {
-		case state.tab == 1 && state.actions.Terminals == nil:
-			icon, none, query = icons.Terminal, "unavailable", ""
-		case state.tab == 1:
-			icon, none = icons.Terminal, "workspace_no_terminal"
-			for _, terminal := range state.actions.Terminals() {
-				title := terminal.Title
-				if title == "" {
-					title = i18n.T(c, "terminal")
-				}
-				if !matches(title, terminal.Path) {
-					continue
-				}
-				rows = append(rows, func() {
-					projectRecord(c, "terminal/"+terminal.ID, title, terminal.Path, icons.Terminal, false, nil).
-						Disabled(state.actions.OpenTerminal == nil).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
-				})
+		archived := state.tab == 1
+		if archived {
+			icon, none = icons.Archive, "backup_no_archived"
+		}
+		for _, session := range project.Conversations {
+			if session.Archived != archived || (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
+				continue
 			}
-		default:
-			for _, session := range project.Conversations {
-				if (!a.sampled() && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
-					continue
-				}
-				title := sidebar.Title(c, session)
-				path := session.WorktreePath
-				if path == "" {
-					path = project.Path
-				}
-				if !matches(title, path) {
-					continue
-				}
-				id := session.Node + "/" + session.ID
-				rows = append(rows, func() {
-					projectRecord(c, id, title, path, nil, state.pending && state.opening == id, project).
-						Disabled(state.pending || state.actions.OpenSession == nil).
-						ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
-						state.pending, state.opening = true, id
-						state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
-					})
-				})
+			title := sidebar.Title(c, session)
+			path := session.WorktreePath
+			if path == "" {
+				path = project.Path
 			}
+			if !matches(title, path) {
+				continue
+			}
+			id := session.Node + "/" + session.ID
+			rows = append(rows, func() {
+				projectRecord(c, id, title, path, nil, state.pending && state.opening == id, project).
+					Disabled(state.pending || state.actions.OpenSession == nil).
+					ContextMenu(func(m *ui.Menu) { a.Sidebar.SessionMenu(c, m, session) }).OnClick(func() {
+					state.pending, state.opening = true, id
+					state.actions.OpenSession(session, func(bool) { state.pending, state.opening = false, "" })
+				})
+			})
 		}
 		if query != "" {
 			none = "connection_search_empty"

@@ -32,6 +32,7 @@ activity_running: 進行中
 activity_waiting: 待處理
 notification_unread: 未讀
 project_sessions_empty: 暫無會話
+project_archived: Archived
 settings_group_app: 應用
 settings_group_ai: AI
 settings_group_tools: 工具與連線

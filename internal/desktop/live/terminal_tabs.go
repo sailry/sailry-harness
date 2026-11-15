@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -230,29 +229,6 @@ func (r *Runtime) newProjectTerminal(project *viewmodel.Project, relative string
 		return
 	}
 	root.createLiveTerminal(owner, worktree.ID, terminalWorkspace)
-}
-
-// projectTerminals are the terminals of a project's worktrees its Node has
-// not closed.
-func (r *Runtime) projectTerminals(project *viewmodel.Project) []shell.ProjectTerminal {
-	owner := r.localRuntime().projectOverviewRuntime(project)
-	if owner == nil {
-		return nil
-	}
-	snapshot := owner.snapshot()
-	worktrees := map[protocol.WorktreeID]bool{}
-	for _, worktree := range snapshot.Worktrees {
-		if worktree.Project != nil && worktree.Project.String() == project.ID {
-			worktrees[worktree.ID] = true
-		}
-	}
-	var terminals []shell.ProjectTerminal
-	for _, info := range snapshot.Terminals {
-		if info.Worktree != nil && worktrees[*info.Worktree] && info.Status.Kind != "closed" {
-			terminals = append(terminals, shell.ProjectTerminal{ID: info.ID.String(), Title: workspaceString(info.Title), Path: workspaceString(info.Directory)})
-		}
-	}
-	return terminals
 }
 
 // dropTerminalTab removes every surface of a terminal and detaches the window.

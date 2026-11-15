@@ -345,6 +345,7 @@ worktree_duplicate_branch: "This project already has a worktree with that branch
 worktree_duplicate_path: "This host already has a worktree at that path"
 worktree_missing_project: "Select a project"
 workspace_sessions: "Sessions"
+project_archived: "Archived"
 project_sessions_empty: "No sessions"
 project_terminals_empty: "No terminals"
 workspace_runtime: "Runtime"

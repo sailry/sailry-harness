@@ -32,6 +32,7 @@ activity_running: 実行中
 activity_waiting: 注意が必要です
 notification_unread: 未読
 project_sessions_empty: セッションなし
+project_archived: Archived
 settings_group_app: アプリケーション
 settings_group_ai: AI
 settings_group_tools: ツールと接続

@@ -188,38 +188,18 @@ func (a *App) enterDemo(locale string) {
 }
 
 // demoProject shows a demo project's page, as the live window's Project
-// overview does: its sessions open, New session and New terminal act on the
-// demo, and its Terminal records are the project's open terminal surfaces.
+// overview does: its active and archived sessions open, and New session and
+// New terminal act on the demo.
 // Nothing reaches a Node.
 func (a *App) demoProject(pr *viewmodel.Project) {
 	a.OpenProject(pr, ProjectActions{
 		NewSession: func(pr *viewmodel.Project) { a.Sidebar.NewSession(pr) },
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
+			cv.Archived = false
 			a.Page, a.Sidebar.Selected = ConversationPage, cv.ID
 			done(true)
 		},
 		NewTerminal: a.demoTerminal,
-		Terminals: func() []ProjectTerminal {
-			var list []ProjectTerminal
-			for _, terminal := range a.panes.terminals {
-				if terminal.project == pr.ID {
-					list = append(list, ProjectTerminal{ID: terminal.ID, Path: pr.Path})
-				}
-			}
-			if a.Data.ProjectOf(a.Sidebar.Selected) == pr {
-				for _, t := range a.Panel.Tabs {
-					if t.Kind == panel.Terminal {
-						list = append(list, ProjectTerminal{ID: t.ID, Path: pr.Path})
-					}
-				}
-			}
-			return list
-		},
-		OpenTerminal: func(id string) {
-			a.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
-			a.OpenWorkspaceTerminal(id, "")
-			a.workspaceTerminal(id).project = pr.ID
-		},
 	})
 }
 

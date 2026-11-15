@@ -453,6 +453,7 @@ worktree_duplicate_branch: 此项目已有同名 worktree 分支
 worktree_duplicate_path: 此主机已有使用该路径的 worktree
 worktree_missing_project: 项目已不可用，请关闭表单后重新选择
 workspace_sessions: 会话
+project_archived: 归档
 project_sessions_empty: 暂无会话
 project_terminals_empty: 暂无终端
 workspace_runtime: 运行环境

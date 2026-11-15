@@ -32,6 +32,7 @@ activity_running: En cours
 activity_waiting: Besoin d'attention
 notification_unread: Non lues
 project_sessions_empty: Aucune session
+project_archived: Archived
 settings_group_app: Application
 settings_group_ai: AI
 settings_group_tools: Outils et connexions
