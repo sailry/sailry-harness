@@ -599,6 +599,10 @@ func externalCommand(command protocol.Command) bool {
 		return true
 	}
 	switch command.Kind {
+	case "configuration_follow":
+		// Applying a manifest updates plugin lifecycles after its transaction.
+		// Those owners may admit work and must run outside the admission lock.
+		return true
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
 	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
