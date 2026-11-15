@@ -737,6 +737,15 @@ func (e *providerEditor) Check() string {
 		if n, err := strconv.ParseUint(d.context, 10, 32); err != nil || n == 0 || n < uint64(d.model.Output) {
 			return "provider_limits_invalid"
 		}
+		// The efforts are edited in place: each named, none twice.
+		named := map[string]bool{}
+		for _, x := range d.efforts {
+			x = strings.TrimSpace(x)
+			if x == "" || named[x] {
+				return "provider_effort_invalid"
+			}
+			named[x] = true
+		}
 	}
 	return ""
 }
@@ -755,9 +764,12 @@ func (e *providerEditor) save(m *Model) string {
 			x.Name = x.ID
 		}
 		x.Context, _ = strconv.Atoi(d.context)
-		x.Efforts = d.efforts
-		if len(d.efforts) > 0 {
-			x.DefaultEffort = d.efforts[min(max(d.def, 0), len(d.efforts)-1)]
+		x.Efforts = nil
+		for _, effort := range d.efforts {
+			x.Efforts = append(x.Efforts, strings.TrimSpace(effort))
+		}
+		if len(x.Efforts) > 0 {
+			x.DefaultEffort = x.Efforts[min(max(d.def, 0), len(x.Efforts)-1)]
 		} else {
 			x.DefaultEffort = "default"
 		}
@@ -1231,46 +1243,55 @@ func modelForm(c *ui.Context, d *modelDraft, api string) {
 		})
 		capabilityForm(c, d, api)
 		if d.model.ID == "" || len(d.model.Efforts) > 0 {
-			ui.Column(c.Key("efforts")).Gap(6).Children(func() {
-				ui.Text(c, t("provider_efforts")).FontSize(14)
-				for j, x := range d.efforts {
-					ui.Row(c.Key(x)).Gap(6).Children(func() {
-						ui.Text(c, x).FontSize(14).Grow(1)
-						tip := t("provider_set_default")
-						if j == d.def {
-							tip = t("provider_effort_default")
-						}
-						b := kit.Action(c.Key("default"), icons.Check, tip, j == d.def).Disabled(d.pending)
-						if j == d.def {
-							b.TextColor(p.Success).Opacity(1)
-						}
-						b.OnClick(func() { d.def = j })
-						kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).Disabled(d.pending).OnClick(func() {
-							d.efforts = slices.Delete(d.efforts, j, j+1)
-							// The default stays the effort it was, as a
-							// removed model keeps the default model.
-							if d.def > j {
-								d.def--
-							}
-							if d.def >= len(d.efforts) {
-								d.def = 0
-							}
-						})
-					})
+			effortsForm(c, d)
+		}
+	})
+}
+
+// effortsForm is the model's reasoning efforts as a table: each a row of
+// its name, editable in place, then its default mark and its removal, and
+// a last row that adds one. The default stays the effort it was as others
+// go.
+func effortsForm(c *ui.Context, d *modelDraft) {
+	p := theme.Of(c)
+	t := func(k string) string { return i18n.T(c, k) }
+	ui.Column(c.Key("efforts")).Gap(6).Children(func() {
+		ui.Text(c, t("provider_efforts")).FontSize(14).FontWeight(500).SingleLine().TextColor(p.PopoverForeground)
+		for j := range d.efforts {
+			// Keyed by place, so editing a name keeps the input's focus.
+			ui.Row(c.Key(j)).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.TextInput(c.Key("input"), &d.efforts[j]).Label(t("provider_efforts")).Grow(1).Disabled(d.pending)
+				tip := t("provider_set_default")
+				if j == d.def {
+					tip = t("provider_effort_default")
 				}
-				ui.Row(c.Key("add")).Gap(6).Children(func() {
-					ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).Grow(1).Disabled(d.pending)
-					kit.Secondary(c.Key("add"), t("settings_add")).Disabled(d.pending).OnClick(func() {
-						x := strings.TrimSpace(d.effort)
-						if x == "" || slices.Contains(d.efforts, x) {
-							kit.Toast(c, kit.Failed, t("provider_effort_invalid"))
-							return
-						}
-						d.efforts, d.effort = append(d.efforts, x), ""
-					})
+				b := kit.Action(c.Key("default"), icons.Check, tip, j == d.def).Disabled(d.pending)
+				if j == d.def {
+					b.TextColor(p.Success).Opacity(1)
+				}
+				b.OnClick(func() { d.def = j })
+				kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).Disabled(d.pending).OnClick(func() {
+					d.efforts = slices.Delete(d.efforts, j, j+1)
+					if d.def > j {
+						d.def--
+					}
+					if d.def >= len(d.efforts) {
+						d.def = 0
+					}
 				})
 			})
 		}
+		ui.Row(c.Key("add")).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).Grow(1).Disabled(d.pending)
+			kit.Secondary(c.Key("add"), t("settings_add")).Disabled(d.pending).OnClick(func() {
+				x := strings.TrimSpace(d.effort)
+				if x == "" || slices.Contains(d.efforts, x) {
+					kit.Toast(c, kit.Failed, t("provider_effort_invalid"))
+					return
+				}
+				d.efforts, d.effort = append(d.efforts, x), ""
+			})
+		})
 	})
 }
 
@@ -1305,7 +1326,7 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 	// A group is a row of the capability table: its label in the first
 	// column, sized to the longest, and its boxes beside it.
 	group := func(key string, boxes func()) {
-		ui.Text(c.Key(key+"-label"), t(key)).FontSize(12).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
+		ui.Text(c.Key(key+"-label"), t(key)).FontSize(14).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
 		ui.Row(c.Key(key)).Wrap().GapX(16).GapY(6).AlignItems(ui.Center).MinWidth(0).Children(boxes)
 	}
 	ui.Column(c.Key("capabilities")).Gap(10).Children(func() {
