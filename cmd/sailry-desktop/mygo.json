@@ -2,7 +2,7 @@
   "name": "Sailry",
   "slug": "sailry",
   "identifier": "ai.sailry.desktop",
-  "version": "0.1.6",
+  "version": "0.2.0-alpha.1",
   "copyright": "Copyright © 2026 Sailry",
   "icon": "../../assets/branding/sailry.png",
   "main": ".",

@@ -3,42 +3,42 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## [0.1.6](https://github.com/sailry/sailry-harness/releases/tag/v0.1.6) — Unreleased
+## [0.2.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.1) — 2026-11-15
 
-This is the first release built from the Go rewrite, which replaces the Rust
-implementation in this repository. Desktop for macOS and Windows, the Host for
-Linux and macOS, and Mobile keep their download names and the `~/.sailry`
-profile. The Go Node stores sessions and settings in new SQLite files beside the
-earlier release's database, which it leaves untouched, so sessions and settings
-from 0.1.5 do not appear.
+This prerelease is the first distribution of the Go rewrite. It includes Desktop
+for macOS and Windows, Host for Linux and macOS, and Mobile for Android and iOS.
+iOS builds are distributed through TestFlight. Linux Desktop is not included.
 
-- Fill the conversation pane with the transcript under a docked composer, with turns fading out above it
-- Fold the queue tray under a header that counts the queued messages
-- Open a conversation's links and files in the side panel, or in the system's app with Command or Control
-- Attach files through the same file picker that chooses project folders
-- Set the message text size a pixel at a time and draw reply diagrams natively
-- Retry a failed model request or summary every 60 seconds, nine times, and fail a request that stays silent for 600 seconds
-- Show the connection banner only for a real interruption and reconnect without a Retry button
-- Shorten an oversized summary input, scale the summary with the context window and pause automatic compaction after three failures
-- Keep the answer and complete tool calls of a reply cut at the output limit
-- Add GitHub Copilot sign-in by device code
-- Bundle WorkBuddy with a warning before sign-in, free models only by default and opt-in daily check-in
-- Use an installed command-line agent as a model over the Agent Client Protocol, with the Antigravity package in the Market
-- Warn before a Copilot or Claude sign-in, and before adding an Antigravity channel, that the account's terms and limits apply
-- Start a sign-in's advanced settings on the values in use
-- Ask an Azure OpenAI channel for its API version and name its models by deployment
-- Fold the model picker's groups and mark chosen rows with a neutral fill
-- Give goals a state badge, Pause, Resume and End, and turn, token and time limits
-- Draw the Git history as a commit graph, add a Unified and Split choice to diffs and show conflicted paths
-- Add a More menu, Unarchive and session reordering to the project page and list its records
-- Rebuild the host page as a monitor with versions in its header, chart tooltips, a GPU card and a process table
-- List notifications in one card with each notice's message
-- Show Usage as compact tables and Market cards without their source
-- Close Settings from the rail's Settings button
-- Add Demo mode under Settings, Experimental, which shows sample conversations and sends nothing
-- Back up while the Node runs, with retention and the last backup's record
-- Keep SSH connections alive and prefer the trusted host key's algorithm
-- Fire due schedules after the computer wakes
+### Data compatibility
+
+The release uses the existing `~/.sailry` profile location. On first launch,
+recognized Rust databases, plugin packages and attachments are preserved under
+`storage/rust-archive/` before the new SQLite storage is initialized. Rust sessions
+and settings are not imported into the Go application. Node identity, controller
+preferences, themes and project files remain in place.
+
+### Changes
+
+- Replace the Rust execution backend with the Go Node, shared Client and Link layers.
+- Add desktop conversation tabs, split groups, independent project terminals and active/archived project session lists.
+- Improve conversation scrolling, tool progress, image previews and toast visibility above dialogs.
+- Restore OAuth callbacks, automatic model discovery and immediate model-picker refresh after channel changes.
+- Fix hosted image generation compatibility and keep generated images in final outputs.
+- Preserve Claude tool continuation with stable channel session identity and scoped thinking replay; retain canonical text and tool history when switching models.
+- Read complete instruction files within actual model context capacity.
+- Add an offline mobile demonstration host through pairing code `888888`, including an interactive simulated terminal.
+- Refine mobile host selection, connection recovery, theme controls and terminal presentation.
+- Expand desktop theme rendering and update the bundled themes.
+- Set the desktop minimum window size to 1024 by 768.
+
+### Distribution and updates
+
+Desktop update catalogs and macOS update archives are signed and verified against
+the bundled publisher keys. This alpha is available through the experience update
+channel; stable-channel clients do not select prereleases. Windows installers and
+portable archives are available from GitHub Releases; in-app installation is
+currently supported on macOS only. Remote Host updates use the versioned Host
+archives and installer checksums published with the release.
 
 ## [0.1.5](https://github.com/sailry/sailry-harness/releases/tag/v0.1.5) — 2026-11-08
 

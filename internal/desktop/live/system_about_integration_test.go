@@ -57,6 +57,13 @@ func TestSystemAboutUI(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile := filepath.Join(root, "profile")
+	// Exercise the saved Stable choice regardless of the running build's channel.
+	prefs := preferences.Open(filepath.Join(profile, "desktop", "preferences.json"))
+	savedChannel := "stable"
+	prefs.Data.UpdateChannel = &savedChannel
+	if err := prefs.Save(); err != nil {
+		t.Fatal(err)
+	}
 	desk := newSystemDesk(t, ctx, profile, node.Options{})
 	provider, model := desk.provider("http://127.0.0.1:9/v1")
 	session := desk.session(desk.project("About workspace"), provider, model, "About notes")

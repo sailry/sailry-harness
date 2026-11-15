@@ -303,8 +303,8 @@ func testSideColumns(t *testing.T) {
 			}
 		}
 	}
-	// A closed choice stays closed across a page without a column, and the
-	// page's breadcrumb leads back to the conversation with the column open.
+	// A closed choice stays closed across a page without a column and its
+	// project menu. Returning to the conversation restores the same choice.
 	a.Navigate(ConversationPage)
 	a.NavOpen = false
 	settle(tt)
@@ -322,17 +322,32 @@ func testSideColumns(t *testing.T) {
 	}
 	a.Navigate(FilesPage)
 	tt.Frame()
-	crumb := false
-	for _, info := range tt.AccessAll() {
-		if info.Name == "sailry-go" && info.Bounds.Y+info.Bounds.H <= HeaderHeight && info.Bounds.W > 0 {
-			tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-			crumb = true
-			break
-		}
+	project := a.Data.ProjectOf(a.Sidebar.Selected)
+	if project == nil {
+		t.Fatal("the Files page has no selected project")
 	}
+	selected := a.Sidebar.Selected
+	switcher, ok := tt.Access(i18n.In("en", "projects"))
+	if !ok {
+		t.Fatalf("the Files page has no project menu: %q", tt.Texts())
+	}
+	tt.ClickAt(switcher.Bounds.X+switcher.Bounds.W/2, switcher.Bounds.Y+switcher.Bounds.H/2)
+	tt.Frame()
+	clickItem(t, tt, project.Name)
 	settle(tt)
-	if !crumb || a.Page != ConversationPage || !a.NavOpen || !sessionsShown(tt) {
-		t.Errorf("the project crumb (found %v) left page %d, open %v", crumb, a.Page, a.NavOpen)
+	if a.Page != FilesPage || a.Sidebar.Selected != selected || a.NavOpen || sessionsShown(tt) {
+		t.Errorf("the current project choice left page %d, selected %q, open %v", a.Page, a.Sidebar.Selected, a.NavOpen)
+	}
+	a.Navigate(ConversationPage)
+	tt.Frame()
+	button, ok := headerButton(tt, toggle)
+	if !ok || a.NavOpen || sessionsShown(tt) {
+		t.Fatalf("returning from Files changed the closed choice: open %v, toggle %v", a.NavOpen, ok)
+	}
+	tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
+	settle(tt)
+	if !a.NavOpen || !sessionsShown(tt) {
+		t.Error("the conversation's toggle did not restore its side column")
 	}
 	// The saved state is one choice and one width, as before: a page
 	// without a column saves and restores them untouched, and a file from

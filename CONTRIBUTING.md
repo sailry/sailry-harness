@@ -138,7 +138,7 @@ Additional checks depend on the changed inputs:
 | `internal/mobile` or `cmd/sailry-mobile` | `CGO_ENABLED=1 go vet ./cmd/sailry-mobile` |
 | `native/` | `cargo build --locked` in the changed native project |
 | `apps/mobile` | `flutter analyze` and `flutter test` there |
-| `internal/node`, `internal/client` or `internal/link` | Before a release, `CGO_ENABLED=1 go test -race` on the changed packages |
+| `internal/node`, `internal/client` or `internal/link` | Before a release, `CGO_ENABLED=1 go test -race -p 1 -parallel 2` on the changed packages |
 
 The mobile C ABI and local race detector are the documented cgo exceptions;
 ordinary Desktop and Host code uses `CGO_ENABLED=0`. Native artifacts belong
@@ -213,7 +213,12 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
 - `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
 - `test`: `go test ./...` with cgo disabled on macOS, Windows and Linux,
   using only Go module/build caches. Pull requests select affected packages;
-  branch pushes and release runs test everything.
+  branch pushes and release runs test everything. The `packages` lane runs
+  all selected packages except `desktop/live` and `desktop/shell`. The existing
+  `shell-0` through `shell-2` lanes partition both UI packages' top-level tests,
+  examples and fuzz seeds, retaining each test's complete set of subtests.
+  Their routing fixture runs in `lint` without invoking the Go toolchain:
+  `bash .github/scripts/test_test.sh`.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
@@ -291,6 +296,9 @@ the release flags, renames the executable to `sailry-desktop`, which is the
 name the updater requires, seals, notarizes and creates the disk image
 `Sailry-<triple>.dmg` and `Sailry-<triple>-unsigned.zip`, the archive of the
 finished application for the update feed.
+The macOS bundle's `CFBundleShortVersionString` and `CFBundleVersion` use the
+numeric version core (for example, `0.2.0`). The executable, `build.json` and
+signed update catalog retain the complete version, such as `0.2.0-alpha.1`.
 `cmd/sailry-desktop/windows/package.sh -artifacts <dir>` cross-compiles the
 Windows x64 Desktop on Linux or macOS with NSIS installed: the installer
 `Sailry-x86_64-pc-windows-msvc-setup.exe` (mygo's per-user NSIS installer) and

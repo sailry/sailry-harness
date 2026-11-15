@@ -61,8 +61,8 @@ func testCloseTabInFocusedPanel(t *testing.T) {
 	}
 }
 
-// ⌘W in a focused Files or Git page closes the page, back to the
-// conversation.
+// ⌘W in a focused Files or Git page closes its shown document first. The
+// focus stays in the page, where the next close returns to the conversation.
 func testCloseFocusedPage(t *testing.T) {
 	for _, f := range []struct {
 		label, inside string
@@ -71,13 +71,31 @@ func testCloseFocusedPage(t *testing.T) {
 		a, tt := newTester(t)
 		clickButton(t, tt, i18n.In("en", f.label))
 		settle(tt)
+		project := a.project()
+		if project == nil {
+			t.Fatal("the resource page has no project")
+		}
+		opened := func() []string {
+			if f.page == FilesPage {
+				return project.Files.Open()
+			}
+			return project.Git.Open()
+		}
+		if len(opened()) != 1 {
+			t.Fatalf("%s: the fixture has %d open documents, want 1", f.label, len(opened()))
+		}
 		// The rail's button has the focus: the page does not close.
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()
-		if a.Page != f.page {
+		if a.Page != f.page || len(opened()) != 1 {
 			t.Fatalf("%s: ⌘W from the rail closed the page", f.label)
 		}
 		click(t, tt, f.inside)
+		tt.Key(ui.Cmd, ui.KeyW)
+		settle(tt)
+		if a.Page != f.page || len(opened()) != 0 {
+			t.Fatalf("%s: the first close left page %d and documents %v", f.label, a.Page, opened())
+		}
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()
 		if a.Page != ConversationPage {
@@ -311,8 +329,15 @@ func TestMenuCommandsScoped(t *testing.T) {
 	click(t, tt, "README.md")
 	tt.Frame()
 	click(t, tt, "A native desktop Agent workspace.")
+	project := a.project()
+	if project == nil {
+		t.Fatal("the Files page has no project")
+	}
 	a.Do(CloseFocused.ID)
 	settle(tt)
+	if a.Page != FilesPage || len(project.Files.Open()) != 0 {
+		t.Fatalf("Close Tab in the Files page left page %d and documents %v", a.Page, project.Files.Open())
+	}
 	a.Do(CloseFocused.ID)
 	tt.Frame()
 	if a.Page != ConversationPage {

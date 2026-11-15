@@ -30,6 +30,9 @@ services/pairing-relay/dist/
 /.idea/
 /.vscode/
 
+# Local development plans.
+/plans/
+
 # Transient diagnostics.
 __pycache__/
 *.py[cod]

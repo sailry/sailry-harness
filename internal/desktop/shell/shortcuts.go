@@ -151,7 +151,7 @@ func (a *App) closeFocused(c *ui.Context) {
 			a.closePane(c, a.panes.Active)
 		case a.tabClosable():
 			a.closeShownTab(c)
-		case a.closePageTab():
+		case a.closePageTab(c):
 		default:
 			a.ClosePage()
 		}

@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"path"
 	"slices"
 	"testing"
 	"time"
@@ -99,12 +100,12 @@ func TestRailOpensPages(t *testing.T) {
 		if node, project, shown := app.ProjectOwner(); node != remote.Host || project != remote.ID || !shown {
 			t.Fatalf("overview owner = %q %q %v", node, project, shown)
 		}
-		for _, text := range []string{"Remote project", "Remote host", "/remote/project", "main", "Remote session", "Archived remote session"} {
+		for _, text := range []string{"Remote project", "Remote host", "/remote/project", "main", "Remote session"} {
 			if !tester.HasText(text) {
 				t.Fatalf("overview is missing %q: %q", text, tester.Texts())
 			}
 		}
-		for _, text := range []string{"Local project", "/local/project", "Resource session", "Wrong owner", i18n.In("en", "workspace_preview"), "Runtime"} {
+		for _, text := range []string{"Local project", "/local/project", "Archived remote session", "Resource session", "Wrong owner", i18n.In("en", "workspace_preview"), "Runtime"} {
 			if tester.HasText(text) {
 				t.Fatalf("overview shows unrelated content %q: %q", text, tester.Texts())
 			}
@@ -112,6 +113,11 @@ func TestRailOpensPages(t *testing.T) {
 		clickButton(t, tester, i18n.In("en", "workspace_new_session"))
 		if drafted != remote || app.Sidebar.Selected != "local-session" {
 			t.Fatalf("new session used %v with selected %q", drafted, app.Sidebar.Selected)
+		}
+		click(t, tester, i18n.In("en", "project_archived"))
+		tester.Frame()
+		if !tester.HasText("Archived remote session") || tester.HasText("Remote session") || tester.HasText("Wrong owner") || tester.HasText("Resource session") {
+			t.Fatalf("the archive tab has wrong records: %q", tester.Texts())
 		}
 		for _, query := range []string{"ARCHIVED", "WORKTREES/ARCHIVE"} {
 			app.overview.search = query
@@ -143,7 +149,9 @@ func TestRailOpensPages(t *testing.T) {
 			t.Fatalf("Unarchive restored %v", restored)
 		}
 		app.overview.search = ""
-		tester.Frame()
+		settle(tester)
+		click(t, tester, i18n.In("en", "workspace_sessions"))
+		settle(tester)
 		if err := tester.RightClick("Remote session"); err != nil {
 			t.Fatal(err)
 		}
@@ -407,6 +415,24 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 	a.Navigate(FilesPage)
 	tt.Frame()
+	// This test keeps both documents to compare their shared state across
+	// hosts; an ordinary click otherwise replaces the passing tab.
+	keepShown := func(label string) {
+		t.Helper()
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleButton && info.Checked && info.Name == label {
+				tt.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+				tt.Frame()
+				if err := tt.ChooseMenuItem(i18n.In("en", "workspace_tab_keep")); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				return
+			}
+		}
+		t.Fatalf("no shown document tab %q: %q", label, tt.Texts())
+	}
+	keepShown("README.md")
 	clickTree(t, tt, "go.mod")
 	tt.Frame()
 	if first.Files.File() != "sailry-go/go.mod" {
@@ -432,6 +458,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	// And the reverse: a change chosen in the Git tab shows on the page.
 	a.openPanel(panel.Changes)
 	tt.Frame()
+	keepShown(path.Base(first.Git.Change()))
 	clickTree(t, tt, "example.md")
 	tt.Frame()
 	if a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) || len(a.Panel.Tabs) != 4 || !codeHas(tt, "New text", "search: command palette") {

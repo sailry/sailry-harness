@@ -117,6 +117,12 @@ test -d "$app"
 mv "$app/Contents/MacOS/Sailry" "$app/Contents/MacOS/sailry-desktop"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable sailry-desktop' "$app/Contents/Info.plist"
 
+# Apple bundle versions are numeric; the complete release version remains
+# in build.json and the executable, including its prerelease suffix.
+bundle_version=${version%%[-+]*}
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $bundle_version" "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $bundle_version" "$app/Contents/Info.plist"
+
 # Signing rewrote the native libraries and the rename changed the bundle:
 # record the libraries as shipped and sign the bundle again over the records.
 go run ./native/fetch -target "$platform" -seal "$app" -sign "$identity"
