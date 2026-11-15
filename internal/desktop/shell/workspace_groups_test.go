@@ -46,14 +46,14 @@ func pressWorkspaceGroup(t *testing.T, tt *ui.Tester, number int) {
 	tt.Frame()
 }
 
-// Number buttons switch groups without rebuilding their trees or losing the
+// Group tabs, named by their panes' titles, switch groups without rebuilding their trees or losing the
 // last focused pane. They also remain reachable from a standalone conversation.
 func TestWorkspaceGroupButtons(t *testing.T) {
 	a, tt := workspaceGroupsFixture(t, 1280)
 	first, second := a.panes.Groups[0], a.panes.Groups[1]
 	for _, number := range []int{1, 2} {
 		b, ok := headerButton(tt, i18n.In("en", "pane_group", "number", number))
-		if !ok || b.Checked != (number == 2) || b.Bounds.W != workspaceGroupSize || b.Bounds.H != workspaceGroupSize {
+		if !ok || b.Checked != (number == 2) || b.Bounds.W <= workspaceGroupSize || b.Bounds.W > groupTabMax || b.Bounds.H != workspaceGroupSize {
 			t.Fatalf("group %d button: %+v, exists %v", number, b, ok)
 		}
 	}
@@ -125,8 +125,10 @@ func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
 	if a.panes.Active != session("b") {
 		t.Fatalf("one saved group returned to %v", a.panes.Active)
 	}
-	if _, ok := headerButton(tt, i18n.In("en", "pane_group", "number", 1)); ok {
-		t.Fatal("one active split unnecessarily keeps the group switcher")
+	// A shown split keeps its tab, which tells it from a conversation
+	// shown alone.
+	if b, ok := headerButton(tt, i18n.In("en", "pane_group", "number", 1)); !ok || !b.Checked {
+		t.Fatalf("one shown split lost its tab: %+v", b)
 	}
 	// A focus remembered before membership changed cannot focus a removed pane.
 	a.panes.Drop(session("a"), session("c"), panes.Bottom)

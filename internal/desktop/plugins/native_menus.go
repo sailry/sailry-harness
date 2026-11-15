@@ -196,13 +196,17 @@ func (binding *NativeBinding) renderTabs(view *ui.Context, identity string, prop
 		return track
 	}
 	return ui.ScrollHorizontal(view).FillWidth().Children(func() {
-		ui.Row(view).Gap(4).Children(func() {
-			for _, item := range items {
+		ui.Row(view).Gap(kit.StripGap).AlignItems(ui.Center).Children(func() {
+			for at, item := range items {
 				itemID := nativeProp(item, "id", "")
 				label := nativeProp(item, "label", "")
 				if navigation {
 					// A page's tabs are the right panel's strip tabs.
 					active := selected != nil && itemID == *selected
+					if at > 0 {
+						previous := selected != nil && nativeProp(items[at-1], "id", "") == *selected
+						kit.StripDivider(view, "divider-"+itemID, !active && !previous)
+					}
 					button, hovered := kit.StripTab(view, itemID, label, active, nativeProp(props, "max_width", float32(240)))
 					var close func()
 					if nativeProp(item, "closable", false) && !nativeProp(item, "close_disabled", false) {

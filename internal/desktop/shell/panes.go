@@ -257,8 +257,21 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 	p := theme.Of(c)
 	title := a.paneTitle(c, t)
-	ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4).Children(func() {
-		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.Foreground)
+	// The focused pane's title is in the foreground over a short accent
+	// line; the others recede, so the split shows where keys go.
+	focused := a.panes.Active == t
+	ink := p.MutedForeground
+	if focused {
+		ink = p.Foreground
+	}
+	head := ui.Row(c.Key("pane-header")).Height(HeaderHeight).Shrink(0).PaddingX(12).Gap(4)
+	if focused {
+		head.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+			pt.Fill(ui.Rect{X: r.X + 12, Y: r.Y + r.H - 2, W: 24, H: 2}, p.Primary, 1)
+		})
+	}
+	head.Children(func() {
+		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(ink)
 		// The band has no Find or overview over a split, where they would
 		// name no pane: each conversation's are here, acting on it alone. A
 		// terminal has none.

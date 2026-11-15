@@ -102,7 +102,7 @@ func (a *App) header(c *ui.Context, f frame) {
 				// end, directly before the page's actions.
 				lead := ui.Row(c.Key("lead")).Grow(1).MinWidth(0).Height(HeaderHeight).Gap(ButtonGap)
 				room := a.band.room(c, lead, width-brand-sideWidth(f, end)-pad-padEnd, known)
-				groups := a.workspaceGroupWidth(room)
+				groups := a.workspaceGroupWidth(c, room)
 				lead.Children(func() {
 					// The title gives way first and is cut at its own
 					// edge: breadcrumbs keep a least width per item, which
@@ -434,8 +434,7 @@ func (a *App) trail(c *ui.Context) {
 		return
 	}
 	if a.panes.Displayed() != nil {
-		// A split's panes have their own titles: the band names the page.
-		ui.Text(c, i18n.T(c, "shell_sessions")).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		// A split's tab names it, and its panes have their own titles.
 		return
 	}
 	if a.panes.Active.Kind == panes.Terminal {

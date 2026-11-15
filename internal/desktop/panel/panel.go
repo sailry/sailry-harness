@@ -306,8 +306,11 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		return
 	}
 	ui.ScrollHorizontal(c.Key("tabs")).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
-		ui.Row(c).Gap(4).Height(barHeight).Children(func() {
-			for _, t := range s.Tabs {
+		ui.Row(c).Gap(kit.StripGap).Height(barHeight).AlignItems(ui.Center).Children(func() {
+			for i, t := range s.Tabs {
+				if i > 0 {
+					kit.StripDivider(c, "divider-"+string(t.Kind)+t.ID, s.Tabs[i-1] != s.Active && t != s.Active)
+				}
 				icon, label := s.look(c, t)
 				tip := ""
 				if f, ok := s.artifacts[t.ID]; ok && t.Kind == Artifact {

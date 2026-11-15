@@ -39,6 +39,7 @@ var (
 	PanelLeftClose   = load("panel-left-close")
 	PanelLeftOpen    = load("panel-left-open")
 	PanelRight       = load("panel-right")
+	Columns          = load("columns-2")
 	Network          = load("network")
 	Folder           = load("folder")
 	FolderPlus       = load("folder-plus")
