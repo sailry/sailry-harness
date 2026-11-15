@@ -228,6 +228,21 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationFull => 'Полный доступ';
 
   @override
+  String get conversationPermission => 'Разрешения';
+
+  @override
+  String get conversationAskDescription =>
+      'Спрашивать перед редактированием файлов или выполнением команд';
+
+  @override
+  String get conversationProjectDescription =>
+      'Редактировать файлы проекта автоматически; спрашивать перед запуском команд';
+
+  @override
+  String get conversationFullDescription =>
+      'Редактировать файлы и выполнять команды автоматически, в том числе вне проекта';
+
+  @override
   String get conversationBudget => 'Обоснование бюджета';
 
   @override

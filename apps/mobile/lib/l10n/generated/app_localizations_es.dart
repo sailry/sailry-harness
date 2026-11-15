@@ -228,6 +228,21 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationFull => 'Acceso completo';
 
   @override
+  String get conversationPermission => 'Permisos';
+
+  @override
+  String get conversationAskDescription =>
+      'Preguntar antes de editar archivos o ejecutar comandos';
+
+  @override
+  String get conversationProjectDescription =>
+      'Editar archivos de proyecto automáticamente; preguntar antes de ejecutar comandos';
+
+  @override
+  String get conversationFullDescription =>
+      'Editar archivos y ejecutar comandos automáticamente, incluso fuera del proyecto';
+
+  @override
   String get conversationBudget => 'Razonamiento del presupuesto';
 
   @override

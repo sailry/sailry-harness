@@ -223,6 +223,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationFull => 'フルアクセス';
 
   @override
+  String get conversationPermission => '権限';
+
+  @override
+  String get conversationAskDescription => 'ファイルの編集やコマンドの実行前に確認する';
+
+  @override
+  String get conversationProjectDescription =>
+      'プロジェクトファイルは自動で編集し、コマンドの実行前に確認する';
+
+  @override
+  String get conversationFullDescription => 'プロジェクト外も含め、ファイルの編集とコマンドの実行を自動で行う';
+
+  @override
   String get conversationBudget => '推論予算';
 
   @override

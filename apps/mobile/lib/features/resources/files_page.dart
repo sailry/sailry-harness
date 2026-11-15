@@ -215,13 +215,12 @@ class _FilesPageState extends State<FilesPage> {
             if (_error != null)
               FailureState(icon: 'folder', message: _error!, onRetry: _load)
             else
-              for (final (index, entry) in entries.indexed)
+              for (final entry in entries)
                 FileEntryRow(
                   name: text(entry['name']),
                   directory: entry['kind'] == 'directory',
                   size: fileSize(entry['size'] as int?),
                   modified: entryModifiedLabel(context, entry),
-                  divider: index < entries.length - 1,
                   onTap: enabled
                       ? () {
                           final path = [
