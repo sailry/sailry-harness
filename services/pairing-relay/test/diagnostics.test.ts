@@ -1,9 +1,11 @@
 import { PagesBlobError, PreconditionFailedError, type Store } from "@edgeone/pages-blob";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BlobObjects } from "../src/blob";
+import { requestId, TTL_MS } from "../src/contract";
 import { report } from "../src/diagnostics";
 import { serve } from "../src/edgeone";
 import { handle } from "../src/http";
+import type { RecordValue } from "../src/objects";
 
 afterEach(() => vi.restoreAllMocks());
 const PRIVATE = "private-ticket-123456-Bearer-credential-https://private.example/?token=secret";
@@ -61,15 +63,52 @@ describe("failure diagnostics", () => {
 });
 
 function sdk() {
-  return { get: vi.fn(async () => null), setJSON: vi.fn(async () => {}), delete: vi.fn(async () => {}),
-    list: vi.fn(async () => ({ blobs: [] as { key: string; etag: string }[], directories: [] })) };
+  const records = new Map<string, RecordValue>();
+  return {
+    get: vi.fn(async (key: string) => structuredClone(records.get(key) ?? null)),
+    setJSON: vi.fn(async (key: string, value: RecordValue) => {
+      if (records.has(key)) throw new PreconditionFailedError();
+      records.set(key, structuredClone(value));
+    }),
+    delete: vi.fn(async (key: string) => { records.delete(key); }),
+    list: vi.fn(async () => ({ blobs: [...records.keys()].map(key => ({ key, etag: "test" })), directories: [] })),
+  };
 }
-function post(body = "{}") {
-  return new Request("https://pair.example/v1/codes", { method: "POST", body });
+function post(body = "{}", path = "/v1/codes") {
+  return new Request(`https://pair.example${path}`, { method: "POST", body });
 }
 
 describe("failure boundaries", () => {
-  it.each(["list", "delete"] as const)("reports %s before body validation once", async operation => {
+  it.each(["list", "delete"] as const)("continues publication and redemption when request cleanup %s fails", async operation => {
+    const now = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const output = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = sdk();
+    const store = new BlobObjects(client as unknown as Pick<Store, "get" | "setJSON" | "list" | "delete">);
+    const failCleanup = () => {
+      const error = new PagesBlobError("COS_ERROR", `COS returned 403: ${PRIVATE}`);
+      if (operation === "list") client.list.mockRejectedValueOnce(error);
+      else {
+        client.list.mockResolvedValueOnce({ blobs: [{ key: "g/000000000000/expired", etag: "test" }], directories: [] });
+        client.delete.mockRejectedValueOnce(error);
+      }
+    };
+    failCleanup();
+    const published = await serve({ request: post(JSON.stringify({ request_id: requestId(now), ticket: PRIVATE })), clientIp: "source" }, store);
+    expect(published.status).toBe(201);
+    const publication = await published.json() as { code: string; expires_at_ms: number };
+    expect(publication.expires_at_ms).toBe(now + TTL_MS);
+    failCleanup();
+    const redeemed = await serve({ request: post(JSON.stringify({ request_id: requestId(now), code: publication.code }), "/v1/codes/redeem"), clientIp: "source" }, store);
+    expect(redeemed.status).toBe(200);
+    expect(await redeemed.json()).toEqual({ ticket: PRIVATE, expires_at_ms: publication.expires_at_ms });
+    expect(output.mock.calls).toEqual(Array.from({ length: 2 }, () => ["Pairing request failed", {
+      stage: operation === "list" ? "storage_list" : "storage_delete", type: "PagesBlobError", code: "COS_ERROR", upstream_status: 403,
+    }]));
+    expect(JSON.stringify(output.mock.calls)).not.toContain(PRIVATE);
+  });
+
+  it.each(["list", "delete"] as const)("reports explicit cleanup %s failure once", async operation => {
     const output = vi.spyOn(console, "error").mockImplementation(() => {});
     const client = sdk();
     const error = new PagesBlobError("COS_ERROR", `COS returned 403: ${PRIVATE}`);
@@ -78,13 +117,14 @@ describe("failure boundaries", () => {
       client.list.mockResolvedValueOnce({ blobs: [{ key: "g/000000000000/expired", etag: "test" }], directories: [] });
       client.delete.mockRejectedValueOnce(error);
     }
-    const response = await serve({ request: post() }, new BlobObjects(client as unknown as Pick<Store, "get" | "setJSON" | "list" | "delete">));
+    const response = await serve({ request: new Request("https://pair.example/internal/cleanup") }, new BlobObjects(client as unknown as Pick<Store, "get" | "setJSON" | "list" | "delete">));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "unavailable" });
     expect(output).toHaveBeenCalledTimes(1);
     expect(output).toHaveBeenCalledWith("Pairing request failed", {
       stage: operation === "list" ? "storage_list" : "storage_delete", type: "PagesBlobError", code: "COS_ERROR", upstream_status: 403,
     });
+    expect(JSON.stringify(output.mock.calls)).not.toContain(PRIVATE);
   });
 
   it("preserves write failures and quiet contention", async () => {

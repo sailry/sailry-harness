@@ -195,9 +195,11 @@ without a client address shares the single source `unknown`, and cancellation
 uses the redemption allowance. Cleanup reads at most 128 records per
 page and only deletes generations at least three minutes old. Cloudflare uses
 an alarm plus request-driven cleanup; EdgeOne uses a bounded native scheduled
-pass plus request-driven cleanup. Logical expiry is exactly the invitation/ID
-deadline, independent of physical cleanup. Failed schedules can leave expired
-objects until a later pass; they never make an expired ticket redeemable.
+pass plus request-driven cleanup. A failed EdgeOne request-driven cleanup is
+logged and the exchange continues; the explicit cleanup route still returns a
+failure. Logical expiry is exactly the invitation/ID deadline, independent of
+physical cleanup. Failed schedules can leave expired objects until a later
+pass; they never make an expired ticket redeemable.
 
 `test:edgeone` runs the production Node handler and Blob adapter against a local
 SQLite-backed Blob contract fixture, then real Rust Nodes/iroh, including the

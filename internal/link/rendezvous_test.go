@@ -1,13 +1,17 @@
 package link
 
 import (
+	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -18,6 +22,19 @@ type pairingRoundTripper func(*http.Request) (*http.Response, error)
 
 func (transport pairingRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	return transport(request)
+}
+
+type pairingInterruptedReader struct {
+	io.Reader
+	failure error
+}
+
+func (reader pairingInterruptedReader) Read(data []byte) (int, error) {
+	count, err := reader.Reader.Read(data)
+	if err == io.EOF {
+		err = reader.failure
+	}
+	return count, err
 }
 
 func TestPairingExchangeContract(t *testing.T) {
@@ -82,6 +99,7 @@ func TestPairingExchangeContract(t *testing.T) {
 			}
 			requests <- body
 			response.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(response, `{"error":"capacity"}`)
 		}))
 		defer server.Close()
 		link := newFixtureLink(t)
@@ -220,4 +238,191 @@ func TestPairingExchangeContract(t *testing.T) {
 			t.Fatalf("closed share stream: %v", err)
 		}
 	})
+}
+
+func TestPairingPINRedemptionRecovery(t *testing.T) {
+	t.Parallel()
+	const recovered = `{"ticket":"opaque-ticket","expires_at_ms":160000}`
+	for _, test := range []struct {
+		name        string
+		status      int
+		body        string
+		failure     error
+		readFailure error
+		oversized   bool
+		repeat      bool
+		retry       bool
+		code        protocol.ErrorCode
+	}{
+		{name: "first_attempt", status: 200, body: recovered},
+		{name: "bad_gateway", status: 502, retry: true},
+		{name: "unavailable", status: 503, body: `{"error":"unavailable"}`, retry: true},
+		{name: "gateway_timeout", status: 504, body: `{"error":"unavailable"}`, retry: true},
+		{name: "lost_response", failure: io.EOF, retry: true},
+		{name: "connection_reset", failure: &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, retry: true},
+		{name: "connection_refused", failure: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, retry: true},
+		{name: "timeout", failure: &net.OpError{Op: "read", Net: "tcp", Err: context.DeadlineExceeded}, retry: true},
+		{name: "temporary_dns", failure: &net.DNSError{IsTemporary: true}, retry: true},
+		{name: "interrupted_body", status: 200, body: `{"ticket":"opaque`, readFailure: io.ErrUnexpectedEOF, retry: true},
+		{name: "stops_after_one_retry", status: 503, body: `{"error":"unavailable"}`, repeat: true, retry: true, code: protocol.ErrorCodeUnavailable},
+		{name: "capacity", status: 503, body: `{"error":"capacity"}`, code: protocol.ErrorCodeUnavailable},
+		{name: "invalid_body", status: 503, body: `{"error":"invalid_body"}`, code: protocol.ErrorCodeUnavailable},
+		{name: "malformed_error", status: 503, body: `{`, code: protocol.ErrorCodeUnavailable},
+		{name: "unknown_error_field", status: 503, body: `{"error":"unavailable","extra":true}`, code: protocol.ErrorCodeUnavailable},
+		{name: "oversized_error", status: 503, body: strings.Repeat(" ", maxPairingResponse+1), code: protocol.ErrorCodeUnavailable},
+		{name: "declared_oversized_error", status: 503, oversized: true, code: protocol.ErrorCodeUnavailable},
+		{name: "interrupted_error_body", status: 503, body: `{"error":`, readFailure: io.ErrUnexpectedEOF, code: protocol.ErrorCodeUnavailable},
+		{name: "invalid_ticket_response", status: 200, body: `{`, code: protocol.ErrorCodeInvalidRequest},
+		{name: "unknown_ticket_field", status: 200, body: `{"ticket":"opaque","expires_at_ms":160000,"extra":true}`, code: protocol.ErrorCodeInvalidRequest},
+		{name: "oversized_ticket", status: 200, body: strings.Repeat(" ", maxPairingResponse+1), code: protocol.ErrorCodeInvalidRequest},
+		{name: "declared_oversized_ticket", status: 200, oversized: true, code: protocol.ErrorCodeInvalidRequest},
+		{name: "unauthorized", status: 401, code: protocol.ErrorCodeUnavailable},
+		{name: "forbidden", status: 403, code: protocol.ErrorCodeUnavailable},
+		{name: "expired", status: 404, code: protocol.ErrorCodeNotFound},
+		{name: "gone", status: 410, code: protocol.ErrorCodeNotFound},
+		{name: "conflict", status: 409, code: protocol.ErrorCodeConflict},
+		{name: "rate_limit", status: 429, code: protocol.ErrorCodeBusy},
+		{name: "internal_error", status: 500, code: protocol.ErrorCodeUnavailable},
+		{name: "redirect", status: 302, code: protocol.ErrorCodeUnavailable},
+		{name: "permanent_dns", failure: &net.DNSError{IsNotFound: true}, code: protocol.ErrorCodeUnavailable},
+		{name: "certificate", failure: x509.UnknownAuthorityError{}, code: protocol.ErrorCodeUnavailable},
+		{name: "cancelled_transport", failure: context.Canceled, code: protocol.ErrorCodeUnavailable},
+		{name: "other_transport", failure: errors.New("private transport detail"), code: protocol.ErrorCodeUnavailable},
+		{name: "other_response", status: 200, readFailure: errors.New("private response detail"), code: protocol.ErrorCodeUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			link := newFixtureLink(t)
+			relay, err := newPairingRelay("https://link.example", link.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			relay.client.Timeout = 0
+			waits := 0
+			link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+				waits++
+				if duration != 500*time.Millisecond {
+					t.Fatalf("redemption retry wait: %s", duration)
+				}
+				waiting, cancel := context.WithCancel(ctx)
+				cancel()
+				return waiting, cancel
+			}
+			var claim PairingClaim
+			requestID, err := claim.requestID(relay.base.String(), "001234", link.now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			var original []byte
+			relay.client.Transport = pairingRoundTripper(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if request.GetBody != nil || request.URL.Path != "/v1/codes/redeem" || request.Method != http.MethodPost {
+					t.Fatal("redemption changed its endpoint or enabled automatic transport replay")
+				}
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if calls == 1 {
+					original = body
+				} else if !bytes.Equal(original, body) {
+					t.Fatal("redemption retry changed its original body")
+				}
+				var submitted struct {
+					RequestID string `json:"request_id"`
+					Code      string `json:"code"`
+				}
+				if err := json.Unmarshal(body, &submitted); err != nil || submitted.RequestID != requestID || submitted.Code != "001234" {
+					t.Fatal("redemption lost its PIN or request identity")
+				}
+				status, value := 200, recovered
+				var readFailure error
+				length := int64(-1)
+				if calls == 1 || test.repeat {
+					if test.failure != nil {
+						return nil, test.failure
+					}
+					status, value, readFailure = test.status, test.body, test.readFailure
+					if test.oversized {
+						length = maxPairingResponse + 1
+					}
+				}
+				var reader io.Reader = strings.NewReader(value)
+				if readFailure != nil {
+					reader = pairingInterruptedReader{Reader: reader, failure: readFailure}
+				}
+				return &http.Response{
+					StatusCode: status, ContentLength: length, Body: io.NopCloser(reader), Request: request,
+					Header: http.Header{"Retry-After": []string{"60"}},
+				}, nil
+			})
+			ticket, err := link.redeemPIN(t.Context(), relay, requestID, "001234")
+			attempts, expectedWaits := 1, 0
+			if test.retry {
+				attempts, expectedWaits = 2, 1
+			}
+			if calls != attempts || waits != expectedWaits {
+				t.Fatalf("redemption attempts=%d waits=%d, want %d and %d", calls, waits, attempts, expectedWaits)
+			}
+			if test.code == "" {
+				if err != nil || ticket != "opaque-ticket" {
+					t.Fatalf("recovered redemption: %q, %v", ticket, err)
+				}
+			} else if err == nil || faultValue(err).Code != test.code {
+				t.Fatalf("redemption fault: %v, want %s", err, test.code)
+			}
+			if err != nil && strings.Contains(err.Error(), "private") {
+				t.Fatal("redemption exposed transport details")
+			}
+		})
+	}
+}
+
+func TestPairingPINRedemptionCancellation(t *testing.T) {
+	t.Parallel()
+	for _, stage := range []string{"before_request", "during_request", "during_wait"} {
+		t.Run(stage, func(t *testing.T) {
+			link := newFixtureLink(t)
+			relay, err := newPairingRelay("https://link.example", link.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			calls, waits := 0, 0
+			link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+				waits++
+				if duration != 500*time.Millisecond {
+					t.Fatalf("redemption retry wait: %s", duration)
+				}
+				cancel()
+				return context.WithCancel(ctx)
+			}
+			relay.client.Transport = pairingRoundTripper(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if stage == "during_request" {
+					cancel()
+					return nil, context.Canceled
+				}
+				return &http.Response{StatusCode: 503, ContentLength: -1,
+					Body: io.NopCloser(strings.NewReader(`{"error":"unavailable"}`)), Request: request}, nil
+			})
+			if stage == "before_request" {
+				cancel()
+			}
+			_, err = link.redeemPIN(ctx, relay, strings.Repeat("a", 64), "001234")
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelled redemption: %v", err)
+			}
+			expectedCalls, expectedWaits := 1, 0
+			if stage == "before_request" {
+				expectedCalls = 0
+			} else if stage == "during_wait" {
+				expectedWaits = 1
+			}
+			if calls != expectedCalls || waits != expectedWaits {
+				t.Fatalf("cancelled redemption attempts=%d waits=%d, want %d and %d", calls, waits, expectedCalls, expectedWaits)
+			}
+		})
+	}
 }

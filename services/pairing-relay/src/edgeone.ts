@@ -27,10 +27,12 @@ export async function serve(context: Context, objects: ManagedObjects): Promise<
       }
       return json(204);
     }
-    // Request-driven cleanup also drains old data while the deployment is busy.
+    // Request-driven cleanup drains old data; logical expiry does not depend on it.
     // Unknown routes never cause storage writes or maintenance work.
-    if (request.method === "POST" && /^\/v1\/codes(?:\/redeem|\/cancel)?$/.test(url.pathname) && !url.search)
-      await cleanup(objects, Date.now());
+    if (request.method === "POST" && /^\/v1\/codes(?:\/redeem|\/cancel)?$/.test(url.pathname) && !url.search) {
+      try { await cleanup(objects, Date.now()); }
+      catch (error) { report("cleanup", error); }
+    }
     // EdgeOne's Node wrapper shadows `body` with its own parsed value; a copy
     // restores the standard stream that bounded body reading requires.
     stage = "request";

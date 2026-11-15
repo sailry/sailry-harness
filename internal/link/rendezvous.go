@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -21,6 +23,7 @@ import (
 
 const DefaultPairingService = "https://sailry.link.dux.plus"
 const maxPairingResponse = 12 * 1024
+const pairingRetryDelay = 500 * time.Millisecond
 
 type PairingClaim struct {
 	mu      sync.Mutex
@@ -43,6 +46,10 @@ type pairingCode struct {
 	expiresAtMS uint64
 	cancelToken string
 }
+
+type pairingRetryError struct{ *protocol.Fault }
+
+func (failure *pairingRetryError) Unwrap() error { return failure.Fault }
 
 func newPairingRelay(origin string, now func() time.Time) (*pairingRelay, error) {
 	if origin == "" {
@@ -104,19 +111,45 @@ func (link *Link) pairPINSelected(ctx context.Context, origin, pin string, relay
 	if err != nil {
 		return EndpointAddress{}, err
 	}
-	var redemption struct {
-		Ticket      string `json:"ticket"`
-		ExpiresAtMS uint64 `json:"expires_at_ms"`
-	}
-	if err := relay.post(scoped, "v1/codes/redeem", struct {
-		RequestID string `json:"request_id"`
-		Code      string `json:"code"`
-	}{request, pin}, http.StatusOK, &redemption, []string{"ticket", "expires_at_ms"}); err != nil {
+	ticket, err := link.redeemPIN(scoped, relay, request, pin)
+	if err != nil {
 		return EndpointAddress{}, err
 	}
 	// The relay released the ticket and the sharer decides whether it is
 	// still valid; this clock is not compared with theirs.
-	return link.pairSelected(scoped, redemption.Ticket, relays)
+	return link.pairSelected(scoped, ticket, relays)
+}
+
+func (link *Link) redeemPIN(ctx context.Context, relay *pairingRelay, request, pin string) (string, error) {
+	var redemption struct {
+		Ticket      string `json:"ticket"`
+		ExpiresAtMS uint64 `json:"expires_at_ms"`
+	}
+	body := struct {
+		RequestID string `json:"request_id"`
+		Code      string `json:"code"`
+	}{request, pin}
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		err := relay.post(ctx, "v1/codes/redeem", body, http.StatusOK, &redemption, []string{"ticket", "expires_at_ms"})
+		if err == nil {
+			return redemption.Ticket, nil
+		}
+		if cancelled := ctx.Err(); cancelled != nil {
+			return "", cancelled
+		}
+		var retry *pairingRetryError
+		if attempt == 1 || !errors.As(err, &retry) {
+			return "", err
+		}
+		// The relay's blanket 60-second Retry-After exhausts a one-minute
+		// claim. Recover a transient failure once with the original body.
+		waiting, release := link.timeoutContext(ctx, pairingRetryDelay)
+		<-waiting.Done()
+		release()
+	}
 }
 
 func (claim *PairingClaim) requestID(origin, pin string, now time.Time) (string, error) {
@@ -187,7 +220,11 @@ func (relay *pairingRelay) post(ctx context.Context, path string, body any, expe
 	request.Header.Set("Content-Type", "application/json")
 	response, err := relay.client.Do(request)
 	if err != nil {
-		return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "pairing service request failed"}
+		fault := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "pairing service request failed"}
+		if ctx.Err() == nil && pairingNetworkRetryable(err) {
+			return &pairingRetryError{fault}
+		}
+		return fault
 	}
 	defer response.Body.Close()
 	if response.StatusCode != expected {
@@ -199,7 +236,11 @@ func (relay *pairingRelay) post(ctx context.Context, path string, body any, expe
 		case http.StatusTooManyRequests:
 			return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "pairing service rate limit"}
 		default:
-			return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("pairing service returned HTTP %d", response.StatusCode)}
+			fault := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: fmt.Sprintf("pairing service returned HTTP %d", response.StatusCode)}
+			if pairingResponseRetryable(response) {
+				return &pairingRetryError{fault}
+			}
+			return fault
 		}
 	}
 	if expected == http.StatusNoContent {
@@ -209,13 +250,56 @@ func (relay *pairingRelay) post(ctx context.Context, path string, body any, expe
 		return invalidPairingExchange()
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxPairingResponse+1))
-	if err != nil {
-		return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "pairing service response failed"}
+	if len(data) > maxPairingResponse {
+		return invalidPairingExchange()
 	}
-	if len(data) > maxPairingResponse || protocol.DecodeObject(data, result, fields, true) != nil {
+	if err != nil {
+		fault := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "pairing service response failed"}
+		if ctx.Err() == nil && pairingNetworkRetryable(err) {
+			return &pairingRetryError{fault}
+		}
+		return fault
+	}
+	if protocol.DecodeObject(data, result, fields, true) != nil {
 		return invalidPairingExchange()
 	}
 	return nil
+}
+
+func pairingResponseRetryable(response *http.Response) bool {
+	if response.StatusCode != http.StatusBadGateway && response.StatusCode != http.StatusServiceUnavailable && response.StatusCode != http.StatusGatewayTimeout {
+		return false
+	}
+	if response.ContentLength > maxPairingResponse {
+		return false
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxPairingResponse+1))
+	if err != nil || len(data) > maxPairingResponse {
+		return false
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return true
+	}
+	var failure struct {
+		Error string `json:"error"`
+	}
+	return protocol.DecodeObject(data, &failure, []string{"error"}, true) == nil && failure.Error == "unavailable"
+}
+
+func pairingNetworkRetryable(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return !dns.IsNotFound && (dns.IsTimeout || dns.IsTemporary)
+	}
+	var network net.Error
+	if errors.As(err, &network) && network.Timeout() {
+		return true
+	}
+	return errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EPIPE)
 }
 
 func newPairingRequestID(now time.Time) (string, error) {
