@@ -2,6 +2,7 @@ package hostctl
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -117,7 +118,7 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 		if value != "none" {
 			id := transport.Target()
 			if value != "local" {
-				id, err = protocol.ParseNodeID(value)
+				id, err = parseFollowNodeID(value)
 				if err != nil {
 					return err
 				}
@@ -126,7 +127,7 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	case "target":
 		command.Action = "set_target"
-		id, err := protocol.ParseNodeID(options.Arguments[0])
+		id, err := parseFollowNodeID(options.Arguments[0])
 		if err != nil {
 			return err
 		}
@@ -169,4 +170,12 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(stdout).Encode(output.Data)
+}
+
+func parseFollowNodeID(value string) (protocol.NodeID, error) {
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != 32 {
+		return protocol.NodeID{}, errors.New("Node identity must contain 64 hexadecimal characters")
+	}
+	return protocol.NodeID(raw), nil
 }
