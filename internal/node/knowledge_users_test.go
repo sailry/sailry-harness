@@ -325,5 +325,17 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 	waitPersonal(first, 2)
 	knowledgeHit(first, "imported")
 	knowledgeHit(first, "alpha")
-	assertValue(first, false, "alpha personal source")
+	mergedValues := search(first, false, "alpha personal source")
+	foundTarget := false
+	for _, entry := range mergedValues.Entries {
+		if entry.Key == "entry/record" {
+			foundTarget = true
+			if string(entry.Value) != `{"text":"alpha personal source"}` {
+				t.Fatalf("merge replaced the target storage value: %s", entry.Value)
+			}
+		}
+	}
+	if !foundTarget {
+		t.Fatal("merge lost the target storage value")
+	}
 }
