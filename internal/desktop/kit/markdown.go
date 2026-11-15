@@ -25,7 +25,7 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 // Changes: the caller's MyGo markdown.Options pass through whole, Kit filling
-// only the Theme, Reveal and CodeBlock left unset; the variants' themes from
+// only the Theme, Reveal, CodeBlock and a document's HTML left unset; the variants' themes from
 // the palette rather than Lobe's type scale; code blocks as CodeBlock rather
 // than Highlighter and Snippet; no wrapping column, the view being MyGo's
 // own; text shown as it comes rather than paced (see streamReveal).
@@ -63,8 +63,8 @@ type MarkdownProps struct {
 	Animated bool
 	// Options are MyGo's, every one of them the caller's. Markdown fills
 	// Theme (the Variant's, following the app theme while it stays
-	// Kit's), Reveal and CodeBlock (CodeBlock) in place when they are
-	// unset, so pass the same Options each frame: they also keep the
+	// Kit's), Reveal, CodeBlock (CodeBlock) and, for a Document, HTML in
+	// place when they are unset, so pass the same Options each frame: they also keep the
 	// view's images. nil uses Kit's shared Options of the Variant.
 	Options *markdown.Options
 }
@@ -93,6 +93,11 @@ func Markdown(c *ui.Context, src string, p MarkdownProps) ui.Element {
 	}
 	if o.CodeBlock == nil {
 		o.CodeBlock = CodeBlock
+	}
+	// A document's HTML blocks show rendered (markdown_html.go); a reply's
+	// show as their source.
+	if p.Variant == Document && o.HTML == nil {
+		o.HTML = htmlBlock(o)
 	}
 	if p.Animated {
 		return markdown.Stream(c, src, o)
