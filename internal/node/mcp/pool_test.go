@@ -84,6 +84,7 @@ func TestMCPPoolKey(t *testing.T) {
 		name   string
 		change func(*Configuration)
 	}{
+		{"user", func(config *Configuration) { config.User = "second-user" }},
 		{"package", func(config *Configuration) { config.Package.Name = "other" }},
 		{"digest", func(config *Configuration) { config.Package.Digest = "capture-two" }},
 		{"settings", func(config *Configuration) { config.Package.SettingsRevision++ }},
@@ -588,4 +589,49 @@ func TestMCPLifecycle(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestMCPPoolUserIsolation(t *testing.T) {
+	pool := New(t.Context(), Options{Open: func(ctx context.Context, _ Launch, elicit func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+		return fakeSession(t, ctx, elicit, nil)
+	}})
+	defer pool.Close()
+	reference := protocol.PluginReference{Name: "fixture", Digest: "same-content", SettingsRevision: 1}
+	summary := protocol.DefaultPluginSummary()
+	summary.Name, summary.Digest, summary.SettingsRevision, summary.Revision, summary.Enabled = reference.Name, reference.Digest, 1, 1, true
+	leases := make([]*Lease, 2)
+	for index, user := range []string{"first", "second"} {
+		if err := pool.Observe(summary, user); err != nil {
+			t.Fatal(err)
+		}
+		pool.FinishInventory(user)
+		lease, err := pool.Acquire(t.Context(), Configuration{User: user, Package: reference, Server: "echo", Options: protocol.DefaultPluginMcpOptions()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		leases[index] = lease
+		if _, err := lease.List(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if err := lease.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if leases[0].connection == leases[1].connection {
+		t.Fatal("different users shared an MCP connection")
+	}
+	if err := pool.Invalidate(reference.Name, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Status(reference, "echo", "first") != nil || pool.Status(reference, "echo", "second") == nil {
+		t.Fatal("one user's disable invalidated another user's runtime")
+	}
+	again, err := pool.Acquire(t.Context(), Configuration{User: "second", Package: reference, Server: "echo", Options: protocol.DefaultPluginMcpOptions()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if again.connection != leases[1].connection {
+		t.Fatal("another user's connection was retired")
+	}
 }

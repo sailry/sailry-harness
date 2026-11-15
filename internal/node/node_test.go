@@ -476,7 +476,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			_, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,settings_revision,installed,body) VALUES(?1,1,0,1,?2)", info.Summary.Name, body)
+			_, err := db.ExecContext(ctx, "INSERT INTO plugin_user_installations(user,name,revision,settings_revision,installed,body) VALUES((SELECT id FROM users WHERE local=1),?1,1,0,1,?2)", info.Summary.Name, body)
 			return err
 		}); err != nil {
 			t.Fatal(err)

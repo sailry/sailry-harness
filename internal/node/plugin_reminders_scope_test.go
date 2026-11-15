@@ -82,7 +82,7 @@ func TestReminderCallbackOutlivesSourceSession(t *testing.T) {
 	var handler protocol.DispatchHandler
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var body []byte
-		if err := db.QueryRowContext(ctx, "SELECT body FROM dispatch_handlers WHERE package=?1 AND name=?2", scope.Package.Name, id).Scan(&body); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT body FROM dispatch_user_handlers WHERE package=?1 AND name=?2", scope.Package.Name, id).Scan(&body); err != nil {
 			return err
 		}
 		return json.Unmarshal(body, &handler)

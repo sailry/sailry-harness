@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -288,7 +289,20 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 		}
 	}
 	if present && stored.Collection.Owner.Kind == "plugin" {
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)", knowledgeOwner(stored.Collection.Owner)).Scan(&present); err != nil {
+		query := "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)"
+		arguments := []any{knowledgeOwner(stored.Collection.Owner)}
+		if !strings.HasPrefix(stored.Capture.Space, "project:") {
+			user, err := CurrentUser(ctx, db)
+			if stored.Capture.User != nil {
+				user, err = ResolveUser(ctx, db, *stored.Capture.User)
+			}
+			if err != nil {
+				return false, err
+			}
+			query = "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1 AND user=?2)"
+			arguments = append(arguments, user.ID.String())
+		}
+		if err := db.QueryRowContext(ctx, query, arguments...).Scan(&present); err != nil {
 			return false, err
 		}
 	}

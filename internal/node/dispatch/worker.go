@@ -16,9 +16,11 @@ import (
 const Recheck = 30 * time.Second
 
 type Work struct {
-	Job        protocol.JobID
-	Request    protocol.Request
-	Completion protocol.DispatchCompletion
+	User        protocol.User
+	StorageUser protocol.UserID
+	Job         protocol.JobID
+	Request     protocol.Request
+	Completion  protocol.DispatchCompletion
 }
 
 type Batch struct {

@@ -34,7 +34,11 @@ connections, writable package directories and reusable runtimes belong to the
 Node's authenticated user. Default plugin KV is personal to that user and Node.
 Packages may declare project collections shared across authorized project users;
 conversation storage retains its session scope. Admitted work preserves its
-captured storage user independently of later identity merges.
+captured storage user independently of later identity merges. Dispatch handlers,
+schedules, events and jobs use the live user namespace; every queued job also
+retains its original storage user. The shared scheduler restores both principals
+for callback execution and recovery. Native automatic backups belong to the local
+Node owner.
 
 ## Components and dependencies
 

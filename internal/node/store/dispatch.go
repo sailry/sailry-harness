@@ -26,6 +26,10 @@ func ExecuteDispatch(ctx context.Context, db *sql.Conn, node protocol.NodeID, re
 }
 
 func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.NodeID, reference protocol.PluginReference, action protocol.DispatchCommand, timestamp int64) (protocol.Output, []protocol.Event, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.Output{}, nil, userErr
+	}
 	owners := []string{reference.Name}
 	var output protocol.DispatchOutput
 	var changed bool
@@ -33,7 +37,7 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 	switch action.Kind {
 	case "list_handlers":
 		output.Kind = "handlers"
-		output.Data, err = dispatchList[protocol.DispatchHandler](ctx, db, "dispatch_handlers", reference.Name)
+		output.Data, err = dispatchList[protocol.DispatchHandler](ctx, db, "dispatch_user_handlers", reference.Name)
 	case "save_handler":
 		handler, ok := dispatchValue[protocol.DispatchHandler](action.Data)
 		if !ok {
@@ -46,7 +50,7 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		if !ok {
 			return protocol.Output{}, nil, invalid("invalid dispatch handler removal")
 		}
-		handler, readErr := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_handlers", reference.Name, "name", input.Name)
+		handler, readErr := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_user_handlers", reference.Name, "name", input.Name)
 		if readErr != nil {
 			return protocol.Output{}, nil, readErr
 		}
@@ -58,11 +62,11 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 				return protocol.Output{}, nil, err
 			}
 		}
-		_, err = db.ExecContext(ctx, "DELETE FROM dispatch_handlers WHERE package=?1 AND name=?2", reference.Name, input.Name)
+		_, err = db.ExecContext(ctx, "DELETE FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", reference.Name, input.Name, user)
 		output.Kind, changed = "removed", true
 	case "list_schedules":
 		output.Kind = "schedules"
-		output.Data, err = dispatchList[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", reference.Name)
+		output.Data, err = dispatchList[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", reference.Name)
 	case "save_schedule":
 		schedule, ok := dispatchValue[protocol.DispatchSchedule](action.Data)
 		if !ok {
@@ -75,14 +79,14 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		if !ok {
 			return protocol.Output{}, nil, invalid("invalid dispatch schedule removal")
 		}
-		schedule, readErr := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", reference.Name, "id", input.ID.String())
+		schedule, readErr := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", reference.Name, "id", input.ID.String())
 		if readErr != nil {
 			return protocol.Output{}, nil, readErr
 		}
 		if err = checkRevision(schedule.Revision, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		_, err = db.ExecContext(ctx, "DELETE FROM dispatch_schedules WHERE package=?1 AND id=?2", reference.Name, input.ID.String())
+		_, err = db.ExecContext(ctx, "DELETE FROM dispatch_user_schedules WHERE package=?1 AND id=?2 AND user=?3", reference.Name, input.ID.String(), user)
 		output.Kind, changed = "removed", true
 	case "publish":
 		input, ok := dispatchValue[protocol.DispatchCommandPublishPayload](action.Data)
@@ -108,7 +112,7 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		if err = dispatchData(input.Payload); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		handler, readErr := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_handlers", reference.Name, "name", input.Handler)
+		handler, readErr := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_user_handlers", reference.Name, "name", input.Handler)
 		if readErr != nil {
 			return protocol.Output{}, nil, readErr
 		}
@@ -122,7 +126,7 @@ func ExecuteDispatchAdmitted(ctx context.Context, db *sql.Conn, node protocol.No
 		currentReference := dispatchReference(current.Summary)
 		event := protocol.DispatchEvent{ID: protocol.NewEventID(), Source: protocol.DispatchSource{Package: reference.Name, Topic: handler.Source.Topic}, Payload: input.Payload, TimestampMs: timestamp}
 		var sessionStart bool
-		if err := db.QueryRowContext(ctx, "SELECT coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_handlers WHERE package=?1 AND name=?2", reference.Name, handler.Name).Scan(&sessionStart); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", reference.Name, handler.Name, user).Scan(&sessionStart); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		output.Kind, changed = "job", true
@@ -249,8 +253,12 @@ func dispatchReference(summary protocol.PluginSummary) protocol.PluginReference 
 }
 
 func dispatchCapacity(ctx context.Context, db *sql.Conn, table, packageName string) error {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return err
+	}
 	var count int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE package=?1", packageName).Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE package=?1 AND user=?2", packageName, user).Scan(&count); err != nil {
 		return err
 	}
 	if count >= dispatchMaxItems {
@@ -260,8 +268,12 @@ func dispatchCapacity(ctx context.Context, db *sql.Conn, table, packageName stri
 }
 
 func dispatchBudget(ctx context.Context, db *sql.Conn, table, packageName, key, identity string, value any) error {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
 	var size int
-	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(length(body)),0) FROM "+table+" WHERE package=?1 AND "+key+"!=?2", packageName, identity).Scan(&size); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(length(body)),0) FROM "+table+" WHERE package=?1 AND "+key+"!=?2 AND user=?3", packageName, identity, user).Scan(&size); err != nil {
 		return err
 	}
 	body, err := encode(value)
@@ -275,7 +287,12 @@ func dispatchBudget(ctx context.Context, db *sql.Conn, table, packageName, key, 
 }
 
 func dispatchRequired[Value any](ctx context.Context, db *sql.Conn, table, packageName, key, identity string) (Value, error) {
-	value, err := readBody[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 AND "+key+"=?2", packageName, identity)
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		var empty Value
+		return empty, userErr
+	}
+	value, err := readBody[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 AND "+key+"=?2 AND user=?3", packageName, identity, user)
 	if err != nil {
 		var empty Value
 		return empty, err
@@ -288,7 +305,11 @@ func dispatchRequired[Value any](ctx context.Context, db *sql.Conn, table, packa
 }
 
 func dispatchList[Value any](ctx context.Context, db *sql.Conn, table, packageName string) ([]Value, error) {
-	return readBodies[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 ORDER BY rowid", packageName)
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return readBodies[Value](ctx, db, "SELECT body FROM "+table+" WHERE package=?1 AND user=?2 ORDER BY rowid", packageName, user)
 }
 
 func dispatchChanged(owners []string) protocol.Event {

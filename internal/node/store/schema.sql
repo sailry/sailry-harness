@@ -506,12 +506,35 @@ CREATE TABLE dispatch_schedules (
     PRIMARY KEY(package,id)
 );
 CREATE INDEX dispatch_schedules_due ON dispatch_schedules(next_ms);
+CREATE TABLE dispatch_user_handlers (
+    user TEXT NOT NULL REFERENCES users(id),
+    package TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    body BLOB NOT NULL,
+    reference BLOB NOT NULL,
+    PRIMARY KEY(user,package,name)
+);
+CREATE INDEX dispatch_user_handlers_source ON dispatch_user_handlers(user,source,topic);
+CREATE TABLE dispatch_user_schedules (
+    user TEXT NOT NULL REFERENCES users(id),
+    package TEXT NOT NULL,
+    id TEXT NOT NULL,
+    next_ms INTEGER,
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,package,id)
+);
+CREATE INDEX dispatch_user_schedules_due ON dispatch_user_schedules(user,next_ms);
 CREATE TABLE dispatch_events (
+    user TEXT REFERENCES users(id),
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
 CREATE TABLE dispatch_jobs (
+    user TEXT REFERENCES users(id),
+    storage_user TEXT REFERENCES users(id),
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     package TEXT NOT NULL,
@@ -522,6 +545,7 @@ CREATE TABLE dispatch_jobs (
     reference BLOB NOT NULL
 );
 CREATE INDEX dispatch_jobs_queue ON dispatch_jobs(package,queue,status,sequence);
+CREATE INDEX dispatch_jobs_user ON dispatch_jobs(user,status,sequence);
 CREATE TABLE notifications (
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,

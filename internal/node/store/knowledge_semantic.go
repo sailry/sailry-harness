@@ -207,6 +207,7 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 			// An old admitted turn retains access without replacing a newer package capture.
 			if *previous.Capture.Package != reference && latest != nil && plugins.PackageReference(*latest) == reference {
 				previous.Capture.Package = &reference
+				previous.Capture.User = &user
 				if err := advanceKnowledge(previous); err != nil {
 					return nil, false, err
 				}

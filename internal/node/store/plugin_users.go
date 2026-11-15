@@ -35,7 +35,7 @@ func initializePluginUsers(ctx context.Context, db *sql.Conn) error {
 			return err
 		}
 	}
-	return nil
+	return initializeDispatchUsers(ctx, db)
 }
 
 func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {

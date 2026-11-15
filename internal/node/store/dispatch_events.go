@@ -12,8 +12,12 @@ import (
 )
 
 func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchEvent, timestamp int64) ([]protocol.JobID, []string, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, nil, userErr
+	}
 	type record struct{ body, reference []byte }
-	rows, err := db.QueryContext(ctx, "SELECT body,reference FROM dispatch_handlers WHERE source=?1 AND topic=?2 ORDER BY rowid", event.Source.Package, event.Source.Topic)
+	rows, err := db.QueryContext(ctx, "SELECT body,reference FROM dispatch_user_handlers WHERE source=?1 AND topic=?2 AND user=?3 ORDER BY rowid", event.Source.Package, event.Source.Topic, user)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,10 +80,10 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_events(id,body,sequence) VALUES(?1,?2,?3)", event.ID.String(), body, sequence); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_events(id,body,sequence,user) VALUES(?1,?2,?3,?4)", event.ID.String(), body, sequence, user); err != nil {
 		return nil, nil, err
 	}
-	if _, err := db.ExecContext(ctx, "DELETE FROM dispatch_events WHERE sequence NOT IN (SELECT sequence FROM dispatch_events ORDER BY sequence DESC LIMIT 2048)"); err != nil {
+	if _, err := db.ExecContext(ctx, "DELETE FROM dispatch_events WHERE user=?1 AND sequence NOT IN (SELECT sequence FROM dispatch_events WHERE user=?1 ORDER BY sequence DESC LIMIT 2048)", user); err != nil {
 		return nil, nil, err
 	}
 	sort.Strings(owners)
@@ -87,6 +91,14 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 }
 
 func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64, sessionStart bool) (protocol.DispatchJob, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.DispatchJob{}, userErr
+	}
+	storage, storageErr := pluginCapturedUserID(ctx, db)
+	if storageErr != nil {
+		return protocol.DispatchJob{}, storageErr
+	}
 	owner := dispatchNativeOwner
 	if reference != nil {
 		owner = reference.Name
@@ -100,7 +112,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	// published event is not a schedule and always runs.
 	if event.Schedule != nil {
 		var busy bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status IN ('queued','running') AND package=?1 AND json_extract(body,'$.handler')=?2)", owner, handler.Name).Scan(&busy); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status IN ('queued','running') AND package=?1 AND json_extract(body,'$.handler')=?2 AND user=?3)", owner, handler.Name, user).Scan(&busy); err != nil {
 			return protocol.DispatchJob{}, err
 		}
 		if busy {
@@ -110,7 +122,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	}
 	if job.Status == protocol.DispatchStatusQueued {
 		var pending int
-		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued'").Scan(&pending); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM dispatch_jobs WHERE status='queued' AND user=?1", user).Scan(&pending); err != nil {
 			return protocol.DispatchJob{}, err
 		}
 		if pending >= dispatchMaxPending {
@@ -133,8 +145,8 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	if err != nil {
 		return protocol.DispatchJob{}, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference,sequence) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-		job.ID.String(), owner, job.Queue, string(job.Status), body, callback, capture, sequence); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference,sequence,user,storage_user) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+		job.ID.String(), owner, job.Queue, string(job.Status), body, callback, capture, sequence, user, storage); err != nil {
 		return protocol.DispatchJob{}, err
 	}
 	if job.Status != protocol.DispatchStatusQueued {

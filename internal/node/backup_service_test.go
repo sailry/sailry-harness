@@ -374,7 +374,7 @@ func TestScheduleNextRun(t *testing.T) {
 		t.Helper()
 		var due sql.NullInt64
 		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
-			return db.QueryRowContext(t.Context(), "SELECT next_ms FROM dispatch_schedules WHERE package='' AND id='40ca706e-25c1-45ca-bacf-61ee028fb608'").Scan(&due)
+			return db.QueryRowContext(t.Context(), "SELECT next_ms FROM dispatch_user_schedules WHERE package='' AND id='40ca706e-25c1-45ca-bacf-61ee028fb608'").Scan(&due)
 		}); err != nil {
 			t.Fatal(err)
 		}

@@ -20,7 +20,11 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 	if before != nil {
 		cursor = *before
 	}
-	rows, err := db.QueryContext(ctx, "SELECT sequence,body FROM dispatch_jobs WHERE package=?1 AND sequence<?2 ORDER BY sequence DESC LIMIT ?3", packageName, cursor, int(limit)+1)
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.DispatchPage{}, userErr
+	}
+	rows, err := db.QueryContext(ctx, "SELECT sequence,body FROM dispatch_jobs WHERE package=?1 AND sequence<?2 AND user=?4 ORDER BY sequence DESC LIMIT ?3", packageName, cursor, int(limit)+1, user)
 	if err != nil {
 		return protocol.DispatchPage{}, err
 	}
@@ -47,11 +51,15 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 }
 
 func putDispatchJob(ctx context.Context, db *sql.Conn, job protocol.DispatchJob) error {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
 	body, err := encode(job)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, "UPDATE dispatch_jobs SET status=?2,body=?3 WHERE id=?1", job.ID.String(), string(job.Status), body)
+	_, err = db.ExecContext(ctx, "UPDATE dispatch_jobs SET status=?2,body=?3 WHERE id=?1 AND user=?4", job.ID.String(), string(job.Status), body, user)
 	return err
 }
 
@@ -71,7 +79,11 @@ func cancelDispatchJob(ctx context.Context, db *sql.Conn, packageName string, id
 }
 
 func cancelDispatchPending(ctx context.Context, db *sql.Conn, packageName, handler string, timestamp int64) error {
-	jobs, err := readBodies[protocol.DispatchJob](ctx, db, "SELECT body FROM dispatch_jobs WHERE package=?1 AND status='queued' AND json_extract(body,'$.handler')=?2", packageName, handler)
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
+	jobs, err := readBodies[protocol.DispatchJob](ctx, db, "SELECT body FROM dispatch_jobs WHERE package=?1 AND status='queued' AND json_extract(body,'$.handler')=?2 AND user=?3", packageName, handler, user)
 	if err != nil {
 		return err
 	}
@@ -140,8 +152,12 @@ func decodeDispatchReceipt(value sql.NullString) (protocol.Result[protocol.Outpu
 // claimDispatchJobs starts every queued job. A job whose package or callback
 // is no longer authorized fails here; its notices are the returned events.
 func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]dispatcher.Work, []string, []protocol.Event, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, nil, nil, userErr
+	}
 	type record struct{ owner, identity string }
-	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_jobs WHERE status='queued' ORDER BY sequence LIMIT 128")
+	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_jobs WHERE status='queued' AND user=?1 ORDER BY sequence LIMIT 128", user)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -166,9 +182,13 @@ func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, 
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		jobContext, err := DispatchJobContext(ctx, db, job.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		var authorityErr error
 		if reference != nil {
-			_, authorityErr = dispatchPackageVersion(ctx, db, *reference)
+			_, authorityErr = dispatchPackageVersion(jobContext, db, *reference)
 		} else {
 			authorityErr = dispatchNativeCallback(item.owner, job, callback)
 		}
@@ -179,7 +199,15 @@ func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, 
 		owners = append(owners, item.owner)
 		if authorityErr == nil {
 			job.Status, job.StartedMs = protocol.DispatchStatusRunning, &timestamp
-			work = append(work, dispatcher.Work{Job: job.ID, Request: request, Completion: callback.Completion})
+			actor, err := CurrentUser(jobContext, db)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			storage, err := CapturedUser(jobContext, db)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			work = append(work, dispatcher.Work{User: actor, StorageUser: storage, Job: job.ID, Request: request, Completion: callback.Completion})
 		} else {
 			job.Status, job.Error, job.FinishedMs = protocol.DispatchStatusFailed, dispatchFault(authorityErr), &timestamp
 		}
@@ -216,9 +244,13 @@ func dispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.No
 	if caller != node {
 		return nil, false, nil
 	}
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, false, userErr
+	}
 	var identity string
 	var sessionStart bool
-	err := db.QueryRowContext(ctx, "SELECT id,coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_jobs WHERE status='running' AND json_extract(body,'$.request')=?1", submitted.ID.String()).Scan(&identity, &sessionStart)
+	err := db.QueryRowContext(ctx, "SELECT id,coalesce(json_extract(reference,'$.session_start'),0) FROM dispatch_jobs WHERE status='running' AND json_extract(body,'$.request')=?1 AND user=?2", submitted.ID.String(), user).Scan(&identity, &sessionStart)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -252,8 +284,12 @@ func dispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.No
 }
 
 func readDispatchInvocation(ctx context.Context, db *sql.Conn, identity string) (protocol.DispatchJob, protocol.DispatchCallback, *protocol.PluginReference, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.DispatchJob{}, protocol.DispatchCallback{}, nil, userErr
+	}
 	var body, encodedCallback, encodedReference []byte
-	if err := db.QueryRowContext(ctx, "SELECT body,callback,reference FROM dispatch_jobs WHERE id=?1", identity).Scan(&body, &encodedCallback, &encodedReference); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT body,callback,reference FROM dispatch_jobs WHERE id=?1 AND user=?2", identity, user).Scan(&body, &encodedCallback, &encodedReference); err != nil {
 		return protocol.DispatchJob{}, protocol.DispatchCallback{}, nil, err
 	}
 	var job protocol.DispatchJob
@@ -270,6 +306,14 @@ func readDispatchInvocation(ctx context.Context, db *sql.Conn, identity string) 
 }
 
 func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, result error, timestamp int64) ([]protocol.Event, error) {
+	captured, captureErr := DispatchJobContext(ctx, db, identity)
+	if errors.Is(captureErr, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if captureErr != nil {
+		return nil, captureErr
+	}
+	ctx = captured
 	var owner string
 	if err := db.QueryRowContext(ctx, "SELECT package FROM dispatch_jobs WHERE id=?1", identity.String()).Scan(&owner); err != nil {
 		// An uncertain commit may already have ended this job and pruned it
@@ -321,12 +365,20 @@ func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, 
 }
 
 func pruneDispatchJobs(ctx context.Context, db *sql.Conn) error {
-	_, err := db.ExecContext(ctx, "DELETE FROM dispatch_jobs WHERE status NOT IN ('queued','running') AND sequence NOT IN (SELECT sequence FROM dispatch_jobs ORDER BY sequence DESC LIMIT 2048)")
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "DELETE FROM dispatch_jobs WHERE user=?1 AND status NOT IN ('queued','running') AND sequence NOT IN (SELECT sequence FROM dispatch_jobs WHERE user=?1 ORDER BY sequence DESC LIMIT 2048)", user)
 	return err
 }
 
 func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]string, []protocol.Event, error) {
-	jobs, err := readBodies[protocol.DispatchJob](ctx, db, "SELECT body FROM dispatch_jobs WHERE status='running'")
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, nil, userErr
+	}
+	jobs, err := readBodies[protocol.DispatchJob](ctx, db, "SELECT body FROM dispatch_jobs WHERE status='running' AND user=?1", user)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -389,7 +441,11 @@ func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 }
 
 func observeDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID) ([]dispatcher.Work, error) {
-	rows, err := db.QueryContext(ctx, "SELECT j.body,j.callback,r.body FROM dispatch_jobs j JOIN requests r ON r.id=json_extract(j.body,'$.request') AND r.caller=?1 WHERE j.status='running' AND r.status='completed'", node[:])
+	user, userErr := CurrentUser(ctx, db)
+	if userErr != nil {
+		return nil, userErr
+	}
+	rows, err := db.QueryContext(ctx, "SELECT j.body,j.callback,r.body,coalesce(j.storage_user,j.user) FROM dispatch_jobs j JOIN requests r ON r.id=json_extract(j.body,'$.request') AND r.caller=?1 WHERE j.status='running' AND r.status='completed' AND j.user=?2", node[:], user.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +453,8 @@ func observeDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	work := []dispatcher.Work{}
 	for rows.Next() {
 		var encodedJob, encodedCallback, encodedRequest []byte
-		if err := rows.Scan(&encodedJob, &encodedCallback, &encodedRequest); err != nil {
+		var storageID string
+		if err := rows.Scan(&encodedJob, &encodedCallback, &encodedRequest, &storageID); err != nil {
 			return nil, err
 		}
 		var job protocol.DispatchJob
@@ -412,7 +469,11 @@ func observeDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err := json.Unmarshal(encodedRequest, &request); err != nil {
 			return nil, err
 		}
-		work = append(work, dispatcher.Work{Job: job.ID, Request: request, Completion: callback.Completion})
+		storage, err := protocol.ParseUserID(storageID)
+		if err != nil {
+			return nil, err
+		}
+		work = append(work, dispatcher.Work{User: user, StorageUser: storage, Job: job.ID, Request: request, Completion: callback.Completion})
 	}
 	return work, rows.Err()
 }
@@ -449,7 +510,11 @@ func DispatchTick(ctx context.Context, db *sql.Conn, node protocol.NodeID, times
 	if err != nil {
 		return batch, nil, err
 	}
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')").Scan(&batch.Pending); err != nil {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return batch, nil, userErr
+	}
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued' AND user=?1)", user).Scan(&batch.Pending); err != nil {
 		return batch, nil, err
 	}
 	if len(owners) != 0 {

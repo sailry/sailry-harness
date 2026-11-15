@@ -181,11 +181,16 @@ func RecordBackupOutcome(ctx context.Context, db *sql.Conn, outcome protocol.Bac
 
 // configureBackupDispatch registers the one controller-only scheduled command.
 func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protocol.BackupSettings, timestamp int64) error {
+	local, userErr := LocalUser(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
+	ctx = WithCapturedUser(WithUser(ctx, local), local.ID)
 	id, err := protocol.ParseScheduleID(backupSchedule)
 	if err != nil {
 		return err
 	}
-	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2", dispatchNativeOwner, backupSchedule)
+	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_user_schedules WHERE package=?1 AND id=?2 AND user=?3", dispatchNativeOwner, backupSchedule, local.ID.String())
 	if err != nil {
 		return err
 	}
@@ -211,7 +216,7 @@ func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protoco
 			Command: &protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: settings.Revision}},
 		},
 	}
-	registered, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_handlers WHERE package=?1 AND name=?2", dispatchNativeOwner, backupHandler)
+	registered, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", dispatchNativeOwner, backupHandler, local.ID.String())
 	if err != nil {
 		return err
 	}
@@ -226,8 +231,8 @@ func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protoco
 	if err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?1,?2,?3,?4) ON CONFLICT(package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference",
-		dispatchNativeOwner, backupHandler, body, []byte("null")); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_user_handlers(package,name,source,topic,body,reference,user) VALUES(?1,?2,?1,?2,?3,?4,?5) ON CONFLICT(user,package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference",
+		dispatchNativeOwner, backupHandler, body, []byte("null"), local.ID.String()); err != nil {
 		return err
 	}
 	if err := cancelDispatchPending(ctx, db, dispatchNativeOwner, backupHandler, timestamp); err != nil {

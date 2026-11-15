@@ -99,7 +99,7 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 // InitializeUserPlugins installs bundled defaults without copying another user's
 // settings or restoring that user's explicit removal choices.
 func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User) error {
-	ctx = store.WithUser(ctx, user)
+	ctx = store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
 	for _, entry := range plugins.BundledDefaults() {
 		var current *protocol.PluginInfo
 		var recorded bool
@@ -412,10 +412,12 @@ func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.
 	if len(contexts) != 0 {
 		ctx = contexts[0]
 	}
-	user, err := node.pluginRuntimeUser(ctx)
-	if err != nil {
+	var actor protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; actor, err = store.CurrentUser(ctx, db); return err }); err != nil {
 		return
 	}
+	user := actor.ID
+	ctx = store.WithCapturedUser(ctx, user)
 	packagesChanged := false
 	for _, change := range changes {
 		if change.Kind == "plugin_changed" {

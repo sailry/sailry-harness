@@ -23,7 +23,7 @@ func checkPluginDispatchTargets(ctx context.Context, db *sql.Conn, scope protoco
 		if !valid {
 			return invalid("invalid dispatch enqueue")
 		}
-		handler, err := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_handlers", scope.Package.Name, "name", input.Handler)
+		handler, err := dispatchRequired[protocol.DispatchHandler](ctx, db, "dispatch_user_handlers", scope.Package.Name, "name", input.Handler)
 		if err != nil {
 			return err
 		}
@@ -47,7 +47,11 @@ func checkPluginDispatchTargets(ctx context.Context, db *sql.Conn, scope protoco
 		var err error
 		// Cross-package subscriptions are declared by their receiver. This
 		// check confines explicit use of the caller package's own handlers.
-		handlers, err = readBodies[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_handlers WHERE package=?1 AND source=?1 AND topic=?2 ORDER BY name", scope.Package.Name, topic)
+		user, userErr := pluginUserID(ctx, db)
+		if userErr != nil {
+			return userErr
+		}
+		handlers, err = readBodies[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_user_handlers WHERE package=?1 AND source=?1 AND topic=?2 AND user=?3 ORDER BY name", scope.Package.Name, topic, user)
 		if err != nil {
 			return err
 		}
