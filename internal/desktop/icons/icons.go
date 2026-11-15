@@ -34,6 +34,7 @@ var (
 	Ellipsis         = load("ellipsis")
 	EllipsisVertical = load("ellipsis-vertical")
 	ChevronDown      = load("chevron-down")
+	ChevronUp        = load("chevron-up")
 	ChevronRight     = load("chevron-right")
 	PanelLeftClose   = load("panel-left-close")
 	PanelLeftOpen    = load("panel-left-open")

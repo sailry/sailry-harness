@@ -672,11 +672,12 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 			conversation.UsageBar(c, nil, [][]conversation.Metric{conversation.Metrics(c, cv.Session.Usage)}, compact, open)
 		}
 	}
-	// The preview draws its own ring. A live session's is a package's
-	// indicator, which its context carries: both would be two rings.
+	// A sample conversation's context meter reads its own usage; the
+	// controller's hook gives a live session's (and the demo's) theirs.
 	comp.Indicator = nil
 	if a.sampled() {
-		comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
+		stats := conversation.UsageContext(cv.Session.Usage, comp.Chosen(a.Data.Models).Name)
+		comp.Indicator = func(c *ui.Context) { conversation.ContextMeter(c, &comp.Meter, stats) }
 	}
 	var act ConversationActions = &actions{a: a, c: c, cv: cv, comp: comp}
 	if a.sampled() {

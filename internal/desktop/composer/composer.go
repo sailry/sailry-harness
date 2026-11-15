@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -59,10 +60,12 @@ type State struct {
 	// session's statistics and footer slots. Compact below compactWidth,
 	// its popover open while *open is true.
 	Metrics func(c *ui.Context, compact bool, open *bool)
-	// Indicator builds the preview's context ring left of the model chip
-	// (conversation ContextRing), nil for none. A live session's rings are
-	// Context.Indicators.
+	// Indicator builds the context meter left of the model chip
+	// (conversation ContextMeter), nil for none: a draft has no session.
+	// Packages' rings are Context.Indicators.
 	Indicator func(c *ui.Context)
+	// Meter is the context meter's popover state.
+	Meter conversation.ContextMeterState
 
 	Mode         Mode
 	Permission   Permission
