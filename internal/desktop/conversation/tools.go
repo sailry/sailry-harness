@@ -515,8 +515,13 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 		}
 	}
 	head := Call{Label: i18n.T(c, "task_progress"), Icon: "circle-check", Detail: fmt.Sprintf("%d/%d", done, len(steps)), Running: active}
-	s.disclosure(c, "progress-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { stepRows(c, steps, active, textSize(c)) })
+	// The plan is what the turn works through: it stays open, with no fold,
+	// under its count.
+	ui.Column(c.Key("progress-" + key)).Children(func() {
+		plain(c, "head", head)
+		Rail(c).Padding(4, 0, 8, railPad(textSize(c))).Children(func() {
+			ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { stepRows(c, steps, active, textSize(c)) })
+		})
 	})
 }
 
@@ -526,7 +531,8 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 // them in its text size (stepRows).
 func Steps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, active, 14) }
 
-// stepRows are Steps for text of size: each row 32 DIPs at 14.
+// stepRows are Steps for text of size: each row 32 DIPs at 14 for a step
+// of one line, a long step wrapping whole under its first line's icon.
 func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 	p := theme.Of(c)
 	for i, st := range steps {
@@ -545,22 +551,21 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 		case StepFailed:
 			icon, color = icons.CircleX, p.Danger
 		}
-		ui.Row(c.Key(i)).Height(rowHeight(size)+8).Padding(4, 8, 4, 0).Gap(8).Children(func() {
+		rowSize(ui.Row(c.Key(i)), size, true).Padding(4, 8, 4, 0).Gap(8).Children(func() {
 			// The step in progress turns while the run does, and stands
-			// still once it stopped.
-			if st.State == StepInProgress && active {
-				kit.BusySized(c, rowIcon(size)).Label(i18n.T(c, "chat_running"))
-			} else {
-				ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(color)
+			// still once it stopped; the mark is level with the first line.
+			ui.Box(c.Key("mark")).Height(rowHeight(size)).Shrink(0).Center().Children(func() {
+				if st.State == StepInProgress && active {
+					kit.BusySized(c, rowIcon(size)).Label(i18n.T(c, "chat_running"))
+				} else {
+					ui.Icon(c, icon).FontSize(rowIcon(size)).TextColor(color)
+				}
+			})
+			text := ui.Text(c, st.Text).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(p.Foreground)
+			if st.State == StepCompleted || st.State == StepSkipped {
+				text.Strikethrough().TextColor(p.MutedForeground)
 			}
-			switch {
-			case st.State == StepInProgress && active:
-				levelSpan(c, kit.Shimmer(c, st.Text, size, p.Foreground), ui.Span{Text: st.Text, Size: size}, size, false)
-			case st.State == StepCompleted || st.State == StepSkipped:
-				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().Strikethrough().TextColor(p.MutedForeground), size, false, st.Text)
-			default:
-				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().TextColor(p.Foreground), size, false, st.Text)
-			}
+			level(c, text, size, true, st.Text)
 		})
 	}
 }
