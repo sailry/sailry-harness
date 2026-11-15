@@ -86,6 +86,13 @@ if test -n "${APPLE_SIGNING_KEYCHAIN:-}"; then
 fi
 
 go run ./native/fetch -target "$platform" ${artifacts[@]+"${artifacts[@]}"} -bundle "$resources"
+# Pinned MyGo reaches the helper app's main executable before its sibling.
+# Intel's unsigned sibling must be signed before codesign validates that app.
+helper_signing=(--force --sign "$identity" --preserve-metadata=entitlements)
+if test "$identity" != -; then
+  helper_signing+=(--options runtime --timestamp)
+fi
+codesign "${helper_signing[@]}" "$resources/helpers/Sailry Computer Use.app/Contents/MacOS/agent-desktop-macos-helper"
 go build -o .runtime/package/bin/mygo github.com/egoist/mygo/cmd/mygo
 
 # Shipped beside the runtimes: the dependency notices and the build record

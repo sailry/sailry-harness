@@ -8,6 +8,11 @@ on:
     tags: ['v*']
   # A manual run must select the version tag as its ref.
   workflow_dispatch:
+    inputs:
+      reuse_run:
+        description: Completed release run whose checks and non-macOS packages can be reused after macOS packaging-only fixes
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -24,9 +29,13 @@ env:
 jobs:
   version:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
+      reuse_run: ${{ steps.reuse.outputs.run }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Tag, product versions and changelog entry agree
@@ -47,9 +56,52 @@ jobs:
           case "$build" in '' | *[!0-9]*) echo 'pubspec.yaml has no build number' >&2; exit 1 ;; esac
           grep -Fq "## [$version](" CHANGELOG.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
           printf 'version=%s\nbuild=%s\n' "$version" "$build" >> "$GITHUB_OUTPUT"
+      # A repair may reuse only a complete full run of this tag. Comparing the
+      # source trees keeps application, dependency and native inputs unchanged.
+      - name: Verify reusable release run
+        id: reuse
+        if: inputs.reuse_run != ''
+        env:
+          REUSE_RUN: ${{ inputs.reuse_run }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          case "$REUSE_RUN" in '' | *[!0-9]*) echo 'reuse_run must be a workflow run ID' >&2; exit 1 ;; esac
+          prior=$RUNNER_TEMP/reuse-run.json
+          jobs=$RUNNER_TEMP/reuse-jobs.json
+          comparison=$RUNNER_TEMP/reuse-comparison.json
+          gh api "repos/$GH_REPO/actions/runs/$REUSE_RUN" > "$prior"
+          workflow=$(gh api "repos/$GH_REPO/actions/workflows/release.yml" --jq .id)
+          jq -e --arg repo "$GH_REPO" --arg tag "$GITHUB_REF_NAME" --argjson workflow "$workflow" \
+            '.status == "completed" and .workflow_id == $workflow and .path == ".github/workflows/release.yml" and .head_branch == $tag and .head_repository.full_name == $repo' \
+            "$prior" >/dev/null
+          gh api --paginate "repos/$GH_REPO/actions/runs/$REUSE_RUN/jobs?filter=latest&per_page=100" --jq '.jobs[]' | jq -s . > "$jobs"
+          jq -e '
+            [.[] | select(.name | startswith("checks / "))] as $checks |
+            [.[] | select(.name | startswith("host-linux ("))] as $hosts |
+            ($checks | length) > 0 and all($checks[]; .conclusion == "success") and
+            ($hosts | length) == 2 and all($hosts[]; .conclusion == "success")
+          ' "$jobs" >/dev/null
+          for name in version windows android ios; do
+            jq -e --arg name "$name" 'any(.[]; .name == $name and .conclusion == "success")' "$jobs" >/dev/null
+          done
+          source=$(jq -r .head_sha "$prior")
+          gh api "repos/$GH_REPO/compare/$source...$GITHUB_SHA" > "$comparison"
+          jq -e --arg source "$source" '.merge_base_commit.sha == $source and (.status == "ahead" or .status == "identical") and (.files | type == "array")' \
+            "$comparison" >/dev/null
+          while IFS= read -r path; do
+            case "$path" in
+              cmd/sailry-desktop/macos/package.sh | internal/node/host/deployment/archive.sh | .github/workflows/release.yml | CONTRIBUTING.md) ;;
+              *) echo "Cannot reuse release inputs after changing $path" >&2; exit 1 ;;
+            esac
+          done < <(jq -r '.files[] | .filename, (.previous_filename // empty)' "$comparison")
+          printf 'Reusing checks and non-macOS packages from run %s at %s\n' "$REUSE_RUN" "$source"
+          printf 'run=%s\n' "$REUSE_RUN" >> "$GITHUB_OUTPUT"
 
   checks:
     needs: version
+    if: needs.version.outputs.reuse_run == ''
     uses: ./.github/workflows/ci.yml
     with:
       integration: true
@@ -57,7 +109,11 @@ jobs:
   # The signed, sealed and notarized Desktop and the signed Host archive of
   # one macOS architecture.
   macos:
-    needs: checks
+    needs: [version, checks]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.checks.result == 'success' || needs.version.outputs.reuse_run != '') }}
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +142,8 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native
+          run-id: ${{ needs.version.outputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
       # A temporary keychain holds the Developer ID certificate; the App Store
       # Connect key stays a file outside the checkout.
       - name: Signing credentials
@@ -461,9 +519,11 @@ jobs:
   # draft release does not hold yet. An existing asset is never replaced.
   publish:
     needs: [version, macos, windows, host-linux, android, ios]
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.macos.result == 'success' && (needs.version.outputs.reuse_run != '' || (needs.windows.result == 'success' && needs['host-linux'].result == 'success' && needs.android.result == 'success' && needs.ios.result == 'success')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read
     env:
       VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -473,6 +533,15 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+      - name: Reuse completed non-macOS packages
+        if: needs.version.outputs.reuse_run != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+          run-id: ${{ needs.version.outputs.reuse_run }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: release-*

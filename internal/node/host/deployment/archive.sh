@@ -57,6 +57,19 @@ go build -trimpath -ldflags "$flags" -o "$stage/host/sailry-host" ./cmd/sailry-h
 # macOS: only Sailry's own code is signed. The pinned runtimes keep the bytes
 # their locks record, which the Host verifies outside an application bundle.
 if test "$(uname -s)" = Darwin; then
+  # --keychain limits identity lookup; its certificate chain still needs the
+  # user search list. Keep the standalone Host signer self-contained.
+  if test -n "${APPLE_SIGNING_KEYCHAIN:-}"; then
+    previous=()
+    while IFS= read -r line; do
+      line=${line#"${line%%[![:space:]]*}"}
+      line=${line#\"}
+      previous+=("${line%\"}")
+    done < <(security list-keychains -d user)
+    restore() { security list-keychains -d user -s ${previous[@]+"${previous[@]}"}; }
+    trap restore EXIT
+    security list-keychains -d user -s "$APPLE_SIGNING_KEYCHAIN" ${previous[@]+"${previous[@]}"}
+  fi
   signing=(--sign -)
   if test "${SAILRY_SIGNING:-ad-hoc}" = developer-id; then
     test -n "${APPLE_SIGNING_IDENTITY:-}" || { echo 'APPLE_SIGNING_IDENTITY is required' >&2; exit 1; }

@@ -258,6 +258,15 @@ except `publish`:
   other content, or a release that is already published, fails the job.
   Publishing the draft is manual.
 
+For macOS packaging-only repairs, manually run `Release` on the version tag with
+`reuse_run` set to the completed full release run ID. The workflow requires all
+checks and non-macOS packages to have passed, verifies that only the macOS
+packaging scripts, release workflow or this document changed, and rebuilds both
+macOS packages using that run's native artifacts. It reuses the original Windows,
+Linux and Android packages and does not repeat the successful TestFlight upload.
+Reused artifacts retain their original source revision; the repaired macOS
+packages record the new revision.
+
 `pairing-relay.yml` tests `services/pairing-relay` when it changes; a manual
 run tests and then deploys to the chosen EdgeOne environment. `website.yml`
 asks the website repository to rebuild when the documents it reads change on
