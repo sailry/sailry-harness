@@ -21,6 +21,10 @@ func TestControllerDirectoryPreservesDirectPairsAndRemovalProvenance(t *testing.
 	defer func() { _ = store.Close() }()
 	ctx := t.Context()
 	first, second, direct, imported, shared := protocol.NodeID{1}, protocol.NodeID{2}, protocol.NodeID{3}, protocol.NodeID{4}, protocol.NodeID{5}
+	incoming := protocol.NodeID{6}
+	if err := store.PairPeer(ctx, incoming, DirectionController); err != nil {
+		t.Fatal(err)
+	}
 	for _, source := range []protocol.NodeID{first, second} {
 		if err := store.PairMember(ctx, source, DirectionHost, InvitationScope{Kind: protocol.InvitationMyDevice}); err != nil {
 			t.Fatal(err)
@@ -32,7 +36,7 @@ func TestControllerDirectoryPreservesDirectPairsAndRemovalProvenance(t *testing.
 	if err := store.Remember(ctx, EndpointAddress{ID: direct, Addrs: []json.RawMessage{json.RawMessage(`{"Ip":"127.0.0.1:4000"}`)}}); err != nil {
 		t.Fatal(err)
 	}
-	values := []EndpointAddress{{ID: direct, Addrs: []json.RawMessage{json.RawMessage(`{"Relay":"https://relay.example.test/"}`)}}, {ID: imported}, {ID: shared}}
+	values := []EndpointAddress{{ID: direct, Addrs: []json.RawMessage{json.RawMessage(`{"Relay":"https://relay.example.test/"}`)}}, {ID: imported}, {ID: shared}, {ID: incoming}}
 	if err := store.ApplyDirectory(ctx, direct, 1, values); err == nil {
 		t.Fatal("ordinary pair imported a my-device directory")
 	}
@@ -63,6 +67,15 @@ func TestControllerDirectoryPreservesDirectPairsAndRemovalProvenance(t *testing.
 	}
 	if err := store.SetTrust(ctx, first, false); err != nil {
 		t.Fatal(err)
+	}
+	directions, err := store.Directions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range directions {
+		if value.ID == incoming && value.Direction != DirectionController {
+			t.Fatal("source removal erased or retained imported direction on independent inbound controller")
+		}
 	}
 	peers, err = store.Peers(ctx)
 	if err != nil || !slices.Contains(peers, direct) || !slices.Contains(peers, shared) {
@@ -101,5 +114,23 @@ func TestControllerDirectoryPreservesDirectPairsAndRemovalProvenance(t *testing.
 	peers, err = store.Peers(ctx)
 	if err != nil || !slices.Contains(peers, imported) {
 		t.Fatal("explicit pairing could not restore removed device")
+	}
+	if err := store.PairPeer(ctx, incoming, DirectionHost); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetTrust(ctx, incoming, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PairPeer(ctx, incoming, DirectionHost); err != nil {
+		t.Fatal(err)
+	}
+	directions, err = store.Directions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range directions {
+		if value.ID == incoming && value.Direction != DirectionHost {
+			t.Fatal("re-pair restored an old revoked inbound grant")
+		}
 	}
 }

@@ -225,6 +225,7 @@ func SponsorIdentityDevice(ctx context.Context, db *sql.Conn, node, caller proto
 	}
 	result.State = "pending"
 	if !owner.Valid || owner.String == actor.ID.String() {
+		alreadyMember := owner.Valid && previous.AllowsInbound()
 		if err := SetLinkTrust(ctx, db, input.Device, true); err != nil {
 			return result, err
 		}
@@ -238,8 +239,10 @@ func SponsorIdentityDevice(ctx context.Context, db *sql.Conn, node, caller proto
 		if err := RememberLinkPeer(ctx, db, address); err != nil {
 			return result, err
 		}
-		if err := rememberIdentityMembership(ctx, db, input.Device, actor.ID, caller); err != nil {
-			return result, err
+		if !alreadyMember {
+			if err := rememberIdentityMembership(ctx, db, input.Device, actor.ID, caller); err != nil {
+				return result, err
+			}
 		}
 		result.State = "accepted"
 	}
@@ -325,7 +328,7 @@ func RevokeIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protoc
 	}
 	if input.Sponsored {
 		var sponsored bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM identity_sponsorships WHERE sponsor=?1 AND device=?2 AND user=?3)", caller[:], input.Device[:], actor.ID.String()).Scan(&sponsored); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM identity_memberships WHERE sponsor=?1 AND device=?2 AND user=?3 AND active=1)", caller[:], input.Device[:], actor.ID.String()).Scan(&sponsored); err != nil {
 			return err
 		}
 		if !sponsored || !owner.Valid || owner.String != actor.ID.String() {
@@ -343,7 +346,52 @@ func RevokeIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protoc
 			return invalid("confirm removal of the user's last device; its data will remain without device access")
 		}
 	}
-	return removeIdentityPeer(ctx, db, input.Device, !input.Sponsored)
+	if input.Sponsored || !actor.Administrator {
+		return removeIdentityInbound(ctx, db, input.Device)
+	}
+	return removeIdentityPeer(ctx, db, input.Device, true)
+}
+
+// Group revocation removes inbound membership. It cannot delete a host's
+// independent outbound pairing to the same endpoint.
+func removeIdentityInbound(ctx context.Context, db *sql.Conn, device protocol.NodeID) error {
+	var outbound bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM link_peers WHERE identity=?1 AND direction IN ('host','both'))", device[:]).Scan(&outbound); err != nil {
+		return err
+	}
+	if !outbound {
+		return removeIdentityPeer(ctx, db, device, false)
+	}
+	if err := queueIdentityRevocations(ctx, db, device); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE identity_memberships SET active=0 WHERE device=?1", device[:]); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE identity_sponsorships SET state='cancelled' WHERE device=?1 OR sponsor=?1", device[:]); err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE link_peers SET direction='host',user=NULL WHERE identity=?1", device[:]); err != nil {
+		return err
+	}
+	values, err := IdentityPeerRelationships(ctx, db)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		if value.ID != device {
+			continue
+		}
+		if value.DirectDirection.AllowsOutbound() {
+			value.DirectDirection = link.DirectionHost
+		} else {
+			value.DirectDirection = ""
+			value.MyDevice = false
+		}
+		value.Direct = value.DirectDirection.Valid()
+		return writeIdentityPeer(ctx, db, value)
+	}
+	return nil
 }
 
 // RemoveIdentityPeer runs at an already authenticated revocation boundary. The

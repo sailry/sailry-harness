@@ -60,7 +60,7 @@ func (node *Node) SyncIdentity(ctx context.Context) error {
 	}
 	direct := map[protocol.NodeID]bool{}
 	for _, value := range relationships {
-		if value.Direct && !value.Removed {
+		if value.Direct && value.DirectDirection.AllowsOutbound() && !value.Removed {
 			direct[value.ID] = true
 		}
 	}

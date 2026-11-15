@@ -30,6 +30,7 @@ type controllerPeer struct {
 	Address           *EndpointAddress  `json:"address"`
 	Direction         PeerDirection     `json:"direction"`
 	Direct            bool              `json:"direct"`
+	DirectDirection   PeerDirection     `json:"direct_direction,omitempty"`
 	MyDevice          bool              `json:"my_device"`
 	Removed           bool              `json:"removed"`
 	Sources           []protocol.NodeID `json:"sources,omitempty"`
@@ -41,6 +42,9 @@ func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {
 	decoded := plain{Direction: DirectionHost, Direct: true}
 	if err := protocol.DecodeObject(encoded, &decoded, []string{"id"}, false); err != nil {
 		return err
+	}
+	if decoded.Direct && !decoded.Removed && decoded.DirectDirection == "" {
+		decoded.DirectDirection = decoded.Direction
 	}
 	*peer = controllerPeer(decoded)
 	return nil
@@ -133,7 +137,7 @@ func decodeControllerRecord(encoded []byte) (controllerRecord, error) {
 			active++
 		}
 		_, duplicate := unique[peer.ID]
-		if duplicate || !peer.Direction.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
+		if duplicate || !peer.Direction.Valid() || peer.DirectDirection != "" && !peer.DirectDirection.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
 			return controllerRecord{}, controllerStorage(errors.New("invalid peer identity binding"))
 		}
 		unique[peer.ID] = struct{}{}
@@ -194,17 +198,23 @@ func (store *controllerStore) SetTrust(ctx context.Context, id protocol.NodeID, 
 				if !trusted {
 					(*peers)[index].Removed = true
 					(*peers)[index].Direct = false
+					(*peers)[index].DirectDirection = ""
 					(*peers)[index].MyDevice = false
 					removeControllerSource(peers, id)
 				} else {
+					if (*peers)[index].Removed {
+						(*peers)[index].Direction = DirectionHost
+						(*peers)[index].DirectoryRevision = 0
+					}
 					(*peers)[index].Removed = false
 					(*peers)[index].Direct = true
+					(*peers)[index].DirectDirection = (*peers)[index].Direction
 				}
 				return nil
 			}
 		}
 		if trusted {
-			*peers = append(*peers, controllerPeer{ID: id, Direction: DirectionHost, Direct: true})
+			*peers = append(*peers, controllerPeer{ID: id, Direction: DirectionHost, Direct: true, DirectDirection: DirectionHost})
 		}
 		return nil
 	})
@@ -236,17 +246,20 @@ func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID
 	return store.update(ctx, func(peers *[]controllerPeer) error {
 		for index := range *peers {
 			if (*peers)[index].ID == id {
-				(*peers)[index].Direction = mergeDirection((*peers)[index].Direction, direction)
 				if (*peers)[index].Removed {
 					(*peers)[index].DirectoryRevision = 0
+					(*peers)[index].Direction = ""
+					(*peers)[index].DirectDirection = ""
 				}
+				(*peers)[index].Direction = mergeDirection((*peers)[index].Direction, direction)
+				(*peers)[index].DirectDirection = mergeDirection((*peers)[index].DirectDirection, direction)
 				(*peers)[index].Direct = true
 				(*peers)[index].Removed = false
 				(*peers)[index].MyDevice = (*peers)[index].MyDevice || scope.Kind == protocol.InvitationMyDevice
 				return nil
 			}
 		}
-		*peers = append(*peers, controllerPeer{ID: id, Direction: direction, Direct: true, MyDevice: scope.Kind == protocol.InvitationMyDevice})
+		*peers = append(*peers, controllerPeer{ID: id, Direction: direction, Direct: true, DirectDirection: direction, MyDevice: scope.Kind == protocol.InvitationMyDevice})
 		return nil
 	})
 }
@@ -259,6 +272,8 @@ func (store *controllerStore) SetDirection(ctx context.Context, id protocol.Node
 		for index := range *peers {
 			if (*peers)[index].ID == id && !(*peers)[index].Removed {
 				(*peers)[index].Direction = direction
+				(*peers)[index].Direct = true
+				(*peers)[index].DirectDirection = direction
 				return nil
 			}
 		}

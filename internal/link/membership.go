@@ -18,6 +18,7 @@ type InvitationScope struct {
 type PeerRelationship struct {
 	ID                protocol.NodeID   `json:"id"`
 	Direct            bool              `json:"direct"`
+	DirectDirection   PeerDirection     `json:"direct_direction,omitempty"`
 	MyDevice          bool              `json:"my_device"`
 	Removed           bool              `json:"removed"`
 	Sources           []protocol.NodeID `json:"sources"`
@@ -46,12 +47,18 @@ func (link *Link) pairMember(ctx context.Context, peer protocol.NodeID, directio
 
 func (link *Link) Relationships(ctx context.Context) ([]PeerRelationship, error) {
 	if store, ok := link.store.(MembershipStore); ok {
-		return store.Relationships(ctx)
+		values, err := store.Relationships(ctx)
+		for index := range values {
+			if values[index].Direct && values[index].DirectDirection == "" && !values[index].Removed {
+				values[index].DirectDirection = link.Direction(values[index].ID)
+			}
+		}
+		return values, err
 	}
 	peers, err := link.store.Peers(ctx)
 	values := make([]PeerRelationship, 0, len(peers))
 	for _, peer := range peers {
-		values = append(values, PeerRelationship{ID: peer, Direct: true, Sources: []protocol.NodeID{}})
+		values = append(values, PeerRelationship{ID: peer, Direct: true, DirectDirection: link.Direction(peer), Sources: []protocol.NodeID{}})
 	}
 	return values, err
 }

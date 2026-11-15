@@ -15,7 +15,7 @@ func (store *controllerStore) Relationships(ctx context.Context) ([]PeerRelation
 	defer store.mu.Unlock()
 	values := make([]PeerRelationship, 0, len(store.peers))
 	for _, peer := range store.peers {
-		values = append(values, PeerRelationship{ID: peer.ID, Direct: peer.Direct, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...), DirectoryRevision: peer.DirectoryRevision})
+		values = append(values, PeerRelationship{ID: peer.ID, Direct: peer.Direct, DirectDirection: peer.DirectDirection, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...), DirectoryRevision: peer.DirectoryRevision})
 	}
 	return values, nil
 }
@@ -25,7 +25,19 @@ func removeControllerSource(peers *[]controllerPeer, source protocol.NodeID) {
 		peer := &(*peers)[index]
 		peer.Sources = slices.DeleteFunc(peer.Sources, func(id protocol.NodeID) bool { return id == source })
 	}
-	*peers = slices.DeleteFunc(*peers, func(peer controllerPeer) bool { return !peer.Direct && !peer.Removed && len(peer.Sources) == 0 })
+	pruneControllerDirectory(peers)
+}
+
+func pruneControllerDirectory(peers *[]controllerPeer) {
+	for index := range *peers {
+		peer := &(*peers)[index]
+		if !peer.Removed && !peer.DirectDirection.AllowsOutbound() && len(peer.Sources) == 0 && peer.Direction.AllowsInbound() {
+			peer.Direction = DirectionController
+		}
+	}
+	*peers = slices.DeleteFunc(*peers, func(peer controllerPeer) bool {
+		return !peer.Removed && !peer.DirectDirection.AllowsOutbound() && !peer.Direction.AllowsInbound() && len(peer.Sources) == 0
+	})
 }
 
 func (store *controllerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, revision uint64, addresses []EndpointAddress) error {
@@ -64,6 +76,7 @@ func (store *controllerStore) ApplyDirectory(ctx context.Context, source protoco
 					break
 				}
 				peer.Sources = append(peer.Sources, source)
+				peer.Direction = mergeDirection(peer.Direction, DirectionHost)
 				copy := cloneAddress(address)
 				if peer.Address != nil {
 					copy = mergeAddress(*peer.Address, address)
@@ -76,7 +89,7 @@ func (store *controllerStore) ApplyDirectory(ctx context.Context, source protoco
 				*peers = append(*peers, controllerPeer{ID: address.ID, Address: &copy, Direction: DirectionHost, Sources: []protocol.NodeID{source}})
 			}
 		}
-		*peers = slices.DeleteFunc(*peers, func(peer controllerPeer) bool { return !peer.Direct && !peer.Removed && len(peer.Sources) == 0 })
+		pruneControllerDirectory(peers)
 		return nil
 	})
 }

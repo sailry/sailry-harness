@@ -66,6 +66,9 @@ SELECT id,user FROM turns WHERE user=?1 ON CONFLICT(turn) DO NOTHING`, source.ID
 	if err := MergePluginUsers(ctx, db, source, target); err != nil {
 		return target, err
 	}
+	if err := MergeConfigurationFollowUsers(ctx, db, source, target); err != nil {
+		return target, err
+	}
 	if _, err := db.ExecContext(ctx, "UPDATE users SET state='merged',merged_into=?2 WHERE id=?1", source.ID.String(), target.ID.String()); err != nil {
 		return target, err
 	}

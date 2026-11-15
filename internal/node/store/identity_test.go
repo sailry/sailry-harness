@@ -359,7 +359,7 @@ func TestIdentityDirectoryIsPrivateAndPreservesNodeDirectPairs(t *testing.T) {
 		if directory, err := ReadIdentityDirectory(ctx, db, node, device); err != nil || len(directory.Hosts) != 2 {
 			return fmt.Errorf("my-device directory: %d %v", len(directory.Hosts), err)
 		}
-		addresses := []link.EndpointAddress{{ID: direct}, {ID: imported}}
+		addresses := []link.EndpointAddress{{ID: direct}, {ID: imported}, {ID: device}}
 		if err := ApplyIdentityDirectory(ctx, db, source, 1, addresses); err != nil {
 			return err
 		}
@@ -382,6 +382,77 @@ func TestIdentityDirectoryIsPrivateAndPreservesNodeDirectPairs(t *testing.T) {
 		}
 		if !found[direct] || found[imported] || found[source] {
 			return errors.New("source cleanup lost direct trust or restored removed peer")
+		}
+		directions, err := LinkDirections(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, value := range directions {
+			if value.ID == device && value.Direction != link.DirectionController {
+				return errors.New("directory cleanup removed independent inbound membership")
+			}
+		}
+		relationships, err := IdentityPeerRelationships(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, value := range relationships {
+			if value.ID == device && value.DirectDirection.AllowsOutbound() {
+				return errors.New("imported outbound became a direct host origin")
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIdentitySponsoredRevocationPreservesIndependentDirections(t *testing.T) {
+	t.Parallel()
+	_, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		sponsor, device := protocol.NodeID{2}, protocol.NodeID{3}
+		if err := PairIdentityPeer(ctx, db, node, sponsor, link.DirectionController, link.InvitationScope{Kind: protocol.InvitationOtherUser}); err != nil {
+			return err
+		}
+		user, err := CallerUser(ctx, db, node, sponsor)
+		if err != nil {
+			return err
+		}
+		if err := PairIdentityPeer(ctx, db, node, device, link.DirectionHost, link.InvitationScope{Kind: protocol.InvitationOtherUser}); err != nil {
+			return err
+		}
+		if _, err := SponsorIdentityDevice(ctx, db, node, sponsor, protocol.NewRequestID(), protocol.SponsorDevice{Device: device, Address: identityTestAddress(device), Generation: 1}); err != nil {
+			return err
+		}
+		if err := RevokeIdentityDevice(ctx, db, node, sponsor, protocol.RevokeDevice{Device: device, Sponsored: true, Generation: 1, ConfirmLast: true}); err != nil {
+			return err
+		}
+		if _, err := CallerUser(ctx, db, node, device); err == nil {
+			return errors.New("sponsored inbound revocation retained membership")
+		}
+		directions, err := LinkDirections(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, value := range directions {
+			if value.ID == device && value.Direction != link.DirectionHost {
+				return errors.New("sponsored revoke deleted independent outbound direction")
+			}
+		}
+		if err := PairIdentityPeer(ctx, db, node, device, link.DirectionController, link.InvitationScope{Kind: protocol.InvitationMyDevice, User: &user.ID}); err != nil {
+			return err
+		}
+		if _, err := SponsorIdentityDevice(ctx, db, node, sponsor, protocol.NewRequestID(), protocol.SponsorDevice{Device: device, Address: identityTestAddress(device), Generation: 2}); err != nil {
+			return err
+		}
+		if err := RevokeIdentityDevice(ctx, db, node, sponsor, protocol.RevokeDevice{Device: device, Sponsored: true, Generation: 2, ConfirmLast: true}); err != nil {
+			return err
+		}
+		current, err := CallerUser(ctx, db, node, device)
+		if err != nil || current.ID != user.ID {
+			return errors.New("source claimed and revoked an independently established membership")
 		}
 		return nil
 	}); err != nil {

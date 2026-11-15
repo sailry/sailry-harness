@@ -21,7 +21,7 @@ func (*membershipFixtureStore) Relationships(context.Context) ([]PeerRelationshi
 	return nil, nil
 }
 func (*membershipFixtureStore) ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress) error {
-	return nil, nil
+	return nil
 }
 
 func TestMyDeviceProofComesFromCapturedOfferAndAuthenticatedAcknowledgment(t *testing.T) {
