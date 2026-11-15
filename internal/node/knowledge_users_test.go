@@ -271,4 +271,59 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 		t.Fatalf("revoked project index remained visible: %#v", page.Hits)
 	}
 	assertValue(second, false, "beta personal source")
+
+	// Merge into an already indexed namespace without changing its package.
+	// The colliding record stays with the target; the new source must appear
+	// through the running worker without another storage write or a restart.
+	imported := json.RawMessage(`{"text":"imported personal source"}`)
+	must(second, scope(second, false), protocol.Command{Kind: "write_plugin_value", Data: &protocol.CommandWritePluginValuePayload{Key: "entry/imported/raw", Value: imported, Scope: protocol.PluginStorageScopeNode}})
+	must(second, scope(second, false), protocol.Command{Kind: "write_indexed_plugin_value", Data: &protocol.CommandWriteIndexedPluginValuePayload{
+		Key: "entry/imported/record", Value: imported, Scope: protocol.PluginStorageScopeNode,
+		Index: protocol.PluginStorageIndex{Fields: [2]string{"imported personal source", ""}, Source: &protocol.PluginStorageSource{Key: "entry/imported/raw", Pointer: "/text"}},
+	}})
+	personalCollection := func(user protocol.User) store.KnowledgeStored {
+		t.Helper()
+		var found *store.KnowledgeStored
+		if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			catalog, err := store.ReadKnowledgeCatalog(ctx, db)
+			if err != nil {
+				return err
+			}
+			for _, stored := range catalog {
+				if stored.Capture.Package != nil && stored.Capture.Package.Name == "knowledge-users" && stored.Capture.Space == "user:"+user.ID.String() {
+					found = new(stored)
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if found == nil {
+			t.Fatalf("personal collection missing for %s", user.ID)
+		}
+		return *found
+	}
+	waitPersonal := func(user protocol.User, sources uint64) store.KnowledgeStored {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+			stored := personalCollection(user)
+			if stored.Collection.Progress.Status == protocol.KnowledgeStatusReady && stored.Collection.Progress.Sources == sources {
+				return stored
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("personal collection after merge: %+v", stored.Collection.Progress)
+			}
+		}
+	}
+	waitPersonal(second, 2)
+	before := waitPersonal(first, 1)
+	must(first, nil, protocol.Command{Kind: "identity", Data: &protocol.IdentityCommand{Kind: "assign_orphan_user", Data: &protocol.AssignOrphanUser{Source: second.ID, Target: first.ID}}})
+	merged := personalCollection(first)
+	if merged.Collection.ID != before.Collection.ID || merged.Collection.Progress.Generation <= before.Collection.Progress.Generation {
+		t.Fatalf("merge retained a stale target generation: before=%+v, after=%+v", before.Collection, merged.Collection)
+	}
+	waitPersonal(first, 2)
+	knowledgeHit(first, "imported")
+	knowledgeHit(first, "alpha")
+	assertValue(first, false, "alpha personal source")
 }

@@ -85,6 +85,12 @@ func (node *Node) followKnowledgeStorage(ctx context.Context, db *sql.Conn, requ
 // command.
 func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []protocol.Event) {
 	switch command.Kind {
+	case "identity":
+		if action, valid := dispatchPayload[protocol.IdentityCommand](command.Data); valid && (action.Kind == "confirm_sponsorship" || action.Kind == "assign_orphan_user") {
+			// A user merge changes the personal catalog and its captured sources.
+			node.knowledge.Invalidate()
+		}
+		return
 	case "install_plugin", "install_plugin_source", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
 	case "remove_plugin", "remove_project", "remove_session", "remove_sessions":
 		// The pass removes the collections these owned.

@@ -63,7 +63,9 @@ ON CONFLICT(space,name,key) DO NOTHING`, sourceSpace, targetSpace); err != nil {
 		return err
 	}
 	ctx = WithCapturedUser(WithUser(ctx, target), target.ID)
+	affected := map[string]bool{}
 	for _, value := range values {
+		affected[value.name] = true
 		var index *protocol.PluginStorageIndex
 		if len(value.body) != 0 {
 			if err := json.Unmarshal(value.body, &index); err != nil {
@@ -71,6 +73,23 @@ ON CONFLICT(space,name,key) DO NOTHING`, sourceSpace, targetSpace); err != nil {
 			}
 		}
 		if err := replacePluginSearch(ctx, db, value.name, value.key, index); err != nil {
+			return err
+		}
+	}
+	collections, err := loadKnowledge(ctx, db)
+	if err != nil {
+		return err
+	}
+	for _, stored := range collections {
+		if !knowledgeAutomatic(stored) || stored.Capture.Space != targetSpace || !affected[stored.Capture.Package.Name] {
+			continue
+		}
+		// A pass may already have captured the target's old sources. Advancing
+		// in the merge transaction prevents it from publishing stale progress.
+		if err := advanceKnowledge(&stored); err != nil {
+			return err
+		}
+		if err := persistKnowledge(ctx, db, stored); err != nil {
 			return err
 		}
 	}
