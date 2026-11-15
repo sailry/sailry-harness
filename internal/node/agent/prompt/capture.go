@@ -117,7 +117,10 @@ func readInstruction(ctx context.Context, files *core.Files, name string) (*stri
 	if ctx.Err() != nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "instruction loading was cancelled"}
 	}
-	value, err := files.BoundedText(ctx, name, protocol.MAX_FILE_BYTES)
+	// Instructions are captured whole, unlike paginated tool output. A file
+	// larger than a history frame cannot fit its canonical configuration record;
+	// the engine also checks the combined JSON-encoded record before saving it.
+	value, err := files.BoundedText(ctx, name, protocol.MAX_FRAME_BYTES)
 	if ctx.Err() != nil {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "instruction loading was cancelled"}
 	}
@@ -132,7 +135,7 @@ func readInstruction(ctx context.Context, files *core.Files, name string) (*stri
 		return nil, err
 	}
 	if value == nil {
-		return nil, instructionFault(fmt.Sprintf("instructions at %s exceed the file read limit", name))
+		return nil, instructionFault(fmt.Sprintf("instructions at %s exceed the %d-byte conversation history record capacity; reduce the instructions before retrying", name, protocol.MAX_FRAME_BYTES))
 	}
 	return value, nil
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"os"
 	"strings"
 	"time"
@@ -277,9 +278,22 @@ func (r *Runtime) turn(x *execution) error {
 	if delta := prompt.Changes(state.Context, policy, environment, personal, guides); delta != nil {
 		record := canonical.NewRecord(inv.Run.Turn, "configuration", &canonical.Configuration{Context: *delta}, r.clock.Now())
 		record.Provenance.Author = "assistant"
+		if err := validateInstructionRecord(record); err != nil {
+			return err
+		}
 		initial = append(initial, record)
 	}
 	if inv.Run.Kind != protocol.ConversationRunKindCompaction {
+		current := canonical.Context{Policy: &policy, Personal: &personal, Guides: maps.Clone(state.Context.Guides)}
+		if current.Guides == nil {
+			current.Guides = map[string]canonical.Guide{}
+		}
+		for key, guide := range guides {
+			current.Guides[key] = guide
+		}
+		if err := validateInstructionContext(binding, current, inv.Session.Delegation != nil); err != nil {
+			return err
+		}
 		record := inputRecord(inv.Run.Turn, inv.Message, r)
 		if inv.Session.Delegation != nil {
 			source := canonical.InputParent

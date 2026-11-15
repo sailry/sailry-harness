@@ -236,6 +236,14 @@ uses the captured model and defaults to 80% of its context window. Summaries do 
 delete original records or raw tool output. Context-length failures allow up to two
 reactive compactions.
 
+Project and personal instruction files are captured whole rather than using the
+128 KiB file-tool page size. Reads retain file confinement, cancellation, UTF-8
+validation and change detection. The existing history-frame capacity bounds raw
+reads and the combined JSON-encoded configuration before persistence. Fixed
+instructions are never truncated or summarized: when their offline token estimate
+already fills the captured model's context window, the turn reports that capacity
+problem before inference instead of attempting an ineffective history compaction.
+
 Compaction merges the previous summary and older messages into one bounded text
 handoff, retaining recent complete exchanges and tool-call/result groups in their
 original records. The retained tail targets at most 20,000 estimated tokens or
