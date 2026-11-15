@@ -142,7 +142,7 @@ func TestImageDialog(t *testing.T) {
 	}
 }
 
-func TestImageDialogCloseButton(t *testing.T) {
+func TestImageDialogClickOutside(t *testing.T) {
 	for _, mode := range []struct {
 		name string
 		mode theme.Mode
@@ -154,8 +154,8 @@ func TestImageDialogCloseButton(t *testing.T) {
 			open, view, opens := true, &View{}, 0
 			tester := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", mode.mode)
-				// Cover the close button's location with an opener underneath
-				// the modal, so its release must not open another preview.
+				// An opener underneath the modal where the click lands, so its
+				// release must not open another preview.
 				ui.ButtonBase(c.Key("opener")).Label("Open picture").Absolute().Top(0).Right(0).Size(80, 80).OnClick(func() {
 					open = true
 					opens++
@@ -166,17 +166,22 @@ func TestImageDialogCloseButton(t *testing.T) {
 			tester.SetPreferences(ui.Preferences{ReduceMotion: true, ReduceTransparency: true})
 			tester.Frame()
 			tester.Frame()
+			if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "close")); ok {
+				t.Fatal("the image viewer still has a close button")
+			}
+			// A click on the picture keeps the viewer open.
+			tester.ClickAt(600, 400)
+			tester.Frame()
+			tester.Frame()
+			if !open || !view.images.Open {
+				t.Fatal("a click on the picture closed the viewer")
+			}
 			for round := range 2 {
-				close, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "close"))
-				if !ok {
-					t.Fatal("the image viewer has no close button")
-				}
-				x, y := close.Bounds.X+close.Bounds.W/2, close.Bounds.Y+close.Bounds.H/2
-				tester.Press(x, y)
+				tester.Press(1160, 40)
 				if !open {
-					t.Fatal("the close button acted before release")
+					t.Fatal("the viewer closed before release")
 				}
-				tester.Release(x, y)
+				tester.Release(1160, 40)
 				tester.Frame()
 				tester.Frame()
 				if open || view.images.Open || opens != round {
@@ -189,6 +194,7 @@ func TestImageDialogCloseButton(t *testing.T) {
 					if err := tester.Click("Open picture"); err != nil {
 						t.Fatal(err)
 					}
+					tester.Frame()
 					tester.Frame()
 				}
 			}

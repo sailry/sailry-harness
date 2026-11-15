@@ -65,6 +65,7 @@ type Viewer[T any] struct {
 	FlipV  bool
 	X, Y   float32 // pan in DIPs
 	arrive bool    // a picture was just shown: it eases in
+	shown  ui.Rect // the picture's bounds last frame, which a click keeps open
 }
 
 // Show opens the viewer on list at i, fitted.
@@ -175,7 +176,8 @@ const switchFromScale = 0.96
 // ImageViewer draws v over the window while it is open: the picture item
 // gives fitted to the window, zoomed by the wheel, a pinch, the keys and
 // the toolbar, panned by dragging, turned and flipped; the counter and
-// the previous and next arrows for a gallery; Close; and the toolbar
+// the previous and next arrows for a gallery; a click beside the picture,
+// not on it, closing it; and the toolbar
 // (zoom out, the zoom, zoom in, fit, rotate, flip, copy, save, open),
 // whose Copy, Save and Open call act with the picture. Escape closes it.
 func ImageViewer[T any](c *ui.Context, v *Viewer[T], item func(T) ViewerItem, act func(ImageAction, T)) {
@@ -231,7 +233,20 @@ func ImageViewer[T any](c *ui.Context, v *Viewer[T], item func(T) ViewerItem, ac
 			v.Pan(dx, dy, rw, rh, w, h)
 		}
 		stage.Children(func() {
+			// A click beside the picture closes the viewer; the picture is
+			// left out of this layer's hits, so a press on it pans the stage.
+			// Clicked, not OnClick: the preview owner reads Open during
+			// construction, and a deferred OnClick would reopen it.
+			shown := v.shown
+			dismiss := ui.Box(c.Key("dismiss")).Absolute().Top(0).Left(0).Right(0).Bottom(0).
+				HitTest(func(x, y float32, _ ui.Rect) bool {
+					return x < shown.X || x > shown.X+shown.W || y < shown.Y || y > shown.Y+shown.H
+				})
+			if dismiss.Clicked() {
+				v.Open = false
+			}
 			if it.Source == nil {
+				v.shown = ui.Rect{}
 				Skeleton(c, SkeletonProps{Width: 320, Height: 220}).Label(i18n.T(c, "chat_image_loading"))
 				return
 			}
@@ -247,8 +262,9 @@ func ImageViewer[T any](c *ui.Context, v *Viewer[T], item func(T) ViewerItem, ac
 			if v.FlipV {
 				sy = -sy
 			}
-			ui.Image(c.Key(v.Index), it.Source).Size(bw, bh).Fit(ui.Contain).Translate(v.X, v.Y).Scale(sx, sy).
+			picture := ui.Image(c.Key(v.Index), it.Source).Size(bw, bh).Fit(ui.Contain).Translate(v.X, v.Y).Scale(sx, sy).
 				Rotate(float32(90 * (v.Turns % 4))).Opacity(min(1, arrival*2)).Label(it.Name)
+			v.shown = picture.Bounds()
 		})
 		v.chrome(c, func(a ImageAction) { act(a, v.Images[v.Index]) })
 	})

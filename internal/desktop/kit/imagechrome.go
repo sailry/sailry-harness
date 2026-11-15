@@ -51,16 +51,9 @@ func viewerPill(c *ui.Context, key string) ui.Element {
 func (v *Viewer[T]) chrome(c *ui.Context, act func(ImageAction)) {
 	p := theme.Of(c)
 	btn := func(key string, icon *ui.SVG, label string, off bool, do func()) {
-		IconButton(c.Key(key), icon, i18n.T(c, label), 32, false).Disabled(off).OnClick(do)
+		// Round, as the pills holding them: a hover fills a circle.
+		IconButton(c.Key(key), icon, i18n.T(c, label), 32, false).Radius(999).Disabled(off).OnClick(do)
 	}
-	viewerPill(c, "close").Absolute().Top(16).Right(16).Children(func() {
-		close := IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 32, false).Radius(999)
-		// The preview owner reads Open during construction. A deferred
-		// OnClick leaves its flag true and reopens the viewer next frame.
-		if close.Clicked() {
-			v.Open = false
-		}
-	})
 	if n := v.Counter(); n != "" {
 		ui.Row(c.Key("counter")).Absolute().Top(16).Left(0).Right(0).Justify(ui.Center).IgnoreInput(true).Children(func() {
 			viewerPill(c, "count").Padding(4, 12).Children(func() {
