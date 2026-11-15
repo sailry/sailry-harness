@@ -86,6 +86,22 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 		t.Errorf("the composer %v runs under the card %v", field.Bounds, side.Bounds)
 	}
 
+	// Widening past the side-by-side tier eases the transcript to the
+	// center rather than jumping: a frame into it the composer stands
+	// between where it was and where it settles.
+	before, _ := medium.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	medium.SetSize(2100, 820)
+	medium.Frame()
+	medium.Frame()
+	medium.Advance(60 * time.Millisecond)
+	medium.Frame()
+	moving, _ := medium.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	settle(medium)
+	after, _ := medium.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	if !(before.Bounds.X < moving.Bounds.X && moving.Bounds.X < after.Bounds.X) {
+		t.Errorf("the composer went from %v through %v to %v, not easing", before.Bounds.X, moving.Bounds.X, after.Bounds.X)
+	}
+
 	b := New(preview.Load())
 	narrow := ui.NewTesterWith(b.View, 1100, 820, opaque)
 	narrow.SetLocale("en")

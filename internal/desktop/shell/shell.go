@@ -759,10 +759,24 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	bounds := row.Bounds()
 	entry.state.Docked = a.panes.Displayed() == nil && bounds.W >= overviewSideMin && composer.OverviewCardShown(overview)
 	docked := entry.state.Docked
+	// The transcript eases to its place as the card docks or leaves and as
+	// the pane's width jumps (a sidebar or panel toggled), and the card
+	// fades in from the end; under a window's resize the aside follows
+	// within the same short ease.
+	var aside, shown float32
+	if docked {
+		aside, shown = overviewAside(bounds.W), 1
+	}
+	// A row not laid out yet has no width: its animations start once it
+	// has, at where it then stands, so an opened conversation does not ease in.
+	if bounds.W > 0 {
+		aside = row.AnimateWith("aside", aside, kit.Fast, kit.EaseOutCubic)
+		shown = row.AnimateWith("card", shown, kit.Fast, kit.EaseOutCubic)
+	}
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
-			if docked {
-				a.Messages.Aside = overviewAside(bounds.W)
+			if aside > 0 {
+				a.Messages.Aside = aside
 				defer func() { a.Messages.Aside = 0 }()
 			}
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
@@ -771,7 +785,8 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 			conversation.Navigation(c, a.Messages)
 		})
 		if docked {
-			ui.Box(c.Key("overview-float")).Absolute().Top(overviewCardInset).Right(overviewCardInset + 8).Children(func() {
+			ui.Box(c.Key("overview-float")).Absolute().Top(overviewCardInset).Right(overviewCardInset+8).
+				Opacity(shown).Translate((1-shown)*16, 0).Children(func() {
 				composer.OverviewCard(c, &entry.state, overview, &a.OverviewHidden, min(bounds.H-2*overviewCardInset, overviewCardMax))
 			})
 		}

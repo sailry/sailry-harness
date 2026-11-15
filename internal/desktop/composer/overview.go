@@ -268,8 +268,8 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 		section := func(key, label, tally string, rows func()) {
 			ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(2).Children(func() {
 				ui.Row(c.Key("heading")).FillWidth().Height(24).Gap(8).Padding(0, 8, 4, 8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, i18n.T(c, label)).FontSize(14).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0).
-						TextColor(p.PopoverForeground)
+					ui.Text(c, i18n.T(c, label)).FontSize(13).FontWeight(500).SingleLine().Grow(1).Shrink(1).MinWidth(0).
+						TextColor(p.MutedForeground)
 					if tally != "" {
 						ui.Text(c, tally).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
 					}
@@ -303,7 +303,11 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 						ui.Box(c).WidthPercent(float32(done) * 100 / float32(n)).FillHeight().Radius(2).Background(p.Success)
 					})
 				})
-				conversation.Steps(c, o.Steps, o.Active)
+				// The steps' marks stand under the heading's text, as the
+				// other sections' rows do.
+				ui.Column(c.Key("steps")).FillWidth().MinWidth(0).PaddingX(8).Children(func() {
+					conversation.Steps(c, o.Steps, o.Active)
+				})
 			})
 		}
 		if len(o.Children) > 0 {
