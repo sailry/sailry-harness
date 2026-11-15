@@ -38,7 +38,15 @@ func TestTerminalCapturedLoginEnvironmentIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	service := New(ctx, protocol.NodeID{1}, nil)
-	defer service.Close()
+	var value *handle
+	defer func() {
+		_ = service.Close()
+		if value != nil {
+			// Close hangs up the PTY without waiting. The login shell may
+			// still write exit files in home until its process has exited.
+			<-value.terminal.Done()
+		}
+	}()
 	caller := protocol.NodeID{2}
 	info, err := service.Start(ctx, Launch{
 		Caller: caller, Worktree: protocol.WorktreeID{3}, Root: home,
@@ -48,12 +56,12 @@ func TestTerminalCapturedLoginEnvironmentIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := "printf 'sailry-login:%s\\n' \"$SAILRY_LOGIN_TRACE\"; printf 'sailry-path:%s\\n' \"$PATH\"; printf 'sailry-shell:%s:%s\\n' \"$SHELL\" \"$options[login]\"\r"
-	if _, err := service.Input(caller, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte(command)}); err != nil {
+	value, err = service.get(info.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := service.get(info.ID)
-	if err != nil {
+	command := "printf 'sailry-login:%s\\n' \"$SAILRY_LOGIN_TRACE\"; printf 'sailry-path:%s\\n' \"$PATH\"; printf 'sailry-shell:%s:%s\\n' \"$SHELL\" \"$options[login]\"\r"
+	if _, err := service.Input(caller, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte(command)}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"sailry-login:env:profile:rc:login", "sailry-path:" + bin + ":", "sailry-shell:" + zsh + ":on"}

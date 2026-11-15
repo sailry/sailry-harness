@@ -134,8 +134,6 @@ func TestLiveSendButtonAndEnterAdmitTheExactInputOnce(t *testing.T) {
 		{"enter", (*liveWindow).sendWithEnter},
 	} {
 		t.Run(method.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
 			session, turn := protocol.SessionID{2}, protocol.TurnID{3}
 			transport := &recordedLiveTransport{updates: make(chan protocol.Update, 2), liveFixtureTransport: &liveFixtureTransport{
 				dispatch: func(context.Context, protocol.Request) (protocol.Output, error) {
@@ -145,32 +143,11 @@ func TestLiveSendButtonAndEnterAdmitTheExactInputOnce(t *testing.T) {
 			}}
 			controller := client.New(transport)
 			t.Cleanup(func() { _ = controller.Close() })
-			w := &liveWindow{window: &window{ctx: ctx, result: &core.CaseResult{}}, controller: controller, session: protocol.Session{ID: session},
+			w := &liveWindow{window: &window{ctx: t.Context(), result: &core.CaseResult{}}, controller: controller, session: protocol.Session{ID: session},
 				wake: make(chan struct{}, 1), lastFrame: time.Now()}
-			release, err := controller.WatchConversation(ctx, session, w.notify)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer release()
 			snapshot := protocol.DefaultConversationSnapshot()
 			snapshot.Node, snapshot.Page.Session = protocol.NodeID{1}, session
 			snapshot.Page.Revision = 1
-			transport.updates <- protocol.Update{Kind: "conversation_snapshot", Data: snapshot}
-			for {
-				if state, known := controller.Conversation(session); known {
-					if state.Err != nil {
-						t.Fatalf("initial conversation fixture was rejected: %v", state.Err)
-					}
-					if state.Connected {
-						break
-					}
-				}
-				select {
-				case <-w.wake:
-				case <-ctx.Done():
-					t.Fatal(ctx.Err())
-				}
-			}
 			cv := &viewmodel.Conversation{ID: session.String(), Title: "Input fixture", Session: conversation.Session{Connection: conversation.Connected}}
 			models := []composer.Model{{ID: "fixture-model", Name: "Fixture model"}}
 			w.app = shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Models: models, Workspace: &viewmodel.Workspace{}})
@@ -187,6 +164,32 @@ func TestLiveSendButtonAndEnterAdmitTheExactInputOnce(t *testing.T) {
 			}
 			w.tester = ui.NewTesterWith(w.app.View, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
 			w.tester.SetLocale("en")
+			// Initial layout can cold-start platform fonts and rasterization.
+			// Bound admission and its subscription after those frames settle.
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			w.ctx = ctx
+			release, err := controller.WatchConversation(ctx, session, w.notify)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			transport.updates <- protocol.Update{Kind: "conversation_snapshot", Data: snapshot}
+			for {
+				if state, known := controller.Conversation(session); known {
+					if state.Err != nil {
+						t.Fatalf("initial conversation fixture was rejected: %v", state.Err)
+					}
+					if state.Connected {
+						break
+					}
+				}
+				select {
+				case <-w.wake:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
 			const text = "Send this one fixture message"
 			if err := method.send(w, text); err != nil {
 				t.Fatal(err)

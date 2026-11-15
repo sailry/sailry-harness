@@ -70,6 +70,9 @@ func readWorkflowRecording(t *testing.T, snapshots ...protocol.ConversationSnaps
 	}
 	directory := filepath.Join(t.TempDir(), "acceptance")
 	path := core.RecordingPath(directory, recording.Session)
+	if err := profile.PrivateDirectory(directory); err != nil {
+		t.Fatal(err)
+	}
 	if err := profile.PrivateDirectory(filepath.Dir(path)); err != nil {
 		t.Fatal(err)
 	}
