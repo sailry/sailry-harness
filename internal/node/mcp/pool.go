@@ -30,6 +30,7 @@ const (
 )
 
 type Configuration struct {
+	User          string
 	Package       protocol.PluginReference
 	Server        string
 	Launch        Launch
@@ -49,9 +50,9 @@ type Options struct {
 }
 
 type connectionKey struct {
-	Package, Digest, Server string
-	Settings                uint64
-	Authorization, Launch   [32]byte
+	User, Package, Digest, Server string
+	Settings                      uint64
+	Authorization, Launch         [32]byte
 }
 
 type Pool struct {
@@ -62,17 +63,29 @@ type Pool struct {
 	mu       sync.Mutex
 	entries  map[connectionKey]*connection
 	owners   map[*connection]struct{}
-	current  map[string]protocol.PluginSummary
+	current  map[packageKey]protocol.PluginSummary
 	services map[string]*serviceLock
 	status   map[statusKey]*statusRecord
-	pending  map[string]struct{}
+	pending  map[Change]struct{}
 	changed  chan struct{}
 	stopped  bool
-	known    bool
+	known    map[string]bool
 	work     sync.WaitGroup
 }
 
-type statusKey struct{ Package, Server string }
+type packageKey struct{ User, Package string }
+
+type statusKey struct{ User, Package, Server string }
+
+// Change identifies one user installation whose runtime changed.
+type Change struct{ User, Package string }
+
+func userArgument(users []string) string {
+	if len(users) != 0 {
+		return users[0]
+	}
+	return ""
+}
 
 // statusRecord is what a server of the current package version last reported.
 // It outlives the connection, so a server closed for being idle is still the
@@ -131,9 +144,9 @@ func New(ctx context.Context, options Options) *Pool {
 	lifetime, cancel := context.WithCancel(ctx)
 	pool := &Pool{
 		ctx: lifetime, cancel: cancel, clock: options.Clock, open: options.Open,
-		entries: map[connectionKey]*connection{}, current: map[string]protocol.PluginSummary{},
+		entries: map[connectionKey]*connection{}, current: map[packageKey]protocol.PluginSummary{},
 		services: map[string]*serviceLock{}, owners: map[*connection]struct{}{},
-		status: map[statusKey]*statusRecord{}, pending: map[string]struct{}{}, changed: make(chan struct{}, 1),
+		status: map[statusKey]*statusRecord{}, pending: map[Change]struct{}{}, known: map[string]bool{}, changed: make(chan struct{}, 1),
 	}
 	// Idle servers leave on the pool's own timer, not only when a later
 	// acquisition happens to scan them.
@@ -166,26 +179,28 @@ func keyFor(config Configuration) (connectionKey, error) {
 		return connectionKey{}, invalid("invalid MCP launch")
 	}
 	return connectionKey{
-		Package: config.Package.Name, Digest: config.Package.Digest, Settings: config.Package.SettingsRevision,
+		User: config.User, Package: config.Package.Name, Digest: config.Package.Digest, Settings: config.Package.SettingsRevision,
 		Server: config.Server, Authorization: blake3.Sum256(authorization), Launch: blake3.Sum256(launch),
 	}, nil
 }
 
-func (pool *Pool) Observe(summary protocol.PluginSummary) error {
+func (pool *Pool) Observe(summary protocol.PluginSummary, users ...string) error {
+	user := userArgument(users)
+	identity := packageKey{user, summary.Name}
 	pool.mu.Lock()
-	previous, exists := pool.current[summary.Name]
+	previous, exists := pool.current[identity]
 	if exists && (previous.Revision > summary.Revision || previous.Revision == summary.Revision && previous.SettingsRevision > summary.SettingsRevision) {
 		pool.mu.Unlock()
 		return nil
 	}
-	pool.current[summary.Name] = summary
+	pool.current[identity] = summary
 	if !exists || previous.Digest != summary.Digest || previous.SettingsRevision != summary.SettingsRevision ||
 		(previous.Enabled && previous.Compatibility.Kind == "compatible") != (summary.Enabled && summary.Compatibility.Kind == "compatible") {
-		pool.forget(summary.Name)
+		pool.forget(summary.Name, user)
 	}
 	var retired []*connection
 	for key, current := range pool.entries {
-		if key.Package == summary.Name && (!summary.Enabled || summary.Compatibility.Kind != "compatible" || key.Digest != summary.Digest || key.Settings != summary.SettingsRevision) {
+		if key.User == user && key.Package == summary.Name && (!summary.Enabled || summary.Compatibility.Kind != "compatible" || key.Digest != summary.Digest || key.Settings != summary.SettingsRevision) {
 			delete(pool.entries, key)
 			current.retired = true
 			if current.leases == 0 {
@@ -197,16 +212,16 @@ func (pool *Pool) Observe(summary protocol.PluginSummary) error {
 	return closeConnections(retired)
 }
 
-func (pool *Pool) FinishInventory() {
+func (pool *Pool) FinishInventory(users ...string) {
 	pool.mu.Lock()
-	pool.known = true
+	pool.known[userArgument(users)] = true
 	pool.mu.Unlock()
 }
 
-func (pool *Pool) reusable(reference protocol.PluginReference) bool {
-	summary, exists := pool.current[reference.Name]
+func (pool *Pool) reusable(reference protocol.PluginReference, user string) bool {
+	summary, exists := pool.current[packageKey{user, reference.Name}]
 	if !exists {
-		return !pool.known
+		return !pool.known[user]
 	}
 	return summary.Enabled && summary.Compatibility.Kind == "compatible" &&
 		summary.Digest == reference.Digest && summary.SettingsRevision == reference.SettingsRevision
@@ -234,11 +249,11 @@ func (pool *Pool) Acquire(ctx context.Context, config Configuration) (result *Le
 		pool.mu.Unlock()
 		return nil, cancelled()
 	}
-	reuse := config.Options.Reuse && pool.reusable(config.Package)
+	reuse := config.Options.Reuse && pool.reusable(config.Package, config.User)
 	var retired []*connection
 	for candidate, current := range pool.entries {
 		expired := current.leases == 0 && pool.clock.Since(current.used) >= idleTTL
-		changed := candidate.Package == key.Package && candidate.Server == key.Server &&
+		changed := candidate.User == key.User && candidate.Package == key.Package && candidate.Server == key.Server &&
 			(candidate.Authorization != key.Authorization || (candidate.Digest != key.Digest || candidate.Settings != key.Settings) && current.leases == 0)
 		if expired || changed {
 			delete(pool.entries, candidate)
@@ -286,7 +301,7 @@ func (pool *Pool) Acquire(ctx context.Context, config Configuration) (result *Le
 			}
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "MCP connection pool is busy"}
 		}
-		serviceID := config.Package.Name + "\x00" + config.Server
+		serviceID := config.User + "\x00" + config.Package.Name + "\x00" + config.Server
 		service := pool.services[serviceID]
 		if service == nil {
 			service = &serviceLock{lock: make(chan struct{}, 1)}
@@ -397,10 +412,10 @@ func (connection *connection) open(ctx context.Context, launch Launch) {
 // cancelled attempt returns the server to the runtime it last settled on. The
 // caller holds the pool lock.
 func (pool *Pool) report(current *connection, state protocol.PluginMcpRuntimeState, tools int, failure error) {
-	if !pool.reusable(current.reference) {
+	if !pool.reusable(current.reference, current.key.User) {
 		return
 	}
-	key := statusKey{current.reference.Name, current.key.Server}
+	key := statusKey{current.key.User, current.reference.Name, current.key.Server}
 	record := pool.status[key]
 	if record == nil || record.reference != current.reference {
 		record = &statusRecord{reference: current.reference}
@@ -427,7 +442,7 @@ func (pool *Pool) report(current *connection, state protocol.PluginMcpRuntimeSta
 		record.settled = record.runtime
 	}
 	if !same {
-		pool.pending[current.reference.Name] = struct{}{}
+		pool.pending[Change{current.key.User, current.reference.Name}] = struct{}{}
 		select {
 		case pool.changed <- struct{}{}:
 		default:
@@ -437,9 +452,9 @@ func (pool *Pool) report(current *connection, state protocol.PluginMcpRuntimeSta
 
 // forget drops what the servers of a package reported. The caller holds the
 // pool lock.
-func (pool *Pool) forget(packageName string) {
+func (pool *Pool) forget(packageName, user string) {
 	for key := range pool.status {
-		if packageName == "" || key.Package == packageName {
+		if key.User == user && (packageName == "" || key.Package == packageName) {
 			delete(pool.status, key)
 		}
 	}
@@ -448,17 +463,41 @@ func (pool *Pool) forget(packageName string) {
 // Changed wakes when a server's runtime differs from the one last reported.
 func (pool *Pool) Changed() <-chan struct{} { return pool.changed }
 
-// Changes takes the names of the packages whose servers changed.
-func (pool *Pool) Changes() []string {
+// ScopedChanges drains runtime changes with their owning user.
+func (pool *Pool) ScopedChanges() []Change {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	names := make([]string, 0, len(pool.pending))
-	for name := range pool.pending {
-		names = append(names, name)
+	changes := make([]Change, 0, len(pool.pending))
+	for change := range pool.pending {
+		changes = append(changes, change)
 	}
 	clear(pool.pending)
+	slices.SortFunc(changes, func(a, b Change) int {
+		if a.User < b.User {
+			return -1
+		}
+		if a.User > b.User {
+			return 1
+		}
+		if a.Package < b.Package {
+			return -1
+		}
+		if a.Package > b.Package {
+			return 1
+		}
+		return 0
+	})
+	return changes
+}
+
+// Changes takes package names for owners that do not use user namespaces.
+func (pool *Pool) Changes() []string {
+	var names []string
+	for _, change := range pool.ScopedChanges() {
+		names = append(names, change.Package)
+	}
 	slices.Sort(names)
-	return names
+	return slices.Compact(names)
 }
 
 // List reads the server's tools. Its outcome is what the server reports as
@@ -569,11 +608,13 @@ func (lease *Lease) Close() error {
 	return lease.closeErr
 }
 
-func (pool *Pool) Invalidate(packageName string) error {
+func (pool *Pool) Invalidate(packageName string, users ...string) error {
+	user := userArgument(users)
+	identity := packageKey{user, packageName}
 	pool.mu.Lock()
 	var retired []*connection
 	for key, current := range pool.entries {
-		if packageName == "" || key.Package == packageName {
+		if key.User == user && (packageName == "" || key.Package == packageName) {
 			delete(pool.entries, key)
 			current.retired = true
 			if current.leases == 0 {
@@ -581,11 +622,11 @@ func (pool *Pool) Invalidate(packageName string) error {
 			}
 		}
 	}
-	if summary, ok := pool.current[packageName]; ok {
+	if summary, ok := pool.current[identity]; ok {
 		summary.Enabled = false
-		pool.current[packageName] = summary
+		pool.current[identity] = summary
 	}
-	pool.forget(packageName)
+	pool.forget(packageName, user)
 	pool.mu.Unlock()
 	return closeConnections(retired)
 }
@@ -604,10 +645,10 @@ func (pool *Pool) Expire() error {
 	return closeConnections(retired)
 }
 
-func (pool *Pool) Status(reference protocol.PluginReference, server string) *protocol.PluginMcpRuntime {
+func (pool *Pool) Status(reference protocol.PluginReference, server string, users ...string) *protocol.PluginMcpRuntime {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	record := pool.status[statusKey{reference.Name, server}]
+	record := pool.status[statusKey{userArgument(users), reference.Name, server}]
 	if record == nil || record.reference != reference || record.runtime == nil {
 		return nil
 	}
@@ -653,7 +694,7 @@ func (connection *connection) close() error {
 		}
 		connection.pool.mu.Lock()
 		delete(connection.pool.owners, connection)
-		serviceID := connection.key.Package + "\x00" + connection.key.Server
+		serviceID := connection.key.User + "\x00" + connection.key.Package + "\x00" + connection.key.Server
 		connection.exclusive.refs--
 		if connection.exclusive.refs == 0 {
 			delete(connection.pool.services, serviceID)

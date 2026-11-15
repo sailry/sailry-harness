@@ -28,7 +28,13 @@ disconnect does not stop admitted work.
 
 Official plugins and themes are separate repositories, pinned by the `plugins/`
 and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
-installation. Installed packages and their mutable data live in the Node profile.
+installation. Installed packages and their mutable data live in the Node profile. Immutable
+package content is shared by digest; installation choices, settings revisions,
+connections, writable package directories and reusable runtimes belong to the
+Node's authenticated user. Default plugin KV is personal to that user and Node.
+Packages may declare project collections shared across authorized project users;
+conversation storage retains its session scope. Admitted work preserves its
+captured storage user independently of later identity merges.
 
 ## Components and dependencies
 

@@ -125,6 +125,13 @@ func requiredKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection does not exist")
 	}
 	stored := entries[index]
+	allowed, err := knowledgeUserAllowed(ctx, db, stored)
+	if err != nil {
+		return KnowledgeStored{}, err
+	}
+	if !allowed {
+		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection is unavailable")
+	}
 	if scope := request.Plugin; scope != nil {
 		if stored.Collection.Owner.Kind != "plugin" || knowledgeOwner(stored.Collection.Owner) != scope.Package.Name {
 			return KnowledgeStored{}, knowledgeDenied("knowledge collection belongs to another owner")
@@ -281,7 +288,7 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 		}
 	}
 	if present && stored.Collection.Owner.Kind == "plugin" {
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=1)", knowledgeOwner(stored.Collection.Owner)).Scan(&present); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)", knowledgeOwner(stored.Collection.Owner)).Scan(&present); err != nil {
 			return false, err
 		}
 	}

@@ -112,7 +112,11 @@ func ConnectorDeclaration(ctx context.Context, db *sql.Conn, reference protocol.
 }
 
 func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginConnectorID) (ConnectorRecord, error) {
-	record, err := readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE id=?1", id.String())
+	user, err := pluginCapturedUserID(ctx, db)
+	if err != nil {
+		return ConnectorRecord{}, err
+	}
+	record, err := readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE id=?1 AND user=?2", id.String(), user)
 	if err != nil {
 		return ConnectorRecord{}, err
 	}
@@ -123,14 +127,33 @@ func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginCo
 }
 
 func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorRecord) error {
+	user, err := pluginCapturedUserID(ctx, db)
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO plugin_connections(id,plugin,connector,revision,body) VALUES(?1,?2,?3,?4,?5)
-ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector`,
-		record.ID.String(), record.Plugin, record.Connector, record.Revision, body)
+	result, err := db.ExecContext(ctx, `INSERT INTO plugin_connections(id,plugin,connector,revision,body,user) VALUES(?1,?2,?3,?4,?5,?6)
+ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,body=excluded.body WHERE plugin=excluded.plugin AND connector=excluded.connector AND user=excluded.user`,
+		record.ID.String(), record.Plugin, record.Connector, record.Revision, body, user)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err == nil && changed == 0 {
+		return fault(protocol.ErrorCodeNotFound, "connection is unavailable")
+	}
 	return err
+}
+
+func connectorRecords(ctx context.Context, db *sql.Conn) ([]ConnectorRecord, error) {
+	user, err := pluginCapturedUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE user=?1 ORDER BY plugin,connector,id", user)
 }
 
 func connectorBound(info protocol.PluginInfo, declaration protocol.PluginConnectorDeclaration, method protocol.PluginConnectorKind) *ConnectorBound {
@@ -194,7 +217,7 @@ func ConnectionProjection(ctx context.Context, db *sql.Conn, record ConnectorRec
 }
 
 func Connections(ctx context.Context, db *sql.Conn) ([]protocol.PluginConnectorConnection, error) {
-	records, err := readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections ORDER BY plugin,connector,id")
+	records, err := connectorRecords(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +267,20 @@ func ProjectConnectorConsent(value protocol.PluginConnectorConnection, previous,
 }
 
 func RecoverConnectorLogins(ctx context.Context, db *sql.Conn) error {
-	records, err := readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections ORDER BY plugin,connector,id")
+	users, err := ListUsers(ctx, db)
+	if err != nil {
+		return err
+	}
+	for _, user := range users {
+		if err := recoverConnectorUserLogins(WithUser(ctx, user), db); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recoverConnectorUserLogins(ctx context.Context, db *sql.Conn) error {
+	records, err := connectorRecords(ctx, db)
 	if err != nil {
 		return err
 	}
@@ -312,6 +348,15 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 		if err != nil {
 			return capture, err
 		}
+		definitionChanged := input.Method != record.Method
+		for key, value := range input.Input.Fields {
+			definitionChanged = definitionChanged || record.Fields[key] != value
+		}
+		if definitionChanged {
+			if err := CheckConfigurationEditable(ctx, db, "connections", record.ID.String()); err != nil {
+				return capture, err
+			}
+		}
 		if record.Plugin != input.Package.Name || record.Connector != input.Connector || input.ExpectedRevision == nil {
 			return capture, invalid("connector connection does not match its package")
 		}
@@ -335,7 +380,11 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 		}
 	} else {
 		var exists bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE plugin=?1 AND connector=?2)", input.Package.Name, input.Connector).Scan(&exists); err != nil {
+		user, err := pluginCapturedUserID(ctx, db)
+		if err != nil {
+			return capture, err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE plugin=?1 AND connector=?2 AND user=?3)", input.Package.Name, input.Connector, user).Scan(&exists); err != nil {
 			return capture, err
 		}
 		if exists {
@@ -361,7 +410,11 @@ func StartConnectorLogin(ctx context.Context, db *sql.Conn, capture ConnectorLog
 	}
 	if capture.Previous == 0 {
 		var exists bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE plugin=?1 AND connector=?2)", capture.Record.Plugin, capture.Record.Connector).Scan(&exists); err != nil {
+		user, err := pluginCapturedUserID(ctx, db)
+		if err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE plugin=?1 AND connector=?2 AND user=?3)", capture.Record.Plugin, capture.Record.Connector, user).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {
@@ -461,7 +514,11 @@ func ConnectorAuthorization(ctx context.Context, db *sql.Conn, reference protoco
 		record, err = ReadConnectorRecord(ctx, db, *selected)
 	} else {
 		var saved *ConnectorRecord
-		saved, err = readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE plugin=?1 AND connector=?2", reference.Name, connector)
+		user, userErr := pluginCapturedUserID(ctx, db)
+		if userErr != nil {
+			return record, declaration, userErr
+		}
+		saved, err = readBody[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE plugin=?1 AND connector=?2 AND user=?3", reference.Name, connector, user)
 		if err == nil && saved == nil {
 			err = fault(protocol.ErrorCodeNotConfigured, "connector is not connected")
 		}

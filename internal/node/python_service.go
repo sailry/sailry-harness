@@ -85,9 +85,21 @@ func (node *Node) preparePackagePython(ctx context.Context, info protocol.Plugin
 func (node *Node) retainPackagePython(ctx context.Context) error {
 	var infos []protocol.PluginInfo
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		infos, err = store.ReadPluginInfos(ctx, db)
-		return err
+		users, err := store.ListUsers(ctx, db)
+		if err != nil {
+			return err
+		}
+		for _, user := range users {
+			if user.State != "active" {
+				continue
+			}
+			owned, err := store.ReadPluginInfos(store.WithUser(ctx, user), db)
+			if err != nil {
+				return err
+			}
+			infos = append(infos, owned...)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}

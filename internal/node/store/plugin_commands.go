@@ -10,6 +10,10 @@ import (
 )
 
 func ReadPluginCommand(ctx context.Context, db *sql.Conn, request protocol.Request) (protocol.Output, error) {
+	ctx, err := PluginStorageRequestContext(ctx, db, request)
+	if err != nil {
+		return protocol.Output{}, err
+	}
 	switch request.Command.Kind {
 	case "list_plugins":
 		value, err := ReadPlugins(ctx, db)
@@ -56,6 +60,10 @@ func ReadPluginCommand(ctx context.Context, db *sql.Conn, request protocol.Reque
 func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
 	if request.Plugin == nil {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
+	}
+	ctx, scopeErr := PluginStorageRequestContext(ctx, db, request)
+	if scopeErr != nil {
+		return protocol.Output{}, nil, scopeErr
 	}
 	scope := request.Plugin
 	var value any

@@ -3703,6 +3703,7 @@
       "description": "Private data either belongs to the Node or follows the captured conversation history.",
       "enum": [
         "node",
+        "project",
         "conversation"
       ],
       "type": "string"

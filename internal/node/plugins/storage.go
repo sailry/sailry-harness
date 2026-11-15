@@ -17,7 +17,7 @@ func ValidateStorage(declaration protocol.PluginStorageDeclaration) error {
 	}
 	for index, collection := range declaration.Collections {
 		if (collection.Key == nil) == (collection.Prefix == nil) || len(collection.Schema) > 64*1024 ||
-			collection.Scope != protocol.PluginStorageScopeNode && collection.Scope != protocol.PluginStorageScopeConversation {
+			collection.Scope != protocol.PluginStorageScopeNode && collection.Scope != protocol.PluginStorageScopeProject && collection.Scope != protocol.PluginStorageScopeConversation {
 			return packageFault("invalid storage collection selector")
 		}
 		selector := collection.Key

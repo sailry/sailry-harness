@@ -131,6 +131,7 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 		{"dispatch_jobs", "body", func() any { return new(protocol.DispatchJob) }},
 		{"dispatch_jobs", "callback", func() any { return new(protocol.DispatchCallback) }},
 		{"plugins", "body", func() any { return new(protocol.PluginInfo) }},
+		{"plugin_user_installations", "body", func() any { return new(protocol.PluginInfo) }},
 		{"plugin_packages", "body", func() any { return new(protocol.PluginInfo) }},
 	} {
 		query := "SELECT " + record.column + " FROM " + record.table + " WHERE " + record.column + " IS NOT NULL"
@@ -143,7 +144,7 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 			case "dispatch_jobs":
 				query += " AND status IN ('queued','running')"
 			case "plugin_packages":
-				query = "SELECT p.body FROM plugin_packages p JOIN plugins c ON json_extract(c.body,'$.summary.digest')=p.digest WHERE c.installed=1"
+				query = "SELECT p.body FROM plugin_packages p JOIN plugin_user_installations c ON json_extract(c.body,'$.summary.digest')=p.digest WHERE c.installed=1"
 			}
 		}
 		rows, err := connection.QueryContext(ctx, query)

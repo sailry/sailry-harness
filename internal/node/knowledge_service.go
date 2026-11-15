@@ -193,6 +193,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		Sources: func(ctx context.Context, stored store.KnowledgeStored, after *string) (page store.KnowledgeStoragePage, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				page, err = store.ReadKnowledgeStoragePage(ctx, db, stored, after, store.KnowledgeStoragePageLimit)
 				return err
 			})
@@ -200,6 +204,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		Source: func(ctx context.Context, stored store.KnowledgeStored, key string) (record *store.KnowledgeStorageRecord, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				record, err = store.ReadKnowledgeStorageRecord(ctx, db, stored, key)
 				return err
 			})
@@ -207,6 +215,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		SourceCurrent: func(ctx context.Context, stored store.KnowledgeStored, record store.KnowledgeStorageRecord) (current bool, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				current, err = store.KnowledgeStorageUnchanged(ctx, db, stored, record)
 				return err
 			})

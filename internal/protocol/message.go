@@ -918,7 +918,8 @@ func (value CommandCompleteBrowserPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandReadPluginValuePayload struct {
-	Key string `json:"key"`
+	Key   string             `json:"key"`
+	Scope PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultCommandReadPluginValuePayload() CommandReadPluginValuePayload {
@@ -966,9 +967,10 @@ func (value CommandReadPluginConversationValuePayload) MarshalJSON() ([]byte, er
 }
 
 type CommandListPluginKeysPayload struct {
-	Prefix string  `json:"prefix"`
-	After  *string `json:"after"`
-	Limit  uint16  `json:"limit"`
+	Prefix string             `json:"prefix"`
+	After  *string            `json:"after"`
+	Limit  uint16             `json:"limit"`
+	Scope  PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultCommandListPluginKeysPayload() CommandListPluginKeysPayload {
@@ -994,9 +996,10 @@ func (value CommandListPluginKeysPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandWritePluginValuePayload struct {
-	Key              string          `json:"key"`
-	Value            json.RawMessage `json:"value"`
-	ExpectedRevision uint64          `json:"expected_revision"`
+	Key              string             `json:"key"`
+	Value            json.RawMessage    `json:"value"`
+	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultCommandWritePluginValuePayload() CommandWritePluginValuePayload {
@@ -1026,6 +1029,7 @@ type CommandWriteIndexedPluginValuePayload struct {
 	Value            json.RawMessage    `json:"value"`
 	Index            PluginStorageIndex `json:"index"`
 	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultCommandWriteIndexedPluginValuePayload() CommandWriteIndexedPluginValuePayload {
@@ -1052,8 +1056,9 @@ func (value CommandWriteIndexedPluginValuePayload) MarshalJSON() ([]byte, error)
 }
 
 type CommandRemovePluginValuePayload struct {
-	Key              string `json:"key"`
-	ExpectedRevision uint64 `json:"expected_revision"`
+	Key              string             `json:"key"`
+	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultCommandRemovePluginValuePayload() CommandRemovePluginValuePayload {

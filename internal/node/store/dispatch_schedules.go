@@ -111,7 +111,7 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 	if len(records) == 0 {
 		return changed, nil
 	}
-	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+	plugins, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return nil, err
 	}

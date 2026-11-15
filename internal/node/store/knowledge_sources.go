@@ -48,6 +48,10 @@ func currentKnowledgePlugin(ctx context.Context, db *sql.Conn, name string) (pro
 }
 
 func knowledgeOwnership(ctx context.Context, db *sql.Conn, request protocol.Request, selected *string) (protocol.KnowledgeOwner, KnowledgeCapture, error) {
+	user, err := CapturedUser(ctx, db)
+	if err != nil {
+		return protocol.KnowledgeOwner{}, KnowledgeCapture{}, err
+	}
 	plugin := func(info protocol.PluginInfo) (protocol.KnowledgeOwner, *protocol.PluginReference) {
 		return protocol.KnowledgeOwner{Kind: "plugin", Data: protocol.KnowledgeOwnerPluginPayload{Name: info.Summary.Name}},
 			&protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
@@ -61,7 +65,7 @@ func knowledgeOwnership(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return protocol.KnowledgeOwner{}, KnowledgeCapture{}, err
 		}
 		owner, reference := plugin(info)
-		return owner, KnowledgeCapture{Package: reference, Worktree: scope.Worktree, Session: scope.Session}, nil
+		return owner, KnowledgeCapture{Package: reference, Worktree: scope.Worktree, Session: scope.Session, User: &user}, nil
 	}
 	if selected != nil {
 		info, err := currentKnowledgePlugin(ctx, db, *selected)
@@ -69,9 +73,9 @@ func knowledgeOwnership(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return protocol.KnowledgeOwner{}, KnowledgeCapture{}, err
 		}
 		owner, reference := plugin(info)
-		return owner, KnowledgeCapture{Package: reference}, nil
+		return owner, KnowledgeCapture{Package: reference, User: &user}, nil
 	}
-	return protocol.KnowledgeOwner{Kind: "controller"}, KnowledgeCapture{}, nil
+	return protocol.KnowledgeOwner{Kind: "controller"}, KnowledgeCapture{User: &user}, nil
 }
 
 func knowledgeDeclares(info protocol.PluginInfo, action protocol.PluginAction) bool {
@@ -201,6 +205,14 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 			return knowledgeDenied("plugin does not declare the captured storage access")
 		}
 		if source.Scope != protocol.PluginStorageScopeConversation {
+			bound, err := pluginStorageContext(ctx, db, protocol.PluginContext{Worktree: capture.Worktree, Session: capture.Session}, source.Scope)
+			if err != nil {
+				return err
+			}
+			capture.Space, err = pluginValueSpace(bound, db)
+			if err != nil {
+				return err
+			}
 			capture.Worktree, capture.Session = nil, nil
 			break
 		}
@@ -268,6 +280,7 @@ func checkKnowledge(stored KnowledgeStored) error {
 		}
 	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeConversation && stored.Capture.Session != nil && stored.Capture.Worktree != nil:
 	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeNode && !captured:
+	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeProject && !captured && strings.HasPrefix(stored.Capture.Space, "project:"):
 	case (source.Kind == "directory" || source.Kind == "file") && !captured:
 		if !filepath.IsAbs(source.Path) || slices.Contains(strings.Split(filepath.ToSlash(source.Path), "/"), "..") {
 			return invalid("invalid stored absolute knowledge source")

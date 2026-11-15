@@ -104,7 +104,7 @@ func (node *Node) startComputer(info protocol.PluginInfo, server protocol.Plugin
 	}
 	launch := &prepared.Launch
 	allowed := info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible"
-	session, attached := node.computerOverlay.Attach(info.Summary.Name, allowed, computer.Invocation{
+	session, attached := node.computerOverlay.Attach(prepared.User+"\x00"+info.Summary.Name, allowed, computer.Invocation{
 		Command: launch.Command, Directory: launch.Directory, Env: launch.Env, Environment: launch.Environment,
 	})
 	if attached {
@@ -115,16 +115,25 @@ func (node *Node) startComputer(info protocol.PluginInfo, server protocol.Plugin
 
 // retainComputerOverlay ends a changed package's overlay session once the
 // package is removed or disabled.
-func (node *Node) retainComputerOverlay(name string) {
+func (node *Node) retainComputerOverlay(name string, contexts ...context.Context) {
+	ctx := node.ctx
+	if len(contexts) != 0 {
+		ctx = contexts[0]
+	}
+	user, err := node.pluginRuntimeUser(ctx)
+	if err != nil {
+		return
+	}
+	owner := pluginProgramOwner(user, name)
+	ctx = context.WithoutCancel(ctx)
 	if node.begin() != nil {
 		return
 	}
 	go func() {
 		defer node.work.Done()
-		if !node.computerOverlay.Tracks(name) {
+		if !node.computerOverlay.Tracks(owner) {
 			return
 		}
-		ctx := context.WithoutCancel(node.ctx)
 		allowed := false
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			info, err := store.ReadPlugin(ctx, db, name)
@@ -134,6 +143,6 @@ func (node *Node) retainComputerOverlay(name string) {
 		if err != nil || allowed {
 			return
 		}
-		node.computerOverlay.Retain(name, nil)
+		node.computerOverlay.Retain(owner, nil)
 	}()
 }

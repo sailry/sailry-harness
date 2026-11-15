@@ -95,6 +95,7 @@ type PluginStorageScope string
 
 const (
 	PluginStorageScopeNode         PluginStorageScope = "node"
+	PluginStorageScopeProject      PluginStorageScope = "project"
 	PluginStorageScopeConversation PluginStorageScope = "conversation"
 )
 
@@ -105,7 +106,7 @@ func (value *PluginStorageScope) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch PluginStorageScope(decoded) {
-	case PluginStorageScopeNode, PluginStorageScopeConversation:
+	case PluginStorageScopeNode, PluginStorageScopeProject, PluginStorageScopeConversation:
 		*value = PluginStorageScope(decoded)
 		return nil
 	default:
@@ -186,14 +187,15 @@ func (value PluginStorageSource) MarshalJSON() ([]byte, error) {
 }
 
 type PluginStorageSearch struct {
-	Terms   []string      `json:"terms"`
-	Query   *string       `json:"query,omitempty"`
-	Mode    KnowledgeMode `json:"mode"`
-	Weights [2]uint16     `json:"weights"`
-	All     []string      `json:"all"`
-	Any     []string      `json:"any"`
-	Offset  uint16        `json:"offset"`
-	Limit   uint16        `json:"limit"`
+	Scope   PluginStorageScope `json:"scope,omitempty"`
+	Terms   []string           `json:"terms"`
+	Query   *string            `json:"query,omitempty"`
+	Mode    KnowledgeMode      `json:"mode"`
+	Weights [2]uint16          `json:"weights"`
+	All     []string           `json:"all"`
+	Any     []string           `json:"any"`
+	Offset  uint16             `json:"offset"`
+	Limit   uint16             `json:"limit"`
 }
 
 func DefaultPluginStorageSearch() PluginStorageSearch {

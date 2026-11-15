@@ -142,8 +142,9 @@ func (node *Node) beginConnectorLogin(ctx context.Context, caller protocol.NodeI
 			return
 		}
 		err := node.tasks.Submit(func(owner context.Context) {
-			operation, cancel := context.WithCancel(owner)
-			defer cancel()
+			operation, cancel := context.WithCancel(context.WithoutCancel(ctx))
+			stop := context.AfterFunc(owner, cancel)
+			defer func() { stop(); cancel() }()
 			node.auth.mu.Lock()
 			entry.cancel = cancel
 			stopped := entry.stopped || node.auth.closed
@@ -154,7 +155,7 @@ func (node *Node) beginConnectorLogin(ctx context.Context, caller protocol.NodeI
 			grant, identity, err := node.runConnectorLogin(operation, &capture, returned, func(state protocol.ConversationLoginState) error {
 				return node.connectorProgress(entry, state)
 			})
-			recording := context.WithoutCancel(node.ctx)
+			recording := context.WithoutCancel(ctx)
 			var value protocol.PluginConnectorConnection
 			saveErr := node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 				var writeErr error

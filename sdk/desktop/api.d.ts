@@ -63,26 +63,28 @@ export function forgetRequest(id: string): void;
  * Connection, visibility and entry changes arrive immediately.
  * Pass the returned opaque cursor to wait; hidden views retain invalidation until shown. */
 export function nextChange(cursor?: string, scope?: "package" | "settled" | "repository"): Promise<{cursor: string; revision: string; connected: boolean; entry: string; visible: boolean; terminal_tools: string; references: string}>;
-export function getValue(key: string): Promise<Entry>;
-export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
+export type ValueScope = "node" | "project";
+/** node is personal; project requires a declared project collection and a captured project. */
+export function getValue(key: string, scope?: ValueScope): Promise<Entry>;
+export function listKeys(prefix?: string, after?: string | null, limit?: number, scope?: ValueScope): Promise<{ keys: string[]; after: string | null }>;
 /** Prepare a durable compare-and-set write; completeRequest returns its receipt. */
-export function setValue(key: string, value: Json, expectedRevision: string): string;
+export function setValue(key: string, value: Json, expectedRevision: string, scope?: ValueScope): string;
 export type ValueIndex = {
   fields: [string, string]; tags: string[]; order: number;
   /** Raw string in this package's Node storage, selected by an RFC 6901 JSON pointer. */
   source?: { key: string; pointer: string };
 };
 /** Semantic recall requires storage collection index.semantic=true and an explicit raw source. */
-export function indexedValue(key: string, value: Json, index: ValueIndex, expectedRevision: string): string;
+export function indexedValue(key: string, value: Json, index: ValueIndex, expectedRevision: string, scope?: ValueScope): string;
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 /** Preserve the original query for semantic recall. Nonempty query defaults to hybrid; terms alone to keyword.
  * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
-export function searchValues(query: { terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
-export function deleteValue(key: string, expectedRevision: string): string;
+export function searchValues(query: { scope?: ValueScope; terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
+export function deleteValue(key: string, expectedRevision: string, scope?: ValueScope): string;
 export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
 export type KnowledgeDraft = {
   name: string;
-  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
+  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "project" | "conversation"; prefix: string};
   model?: string | null; globs?: string[]; tags?: string[];
 };
 export type KnowledgeCollection = {

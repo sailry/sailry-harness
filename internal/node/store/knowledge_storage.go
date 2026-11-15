@@ -104,6 +104,10 @@ func knowledgeNamespace(stored KnowledgeStored) (string, KnowledgeSource, error)
 }
 
 func readKnowledgeRaw(ctx context.Context, db *sql.Conn, stored KnowledgeStored, key string) (*knowledgeRaw, error) {
+	ctx, scopeErr := knowledgeStorageContext(ctx, db, stored)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
 	if !knowledgeStorageKey(key) {
 		return nil, invalid("invalid knowledge storage key")
 	}
@@ -113,8 +117,12 @@ func readKnowledgeRaw(ctx context.Context, db *sql.Conn, stored KnowledgeStored,
 	}
 	var raw knowledgeRaw
 	var revision int64
-	if source.Scope == protocol.PluginStorageScopeNode {
-		err = db.QueryRowContext(ctx, "SELECT revision,value,index_data FROM plugin_values WHERE name=?1 AND key=?2 AND value IS NOT NULL", name, key).
+	if source.Scope == protocol.PluginStorageScopeNode || source.Scope == protocol.PluginStorageScopeProject {
+		space, spaceErr := pluginValueSpace(ctx, db)
+		if spaceErr != nil {
+			return nil, spaceErr
+		}
+		err = db.QueryRowContext(ctx, "SELECT revision,value,index_data FROM plugin_space_values WHERE name=?1 AND key=?2 AND space=?3 AND value IS NOT NULL", name, key, space).
 			Scan(&revision, &raw.body, &raw.index)
 	} else {
 		err = db.QueryRowContext(ctx, "SELECT v.revision,r.value FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND v.session=?2 AND v.key=?3 AND r.value IS NOT NULL",
@@ -222,6 +230,10 @@ func captureKnowledgeValue(ctx context.Context, db *sql.Conn, stored KnowledgeSt
 // ReadKnowledgeStoragePage reads one page of the plugin values a storage
 // collection indexes, in key order.
 func ReadKnowledgeStoragePage(ctx context.Context, db *sql.Conn, stored KnowledgeStored, after *string, limit int) (KnowledgeStoragePage, error) {
+	ctx, scopeErr := knowledgeStorageContext(ctx, db, stored)
+	if scopeErr != nil {
+		return KnowledgeStoragePage{}, scopeErr
+	}
 	var page KnowledgeStoragePage
 	if err := knowledgeStorageCancelled(ctx); err != nil {
 		return page, err
@@ -247,11 +259,17 @@ func ReadKnowledgeStoragePage(ctx context.Context, db *sql.Conn, stored Knowledg
 		if err != nil {
 			return page, err
 		}
-		query := "SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND substr(key,1,length(?2))=?2 AND (?3 IS NULL OR key>?3) ORDER BY key LIMIT ?4"
+		query := "SELECT key FROM plugin_space_values WHERE name=?1 AND space=?5 AND value IS NOT NULL AND substr(key,1,length(?2))=?2 AND (?3 IS NULL OR key>?3) ORDER BY key LIMIT ?4"
 		arguments := []any{name, source.Prefix, after, limit + 1}
 		if source.Scope == protocol.PluginStorageScopeConversation {
 			query = "SELECT v.key FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND r.value IS NOT NULL AND substr(v.key,1,length(?2))=?2 AND (?3 IS NULL OR v.key>?3) AND v.session=?5 ORDER BY v.key LIMIT ?4"
 			arguments = append(arguments, stored.Capture.Session.String())
+		} else {
+			space, err := pluginValueSpace(ctx, db)
+			if err != nil {
+				return page, err
+			}
+			arguments = append(arguments, space)
 		}
 		if keys, err = knowledgeKeys(ctx, db, query, arguments...); err != nil {
 			return page, err
@@ -297,6 +315,10 @@ func knowledgeKeys(ctx context.Context, db *sql.Conn, query string, arguments ..
 // KnowledgeStorageUnchanged rechecks a captured record before its chunks are
 // published or its citation is returned.
 func KnowledgeStorageUnchanged(ctx context.Context, db *sql.Conn, stored KnowledgeStored, record KnowledgeStorageRecord) (bool, error) {
+	ctx, scopeErr := knowledgeStorageContext(ctx, db, stored)
+	if scopeErr != nil {
+		return false, scopeErr
+	}
 	if err := knowledgeStorageCancelled(ctx); err != nil {
 		return false, err
 	}
@@ -335,6 +357,10 @@ func KnowledgeStorageUnchanged(ctx context.Context, db *sql.Conn, stored Knowled
 // ReadKnowledgeStorageRecord captures one plugin value of a storage
 // collection, or nil when it no longer exists.
 func ReadKnowledgeStorageRecord(ctx context.Context, db *sql.Conn, stored KnowledgeStored, key string) (*KnowledgeStorageRecord, error) {
+	ctx, scopeErr := knowledgeStorageContext(ctx, db, stored)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
 	if err := knowledgeStorageCancelled(ctx); err != nil {
 		return nil, err
 	}

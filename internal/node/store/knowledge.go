@@ -17,9 +17,12 @@ const MaxKnowledgeCollections = 128
 
 // KnowledgeCapture is the plugin scope a collection was created in.
 type KnowledgeCapture struct {
-	Package  *protocol.PluginReference `json:"package"`
-	Worktree *protocol.WorktreeID      `json:"worktree"`
-	Session  *protocol.SessionID       `json:"session"`
+	Package   *protocol.PluginReference `json:"package"`
+	Worktree  *protocol.WorktreeID      `json:"worktree"`
+	Session   *protocol.SessionID       `json:"session"`
+	User      *protocol.UserID          `json:"user,omitempty"`
+	Space     string                    `json:"space,omitempty"`
+	Namespace string                    `json:"namespace,omitempty"`
 }
 
 // KnowledgeStored is one durable collection with its captured scope. The
@@ -108,9 +111,17 @@ func AllowedKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reques
 	if err != nil {
 		return nil, err
 	}
-	return slices.DeleteFunc(entries, func(stored KnowledgeStored) bool {
-		return !knowledgeVisible(stored, request) || !knowledgeGranted(stored, request, info)
-	}), nil
+	allowed := entries[:0]
+	for _, stored := range entries {
+		visible, err := knowledgeUserAllowed(ctx, db, stored)
+		if err != nil {
+			return nil, err
+		}
+		if visible && knowledgeVisible(stored, request) && knowledgeGranted(stored, request, info) {
+			allowed = append(allowed, stored)
+		}
+	}
+	return allowed, nil
 }
 
 // ListKnowledgeCollections lists the collections a request may read.

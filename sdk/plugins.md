@@ -677,7 +677,7 @@ the ones the agent lists; none is invented.
 
 ## Storage
 
-Declare `storage.read` and/or `storage.write` in `extensions.dev.sailry.platform.actions`. The Node derives the namespace from the authenticated plugin context; the caller cannot choose another plugin's namespace. Data belongs to the execution Node and plugin name, surviving package updates, configuration edits, removal and reinstallation. No localStorage, filesystem path or credential access is provided.
+Declare `storage.read` and/or `storage.write` in `extensions.dev.sailry.platform.actions`. The Node derives the namespace from the authenticated plugin context; the caller cannot choose another plugin's namespace. By default, data belongs to the execution Node, authenticated user and plugin name, surviving package updates, configuration edits, removal and reinstallation. No localStorage, filesystem path or credential access is provided.
 
 ```js
 import { getValue, setValue, completeRequest, forgetRequest } from "sailry/sdk";
@@ -694,6 +694,10 @@ if (result.Err) {
 ```
 
 Revisions are decimal strings in the SDK to preserve integer precision. Missing keys initially have revision `"0"`; deleted keys retain a revision so stale writes cannot recreate them silently. `present` distinguishes stored JSON null from an absent value. Set and delete are compare-and-set operations and return a prepared request ID, not a success claim.
+
+Existing SDK calls keep this personal `"node"` scope. A package may opt a declared storage collection into `"project"` scope, and supply `"project"` as the optional final argument of `getValue`, `listKeys`, `setValue`, `indexedValue` or `deleteValue`. Storage search accepts the same `scope` option. Project scope requires a captured worktree in a visible project and a matching manifest collection. It shares that plugin's values across the project's worktrees and authorized users; it does not share personal settings, connections or credentials. The Node resolves the project from the captured worktree rather than accepting a project ID from the package. Conversation storage retains its existing session namespace.
+
+Package content is cached once by digest. Installation, enabled choice, settings revisions, connections, writable package directories and reusable MCP/program instances belong to the user. New users receive their own bundled defaults without copying another user's configuration. An admitted turn or callback retains its original settings and storage principal across identity merge.
 
 Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up to 256 KiB; each namespace permits 256 live keys and 8 MiB of live values. Listing accepts literal prefixes and returns at most 100 keys with an optional `after` cursor. Deleted keys are excluded from listing. Storage is ordinary application data, not a secret store.
 

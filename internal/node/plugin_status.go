@@ -24,6 +24,7 @@ type pluginStatusService struct {
 }
 
 type pluginStatusScopeKey struct {
+	user        protocol.UserID
 	worktree    protocol.WorktreeID
 	session     protocol.SessionID
 	hasWorktree bool
@@ -85,7 +86,7 @@ func (node *Node) closePluginStatus() {
 	service.owners.Wait()
 }
 
-func (node *Node) subscribePluginStatus(ctx context.Context, _ protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+func (node *Node) subscribePluginStatus(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
 	scope, valid := dispatchPayload[protocol.PluginUiStatusScope](topic.Data)
 	if !valid {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "status requires a worktree or session"}
@@ -99,7 +100,21 @@ func (node *Node) subscribePluginStatus(ctx context.Context, _ protocol.NodeID, 
 	if service == nil {
 		return nil, unavailable()
 	}
-	events, err := node.Subscribe(ctx, node.ID(), protocol.Topic{Kind: "node"})
+	var user protocol.User
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		if _, captured := store.UserFromContext(ctx); captured {
+			user, err = store.CurrentUser(ctx, db)
+		} else {
+			user, err = store.CallerUser(ctx, db, node.ID(), caller)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, nodeFault(err)
+	}
+	ctx = store.WithUser(ctx, user)
+	events, err := node.Subscribe(ctx, caller, protocol.Topic{Kind: "node"})
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +122,7 @@ func (node *Node) subscribePluginStatus(ctx context.Context, _ protocol.NodeID, 
 		_ = events.Close()
 		return nil, nodeFault(err)
 	}
-	key := pluginStatusKey(scope)
+	key := pluginStatusKey(scope, user.ID)
 	service.mu.Lock()
 	if service.closed || node.ctx.Err() != nil {
 		service.mu.Unlock()
@@ -121,7 +136,7 @@ func (node *Node) subscribePluginStatus(ctx context.Context, _ protocol.NodeID, 
 		_ = events.Close()
 		return &pluginStatusFeed{watcher: watcher, closed: make(chan struct{})}, nil
 	}
-	lifetime, cancel := context.WithCancel(node.ctx)
+	lifetime, cancel := context.WithCancel(store.WithUser(node.ctx, user))
 	watcher = &pluginStatusWatcher{
 		service: service, key: key, scope: scope, ctx: lifetime, cancel: cancel,
 		done: make(chan struct{}), references: 1, changed: make(chan struct{}), wake: make(chan struct{}, 1),
@@ -255,8 +270,11 @@ func (feed *pluginStatusFeed) Next(ctx context.Context) (protocol.Update, error)
 	}
 }
 
-func pluginStatusKey(scope protocol.PluginUiStatusScope) pluginStatusScopeKey {
+func pluginStatusKey(scope protocol.PluginUiStatusScope, users ...protocol.UserID) pluginStatusScopeKey {
 	key := pluginStatusScopeKey{hasWorktree: scope.Worktree != nil, hasSession: scope.Session != nil}
+	if len(users) != 0 {
+		key.user = users[0]
+	}
 	if scope.Worktree != nil {
 		key.worktree = *scope.Worktree
 	}

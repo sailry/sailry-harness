@@ -27,7 +27,7 @@ func (node *Node) startMCP() {
 			case <-node.ctx.Done():
 				return
 			case <-node.plugins.mcp.Changed():
-				node.publishMCP(node.plugins.mcp.Changes())
+				node.publishMCP(node.plugins.mcp.ScopedChanges())
 			}
 		}
 	}()
@@ -37,9 +37,9 @@ func (node *Node) startMCP() {
 	node.work.Add(1)
 	go func() {
 		defer node.work.Done()
-		warmed := map[string]string{}
+		warmed := map[protocol.UserID]map[string]string{}
 		for {
-			node.warmMCP(node.ctx, warmed)
+			node.warmUserMCP(node.ctx, warmed)
 			select {
 			case <-node.ctx.Done():
 				return
@@ -59,30 +59,65 @@ func (node *Node) wakeMCP() {
 	}
 }
 
-func (node *Node) publishMCP(names []string) {
-	var changes []protocol.Event
-	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-		changes = changes[:0]
-		for _, name := range names {
-			info, err := store.ReadPlugin(node.ctx, db, name)
-			if err != nil {
-				return err
-			}
-			if info != nil {
-				changes = append(changes, protocol.Event{Kind: "plugin_changed", Data: info.Summary})
-			}
-		}
-		_, err := store.RecordEvents(node.ctx, db, node.ID(), changes)
-		return err
-	})
-	if err != nil {
-		if node.ctx.Err() == nil {
-			slog.Warn("MCP runtime change was not published", "code", nodeFault(err).(*protocol.Fault).Code)
-		}
+func (node *Node) publishMCP(pending []mcp.Change) {
+	var users []protocol.User
+	if err := node.profile.Store.Node.Read(node.ctx, func(db *sql.Conn) error { var err error; users, err = store.ListUsers(node.ctx, db); return err }); err != nil {
 		return
 	}
-	if len(changes) != 0 {
-		node.publish()
+	for _, user := range users {
+		if user.State != "active" {
+			continue
+		}
+		ctx := store.WithUser(node.ctx, user)
+		var changes []protocol.Event
+		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			for _, change := range pending {
+				if change.User != user.ID.String() {
+					continue
+				}
+				info, err := store.ReadPlugin(ctx, db, change.Package)
+				if err != nil {
+					return err
+				}
+				if info != nil {
+					changes = append(changes, protocol.Event{Kind: "plugin_changed", Data: info.Summary})
+				}
+			}
+			_, err := store.RecordEvents(ctx, db, node.ID(), changes)
+			return err
+		})
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("MCP runtime change was not published", "code", nodeFault(err).(*protocol.Fault).Code)
+			}
+		} else if len(changes) != 0 {
+			node.publish()
+		}
+	}
+}
+
+func (node *Node) warmUserMCP(ctx context.Context, warmed map[protocol.UserID]map[string]string) {
+	var users []protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error { var err error; users, err = store.ListUsers(ctx, db); return err }); err != nil {
+		return
+	}
+	active := map[protocol.UserID]bool{}
+	for _, user := range users {
+		if user.State != "active" {
+			continue
+		}
+		active[user.ID] = true
+		inventory := warmed[user.ID]
+		if inventory == nil {
+			inventory = map[string]string{}
+			warmed[user.ID] = inventory
+		}
+		node.warmMCP(store.WithUser(ctx, user), inventory)
+	}
+	for user := range warmed {
+		if !active[user] {
+			delete(warmed, user)
+		}
 	}
 }
 

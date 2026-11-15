@@ -78,7 +78,7 @@ func ReadPluginConnectionAdmitted(ctx context.Context, db *sql.Conn, profile str
 	if connector == "" {
 		return protocol.PluginConnectionStatus{}, fault(protocol.ErrorCodeNotConfigured, "plugin card has no connector")
 	}
-	records, err := readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections ORDER BY plugin,connector,id")
+	records, err := connectorRecords(ctx, db)
 	if err != nil {
 		return protocol.PluginConnectionStatus{}, err
 	}

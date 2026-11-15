@@ -79,20 +79,20 @@ export async function readSettings() { return read("read_plugin_settings", {pack
 /** Public catalog definitions only; fixed-model provider configuration remains private. */
 export async function listRoles() { return read("list_roles"); }
 export async function fetchWeb(input) { return read("fetch_web", input); }
-export async function getValue(key) { return read("read_plugin_value", {key}); }
+export async function getValue(key, storage = "node") { return read("read_plugin_value", {key, ...(storage === "node" ? {} : {scope: storage})}); }
 export async function getConversationValue(key) { return read("read_plugin_conversation_value", {key}); }
-export async function listKeys(prefix = "", after = null, limit = 64) {
-  return read("list_plugin_keys", {prefix, after, limit});
+export async function listKeys(prefix = "", after = null, limit = 64, storage = "node") {
+  return read("list_plugin_keys", {prefix, after, limit, ...(storage === "node" ? {} : {scope: storage})});
 }
-export function setValue(key, value, expectedRevision) {
-  return prepareRequest({kind: "write_plugin_value", data: {key, value, expected_revision: expectedRevision}});
+export function setValue(key, value, expectedRevision, storage = "node") {
+  return prepareRequest({kind: "write_plugin_value", data: {key, value, expected_revision: expectedRevision, ...(storage === "node" ? {} : {scope: storage})}});
 }
 export function setConversationValue(key, value, expectedRevision) {
   return prepareRequest({kind: "write_plugin_conversation_value", data: {key, value, expected_revision: expectedRevision}});
 }
 /** Semantic collections reference raw text with index.source {key, pointer} in this namespace. */
-export function indexedValue(key, value, index, expectedRevision) {
-  return prepareRequest({kind: "write_indexed_plugin_value", data: {key, value, index, expected_revision: expectedRevision}});
+export function indexedValue(key, value, index, expectedRevision, storage = "node") {
+  return prepareRequest({kind: "write_indexed_plugin_value", data: {key, value, index, expected_revision: expectedRevision, ...(storage === "node" ? {} : {scope: storage})}});
 }
 /** Preserve the original query for semantic recall; query defaults to hybrid, terms alone to keyword. */
 export async function searchValues(input) {
@@ -100,8 +100,8 @@ export async function searchValues(input) {
   if (typeof query.query === "string" && query.query.trim() && query.mode === undefined) query.mode = "hybrid";
   return read("search_plugin_values", query);
 }
-export function deleteValue(key, expectedRevision) {
-  return prepareRequest({kind: "remove_plugin_value", data: {key, expected_revision: expectedRevision}});
+export function deleteValue(key, expectedRevision, storage = "node") {
+  return prepareRequest({kind: "remove_plugin_value", data: {key, expected_revision: expectedRevision, ...(storage === "node" ? {} : {scope: storage})}});
 }
 export function deleteConversationValue(key, expectedRevision) {
   return prepareRequest({kind: "remove_plugin_conversation_value", data: {key, expected_revision: expectedRevision}});

@@ -180,14 +180,23 @@ CREATE TABLE IF NOT EXISTS plugin_settings (
     body BLOB NOT NULL,
     PRIMARY KEY(plugin,revision)
 );
+CREATE TABLE plugin_user_settings (
+    user TEXT NOT NULL REFERENCES users(id),
+    plugin TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,plugin,revision)
+);
 CREATE TABLE plugin_connections (
     id TEXT PRIMARY KEY,
     plugin TEXT NOT NULL,
     connector TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision>0),
-    body BLOB NOT NULL
+    body BLOB NOT NULL,
+    user TEXT REFERENCES users(id)
 );
 CREATE INDEX plugin_connections_owner ON plugin_connections(plugin,connector);
+CREATE INDEX plugin_connections_user ON plugin_connections(user,plugin,connector);
 CREATE TABLE turn_connections (
     turn TEXT NOT NULL REFERENCES turns(id),
     plugin TEXT NOT NULL,
@@ -204,6 +213,20 @@ CREATE TABLE plugin_values (
     value BLOB,
     index_data BLOB,
     PRIMARY KEY(name,key)
+);
+CREATE TABLE plugin_space_values (
+    space TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    value BLOB,
+    index_data BLOB,
+    PRIMARY KEY(space,name,key)
+);
+CREATE TABLE plugin_search_spaces (
+    space TEXT NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY(space,name)
 );
 -- Opaque private checkpoints share immutable records across conversation branches.
 CREATE TABLE plugin_conversation_records (
@@ -425,6 +448,15 @@ CREATE TABLE IF NOT EXISTS plugins (
     settings_revision INTEGER NOT NULL DEFAULT 0,
     installed INTEGER NOT NULL CHECK(installed IN (0,1)),
     body BLOB NOT NULL
+);
+CREATE TABLE plugin_user_installations (
+    user TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    settings_revision INTEGER NOT NULL DEFAULT 0,
+    installed INTEGER NOT NULL CHECK(installed IN (0,1)),
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,name)
 );
 CREATE TABLE IF NOT EXISTS plugin_packages (
     digest TEXT PRIMARY KEY,

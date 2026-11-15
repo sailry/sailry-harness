@@ -245,7 +245,7 @@ func (node *Node) authorizeMCP(ctx context.Context, info protocol.PluginInfo, se
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "connector authorization changed"}
 		}
 		if record.Method == protocol.PluginConnectorKindMcpOauth {
-			source, err := node.connectorMCPSource(record)
+			source, err := node.connectorMCPSource(record, ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -367,18 +367,27 @@ func connectorInjection(record store.ConnectorRecord, declaration protocol.Plugi
 }
 
 type connectorOAuthSource struct {
+	ctx    context.Context
 	node   *Node
 	mu     sync.Mutex
 	record store.ConnectorRecord
 	value  connectorOAuthRecord
 }
 
-func (node *Node) connectorMCPSource(record store.ConnectorRecord) (*connectorOAuthSource, error) {
+func (node *Node) connectorMCPSource(record store.ConnectorRecord, contexts ...context.Context) (*connectorOAuthSource, error) {
+	ctx := node.ctx
+	if len(contexts) != 0 {
+		ctx = contexts[0]
+	}
+	owner, err := node.pluginOwnerContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var value connectorOAuthRecord
 	if record.Grant == nil || json.Unmarshal([]byte(record.Grant.Extra["mcp_oauth"]), &value) != nil {
 		return nil, connectorUnavailable()
 	}
-	return &connectorOAuthSource{node: node, record: record, value: value}, nil
+	return &connectorOAuthSource{ctx: owner, node: node, record: record, value: value}, nil
 }
 
 func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
@@ -391,7 +400,7 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	pending := previous
 	pending.Extra = maps.Clone(pending.Extra)
 	pending.Extra["renewal_pending"] = "true"
-	recording := context.WithoutCancel(source.node.ctx)
+	recording := context.WithoutCancel(source.ctx)
 	err := source.node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 		var err error
 		source.record, err = store.SaveConnectorGrant(recording, db, source.record, pending)
@@ -403,7 +412,7 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	transport := &renewalTransport{base: source.node.auth.client.Transport}
 	client := *source.node.auth.client
 	client.Transport = transport
-	ctx := context.WithValue(source.node.ctx, oauth2.HTTPClient, &client)
+	ctx := context.WithValue(source.ctx, oauth2.HTTPClient, &client)
 	token, err := source.value.Config.TokenSource(ctx, &source.value.Token).Token()
 	if err != nil {
 		// The service's own refusal of the renewal credential is definite.
@@ -415,7 +424,7 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 			}
 			err = authorization.Granted(refusal.Response.StatusCode, document)
 		}
-		source.record, err = source.node.connectorRenewalFailed(source.record, previous, transport.sent.Load(), err)
+		source.record, err = source.node.connectorRenewalFailed(source.record, previous, transport.sent.Load(), err, source.ctx)
 		return nil, err
 	}
 	issued := connectorOAuthIssued(&source.value.Config, token)
