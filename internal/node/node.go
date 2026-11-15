@@ -883,7 +883,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				output, changes, operationErr = store.ExecuteCommand(ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
 		}
-		if operationErr == nil && job.request.Command.Kind == "continue_turn" {
+		if operationErr == nil && (job.request.Command.Kind == "continue_turn" || SupportsConfigurationFollow(job.request.Command.Kind)) {
 			changes, operationErr = node.followKnowledgeStorage(ctx, db, job.request, changes)
 		}
 		if operationErr == nil {
@@ -929,7 +929,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			node.pluginCommitted(changes, ctx)
 		}
 		if operationErr == nil {
-			node.refreshKnowledgeStorage(job.request.Command, nil)
+			node.refreshKnowledgeStorage(job.request.Command, changes)
 		}
 	}
 	return response(output, operationErr), err
