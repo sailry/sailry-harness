@@ -209,7 +209,7 @@ func Fill(c *ui.Context, b ui.Element, a *theme.Action, disabled bool) {
 		radius = theme.Of(c).Radius
 	}
 	glow, end := a.InnerGlow, a.Gradient.Or(bg)
-	flow := a.Flow.OK && moving(c)
+	flow := a.Flow.OK && !disabled && moving(c) // a disabled button rests
 	if glow > 0 || flow {
 		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 			InnerGlow(pt, r, radius, glow, Opaque(bg).Mix(white, 0.35), Opaque(end).Mix(white, 0.35))
