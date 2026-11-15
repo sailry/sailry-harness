@@ -455,7 +455,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		}
 	case "local_models_changed", "local_model_settings_changed", "knowledge_collections_changed",
 		"telemetry_settings_changed", "backup_settings_changed", "python_settings_changed",
-		"plugin_values_changed", "dispatch_changed", "tools_completed":
+		"plugin_values_changed", "dispatch_changed", "tools_completed", "configuration_follow_changed":
 		// These invalidate feature reads; they do not replace a Snapshot field.
 	default:
 		// An event a newer Node of this protocol version declares and this
