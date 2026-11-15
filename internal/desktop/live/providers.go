@@ -12,6 +12,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	nodeproviders "github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -37,8 +38,13 @@ func (r *Runtime) initProviders() {
 
 // refreshModelCatalog asks the Node shown to fetch its model catalog again.
 func (r *Runtime) refreshModelCatalog() {
+	if r.modelCatalogLoading {
+		return
+	}
+	r.modelCatalogLoading = true
 	r.App.Settings.SetBusy(settings.BusyCatalog, true)
 	r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
+		r.modelCatalogLoading = false
 		if !r.showsSettings() {
 			return
 		}
@@ -47,6 +53,25 @@ func (r *Runtime) refreshModelCatalog() {
 			r.readProviders()
 		}
 	})
+}
+
+// followModelCatalog fetches an empty catalog once on entering its page. A
+// failed fetch waits for another visit or the explicit Update action.
+func (r *Runtime) followModelCatalog() {
+	root := r.localRuntime()
+	if root.App.Page != shell.SettingsPage || root.App.Settings.Section != settings.Providers {
+		r.modelCatalogEntered = false
+		return
+	}
+	root.App.Settings.SetBusy(settings.BusyCatalog, r.modelCatalogLoading)
+	if r.modelCatalogEntered || !r.controller.Connected() {
+		return
+	}
+	r.modelCatalogEntered = true
+	status := r.snapshot().ModelCatalog
+	if status.UpdatedAtMs == nil && status.Scores.UpdatedAtMs == nil {
+		r.refreshModelCatalog()
+	}
 }
 
 // readProviders reads the Node's preset directory and compaction threshold

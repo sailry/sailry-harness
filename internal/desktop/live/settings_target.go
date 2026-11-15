@@ -188,6 +188,7 @@ func (r *Runtime) nodeSettingsFrame() {
 		owner.readPower()
 	}
 	owner.followCompaction()
+	owner.followModelCatalog()
 }
 
 // showNodeSettings turns the pages to owner's Node, or to none: the Node
@@ -238,6 +239,7 @@ func (r *Runtime) enterNodeSettings() {
 // provider or connector sign-in under way, and a concurrency save in doubt.
 // A command already sent still ends in its toast.
 func (r *Runtime) leaveNodeSettings() {
+	r.modelCatalogEntered = false
 	if state := r.authorizations; state != nil {
 		if attempt := state.provider; attempt != nil {
 			r.cancelProviderLogin()

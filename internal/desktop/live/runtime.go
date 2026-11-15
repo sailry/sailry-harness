@@ -144,6 +144,8 @@ type Runtime struct {
 	providerBrands            map[string]string // brand names by presetBrand, offered or not
 	providerModels            map[string]map[string]protocol.ConversationModel
 	providerDraftBases        map[string]protocol.ConversationProvider
+	modelCatalogEntered       bool
+	modelCatalogLoading       bool
 	modelScores               map[string][]protocol.ConversationCatalogScoresEffortScore
 	modelScoreKey             string
 	snapshotMu                sync.Mutex
