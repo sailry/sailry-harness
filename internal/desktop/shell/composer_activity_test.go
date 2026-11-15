@@ -112,6 +112,12 @@ func TestActivityStrip(t *testing.T) {
 	if !a.PanelOpen || a.Panel.Active.Kind != "git" || a.Panel.Active.ID != first {
 		t.Errorf("a changed file opens %+v, not its diff", a.Panel.Active)
 	}
+	// Compare activity rows at the same width. The file opened a detail
+	// panel, whose compact context bar has a different height.
+	a.PanelOpen = false
+	tt.Advance(time.Second)
+	tt.Frame()
+	tt.Frame()
 	draft, _ := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
 	// A chat outside a project has no capsule, but the row stays.
 	click(t, tt, "Regex for semantic versions")

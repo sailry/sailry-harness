@@ -96,11 +96,8 @@ type App struct {
 	// NavOpen and NavWidth are the side column's saved choice, shared by the
 	// pages that have one (HasNavigation); a page without one hides the
 	// column and leaves the choice as it is.
-	NavOpen bool
-	// OverviewHidden is the saved choice to fold a wide conversation's
-	// overview card to its head.
-	OverviewHidden bool
-	NavWidth       float32
+	NavOpen  bool
+	NavWidth float32
 	// PluginNavigation is the resource navigation supplied by the mounted
 	// package page. The Shell owns its position, width and fold toggle.
 	PluginNavigation func(*ui.Context)
@@ -148,9 +145,13 @@ type App struct {
 	// (header.go); keyed is a conversation key of this frame
 	// (conversation.stop, composer.focus, composer.models) for its page.
 	overviews map[string]*overviewPopover
-	band      band
-	keyed     string
-	Panel     *panel.State
+	// mainLayoutWidth is the destination width of the conversation during
+	// sidebar and detail-panel transitions; moving never rewraps its rows.
+	mainLayoutWidth float32
+	mainLayoutShift float32
+	band            band
+	keyed           string
+	Panel           *panel.State
 	// Projects keeps each project's Files and Git state, shared by their
 	// pages and the panel's tabs.
 	Projects *panel.Projects
@@ -334,6 +335,8 @@ func (a *App) View(c *ui.Context) {
 	a.frosted = window != nil
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
 	f := a.frame(c, root)
+	a.mainLayoutWidth = f.mainWidth
+	a.mainLayoutShift = f.mainShift
 	root.Children(func() {
 		a.header(c, f)
 		ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
@@ -344,7 +347,7 @@ func (a *App) View(c *ui.Context) {
 				a.nav(c, f, panel)
 				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
 				a.pane(c, main, &a.mainPane, a.closable(), func() { a.ClosePage() })
-				a.mainColumn(c, main)
+				a.mainColumn(c, main, f)
 				a.details(c, f, panel)
 			})
 		})
@@ -360,9 +363,10 @@ func (a *App) View(c *ui.Context) {
 // frame is where the columns are in this frame: how open each is, from 0
 // to 1 along Motion, and their widths.
 type frame struct {
-	nav, details       float32 // openness
-	navWidth, panelW   float32 // their full widths
-	showsPanel, fitted bool
+	nav, details         float32 // openness
+	navWidth, panelW     float32 // their full widths
+	mainWidth, mainShift float32 // settled content width and its visual offset
+	showsPanel, fitted   bool
 }
 
 // HasNavigation reports whether the page shown has a side column beside the
@@ -425,6 +429,9 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 		target = 1
 	}
 	f.details = root.AnimateTo("details", target, Motion)
+	f.mainWidth = max(w-RailWidth-1-nav-f.panelW*target, 0)
+	actual := max(w-RailWidth-1-f.navWidth*f.nav-f.panelW*f.details, 0)
+	f.mainShift = (actual - f.mainWidth) / 2
 	return f
 }
 
@@ -747,48 +754,28 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	// A conversation shown alone with room for the transcript and its
-	// overview side by side has the overview as a card floating at the
-	// pane's top end; narrower, in a split or with nothing to list, the
-	// overview is the header button's popover. The width is the row's in
-	// the last frame.
+	// The activity column reserves its width independently of loading or
+	// inventory. The transcript and composer center together in what remains.
 	entry := a.overviewEntry(cv.ID)
 	entry.act = act
 	overview := a.conversationOverview(c, cv, act)
 	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 	bounds := row.Bounds()
-	entry.state.Docked = a.panes.Displayed() == nil && bounds.W >= overviewSideMin && composer.OverviewCardShown(overview)
+	entry.state.Docked = a.overviewDocked(overview)
 	docked := entry.state.Docked
-	// The transcript eases to its place as the card docks or leaves and as
-	// the pane's width jumps (a sidebar or panel toggled), and the card
-	// fades in from the end; under a window's resize the aside follows
-	// within the same short ease.
-	var aside, shown float32
-	if docked {
-		aside, shown = overviewAside(bounds.W), 1
-	}
-	// A row not laid out yet has no width: its animations start once it
-	// has, at where it then stands, so an opened conversation does not ease in.
-	if bounds.W > 0 {
-		aside = row.AnimateWith("aside", aside, kit.Fast, kit.EaseOutCubic)
-		shown = row.AnimateWith("card", shown, kit.Fast, kit.EaseOutCubic)
-	}
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
-			if aside > 0 {
-				a.Messages.Aside = aside
-				defer func() { a.Messages.Aside = 0 }()
-			}
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
 				composer.View(c, comp, ctx, act)
 			})
 			conversation.Navigation(c, a.Messages)
 		})
 		if docked {
-			ui.Box(c.Key("overview-float")).Absolute().Top(overviewCardInset).Right(overviewCardInset+8).
-				Opacity(shown).Translate((1-shown)*16, 0).Children(func() {
-				composer.OverviewCard(c, &entry.state, overview, &a.OverviewHidden, min(bounds.H-2*overviewCardInset, overviewCardMax))
-			})
+			ui.Column(c.Key("overview-column")).Width(overviewSide).Shrink(0).Padding(overviewCardInset, overviewCardInset+8, overviewCardInset, overviewCardInset).
+				Translate(a.mainLayoutShift, 0).
+				Children(func() {
+					composer.OverviewCard(c, &entry.state, overview, min(bounds.H-2*overviewCardInset, overviewCardMax))
+				})
 		}
 	})
 	if !docked {

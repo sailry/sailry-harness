@@ -174,7 +174,7 @@ func (a *App) requestClose(c *ui.Context, t panes.Target) {
 
 // mainColumn builds the main column's content; while the conversation shows
 // alone, the column takes drops that split it.
-func (a *App) mainColumn(c *ui.Context, main ui.Element) {
+func (a *App) mainColumn(c *ui.Context, main ui.Element, f frame) {
 	if a.Page != ConversationPage || a.panes.Displayed() != nil || a.Data.Find(a.Sidebar.Selected) == nil {
 		main.Children(func() { a.page(c) })
 		return
@@ -182,7 +182,12 @@ func (a *App) mainColumn(c *ui.Context, main ui.Element) {
 	dest := session(a.Sidebar.Selected)
 	d, z, ok := kit.DockDrop(c, main, func(d panes.Drag, z kit.Zone) bool {
 		return a.panes.CanDrop(dest, d.Target, placement(z))
-	}, func() { a.page(c) })
+	}, func() {
+		// Layout once at the destination width. The surrounding columns
+		// slide, while the transcript moves without invalidating row heights.
+		ui.Column(c.Key("conversation-page")).Width(f.mainWidth).Shrink(0).Grow(1).MinHeight(0).
+			Translate(f.mainShift, 0).Children(func() { a.page(c) })
+	})
 	if ok {
 		a.dropPane(c, dest, d.Target, placement(z))
 	}

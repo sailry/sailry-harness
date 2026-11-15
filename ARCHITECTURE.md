@@ -379,6 +379,14 @@ keyboard behavior. CrychicUI components use the adapters where external data or
 presentation needs them. Floating surfaces remain Kit's frost; right-click menus
 and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
 
+Wide conversations reserve a fixed activity column at the right and center both
+the transcript and composer in the remaining column. Narrow or split panes use
+the header popover and return that space to the transcript. Loading activity never
+changes that layout. During sidebar and detail-panel transitions the transcript
+is laid out at its destination width and translated into place, preserving its
+measured row heights. Direct window and divider resizing follows the current
+width without an additional layout animation.
+
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses
 Untie. These render natively and keep source text on failure. File preview draws

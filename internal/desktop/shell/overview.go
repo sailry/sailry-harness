@@ -11,25 +11,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// The overview card's room at the pane's end: the card, its inset from the
-// edge and its gap from the transcript. A conversation shown alone floats it
-// in three tiers of width. From overviewCenterMin the transcript is centered
-// and the card sits in its end margin. Between overviewSideMin and that, the
-// transcript moves toward the start just enough to keep the card's room,
-// until at overviewSideMin the two stand side by side with no margin left.
-// Narrower, or in a pane of a split, the overview is the header button's
-// popover.
+// The overview has a fixed column beside the transcript. The transcript and
+// composer center in the remaining column; narrower windows use a popover.
 const (
-	overviewSide      = composer.OverviewWidth + 2*overviewCardInset + 8
-	overviewSideMin   = theme.ContentWidth + overviewSide
-	overviewCenterMin = theme.ContentWidth + 2*overviewSide
+	overviewSide    = composer.OverviewWidth + 2*overviewCardInset + 8
+	overviewSideMin = theme.ContentWidth + overviewSide
 )
 
-// overviewAside is the room a transcript w wide keeps clear at its end for
-// the card (conversation.State.Aside): none where centering already leaves
-// it, then growing as w narrows, so the transcript shifts without a jump.
-func overviewAside(w float32) float32 {
-	return min(max(overviewCenterMin-w, 0), overviewSide)
+func (a *App) overviewDocked(o *composer.Overview) bool {
+	return a.panes.Displayed() == nil && a.mainLayoutWidth >= overviewSideMin && composer.OverviewCardShown(o)
 }
 
 // overviewCardInset is the floating card's distance from the pane's top and

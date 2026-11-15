@@ -191,7 +191,9 @@ func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size 
 	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), size, a.Messages.SearchOpenIn(cv.ID)).
 		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
 	entry := a.overviewEntry(cv.ID)
-	composer.OverviewButton(c, &entry.state, a.conversationOverview(c, cv, entry.act), size)
+	overview := a.conversationOverview(c, cv, entry.act)
+	entry.state.Docked = a.overviewDocked(overview)
+	composer.OverviewButton(c, &entry.state, overview, size)
 }
 
 // overviewPopover is a conversation's session overview popover, kept while
@@ -203,6 +205,32 @@ type overviewPopover struct {
 	act ConversationActions
 	// shown is whether this frame built its button.
 	shown bool
+	// opened is the owner callback that admitted the visible inventory read.
+	opened func(bool)
+}
+
+func (o *overviewPopover) close() {
+	opened := o.opened
+	o.opened = nil
+	if opened != nil {
+		opened(false)
+	}
+}
+
+func (o *overviewPopover) observe(value *composer.Overview) *composer.Overview {
+	copy := *value
+	opened := value.Opened
+	copy.Opened = func(open bool) {
+		if !open {
+			o.close()
+			return
+		}
+		if o.opened == nil && opened != nil {
+			o.opened = opened
+			opened(true)
+		}
+	}
+	return &copy
 }
 
 // overviewEntry is conversation id's overview popover: each conversation has
@@ -227,6 +255,7 @@ func (a *App) sweepOverviews() {
 	for id, o := range a.overviews {
 		if !o.shown {
 			delete(a.overviews, id)
+			o.close()
 			continue
 		}
 		o.shown = false
@@ -237,13 +266,16 @@ func (a *App) sweepOverviews() {
 // made from its transcript, whose rows only say they are a preview (the
 // demo's say nothing).
 func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer.Overview {
+	var o *composer.Overview
 	if !a.sampled() {
 		if a.Hooks.Overview != nil {
-			return a.Hooks.Overview(c, cv)
+			o = a.Hooks.Overview(c, cv)
+		} else {
+			o = &composer.Overview{}
 		}
-		return &composer.Overview{}
+		return a.overviewEntry(cv.ID).observe(o)
 	}
-	o := preview.Overview(cv)
+	o = preview.Overview(cv)
 	act := &actions{a: a, c: c, cv: cv, comp: a.Composer(cv.ID)}
 	o.OpenChild = act.OpenChild
 	o.OpenAsset = func(id string) {
@@ -263,7 +295,7 @@ func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer
 		}
 		act.notice()
 	}
-	return o
+	return a.overviewEntry(cv.ID).observe(o)
 }
 
 // HeaderInsets is the room the header keeps clear at the window's right

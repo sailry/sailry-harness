@@ -94,8 +94,7 @@ type OverviewAsset struct {
 type OverviewState struct {
 	open, was bool
 	more      bool // the read that failed was for a further page
-	// Docked is whether the conversation showed the overview as a card in
-	// the last frame, where the header has no button.
+	// Docked means the conversation has room for the overview column.
 	Docked bool
 }
 
@@ -115,13 +114,9 @@ func (s *OverviewState) sync(o *Overview) {
 	}
 }
 
-// OverviewButton is the header's overview button, size square: it opens
-// the popover, or, while the overview is a column (Docked), shows and hides
-// the column, hidden being the saved choice. While a turn runs and the
-// overview does not show, a dot on it tells.
+// OverviewButton opens the activity popover when the pane has no room for
+// its fixed column. Wide panes show the column without a visibility toggle.
 func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32) {
-	// Where the conversation holds the overview as a card, the card is the
-	// control and the header has no button.
 	if !o.Session || s.Docked {
 		s.open = false
 	}
@@ -148,21 +143,20 @@ func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32) 
 	}
 }
 
-// OverviewCardShown reports whether the overview has rows a card would list:
-// a status alone is the transcript's to show.
-func OverviewCardShown(o *Overview) bool { return o.Session && !o.empty() }
+// OverviewCardShown reports whether the overview is a session's, which has
+// a card wherever there is room for one, its place fixed: with nothing to
+// list yet it says so in one line under its head.
+func OverviewCardShown(o *Overview) bool { return o.Session }
 
 // OverviewWidth is the overview's width, as a popover and as a card.
 const OverviewWidth = 320
 
-// OverviewCard is the overview as a card floating in a wide transcript's
-// margin, as long as what it holds: its head is the
-// current turn's status, or the overview's title before a turn, and a
-// chevron that folds the card to that head (*folded, the saved choice).
-// The sections scroll within maxHeight only past it. A session with no
-// rows to list has no card (OverviewCardShown). It tells the owner it shows as the popover's opening does,
-// so the inventory is read for it.
-func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, folded *bool, maxHeight float32) {
+// OverviewCard is the activity card beside a wide transcript. Its header
+// shows the current turn's status, or the activity title before a turn.
+// The sections scroll within maxHeight only past it. Only a session has a
+// card (OverviewCardShown). It tells the owner it shows as the popover's
+// opening does, so the inventory is read for it.
+func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, maxHeight float32) {
 	if !s.was {
 		s.was = true
 		if o.Opened != nil {
@@ -177,15 +171,7 @@ func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, folded *bool, ma
 	card := kit.Floating(c, ui.Column(c.Key("overview-card"))).Width(OverviewWidth).Shrink(0).Clip().
 		Role(ui.RoleComplementary).Label(title)
 	card.Children(func() {
-		label := i18n.T(c, "chat_assets_fold")
-		if *folded {
-			label = i18n.T(c, "chat_assets_unfold")
-		}
-		head := ui.ButtonBase(c.Key("head")).Label(label).FillWidth().MinWidth(0).Padding(12, 14).Gap(8).
-			AlignItems(ui.Center).Cursor(ui.CursorPointer).Expanded(!*folded).OnClick(func() { *folded = !*folded })
-		if head.Hovered() {
-			head.Background(p.Hover)
-		}
+		head := ui.Row(c.Key("head")).FillWidth().MinWidth(0).Padding(12, 14).Gap(8).AlignItems(ui.Center)
 		head.Children(func() {
 			ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
 				switch {
@@ -219,15 +205,7 @@ func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, folded *bool, ma
 				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
 					TextColor(p.MutedForeground)
 			}
-			icon := icons.ChevronUp
-			if *folded {
-				icon = icons.ChevronDown
-			}
-			ui.Icon(c, icon).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 		})
-		if *folded {
-			return
-		}
 		ui.Divider(c.Key("divider")).Background(p.Border)
 		ui.Scroll(c.Key("overview-body")).FillWidth().MaxHeight(max(maxHeight-56, 120)).Padding(12, 6, 12, 6).
 			Children(func() { s.body(c, o, false, true) })
