@@ -42,6 +42,7 @@
     "laptop": "devices/laptop",
     "link": "text-formatting/link",
     "mic": "video/microphone",
+    "monitor": "devices/monitor",
     "moon": "weather/moon",
     "more": "ui/more-h",
     "plus": "ui/plus",

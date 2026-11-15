@@ -35,6 +35,7 @@ const catalogIcons = <String, String>{
   'devices/cpu': 'cpu',
   'devices/keyboard': 'keyboard',
   'devices/laptop': 'laptop',
+  'devices/monitor': 'monitor',
   'devices/server': 'server',
   'files/file-text': 'file',
   'folders/folder': 'folder',

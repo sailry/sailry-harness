@@ -44,12 +44,10 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  /// The theme as an icon segment pair in its row, chosen in place.
+  /// The theme as icon segments in its row, chosen in place: following the
+  /// system, light or dark.
   Widget _appearance() {
     final colors = Theme.of(context).colorScheme;
-    final current = Theme.of(context).brightness == Brightness.dark
-        ? ThemeMode.dark
-        : ThemeMode.light;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       leading: AppIcon('sun', color: colors.onSurfaceVariant),
@@ -57,14 +55,18 @@ class _SettingsPageState extends State<SettingsPage> {
       trailing: SegmentedButton<ThemeMode>(
         showSelectedIcon: false,
         segments: [
-          for (final mode in [ThemeMode.light, ThemeMode.dark])
+          for (final (mode, icon, label) in [
+            (ThemeMode.system, 'monitor', 'auto'),
+            (ThemeMode.light, 'sun', 'light'),
+            (ThemeMode.dark, 'moon', 'dark'),
+          ])
             ButtonSegment(
               value: mode,
-              tooltip: context.tr(mode.name),
-              icon: AppIcon(mode == ThemeMode.dark ? 'moon' : 'sun', size: 18),
+              tooltip: context.tr(label),
+              icon: AppIcon(icon, size: 18),
             ),
         ],
-        selected: {current},
+        selected: {widget.themeMode},
         onSelectionChanged: (selection) =>
             widget.onThemeChanged(selection.single),
         style: SegmentedButton.styleFrom(
