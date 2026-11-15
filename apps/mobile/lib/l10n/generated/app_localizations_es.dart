@@ -1519,7 +1519,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get hostConnectPrompt => 'Conectar un host';
 
   @override
-  String get hostDisconnected => 'Se perdió la conexión';
+  String get hostDisconnected => 'El host está sin conexión';
 
   @override
   String get hostUpdateRequired => 'Actualiza el host para conectar';

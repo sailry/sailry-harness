@@ -1495,7 +1495,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostConnectPrompt => '호스트 연결';
 
   @override
-  String get hostDisconnected => '연결 끊김Comment';
+  String get hostDisconnected => '호스트가 오프라인입니다';
 
   @override
   String get hostUpdateRequired => '연결하려면 호스트를 업데이트하세요';

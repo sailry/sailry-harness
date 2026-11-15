@@ -1517,7 +1517,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostConnectPrompt => 'Подключение узла';
 
   @override
-  String get hostDisconnected => 'Соединение прервано';
+  String get hostDisconnected => 'Хост не в сети';
 
   @override
   String get hostUpdateRequired => 'Обновите узел для подключения';

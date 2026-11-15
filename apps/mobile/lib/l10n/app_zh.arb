@@ -722,7 +722,7 @@
   "manual": "每次询问",
   "required": "请先填写任务",
   "hostConnectPrompt": "请连接主机",
-  "hostDisconnected": "连接已断开",
+  "hostDisconnected": "主机暂时离线",
   "hostUpdateRequired": "请更新主机后再连接",
   "appUpdateRequired": "请更新此应用后再连接",
   "language": "语言",

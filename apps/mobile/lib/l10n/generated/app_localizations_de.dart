@@ -1522,7 +1522,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get hostConnectPrompt => 'Einen Host verbinden';
 
   @override
-  String get hostDisconnected => 'Verbindung verloren';
+  String get hostDisconnected => 'Host ist offline';
 
   @override
   String get hostUpdateRequired => 'Host aktualisieren, um zu verbinden';

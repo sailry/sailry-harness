@@ -610,7 +610,7 @@
   "manual": "매번 물어보기",
   "required": "먼저 작업을 설명하십시오",
   "hostConnectPrompt": "호스트 연결",
-  "hostDisconnected": "연결 끊김Comment",
+  "hostDisconnected": "호스트가 오프라인입니다",
   "hostUpdateRequired": "연결하려면 호스트를 업데이트하세요",
   "appUpdateRequired": "연결하려면 이 앱을 업데이트하세요",
   "language": "언어",

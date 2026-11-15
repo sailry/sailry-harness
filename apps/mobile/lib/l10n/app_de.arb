@@ -610,7 +610,7 @@
   "manual": "Fragen Sie jedes Mal",
   "required": "Beschreiben Sie zuerst Ihre Aufgabe",
   "hostConnectPrompt": "Einen Host verbinden",
-  "hostDisconnected": "Verbindung verloren",
+  "hostDisconnected": "Host ist offline",
   "hostUpdateRequired": "Host aktualisieren, um zu verbinden",
   "appUpdateRequired": "App aktualisieren, um zu verbinden",
   "language": "Sprache",

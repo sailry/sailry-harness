@@ -610,7 +610,7 @@
   "manual": "Задавайте каждый раз",
   "required": "Опишете сначала свою задачу",
   "hostConnectPrompt": "Подключение узла",
-  "hostDisconnected": "Соединение прервано",
+  "hostDisconnected": "Хост не в сети",
   "hostUpdateRequired": "Обновите узел для подключения",
   "appUpdateRequired": "Обновите приложение для подключения",
   "language": "Язык",

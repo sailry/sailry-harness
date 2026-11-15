@@ -8,6 +8,7 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/project_icon.dart';
+import '../../../ui/swipe_action.dart';
 import '../../../ui/toast.dart';
 import '../../resources/host/host_sheet.dart';
 import '../../resources/project_form.dart';
@@ -411,12 +412,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                       motion: const DrawerMotion(),
                       extentRatio: .46,
                       children: [
-                        SlidableAction(
+                        SwipeAction(
                           onPressed: host.connected
                               ? (_) => _archive(host, session)
                               : null,
-                          backgroundColor: colors.secondaryContainer,
-                          foregroundColor: colors.onSecondaryContainer,
+                          color: colors.secondaryContainer,
+                          foreground: colors.onSecondaryContainer,
                           icon: Icons.archive_outlined,
                           label: context.tr(
                             session['archived'] == true
@@ -424,12 +425,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                                 : 'archiveShort',
                           ),
                         ),
-                        SlidableAction(
+                        SwipeAction(
                           onPressed: host.connected
                               ? (_) => _delete(host, session)
                               : null,
-                          backgroundColor: colors.error,
-                          foregroundColor: colors.onError,
+                          color: colors.error,
+                          foreground: colors.onError,
                           icon: Icons.delete_outline,
                           label: context.tr('delete'),
                         ),
@@ -461,12 +462,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                       motion: const DrawerMotion(),
                       extentRatio: .24,
                       children: [
-                        SlidableAction(
+                        SwipeAction(
                           onPressed: selected.connected
                               ? (_) => _closeTerminal(selected, terminal)
                               : null,
-                          backgroundColor: colors.error,
-                          foregroundColor: colors.onError,
+                          color: colors.error,
+                          foreground: colors.onError,
                           icon: Icons.close,
                           label: context.tr('close'),
                         ),

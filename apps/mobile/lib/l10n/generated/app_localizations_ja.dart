@@ -1494,7 +1494,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostConnectPrompt => 'ホストに接続';
 
   @override
-  String get hostDisconnected => '接続が途絶えました';
+  String get hostDisconnected => 'ホストはオフラインです';
 
   @override
   String get hostUpdateRequired => '接続するにはホストを更新してください';

@@ -1527,7 +1527,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get hostConnectPrompt => 'Connecter un hôte';
 
   @override
-  String get hostDisconnected => 'Connexion perdue';
+  String get hostDisconnected => 'L’hôte est hors ligne';
 
   @override
   String get hostUpdateRequired => 'Mettez à jour l’hôte pour vous connecter';

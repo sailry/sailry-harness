@@ -3009,7 +3009,7 @@ abstract class AppLocalizations {
   /// No description provided for @hostDisconnected.
   ///
   /// In en, this message translates to:
-  /// **'Connection lost'**
+  /// **'Host is offline'**
   String get hostDisconnected;
 
   /// No description provided for @hostUpdateRequired.

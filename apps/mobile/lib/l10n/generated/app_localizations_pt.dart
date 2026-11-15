@@ -1517,7 +1517,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get hostConnectPrompt => 'Conectar um host';
 
   @override
-  String get hostDisconnected => 'Conexão perdida';
+  String get hostDisconnected => 'O host está off-line';
 
   @override
   String get hostUpdateRequired => 'Atualize o host para conectar';

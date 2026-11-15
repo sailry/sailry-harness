@@ -722,7 +722,7 @@
   "manual": "每次詢問",
   "required": "請先填寫任務",
   "hostConnectPrompt": "請連線主機",
-  "hostDisconnected": "連線已斷開",
+  "hostDisconnected": "主機暫時離線",
   "hostUpdateRequired": "請更新主機後再連線",
   "appUpdateRequired": "請更新此應用程式後再連線",
   "language": "語言",

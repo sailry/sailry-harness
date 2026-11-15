@@ -610,7 +610,7 @@
   "manual": "毎回尋ねる",
   "required": "まずタスクを説明してください",
   "hostConnectPrompt": "ホストに接続",
-  "hostDisconnected": "接続が途絶えました",
+  "hostDisconnected": "ホストはオフラインです",
   "hostUpdateRequired": "接続するにはホストを更新してください",
   "appUpdateRequired": "接続するにはこのアプリを更新してください",
   "language": "言語",

@@ -617,7 +617,7 @@
   "manual": "Ask each time",
   "required": "Describe your task first",
   "hostConnectPrompt": "Connect a host",
-  "hostDisconnected": "Connection lost",
+  "hostDisconnected": "Host is offline",
   "hostUpdateRequired": "Update the host to connect",
   "appUpdateRequired": "Update this app to connect",
   "language": "Language",

@@ -1491,7 +1491,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostConnectPrompt => '请连接主机';
 
   @override
-  String get hostDisconnected => '连接已断开';
+  String get hostDisconnected => '主机暂时离线';
 
   @override
   String get hostUpdateRequired => '请更新主机后再连接';
@@ -3700,7 +3700,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get hostConnectPrompt => '請連線主機';
 
   @override
-  String get hostDisconnected => '連線已斷開';
+  String get hostDisconnected => '主機暫時離線';
 
   @override
   String get hostUpdateRequired => '請更新主機後再連線';
