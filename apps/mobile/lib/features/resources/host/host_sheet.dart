@@ -178,7 +178,7 @@ class HostRow extends StatelessWidget {
     final status = hostStatus(host.connected, host.error);
     final route = linkRoute(host.transport);
     final latency = linkLatency(host.transport);
-    final detail = switch (status) {
+    final connection = switch (status) {
       HostStatus.online => [
         if (route != null)
           context.tr(
@@ -189,6 +189,14 @@ class HostRow extends StatelessWidget {
       HostStatus.connecting => context.tr('hostConnecting'),
       HostStatus.offline => context.tr('offline'),
     };
+    final origin = host.originDescription(
+      context.tr,
+      AppSession.maybeOf(context)?.hosts ?? [host],
+    );
+    final detail = [
+      if (origin.isNotEmpty) origin,
+      if (connection.isNotEmpty) connection,
+    ].join(' · ');
     return Semantics(
       selected: selected,
       child: Ink(

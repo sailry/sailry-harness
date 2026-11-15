@@ -13,16 +13,17 @@ import (
 )
 
 type networkPeer struct {
-	trust      link.PeerTrust
-	address    link.EndpointAddress
-	info       link.PeerInfo
-	controller *client.Client
-	connection link.ConnectionInfo
-	online     bool
-	inspecting bool
-	err        error
-	cancel     context.CancelFunc
-	release    func()
+	rememberedName string
+	trust          link.PeerTrust
+	address        link.EndpointAddress
+	info           link.PeerInfo
+	controller     *client.Client
+	connection     link.ConnectionInfo
+	online         bool
+	inspecting     bool
+	err            error
+	cancel         context.CancelFunc
+	release        func()
 }
 
 type Network struct {
@@ -111,6 +112,14 @@ func (network *Network) discover() {
 	if err != nil {
 		return
 	}
+	relationships, err := network.endpoint.Relationships(network.ctx)
+	if err != nil {
+		return
+	}
+	names := map[protocol.NodeID]string{}
+	for _, relationship := range relationships {
+		names[relationship.ID] = relationship.Name
+	}
 	trust := map[protocol.NodeID]link.PeerTrust{}
 	for _, value := range directions {
 		trust[value.ID] = value
@@ -131,6 +140,7 @@ func (network *Network) discover() {
 			network.peers[address.ID].address = address
 		}
 		network.peers[address.ID].trust = trust[address.ID]
+		network.peers[address.ID].rememberedName = names[address.ID]
 		peer := network.peers[address.ID]
 		if peer.controller != nil && !peer.trust.Direction.AllowsOutbound() {
 			detached = append(detached, &networkPeer{controller: peer.controller, release: peer.release})

@@ -338,10 +338,12 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (_closed || controller != owner) {
       throw StateError('controller is closed');
     }
-    final id = text(object(jsonDecode(address))['id']);
+    final decoded = object(jsonDecode(address));
+    final id = text(decoded['id']);
     if (id.isEmpty) throw const FormatException('endpoint has no identity');
     final existing = host(id);
     if (existing != null) {
+      existing._applyPeerMetadata(decoded);
       if (select) selectHost(id);
       return existing;
     }
@@ -356,6 +358,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     }
     final registered = host(id);
     if (registered != null) {
+      registered._applyPeerMetadata(decoded);
       try {
         await connection.close();
       } finally {
@@ -364,7 +367,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (select) selectHost(id);
       return registered;
     }
-    final connected = HostConnection._(id, address, connection);
+    final connected = HostConnection._(id, address, connection)
+      .._applyPeerMetadata(decoded);
     connected.addListener(_changed);
     _hosts.add(connected);
     _selected ??= id;
@@ -576,7 +580,49 @@ class HostConnection extends ChangeNotifier {
   Connection get connection =>
       _connection ?? (throw StateError('test connection has no native handle'));
   String? _label;
-  String get label => _label ?? (id.length > 12 ? id.substring(0, 12) : id);
+  String _directoryName = '';
+  bool direct = true;
+  List<String> sources = const [];
+  String get label =>
+      _label ??
+      (_directoryName.isNotEmpty
+          ? _directoryName
+          : (id.length > 12 ? id.substring(0, 12) : id));
+
+  void _applyPeerMetadata(Map<String, dynamic> address) {
+    final relationship = object(address['relationship']);
+    final nextDirect = relationship.isEmpty || relationship['direct'] == true;
+    final rawSources = relationship['sources'];
+    final nextSources = rawSources is List
+        ? (rawSources.whereType<String>().toList()..sort())
+        : sources;
+    final name = text(relationship['name'], _directoryName);
+    final changed =
+        direct != nextDirect ||
+        sources.join('\u0000') != nextSources.join('\u0000') ||
+        _directoryName != name;
+    direct = nextDirect;
+    sources = List.unmodifiable(nextSources);
+    _directoryName = name;
+    if (changed && !_closed) notifyListeners();
+  }
+
+  String originDescription(
+    Translator translate,
+    Iterable<HostConnection> hosts,
+  ) {
+    if (isDemo) return '';
+    if (direct || sources.isEmpty) return translate('hostOriginDirect');
+    final names = sources
+        .map((source) {
+          final known = hosts.where((host) => host.id == source).firstOrNull;
+          return known?.label ??
+              (source.length > 12 ? source.substring(0, 12) : source);
+        })
+        .join(', ');
+    return translate('hostOriginSource').replaceAll('{name}', names);
+  }
+
   Map<String, dynamic> snapshot = {};
   Map<String, dynamic> info = {};
   List<Map<String, dynamic>> notifications = [];
@@ -679,7 +725,8 @@ class HostConnection extends ChangeNotifier {
       final response = await command('inspect_host');
       if (_closed) return;
       info = object(response['data']);
-      _label = text(info['name'], label);
+      final name = text(info['name']);
+      if (name.isNotEmpty) _label = name;
       notifyListeners();
     } catch (failure) {
       if (!_closed) error = failure;

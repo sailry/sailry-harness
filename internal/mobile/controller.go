@@ -125,9 +125,17 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		if err != nil {
 			return nil, err
 		}
+		relationships, err := owner.endpoint.Relationships(ctx)
+		if err != nil {
+			return nil, err
+		}
+		metadata := map[protocol.NodeID]link.PeerRelationship{}
+		for _, relationship := range relationships {
+			metadata[relationship.ID] = relationship
+		}
 		result := make([]string, 0, len(peers))
 		for _, peer := range peers {
-			encoded, err := encode(peer)
+			encoded, err := peerAddressMetadata(peer, metadata[peer.ID])
 			if err != nil {
 				return nil, err
 			}
@@ -189,6 +197,25 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return runtime.add(handle, "overview_updates", &observation{observer: observer, clients: clients}, lifetime, cancel)
 	}
 	return nil, invalid("unknown controller operation")
+}
+
+// Routing remains the ordinary Link address. The optional relationship member
+// is local controller metadata for presentation; it never grants peer trust.
+func peerAddressMetadata(address link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
+	body, err := json.Marshal(address)
+	if err != nil {
+		return "", err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return "", err
+	}
+	sources := make([]string, 0, len(relationship.Sources))
+	for _, source := range relationship.Sources {
+		sources = append(sources, source.String())
+	}
+	value["relationship"] = map[string]any{"direct": relationship.Direct, "sources": sources, "name": relationship.Name}
+	return encode(value)
 }
 
 func (owner *controller) close() error {

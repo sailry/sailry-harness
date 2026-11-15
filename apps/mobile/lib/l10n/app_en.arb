@@ -660,6 +660,11 @@
     }
   },
   "hostRemoved": "Host removed",
+  "hostOriginDirect": "Direct pairing",
+  "hostOriginSource": "Via {name}",
+  "@hostOriginSource": {
+    "placeholders": {"name": {"type": "String"}}
+  },
   "hostRemoveFailed": "Could not remove host",
   "hostMetricsFailed": "Cannot read host status",
   "hostProcessesEmpty": "No processes",

@@ -426,6 +426,9 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 				}
 				device.OS, device.Version = system(id), stringValue(peer.info.SoftwareVersion)
 			}
+			if device.Name == "" {
+				device.Name = peer.rememberedName
+			}
 			if device.Online && peer.connection.Route != nil {
 				device.Route = string(*peer.connection.Route)
 				if peer.connection.RTTMS != nil {
