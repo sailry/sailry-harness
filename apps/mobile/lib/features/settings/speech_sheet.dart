@@ -4,6 +4,7 @@ import '../../runtime/speech.dart';
 import 'live.dart';
 import '../../ui/loading.dart';
 import '../../ui/form.dart';
+import '../../ui/switch.dart';
 
 class SpeechSheet extends StatelessWidget {
   const SpeechSheet({super.key, required this.speech});
@@ -13,7 +14,7 @@ class SpeechSheet extends StatelessWidget {
     listenable: speech,
     builder: (context, _) => FormBody(
       children: [
-        SwitchListTile.adaptive(
+        SwitchTile(
           contentPadding: EdgeInsets.zero,
           title: Text(context.tr('speechInput')),
           value: speech.enabled,

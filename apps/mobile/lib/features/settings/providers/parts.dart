@@ -169,7 +169,7 @@ class SwitchRow extends StatelessWidget {
           const SizedBox(width: 10),
         ],
         Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
-        Switch.adaptive(value: value, onChanged: onChanged),
+        AppSwitch(value: value, onChanged: onChanged),
       ],
     ),
   );

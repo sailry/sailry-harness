@@ -17,6 +17,8 @@ export 'empty_state.dart' show EmptyState;
 export 'failure_state.dart' show FailureState;
 export 'form.dart' show FormBody, SelectField;
 export 'host_state.dart' show HostState;
+export 'segments.dart' show Segments;
+export 'switch.dart' show AppSwitch, SwitchTile;
 export 'surface.dart' show Surface;
 
 class RoundButton extends StatelessWidget {

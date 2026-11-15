@@ -45,7 +45,7 @@ TextStyle _faint(BuildContext context, double size) => TextStyle(
   fontFeatures: _figures,
 );
 
-/// Plain-fill segmented choice shared by the range and breakdown controls.
+/// The range and breakdown controls' choice: full-width [Segments].
 class UsageSegments<T> extends StatelessWidget {
   const UsageSegments({
     super.key,
@@ -59,32 +59,13 @@ class UsageSegments<T> extends StatelessWidget {
   final String Function(T value) label;
   final ValueChanged<T> onChanged;
   @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return SegmentedButton<T>(
-      expandedInsets: EdgeInsets.zero,
-      showSelectedIcon: false,
-      segments: [
-        for (final value in values)
-          ButtonSegment(
-            value: value,
-            label: Text(label(value), maxLines: 1, softWrap: false),
-          ),
-      ],
-      selected: {selected},
-      onSelectionChanged: (selection) => onChanged(selection.single),
-      style: SegmentedButton.styleFrom(
-        side: BorderSide.none,
-        backgroundColor: colors.surfaceContainer,
-        foregroundColor: colors.onSurfaceVariant,
-        selectedBackgroundColor: colors.surfaceContainerHigh,
-        selectedForegroundColor: colors.onSurface,
-        textStyle: const TextStyle(fontSize: 13),
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Segments<T>(
+    values: values,
+    selected: selected,
+    label: label,
+    onChanged: onChanged,
+    expand: true,
+  );
 }
 
 /// Token total, composition, metric grid and the partial-data note.

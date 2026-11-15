@@ -52,33 +52,17 @@ class _SettingsPageState extends State<SettingsPage> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
       leading: AppIcon('sun', color: colors.onSurfaceVariant),
       title: Text(context.tr('appearance')),
-      trailing: SegmentedButton<ThemeMode>(
-        showSelectedIcon: false,
-        segments: [
-          for (final (mode, icon, label) in [
-            (ThemeMode.system, 'monitor', 'auto'),
-            (ThemeMode.light, 'sun', 'light'),
-            (ThemeMode.dark, 'moon', 'dark'),
-          ])
-            ButtonSegment(
-              value: mode,
-              tooltip: context.tr(label),
-              icon: AppIcon(icon, size: 18),
-            ),
-        ],
-        selected: {widget.themeMode},
-        onSelectionChanged: (selection) =>
-            widget.onThemeChanged(selection.single),
-        style: SegmentedButton.styleFrom(
-          side: BorderSide.none,
-          backgroundColor: colors.surfaceContainer,
-          foregroundColor: colors.onSurfaceVariant,
-          selectedBackgroundColor: colors.surfaceContainerHigh,
-          selectedForegroundColor: colors.onSurface,
-          visualDensity: VisualDensity.compact,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-        ),
+      trailing: Segments<ThemeMode>(
+        values: const [ThemeMode.system, ThemeMode.light, ThemeMode.dark],
+        selected: widget.themeMode,
+        icon: (mode) => switch (mode) {
+          ThemeMode.system => 'monitor',
+          ThemeMode.light => 'sun',
+          ThemeMode.dark => 'moon',
+        },
+        label: (mode) =>
+            context.tr(mode == ThemeMode.system ? 'auto' : mode.name),
+        onChanged: widget.onThemeChanged,
       ),
     );
   }
@@ -195,9 +179,9 @@ class _SettingsPageState extends State<SettingsPage> {
               context.tr(widget.language.labelKey),
             ),
             _appearance(),
-            SwitchListTile.adaptive(
+            SwitchTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-              secondary: AppIcon('bell', color: colors.onSurfaceVariant),
+              leading: AppIcon('bell', color: colors.onSurfaceVariant),
               title: Text(context.tr('completionAlerts')),
               value: widget.notifications,
               onChanged: widget.onNotificationsChanged,
@@ -205,9 +189,9 @@ class _SettingsPageState extends State<SettingsPage> {
             if (session?.background.supported == true)
               ListenableBuilder(
                 listenable: session!.background,
-                builder: (context, _) => SwitchListTile.adaptive(
+                builder: (context, _) => SwitchTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  secondary: AppIcon('server', color: colors.onSurfaceVariant),
+                  leading: AppIcon('server', color: colors.onSurfaceVariant),
                   title: Text(context.tr('backgroundConnection')),
                   value: session.background.enabled,
                   onChanged: (value) async {

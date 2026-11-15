@@ -34,7 +34,7 @@ class CommitBar extends StatelessWidget {
         builder: (context, setState) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SwitchListTile(
+            SwitchTile(
               title: Text(context.tr('gitSkipHooks')),
               value: current.skipHooks,
               onChanged: (value) {
@@ -44,7 +44,7 @@ class CommitBar extends StatelessWidget {
                 onChoice(current);
               },
             ),
-            SwitchListTile(
+            SwitchTile(
               title: Text(context.tr('gitPushAfterCommit')),
               value: current.push,
               onChanged: (value) {
