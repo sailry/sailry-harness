@@ -11,11 +11,26 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// overviewDockMin is the least width of a conversation shown alone whose
-// margin beside the centered transcript holds the floating overview card
-// clear of the transcript's content. Narrower, or in a pane of a split, the
-// overview is the header button's popover.
-const overviewDockMin = theme.ContentWidth + 2*(composer.OverviewWidth+2*overviewCardInset+8)
+// The overview card's room at the pane's end: the card, its inset from the
+// edge and its gap from the transcript. A conversation shown alone floats it
+// in three tiers of width. From overviewCenterMin the transcript is centered
+// and the card sits in its end margin. Between overviewSideMin and that, the
+// transcript moves toward the start just enough to keep the card's room,
+// until at overviewSideMin the two stand side by side with no margin left.
+// Narrower, or in a pane of a split, the overview is the header button's
+// popover.
+const (
+	overviewSide      = composer.OverviewWidth + 2*overviewCardInset + 8
+	overviewSideMin   = theme.ContentWidth + overviewSide
+	overviewCenterMin = theme.ContentWidth + 2*overviewSide
+)
+
+// overviewAside is the room a transcript w wide keeps clear at its end for
+// the card (conversation.State.Aside): none where centering already leaves
+// it, then growing as w narrows, so the transcript shifts without a jump.
+func overviewAside(w float32) float32 {
+	return min(max(overviewCenterMin-w, 0), overviewSide)
+}
 
 // overviewCardInset is the floating card's distance from the pane's top and
 // end; overviewCardMax its greatest height, past which it scrolls within.

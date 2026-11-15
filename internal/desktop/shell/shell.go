@@ -747,20 +747,24 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		return
 	}
 	// The composer floats over the transcript's end, which fills the pane.
-	// A conversation shown alone whose margin beside the transcript holds
-	// its overview has it as a card floating at the margin's top, over the
-	// pane and taking no width from the transcript; narrower, in a split or
-	// with nothing to list, the overview is the header button's popover.
-	// The width is the row's in the last frame.
+	// A conversation shown alone with room for the transcript and its
+	// overview side by side has the overview as a card floating at the
+	// pane's top end; narrower, in a split or with nothing to list, the
+	// overview is the header button's popover. The width is the row's in
+	// the last frame.
 	entry := a.overviewEntry(cv.ID)
 	entry.act = act
 	overview := a.conversationOverview(c, cv, act)
 	row := ui.Row(c.Key("activity-row")).FillWidth().Grow(1).MinHeight(0).AlignItems(ui.Stretch)
 	bounds := row.Bounds()
-	entry.state.Docked = a.panes.Displayed() == nil && bounds.W >= overviewDockMin && composer.OverviewCardShown(overview)
+	entry.state.Docked = a.panes.Displayed() == nil && bounds.W >= overviewSideMin && composer.OverviewCardShown(overview)
 	docked := entry.state.Docked
 	row.Children(func() {
 		ui.Column(c.Key("transcript-column")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).Children(func() {
+			if docked {
+				a.Messages.Aside = overviewAside(bounds.W)
+				defer func() { a.Messages.Aside = 0 }()
+			}
 			conversation.Docked(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act, func() {
 				composer.View(c, comp, ctx, act)
 			})

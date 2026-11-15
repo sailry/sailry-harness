@@ -70,8 +70,24 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 		t.Fatal("the head did not unfold the card")
 	}
 
+	// Between the tiers the transcript gives way to the card: they stand side
+	// by side, the composer ending before the card begins.
+	m := New(preview.Load())
+	medium := ui.NewTesterWith(m.View, 1500, 820, opaque)
+	medium.SetLocale("en")
+	settle(medium)
+	snapshot(t, medium, "overview-side")
+	side, ok := card(medium)
+	if !ok {
+		t.Fatalf("a conversation with room for the card beside it has none: %q", medium.Texts())
+	}
+	field, ok := medium.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+	if !ok || field.Bounds.X+field.Bounds.W > side.Bounds.X {
+		t.Errorf("the composer %v runs under the card %v", field.Bounds, side.Bounds)
+	}
+
 	b := New(preview.Load())
-	narrow := ui.NewTesterWith(b.View, 1280, 820, opaque)
+	narrow := ui.NewTesterWith(b.View, 1100, 820, opaque)
 	narrow.SetLocale("en")
 	settle(narrow)
 	if _, ok := card(narrow); ok {
@@ -85,5 +101,20 @@ func TestOverviewDocksWhereItFits(t *testing.T) {
 	snapshot(t, narrow, "overview-popover")
 	if _, docked := card(narrow); !narrow.HasText(i18n.In("en", "chat_assets_changes")) || docked {
 		t.Fatalf("the narrow overview did not open as a popover: %q", narrow.Texts())
+	}
+}
+
+// The aside grows from none, where centering leaves the card its room, to
+// the card's whole room at the side-by-side width, without a jump.
+func TestOverviewAside(t *testing.T) {
+	for _, c := range []struct{ w, want float32 }{
+		{overviewCenterMin + 100, 0},
+		{overviewCenterMin, 0},
+		{overviewCenterMin - 50, 50},
+		{overviewSideMin, overviewSide},
+	} {
+		if got := overviewAside(c.w); got != c.want {
+			t.Errorf("aside at %v is %v, want %v", c.w, got, c.want)
+		}
 	}
 }

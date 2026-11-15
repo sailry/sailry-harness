@@ -13,7 +13,8 @@ import (
 // following its end. It fades in over 200 ms with an ease-out cubic as it
 // rises from 8 to 16 DIPs above the bottom of what shows of the transcript,
 // above DIPs over the list's own where a dock floats there, and a click
-// shows the end at once, which follows it again.
+// shows the end at once, which follows it again. It centers beside the
+// transcript's aside, as the turns do.
 //
 // The fade is Element.AnimateWith, which runs at the display's rate: MyGo
 // has no frame-rate parameter for element transitions (only
@@ -22,14 +23,14 @@ import (
 // It reads only AtEnd: Visible would build another frame each time the rows
 // in view change, doubling the cost of a scroll. A list not laid out yet
 // reads as off its end, so its first build shows no button.
-func jump(c *ui.Context, l *ui.ListState, n int, first bool, above float32) {
+func jump(c *ui.Context, l *ui.ListState, n int, first bool, above, aside float32) {
 	p := theme.Of(c)
 	visible := n > 0 && !l.AtEnd() && !first
 	target := float32(0)
 	if visible {
 		target = 1
 	}
-	wrap := ui.Row(c.Key("jump")).Absolute().Left(0).Right(0).Justify(ui.Center)
+	wrap := ui.Row(c.Key("jump")).Absolute().Left(0).Right(aside).Justify(ui.Center)
 	v := target
 	if !c.Preferences().ReduceMotion {
 		v = wrap.AnimateWith("jump", target, kit.Fast, kit.EaseOutCubic)

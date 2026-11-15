@@ -333,7 +333,7 @@ func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 	}
 	w, _ := c.Size()
 	bar := kit.Floating(c, ui.FindBar(c.Key("search-bar"), &f.open, &f.query, len(f.matches), &f.index)).
-		Absolute().Top(8).Right(16).Width(min(420, w-32))
+		Absolute().Top(8).Right(16 + s.Aside).Width(min(420, w-32))
 	if bar.Changed() && len(f.matches) > 0 {
 		if s.Search == nil {
 			s.List(id).ScrollTo(f.matches[f.index].Turn, ui.Center)

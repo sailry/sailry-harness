@@ -51,6 +51,7 @@ type navigation struct {
 	active int     // the current turn, as painted last
 	width  float32 // the transcript's width, as painted last
 	height float32
+	aside  float32 // the transcript's Aside, outside the rail's overlay
 	tick   ui.Color
 	muted  ui.Color
 	// value is what assistive technology reads, "a/n", kept for
@@ -73,7 +74,7 @@ func (u *navigation) view(c *ui.Context, l *ui.ListState, turns []Turn) {
 	}
 	p := theme.Of(c)
 	u.c, u.list, u.turns, u.tick, u.muted = c, l, turns, p.Foreground, p.MutedForeground
-	ui.Box(c.Key("navigation")).Absolute().Left(0).Top(0).Right(0).Bottom(0).PassThrough().
+	ui.Box(c.Key("navigation")).Absolute().Left(0).Top(0).Right(u.aside).Bottom(0).PassThrough().
 		Draw(u.paint).Children(u.build)
 }
 

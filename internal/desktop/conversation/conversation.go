@@ -57,7 +57,12 @@ type State struct {
 	navigated     string                 // the transcript built last, when it has one not built yet
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
-	Split            bool
+	Split bool
+	// Aside is the room Docked keeps clear at the transcript's end for what
+	// floats there (the session overview card): the turns, the dock and the
+	// rail center in what is left, while the list still fills the pane, so
+	// its scroll bar stays at the pane's edge. The caller sets it per call.
+	Aside            float32
 	CompactDisplay   bool
 	ReaderActive     func(string) bool
 	Search           func(string, string, *uint64, func(SearchPage)) func()
@@ -253,7 +258,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	} else {
 		pane.DrawOver(d.check).Children(func() {
 			s.transcript(c, ui.Box(c.Key("transcript")).Fill(), id, turns, sess, actions, reserve)
-			ui.Column(c.Key("dock")).Absolute().Left(0).Right(0).Bottom(0).PassThrough().Bind(&d.box).Children(func() {
+			ui.Column(c.Key("dock")).Absolute().Left(0).Right(s.Aside).Bottom(0).PassThrough().Bind(&d.box).Children(func() {
 				ui.Column(c.Key("sheet")).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Children(below)
 			})
 		})
@@ -278,7 +283,7 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 		// What shows of the transcript is the list above the dock.
 		list := ui.List(c, l, n, func(i int) {
 			s.turn(c, id, i, &turns[i], n, sess, actions)
-		}).Fill().Padding(0, 0, reserve, 0).Role(ui.RoleLog)
+		}).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog)
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
@@ -295,10 +300,10 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 				}
 				s.navs[id] = nav
 			}
-			nav.list, nav.turns = l, turns
+			nav.list, nav.turns, nav.aside = l, turns, s.Aside
 			s.navigated = id
 		}
-		jump(c, l, n, !s.built[id], reserve)
+		jump(c, l, n, !s.built[id], reserve, s.Aside)
 		s.built[id] = true
 		s.searchBar(c, id, turns)
 	})
