@@ -48,10 +48,10 @@ func (r *Runtime) removeProvider(id string, revision uint64) {
 		})
 	}
 }
-func (r *Runtime) readProviderKey(id string, done func(bool)) {
+func (r *Runtime) readProviderKey(id string, done func(string)) {
 	p, ok := r.provider(id)
 	if !ok {
-		done(false)
+		done("")
 		return
 	}
 	r.execute(protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: p.ID, ExpectedRevision: p.Revision}}, func(c *ui.Context, out protocol.Output, err error) {
@@ -60,7 +60,11 @@ func (r *Runtime) readProviderKey(id string, done func(bool)) {
 			return
 		}
 		if key, ok := detail[*protocol.Secret](out.Data); ok {
-			done(key != nil)
+			value := ""
+			if key != nil {
+				value = key.Expose()
+			}
+			done(value)
 		}
 	})
 }

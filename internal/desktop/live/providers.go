@@ -361,12 +361,20 @@ func (r *Runtime) projectProviderSnapshot() {
 			}
 		}
 		if p.Preset != nil {
-			// Without a saved route every route of the preset matches; the first one is shown.
+			reference := *p.Preset
+			if reference.Source.Kind == "builtin" && reference.ID == "compatible-chat" && p.Api == protocol.ConversationModelApiChatCompletions && p.Authentication == protocol.AuthenticationApiKey {
+				if entry, ok := r.providerPresets["builtin:compatible-responses/0"]; ok && entry.Preset.Offered {
+					// The retired Chat-only preset uses the offered compatible
+					// editor so its protocol can change without rewriting saved state.
+					reference.ID = entry.Preset.ID
+				}
+			}
+			// Without a saved route, show the first route of the provider's protocol.
 			route := -1
 			for id, entry := range r.providerPresets {
 				_, index, _ := strings.Cut(id, "/")
 				i, _ := strconv.Atoi(index)
-				if (route < 0 || i < route) && entry.Preset.ID == p.Preset.ID && reflect.DeepEqual(entry.Source, p.Preset.Source) && i < len(entry.Preset.Routes) && (p.Preset.Route == nil || reflect.DeepEqual(*p.Preset.Route, presetRouteKey(entry.Preset.Routes[i]))) {
+				if (route < 0 || i < route) && entry.Preset.ID == reference.ID && reflect.DeepEqual(entry.Source, reference.Source) && i < len(entry.Preset.Routes) && apiForProtocol(entry.Preset.Routes[i].Protocol) == p.Api && (reference.Route == nil || reflect.DeepEqual(*reference.Route, presetRouteKey(entry.Preset.Routes[i]))) {
 					route, ch.Method = i, id
 					if entry.Preset.Auth.Kind == "none" {
 						ch.Auth = viewmodel.AuthNone

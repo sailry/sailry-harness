@@ -23,7 +23,8 @@ type UsageLine struct {
 	Progress     float64
 }
 
-// ProviderDraft captures one editor revision; secrets never return to the form.
+// ProviderDraft captures one editor revision. Key holds a new or changed API
+// key; an unchanged stored credential is retained by the Node.
 type ProviderDraft struct {
 	Channel          viewmodel.Channel
 	Key              string
@@ -37,7 +38,7 @@ type ProviderActions struct {
 	Discover       func(ProviderDraft, func([]viewmodel.ChannelModel))
 	Enable         func(string, uint64, bool)
 	Remove         func(string, uint64)
-	ReadKey        func(string, func(bool))
+	ReadKey        func(string, func(string))
 	RefreshCatalog func()
 	SaveCompaction func()
 	SignIn         func(string)

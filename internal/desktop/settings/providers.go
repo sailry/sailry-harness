@@ -470,6 +470,8 @@ type providerEditor struct {
 	route               int
 	name, endpoint, key string
 	keySet              bool
+	originalKey         string
+	keyShown            bool
 	apiVersion          string    // Azure OpenAI's, asked for where the route is that API
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
 	advanced            bool
@@ -517,9 +519,12 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	if m.Live && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
-		m.ProviderActions.ReadKey(id, func(set bool) {
+		m.ProviderActions.ReadKey(id, func(value string) {
 			if e.open && e.generation == generation && e.editing == id {
-				e.keySet = set
+				e.keySet, e.originalKey = value != "", value
+				if e.key == "" {
+					e.key = value
+				}
 			}
 		})
 	}
@@ -608,7 +613,10 @@ func (e *providerEditor) choices(axis routeAxis) []int {
 // route came with are replaced only while none was added or renamed.
 func (e *providerEditor) switchRoute(i int) {
 	routes, cur := methodRoutes(e.method), e.current()
-	if i < 0 || i >= len(routes) || e.editing != "" {
+	if i < 0 || i >= len(routes) {
+		return
+	}
+	if want := routes[i]; e.editing != "" && (want.API == cur.API || want.Product != cur.Product || want.Region != cur.Region) {
 		return
 	}
 	if want := routes[i]; want.Product != cur.Product {
@@ -622,6 +630,7 @@ func (e *providerEditor) switchRoute(i int) {
 		e.endpoint = routes[i].Endpoint
 	}
 	e.route = i
+	e.refreshImageGeneration()
 	if !slices.ContainsFunc(e.models, func(d modelDraft) bool { return !d.seeded || d.id != d.model.ID }) {
 		e.models, e.def = nil, 0
 		e.seed()
@@ -684,6 +693,15 @@ func (e *providerEditor) back() {
 
 func (e *providerEditor) usesKey() bool {
 	return e.method.Keyed || e.method.Access == "provider_access_key" || e.method.Access == "provider_access_cloud"
+}
+
+// keyUpdate keeps displaying a stored key from creating a new credential
+// on a save that changes only the channel's configuration.
+func (e *providerEditor) keyUpdate() string {
+	if e.key == e.originalKey {
+		return ""
+	}
+	return e.key
 }
 
 func (e *providerEditor) login() bool { return e.method.Login != "" }
@@ -769,7 +787,7 @@ func (e *providerEditor) save(m *Model) string {
 		generation := e.generation
 		signIn := e.login() && e.editing == ""
 		id := e.id
-		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.key, ExpectedRevision: e.revision, OAuth: e.oauth}, func(ok bool) {
+		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.keyUpdate(), ExpectedRevision: e.revision, OAuth: e.oauth}, func(ok bool) {
 			if e.generation != generation || !e.open {
 				return
 			}
@@ -786,6 +804,7 @@ func (e *providerEditor) save(m *Model) string {
 	}
 	if ch := m.channel(e.editing); ch != nil {
 		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.endpoint, models, e.def
+		ch.Method, ch.API = route.ID, route.API
 		if e.azure() {
 			ch.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
@@ -806,6 +825,7 @@ func (e *providerEditor) save(m *Model) string {
 func providerEditorDialog(c *ui.Context, m *Model) {
 	e := &m.provider
 	if !e.open {
+		e.key, e.originalKey, e.keyShown = "", "", false
 		return
 	}
 	p := theme.Of(c)
@@ -995,7 +1015,8 @@ func routeName(c *ui.Context, r preview.Route, axis routeAxis) string {
 }
 
 // routeField is an axis's segmented control where the method has several
-// routes along it; an edited channel keeps its route, so it is disabled.
+// routes along it. An edited channel may change its protocol while keeping
+// the same product and region.
 func routeField(c *ui.Context, e *providerEditor, key, label string, axis routeAxis) bool {
 	choices := e.choices(axis)
 	if len(choices) < 2 {
@@ -1011,7 +1032,7 @@ func routeField(c *ui.Context, e *providerEditor, key, label string, axis routeA
 		return map[routeAxis]bool{axisProtocol: r.API == cur.API, axisProduct: r.Product == cur.Product, axisRegion: r.Region == cur.Region}[axis]
 	}))
 	kit.Field(c, key, label, "", func() {
-		if kit.Segmented(c, "segments", &chosen, names, kit.SegmentedProps{Block: true, Disabled: e.editing != "" || e.probing}).Label(label).Changed() {
+		if kit.Segmented(c, "segments", &chosen, names, kit.SegmentedProps{Block: true, Disabled: e.probing || e.editing != "" && axis != axisProtocol}).Label(label).Changed() {
 			e.switchRoute(choices[chosen])
 		}
 	})
@@ -1025,10 +1046,11 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	t := func(k string) string { return i18n.T(c, k) }
 	input := func(key, label, hint string, value *string, secret bool) {
 		kit.Field(c, key, label, "", func() {
-			in := ui.TextInput(c.Key("input"), value).Label(label).Placeholder(hint).FillWidth().Disabled(e.probing)
 			if secret {
-				in.Password()
+				kit.SecretInput(c, value, &e.keyShown, kit.SecretInputProps{Label: label, Placeholder: hint, Disabled: e.probing}).FillWidth()
+				return
 			}
+			ui.TextInput(c.Key("input"), value).Label(label).Placeholder(hint).FillWidth().Disabled(e.probing)
 		})
 	}
 	ui.Column(c.Key("form")).Gap(16).Children(func() {
@@ -1094,7 +1116,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.key, ExpectedRevision: e.revision}
+					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), ExpectedRevision: e.revision}
 					generation := e.generation
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
@@ -1175,18 +1197,18 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 				e.def--
 			}
 		}, removeLabel: t("settings_delete"),
-		content: func() { modelForm(c, d, e.azure()) },
+		content: func() { modelForm(c, d, e.current().API) },
 	}.row(c, [2]int{e.removed, i}, title)
 }
 
 // modelForm is the model ID, the context limit with its common sizes, and the
 // reasoning efforts with the default. An Azure OpenAI model is named by its
 // deployment.
-func modelForm(c *ui.Context, d *modelDraft, deployment bool) {
+func modelForm(c *ui.Context, d *modelDraft, api string) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
 	name := t("provider_model_id")
-	if deployment {
+	if api == "azure_open_ai" {
 		name = t("provider_deployment_id")
 	}
 	ui.Column(c.Key("model-form")).Gap(12).Children(func() {
@@ -1207,7 +1229,7 @@ func modelForm(c *ui.Context, d *modelDraft, deployment bool) {
 			})
 			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth().Disabled(d.pending)
 		})
-		capabilityForm(c, d)
+		capabilityForm(c, d, api)
 		if d.model.ID == "" || len(d.model.Efforts) > 0 {
 			ui.Column(c.Key("efforts")).Gap(6).Children(func() {
 				ui.Text(c, t("provider_efforts")).FontSize(14)
@@ -1258,7 +1280,7 @@ func modelForm(c *ui.Context, d *modelDraft, deployment bool) {
 // then keeps over the catalog's. Tags that are the user's can be reset: a
 // save then leaves them to the catalog again, and the boxes show the
 // catalog's tags where the model came with them.
-func capabilityForm(c *ui.Context, d *modelDraft) {
+func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
 	x := &d.model
@@ -1310,17 +1332,16 @@ func capabilityForm(c *ui.Context, d *modelDraft) {
 					check("provider_cap_can", "reasoning", "provider_cap_reasoning", &x.Reasoning)
 				})
 				group("provider_cap_generates", func() {
-					// One Image box for both ways of generating: the hosted
-					// tool the model came with is kept, else the endpoint.
+					// The image route follows the model's output kind and the
+					// provider protocol, rather than treating a tool as an endpoint.
 					image := slices.Contains(x.Generates, viewmodel.GenerateImage) || slices.Contains(x.Generates, viewmodel.GenerateImageTool)
 					generates("image", "media_image", image, func(on bool) {
 						toggle(viewmodel.GenerateImage)(false)
 						toggle(viewmodel.GenerateImageTool)(false)
-						switch {
-						case on && d.hosted:
-							toggle(viewmodel.GenerateImageTool)(true)
-						case on:
-							toggle(viewmodel.GenerateImage)(true)
+						if on {
+							kind := d.imageGeneration(api)
+							d.hosted = kind == viewmodel.GenerateImageTool
+							toggle(kind)(true)
 						}
 					})
 					generates("video", "media_video", slices.Contains(x.Generates, viewmodel.GenerateVideo), toggle(viewmodel.GenerateVideo))

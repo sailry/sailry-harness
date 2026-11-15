@@ -73,9 +73,9 @@ func (r *Runtime) initNodeSettings() {
 				done(nil)
 			}
 		},
-		ReadKey: func(id string, done func(bool)) {
+		ReadKey: func(id string, done func(string)) {
 			if !on(func(owner *Runtime) { owner.readProviderKey(id, done) }) {
-				done(false)
+				done("")
 			}
 		},
 		Remove: func(id string, revision uint64) {

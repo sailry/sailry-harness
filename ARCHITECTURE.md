@@ -222,6 +222,12 @@ ACP programs act as models: their file, terminal and MCP capabilities and their
 own permission requests are refused. Packages declare executables and protocol
 differences; the process service owns their lifecycle.
 
+Provider editing can switch a declared protocol route while retaining the
+provider identity, credentials and model settings. The editor masks explicitly
+read API keys and omits unchanged keys from saves. Image capability editing
+distinguishes standalone image models from Responses hosted image tools, so a
+conversation model is not sent to the image-model endpoint.
+
 Admission freezes the worktree, permission, configuration, model or team,
 reasoning effort, credentials and package revisions. Updates affect subsequent
 admission. Policy, instructions, guides and selected capabilities form the stable
