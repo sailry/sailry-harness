@@ -133,11 +133,11 @@ class _ResourcesPageState extends State<ResourcesPage> {
             ),
           ),
         // Without a workspace bar the host choice stays in the header.
-        if (!ready && !pushed)
+        if (!ready && !pushed && session.hosts.isNotEmpty)
           RoundButton(
             icon: 'server',
             tooltip: context.tr('selectHost'),
-            onPressed: session.hosts.isEmpty ? null : _host,
+            onPressed: _host,
           ),
       ],
       child: ready

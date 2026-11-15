@@ -23,17 +23,16 @@ class ProjectsPage extends StatelessWidget {
             ? HostState(added: true, failure: host.error)
             : null,
         actions: [
-          RoundButton(
-            icon: 'plus',
-            tooltip: context.tr('hostRegisterProject'),
-            onPressed: !host.connected
-                ? null
-                : () => showAppSheet(
-                    context,
-                    context.tr('hostRegisterProject'),
-                    child: ProjectForm(host: host),
-                  ),
-          ),
+          if (host.connected)
+            RoundButton(
+              icon: 'plus',
+              tooltip: context.tr('hostRegisterProject'),
+              onPressed: () => showAppSheet(
+                context,
+                context.tr('hostRegisterProject'),
+                child: ProjectForm(host: host),
+              ),
+            ),
         ],
         empty: projects.isEmpty
             ? EmptyState(message: context.tr('conversationNoProject'))

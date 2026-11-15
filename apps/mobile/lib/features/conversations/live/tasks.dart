@@ -243,53 +243,55 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ? HostState(added: selected != null, failure: selected?.error)
             : null,
         actions: [
-          RoundButton(
-            icon: 'server',
-            tooltip: context.tr('selectHost'),
-            onPressed: hosts.isEmpty
-                ? null
-                : () => showAppSheet(
-                    context,
-                    context.tr('selectHost'),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final host in hosts)
-                          HostRow(
-                            host: host,
-                            selected: selected?.id == host.id,
-                            onTap: () {
-                              setState(() {
-                                _project = null;
-                              });
-                              widget.session.selectHost(host.id);
-                              Navigator.pop(context);
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-          ),
-          RoundButton(
-            icon: _searching ? 'close' : 'search',
-            tooltip: context.tr('searchTasks'),
-            onPressed: selected?.connected != true
-                ? null
-                : () => setState(() {
-                    _searching = !_searching;
-                    if (!_searching) _search = '';
-                  }),
-          ),
-          RoundButton(
-            icon: 'terminal',
-            tooltip: context.tr('newTerminal'),
-            onPressed: selected?.connected == true ? _terminal : null,
-          ),
-          RoundButton(
-            icon: 'plus',
-            tooltip: context.tr('newConversation'),
-            onPressed: selected?.connected == true ? _create : null,
-          ),
+          if (hosts.isNotEmpty)
+            RoundButton(
+              icon: 'server',
+              tooltip: context.tr('selectHost'),
+              onPressed: () => showAppSheet(
+                context,
+                context.tr('selectHost'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final host in hosts)
+                      HostRow(
+                        host: host,
+                        selected: selected?.id == host.id,
+                        onTap: () {
+                          setState(() {
+                            _project = null;
+                          });
+                          widget.session.selectHost(host.id);
+                          Navigator.pop(context);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          // Actions that need the host stand only while it is connected;
+          // an open search keeps its close button.
+          if (selected?.connected == true || _searching)
+            RoundButton(
+              icon: _searching ? 'close' : 'search',
+              tooltip: context.tr('searchTasks'),
+              onPressed: () => setState(() {
+                _searching = !_searching;
+                if (!_searching) _search = '';
+              }),
+            ),
+          if (selected?.connected == true) ...[
+            RoundButton(
+              icon: 'terminal',
+              tooltip: context.tr('newTerminal'),
+              onPressed: _terminal,
+            ),
+            RoundButton(
+              icon: 'plus',
+              tooltip: context.tr('newConversation'),
+              onPressed: _create,
+            ),
+          ],
         ],
         empty: selected?.connected == true && tasks.isEmpty && terminals.isEmpty
             ? EmptyState(

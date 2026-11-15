@@ -287,12 +287,13 @@ class _UsagePageState extends State<UsagePage> {
           ? EmptyState(icon: 'chart', message: context.tr('usageEmpty'))
           : null,
       actions: [
-        RoundButton(
-          icon: 'server',
-          tooltip:
-              '${context.tr('selectHost')}: ${host?.label ?? context.tr('allHosts')}',
-          onPressed: added ? _pickHost : null,
-        ),
+        if (added)
+          RoundButton(
+            icon: 'server',
+            tooltip:
+                '${context.tr('selectHost')}: ${host?.label ?? context.tr('allHosts')}',
+            onPressed: _pickHost,
+          ),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

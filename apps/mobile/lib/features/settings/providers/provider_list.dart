@@ -86,11 +86,12 @@ class _ProvidersPageState extends State<ProvidersPage> {
       title: context.tr('providers'),
       loading: _loading,
       actions: [
-        RoundButton(
-          icon: 'plus',
-          tooltip: context.tr('providerNew'),
-          onPressed: providers == null ? null : _create,
-        ),
+        if (providers != null)
+          RoundButton(
+            icon: 'plus',
+            tooltip: context.tr('providerNew'),
+            onPressed: _create,
+          ),
       ],
       failure: providers == null && _error != null
           ? FailureState(
