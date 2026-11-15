@@ -1633,6 +1633,14 @@ class AppLocalizationsEs extends AppLocalizations {
   String get hostRemoved => 'Host eliminado';
 
   @override
+  String get hostOriginDirect => 'Vinculación directa';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'A través de $name';
+  }
+
+  @override
   String get hostRemoveFailed => 'No se pudo eliminar el host';
 
   @override

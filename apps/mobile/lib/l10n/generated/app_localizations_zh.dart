@@ -1601,6 +1601,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostRemoved => '已移除主机';
 
   @override
+  String get hostOriginDirect => '直接配对';
+
+  @override
+  String hostOriginSource(String name) {
+    return '来自 $name';
+  }
+
+  @override
   String get hostRemoveFailed => '无法移除主机';
 
   @override
@@ -3867,6 +3875,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostRemoved => '已移除主機';
+
+  @override
+  String get hostOriginDirect => '直接配對';
+
+  @override
+  String hostOriginSource(String name) {
+    return '來自 $name';
+  }
 
   @override
   String get hostRemoveFailed => '無法移除主機';

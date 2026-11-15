@@ -1639,6 +1639,14 @@ class AppLocalizationsFr extends AppLocalizations {
   String get hostRemoved => 'Hôte retiré';
 
   @override
+  String get hostOriginDirect => 'Appairage direct';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
+
+  @override
   String get hostRemoveFailed => 'Impossible de retirer l’hôte';
 
   @override

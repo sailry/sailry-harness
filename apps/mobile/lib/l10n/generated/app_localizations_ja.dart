@@ -1604,6 +1604,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostRemoved => 'ホストを削除しました';
 
   @override
+  String get hostOriginDirect => '直接ペアリング';
+
+  @override
+  String hostOriginSource(String name) {
+    return '$name 経由';
+  }
+
+  @override
   String get hostRemoveFailed => 'ホストを削除できませんでした';
 
   @override

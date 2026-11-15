@@ -884,5 +884,7 @@
   "demoReviewNotes": "# 發布評審\n\n| 範圍 | 檢查內容 |\n| --- | --- |\n| 輸入欄位 | 檢查標籤與必填提示 |\n| 鍵盤導覽 | 檢查 Tab 順序與可見焦點 |\n| 點選區域 | 登入按鈕高度至少為 44 px |\n| 頁面配置 | 檢查窄螢幕與寬螢幕顯示 |\n| 程式碼變更 | 發布前檢查登入頁面與樣式 |\n",
   "demoNotesPrompt": "為登入頁面整理一份簡短的發布評審清單。",
   "demoSimulatedReply": "我會圍繞登入頁面繼續完善，並保留現有版面配置。\n\n1. 檢查欄位間距與鍵盤焦點。\n2. 保持點選區域至少為 44 px。\n3. 對照檢查 `src/pages/Login.tsx` 與 `src/styles/login.css`。\n\n發布評審清單位於 `docs/review.md`。",
-  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001"
+  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
+  "hostOriginDirect": "直接配對",
+  "hostOriginSource": "來自 {name}"
 }

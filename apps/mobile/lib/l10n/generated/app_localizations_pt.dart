@@ -1629,6 +1629,14 @@ class AppLocalizationsPt extends AppLocalizations {
   String get hostRemoved => 'Host removido';
 
   @override
+  String get hostOriginDirect => 'Pareamento direto';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
+
+  @override
   String get hostRemoveFailed => 'Não foi possível remover o host';
 
   @override
@@ -2316,6 +2324,14 @@ class AppLocalizationsPt extends AppLocalizations {
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
 class AppLocalizationsPtBr extends AppLocalizationsPt {
   AppLocalizationsPtBr() : super('pt_BR');
+
+  @override
+  String get hostOriginDirect => 'Pareamento direto';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
 
   @override
   String get usageHitRate => 'Taxa de acerto do cache';

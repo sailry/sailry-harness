@@ -1623,6 +1623,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get hostRemoved => 'Host removed';
 
   @override
+  String get hostOriginDirect => 'Direct pairing';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
+
+  @override
   String get hostRemoveFailed => 'Could not remove host';
 
   @override

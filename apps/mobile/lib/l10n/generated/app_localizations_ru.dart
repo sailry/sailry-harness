@@ -1630,6 +1630,14 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostRemoved => 'Хост удалён';
 
   @override
+  String get hostOriginDirect => 'Прямое сопряжение';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Через $name';
+  }
+
+  @override
   String get hostRemoveFailed => 'Не удалось удалить хост';
 
   @override

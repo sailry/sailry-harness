@@ -1605,6 +1605,14 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostRemoved => '호스트를 제거했습니다';
 
   @override
+  String get hostOriginDirect => '직접 페어링';
+
+  @override
+  String hostOriginSource(String name) {
+    return '$name 경유';
+  }
+
+  @override
   String get hostRemoveFailed => '호스트를 제거할 수 없습니다';
 
   @override

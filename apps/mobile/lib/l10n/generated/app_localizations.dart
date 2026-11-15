@@ -3222,6 +3222,18 @@ abstract class AppLocalizations {
   /// **'Host removed'**
   String get hostRemoved;
 
+  /// No description provided for @hostOriginDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct pairing'**
+  String get hostOriginDirect;
+
+  /// No description provided for @hostOriginSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Via {name}'**
+  String hostOriginSource(String name);
+
   /// No description provided for @hostRemoveFailed.
   ///
   /// In en, this message translates to:
