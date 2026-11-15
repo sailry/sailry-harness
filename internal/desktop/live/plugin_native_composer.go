@@ -205,7 +205,7 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 	var statistics json.RawMessage = json.RawMessage("null")
 	compacting, hasMessages := false, len(view.Turns) > 0
 	if state.scope.Session != nil {
-		if history, exists := runtime.controller.Conversation(*state.scope.Session); exists {
+		if history, exists := runtime.conversationState(*state.scope.Session); exists {
 			var err error
 			statistics, err = plugins.ComposerStatistics(history.Snapshot.Statistics)
 			if err != nil {

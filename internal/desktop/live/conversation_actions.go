@@ -26,6 +26,20 @@ func (x *conversationActions) state() (protocol.Session, protocol.ConversationSn
 	state, ok := x.r.controller.Conversation(s.ID)
 	return s, state.Snapshot, ok
 }
+
+// viewState shares the frame's observed source for presentation. Command
+// admission uses state instead, reading the Client again at the action boundary.
+func (x *conversationActions) viewState() (protocol.Session, protocol.ConversationSnapshot, bool) {
+	if !x.owned() {
+		return protocol.Session{}, protocol.ConversationSnapshot{}, false
+	}
+	s, ok := x.r.session(x.cv.ID)
+	if !ok {
+		return s, protocol.ConversationSnapshot{}, false
+	}
+	state, ok := x.r.conversationState(s.ID)
+	return s, state.Snapshot, ok
+}
 func (x *conversationActions) queued(id string) (protocol.ConversationPending, bool) {
 	_, state, ok := x.state()
 	if !ok {
@@ -296,15 +310,12 @@ func (x *conversationActions) DeclineQuestion(id string) {
 	x.question(id, protocol.ConversationQuestionResponse{Kind: "decline"}, nil)
 }
 func (x *conversationActions) Fork(turn string) {
-	if !x.owned() {
-		return
-	}
-	s, ok := x.r.session(x.cv.ID)
+	s, state, ok := x.state()
 	if !ok {
 		return
 	}
 	through, err := protocol.ParseTurnID(turn)
-	if err != nil || x.controls(through).NoFork {
+	if err != nil || x.controlsFrom(s, state, ok)(through).NoFork {
 		return
 	}
 	id := x.cv.ID
@@ -331,7 +342,7 @@ func (x *conversationActions) Rewind(turn string) {
 	if err != nil {
 		return
 	}
-	if x.controls(through).NoRewind {
+	if x.controlsFrom(s, state, ok)(through).NoRewind {
 		// The history moved while the confirmation was open.
 		kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "chat_history_changed"))
 		return
@@ -361,14 +372,19 @@ func (x *conversationActions) Rewind(turn string) {
 
 // controls is which actions of a turn apply now.
 func (x *conversationActions) controls(turn protocol.TurnID) conversation.Controls {
-	return x.pageControls()(turn)
+	session, state, ok := x.state()
+	return x.controlsFrom(session, state, ok)(turn)
 }
 
 // pageControls reads the conversation once and answers which actions of each
 // turn apply: a read-only (delegated or unowned) session hides Edit and the
 // fork menu; the rest wait for a connected, idle conversation.
 func (x *conversationActions) pageControls() func(protocol.TurnID) conversation.Controls {
-	session, state, ok := x.state()
+	session, state, ok := x.viewState()
+	return x.controlsFrom(session, state, ok)
+}
+
+func (x *conversationActions) controlsFrom(session protocol.Session, state protocol.ConversationSnapshot, ok bool) func(protocol.TurnID) conversation.Controls {
 	if !ok || delegated(session) {
 		return func(protocol.TurnID) conversation.Controls {
 			return conversation.Controls{ReadOnly: true, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
@@ -379,7 +395,7 @@ func (x *conversationActions) pageControls() func(protocol.TurnID) conversation.
 	pending, operating := x.r.conversationPending[x.cv.ID]
 	blocked := !x.r.controller.Connected() || operating || replacing && edit.pending
 	busy := pageBusy(page)
-	movable := x.r.canMoveWorkspace(x.cv, x.comp)
+	movable := session.Delegation == nil && len(x.comp.Attachments) == 0 && workspacePageIdle(page)
 	ended, sent, editable := map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}, map[protocol.TurnID]bool{}
 	for _, run := range page.Runs {
 		ended[run.Turn] = run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning && run.Status != protocol.ConversationStatusStopping
@@ -482,9 +498,9 @@ type conversationEdit struct {
 // Edit opens the editor of a sent message. Its button is disabled where it
 // cannot apply, so a refused edit says nothing.
 func (x *conversationActions) Edit(turn string) {
-	_, state, ok := x.state()
+	session, state, ok := x.state()
 	id, err := protocol.ParseTurnID(turn)
-	if !ok || err != nil || x.controls(id).NoEdit {
+	if !ok || err != nil || x.controlsFrom(session, state, ok)(id).NoEdit {
 		return
 	}
 	if current, editing := x.r.conversationEdits[x.cv.ID]; editing && current.pending {

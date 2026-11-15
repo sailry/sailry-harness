@@ -27,7 +27,7 @@ func (r *Runtime) projectContextMeter(cv *viewmodel.Conversation, comp *composer
 	if !exists {
 		return
 	}
-	history, loaded := r.controller.Conversation(session.ID)
+	history, loaded := r.conversationState(session.ID)
 	if !loaded {
 		return
 	}

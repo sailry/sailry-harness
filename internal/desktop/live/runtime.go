@@ -94,64 +94,67 @@ type Runtime struct {
 	memoryNext time.Time
 	// memoryBase is the last sample of the Go classes, beside which the
 	// plugins' group updates.
-	memoryBase            []kit.TreemapGroup
-	pluginMemory          *pluginMemoryState
-	cancel                context.CancelFunc
-	unsubscribe           func()
-	unsubscribePrefs      func()
-	mu                    sync.Mutex
-	dirty                 bool
-	readsConnected        bool
-	closed                bool
-	queue                 []func(*ui.Context)
-	invalidate            func()
-	update                func(func())
-	workers               sync.WaitGroup
-	observers             sync.WaitGroup
-	openWindow            func(string)
-	pickDirectory         func(func(string))
-	savedProject          string // the project the editor saved, opened once projected
-	preferencesChanged    func()
-	busy                  map[string]bool
-	uncertain             map[string]protocol.Request
-	drafts                uint64
-	openDrafts            map[string]bool // drafts New session opened, on the local Runtime
-	draftsShown           map[string]bool // those a pane showed this frame
-	lastPreferences       string
-	lastMaterials         [3]float32
-	lastFeatures          string
-	lastKeys              string
-	powerObservedRevision uint64
-	compactionObserved    uint64
-	updates               *Updates
-	updatesFocused        func() bool
-	updatesFlush          func() error
-	prefsRevision         uint64
-	conversationWatches   map[protocol.SessionID]func()
-	conversationSeen      map[protocol.SessionID]bool
-	childStops            map[protocol.TurnID]bool
-	composerInitialized   map[string]bool
-	composerObserved      map[string]string
-	readAloud             func(string, string, string)
-	exportConversation    func(string, string, conversation.ExportFormat)
-	conversationEdits     map[string]conversationEdit
-	conversationPending   map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
-	turnRetries           map[string]turnRetry
-	interactionFlows      map[string]*interactionFlow
-	conversationCreations map[string]conversationCreation
-	conversationCreating  map[string]bool
-	providerPresets       map[string]protocol.ConversationPresetsEntry
-	providerBrands        map[string]string // brand names by presetBrand, offered or not
-	providerModels        map[string]map[string]protocol.ConversationModel
-	providerDraftBases    map[string]protocol.ConversationProvider
-	modelScores           map[string][]protocol.ConversationCatalogScoresEffortScore
-	modelScoreKey         string
-	snapshotMu            sync.Mutex
-	snapshotCopy          protocol.Snapshot
-	snapshotRevision      uint64
-	snapshotRead          bool
-	conversationCopies    map[protocol.SessionID]conversationCopy
-	conversationsStale    atomic.Bool
+	memoryBase                []kit.TreemapGroup
+	pluginMemory              *pluginMemoryState
+	cancel                    context.CancelFunc
+	unsubscribe               func()
+	unsubscribePrefs          func()
+	mu                        sync.Mutex
+	dirty                     bool
+	readsConnected            bool
+	closed                    bool
+	queue                     []func(*ui.Context)
+	invalidate                func()
+	update                    func(func())
+	workers                   sync.WaitGroup
+	observers                 sync.WaitGroup
+	openWindow                func(string)
+	pickDirectory             func(func(string))
+	savedProject              string // the project the editor saved, opened once projected
+	preferencesChanged        func()
+	busy                      map[string]bool
+	uncertain                 map[string]protocol.Request
+	drafts                    uint64
+	openDrafts                map[string]bool // drafts New session opened, on the local Runtime
+	draftsShown               map[string]bool // those a pane showed this frame
+	lastPreferences           string
+	lastMaterials             [3]float32
+	lastFeatures              string
+	lastKeys                  string
+	powerObservedRevision     uint64
+	compactionObserved        uint64
+	updates                   *Updates
+	updatesFocused            func() bool
+	updatesFlush              func() error
+	prefsRevision             uint64
+	conversationWatches       map[protocol.SessionID]func()
+	conversationSeen          map[protocol.SessionID]bool
+	childStops                map[protocol.TurnID]bool
+	composerInitialized       map[string]bool
+	composerObserved          map[string]string
+	readAloud                 func(string, string, string)
+	exportConversation        func(string, string, conversation.ExportFormat)
+	conversationEdits         map[string]conversationEdit
+	conversationPending       map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
+	turnRetries               map[string]turnRetry
+	interactionFlows          map[string]*interactionFlow
+	conversationCreations     map[string]conversationCreation
+	conversationCreating      map[string]bool
+	providerPresets           map[string]protocol.ConversationPresetsEntry
+	providerBrands            map[string]string // brand names by presetBrand, offered or not
+	providerModels            map[string]map[string]protocol.ConversationModel
+	providerDraftBases        map[string]protocol.ConversationProvider
+	modelScores               map[string][]protocol.ConversationCatalogScoresEffortScore
+	modelScoreKey             string
+	snapshotMu                sync.Mutex
+	snapshotCopy              protocol.Snapshot
+	snapshotRevision          uint64
+	snapshotRead              bool
+	conversationCopies        map[protocol.SessionID]conversationCopy
+	conversationCache         map[protocol.SessionID]conversationCopy
+	conversationVersion       uint64
+	conversationPresentations map[protocol.SessionID]conversationPresentation
+	conversationsStale        atomic.Bool
 	// composerOutgoing holds the captured input until its Node projection arrives:
 	// ordinary sends appear in the transcript, and queued input in the tray.
 	composerOutgoing map[string]*conversationOutgoing
@@ -170,8 +173,9 @@ type Runtime struct {
 }
 
 type conversationCopy struct {
-	state client.ConversationState
-	ok    bool
+	state      client.ConversationState
+	ok         bool
+	generation uint64
 }
 
 // snapshot returns the Client's Node snapshot, copied once per Client
@@ -194,9 +198,9 @@ func (r *Runtime) snapshotAt() (protocol.Snapshot, uint64) {
 	return r.snapshotCopy, revision
 }
 
-// conversationState returns one shared, read-only copy of a conversation per
-// frame, taken again after an observed conversation changes. It is for the UI
-// thread; outside a frame it reads the Client.
+// conversationState shares a read-only copy until an observation changes.
+// The persistent cache is attached only during UI frames; actions outside a
+// frame read the Client directly.
 func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationState, bool) {
 	if r.conversationCopies == nil {
 		return r.controller.Conversation(id)
@@ -207,6 +211,8 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 	copied, ok := r.conversationCopies[id]
 	if !ok {
 		copied.state, copied.ok = r.controller.Conversation(id)
+		r.conversationVersion++
+		copied.generation = r.conversationVersion
 		r.conversationCopies[id] = copied
 	}
 	return copied.state, copied.ok
@@ -418,10 +424,10 @@ func (r *Runtime) enqueue(f func(*ui.Context)) {
 // touch the mutex-protected queue, never presentation fields.
 func (r *Runtime) drain(c *ui.Context) {
 	r.beforeUpdateFrame()
-	r.conversationSeen, r.conversationCopies = map[protocol.SessionID]bool{}, map[protocol.SessionID]conversationCopy{}
+	r.beginConversationFrame()
 	r.syncNetwork()
 	for _, bound := range r.bindings {
-		bound.conversationSeen, bound.conversationCopies = map[protocol.SessionID]bool{}, map[protocol.SessionID]conversationCopy{}
+		bound.beginConversationFrame()
 	}
 	if revision := r.Preferences.Revision(); revision != r.prefsRevision {
 		r.applyPreferences()
@@ -528,10 +534,10 @@ func (r *Runtime) attentionFrame() {
 func (r *Runtime) afterFrame() {
 	for _, bound := range r.bindings {
 		bound.finishFrame()
-		bound.conversationCopies = nil
+		bound.finishConversationFrame()
 	}
 	r.finishFrame()
-	r.conversationCopies = nil
+	r.finishConversationFrame()
 	r.countFrame()
 	r.pluginViewsAfterFrame()
 	r.pruneDrafts()

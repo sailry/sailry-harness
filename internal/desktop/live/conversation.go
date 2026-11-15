@@ -59,6 +59,7 @@ func (r *Runtime) projectConversations() {
 			}
 			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 				if state, ok := owner.conversationState(id); ok {
+					delete(owner.conversationPresentations, id)
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
 					owner.projectOutgoing(cv, state.Snapshot.Page)
 					owner.enrichDetails(cv, state)
@@ -206,7 +207,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if state, ok := r.conversationState(id); ok {
 			page = state.Snapshot.Page
 			unsynced = !state.Connected
-			cv.Turns, cv.Session, cv.Waiting, cv.Queue = conversationAt(state, c.Now(), c.Locale())
+			r.projectConversation(cv, id, state, c.Now(), c.Locale())
 			if state.Connected {
 				// Elapsed labels need a rebuilt frame, including in plugin panels;
 				// paint-only activity animations cannot update projected text.
@@ -809,11 +810,16 @@ func (x *conversationActions) activeRun() (protocol.ConversationRun, bool) {
 		return protocol.ConversationRun{}, false
 	}
 	if state, ok := x.r.controller.Conversation(id); ok {
-		for i := len(state.Snapshot.Page.Runs) - 1; i >= 0; i-- {
-			r := state.Snapshot.Page.Runs[i]
-			if r.Status == "running" || r.Status == "stopping" {
-				return r, true
-			}
+		return activeConversationRun(state.Snapshot.Page)
+	}
+	return protocol.ConversationRun{}, false
+}
+
+func activeConversationRun(page protocol.ConversationPage) (protocol.ConversationRun, bool) {
+	for i := len(page.Runs) - 1; i >= 0; i-- {
+		run := page.Runs[i]
+		if run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping {
+			return run, true
 		}
 	}
 	return protocol.ConversationRun{}, false

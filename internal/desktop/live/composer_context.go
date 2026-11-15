@@ -113,9 +113,14 @@ func staleReference(ctx *composer.Context, reference composer.Reference) bool {
 // nothing about why they wait and held background results are not rows
 // (AGENTS.md, Removed UI): what the user must know is a toast, once.
 func (r *Runtime) projectComposerQueue(x *conversationActions, ctx *composer.Context) {
-	if run, active := x.activeRun(); active {
+	for i := range ctx.Queue {
+		ctx.Queue[i].Joining = false
+	}
+	_, state, loaded := x.viewState()
+	if run, active := activeConversationRun(state.Page); loaded && active {
 		for i := range ctx.Queue {
-			if item, ok := x.queued(ctx.Queue[i].ID); ok && item.Guidance != nil && *item.Guidance == run.Turn {
+			if item := slices.IndexFunc(state.Page.Queue.Items, func(item protocol.ConversationPending) bool { return item.Turn.String() == ctx.Queue[i].ID }); item >= 0 &&
+				state.Page.Queue.Items[item].Guidance != nil && *state.Page.Queue.Items[item].Guidance == run.Turn {
 				ctx.Queue[i].Joining = true
 			}
 		}
@@ -235,7 +240,7 @@ func (x *conversationActions) settleGuidance() {
 	if len(sent) == 0 {
 		return
 	}
-	_, state, ok := x.state()
+	_, state, ok := x.viewState()
 	if !ok {
 		return
 	}
@@ -316,7 +321,7 @@ func (x *conversationActions) reportUsage() {
 // interruption, whose outcome is uncertain, and an error for a message that
 // was not sent. The rows stay ordinary queued rows.
 func (x *conversationActions) reportHalt() {
-	session, state, ok := x.state()
+	session, state, ok := x.viewState()
 	if !ok || state.Page.Session != session.ID {
 		return // not read yet
 	}

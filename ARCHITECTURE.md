@@ -411,6 +411,13 @@ time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available from the project's
 terminal inventory. Explicitly closing a right-panel terminal stops its shell.
 
+Desktop reuses read-only conversation source copies until a Client observation
+changes, including pagination and connection state. Completed history projections
+are reused within the visible view model; controls and mutable presentation
+overlays still refresh. Active runs and streaming drafts keep their timing and
+update path. Leaving a conversation releases its presentation cache, and command
+admission reads current Client state independently of rendering.
+
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses
 Untie. These render natively and keep source text on failure. File preview draws

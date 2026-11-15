@@ -20,6 +20,7 @@ func (r *Runtime) projectControls(c *ui.Context, cv *viewmodel.Conversation, com
 	shown := false
 	for i := range cv.Turns {
 		turn := &cv.Turns[i]
+		turn.Editing = nil
 		id, err := protocol.ParseTurnID(turn.ID)
 		if err != nil {
 			turn.Controls = conversation.Controls{ReadOnly: cv.Session.ReadOnly, NoEdit: true, NoFork: true, NoRewind: true, NoWorktree: true}
