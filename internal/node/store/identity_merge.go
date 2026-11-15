@@ -34,6 +34,9 @@ SELECT id,user FROM turns WHERE user=?1 ON CONFLICT(turn) DO NOTHING`, source.ID
 	if err := MergeConfigurationUsers(ctx, db, source, target); err != nil {
 		return target, err
 	}
+	if err := materializeLegacyPersonalSettings(ctx, db); err != nil {
+		return target, err
+	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO user_personal_settings(user,kind,body) SELECT ?2,kind,body FROM user_personal_settings WHERE user=?1 ON CONFLICT(user,kind) DO NOTHING`, source.ID.String(), target.ID.String()); err != nil {
 		return target, err
 	}

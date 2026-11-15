@@ -58,6 +58,9 @@ func PairIdentityPeer(ctx context.Context, db *sql.Conn, node, peer protocol.Nod
 			break
 		}
 	}
+	if value.Removed {
+		value.DirectoryRevision = 0
+	}
 	value.Direct, value.Removed = true, false
 	value.MyDevice = value.MyDevice || scope.Kind == protocol.InvitationMyDevice
 	return writeIdentityPeer(ctx, db, value)

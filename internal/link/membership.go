@@ -76,6 +76,15 @@ func (link *Link) ApplyDirectory(ctx context.Context, directory protocol.HostDir
 	if !known {
 		return pairingRejected()
 	}
+	relationships, err := link.Relationships(ctx)
+	if err != nil {
+		return err
+	}
+	for _, relationship := range relationships {
+		if relationship.ID == directory.Source && directory.Revision <= relationship.DirectoryRevision {
+			return nil
+		}
+	}
 	if len(directory.Hosts) > maxControllerPeers {
 		return invalidLink("host directory exceeds limits")
 	}

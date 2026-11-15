@@ -114,6 +114,12 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 	for _, table := range []string{"providers", "roles", "teams", "ssh_profiles", "database_profiles", "turns"} {
 		schemaExecute(t, storage.Node, "UPDATE "+table+" SET user=NULL")
 	}
+	// An old profile had no identity provenance tables. Remove their new
+	// singleton owner before constructing that legacy schema; leaving it here
+	// would deliberately create a live foreign key to the user being removed.
+	for _, table := range []string{"identity_memberships", "identity_sponsorships", "identity_directory", "identity_deliveries", "identity_turn_origins", "identity_storage_origin", "identity_merge_conflicts", "identity_peer_origins", "identity_sponsor_epochs"} {
+		schemaExecute(t, storage.Node, "DROP TABLE "+table)
+	}
 	schemaExecute(t, storage.Node, "DROP TABLE users")
 	if err := storage.Close(); err != nil {
 		t.Fatal(err)

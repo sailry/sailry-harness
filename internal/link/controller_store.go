@@ -230,6 +230,9 @@ func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID
 		for index := range *peers {
 			if (*peers)[index].ID == id {
 				(*peers)[index].Direction = mergeDirection((*peers)[index].Direction, direction)
+				if (*peers)[index].Removed {
+					(*peers)[index].DirectoryRevision = 0
+				}
 				(*peers)[index].Direct = true
 				(*peers)[index].Removed = false
 				(*peers)[index].MyDevice = (*peers)[index].MyDevice || scope.Kind == protocol.InvitationMyDevice
