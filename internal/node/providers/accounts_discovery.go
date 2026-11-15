@@ -47,11 +47,11 @@ func accountDiscoveryRequest(ctx context.Context, provider protocol.Conversation
 	return request, nil
 }
 
-func discoverAccount(ctx context.Context, provider protocol.ConversationProvider, secret *protocol.Secret) (protocol.ConversationDiscoveryCatalog, error) {
+func discoverAccount(ctx context.Context, provider protocol.ConversationProvider, secret *protocol.Secret, client *http.Client) (protocol.ConversationDiscoveryCatalog, error) {
 	catalog := protocol.ConversationDiscoveryCatalog{Endpoint: strings.TrimRight(provider.Endpoint, "/"), Models: []protocol.ConversationDiscoveryModel{}}
 	owner, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	client, remaining := httpClient(15*time.Second), int64(8*1024*1024)
+	remaining := int64(8 * 1024 * 1024)
 	if provider.Authentication == protocol.AuthenticationClaudeOAuth || provider.Authentication == protocol.AuthenticationPlugin && provider.Api == protocol.ConversationModelApiAnthropic {
 		endpoint, err := Endpoint(provider.Endpoint)
 		if err != nil {

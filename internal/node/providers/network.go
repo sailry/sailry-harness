@@ -20,6 +20,7 @@ type Work struct {
 	Secret        *protocol.Secret
 	ETag          *string
 	Directory     *Directory
+	Client        *http.Client
 	ScoreRevision uint64
 }
 type Prepared struct {
@@ -51,7 +52,7 @@ func Run(ctx context.Context, work Work) (*Prepared, error) {
 		if work.Provider == nil {
 			return nil, invalid("provider discovery capture is missing")
 		}
-		catalog, err := Discover(ctx, *work.Provider, work.Secret)
+		catalog, err := discover(ctx, *work.Provider, work.Secret, work.Client)
 		if err != nil {
 			return nil, err
 		}

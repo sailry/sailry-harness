@@ -202,6 +202,20 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 				return
 			}
 			node.pluginCommitted(changes)
+			for _, change := range changes {
+				if change.Kind != "provider_changed" {
+					continue
+				}
+				if provider, ok := dispatchPayload[protocol.ConversationProvider](change.Data); ok {
+					if err := node.discoverProviderLoginModels(operation, caller, provider); err != nil {
+						failure := pluginFailure(err)
+						node.auth.mu.Lock()
+						entry.provider.ModelError = failure
+						node.auth.mu.Unlock()
+					}
+				}
+				break
+			}
 			_ = node.setProviderLogin(entry, protocol.ConversationLoginState{Kind: "connected"})
 		})
 		if err != nil {

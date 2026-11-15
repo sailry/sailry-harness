@@ -14,12 +14,23 @@ import (
 )
 
 func Discover(ctx context.Context, provider protocol.ConversationProvider, secret *protocol.Secret) (protocol.ConversationDiscoveryCatalog, error) {
+	return discover(ctx, provider, secret, nil)
+}
+
+func discover(ctx context.Context, provider protocol.ConversationProvider, secret *protocol.Secret, client *http.Client) (protocol.ConversationDiscoveryCatalog, error) {
+	if client == nil {
+		client = httpClient(15 * time.Second)
+	} else {
+		captured := *client
+		captured.Timeout = 15 * time.Second
+		client = &captured
+	}
 	var catalog protocol.ConversationDiscoveryCatalog
 	if provider.Api == protocol.ConversationModelApiPlugin {
 		return catalog, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "custom model discovery requires its captured translation"}
 	}
 	if provider.Authentication != protocol.AuthenticationApiKey {
-		return discoverAccount(ctx, provider, secret)
+		return discoverAccount(ctx, provider, secret, client)
 	}
 	if provider.Api == protocol.ConversationModelApiAzureAi || provider.Api == protocol.ConversationModelApiAzureOpenAi {
 		return catalog, invalid("cloud deployments require an explicit model ID")
@@ -56,7 +67,6 @@ func Discover(ctx context.Context, provider protocol.ConversationProvider, secre
 	}
 	owner, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	client := httpClient(15 * time.Second)
 	remaining := int64(8 * 1024 * 1024)
 	for _, candidate := range candidates {
 		endpoint := strings.TrimRight(candidate.String(), "/")

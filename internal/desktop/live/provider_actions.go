@@ -26,6 +26,20 @@ func (r *Runtime) saveProvider(d settings.ProviderDraft, done func(bool)) {
 		if ok {
 			r.project()
 			r.projectProviderSnapshot()
+			// Completion and the Node subscription are independent streams. A
+			// fresh ordered snapshot makes the saved models available to existing
+			// drafts without retaining a second provider inventory in Desktop.
+			r.async(func() {
+				err := r.controller.Refresh(r.ctx)
+				r.enqueue(func(c *ui.Context) {
+					if err != nil {
+						r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
+						return
+					}
+					r.project()
+					r.projectProviderSnapshot()
+				})
+			})
 		}
 	})
 }
@@ -43,6 +57,7 @@ func (r *Runtime) removeProvider(id string, revision uint64) {
 	if p, ok := r.provider(id); ok {
 		r.providerCommand(protocol.Command{Kind: "remove_provider", Data: protocol.CommandRemoveProviderPayload{Provider: p.ID, ExpectedRevision: revision}}, func(_ protocol.Output, ok bool) {
 			if ok {
+				delete(r.authorizations.savedProviders, id)
 				r.projectProviderSnapshot()
 			}
 		})

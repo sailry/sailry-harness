@@ -1061,6 +1061,7 @@ authorization_waiting_time: Esperando autorización · %{time}
 authorization_link_expired: Enlace caducado
 authorization_code_expired: Código caducado
 provider_login_callback: Código de autorización o URL de redirección del navegador
+provider_login_callback_placeholder: If sign-in doesn't return automatically, paste the code or callback URL
 provider_login_continue: Continuar
 authorization_open: Abrir
 authorization_copy_link: Copiar enlace

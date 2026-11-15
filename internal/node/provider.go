@@ -48,6 +48,7 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 		return &providers.Prepared{Provider: work.Provider, Output: &output}, nil
 	}
 	work.Directory = &node.providerDirectory
+	work.Client = node.auth.client
 	return providers.Run(ctx, *work)
 }
 func (node *Node) readProvider(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {

@@ -239,6 +239,9 @@ func testProviderFlow(t *testing.T) {
 		}
 	}
 	shot("providers-list")
+	if !tester.HasText("OAuth · " + i18n.In("zh-CN", "provider_model_count", "count", 1)) {
+		t.Error("an OAuth channel was labeled by its transport protocol")
+	}
 
 	// The filter: All, the offered brands, then the brand only a channel
 	// has; each brand's option has its mark.

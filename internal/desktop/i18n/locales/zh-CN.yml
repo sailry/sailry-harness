@@ -1061,6 +1061,7 @@ authorization_waiting_time: 等待授权 · %{time}
 authorization_link_expired: 链接已过期
 authorization_code_expired: 代码已过期
 provider_login_callback: 浏览器返回的授权码或回调地址
+provider_login_callback_placeholder: 如果未自动返回，请粘贴授权码或回调地址
 provider_login_continue: 继续
 authorization_open: 打开
 authorization_copy_link: 复制链接

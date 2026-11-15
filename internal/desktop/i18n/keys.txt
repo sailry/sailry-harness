@@ -1080,6 +1080,7 @@ authorization_waiting_time
 authorization_link_expired
 authorization_code_expired
 provider_login_callback
+provider_login_callback_placeholder
 provider_login_continue
 authorization_open
 authorization_copy_link

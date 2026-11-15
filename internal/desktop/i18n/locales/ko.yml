@@ -1061,6 +1061,7 @@ authorization_waiting_time: 인증 대기 중 · %{time}
 authorization_link_expired: 링크가 만료됨
 authorization_code_expired: 코드가 만료됨
 provider_login_callback: 브라우저에서 받은 인증 코드 또는 리디렉션 URL
+provider_login_callback_placeholder: If sign-in doesn't return automatically, paste the code or callback URL
 provider_login_continue: 계속
 authorization_open: 열기
 authorization_copy_link: 링크 복사

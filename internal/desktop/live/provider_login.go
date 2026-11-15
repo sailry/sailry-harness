@@ -51,7 +51,7 @@ type liveAuthorization struct {
 }
 
 func localAuthorization(ctx context.Context, presentation *protocol.PluginModelAuthPresentation) (*string, <-chan string, bool, error) {
-	path, port, manual, needed := "/auth/callback", uint16(0), false, false
+	path, port, manual, needed, localhost := "/auth/callback", uint16(0), false, false, false
 	if presentation != nil {
 		switch presentation.Kind {
 		case "pkce":
@@ -62,10 +62,12 @@ func localAuthorization(ctx context.Context, presentation *protocol.PluginModelA
 			value, ok := detail[protocol.PluginModelAuthPresentationScriptPayload](presentation.Data)
 			if ok && value.Callback != nil {
 				manual = value.Callback.Manual
-				needed = !manual
+				// A fixed loopback callback still listens when pasted input is supported.
+				needed = !manual || value.Callback.Port != nil
 				path = value.Callback.Path
 				if value.Callback.Port != nil {
 					port = *value.Callback.Port
+					localhost = value.Callback.AllowLocalhost
 				}
 			}
 		}
@@ -75,9 +77,16 @@ func localAuthorization(ctx context.Context, presentation *protocol.PluginModelA
 	}
 	listener, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 	if err != nil {
+		if manual {
+			return nil, nil, true, nil
+		}
 		return nil, nil, false, err
 	}
-	redirect := "http://" + listener.Addr().String() + path
+	address := listener.Addr().String()
+	if localhost {
+		address = net.JoinHostPort("localhost", strconv.Itoa(int(port)))
+	}
+	redirect := "http://" + address + path
 	returned := make(chan string, 1)
 	var once sync.Once
 	server := &http.Server{MaxHeaderBytes: 16 * 1024}

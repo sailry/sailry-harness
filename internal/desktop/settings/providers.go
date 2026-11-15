@@ -240,7 +240,11 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 	p := theme.Of(c)
 	ui.Column(c.Key(ch.ID)).Children(func() {
 		ui.Row(c.Key("row")).Padding(12, 0).Gap(12).Children(func() {
-			desc := ch.API + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
+			access := ch.API
+			if ch.Auth == preview.AuthOAuth {
+				access = "OAuth"
+			}
+			desc := access + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
 			if !m.Live {
 				desc = i18n.T(c, "preview") + " · " + desc
 			}

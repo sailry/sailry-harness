@@ -69,8 +69,20 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	}
 	var requests atomic.Int32
 	var block atomic.Bool
+	var discoveryFailure atomic.Bool
+	var modelRequests atomic.Int32
 	started := make(chan struct{}, 1)
 	node.auth.client = &http.Client{Transport: accountHTTP(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() == "https://api.openai.com/v1/models" && request.Method == http.MethodGet {
+			modelRequests.Add(1)
+			if request.Header.Get("Authorization") != "Bearer private-access" {
+				return nil, errors.New("model discovery did not use the signed-in account")
+			}
+			if discoveryFailure.Load() {
+				return nil, errors.New("fixture model discovery failed")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"models":[{"slug":"fixture-auto","visibility":"list","display_name":"Fixture automatic model","context_window":200000,"max_output_tokens":16000}]}`))}, nil
+		}
 		requests.Add(1)
 		if request.URL.String() != "https://auth.example.test/token" || request.Method != http.MethodGet {
 			return nil, errors.New("unexpected account request")
@@ -119,6 +131,9 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 			t.Fatalf("captured account authorization failed: %#v", value.State.Data)
 		}
 		if value.State.Kind == "connected" {
+			if value.ModelError != nil {
+				t.Fatalf("automatic model discovery failed: %v", value.ModelError)
+			}
 			break
 		}
 	}
@@ -147,11 +162,53 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	if provider.Credential == nil {
 		t.Fatal("completed login did not attach its credential to the provider")
 	}
+	if modelRequests.Load() != 1 || len(provider.Models) != 1 || provider.Models[0].ID != "fixture-auto" || provider.DefaultModel != "fixture-auto" || provider.Models[0].Context != 200000 {
+		t.Fatalf("completed login did not save the account's discovered models: %d requests, %+v", modelRequests.Load(), provider.Models)
+	}
+	t.Run("model discovery failure retains the successful login", func(t *testing.T) {
+		discoveryFailure.Store(true)
+		defer discoveryFailure.Store(false)
+		output := commandFixture(t, node, protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision}})
+		attempt, ok := dispatchPayload[protocol.ConversationLoginAttempt](output.Data)
+		if !ok {
+			t.Fatal("sign-in did not return an attempt")
+		}
+		stream, err := node.Subscribe(ctx, node.ID(), protocol.Topic{Kind: "provider_login", Data: attempt.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		for {
+			update, err := stream.Next(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, ok := dispatchPayload[protocol.ConversationLoginUpdate](update.Data)
+			if !ok || value.State.Kind == "failed" || value.State.Kind == "cancelled" {
+				t.Fatalf("model discovery failure discarded account sign-in: %+v", value)
+			}
+			if value.State.Kind == "connected" {
+				if value.ModelError == nil {
+					t.Fatal("model discovery failure was not reported separately")
+				}
+				break
+			}
+		}
+		for _, saved := range snapshotFixture(t, node).Providers {
+			if saved.ID == provider.ID {
+				provider = saved
+			}
+		}
+		if provider.Credential == nil || len(provider.Models) != 1 || provider.DefaultModel != "fixture-auto" {
+			t.Fatal("discovery failure lost the account or existing model configuration")
+		}
+	})
 	key := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: provider.ID, ExpectedRevision: provider.Revision}}))
 	if key.Fault == nil || key.Fault.Code != protocol.ErrorCodePermissionDenied {
 		t.Fatal("provider settings exposed an account grant as an API key")
 	}
 	t.Run("queued account renews its admitted credential", func(t *testing.T) {
+		before := requests.Load()
 		captured := provider
 		reference := *captured.Credential
 		selected := protocol.CredentialRef{Node: node.ID(), ID: protocol.NewCredentialID()}
@@ -229,7 +286,7 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 			t.Fatal(err)
 		}
 		grant, err := providers.DecodeAccount(invocation.Secret, captured.Authentication)
-		if err != nil || invocation.AuthorizationFailure != nil || grant.Access != "private-access" || requests.Load() != 2 {
+		if err != nil || invocation.AuthorizationFailure != nil || grant.Access != "private-access" || requests.Load() != before+1 {
 			t.Fatalf("queued preparation did not renew its admitted account: %v", err)
 		}
 		for _, current := range snapshotFixture(t, node).Providers {
@@ -317,7 +374,7 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 // Over 3 s: a Node start, then two polls at GitHub's one-second interval.
 func TestCopilotSignIn(t *testing.T) {
 	node := nodeFixture(t)
-	var polls, exchanges atomic.Int32
+	var polls, exchanges, modelQueries atomic.Int32
 	answer := func(writer http.ResponseWriter, status int, body string) {
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(status)
@@ -355,6 +412,14 @@ func TestCopilotSignIn(t *testing.T) {
 			default:
 				answer(writer, http.StatusUnauthorized, `{"message":"Bad credentials"}`)
 			}
+		case "api.githubcopilot.com/models":
+			modelQueries.Add(1)
+			if request.Method != http.MethodGet || request.URL.RawQuery != "" || request.Header.Get("Authorization") != "Bearer session-1" ||
+				request.Header.Get("User-Agent") != providers.DefaultCopilotAgent || request.Header.Get("openai-intent") != "conversation-panel" ||
+				request.Header.Get("x-initiator") != "user" || request.Header.Get("x-request-id") == "" {
+				t.Errorf("model discovery: %s %v", request.Method, request.Header)
+			}
+			answer(writer, http.StatusOK, `{"data":[{"id":"fixture-copilot","supported_endpoints":["/chat/completions"],"capabilities":{"type":"chat","limits":{"max_context_window_tokens":128000,"max_output_tokens":8192},"supports":{"vision":true,"tool_calls":true}}}]}`)
 		default:
 			t.Errorf("unexpected request to %s%s", request.Host, request.URL.Path)
 			answer(writer, http.StatusNotFound, `null`)
@@ -409,6 +474,9 @@ func TestCopilotSignIn(t *testing.T) {
 		case "failed", "cancelled":
 			t.Fatalf("Copilot sign-in ended %s: %#v", value.State.Kind, value.State.Data)
 		case "connected":
+			if value.ModelError != nil {
+				t.Fatalf("automatic Copilot model discovery failed: %v", value.ModelError)
+			}
 			connected = true
 		}
 	}
@@ -422,6 +490,13 @@ func TestCopilotSignIn(t *testing.T) {
 	}
 	if provider.Credential == nil {
 		t.Fatal("completed sign-in did not attach its credential")
+	}
+	if modelQueries.Load() != 1 || provider.Endpoint != "https://api.githubcopilot.com" || provider.DefaultModel != "fixture-copilot" || len(provider.Models) != 1 {
+		t.Fatalf("sign-in did not discover and save models at its pinned endpoint: %d requests, %+v", modelQueries.Load(), provider)
+	}
+	model := provider.Models[0]
+	if model.ID != "fixture-copilot" || model.Context != 128000 || model.Output != 8192 || !model.Vision || !model.Tools {
+		t.Fatalf("discovered Copilot model metadata was not saved: %+v", model)
 	}
 	listed, _ := json.Marshal(commandFixture(t, node, protocol.Command{Kind: "list_credentials"}))
 	if bytes.Contains(listed, []byte("github-token")) || bytes.Contains(listed, []byte("session-1")) {

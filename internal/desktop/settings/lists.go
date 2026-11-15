@@ -260,7 +260,7 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 			if callback {
 				ui.Row(c.Key("callback")).Gap(8).FillWidth().Margin(16, 0, 0, 0).Children(func() {
 					ui.TextInput(c.Key("pasted"), &a.Pasted).Label(t("provider_login_callback")).
-						Placeholder(t("provider_login_callback")).Grow(1)
+						Placeholder(t("provider_login_callback_placeholder")).Grow(1)
 					kit.Primary(c.Key("continue"), t("provider_login_continue"), false).
 						Children(func() { ui.Text(c, t("provider_login_continue")).FontSize(14) }).OnClick(submit)
 				})
