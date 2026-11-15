@@ -142,9 +142,11 @@ class TaskRow extends StatelessWidget {
               left: _avatar + _gap,
               right: 0,
               bottom: 0,
+              // Half a point and stronger than outlineVariant: a device
+              // hairline in that tone vanishes between rows.
               child: Container(
-                height: 1 / MediaQuery.devicePixelRatioOf(context),
-                color: colors.outlineVariant,
+                height: .5,
+                color: colors.onSurface.withValues(alpha: .12),
               ),
             ),
         ],
