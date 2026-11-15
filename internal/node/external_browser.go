@@ -56,7 +56,8 @@ func (node *Node) dispatchExternalBrowser(ctx context.Context, caller protocol.N
 	if err != nil {
 		return link.Admission{}, err
 	}
-	operation, finish, err := node.beginPluginExecution(node.ctx, request)
+	owner := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+	operation, finish, err := node.beginPluginExecution(owner, request)
 	if err != nil {
 		return link.Admission{}, err
 	}
