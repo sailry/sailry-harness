@@ -47,7 +47,7 @@ func (v *View) Find() bool {
 	return true
 }
 
-// Tools are the bar's actions after the file's name: Copy for text, Open.
+// Tools are a preview's actions: Copy for text, Open.
 func Tools(c *ui.Context, f conversation.File, cb Callbacks) {
 	if f.State == conversation.PreviewReady && (f.Kind == conversation.CodeFile || f.Kind == conversation.TextFile || f.Kind == conversation.MarkdownFile) {
 		kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
@@ -60,7 +60,7 @@ func Tools(c *ui.Context, f conversation.File, cb Callbacks) {
 	}
 }
 
-// Title is the bar's file: its icon and path.
+// Title is the dialog bar's file: its icon and path.
 func Title(c *ui.Context, f conversation.File) {
 	p := theme.Of(c)
 	ui.Icon(c, conversation.FileIcon(f)).FontSize(16).Shrink(0).TextColor(p.MutedForeground)

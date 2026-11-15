@@ -221,7 +221,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 					if k == Changes {
 						label = pr.gitDocumentLabel(path, label)
 					}
-					tab(c, path, icon, label, path == pr.shown(k), false, nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
+					tab(c, path, icon, label, "", path == pr.shown(k), false, nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
 				}
 			})
 		})
@@ -233,8 +233,12 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 // active tab. A tab with drag drags it, wearing the drag preview's look while
 // it does. show and close run after the build, as MyGo runs OnClick: they act
 // themselves, as nothing set by them is read in the pass that built the tab.
-func tab(c *ui.Context, key any, icon *ui.SVG, label string, active, busy bool, drag *panes.Drag, show, close func()) {
+func tab(c *ui.Context, key any, icon *ui.SVG, label, tip string, active, busy bool, drag *panes.Drag, show, close func()) {
 	b, hovered := kit.StripTab(c, key, label, active, tabMax)
+	// A tab names its item short; the tip is the whole, a file's path.
+	if tip != "" && tip != label {
+		kit.Tooltip(c, b, tip)
+	}
 	if drag != nil {
 		b.Drag(*drag)
 		if kit.DragChip(c, b, label) {
@@ -313,12 +317,16 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		ui.Row(c).Gap(4).Height(barHeight).Children(func() {
 			for _, t := range s.Tabs {
 				icon, label := s.look(c, t)
+				tip := ""
+				if f, ok := s.artifacts[t.ID]; ok && t.Kind == Artifact {
+					tip = f.Path
+				}
 				var drag *panes.Drag
 				if t.Kind == Terminal {
 					// A terminal drags onto the workspace to open in a split.
 					drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
 				}
-				tab(c, t, icon, label, t == s.Active, s.busy(t), drag, func() { s.Show(t) }, func() {
+				tab(c, t, icon, label, tip, t == s.Active, s.busy(t), drag, func() { s.Show(t) }, func() {
 					// The button that closed is in the header: the focus
 					// goes to the panel, where ⌘W closes the next tab.
 					s.Close(t)

@@ -35,9 +35,10 @@ func (s *State) ShowArtifact(f conversation.File) {
 	s.Show(Tab{Artifact, f.ID})
 }
 
-// artifact is a file's preview, the application's one (fileview): the path
-// bar with Copy and Open, then the file or the state of a preview that
-// cannot show.
+// artifact is a file's preview, the application's one (fileview): the file
+// or the state of a preview that cannot show, with Copy and Open floating
+// at its top end. The tab names the file, and its tooltip is the path, so
+// the preview has no title bar of its own.
 func (s *State) artifact(c *ui.Context, id string) {
 	f, ok := s.artifacts[id]
 	if !ok {
@@ -61,11 +62,13 @@ func (s *State) artifact(c *ui.Context, id string) {
 			}
 		}
 	}
-	toolbar(c, "artifact-bar", func() {
-		fileview.Title(c, f)
-		fileview.Tools(c, f, cb)
+	ui.Column(c.Key("artifact")).FillWidth().Grow(1).MinHeight(0).Children(func() {
+		fileview.Content(c, &s.view, id, f, cb)
+		if f.State == conversation.PreviewReady {
+			kit.Floating(c, ui.Row(c.Key("artifact-tools"))).Absolute().Top(8).Right(12).Padding(2).Gap(2).
+				Radius(8).Children(func() { fileview.Tools(c, f, cb) })
+		}
 	})
-	fileview.Content(c, &s.view, id, f, cb)
 }
 
 // Subagent is a tab holding a subagent's session.
