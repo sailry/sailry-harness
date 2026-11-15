@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"image"
 	"testing"
 	"time"
 
@@ -112,4 +113,88 @@ func TestToastActionsStillDismiss(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestToastStaysAboveNestedDialogs(t *testing.T) {
+	for _, sample := range []struct {
+		name   string
+		mode   theme.Mode
+		reduce bool
+	}{{"light frost", theme.Light, false}, {"dark frost", theme.Dark, false},
+		{"light opaque", theme.Light, true}, {"dark opaque", theme.Dark, true}} {
+		t.Run(sample.name, func(t *testing.T) {
+			outer, inner, publish, acted := true, false, true, 0
+			var danger ui.Color
+			window := ui.NewTesterWith(func(c *ui.Context) {
+				theme.Apply(c, "", sample.mode)
+				danger = theme.Of(c).Danger
+				if publish {
+					publish = false
+					c.AddToast(ui.Toast{ID: "layer-fixture", Type: "error", Title: "Retry folder read", Timeout: time.Minute,
+						Action: "Retry", Data: ToastBodyAction{}, OnAction: func() { acted++ }})
+				}
+				Dialog(c.Key("outer"), &outer, func() { ui.Box(c).Size(480, 280) })
+				Dialog(c.Key("inner"), &inner, func() { ui.Box(c).Size(552, 352) }, DialogOptions{Bleed: true}).Label("Nested folder picker")
+				ToastHost(c)
+			}, 600, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: sample.reduce}})
+			window.SetLocale("en")
+			window.Frame()
+			window.Advance(time.Second)
+			before := window.Image()
+			button, ok := window.AccessByRole(ui.RoleButton, "Retry folder read")
+			if !ok {
+				t.Fatal("the fixture toast did not appear")
+			}
+			// Sample the error icon's solid pixels, so a backdrop painted
+			// over the toast fails even when accessibility and clicks work.
+			var ink []image.Point
+			for y := int(button.Bounds.Y); y < int(button.Bounds.Y+button.Bounds.H); y++ {
+				for x := int(button.Bounds.X); x < int(button.Bounds.X+button.Bounds.W); x++ {
+					p := before.RGBAAt(x, y)
+					if toastChannelDifference(p.R, danger.R) <= 2 && toastChannelDifference(p.G, danger.G) <= 2 && toastChannelDifference(p.B, danger.B) <= 2 {
+						ink = append(ink, image.Pt(x, y))
+					}
+				}
+			}
+			if len(ink) < 4 {
+				t.Fatalf("the fixture error icon has only %d solid pixels", len(ink))
+			}
+			// The picker opens after the toast already exists, and its panel
+			// covers the toast's screen position. The window still draws the
+			// shared toast host last, above every backdrop and dialog panel.
+			inner = true
+			window.Frame()
+			for range 10 {
+				window.Advance(40 * time.Millisecond)
+				after := window.Image()
+				for _, point := range ink {
+					p, q := before.RGBAAt(point.X, point.Y), after.RGBAAt(point.X, point.Y)
+					if toastChannelDifference(p.R, q.R) > 2 || toastChannelDifference(p.G, q.G) > 2 || toastChannelDifference(p.B, q.B) > 2 {
+						t.Fatalf("the nested dialog dimmed or covered the toast at %v: %v became %v", point, p, q)
+					}
+				}
+			}
+			button, ok = window.AccessByRole(ui.RoleButton, "Retry folder read")
+			if !ok {
+				t.Fatalf("the nested dialog hid its toast: %+v", window.AccessAll())
+			}
+			x, y := button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2
+			panel, ok := window.AccessByRole(ui.RoleDialog, "Nested folder picker")
+			if !ok || x < panel.Bounds.X || x >= panel.Bounds.X+panel.Bounds.W || y < panel.Bounds.Y || y >= panel.Bounds.Y+panel.Bounds.H {
+				t.Fatalf("the fixture toast no longer overlaps the nested dialog: toast=%+v dialog=%+v", button, panel)
+			}
+			window.ClickAt(x, y)
+			window.Frame()
+			if acted != 1 || !outer || !inner || window.HasText("Retry folder read") {
+				t.Fatalf("toast action hit the dialog: actions=%d outer=%v inner=%v", acted, outer, inner)
+			}
+		})
+	}
+}
+
+func toastChannelDifference(a, b uint8) int {
+	if a > b {
+		return int(a - b)
+	}
+	return int(b - a)
 }
