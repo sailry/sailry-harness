@@ -222,6 +222,12 @@ ACP programs act as models: their file, terminal and MCP capabilities and their
 own permission requests are refused. Packages declare executables and protocol
 differences; the process service owns their lifecycle.
 
+Switching models retains the same canonical session and history. Outbound
+projection adapts messages and paired tool results to the selected protocol;
+private reasoning is replayed only to its producing provider and model. Reviewed
+capability lookup corrections recognize supported model aliases without renaming
+the provider's requested model or changing stored records.
+
 Provider editing can switch a declared protocol route while retaining the
 provider identity, credentials and model settings. The editor masks explicitly
 read API keys and omits unchanged keys from saves. Image capability editing

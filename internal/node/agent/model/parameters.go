@@ -198,7 +198,11 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 				params.Body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 			}
 		} else if adaptive && !always && params.Body["thinking"] == nil {
-			params.Body["thinking"] = map[string]any{"type": "disabled"}
+			off := entry.Rig.ThinkingOff
+			if off == "" {
+				off = "disabled"
+			}
+			params.Body["thinking"] = map[string]any{"type": off}
 		}
 		if thinking, ok := params.Body["thinking"].(map[string]any); ok && strings.Contains(strings.ToLower(binding.Config.Model), "claude") && (thinking["type"] == "enabled" || thinking["type"] == "adaptive") {
 			if _, ok := thinking["display"]; !ok {

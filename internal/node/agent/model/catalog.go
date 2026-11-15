@@ -32,7 +32,8 @@ type catalogModel struct {
 		Values []*string `json:"values"`
 	} `json:"reasoning_options"`
 	Rig struct {
-		Adaptive bool `json:"adaptive_thinking"`
+		Adaptive    bool   `json:"adaptive_thinking"`
+		ThinkingOff string `json:"thinking_off"`
 	} `json:"rig"`
 	Limit struct {
 		Context uint32 `json:"context"`
@@ -46,12 +47,33 @@ func catalogEntry(provider, model string) (catalogModel, bool) {
 		}
 	})
 	models := catalog[provider].Models
-	if entry, ok := models[model]; ok {
+	lookup := func(id string) (catalogModel, bool) {
+		if provider == "anthropic" {
+			// Some compatible providers spell the minor version with a dot.
+			// Normalize capability lookup only; the wire model stays unchanged.
+			switch id {
+			case "claude-haiku-5.5":
+				id = "claude-haiku-5-5"
+			case "claude-sonnet-5.5":
+				id = "claude-sonnet-5-5"
+			case "claude-opus-5.5":
+				id = "claude-opus-5-5"
+			}
+		}
+		entry, ok := models[id]
+		if ok && provider == "anthropic" && id == "claude-haiku-5-5" {
+			// The pinned catalog lists its efforts but omits adaptive thinking.
+			// Apply the reviewed correction to this copy, keeping the source intact.
+			entry.Rig.Adaptive = true
+		}
+		return entry, ok
+	}
+	if entry, ok := lookup(model); ok {
 		return entry, true
 	}
 	for at := len(model) - 5; at >= 0; at-- {
 		if strings.HasPrefix(model[at:], "-20") && model[at+3] >= '0' && model[at+3] <= '9' && model[at+4] >= '0' && model[at+4] <= '9' {
-			if entry, ok := models[model[:at]]; ok {
+			if entry, ok := lookup(model[:at]); ok {
 				return entry, true
 			}
 		}
