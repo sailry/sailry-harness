@@ -147,34 +147,6 @@ func ReadPluginSettings(ctx context.Context, db *sql.Conn, reference protocol.Pl
 	if len(targets) != 0 {
 		destinations = targets[0]
 	}
-	if editErr != nil {
-		var failure *protocol.Fault
-		if !errors.As(editErr, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
-			return protocol.PluginSettingsState{}, editErr
-		}
-		if !reflect.DeepEqual(stored.Values, input.Values) {
-			return protocol.PluginSettingsState{}, editErr
-		}
-		for name, update := range input.Secrets {
-			binding := settingsBinding(info.Settings, name)
-			if binding == nil || binding.Server == nil {
-				if update.Kind != "keep" {
-					return protocol.PluginSettingsState{}, editErr
-				}
-				continue
-			}
-			if update.Kind == "keep" && destinations[name] == stored.McpTargets[name] {
-				continue
-			}
-			local, err := ConfigurationMCPServerLocal(ctx, db, input.Package.Name, *binding.Server)
-			if err != nil {
-				return protocol.PluginSettingsState{}, err
-			}
-			if !local {
-				return protocol.PluginSettingsState{}, editErr
-			}
-		}
-	}
 	return projectPluginSettings(*info, stored, destinations), nil
 }
 
@@ -203,6 +175,34 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	destinations := map[string]string{}
 	if len(targets) != 0 {
 		destinations = targets[0]
+	}
+	if editErr != nil {
+		var failure *protocol.Fault
+		if !errors.As(editErr, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
+			return protocol.PluginSettingsState{}, editErr
+		}
+		if !reflect.DeepEqual(stored.Values, input.Values) {
+			return protocol.PluginSettingsState{}, editErr
+		}
+		for name, update := range input.Secrets {
+			binding := settingsBinding(info.Settings, name)
+			if binding == nil || binding.Server == nil {
+				if update.Kind != "keep" {
+					return protocol.PluginSettingsState{}, editErr
+				}
+				continue
+			}
+			if update.Kind == "keep" && destinations[name] == stored.McpTargets[name] {
+				continue
+			}
+			local, err := ConfigurationMCPServerLocal(ctx, db, input.Package.Name, *binding.Server)
+			if err != nil {
+				return protocol.PluginSettingsState{}, err
+			}
+			if !local {
+				return protocol.PluginSettingsState{}, editErr
+			}
+		}
 	}
 	for name := range input.Secrets {
 		if settingsBinding(info.Settings, name) == nil {
