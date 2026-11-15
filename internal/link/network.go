@@ -251,9 +251,13 @@ func (link *Link) Inspect(ctx context.Context, address EndpointAddress) (PeerInf
 }
 
 func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bool) error {
-	return link.updateTrust(ctx, peer, func() error {
+	err := link.updateTrust(ctx, peer, func() error {
 		return link.store.SetTrust(ctx, peer, trusted)
 	})
+	if err == nil && !trusted {
+		err = link.RefreshPeers(ctx)
+	}
+	return err
 }
 
 // Disconnect closes the cached connection to a paired peer; the next use

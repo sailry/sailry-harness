@@ -69,11 +69,15 @@ func (claim *pairingClaim) UnmarshalJSON(encoded []byte) error {
 }
 
 type pairingResult struct {
-	Fault *protocol.Fault
+	Fault    *protocol.Fault
+	MyDevice bool
 }
 
 func (result pairingResult) MarshalJSON() ([]byte, error) {
 	if result.Fault == nil {
+		if result.MyDevice {
+			return []byte(`{"Ok":null,"my_device":true}`), nil
+		}
 		return []byte(`{"Ok":null}`), nil
 	}
 	return json.Marshal(struct {
@@ -85,7 +89,22 @@ func (result *pairingResult) UnmarshalJSON(encoded []byte) error {
 	if !bytes.HasPrefix(bytes.TrimSpace(encoded), []byte("{")) {
 		return pairingRejected()
 	}
-	kind, payload, err := protocol.UnmarshalUnion(encoded, "", "", map[string]func() any{
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(encoded, &fields) != nil {
+		return pairingRejected()
+	}
+	result.MyDevice = false
+	if proof, ok := fields["my_device"]; ok {
+		if json.Unmarshal(proof, &result.MyDevice) != nil {
+			return pairingRejected()
+		}
+		delete(fields, "my_device")
+	}
+	union, err := json.Marshal(fields)
+	if err != nil {
+		return pairingRejected()
+	}
+	kind, payload, err := protocol.UnmarshalUnion(union, "", "", map[string]func() any{
 		"Ok": nil, "Err": func() any { return new(protocol.Fault) },
 	}, false)
 	if err != nil {
@@ -93,12 +112,16 @@ func (result *pairingResult) UnmarshalJSON(encoded []byte) error {
 	}
 	result.Fault = nil
 	if kind == "Err" {
+		if result.MyDevice {
+			return pairingRejected()
+		}
 		result.Fault = payload.(*protocol.Fault)
 	}
 	return nil
 }
 
 type pairingOffer struct {
+	scope    InvitationScope
 	token    pairingToken
 	deadline time.Time
 	stop     chan struct{}
@@ -153,6 +176,17 @@ func (invitation *Invitation) Paired(ctx context.Context) error {
 }
 
 func (link *Link) Invite(ctx context.Context) (*Invitation, error) {
+	return link.InviteFor(ctx, InvitationScope{Kind: protocol.InvitationOtherUser})
+}
+
+func (link *Link) InviteFor(ctx context.Context, scope InvitationScope) (*Invitation, error) {
+	if !scope.Kind.Valid() {
+		return nil, invalidLink("invalid invitation kind")
+	}
+	if scope.User != nil {
+		user := *scope.User
+		scope.User = &user
+	}
 	if link.ctx.Err() != nil {
 		return nil, linkNetwork(link.ctx.Err())
 	}
@@ -174,7 +208,7 @@ func (link *Link) Invite(ctx context.Context) (*Invitation, error) {
 	if err != nil {
 		return nil, linkNetwork(err)
 	}
-	offer := &pairingOffer{token: token, deadline: deadline, stop: make(chan struct{}), paired: make(chan struct{})}
+	offer := &pairingOffer{scope: scope, token: token, deadline: deadline, stop: make(chan struct{}), paired: make(chan struct{})}
 	link.offerMu.Lock()
 	if link.offer != nil {
 		link.offer.cancel()
@@ -252,7 +286,11 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if accepted.Fault != nil {
 		return EndpointAddress{}, accepted.Fault
 	}
-	if err := link.pairPeer(ctx, info.RemoteID, DirectionHost); err != nil {
+	scope := InvitationScope{Kind: protocol.InvitationOtherUser}
+	if accepted.MyDevice {
+		scope.Kind = protocol.InvitationMyDevice
+	}
+	if err := link.pairMember(ctx, info.RemoteID, DirectionHost, scope); err != nil {
 		return EndpointAddress{}, err
 	}
 	if err := link.remember(ctx, ticket.Address); err != nil {
@@ -330,12 +368,14 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 		return
 	}
 	var accepted error
+	var scope InvitationScope
 	if claim.Address.ID != peer || len(claim.Address.Addrs) > 16 {
 		accepted = pairingRejected()
 	} else {
-		accepted = link.acceptPairing(link.ctx, claim.Token, peer, claim.Address)
+		scope, accepted = link.acceptPairingScope(link.ctx, claim.Token, peer, claim.Address)
 	}
 	result := pairingResult{}
+	result.MyDevice = accepted == nil && scope.Kind == protocol.InvitationMyDevice
 	if accepted != nil {
 		fault := faultValue(accepted)
 		result.Fault = &fault
@@ -352,6 +392,11 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 }
 
 func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress) error {
+	_, err := link.acceptPairingScope(ctx, token, peer, address)
+	return err
+}
+
+func (link *Link) acceptPairingScope(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress) (InvitationScope, error) {
 	link.offerMu.Lock()
 	offer := link.offer
 	if offer == nil || subtle.ConstantTimeCompare(offer.token[:], token[:]) != 1 ||
@@ -359,29 +404,29 @@ func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer pr
 		offer.peer != nil && *offer.peer != peer ||
 		channelClosed(offer.paired) && !link.isTrusted(peer) {
 		link.offerMu.Unlock()
-		return pairingRejected()
+		return InvitationScope{}, pairingRejected()
 	}
 	claimed := peer
 	offer.peer = &claimed
 	link.offerMu.Unlock()
-	if err := link.pairPeer(ctx, peer, DirectionController); err != nil {
+	if err := link.pairMember(ctx, peer, DirectionController, offer.scope); err != nil {
 		// A claimant that gained no trust leaves the invitation to the others.
 		link.offerMu.Lock()
 		if offer.peer == &claimed && !link.isTrusted(peer) {
 			offer.peer = nil
 		}
 		link.offerMu.Unlock()
-		return err
+		return InvitationScope{}, err
 	}
 	if err := link.remember(ctx, address); err != nil {
-		return err
+		return InvitationScope{}, err
 	}
 	link.offerMu.Lock()
 	if link.offer == offer {
 		offer.accept.Do(func() { close(offer.paired) })
 	}
 	link.offerMu.Unlock()
-	return nil
+	return offer.scope, nil
 }
 
 func channelClosed(channel <-chan struct{}) bool {

@@ -139,7 +139,7 @@ func (server *Server) handle(ctx context.Context, connection *net.UnixConn) erro
 		}
 		return serveTask(scoped, line, connection, server.transport)
 	case "share":
-		return serveShare(scoped, line, connection, server.endpoint)
+		return serveShare(scoped, line, connection, server.endpoint, server.transport)
 	}
 	return errors.New("unsupported Host control request")
 }

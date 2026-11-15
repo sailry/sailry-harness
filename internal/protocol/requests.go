@@ -7,6 +7,15 @@ func NewRequest(target NodeID, command Command) Request {
 
 // Durable follows the v1 admission classification shared by Node and controllers.
 func (command Command) Durable() bool {
+	if command.Kind == "identity" {
+		switch action := command.Data.(type) {
+		case IdentityCommand:
+			return !action.ReadOnly()
+		case *IdentityCommand:
+			return action == nil || !action.ReadOnly()
+		}
+		return true
+	}
 	if command.Kind == "dispatch" {
 		var action DispatchCommand
 		switch payload := command.Data.(type) {

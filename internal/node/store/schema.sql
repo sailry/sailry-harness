@@ -577,3 +577,63 @@ CREATE TABLE IF NOT EXISTS user_team_settings (
 );
 
 CREATE TABLE user_personal_settings (user TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(user,kind));
+CREATE TABLE identity_memberships (
+    device BLOB PRIMARY KEY CHECK(length(device)=32),
+    user TEXT NOT NULL REFERENCES users(id),
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    active INTEGER NOT NULL CHECK(active IN (0,1))
+);
+CREATE TABLE identity_sponsorships (
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    request TEXT NOT NULL,
+    device BLOB NOT NULL CHECK(length(device)=32),
+    user TEXT NOT NULL REFERENCES users(id),
+    address TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','accepted','cancelled')),
+    PRIMARY KEY(sponsor,request)
+);
+CREATE INDEX identity_sponsorships_device ON identity_sponsorships(device,state);
+CREATE TABLE identity_directory (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    revision INTEGER NOT NULL CHECK(revision>0),
+    hosts BLOB NOT NULL
+);
+CREATE TABLE identity_deliveries (
+    request TEXT PRIMARY KEY,
+    user TEXT NOT NULL REFERENCES users(id),
+    host BLOB NOT NULL CHECK(length(host)=32),
+    address TEXT NOT NULL,
+    device BLOB NOT NULL CHECK(length(device)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    kind TEXT NOT NULL CHECK(kind IN ('sponsor','revoke')),
+    body BLOB NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','unknown','completed','cancelled','blocked')),
+    fault BLOB,
+    UNIQUE(host,device,generation,kind)
+);
+CREATE INDEX identity_deliveries_state ON identity_deliveries(state,host);
+CREATE TABLE identity_turn_origins (
+    turn TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE,
+    user TEXT NOT NULL REFERENCES users(id)
+);
+CREATE TABLE identity_storage_origin (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    user TEXT NOT NULL REFERENCES users(id)
+);
+CREATE TABLE identity_merge_conflicts (
+    source TEXT NOT NULL REFERENCES users(id),
+    target TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(source,kind,key)
+);
+
+CREATE TABLE identity_peer_origins (
+    peer BLOB PRIMARY KEY CHECK(length(peer)=32),
+    direct INTEGER NOT NULL CHECK(direct IN (0,1)),
+    my_device INTEGER NOT NULL CHECK(my_device IN (0,1)),
+    removed INTEGER NOT NULL CHECK(removed IN (0,1)),
+    sources BLOB NOT NULL
+);

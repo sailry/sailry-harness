@@ -14,6 +14,7 @@ import (
 
 type nodePeerStore struct {
 	handle *store.Handle
+	node   protocol.NodeID
 }
 
 func (peers nodePeerStore) Peers(ctx context.Context) ([]protocol.NodeID, error) {
@@ -44,6 +45,9 @@ func (peers nodePeerStore) Remember(ctx context.Context, address link.EndpointAd
 
 func (peers nodePeerStore) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bool) error {
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error {
+		if !trusted {
+			return store.RemoveIdentityPeer(ctx, db, peer)
+		}
 		return store.SetLinkTrust(ctx, db, peer, trusted)
 	}))
 }
@@ -58,6 +62,24 @@ func (peers nodePeerStore) PairPeer(ctx context.Context, peer protocol.NodeID, d
 }
 func (peers nodePeerStore) SetDirection(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection) error {
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.SetLinkDirection(ctx, db, peer, direction) }))
+}
+
+func (peers nodePeerStore) PairMember(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection, scope link.InvitationScope) error {
+	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.PairIdentityPeer(ctx, db, peers.node, peer, direction, scope) }))
+}
+
+func (peers nodePeerStore) Relationships(ctx context.Context) ([]link.PeerRelationship, error) {
+	var values []link.PeerRelationship
+	err := peers.handle.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		values, err = store.IdentityPeerRelationships(ctx, db)
+		return err
+	})
+	return values, nodeFault(err)
+}
+
+func (peers nodePeerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, addresses []link.EndpointAddress) error {
+	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.ApplyIdentityDirectory(ctx, db, source, addresses) }))
 }
 
 func StartWithNetwork(ctx context.Context, path string, scope link.NetworkScope) (*Node, error) {
@@ -94,7 +116,10 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 	node.network, err = link.Bind(node.ctx, link.EndpointOptions{
 		Identity: node.profile.Identity,
 		Scope:    scope, Handler: node,
-		Peers: nodePeerStore{handle: node.profile.Store.Node}, Name: name,
+		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID()}, Name: name,
 	})
+	if err == nil {
+		err = node.startIdentitySync()
+	}
 	return err
 }

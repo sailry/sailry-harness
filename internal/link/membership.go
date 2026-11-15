@@ -1,0 +1,135 @@
+package link
+
+import (
+	"context"
+	"encoding/json"
+	"sort"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+// InvitationScope is captured by the endpoint sharing the invitation. User is
+// meaningful only on a Node; it is never accepted from a pairing claimant.
+type InvitationScope struct {
+	Kind protocol.InvitationKind
+	User *protocol.UserID
+}
+
+type PeerRelationship struct {
+	ID       protocol.NodeID   `json:"id"`
+	Direct   bool              `json:"direct"`
+	MyDevice bool              `json:"my_device"`
+	Removed  bool              `json:"removed"`
+	Sources  []protocol.NodeID `json:"sources"`
+}
+
+// MembershipStore extends persistent peer stores. The base interface remains
+// usable by transports that do not support identity invitations or directories.
+type MembershipStore interface {
+	PairMember(context.Context, protocol.NodeID, PeerDirection, InvitationScope) error
+	Relationships(context.Context) ([]PeerRelationship, error)
+	ApplyDirectory(context.Context, protocol.NodeID, []EndpointAddress) error
+}
+
+func (link *Link) pairMember(ctx context.Context, peer protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
+	return link.updateTrust(ctx, peer, func() error {
+		if store, ok := link.store.(MembershipStore); ok {
+			return store.PairMember(ctx, peer, direction, scope)
+		}
+		if scope.Kind == protocol.InvitationMyDevice {
+			return invalidLink("peer store does not support my-device invitations")
+		}
+		return link.store.PairPeer(ctx, peer, direction)
+	})
+}
+
+func (link *Link) Relationships(ctx context.Context) ([]PeerRelationship, error) {
+	if store, ok := link.store.(MembershipStore); ok {
+		return store.Relationships(ctx)
+	}
+	peers, err := link.store.Peers(ctx)
+	values := make([]PeerRelationship, 0, len(peers))
+	for _, peer := range peers {
+		values = append(values, PeerRelationship{ID: peer, Direct: true, Sources: []protocol.NodeID{}})
+	}
+	return values, err
+}
+
+func (link *Link) MyDevice(ctx context.Context, peer protocol.NodeID) (bool, error) {
+	values, err := link.Relationships(ctx)
+	for _, value := range values {
+		if value.ID == peer {
+			return value.MyDevice && !value.Removed && link.Direction(peer).Valid(), err
+		}
+	}
+	return false, err
+}
+
+// ApplyDirectory imports only outbound hosts from an authenticated my-device
+// source. Store provenance preserves direct pairs and explicit local removals.
+func (link *Link) ApplyDirectory(ctx context.Context, directory protocol.HostDirectory) error {
+	known, err := link.MyDevice(ctx, directory.Source)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return pairingRejected()
+	}
+	if len(directory.Hosts) > maxControllerPeers {
+		return invalidLink("host directory exceeds limits")
+	}
+	self, err := link.Address(ctx)
+	if err != nil {
+		return err
+	}
+	byID := map[protocol.NodeID]EndpointAddress{}
+	for _, host := range directory.Hosts {
+		var address EndpointAddress
+		if len(host.Address) > 8192 || json.Unmarshal([]byte(host.Address), &address) != nil || address.ID != host.Node || len(address.Addrs) > 16 {
+			return invalidLink("invalid directory host address")
+		}
+		if address.ID != self.ID {
+			byID[address.ID] = address
+		}
+	}
+	addresses := make([]EndpointAddress, 0, len(byID))
+	for _, address := range byID {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(i, j int) bool { return addresses[i].ID.String() < addresses[j].ID.String() })
+	store, ok := link.store.(MembershipStore)
+	if !ok {
+		return invalidLink("peer store does not support host directories")
+	}
+	if err := store.ApplyDirectory(ctx, directory.Source, addresses); err != nil {
+		return err
+	}
+	return link.RefreshPeers(ctx)
+}
+
+// RefreshPeers reconciles trust changed by a Node command transaction. Removed
+// inbound access closes existing connections before another request can use it.
+func (link *Link) RefreshPeers(ctx context.Context) error {
+	link.trustUpdate.Lock()
+	defer link.trustUpdate.Unlock()
+	stored, err := link.store.Directions(ctx)
+	if err != nil {
+		return err
+	}
+	ids := map[protocol.NodeID]bool{}
+	link.mu.RLock()
+	for id := range link.trusted {
+		ids[id] = true
+	}
+	link.mu.RUnlock()
+	for _, value := range stored {
+		ids[value.ID] = true
+	}
+	for id := range ids {
+		if err := link.reconcilePeer(ctx, id); err != nil {
+			link.applyTrust(id, "")
+			return err
+		}
+	}
+	return nil
+}

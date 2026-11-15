@@ -18,6 +18,7 @@ type ShareState struct {
 
 type ShareSession struct {
 	link    *Link
+	scope   InvitationScope
 	relay   *pairingRelay
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -32,13 +33,24 @@ type ShareSession struct {
 }
 
 func (link *Link) Share(ctx context.Context, origin string) (*ShareSession, error) {
+	return link.ShareFor(ctx, origin, InvitationScope{Kind: protocol.InvitationOtherUser})
+}
+
+func (link *Link) ShareFor(ctx context.Context, origin string, scope InvitationScope) (*ShareSession, error) {
+	if !scope.Kind.Valid() {
+		return nil, invalidLink("invalid invitation kind")
+	}
+	if scope.User != nil {
+		user := *scope.User
+		scope.User = &user
+	}
 	relay, err := newPairingRelay(origin, link.now)
 	if err != nil {
 		return nil, err
 	}
 	lifetime, cancel := link.operation(ctx, false)
 	session := &ShareSession{
-		link: link, relay: relay, ctx: lifetime, cancel: cancel, done: make(chan struct{}),
+		link: link, scope: scope, relay: relay, ctx: lifetime, cancel: cancel, done: make(chan struct{}),
 		state: ShareState{Kind: "preparing"}, version: 1, changed: make(chan struct{}),
 	}
 	go session.drive()
@@ -123,7 +135,7 @@ func (session *ShareSession) drive() {
 
 func (session *ShareSession) shareInvitation() (bool, error) {
 	link := session.link
-	invitation, err := link.Invite(session.ctx)
+	invitation, err := link.InviteFor(session.ctx, session.scope)
 	if err != nil {
 		return true, err
 	}
