@@ -520,7 +520,9 @@ plugin settings retain their original storage principal. The local administrator
 flag can move to the surviving group; legacy singleton and search namespaces keep
 their original owner rather than following that flag.
 
-The source directory contains itself and directly paired outbound hosts. A
+The source directory contains itself and directly paired outbound hosts, with
+their last authenticated display names. Link retains those names with peer
+metadata so an introduced offline host can be identified before it connects. A
 verified my-device controller imports those hosts as direct outbound connections,
 deduplicated by endpoint identity. Direct pairs and other-source origins survive
 source removal; explicit local removals are not undone by refresh. Source

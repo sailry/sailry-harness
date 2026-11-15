@@ -20,7 +20,7 @@ func (store *membershipFixtureStore) PairMember(ctx context.Context, id protocol
 func (*membershipFixtureStore) Relationships(context.Context) ([]PeerRelationship, error) {
 	return nil, nil
 }
-func (*membershipFixtureStore) ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress) error {
+func (*membershipFixtureStore) ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress, ...map[protocol.NodeID]string) error {
 	return nil
 }
 

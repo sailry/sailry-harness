@@ -247,7 +247,11 @@ func (link *Link) Inspect(ctx context.Context, address EndpointAddress) (PeerInf
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	return link.inspectConnection(ctx, connection)
+	info, err := link.inspectConnection(ctx, connection)
+	if err == nil && info.Name != nil {
+		err = link.RememberPeerName(ctx, address.ID, *info.Name)
+	}
+	return info, err
 }
 
 func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bool) error {

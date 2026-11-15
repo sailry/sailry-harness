@@ -195,6 +195,11 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 	if !addressIncludes(target, current) || !addressIncludes(current, target) {
 		return nil, false, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "peer address changed"}
 	}
+	if info.Name != nil {
+		if err := link.rememberPeerName(slotContext, address.ID, *info.Name); err != nil {
+			return nil, false, err
+		}
+	}
 	link.publishConnection(slot, target, connection, info, certified)
 	accepted = true
 	return connection, info.Zstd, nil
@@ -273,6 +278,11 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	link.mu.Lock()
 	link.addresses[address.ID] = cloneAddress(address)
 	link.mu.Unlock()
+	if info.Name != nil {
+		if err := link.rememberPeerName(scoped, address.ID, *info.Name); err != nil {
+			return err
+		}
+	}
 	link.publishConnection(slot, address, connection, info, certified)
 	link.notifyPeers()
 	accepted = true

@@ -38,6 +38,12 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		return node
 	}
 	source, target := start("source"), start("target")
+	if err := source.Link().SetName("Source workstation"); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.Link().SetName("Target server"); err != nil {
+		t.Fatal(err)
+	}
 	// A public host already has an administrator. Its next paired user must not
 	// receive the source's static credentials until that host is opted in.
 	if err := target.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
@@ -103,6 +109,24 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		copied = readCopy(remote)
 		return copied.Source != nil
 	})
+	if err := source.SyncIdentity(ctx); err != nil {
+		t.Fatal(err)
+	}
+	directoryOutput, err := local.Do(ctx, protocol.Command{Kind: "identity", Data: protocol.IdentityCommand{Kind: "read_host_directory"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, ok := dispatchPayload[protocol.HostDirectory](directoryOutput.Data)
+	if !ok {
+		t.Fatal("host directory has an invalid payload")
+	}
+	names := map[protocol.NodeID]string{}
+	for _, host := range directory.Hosts {
+		names[host.Node] = host.Name
+	}
+	if names[source.ID()] != "Source workstation" || names[target.ID()] != "Target server" {
+		t.Fatalf("host directory lost authenticated display names: %#v", names)
+	}
 	receiving, err := remote.ReadConfigurationFollow(ctx)
 	if err != nil {
 		t.Fatal(err)

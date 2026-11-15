@@ -60,7 +60,9 @@ func (node *Node) SyncIdentity(ctx context.Context) error {
 		return err
 	}
 	direct := map[protocol.NodeID]bool{}
+	names := map[protocol.NodeID]string{node.ID(): node.network.Name()}
 	for _, value := range relationships {
+		names[value.ID] = value.Name
 		if value.Direct && value.DirectDirection.AllowsOutbound() && !value.Removed {
 			direct[value.ID] = true
 		}
@@ -75,7 +77,7 @@ func (node *Node) SyncIdentity(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		directory = append(directory, protocol.DirectoryHost{Node: address.ID, Address: string(body)})
+		directory = append(directory, protocol.DirectoryHost{Node: address.ID, Name: names[address.ID], Address: string(body)})
 		if address.ID != self.ID {
 			hosts = append(hosts, address)
 		}

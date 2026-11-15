@@ -27,6 +27,7 @@ type PeerStore interface {
 
 type controllerPeer struct {
 	ID                protocol.NodeID   `json:"id"`
+	Name              string            `json:"name,omitempty"`
 	Address           *EndpointAddress  `json:"address"`
 	Direction         PeerDirection     `json:"direction"`
 	Direct            bool              `json:"direct"`
@@ -137,7 +138,7 @@ func decodeControllerRecord(encoded []byte) (controllerRecord, error) {
 			active++
 		}
 		_, duplicate := unique[peer.ID]
-		if duplicate || !peer.Direction.Valid() || peer.DirectDirection != "" && !peer.DirectDirection.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
+		if duplicate || !validPeerName(peer.Name) || !peer.Direction.Valid() || peer.DirectDirection != "" && !peer.DirectDirection.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
 			return controllerRecord{}, controllerStorage(errors.New("invalid peer identity binding"))
 		}
 		unique[peer.ID] = struct{}{}

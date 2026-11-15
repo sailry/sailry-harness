@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
+	"unicode"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -17,6 +19,7 @@ type InvitationScope struct {
 
 type PeerRelationship struct {
 	ID                protocol.NodeID   `json:"id"`
+	Name              string            `json:"name,omitempty"`
 	Direct            bool              `json:"direct"`
 	DirectDirection   PeerDirection     `json:"direct_direction,omitempty"`
 	MyDevice          bool              `json:"my_device"`
@@ -30,7 +33,60 @@ type PeerRelationship struct {
 type MembershipStore interface {
 	PairMember(context.Context, protocol.NodeID, PeerDirection, InvitationScope) error
 	Relationships(context.Context) ([]PeerRelationship, error)
-	ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress) error
+	ApplyDirectory(context.Context, protocol.NodeID, uint64, []EndpointAddress, ...map[protocol.NodeID]string) error
+}
+
+// PeerNameStore retains display metadata learned from authenticated endpoints.
+// Names never establish trust or change an address's certified identity.
+type PeerNameStore interface {
+	RememberPeerName(context.Context, protocol.NodeID, string) error
+}
+
+func validPeerName(name string) bool {
+	return len([]rune(name)) <= 128 && !strings.ContainsFunc(name, unicode.IsControl)
+}
+
+func (link *Link) Name() string {
+	link.mu.RLock()
+	defer link.mu.RUnlock()
+	if link.name == nil {
+		return ""
+	}
+	return *link.name
+}
+
+func (link *Link) RememberPeerName(ctx context.Context, peer protocol.NodeID, name string) error {
+	link.trustUpdate.Lock()
+	defer link.trustUpdate.Unlock()
+	return link.rememberPeerName(ctx, peer, name)
+}
+
+func (link *Link) rememberPeerName(ctx context.Context, peer protocol.NodeID, name string) error {
+	name = strings.TrimSpace(name)
+	if !validPeerName(name) {
+		return invalidLink("invalid device name")
+	}
+	if !link.isTrusted(peer) {
+		return pairingRejected()
+	}
+	store, ok := link.store.(PeerNameStore)
+	if !ok {
+		return nil
+	}
+	values, err := link.Relationships(ctx)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		if value.ID == peer && value.Name == name {
+			return nil
+		}
+	}
+	if err := store.RememberPeerName(ctx, peer, name); err != nil {
+		return err
+	}
+	link.notifyPeers()
+	return nil
 }
 
 func (link *Link) pairMember(ctx context.Context, peer protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
@@ -100,13 +156,18 @@ func (link *Link) ApplyDirectory(ctx context.Context, directory protocol.HostDir
 		return err
 	}
 	byID := map[protocol.NodeID]EndpointAddress{}
+	names := map[protocol.NodeID]string{}
 	for _, host := range directory.Hosts {
 		var address EndpointAddress
 		if len(host.Address) > 8192 || json.Unmarshal([]byte(host.Address), &address) != nil || address.ID != host.Node || len(address.Addrs) > 16 {
 			return invalidLink("invalid directory host address")
 		}
+		if !validPeerName(host.Name) {
+			return invalidLink("invalid directory host name")
+		}
 		if address.ID != self.ID {
 			byID[address.ID] = address
+			names[address.ID] = strings.TrimSpace(host.Name)
 		}
 	}
 	addresses := make([]EndpointAddress, 0, len(byID))
@@ -118,7 +179,7 @@ func (link *Link) ApplyDirectory(ctx context.Context, directory protocol.HostDir
 	if !ok {
 		return invalidLink("peer store does not support host directories")
 	}
-	if err := store.ApplyDirectory(ctx, directory.Source, directory.Revision, addresses); err != nil {
+	if err := store.ApplyDirectory(ctx, directory.Source, directory.Revision, addresses, names); err != nil {
 		return err
 	}
 	return link.RefreshPeers(ctx)

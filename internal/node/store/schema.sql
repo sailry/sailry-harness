@@ -694,6 +694,7 @@ CREATE TABLE identity_merge_conflicts (
 
 CREATE TABLE identity_peer_origins (
     peer BLOB PRIMARY KEY CHECK(length(peer)=32),
+    name TEXT NOT NULL DEFAULT '',
     direct INTEGER NOT NULL CHECK(direct IN (0,1)),
     direct_direction TEXT NOT NULL DEFAULT '' CHECK(direct_direction IN ('','controller','host','both')),
     my_device INTEGER NOT NULL CHECK(my_device IN (0,1)),

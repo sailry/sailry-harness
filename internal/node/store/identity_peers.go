@@ -5,14 +5,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	"slices"
+	"strings"
+	"unicode"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func IdentityPeerRelationships(ctx context.Context, db *sql.Conn) ([]link.PeerRelationship, error) {
-	rows, err := db.QueryContext(ctx, `SELECT p.identity,coalesce(o.direct,1),coalesce(o.my_device,0),coalesce(o.removed,0),coalesce(o.sources,'[]'),coalesce(o.directory_revision,0),coalesce(nullif(o.direct_direction,''),CASE WHEN coalesce(o.direct,1)=1 THEN p.direction ELSE '' END) FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity
-UNION ALL SELECT peer,direct,my_device,removed,sources,directory_revision,direct_direction FROM identity_peer_origins WHERE NOT EXISTS(SELECT 1 FROM link_peers WHERE identity=peer) ORDER BY 1`)
+	rows, err := db.QueryContext(ctx, `SELECT p.identity,coalesce(o.direct,1),coalesce(o.my_device,0),coalesce(o.removed,0),coalesce(o.sources,'[]'),coalesce(o.directory_revision,0),coalesce(nullif(o.direct_direction,''),CASE WHEN coalesce(o.direct,1)=1 THEN p.direction ELSE '' END),coalesce(o.name,'') FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity
+UNION ALL SELECT peer,direct,my_device,removed,sources,directory_revision,direct_direction,name FROM identity_peer_origins WHERE NOT EXISTS(SELECT 1 FROM link_peers WHERE identity=peer) ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +23,7 @@ UNION ALL SELECT peer,direct,my_device,removed,sources,directory_revision,direct
 	for rows.Next() {
 		var value link.PeerRelationship
 		var id, sources []byte
-		if err := rows.Scan(&id, &value.Direct, &value.MyDevice, &value.Removed, &sources, &value.DirectoryRevision, &value.DirectDirection); err != nil {
+		if err := rows.Scan(&id, &value.Direct, &value.MyDevice, &value.Removed, &sources, &value.DirectoryRevision, &value.DirectDirection, &value.Name); err != nil {
 			return nil, err
 		}
 		if len(id) != len(protocol.NodeID{}) || json.Unmarshal(sources, &value.Sources) != nil {
@@ -38,8 +40,8 @@ func writeIdentityPeer(ctx context.Context, db *sql.Conn, value link.PeerRelatio
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO identity_peer_origins(peer,direct,my_device,removed,sources,directory_revision,direct_direction) VALUES(?1,?2,?3,?4,?5,?6,?7)
-ON CONFLICT(peer) DO UPDATE SET direct=excluded.direct,my_device=excluded.my_device,removed=excluded.removed,sources=excluded.sources,directory_revision=excluded.directory_revision,direct_direction=excluded.direct_direction`, value.ID[:], value.Direct, value.MyDevice, value.Removed, body, value.DirectoryRevision, string(value.DirectDirection))
+	_, err = db.ExecContext(ctx, `INSERT INTO identity_peer_origins(peer,direct,my_device,removed,sources,directory_revision,direct_direction,name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+ON CONFLICT(peer) DO UPDATE SET direct=excluded.direct,my_device=excluded.my_device,removed=excluded.removed,sources=excluded.sources,directory_revision=excluded.directory_revision,direct_direction=excluded.direct_direction,name=excluded.name`, value.ID[:], value.Direct, value.MyDevice, value.Removed, body, value.DirectoryRevision, string(value.DirectDirection), value.Name)
 	return err
 }
 
@@ -91,7 +93,11 @@ func removeIdentityPeerOrigins(ctx context.Context, db *sql.Conn, peer protocol.
 	return nil
 }
 
-func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.NodeID, revision uint64, addresses []link.EndpointAddress) error {
+func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.NodeID, revision uint64, addresses []link.EndpointAddress, metadata ...map[protocol.NodeID]string) error {
+	names := map[protocol.NodeID]string{}
+	if len(metadata) != 0 {
+		names = metadata[0]
+	}
 	values, err := IdentityPeerRelationships(ctx, db)
 	if err != nil {
 		return err
@@ -113,12 +119,19 @@ func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.N
 		return fault(protocol.ErrorCodePermissionDenied, "directory source is not a paired my-device")
 	}
 	for _, address := range addresses {
+		name := names[address.ID]
+		if len([]rune(name)) > 128 || strings.ContainsFunc(name, unicode.IsControl) {
+			return invalid("invalid directory host name")
+		}
 		value, exists := byID[address.ID]
 		if !exists {
 			value = link.PeerRelationship{ID: address.ID, Sources: []protocol.NodeID{}}
 		}
 		if value.Removed {
 			continue
+		}
+		if name != "" && (!value.Direct || value.Name == "") {
+			value.Name = name
 		}
 		value.Sources = append(value.Sources, source)
 		byID[address.ID] = value
@@ -146,6 +159,23 @@ func ApplyIdentityDirectory(ctx context.Context, db *sql.Conn, source protocol.N
 		}
 	}
 	return nil
+}
+
+func RememberIdentityPeerName(ctx context.Context, db *sql.Conn, peer protocol.NodeID, name string) error {
+	if len([]rune(name)) > 128 || strings.ContainsFunc(name, unicode.IsControl) {
+		return invalid("invalid device name")
+	}
+	values, err := IdentityPeerRelationships(ctx, db)
+	if err != nil {
+		return err
+	}
+	for _, value := range values {
+		if value.ID == peer && !value.Removed {
+			value.Name = name
+			return writeIdentityPeer(ctx, db, value)
+		}
+	}
+	return fault(protocol.ErrorCodePermissionDenied, "peer is not paired")
 }
 
 func mergeIdentityDirection(current, added link.PeerDirection) link.PeerDirection {

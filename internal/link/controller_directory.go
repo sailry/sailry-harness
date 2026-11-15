@@ -15,7 +15,7 @@ func (store *controllerStore) Relationships(ctx context.Context) ([]PeerRelation
 	defer store.mu.Unlock()
 	values := make([]PeerRelationship, 0, len(store.peers))
 	for _, peer := range store.peers {
-		values = append(values, PeerRelationship{ID: peer.ID, Direct: peer.Direct, DirectDirection: peer.DirectDirection, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...), DirectoryRevision: peer.DirectoryRevision})
+		values = append(values, PeerRelationship{ID: peer.ID, Name: peer.Name, Direct: peer.Direct, DirectDirection: peer.DirectDirection, MyDevice: peer.MyDevice, Removed: peer.Removed, Sources: append([]protocol.NodeID{}, peer.Sources...), DirectoryRevision: peer.DirectoryRevision})
 	}
 	return values, nil
 }
@@ -40,7 +40,11 @@ func pruneControllerDirectory(peers *[]controllerPeer) {
 	})
 }
 
-func (store *controllerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, revision uint64, addresses []EndpointAddress) error {
+func (store *controllerStore) ApplyDirectory(ctx context.Context, source protocol.NodeID, revision uint64, addresses []EndpointAddress, metadata ...map[protocol.NodeID]string) error {
+	names := map[protocol.NodeID]string{}
+	if len(metadata) != 0 {
+		names = metadata[0]
+	}
 	return store.update(ctx, func(peers *[]controllerPeer) error {
 		verified := false
 		for _, peer := range *peers {
@@ -65,6 +69,10 @@ func (store *controllerStore) ApplyDirectory(ctx context.Context, source protoco
 			(*peers)[index].Sources = slices.DeleteFunc((*peers)[index].Sources, func(id protocol.NodeID) bool { return id == source })
 		}
 		for _, address := range addresses {
+			name := names[address.ID]
+			if !validPeerName(name) {
+				return invalidLink("invalid directory host name")
+			}
 			found := false
 			for index := range *peers {
 				peer := &(*peers)[index]
@@ -74,6 +82,9 @@ func (store *controllerStore) ApplyDirectory(ctx context.Context, source protoco
 				found = true
 				if peer.Removed {
 					break
+				}
+				if name != "" && (!peer.Direct || peer.Name == "") {
+					peer.Name = name
 				}
 				peer.Sources = append(peer.Sources, source)
 				peer.Direction = mergeDirection(peer.Direction, DirectionHost)
@@ -86,10 +97,22 @@ func (store *controllerStore) ApplyDirectory(ctx context.Context, source protoco
 			}
 			if !found {
 				copy := cloneAddress(address)
-				*peers = append(*peers, controllerPeer{ID: address.ID, Address: &copy, Direction: DirectionHost, Sources: []protocol.NodeID{source}})
+				*peers = append(*peers, controllerPeer{ID: address.ID, Name: name, Address: &copy, Direction: DirectionHost, Sources: []protocol.NodeID{source}})
 			}
 		}
 		pruneControllerDirectory(peers)
 		return nil
+	})
+}
+
+func (store *controllerStore) RememberPeerName(ctx context.Context, id protocol.NodeID, name string) error {
+	return store.update(ctx, func(peers *[]controllerPeer) error {
+		for index := range *peers {
+			if (*peers)[index].ID == id && !(*peers)[index].Removed {
+				(*peers)[index].Name = name
+				return nil
+			}
+		}
+		return pairingRejected()
 	})
 }
