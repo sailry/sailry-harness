@@ -351,7 +351,7 @@ func (value *Effect) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch decoded.Kind {
-	case Embers, Dust, Twinkle, Pulse, Petals, Scan:
+	case Embers, Dust, Twinkle, Pulse, Petals, Scan, Sheen:
 	default:
 		return fmt.Errorf("unknown theme effect kind: %s", decoded.Kind)
 	}

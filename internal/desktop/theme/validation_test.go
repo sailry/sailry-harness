@@ -24,7 +24,7 @@ func themeFixture(t *testing.T) (map[string]any, fstest.MapFS) {
 		assets := map[string]any{}
 		for slot := range themeSlots {
 			height := 36
-			if slot == "hero.new_session" {
+			if slot == "hero.new_session" || slot == "hero.new_session.sheen" {
 				height = 100
 			}
 			assets[slot] = map[string]any{"path": "assets/" + mode + ".png", "fit": "cover", "opacity": 0.8, "alignment": []any{0.0, 0.5}, "height": height}
@@ -262,6 +262,30 @@ func TestThemeInvalidFixtures(t *testing.T) {
 		data, _ = json.Marshal(value)
 		if _, err := Parse(data, files); err == nil || !strings.Contains(err.Error(), "requires artwork") {
 			t.Fatalf("a figure without its hero: %v", err)
+		}
+		// A sheen lights its hero through the mask placed as the hero.
+		value, files = themeFixture(t)
+		sheen := map[string]any{"kind": "sheen", "color": "#ffe7a6", "count": 1, "opacity": 0.9, "size": 5, "duration": 6}
+		setThemeField(value, "/light/effects", map[string]any{"hero.new_session": []any{sheen}})
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err != nil {
+			t.Fatalf("a hero sheen: %v", err)
+		}
+		setThemeField(value, "/light/assets/hero.new_session.sheen/fit", "contain")
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err == nil || !strings.Contains(err.Error(), "placed as its hero") {
+			t.Fatalf("a sheen placed apart from its hero: %v", err)
+		}
+		delete(value["light"].(map[string]any)["assets"].(map[string]any), "hero.new_session.sheen")
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err == nil || !strings.Contains(err.Error(), "requires hero.new_session.sheen") {
+			t.Fatalf("a sheen without its mask: %v", err)
+		}
+		value, files = themeFixture(t)
+		setThemeField(value, "/light/effects", map[string]any{"background.window": []any{sheen}})
+		data, _ = json.Marshal(value)
+		if _, err := Parse(data, files); err == nil {
+			t.Fatal("a sheen on the window was accepted")
 		}
 		value, files = themeFixture(t)
 		setThemeField(value, "/light/assets/hero.new_session/outset", 4)

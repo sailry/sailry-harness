@@ -134,6 +134,18 @@ func (value *Package) validate() error {
 			if slot == "button.new_session" {
 				minimum = 4
 			}
+			// The sheen mask is drawn in its hero's place, so it is placed as
+			// the hero is.
+			if slot == "hero.new_session.sheen" {
+				maximum = 240
+				hero := variant.Assets["hero.new_session"]
+				if hero == nil {
+					return fmt.Errorf("theme decoration requires artwork: %s", slot)
+				}
+				if hero.Fit != asset.Fit || hero.Height != asset.Height || hero.Alignment != asset.Alignment {
+					return fmt.Errorf("theme sheen must be placed as its hero: %s", slot)
+				}
+			}
 			if !themeRange(asset.Opacity, 0, 1) || !themeRange(asset.Alignment[0], 0, 1) || !themeRange(asset.Alignment[1], 0, 1) || !themeInteger(asset.Height, minimum, maximum) {
 				return fmt.Errorf("invalid theme decoration dimensions: %s", slot)
 			}
@@ -183,8 +195,11 @@ func validateEffects(variant *Variant) error {
 			return fmt.Errorf("theme effect target requires artwork: %s", slot)
 		}
 		for _, effect := range layers {
-			if effect.Count < 1 || effect.Count > 64 || !themeRange(effect.Opacity, 0, 1) || !themeRange(effect.Size, 0.5, 12) || !themeRange(effect.Duration, 3, 120) || ((effect.Kind == Pulse || effect.Kind == Scan) && effect.Count != 1) {
+			if effect.Count < 1 || effect.Count > 64 || !themeRange(effect.Opacity, 0, 1) || !themeRange(effect.Size, 0.5, 12) || !themeRange(effect.Duration, 3, 120) || ((effect.Kind == Pulse || effect.Kind == Scan || effect.Kind == Sheen) && effect.Count != 1) {
 				return fmt.Errorf("invalid theme effect dimensions: %s", slot)
+			}
+			if effect.Kind == Sheen && (slot != "hero.new_session" || variant.Assets["hero.new_session.sheen"] == nil) {
+				return fmt.Errorf("theme sheen requires hero.new_session.sheen: %s", slot)
 			}
 			particles += effect.Count
 		}

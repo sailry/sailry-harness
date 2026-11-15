@@ -255,6 +255,9 @@ const (
 	Pulse   Kind = "pulse"
 	Petals  Kind = "petals"
 	Scan    Kind = "scan"
+	// Sheen is a band of light sweeping across the hero, shown only where
+	// the hero.new_session.sheen mask is opaque, over a faint glow there.
+	Sheen Kind = "sheen"
 )
 
 // Effect is a layer of procedural particles on a surface.

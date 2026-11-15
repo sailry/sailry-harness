@@ -10,7 +10,8 @@ import (
 
 // Theme effects: layers of procedural particles a package puts on a surface
 // (background.window, background.content, background.sidebar,
-// hero.new_session, conversation).
+// hero.new_session, conversation). A hero's sheen is painted over its
+// picture instead (paintSheen).
 //
 // Custom drawing: MyGo has no particle layer, so the particles are painted
 // from the surface's Draw, under its children and taking no input. Their
@@ -58,6 +59,9 @@ func paintEffects(pt *ui.Painter, r ui.Rect, layers []theme.Effect) {
 	pt.AnimationFrameRate(FPS)
 	ms := pt.Now().UnixMilli()
 	for _, e := range layers {
+		if e.Kind == theme.Sheen {
+			continue // over the picture (paintSheen)
+		}
 		period := int64(e.Duration * 1000)
 		phase := float32(ms%period) / float32(period)
 		particles(pt, r, e, phase)

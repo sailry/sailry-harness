@@ -29,31 +29,40 @@ func Picture(pt *ui.Painter, d *theme.Decoration, r ui.Rect) {
 	if d.Opacity < 1 {
 		o.Tint = theme.Opacity(d.Opacity)
 	}
+	if d.Fit != theme.Tile {
+		src, dst := placed(d, w, h, r)
+		pt.ImageRegion(b, src, dst, o)
+		return
+	}
+	tw := d.TileSize
+	th := tw * h / w
+	if tw <= 0 || th <= 0 {
+		return
+	}
+	pt.Clip(r, 0, func() {
+		for y := r.Y; y < r.Y+r.H; y += th {
+			for x := r.X; x < r.X+r.W; x += tw {
+				pt.ImageRegion(b, ui.Rect{}, ui.Rect{X: x, Y: y, W: tw, H: th}, o)
+			}
+		}
+	})
+}
+
+// placed is where a w by h picture d shows in r, but for tiles: the part
+// of it shown (empty for all of it) and the rectangle it fills.
+func placed(d *theme.Decoration, w, h float32, r ui.Rect) (src, dst ui.Rect) {
 	ax, ay := d.Alignment[0], d.Alignment[1]
 	switch d.Fit {
 	case theme.Fill:
-		pt.ImageRegion(b, ui.Rect{}, r, o)
-	case theme.Tile:
-		tw := d.TileSize
-		th := tw * h / w
-		if tw <= 0 || th <= 0 {
-			return
-		}
-		pt.Clip(r, 0, func() {
-			for y := r.Y; y < r.Y+r.H; y += th {
-				for x := r.X; x < r.X+r.W; x += tw {
-					pt.ImageRegion(b, ui.Rect{}, ui.Rect{X: x, Y: y, W: tw, H: th}, o)
-				}
-			}
-		})
+		return ui.Rect{}, r
 	case theme.Contain:
 		s := min(r.W/w, r.H/h)
 		dw, dh := w*s, h*s
-		pt.ImageRegion(b, ui.Rect{}, ui.Rect{X: r.X + (r.W-dw)*ax, Y: r.Y + (r.H-dh)*ay, W: dw, H: dh}, o)
+		return ui.Rect{}, ui.Rect{X: r.X + (r.W-dw)*ax, Y: r.Y + (r.H-dh)*ay, W: dw, H: dh}
 	default: // cover: the part of the picture r shows, placed by the alignment
 		s := max(r.W/w, r.H/h)
 		sw, sh := r.W/s, r.H/s
-		pt.ImageRegion(b, ui.Rect{X: (w - sw) * ax, Y: (h - sh) * ay, W: sw, H: sh}, r, o)
+		return ui.Rect{X: (w - sw) * ax, Y: (h - sh) * ay, W: sw, H: sh}, r
 	}
 }
 
@@ -135,7 +144,10 @@ func Banner(c *ui.Context, slot string) {
 			if frame.Glow.OK {
 				pt.Shadow(band, radius, 0, 0, 28, 0, frame.Glow.V)
 			}
-			pt.Clip(band, radius, func() { Picture(pt, d, band) })
+			pt.Clip(band, radius, func() {
+				Picture(pt, d, band)
+				paintSheen(pt, v.Asset(slot+".sheen"), band, layers)
+			})
 			edge := frame.Border.Or(p.Input)
 			if end := frame.BorderGradient; end.OK {
 				GradientEdge(pt, band, radius, 1.5, edge, end.V)
@@ -145,6 +157,7 @@ func Banner(c *ui.Context, slot string) {
 		} else {
 			paintEffects(pt, band, layers)
 			Picture(pt, d, band)
+			paintSheen(pt, v.Asset(slot+".sheen"), band, layers)
 		}
 		if figure != nil {
 			y := band.Y + band.H - figure.Height

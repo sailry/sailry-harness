@@ -160,6 +160,7 @@ var themeSlots = map[string]struct{}{
 	"banner.new_session":             {},
 	"hero.new_session":               {},
 	"hero.new_session.figure":        {},
+	"hero.new_session.sheen":         {},
 	"composer.top_left":              {},
 	"composer.bottom_right":          {},
 	"button.send":                    {},
