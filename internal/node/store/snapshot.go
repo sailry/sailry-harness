@@ -32,19 +32,19 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	if value.Notifications, err = ReadNotifications(ctx, db); err != nil {
 		return value, err
 	}
-	if value.Roles, err = readBodies[protocol.RoleProfile](ctx, db, "SELECT body FROM roles ORDER BY key"); err != nil {
+	if value.Roles, err = ReadRoles(ctx, db); err != nil {
 		return value, err
 	}
-	if value.Teams, err = readBodies[protocol.TeamProfile](ctx, db, "SELECT body FROM teams ORDER BY key"); err != nil {
+	if value.Teams, err = ReadTeams(ctx, db); err != nil {
 		return value, err
 	}
 	if value.Terminals, err = ReadTerminals(ctx, db); err != nil {
 		return value, err
 	}
-	if value.Ssh, err = readBodies[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles ORDER BY rowid"); err != nil {
+	if value.Ssh, err = ListSsh(ctx, db); err != nil {
 		return value, err
 	}
-	if value.Databases, err = readBodies[protocol.DatabaseProfile](ctx, db, "SELECT body FROM database_profiles ORDER BY rowid"); err != nil {
+	if value.Databases, err = ListDatabases(ctx, db); err != nil {
 		return value, err
 	}
 	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
@@ -54,22 +54,8 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	for _, info := range plugins {
 		value.Plugins = append(value.Plugins, info.Summary)
 	}
-	providers, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")
-	if err != nil {
+	if value.Providers, value.ProviderQuotas, err = ReadProviderSnapshot(ctx, db, node); err != nil {
 		return value, err
-	}
-	for _, saved := range providers {
-		if saved.Quota != nil {
-			if err := validateProviderQuota(saved.ID, *saved.Quota); err != nil {
-				return value, err
-			}
-		}
-		if saved.Listed && saved.Provider != nil {
-			value.Providers = append(value.Providers, *saved.Provider)
-			if saved.Quota != nil && providerQuotaPresent(*saved.Quota) && providerQuotaMatches(node, saved, *saved.Quota) {
-				value.ProviderQuotas = append(value.ProviderQuotas, *saved.Quota)
-			}
-		}
 	}
 	if value.ModelCatalog, err = ReadProviderCatalogStatus(ctx, db); err != nil {
 		return value, err
@@ -82,7 +68,7 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	if value.MediaSettings, err = ReadMediaSettings(ctx, db); err != nil {
 		return value, err
 	}
-	if settings, err := readBody[protocol.TerminalSettings](ctx, db, "SELECT body FROM terminal_settings WHERE singleton=1"); err != nil {
+	if settings, err := readPersonalSetting[protocol.TerminalSettings](ctx, db, "terminal"); err != nil {
 		return value, err
 	} else if settings != nil {
 		value.TerminalSettingsRevision = settings.Revision
@@ -92,17 +78,17 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	} else if settings != nil {
 		value.SandboxSettingsRevision = settings.Revision
 	}
-	if settings, err := readBody[searchStored](ctx, db, "SELECT body FROM search_settings WHERE singleton=1"); err != nil {
+	if settings, err := readPersonalSetting[searchStored](ctx, db, "search"); err != nil {
 		return value, err
 	} else if settings != nil {
 		value.SearchSettingsRevision = settings.Settings.Revision
 	}
-	if settings, err := readBody[protocol.TeamSettings](ctx, db, "SELECT body FROM team_settings WHERE singleton=1"); err != nil {
+	if settings, err := ReadTeamSettings(ctx, db); err != nil {
 		return value, err
-	} else if settings != nil {
+	} else {
 		value.TeamSettingsRevision = settings.Revision
 	}
-	if settings, err := readBody[protocol.ConversationCompactionSettings](ctx, db, "SELECT body FROM compaction_settings WHERE singleton=1"); err != nil {
+	if settings, err := readPersonalSetting[protocol.ConversationCompactionSettings](ctx, db, "compaction"); err != nil {
 		return value, err
 	} else if settings != nil {
 		value.CompactionSettingsRevision = settings.Revision

@@ -65,6 +65,13 @@ Future<void> release(WidgetTester tester, AppSession session) async {
   session.dispose();
 }
 
+Finder slidable(Object identity) => find.byWidgetPredicate(
+  (widget) =>
+      widget is Slidable &&
+      widget.key is ValueKey &&
+      (widget.key as ValueKey).value == identity,
+);
+
 void main() {
   test('catalog identity includes host and retains offline records', () async {
     final first = source('first', connected: false);
@@ -113,9 +120,7 @@ void main() {
     expect(firstCalls, isEmpty);
     expect(secondCalls, ['read_conversation']);
     expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
-    final row = tester.widget<Slidable>(
-      find.byKey(const ValueKey(('second', 'same-session'))),
-    );
+    final row = tester.widget<Slidable>(slidable(('second', 'same-session')));
     final archive = row.endActionPane!.children.first as SwipeAction;
     archive.onPressed!(tester.element(find.byType(LiveTasksPage)));
     await tester.pump();
@@ -123,7 +128,7 @@ void main() {
     expect(firstCalls, isEmpty);
     expect(session.selectedHost, same(first));
     final offline = tester.widget<Slidable>(
-      find.byKey(const ValueKey(('first', 'same-session'))),
+      slidable(('first', 'same-session')),
     );
     expect(
       (offline.endActionPane!.children.first as SwipeAction).onPressed,
@@ -227,7 +232,7 @@ void main() {
     expect(rows[0].host, same(first));
     expect(rows[1].host, same(second));
     final terminal = tester.widget<Slidable>(
-      find.byKey(const ValueKey(('terminal', 'second', 'same-terminal'))),
+      slidable(('terminal', 'second', 'same-terminal')),
     );
     final close = terminal.endActionPane!.children.single as SwipeAction;
     close.onPressed!(tester.element(find.byType(LiveTasksPage)));

@@ -44,6 +44,8 @@ import (
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	accessMu          sync.Mutex
+	accessObservers   map[*accessObservation]struct{}
 	pluginStatus      *pluginStatusService
 	terminals         *terminal.Service
 	auth              *authControls
@@ -631,6 +633,11 @@ func supportedCommand(kind string) bool {
 }
 
 func (node *Node) read(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	var accessErr error
+	ctx, accessErr = node.authorizeCommand(ctx, caller, request)
+	if accessErr != nil {
+		return response(protocol.Output{}, accessErr)
+	}
 	if input, ok := request.Command.Data.(*protocol.CommandReadToolOutputPayload); ok && input.Stream != nil {
 		if request.Plugin != nil {
 			return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"})
@@ -681,6 +688,9 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "inspect_request":
 			input := request.Command.Data.(*protocol.CommandInspectRequestPayload)
 			value, err := admission.Inspect(ctx, db, caller, input.ID, input.Digest)
+			if err == nil {
+				value, err = node.inspectOutcomeAccess(ctx, db, caller, input.ID, value)
+			}
 			output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: value}}
 			return err
 		case "read_session":
@@ -760,7 +770,7 @@ func (node *Node) run(lane *commandLane) {
 		_, prepareErr := node.authorizeCommand(ctx, job.caller, job.request)
 		var prepared store.PreparedPaths
 		if prepareErr == nil {
-			prepared, prepareErr = node.prepare(job.request.Command)
+			prepared, prepareErr = node.prepare(ctx, job.request.Command)
 		}
 		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
 			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
@@ -926,6 +936,7 @@ func (node *Node) pruneLedger() {
 }
 
 func (node *Node) publish() {
+	node.publishAccess()
 	node.subscribersMu.Lock()
 	defer node.subscribersMu.Unlock()
 	for subscriber := range node.subscribers {

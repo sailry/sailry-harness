@@ -83,6 +83,13 @@ func (node *Node) workspaceRoot(ctx context.Context, id protocol.WorktreeID, int
 			return err
 		}
 		profile := node.profile.Ownership.Path
+		user, err := store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		if !user.Local && strings.HasPrefix(root, filepath.Join(profile, "users", user.ID.String())+string(filepath.Separator)) {
+			profile = filepath.Join(profile, "users", user.ID.String())
+		}
 		if session, err := protocol.ParseSessionID(filepath.Base(root)); err == nil && root == core.SessionWorkspace(profile, session) {
 			return db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)", session.String(), id.String()).Scan(&owned)
 		}

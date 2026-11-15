@@ -27,7 +27,7 @@ type MediaCapture map[protocol.MediaKind]MediaAssignment
 // ReadMediaSettings returns the saved bindings and names every bound purpose
 // whose model cannot run now.
 func ReadMediaSettings(ctx context.Context, db *sql.Conn) (protocol.MediaSettings, error) {
-	saved, err := readBody[protocol.MediaSettings](ctx, db, "SELECT body FROM media_settings WHERE singleton=1")
+	saved, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
 	if err != nil || saved == nil {
 		return protocol.DefaultMediaSettings(), err
 	}
@@ -46,7 +46,7 @@ func ReadMediaSettings(ctx context.Context, db *sql.Conn) (protocol.MediaSetting
 
 // CaptureMedia freezes the per-purpose assignments for one admitted turn.
 func CaptureMedia(ctx context.Context, db *sql.Conn) (MediaCapture, error) {
-	saved, err := readBody[protocol.MediaSettings](ctx, db, "SELECT body FROM media_settings WHERE singleton=1")
+	saved, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
 	if err != nil || saved == nil {
 		return MediaCapture{}, err
 	}
@@ -147,7 +147,7 @@ func MediaModels(ctx context.Context, db *sql.Conn) ([]protocol.MediaCandidate, 
 }
 
 func saveMediaSettings(ctx context.Context, db *sql.Conn, input protocol.MediaSettings) (protocol.Output, []protocol.Event, error) {
-	current, err := readBody[protocol.MediaSettings](ctx, db, "SELECT body FROM media_settings WHERE singleton=1")
+	current, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
@@ -192,7 +192,7 @@ func saveMediaSettings(ctx context.Context, db *sql.Conn, input protocol.MediaSe
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO media_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body); err != nil {
+	if err = writePersonalSetting(ctx, db, "media", body); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	saved, err := ReadMediaSettings(ctx, db)

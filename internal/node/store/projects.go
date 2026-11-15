@@ -191,6 +191,9 @@ func createProject(ctx context.Context, db *sql.Conn, owner protocol.UserID, inp
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if err := CheckProjectAccess(ctx, db, value.ID, true); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		// Registration restores the original project; its owner does not change.
 		value.Owner, err = projectOwner(removedOwner)
 		if err != nil {

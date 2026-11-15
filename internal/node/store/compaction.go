@@ -8,7 +8,7 @@ import (
 )
 
 func ReadCompaction(ctx context.Context, db *sql.Conn) (protocol.ConversationCompactionSettings, error) {
-	value, err := readBody[protocol.ConversationCompactionSettings](ctx, db, "SELECT body FROM compaction_settings WHERE singleton=1")
+	value, err := readPersonalSetting[protocol.ConversationCompactionSettings](ctx, db, "compaction")
 	if err != nil {
 		return protocol.ConversationCompactionSettings{}, err
 	}
@@ -39,6 +39,6 @@ func saveCompaction(ctx context.Context, db *sql.Conn, input protocol.Conversati
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO compaction_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
+	err = writePersonalSetting(ctx, db, "compaction", body)
 	return protocol.Output{Kind: "compaction_settings", Data: input}, []protocol.Event{{Kind: "compaction_settings_changed", Data: protocol.EventCompactionSettingsChangedPayload{Revision: input.Revision}}}, err
 }

@@ -60,7 +60,11 @@ func readAgentDirectory(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 	if options.Before != nil {
 		before = *options.Before
 	}
-	rows, err := db.QueryContext(ctx, "SELECT rowid,id,worktree,state,history_revision FROM sessions WHERE project IS ?1 AND state!='removed' AND rowid<?2 AND (?3 OR id!=?4) ORDER BY rowid DESC LIMIT 257", project, before, options.IncludeCurrent, source.ID.String())
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT rowid,id,worktree,state,history_revision FROM sessions WHERE project IS ?1 AND state!='removed' AND rowid<?2 AND (?3 OR id!=?4) AND (project IS NOT NULL OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?5) ORDER BY rowid DESC LIMIT 257", project, before, options.IncludeCurrent, source.ID.String(), user.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +134,16 @@ func agentDirectoryRevision(ctx context.Context, db *sql.Conn, source protocol.S
 	if source.Project != nil {
 		project = source.Project.String()
 	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return "", err
+	}
 	rows, err := db.QueryContext(ctx, `SELECT s.rowid,s.id,s.worktree,s.state,s.history_revision,
  (SELECT body FROM agent_state WHERE owner=s.id AND key=?3),
  (SELECT a.body FROM conversation_turns h JOIN turns t ON t.id=h.turn JOIN agent_runs a ON a.turn=t.id
  WHERE h.session=s.id ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,
  (json_extract(a.body,'$.status')='queued'),t.rowid DESC LIMIT 1)
- FROM sessions s WHERE s.project IS ?1 AND (?2 OR s.id!=?4) ORDER BY s.rowid`, project, include, sessionTitleKey, source.ID.String())
+ FROM sessions s WHERE s.project IS ?1 AND (?2 OR s.id!=?4) AND (s.project IS NOT NULL OR coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?5) ORDER BY s.rowid`, project, include, sessionTitleKey, source.ID.String(), user.ID.String())
 	if err != nil {
 		return "", err
 	}

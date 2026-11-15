@@ -665,3 +665,18 @@ func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, r
 	}
 	return out, err
 }
+
+// Scope reads the captured root before Open consumes the single-use transfer.
+// Ownership is checked here and again when the resource stream is opened.
+func (t *Transfers) Scope(caller protocol.NodeID, id protocol.StreamID) (string, bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry := t.entries[id]
+	if entry == nil {
+		return "", false, nil
+	}
+	if entry.caller != caller {
+		return "", true, transferMissing()
+	}
+	return entry.root, true, nil
+}

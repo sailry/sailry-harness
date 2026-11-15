@@ -45,6 +45,10 @@ func dispatchFixture(t *testing.T, node *Node, caller protocol.NodeID, request p
 	t.Helper()
 	accepted, err := node.Dispatch(context.Background(), caller, request)
 	if err != nil {
+		var failure *protocol.Fault
+		if errors.As(err, &failure) {
+			return link.Response{Fault: failure}
+		}
 		t.Fatal(err)
 	}
 	value, ok := <-accepted.Completion
@@ -126,6 +130,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			}
 			var other protocol.NodeID
 			other[0] = 99
+			trustedCallerFixture(t, node, other)
 			request.Command.Data = test.settings
 			accepted, err := node.Dispatch(context.Background(), other, request)
 			if err != nil {
@@ -1259,5 +1264,14 @@ func secretCommands(canary string) map[string]protocol.Command {
 		"plugin_transaction": {Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{
 			Operations: []protocol.PluginTransactionOperation{{Kind: "dispatch", Data: &schedule}},
 		}},
+	}
+}
+
+// trustedCallerFixture models a legacy device in the local user's group. Tests
+// for independent users create their own membership instead of using this helper.
+func trustedCallerFixture(t *testing.T, node *Node, caller protocol.NodeID) {
+	t.Helper()
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error { return store.SetLinkTrust(t.Context(), db, caller, true) }); err != nil {
+		t.Fatal(err)
 	}
 }

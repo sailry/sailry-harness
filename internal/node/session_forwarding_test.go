@@ -130,6 +130,8 @@ func TestSessionForwarding(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	a, b := nodeFixture(t), nodeFixture(t)
+	trustedCallerFixture(t, b, a.ID())
+	trustedCallerFixture(t, a, b.ID())
 	sends := 0
 	paired := func(ctx context.Context, request protocol.Request) (link.Admission, error) {
 		sends++

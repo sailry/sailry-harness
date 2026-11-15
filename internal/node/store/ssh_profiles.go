@@ -37,7 +37,7 @@ func ReadSsh(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint
 	if err := checkRevision(profile.Revision, revision); err != nil {
 		return profile, secret, err
 	}
-	err := json.Unmarshal([]byte(credential), &secret)
+	err = json.Unmarshal([]byte(credential), &secret)
 	return profile, secret, err
 }
 

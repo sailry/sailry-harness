@@ -29,25 +29,27 @@ func (node *Node) initTerminals(ctx context.Context) error {
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecoverTerminals(ctx, db) }); err != nil {
 		return err
 	}
-	node.terminals = terminal.New(node.ctx, node.ID(), node.terminalChanged)
+	node.terminals = terminal.New(node.ctx, node.ID(), node.terminalChangedBy)
 	return nil
 }
 
-func (node *Node) terminalChanged(info protocol.TerminalInfo) {
+func (node *Node) terminalChanged(info protocol.TerminalInfo) { node.terminalChangedBy(node.ctx, info) }
+
+func (node *Node) terminalChangedBy(ctx context.Context, info protocol.TerminalInfo) {
 	if err := node.begin(); err != nil {
 		return
 	}
 	defer node.work.Done()
-	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-		changes, err := store.SaveTerminal(node.ctx, db, info, true)
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		changes, err := store.SaveTerminal(ctx, db, info, true)
 		if err == nil {
-			_, err = store.RecordEvents(node.ctx, db, node.ID(), changes)
+			_, err = store.RecordEvents(ctx, db, node.ID(), changes)
 		}
 		return err
 	})
 	if err == nil {
 		node.publish()
-	} else if node.ctx.Err() == nil {
+	} else if ctx.Err() == nil {
 		slog.Error("terminal inventory update failed", "error", err)
 	}
 }

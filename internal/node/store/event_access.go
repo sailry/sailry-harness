@@ -98,6 +98,8 @@ func captureEventAudience(ctx context.Context, db *sql.Conn, event protocol.Even
 	switch event.Kind {
 	case "project_registered", "project_changed", "project_removed":
 		return eventAudience{Kind: "reset"}, nil
+	case "provider_changed", "provider_removed", "provider_quota_changed":
+		return eventAudience{Kind: "reset"}, nil
 	case "model_catalog_changed":
 		return eventAudience{Kind: "host"}, nil
 	}
@@ -276,4 +278,31 @@ func filterEvent(ctx context.Context, db *sql.Conn, event protocol.Event, a even
 		return protocol.Event{Kind: "cursor"}, nil
 	}
 	return event, nil
+}
+
+// RefreshEventAccess rechecks buffered rows after another writer changes scope.
+func RefreshEventAccess(ctx context.Context, db *sql.Conn, event protocol.EventEnvelope) (protocol.EventEnvelope, error) {
+	var body, scope []byte
+	if err := db.QueryRowContext(ctx, "SELECT body,audience FROM events WHERE cursor=?1", event.Cursor).Scan(&body, &scope); err != nil {
+		return event, err
+	}
+	if err := json.Unmarshal(body, &event.Event); err != nil {
+		return event, err
+	}
+	var audience eventAudience
+	if scope == nil {
+		local, err := LocalUser(ctx, db)
+		if err != nil {
+			return event, err
+		}
+		audience = eventAudience{Kind: "user", Owner: &local.ID}
+	} else if err := json.Unmarshal(scope, &audience); err != nil {
+		return event, err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return event, err
+	}
+	event.Event, err = filterEvent(ctx, db, event.Event, audience, user)
+	return event, err
 }

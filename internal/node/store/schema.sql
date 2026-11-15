@@ -575,3 +575,5 @@ CREATE TABLE IF NOT EXISTS user_team_settings (
     user TEXT PRIMARY KEY REFERENCES users(id),
     body BLOB NOT NULL
 );
+
+CREATE TABLE user_personal_settings (user TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(user,kind));

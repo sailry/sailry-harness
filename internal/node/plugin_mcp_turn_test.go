@@ -295,6 +295,7 @@ func pluginMCPConversationAcceptance(t *testing.T) {
 		read.Plugin = request.Plugin
 		otherCaller := node.ID()
 		otherCaller[0] ^= 0xff
+		trustedCallerFixture(t, node, otherCaller)
 		for _, entry := range []struct {
 			name    string
 			caller  protocol.NodeID

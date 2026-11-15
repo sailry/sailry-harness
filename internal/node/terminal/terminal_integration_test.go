@@ -39,7 +39,7 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 			defer cancel()
 			node, caller := protocol.NodeID{1}, protocol.NodeID{2}
 			ended := make(chan protocol.TerminalInfo, 1)
-			service := New(ctx, node, func(info protocol.TerminalInfo) {
+			service := New(ctx, node, func(_ context.Context, info protocol.TerminalInfo) {
 				if info.Status.Kind != "running" {
 					ended <- info
 				}

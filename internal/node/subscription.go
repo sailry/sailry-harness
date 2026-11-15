@@ -11,6 +11,7 @@ import (
 )
 
 type events struct {
+	user    protocol.User
 	node    *Node
 	wake    chan struct{}
 	closed  chan struct{}
@@ -22,7 +23,7 @@ type events struct {
 	pending []protocol.EventEnvelope
 }
 
-func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+func (node *Node) subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
 	if topic.Kind == "status" {
 		return node.subscribePluginStatus(ctx, caller, topic)
 	}
@@ -60,7 +61,7 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	if topic.Kind != "node" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "subscription is unavailable"}
 	}
-	value := &events{node: node, wake: make(chan struct{}, 1), closed: make(chan struct{})}
+	value := &events{user: userFromContext(ctx), node: node, wake: make(chan struct{}, 1), closed: make(chan struct{})}
 	node.mu.Lock()
 	if node.stopped {
 		node.mu.Unlock()
@@ -92,6 +93,7 @@ func (stream *events) Close() error {
 }
 
 func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
+	ctx = store.WithUser(ctx, stream.user)
 	stream.next.Lock()
 	defer stream.next.Unlock()
 	select {
@@ -109,6 +111,13 @@ func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
 	for {
 		if len(stream.pending) > 0 {
 			event := stream.pending[0]
+			if err := stream.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var err error
+				event, err = store.RefreshEventAccess(ctx, db, event)
+				return err
+			}); err != nil {
+				return protocol.Update{}, nodeFault(err)
+			}
 			stream.pending = stream.pending[1:]
 			if event.Cursor != stream.cursor+1 {
 				stream.pending = nil
@@ -116,6 +125,11 @@ func (stream *events) Next(ctx context.Context) (protocol.Update, error) {
 				return protocol.Update{Kind: "reset_required"}, nil
 			}
 			stream.cursor = event.Cursor
+			if event.Event.Kind == "projection_invalidated" {
+				stream.pending = nil
+				stream.through = 0
+				return protocol.Update{Kind: "reset_required"}, nil
+			}
 			return protocol.Update{Kind: "event", Data: event}, nil
 		}
 		if err := stream.node.begin(); err != nil {

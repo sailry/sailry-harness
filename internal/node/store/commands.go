@@ -11,13 +11,13 @@ import (
 func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, profile string, request protocol.Request, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
 	switch request.Command.Kind {
 	case "create_project":
-		user, err := CallerUser(ctx, db, node, caller)
+		user, err := CurrentUser(ctx, db)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		return createProject(ctx, db, user.ID, *request.Command.Data.(*protocol.ProjectsDraft), prepared)
 	case "register_project":
-		user, err := CallerUser(ctx, db, node, caller)
+		user, err := CurrentUser(ctx, db)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}

@@ -202,6 +202,7 @@ func TestUserConfigurationPartitions(t *testing.T) {
 		saved := output.Data.(protocol.ConversationProvider)
 		config := protocol.DefaultSessionConfig()
 		config.Provider, config.Model = saved.ID, saved.DefaultModel
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 		if _, err := SaveDefaults(otherCtx, db, node, protocol.Defaults{Config: &config}); err != nil {
 			return err
 		}

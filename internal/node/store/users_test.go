@@ -108,6 +108,12 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN user")
 	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN direction")
 	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN legacy")
+	for _, table := range []string{"projects", "sessions", "worktrees", "terminals", "notifications"} {
+		schemaExecute(t, storage.Node, "UPDATE "+table+" SET owner=NULL")
+	}
+	for _, table := range []string{"providers", "roles", "teams", "ssh_profiles", "database_profiles", "turns"} {
+		schemaExecute(t, storage.Node, "UPDATE "+table+" SET user=NULL")
+	}
 	schemaExecute(t, storage.Node, "DROP TABLE users")
 	if err := storage.Close(); err != nil {
 		t.Fatal(err)

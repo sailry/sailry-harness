@@ -12,7 +12,7 @@ import (
 )
 
 func ReadTerminalSettings(ctx context.Context, db *sql.Conn) (protocol.TerminalSettings, error) {
-	value, err := readBody[protocol.TerminalSettings](ctx, db, "SELECT body FROM terminal_settings WHERE singleton=1")
+	value, err := readPersonalSetting[protocol.TerminalSettings](ctx, db, "terminal")
 	if value == nil {
 		return protocol.DefaultTerminalSettings(), err
 	}
@@ -42,7 +42,7 @@ func SaveTerminalSettings(ctx context.Context, db *sql.Conn, input protocol.Term
 	if err != nil {
 		return protocol.TerminalSettings{}, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO terminal_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body); err != nil {
+	if err = writePersonalSetting(ctx, db, "terminal", body); err != nil {
 		return protocol.TerminalSettings{}, nil, err
 	}
 	return input, []protocol.Event{{Kind: "terminal_settings_changed", Data: protocol.EventTerminalSettingsChangedPayload{Revision: input.Revision}}}, nil

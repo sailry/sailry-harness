@@ -68,6 +68,13 @@ func ManagedWorkspace(root, profile string) bool {
 		return false
 	}
 	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) > 2 && parts[0] == "users" {
+		user, err := protocol.ParseUserID(parts[1])
+		if err != nil {
+			return false
+		}
+		return ManagedWorkspace(root, filepath.Join(profile, "users", user.String()))
+	}
 	var expected string
 	switch {
 	case len(parts) == 2 && parts[0] == "worktrees":

@@ -20,7 +20,16 @@ func initializeResourceUsers(ctx context.Context, db *sql.Conn) error {
 	return err
 }
 
-func accessResult(err error, allowed bool) error {
+func accessResult(ctx context.Context, db *sql.Conn, err error, allowed bool) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		user, userErr := CurrentUser(ctx, db)
+		if userErr != nil {
+			return userErr
+		}
+		if user.Local {
+			return nil
+		}
+	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
@@ -37,7 +46,7 @@ func CheckProjectAccess(ctx context.Context, db *sql.Conn, id protocol.ProjectID
 	}
 	var allowed bool
 	err = db.QueryRowContext(ctx, `SELECT CASE WHEN ?3 THEN coalesce(owner,(SELECT id FROM users WHERE local=1))=?2 OR (?4 AND visibility='shared') ELSE visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?2 END FROM projects WHERE id=?1`, id.String(), user.ID.String(), manage, user.Administrator).Scan(&allowed)
-	return accessResult(err, allowed)
+	return accessResult(ctx, db, err, allowed)
 }
 
 func CheckSessionAccess(ctx context.Context, db *sql.Conn, id protocol.SessionID) error {
@@ -47,7 +56,7 @@ func CheckSessionAccess(ctx context.Context, db *sql.Conn, id protocol.SessionID
 	}
 	var allowed bool
 	err = db.QueryRowContext(ctx, `SELECT CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END FROM sessions s LEFT JOIN projects p ON p.id=s.project WHERE s.id=?1`, id.String(), user.ID.String()).Scan(&allowed)
-	return accessResult(err, allowed)
+	return accessResult(ctx, db, err, allowed)
 }
 
 func CheckWorktreeAccess(ctx context.Context, db *sql.Conn, id protocol.WorktreeID) error {
@@ -57,7 +66,7 @@ func CheckWorktreeAccess(ctx context.Context, db *sql.Conn, id protocol.Worktree
 	}
 	var allowed bool
 	err = db.QueryRowContext(ctx, `SELECT CASE WHEN w.project IS NULL THEN coalesce(w.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END FROM worktrees w LEFT JOIN projects p ON p.id=w.project WHERE w.id=?1`, id.String(), user.ID.String()).Scan(&allowed)
-	return accessResult(err, allowed)
+	return accessResult(ctx, db, err, allowed)
 }
 
 func CheckTerminalAccess(ctx context.Context, db *sql.Conn, id protocol.TerminalID) error {
@@ -65,7 +74,7 @@ func CheckTerminalAccess(ctx context.Context, db *sql.Conn, id protocol.Terminal
 	var owner sql.NullString
 	err := db.QueryRowContext(ctx, "SELECT worktree,owner FROM terminals WHERE id=?1", id.String()).Scan(&worktree, &owner)
 	if err != nil {
-		return accessResult(err, false)
+		return accessResult(ctx, db, err, false)
 	}
 	if worktree.Valid {
 		worktree, err := protocol.ParseWorktreeID(worktree.String)
@@ -85,13 +94,13 @@ func CheckTerminalAccess(ctx context.Context, db *sql.Conn, id protocol.Terminal
 		}
 		owner.String = local.ID.String()
 	}
-	return accessResult(nil, owner.String == user.ID.String())
+	return accessResult(ctx, db, nil, owner.String == user.ID.String())
 }
 
 func CheckTurnAccess(ctx context.Context, db *sql.Conn, id protocol.TurnID) error {
 	var session string
 	if err := db.QueryRowContext(ctx, "SELECT session FROM turns WHERE id=?1", id.String()).Scan(&session); err != nil {
-		return accessResult(err, false)
+		return accessResult(ctx, db, err, false)
 	}
 	parsed, err := protocol.ParseSessionID(session)
 	if err != nil {
@@ -103,7 +112,7 @@ func CheckTurnAccess(ctx context.Context, db *sql.Conn, id protocol.TurnID) erro
 func CheckArtifactAccess(ctx context.Context, db *sql.Conn, id protocol.ArtifactID) error {
 	var session string
 	if err := db.QueryRowContext(ctx, "SELECT session FROM artifacts WHERE id=?1", id.String()).Scan(&session); err != nil {
-		return accessResult(err, false)
+		return accessResult(ctx, db, err, false)
 	}
 	parsed, err := protocol.ParseSessionID(session)
 	if err != nil {
@@ -120,7 +129,7 @@ func CheckNotificationAccess(ctx context.Context, db *sql.Conn, id protocol.Noti
 	var session, owner sql.NullString
 	err = db.QueryRowContext(ctx, "SELECT json_extract(body,'$.content.session'),owner FROM notifications WHERE id=?1", id.String()).Scan(&session, &owner)
 	if err != nil {
-		return accessResult(err, false)
+		return accessResult(ctx, db, err, false)
 	}
 	if session.Valid {
 		id, err := protocol.ParseSessionID(session.String)
@@ -136,7 +145,7 @@ func CheckNotificationAccess(ctx context.Context, db *sql.Conn, id protocol.Noti
 		}
 		owner.String = local.ID.String()
 	}
-	return accessResult(nil, owner.String == user.ID.String())
+	return accessResult(ctx, db, nil, owner.String == user.ID.String())
 }
 
 // TurnUser reads the admitted principal even after the submitting device leaves.
@@ -162,7 +171,7 @@ func CheckChildAccess(ctx context.Context, db *sql.Conn, kind, id string) error 
 		var worktree string
 		err := db.QueryRowContext(ctx, "SELECT worktree FROM attachments WHERE id=?1", id).Scan(&worktree)
 		if err != nil {
-			return accessResult(err, false)
+			return accessResult(ctx, db, err, false)
 		}
 		parsed, err := protocol.ParseWorktreeID(worktree)
 		if err != nil {
@@ -174,7 +183,7 @@ func CheckChildAccess(ctx context.Context, db *sql.Conn, kind, id string) error 
 	}
 	var turn string
 	if err := db.QueryRowContext(ctx, query, id).Scan(&turn); err != nil {
-		return accessResult(err, false)
+		return accessResult(ctx, db, err, false)
 	}
 	parsed, err := protocol.ParseTurnID(turn)
 	if err != nil {
