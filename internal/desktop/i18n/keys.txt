@@ -1843,6 +1843,7 @@ host_install_failed
 host_install_installing
 host_install_pairing
 host_install_unknown
+host_ssh_windows_pairing
 host_step_connect
 host_step_pair
 model_effort

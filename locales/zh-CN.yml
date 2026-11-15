@@ -2255,6 +2255,7 @@ host_install_pairing: 正在配对
 host_install_failed: 添加失败
 host_added: 主机已添加
 host_install_unknown: 安装结果未确认，请检查主机后重试
+host_ssh_windows_pairing: 请在 Windows 主机安装并打开 Sailry 桌面版，再使用配对码添加。
 
 pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
 db_catalog_failed: 加载失败，收起后重试

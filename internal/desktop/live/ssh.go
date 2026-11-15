@@ -425,6 +425,8 @@ func (r *Runtime) toastSSH(c *ui.Context, err error, updating, uncertain bool) {
 		key, tone = "host_network_conflict", kit.Conflict
 	case uncertain:
 		key, tone = "host_install_unknown", kit.Uncertain
+	case code == protocol.ErrorCodeUnavailable && faultMessage(err) == protocol.SSHWindowsDesktopRequired:
+		key = "host_ssh_windows_pairing"
 	}
 	if updating || !r.addFailed(tone, key, err) {
 		kit.Toast(c, tone, i18n.T(c, key))
@@ -441,7 +443,13 @@ func (r *Runtime) addFailed(outcome kit.Outcome, key string, err error) bool {
 	if outcome != kit.Failed {
 		tone = kit.Caution
 	}
-	r.App.Settings.ConnectionFailure = &settings.ConnectionFailure{Tone: tone, Title: key, Detail: faultDetail(err)}
+	detail := faultDetail(err)
+	if key == "host_ssh_windows_pairing" {
+		// The localized guidance is complete; repeating the wire diagnostic
+		// would duplicate it in another language.
+		detail = ""
+	}
+	r.App.Settings.ConnectionFailure = &settings.ConnectionFailure{Tone: tone, Title: key, Detail: detail}
 	return true
 }
 

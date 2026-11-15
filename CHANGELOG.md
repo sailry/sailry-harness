@@ -3,7 +3,7 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## [0.2.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.1) — 2026-11-15
+## [0.2.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.1) — 2026-11-16
 
 This prerelease is the first distribution of the Go rewrite. It includes Desktop
 for macOS and Windows, Host for Linux and macOS, and Mobile for Android and iOS.

@@ -1831,6 +1831,7 @@ host_install_failed: Не удалось добавить узел
 host_install_installing: Установка хоста
 host_install_pairing: Сопряжение
 host_install_unknown: Результат установки не подтвержден; проверьте хост и повторите попытку
+host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
 host_step_connect: Подключение к узлу
 host_step_pair: Сопряжение
 model_effort: Усилие

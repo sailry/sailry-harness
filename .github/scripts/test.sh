@@ -5,7 +5,7 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 
 lane=${1:?A test lane is required}
 case "$lane" in
-  packages|shell-0|shell-1|shell-2) ;;
+  packages|shell-0|shell-1|shell-2|platform) ;;
   *) echo "Unknown test lane: $lane" >&2; exit 1 ;;
 esac
 
@@ -50,6 +50,61 @@ if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
     fi
     sort -u "$RUNNER_TEMP/affected.txt" -o "$RUNNER_TEMP/affected.txt"
   fi
+fi
+
+if [ "$lane" = platform ]; then
+  platform=$(go env GOOS)
+  case "$platform" in darwin|windows) ;; *) echo "No platform suite for $platform" >&2; exit 1 ;; esac
+  go build ./...
+  module=$(go list -m)
+  selected=()
+  while IFS= read -r package; do
+    [ -z "$package" ] || selected+=("$package")
+  done < "$RUNNER_TEMP/affected.txt"
+  if [ "${#selected[@]}" -eq 0 ]; then
+    echo 'No affected platform tests'
+    exit 0
+  fi
+  # Go supplies only the files compiled for this OS, excluding integration
+  # files. New OS-specific tests join the suite without a hand-maintained name.
+  go list -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' "${selected[@]}" > "$RUNNER_TEMP/platform-files.txt"
+  suite=$(cd "$(dirname "$0")" && pwd)/platform-tests.tsv
+  while IFS=$'\t' read -r -a files; do
+    package=${files[0]}
+    directory=${package#"$module"/}
+    [ "$package" != "$module" ] || directory=.
+    rule=$(awk -F '\t' -v package="$directory" '$1 == package { print $2 }' "$suite")
+    if [ "$rule" = all ]; then
+      go test -p 1 -timeout 20m "$package"
+      continue
+    fi
+    auto=$RUNNER_TEMP/platform-auto.txt
+    : > "$auto"
+    for file in "${files[@]:1}"; do
+      scoped=false
+      case "$file" in *_"$platform"_test.go|*_"$platform"_*_test.go) scoped=true ;; esac
+      if [ "$scoped" = true ] || grep -q '^//go:build ' "$directory/$file"; then
+        awk '/^func[[:space:]]+(Test|Example|Fuzz)[[:alnum:]_]*[[:space:]]*\(/ { name=$2; sub(/\(.*/, "", name); if (name != "TestMain") print name }' "$directory/$file" >> "$auto"
+      fi
+    done
+    [ -n "$rule" ] || [ -s "$auto" ] || continue
+    go test -list . "$package" > "$RUNNER_TEMP/platform-tests.txt"
+    if [ -n "$rule" ] && ! grep -Eq "$rule" "$RUNNER_TEMP/platform-tests.txt"; then
+      echo "Platform selector matches no tests: $package $rule" >&2
+      exit 1
+    fi
+    pattern=$(awk -v rule="$rule" '
+      FILENAME == ARGV[1] { names[$0] = 1; next }
+      /^(Test|Example|Fuzz)/ && ($0 in names || (rule != "" && $0 ~ rule)) {
+        printf "%s%s", separator, $0; separator = "|"
+      }
+      END { print "" }
+    ' "$auto" "$RUNNER_TEMP/platform-tests.txt")
+    if [ -n "$pattern" ]; then
+      go test -p 1 -timeout 20m "$package" -run "^($pattern)$"
+    fi
+  done < "$RUNNER_TEMP/platform-files.txt"
+  exit 0
 fi
 
 packages=()

@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 )
 
+// SSHWindowsDesktopRequired is the unavailable installation fault that
+// controllers present as localized Windows pairing guidance.
+const SSHWindowsDesktopRequired = "Installing a Windows Host over SSH is not supported. Install and open Sailry Desktop on that machine, then add it using its pairing code."
+
 type HostInstallationOutcome struct {
 	Kind string
 	Data any

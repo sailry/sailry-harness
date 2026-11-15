@@ -211,13 +211,17 @@ The checkout contains four workflows:
 pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls it:
 
 - `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
-- `test`: `go test ./...` with cgo disabled on macOS, Windows and Linux,
-  using only Go module/build caches. Pull requests select affected packages;
-  branch pushes and release runs test everything. The `packages` lane runs
-  all selected packages except `desktop/live` and `desktop/shell`. The existing
-  `shell-0` through `shell-2` lanes partition both UI packages' top-level tests,
-  examples and fuzz seeds, retaining each test's complete set of subtests.
-  Their routing fixture runs in `lint` without invoking the Go toolchain:
+- `test`: Linux runs the complete Go suite with cgo disabled, using only Go
+  module/build caches. Pull requests select affected packages; branch pushes
+  and release runs select everything. The `packages` lane runs all selected
+  packages except `desktop/live` and `desktop/shell`; `shell-0` through
+  `shell-2` partition both UI packages' top-level tests, examples and fuzz seeds,
+  retaining each parent's subtests. macOS and Windows each have one `platform`
+  lane: `go build ./...` followed by selected native-boundary package suites and
+  focused shared-package regressions in `.github/scripts/platform-tests.tsv`.
+  Tests in OS-suffixed or build-constrained files compiled for that OS join
+  automatically, including new cases. The three-platform vet still checks the
+  full test source. The routing fixture runs in `lint` with fake Go and Git:
   `bash .github/scripts/test_test.sh`.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)

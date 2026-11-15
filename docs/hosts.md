@@ -23,7 +23,9 @@ reports the failure once for that Node process and asks again with the next work
 ## Before connecting
 
 - Use macOS 13+ on Apple silicon or Intel, or Linux with glibc 2.34+ on ARM64 or
-  x64. The installer does not support Windows.
+  x64 for SSH installation. On Windows, install and open Sailry Desktop on the
+  target machine, then add it using its pairing code. SSH installation does not
+  install a native Windows Host; WSL remains a separate Linux installation.
 - The matching Sailry release must include Host packages for the target machine.
   **Add host** installs the Host version expected by your Desktop build; it
   does not choose the latest stable or preview release or fall back to another version.

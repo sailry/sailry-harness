@@ -1831,6 +1831,7 @@ host_install_failed: 호스트를 추가할 수 없음
 host_install_installing: 호스트 설치 중
 host_install_pairing: 페어링
 host_install_unknown: 설치 결과 확인되지 않음; 호스트를 확인하고 다시 시도하십시오
+host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
 host_step_connect: 호스트에 연결
 host_step_pair: 페어링
 model_effort: 강도

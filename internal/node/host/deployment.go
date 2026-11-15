@@ -86,7 +86,46 @@ func targetPlatform(platform string) (string, string, error) {
 	case "Darwin/x86_64":
 		return "darwin-amd64", "libsailry_iroh.dylib", nil
 	}
+	if windowsPlatform(platform) {
+		return "", "", unavailable(protocol.SSHWindowsDesktopRequired)
+	}
 	return "", "", invalid("Host installation supports Linux and macOS on amd64 or arm64")
+}
+
+func windowsPlatform(platform string) bool {
+	fields := strings.Fields(platform)
+	if len(fields) == 0 {
+		return false
+	}
+	system := strings.ToUpper(fields[0])
+	return system == "WINDOWS" || strings.HasPrefix(system, "MINGW") || strings.HasPrefix(system, "MSYS") || strings.HasPrefix(system, "CYGWIN")
+}
+
+// detectPlatform accepts a POSIX target first, including WSL behind a
+// Windows SSH server. Native Windows shells may not have uname; the server
+// banner or a read-only cmd probe identifies them before installation starts.
+func detectPlatform(ctx context.Context, connection *cryptossh.Client) (string, string, error) {
+	platform, err := commandSSH(ctx, connection, "uname -s; uname -m", nil)
+	if err == nil {
+		var target, native string
+		target, native, err = targetPlatform(platform)
+		if err == nil || windowsPlatform(platform) {
+			return target, native, err
+		}
+	}
+	if ctx.Err() != nil {
+		return "", "", err
+	}
+	if strings.Contains(string(connection.ServerVersion()), "OpenSSH_for_Windows") {
+		return "", "", unavailable(protocol.SSHWindowsDesktopRequired)
+	}
+	// ver is a cmd builtin, so invoke cmd explicitly even when the SSH
+	// account's configured shell is PowerShell.
+	version, probeErr := commandSSH(ctx, connection, "cmd.exe /d /c ver", nil)
+	if probeErr == nil && strings.Contains(version, "Microsoft Windows") {
+		return "", "", unavailable(protocol.SSHWindowsDesktopRequired)
+	}
+	return "", "", err
 }
 
 func validateUpdate(identity installedIdentity, node protocol.NodeID, target string) error {
@@ -111,11 +150,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	ctx, cancel := context.WithTimeout(ctx, 600*time.Second)
 	defer cancel()
 	owner.Progress(caller, request, "detecting")
-	platform, err := commandSSH(ctx, connection, "uname -s; uname -m", nil)
-	if err != nil {
-		return protocol.SshOutcome{}, err
-	}
-	target, native, err := targetPlatform(platform)
+	target, native, err := detectPlatform(ctx, connection)
 	if err != nil {
 		return protocol.SshOutcome{}, err
 	}

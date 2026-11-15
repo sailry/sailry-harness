@@ -1831,6 +1831,7 @@ host_install_failed: Could not add host
 host_install_installing: Installing Host
 host_install_pairing: Pairing
 host_install_unknown: Install result unconfirmed; check host and retry
+host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
 host_step_connect: Connect to host
 host_step_pair: Pair
 model_effort: Effort
