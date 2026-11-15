@@ -43,6 +43,17 @@ func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string)
 	return &protocol.ConfigurationOrigin{Node: protocol.NodeID(source), Revision: revision}, nil
 }
 
+func checkConfigurationCopySource(ctx context.Context, db *sql.Conn, origin *protocol.ConfigurationOrigin) error {
+	status, err := ReadConfigurationFollow(ctx, db)
+	if err != nil {
+		return err
+	}
+	if status.Source == nil || *status.Source != origin.Node {
+		return fault(protocol.ErrorCodeConflict, "configuration copy belongs to a different source")
+	}
+	return nil
+}
+
 func CheckConfigurationEditable(ctx context.Context, db *sql.Conn, category, id string) error {
 	if configurationApplying(ctx) {
 		return nil
@@ -107,13 +118,28 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 	if err != nil {
 		return status, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var issue protocol.ConfigurationFollowIssue
 		if err := rows.Scan(&issue.Category, &issue.ID, &issue.State, &issue.Message); err != nil {
+			rows.Close()
 			return status, err
 		}
 		status.Issues = append(status.Issues, issue)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return status, err
+	}
+	rows, err = db.QueryContext(ctx, "SELECT plugin,server FROM configuration_follow_mcp_overrides WHERE user=?1 ORDER BY plugin,server", user.ID.String())
+	if err != nil {
+		return status, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var value protocol.ConfigurationMCPLocal
+		if err := rows.Scan(&value.Plugin, &value.Server); err != nil {
+			return status, err
+		}
+		status.MCPLocal = append(status.MCPLocal, value)
 	}
 	return status, rows.Err()
 }
@@ -353,6 +379,9 @@ func SetConfigurationMCPServerLocal(ctx context.Context, db *sql.Conn, plugin, s
 		_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_mcp_overrides(user,plugin,server) VALUES(?1,?2,?3) ON CONFLICT(user,plugin,server) DO NOTHING", user.ID.String(), plugin, server)
 	} else {
 		_, err = db.ExecContext(ctx, "DELETE FROM configuration_follow_mcp_overrides WHERE user=?1 AND plugin=?2 AND server=?3", user.ID.String(), plugin, server)
+		if err == nil {
+			_, err = db.ExecContext(ctx, "UPDATE configuration_follow_records SET digest='' WHERE user=?1 AND category='plugin_settings' AND id=?2", user.ID.String(), plugin)
+		}
 	}
 	return err
 }

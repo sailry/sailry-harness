@@ -348,6 +348,11 @@ func (r *Runtime) projectProviderSnapshot() {
 	var channels []viewmodel.Channel
 	for _, p := range snapshot.Providers {
 		ch := viewmodel.Channel{ID: p.ID.String(), Revision: p.Revision, Name: p.Name, API: string(p.Api), Endpoint: p.Endpoint, Auth: viewmodel.AuthKey, Enabled: p.Enabled, KeySet: p.Credential != nil}
+		ch.Shared = p.Shared
+		ch.ConfigurationReadOnly = p.Source != nil || (p.Shared && (snapshot.User == nil || !snapshot.User.Administrator))
+		if p.Source != nil {
+			ch.Source = p.Source.Node.String()
+		}
 		if p.Authentication != "api_key" {
 			ch.Auth = viewmodel.AuthOAuth
 			if p.Credential != nil && r.authorizations != nil {
@@ -492,6 +497,7 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		p.Revision = d.ExpectedRevision
 		r.providerDraftBases[key] = p
 	}
+	p.Shared = d.Channel.Shared
 	p.Name = d.Channel.Name
 	p.Endpoint = d.Channel.Endpoint
 	p.Api = protocol.ConversationModelApi(d.Channel.API)

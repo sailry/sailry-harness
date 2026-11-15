@@ -34,6 +34,7 @@ type ProviderDraft struct {
 type ProviderActions struct {
 	NewID          func() string
 	Available      func() bool
+	CanShare       func() bool
 	Save           func(ProviderDraft, func(bool))
 	Discover       func(ProviderDraft, func([]viewmodel.ChannelModel))
 	Enable         func(string, uint64, bool)

@@ -78,6 +78,7 @@ func (m *Model) CloseShare() { m.pairing.sharing = false }
 func (m *Model) CloseConnectionDialogs() {
 	m.pairing.adding, m.pairing.sharing = false, false
 	m.NetworkEditor = nil
+	m.FollowEditor = nil
 }
 
 func (m *Model) SetConnectionNetwork(relay int, address string) {
@@ -85,6 +86,7 @@ func (m *Model) SetConnectionNetwork(relay int, address string) {
 }
 
 func connectionDialogs(c *ui.Context, m *Model) {
+	configurationFollowDialog(c, m)
 	if editor := m.NetworkEditor; editor != nil {
 		open := true
 		title := i18n.T(c, "host_network_edit")

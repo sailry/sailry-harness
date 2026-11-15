@@ -168,7 +168,7 @@ func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, r
 	if origin, err := configurationOrigin(ctx, db, category, id); err != nil {
 		return err
 	} else if origin != nil {
-		return nil
+		return checkConfigurationCopySource(ctx, db, origin)
 	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {

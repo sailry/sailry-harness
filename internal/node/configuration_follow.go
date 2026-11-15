@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -132,6 +133,20 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 		address := address
 		if err := node.tasks.Submit(func(owner context.Context) {
 			remote := node.network.Remote(address)
+			observer := client.New(remote)
+			defer observer.Close()
+			cancelWatch := observer.OnChange(func() {
+				select {
+				case peer.wake <- struct{}{}:
+				default:
+				}
+			})
+			defer cancelWatch()
+			// Target policy and local MCP choices are target-owned changes. Observing
+			// that Node wakes reconciliation without waiting for another source edit.
+			if err := observer.Start(scoped); err != nil && scoped.Err() != nil {
+				return
+			}
 			if err := node.tasks.Submit(func(owner context.Context) {
 				connected := false
 				_ = remote.WatchConnection(scoped, func(info link.ConnectionInfo) {

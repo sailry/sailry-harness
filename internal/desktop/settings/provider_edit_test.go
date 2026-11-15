@@ -100,3 +100,30 @@ func TestSavedProviderKeyReadKeepsDraft(t *testing.T) {
 		t.Fatal("the current stored-key read was not retained masked and unchanged")
 	}
 }
+
+func TestProviderEditorRetainsHostSharedChoice(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", API: "responses", Custom: true, Keyed: true}}}}
+	ch := preview.Channel{ID: "shared", Name: "Shared", Brand: "fixture", Method: "compatible", API: "responses", Endpoint: "https://fixture.test", Auth: preview.AuthKey, Shared: true, KeySet: true, Models: []preview.ChannelModel{{ID: "model", Name: "Model", Context: 128000}}}
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) {
+		if !draft.Channel.Shared {
+			t.Error("editor dropped host sharing")
+		}
+		done(false)
+	}
+	m.provider.edit(m, &ch)
+	if !m.provider.shared {
+		t.Fatal("editor lost host shared choice")
+	}
+	if problem := m.provider.save(m); problem != "" {
+		t.Fatal(problem)
+	}
+}
+
+func TestFollowedProviderEditorDoesNotReadCopiedKey(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	m.ProviderActions.ReadKey = func(string, func(string)) { t.Fatal("readonly copy attempted key read") }
+	m.provider.edit(m, &preview.Channel{ID: "copy", Auth: preview.AuthKey, ConfigurationReadOnly: true, Shared: true})
+}

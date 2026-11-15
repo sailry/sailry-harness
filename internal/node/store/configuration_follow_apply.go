@@ -161,7 +161,7 @@ func configurationCopyCollision(ctx context.Context, db *sql.Conn, category, id 
 		return err
 	}
 	if origin != nil {
-		return nil
+		return checkConfigurationCopySource(ctx, db, origin)
 	}
 	var exists bool
 	switch category {

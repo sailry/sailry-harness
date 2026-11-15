@@ -43,7 +43,13 @@ type ConfigurationFollowIssue struct {
 	Message  string `json:"message"`
 }
 
+type ConfigurationMCPLocal struct {
+	Plugin string `json:"plugin"`
+	Server string `json:"server"`
+}
+
 type ConfigurationFollowStatus struct {
+	MCPLocal []ConfigurationMCPLocal     `json:"mcp_local,omitempty"`
 	User     *User                       `json:"user,omitempty"`
 	Source   *NodeID                     `json:"source,omitempty"`
 	Revision uint64                      `json:"revision"`
