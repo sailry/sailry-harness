@@ -223,18 +223,32 @@ func TestDemoMode(t *testing.T) {
 		}
 		return ""
 	}
-	// contextPanel is the statistics package's control among the header's
-	// buttons, named as its manifest labels it; contextPanelSection is the
-	// heading of the usage its panel lists.
+	// contextPanel is the composer's context meter, the core's, named by its
+	// title and its state; contextPanelSection is the heading of the usage
+	// its details list. pressPanel opens it and expands its details.
 	contextPanelSection := map[string]string{"en": "Session usage", "zh-CN": "会话用量"}
 	contextPanel := func(locale string) (ui.AccessInfo, bool) {
-		name := map[string]string{"en": "Context", "zh-CN": "上下文"}[locale]
+		prefix := i18n.In(locale, "meter_title") + " · "
 		for _, info := range tester.AccessAll() {
-			if info.Role == ui.RoleButton && info.Name == name && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+			if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, prefix) && info.Bounds.Y > shell.HeaderHeight {
 				return info, true
 			}
 		}
 		return ui.AccessInfo{}, false
+	}
+	pressPanel := func(locale string, at ui.AccessInfo) {
+		tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
+		for range 4 {
+			tester.Advance(250 * time.Millisecond)
+			tester.Frame()
+		}
+		if details, ok := tester.Access(i18n.In(locale, "meter_show_details")); ok {
+			tester.ClickAt(details.Bounds.X+details.Bounds.W/2, details.Bounds.Y+details.Bounds.H/2)
+			for range 4 {
+				tester.Advance(250 * time.Millisecond)
+				tester.Frame()
+			}
+		}
 	}
 	// tour opens every demo conversation in the window's language and, on
 	// each, the mode menu, the permission menu, the model picker, the session
@@ -367,16 +381,16 @@ func TestDemoMode(t *testing.T) {
 			if !open(cv.ID, "overview", "", named("chat_assets_title")) {
 				t.Errorf("%s: no session overview button", cv.ID)
 			}
-			// The statistics package shows over a demo conversation as over
-			// a session: its context panel in the header and, beside a
-			// composer, its figures of the conversation's own usage, the
-			// speed to one decimal as the package writes it. The first
-			// conversation's panel and a figure's card are opened.
-			if !until(func() bool { _, ok := contextPanel(locale); return ok }) {
-				t.Errorf("%s: the header has no context panel button: %q", cv.ID, tester.Texts())
-			} else if cv == list[0] {
+			// A demo conversation has the core's context meter as a session
+			// has, and beside a composer the statistics package's figures of
+			// the conversation's own usage, the speed to one decimal as the
+			// package writes it. The first conversation's meter details and
+			// a figure's card are opened.
+			if !until(func() bool { _, ok := contextPanel(locale); return ok || !composed }) {
+				t.Errorf("%s: the composer has no context meter: %q", cv.ID, tester.Texts())
+			} else if cv == list[0] && composed {
 				at, _ := contextPanel(locale)
-				tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
+				pressPanel(locale, at)
 				await(cv.ID, "context panel", contextPanelSection[locale])
 				if os.Getenv("SAILRY_SNAPSHOTS") != "" {
 					// The panel has opened all the way in the picture.
@@ -404,25 +418,16 @@ func TestDemoMode(t *testing.T) {
 					step()
 				}
 			}
-			// The context ring reads the tokens used of the model's window,
-			// as a measured indicator does. Its tooltip is the same text:
-			// the first conversation's is hovered open.
-			if usage := cv.Session.Usage; composed && usage != nil {
-				window := conversation.Count(usage.Window)
-				ring, ok := ui.AccessInfo{}, false
-				for _, info := range tester.AccessAll() {
-					if strings.Contains(info.Name, " / "+window+" ") && strings.HasSuffix(info.Name, "%") {
-						ring, ok = info, true
-						break
-					}
-				}
-				if !ok {
-					t.Errorf("%s: no context ring reads its use of %s", cv.ID, window)
-				} else if cv == list[0] {
-					tester.Move(ring.Bounds.X+ring.Bounds.W/2, ring.Bounds.Y+ring.Bounds.H/2)
+			// The context meter's tooltip is its name: the first
+			// conversation's is hovered open.
+			if composed && cv == list[0] {
+				if meter, ok := contextPanel(locale); !ok {
+					t.Errorf("%s: no context meter", cv.ID)
+				} else {
+					tester.Move(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
 					tester.Advance(time.Second)
 					step()
-					check(cv.ID, "context ring tooltip")
+					check(cv.ID, "context meter tooltip")
 					tester.Move(0, 0)
 					step()
 				}
@@ -815,10 +820,9 @@ func TestDemoMode(t *testing.T) {
 		}
 		panel, ok := contextPanel("en")
 		if !ok || panel.Disabled || panel.Expanded {
-			t.Fatalf("the header's context panel button: found %v, %+v", ok, panel)
+			t.Fatalf("the composer's context meter: found %v, %+v", ok, panel)
 		}
-		tester.ClickAt(panel.Bounds.X+panel.Bounds.W/2, panel.Bounds.Y+panel.Bounds.H/2)
-		tester.Advance(time.Second)
+		pressPanel("en", panel)
 		settle()
 		if opened, _ := contextPanel("en"); !opened.Expanded || opened.Disabled || !tester.HasText(contextPanelSection["en"]) {
 			t.Errorf("the context panel: expanded %v, disabled %v, texts %q", opened.Expanded, opened.Disabled, tester.Texts())
@@ -845,12 +849,15 @@ func TestDemoMode(t *testing.T) {
 				t.Errorf("the context panel names the demo %s: %q", where, shown)
 			}
 		}
-		// fold presses a row of the panel, which hangs under the header's
-		// button.
+		// fold presses a row of the meter's popover, which opens above the
+		// meter and ends at its end.
+		inside := func(r ui.Rect) bool {
+			return r.Y >= shell.HeaderHeight && r.Y+r.H <= panel.Bounds.Y && r.X >= panel.Bounds.X+panel.Bounds.W-400 && r.W > 0
+		}
 		fold := func(name string) {
 			t.Helper()
 			for _, info := range tester.AccessAll() {
-				if info.Name == name && info.Bounds.Y >= shell.HeaderHeight && info.Bounds.X >= panel.Bounds.X-400 && info.Bounds.W > 0 {
+				if info.Name == name && inside(info.Bounds) {
 					tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 					tester.Advance(time.Second)
 					settle()
@@ -858,7 +865,7 @@ func TestDemoMode(t *testing.T) {
 				}
 			}
 			// A row without a name of its own is pressed on its text.
-			if at, found := tester.Find(name); found && at.Y >= shell.HeaderHeight && at.X >= panel.Bounds.X-400 {
+			if at, found := tester.Find(name); found && inside(at) {
 				tester.ClickAt(at.X+at.W/2, at.Y+at.H/2)
 				tester.Advance(time.Second)
 				settle()
@@ -867,17 +874,19 @@ func TestDemoMode(t *testing.T) {
 			t.Fatalf("the context panel has no %q row: %q", name, tester.Texts())
 		}
 		occupied := int(usage.Context * float64(usage.Window))
-		shows("of the first conversation", r.App.Composer(cv.ID).Model, packageCount(occupied), "/ "+packageCount(usage.Window),
-			"Until compaction "+packageCount(usage.Window*4/5-occupied), "Output reserve "+packageCount(usage.Window*4/25), "Details",
+		count := conversation.Count
+		shows("of the first conversation", r.App.Composer(cv.ID).Model, count(occupied), "/ "+count(usage.Window),
+			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details",
 			fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Input", packageCount(input), "Output", "Cache hit", "Subagents",
 			"Active time", "Wait", "Reply", "Tools", "Other", "Session average "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
 			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
 		// Its folds: what the context divides into, the tool calls by name
 		// and the subagents' usage.
-		fold("Details")
-		fold("Tool calls")
+		// Bottom up: an open fold pushes the rows under it down the scroll.
 		fold("Subagents")
+		fold("Tool calls")
+		fold("Details")
 		shows("with its folds open", "System prompt", "Tool definitions", "User messages", "Skills", "Injected content", "Assistant history",
 			"Tool results", "Subagent usage", packageCount(delegated))
 		shot("demo-context-panel-folds")
@@ -892,10 +901,9 @@ func TestDemoMode(t *testing.T) {
 			r.App.Sidebar.Selected = id
 			settle()
 			if panel, ok = contextPanel("en"); !ok {
-				t.Fatalf("%s has no context panel button: %q", id, tester.Texts())
+				t.Fatalf("%s has no context meter: %q", id, tester.Texts())
 			}
-			tester.ClickAt(panel.Bounds.X+panel.Bounds.W/2, panel.Bounds.Y+panel.Bounds.H/2)
-			tester.Advance(time.Second)
+			pressPanel("en", panel)
 			settle()
 		}
 		// A conversation that ran many subagents counts them all and what

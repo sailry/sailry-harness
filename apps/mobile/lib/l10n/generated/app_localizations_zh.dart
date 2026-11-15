@@ -221,6 +221,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationFull => '完全访问';
 
   @override
+  String get conversationPermission => '权限';
+
+  @override
+  String get conversationAskDescription => '修改文件和执行命令前询问';
+
+  @override
+  String get conversationProjectDescription => '自动修改项目文件，执行命令前询问';
+
+  @override
+  String get conversationFullDescription => '自动修改文件和执行命令，可影响项目外文件';
+
+  @override
   String get conversationBudget => '思考预算';
 
   @override
@@ -2416,6 +2428,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationFull => '完全訪問';
+
+  @override
+  String get conversationPermission => '權限';
+
+  @override
+  String get conversationAskDescription => '修改檔案和執行命令前詢問';
+
+  @override
+  String get conversationProjectDescription => '自動修改專案檔案，執行命令前詢問';
+
+  @override
+  String get conversationFullDescription => '自動修改檔案和執行命令，可影響專案外檔案';
 
   @override
   String get conversationBudget => '思考預算';

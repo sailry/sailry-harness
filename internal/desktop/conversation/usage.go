@@ -276,24 +276,21 @@ const (
 	usagePanelLeast  = 100
 )
 
-// ContextRing is the composer's context indicator, left of the model chip:
-// Kit's ring with 4 on each side, the track and the part used, muted, with
-// its tooltip the tokens used of the model's window where the usage knows the
-// window, as a measured indicator's reads, and the preview's compaction hint
-// where it does not. Sample data has no indicator panel to open, so it takes
-// no clicks.
-func ContextRing(c *ui.Context, u *Usage) {
+// UsageContext is a sample conversation's usage as the context meter reads
+// it: the context used of the window where the usage knows the window, with
+// the compaction at four fifths of it, the tokens, cost, speed and turns. A
+// sample has no requests, so its details hold no history, time or
+// connection.
+func UsageContext(u *Usage, model string) *ContextStats {
 	if u == nil {
-		return
+		return nil
 	}
-	percent := math.Max(0, math.Min(1, u.Context)) * 100
-	hint := i18n.T(c, "composer_compression_hint")
+	d := &ContextStats{Model: model, Cost: fmt.Sprintf("%.2f", u.Cost)}
 	if u.Window > 0 {
-		hint = Count(int(percent/100*float64(u.Window)+0.5)) + " / " + Count(u.Window)
+		used := uint64(math.Max(0, math.Min(1, u.Context))*float64(u.Window) + 0.5)
+		d.Tokens, d.Limit, d.Threshold = &used, uint64(u.Window), uint64(u.Window)*4/5
 	}
-	box := ui.Row(c.Key("context")).Shrink(0).PaddingX(4).AlignItems(ui.Center)
-	kit.Tooltip(c, box, hint)
-	box.Children(func() {
-		kit.Ring(c, percent, false, kit.Neutral, fmt.Sprintf("%s %d%%", hint, int(percent+0.5)))
-	})
+	tokens, cached, turns, speed := uint64(u.Tokens), uint64(u.Cached), uint64(u.Turns), u.Speed
+	d.Input, d.Cached, d.Turns, d.Speed = &tokens, &cached, &turns, &speed
+	return d
 }

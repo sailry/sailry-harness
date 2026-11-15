@@ -951,7 +951,9 @@ Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `m
 Composer placement uses the same declarations for the toolbar and settings:
 below 680 logical pixels secondary composer controls move into settings; below
 440 context controls move there as well. Indicators remain beside the explicit
-model selector and send control. Placement does not change contribution values.
+model selector and send control. The application's own context meter, a
+session's context occupancy and usage, sits directly before the model selector,
+after package indicators. Placement does not change contribution values.
 
 A `menu` contribution renders its `choices` as a Kit popup menu. The string
 `value` names the checked choice. Consecutive choices with the same `group` share

@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -383,67 +382,67 @@ func auditSearchSettings(t *testing.T, ctx context.Context, runtime *Runtime, te
 // padding of 24 a side.
 const kitPageColumn = 752
 
-// auditContextRing shows a session's context ring, the statistics package's
-// composer indicator, in Chinese: directly left of the model chip, its hint as
-// the tooltip, no tooltip while its usage is unknown (auditUnknownRing), and
-// gone on a draft. It is a step of TestPluginUIIntegration;
-// SAILRY_UI_SHOTS receives the light and the dark frame.
+// auditContextRing shows a session's context meter, the core's, in
+// Chinese: directly left of the model chip, its title and state as the
+// tooltip, a popover of the summary that Show details expands, and gone on a
+// draft. The statistics package gives the composer no ring of its own. It is
+// a step of TestPluginUIIntegration; SAILRY_UI_SHOTS receives the light and
+// the dark frame of the summary and of the details.
 func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool)) {
 	t.Helper()
-	// rings are the indicators the selected conversation's composer is given.
+	// metered says the selected conversation's composer is given the meter;
+	// rings are the packages' indicators beside it.
+	var metered bool
 	var rings []composer.Indicator
 	project := func() {
 		runtime.enqueue(func(view *ui.Context) {
 			if conversation := runtime.App.Data.Find(runtime.App.Sidebar.Selected); conversation != nil {
-				projected, _ := runtime.conversation(view, conversation, runtime.App.Composer(conversation.ID))
-				rings = projected.Indicators
+				comp := runtime.App.Composer(conversation.ID)
+				projected, _ := runtime.conversation(view, conversation, comp)
+				metered, rings = comp.Indicator != nil, projected.Indicators
 			}
 		})
 	}
 	tester.SetLocale("zh-CN")
-	var ring ui.AccessInfo
-	wait("the session's context ring", func() bool {
+	prefix := i18n.In("zh-CN", "meter_title") + " · "
+	find := func() (ui.AccessInfo, bool) {
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, prefix) {
+				return info, true
+			}
+		}
+		return ui.AccessInfo{}, false
+	}
+	var meter ui.AccessInfo
+	wait("the session's context meter", func() bool {
 		project()
-		if runtime.App.Sidebar.Selected != session || len(rings) != 1 {
-			return false
-		}
-		// A ring whose usage is unknown has no hint, so no name to find.
-		if rings[0].Hint == "" {
-			return true
-		}
 		var shown bool
-		ring, shown = tester.Access(rings[0].Hint)
-		return shown
+		meter, shown = find()
+		return runtime.App.Sidebar.Selected == session && metered && shown
 	})
-	hint := rings[0].Hint
-	if hint == "" {
-		auditUnknownRing(t, tester)
-		auditDraftRing(runtime, tester, session, wait, project, &rings, hint)
-		return
+	if len(rings) != 0 {
+		t.Errorf("the composer has package rings beside the meter: %+v", rings)
 	}
-	if strings.ContainsFunc(hint, unicode.IsLetter) && !strings.ContainsFunc(hint, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
-		t.Errorf("the ring's hint is not Chinese: %q", hint)
-	}
-	prefix := i18n.In("zh-CN", "composer_model_settings") + ": "
+	chipPrefix := i18n.In("zh-CN", "composer_model_settings") + ": "
 	var chip ui.AccessInfo
 	for _, info := range tester.AccessAll() {
-		if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, prefix) {
+		if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, chipPrefix) {
 			chip = info
 		}
 	}
 	if chip.Name == "" {
 		t.Fatalf("no model chip: %q", tester.Texts())
 	}
-	if ring.Bounds.H > 24 || ring.Bounds.W > kit.RingSize+8 {
-		t.Errorf("the ring is %v, want the Kit ring within the toolbar's 24", ring.Bounds)
+	if meter.Bounds.H > 24 || meter.Bounds.W > kit.RingSize+8 {
+		t.Errorf("the meter is %v, want the Kit ring within the toolbar's 24", meter.Bounds)
 	}
-	if gap := chip.Bounds.X - (ring.Bounds.X + ring.Bounds.W); gap < 0 || gap > 12 {
-		t.Errorf("the ring ends %v before the model chip, want it directly left", gap)
+	if gap := chip.Bounds.X - (meter.Bounds.X + meter.Bounds.W); gap < 0 || gap > 12 {
+		t.Errorf("the meter ends %v before the model chip, want it directly left", gap)
 	}
-	if middle, row := ring.Bounds.Y+ring.Bounds.H/2, chip.Bounds.Y+chip.Bounds.H/2; middle < row-2 || middle > row+2 {
-		t.Errorf("the ring's middle %v is off the model chip's %v", middle, row)
+	if middle, row := meter.Bounds.Y+meter.Bounds.H/2, chip.Bounds.Y+chip.Bounds.H/2; middle < row-2 || middle > row+2 {
+		t.Errorf("the meter's middle %v is off the model chip's %v", middle, row)
 	}
-	// The ring's own name counts as a text: the tooltip is one more.
+	hint := meter.Name
 	shows := func() (count int) {
 		for _, text := range tester.Texts() {
 			if text == hint {
@@ -453,82 +452,74 @@ func auditContextRing(t *testing.T, runtime *Runtime, tester *ui.Tester, session
 		return
 	}
 	before := shows()
-	tester.Move(ring.Bounds.X+ring.Bounds.W/2, ring.Bounds.Y+ring.Bounds.H/2)
+	tester.Move(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
 	tester.Frame()
 	tester.Advance(2 * time.Second)
 	tester.Frame()
 	tester.Frame()
 	if shows() != before+1 {
-		t.Errorf("hovering the ring shows %q %d times, was %d: no tooltip", hint, shows(), before)
+		t.Errorf("hovering the meter shows %q %d times, was %d: no tooltip", hint, shows(), before)
 	}
-	if dir := os.Getenv("SAILRY_UI_SHOTS"); dir != "" {
+	settle := func() {
+		for range 4 {
+			tester.Advance(80 * time.Millisecond)
+			tester.Frame()
+		}
+	}
+	tester.ClickAt(meter.Bounds.X+meter.Bounds.W/2, meter.Bounds.Y+meter.Bounds.H/2)
+	settle()
+	details, ok := tester.Access(i18n.In("zh-CN", "meter_show_details"))
+	if !ok {
+		t.Fatalf("the meter's popover has no Show details: %q", tester.Texts())
+	}
+	shoot := func(name string) {
+		dir := os.Getenv("SAILRY_UI_SHOTS")
+		if dir == "" {
+			return
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		for _, dark := range []bool{false, true} {
 			tester.SetDark(dark)
-			for range 4 {
-				tester.Advance(16 * time.Millisecond)
-				tester.Frame()
-			}
-			name := "session-ring-header-zh-CN-light.png"
+			settle()
+			file := name + "-zh-CN-light.png"
 			if dark {
-				name = "session-ring-header-zh-CN-dark.png"
+				file = name + "-zh-CN-dark.png"
 			}
-			file, err := os.Create(filepath.Join(dir, name))
+			f, err := os.Create(filepath.Join(dir, file))
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = png.Encode(file, tester.Image())
-			file.Close()
+			err = png.Encode(f, tester.Image())
+			f.Close()
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
 		tester.SetDark(false)
 	}
-	auditDraftRing(runtime, tester, session, wait, project, &rings, hint)
+	shoot("session-meter-summary")
+	tester.ClickAt(details.Bounds.X+details.Bounds.W/2, details.Bounds.Y+details.Bounds.H/2)
+	settle()
+	if _, ok := tester.Access(i18n.In("zh-CN", "meter_hide_details")); !ok {
+		t.Errorf("Show details did not expand the meter: %q", tester.Texts())
+	}
+	shoot("session-meter-details")
+	tester.Key(0, ui.KeyEscape)
+	settle()
+	auditDraftRing(runtime, tester, session, wait, project, &metered, find)
 }
 
-// auditUnknownRing hovers the place of a ring whose usage is unknown,
-// directly left of the model chip: the ring stays and no tooltip shows, the
-// statistics package's placeholder "0" least of all.
-func auditUnknownRing(t *testing.T, tester *ui.Tester) {
-	t.Helper()
-	prefix := i18n.In("zh-CN", "composer_model_settings") + ": "
-	var chip ui.AccessInfo
-	for _, info := range tester.AccessAll() {
-		if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, prefix) {
-			chip = info
-		}
-	}
-	if chip.Name == "" {
-		t.Fatalf("no model chip: %q", tester.Texts())
-	}
-	rest := slices.Clone(tester.Texts())
-	// The ring ends the toolbar's gap of 8 before the chip, 4 at each side.
-	tester.Move(chip.Bounds.X-8-4-kit.RingSize/2, chip.Bounds.Y+chip.Bounds.H/2)
-	tester.Frame()
-	tester.Advance(2 * time.Second)
-	tester.Frame()
-	tester.Frame()
-	if under := tester.Texts(); !slices.Equal(under, rest) {
-		t.Errorf("the unknown ring shows a tooltip: %q at rest, %q under the pointer", rest, under)
-	}
-}
-
-// auditDraftRing checks that a draft, which has no session, is given no ring
-// and shows none, and goes back to the session.
-func auditDraftRing(runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool), project func(), rings *[]composer.Indicator, hint string) {
+// auditDraftRing checks that a draft, which has no session, is given no
+// meter and shows none, and goes back to the session.
+func auditDraftRing(runtime *Runtime, tester *ui.Tester, session string, wait func(string, func() bool), project func(), metered *bool, find func() (ui.AccessInfo, bool)) {
 	tester.Move(1, 1)
 	runtime.App.Sidebar.NewChat()
-	wait("the draft without a ring", func() bool {
+	wait("the draft without a meter", func() bool {
 		project()
-		shown := false
-		if hint != "" {
-			_, shown = tester.Access(hint)
-		}
-		return strings.HasPrefix(runtime.App.Sidebar.Selected, "draft/") && len(*rings) == 0 && !shown
+		_, shown := find()
+		return strings.HasPrefix(runtime.App.Sidebar.Selected, "draft/") && !*metered && !shown
 	})
 	runtime.OpenSession(session)
 	tester.SetLocale("en")

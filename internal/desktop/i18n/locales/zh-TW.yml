@@ -2269,3 +2269,63 @@ plugins_settings_follow_model: 跟隨模型
 ram_plugins: Plugins (estimated)
 ram_plugins_partial: '%{bytes} · partial'
 ram_plugins_error: Could not read plugin memory
+meter_title: 上下文
+meter_session_usage: 工作階段用量
+meter_session_time: 工作階段耗時
+meter_connection: 連線平均值
+meter_details: 明細
+meter_compactions: 壓縮 %{count} 次
+meter_turns: '%{count} 輪'
+meter_step: 第 %{count} 步
+meter_remaining: 距壓縮 %{count}
+meter_payload_partial: 已觀測請求內容，不含伺服器保留的上下文
+meter_identified_note: 依已識別來源文字估算，不含未歸因的歷史內容
+meter_system: 系統提示
+meter_tools: 工具定義
+meter_user: 使用者訊息
+meter_skills: 技能
+meter_injected: 注入內容
+meter_assistant: 助理歷史
+meter_results: 工具結果
+meter_reply: 回覆
+meter_tool_calls: 工具呼叫
+meter_child_usage: 子代理用量
+meter_wait: 等待
+meter_tools_time: 工具
+meter_other: 其他
+meter_api_response: API 回應
+meter_first_response: TTFT
+meter_request_time: 請求耗時
+meter_output_speed: 工作階段平均速度
+meter_cache_hit: 快取命中
+meter_cache_read: 快取讀取
+meter_input_note: 累計輸入包含快取讀取
+meter_output_note: 累計輸出包含推理 token
+meter_headers_note: 從請求開始到 API 回應，不代表網路往返時間
+meter_first_note: 請求發出至首個串流 Token
+meter_minutes: '%{minutes}m %{seconds}s'
+meter_cost: 費用
+meter_threshold: 自動壓縮線
+meter_reserve: 輸出預留
+meter_last_compaction: 最近壓縮
+meter_succeeded: 成功
+meter_failed: 失敗
+meter_basis_observed: 上次模型呼叫
+meter_basis_estimate: 目前估算
+meter_input: Input
+meter_output: Output
+meter_reasoning: Reasoning
+meter_speed_unit: tok/s
+meter_duration_ms: '%{value} ms'
+meter_duration_s: '%{value} s'
+meter_subagents: 子智慧體
+meter_compacting: Compacting context
+meter_state_plenty: 空間充裕
+meter_state_filling: 逐漸佔滿
+meter_state_near: 即將壓縮
+meter_state_unknown: 尚未統計
+meter_left: 剩餘 %{count}
+meter_tokens: 用量
+meter_speed: 速度
+meter_show_details: 顯示詳情
+meter_hide_details: 收起

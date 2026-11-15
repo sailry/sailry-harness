@@ -522,6 +522,30 @@ abstract class AppLocalizations {
   /// **'Full access'**
   String get conversationFull;
 
+  /// No description provided for @conversationPermission.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get conversationPermission;
+
+  /// No description provided for @conversationAskDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask before editing files or running commands'**
+  String get conversationAskDescription;
+
+  /// No description provided for @conversationProjectDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit project files automatically; ask before running commands'**
+  String get conversationProjectDescription;
+
+  /// No description provided for @conversationFullDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit files and run commands automatically, including outside the project'**
+  String get conversationFullDescription;
+
   /// No description provided for @conversationBudget.
   ///
   /// In en, this message translates to:

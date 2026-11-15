@@ -17,10 +17,15 @@ const RingSize = 15
 // drawing: pinned MyGo has a progress bar and a spinner of spokes, no
 // progress circle.
 func Ring(c *ui.Context, percent float64, loading bool, tone Tone, label string) ui.Element {
-	const stroke = RingSize * 0.15
+	return RingSized(c, RingSize, RingSize*0.15, percent, loading, tone, label)
+}
+
+// RingSized is Ring at another diameter and stroke width: the context
+// meter's gauge.
+func RingSized(c *ui.Context, size, stroke float32, percent float64, loading bool, tone Tone, label string) ui.Element {
 	color := tone.color(theme.Of(c))
 	still := c.Preferences().ReduceMotion
-	return ui.Box(c).Size(RingSize, RingSize).Shrink(0).Label(label).Draw(func(pt *ui.Painter, r ui.Rect) {
+	return ui.Box(c).Size(size, size).Shrink(0).Label(label).Draw(func(pt *ui.Painter, r ui.Rect) {
 		cx, cy, rad := r.X+r.W/2, r.Y+r.H/2, (min(r.W, r.H)-stroke)/2
 		var track ui.Path
 		track.Circle(cx, cy, rad)

@@ -375,6 +375,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.projectChildComposer(cv, comp, ctx, c.Locale())
 	r.projectInteractionStates(cv, ctx, c.Locale())
 	r.projectPluginComposer(c, cv, comp, ctx)
+	r.projectContextMeter(cv, comp, config)
 	r.bindSkillReferences(cv, comp)
 	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
 	r.projectComposerModes(c, cv, comp, ctx)

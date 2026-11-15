@@ -49,7 +49,8 @@ func composerAlone(t *testing.T, locale string, width int, prepare func(*compose
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
 		conversation.UsageBar(c, nil, [][]conversation.Metric{conversation.Metrics(c, cv.Session.Usage)}, compact, open)
 	}
-	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
+	stats := conversation.UsageContext(cv.Session.Usage, comp.Chosen(a.Data.Models).Name)
+	comp.Indicator = func(c *ui.Context) { conversation.ContextMeter(c, &comp.Meter, stats) }
 	actions := &sent{}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		ctx := preview.Composer(a.Data, cv, comp.Worktree)
@@ -89,16 +90,23 @@ func shot(t *testing.T, tt *ui.Tester, name string) {
 // noModels is a composer whose Node offers no model.
 func noModels(_ *composer.State, ctx *composer.Context) { ctx.Models, ctx.Families = nil, nil }
 
-// ring finds the context ring of the selected conversation.
+// ring finds the context meter of the selected conversation, named by its
+// title and its state.
 func ring(t *testing.T, a *App, tt *ui.Tester) ui.Rect {
 	t.Helper()
-	u := a.Data.Find(a.Sidebar.Selected).Session.Usage
-	label := fmt.Sprintf("%s %d%%", i18n.In("en", "composer_compression_hint"), int(u.Context*100+0.5))
-	r, ok := tt.Find(label)
+	label := meterName(a, "en")
+	e, ok := tt.Access(label)
 	if !ok {
-		t.Fatalf("no context ring %q: %q", label, tt.Texts())
+		t.Fatalf("no context meter %q: %q", label, tt.Texts())
 	}
-	return r
+	return e.Bounds
+}
+
+// meterName is the selected conversation's context meter's name in locale.
+func meterName(a *App, locale string) string {
+	cv := a.Data.Find(a.Sidebar.Selected)
+	key, _ := conversation.UsageContext(cv.Session.Usage, "").State()
+	return i18n.In(locale, "meter_title") + " · " + i18n.In(locale, key)
 }
 
 // The context ring sits in the composer's toolbar directly left of the model
@@ -112,8 +120,8 @@ func TestContextRingBesideModel(t *testing.T) {
 		t.Fatalf("no model chip for %q", m.Name)
 	}
 	b := chip.Bounds
-	if r.W != kit.RingSize || r.H != kit.RingSize {
-		t.Errorf("ring is %vx%v, want the Kit ring's %v", r.W, r.H, kit.RingSize)
+	if r.W != kit.RingSize+8 || r.H != 24 {
+		t.Errorf("meter is %vx%v, want the Kit ring with 4 at each side, 24 high", r.W, r.H)
 	}
 	if gap := b.X - (r.X + r.W); gap < 0 || gap > 12 {
 		t.Errorf("ring ends %v before the chip, want it directly left", gap)
@@ -378,11 +386,10 @@ func ringTooltip(t *testing.T) {
 		tt.SetLocale(locale)
 		tt.Frame()
 		tt.Frame()
-		u := a.Data.Find(a.Sidebar.Selected).Session.Usage
-		hint := i18n.In(locale, "composer_compression_hint")
-		hover(tt, fmt.Sprintf("%s %d%%", hint, int(u.Context*100+0.5)))
+		hint := meterName(a, locale)
+		hover(tt, hint)
 		if !slices.Contains(tt.Texts(), hint) {
-			t.Errorf("%s: the preview ring's tooltip lacks %q", locale, hint)
+			t.Errorf("%s: the preview meter's tooltip lacks %q", locale, hint)
 		}
 	}
 }

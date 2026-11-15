@@ -224,6 +224,18 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationFull => '전체 액세스';
 
   @override
+  String get conversationPermission => '권한';
+
+  @override
+  String get conversationAskDescription => '파일을 편집하거나 명령을 실행하기 전에 묻기';
+
+  @override
+  String get conversationProjectDescription => '프로젝트 파일 자동 편집; 명령 실행 전에 묻기';
+
+  @override
+  String get conversationFullDescription => '프로젝트 외부에서도 파일을 편집하고 명령을 자동으로 실행';
+
+  @override
   String get conversationBudget => '예산 추론';
 
   @override

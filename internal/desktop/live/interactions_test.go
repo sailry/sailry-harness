@@ -481,12 +481,12 @@ func interactionKinds(t *testing.T) {
 	contextPanel := func() ui.AccessInfo {
 		t.Helper()
 		for _, info := range tester.AccessAll() {
-			// The statistics package's header control, as its manifest labels it.
-			if info.Role == ui.RoleButton && info.Name == "上下文" && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+			// The composer's context meter, named by its title and state.
+			if info.Role == ui.RoleButton && strings.HasPrefix(info.Name, text("meter_title")+" · ") && info.Bounds.Y > shell.HeaderHeight {
 				return info
 			}
 		}
-		t.Fatalf("the header has no context panel button; visible text: %q", tester.Texts())
+		t.Fatalf("the composer has no context meter; visible text: %q", tester.Texts())
 		return ui.AccessInfo{}
 	}
 	for _, open := range []bool{true, false} {

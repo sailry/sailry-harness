@@ -231,6 +231,21 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationFull => 'Vollständiger Zugriff auf';
 
   @override
+  String get conversationPermission => 'Berechtigungen';
+
+  @override
+  String get conversationAskDescription =>
+      'Vor dem Bearbeiten von Dateien oder Ausführen von Befehlen fragen';
+
+  @override
+  String get conversationProjectDescription =>
+      'Projektdateien automatisch bearbeiten; vor Ausführung von Befehlen fragen';
+
+  @override
+  String get conversationFullDescription =>
+      'Dateien bearbeiten und Befehle automatisch ausführen, auch außerhalb des Projekts';
+
+  @override
   String get conversationBudget => 'Begründung des Haushaltsplans';
 
   @override

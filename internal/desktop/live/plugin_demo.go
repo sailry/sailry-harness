@@ -17,8 +17,8 @@ import (
 )
 
 // Demo mode shows the statistics package over a demo conversation as over a
-// session: its figures in the composer's context bar and its context panel
-// in the header. The package's view is mounted for each demo conversation
+// session: its figures in the composer's context bar, beside the core's
+// context meter, which reads the same statistics. The package's view is mounted for each demo conversation
 // shown, without a session, under the presentation "demo/<id>", and reads
 // the composer state the host gives it (readComposer), which is built from
 // the conversation's own usage and transcript. No other package is mounted there: theirs
@@ -45,6 +45,18 @@ func (r *Runtime) demoConversation(_ *ui.Context, cv *viewmodel.Conversation, co
 	root.demoModels.Store(cv.ID, comp.Model)
 	if registry := root.demoPluginRegistry(cv); registry != nil {
 		root.projectPluginMetrics(comp, registry)
+	}
+	// The context meter reads the statistics a session of the conversation
+	// records, as the package's figures do.
+	if recorded := demoStatistics(cv, comp.Model); recorded != nil {
+		stats := contextStats(recorded, comp.Model, 0, false)
+		if record := recorded.LastCompaction; record != nil && stats.LastCompaction != nil {
+			stats.LastCompaction.Reveal = func() {
+				comp.Meter.Open = false
+				root.revealDemoTurn(cv.ID, record.Turn)
+			}
+		}
+		comp.Indicator = func(c *ui.Context) { conversation.ContextMeter(c, &comp.Meter, stats) }
 	}
 }
 

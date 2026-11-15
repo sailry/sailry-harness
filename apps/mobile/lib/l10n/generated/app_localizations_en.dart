@@ -228,6 +228,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationFull => 'Full access';
 
   @override
+  String get conversationPermission => 'Permissions';
+
+  @override
+  String get conversationAskDescription =>
+      'Ask before editing files or running commands';
+
+  @override
+  String get conversationProjectDescription =>
+      'Edit project files automatically; ask before running commands';
+
+  @override
+  String get conversationFullDescription =>
+      'Edit files and run commands automatically, including outside the project';
+
+  @override
   String get conversationBudget => 'Reasoning budget';
 
   @override

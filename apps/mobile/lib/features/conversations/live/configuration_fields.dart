@@ -8,6 +8,8 @@ import '../../../ui/toast.dart';
 import 'choice_row.dart';
 import 'model_controls.dart';
 import '../../../ui/kit.dart';
+import '../../../ui/list_group.dart';
+import '../../../ui/theme.dart';
 import 'modes.dart';
 import 'team.dart';
 import 'team_controls.dart';
@@ -108,38 +110,10 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
     final current = modeChoices()
         .where((mode) => mode.$1 == selectedMode)
         .firstOrNull;
-    Widget choices(String field, List<(String, String)> values) =>
-        SegmentedButton<String>(
-          key: ValueKey('configuration-$field'),
-          expandedInsets: EdgeInsets.zero,
-          showSelectedIcon: false,
-          segments: [
-            for (final (value, label) in values)
-              ButtonSegment(value: value, label: Text(context.tr(label))),
-          ],
-          selected: {config[field] as String},
-          onSelectionChanged: widget.enabled
-              ? (selection) => _commit({...config, field: selection.single})
-              : null,
-          style: SegmentedButton.styleFrom(
-            side: BorderSide.none,
-            backgroundColor: colors.surfaceContainer,
-            selectedBackgroundColor: colors.surfaceContainerHigh,
-            selectedForegroundColor: colors.onSurface,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          ),
-        );
     // Plugin packages can add modes, so a list scales where segments would not.
-    final mode = ListTile(
+    final mode = ListGroupRow(
       key: const ValueKey('configuration-mode'),
-      // Match the sheet's choice rows instead of the dense sheet tiles.
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-      minTileHeight: 44,
-      minVerticalPadding: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      titleTextStyle: TextStyle(fontSize: 15, color: colors.onSurface),
-      enabled: widget.enabled,
-      title: Text(context.tr('conversationMode')),
+      title: context.tr('conversationMode'),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -151,39 +125,43 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
           AppIcon('chevron', size: 14, color: colors.onSurfaceVariant),
         ],
       ),
-      onTap: () async {
-        if (_modes.error != null) unawaited(_modes.reload());
-        final key = await showAppSheet<String>(
-          context,
-          context.tr('conversationMode'),
-          child: ListenableBuilder(
-            listenable: _modes,
-            builder: (sheet, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final (value, label, enabled) in modeChoices())
-                  Opacity(
-                    opacity: enabled && _modes.canSelect(widget.config)
-                        ? 1
-                        : .45,
-                    child: ChoiceRow(
-                      label: label,
-                      selected: value == _modes.selected(widget.config),
-                      onTap: enabled && _modes.canSelect(widget.config)
-                          ? () => Navigator.pop(sheet, value)
-                          : () {},
-                    ),
+      onTap: !widget.enabled
+          ? null
+          : () async {
+              if (_modes.error != null) unawaited(_modes.reload());
+              final key = await showAppSheet<String>(
+                context,
+                context.tr('conversationMode'),
+                child: ListenableBuilder(
+                  listenable: _modes,
+                  builder: (sheet, _) => Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final (value, label, enabled) in modeChoices())
+                        Opacity(
+                          opacity: enabled && _modes.canSelect(widget.config)
+                              ? 1
+                              : .45,
+                          child: ChoiceRow(
+                            label: label,
+                            selected: value == _modes.selected(widget.config),
+                            onTap: enabled && _modes.canSelect(widget.config)
+                                ? () => Navigator.pop(sheet, value)
+                                : () {},
+                          ),
+                        ),
+                    ],
                   ),
-              ],
-            ),
-          ),
-        );
-        if (!mounted || key == null || key == _modes.selected(widget.config)) {
-          return;
-        }
-        final next = _modes.select(widget.config, key);
-        if (next != null) _commit(next);
-      },
+                ),
+              );
+              if (!mounted ||
+                  key == null ||
+                  key == _modes.selected(widget.config)) {
+                return;
+              }
+              final next = _modes.select(widget.config, key);
+              if (next != null) _commit(next);
+            },
     );
     final team = widget.team;
     if (team != null && _choosingTeam) {
@@ -212,12 +190,35 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
               ? () => setState(() => _choosingTeam = true)
               : null,
         ),
-        mode,
-        choices('permission', [
-          ('ask', 'conversationAsk'),
-          ('project', 'conversationProject'),
-          ('full', 'conversationFull'),
-        ]),
+        ListGroup(children: [mode]),
+        // Each level says what it allows; full access, which reaches past
+        // the project, wears the warning color.
+        ListGroup(
+          key: const ValueKey('configuration-permission'),
+          title: context.tr('conversationPermission'),
+          children: [
+            for (final (value, label) in const [
+              ('ask', 'conversationAsk'),
+              ('project', 'conversationProject'),
+              ('full', 'conversationFull'),
+            ])
+              ListGroupRow(
+                key: ValueKey('configuration-permission-$value'),
+                title: context.tr(label),
+                subtitle: context.tr('${label}Description'),
+                color: value == 'full'
+                    ? SailryTheme.statusColor(context, StatusTone.warning)
+                    : null,
+                selected: config['permission'] == value,
+                trailing: config['permission'] == value
+                    ? AppIcon('check', size: 18, color: colors.primary)
+                    : const SizedBox(width: 18),
+                onTap: widget.enabled
+                    ? () => _commit({...config, 'permission': value})
+                    : null,
+              ),
+          ],
+        ),
       ],
     );
   }
