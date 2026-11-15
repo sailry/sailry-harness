@@ -152,9 +152,8 @@ func (r *Runtime) releaseLiveTerminal(id string) {
 	}
 }
 
-// terminalView is a terminal tab's screen. While the terminal's split pane is
-// displayed the pane owns the screen, as MyGo shows a terminal in one view at
-// a time, and the tab's screen stays empty.
+// terminalView is a terminal tab's screen. MyGo shows a terminal in one view
+// at a time, so a workspace pane rendered this frame owns that screen.
 func (r *Runtime) terminalView(c *ui.Context, id string) {
 	root := r.localRuntime()
 	if root.terminalInventory().paned[id] {
@@ -163,7 +162,7 @@ func (r *Runtime) terminalView(c *ui.Context, id string) {
 	root.terminalScreen(c, id)
 }
 
-// terminalPane is the same terminal's screen in a split pane.
+// terminalPane builds a main workspace terminal, standalone or split.
 func (r *Runtime) terminalPane(c *ui.Context, id string) {
 	root := r.localRuntime()
 	root.terminalInventory().paned[id] = true

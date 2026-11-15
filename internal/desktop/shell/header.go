@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
@@ -90,7 +91,7 @@ func (a *App) header(c *ui.Context, f frame) {
 				// has them while the conversation shows alone, and each
 				// pane of a split has its own (paneHeader).
 				var cv *preview.Conversation
-				if a.panes.Displayed() == nil {
+				if a.panes.Displayed() == nil && a.panes.Active.Kind != panes.Terminal {
 					cv = a.Data.Find(a.Sidebar.Selected)
 				}
 				if hasActions(cv) {
@@ -101,12 +102,19 @@ func (a *App) header(c *ui.Context, f frame) {
 				// end, directly before the page's actions.
 				lead := ui.Row(c.Key("lead")).Grow(1).MinWidth(0).Height(HeaderHeight).Gap(ButtonGap)
 				room := a.band.room(c, lead, width-brand-sideWidth(f, end)-pad-padEnd, known)
+				groups := a.workspaceGroupWidth(room)
 				lead.Children(func() {
 					// The title gives way first and is cut at its own
 					// edge: breadcrumbs keep a least width per item, which
 					// must not show over the status.
 					ui.Row(c.Key("title")).Shrink(1).MinWidth(0).Height(HeaderHeight).ClipX().Children(func() { a.trail(c) })
+					if groups > 0 {
+						a.workspaceGroups(c, groups)
+					}
 					ui.Spacer(c)
+					if groups > 0 {
+						room -= groups + ButtonGap
+					}
 					a.strip(c, room)
 				})
 				a.conversationActions(c, cv, HeaderButton)
@@ -428,6 +436,10 @@ func (a *App) trail(c *ui.Context) {
 	if a.panes.Displayed() != nil {
 		// A split's panes have their own titles: the band names the page.
 		ui.Text(c, i18n.T(c, "shell_sessions")).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		return
+	}
+	if a.panes.Active.Kind == panes.Terminal {
+		ui.Text(c, a.paneTitle(c, a.panes.Active)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
 	cv := a.Data.Find(a.Sidebar.Selected)

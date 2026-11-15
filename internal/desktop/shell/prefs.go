@@ -49,6 +49,9 @@ type Prefs struct {
 	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
 	// Panes are the split workspace's groups, each a layout tree.
 	Panes []*panes.Node `json:"panes,omitempty"`
+	// WorkspaceTerminals are independent main terminal surfaces. They hold no
+	// process state or conversation ownership.
+	WorkspaceTerminals []WorkspaceTerminal `json:"workspaceTerminals,omitempty"`
 	// DiffSplit is the window's diff layout: side by side when set, else
 	// unified, as before the choice.
 	DiffSplit bool `json:"diffSplit,omitempty"`
@@ -109,7 +112,8 @@ func (a *App) prefs() Prefs {
 		Panels:           a.savedPanels(),
 		PluginWorkspaces: a.savedPluginWorkspaces(),
 		Features:         a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
-		Panes: a.panes.Saved(), DiffSplit: a.DiffSplit, ListShare: a.ListShare,
+		Panes: a.panes.Saved(), WorkspaceTerminals: append([]WorkspaceTerminal(nil), a.panes.terminals...),
+		DiffSplit: a.DiffSplit, ListShare: a.ListShare,
 	}
 	if keeps(a.Panel.Active) {
 		p.PanelTab = a.Panel.Active
@@ -156,9 +160,14 @@ func (a *App) SetPrefs(p Prefs) {
 		a.previewRail.features, a.previewRail.unpinned = p.Features, p.Unpinned
 		a.previewOrder = p.SessionOrder
 	}
-	// After the panel's tabs, which a terminal pane needs: a pane whose
-	// terminal is gone leaves its group, and one whose session is not there
-	// waits for it (prunePanes).
+	a.panes.terminals = nil
+	for _, terminal := range p.WorkspaceTerminals {
+		if terminal.ID != "" && !a.HasWorkspaceTerminal(terminal.ID) {
+			a.panes.terminals = append(a.panes.terminals, terminal)
+		}
+	}
+	// The terminal surfaces are known before restoring split groups. Old
+	// right-panel terminal tabs no longer supply workspace panes.
 	a.panes.Restore(p.Panes)
 	a.prunePanes()
 	if a.Preview && p.WelcomeSeen != nil && !*p.WelcomeSeen {

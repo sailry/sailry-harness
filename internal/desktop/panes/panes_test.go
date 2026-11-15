@@ -94,9 +94,9 @@ func TestDrop(t *testing.T) {
 		if w.Group(s("b")) != -1 || w.Active != s("x") {
 			t.Fatalf("displaced: %d %v", w.Group(s("b")), w.Active)
 		}
-		// A terminal cannot replace a pane standing alone: it would show alone.
-		if w.CanDrop(s("b"), term("1"), Center) {
-			t.Fatal("terminal alone")
+		// Independent terminals can replace a standalone session too.
+		if !w.Drop(s("b"), term("1"), Center) || w.Active != term("1") || w.Group(term("1")) >= 0 {
+			t.Fatal("terminal cannot stand alone")
 		}
 		if w.Drop(s("a"), s("a"), Right) {
 			t.Fatal("onto itself")

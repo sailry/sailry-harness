@@ -33,8 +33,7 @@ const (
 	Terminal Kind = "terminal"
 )
 
-// Target is a pane's content: a session by its ID, or a terminal by the ID of
-// its tab.
+// Target is a pane's content: a session or independent main terminal by its ID.
 type Target struct {
 	Kind Kind   `json:"kind"`
 	ID   string `json:"id"`
@@ -69,8 +68,8 @@ func (p Placement) axis() Axis {
 	return Row
 }
 
-// Drag is the value dragged onto the workspace from a session row, a terminal
-// tab or a pane's header: the target and the title its drag preview shows.
+// Drag is the value dragged onto the workspace from a session row or a pane's
+// header: the target and the title its drag preview shows.
 type Drag struct {
 	Target Target
 	Title  string
@@ -175,9 +174,7 @@ func (w *Workspace) CanDrop(dest, t Target, p Placement) bool {
 	}
 	g := w.Group(dest)
 	if p == Center {
-		// A replacement leaves t standing alone in dest's place when dest
-		// stands alone, and only a session can show alone.
-		return g >= 0 || t.Kind == Session
+		return true
 	}
 	return g >= 0 && g == w.Group(t) || len(w.Members(dest)) < Limit
 }

@@ -75,7 +75,6 @@ func subagentTokens(cv *viewmodel.Conversation) int {
 func TestDemoMode(t *testing.T) {
 	// The test names the statistics package's control panel, so the panel
 	// package's terminal kind is taken here.
-	const terminalTab = panel.Terminal
 	// The Node must outlive both language tours. The test runner bounds the
 	// complete fixture; a separate Node deadline would disconnect it mid-tour.
 	ctx := t.Context()
@@ -1090,8 +1089,8 @@ func TestDemoMode(t *testing.T) {
 				t.Fatalf("Create worktree: %d worktrees, %d sessions", len(project.Worktrees), len(project.Conversations))
 			}
 			choose(project.Name, text("workspace_new_terminal"))
-			if !r.App.PanelOpen || r.App.Panel.Active.Kind != terminalTab {
-				t.Fatalf("New terminal: panel open %v, active %+v", r.App.PanelOpen, r.App.Panel.Active)
+			if len(r.App.WorkspaceTerminalIDs()) != 1 || len(r.App.Panel.Tabs) != 0 {
+				t.Fatalf("New terminal: workspace terminals %v, panel tabs %v", r.App.WorkspaceTerminalIDs(), r.App.Panel.Tabs)
 			}
 			choose(project.Name, text("workspace_copy_path"))
 			if got := tester.Clipboard(); got != project.Path {

@@ -78,6 +78,7 @@ func (state *pluginNativeState) navigationOperations() {
 							return
 						}
 						root.openLiveTerminal(state.runtime, info)
+						root.App.DropWorkspaceTerminal(id.String())
 						root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id.String()})
 						root.App.PanelOpen = true
 						return

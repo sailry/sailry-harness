@@ -184,27 +184,27 @@ func (s *State) Find() bool {
 	return true
 }
 
-// terminal is a terminal tab: the screen alone, with MyGo's find bar at its
-// top right, ⌘F opening it while the focus is in the tab. The panel's tab
+// TerminalView builds the shared terminal screen, with MyGo's find bar at its
+// top right, ⌘F opening it while the focus is inside. The panel's tab
 // strip closes the terminal and opens another. The preview starts no shell and shows the
 // screen's placeholder: there is nothing to match. A live tab shows its Node
 // terminal through TerminalActions.
-func (s *State) terminal(c *ui.Context, t Tab) {
+func (s *State) TerminalView(c *ui.Context, id string) {
 	p := theme.Of(c)
-	x := s.termOf(t.ID)
+	x := s.termOf(id)
 	col := ui.Column(c.Key("terminal")).Grow(1).MinHeight(0)
 	if col.Shortcut(ui.Cmd, ui.KeyF) && !c.ShortcutRepeated() {
 		x.find = true
 	}
 	if s.TerminalActions != nil && s.TerminalActions.Folder != nil {
-		if folder, known := s.TerminalActions.Folder(t.ID); known {
+		if folder, known := s.TerminalActions.Folder(id); known {
 			x.cwd = folder
 		}
 	}
 	col.Children(func() {
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
 			if s.TerminalActions != nil && s.TerminalActions.View != nil {
-				s.TerminalActions.View(c, t.ID)
+				s.TerminalActions.View(c, id)
 			} else if s.Data != nil && len(s.Data.Screen) > 0 {
 				screen(c, s.Data.Screen)
 			} else {
@@ -212,7 +212,7 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 			}
 			count := 0
 			if s.TerminalActions != nil && s.TerminalActions.Search != nil {
-				count, x.match = s.TerminalActions.Search(t.ID, x.query, x.find, x.match)
+				count, x.match = s.TerminalActions.Search(id, x.query, x.find, x.match)
 			}
 			w, _ := c.Size()
 			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, count, &x.match)).

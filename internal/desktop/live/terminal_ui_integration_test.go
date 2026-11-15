@@ -4,7 +4,6 @@ package live
 
 import (
 	"context"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -55,8 +55,8 @@ func (w *terminalUI) wait(label string, ready func() bool) {
 		case <-w.ctx.Done():
 			w.t.Fatalf("%s: %v; visible text: %q", label, w.ctx.Err(), w.tester.Texts())
 		case <-deadline.C:
-			w.t.Fatalf("%s did not settle; panel tabs: %v; panes: %v; Node terminals: %s; visible text: %q",
-				label, w.runtime.App.Panel.Tabs, w.paneTargets(), w.nodeTerminals(), w.tester.Texts())
+			w.t.Fatalf("%s did not settle; panel tabs: %v; workspace terminals: %v; panes: %v; Node terminals: %s; visible text: %q",
+				label, w.runtime.App.Panel.Tabs, w.runtime.App.WorkspaceTerminalIDs(), w.paneTargets(), w.nodeTerminals(), w.tester.Texts())
 		case <-ticker.C:
 		}
 	}
@@ -187,23 +187,26 @@ func (w *terminalUI) buttons(name string) []ui.AccessInfo {
 	return found
 }
 
-// corePanes fails unless every terminal tab names a Node terminal.
+// corePanes fails unless every terminal surface names a Node terminal.
 func (w *terminalUI) corePanes(label string) {
 	w.t.Helper()
-	for _, id := range w.terminalTabs() {
+	for _, id := range append(w.terminalTabs(), w.runtime.App.WorkspaceTerminalIDs()...) {
 		if _, err := protocol.ParseTerminalID(id); err != nil || w.status(id) == "" {
-			w.t.Fatalf("%s: terminal tab %q names no Node terminal: %s", label, id, w.nodeTerminals())
+			w.t.Fatalf("%s: terminal surface %q names no Node terminal: %s", label, id, w.nodeTerminals())
 		}
 	}
 }
 
-// dragToConversation drags a panel tab onto the lower half of the
-// conversation column, where it becomes a split pane.
-func (w *terminalUI) dragToConversation(tab ui.AccessInfo) {
-	sx, sy := center(tab.Bounds)
+// dragToMain drops a sidebar row or tab onto the main column's lower half.
+func (w *terminalUI) dragToMain(from ui.AccessInfo) {
+	sx, sy := center(from.Bounds)
 	app := w.runtime.App
 	left := shell.RailWidth + app.NavWidth
-	dx, dy := left+(1440-app.PanelWidth-left)/2, float32(900)
+	right := float32(1440)
+	if app.PanelOpen {
+		right -= app.PanelWidth
+	}
+	dx, dy := left+(right-left)/2, float32(900)
 	w.tester.Press(sx, sy)
 	for step := 1; step <= 12; step++ {
 		fraction := float32(step) / 12
@@ -213,6 +216,20 @@ func (w *terminalUI) dragToConversation(tab ui.AccessInfo) {
 	w.tester.Advance(300 * time.Millisecond)
 	w.tester.Frame()
 	w.tester.Release(dx, dy)
+}
+
+func (w *terminalUI) sidebarRow(name string) ui.AccessInfo {
+	w.t.Helper()
+	if name == "" {
+		w.t.Fatal("a sidebar drag source must have a visible title")
+	}
+	for _, entry := range w.tester.AccessAll() {
+		if entry.Name == name && entry.Bounds.X >= shell.RailWidth && entry.Bounds.X < shell.RailWidth+w.runtime.App.NavWidth && entry.Bounds.Y > shell.HeaderHeight {
+			return entry
+		}
+	}
+	w.t.Fatalf("no sidebar row %q: %q", name, w.tester.Texts())
+	return ui.AccessInfo{}
 }
 
 func center(bounds ui.Rect) (float32, float32) {
@@ -352,6 +369,10 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if !valid {
 		t.Fatal("created session was not returned")
 	}
+	const sessionTitle = "Terminal conversation"
+	do(protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{
+		Session: session.ID, ExpectedRevision: session.Revision, Title: sessionTitle,
+	}})
 
 	window := openTerminalWindow(t, ctx, owner, profile, session, nil)
 	closed := false
@@ -406,23 +427,55 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	t.Log("step 3 passed: the terminal starts in " + *directory)
 
-	// (4) The tab dragged onto the conversation shows its terminal in a
-	// pane; ⌘D in that pane starts a second Node terminal beside it.
+	// (4) A detail terminal cannot become a main pane. A project's New
+	// terminal opens a standalone main surface, which can split with a
+	// conversation and another terminal.
 	tabs := window.buttons("Terminal")
 	if len(tabs) == 0 {
 		t.Fatalf("no terminal tab to drag; visible text: %q", window.tester.Texts())
 	}
 	app := window.runtime.App
-	window.dragToConversation(tabs[0])
-	window.wait("terminal renders in a split pane", func() bool {
-		return window.paned(first) && window.runtime.terminalInventory().paned[first] &&
-			len(window.buttons("Drag to split")) == 2 && strings.Contains(window.screen(first), marker)
+	window.dragToMain(tabs[0])
+	for range 5 {
+		window.frame()
+	}
+	if len(window.paneTargets()) != 0 || len(app.WorkspaceTerminalIDs()) != 0 || !slices.Equal(window.terminalTabs(), []string{first}) || window.runtime.terminalInventory().paned[first] {
+		t.Fatalf("a detail tab entered the main workspace: tabs %v, workspace %v, panes %v", window.terminalTabs(), app.WorkspaceTerminalIDs(), window.paneTargets())
+	}
+	projectRow := window.sidebarRow(project.Name)
+	x, y := center(projectRow.Bounds)
+	window.tester.RightClickAt(x, y)
+	if err := window.tester.ChooseMenuItem("Create terminal"); err != nil {
+		t.Fatalf("project New terminal: %v; menu %q", err, window.tester.Menu())
+	}
+	window.wait("the project menu opens an independent main terminal", func() bool {
+		ids := app.WorkspaceTerminalIDs()
+		return len(ids) == 1 && window.status(ids[0]) == "running" && app.FocusedConversation() == ""
+	})
+	workspaceFirst := app.WorkspaceTerminalIDs()[0]
+	if app.Sidebar.Selected != session.ID.String() || app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: workspaceFirst}) || !slices.Equal(window.terminalTabs(), []string{first}) {
+		t.Fatalf("project terminal changed the conversation's detail scope: selected %q, tabs %v", app.Sidebar.Selected, window.terminalTabs())
+	}
+	if info := window.info(workspaceFirst); info.Worktree == nil || *info.Worktree != session.Worktree {
+		t.Fatalf("the project terminal has the wrong worktree: %+v", info)
+	}
+	const workspaceMarker = "main-terminal-42"
+	window.run("project main terminal", workspaceFirst, "echo main-terminal-$((6*7))", workspaceMarker)
+	window.wait("the conversation has its sidebar title", func() bool {
+		cv := app.Data.Find(session.ID.String())
+		return cv != nil && cv.Title == sessionTitle
+	})
+	conversationRow := window.sidebarRow(sessionTitle)
+	window.dragToMain(conversationRow)
+	window.wait("the conversation splits beside the main terminal", func() bool {
+		return window.paned(workspaceFirst) && window.runtime.terminalInventory().paned[workspaceFirst] &&
+			len(window.buttons("Drag to split")) == 2 && strings.Contains(window.screen(workspaceFirst), workspaceMarker)
 	})
 	if targets := window.paneTargets(); !slices.Contains(targets, panes.Target{Kind: panes.Session, ID: session.ID.String()}) {
 		t.Fatalf("the split does not hold the session beside the terminal: %v", targets)
 	}
-	// PANE-007: each pane's header shows its live title, the session's or
-	// the terminal tab's, and a rename on the Node updates the session's.
+	// PANE-007: each pane's header shows its live title, and a rename on
+	// the Node updates the session's.
 	headed := func(title string) int {
 		count := 0
 		for _, handle := range window.buttons("Drag to split") {
@@ -448,59 +501,73 @@ func TestLiveTerminalIntegration(t *testing.T) {
 			return headed(title) == 1 && headed("Terminal") == 1 && (title == "Pane title one" || headed("Pane title one") == 0)
 		})
 	}
-	t.Log("step 4 also passed: the session pane's header followed two Node renames and the terminal pane's header shows its tab title Terminal")
+	t.Log("step 4 also passed: the session pane's header followed two Node renames and the main terminal has its own header")
 	handles := window.buttons("Drag to split")
-	header := handles[len(handles)-1]
+	// The conversation was dropped below the terminal, so the first
+	// header belongs to the terminal being split.
+	header := handles[0]
 	window.tester.ClickAt(header.Bounds.X-160, header.Bounds.Y+header.Bounds.H+60)
 	window.frame()
 	window.tester.Key(ui.Cmd, ui.KeyD)
 	window.wait("⌘D creates a second Node terminal beside the pane", func() bool {
-		tabs := window.terminalTabs()
-		return len(tabs) == 2 && window.status(tabs[1]) == "running" && window.paned(tabs[1])
+		ids := app.WorkspaceTerminalIDs()
+		return len(ids) == 2 && slices.ContainsFunc(ids, func(id string) bool {
+			return id != workspaceFirst && window.status(id) == "running" && window.paned(id)
+		})
 	})
-	second := window.terminalTabs()[1]
-	if second == first || window.status(first) != "running" || !window.paned(first) {
-		t.Fatalf("the split disturbed the first terminal: tabs %v, panes %v, Node %s", window.terminalTabs(), window.paneTargets(), window.nodeTerminals())
+	second := ""
+	for _, id := range app.WorkspaceTerminalIDs() {
+		if id != workspaceFirst {
+			second = id
+		}
+	}
+	if second == workspaceFirst || window.status(workspaceFirst) != "running" || !window.paned(workspaceFirst) || !slices.Equal(window.terminalTabs(), []string{first}) {
+		t.Fatalf("the split disturbed another terminal: tabs %v, workspace %v, panes %v, Node %s", window.terminalTabs(), app.WorkspaceTerminalIDs(), window.paneTargets(), window.nodeTerminals())
 	}
 	if info := window.info(second); info.Worktree == nil || *info.Worktree != session.Worktree {
 		t.Fatalf("the split terminal is not in the pane's worktree: %+v", info)
 	}
 	window.wait("both terminals render in panes", func() bool {
 		inventory := window.runtime.terminalInventory()
-		return inventory.paned[first] && inventory.paned[second] && len(window.buttons("Drag to split")) == 3 &&
+		return inventory.paned[workspaceFirst] && inventory.paned[second] && !inventory.paned[first] && len(window.buttons("Drag to split")) == 3 &&
 			window.runtime.packages.terminals[second] != nil && window.runtime.packages.terminals[second].terminal != nil
 	})
-	t.Log("step 4 passed: the terminal rendered in a pane and ⌘D created Node terminal " + second + " beside it")
+	t.Log("step 4 passed: a detail terminal was excluded from splitting, the project terminal split with a conversation, and ⌘D created main terminal " + second)
 
-	// (5) Closing the first terminal's pane keeps its Node terminal and tab.
+	// (5) Closing a main terminal surface detaches it immediately. The
+	// process survives and project navigation can attach it again.
 	handles = window.buttons("Drag to split")
-	lower := handles[1:]
-	slices.SortFunc(lower, func(a, b ui.AccessInfo) int { return int(a.Bounds.X - b.Bounds.X) })
-	x, y := center(window.beside(lower[0], "Close").Bounds)
+	x, y = center(window.beside(handles[0], "Close").Bounds)
 	window.tester.ClickAt(x, y)
-	window.wait("pane close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
-	x, y = center(window.beside(window.buttons("Cancel")[0], "Close").Bounds)
-	window.tester.ClickAt(x, y)
-	window.wait("the first terminal's pane closes", func() bool { return !window.paned(first) })
+	window.wait("the main terminal surface detaches", func() bool {
+		return !window.paned(workspaceFirst) && !app.HasWorkspaceTerminal(workspaceFirst) && window.runtime.packages.terminals[workspaceFirst] == nil
+	})
 	for range 5 {
 		window.frame()
 	}
-	if window.status(first) != "running" || !slices.Contains(window.terminalTabs(), first) {
-		t.Fatalf("closing the pane ended its terminal: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
+	if window.status(workspaceFirst) != "running" || len(window.buttons("Cancel")) != 0 || app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: workspaceFirst}) {
+		t.Fatalf("closing a main view stopped the process or opened a detail tab: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
 	}
 	if !window.paned(second) || window.status(second) != "running" {
 		t.Fatalf("closing one pane disturbed the other: panes %v, Node %s", window.paneTargets(), window.nodeTerminals())
 	}
-	app.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: first})
-	window.wait("the terminal shows in its tab again", func() bool {
-		return !window.runtime.terminalInventory().paned[first] && strings.Contains(window.screen(first), marker)
+	window.runtime.showWorkspaceTerminal(workspaceFirst)
+	window.wait("the project terminal reattaches in the main workspace", func() bool {
+		return app.HasWorkspaceTerminal(workspaceFirst) && !window.paned(workspaceFirst) &&
+			window.runtime.terminalInventory().focus != workspaceFirst && strings.Contains(window.screen(workspaceFirst), workspaceMarker)
 	})
-	t.Log("step 5 passed: the pane closed, Node terminal " + first + " kept running and its tab stayed")
+	window.tester.Type("exit")
+	window.tester.Key(0, ui.KeyEnter)
+	window.wait("exit removes the reattached main terminal", func() bool {
+		return window.status(workspaceFirst) == "" && !app.HasWorkspaceTerminal(workspaceFirst) && window.runtime.packages.terminals[workspaceFirst] == nil
+	})
+	t.Log("step 5 passed: the main view closed without stopping its shell, reopened with scrollback, then left when its shell exited")
 
-	// (6) Closing a terminal tab asks first, then removes its shell, tab and pane.
-	app.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: second})
+	// (6) Opening the other main terminal from activity moves it into a
+	// detail tab. Closing that tab asks first and then ends its shell.
+	window.runtime.showLiveTerminal(second)
 	window.wait("the second terminal's tab", func() bool {
-		return app.Panel.Active.ID == second && len(window.buttons("Terminal")) == 2
+		return app.Panel.Active.ID == second && len(window.buttons("Terminal")) == 2 && !app.HasWorkspaceTerminal(second) && !window.paned(second)
 	})
 	var secondTab ui.AccessInfo
 	window.wait("the second terminal's tab at rest", func() bool {
@@ -517,7 +584,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.frame()
 	window.tester.ClickAt(closeX, closeY)
 	window.wait("terminal close confirmation", func() bool { return len(window.buttons("Cancel")) == 1 })
-	if window.status(second) != "running" || !slices.Contains(window.terminalTabs(), second) || !window.paned(second) {
+	if window.status(second) != "running" || !slices.Contains(window.terminalTabs(), second) || app.HasWorkspaceTerminal(second) || window.paned(second) {
 		t.Fatal("the terminal closed before confirmation")
 	}
 	confirmClose := window.buttons("Close")
@@ -532,7 +599,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if window.status(first) != "running" || !slices.Equal(window.terminalTabs(), []string{first}) {
 		t.Fatalf("closing one terminal disturbed the other: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
 	}
-	t.Log("step 6 passed: the confirmed tab close ended Node terminal " + second + " and removed its tab and pane")
+	t.Log("step 6 passed: activity moved the main terminal exclusively to a detail tab, whose confirmed close ended Node terminal " + second)
 
 	// (7) A new window on the same Node with the saved tabs shows the
 	// terminal that kept running, with its scrollback.
@@ -654,24 +721,15 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	window.run("terminal with the saved variable", third, "echo got-${"+name+"}-end", "got-"+value+"-end")
 	t.Log("step 8 passed: the page read the Node's settings and shells, saved " + name + " and Node terminal " + third + " saw it")
 
-	// (9) A shell that exits closes its terminal: typing exit in a pane
-	// removes the pane and the tab, and the terminal leaves the inventory.
-	tabs = window.buttons("Terminal")
-	if len(tabs) != 2 {
-		t.Fatalf("want the two terminal tabs to drag the second; found %d, visible text: %q", len(tabs), window.tester.Texts())
+	// (9) The same exit handling removes a detail tab. It never moves
+	// that terminal into the main workspace.
+	if window.paned(third) || app.HasWorkspaceTerminal(third) {
+		t.Fatal("a detail terminal joined the main workspace")
 	}
-	window.dragToConversation(tabs[1])
-	window.wait("the third terminal renders in a split pane", func() bool {
-		return window.paned(third) && window.runtime.terminalInventory().paned[third] && len(window.buttons("Drag to split")) == 2
-	})
-	handles = window.buttons("Drag to split")
-	header = handles[len(handles)-1]
-	window.tester.ClickAt(header.Bounds.X-160, header.Bounds.Y+header.Bounds.H+60)
-	window.frame()
 	window.tester.Type("exit")
 	window.tester.Key(0, ui.KeyEnter)
-	window.wait("exit closes the terminal, its tab and its pane", func() bool {
-		return window.status(third) == "" && !slices.Contains(window.terminalTabs(), third) && !window.paned(third)
+	window.wait("exit closes the terminal and its detail tab", func() bool {
+		return window.status(third) == "" && !slices.Contains(window.terminalTabs(), third) && !app.HasWorkspaceTerminal(third) && !window.paned(third)
 	})
 	if window.runtime.packages.terminals[third] != nil {
 		t.Fatal("the exited terminal is still attached to the window")
@@ -680,7 +738,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		t.Fatalf("the exit disturbed the other terminal: tabs %v, Node %s", window.terminalTabs(), window.nodeTerminals())
 	}
 	window.corePanes("after exit")
-	t.Log("step 9 passed: exit closed Node terminal " + third + " and removed its tab and pane")
+	t.Log("step 9 passed: exit closed Node terminal " + third + " and removed its detail tab")
 
 	// (9b) Terminals are tabs of their conversation's panel. Terminal opens
 	// another terminal every time, each with its own shell; another

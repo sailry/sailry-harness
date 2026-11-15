@@ -2,7 +2,6 @@ package shell
 
 import (
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -190,8 +189,8 @@ func (a *App) enterDemo(locale string) {
 
 // demoProject shows a demo project's page, as the live window's Project
 // overview does: its sessions open, New session and New terminal act on the
-// demo, and its Terminal records are the terminal tabs open beside the
-// conversation. Nothing reaches a Node.
+// demo, and its Terminal records are the project's open terminal surfaces.
+// Nothing reaches a Node.
 func (a *App) demoProject(pr *viewmodel.Project) {
 	a.OpenProject(pr, ProjectActions{
 		NewSession: func(pr *viewmodel.Project) { a.Sidebar.NewSession(pr) },
@@ -202,36 +201,32 @@ func (a *App) demoProject(pr *viewmodel.Project) {
 		NewTerminal: a.demoTerminal,
 		Terminals: func() []ProjectTerminal {
 			var list []ProjectTerminal
-			if a.Data.ProjectOf(a.Sidebar.Selected) != pr {
-				return list
+			for _, terminal := range a.panes.terminals {
+				if terminal.project == pr.ID {
+					list = append(list, ProjectTerminal{ID: terminal.ID, Path: pr.Path})
+				}
 			}
-			for _, t := range a.Panel.Tabs {
-				if t.Kind == panel.Terminal {
-					list = append(list, ProjectTerminal{ID: t.ID, Path: pr.Path})
+			if a.Data.ProjectOf(a.Sidebar.Selected) == pr {
+				for _, t := range a.Panel.Tabs {
+					if t.Kind == panel.Terminal {
+						list = append(list, ProjectTerminal{ID: t.ID, Path: pr.Path})
+					}
 				}
 			}
 			return list
 		},
 		OpenTerminal: func(id string) {
-			a.Page, a.PanelOpen = ConversationPage, true
-			a.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+			a.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
+			a.OpenWorkspaceTerminal(id, "")
+			a.workspaceTerminal(id).project = pr.ID
 		},
 	})
 }
 
-// demoTerminal opens a terminal tab in a demo project: beside the
-// conversation shown when it is the project's, else beside the project's
-// first, or a new one. The tab shows the demo's screen; no shell starts.
+// demoTerminal opens an independent main terminal in a demo project.
+// The shared component shows the demo's screen; no shell starts.
 func (a *App) demoTerminal(pr *viewmodel.Project) {
-	if a.Data.ProjectOf(a.Sidebar.Selected) != pr {
-		at := slices.IndexFunc(pr.Conversations, func(cv *viewmodel.Conversation) bool { return !cv.Archived })
-		if at < 0 {
-			a.Sidebar.NewSession(pr)
-		} else {
-			a.Sidebar.Selected = pr.Conversations[at].ID
-		}
-	}
-	a.openPanel(panel.Terminal)
+	a.sampleWorkspaceTerminal(pr.ID)
 }
 
 // underneath runs f over the window's own stage, the demo waiting meanwhile:

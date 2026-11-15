@@ -1625,6 +1625,7 @@ workspace_no_terminal: Aucun terminal dans cette arborescence
 workspace_close_terminal: Fermer le terminal
 workspace_terminal_preview: Aperçu de l'interface utilisateur du terminal avec la propriété du projet et de l'arbre de travail; aucun PTY ou shell n'est démarré
 pane_drag: Faites glisser pour diviser
+pane_group: Split group %{number}
 terminal_take_control: Prenez le contrôle
 terminal_other_controller: Contrôlé par un autre appareil
 terminal_unavailable: Terminal indisponible; vérifier la connexion à l'hôte

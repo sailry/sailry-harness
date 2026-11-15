@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -184,7 +185,7 @@ func testTerminalTabsCreate(t *testing.T) {
 			info.ID = protocol.TerminalID(request.ID)
 			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
 		}
-		id, created := root.createLiveTerminal(root, worktree)
+		id, created := root.createLiveTerminal(root, worktree, terminalPanel)
 		if !created || root.App.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: id}) {
 			t.Fatalf("New terminal did not show its tab: %q %v", id, root.App.Panel.Active)
 		}
@@ -204,7 +205,7 @@ func testTerminalTabsCreate(t *testing.T) {
 		if !valid || launch.Worktree != worktree || launch.Access != protocol.ProcessAccessUnrestricted {
 			t.Fatalf("unexpected terminal launch: %+v", launch)
 		}
-		if _, created := root.createLiveTerminal(root, protocol.WorktreeID{}); created {
+		if _, created := root.createLiveTerminal(root, protocol.WorktreeID{}, terminalPanel); created {
 			t.Fatal("a terminal was created without a worktree")
 		}
 	})
@@ -262,9 +263,9 @@ func testTerminalTabsProject(t *testing.T) {
 		if len(terminals) != 1 || terminals[0].ID != running.ID.String() || terminals[0].Path != "/fixture" {
 			t.Fatalf("project terminals = %+v", terminals)
 		}
-		root.showLiveTerminal(running.ID.String())
-		if root.App.Panel.Active != (panel.Tab{Kind: panel.Terminal, ID: running.ID.String()}) || !root.App.PanelOpen {
-			t.Fatal("opening a terminal record did not show its tab")
+		root.showWorkspaceTerminal(running.ID.String())
+		if !root.App.HasWorkspaceTerminal(running.ID.String()) || root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: running.ID.String()}) {
+			t.Fatal("opening a project terminal record did not show its independent workspace")
 		}
 	})
 }
@@ -285,7 +286,7 @@ func testTerminalTabsClosePending(t *testing.T) {
 			}
 			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
 		}
-		id, created := root.createLiveTerminal(root, worktree)
+		id, created := root.createLiveTerminal(root, worktree, terminalPanel)
 		if !created {
 			t.Fatal("New terminal did not start")
 		}
@@ -307,6 +308,142 @@ func testTerminalTabsClosePending(t *testing.T) {
 		}
 		if got := terminalTabsTestTabs(root); len(got) != 0 || root.packages.terminals[id] != nil || root.terminalInventory().pending[id] {
 			t.Fatalf("a terminal closed while pending stayed: %v", got)
+		}
+	})
+}
+
+func TestProjectTerminalPlacement(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		worktree := protocol.WorktreeID{1}
+		running := terminalTabsTestInfo(1, worktree, "running")
+		root, source := terminalTabsFixture(t, running)
+		source.respond = func(request protocol.Request) link.Response {
+			launch, _ := detail[protocol.TerminalLaunch](request.Command.Data)
+			info := terminalTabsTestInfo(0, launch.Worktree, "running")
+			info.ID = protocol.TerminalID(request.ID)
+			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
+		}
+		root.App.Panel.Show(panel.Tab{Kind: panel.Files})
+		root.App.Sidebar.Actions = &sidebar.Actions{}
+		root.initTerminalActions()
+		project := &viewmodel.Project{ID: protocol.ProjectID{1}.String(), Host: root.controller.Target().String()}
+		root.App.Sidebar.Actions.NewTerminal(project)
+		ids := root.App.WorkspaceTerminalIDs()
+		if len(ids) != 1 || len(root.App.AllPanelTabs()) != 1 || root.App.Panel.Active.Kind != panel.Files || root.App.PanelOpen {
+			t.Fatalf("project creation changed the detail panel: workspace %v, tabs %v, open %v", ids, root.App.AllPanelTabs(), root.App.PanelOpen)
+		}
+		created := ids[0]
+		root.terminalsFrame(nil)
+		if !root.App.HasWorkspaceTerminal(created) || root.packages.terminals[created] == nil || !root.terminalInventory().pending[created] {
+			t.Fatal("the workspace terminal detached before its creation snapshot arrived")
+		}
+		split, ok := root.splitLiveTerminal(running.ID.String())
+		if !ok || !root.App.HasWorkspaceTerminal(split) || root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: split}) {
+			t.Fatal("splitting a workspace terminal opened a detail tab")
+		}
+		synctest.Wait()
+		commands := source.sent("create_terminal")
+		if len(commands) != 2 {
+			t.Fatalf("create_terminal commands = %d, want 2", len(commands))
+		}
+		for _, command := range commands {
+			launch, valid := detail[protocol.TerminalLaunch](command.Data)
+			if !valid || launch.Worktree != worktree {
+				t.Fatalf("project terminal changed its execution scope: %+v", launch)
+			}
+		}
+	})
+}
+
+func TestWorkspaceTerminalLifecycle(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		info := terminalTabsTestInfo(1, protocol.WorktreeID{1}, "running")
+		root, source := terminalTabsFixture(t, info)
+		id := info.ID.String()
+		connection := terminalConnFixture(t, root, info)
+		stream := &pluginViewTestSubscription{closed: make(chan struct{})}
+		connection.stream = stream
+		state := &liveTerminal{owner: root, conn: connection}
+		root.packages.terminals[id] = state
+		root.showLiveTerminal(id)
+		root.showWorkspaceTerminal(id)
+		root.terminalsFrame(nil)
+		if !root.App.HasWorkspaceTerminal(id) || root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: id}) || root.packages.terminals[id] != state || connection.ctx.Err() != nil {
+			t.Fatal("moving a terminal to the workspace lost its sole live attachment")
+		}
+		// A project surface has no conversation ownership. Removing the
+		// previous chat's panel must not terminate or detach that terminal.
+		root.App.Sidebar.Selected = "draft/removed"
+		root.App.MountPanel()
+		root.App.Sidebar.Selected = "draft/current"
+		root.conversationPanelsFrame()
+		root.terminalsFrame(nil)
+		if !root.App.HasWorkspaceTerminal(id) || root.packages.terminals[id] != state || len(source.sent("close_terminal")) != 0 {
+			t.Fatal("a removed conversation affected an independent project terminal")
+		}
+		root.showLiveTerminal(id)
+		root.terminalsFrame(nil)
+		if root.App.HasWorkspaceTerminal(id) || !root.App.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: id}) || root.packages.terminals[id] != state {
+			t.Fatal("opening in details retained a second workspace surface")
+		}
+		root.showWorkspaceTerminal(id)
+		root.App.DropWorkspaceTerminal(id)
+		root.terminalsFrame(nil)
+		if root.packages.terminals[id] != nil || connection.ctx.Err() == nil {
+			t.Fatal("closing the final surface retained the terminal subscription")
+		}
+		select {
+		case <-stream.closed:
+		default:
+			t.Fatal("closing the workspace surface left its stream open")
+		}
+		if len(source.sent("close_terminal")) != 0 {
+			t.Fatal("closing a workspace surface stopped the Node terminal")
+		}
+		root.showWorkspaceTerminal(id)
+		root.terminalsFrame(nil)
+		if !root.App.HasWorkspaceTerminal(id) {
+			t.Fatal("the running project terminal could not be reopened")
+		}
+		info.Status.Kind = "closed"
+		source.snapshot.Terminals = []protocol.TerminalInfo{info}
+		if err := root.controller.Refresh(root.ctx); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		root.terminalsFrame(nil)
+		if root.App.HasWorkspaceTerminal(id) || root.terminalInventory().pending[id] {
+			t.Fatal("the Node-closed terminal retained its workspace surface")
+		}
+	})
+}
+
+func TestWorkspaceTerminalKeepsHiddenConversationUnread(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		root, source := terminalTabsFixture(t)
+		session := protocol.DefaultSession()
+		session.ID = protocol.SessionID{1}
+		session.Activity.Attention.Unread = true
+		session.Activity.Attention.Revision = 7
+		source.snapshot.Sessions = []protocol.Session{session}
+		if err := root.controller.Refresh(root.ctx); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		id := session.ID.String()
+		root.App.Data.Unassigned = []*viewmodel.Conversation{{ID: id, Node: root.controller.Target().String()}}
+		root.App.Sidebar.Selected = id
+		root.App.OpenWorkspaceTerminal(protocol.TerminalID{1}.String(), "")
+		root.attentionFrame()
+		synctest.Wait()
+		if len(source.sent("set_session_read")) != 0 || root.attachmentConversationVisible(id) {
+			t.Fatal("a standalone terminal treated its hidden conversation as visible")
+		}
+		root.App.DropWorkspaceTerminal(protocol.TerminalID{1}.String())
+		root.attentionFrame()
+		synctest.Wait()
+		if len(source.sent("set_session_read")) != 1 || !root.attachmentConversationVisible(id) {
+			t.Fatal("returning to the conversation did not restore visibility")
 		}
 	})
 }

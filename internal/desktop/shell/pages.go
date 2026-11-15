@@ -83,9 +83,13 @@ func (a *App) closable() bool {
 func (a *App) followSelection() {
 	opened := a.Sidebar.TakeShown()
 	if a.Sidebar.TakeDraft() {
+		opened = true
 		// New session: the draft's editor takes the focus, also when the
 		// page already shows that draft.
 		a.Composer(a.Sidebar.Selected).Focus()
+	}
+	if opened {
+		a.focusPane(session(a.Sidebar.Selected))
 	}
 	switch a.Page {
 	case ConversationPage, SettingsPage:

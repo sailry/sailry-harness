@@ -11,8 +11,8 @@ import (
 )
 
 // testLiveTerminalPane covers PANE-011, PANE-013 and PANE-016 with stand-in
-// terminal actions: a terminal pane builds its tab's terminal through Pane,
-// ⌘D starts a terminal beside it through Split, and a pane whose tab is gone
+// terminal actions: a terminal pane builds its terminal through Pane,
+// ⌘D starts a terminal beside it through Split, and a pane whose surface is gone
 // leaves the split.
 func testLiveTerminalPane(t *testing.T) {
 	a, tt := newTester(t)
@@ -22,9 +22,9 @@ func testLiveTerminalPane(t *testing.T) {
 		Pane: func(c *ui.Context, id string) { ui.Text(c, "pane screen "+id) },
 		Split: func(id string) (string, bool) {
 			started++
-			tab := panel.Tab{Kind: panel.Terminal, ID: fmt.Sprintf("%s-%d", id, started)}
-			a.Panel.Show(tab)
-			return tab.ID, true
+			created := fmt.Sprintf("%s-%d", id, started)
+			a.OpenWorkspaceTerminal(created, "")
+			return created, true
 		},
 	}
 	term := splitThree(t, a, tt)
@@ -50,23 +50,22 @@ func testLiveTerminalPane(t *testing.T) {
 	if !tt.HasText("pane screen " + beside.ID) {
 		t.Fatalf("the new pane does not build its terminal: %q", tt.Texts())
 	}
-	// The terminal's tab closes, as when its Node closed it: the pane leaves.
+	// The Node closed the terminal: its independent surface leaves the split.
 	tab := panel.Tab{Kind: panel.Terminal, ID: term.ID}
-	// The tab is its conversation's, which the focused session pane's is not.
-	if slices.Contains(a.Panel.Tabs, tab) || !a.HasPanelTab(tab) {
-		t.Fatalf("the terminal's tab is not its own conversation's: shown %v", a.Panel.Tabs)
+	if a.HasPanelTab(tab) || !a.HasWorkspaceTerminal(term.ID) {
+		t.Fatalf("the main terminal has conversation ownership: shown %v", a.Panel.Tabs)
 	}
-	a.DropPanelTab(tab)
+	a.DropWorkspaceTerminal(term.ID)
 	tt.Frame()
 	if g := a.panes.Displayed(); g == nil || slices.Contains(g.Targets(), term) || len(g.Targets()) != 3 {
 		t.Fatalf("the closed terminal keeps its pane: %v", a.panes.Groups)
 	}
-	// A pane leaving the split keeps its terminal's tab.
+	// Leaving a split keeps an independent terminal available on its own.
 	if !a.panes.Detach(beside) {
 		t.Fatal("detach")
 	}
 	tt.Frame()
-	if !slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Terminal, ID: beside.ID}) {
-		t.Fatal("closing a pane closed its terminal's tab")
+	if !a.HasWorkspaceTerminal(beside.ID) {
+		t.Fatal("detaching the pane closed its terminal's surface")
 	}
 }

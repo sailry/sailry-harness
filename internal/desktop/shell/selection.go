@@ -51,11 +51,7 @@ func (a *App) captureSelection() {
 	if a.dialog() {
 		return
 	}
-	chat := ""
-	if a.Page == ConversationPage {
-		chat = a.Sidebar.Selected
-	}
-	a.selected = selection{open: true, text: preview.Selection, chat: chat}
+	a.selected = selection{open: true, text: preview.Selection, chat: a.FocusedConversation()}
 }
 
 // ShowSelection presents text captured by the controller's native integration.
@@ -63,11 +59,7 @@ func (a *App) ShowSelection(text string) {
 	if a.dialog() || text == "" {
 		return
 	}
-	chat := ""
-	if a.Page == ConversationPage {
-		chat = a.Sidebar.Selected
-	}
-	a.selected = selection{open: true, text: text, chat: chat}
+	a.selected = selection{open: true, text: text, chat: a.FocusedConversation()}
 }
 
 // selectionDialog is the dialog: the title, the text up to 260 high,

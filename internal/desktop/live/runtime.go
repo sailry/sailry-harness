@@ -501,7 +501,7 @@ func (r *Runtime) attentionFrame() {
 	if r.parent != nil || r.App.Page != shell.ConversationPage || r.updatesFocused != nil && !r.updatesFocused() {
 		return
 	}
-	cv := r.App.Data.Find(r.App.Sidebar.Selected)
+	cv := r.App.Data.Find(r.App.FocusedConversation())
 	if cv == nil || cv.ID == r.keptUnread {
 		return
 	}

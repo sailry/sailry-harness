@@ -1625,6 +1625,7 @@ workspace_no_terminal: Keine Terminals in diesem Arbeitsbaum
 workspace_close_terminal: Schließen des Terminals
 workspace_terminal_preview: Terminal-UI-Vorschau mit Projekt- und Worktree-Eigentum; kein PTY oder Shell wird gestartet
 pane_drag: Ziehen, um zu teilen
+pane_group: Split group %{number}
 terminal_take_control: Übernehmen Sie die Kontrolle
 terminal_other_controller: Von einem anderen Gerät gesteuert
 terminal_unavailable: Terminal nicht verfügbar; Hostverbindung prüfen

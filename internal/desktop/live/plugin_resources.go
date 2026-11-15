@@ -32,7 +32,7 @@ func (r *Runtime) createPanelResource(kind panel.Kind) bool {
 		return true
 	}
 	if kind == panel.Terminal {
-		root.createLiveTerminal(owner, owner.workspace.selected)
+		root.createLiveTerminal(owner, owner.workspace.selected, terminalPanel)
 		return true
 	}
 	root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "workspace resource renderer is unavailable"))

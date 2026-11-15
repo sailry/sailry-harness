@@ -19,8 +19,8 @@ const themeChat = "sailry-go/theme" // "Port the neutral theme tokens"
 // and a preview terminal below that.
 func splitThree(t *testing.T, a *App, tt *ui.Tester) panes.Target {
 	t.Helper()
-	a.Panel.New(panel.Terminal)
-	term := panes.Target{Kind: panes.Terminal, ID: a.Panel.Active.ID}
+	a.OpenWorkspaceTerminal("split-terminal", "")
+	term := a.panes.Active
 	if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Right) ||
 		!a.panes.Drop(session(themeChat), term, panes.Bottom) {
 		t.Fatal("drop")
@@ -350,7 +350,8 @@ func TestPanePointer(t *testing.T) {
 func TestPaneClose(t *testing.T) {
 	a, tt := newTester(t)
 	term := splitThree(t, a, tt)
-	// A terminal asks first; cancelling keeps it.
+	stopped := 0
+	a.Panel.TerminalActions = &panel.TerminalActions{Close: func(string) { stopped++ }}
 	closeButtons := func() []ui.AccessInfo {
 		var out []ui.AccessInfo
 		for _, e := range tt.AccessAll() {
@@ -367,31 +368,10 @@ func TestPaneClose(t *testing.T) {
 	}
 	last := list[len(list)-1].Bounds
 	tt.ClickAt(last.X+last.W/2, last.Y+last.H/2)
-	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
 	snapshot(t, tt, "panes-close-terminal")
-	if !tt.HasText("Close terminal") {
-		t.Fatalf("no confirmation: %q", tt.Texts())
-	}
-	click(t, tt, "Cancel")
-	if a.panes.Group(term) < 0 {
-		t.Fatal("cancelled, yet closed")
-	}
-	tt.ClickAt(last.X+last.W/2, last.Y+last.H/2)
-	tt.Frame()
-	// The dialog's Close is the one button named so that was not there.
-	for _, e := range closeButtons() {
-		if !slices.ContainsFunc(list, func(o ui.AccessInfo) bool { return o.Bounds == e.Bounds }) {
-			tt.ClickAt(e.Bounds.X+e.Bounds.W/2, e.Bounds.Y+e.Bounds.H/2)
-		}
-	}
-	tt.Frame()
-	if a.panes.Group(term) >= 0 {
-		t.Fatal("the terminal pane stays")
-	}
-	// The terminal keeps its tab: the preview closes nothing.
-	if !slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Terminal, ID: term.ID}) {
-		t.Fatal("the terminal tab is gone")
+	if a.panes.Group(term) >= 0 || a.HasWorkspaceTerminal(term.ID) || stopped != 0 || tt.HasText("Close terminal") {
+		t.Fatalf("closing the surface: groups %v, terminal %v, stopped %d", a.panes.Groups, a.HasWorkspaceTerminal(term.ID), stopped)
 	}
 	// A session leaves the split at once; one pane left stands alone.
 	list = closeButtons()
@@ -511,17 +491,16 @@ func testDragTerminalTab(t *testing.T) {
 	if !ok {
 		t.Fatalf("no terminal tab: %q", tt.Texts())
 	}
-	// Onto the bottom of the conversation.
+	// A sidebar terminal stays in its right-panel tab when dragged.
 	dragTo(t, tt, tab, 500, 700, func() {
 		snapshot(t, tt, "panes-drag-terminal")
 	})
-	g := a.panes.Displayed()
-	if g == nil || g.Axis != panes.Column || g.Targets()[1].Kind != panes.Terminal {
-		t.Fatalf("split: %+v", a.panes.Groups)
+	terminal := panes.Target{Kind: panes.Terminal, ID: a.Panel.Active.ID}
+	if a.panes.Displayed() != nil || a.canDropPane(session(preview.Big), terminal, panes.Bottom) || a.HasWorkspaceTerminal(terminal.ID) {
+		t.Fatalf("sidebar terminal joined the workspace: %+v", a.panes.Groups)
 	}
-	// The selection stays a session: the band shows the split.
-	if a.Sidebar.Selected != preview.Big || !tt.HasText("Terminal UI preview with project and worktree ownership; no PTY or shell is started") {
-		t.Fatalf("selected %q", a.Sidebar.Selected)
+	if a.Sidebar.Selected != preview.Big || !slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Terminal, ID: terminal.ID}) {
+		t.Fatalf("selected %q, tabs %v", a.Sidebar.Selected, a.Panel.Tabs)
 	}
 }
 
@@ -543,9 +522,9 @@ func TestPanesPersist(t *testing.T) {
 	if g == nil || !slices.Equal(g.Targets(), []panes.Target{session(preview.Big), session(themeChat), term}) || g.Sizes[0] != 0.3 {
 		t.Fatalf("restored: %+v", b.panes.Groups)
 	}
-	// A terminal whose tab is gone leaves its group.
+	// A terminal whose independent surface is gone leaves its group.
 	p := LoadPrefs(dir)
-	p.PanelTabs, p.PanelTab, p.Panels = nil, panel.Tab{}, nil
+	p.WorkspaceTerminals = nil
 	c := New(preview.Load())
 	c.SetPrefs(p)
 	if got := c.panes.Members(session(themeChat)); len(got) != 2 {

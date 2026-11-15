@@ -1,13 +1,10 @@
 package shell
 
 import (
-	"slices"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -15,10 +12,11 @@ import (
 
 // The split workspace in the main column: the active pane's group of sessions
 // and terminals, laid out by its tree with Kit's split handles between them,
-// each pane with its header, and the zones a session row, a terminal tab or a
+// each pane with its header, and the zones a session row or a
 // pane's header drops on. With the active pane standing alone, the main
 // column shows the selected conversation as before, and takes drops that
-// start a split.
+// start a split. Independent terminals also stand alone in this column;
+// the right panel's terminal tabs stay outside the workspace.
 
 // workspace is the split workspace's state in the window.
 type workspace struct {
@@ -27,8 +25,11 @@ type workspace struct {
 	focus map[panes.Target]*ui.Handle
 	// seen is the sidebar's selection the active pane last followed.
 	seen string
-	// closing is the terminal pane whose closing waits to be confirmed.
-	closing panes.Target
+	// terminals are the main workspace's terminal surfaces, independent of
+	// conversation-owned right-panel tabs.
+	terminals []WorkspaceTerminal
+	// groupFocus remembers the last focused member of each split group.
+	groupFocus map[panes.Target]panes.Target
 	// splits counts the panes split off (Usage).
 	splits int
 }
@@ -57,62 +58,46 @@ func placement(z kit.Zone) panes.Placement {
 
 // followPanes keeps the workspace in step with the window: a session chosen
 // in the sidebar becomes the active pane, and panes whose session or terminal
-// tab is gone leave their group.
+// surface is gone leave their group.
 func (a *App) followPanes() {
 	w := &a.panes
 	if a.Sidebar.Selected != w.seen {
 		w.seen = a.Sidebar.Selected
-		w.Active = session(w.seen)
+		a.focusPane(session(w.seen))
 	}
 	a.prunePanes()
-	if len(w.Groups) > 0 {
-		a.standAlone()
-	}
 }
 
 // prunePanes takes the panes that are not there out of their groups. A
-// terminal without its tab was closed. A session that is not there may not be
-// loaded yet, as a remote host's before it connects: its pane is held and
-// comes back with it (panes.Follow).
+// terminal without its workspace surface was closed. A session may not be loaded
+// yet, as a remote host's before it connects: its pane is held and comes back
+// with it (panes.Follow).
 func (a *App) prunePanes() {
 	w := &a.panes
 	w.Follow(func(t panes.Target) bool { return t.Kind != panes.Session || a.paneExists(t) })
 	if len(w.Groups) > 0 {
 		w.Prune(a.paneExists)
 	}
+	if w.Active.Kind == panes.Terminal && !a.paneExists(w.Active) {
+		a.focusPane(session(a.Sidebar.Selected))
+	}
 }
 
-// paneExists reports whether t's session or terminal tab is still there.
+// paneExists reports whether t's session or main terminal surface is still there.
 func (a *App) paneExists(t panes.Target) bool {
 	if t.Kind == panes.Terminal {
-		// A terminal of a conversation that is not shown keeps its pane.
-		return a.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: t.ID})
+		return a.HasWorkspaceTerminal(t.ID)
 	}
 	return a.Data.Find(t.ID) != nil
-}
-
-// standAlone puts the focus back on the selected session when the active
-// pane is a terminal left standing alone: a terminal shows alone in the
-// right panel's tab, not in the main column, so its tab comes forward.
-func (a *App) standAlone() {
-	w := &a.panes
-	if w.Active.Kind != panes.Terminal || w.Group(w.Active) >= 0 {
-		return
-	}
-	// Only in its own conversation's panel: another conversation's terminal
-	// waits in its tab there.
-	if tab := (panel.Tab{Kind: panel.Terminal, ID: w.Active.ID}); slices.Contains(a.Panel.Tabs, tab) {
-		a.Panel.Show(tab)
-		a.PanelOpen = true
-	}
-	w.Active = session(a.Sidebar.Selected)
 }
 
 // focusPane makes t the active pane: a session's becomes the sidebar's
 // selection, as focus_pane opens its session scope.
 func (a *App) focusPane(t panes.Target) {
 	w := &a.panes
+	a.rememberGroupFocus(w.Active)
 	w.Active = t
+	a.rememberGroupFocus(t)
 	if t.Kind == panes.Session {
 		a.Sidebar.Selected, w.seen = t.ID, t.ID
 	}
@@ -121,40 +106,37 @@ func (a *App) focusPane(t panes.Target) {
 // findTarget is the conversation Find in conversation searches: the selected
 // one alone, the focused pane's in a split, and none while that pane is a
 // terminal.
-func (a *App) findTarget() string {
-	w := &a.panes
-	if w.Displayed() == nil {
-		return a.Sidebar.Selected
-	}
-	if w.Active.Kind != panes.Session {
-		return ""
-	}
-	return w.Active.ID
+func (a *App) findTarget() string { return a.FocusedConversation() }
+
+// canDropPane excludes right-panel terminals, whose tabs never join a split.
+func (a *App) canDropPane(dest, t panes.Target, p panes.Placement) bool {
+	return (t.Kind != panes.Terminal || a.HasWorkspaceTerminal(t.ID)) &&
+		(dest.Kind != panes.Terminal || a.HasWorkspaceTerminal(dest.ID)) && a.panes.CanDrop(dest, t, p)
 }
 
 // dropPane puts t on dest at p and gives it the focus.
 func (a *App) dropPane(c *ui.Context, dest, t panes.Target, p panes.Placement) {
-	if !a.panes.Drop(dest, t, p) {
+	if !a.canDropPane(dest, t, p) || !a.panes.Drop(dest, t, p) {
 		return
 	}
 	if p != panes.Center {
 		a.panes.splits++
 	}
 	a.focusPane(t)
-	a.standAlone()
 	a.panes.handle(a.panes.Active).Focus(c)
 }
 
 // closePane takes t out of its split: it stands alone again and the focus
-// goes to the group's next pane. A session keeps its history and a terminal
-// keeps running in its tab: closing a pane closes nothing else.
+// goes to the group's next pane. A terminal's standalone surface closes too;
+// its Node process keeps running and can be reopened from the project.
 func (a *App) closePane(c *ui.Context, t panes.Target) {
 	w := &a.panes
-	if !w.Detach(t) {
+	if t.Kind == panes.Terminal {
+		a.DropWorkspaceTerminal(t.ID)
+	} else if !w.Detach(t) {
 		return
 	}
 	a.focusPane(w.Active)
-	a.standAlone()
 	if w.Group(w.Active) >= 0 {
 		w.handle(w.Active).Focus(c)
 	} else {
@@ -162,26 +144,16 @@ func (a *App) closePane(c *ui.Context, t panes.Target) {
 	}
 }
 
-// requestClose is a pane's close button and ⌘W in it: a terminal asks first,
-// as closing one is the Node's to confirm, then leaves the split.
-func (a *App) requestClose(c *ui.Context, t panes.Target) {
-	if t.Kind == panes.Terminal {
-		a.panes.closing = t
-		return
-	}
-	a.closePane(c, t)
-}
-
 // mainColumn builds the main column's content; while the conversation shows
 // alone, the column takes drops that split it.
 func (a *App) mainColumn(c *ui.Context, main ui.Element, f frame) {
-	if a.Page != ConversationPage || a.panes.Displayed() != nil || a.Data.Find(a.Sidebar.Selected) == nil {
+	if a.Page != ConversationPage || a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal || a.Data.Find(a.Sidebar.Selected) == nil {
 		main.Children(func() { a.page(c) })
 		return
 	}
 	dest := session(a.Sidebar.Selected)
 	d, z, ok := kit.DockDrop(c, main, func(d panes.Drag, z kit.Zone) bool {
-		return a.panes.CanDrop(dest, d.Target, placement(z))
+		return a.canDropPane(dest, d.Target, placement(z))
 	}, func() {
 		// Layout once at the destination width. The surrounding columns
 		// slide, while the transcript moves without invalidating row heights.
@@ -193,17 +165,19 @@ func (a *App) mainColumn(c *ui.Context, main ui.Element, f frame) {
 	}
 }
 
-// split builds the displayed group in the main column, reporting false when
-// the active pane stands alone. A transcript in a split has no navigation
-// rail.
+// split builds the displayed group or independent terminal in the main column.
+// A transcript in a split has no navigation rail.
 func (a *App) split(c *ui.Context) bool {
 	g := a.panes.Displayed()
 	a.Messages.Split = g != nil
 	if g == nil {
+		if t := a.panes.Active; t.Kind == panes.Terminal && a.HasWorkspaceTerminal(t.ID) {
+			a.paneView(c, t)
+			return true
+		}
 		return false
 	}
 	a.paneNode(c, g)
-	a.confirmClose(c)
 	return true
 }
 
@@ -225,10 +199,13 @@ func (a *App) paneNode(c *ui.Context, n *panes.Node) {
 }
 
 // paneTitle is what a pane's header and its drag preview show: the
-// session's title or the terminal tab's.
+// session's title or the independent terminal's.
 func (a *App) paneTitle(c *ui.Context, t panes.Target) string {
 	if t.Kind == panes.Terminal {
-		return a.Panel.Title(c, panel.Tab{Kind: panel.Terminal, ID: t.ID})
+		if terminal := a.workspaceTerminal(t.ID); terminal != nil && terminal.Title != "" {
+			return terminal.Title
+		}
+		return i18n.T(c, "terminal")
 	}
 	if cv := a.Data.Find(t.ID); cv != nil {
 		return sidebar.Title(c, cv)
@@ -243,7 +220,7 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 	w := &a.panes
 	h := w.handle(t)
 	col := ui.Column(c.Key(t)).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
-	a.pane(c, col, h, true, func() { a.requestClose(c, t) })
+	a.pane(c, col, h, true, func() { a.closePane(c, t) })
 	// A pane ⌘W just closed still has the focus in this build; the focus
 	// goes to the group's next pane, not back to it.
 	if w.Active != t && w.Group(t) >= 0 && c.FocusWithin(*h) {
@@ -258,7 +235,7 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 		}
 	}
 	d, z, ok := kit.DockDrop(c, col, func(d panes.Drag, z kit.Zone) bool {
-		return w.CanDrop(t, d.Target, placement(z))
+		return a.canDropPane(t, d.Target, placement(z))
 	}, func() {
 		a.paneHeader(c, t)
 		if t.Kind == panes.Terminal {
@@ -292,7 +269,7 @@ func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 		drag.Drag(panes.Drag{Target: t, Title: title})
 		kit.DragChip(c, drag, title)
 		kit.IconButton(c.Key("pane-close"), icons.Close, i18n.T(c, "close"), 28, false).
-			OnClick(func() { a.requestClose(c, t) })
+			OnClick(func() { a.closePane(c, t) })
 	})
 }
 
@@ -305,6 +282,10 @@ func (a *App) terminalPane(c *ui.Context, id string) {
 		ui.Column(c.Key("terminal")).Grow(1).MinHeight(0).Background(p.Background).Children(func() { actions.Pane(c, id) })
 		return
 	}
+	if a.Demo() {
+		a.Panel.TerminalView(c, id)
+		return
+	}
 	ui.Column(c.Key("terminal")).Grow(1).MinHeight(0).Background(p.Muted).Center().Gap(8).Padding(24).Children(func() {
 		ui.Icon(c, icons.Terminal).FontSize(32).TextColor(p.MutedForeground)
 		kit.Tag(c, i18n.T(c, "preview"))
@@ -314,7 +295,7 @@ func (a *App) terminalPane(c *ui.Context, id string) {
 
 // splitTerminal opens a new terminal beside terminal pane t, within the
 // workspace's limit: a new Node terminal in t's worktree, or the preview's
-// terminal, a tab of the right panel as one the panel's + opens.
+// terminal. The new terminal is another independent main surface.
 func (a *App) splitTerminal(c *ui.Context, t panes.Target, p panes.Placement) {
 	if len(a.panes.Members(t)) >= panes.Limit {
 		return
@@ -325,25 +306,10 @@ func (a *App) splitTerminal(c *ui.Context, t panes.Target, p panes.Placement) {
 		}
 		return
 	}
-	a.Panel.New(panel.Terminal)
-	a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: a.Panel.Active.ID}, p)
-}
-
-// confirmClose asks before a terminal pane closes.
-func (a *App) confirmClose(c *ui.Context) {
-	t := a.panes.closing
-	if t == (panes.Target{}) {
-		return
+	project := ""
+	if terminal := a.workspaceTerminal(t.ID); terminal != nil {
+		project = terminal.project
 	}
-	open := true
-	if kit.Confirm(c.Key(t), &open, kit.Confirmation{
-		Title: i18n.T(c, "workspace_close_terminal"), Message: a.paneTitle(c, t),
-		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Default: 1, Destructive: []int{1},
-	}) == 1 {
-		a.panes.closing = panes.Target{}
-		a.closePane(c, t)
-	}
-	if !open {
-		a.panes.closing = panes.Target{}
-	}
+	id := a.sampleWorkspaceTerminal(project)
+	a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, p)
 }

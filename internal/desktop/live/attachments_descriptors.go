@@ -398,7 +398,7 @@ func (r *Runtime) pruneAttachmentImages() {
 
 func (r *Runtime) attachmentConversationVisible(session string) bool {
 	id, err := protocol.ParseSessionID(session)
-	return err == nil && r.conversationSeen[id] || r.App != nil && r.App.Sidebar.Selected == session
+	return err == nil && r.conversationSeen[id] || r.App != nil && r.App.FocusedConversation() == session
 }
 
 var _ io.WriteCloser = (*imageDownloadSink)(nil)

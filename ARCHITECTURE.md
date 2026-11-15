@@ -403,6 +403,14 @@ detail-panel transitions the transcript is laid out at its destination width and
 translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
+Project-created terminals are independent main-workspace surfaces and may share
+split groups with conversations. Header number buttons switch those groups and
+restore each group's focused pane. Terminal tabs opened in the right panel stay
+with that conversation and do not join splits. A terminal ID has one surface at a
+time; moving it keeps its Node attachment. Closing a main surface releases its
+observation while the Node process continues, available from the project's
+terminal inventory. Explicitly closing a right-panel terminal stops its shell.
+
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses
 Untie. These render natively and keep source text on failure. File preview draws

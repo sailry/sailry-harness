@@ -470,7 +470,7 @@ func browserCaptureWithin(ctx context.Context, view *mygo.WebView, limit time.Du
 func (r *Runtime) browserAttachElement(c *ui.Context, tab *browserTab, element *browserElement, picture []byte) bool {
 	root := r.localRuntime()
 	cv := root.App.Data.Find(tab.conversation)
-	if cv == nil || cv.ID != root.App.Sidebar.Selected {
+	if cv == nil || cv.ID != root.App.FocusedConversation() {
 		tab.endPick()
 		kit.Toast(c, kit.Failed, i18n.T(c, "browser_annotation_stale"))
 		return false

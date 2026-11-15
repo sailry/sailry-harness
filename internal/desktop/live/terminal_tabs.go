@@ -19,8 +19,8 @@ import (
 // terminalViewport is a terminal's size before its view measures it.
 var terminalViewport = protocol.TerminalViewport{Columns: 80, Rows: 24}
 
-// terminalState is the window's inventory of terminal tabs. A tab's ID is
-// its Node terminal's ID; the root runtime owns the inventory of every Node.
+// terminalState tracks the window's terminal surfaces, either workspace
+// panes or conversation panel tabs, by their Node terminal IDs.
 type terminalState struct {
 	// pending tabs wait for their terminal's first snapshot and are not
 	// pruned: a command's output can arrive before the Node's update.
@@ -36,6 +36,13 @@ type terminalState struct {
 	// paste is a multi-line paste waiting for confirmation.
 	paste *terminalPaste
 }
+
+type terminalPlacement uint8
+
+const (
+	terminalPanel terminalPlacement = iota
+	terminalWorkspace
+)
 
 type terminalPaste struct {
 	terminal string
@@ -74,9 +81,8 @@ func (r *Runtime) initTerminalActions() {
 }
 
 // createLiveTerminal starts a shell in worktree on owner's Node and shows
-// its tab at once: the terminal's ID is the request's, known before the Node
-// answers. A failed creation takes the tab back.
-func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeID) (string, bool) {
+// its surface at once using the request's ID. A failed creation removes it.
+func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeID, placement terminalPlacement) (string, bool) {
 	root := r.localRuntime()
 	inventory := root.terminalInventory()
 	if owner == nil || root.packages == nil || root.packages.terminals == nil || !owner.controller.Connected() || worktree == (protocol.WorktreeID{}) {
@@ -91,7 +97,11 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	root.packages.terminals[id] = state
 	inventory.pending[id], inventory.focus = true, id
 	inventory.nodes[id] = owner.controller.Target()
-	root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+	if placement == terminalWorkspace {
+		root.App.OpenWorkspaceTerminal(id, "")
+	} else {
+		root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+	}
 	if !owner.async(func() {
 		output, err := owner.controller.Execute(owner.ctx, request)
 		root.enqueue(func(c *ui.Context) {
@@ -152,7 +162,7 @@ func (r *Runtime) splitLiveTerminal(id string) (string, bool) {
 		root.terminalUnavailable()
 		return "", false
 	}
-	return root.createLiveTerminal(owner, *info.Worktree)
+	return root.createLiveTerminal(owner, *info.Worktree, terminalWorkspace)
 }
 
 // terminalFolder is the folder a tab's terminal runs in.
@@ -182,8 +192,27 @@ func (r *Runtime) showLiveTerminal(id string) {
 		return
 	}
 	root.terminalInventory().focus = id
+	root.App.DropWorkspaceTerminal(id)
 	root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
 	root.App.PanelOpen = true
+}
+
+// showWorkspaceTerminal opens a project's terminal as an independent main
+// surface. Moving it from a panel keeps one renderer attached to the Node.
+func (r *Runtime) showWorkspaceTerminal(id string) {
+	root := r.localRuntime()
+	terminalID, err := protocol.ParseTerminalID(id)
+	if err != nil {
+		return
+	}
+	_, info, exists := root.terminalOwner(terminalID)
+	if !exists || info.Status.Kind == "closed" {
+		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Conflict, i18n.T(c, "workspace_changed")) })
+		return
+	}
+	root.terminalInventory().focus = id
+	root.App.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
+	root.App.OpenWorkspaceTerminal(id, workspaceString(info.Title))
 }
 
 // newProjectTerminal is New terminal of a project's menu and overview: a
@@ -200,9 +229,7 @@ func (r *Runtime) newProjectTerminal(project *viewmodel.Project, relative string
 		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
 		return
 	}
-	if _, created := root.createLiveTerminal(owner, worktree.ID); created {
-		root.App.PanelOpen = true
-	}
+	root.createLiveTerminal(owner, worktree.ID, terminalWorkspace)
 }
 
 // projectTerminals are the terminals of a project's worktrees its Node has
@@ -228,8 +255,7 @@ func (r *Runtime) projectTerminals(project *viewmodel.Project) []shell.ProjectTe
 	return terminals
 }
 
-// dropTerminalTab removes a terminal's tab and detaches the window from it.
-// The split workspace drops the tab's pane as it follows the panel.
+// dropTerminalTab removes every surface of a terminal and detaches the window.
 func (r *Runtime) dropTerminalTab(id string) {
 	root := r.localRuntime()
 	inventory := root.terminalInventory()
@@ -241,13 +267,12 @@ func (r *Runtime) dropTerminalTab(id string) {
 	}
 	// The tab is in the panel of the conversation that opened it, shown or not.
 	root.App.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
+	root.App.DropWorkspaceTerminal(id)
 }
 
-// terminalsFrame keeps the terminal tabs in step with the Nodes: a tab whose
-// terminal its Node closed or no longer reports leaves, and a terminal whose
-// tab is gone is detached. Tabs of a Node that is not connected stay. The
-// tabs are every conversation's: a terminal of a conversation that is not
-// shown stays attached and keeps running, and its tab is there on return.
+// terminalsFrame follows both main workspace surfaces and conversation panel
+// tabs. Node closure removes a surface; closing the last surface releases its
+// attachment. Disconnected Nodes and hidden conversations retain their surfaces.
 func (r *Runtime) terminalsFrame(c *ui.Context) {
 	if r.parent != nil || r.packages == nil || r.packages.terminals == nil {
 		return
@@ -268,6 +293,13 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 	owners := r.terminalOwners()
 	settled := r.terminalOwnersSettled()
 	tabs := map[string]bool{}
+	for _, id := range r.App.WorkspaceTerminalIDs() {
+		if r.terminalTabCurrent(owners, settled, id) {
+			tabs[id] = true
+		} else {
+			r.dropTerminalTab(id)
+		}
+	}
 	for _, tab := range r.App.AllPanelTabs() {
 		if tab.Kind != panel.Terminal {
 			continue

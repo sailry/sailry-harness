@@ -9,6 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
@@ -230,8 +231,8 @@ func TestProjectMenu(t *testing.T) {
 	t.Run("NewTerminal", func(t *testing.T) {
 		a, tt := demo(t)
 		choose(t, tt, name, en("workspace_new_terminal"))
-		if !a.PanelOpen || a.Panel.Active.Kind != panel.Terminal || a.Data.ProjectOf(a.Sidebar.Selected).Name != name {
-			t.Fatalf("New terminal: panel open %v, active %v, selected %q", a.PanelOpen, a.Panel.Active, a.Sidebar.Selected)
+		if a.panes.Active.Kind != panes.Terminal || !a.HasWorkspaceTerminal(a.panes.Active.ID) || len(a.Panel.Tabs) != 0 {
+			t.Fatalf("New terminal: workspace %v, panel tabs %v", a.panes.Active, a.Panel.Tabs)
 		}
 		if !slices.ContainsFunc(tt.Texts(), func(s string) bool { return strings.Contains(s, "go test ./internal/...") }) {
 			t.Fatalf("the terminal shows no screen: %q", tt.Texts())

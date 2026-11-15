@@ -13,7 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -79,7 +78,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		case Browser:
 			s.browser(c, t)
 		case Terminal:
-			s.terminal(c, t)
+			s.TerminalView(c, t.ID)
 		}
 	})
 }
@@ -221,7 +220,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 					if k == Changes {
 						label = pr.gitDocumentLabel(path, label)
 					}
-					tab(c, path, icon, label, "", path == pr.shown(k), false, nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
+					tab(c, path, icon, label, "", path == pr.shown(k), false, func() { pr.show(k, path) }, func() { pr.close(k, path) })
 				}
 			})
 		})
@@ -230,20 +229,13 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 
 // tab is a strip's tab: 28 DIPs up to 180 wide, the icon and the title, the
 // active one in tab_active, its close button showing on hover or on the
-// active tab. A tab with drag drags it, wearing the drag preview's look while
-// it does. show and close run after the build, as MyGo runs OnClick: they act
+// active tab. show and close run after the build, as MyGo runs OnClick: they act
 // themselves, as nothing set by them is read in the pass that built the tab.
-func tab(c *ui.Context, key any, icon *ui.SVG, label, tip string, active, busy bool, drag *panes.Drag, show, close func()) {
+func tab(c *ui.Context, key any, icon *ui.SVG, label, tip string, active, busy bool, show, close func()) {
 	b, hovered := kit.StripTab(c, key, label, active, tabMax)
 	// A tab names its item short; the tip is the whole, a file's path.
 	if tip != "" && tip != label {
 		kit.Tooltip(c, b, tip)
-	}
-	if drag != nil {
-		b.Drag(*drag)
-		if kit.DragChip(c, b, label) {
-			return
-		}
 	}
 	kit.StripTabBody(c, b, icon, label, active, hovered, busy, i18n.T(c, "close"), close).OnClick(show)
 }
@@ -321,12 +313,7 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 				if f, ok := s.artifacts[t.ID]; ok && t.Kind == Artifact {
 					tip = f.Path
 				}
-				var drag *panes.Drag
-				if t.Kind == Terminal {
-					// A terminal drags onto the workspace to open in a split.
-					drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
-				}
-				tab(c, t, icon, label, tip, t == s.Active, s.busy(t), drag, func() { s.Show(t) }, func() {
+				tab(c, t, icon, label, tip, t == s.Active, s.busy(t), func() { s.Show(t) }, func() {
 					// The button that closed is in the header: the focus
 					// goes to the panel, where ⌘W closes the next tab.
 					s.Close(t)

@@ -1625,6 +1625,7 @@ workspace_no_terminal: No terminals in this worktree
 workspace_close_terminal: Close terminal
 workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
 pane_drag: Drag to split
+pane_group: Split group %{number}
 terminal_take_control: Take control
 terminal_other_controller: Controlled by another device
 terminal_unavailable: Terminal unavailable; check host connection

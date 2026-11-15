@@ -1625,6 +1625,7 @@ workspace_no_terminal: В этом рабочем дереве нет терми
 workspace_close_terminal: Закрыть терминал
 workspace_terminal_preview: Предварительный просмотр интерфейса терминала с владением проектом и рабочим деревом; не запускается PTY или оболочка
 pane_drag: Перетащите, чтобы разделить
+pane_group: Split group %{number}
 terminal_take_control: Взять под контроль
 terminal_other_controller: Управляется другим устройством
 terminal_unavailable: Терминал недоступен; проверить подключение к узлу

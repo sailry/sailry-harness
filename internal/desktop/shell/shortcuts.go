@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
@@ -143,7 +144,11 @@ func (a *App) closeFocused(c *ui.Context) {
 	case a.PanelOpen && c.FocusWithin(a.panelPane):
 		a.closeTab(c)
 	case c.FocusWithin(a.mainPane):
-		a.ClosePage()
+		if a.Page == ConversationPage && (a.panes.Displayed() != nil || a.panes.Active.Kind == panes.Terminal) {
+			a.closePane(c, a.panes.Active)
+		} else {
+			a.ClosePage()
+		}
 	}
 }
 
@@ -184,7 +189,7 @@ func (a *App) run(c *ui.Context, id string) {
 		// The conversation's own keys: its page carries them out with its
 		// composer this frame (App.conversation), from anywhere in the
 		// page but the panel.
-		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
+		if a.FocusedConversation() != "" && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
 			a.keyed = id
 		}
 	case "conversation.new":

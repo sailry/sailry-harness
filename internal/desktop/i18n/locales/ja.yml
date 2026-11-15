@@ -1625,6 +1625,7 @@ workspace_no_terminal: このワークツリーにはターミナルがありま
 workspace_close_terminal: 閉端子
 workspace_terminal_preview: プロジェクトとワークトリーの所有者を含むターミナル UI プレビュー; PTY やシェルは起動しません
 pane_drag: 分割するにはドラッグ
+pane_group: Split group %{number}
 terminal_take_control: コントロールを取る
 terminal_other_controller: 他のデバイスで制御
 terminal_unavailable: ターミナルが利用できません。ホストの接続を確認してください

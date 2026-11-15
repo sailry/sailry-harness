@@ -96,7 +96,7 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		},
 		NewTerminal:  func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) },
 		Terminals:    func() []shell.ProjectTerminal { return root.projectTerminals(project) },
-		OpenTerminal: root.showLiveTerminal,
+		OpenTerminal: root.showWorkspaceTerminal,
 		Controls:     func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
 	}
 	if owner := root.projectOverviewRuntime(project); owner != nil {
