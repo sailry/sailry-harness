@@ -178,6 +178,10 @@ func databaseDSN(path string, readonly bool) string {
 	if readonly {
 		options.Set("mode", "ro")
 		options.Add("_pragma", "query_only(1)")
+	} else {
+		// Automatic checkpoints run inside COMMIT. Smaller WAL batches reduce
+		// foreground I/O bursts without relaxing FULL synchronous durability.
+		options.Add("_pragma", "wal_autocheckpoint(256)")
 	}
 	location.RawQuery = options.Encode()
 	return location.String()

@@ -131,6 +131,9 @@ separate read-only pool. The writer groups queued operations in a
 visible to callers after commit. Identifiers and event sequences advance in the
 same transaction as their records.
 
+Writer connections attempt automatic checkpoints once the WAL reaches 256 pages,
+spreading checkpoint I/O across commits while retaining full synchronous durability.
+
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
