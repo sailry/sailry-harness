@@ -216,7 +216,10 @@ func applyPluginFollowRecord(ctx context.Context, db *sql.Conn, node protocol.No
 		if err != nil {
 			return nil, false, err
 		}
-		info.Origin, info.McpSource = source.Origin, source.McpSource
+		info.McpSource = source.McpSource
+		if source.Origin != nil && (source.Origin.Kind == "bundled" || source.Origin.Kind == "online" || source.Origin.Kind == "registry") {
+			info.Origin = source.Origin
+		}
 		old, err := ReadPlugin(ctx, db, record.ID)
 		if err != nil {
 			return nil, false, err
@@ -291,7 +294,11 @@ func applyPluginFollowRecord(ctx context.Context, db *sql.Conn, node protocol.No
 					if incoming.Allowed == nil {
 						incoming.Allowed = map[string]bool{}
 					}
-					incoming.Allowed[server] = old.McpAllowed[server]
+					allowed, exists := old.McpAllowed[server]
+					if !exists {
+						allowed = true
+					}
+					incoming.Allowed[server] = allowed
 				}
 			}
 		}
@@ -460,4 +467,30 @@ func removePluginFollowCopy(ctx context.Context, db *sql.Conn, node protocol.Nod
 		return nil, err
 	}
 	return nil, invalid("unsupported plugin follow removal")
+}
+
+// CheckConfigurationMCPWritable applies the follow lock at the changed server
+// boundary. A local overlay never unlocks the rest of a followed package.
+func CheckConfigurationMCPWritable(ctx context.Context, db *sql.Conn, plugin string, servers []string) error {
+	if configurationApplying(ctx) {
+		return nil
+	}
+	locked := CheckConfigurationEditable(ctx, db, "plugin_settings", plugin)
+	if locked == nil {
+		return nil
+	}
+	var reported *protocol.Fault
+	if !errors.As(locked, &reported) || reported.Code != protocol.ErrorCodePermissionDenied {
+		return locked
+	}
+	for _, server := range servers {
+		local, err := ConfigurationMCPServerLocal(ctx, db, plugin, server)
+		if err != nil {
+			return err
+		}
+		if !local {
+			return locked
+		}
+	}
+	return nil
 }

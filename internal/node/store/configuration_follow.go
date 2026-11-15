@@ -280,6 +280,10 @@ func ReadConfigurationManifest(ctx context.Context, db *sql.Conn, source protoco
 		return protocol.ConfigurationManifest{}, err
 	}
 	value := protocol.ConfigurationManifest{Source: source, Category: category, Records: []protocol.ConfigurationFollowRecord{}}
+	err = db.QueryRowContext(ctx, "SELECT revision FROM configuration_follow_versions WHERE user=?1 AND category=?2 AND source=?3", user.ID.String(), category, source[:]).Scan(&value.Revision)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return value, err
+	}
 	rows, err := db.QueryContext(ctx, "SELECT id,revision,digest FROM configuration_follow_records WHERE user=?1 AND source=?2 AND category=?3 AND state IN ('applied','authorization') ORDER BY id", user.ID.String(), source[:], category)
 	if err != nil {
 		return value, err

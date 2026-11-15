@@ -194,6 +194,7 @@ func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host p
 	if err != nil {
 		return value, err
 	}
+	slices.SortFunc(value.Records, func(a, b protocol.ConfigurationFollowRecord) int { return strings.Compare(a.ID, b.ID) })
 	var previous string
 	err = db.QueryRowContext(ctx, "SELECT revision,digest FROM configuration_follow_versions WHERE user=?1 AND category=?2 AND source=?3", user.ID.String(), category, host[:]).Scan(&value.Revision, &previous)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

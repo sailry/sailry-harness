@@ -43,6 +43,9 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == "acceptance-cleanup" {
 		return runAcceptance(ctx, append([]string{"--cleanup"}, args[1:]...), os.Stdout)
 	}
+	if len(args) > 0 && args[0] == "follow" {
+		return 0, hostctl.RunFollow(ctx, args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "share" {
 		return 0, hostctl.RunShare(ctx, args[1:], os.Stdout, os.Stderr)
 	}

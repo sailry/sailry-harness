@@ -266,10 +266,29 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			return
 		}
 		var request protocol.Request
+		unchanged := false
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			manifest, err := store.ExportConfigurationManifest(ctx, db, node.ID(), address.ID, category, target.Secrets, declarations)
 			if err != nil {
 				return err
+			}
+			var pending bool
+			if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_deliveries WHERE user=?1 AND host=?2 AND category=?3)", local.ID.String(), address.ID[:], category).Scan(&pending); err != nil {
+				return err
+			}
+			if !pending && known.Revision == manifest.Revision && len(known.Records) == len(manifest.Records) {
+				matches := true
+				have := map[string]string{}
+				for _, record := range known.Records {
+					have[record.ID] = record.Digest
+				}
+				for _, record := range manifest.Records {
+					matches = matches && have[record.ID] == record.Digest
+				}
+				if matches {
+					unchanged = true
+					return nil
+				}
 			}
 			have := map[string]protocol.ConfigurationFollowRecord{}
 			for _, record := range known.Records {
@@ -287,6 +306,9 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			fail(err)
 			return
 		}
+		if unchanged {
+			continue
+		}
 		var delivery protocol.ConfigurationFollowCommand
 		if value, ok := dispatchPayload[protocol.ConfigurationFollowCommand](request.Command.Data); ok {
 			delivery = value
@@ -300,7 +322,7 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		_, err = configurationRemote(ctx, remote, request)
 		if err != nil {
 			var definitive *protocol.Fault
-			if errors.As(err, &definitive) {
+			if errors.As(err, &definitive) && definitive.Code != protocol.ErrorCodeOutcomeUnknown && definitive.Code != protocol.ErrorCodeUnavailable && definitive.Code != protocol.ErrorCodeCancelled {
 				_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 					return store.CompleteConfigurationFollowDelivery(ctx, db, address.ID, category, request.ID)
 				})
