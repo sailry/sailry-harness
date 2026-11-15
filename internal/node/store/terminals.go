@@ -42,13 +42,20 @@ func SaveTerminal(ctx context.Context, db *sql.Conn, value protocol.TerminalInfo
 		return nil, nil
 	}
 	if terminalFinished(value.Status.Kind) {
+		if err := retainResourceAudience(ctx, db, "terminal", value.ID.String()); err != nil {
+			return nil, err
+		}
 		_, err = db.ExecContext(ctx, "DELETE FROM terminals WHERE id=?1", value.ID.String())
 	} else {
 		var worktree any
 		if value.Worktree != nil {
 			worktree = value.Worktree.String()
 		}
-		_, err = db.ExecContext(ctx, "INSERT INTO terminals(id,worktree,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET worktree=excluded.worktree,body=excluded.body", value.ID.String(), worktree, next)
+		user, userErr := CurrentUser(ctx, db)
+		if userErr != nil {
+			return nil, userErr
+		}
+		_, err = db.ExecContext(ctx, "INSERT INTO terminals(id,worktree,body,owner) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET worktree=excluded.worktree,body=excluded.body", value.ID.String(), worktree, next, user.ID.String())
 	}
 	if err != nil {
 		return nil, err

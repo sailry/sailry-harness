@@ -131,6 +131,10 @@ func terminalFinished(terminal protocol.TerminalInfo) bool {
 func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 	snapshot := projection.snapshot
 	switch event.Kind {
+	case "projection_invalidated":
+		return true, nil
+	case "cursor":
+		return false, nil
 	case "project_registered", "project_changed", "project_removed":
 		// Registration also creates the main worktree in the same transaction.
 		return true, nil

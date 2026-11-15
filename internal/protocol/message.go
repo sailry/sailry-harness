@@ -8741,6 +8741,7 @@ func (value Request) MarshalJSON() ([]byte, error) {
 }
 
 type Snapshot struct {
+	User                       *User                       `json:"user,omitempty"`
 	Node                       NodeID                      `json:"node"`
 	Cursor                     uint64                      `json:"cursor"`
 	Defaults                   Defaults                    `json:"defaults"`
@@ -10598,7 +10599,7 @@ func (value EventTurnQueuedPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var eventVariants = variantFactories{"local_models_changed": func() any { return new(EventLocalModelsChangedPayload) },
+var eventVariants = variantFactories{"cursor": nil, "projection_invalidated": nil, "local_models_changed": func() any { return new(EventLocalModelsChangedPayload) },
 	"local_model_settings_changed":  func() any { return new(EventLocalModelSettingsChangedPayload) },
 	"knowledge_collections_changed": nil,
 	"task_started":                  func() any { return new(EventTaskStartedPayload) },

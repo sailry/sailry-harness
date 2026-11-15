@@ -64,6 +64,9 @@ func FinishRemovedWorktree(ctx context.Context, db *sql.Conn, id protocol.Worktr
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE worktree=?1) OR EXISTS(SELECT 1 FROM session_revisions WHERE worktree=?1) OR EXISTS(SELECT 1 FROM agent_approval_rules WHERE worktree=?1)", id.String()).Scan(&referenced); err != nil {
 		return nil, err
 	}
+	if err := retainResourceAudience(ctx, db, "worktree", id.String()); err != nil {
+		return nil, err
+	}
 	var result sql.Result
 	var err error
 	if referenced {

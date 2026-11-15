@@ -1,0 +1,47 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+type userContextKey struct{}
+
+// WithUser carries a Node-verified principal through admitted asynchronous work.
+// A peer never supplies this value in its request body.
+func WithUser(ctx context.Context, user protocol.User) context.Context {
+	return context.WithValue(ctx, userContextKey{}, user)
+}
+
+// CurrentUser defaults only trusted internal maintenance to the local user.
+// Public Node entry points resolve CallerUser before they call a service.
+func CurrentUser(ctx context.Context, db *sql.Conn) (protocol.User, error) {
+	if user, ok := ctx.Value(userContextKey{}).(protocol.User); ok {
+		return resolveUser(ctx, db, user.ID)
+	}
+	return LocalUser(ctx, db)
+}
+
+// UserFromContext returns only the principal already verified by Node.
+func UserFromContext(ctx context.Context) (protocol.User, bool) {
+	user, ok := ctx.Value(userContextKey{}).(protocol.User)
+	return user, ok
+}
+
+func resolveUser(ctx context.Context, db *sql.Conn, id protocol.UserID) (protocol.User, error) {
+	seen := map[protocol.UserID]bool{}
+	for !seen[id] {
+		seen[id] = true
+		user, err := readUser(ctx, db, "SELECT id,name,administrator,local,state,merged_into FROM users WHERE id=?1", id.String())
+		if err != nil {
+			return user, err
+		}
+		if user.MergedInto == nil {
+			return user, nil
+		}
+		id = *user.MergedInto
+	}
+	return protocol.User{}, fault(protocol.ErrorCodePermissionDenied, "user membership is unavailable")
+}

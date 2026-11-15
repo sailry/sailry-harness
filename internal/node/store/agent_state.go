@@ -18,6 +18,7 @@ type AgentInstruction struct {
 	AnyTools []string `json:"any_tools"`
 }
 type AgentInvocation struct {
+	User                 protocol.User
 	Hooks                protocol.HooksSettings
 	Session              protocol.Session
 	Worktree             protocol.Worktree

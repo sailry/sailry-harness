@@ -344,6 +344,9 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := initializeUsers(ctx, connection); err != nil {
 			return err
 		}
+		if err := initializeResourceUsers(ctx, connection); err != nil {
+			return err
+		}
 	}
 	validate := validateStored
 	if definition.state == schemaCurrent {

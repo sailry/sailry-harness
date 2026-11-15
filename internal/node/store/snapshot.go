@@ -11,6 +11,11 @@ import (
 func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol.Snapshot, error) {
 	value := protocol.DefaultSnapshot()
 	value.Node = node
+	user, userErr := CurrentUser(ctx, db)
+	if userErr != nil {
+		return value, userErr
+	}
+	value.User = &user
 	var err error
 	if value.Defaults, err = ReadDefaults(ctx, db); err != nil {
 		return value, err
@@ -33,7 +38,7 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	if value.Teams, err = readBodies[protocol.TeamProfile](ctx, db, "SELECT body FROM teams ORDER BY key"); err != nil {
 		return value, err
 	}
-	if value.Terminals, err = readBodies[protocol.TerminalInfo](ctx, db, "SELECT body FROM terminals ORDER BY id"); err != nil {
+	if value.Terminals, err = ReadTerminals(ctx, db); err != nil {
 		return value, err
 	}
 	if value.Ssh, err = readBodies[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles ORDER BY rowid"); err != nil {
@@ -117,7 +122,15 @@ func RecordEvents(ctx context.Context, db *sql.Conn, node protocol.NodeID, chang
 		if err != nil {
 			return nil, err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO events(cursor,body) VALUES(?1,?2)", cursor, body); err != nil {
+		audience, err := captureEventAudience(ctx, db, event)
+		if err != nil {
+			return nil, err
+		}
+		scope, err := json.Marshal(audience)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO events(cursor,body,audience) VALUES(?1,?2,?3)", cursor, body, scope); err != nil {
 			return nil, err
 		}
 		values = append(values, protocol.EventEnvelope{Node: node, Cursor: cursor, Event: event})
@@ -132,7 +145,11 @@ func EventPage(ctx context.Context, db *sql.Conn, node protocol.NodeID, after, t
 			return 0, nil, err
 		}
 	}
-	rows, err := db.QueryContext(ctx, "SELECT cursor,body FROM events WHERE cursor>?1 AND cursor<=?2 ORDER BY cursor LIMIT 128", after, through)
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return through, nil, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT cursor,body,audience FROM events WHERE cursor>?1 AND cursor<=?2 ORDER BY cursor LIMIT 128", after, through)
 	if err != nil {
 		return through, nil, err
 	}
@@ -141,8 +158,8 @@ func EventPage(ctx context.Context, db *sql.Conn, node protocol.NodeID, after, t
 	size := 0
 	for rows.Next() {
 		value := protocol.EventEnvelope{Node: node}
-		var body []byte
-		if err := rows.Scan(&value.Cursor, &body); err != nil {
+		var body, scope []byte
+		if err := rows.Scan(&value.Cursor, &body, &scope); err != nil {
 			return through, nil, err
 		}
 		if len(values) > 0 && size+len(body) > 2*1024*1024 {
@@ -150,6 +167,20 @@ func EventPage(ctx context.Context, db *sql.Conn, node protocol.NodeID, after, t
 		}
 		size += len(body)
 		if err := json.Unmarshal(body, &value.Event); err != nil {
+			return through, nil, err
+		}
+		var audience eventAudience
+		if scope == nil {
+			local, err := LocalUser(ctx, db)
+			if err != nil {
+				return through, nil, err
+			}
+			audience = eventAudience{Kind: "user", Owner: &local.ID}
+		} else if err := json.Unmarshal(scope, &audience); err != nil {
+			return through, nil, err
+		}
+		value.Event, err = filterEvent(ctx, db, value.Event, audience, user)
+		if err != nil {
 			return through, nil, err
 		}
 		values = append(values, value)

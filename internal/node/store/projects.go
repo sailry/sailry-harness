@@ -88,7 +88,11 @@ func validateAppearance(appearance protocol.ProjectsAppearance) error {
 }
 
 func ReadProjects(ctx context.Context, db *sql.Conn) ([]protocol.Project, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id,name,path,appearance,owner,visibility FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) ORDER BY rowid")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id,name,path,appearance,owner,visibility FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) AND (visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?1) ORDER BY rowid", user.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +383,11 @@ func recordProjectRemoval(ctx context.Context, db *sql.Conn, expected protocol.P
 }
 
 func ReadWorktrees(ctx context.Context, db *sql.Conn) ([]protocol.Worktree, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id,project,path,main FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY rowid")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT w.id,w.project,w.path,w.main FROM worktrees w LEFT JOIN projects p ON p.id=w.project WHERE w.id NOT IN (SELECT worktree FROM removed_worktrees) AND (CASE WHEN w.project IS NULL THEN coalesce(w.owner,(SELECT id FROM users WHERE local=1))=?1 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?1 END) ORDER BY w.rowid`, user.ID.String())
 	if err != nil {
 		return nil, err
 	}

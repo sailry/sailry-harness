@@ -175,12 +175,12 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 		defer close(completion)
 		operationContext := ctx
 		if result.Receipt.Durable {
-			operationContext = node.ctx
+			operationContext = store.WithUser(node.ctx, userFromContext(ctx))
 		}
 		effect := &workspaceCompletion{}
 		output, effectErr := node.workspaceIO(operationContext, caller, request, nil, effect)
 		if result.Receipt.Durable {
-			output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(node.ctx), caller, request, output, effectErr, effect)
+			output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(operationContext), caller, request, output, effectErr, effect)
 		}
 		// A completed command's effect is visible to its caller's next command.
 		effect.close()
@@ -190,6 +190,11 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 }
 
 func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, prepared *files.Prepared, effect *workspaceCompletion) (protocol.Output, error) {
+	var accessErr error
+	ctx, accessErr = node.authorizeCommand(ctx, caller, request)
+	if accessErr != nil {
+		return protocol.Output{}, accessErr
+	}
 	command := request.Command
 	if terminalCommand(command.Kind) {
 		return node.terminalIO(ctx, caller, request, effect)

@@ -25,7 +25,11 @@ func insertNotice(ctx context.Context, db *sql.Conn, packageName string, content
 	if err != nil {
 		return value, err
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO notifications(sequence,id,body) VALUES(?1,?2,?3)", sequence, value.ID.String(), body); err != nil {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return value, err
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO notifications(sequence,id,body,owner) VALUES(?1,?2,?3,?4)", sequence, value.ID.String(), body, user.ID.String()); err != nil {
 		return value, err
 	}
 	_, err = db.ExecContext(ctx, "DELETE FROM notifications WHERE sequence NOT IN (SELECT sequence FROM notifications ORDER BY sequence DESC LIMIT ?1)", protocol.NotificationLimit)

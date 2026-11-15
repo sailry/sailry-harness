@@ -336,6 +336,9 @@ func ListAssociatedSessions(ctx context.Context, db *sql.Conn, request protocol.
 	}
 	sequence := uint64(math.MaxInt64)
 	if input.Before != nil {
+		if err := CheckSessionAccess(ctx, db, *input.Before); err != nil {
+			return page, err
+		}
 		session, err := ReadSession(ctx, db, *input.Before)
 		if err != nil {
 			return page, err
@@ -345,10 +348,14 @@ func ListAssociatedSessions(ctx context.Context, db *sql.Conn, request protocol.
 		}
 		sequence = session.CreationOrder
 	}
-	rows, err := db.QueryContext(ctx, `SELECT s.id FROM sessions s JOIN session_associations a ON a.session=s.id
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return page, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT s.id FROM sessions s JOIN session_associations a ON a.session=s.id LEFT JOIN projects p ON p.id=s.project
  WHERE a.namespace=?1 AND a.kind=?2 AND a.identity=?3 AND s.state!='removed'
- AND s.rowid<?4 AND (?5 IS NULL OR s.worktree=?5) ORDER BY s.rowid DESC LIMIT ?6`,
-		input.Association.Namespace, input.Association.Kind, input.Association.ID, int64(sequence), scope, int64(input.Limit)+1)
+ AND s.rowid<?4 AND (?5 IS NULL OR s.worktree=?5) AND (CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?7 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?7 END) ORDER BY s.rowid DESC LIMIT ?6`,
+		input.Association.Namespace, input.Association.Kind, input.Association.ID, int64(sequence), scope, int64(input.Limit)+1, user.ID.String())
 	if err != nil {
 		return page, err
 	}

@@ -25,7 +25,7 @@ func ReadActivityCatalog(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	if value.Sessions, err = ReadSessions(ctx, db); err != nil {
 		return value, err
 	}
-	if value.Terminals, err = readBodies[protocol.TerminalInfo](ctx, db, "SELECT body FROM terminals ORDER BY id"); err != nil {
+	if value.Terminals, err = ReadTerminals(ctx, db); err != nil {
 		return value, err
 	}
 	body, err := json.Marshal(value)

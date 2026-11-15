@@ -10,7 +10,11 @@ import (
 )
 
 func ReadNotifications(ctx context.Context, db *sql.Conn) ([]protocol.NotificationNotice, error) {
-	return readBodies[protocol.NotificationNotice](ctx, db, "SELECT body FROM notifications ORDER BY sequence DESC LIMIT 200")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return readBodies[protocol.NotificationNotice](ctx, db, `SELECT n.body FROM notifications n LEFT JOIN sessions s ON s.id=json_extract(n.body,'$.content.session') LEFT JOIN projects p ON p.id=s.project WHERE CASE WHEN json_extract(n.body,'$.content.session') IS NULL THEN coalesce(n.owner,(SELECT id FROM users WHERE local=1))=?1 WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?1 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?1 END ORDER BY n.sequence DESC LIMIT 200`, user.ID.String())
 }
 
 func putNotice(ctx context.Context, db *sql.Conn, value protocol.NotificationNotice) error {
@@ -104,6 +108,9 @@ func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Com
 	changed := []protocol.NotificationID{}
 	for _, id := range ids {
 		if command.Kind == "dismiss_notifications" {
+			if err := retainResourceAudience(ctx, db, "notification", id.String()); err != nil {
+				return protocol.Output{}, nil, err
+			}
 			if _, err := db.ExecContext(ctx, "DELETE FROM notifications WHERE id=?1", id.String()); err != nil {
 				return protocol.Output{}, nil, err
 			}
@@ -124,6 +131,9 @@ func notificationCommand(ctx context.Context, db *sql.Conn, command protocol.Com
 			changed = append(changed, id)
 		}
 		if command.Kind == "dismiss_read_notifications" && value.Read {
+			if err := retainResourceAudience(ctx, db, "notification", id.String()); err != nil {
+				return protocol.Output{}, nil, err
+			}
 			if _, err := db.ExecContext(ctx, "DELETE FROM notifications WHERE id=?1", id.String()); err != nil {
 				return protocol.Output{}, nil, err
 			}

@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','archived','removed')),
     project TEXT REFERENCES projects(id),
+    owner TEXT REFERENCES users(id),
     worktree TEXT REFERENCES worktrees(id),
     revision INTEGER NOT NULL,
     history_revision INTEGER NOT NULL DEFAULT 1
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS artifact_revisions (
 CREATE TABLE IF NOT EXISTS worktrees (
     id TEXT PRIMARY KEY,
     project TEXT REFERENCES projects(id),
+    owner TEXT REFERENCES users(id),
     path TEXT NOT NULL UNIQUE,
     main INTEGER NOT NULL CHECK(main IN (0,1))
 );
@@ -130,12 +132,14 @@ CREATE TABLE IF NOT EXISTS turns (
     revision INTEGER NOT NULL,
     request TEXT NOT NULL,
     caller BLOB NOT NULL,
+    user TEXT REFERENCES users(id),
     FOREIGN KEY(session,revision) REFERENCES session_revisions(session,revision),
     FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session);
 CREATE TABLE IF NOT EXISTS events (
     cursor INTEGER PRIMARY KEY,
+    audience BLOB,
     body BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_metadata_events ON events(cursor)
@@ -227,6 +231,7 @@ CREATE TABLE plugin_conversation_values (
 CREATE TABLE IF NOT EXISTS terminals (
     id TEXT PRIMARY KEY,
     worktree TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
+    owner TEXT REFERENCES users(id),
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS terminal_settings (
@@ -482,6 +487,7 @@ CREATE INDEX dispatch_jobs_queue ON dispatch_jobs(package,queue,status,sequence)
 CREATE TABLE notifications (
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
+    owner TEXT REFERENCES users(id),
     body BLOB NOT NULL
 );
 
@@ -552,3 +558,5 @@ CREATE TABLE local_model_settings (
 CREATE TABLE IF NOT EXISTS power_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
 
 CREATE TABLE compaction_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
+
+CREATE TABLE removed_resource_audiences (kind TEXT NOT NULL,id TEXT NOT NULL,audience BLOB NOT NULL,PRIMARY KEY(kind,id));
