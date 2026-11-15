@@ -177,7 +177,7 @@ class _ApiPickerState extends State<_ApiPicker> {
         for (final api in provider_api.choices(widget.current))
           ListTile(
             title: Text(apiLabel(context, api)),
-            trailing: api == _selected ? const AppIcon('check') : null,
+            selected: api == _selected,
             onTap: _busy ? null : () => _save(api),
           ),
       ],

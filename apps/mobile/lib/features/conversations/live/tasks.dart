@@ -257,9 +257,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                         for (final host in hosts)
                           HostRow(
                             host: host,
-                            trailing: selected?.id == host.id
-                                ? const AppIcon('check')
-                                : null,
+                            selected: selected?.id == host.id,
                             onTap: () {
                               setState(() {
                                 _project = null;

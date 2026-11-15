@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../l10n/language.dart';
 import '../../ui/kit.dart';
+import '../../ui/theme.dart';
 import '../../ui/toast.dart';
 import '../../runtime/session.dart';
 import '../updates/presentation.dart';
@@ -17,6 +18,8 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.onThemeChanged,
     required this.themeMode,
+    this.brand = Brand.orange,
+    this.onBrandChanged,
     this.notifications = true,
     this.onNotificationsChanged,
     this.language = AppLanguage.chinese,
@@ -26,6 +29,8 @@ class SettingsPage extends StatefulWidget {
 
   final ValueChanged<ThemeMode> onThemeChanged;
   final ThemeMode themeMode;
+  final Brand brand;
+  final ValueChanged<Brand>? onBrandChanged;
   final bool notifications;
   final ValueChanged<bool>? onNotificationsChanged;
   final AppLanguage language;
@@ -67,6 +72,58 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// The brand color as swatches in its row, chosen in place.
+  Widget _brand(ValueChanged<Brand> onChanged) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      leading: AppIcon('bulb', color: colors.onSurfaceVariant),
+      title: Text(context.tr('brandColor')),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 6,
+        children: [
+          for (final brand in Brand.values)
+            Semantics(
+              button: true,
+              selected: brand == widget.brand,
+              label: context.tr(brand.labelKey),
+              excludeSemantics: true,
+              child: Tooltip(
+                message: context.tr(brand.labelKey),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(brand),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 22,
+                    height: 22,
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        width: 1.5,
+                        color: brand == widget.brand
+                            ? brand.color(theme.brightness)
+                            : Colors.transparent,
+                      ),
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: brand.color(theme.brightness),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   void _speech() {
     final speech = AppSession.maybeOf(context)?.speech;
     if (speech != null) {
@@ -90,9 +147,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 selected: widget.language == language,
                 title: Text(context.tr(language.labelKey)),
-                trailing: widget.language == language
-                    ? const AppIcon('check')
-                    : null,
                 onTap: () {
                   widget.onLanguageChanged?.call(language);
                   Navigator.pop(sheetContext);
@@ -179,6 +233,7 @@ class _SettingsPageState extends State<SettingsPage> {
               context.tr(widget.language.labelKey),
             ),
             _appearance(),
+            if (widget.onBrandChanged case final onChanged?) _brand(onChanged),
             SwitchTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               leading: AppIcon('bell', color: colors.onSurfaceVariant),

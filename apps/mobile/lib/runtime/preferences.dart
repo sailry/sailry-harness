@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../l10n/language.dart';
+import '../ui/theme.dart';
 
 class AppPreferences extends ChangeNotifier {
   AppPreferences({
@@ -15,11 +16,13 @@ class AppPreferences extends ChangeNotifier {
   final bool persist;
   final VoidCallback? onError;
   ThemeMode mode = ThemeMode.dark;
+  Brand brand = Brand.orange;
   AppLanguage language = AppLanguage.chinese;
   bool notifications = true;
   bool loaded = false;
   bool notificationsEdited = false;
   bool _themeEdited = false;
+  bool _brandEdited = false;
   bool _languageEdited = false;
   bool _closed = false;
 
@@ -27,6 +30,7 @@ class AppPreferences extends ChangeNotifier {
     if (!persist || _closed) return;
     try {
       final saved = await _preferences.getString('theme');
+      final brand = await _preferences.getString('brand');
       final language = await _preferences.getString('language');
       final notifications =
           await _preferences.getBool('notifications.in_app') ?? true;
@@ -35,6 +39,11 @@ class AppPreferences extends ChangeNotifier {
         mode =
             ThemeMode.values.where((mode) => mode.name == saved).firstOrNull ??
             ThemeMode.dark;
+      }
+      if (!_brandEdited) {
+        this.brand =
+            Brand.values.where((item) => item.name == brand).firstOrNull ??
+            Brand.orange;
       }
       if (!notificationsEdited) this.notifications = notifications;
       if (!_languageEdited) {
@@ -66,6 +75,14 @@ class AppPreferences extends ChangeNotifier {
     this.mode = mode;
     notifyListeners();
     await _save(() => _preferences.setString('theme', mode.name));
+  }
+
+  Future<void> setBrand(Brand brand) async {
+    if (_closed) return;
+    _brandEdited = true;
+    this.brand = brand;
+    notifyListeners();
+    await _save(() => _preferences.setString('brand', brand.name));
   }
 
   Future<void> setLanguage(AppLanguage language) async {

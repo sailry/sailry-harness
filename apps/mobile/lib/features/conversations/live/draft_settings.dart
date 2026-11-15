@@ -103,9 +103,7 @@ class _DraftSettingsState extends State<DraftSettings> {
               ListTile(
                 leading: _projectIcon(null),
                 title: Text(_projectLabel(null)),
-                trailing: selected == null
-                    ? const AppIcon('check', size: 18)
-                    : null,
+                selected: selected == null,
                 onTap: () => Navigator.pop(context, <String, dynamic>{}),
               ),
             for (final item in items)
@@ -120,9 +118,7 @@ class _DraftSettingsState extends State<DraftSettings> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                trailing: item['id'] == selected?['id']
-                    ? const AppIcon('check', size: 18)
-                    : null,
+                selected: item['id'] == selected?['id'],
                 onTap: () => Navigator.pop(context, item),
               ),
           ],

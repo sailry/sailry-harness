@@ -56,7 +56,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
             for (final host in session.hosts)
               HostRow(
                 host: host,
-                trailing: host.id == current ? const AppIcon('check') : null,
+                selected: host.id == current,
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],

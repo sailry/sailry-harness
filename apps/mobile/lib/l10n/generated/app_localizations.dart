@@ -1932,6 +1932,48 @@ abstract class AppLocalizations {
   /// **'Light'**
   String get light;
 
+  /// No description provided for @brandColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Accent color'**
+  String get brandColor;
+
+  /// No description provided for @brandOrange.
+  ///
+  /// In en, this message translates to:
+  /// **'Orange'**
+  String get brandOrange;
+
+  /// No description provided for @brandBlue.
+  ///
+  /// In en, this message translates to:
+  /// **'Blue'**
+  String get brandBlue;
+
+  /// No description provided for @brandGreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Green'**
+  String get brandGreen;
+
+  /// No description provided for @brandPurple.
+  ///
+  /// In en, this message translates to:
+  /// **'Purple'**
+  String get brandPurple;
+
+  /// No description provided for @brandPink.
+  ///
+  /// In en, this message translates to:
+  /// **'Pink'**
+  String get brandPink;
+
+  /// No description provided for @brandTeal.
+  ///
+  /// In en, this message translates to:
+  /// **'Teal'**
+  String get brandTeal;
+
   /// No description provided for @focus.
   ///
   /// In en, this message translates to:

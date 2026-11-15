@@ -937,6 +937,27 @@ class AppLocalizationsJa extends AppLocalizations {
   String get light => 'ライト';
 
   @override
+  String get brandColor => 'アクセントカラー';
+
+  @override
+  String get brandOrange => 'オレンジ';
+
+  @override
+  String get brandBlue => 'ブルー';
+
+  @override
+  String get brandGreen => 'グリーン';
+
+  @override
+  String get brandPurple => 'パープル';
+
+  @override
+  String get brandPink => 'ピンク';
+
+  @override
+  String get brandTeal => 'ティール';
+
+  @override
   String get focus => 'シングルスクリーン';
 
   @override

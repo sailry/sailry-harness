@@ -7,6 +7,49 @@ enum StatusTone { neutral, success, danger, warning, running }
 
 enum AccentTone { blue, green, yellow, purple }
 
+/// The brand colors one may choose (Settings): selections and other brand
+/// marks take the chosen one. Orange is Sailry's own.
+enum Brand {
+  orange(0xffbb5b34, 0xffdf9c70),
+  blue(0xff2563eb, 0xff60a5fa),
+  green(0xff3f7a46, 0xff8fc47a),
+  purple(0xff7c3aed, 0xffb79cf5),
+  pink(0xffc0407a, 0xfff08cb6),
+  teal(0xff0f766e, 0xff5eead4);
+
+  const Brand(this.light, this.dark);
+  final int light;
+  final int dark;
+
+  Color color(Brightness brightness) =>
+      Color(brightness == Brightness.dark ? dark : light);
+
+  /// The localization key of the color's name.
+  String get labelKey => 'brand${name[0].toUpperCase()}${name.substring(1)}';
+}
+
+/// The theme's brand color and the tint a selected row stands on.
+class SailryBrand extends ThemeExtension<SailryBrand> {
+  const SailryBrand({required this.color, required this.selection});
+
+  final Color color;
+  final Color selection;
+
+  @override
+  SailryBrand copyWith({Color? color, Color? selection}) => SailryBrand(
+    color: color ?? this.color,
+    selection: selection ?? this.selection,
+  );
+
+  @override
+  SailryBrand lerp(SailryBrand? other, double t) => other == null
+      ? this
+      : SailryBrand(
+          color: Color.lerp(color, other.color, t)!,
+          selection: Color.lerp(selection, other.selection, t)!,
+        );
+}
+
 abstract final class SailryTheme {
   static final sheetBackdrop = ImageFilter.blur(sigmaX: 5, sigmaY: 5);
 
@@ -26,6 +69,21 @@ abstract final class SailryTheme {
     return Color(brightness == Brightness.dark ? night : light);
   }
 
+  /// The brand of the theme in [context].
+  static SailryBrand brand(BuildContext context) =>
+      Theme.of(context).extension<SailryBrand>()!;
+
+  /// A menu item's style when it is the current choice: the brand's tint
+  /// and color, as a selected list row has.
+  static ButtonStyle selectedMenuItem(BuildContext context) {
+    final brand = SailryTheme.brand(context);
+    return MenuItemButton.styleFrom(
+      backgroundColor: brand.selection,
+      foregroundColor: brand.color,
+      iconColor: brand.color,
+    );
+  }
+
   static Color statusColor(BuildContext context, StatusTone tone) {
     final colors = Theme.of(context).colorScheme;
     return switch (tone) {
@@ -37,8 +95,10 @@ abstract final class SailryTheme {
     };
   }
 
-  static ThemeData of(Brightness brightness) {
+  static ThemeData of(Brightness brightness, [Brand choice = Brand.orange]) {
     final dark = brightness == Brightness.dark;
+    final brand = choice.color(brightness);
+    final selection = brand.withValues(alpha: dark ? .22 : .14);
     final ink = Color(dark ? 0xffeeece4 : 0xff282722);
     final background = Color(dark ? 0xff101112 : 0xffeeebe6);
     final colors =
@@ -86,6 +146,7 @@ abstract final class SailryTheme {
         });
     final overlay = feedback(feedbackTone);
     return base.copyWith(
+      extensions: [SailryBrand(color: brand, selection: selection)],
       scaffoldBackgroundColor: background,
       splashFactory: NoSplash.splashFactory,
       splashColor: feedbackTone.withValues(alpha: pressOpacity),
@@ -225,6 +286,11 @@ abstract final class SailryTheme {
         contentPadding: const EdgeInsets.symmetric(horizontal: 14),
         minTileHeight: 48,
         iconColor: colors.onSurfaceVariant,
+        // A chosen row stands on the brand's tint, in its color, rather
+        // than carrying a check mark.
+        selectedTileColor: selection,
+        selectedColor: brand,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         titleTextStyle: TextStyle(fontSize: 14, color: ink),
         subtitleTextStyle: TextStyle(
           fontSize: 14,

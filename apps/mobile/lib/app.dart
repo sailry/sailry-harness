@@ -74,8 +74,8 @@ class _SailryAppState extends State<SailryApp> {
       title: 'Sailry',
       navigatorKey: _navigator,
       debugShowCheckedModeBanner: false,
-      theme: SailryTheme.of(Brightness.light),
-      darkTheme: SailryTheme.of(Brightness.dark),
+      theme: SailryTheme.of(Brightness.light, _preferences.brand),
+      darkTheme: SailryTheme.of(Brightness.dark, _preferences.brand),
       themeMode: _preferences.mode,
       locale: _preferences.language.locale,
       localeListResolutionCallback: AppLanguage.resolve,
@@ -109,6 +109,8 @@ class _SailryAppState extends State<SailryApp> {
       onLanguageChanged: _preferences.setLanguage,
       themeMode: _preferences.mode,
       onThemeChanged: _preferences.setTheme,
+      brand: _preferences.brand,
+      onBrandChanged: _preferences.setBrand,
       notifications: _preferences.notifications,
       onNotificationsChanged: _preferences.setNotifications,
       updates: _updates,
@@ -137,6 +139,8 @@ class _Shell extends StatefulWidget {
     required this.onLanguageChanged,
     required this.themeMode,
     required this.onThemeChanged,
+    required this.brand,
+    required this.onBrandChanged,
     required this.notifications,
     required this.onNotificationsChanged,
     required this.updates,
@@ -145,6 +149,8 @@ class _Shell extends StatefulWidget {
   final ValueChanged<AppLanguage> onLanguageChanged;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeChanged;
+  final Brand brand;
+  final ValueChanged<Brand> onBrandChanged;
   final bool notifications;
   final ValueChanged<bool> onNotificationsChanged;
   final AppUpdates? updates;
@@ -199,6 +205,8 @@ class _ShellState extends State<_Shell> {
                             onLanguageChanged: widget.onLanguageChanged,
                             themeMode: widget.themeMode,
                             onThemeChanged: widget.onThemeChanged,
+                            brand: widget.brand,
+                            onBrandChanged: widget.onBrandChanged,
                             notifications: widget.notifications,
                             onNotificationsChanged:
                                 widget.onNotificationsChanged,

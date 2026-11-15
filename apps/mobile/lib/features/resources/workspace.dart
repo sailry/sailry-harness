@@ -101,9 +101,7 @@ Future<String?> showLiveWorkspacePicker(
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                trailing: text(worktree['id']) == selected
-                    ? const AppIcon('check')
-                    : null,
+                selected: text(worktree['id']) == selected,
                 onTap: () => Navigator.pop(context, text(worktree['id'])),
               ),
           ],

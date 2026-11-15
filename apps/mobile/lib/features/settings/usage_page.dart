@@ -178,13 +178,13 @@ class _UsagePageState extends State<UsagePage> {
           children: [
             ListTile(
               title: Text(context.tr('allHosts')),
-              trailing: _host == null ? const AppIcon('check') : null,
+              selected: _host == null,
               onTap: () => Navigator.pop(context, ''),
             ),
             for (final host in session.hosts)
               ListTile(
                 title: Text(host.label),
-                trailing: _host == host.id ? const AppIcon('check') : null,
+                selected: _host == host.id,
                 onTap: () => Navigator.pop(context, host.id),
               ),
           ],
@@ -220,9 +220,7 @@ class _UsagePageState extends State<UsagePage> {
                 ListTile(
                   title: Text(text(project['name'])),
                   subtitle: Text(host.label),
-                  trailing: _project == project['id']
-                      ? const AppIcon('check')
-                      : null,
+                  selected: _project == project['id'],
                   onTap: () =>
                       Navigator.pop(context, (host.id, text(project['id']))),
                 ),

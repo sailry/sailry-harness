@@ -120,8 +120,8 @@ class _SelectFieldState<T> extends State<SelectField<T>> {
                           selected: id == widget.value,
                           child: MenuItemButton(
                             autofocus: index == 0,
-                            trailingIcon: id == widget.value
-                                ? const AppIcon('check', size: 16)
+                            style: id == widget.value
+                                ? SailryTheme.selectedMenuItem(context)
                                 : null,
                             onPressed: () {
                               _controller.text = label;

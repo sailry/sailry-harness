@@ -157,17 +157,20 @@ class _HostListState extends State<_HostList> {
 }
 
 /// Host row with its route icon, status dot and link detail; the host list
-/// places a remove action in [trailing] and pickers a selection mark.
+/// places a remove action in [trailing], and pickers mark the chosen host
+/// [selected], on the brand's tint.
 class HostRow extends StatelessWidget {
   const HostRow({
     super.key,
     required this.host,
     required this.onTap,
     this.trailing,
+    this.selected = false,
   });
   final HostConnection host;
   final VoidCallback onTap;
   final Widget? trailing;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -186,66 +189,75 @@ class HostRow extends StatelessWidget {
       HostStatus.connecting => context.tr('hostConnecting'),
       HostStatus.offline => context.tr('offline'),
     };
-    return InkWell(
-      key: ValueKey('host-row-${host.id}'),
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHigh,
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: AppIcon(
-                'server',
-                size: 17,
-                color: _hostTone(context, host),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+    return Semantics(
+      selected: selected,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: selected ? SailryTheme.brand(context).selection : null,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: InkWell(
+          key: ValueKey('host-row-${host.id}'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHigh,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: AppIcon(
+                    'server',
+                    size: 17,
+                    color: _hostTone(context, host),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flexible(
-                        child: Text(
-                          host.label,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              host.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: host.connected
+                                    ? colors.onSurface
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          StatusDot(color: statusDotColor(context, status)),
+                        ],
+                      ),
+                      if (detail.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          detail,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: host.connected
-                                ? colors.onSurface
-                                : colors.onSurfaceVariant,
-                          ),
+                          style: dimStyle(context),
                         ),
-                      ),
-                      const SizedBox(width: 7),
-                      StatusDot(color: statusDotColor(context, status)),
+                      ],
                     ],
                   ),
-                  if (detail.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      detail,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: dimStyle(context),
-                    ),
-                  ],
-                ],
-              ),
+                ),
+                ?trailing,
+              ],
             ),
-            ?trailing,
-          ],
+          ),
         ),
       ),
     );

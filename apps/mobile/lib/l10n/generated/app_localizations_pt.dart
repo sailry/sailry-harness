@@ -960,6 +960,27 @@ class AppLocalizationsPt extends AppLocalizations {
   String get light => 'Claro';
 
   @override
+  String get brandColor => 'Cor de destaque';
+
+  @override
+  String get brandOrange => 'Laranja';
+
+  @override
+  String get brandBlue => 'Azul';
+
+  @override
+  String get brandGreen => 'Verde';
+
+  @override
+  String get brandPurple => 'Roxo';
+
+  @override
+  String get brandPink => 'Rosa';
+
+  @override
+  String get brandTeal => 'Azul-petróleo';
+
+  @override
   String get focus => 'Tela única';
 
   @override

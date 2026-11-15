@@ -964,6 +964,27 @@ class AppLocalizationsDe extends AppLocalizations {
   String get light => 'Hell';
 
   @override
+  String get brandColor => 'Akzentfarbe';
+
+  @override
+  String get brandOrange => 'Orange';
+
+  @override
+  String get brandBlue => 'Blau';
+
+  @override
+  String get brandGreen => 'Grün';
+
+  @override
+  String get brandPurple => 'Lila';
+
+  @override
+  String get brandPink => 'Rosa';
+
+  @override
+  String get brandTeal => 'Petrol';
+
+  @override
   String get focus => 'Einzelbildschirm';
 
   @override

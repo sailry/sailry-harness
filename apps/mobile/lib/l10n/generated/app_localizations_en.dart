@@ -955,6 +955,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get light => 'Light';
 
   @override
+  String get brandColor => 'Accent color';
+
+  @override
+  String get brandOrange => 'Orange';
+
+  @override
+  String get brandBlue => 'Blue';
+
+  @override
+  String get brandGreen => 'Green';
+
+  @override
+  String get brandPurple => 'Purple';
+
+  @override
+  String get brandPink => 'Pink';
+
+  @override
+  String get brandTeal => 'Teal';
+
+  @override
   String get focus => 'Single screen';
 
   @override

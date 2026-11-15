@@ -934,6 +934,27 @@ class AppLocalizationsZh extends AppLocalizations {
   String get light => '浅色';
 
   @override
+  String get brandColor => '主题色';
+
+  @override
+  String get brandOrange => '橙色';
+
+  @override
+  String get brandBlue => '蓝色';
+
+  @override
+  String get brandGreen => '绿色';
+
+  @override
+  String get brandPurple => '紫色';
+
+  @override
+  String get brandPink => '粉色';
+
+  @override
+  String get brandTeal => '青色';
+
+  @override
   String get focus => '单屏体验';
 
   @override
@@ -3141,6 +3162,27 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get light => '淺色';
+
+  @override
+  String get brandColor => '主題色';
+
+  @override
+  String get brandOrange => '橙色';
+
+  @override
+  String get brandBlue => '藍色';
+
+  @override
+  String get brandGreen => '綠色';
+
+  @override
+  String get brandPurple => '紫色';
+
+  @override
+  String get brandPink => '粉色';
+
+  @override
+  String get brandTeal => '青色';
 
   @override
   String get focus => '單屏體驗';

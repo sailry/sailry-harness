@@ -33,6 +33,7 @@ Future<void> pickSettingsHost(BuildContext context, AppSession session) async {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+              selected: session.selectedHost?.id == host.id,
               leading: const AppIcon('server'),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -40,13 +41,6 @@ Future<void> pickSettingsHost(BuildContext context, AppSession session) async {
                   ConnectionStatus(
                     connected: host.connected,
                     transport: host.transport,
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 20,
-                    child: session.selectedHost?.id == host.id
-                        ? const AppIcon('check')
-                        : null,
                   ),
                 ],
               ),

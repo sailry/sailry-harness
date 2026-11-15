@@ -149,9 +149,9 @@ class _SortMenu extends StatelessWidget {
               Semantics(
                 selected: memory == byMemory,
                 child: MenuItemButton(
-                  trailingIcon: memory == byMemory
-                      ? const AppIcon('check', size: 16)
-                      : const SizedBox(width: 16),
+                  style: memory == byMemory
+                      ? SailryTheme.selectedMenuItem(context)
+                      : null,
                   onPressed: () => onSort(memory),
                   child: SizedBox(width: 96, child: Text(context.tr(key))),
                 ),

@@ -210,9 +210,6 @@ class _ConfigurationFieldsState extends State<ConfigurationFields> {
                     ? SailryTheme.statusColor(context, StatusTone.warning)
                     : null,
                 selected: config['permission'] == value,
-                trailing: config['permission'] == value
-                    ? AppIcon('check', size: 18, color: colors.primary)
-                    : const SizedBox(width: 18),
                 onTap: widget.enabled
                     ? () => _commit({...config, 'permission': value})
                     : null,

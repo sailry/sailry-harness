@@ -960,6 +960,27 @@ class AppLocalizationsRu extends AppLocalizations {
   String get light => 'Светлая';
 
   @override
+  String get brandColor => 'Акцентный цвет';
+
+  @override
+  String get brandOrange => 'Оранжевый';
+
+  @override
+  String get brandBlue => 'Синий';
+
+  @override
+  String get brandGreen => 'Зелёный';
+
+  @override
+  String get brandPurple => 'Фиолетовый';
+
+  @override
+  String get brandPink => 'Розовый';
+
+  @override
+  String get brandTeal => 'Бирюзовый';
+
+  @override
   String get focus => 'Один экран';
 
   @override
