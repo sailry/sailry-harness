@@ -409,6 +409,15 @@ are controller-local. `--preview` opens no profile and starts no Node. Explicit
 acceptance and replay run in isolated processes; their limits and commands are in
 [CONTRIBUTING.md](CONTRIBUTING.md#manual-acceptance).
 
+Mobile reserves pairing code `888888` for a clearly labeled offline demonstration
+host. Flutter persists this local choice separately from Link trust and supplies
+in-memory fixture projections through the Dart connection contract. It opens no
+native controller, Node, model, tool or user file. Simulated conversations, file
+edits, Git actions and terminal input reset when the app closes. Fresh controllers
+defer native transport until ordinary pairing; a saved demo selection also defers
+it. Removing the demo restores existing genuine peers through the normal Client
+and Link path without changing their trust records.
+
 ## Pairing and operations
 
 Link uses iroh endpoint identity for authenticated transport. The pairing service

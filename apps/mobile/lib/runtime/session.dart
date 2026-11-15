@@ -8,7 +8,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/bridge.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../demo/connection.dart';
+import '../l10n/strings.dart';
 import 'json.dart';
 import 'background.dart';
 import 'speech.dart';
@@ -25,7 +28,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   AppSession()
     : _initialize = initializeBridge,
       _openController = _open,
-      _createSpeech = SpeechController.new;
+      _createSpeech = SpeechController.new,
+      _savedPeers = _hasSavedPeers,
+      _demoPreferences = SharedPreferencesAsync();
 
   @visibleForTesting
   AppSession.test({
@@ -35,9 +40,13 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     Future<void> Function()? initialize,
     Future<Controller> Function(String, bool)? openController,
     SpeechController Function(String)? createSpeech,
+    Future<bool> Function(String)? savedPeers,
+    SharedPreferencesAsync? preferences,
   }) : _initialize = initialize ?? initializeBridge,
        _openController = openController ?? _open,
-       _createSpeech = createSpeech ?? SpeechController.new {
+       _createSpeech = createSpeech ?? SpeechController.new,
+       _savedPeers = savedPeers ?? ((_) async => true),
+       _demoPreferences = preferences {
     _hosts.addAll(hosts);
     _selected = hosts.firstOrNull?.id;
     for (final host in _hosts) {
@@ -48,6 +57,35 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   final Future<void> Function() _initialize;
   final Future<Controller> Function(String, bool) _openController;
   final SpeechController Function(String) _createSpeech;
+  final Future<bool> Function(String) _savedPeers;
+  final SharedPreferencesAsync? _demoPreferences;
+  static const _demoEnabledKey = 'hosts.demo.enabled';
+  static const _demoSelectedKey = 'hosts.demo.selected';
+  Translator _translate = tr;
+  bool _internet = true;
+  Future<Controller>? _opening;
+
+  // This is only a startup hint. Link still validates and owns the peer record.
+  static Future<bool> _hasSavedPeers(String path) async {
+    final file = File('$path${Platform.pathSeparator}peers.json');
+    if (!await file.exists()) return false;
+    try {
+      if (await file.length() > 1024 * 1024) return true;
+      final record = object(jsonDecode(await file.readAsString()));
+      final peers = record['peers'];
+      return peers is! List || peers.isNotEmpty;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  void localize(Translator translate) {
+    _translate = translate;
+    for (final host in _hosts.where((host) => host.isDemo)) {
+      host._label = translate('demoHost');
+    }
+  }
+
   final background = BackgroundConnection();
   static Future<Controller> _open(String path, bool internet) async {
     final owner = await Controller.open(
@@ -101,32 +139,26 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     error = null;
     _changed();
     try {
-      await _initialize();
-      if (_closed) return;
-      await background.initialize();
-      if (_closed) return;
+      _internet = internet;
       profilePath =
           path ??
           '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}controller';
       if (_closed) return;
-      final opened = await _openController(profilePath, internet);
-      if (_closed) {
-        try {
-          await opened.close();
-        } finally {
-          opened.dispose();
-        }
-        return;
+      final demo = await _demoPreferences?.getBool(_demoEnabledKey) ?? false;
+      final selected =
+          await _demoPreferences?.getBool(_demoSelectedKey) ?? false;
+      if (_closed) return;
+      if (demo) {
+        _addDemo();
+        if (!selected) _selected = null;
       }
-      controller = opened;
-      speech = _createSpeech(profilePath);
-      unawaited(speech!.check());
-      final addresses = await opened.peers();
-      if (_closed || controller != opened) return;
-      for (final address in addresses) {
-        await _connect(address, opened);
+      // A local demonstration never opens Link or a controller profile. A fresh
+      // installation can also reach pairing before any native transport starts.
+      if (!(demo && selected) && await _savedPeers(profilePath)) {
+        await _ensureController();
       }
-      if (_closed || controller != opened) return;
+      if (_closed) return;
+      _selected ??= _hosts.firstOrNull?.id;
       WidgetsBinding.instance.addObserver(this);
       ready = true;
     } catch (failure) {
@@ -138,29 +170,111 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<Controller> _ensureController() async {
+    if (_closed) throw StateError('controller is closed');
+    final current = controller;
+    if (current != null) return current;
+    return _opening ??= _startController().whenComplete(() => _opening = null);
+  }
+
+  Future<Controller> _startController() async {
+    await _initialize();
+    if (_closed) throw StateError('controller is closed');
+    await background.initialize();
+    if (_closed) throw StateError('controller is closed');
+    final opened = await _openController(profilePath, _internet);
+    var registered = false;
+    try {
+      if (_closed) {
+        throw StateError('controller is closed');
+      }
+      controller = opened;
+      registered = true;
+      speech = _createSpeech(profilePath);
+      unawaited(speech!.check());
+      final addresses = await opened.peers();
+      if (_closed || controller != opened) {
+        throw StateError('controller is closed');
+      }
+      for (final address in addresses) {
+        await _connect(address, opened);
+      }
+      if (_closed || controller != opened) {
+        throw StateError('controller is closed');
+      }
+      return opened;
+    } catch (_) {
+      if (controller == opened) {
+        await _release();
+      } else if (!registered) {
+        try {
+          await opened.close();
+        } finally {
+          opened.dispose();
+        }
+      }
+      rethrow;
+    }
+  }
+
   Future<HostConnection> pair(String ticket) async {
-    final owner = controller;
-    if (_closed || !ready || owner == null) {
+    if (_closed || !ready) {
       throw StateError('controller is not ready');
     }
+    final owner = await _ensureController();
     return _change(owner, () async {
       final address = await owner.pair(ticket: ticket.trim());
       return _connect(address, owner);
     });
   }
 
-  Future<HostConnection> pairPin(String pin) async {
+  Future<String> controllerIdentity(HostConnection host) async {
+    if (host.isDemo) return jsonEncode(DemoConnection.controllerId);
     final owner = controller;
-    if (_closed || !ready || owner == null) {
+    if (owner == null) throw StateError('controller is not ready');
+    return owner.id();
+  }
+
+  Future<HostConnection> pairPin(String pin) async {
+    if (_closed || !ready) {
       throw StateError('controller is not ready');
     }
+    // Reserved locally before opening a controller or resolving any pairing code.
+    if (pin.trim() == DemoConnection.pairingCode) {
+      return _change(controller, () async {
+        await _demoPreferences?.setBool(_demoEnabledKey, true);
+        await _demoPreferences?.setBool(_demoSelectedKey, true);
+        if (_closed) throw StateError('controller is closed');
+        final demo = _addDemo();
+        selectHost(demo.id);
+        return demo;
+      });
+    }
+    final owner = await _ensureController();
     return _change(owner, () async {
       final address = await owner.pairPin(origin: '', pin: pin.trim());
       return _connect(address, owner);
     });
   }
 
-  Future<T> _change<T>(Controller owner, Future<T> Function() action) {
+  HostConnection _addDemo() {
+    final existing = host(DemoConnection.hostId);
+    if (existing != null) return existing;
+    final connection = DemoConnection(translate: (key) => _translate(key));
+    final demo = HostConnection._(DemoConnection.hostId, '', connection)
+      .._label = _translate('demoHost')
+      ..snapshot = connection.snapshot
+      ..info = connection.info
+      ..connected = true;
+    demo.addListener(_changed);
+    _hosts.add(demo);
+    _selected ??= demo.id;
+    unawaited(demo.watch());
+    _changed();
+    return demo;
+  }
+
+  Future<T> _change<T>(Controller? owner, Future<T> Function() action) {
     // Pairing reveals its peer only after persisting trust, so local pairing
     // changes must serialize before starting the native operation.
     final pending = _hostChanges.then((_) {
@@ -218,6 +332,14 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (target._connection != null) unawaited(target.watch());
     if (_selected == id) return;
     _selected = id;
+    unawaited(
+      _demoPreferences
+          ?.setBool(_demoSelectedKey, target.isDemo)
+          .catchError(
+            (Object failure) =>
+                debugPrint('Host selection preference failed: $failure'),
+          ),
+    );
     _changed();
   }
 
@@ -226,7 +348,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (pending != null) return pending;
     if (host(target.id) != target) return Future.value();
     final owner = controller;
-    if (_closed || !ready || owner == null) {
+    if (_closed || !ready || owner == null && !target.isDemo) {
       return Future.error(StateError('controller is not ready'));
     }
     return _removals.putIfAbsent(
@@ -237,13 +359,22 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _remove(HostConnection target, Controller owner) async {
+  Future<void> _remove(HostConnection target, Controller? owner) async {
     if (host(target.id) != target) return;
-    await owner.forget(address: target.address);
+    if (target.isDemo) {
+      await _demoPreferences?.setBool(_demoEnabledKey, false);
+      await _demoPreferences?.setBool(_demoSelectedKey, false);
+    } else {
+      await owner!.forget(address: target.address);
+    }
     if (_closed || controller != owner || host(target.id) != target) return;
     target.removeListener(_changed);
     _hosts.remove(target);
-    if (_selected == target.id) _selected = _hosts.firstOrNull?.id;
+    if (_selected == target.id) {
+      _selected = null;
+      final next = _hosts.firstOrNull;
+      if (next != null) selectHost(next.id);
+    }
     _changed();
     try {
       await target.close();
@@ -252,6 +383,14 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       debugPrint('Removed host cleanup failed: $failure');
     } finally {
       target.dispose();
+    }
+    if (target.isDemo && _hosts.isEmpty && await _savedPeers(profilePath)) {
+      try {
+        await _ensureController();
+      } catch (failure) {
+        if (!_closed) error = failure;
+      }
+      _changed();
     }
   }
 
@@ -289,7 +428,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _changed() {
-    background.update(hasHosts: !_closed && ready && _hosts.isNotEmpty);
+    background.update(
+      hasHosts: !_closed && ready && _hosts.any((host) => !host.isDemo),
+    );
     if (!_closed) notifyListeners();
   }
 
@@ -376,6 +517,7 @@ class HostConnection extends ChangeNotifier {
   final String id;
   final String address;
   final Connection? _connection;
+  bool get isDemo => _connection is DemoConnection;
   CommandHandler? _handler;
   Connection get connection =>
       _connection ?? (throw StateError('test connection has no native handle'));

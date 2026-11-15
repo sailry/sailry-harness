@@ -873,5 +873,19 @@
   },
   "continuationStale": "未继续执行，会话已有新进展",
   "conversationContextOverflow": "上下文超出模型限制",
-  "conversationOutputLimit": "回复已达输出上限"
+  "conversationOutputLimit": "回复已达输出上限",
+  "demoHost": "演示主机",
+  "demoOffline": "离线演示",
+  "demoNotice": "演示主机 · 离线模拟，未连接主机、模型或工具。",
+  "demoUnavailable": "离线演示不支持此操作。",
+  "demoConversationTitle": "优化登录表单",
+  "demoNotesTitle": "准备发布评审",
+  "demoUserMessage": "优化登录表单的间距与键盘焦点，保留现有布局。",
+  "demoReply": "示例登录表单采用了更清晰的间距和更大的点击区域。\n\n- 表单间距增至 20 px。\n- 按钮最小高度设为 44 px。\n- 保留现有字段顺序。\n\n```css\nmin-height: 44px;\n```\n\n可以查看项目文件、检查示例 Git 差异，或发送消息体验模拟回复。以上均为演示内容，未运行工具或测试。",
+  "demoReadme": "# Lumen Web\n\n用于离线演示的示例登录项目。\n\n## 体验内容\n\n- 查看源代码文件。\n- 预览并在内存中编辑本文档。\n- 检查示例 Git 变更。\n- 打开模拟终端。\n\n所有内容均为本地示例数据，重启应用后恢复。不会使用真实文件、模型或工具。\n",
+  "demoReviewNotes": "# 发布评审\n\n| 功能 | 体验内容 |\n| --- | --- |\n| 会话 | 查看历史并发送模拟回复 |\n| 工作区 | 浏览和编辑示例文件 |\n| Git | 检查和暂存示例变更 |\n| 终端 | 在模拟终端输入内容 |\n| 外观 | 切换语言、主题与品牌色 |\n\n所有结果均在本地模拟，无需连接主机。\n",
+  "demoNotesPrompt": "为移动应用整理一份简短的评审清单。",
+  "demoSimulatedReply": "这是离线演示生成的模拟回复。\n\n可以查看会话历史、创建新会话、浏览示例项目、编辑文件和检查 Git 变更。终端也会给出固定的本地回复。\n\n消息仅保留在当前演示会话中，关闭应用后清除。未发起模型请求或执行工具。",
+  "demoTerminalWelcome": "离线演示终端。输入仅作模拟，不会执行命令。",
+  "demoTerminalReply": "演示回复：未启动任何进程。可以继续浏览示例文件和 Git 变更。"
 }

@@ -3,6 +3,7 @@
 This service exchanges a six-digit code for an opaque iroh pairing ticket.
 Rust Link establishes the authenticated connection and saves peer trust.
 There is no account login or second approval page. Codes expire after **60 seconds**.
+Code `888888` is reserved for Mobile's local offline demonstration and is never allocated.
 Clients mint a new invitation and publication request on rollover; they stop on
 successful pairing, cancellation or closing the pairing view.
 
@@ -172,7 +173,8 @@ uses platform `clientIp`, not a client-supplied forwarding header. See the
 [Node Functions contract](https://pages.edgeone.ai/document/node-functions).
 
 Records belong to the request ID's immutable minute generation. PIN modulo 3
-routes to that generation; a generation has 333,333 candidate six-digit codes.
+routes to that generation; a generation has 333,333 candidate six-digit codes,
+minus the reserved demonstration code in the residue-zero generation.
 The three neighboring generations are distinguishable, preserving validity
 across minute boundaries and preventing immediate reuse. Publication election
 makes orphan candidates unusable; a separate conditional claim selects one

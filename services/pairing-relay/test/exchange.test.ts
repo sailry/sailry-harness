@@ -148,6 +148,18 @@ describe.each(["SQLite", "Blob contract"])("shared exchange: %s", backend => {
     expect((await exchange.execute("redeem", { request_id: requestId(NOW), code: first.value.code }, "client", NOW)).body).toMatchObject({ ticket: "opaque-iroh-ticket" });
   });
 
+  it.each(["888888", "888889", "888890"])("skips the Mobile demo code after folding candidate %s", async candidate => {
+    const now = Math.floor(NOW / (TTL_MS * 3)) * TTL_MS * 3;
+    let attempts = 0;
+    const { exchange, store } = setup({ ...limits, entries: 1 }, () => attempts++ === 0 ? candidate : "123456");
+    const { value } = await publish(exchange, now);
+    expect(value.code).toBe("123456");
+    expect(attempts).toBe(2);
+    expect(await store.get(`${generation(now)}pin/888888`)).toBeNull();
+    expect((await exchange.execute("redeem", { request_id: requestId(now), code: value.code }, "client", now)).body)
+      .toMatchObject({ ticket: "opaque-iroh-ticket" });
+  });
+
   it("capacity resets with the generation", async () => {
     const { exchange } = setup({ ...limits, entries: 1 });
     await publish(exchange);

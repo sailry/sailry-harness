@@ -219,7 +219,10 @@ class _NewConversationPageState extends State<NewConversationPage> {
                 (_creation.project == null || _creation.worktree != null) &&
                 _creation.hasModel,
             attachmentsEnabled:
-                widget.host.connected && _creation.worktree != null,
+                !widget.host.isDemo &&
+                widget.host.connected &&
+                _creation.worktree != null,
+            voiceEnabled: !widget.host.isDemo,
             onAttachment: (_) => _attach(),
             onVoice: () => dictate(context, _draft),
             onStop: () {},

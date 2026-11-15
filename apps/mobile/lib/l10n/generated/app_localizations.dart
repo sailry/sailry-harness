@@ -4403,6 +4403,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reply cut at the output limit'**
   String get conversationOutputLimit;
+
+  /// No description provided for @demoHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Demo host'**
+  String get demoHost;
+
+  /// No description provided for @demoOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline demonstration'**
+  String get demoOffline;
+
+  /// No description provided for @demoNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Demo host · Offline simulation. No host, model or tools are connected.'**
+  String get demoNotice;
+
+  /// No description provided for @demoUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This action is unavailable in the offline demonstration.'**
+  String get demoUnavailable;
+
+  /// No description provided for @demoConversationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Improve the sign-in form'**
+  String get demoConversationTitle;
+
+  /// No description provided for @demoNotesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Prepare the release review'**
+  String get demoNotesTitle;
+
+  /// No description provided for @demoUserMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Improve the sign-in form spacing and keyboard focus. Keep the existing layout.'**
+  String get demoUserMessage;
+
+  /// No description provided for @demoReply.
+  ///
+  /// In en, this message translates to:
+  /// **'The sample sign-in form has clearer spacing and larger touch targets.\n\n- Increased the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Kept the existing field order.\n\n```css\nmin-height: 44px;\n```\n\nYou can inspect the project files, review the sample Git diff, or send a message to try a simulated reply. This is demonstration content; no tools or tests ran.'**
+  String get demoReply;
+
+  /// No description provided for @demoReadme.
+  ///
+  /// In en, this message translates to:
+  /// **'# Lumen Web\n\nAn example sign-in project for the offline demonstration.\n\n## Review\n\n- Inspect the source files.\n- Preview and edit this document in memory.\n- Review the sample Git changes.\n- Open the simulated terminal.\n\nAll content is local sample data. Changes reset when the app restarts. No real files, models or tools are used.\n'**
+  String get demoReadme;
+
+  /// No description provided for @demoReviewNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'# Release review\n\n| Area | Review |\n| --- | --- |\n| Conversation | Read history and send a simulated reply |\n| Workspace | Browse and edit sample files |\n| Git | Inspect and stage sample changes |\n| Terminal | Type into the simulated shell |\n| Appearance | Switch language, theme and brand color |\n\nAll results are simulated locally. No host connection is required.\n'**
+  String get demoReviewNotes;
+
+  /// No description provided for @demoNotesPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Create a short review checklist for the mobile app.'**
+  String get demoNotesPrompt;
+
+  /// No description provided for @demoSimulatedReply.
+  ///
+  /// In en, this message translates to:
+  /// **'This is a simulated reply from the offline demo.\n\nYou can explore the conversation history, create another conversation, browse the sample project, edit a file, and review the Git changes. The terminal also responds with a fixed local message.\n\nYour message stays in this demo session until the app closes. No model request or tool execution was made.'**
+  String get demoSimulatedReply;
+
+  /// No description provided for @demoTerminalWelcome.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline demo shell. Input is simulated; no commands execute.'**
+  String get demoTerminalWelcome;
+
+  /// No description provided for @demoTerminalReply.
+  ///
+  /// In en, this message translates to:
+  /// **'Demo response: no process was started. Browse the sample files and Git changes to continue.'**
+  String get demoTerminalReply;
 }
 
 class _AppLocalizationsDelegate

@@ -81,21 +81,62 @@ class _SailryAppState extends State<SailryApp> {
       localeListResolutionCallback: AppLanguage.resolve,
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
-      builder: (context, child) {
-        _session?.background.localize(context.tr);
-        return FToastBuilder()(
-          context,
-          ColoredBox(
-            color: Theme.of(context).colorScheme.surface,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: AppBackground(child: child!),
+      builder: (context, navigator) => FToastBuilder()(
+        context,
+        // The toast overlay retains its initial child. Observe the session
+        // inside that subtree so pairing updates the mounted application frame.
+        ListenableBuilder(
+          listenable: _session!,
+          child: navigator,
+          builder: (context, child) {
+            _session?.background.localize(context.tr);
+            _session?.localize(context.tr);
+            final demo = _session?.selectedHost?.isDemo == true;
+            return ColoredBox(
+              color: Theme.of(context).colorScheme.surface,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: AppBackground(
+                    child: Column(
+                      children: [
+                        if (demo)
+                          SafeArea(
+                            bottom: false,
+                            child: Material(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHigh,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 9,
+                                ),
+                                child: Text(
+                                  context.tr('demoNotice'),
+                                  key: const ValueKey('demo-notice'),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            ),
+                          ),
+                        Expanded(
+                          child: MediaQuery.removePadding(
+                            context: context,
+                            removeTop: demo,
+                            child: child!,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
       home: _home(),
     );
     return _session == null

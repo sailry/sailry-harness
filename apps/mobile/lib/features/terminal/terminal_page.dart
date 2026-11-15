@@ -140,9 +140,7 @@ class _TerminalPageState extends State<TerminalPage>
     try {
       final launch = terminalLaunch(context);
       if (_session == null) {
-        final controller = AppSession.of(context).controller;
-        if (controller == null) throw StateError('Controller is unavailable');
-        final identity = await controller.id();
+        final identity = await AppSession.of(context).controllerIdentity(host);
         if (!mounted) return;
         _session = TerminalSession(
           controller: identity,

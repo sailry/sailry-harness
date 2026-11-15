@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/strings.dart';
+import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import '../../ui/toast.dart';
 import 'releases.dart';
@@ -71,11 +72,23 @@ class UpdateDelivery extends StatefulWidget {
 }
 
 class _UpdateDeliveryState extends State<UpdateDelivery> {
+  bool _checked = false;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final session = AppSession.maybeOf(context);
+    if (_checked ||
+        session != null &&
+            (!session.ready ||
+                session.selectedHost == null ||
+                session.selectedHost!.isDemo)) {
+      return;
+    }
+    _checked = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      final current = mounted ? AppSession.maybeOf(context) : null;
+      if (mounted && current?.selectedHost?.isDemo != true) {
         unawaited(checkUpdates(context, widget.updates, automatic: true));
       }
     });

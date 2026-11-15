@@ -276,11 +276,17 @@ class _SettingsPageState extends State<SettingsPage> {
             label: host?.label ?? '',
             child: _group([
               _row('spark', 'providers', connected ? _providers : null),
-              _row('mic', 'speech', session?.speech == null ? null : _speech),
+              _row(
+                'mic',
+                'speech',
+                session?.speech == null || host?.isDemo == true
+                    ? null
+                    : _speech,
+              ),
             ]),
           ),
           const SizedBox(height: 16),
-          UpdateSettings(updates: widget.updates),
+          UpdateSettings(updates: host?.isDemo == true ? null : widget.updates),
         ],
       ),
     );

@@ -11,6 +11,9 @@ class UsageWatch {
     HostConnection? host,
     Map<String, dynamic> query,
   ) async {
+    if (host == null && session.selectedHost?.isDemo == true) {
+      host = session.selectedHost;
+    }
     if (host != null) {
       final updates = await host.connection.watchUsage(
         query: jsonEncode(query),
@@ -26,7 +29,10 @@ class UsageWatch {
     final controller = session.controller;
     if (controller == null) throw StateError('controller is not ready');
     final updates = await controller.watchUsage(
-      addresses: session.hosts.map((host) => host.address).toList(),
+      addresses: session.hosts
+          .where((host) => !host.isDemo)
+          .map((host) => host.address)
+          .toList(),
       query: jsonEncode(query),
     );
     return UsageWatch(

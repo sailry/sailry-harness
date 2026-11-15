@@ -465,6 +465,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   }
 
   bool _openReplyLink(String link) {
+    if (widget.host.isDemo) return false;
     final linked = linkedSession(link, _view.value);
     if (linked == null) return false;
     final child = linked.child;
@@ -838,6 +839,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                 setState(() => _attachments.remove(attachment)),
                           ),
                     attached: false,
+                    attachmentsEnabled: !widget.host.isDemo,
+                    voiceEnabled: !widget.host.isDemo,
                     busy: _active.isNotEmpty,
                     enabled:
                         connected &&

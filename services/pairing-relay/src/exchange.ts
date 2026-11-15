@@ -58,6 +58,8 @@ export class Exchange {
         const random = Number(this.nextCode());
         if (!Number.isInteger(random) || random < 0 || random >= 999_999) continue;
         const code = (Math.floor(random / 3) * 3 + residue).toString().padStart(6, "0");
+        // Mobile handles this code locally without contacting the exchange.
+        if (code === "888888") continue;
         if (!await this.slot(`${prefix}capacity/`, this.budget.entries, now())) return failure(503, "capacity");
         const entry: Entry = { code, request: body.request_id, ticket: body.ticket, cancel: randomToken(), expires };
         const candidate = { expires, value: JSON.stringify(entry) };

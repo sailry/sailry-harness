@@ -80,13 +80,28 @@ Map<String, dynamic>? _selectMode(
 /// A control-owned metadata projection; Node owns effective configuration.
 class ConversationModes extends ChangeNotifier {
   ConversationModes(this.host, {ModeProjection? project, ModeSelection? select})
-    : _project = project ?? _projectModes,
-      _select = select ?? _selectMode {
+    : _project = project ?? (host.isDemo ? _demoProject : _projectModes),
+      _select = select ?? (host.isDemo ? _demoSelect : _selectMode) {
     host.addListener(_changed);
     _changed();
   }
 
   final HostConnection host;
+
+  // The local fixture has no package modes or native Client. These choices
+  // change only its simulated configuration, never production mode policy.
+  static Map<String, dynamic> _demoProject(
+    Map<String, dynamic> config,
+    List<ConversationMode> modes,
+  ) => {'selected': config['mode'] ?? 'code', 'choices': <String>[]};
+
+  static Map<String, dynamic>? _demoSelect(
+    Map<String, dynamic> config,
+    List<ConversationMode> modes,
+    String key,
+  ) => const ['code', 'plan', 'flagship'].contains(key)
+      ? {...config, 'mode': key}
+      : null;
   final ModeProjection _project;
   final ModeSelection _select;
   final Map<String, (String, List<ConversationMode>)> _cache = {};
