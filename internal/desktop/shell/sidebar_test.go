@@ -580,8 +580,17 @@ func testSidebarReordersSessions(t *testing.T) {
 	drag := func() {
 		t.Helper()
 		tt.Frame()
-		from, ok := tt.AccessByRole(ui.RoleButton, rows[0].Title)
-		to, found := tt.AccessByRole(ui.RoleButton, rows[1].Title)
+		// The rows, not the header's tab of the selected session.
+		row := func(title string) (ui.AccessInfo, bool) {
+			for _, info := range tt.AccessAll() {
+				if info.Role == ui.RoleButton && info.Name == title && info.Bounds.Y >= HeaderHeight {
+					return info, true
+				}
+			}
+			return ui.AccessInfo{}, false
+		}
+		from, ok := row(rows[0].Title)
+		to, found := row(rows[1].Title)
 		if !ok || !found {
 			t.Fatalf("rows not shown: %q", tt.Texts())
 		}

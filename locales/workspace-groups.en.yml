@@ -1,1 +1,4 @@
 pane_group: "Split group %{number}"
+workspace_tab_keep: "Keep open"
+workspace_tab_release: "Stop keeping open"
+workspace_tab_unsplit: "Unsplit"

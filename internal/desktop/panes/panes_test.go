@@ -304,3 +304,32 @@ func TestEditsLeaveAHeldTree(t *testing.T) {
 		}
 	}
 }
+
+// Kept tabs keep their order and hold each target once; dissolving a group
+// leaves its panes standing alone with the focus where it was.
+func TestKeptTabsAndDissolve(t *testing.T) {
+	var w Workspace
+	w.Keep(s("a"))
+	w.Keep(s("b"))
+	w.Keep(s("a"))
+	w.Keep(Target{})
+	if !slices.Equal(w.Kept, []Target{s("a"), s("b")}) {
+		t.Fatalf("kept %v", w.Kept)
+	}
+	w.Release(s("a"))
+	if !slices.Equal(w.Kept, []Target{s("b")}) {
+		t.Fatalf("released %v", w.Kept)
+	}
+	w.Drop(s("c"), s("d"), Right)
+	w.Drop(s("e"), s("f"), Right)
+	first := w.Groups[1]
+	w.Active = s("c")
+	w.Dissolve(0)
+	if len(w.Groups) != 1 || w.Groups[0] != first || w.Group(s("c")) >= 0 || w.Group(s("d")) >= 0 || w.Active != s("c") || w.Displayed() != nil {
+		t.Fatalf("dissolved: groups %d, active %v", len(w.Groups), w.Active)
+	}
+	w.Dissolve(5)
+	if len(w.Groups) != 1 {
+		t.Fatal("dissolving a missing group changed the groups")
+	}
+}

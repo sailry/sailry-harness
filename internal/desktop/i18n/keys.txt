@@ -1639,6 +1639,9 @@ workspace_close_terminal
 workspace_terminal_preview
 pane_drag
 pane_group
+workspace_tab_keep
+workspace_tab_release
+workspace_tab_unsplit
 terminal_take_control
 terminal_other_controller
 terminal_unavailable

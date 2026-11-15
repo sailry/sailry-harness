@@ -102,20 +102,25 @@ func (a *App) header(c *ui.Context, f frame) {
 				// end, directly before the page's actions.
 				lead := ui.Row(c.Key("lead")).Grow(1).MinWidth(0).Height(HeaderHeight).Gap(ButtonGap)
 				room := a.band.room(c, lead, width-brand-sideWidth(f, end)-pad-padEnd, known)
-				groups := a.workspaceGroupWidth(c, room)
+				// The tabs take the title's place and give way as it
+				// does: they shorten first, then the strip's groups fold.
+				plan := a.planStrip(c, room)
+				free := room - ButtonGap
+				if len(plan.lanes) > 0 {
+					free -= plan.width + ButtonGap
+				}
+				groups := a.workspaceGroupWidth(c, free)
 				lead.Children(func() {
-					// The title gives way first and is cut at its own
-					// edge: breadcrumbs keep a least width per item, which
-					// must not show over the status.
-					ui.Row(c.Key("title")).Shrink(1).MinWidth(0).Height(HeaderHeight).ClipX().Children(func() { a.trail(c) })
 					if groups > 0 {
 						a.workspaceGroups(c, groups)
+					} else {
+						// The title is cut at its own edge: breadcrumbs
+						// keep a least width per item, which must not show
+						// over the status.
+						ui.Row(c.Key("title")).Shrink(1).MinWidth(0).Height(HeaderHeight).ClipX().Children(func() { a.trail(c) })
 					}
 					ui.Spacer(c)
-					if groups > 0 {
-						room -= groups + ButtonGap
-					}
-					a.strip(c, room)
+					a.strip(c, plan)
 				})
 				a.conversationActions(c, cv, HeaderButton)
 			}
@@ -433,8 +438,8 @@ func (a *App) trail(c *ui.Context) {
 		}
 		return
 	}
-	if a.panes.Displayed() != nil {
-		// A split's tab names it, and its panes have their own titles.
+	if len(a.headerTabs(c)) > 0 {
+		// The band's tabs name what shows; a split's panes have their own titles.
 		return
 	}
 	if a.panes.Active.Kind == panes.Terminal {

@@ -42,6 +42,9 @@ type State struct {
 	// shown is set when the sidebar opens a conversation, also the selected
 	// one; the shell takes it to go back to the conversation.
 	shown bool
+	// kept is the conversation a double click asked to keep as a tab; the
+	// shell takes it (TakeKept).
+	kept string
 	// asked is set when New session is asked; the shell takes it to put the
 	// focus in the draft's editor.
 	asked   bool
@@ -385,7 +388,7 @@ const (
 )
 
 // conversation is a session row: its status, title and age, and on hover a
-// pin and an archive button. A double click renames it in place. Its right-
+// pin and an archive button. A double click keeps its tab open. Its right-
 // click menu is the system's; the pointer resting on it shows its details in
 // a card. It drags onto the workspace to open in a split, wearing the drag
 // preview's look.
@@ -456,8 +459,11 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			ui.Text(c, ageAt(c, cv.Updated, now)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
 		}
 	}).OnClick(func() { s.show(cv.ID) })
+	// A double click keeps its tab, as an editor's does; renaming is in
+	// the row's menu.
 	if b.DoubleClicked() {
-		s.StartRename(cv)
+		s.show(cv.ID)
+		s.kept = cv.ID
 	}
 }
 
@@ -653,6 +659,14 @@ func (s *State) TakeShown() bool {
 	shown := s.shown
 	s.shown = false
 	return shown
+}
+
+// TakeKept returns, once, the conversation a double click asked to keep
+// as a tab since the last call, "" for none.
+func (s *State) TakeKept() string {
+	kept := s.kept
+	s.kept = ""
+	return kept
 }
 
 // TakeDraft reports, once, whether New session was asked since the last

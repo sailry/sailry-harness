@@ -129,6 +129,9 @@ type Workspace struct {
 	Groups []*Node `json:"groups,omitempty"`
 	// Active is the focused pane, whose group the main column shows.
 	Active Target `json:"-"`
+	// Kept are the sessions and terminals kept as tabs beside the groups,
+	// in order; what shows alone otherwise has a passing tab only.
+	Kept []Target `json:"kept,omitempty"`
 	// held are the groups as they were before Follow took out the panes
 	// that were not there, and shown is what that left (Follow).
 	held, shown []*Node
@@ -455,5 +458,25 @@ func (w *Workspace) Restore(groups []*Node) {
 		}
 		g = normalize(g)
 		w.Groups = append(w.Groups, g)
+	}
+}
+
+// Keep keeps t as a tab, after the others; a kept one stays where it is.
+func (w *Workspace) Keep(t Target) {
+	if t != (Target{}) && !slices.Contains(w.Kept, t) {
+		w.Kept = append(w.Kept, t)
+	}
+}
+
+// Release stops keeping t as a tab.
+func (w *Workspace) Release(t Target) {
+	w.Kept = slices.DeleteFunc(w.Kept, func(k Target) bool { return k == t })
+}
+
+// Dissolve undoes group i's split: its panes stand alone again and the
+// focus stays where it was, now on a pane standing alone.
+func (w *Workspace) Dissolve(i int) {
+	if i >= 0 && i < len(w.Groups) {
+		w.Groups = slices.Delete(slices.Clone(w.Groups), i, i+1)
 	}
 }

@@ -213,10 +213,46 @@ func stripWidth(sizes []int, slots int) float32 {
 // main region's title room: the sessions waiting, running and finished
 // unread, in that order, as groups 12 DIPs apart of 28 DIP buttons 4 apart.
 // A group shows up to three (two under 480 DIPs), or one fewer and +N
-// opening the rest. room is the width it shares with the title, which keeps
-// titleRoom of it: in less, the groups show fewer, down to a group's +N
-// alone. The pointer resting on one shows its title and project.
-func (a *App) strip(c *ui.Context, room float32) {
+// opening the rest, as planStrip fits them into the room the strip shares
+// with the title, which keeps titleRoom of it: in less, the groups show
+// fewer, down to a group's +N alone. The pointer resting on one shows its
+// title and project.
+func (a *App) strip(c *ui.Context, plan stripPlan) {
+	if len(plan.lanes) == 0 {
+		return
+	}
+	slots, groups, lanes := plan.slots, plan.groups, plan.lanes
+	ui.Row(c.Key("strip")).Gap(laneGap).Shrink(0).Children(func() {
+		for _, l := range lanes {
+			list := groups[l]
+			ui.Row(c.Key(int(l))).Gap(stripGap).Shrink(0).Children(func() {
+				shown := list
+				if len(list) > slots {
+					shown = list[:slots-1]
+				}
+				for _, cv := range shown {
+					a.avatar(c, cv, l)
+				}
+				if rest := len(list) - len(shown); rest > 0 {
+					a.overflow(c, l, list, rest)
+				}
+			})
+		}
+	})
+}
+
+// stripPlan is what the strip shows in the room it shares with the title:
+// its groups, the lanes that fit and the buttons each shows, and its width.
+type stripPlan struct {
+	groups map[lane][]*preview.Conversation
+	lanes  []lane
+	slots  int
+	width  float32
+}
+
+// planStrip fits the strip into room, which the title, or the band's tabs
+// in its place, shares with it.
+func (a *App) planStrip(c *ui.Context, room float32) stripPlan {
 	groups := map[lane][]*preview.Conversation{}
 	add := func(list []*preview.Conversation) {
 		for _, cv := range list {
@@ -245,7 +281,7 @@ func (a *App) strip(c *ui.Context, room float32) {
 	if len(groups) == 0 {
 		// An empty strip would still take one of the header's gaps, leaving
 		// the buttons on either side of it twice as far apart.
-		return
+		return stripPlan{}
 	}
 	var lanes []lane
 	var sizes []int
@@ -268,25 +304,9 @@ func (a *App) strip(c *ui.Context, room float32) {
 		lanes, sizes = lanes[:len(lanes)-1], sizes[:len(sizes)-1]
 	}
 	if len(lanes) == 0 {
-		return
+		return stripPlan{}
 	}
-	ui.Row(c.Key("strip")).Gap(laneGap).Shrink(0).Children(func() {
-		for _, l := range lanes {
-			list := groups[l]
-			ui.Row(c.Key(int(l))).Gap(stripGap).Shrink(0).Children(func() {
-				shown := list
-				if len(list) > slots {
-					shown = list[:slots-1]
-				}
-				for _, cv := range shown {
-					a.avatar(c, cv, l)
-				}
-				if rest := len(list) - len(shown); rest > 0 {
-					a.overflow(c, l, list, rest)
-				}
-			})
-		}
-	})
+	return stripPlan{groups: groups, lanes: lanes, slots: slots, width: stripWidth(sizes, slots)}
 }
 
 // avatar is a session's 28 DIP text button (Kit's text variant: no fill,

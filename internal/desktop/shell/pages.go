@@ -91,6 +91,9 @@ func (a *App) followSelection() {
 	if opened {
 		a.focusPane(session(a.Sidebar.Selected))
 	}
+	if kept := a.Sidebar.TakeKept(); kept != "" {
+		a.panes.Keep(session(kept))
+	}
 	switch a.Page {
 	case ConversationPage, SettingsPage:
 		return

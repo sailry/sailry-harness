@@ -548,11 +548,21 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 
 	// The empty conversation keeps its navigation and right-column toggles;
 	// the statistics package's context control waits for the first turn.
+	// The draft shows as the band's passing tab, in the title's place.
 	var header []ui.AccessInfo
+	tab := false
 	for _, info := range tester.AccessAll() {
-		if info.Role == ui.RoleButton && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
-			header = append(header, info)
+		if info.Role != ui.RoleButton || info.Bounds.Y+info.Bounds.H > shell.HeaderHeight {
+			continue
 		}
+		if info.Name == zh("conversation") {
+			tab = true
+			continue
+		}
+		header = append(header, info)
+	}
+	if !tab {
+		t.Errorf("the draft has no tab in the header")
 	}
 	names := func() (all []string) {
 		for _, info := range header {
@@ -582,7 +592,14 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	if tester.Focused(zh("composer")) {
 		t.Fatal("the editor kept the focus when the details opened")
 	}
-	again := button(zh("conversation"))
+	// The sidebar's New session, not the draft's tab of the same name.
+	var again ui.AccessInfo
+	for _, info := range tester.AccessAll() {
+		if info.Role == ui.RoleButton && info.Name == zh("conversation") && info.Bounds.Y >= shell.HeaderHeight {
+			again = info
+			break
+		}
+	}
 	if again.Disabled {
 		t.Error("New session is disabled over the draft")
 	}

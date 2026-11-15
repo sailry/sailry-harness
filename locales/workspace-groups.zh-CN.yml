@@ -1,1 +1,4 @@
 pane_group: "分屏组 %{number}"
+workspace_tab_keep: "固定"
+workspace_tab_release: "取消固定"
+workspace_tab_unsplit: "解除分屏"

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
@@ -49,6 +50,8 @@ type Prefs struct {
 	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
 	// Panes are the split workspace's groups, each a layout tree.
 	Panes []*panes.Node `json:"panes,omitempty"`
+	// Tabs are the sessions and terminals kept as tabs beside the groups.
+	Tabs []panes.Target `json:"tabs,omitempty"`
 	// WorkspaceTerminals are independent main terminal surfaces. They hold no
 	// process state or conversation ownership.
 	WorkspaceTerminals []WorkspaceTerminal `json:"workspaceTerminals,omitempty"`
@@ -112,7 +115,7 @@ func (a *App) prefs() Prefs {
 		Panels:           a.savedPanels(),
 		PluginWorkspaces: a.savedPluginWorkspaces(),
 		Features:         a.previewRail.features, Unpinned: a.previewRail.unpinned, SessionOrder: a.previewOrder,
-		Panes: a.panes.Saved(), WorkspaceTerminals: append([]WorkspaceTerminal(nil), a.panes.terminals...),
+		Panes: a.panes.Saved(), Tabs: slices.Clone(a.panes.Kept), WorkspaceTerminals: append([]WorkspaceTerminal(nil), a.panes.terminals...),
 		DiffSplit: a.DiffSplit, ListShare: a.ListShare,
 	}
 	if keeps(a.Panel.Active) {
@@ -169,6 +172,7 @@ func (a *App) SetPrefs(p Prefs) {
 	// The terminal surfaces are known before restoring split groups. Old
 	// right-panel terminal tabs no longer supply workspace panes.
 	a.panes.Restore(p.Panes)
+	a.panes.Kept = slices.Clone(p.Tabs)
 	a.prunePanes()
 	if a.Preview && p.WelcomeSeen != nil && !*p.WelcomeSeen {
 		a.Welcome = onboarding.Guide{Open: true}

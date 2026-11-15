@@ -39,6 +39,9 @@ func StripTabBody(c *ui.Context, b ui.Element, icon *ui.SVG, label string, activ
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
 		if close == nil {
+			// Even padding without the close button, so a divider stands
+			// midway between two tabs' text.
+			b.PaddingEnd(8)
 			return
 		}
 		x := IconButton(c.Key("close"), icons.Close, closeLabel, 20, false).OnClick(close)
@@ -53,11 +56,11 @@ func StripTabBody(c *ui.Context, b ui.Element, icon *ui.SVG, label string, activ
 // so choosing a tab does not shift the strip. It is the secondary text
 // dimmed: the border tokens vanish between tabs on a translucent band.
 func StripDivider(c *ui.Context, key any, shown bool) {
-	b := ui.Box(c.Key(key)).Size(1, 14).Shrink(0).Background(theme.Of(c).MutedForeground.Alpha(0.3)).PassThrough()
+	b := ui.Box(c.Key(key)).Size(1, 16).Radius(0.5).Shrink(0).Background(theme.Of(c).MutedForeground.Alpha(0.4)).PassThrough()
 	if !shown {
 		b.Opacity(0)
 	}
 }
 
 // StripGap is the room on each side of a strip's divider.
-const StripGap = 2
+const StripGap = 4
