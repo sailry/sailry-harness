@@ -182,7 +182,7 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 		defer close(completion)
 		operationContext := ctx
 		if result.Receipt.Durable {
-			operationContext = store.WithUser(node.ctx, userFromContext(ctx))
+			operationContext = node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
 		}
 		effect := &workspaceCompletion{}
 		output, effectErr := node.workspaceIO(operationContext, caller, request, nil, effect)
