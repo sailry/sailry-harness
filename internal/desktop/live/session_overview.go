@@ -33,6 +33,9 @@ type overviewRead struct {
 	groups                     []protocol.ConversationAssetsGroup
 	before                     *uint64
 	loading, failed            bool
+	// refreshing retains the last loaded inventory while history updates
+	// trigger a background read. Initial reads, retries and paging stay visible.
+	refreshing bool
 	// generation names the read under way: a newer read or a close drops
 	// an older one's result.
 	generation uint64
@@ -137,7 +140,7 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 			view.Sources = append(view.Sources, row.view)
 		}
 	}
-	view.Loading, view.Failed, view.More = read.loading, read.failed, read.loaded && read.before != nil
+	view.Loading, view.Failed, view.More = read.loading && !read.refreshing, read.failed, read.loaded && read.before != nil
 	view.Opened = func(open bool) {
 		read.open = open
 		if open {
@@ -176,6 +179,7 @@ func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, m
 	}
 	read.generation++
 	generation, head := read.generation, read.head
+	read.refreshing = read.loaded && !more && !read.failed
 	read.loading, read.failed = true, false
 	r.async(func() {
 		page, err := r.readConversationAssets(session, before)

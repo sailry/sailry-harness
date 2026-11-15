@@ -389,8 +389,8 @@ func (s *State) features(c *ui.Context, m Model) {
 		speed = speed || f.ID == "speed"
 	}
 	if !speed {
-		kit.Tooltip(c, kit.IconButton(c.Key("fast-unsupported"), icons.Zap, i18n.T(c, "composer_feature_fast"), 28, false).Radius(14).
-			Disabled(true), i18n.T(c, "composer_feature_fast_unsupported"))
+		kit.IconButton(c.Key("fast-unsupported"), icons.Zap, i18n.T(c, "composer_feature_fast_unsupported"), 28, false).
+			Label(i18n.T(c, "composer_feature_fast")).Radius(14).Disabled(true)
 	}
 	for _, f := range m.Features {
 		features := s.controlFeatures()
@@ -434,8 +434,7 @@ func (s *State) features(c *ui.Context, m Model) {
 			tip = i18n.T(c, "composer_feature_off") + " · " + label
 		}
 		if cycles {
-			b := kit.IconButton(c.Key(f.ID), icon, label, 28, set).Radius(14)
-			kit.Tooltip(c, b, tip)
+			b := kit.IconButton(c.Key(f.ID), icon, tip, 28, set).Label(label).Radius(14)
 			b.AccessSelected(set).OnClick(func() {
 				s.markMemberFeatureOverride()
 				// off, then each option in turn.
@@ -457,7 +456,7 @@ func (s *State) features(c *ui.Context, m Model) {
 			continue
 		}
 		kit.MenuButton(c.Key(f.ID), s.menuID("feature-"+f.ID), func(b ui.Element) {
-			kit.Tooltip(c, kit.IconLook(c, b, icon, label, "", 28, set).Radius(14), tip)
+			kit.IconLook(c, b, icon, tip, "", 28, set).Label(label).Radius(14)
 		}, func(menu *kit.Menu) {
 			if menu.Item(i18n.T(c, "composer_feature_off")).Checked(!set).Chosen() {
 				delete(features, f.ID)
