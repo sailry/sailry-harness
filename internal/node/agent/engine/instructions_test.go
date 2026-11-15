@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -82,7 +83,7 @@ func TestLargeInstructionsReachModel(t *testing.T) {
 			}
 			guide := strings.Repeat("Keep the declared task scope.\n", 5000) + "Full project instruction tail.\n"
 			personal := strings.Repeat("Honor the user's preferences.\n", 5000) + "Full personal instruction tail.\n"
-			if err := os.MkdirAll(root, 0o700); err != nil {
+			if err := core.PrivateDirectory(root); err != nil {
 				t.Fatal(err)
 			}
 			for path, value := range map[string]string{filepath.Join(root, "AGENTS.md"): guide, filepath.Join(f.r.profile, "instructions.md"): personal} {
