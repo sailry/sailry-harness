@@ -428,14 +428,13 @@ func (a *App) trail(c *ui.Context) {
 			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 			return
 		}
-		// A project page: the project and the page. The page has no side
-		// column, so the project goes back to the conversation with its rows
-		// revealed there.
-		chosen := -1
-		if ui.Breadcrumbs(c.Key("trail"), []string{pr.Name, label}, &chosen).Label(i18n.T(c, "projects")).Shrink(1).MinWidth(0).FontSize(14).Changed() && chosen == 0 {
-			a.Page, a.NavOpen = ConversationPage, true
-			a.Sidebar.Reveal(pr.ID)
-		}
+		// A project page: the project, whose menu switches the page to
+		// another project, and the page.
+		ui.Row(c.Key("trail")).Gap(4).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(func() {
+			a.projectSwitcher(c, pr)
+			ui.Icon(c, icons.ChevronRight).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
+		})
 		return
 	}
 	if len(a.headerTabs(c)) > 0 {
@@ -467,3 +466,39 @@ func (a *App) trail(c *ui.Context) {
 // dividerHeight is the height of the band's two short dividers, over the
 // sidebar's edge and over the panel's: both in the title bar's border colour.
 const dividerHeight = 16
+
+// projectSwitcher is a project page's project in the title: its menu lists
+// the projects, and choosing one shows its page of the same resource. A
+// page shows the selected session's project, so the choice selects the
+// project's session updated last; a project without a session has no
+// worktree to show and cannot be chosen.
+func (a *App) projectSwitcher(c *ui.Context, current *preview.Project) {
+	p := theme.Of(c)
+	kit.MenuButton(c.Key("project"), "project-switch", func(b ui.Element) {
+		kit.GhostLook(c, b, false).Row().Height(28).Gap(4).PaddingX(8).Shrink(1).MinWidth(0).Label(i18n.T(c, "projects")).Children(func() {
+			ui.Text(c, current.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+		})
+	}, func(m *kit.Menu) {
+		for _, pr := range a.Data.Projects {
+			latest := latestSession(pr)
+			if m.Item(pr.Name).Checked(pr == current).Disabled(latest == nil).Chosen() && pr != current {
+				// The page stays: followSelection goes back to the
+				// conversation only for a selection it has not seen.
+				a.Sidebar.Selected, a.shown = latest.ID, latest.ID
+			}
+		}
+	}, kit.MenuOptions{At: ui.AnchorBottomStart, Self: ui.AnchorTopStart})
+}
+
+// latestSession is pr's session updated last that is not archived, nil
+// for none.
+func latestSession(pr *preview.Project) *preview.Conversation {
+	var latest *preview.Conversation
+	for _, cv := range pr.Conversations {
+		if !cv.Archived && (latest == nil || cv.Updated.After(latest.Updated)) {
+			latest = cv
+		}
+	}
+	return latest
+}
