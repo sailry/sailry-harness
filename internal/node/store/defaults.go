@@ -116,7 +116,7 @@ func refreshAppearances(ctx context.Context, connection *sql.Conn) error {
 			return err
 		}
 		for _, body := range bodies {
-			var id, key string
+			var id string
 			var changed bool
 			var value any
 			if table == "roles" {
@@ -141,7 +141,7 @@ func refreshAppearances(ctx context.Context, connection *sql.Conn) error {
 					}
 					role.Revision++
 				}
-				id, key, value = role.ID.String(), role.Key, role
+				id, value = role.ID.String(), role
 			} else {
 				var team protocol.TeamProfile
 				if err := json.Unmarshal(body, &team); err != nil {
@@ -155,14 +155,14 @@ func refreshAppearances(ctx context.Context, connection *sql.Conn) error {
 					team.Revision++
 					changed = true
 				}
-				id, key, value = team.ID.String(), team.Key, team
+				id, value = team.ID.String(), team
 			}
 			if changed {
 				body, err = json.Marshal(value)
 				if err != nil {
 					return err
 				}
-				if _, err := connection.ExecContext(ctx, "UPDATE "+table+" SET key=?1,body=?2 WHERE id=?3", key, body, id); err != nil {
+				if _, err := connection.ExecContext(ctx, "UPDATE "+table+" SET body=?1 WHERE id=?2", body, id); err != nil {
 					return err
 				}
 			}

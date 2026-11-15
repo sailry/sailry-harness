@@ -136,7 +136,7 @@ func ConnectionCommand(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		return protocol.Command{}, denied
 	}
 	if id, valid := dispatchValue[protocol.SshID](target.Data); valid && target.Kind == "ssh" {
-		profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", id.String())
+		profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", id.String())
 		if err != nil {
 			return protocol.Command{}, err
 		}
@@ -285,7 +285,7 @@ func ConnectionNames(ctx context.Context, db *sql.Conn, turn protocol.TurnID, en
 				name = &profile.Name
 			}
 		} else if id, valid := dispatchValue[protocol.SshID](entry.Target.Data); valid && entry.Target.Kind == "ssh" {
-			profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", id.String())
+			profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", id.String())
 			if err != nil {
 				return nil, err
 			}
@@ -358,7 +358,7 @@ func ConnectionTrust(ctx context.Context, db *sql.Conn, turn protocol.TurnID, ow
 	if err := checkConnection(ctx, db, turn, owner, sshResource(inspection.Profile), captured); err != nil {
 		return protocol.SshTrust{}, err
 	}
-	profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", inspection.Profile.String())
+	profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", inspection.Profile.String())
 	if err != nil {
 		return protocol.SshTrust{}, err
 	}
@@ -386,7 +386,7 @@ func ValidateConnectionTrust(ctx context.Context, db *sql.Conn, turn protocol.Tu
 	if !slices.Contains(capture.Plugins, binding.Owner) {
 		return denied
 	}
-	profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", trust.Profile.String())
+	profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", trust.Profile.String())
 	if err != nil {
 		return err
 	}

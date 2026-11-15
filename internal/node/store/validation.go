@@ -94,6 +94,9 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 	if err := validateUsers(ctx, connection); err != nil {
 		return err
 	}
+	if err := validateConfigurationUsers(ctx, connection); err != nil {
+		return err
+	}
 	for _, record := range []struct {
 		table, column string
 		factory       func() any
@@ -111,12 +114,14 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 		{"terminal_settings", "body", func() any { return new(protocol.TerminalSettings) }},
 		{"database_profiles", "password_target", func() any { return new(databaseCredentialBinding) }},
 		{"team_settings", "body", func() any { return new(protocol.TeamSettings) }},
+		{"user_team_settings", "body", func() any { return new(protocol.TeamSettings) }},
 		{"hook_settings", "body", func() any { return new(protocol.HooksSettings) }},
 		{"roles", "body", func() any { return new(protocol.RoleProfile) }},
 		{"teams", "body", func() any { return new(protocol.TeamProfile) }},
 		{"artifacts", "body", func() any { return new(protocol.ArtifactSummary) }},
 		{"artifact_revisions", "body", func() any { return new(protocol.ArtifactSummary) }},
 		{"defaults", "config", func() any { return new(protocol.SessionConfig) }},
+		{"user_defaults", "config", func() any { return new(protocol.SessionConfig) }},
 		{"session_revisions", "config", func() any { return new(protocol.SessionConfig) }},
 		{"session_revisions", "roles", func() any { return new(protocol.RoleSnapshot) }},
 		{"session_revisions", "profile", func() any { return new(protocol.SessionProfile) }},

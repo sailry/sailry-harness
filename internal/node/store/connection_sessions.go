@@ -58,7 +58,7 @@ func connectionSharing(ctx context.Context, db *sql.Conn, resource protocol.Conn
 		}
 	case "ssh":
 		if id, valid := dispatchValue[protocol.SshID](resource.Data); valid {
-			profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", id.String())
+			profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", id.String())
 			if err != nil || profile == nil {
 				return nil, false, err
 			}

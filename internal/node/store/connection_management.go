@@ -252,7 +252,7 @@ func connectionSaveSsh(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		if err := checkConnection(ctx, db, turn, owner, sshResource(*input.Connection), captured); err != nil {
 			return protocol.Command{}, err
 		}
-		if previous, err = readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", input.Connection.String()); err != nil {
+		if previous, err = readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", input.Connection.String()); err != nil {
 			return protocol.Command{}, err
 		}
 		if previous == nil {

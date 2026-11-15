@@ -169,7 +169,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		// A forwarded session runs on the provider its source Node captured.
 		selectedProvider = &session.Profile.Provider
 	} else {
-		config, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+		config, err := readProviderConfiguration(ctx, db, session.Config.Provider)
 		if err != nil {
 			return value, err
 		}
@@ -407,7 +407,13 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 		ref = inv.Provider.Credential
 	}
 	if ref != nil {
-		stored, e := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+		var stored *providerConfiguration
+		var e error
+		if inv.Provider != nil {
+			stored, e = capturedProviderConfiguration(ctx, db, *inv.Provider)
+		} else {
+			stored, e = readProviderConfiguration(ctx, db, session.Config.Provider)
+		}
 		if e != nil {
 			return nil, nil, e
 		}

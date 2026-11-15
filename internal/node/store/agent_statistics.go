@@ -169,7 +169,7 @@ func agentStatisticsBudget(ctx context.Context, db *sql.Conn, session protocol.S
 		if session.Profile != nil {
 			selected = &session.Profile.Provider
 		} else {
-			saved, e := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+			saved, e := readProviderConfiguration(ctx, db, session.Config.Provider)
 			if e != nil {
 				return nil, e
 			}

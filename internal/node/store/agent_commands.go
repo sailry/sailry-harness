@@ -29,7 +29,7 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 			return protocol.Output{}, nil, fault(protocol.ErrorCodeWrongTarget, "session target belongs to another Node")
 		}
 		if v.Config != nil && v.ProviderRevision > 0 {
-			saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", v.Config.Provider.String())
+			saved, err := readProviderConfiguration(ctx, db, v.Config.Provider)
 			if err != nil {
 				return protocol.Output{}, nil, err
 			}

@@ -206,7 +206,7 @@ func readProviderScores(ctx context.Context, db *sql.Conn, references []protocol
 			continue
 		}
 		seen[key] = true
-		saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", reference.Provider.String())
+		saved, err := readProviderConfiguration(ctx, db, reference.Provider)
 		if err != nil {
 			return result, err
 		}

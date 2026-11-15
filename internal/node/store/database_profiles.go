@@ -15,12 +15,12 @@ import (
 const databaseProfileCapacity = 128
 
 func ListDatabases(ctx context.Context, db *sql.Conn) ([]protocol.DatabaseProfile, error) {
-	return readBodies[protocol.DatabaseProfile](ctx, db, "SELECT body FROM database_profiles ORDER BY id")
+	return listUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles")
 }
 
 // ReadDatabase returns nil when the profile is not saved on this Node.
 func ReadDatabase(ctx context.Context, db *sql.Conn, id protocol.DatabaseID) (*protocol.DatabaseProfile, error) {
-	return readBody[protocol.DatabaseProfile](ctx, db, "SELECT body FROM database_profiles WHERE id=?1", id.String())
+	return readUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles", id.String())
 }
 
 func currentDatabase(ctx context.Context, db *sql.Conn, id protocol.DatabaseID, revision uint64) (protocol.DatabaseProfile, error) {
@@ -65,6 +65,13 @@ func ExecuteDatabaseCommand(ctx context.Context, db *sql.Conn, command protocol.
 }
 
 func saveDatabase(ctx context.Context, db *sql.Conn, input protocol.CommandSaveDatabasePayload) (protocol.Output, []protocol.Event, error) {
+	if err := checkConfigurationOwner(ctx, db, "database_profiles", input.Profile.ID.String()); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
 	previous, err := ReadDatabase(ctx, db, input.Profile.ID)
 	if err != nil {
 		return protocol.Output{}, nil, err
@@ -117,7 +124,7 @@ func saveDatabase(ctx context.Context, db *sql.Conn, input protocol.CommandSaveD
 	}
 	if previous == nil {
 		var count int
-		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_profiles").Scan(&count); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM database_profiles WHERE COALESCE(user,(SELECT id FROM users WHERE local=1))=?1", user.ID.String()).Scan(&count); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if count >= databaseProfileCapacity {
@@ -126,7 +133,7 @@ func saveDatabase(ctx context.Context, db *sql.Conn, input protocol.CommandSaveD
 		if password == nil {
 			password = ""
 		}
-		_, err = db.ExecContext(ctx, "INSERT INTO database_profiles(id,body,password,password_target) VALUES(?1,?2,?3,?4)", profile.ID.String(), body, password, target)
+		_, err = db.ExecContext(ctx, "INSERT INTO database_profiles(id,user,body,password,password_target) VALUES(?1,?2,?3,?4,?5)", profile.ID.String(), user.ID.String(), body, password, target)
 	} else {
 		_, err = db.ExecContext(ctx, "UPDATE database_profiles SET body=?2,password=COALESCE(?3,password),password_target=?4 WHERE id=?1", profile.ID.String(), body, password, target)
 	}
@@ -212,7 +219,7 @@ func databaseTunnelProfile(ctx context.Context, db *sql.Conn, connection protoco
 	if !valid {
 		return nil, invalid("invalid database connection")
 	}
-	profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", target.Ssh.String())
+	profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", target.Ssh.String())
 	if err == nil && profile == nil {
 		err = fault(protocol.ErrorCodeNotFound, "SSH connection does not exist on this Node")
 	}

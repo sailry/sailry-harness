@@ -248,15 +248,19 @@ CREATE TABLE IF NOT EXISTS search_settings (
 );
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
+    shared INTEGER NOT NULL DEFAULT 0 CHECK(shared IN (0,1)),
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     key TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS teams (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     key TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
@@ -266,11 +270,13 @@ CREATE TABLE IF NOT EXISTS team_settings (
 );
 CREATE TABLE IF NOT EXISTS ssh_profiles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     body BLOB NOT NULL,
     credential TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS database_profiles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     body BLOB NOT NULL,
     password TEXT NOT NULL,
     password_target BLOB
@@ -560,3 +566,12 @@ CREATE TABLE IF NOT EXISTS power_settings (singleton INTEGER PRIMARY KEY CHECK(s
 CREATE TABLE compaction_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
 
 CREATE TABLE removed_resource_audiences (kind TEXT NOT NULL,id TEXT NOT NULL,audience BLOB NOT NULL,PRIMARY KEY(kind,id));
+CREATE TABLE IF NOT EXISTS user_defaults (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    revision INTEGER NOT NULL,
+    config BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_team_settings (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    body BLOB NOT NULL
+);

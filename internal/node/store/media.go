@@ -72,7 +72,7 @@ func captureMedia(ctx context.Context, db *sql.Conn, settings protocol.MediaSett
 // provider still lists the model; the provider is returned only when that
 // model can also run the purpose.
 func mediaProvider(ctx context.Context, db *sql.Conn, kind protocol.MediaKind, binding protocol.MediaBinding) (captured *protocol.ConversationProvider, present bool, err error) {
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", binding.Provider.String())
+	saved, err := readProviderConfiguration(ctx, db, binding.Provider)
 	if err != nil {
 		return nil, false, err
 	}
@@ -108,7 +108,7 @@ func ResolveMediaBinding(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	var secret *protocol.Secret
 	if provider.Credential != nil {
 		var err error
-		if secret, err = resolveProviderKey(ctx, db, node, *provider.Credential, provider.ID); err != nil {
+		if secret, err = resolveCapturedProviderKey(ctx, db, node, *provider.Credential, provider); err != nil {
 			return model.Binding{}, err
 		}
 	}

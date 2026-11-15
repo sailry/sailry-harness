@@ -8,7 +8,16 @@ import (
 )
 
 func ReadTeamSettings(ctx context.Context, db *sql.Conn) (protocol.TeamSettings, error) {
-	stored, err := readBody[protocol.TeamSettings](ctx, db, "SELECT body FROM team_settings WHERE singleton=1")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.TeamSettings{}, err
+	}
+	var stored *protocol.TeamSettings
+	if user.Local {
+		stored, err = readBody[protocol.TeamSettings](ctx, db, "SELECT body FROM team_settings WHERE singleton=1")
+	} else {
+		stored, err = readBody[protocol.TeamSettings](ctx, db, "SELECT body FROM user_team_settings WHERE user=?1", user.ID.String())
+	}
 	if err != nil {
 		return protocol.TeamSettings{}, err
 	}
@@ -46,7 +55,7 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		value, err := putTeam(ctx, db, v.Team, v.ExpectedRevision)
 		return protocol.Output{Kind: "team", Data: value}, []protocol.Event{{Kind: "team_changed", Data: value}}, err
 	case *protocol.CommandRemoveRolePayload:
-		current, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", v.Role.String())
+		current, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", v.Role.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -87,7 +96,7 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		remaining, err := ReadRoles(ctx, db)
 		return protocol.Output{Kind: "roles", Data: remaining}, []protocol.Event{{Kind: "role_removed", Data: protocol.EventRoleRemovedPayload{ID: v.Role, Teams: changed}}}, err
 	case *protocol.CommandRemoveTeamPayload:
-		current, err := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", v.Team.String())
+		current, err := readUserConfiguration[protocol.TeamProfile](ctx, db, "teams", v.Team.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -123,7 +132,15 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		_, err = db.ExecContext(ctx, "INSERT INTO team_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if user.Local {
+			_, err = db.ExecContext(ctx, "INSERT INTO team_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
+		} else {
+			_, err = db.ExecContext(ctx, "INSERT INTO user_team_settings(user,body) VALUES(?1,?2) ON CONFLICT(user) DO UPDATE SET body=excluded.body", user.ID.String(), body)
+		}
 		return protocol.Output{Kind: "team_settings", Data: value}, []protocol.Event{{Kind: "team_settings_changed", Data: protocol.EventTeamSettingsChangedPayload{Revision: value.Revision}}}, err
 	}
 	return protocol.Output{}, nil, invalid("unsupported team command")

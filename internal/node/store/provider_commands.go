@@ -35,7 +35,7 @@ func draftProvider(input protocol.ConversationDiscoveryDraft) protocol.Conversat
 	return provider
 }
 func currentProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderID, revision *uint64) (*providerConfiguration, error) {
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
+	saved, err := readProviderConfiguration(ctx, db, id)
 	if err != nil {
 		return nil, err
 	}
@@ -55,15 +55,31 @@ func saveProviderConfiguration(ctx context.Context, db *sql.Conn, saved provider
 			return err
 		}
 	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return err
+	}
+	owner, present, err := configurationOwner(ctx, db, "providers", saved.ID.String())
+	if err != nil {
+		return err
+	}
+	if !present {
+		owner = user.ID
+	}
+	shared := false
+	if saved.Provider != nil {
+		saved.Provider.Owner = &owner
+		shared = saved.Provider.Shared
+	}
 	body, err := encode(saved)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO providers(id,body) VALUES(?1,?2) ON CONFLICT(id) DO UPDATE SET body=excluded.body", saved.ID.String(), body)
+	_, err = db.ExecContext(ctx, "INSERT INTO providers(id,user,shared,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET shared=excluded.shared,body=excluded.body", saved.ID.String(), owner.String(), shared, body)
 	return err
 }
 func providerList(ctx context.Context, db *sql.Conn) ([]protocol.ConversationProvider, error) {
-	saved, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")
+	saved, err := providerConfigurations(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +131,9 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 			work.Provider = saved.Provider
 			if input.Oauth != nil {
+				if err := checkProviderWrite(ctx, db, input.Provider); err != nil {
+					return nil, err
+				}
 				provider := *saved.Provider
 				provider.Oauth = input.Oauth
 				if _, err := providers.OAuthFields(provider); err != nil {
@@ -126,6 +145,11 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			var input protocol.ConversationDiscoveryDraft
 			if err = decodeProviderData(source.Data, &input); err != nil {
 				return nil, err
+			}
+			if input.Credential != nil {
+				if err := checkProviderWrite(ctx, db, input.Provider); err != nil {
+					return nil, err
+				}
 			}
 			provider := draftProvider(input)
 			work.Provider = &provider
@@ -184,7 +208,17 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 			provider, expected = input.Provider, input.ExpectedRevision
 		}
-		saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", provider.ID.String())
+		if err := checkProviderWrite(ctx, db, provider.ID); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if provider.Shared && !user.Administrator {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "host-provided models are managed by an administrator")
+		}
+		saved, err := readProviderConfiguration(ctx, db, provider.ID)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -200,6 +234,14 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 		if saved == nil {
 			saved = &providerConfiguration{ID: provider.ID, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
 		}
+		owner := user.ID
+		if saved.Provider != nil && saved.Provider.Owner != nil {
+			owner = *saved.Provider.Owner
+		}
+		if provider.Owner != nil && *provider.Owner != owner {
+			return protocol.Output{}, nil, invalid("provider owner is immutable")
+		}
+		provider.Owner = &owner
 		if saved.Authorizations == nil {
 			saved.Authorizations = map[protocol.CredentialID]providerAuthorization{}
 		}
@@ -262,6 +304,9 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 	case "remove_provider":
 		input, err := providerPayload[protocol.CommandRemoveProviderPayload](command)
 		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if err := checkProviderWrite(ctx, db, input.Provider); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
@@ -363,6 +408,9 @@ func ReadProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err != nil {
 			return protocol.Output{}, err
 		}
+		if err := checkProviderWrite(ctx, db, input.Provider); err != nil {
+			return protocol.Output{}, err
+		}
 		saved, err := currentProvider(ctx, db, input.Provider, &input.ExpectedRevision)
 		if err != nil {
 			return protocol.Output{}, err
@@ -413,13 +461,29 @@ func resolveProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 	if reference.Node != node {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
 	}
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", provider.String())
+	saved, err := readProviderConfiguration(ctx, db, provider)
 	if err != nil {
 		return nil, err
 	}
 	if saved == nil {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
 	}
+	return providerConfigurationKey(saved, reference)
+}
+func resolveCapturedProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID, reference protocol.CredentialRef, provider protocol.ConversationProvider) (*protocol.Secret, error) {
+	if reference.Node != node {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
+	}
+	saved, err := capturedProviderConfiguration(ctx, db, provider)
+	if err != nil {
+		return nil, err
+	}
+	if saved == nil {
+		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
+	}
+	return providerConfigurationKey(saved, reference)
+}
+func providerConfigurationKey(saved *providerConfiguration, reference protocol.CredentialRef) (*protocol.Secret, error) {
 	authorization, ok := saved.Authorizations[reference.ID]
 	if !ok || authorization.Key == nil {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")

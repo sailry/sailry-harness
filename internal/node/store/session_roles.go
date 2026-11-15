@@ -27,7 +27,7 @@ func CaptureSessionRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	if team == nil {
 		value.Profiles, err = ReadRoles(ctx, db)
 	} else {
-		selected, e := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", team.ID.String())
+		selected, e := readUserConfiguration[protocol.TeamProfile](ctx, db, "teams", team.ID.String())
 		if e != nil {
 			return value, e
 		}
@@ -42,7 +42,7 @@ func CaptureSessionRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		value.Team = &protocol.TeamReference{ID: selected.ID, Revision: selected.Revision}
 		value.Instructions = selected.Instructions
 		for _, id := range selected.Members {
-			role, e := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", id.String())
+			role, e := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", id.String())
 			if e != nil {
 				return value, e
 			}
@@ -129,7 +129,7 @@ func SelectSessionRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 			return previous, invalid("session roles must be distinct")
 		}
 		ids[reference.ID] = true
-		role, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", reference.ID.String())
+		role, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", reference.ID.String())
 		if err != nil {
 			return previous, err
 		}
@@ -242,7 +242,7 @@ func configureSessionTeam(ctx context.Context, db *sql.Conn, config protocol.Ses
 	if selection == nil {
 		return config, nil
 	}
-	team, err := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", selection.ID.String())
+	team, err := readUserConfiguration[protocol.TeamProfile](ctx, db, "teams", selection.ID.String())
 	if err != nil {
 		return config, err
 	}

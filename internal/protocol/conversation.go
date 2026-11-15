@@ -173,6 +173,8 @@ func (value *ConversationModelApi) UnmarshalText(data []byte) error {
 }
 
 type ConversationProvider struct {
+	Owner             *UserID                        `json:"owner,omitempty"`
+	Shared            bool                           `json:"shared,omitempty"`
 	ID                ProviderID                     `json:"id"`
 	Revision          uint64                         `json:"revision"`
 	Preset            *ConversationPresetsPresetRef  `json:"preset,omitempty"`
