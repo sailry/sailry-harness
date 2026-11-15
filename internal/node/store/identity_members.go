@@ -34,7 +34,10 @@ func PairIdentityMember(ctx context.Context, db *sql.Conn, node, peer protocol.N
 		return err
 	}
 	if owner.Valid && owner.String != target.ID.String() {
-		return PairLinkPeer(ctx, db, peer, direction)
+		if err := PairLinkPeer(ctx, db, peer, direction); err != nil {
+			return err
+		}
+		return proposeIdentityPairing(ctx, db, node, peer, target)
 	}
 	if previous != "" && previous != direction {
 		direction = link.DirectionBoth
@@ -46,6 +49,28 @@ func PairIdentityMember(ctx context.Context, db *sql.Conn, node, peer protocol.N
 		return err
 	}
 	return rememberIdentityMembership(ctx, db, peer, target.ID, node)
+}
+
+// A known device's my-device invitation is an explicit proposal, never an
+// implicit reassignment. The claimant persists the authenticated acknowledgment
+// and then confirms this stored proposal under its own controller identity.
+func proposeIdentityPairing(ctx context.Context, db *sql.Conn, node, device protocol.NodeID, target protocol.User) error {
+	var present bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM identity_sponsorships WHERE sponsor=?1 AND device=?2 AND user=?3 AND state='pending')", node[:], device[:], target.ID.String()).Scan(&present); err != nil {
+		return err
+	}
+	if present {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE identity_sponsorships SET state='cancelled' WHERE sponsor=?1 AND device=?2 AND state='pending'", node[:], device[:]); err != nil {
+		return err
+	}
+	address, err := json.Marshal(link.EndpointAddress{ID: device, Addrs: []json.RawMessage{}})
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO identity_sponsorships(sponsor,request,device,user,address,state) VALUES(?1,?2,?3,?4,?5,'pending')", node[:], protocol.NewRequestID().String(), device[:], target.ID.String(), string(address))
+	return err
 }
 
 func rememberIdentityMembership(ctx context.Context, db *sql.Conn, device protocol.NodeID, user protocol.UserID, sponsor protocol.NodeID) error {
@@ -73,6 +98,13 @@ func ReadIdentity(ctx context.Context, db *sql.Conn, node, caller protocol.NodeI
 		if err != nil {
 			return result, err
 		}
+	}
+	local, err := LocalUser(ctx, db)
+	if err != nil {
+		return result, err
+	}
+	if user.Administrator || user.ID == local.ID {
+		result.Devices = append(result.Devices, protocol.UserDevice{Device: node, User: local.ID, Direction: string(link.DirectionBoth), MyDevice: true})
 	}
 	rows, err := db.QueryContext(ctx, `SELECT p.identity,p.user,p.direction,coalesce(m.active,0)
 FROM link_peers p LEFT JOIN identity_memberships m ON m.device=p.identity AND m.user=p.user
@@ -104,7 +136,7 @@ WHERE p.user IS NOT NULL AND (p.user=?1 OR ?2) ORDER BY p.identity`, user.ID.Str
 		return result, err
 	}
 	rows, err = db.QueryContext(ctx, `SELECT sponsor,request,device,user,state FROM identity_sponsorships
-WHERE state='pending' AND (device=?1 OR user=?2) ORDER BY rowid`, caller[:], user.ID.String())
+WHERE state='pending' AND (device=?1 OR user=?2 OR ?3) ORDER BY rowid`, caller[:], user.ID.String(), user.Administrator)
 	if err != nil {
 		return result, err
 	}
@@ -227,6 +259,9 @@ func ConfirmIdentitySponsorship(ctx context.Context, db *sql.Conn, node, caller 
 		return result, fault(protocol.ErrorCodePermissionDenied, "sponsorship was cancelled")
 	}
 	sponsor, err := CallerUser(ctx, db, node, input.Sponsor)
+	if input.Sponsor == node {
+		sponsor, err = ResolveUser(ctx, db, result.User)
+	}
 	if err != nil || sponsor.ID != result.User {
 		return result, fault(protocol.ErrorCodePermissionDenied, "sponsorship is unavailable")
 	}

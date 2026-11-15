@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -29,7 +30,8 @@ func (r *Runtime) startConnectionShare(delay time.Duration) {
 		return
 	}
 	r.stopConnectionShare()
-	selected, err := r.connectionSelection(r.App.Settings.ConnectionDraft())
+	draft := r.App.Settings.ConnectionDraft()
+	selected, err := r.connectionSelection(draft)
 	if err != nil || state.endpoint == nil {
 		r.App.Settings.Share = settings.ShareState{Kind: "failed"}
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "pairing_relay_invalid")) })
@@ -95,7 +97,7 @@ func (r *Runtime) startConnectionShare(delay time.Duration) {
 				}
 			}
 		})
-		session, err := endpoint.Share(ctx, origin)
+		session, err := endpoint.ShareFor(ctx, origin, link.InvitationScope{Kind: draft.Invitation})
 		if err != nil {
 			r.enqueue(func(c *ui.Context) {
 				if state.shareGeneration == generation {

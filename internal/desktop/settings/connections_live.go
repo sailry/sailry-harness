@@ -6,9 +6,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type ConnectionDraft struct {
+	Invitation                                protocol.InvitationKind
 	Method                                    Method
 	Relay                                     int
 	Address, Code, Name, Host, Port, Username string
@@ -59,7 +61,11 @@ type HostTrust struct {
 
 func (m *Model) ConnectionDraft() ConnectionDraft {
 	value := m.pairing
-	return ConnectionDraft{Method: Method(value.method), Relay: value.relay, Address: value.address, Code: value.code, Name: value.name, Host: value.host, Port: value.port, Username: value.user, Password: value.secret, Key: value.key, Passphrase: value.passphrase,
+	kind := protocol.InvitationOtherUser
+	if value.invitation == 1 {
+		kind = protocol.InvitationMyDevice
+	}
+	return ConnectionDraft{Invitation: kind, Method: Method(value.method), Relay: value.relay, Address: value.address, Code: value.code, Name: value.name, Host: value.host, Port: value.port, Username: value.user, Password: value.secret, Key: value.key, Passphrase: value.passphrase,
 		Scope: value.scope, Projects: value.sharedProjects(), Distribution: value.distributionName()}
 }
 

@@ -228,6 +228,53 @@ String address(String id) => jsonEncode({'id': id});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'host directory refresh preserves selection and source removal intent',
+    () async {
+      final owner = Owner();
+      final firstChannel = Channel();
+      final secondChannel = Channel();
+      final first = HostConnection.test(
+        id: 'first',
+        label: 'Source',
+        address: address('first'),
+        connection: firstChannel,
+      );
+      final second = HostConnection.test(
+        id: 'second',
+        label: 'Direct host',
+        address: address('second'),
+        connection: secondChannel,
+      );
+      final session = AppSession.test(
+        hosts: [first, second],
+        controller: owner,
+      );
+      session.selectHost('second');
+      owner.addresses.addAll([
+        address('first'),
+        address('second'),
+        address('imported'),
+      ]);
+      final importedChannel = Channel();
+      owner.connecting = (_) async => importedChannel;
+      await session.refreshHosts();
+      expect(session.hosts.map((host) => host.id), [
+        'first',
+        'second',
+        'imported',
+      ]);
+      expect(session.selectedHost, same(second));
+      owner.addresses.remove(address('first'));
+      await session.refreshHosts();
+      expect(session.hosts.map((host) => host.id), ['second', 'imported']);
+      expect(owner.forgotten, isEmpty);
+      expect(firstChannel.closes, 1);
+      expect(secondChannel.closes, 0);
+      expect(session.selectedHost, same(second));
+      await session.close();
+    },
+  );
   group('host removal', () {
     test("removes hosts without losing selection or subscriptions", () async {
       for (final (caseName, run) in <(String, Future<void> Function(String))>[

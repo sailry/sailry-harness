@@ -908,6 +908,9 @@ model_library_selected
 model_library_source
 pairing_connect
 pairing_local_code
+pairing_invitation_kind
+pairing_my_device
+pairing_other_user
 pairing_pin_hint
 pairing_preview_disabled
 pairing_relay_address

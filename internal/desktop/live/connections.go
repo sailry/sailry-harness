@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -34,6 +35,7 @@ type connectionState struct {
 	shareChange     *connectionNetworkChange
 	localName       string
 	revoking        map[string]bool
+	revocations     map[protocol.NodeID]protocol.Request
 	wsl             wslDistributions
 }
 
@@ -137,7 +139,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	if model.Sharing() {
 		draft := model.ConnectionDraft()
 		selected, err := r.connectionSelection(draft)
-		key := encoded(selected)
+		key := encoded(selected) + ":" + string(draft.Invitation)
 		if err != nil {
 			key = draft.Address
 		}
@@ -349,11 +351,22 @@ func (r *Runtime) revokeNode(node string, finished func()) {
 		state.revoking = map[string]bool{}
 	}
 	state.revoking[node] = true
-	endpoint := state.endpoint
+	if state.revocations == nil {
+		state.revocations = map[protocol.NodeID]protocol.Request{}
+	}
+	request, retained := state.revocations[id]
+	if !retained {
+		request = r.controller.Prepare(protocol.Command{Kind: "identity", Data: protocol.IdentityCommand{Kind: "revoke_device", Data: protocol.RevokeDevice{Device: id, ConfirmLast: true}}})
+		state.revocations[id] = request
+	}
+	controller := r.controller
 	r.async(func() {
-		err := endpoint.SetTrust(r.ctx, id, false)
+		_, err := controller.Settle(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(state.revoking, node)
+			if !client.Retained(err) {
+				delete(state.revocations, id)
+			}
 			if finished != nil {
 				finished()
 			}

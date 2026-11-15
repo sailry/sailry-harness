@@ -477,9 +477,33 @@ records.
 
 Each Node records local users independently of device identities. The local user
 is an administrator; existing paired devices migrate into that user without
-losing access. New inbound pairings create a separate user, with the first paired
-user also becoming an administrator. Revoking a device preserves its user's data.
-This identity foundation does not itself partition resource projections.
+losing access. The sharer chooses another user or my device before issuing an
+invitation. Another user creates a separate group for an unknown inbound device;
+my device joins the sharer's group. Repeat pairing preserves existing membership.
+The first separate paired user also becomes an administrator. Node resolves each
+authenticated caller to this local principal before resource and configuration
+access. Device revocation preserves data; removing a user's last inbound device
+requires explicit confirmation and leaves an orphan an administrator may assign.
+
+A source sponsors its own explicit my-devices on directly paired outbound hosts.
+An unknown device can join the sponsor's group; a device already in another group
+gets a pending proposal and must confirm after its own controller verifies its
+authenticated my-device relationship with that source. Confirmation merges the
+whole original group, devices and owned resources in one transaction. Target
+personal conflicts win, source originals remain archived, and immutable admitted
+plugin settings retain their original storage principal. The local administrator
+flag can move to the surviving group; legacy singleton and search namespaces keep
+their original owner rather than following that flag.
+
+The source directory contains itself and directly paired outbound hosts. A
+verified my-device controller imports those hosts as direct outbound connections,
+deduplicated by endpoint identity. Direct pairs and other-source origins survive
+source removal; explicit local removals are not undone by refresh. Source
+revisions discard stale directory replies. Durable sponsorship and revocation
+deliveries retain exact request IDs across offline recovery, and membership
+generations prevent delayed grants or revocations restoring removed access.
+Directories and sponsorship do not propagate another inbound user's namespace
+through a Node's single Link identity, and they do not form a mesh.
 
 Peer trust records an inbound controller, an outbound host, or both directions.
 An invitation grants inbound controller access on the inviter and outbound host
@@ -502,7 +526,7 @@ commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logi
 Host starts with an explicit profile, network configuration and opt-in pairing.
 Add Host installs checksum-verified assets over Node-owned SSH, starts systemd or
 launchd and pairs through a private bootstrap ticket. Windows controllers deploy a
-Linux Host into WSL2. Host's `submit`, `wait` and `share` management commands use
+Linux Host into WSL2. Host's `submit`, `wait`, `share`, `users` and `devices` management commands use
 the running owner's private Unix socket and never create another storage owner.
 
 Host metrics use one Node sampler for local and remote reads. macOS disk rates map

@@ -85,6 +85,7 @@ func (m *Model) SetConnectionStatus(status ConnectionStatus) { m.pairing.status 
 // notice.
 type pairing struct {
 	adding, sharing         bool
+	invitation              int
 	relay                   int // of relayOptions
 	address                 string
 	method                  int // a Method
@@ -616,6 +617,10 @@ func shareCode(c *ui.Context, m *Model) {
 			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Column(c.Key("body")).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+			label := i18n.T(c, "pairing_invitation_kind")
+			kit.Field(c, "invitation", label, "", func() {
+				pick(c, "kind", label, &pr.invitation, []string{i18n.T(c, "pairing_other_user"), i18n.T(c, "pairing_my_device")}, false).Fill()
+			})
 			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false, true)
 			codePanel(c, func() {
 				ready := m.Live && len(m.Share.Code) == 6

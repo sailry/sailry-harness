@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -13,11 +14,13 @@ import (
 )
 
 type controller struct {
-	endpoint *link.Link
-	claim    link.PairingClaim
-	inbox    client.Inbox
-	mu       sync.Mutex
-	clients  map[protocol.NodeID]*client.Client
+	endpoint       *link.Link
+	claim          link.PairingClaim
+	inbox          client.Inbox
+	mu             sync.Mutex
+	clients        map[protocol.NodeID]*client.Client
+	identityCancel context.CancelFunc
+	identityDone   chan struct{}
 }
 
 type input struct {
@@ -74,6 +77,7 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 			return nil, err
 		}
 		owner := &controller{endpoint: endpoint, clients: map[protocol.NodeID]*client.Client{}}
+		owner.startIdentitySync(lifetime)
 		return runtime.add(0, "controller", owner, lifetime, cancel)
 	case "new":
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
@@ -188,6 +192,10 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 }
 
 func (owner *controller) close() error {
+	if owner.identityCancel != nil {
+		owner.identityCancel()
+		<-owner.identityDone
+	}
 	owner.mu.Lock()
 	clients := make([]*client.Client, 0, len(owner.clients))
 	for _, shared := range owner.clients {
@@ -199,4 +207,35 @@ func (owner *controller) close() error {
 		_ = shared.Close()
 	}
 	return owner.endpoint.Close()
+}
+
+func (owner *controller) startIdentitySync(ctx context.Context) {
+	ctx, owner.identityCancel = context.WithCancel(ctx)
+	owner.identityDone = make(chan struct{})
+	go func() {
+		defer close(owner.identityDone)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			addresses, err := owner.endpoint.Peers(ctx)
+			if err == nil {
+				for _, address := range addresses {
+					if ctx.Err() != nil {
+						return
+					}
+					if !owner.endpoint.Direction(address.ID).AllowsOutbound() {
+						continue
+					}
+					remote := client.New(owner.endpoint.Remote(address))
+					_ = client.SyncIdentity(ctx, owner.endpoint, remote)
+					_ = remote.Close()
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }

@@ -32,7 +32,7 @@ type controllerPeer struct {
 	Direct            bool              `json:"direct"`
 	MyDevice          bool              `json:"my_device"`
 	Removed           bool              `json:"removed"`
-	Sources           []protocol.NodeID `json:"sources"`
+	Sources           []protocol.NodeID `json:"sources,omitempty"`
 	DirectoryRevision uint64            `json:"directory_revision"`
 }
 
@@ -123,16 +123,23 @@ func openControllerStore(path string) (Identity, *controllerStore, error) {
 
 func decodeControllerRecord(encoded []byte) (controllerRecord, error) {
 	var record controllerRecord
-	if len(encoded) > maxControllerBytes || json.Unmarshal(encoded, &record) != nil || record.Version != 1 || len(record.Peers) > maxControllerPeers {
+	if len(encoded) > maxControllerBytes || json.Unmarshal(encoded, &record) != nil || record.Version != 1 {
 		return controllerRecord{}, controllerStorage(errors.New("unsupported peer record"))
 	}
 	unique := make(map[protocol.NodeID]struct{}, len(record.Peers))
+	active := 0
 	for _, peer := range record.Peers {
+		if !peer.Removed {
+			active++
+		}
 		_, duplicate := unique[peer.ID]
 		if duplicate || !peer.Direction.Valid() || peer.Address != nil && peer.Address.ID != peer.ID {
 			return controllerRecord{}, controllerStorage(errors.New("invalid peer identity binding"))
 		}
 		unique[peer.ID] = struct{}{}
+	}
+	if active > maxControllerPeers {
+		return controllerRecord{}, controllerStorage(errors.New("paired device capacity reached"))
 	}
 	return record, nil
 }
@@ -275,7 +282,13 @@ func (store *controllerStore) update(ctx context.Context, update func(*[]control
 	if err := update(&peers); err != nil {
 		return err
 	}
-	if len(peers) > maxControllerPeers {
+	active := 0
+	for _, peer := range peers {
+		if !peer.Removed {
+			active++
+		}
+	}
+	if active > maxControllerPeers {
 		return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "paired device capacity reached"}
 	}
 	encoded, err := json.Marshal(controllerRecord{Version: 1, Peers: peers})

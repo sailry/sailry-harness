@@ -174,6 +174,9 @@ func (network *Network) inspect(id protocol.NodeID) {
 			ctx, peer.cancel = context.WithCancel(network.ctx)
 		}
 		network.mu.Unlock()
+		if err == nil && controller != nil {
+			_ = client.SyncIdentity(network.ctx, network.endpoint, controller)
+		}
 		if create {
 			err = controller.Start(network.ctx)
 		} else if err == nil && controller != nil && !controller.Connected() {
