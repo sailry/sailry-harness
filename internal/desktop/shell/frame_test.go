@@ -61,10 +61,6 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	// the four tabs all show in it.
 	setRuns(a, false)
 	tt.Frame()
-	// The tabs share the band over the panel with the session status: idle,
-	// the four tabs all show in it.
-	setRuns(a, false)
-	tt.Frame()
 	click(t, tt, "README.md")
 	tt.Frame()
 	if _, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !tt.HasText("A native desktop Agent workspace.") {

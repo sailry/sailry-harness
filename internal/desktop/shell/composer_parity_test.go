@@ -41,7 +41,7 @@ func (r *recorded) Stop()                         { r.note("stop") }
 // zh-CN and dark for the saved frames, with a recording owner.
 func composerWith(t *testing.T, width int, prepare func(*composer.State, *composer.Context)) (*ui.Tester, *composer.State, *recorded) {
 	t.Helper()
-	a := New(preview.Load())
+	a := New(composerFixtureData(t))
 	cv := a.Data.Find(a.Sidebar.Selected)
 	comp := a.Composer(cv.ID)
 	actions := &recorded{}

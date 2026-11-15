@@ -43,7 +43,7 @@ func (s *sent) Send(m composer.Message) {
 // less again). prepare changes the state and context of every frame.
 func composerAlone(t *testing.T, locale string, width int, prepare func(*composer.State, *composer.Context)) (*ui.Tester, *composer.State, *sent) {
 	t.Helper()
-	a := New(preview.Load())
+	a := New(composerFixtureData(t))
 	cv := a.Data.Find(a.Sidebar.Selected)
 	comp := a.Composer(cv.ID)
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
@@ -122,6 +122,9 @@ func TestContextRingBesideModel(t *testing.T) {
 		t.Errorf("ring centre %v is off the chip's row %v", mid, chipMid)
 	}
 	t.Run("frames", func(t *testing.T) {
+		if os.Getenv("SAILRY_UI_SHOTS") == "" {
+			t.Skip("SAILRY_UI_SHOTS is not set")
+		}
 		for _, width := range []int{960, 640, 440} {
 			tt, _, _ := composerAlone(t, "zh-CN", width, withSession(nil))
 			shot(t, tt, fmt.Sprintf("model-%d", width))

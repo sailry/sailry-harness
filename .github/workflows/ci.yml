@@ -37,7 +37,8 @@ env:
   CGO_ENABLED: '0'
 
 jobs:
-  lint:
+  # Path selection must not wait for the compiler or cross-platform vet.
+  scope:
     runs-on: ubuntu-24.04
     outputs:
       native: ${{ steps.scope.outputs.native }}
@@ -45,16 +46,15 @@ jobs:
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
-          submodules: recursive
           fetch-depth: 0
       - name: Changed inputs
         id: scope
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          # Releases (a tag, through release.yml) and manual runs build and
-          # check everything. A push whose
-          # previous commit is unavailable is treated the same way.
+          set -euo pipefail
+          # Releases and manual runs verify every build. A missing push base
+          # also falls back to the full set.
           native=true
           mobile=true
           base=
@@ -69,46 +69,110 @@ jobs:
           esac
           if [ -n "$base" ]; then
             changed=$(git diff --name-only "$base" HEAD)
-            printf '%s\n' "$changed" | grep -Eq '^native/(iroh|capture)/' || native=false
-            printf '%s\n' "$changed" | grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol)|native/iroh)/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$' || mobile=false
+            grep -Eq '^native/(iroh|capture)/' <<< "$changed" || native=false
+            grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol|shipped)|native/iroh)/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$' <<< "$changed" || mobile=false
           fi
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
+
+  lint:
+    runs-on: ubuntu-24.04
+    env:
+      GO_CACHE_ROLE: lint
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Go cache paths
+        id: go-cache
+        shell: bash
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.modules }}
+          key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
       - name: Format
         run: test -z "$(gofmt -l .)"
       - name: Vet
         run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
           for goos in linux windows darwin; do
             GOOS=$goos go vet ./...
           done
 
   test:
-    needs: lint
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2025, macos-15]
+        lane: [packages, shell-0, shell-1, shell-2]
     runs-on: ${{ matrix.os }}
+    env:
+      GO_CACHE_ROLE: test
     defaults:
       run:
         shell: bash
     steps:
-      # The default tests load no native library, so this job does not wait
-      # for the native job's artifacts.
+      # Native libraries are not loaded by these tests. Each shell batch
+      # gets its own runner rather than competing with another rasterizer.
       - name: Repository line endings
-        # Git for Windows otherwise checks out CRLF, so fixtures and embedded text would differ from other platforms.
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
           fetch-depth: 2
-      # setup-go caches exactly GOMODCACHE and GOCACHE.
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Go cache paths
+        id: go-cache
+        shell: bash
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.modules }}
+          key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
+      # On full runs the packages lane compiles the production tree, including
+      # shell through its consumers. It is the only writer; shell lanes
+      # restore the same compiler cache without saving duplicate archives.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: matrix.lane == 'packages'
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: matrix.lane != 'packages'
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
       - name: UI fonts
         if: runner.os == 'Linux'
         # Fontconfig needs CJK glyphs for the Chinese UI's pixel assertions.
@@ -116,95 +180,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes fonts-noto-cjk
       - name: Test
-        run: |
-          set -euo pipefail
-          unset GOROOT
-          # Each rasterizer already uses the runner's CPUs. Keep package
-          # binaries serial, and give the large shell suite three disjoint
-          # batches without changing animations, assertions or coverage.
-          run_tests() {
-            local result=0 shell_package= package batch pattern
-            local packages=()
-            for package in "$@"; do
-              case "$package" in
-                */internal/desktop/shell) shell_package=$package ;;
-                *) packages+=("$package") ;;
-              esac
-            done
-            if [ "${#packages[@]}" -gt 0 ]; then
-              go test -p 1 -timeout 20m "${packages[@]}" || result=$?
-            fi
-            if [ -n "$shell_package" ]; then
-              if go test -list . "$shell_package" > "$RUNNER_TEMP/shell-tests.txt"; then
-                for batch in 0 1 2; do
-                  pattern=$(awk -v batch="$batch" '
-                    /^(Test|Example|Fuzz)/ {
-                      if (count++ % 3 == batch) { printf "%s%s", separator, $0; separator = "|" }
-                    }
-                    END { print "" }
-                  ' "$RUNNER_TEMP/shell-tests.txt")
-                  [ -n "$pattern" ] || continue
-                  go test -p 1 -timeout 20m "$shell_package" -run "^($pattern)$" || result=$?
-                done
-              else
-                result=1
-              fi
-            fi
-            return "$result"
-          }
-          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
-            all_packages=$(go list ./...)
-            run_tests $all_packages
-            exit
-          fi
-          # Pull requests test the packages whose own files or dependencies,
-          # including test dependencies, contain a changed file.
-          changed=$(git diff --name-only HEAD^1 HEAD)
-          if printf '%s\n' "$changed" | grep -Eq '^(go\.mod|go\.sum|\.github/workflows/ci\.yml)$'; then
-            all_packages=$(go list ./...)
-            run_tests $all_packages
-            exit
-          fi
-          module=$(go list -m)
-          go list ./... > "$RUNNER_TEMP/packages.txt"
-          go list -test -f '{{.ImportPath}}{{range .Deps}} {{.}}{{end}}' ./... > "$RUNNER_TEMP/deps.txt"
-          # A changed file belongs to the nearest enclosing package, so test
-          # data and embedded resources count for the package that owns them.
-          # The root package owns its Go files and the embedded submodules.
-          printf '%s\n' "$changed" | while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            directory=$(dirname "$file")
-            while [ "$directory" != . ] && ! grep -Fxq "$module/$directory" "$RUNNER_TEMP/packages.txt"; do
-              directory=$(dirname "$directory")
-            done
-            if [ "$directory" != . ]; then
-              printf '%s\n' "$module/$directory"
-              continue
-            fi
-            case "$file" in
-              plugins|plugins/*|themes|themes/*) printf '%s\n' "$module" ;;
-              */*) ;;
-              *.go) printf '%s\n' "$module" ;;
-            esac
-          done | sort -u > "$RUNNER_TEMP/changed.txt"
-          affected=$(awk '
-            FILENAME == ARGV[1] { changed[$0] = 1; next }
-            $1 ~ /\.test$/ {
-              name = substr($1, 1, length($1) - 5)
-              for (i = 2; i <= NF; i++) {
-                if ($i in changed) { print name; next }
-              }
-            }
-          ' "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/deps.txt" | sort -u)
-          if [ -z "$affected" ]; then
-            echo 'No affected Go packages'
-            exit
-          fi
-          run_tests $affected
+        run: bash .github/scripts/test.sh '${{ matrix.lane }}'
 
   native:
-    needs: lint
-    if: needs.lint.outputs.native == 'true'
+    needs: scope
+    if: needs.scope.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -291,11 +271,12 @@ jobs:
 
   mobile:
     name: apps/mobile (Android)
-    needs: lint
-    if: needs.lint.outputs.mobile == 'true'
+    needs: scope
+    if: needs.scope.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: ''
+      GO_CACHE_ROLE: mobile-android
     defaults:
       run:
         working-directory: apps/mobile
@@ -304,6 +285,25 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Go cache paths
+        id: go-cache
+        shell: bash
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.modules }}
+          key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
         with:
           distribution: temurin
@@ -330,11 +330,12 @@ jobs:
 
   mobile-ios:
     name: apps/mobile (iOS)
-    needs: lint
-    if: needs.lint.outputs.mobile == 'true'
+    needs: scope
+    if: needs.scope.outputs.mobile == 'true'
     runs-on: macos-15
     env:
       CGO_ENABLED: ''
+      GO_CACHE_ROLE: mobile-ios
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     defaults:
       run:
@@ -344,6 +345,25 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Go cache paths
+        id: go-cache
+        shell: bash
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.modules }}
+          key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.44.7'
@@ -367,14 +387,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, target: linux-amd64 }
-          - { os: macos-15, target: darwin-arm64 }
-          - { os: windows-2025, target: windows-amd64 }
+          - { os: ubuntu-24.04, target: linux-amd64, process: './internal/node/process' }
+          - { os: macos-15, target: darwin-arm64, process: './internal/node/process' }
+          - { os: windows-2025, target: windows-amd64, process: '' }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     env:
+      GO_CACHE_ROLE: test
       # The release set: packages whose integration tests build every fixture
       # themselves (temporary directories, loopback listeners, in-process
       # servers, the runner's Git and shell) and the capture library from this
@@ -384,7 +405,6 @@ jobs:
       #   internal/speech: downloaded models and ONNX Runtime (SAILRY_* paths)
       #   internal/databases: external database servers
       #   internal/node/web: the public internet
-      #   internal/node/process: a sandbox wrapper (bubblewrap) on Linux
       #   cmd/sailry-desktop: runs only beside a packaged executable
       RELEASE_PACKAGES: >-
         ./internal/core
@@ -398,6 +418,7 @@ jobs:
         ./internal/node/wsl
         ./internal/speech/capture
         ./internal/ssh
+        ${{ matrix.process }}
     steps:
       - name: Repository line endings
         if: runner.os == 'Windows'
@@ -408,6 +429,59 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Go cache paths
+        id: go-cache
+        shell: bash
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          printf 'modules=%s\nbuild=%s\n' "$(go env GOMODCACHE)" "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.modules }}
+          key: go-modules-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ hashFiles('go.sum') }}
+      # Reuse the ordinary compiler cache; tagged integration binaries do
+      # not need another full archive per platform and source revision.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.go-cache.outputs.build }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-${{ hashFiles('go.sum') }}-
+            go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.GOTOOLCHAIN }}-${{ env.GO_CACHE_ROLE }}-
+      - name: Linux command sandbox
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap netcat-openbsd apparmor
+          sysctl kernel.unprivileged_userns_clone user.max_user_namespaces kernel.apparmor_restrict_unprivileged_userns || true
+          # Ubuntu permits a binary-specific userns profile. Keep the host's
+          # restriction enabled and prefer its packaged bubblewrap profile.
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" = 1 ] &&
+             [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || true)" = Y ]; then
+            profile=
+            for candidate in /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/bwrap; do
+              if [ -f "$candidate" ]; then profile=$candidate; break; fi
+            done
+            if [ -z "$profile" ]; then
+              profile=/etc/apparmor.d/sailry-ci-bwrap
+              sudo tee "$profile" >/dev/null <<'PROFILE'
+          abi <abi/4.0>,
+          /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          PROFILE
+            fi
+            sudo apparmor_parser -r "$profile"
+          fi
+          bwrap --die-with-parent --unshare-pid --unshare-net --new-session --ro-bind / / --proc /proc --dev /dev -- /bin/true
+      - name: macOS command sandbox
+        if: runner.os == 'macOS'
+        run: |
+          test -x /usr/bin/sandbox-exec
+          command -v nc
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: native-${{ matrix.target }}
@@ -420,6 +494,8 @@ jobs:
           NATIVE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
         run: |
           set -euo pipefail
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
           case "$RUNNER_OS" in
             Windows) library=sailry_iroh.dll ;;
             macOS) library=libsailry_iroh.dylib ;;
@@ -441,9 +517,15 @@ jobs:
           SAILRY_CAPTURE_DIR: ${{ github.workspace }}/.runtime/native/${{ matrix.target }}
         # Isolate the concurrent storage corpus from other packages' CPU
         # and disk workloads; measure hardware budgets separately below.
-        run: go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
       - name: Reference storage performance
         if: runner.os == 'macOS'
         # Keep the original hardware budgets on one reference platform;
         # all platforms still run the complete concurrent correctness corpus.
-        run: go test -tags integration ./internal/node/store -run '^$' -bench '^BenchmarkStorageLoad$' -benchtime=1x -count=1
+        run: |
+          unset GOROOT
+          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+          go test -tags integration ./internal/node/store -run '^$' -bench '^BenchmarkStorageLoad$' -benchtime=1x -count=1
