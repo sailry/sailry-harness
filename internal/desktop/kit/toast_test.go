@@ -102,7 +102,7 @@ func TestToastActionsStillDismiss(t *testing.T) {
 				}
 			}
 			if body {
-				window.ClickAt(button.Bounds.X+4, button.Bounds.Y+button.Bounds.H-4)
+				window.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H-4)
 			} else {
 				window.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
 			}

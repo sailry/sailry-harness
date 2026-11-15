@@ -94,6 +94,8 @@ type OverviewAsset struct {
 type OverviewState struct {
 	open, was bool
 	more      bool // the read that failed was for a further page
+	// all are the sections shown whole past their first rows.
+	all map[string]bool
 	// Docked means the conversation has room for the overview column.
 	Docked bool
 }
@@ -149,7 +151,7 @@ func OverviewButton(c *ui.Context, s *OverviewState, o *Overview, size float32, 
 	trigger.HasPopup(ui.PopupDialog)
 	_, height := c.Size()
 	panel := kit.Popover(c, trigger, &s.open, func() {
-		ui.Scroll(c.Key("overview-body")).MaxHeight(max(height-128, 120)).Children(func() { s.body(c, o, true, false) })
+		ui.Scroll(c.Key("overview-body")).MaxHeight(max(height-128, 120)).Children(func() { s.body(c, o, true) })
 	})
 	if panel != (ui.Element{}) {
 		panel.AttachTo(trigger, ui.AnchorBottomEnd, ui.AnchorTopEnd).Padding(12).Width(OverviewWidth).Label(title)
@@ -163,6 +165,10 @@ func OverviewCardShown(o *Overview) bool { return o.Session }
 
 // OverviewWidth is the overview's width, as a popover and as a card.
 const OverviewWidth = 320
+
+// overviewRows is how many rows a long section lists before a row that
+// shows it whole.
+const overviewRows = 3
 
 // OverviewCard is the activity card beside a wide transcript. Its header
 // shows the current turn's status, or the activity title before a turn.
@@ -179,49 +185,12 @@ func OverviewCard(c *ui.Context, s *OverviewState, o *Overview, maxHeight float3
 	if !OverviewCardShown(o) {
 		return
 	}
-	p := theme.Of(c)
 	title := i18n.T(c, "chat_assets_title")
-	card := kit.Floating(c, ui.Column(c.Key("overview-card"))).Width(OverviewWidth).Shrink(0).Clip().
+	card := kit.Floating(c, ui.Column(c.Key("overview-card"))).Width(OverviewWidth).Shrink(0).Clip().Radius(16).
 		Role(ui.RoleComplementary).Label(title)
 	card.Children(func() {
-		head := ui.Row(c.Key("head")).FillWidth().MinWidth(0).Padding(12, 14).Gap(8).AlignItems(ui.Center)
-		head.Children(func() {
-			ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
-				switch {
-				case !o.Turn:
-					ui.Icon(c, icons.Tasks).FontSize(16).TextColor(p.MutedForeground)
-				case o.Status.Active():
-					kit.BusySized(c, 14)
-				case o.Status == conversation.Completed:
-					ui.Icon(c, icons.CircleCheck).FontSize(16).TextColor(p.Success)
-				case o.Status == conversation.Failed:
-					ui.Icon(c, icons.CircleX).FontSize(16).TextColor(p.Danger)
-				default:
-					ui.Box(c).Size(8, 8).Radius(4).Background(p.MutedForeground)
-				}
-			})
-			ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-				state := title
-				if o.Turn {
-					state = i18n.T(c, conversation.StatusKey(o.Status))
-				}
-				ui.Text(c, state).FontSize(14).FontWeight(500).SingleLine().MinWidth(0)
-				if o.Turn && o.Status.Active() && o.Doing != "" {
-					doing := o.Doing
-					if o.DoingDetail != "" {
-						doing += " · " + o.DoingDetail
-					}
-					ui.Text(c, doing).FontSize(12).SingleLine().MinWidth(0).TextColor(p.MutedForeground)
-				}
-			})
-			if o.Turn && o.Elapsed > 0 {
-				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
-					TextColor(p.MutedForeground)
-			}
-		})
-		ui.Divider(c.Key("divider")).Background(p.Border)
-		ui.Scroll(c.Key("overview-body")).FillWidth().MaxHeight(max(maxHeight-56, 120)).Padding(12, 6, 12, 6).
-			Children(func() { s.body(c, o, false, true) })
+		ui.Scroll(c.Key("overview-body")).FillWidth().MaxHeight(maxHeight).Padding(14, 12, 12, 12).
+			Children(func() { s.body(c, o, false) })
 	})
 }
 
@@ -239,25 +208,18 @@ func OverviewClosed(s *OverviewState, o *Overview) {
 // body is the overview: the current turn's status, then each section that
 // has rows, its count beside its name; a session with nothing yet says
 // what will show. popover closes the popover as a row opens what it names.
-func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
+func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 	p := theme.Of(c)
-	ui.Column(c.Key("overview")).FillWidth().MinWidth(0).Gap(12).Children(func() {
-		// Every part is a heading over its rows, the parts set apart by a
-		// rule inset to the rows' text. The card's head is the status.
-		first := true
+	ui.Column(c.Key("overview")).FillWidth().MinWidth(0).Gap(10).Children(func() {
+		// A quiet head, then every part a muted heading over a few rows,
+		// summed up where they are many, the parts set apart by a rule
+		// inset to the text.
 		rule := func(key string) {
-			if first {
-				first = false
-				return
-			}
-			ui.Row(c.Key("rule-" + key)).FillWidth().PaddingX(8).Children(func() {
+			ui.Row(c.Key("rule-" + key)).FillWidth().PaddingX(6).Children(func() {
 				ui.Box(c).FillWidth().Height(1).Background(p.Border)
 			})
 		}
-		if o.Turn && !card {
-			rule("status")
-			s.status(c, o)
-		}
+		s.head(c, o)
 		if o.empty() {
 			// One quiet line: what will come, not instructions.
 			ui.Column(c.Key("empty")).FillWidth().PaddingY(16).Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
@@ -266,31 +228,66 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 			})
 			return
 		}
-		section := func(key, label, tally string, rows func()) {
+		// section is a heading, with trailing beside it, over its rows.
+		section := func(key, label string, trailing func(), rows func()) {
 			rule(key)
 			ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(2).Children(func() {
-				ui.Row(c.Key("heading")).FillWidth().Height(24).Gap(8).Padding(0, 8, 4, 8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, i18n.T(c, label)).FontSize(13).FontWeight(500).SingleLine().Grow(1).Shrink(1).MinWidth(0).
+				ui.Row(c.Key("heading")).FillWidth().Height(28).Gap(8).PaddingX(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, i18n.T(c, label)).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).
 						TextColor(p.MutedForeground)
-					if tally != "" {
-						ui.Text(c, tally).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
+					if trailing != nil {
+						trailing()
 					}
 				})
-				// The rows stand in from their heading, under it.
-				ui.Column(c.Key("rows")).FillWidth().MinWidth(0).PaddingStart(8).Children(rows)
+				ui.Column(c.Key("rows")).FillWidth().MinWidth(0).Children(rows)
 			})
 		}
+		ghost := func(key, name string, content func()) ui.Element {
+			return kit.Ghost(c.Key(key), name, false).FillWidth().MinWidth(0).Height(30).PaddingX(6).Gap(10).Justify(ui.Start).
+				Children(content)
+		}
+		// A row opens what it names, closing the popover; expand lists a
+		// section whole and keeps it open.
 		row := func(key, name string, content func(), click func()) ui.Element {
-			return kit.Ghost(c.Key(key), name, false).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).
-				Children(content).OnClick(func() {
+			return ghost(key, name, content).OnClick(func() {
 				if popover {
 					s.open = false
 				}
 				click()
 			})
 		}
+		expand := func(key, name, section string, content func()) ui.Element {
+			return ghost(key, name, content).OnClick(func() {
+				if s.all == nil {
+					s.all = map[string]bool{}
+				}
+				s.all[section] = true
+			})
+		}
 		name := func(text string) ui.Element {
 			return ui.Text(c, text).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		}
+		// capped lists a section's first rows, then a row showing it whole.
+		capped := func(key string, n int, item func(i int)) {
+			shown := n
+			if n > overviewRows && !s.all[key] {
+				shown = overviewRows
+			}
+			for i := range shown {
+				item(i)
+			}
+			if shown < n {
+				all := i18n.T(c, "chat_assets_all") + " " + strconv.Itoa(n)
+				expand("all-"+key, all, key, func() {
+					ui.Icon(c, icons.ChevronDown).FontSize(15).Shrink(0)
+					name(all)
+				}).TextColor(p.MutedForeground)
+			}
+		}
+		tally := func(text string) func() {
+			return func() {
+				ui.Text(c, text).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
+			}
 		}
 		if n := len(o.Steps); n > 0 {
 			done := 0
@@ -299,16 +296,44 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 					done++
 				}
 			}
-			section("progress", "chat_assets_progress", fmt.Sprintf("%d/%d", done, n), func() {
+			section("progress", "chat_assets_progress", tally(fmt.Sprintf("%d/%d", done, n)), func() {
 				// The steps' marks stand under the heading's text, as the
 				// other sections' rows do; the tally tells how far it is.
-				ui.Column(c.Key("steps")).FillWidth().MinWidth(0).PaddingX(8).Children(func() {
+				ui.Column(c.Key("steps")).FillWidth().MinWidth(0).PaddingX(6).Children(func() {
 					conversation.QuietSteps(c, o.Steps, o.Active)
 				})
 			})
 		}
-		if len(o.Children) > 0 {
-			section("activity", "chat_assets_activity", strconv.Itoa(len(o.Children)), func() {
+		if n := len(o.Children); n > 0 {
+			section("activity", "chat_assets_activity", nil, func() {
+				// One line of their avatars and how many finished, which
+				// opens the list.
+				if !s.all["activity"] {
+					done, running := 0, false
+					for _, k := range o.Children {
+						if k.Completed {
+							done++
+						}
+						running = running || k.Running
+					}
+					summary := i18n.T(c, "subagent_count", "completed", done, "total", n)
+					expand("children", summary, "activity", func() {
+						shown := min(n, 4)
+						ui.Box(c.Key("avatars")).Size(float32(18+12*(shown-1)), 18).Shrink(0).Children(func() {
+							for i := range shown {
+								k := o.Children[i]
+								ui.Box(c.Key(k.ID)).Absolute().Left(float32(12 * i)).Top(0).Children(func() {
+									kit.RoleIdenticon(c, k.ID, k.Avatar, k.Running, 18)
+								})
+							}
+						})
+						name(summary)
+						if running {
+							kit.BusySized(c, 12)
+						}
+					})
+					return
+				}
 				for _, k := range o.Children {
 					label := k.Name
 					if label == "" {
@@ -333,8 +358,9 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 			for _, ch := range o.Changes {
 				added, removed = added+ch.Added, removed+ch.Removed
 			}
-			section("changes", "chat_assets_changes", strconv.Itoa(len(o.Changes)), func() {
-				for _, ch := range o.Changes {
+			section("changes", "chat_assets_changes", func() { lines(c, added, removed) }, func() {
+				capped("changes", len(o.Changes), func(i int) {
+					ch := o.Changes[i]
 					file := path.Base(ch.Path)
 					b := row("change-"+ch.Path, ch.Path, func() {
 						ui.Icon(c, icons.File).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
@@ -348,7 +374,7 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 					if file != ch.Path {
 						kit.Tooltip(c, b, ch.Path)
 					}
-				}
+				})
 			})
 		}
 		asset := func(a OverviewAsset) {
@@ -357,7 +383,7 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 				label = a.Name
 			}
 			b := row("asset-"+a.ID, a.Name, func() {
-				ui.Icon(c, a.Icon).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
+				ui.Icon(c, a.Icon).FontSize(15).Shrink(0).TextColor(p.MutedForeground)
 				name(label)
 			}, func() { o.OpenAsset(a.ID) })
 			if label != a.Name {
@@ -365,18 +391,19 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 			}
 		}
 		if len(o.Output) > 0 {
-			section("output", "chat_assets_output", strconv.Itoa(len(o.Output)), func() {
-				for _, a := range o.Output {
-					asset(a)
-				}
+			section("output", "chat_assets_output", nil, func() {
+				capped("output", len(o.Output), func(i int) { asset(o.Output[i]) })
 			})
 		}
 		if n := len(o.Sources) + len(o.Citations); n > 0 {
-			section("sources", "chat_assets_sources", strconv.Itoa(n), func() {
-				for _, a := range o.Sources {
-					asset(a)
-				}
-				for i, source := range o.Citations {
+			section("sources", "chat_assets_sources", nil, func() {
+				capped("sources", n, func(i int) {
+					if i < len(o.Sources) {
+						asset(o.Sources[i])
+						return
+					}
+					i -= len(o.Sources)
+					source := o.Citations[i]
 					label := source.Title
 					if label == "" {
 						label = source.URI
@@ -389,11 +416,12 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 						}
 					}, func() { o.OpenSource(source.URI) })
 					kit.Tooltip(c, b, source.URI)
-				}
+				})
 			})
 		}
 		// Only the Host's inventory waits for its read; what the transcript
 		// holds shows at once.
+		// The Host's further pages follow a list shown whole.
 		switch {
 		case o.Loading:
 			ui.Row(c.Key("loading")).PaddingX(8).Children(func() { kit.Loader(c, 14) })
@@ -402,7 +430,7 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 				ui.Text(c, i18n.T(c, "chat_assets_failed")).FontSize(13).Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 				kit.Secondary(c, i18n.T(c, "chat_retry")).Height(28).OnClick(func() { o.Load(s.more) })
 			})
-		case o.More:
+		case o.More && s.all["output"] || o.More && s.all["sources"] || o.More && len(o.Output)+len(o.Sources) <= overviewRows:
 			ui.Row(c.Key("more")).FillWidth().Justify(ui.Center).Children(func() {
 				kit.Secondary(c, i18n.T(c, "chat_assets_more")).Height(28).OnClick(func() {
 					s.more = true
@@ -413,35 +441,43 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover, card bool) {
 	})
 }
 
-// status is the current turn's line: its state's mark and name and how long
-// it ran, and while it runs the tool call under way below, muted.
-func (s *OverviewState) status(c *ui.Context, o *Overview) {
+// head is the overview's quiet first line: the current turn's mark, state
+// and time, with the tool call under way below it while it runs, or the
+// overview's title before a turn.
+func (s *OverviewState) head(c *ui.Context, o *Overview) {
 	p := theme.Of(c)
-	ui.Column(c.Key("status")).FillWidth().MinWidth(0).Gap(4).Padding(10, 12).Radius(p.RadiusLg).Background(p.Muted).Children(func() {
-		ui.Row(c.Key("state")).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+	ui.Column(c.Key("head")).FillWidth().MinWidth(0).Gap(2).PaddingX(6).Children(func() {
+		ui.Row(c.Key("state")).FillWidth().Height(24).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Box(c.Key("mark")).Size(16, 16).Shrink(0).Center().Children(func() {
 				switch {
+				case !o.Turn:
+					ui.Icon(c, icons.Tasks).FontSize(15).TextColor(p.MutedForeground)
 				case o.Status.Active():
 					kit.BusySized(c, 14)
 				case o.Status == conversation.Completed:
-					ui.Icon(c, icons.CircleCheck).FontSize(16).TextColor(p.Success)
+					ui.Icon(c, icons.CircleCheck).FontSize(15).TextColor(p.Success)
 				case o.Status == conversation.Failed:
-					ui.Icon(c, icons.CircleX).FontSize(16).TextColor(p.Danger)
+					ui.Icon(c, icons.CircleX).FontSize(15).TextColor(p.Danger)
 				default:
 					ui.Box(c).Size(8, 8).Radius(4).Background(p.MutedForeground)
 				}
 			})
-			ui.Text(c, i18n.T(c, conversation.StatusKey(o.Status))).FontSize(14).FontWeight(500).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-			if o.Elapsed > 0 {
-				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
+			state := i18n.T(c, "chat_assets_title")
+			if o.Turn {
+				state = i18n.T(c, conversation.StatusKey(o.Status))
+			}
+			ui.Text(c, state).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			if o.Turn && o.Elapsed > 0 {
+				ui.Text(c, conversation.Elapsed(o.Elapsed)).FontSize(13).FontFeatures("tnum").SingleLine().Shrink(0).
+					TextColor(p.MutedForeground)
 			}
 		})
-		if o.Status.Active() && o.Doing != "" {
+		if o.Turn && o.Status.Active() && o.Doing != "" {
 			doing := o.Doing
 			if o.DoingDetail != "" {
 				doing += " · " + o.DoingDetail
 			}
-			ui.Text(c, doing).FontSize(13).SingleLine().MinWidth(0).Padding(0, 0, 0, 24).TextColor(p.MutedForeground)
+			ui.Text(c, doing).FontSize(12).SingleLine().MinWidth(0).PaddingStart(24).TextColor(p.MutedForeground)
 		}
 	})
 }

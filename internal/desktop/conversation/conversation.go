@@ -24,7 +24,8 @@ const (
 	turnGap    = 10 // user message to reply
 	turnBottom = 28 // between turns
 	bubbleMax  = 440
-	workGap    = 16 // between the blocks of a reply
+	userLift   = 0.06 // the user message's lift toward the text on a dark page
+	workGap    = 16   // between the blocks of a reply
 )
 
 // State is the transcript's UI state: a list state per conversation, so
@@ -419,7 +420,9 @@ func (s *State) user(c *ui.Context, session string, t *Turn, q string, current i
 	if t.User == "" && len(t.Images) == 0 && len(t.Files) == 0 {
 		return
 	}
-	ui.Column(c.Key("user")).Gap(8).Children(func() {
+	col := ui.Column(c.Key("user")).Gap(8)
+	over := col.Hovered()
+	col.Children(func() {
 		if t.Editing != nil {
 			s.editor(c, session, t, actions)
 		} else if t.User != "" {
@@ -438,7 +441,7 @@ func (s *State) user(c *ui.Context, session string, t *Turn, q string, current i
 				ui.Column(c).Width(bubbleMax).Children(func() { files(c, "user-files", t.Files, actions) })
 			})
 		}
-		userFooter(c, t, actions)
+		userFooter(c, t, over, actions)
 	})
 }
 
@@ -465,7 +468,13 @@ func userMessage(c *ui.Context, text string, marks []ui.Span, references []Refer
 // and corner art.
 func bubble(c *ui.Context, b ui.Element) ui.Element {
 	p := theme.Of(c)
-	b.Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground)
+	// A step lighter than the muted surface on a dark page, so the message
+	// stands apart from the replies around it.
+	fill := p.Muted
+	if p.Dark {
+		fill = fill.Mix(kit.Opaque(p.Foreground), userLift)
+	}
+	b.Radius(p.RadiusLg * 1.5).Background(kit.Veil(c, fill)).TextColor(p.Foreground)
 	v := p.Variant
 	if v == nil {
 		return b
@@ -557,7 +566,9 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	if from > 0 {
 		gap = workGap
 	}
-	ui.Column(c.Key("reply")).Gap(gap).Children(func() {
+	col := ui.Column(c.Key("reply")).Gap(gap)
+	over := col.Hovered()
+	col.Children(func() {
 		// The header: the status, its time, and the work region's trigger.
 		if latest || from > 0 {
 			ui.Column(c).Gap(8).Children(func() {
@@ -572,7 +583,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				}
 				label := i18n.T(c, statusKey)
 				status := func() {
-					row := ui.Row(c).Gap(8).Grow(1).MinWidth(0)
+					row := ui.Row(c).Gap(8).Shrink(1).MinWidth(0)
 					if latest && (r.Status == Failed || r.Status == Interrupted) {
 						row.TextColor(p.Danger)
 					}
@@ -583,22 +594,24 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 						}
 					})
 				}
+				// A quiet line: the status in a lighter tone than the answer,
+				// the work region's chevron right after it, brightening on
+				// hover.
 				if from == 0 {
-					ui.Row(c).Height(rowHeight(size)).TextColor(p.MutedForeground).Children(status)
+					ui.Row(c).Height(rowHeight(size)).TextColor(p.Description()).Children(status)
 				} else {
-					b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).FillWidth().Gap(8).
-						Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-					hovered := b.Hovered() || b.FocusVisible()
+					b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).MaxWidthPercent(100).Gap(6).
+						Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.Description())
+					if b.Hovered() || b.FocusVisible() {
+						b.TextColor(p.MutedForeground)
+					}
 					b.Children(func() {
 						status()
 						chevron := icons.ChevronRight
 						if workOpen {
 							chevron = icons.ChevronDown
 						}
-						ch := ui.Icon(c, chevron).FontSize(rowIcon(size)).Shrink(0)
-						if !hovered {
-							ch.Opacity(0)
-						}
+						ui.Icon(c, chevron).FontSize(rowIcon(size) - 2).Shrink(0)
 					}).OnClick(func() { s.work[key] = !workOpen })
 				}
 				ui.Divider(c).Background(p.Border)
@@ -630,7 +643,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 			})
 		}
 		if latest && !active {
-			s.footer(c, t, Compact(r.Blocks), actions)
+			s.footer(c, t, Compact(r.Blocks), over, actions)
 		}
 	})
 }

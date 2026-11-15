@@ -269,7 +269,7 @@ func TestNoticeChannels(t *testing.T) {
 				t.Fatal("no accessible toast body action")
 			}
 			// The padding opens it too, not only its text or icon.
-			window.ClickAt(body.Bounds.X+4, body.Bounds.Y+body.Bounds.H-4)
+			window.ClickAt(body.Bounds.X+body.Bounds.W/2, body.Bounds.Y+body.Bounds.H-4)
 			if root.App.Sidebar.Selected != "draft/first" || root.App.Page != shell.ConversationPage {
 				t.Fatalf("the body selected %q on page %v", root.App.Sidebar.Selected, root.App.Page)
 			}

@@ -2189,6 +2189,7 @@ chat_assets_no_output: 無輸出
 chat_assets_no_sources: 無來源
 chat_assets_failed: 資源與產物載入失敗
 chat_assets_more: 檢視更早
+chat_assets_all: 全部
 queue_guidance_separate: 設定不同，已依原設定排隊執行
 reference_stale: 引用的歸屬或配置已改變，請移除後重新選擇
 chat_clipboard_image: 圖片 %{count}

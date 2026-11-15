@@ -105,21 +105,32 @@ func cited(blocks []Block, cites []Citation) []Block {
 	return out
 }
 
+// quiet gives a message's action the footer's lighter tone, the text's own
+// while the pointer is on it.
+func quiet(c *ui.Context, b ui.Element) ui.Element {
+	p := theme.Of(c)
+	if b.Hovered() || b.Pressed() {
+		return b.TextColor(p.Foreground)
+	}
+	return b.TextColor(p.Description())
+}
+
 // footer is the ended run's row: Copy, Read aloud, the fork menu (Fork,
 // Rewind, New worktree), Retry where the run can run again, the export
-// menu (Markdown, HTML, Image), and the time it finished on hover.
-func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
+// menu (Markdown, HTML, Image), and the time it finished while the pointer
+// is over the reply (over) or the row.
+func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, over bool, actions Actions) {
 	p := theme.Of(c)
 	text := AnswerText(blocks)
 	if len(t.Segments) > 0 {
 		text = segmentedText(t)
 	}
 	session := s.renderSession
-	row := ui.Row(c.Key("footer")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground)
-	hovered := row.Hovered()
+	row := ui.Row(c.Key("footer")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.Description())
+	hovered := over || row.Hovered()
 	row.Children(func() {
 		if text != "" {
-			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).OnClick(func() {
+			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false)).OnClick(func() {
 				c.WriteClipboard(text)
 				kit.Copied(c)
 			})
@@ -131,7 +142,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 			if reading {
 				icon, label = icons.Square, "reader_stop"
 			}
-			kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 28, false).OnClick(func() {
+			quiet(c, kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 28, false)).OnClick(func() {
 				if s.ReaderActive == nil {
 					if s.reading == t.ID {
 						s.reading = ""
@@ -150,7 +161,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 					Children(func() { kit.Loader(c, 14) })
 			} else {
 				kit.MenuButton(c.Key("fork"), "fork-"+t.ID, func(b ui.Element) {
-					kit.IconLook(c, b, icons.Network, i18n.T(c, "chat_fork"), "", 28, false)
+					quiet(c, kit.IconLook(c, b, icons.Network, i18n.T(c, "chat_fork"), "", 28, false))
 				}, func(m *kit.Menu) {
 					if m.Item(i18n.T(c, "chat_fork")).Icon(icons.Network).Disabled(ctl.NoFork).Chosen() {
 						actions.Fork(t.ID)
@@ -164,7 +175,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 				})
 			}
 			if Resendable(t.Reply.Status) && !t.Controls.ReadOnly {
-				kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).OnClick(func() { actions.Retry(t.ID) })
+				quiet(c, kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false)).OnClick(func() { actions.Retry(t.ID) })
 			}
 		}
 		// The demo's conversations are in no file: it has no export menu.
@@ -202,7 +213,7 @@ func ExportSupported(format ExportFormat) bool {
 // Markdown, HTML or an image; disabled while the Node does not answer.
 func exportMenu(c *ui.Context, id, turn string, disabled bool, actions Actions) {
 	kit.MenuButton(c.Key("export"), id, func(b ui.Element) {
-		kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
+		quiet(c, kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false))
 	}, func(m *kit.Menu) {
 		for i, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
 			if m.Item(i18n.T(c, key)).Disabled(disabled || !ExportSupported(ExportFormat(i))).Chosen() {
@@ -212,18 +223,18 @@ func exportMenu(c *ui.Context, id, turn string, disabled bool, actions Actions) 
 	})
 }
 
-// userFooter is under a user message, at the end: the time it was sent on
-// hover, Copy and Edit.
-func userFooter(c *ui.Context, t *Turn, actions Actions) {
+// userFooter is under a user message, at the end: the time it was sent
+// while the pointer is over the message (over) or the row, Copy and Edit.
+func userFooter(c *ui.Context, t *Turn, over bool, actions Actions) {
 	p := theme.Of(c)
-	row := ui.Row(c.Key("user-footer")).FillWidth().Gap(8).Justify(ui.End).AlignItems(ui.Center).TextColor(p.MutedForeground)
-	hovered := row.Hovered()
+	row := ui.Row(c.Key("user-footer")).FillWidth().Gap(8).Justify(ui.End).AlignItems(ui.Center).TextColor(p.Description())
+	hovered := over || row.Hovered()
 	row.Children(func() {
 		if hovered && !t.Sent.IsZero() {
 			ui.Text(c, t.Sent.Format("15:04")).FontSize(14).SingleLine()
 		}
 		if t.User != "" {
-			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false).OnClick(func() {
+			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false)).OnClick(func() {
 				c.WriteClipboard(t.User)
 				kit.Copied(c)
 			})
@@ -231,7 +242,7 @@ func userFooter(c *ui.Context, t *Turn, actions Actions) {
 		// A read-only session has no Edit; elsewhere it is disabled while it
 		// cannot apply or an editor is already open.
 		if !t.Controls.ReadOnly {
-			kit.IconButton(c.Key("edit"), icons.Writing, i18n.T(c, "message_edit"), 28, t.Editing != nil).
+			quiet(c, kit.IconButton(c.Key("edit"), icons.Writing, i18n.T(c, "message_edit"), 28, t.Editing != nil)).
 				Disabled(t.Controls.NoEdit || t.Editing != nil).OnClick(func() { actions.Edit(t.ID) })
 		}
 	})

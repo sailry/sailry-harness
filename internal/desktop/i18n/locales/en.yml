@@ -2189,6 +2189,7 @@ chat_assets_no_output: No output
 chat_assets_no_sources: No sources
 chat_assets_failed: Could not load resources and artifacts
 chat_assets_more: Show earlier
+chat_assets_all: All
 queue_guidance_separate: Settings differ; queued separately
 reference_stale: Reference ownership or configuration changed; remove and select again
 chat_clipboard_image: Image %{count}

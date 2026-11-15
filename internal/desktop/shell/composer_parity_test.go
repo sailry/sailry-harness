@@ -487,6 +487,15 @@ func headerParity(t *testing.T) {
 		t.Fatalf("the preview's overview is empty: %+v", overview)
 	}
 	child := overview.Children[0]
+	// The subagents show as one summary row that lists them when pressed.
+	done := 0
+	for _, k := range overview.Children {
+		if k.Completed {
+			done++
+		}
+	}
+	pressButton(t, tt, zh("subagent_count", "completed", done, "total", len(overview.Children)))
+	tt.Frame()
 	var row ui.AccessInfo
 	for _, e := range tt.AccessAll() {
 		if e.Role == ui.RoleButton && strings.HasPrefix(e.Name, child.Name+": ") {

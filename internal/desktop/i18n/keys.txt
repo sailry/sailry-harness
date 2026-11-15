@@ -2201,6 +2201,7 @@ chat_assets_no_output
 chat_assets_no_sources
 chat_assets_failed
 chat_assets_more
+chat_assets_all
 queue_guidance_separate
 reference_stale
 chat_clipboard_image

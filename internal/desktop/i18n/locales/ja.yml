@@ -2189,6 +2189,7 @@ chat_assets_no_output: 出力なし
 chat_assets_no_sources: ソースなし
 chat_assets_failed: リソースとアーティファクトを読み込めませんでした
 chat_assets_more: 以前のものを表示
+chat_assets_all: すべて
 queue_guidance_separate: 設定が異なるため、元の設定で個別に実行待ち
 reference_stale: 参照の所有者または設定が変更されました。削除して再選択してください
 chat_clipboard_image: 画像 %{count}

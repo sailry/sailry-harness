@@ -30,7 +30,8 @@ type Palette struct {
 	Package *Package
 	Variant *Variant
 
-	// Radius is Kit's base radius (6) and RadiusLg its large one (8).
+	// Radius is the base radius (8) and RadiusLg the large one (12), a
+	// little rounder than Kit's 6 and 8; a theme may set its own.
 	Radius, RadiusLg float32
 
 	Background      ui.Color // window and main panel
@@ -144,7 +145,7 @@ func (p *Palette) Radius2xl() float32 { return p.Radius * 2.5 }
 
 // palette overlays a package's colors on the neutral theme, key by key.
 func palette(pkg *Package, dark bool) *Palette {
-	p := &Palette{Dark: dark, Package: pkg, Variant: pkg.Variant(dark), Radius: 6, RadiusLg: 8}
+	p := &Palette{Dark: dark, Package: pkg, Variant: pkg.Variant(dark), Radius: 8, RadiusLg: 12}
 	set := map[string]bool{}
 	for k, v := range neutral(dark) {
 		*fields[k](p) = ui.Hex(v)

@@ -2189,6 +2189,7 @@ chat_assets_no_output: Aucun résultat
 chat_assets_no_sources: Aucune source
 chat_assets_failed: Impossible de charger les ressources et les artefacts
 chat_assets_more: Afficher plus tôt
+chat_assets_all: Tout
 queue_guidance_separate: Paramètres différents ; mise en file séparée
 reference_stale: La propriété ou la configuration de la référence a changé; supprimez et sélectionnez à nouveau
 chat_clipboard_image: Image %{count}

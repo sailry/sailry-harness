@@ -2189,6 +2189,7 @@ chat_assets_no_output: 无输出
 chat_assets_no_sources: 无来源
 chat_assets_failed: 资源与产物加载失败
 chat_assets_more: 查看更早
+chat_assets_all: 全部
 queue_guidance_separate: 设置不同，已按原设置排队执行
 reference_stale: 引用的归属或配置已改变，请移除后重新选择
 chat_clipboard_image: 图片 %{count}

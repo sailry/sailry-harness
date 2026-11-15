@@ -2189,6 +2189,7 @@ chat_assets_no_output: Нет результатов
 chat_assets_no_sources: Нет источников
 chat_assets_failed: Не удалось загрузить ресурсы и артефакты
 chat_assets_more: Показать раньше
+chat_assets_all: Все
 queue_guidance_separate: Другие настройки; добавлено в очередь отдельно
 reference_stale: Изменение владельца или конфигурации ссылки; удалить и снова выбрать
 chat_clipboard_image: Изображение %{count}
