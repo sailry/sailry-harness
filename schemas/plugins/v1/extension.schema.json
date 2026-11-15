@@ -3700,7 +3700,7 @@
       "type": "object"
     },
     "StorageScope": {
-      "description": "Private data either belongs to the Node or follows the captured conversation history.",
+      "description": "Data belongs to the authenticated user on the Node, a declared project collection, or the captured conversation history.",
       "enum": [
         "node",
         "project",
@@ -4235,7 +4235,7 @@
           "type": "null"
         }
       ],
-      "description": "Inline schemas for package-owned Node and conversation values."
+      "description": "Inline schemas for personal Node values, shared project values and conversation values."
     },
     "tint": {
       "anyOf": [

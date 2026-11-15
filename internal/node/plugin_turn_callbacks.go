@@ -25,6 +25,7 @@ import (
 // the interactions that expired, its usage and the session's, the background
 // work still running or waiting, and the automatic chain.
 func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run protocol.ConversationRun, observed engine.TurnObservation) {
+	ctx = store.WithCapturedUser(store.WithUser(ctx, inv.User), inv.StorageUser)
 	var facts store.TurnFacts
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

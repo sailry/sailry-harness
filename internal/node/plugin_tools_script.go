@@ -35,6 +35,7 @@ type pluginScriptTurn struct {
 }
 
 func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call string, input any, readOnly bool) (json.RawMessage, error) {
+	ctx = store.WithCapturedUser(store.WithUser(ctx, owner.invocation.User), owner.invocation.StorageUser)
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	identityTool := tool

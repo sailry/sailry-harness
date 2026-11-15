@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -180,7 +181,17 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 	default:
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "plugin command is unavailable")
 	}
-	return protocol.Output{Kind: kind, Data: value}, []protocol.Event{{Kind: "plugin_values_changed", Data: protocol.EventPluginValuesChangedPayload{Name: scope.Package.Name}}}, err
+	change := protocol.EventPluginValuesChangedPayload{Name: scope.Package.Name}
+	if space, ok := ctx.Value(pluginSpaceKey{}).(string); ok {
+		if id, project := strings.CutPrefix(space, "project:"); project {
+			parsed, parseErr := protocol.ParseProjectID(id)
+			if parseErr != nil {
+				return protocol.Output{}, nil, parseErr
+			}
+			change.Project = &parsed
+		}
+	}
+	return protocol.Output{Kind: kind, Data: value}, []protocol.Event{{Kind: "plugin_values_changed", Data: change}}, err
 }
 
 func pluginTransactionCommand(operation protocol.PluginTransactionOperation, reference protocol.PluginReference) (protocol.Command, error) {

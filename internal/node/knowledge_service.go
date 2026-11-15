@@ -104,6 +104,15 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		Working: node.power.Hold,
 		Index:   node.profile.Store.Knowledge,
 		Catalog: node.knowledgeCatalog,
+		Context: func(ctx context.Context, stored store.KnowledgeStored) (context.Context, error) {
+			var operation context.Context
+			err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var err error
+				operation, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				return err
+			})
+			return operation, nodeFault(err)
+		},
 		Allowed: func(ctx context.Context, request protocol.Request) (allowed []store.KnowledgeStored, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 				allowed, err = store.AllowedKnowledge(ctx, db, request)

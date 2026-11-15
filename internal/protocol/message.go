@@ -10182,7 +10182,8 @@ func (value EventPythonSettingsChangedPayload) MarshalJSON() ([]byte, error) {
 }
 
 type EventPluginValuesChangedPayload struct {
-	Name string `json:"name"`
+	Name    string     `json:"name"`
+	Project *ProjectID `json:"project,omitempty"`
 }
 
 func DefaultEventPluginValuesChangedPayload() EventPluginValuesChangedPayload {
