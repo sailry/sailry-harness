@@ -124,7 +124,7 @@ func Banner(c *ui.Context, slot string) {
 		}
 	}
 	card := d.Fit == theme.Cover || d.Fit == theme.Fill
-	radius, edge := p.Radius2xl(), p.Input
+	radius, frame := p.Radius2xl(), v.Hero
 	strip := ui.Box(c.Key(slot)).FillWidth().Height(d.Height + rise).Shrink(0).PassThrough()
 	if card {
 		strip.Margin(0, 0, 12, 0) // a card keeps clear of the wordmark under it
@@ -132,8 +132,16 @@ func Banner(c *ui.Context, slot string) {
 	strip.Draw(func(pt *ui.Painter, r ui.Rect) {
 		band := ui.Rect{X: r.X, Y: r.Y + rise, W: r.W, H: d.Height}
 		if card {
+			if frame.Glow.OK {
+				pt.Shadow(band, radius, 0, 0, 28, 0, frame.Glow.V)
+			}
 			pt.Clip(band, radius, func() { Picture(pt, d, band) })
-			pt.Stroke(band, edge, radius, 1)
+			edge := frame.Border.Or(p.Input)
+			if end := frame.BorderGradient; end.OK {
+				GradientEdge(pt, band, radius, 1.5, edge, end.V)
+			} else {
+				pt.Stroke(band, edge, radius, 1)
+			}
 		} else {
 			paintEffects(pt, band, layers)
 			Picture(pt, d, band)
@@ -161,16 +169,20 @@ func Banner(c *ui.Context, slot string) {
 }
 
 // Fill colors a filled button b with a package's action colors in b's
-// state, as a left-to-right gradient where they have one, with its glow;
-// disabled, it keeps those colors faded. nil leaves b.
+// state, as a left-to-right gradient where they have one, with its glow
+// and edge; disabled, it keeps them slightly faded. nil leaves b.
 func Fill(b ui.Element, a *theme.Action, disabled bool) {
 	if a == nil {
 		return
 	}
 	if disabled {
-		b.Opacity(0.5)
-	} else if a.Glow.OK {
+		b.Opacity(0.85)
+	}
+	if a.Glow.OK {
 		b.Shadow(0, 0, 18, 0, a.Glow.V)
+	}
+	if a.Border.OK {
+		b.Border(1, a.Border.V)
 	}
 	bg := a.Background.Or(ui.Transparent)
 	switch {

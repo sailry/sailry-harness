@@ -190,6 +190,7 @@ func (value *Composer) UnmarshalJSON(data []byte) error {
 		BorderWidth    uint8   `json:"border_width"`
 		Border         *Color  `json:"border"`
 		BorderGradient *Color  `json:"border_gradient"`
+		Background     *Color  `json:"background"`
 		Glow           *Color  `json:"glow"`
 		Placeholder    *Color  `json:"placeholder"`
 		Send           *Action `json:"send"`
@@ -199,7 +200,7 @@ func (value *Composer) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*value = Composer{BorderWidth: float32(decoded.BorderWidth), Send: decoded.Send, Stop: decoded.Stop}
-	for _, c := range []struct{ from, to *Color }{{decoded.Border, &value.Border}, {decoded.BorderGradient, &value.BorderGradient}, {decoded.Glow, &value.Glow}, {decoded.Placeholder, &value.Placeholder}} {
+	for _, c := range []struct{ from, to *Color }{{decoded.Border, &value.Border}, {decoded.BorderGradient, &value.BorderGradient}, {decoded.Background, &value.Background}, {decoded.Glow, &value.Glow}, {decoded.Placeholder, &value.Placeholder}} {
 		if c.from != nil {
 			*c.to = *c.from
 		}
@@ -231,6 +232,7 @@ func (value *Card) UnmarshalJSON(data []byte) error {
 		Radius         *uint8 `json:"radius"`
 		Glow           *Color `json:"glow"`
 		IconBackground *Color `json:"icon_background"`
+		Gradient       *Color `json:"gradient"`
 	}
 	if err := decodeThemeObject(data, &decoded); err != nil {
 		return err
@@ -267,6 +269,9 @@ func (value *Card) UnmarshalJSON(data []byte) error {
 	}
 	if decoded.IconBackground != nil {
 		value.IconBackground = *decoded.IconBackground
+	}
+	if decoded.Gradient != nil {
+		value.Gradient = *decoded.Gradient
 	}
 	return nil
 }
@@ -343,5 +348,23 @@ func (value *Effect) UnmarshalJSON(data []byte) error {
 		return errors.New("theme effect color must be a string")
 	}
 	*value = Effect(decoded)
+	return nil
+}
+
+func (value *Frame) UnmarshalJSON(data []byte) error {
+	var decoded struct {
+		Border         *Color `json:"border"`
+		BorderGradient *Color `json:"border_gradient"`
+		Glow           *Color `json:"glow"`
+	}
+	if err := decodeThemeObject(data, &decoded); err != nil {
+		return err
+	}
+	*value = Frame{}
+	for _, c := range []struct{ from, to *Color }{{decoded.Border, &value.Border}, {decoded.BorderGradient, &value.BorderGradient}, {decoded.Glow, &value.Glow}} {
+		if c.from != nil {
+			*c.to = *c.from
+		}
+	}
 	return nil
 }

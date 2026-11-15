@@ -140,6 +140,9 @@ func card(c *ui.Context, m mode, stacked bool, prompt func(string)) {
 	if style.Glow.OK {
 		b.Shadow(0, 0, 20, 0, style.Glow.V)
 	}
+	if style.Gradient.OK && !b.Pressed() && !b.Hovered() {
+		b.LinearGradient(ui.LinearGradient{From: style.Background.Or(color.Alpha(0.2)), To: style.Gradient.V, Angle: 180, Oklab: true})
+	}
 	if texture := kit.Backdrop(c, "background.card."+m.key); texture != nil {
 		b.Draw(func(pt *ui.Painter, r ui.Rect) { pt.Clip(r, radius, func() { texture(pt, r) }) })
 	}

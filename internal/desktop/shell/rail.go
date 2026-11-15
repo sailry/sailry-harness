@@ -178,7 +178,7 @@ type featureDrag struct{ id string }
 func (a *App) moreButton(c *ui.Context) {
 	p := theme.Of(c)
 	label := i18n.T(c, "features_all")
-	b := kit.IconButton(c.Key("more"), icons.Ellipsis, label, RailButton, a.more).OnClick(func() { a.more = !a.more })
+	b := railChosen(c, kit.IconButton(c.Key("more"), icons.Ellipsis, label, RailButton, a.more), a.more).OnClick(func() { a.more = !a.more })
 	b.HasPopup(ui.PopupMenu).Expanded(a.more)
 	panel := kit.Popover(c, b, &a.more, func() {
 		ui.Scroll(c.Key("features")).Gap(1).Children(func() {

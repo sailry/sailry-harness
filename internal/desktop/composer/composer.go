@@ -288,7 +288,11 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 // it while they are over it (drop_target).
 func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit func() bool) ui.Element {
 	p := theme.Of(c)
-	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), p.Muted, kit.SurfaceTint)
+	fill := p.Muted
+	if v := p.Variant; v != nil {
+		fill = v.Composer.Background.Or(fill)
+	}
+	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), fill, kit.SurfaceTint)
 	if v := p.Variant; v != nil {
 		if w := v.Composer.BorderWidth; w > 0 {
 			edge, radius := v.Composer.Border.Or(p.Input), p.Radius2xl()
@@ -307,7 +311,7 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	}
 	if !ctx.Readonly {
 		if surface.FileDragOver() {
-			surface.Background(p.Muted.Mix(p.Primary, 0.12))
+			surface.Background(fill.Mix(p.Primary, 0.12))
 		}
 		if paths := surface.DroppedFiles(); len(paths) > 0 {
 			s.attachPaths(c, paths, actions)

@@ -73,7 +73,7 @@ func (a *App) bell(c *ui.Context) {
 		}
 	}
 	label := i18n.T(c, "notifications")
-	b := kit.IconButton(c.Key("bell"), icons.Bell, label, RailButton, a.activity).OnClick(func() { a.activity = !a.activity })
+	b := railChosen(c, kit.IconButton(c.Key("bell"), icons.Bell, label, RailButton, a.activity), a.activity).OnClick(func() { a.activity = !a.activity })
 	b.HasPopup(ui.PopupDialog).Expanded(a.activity)
 	if unread > 0 {
 		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {

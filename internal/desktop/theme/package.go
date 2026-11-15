@@ -59,6 +59,16 @@ type Variant struct {
 	// NewSession colors the sidebar's New Conversation button, nil for
 	// Kit's primary button.
 	NewSession *Action `json:"new_session"`
+	// Hero frames a banner-card hero (hero.new_session with cover or fill).
+	Hero Frame `json:"hero"`
+}
+
+// Frame edges and lights a surface: Border on the left running to
+// BorderGradient on the right where set, and a soft Glow around it.
+type Frame struct {
+	Border         Color `json:"border"`
+	BorderGradient Color `json:"border_gradient"`
+	Glow           Color `json:"glow"`
 }
 
 // Config is the Kit theme: its colors by key and its radii.
@@ -86,6 +96,9 @@ type Composer struct {
 	// BorderGradient, when set, is the edge's end color: it runs from
 	// Border on the left to it on the right.
 	BorderGradient Color `json:"border_gradient"`
+	// Background, when set, is the surface's frosted fill in place of
+	// Kit's muted.background.
+	Background Color `json:"background"`
 	// Glow is a soft light around the surface; Placeholder the empty
 	// draft's text color.
 	Glow        Color   `json:"glow"`
@@ -103,8 +116,9 @@ type Action struct {
 	// Gradient, when set, is the fill's end color: the fill runs from the
 	// state's color on the left to it on the right.
 	Gradient Color `json:"gradient"`
-	// Glow is a soft light around the button.
-	Glow Color `json:"glow"`
+	// Glow is a soft light around the button; Border a hairline edge.
+	Glow   Color `json:"glow"`
+	Border Color `json:"border"`
 }
 
 // Card styles a new-session mode card (explore, build, review, plan).
@@ -122,6 +136,9 @@ type Card struct {
 	// behind its icon.
 	Glow           Color `json:"glow"`
 	IconBackground Color `json:"icon_background"`
+	// Gradient, when set, is the fill's bottom color: the card runs from
+	// its state's color at the top to it.
+	Gradient Color `json:"gradient"`
 }
 
 // Message styles the user's bubble or the assistant's text.
