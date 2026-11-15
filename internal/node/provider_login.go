@@ -195,7 +195,11 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 					changes, err = store.CompleteProviderLogin(recording, db, node.ID(), capture, grant)
 					if err == nil {
 						err = store.RefreshConfigurationAuthorization(recording, db)
-						changes = append(changes, protocol.Event{Kind: "configuration_follow_changed"})
+					}
+					if err == nil {
+						var status protocol.ConfigurationFollowStatus
+						status, err = store.ReadConfigurationFollow(recording, db)
+						changes = append(changes, protocol.Event{Kind: "configuration_follow_changed", Data: status})
 					}
 					if err == nil {
 						_, err = store.RecordEvents(recording, db, node.ID(), changes)

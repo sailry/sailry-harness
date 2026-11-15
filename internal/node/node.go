@@ -450,7 +450,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if err != nil {
 		return link.Admission{}, err
 	}
-	if request.Command.Durable() {
+	if request.Command.Durable() && request.Command.Kind != "create_session_at" {
 		if accepted, handled, err := node.replayAdmission(ctx, caller, request, encoded); handled || err != nil {
 			return accepted, err
 		}
