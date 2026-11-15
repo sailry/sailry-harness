@@ -112,6 +112,14 @@ navigation layer does not change that scope. File and Git operations retain thei
 captured worktree; SSH, database and plugin surfaces retain their Node and resource
 identity. Registered projects remain at their original filesystem paths.
 
+Projects have a Node-local user owner and private or host-shared visibility.
+Projectless resources remain personal. Node authenticates callers before every
+command family, direct subscription and byte stream; typed resource identifiers
+are checked centrally and unknown commands fail closed. Snapshots, catalogs and
+batch events contain only accessible resources. Event audiences retain deletion
+scope, hidden rows advance the cursor without payload, and visibility changes
+invalidate projections. Buffered events and open streams recheck current access.
+
 `Session` is the common conversation container for controllers, Host automation
 and plugin assistants. `StartSession` creates a session and admits its first turn
 atomically. An optional immutable association (`namespace`, `kind`, `id`) links a
@@ -206,6 +214,15 @@ Node's dispatch service. A restored identity must not run beside its original.
 3. Link acknowledges safe receipt; Node executes and records the business outcome.
 4. Client observes the result and ordered events, recovering by the same request
    identity after a disconnect.
+
+Durable admission captures the authenticated user separately from its original
+device caller. Internal task callbacks retain that actor after device revocation;
+new public requests always resolve current membership. A group merge canonicalizes
+authorization while retaining immutable turn and plugin storage principals, so
+equal revision numbers cannot substitute another user's credentials. Recovery
+metadata stores command kind, actor and typed resource IDs, never authored text
+or secrets. Inspecting or replaying a result rechecks current access without
+repeating its effect; remote session forwarding retains its specialized recovery.
 
 The in-process local transport fixes its authenticated caller at construction and
 uses the same Node handler as remote transport. Transport receipt and business
@@ -405,7 +422,15 @@ authorization. Declared programs start without a shell, with a scrubbed environm
 bounded execution and idle cleanup. Service connections inject credentials only
 into declared origins, headers, MCP servers or environment targets.
 
-The Node-owned MCP pool keys connections by package digest, settings revision,
+Plugin package files are digest-shared. Installations, enablement, settings,
+connections, dispatch handlers and personal KV/search spaces belong to one user.
+The existing node storage scope is personal; explicit project storage uses the
+captured accessible project and is shared only through that project's visibility.
+Conversation storage remains session-scoped. Background indexing and scheduled
+callbacks restore their admitted user and original storage principal. Runtime
+diagnostics filter instances by user.
+
+The Node-owned MCP pool keys connections by user, package digest, settings revision,
 server, authorization and launch parameters. Failed or uncertain cleanup reports
 `OutcomeUnknown`. Skills resolve `SKILL.md` and confined resources from captured
 packages and grant no additional permission. Detailed declarations and examples
@@ -504,6 +529,17 @@ deliveries retain exact request IDs across offline recovery, and membership
 generations prevent delayed grants or revocations restoring removed access.
 Directories and sponsorship do not propagate another inbound user's namespace
 through a Node's single Link identity, and they do not form a mesh.
+
+Personal configuration follows a single selected source over direct authenticated
+host connections. Per-host switches control configuration and static secrets
+independently. Manifests reconcile versions, deletions and digests in dependency
+order; exact package archives materialize before their settings. Source-marked
+copies are read-only, local conflicts remain intact, and independent account
+authorization is listed as pending rather than copying renewable login tokens.
+MCP servers can retain explicit local overrides. Disabling follow keeps the last
+usable configuration; detaching converts copies to editable local records.
+Captured tasks continue using their frozen revisions. Machine settings and plugin
+business data do not travel with configuration.
 
 Peer trust records an inbound controller, an outbound host, or both directions.
 An invitation grants inbound controller access on the inviter and outbound host
