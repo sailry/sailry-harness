@@ -420,6 +420,17 @@ func testAnswerFrom(t *testing.T) {
 	if got := AnswerFrom(append(blocks[:6:6], Block{Kind: LimitBlock})); got != 2 {
 		t.Errorf("answer from %d with a cut answer", got)
 	}
+	// Later work cannot hide a failure under the work disclosure. Display
+	// grouping leaves the canonical blocks and their metadata intact.
+	failure := Block{Kind: ErrorBlock, Label: "Provider failed", Fields: [][2]string{{"code", "unavailable"}}, Text: "Original response"}
+	input := []Block{failure, blocks[1], blocks[2]}
+	compacted := Compact(input)
+	if len(compacted) != 3 || compacted[2].Kind != ErrorBlock || compacted[2].Text != failure.Text || compacted[2].Fields[0] != failure.Fields[0] || AnswerFrom(compacted) != 1 {
+		t.Fatalf("failure was hidden or changed: %+v", compacted)
+	}
+	if input[0].Kind != ErrorBlock || AnswerText(compacted) != "a" {
+		t.Fatal("grouping changed canonical order or copied the error as answer text")
+	}
 }
 
 func testLastLines(t *testing.T) {

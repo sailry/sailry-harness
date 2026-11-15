@@ -9,11 +9,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-type transcriptInput struct {
+// TranscriptInput is one visible user input at its canonical history position.
+// Joined guidance keeps its own identity while belonging to the recipient's turn.
+type TranscriptInput struct {
 	Turn        protocol.TurnID            `json:"turn"`
 	Message     protocol.ConversationInput `json:"message"`
 	Attachments []protocol.Attachment      `json:"attachments"`
 	Canonical   bool                       `json:"canonical"`
+	Sequence    uint64                     `json:"sequence"`
+	TimestampMs int64                      `json:"timestamp_ms"`
+	// ImageIDs preserves the canonical part kind for native attachment views.
+	ImageIDs []protocol.AttachmentID `json:"-"`
 }
 
 type transcriptRow struct {
@@ -29,13 +35,13 @@ type transcriptRow struct {
 }
 
 type transcriptSegment struct {
-	Inputs  []transcriptInput `json:"inputs"`
+	Inputs  []TranscriptInput `json:"inputs"`
 	Rows    []transcriptRow   `json:"rows"`
 	Waiting *int              `json:"waiting,omitempty"`
 }
 
 func emptySegment() transcriptSegment {
-	return transcriptSegment{Inputs: []transcriptInput{}, Rows: []transcriptRow{}}
+	return transcriptSegment{Inputs: []TranscriptInput{}, Rows: []transcriptRow{}}
 }
 
 func projectGuidance(page protocol.ConversationPage) map[string]string {
@@ -110,6 +116,7 @@ func projectTranscript(snapshot protocol.ConversationSnapshot, calls []ToolCall,
 	timeline := []protocol.TurnID{}
 	owners := map[string]protocol.TurnID{}
 	segments := map[string]any{}
+	inputs := TranscriptInputs(page)
 	for _, run := range runs {
 		owner := run.Turn
 		if run.Joined != nil && known[*run.Joined] {
@@ -120,7 +127,7 @@ func projectTranscript(snapshot protocol.ConversationSnapshot, calls []ToolCall,
 			continue
 		}
 		timeline = append(timeline, run.Turn)
-		segments[run.Turn.String()] = transcriptSegments(snapshot, calls, guidance, run.Turn)
+		segments[run.Turn.String()] = transcriptSegments(snapshot, calls, guidance, run.Turn, inputs[run.Turn])
 	}
 	return timeline, owners, segments
 }
@@ -156,16 +163,13 @@ func visibleTranscriptRun(snapshot protocol.ConversationSnapshot, run protocol.C
 	return false
 }
 
-func turnInputs(page protocol.ConversationPage, run protocol.ConversationRun) []transcriptInput {
-	value := []transcriptInput{}
+func turnInputs(entries []protocol.ConversationEntry, run protocol.ConversationRun) []TranscriptInput {
+	value := []TranscriptInput{}
 	if run.Notice {
 		return value
 	}
-	for _, entry := range page.Entries {
-		if entry.Turn != run.Turn || entry.Author != "user" {
-			continue
-		}
-		input := transcriptInput{Turn: run.Turn, Message: protocol.DefaultConversationInput(), Attachments: []protocol.Attachment{}, Canonical: true}
+	for _, entry := range entries {
+		input := TranscriptInput{Turn: run.Turn, Message: protocol.DefaultConversationInput(), Attachments: []protocol.Attachment{}, Canonical: true, Sequence: entry.Sequence, TimestampMs: entry.TimestampMs}
 		for _, part := range entry.Parts {
 			switch part.Kind {
 			case "text":
@@ -177,6 +181,12 @@ func turnInputs(page protocol.ConversationPage, run protocol.ConversationRun) []
 					input.Message.Attachments = append(input.Message.Attachments, attachment.ID)
 					input.Attachments = append(input.Attachments, attachment)
 				}
+			case "image":
+				if image, err := payload[protocol.ConversationImage](part.Data); err == nil {
+					input.Message.Attachments = append(input.Message.Attachments, image.Attachment.ID)
+					input.Attachments = append(input.Attachments, image.Attachment)
+					input.ImageIDs = append(input.ImageIDs, image.Attachment.ID)
+				}
 			case "reference":
 				if reference, err := payload[protocol.ConversationReference](part.Data); err == nil {
 					input.Message.References = append(input.Message.References, reference)
@@ -186,83 +196,76 @@ func turnInputs(page protocol.ConversationPage, run protocol.ConversationRun) []
 		value = append(value, input)
 	}
 	if len(value) == 0 && run.Input != nil {
-		value = append(value, transcriptInput{Turn: run.Turn, Message: run.Input.Message, Attachments: run.Input.Attachments})
+		input := TranscriptInput{Turn: run.Turn, Message: run.Input.Message, Attachments: run.Input.Attachments, Sequence: run.Sequence}
+		if run.StartedMs != nil {
+			input.TimestampMs = *run.StartedMs
+		}
+		value = append(value, input)
 	}
 	return value
 }
 
-func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string, turn protocol.TurnID) []transcriptSegment {
-	page := snapshot.Page
-	group := []protocol.ConversationRun{}
-	sequences := map[protocol.TurnID][]uint64{}
+// TranscriptInputs groups inputs by their executing turn, in presentation order.
+// Desktop and Mobile share these boundaries; admission order cannot place
+// guidance that was consumed later ahead of the assistant's earlier output.
+func TranscriptInputs(page protocol.ConversationPage) map[protocol.TurnID][]TranscriptInput {
+	guidance := projectGuidance(page)
+	entries := map[protocol.TurnID][]protocol.ConversationEntry{}
 	for _, entry := range page.Entries {
 		if entry.Author == "user" {
-			sequences[entry.Turn] = append(sequences[entry.Turn], entry.Sequence)
+			entries[entry.Turn] = append(entries[entry.Turn], entry)
 		}
 	}
+	known := map[protocol.TurnID]bool{}
 	for _, run := range page.Runs {
-		if run.Turn == turn || run.Joined != nil && *run.Joined == turn {
-			group = append(group, run)
-		}
+		known[run.Turn] = true
 	}
-	slices.SortFunc(group, func(left, right protocol.ConversationRun) int {
-		if (left.Turn == turn) != (right.Turn == turn) {
-			if left.Turn == turn {
-				return -1
-			}
-			return 1
-		}
-		leftSequence, rightSequence := sequences[left.Turn], sequences[right.Turn]
-		if (len(leftSequence) == 0) != (len(rightSequence) == 0) {
-			if len(leftSequence) != 0 {
-				return -1
-			}
-			return 1
-		}
-		if len(leftSequence) > 0 && len(rightSequence) > 0 {
-			return cmp.Compare(leftSequence[0], rightSequence[0])
-		}
-		return cmp.Compare(left.Sequence, right.Sequence)
-	})
-	type positionedInput struct {
-		position int
-		sequence uint64
-		input    transcriptInput
-	}
-	inputs := []positionedInput{}
-	for _, run := range group {
+	inputs := map[protocol.TurnID][]TranscriptInput{}
+	for _, run := range page.Runs {
 		if run.Continuation != nil || run.Notice || guidance[run.Turn.String()] == "pending" {
 			continue
 		}
-		for index, input := range turnInputs(page, run) {
-			position := positionedInput{position: 2, input: input}
-			if run.Turn == turn {
-				position.position = 0
-			} else if input.Canonical && index < len(sequences[run.Turn]) {
-				position.position, position.sequence = 1, sequences[run.Turn][index]
-			}
-			inputs = append(inputs, position)
+		owner := run.Turn
+		if run.Joined != nil && known[*run.Joined] {
+			owner = *run.Joined
 		}
+		inputs[owner] = append(inputs[owner], turnInputs(entries[run.Turn], run)...)
 	}
-	slices.SortStableFunc(inputs, func(left, right positionedInput) int {
-		if order := cmp.Compare(left.position, right.position); order != 0 {
-			return order
+	for owner, group := range inputs {
+		position := func(input TranscriptInput) int {
+			if input.Turn == owner {
+				return 0
+			}
+			if input.Canonical {
+				return 1
+			}
+			return 2
 		}
-		return cmp.Compare(left.sequence, right.sequence)
-	})
+		slices.SortStableFunc(group, func(left, right TranscriptInput) int {
+			if order := cmp.Compare(position(left), position(right)); order != 0 {
+				return order
+			}
+			return cmp.Compare(left.Sequence, right.Sequence)
+		})
+		inputs[owner] = group
+	}
+	return inputs
+}
+
+func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []ToolCall, guidance map[string]string, turn protocol.TurnID, inputs []TranscriptInput) []transcriptSegment {
 	rows := collectTranscriptRows(snapshot, calls, turn)
 	segments := []transcriptSegment{}
 	current := emptySegment()
-	claimed := []transcriptInput{}
+	claimed := []TranscriptInput{}
 	cursor := 0
 	for _, input := range inputs {
-		switch input.position {
-		case 0:
-			current.Inputs = append(current.Inputs, input.input)
-		case 2:
-			claimed = append(claimed, input.input)
-		case 1:
-			for cursor < len(rows) && !rows[cursor].Draft && rows[cursor].sequence < input.sequence {
+		switch {
+		case input.Turn == turn:
+			current.Inputs = append(current.Inputs, input)
+		case !input.Canonical:
+			claimed = append(claimed, input)
+		default:
+			for cursor < len(rows) && !rows[cursor].Draft && rows[cursor].sequence < input.Sequence {
 				current.Rows = append(current.Rows, rows[cursor])
 				cursor++
 			}
@@ -270,7 +273,7 @@ func transcriptSegments(snapshot protocol.ConversationSnapshot, calls []ToolCall
 				segments = append(segments, current)
 				current = emptySegment()
 			}
-			current.Inputs = append(current.Inputs, input.input)
+			current.Inputs = append(current.Inputs, input)
 		}
 	}
 	current.Rows = append(current.Rows, rows[cursor:]...)

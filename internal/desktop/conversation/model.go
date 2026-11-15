@@ -55,6 +55,9 @@ type Turn struct {
 	// under the bubble.
 	Images []Image
 	Files  []File
+	// Segments interleave consumed guidance with the output that preceded it.
+	// They share this turn's identity and reply; From indexes Reply.Blocks.
+	Segments []Segment
 	// Notices are background results delivered with the turn, shown as a bubble
 	// on the user's side.
 	Notices []Notice
@@ -70,6 +73,23 @@ type Turn struct {
 	Editing *Editing
 	// Controls says which of the message's actions apply.
 	Controls Controls
+}
+
+// Segment starts with its user inputs and ends before the next segment's From.
+// Only the final segment carries the task's live status and reply actions.
+type Segment struct {
+	Inputs []Input
+	From   int
+}
+
+// Input retains the identity and attachments of one user message. Attachment
+// indices refer to the turn's enriched Images and Files, avoiding stale copies.
+type Input struct {
+	ID     string
+	User   string
+	Sent   time.Time
+	Images []int
+	Files  []int
 }
 
 // Editing is a sent message being edited in its bubble: the text the editor
@@ -123,7 +143,7 @@ const (
 	QuestionBlock                    // Question, its history row
 	ChildrenBlock                    // Children: subagent sessions
 	ProgressBlock                    // Steps: a task's progress
-	ErrorBlock                       // the turn's failure: Label and Text
+	ErrorBlock                       // the turn's failure: Label, Fields and Text
 	ImagesBlock                      // Images: generated or attached pictures
 	FilesBlock                       // Files: output files as cards
 	SearchBlock                      // grounding: Text is the answer, Sources its pages
@@ -137,7 +157,8 @@ const (
 type Block struct {
 	Kind     BlockKind
 	Text     string
-	Label    string // ErrorBlock: its localized title
+	Label    string      // ErrorBlock: its localized title
+	Fields   [][2]string // ErrorBlock: diagnostic fields in display order
 	Calls    []Call
 	Question *Question
 	Children []Child

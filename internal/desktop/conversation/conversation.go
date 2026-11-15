@@ -357,39 +357,83 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		if t.Marker != nil {
 			marker(c, t.Marker)
 		}
-		if t.User != "" || len(t.Images) > 0 || len(t.Files) > 0 {
-			ui.Column(c.Key("user")).Gap(8).Children(func() {
-				if t.Editing != nil {
-					s.editor(c, session, t, actions)
-				} else if t.User != "" {
-					var hl []ui.Span
-					if marked {
-						hl = spans(t.User, q, current, theme.Of(c))
+		mark := ""
+		if marked {
+			mark = q
+		}
+		if len(t.Segments) == 0 {
+			s.user(c, session, t, q, current, marked, actions)
+			if len(t.Notices) > 0 {
+				notices(c, t.Notices)
+			}
+			if !t.Reply.Notice || len(t.Reply.Blocks) > 0 {
+				s.reply(c, t, mark, actions)
+			}
+			return
+		}
+		blocks := cited(t.Reply.Blocks, t.Reply.Citations)
+		for index, segment := range t.Segments {
+			key := fmt.Sprintf("%s-segment-%d", t.ID, index)
+			ui.Column(c.Key(key)).FillWidth().Gap(turnGap).Children(func() {
+				for inputIndex, input := range segment.Inputs {
+					message := Turn{ID: input.ID, User: input.User, Sent: input.Sent, Controls: t.Controls}
+					if message.ID == t.ID {
+						message.Editing = t.Editing
+					} else {
+						message.Controls.NoEdit = true
 					}
-					text := userMessage(c, t.User, hl, s.references[session][t.ID])
-					s.span(text, text.ID(), 9, 14)
-				}
-				if len(t.Images) > 0 {
-					s.thumbnails(c, "user-images", t.Images, true)
-				}
-				if len(t.Files) > 0 {
-					ui.Row(c).Justify(ui.End).Children(func() {
-						ui.Column(c).Width(bubbleMax).Children(func() { files(c, "user-files", t.Files, actions) })
+					for _, image := range input.Images {
+						message.Images = append(message.Images, t.Images[image])
+					}
+					for _, file := range input.Files {
+						message.Files = append(message.Files, t.Files[file])
+					}
+					ui.Column(c.Key(inputIndex)).FillWidth().Children(func() {
+						s.user(c, session, &message, q, current, marked, actions)
 					})
+					current -= strings.Count(strings.ToLower(input.User), strings.ToLower(q))
 				}
-				userFooter(c, t, actions)
+				if index == 0 && len(t.Notices) > 0 {
+					notices(c, t.Notices)
+				}
+				end := len(blocks)
+				latest := index == len(t.Segments)-1
+				if !latest {
+					end = t.Segments[index+1].From
+				}
+				if latest || end > segment.From {
+					s.replyPart(c, t, blocks[segment.From:end], mark, actions, latest, key)
+				}
 			})
 		}
-		if len(t.Notices) > 0 {
-			notices(c, t.Notices)
-		}
-		if !t.Reply.Notice || len(t.Reply.Blocks) > 0 {
-			mark := ""
+	})
+}
+
+// user renders one original or consumed input with its own identity.
+func (s *State) user(c *ui.Context, session string, t *Turn, q string, current int, marked bool, actions Actions) {
+	if t.User == "" && len(t.Images) == 0 && len(t.Files) == 0 {
+		return
+	}
+	ui.Column(c.Key("user")).Gap(8).Children(func() {
+		if t.Editing != nil {
+			s.editor(c, session, t, actions)
+		} else if t.User != "" {
+			var hl []ui.Span
 			if marked {
-				mark = q
+				hl = spans(t.User, q, current, theme.Of(c))
 			}
-			s.reply(c, t, mark, actions)
+			text := userMessage(c, t.User, hl, s.references[session][t.ID])
+			s.span(text, text.ID(), 9, 14)
 		}
+		if len(t.Images) > 0 {
+			s.thumbnails(c, "user-images", t.Images, true)
+		}
+		if len(t.Files) > 0 {
+			ui.Row(c).Justify(ui.End).Children(func() {
+				ui.Column(c).Width(bubbleMax).Children(func() { files(c, "user-files", t.Files, actions) })
+			})
+		}
+		userFooter(c, t, actions)
 	})
 }
 
@@ -489,79 +533,98 @@ func Elapsed(d time.Duration) string {
 // separator, the work region folded under it, the answer, and the footer once
 // the run ends.
 func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
+	s.replyPart(c, t, cited(t.Reply.Blocks, t.Reply.Citations), mark, actions, true, t.ID)
+}
+
+func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, actions Actions, latest bool, key string) {
 	p := theme.Of(c)
 	size := textSize(c)
 	r := &t.Reply
-	blocks := Compact(cited(r.Blocks, r.Citations))
+	blocks = Compact(blocks)
 	from := AnswerFrom(blocks)
+	end := len(blocks)
+	for end > 0 && blocks[end-1].Kind == ErrorBlock {
+		end--
+	}
 	active := r.Status.Active()
-	live := active && r.Status != Unsynced
+	live := latest && active && r.Status != Unsynced
 	gap := float32(8)
 	if from > 0 {
 		gap = workGap
 	}
 	ui.Column(c.Key("reply")).Gap(gap).Children(func() {
 		// The header: the status, its time, and the work region's trigger.
-		ui.Column(c).Gap(8).Children(func() {
-			key := "work-" + t.ID
-			workOpen, chosen := s.work[key]
-			if !chosen {
-				workOpen = active && !s.CompactDisplay
-			}
-			label := i18n.T(c, StatusKey(r.Status))
-			status := func() {
-				row := ui.Row(c).Gap(8).Grow(1).MinWidth(0)
-				if r.Status == Failed || r.Status == Interrupted {
-					row.TextColor(p.Danger)
+		if latest || from > 0 {
+			ui.Column(c).Gap(8).Children(func() {
+				key := "work-" + key
+				workOpen, chosen := s.work[key]
+				if !chosen {
+					workOpen = active && !s.CompactDisplay
 				}
-				row.Children(func() {
-					ui.Text(c, label).FontSize(size).SingleLine()
-					if r.Elapsed > 0 {
-						ui.Text(c, Elapsed(r.Elapsed)).FontSize(size).SingleLine()
+				statusKey := StatusKey(r.Status)
+				if !latest {
+					statusKey = StatusKey(Completed)
+				}
+				label := i18n.T(c, statusKey)
+				status := func() {
+					row := ui.Row(c).Gap(8).Grow(1).MinWidth(0)
+					if latest && (r.Status == Failed || r.Status == Interrupted) {
+						row.TextColor(p.Danger)
 					}
-				})
-			}
-			if from == 0 {
-				ui.Row(c).Height(rowHeight(size)).TextColor(p.MutedForeground).Children(status)
-			} else {
-				b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).FillWidth().Gap(8).
-					Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-				hovered := b.Hovered() || b.FocusVisible()
-				b.Children(func() {
-					status()
-					chevron := icons.ChevronRight
-					if workOpen {
-						chevron = icons.ChevronDown
-					}
-					ch := ui.Icon(c, chevron).FontSize(rowIcon(size)).Shrink(0)
-					if !hovered {
-						ch.Opacity(0)
-					}
-				}).OnClick(func() { s.work[key] = !workOpen })
-			}
-			ui.Divider(c).Background(p.Border)
-			if from > 0 && workOpen {
-				ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-					s.blocks(c, t.ID, blocks[:from], live && from == len(blocks), actions)
-				})
-			}
-		})
-		if from < len(blocks) {
-			answer := blocks[from:]
+					row.Children(func() {
+						ui.Text(c, label).FontSize(size).SingleLine()
+						if latest && r.Elapsed > 0 {
+							ui.Text(c, Elapsed(r.Elapsed)).FontSize(size).SingleLine()
+						}
+					})
+				}
+				if from == 0 {
+					ui.Row(c).Height(rowHeight(size)).TextColor(p.MutedForeground).Children(status)
+				} else {
+					b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).FillWidth().Gap(8).
+						Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+					hovered := b.Hovered() || b.FocusVisible()
+					b.Children(func() {
+						status()
+						chevron := icons.ChevronRight
+						if workOpen {
+							chevron = icons.ChevronDown
+						}
+						ch := ui.Icon(c, chevron).FontSize(rowIcon(size)).Shrink(0)
+						if !hovered {
+							ch.Opacity(0)
+						}
+					}).OnClick(func() { s.work[key] = !workOpen })
+				}
+				ui.Divider(c).Background(p.Border)
+				if from > 0 && workOpen {
+					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
+						s.blocks(c, key, blocks[:from], live && from == len(blocks), actions)
+					})
+				}
+			})
+		}
+		if from < end {
+			answer := blocks[from:end]
 			if mark != "" {
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, t.ID, answer, live, actions)
+				s.blocks(c, key, answer, live, actions)
 			})
 		}
-		if !active && r.Changes != nil {
+		if latest && !active && r.Changes != nil {
 			s.changes(c, t.ID, r.Changes, actions)
 		}
 		if live && showPhase(r, blocks) {
 			phaseRow(c, r)
 		}
-		if !active {
+		if end < len(blocks) {
+			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
+				s.blocks(c, key+"-errors", blocks[end:], false, actions)
+			})
+		}
+		if latest && !active {
 			s.footer(c, t, Compact(r.Blocks), actions)
 		}
 	})
@@ -609,12 +672,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 			case LimitBlock:
 				plain(c, "limit-"+key, Call{Label: i18n.T(c, "chat_output_limit"), Icon: "triangle-alert", Warning: true})
 			case ErrorBlock:
-				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
-				s.disclosure(c, "error-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-					ui.Scroll(c).MaxHeight(160).Children(func() {
-						ui.Text(c, b.Text).FontSize(size).TextColor(p.Danger)
-					})
-				})
+				diagnostic(c, &Diagnostic{Title: b.Label, Fields: b.Fields, Detail: b.Text})
 			}
 		})
 	}

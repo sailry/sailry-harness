@@ -13,15 +13,13 @@ import (
 
 func (r *Runtime) bindReferences(session string, page protocol.ConversationPage) {
 	bound := map[string][]conversation.Reference{}
-	owners := turnOwners(page.Runs)
 	canonical := map[protocol.TurnID]bool{}
 	appendReference := func(turn protocol.TurnID, ref protocol.ConversationReference) {
 		value, ok := composerReference(ref)
 		if !ok {
 			return
 		}
-		owner := owners[turn].String()
-		bound[owner] = append(bound[owner], conversation.Reference{ID: value.ID, Label: ref.Label, Open: func() { r.openReference(session, turn, ref) }})
+		bound[turn.String()] = append(bound[turn.String()], conversation.Reference{ID: value.ID, Label: ref.Label, Open: func() { r.openReference(session, turn, ref) }})
 	}
 	for _, entry := range page.Entries {
 		if entry.Author != "user" {

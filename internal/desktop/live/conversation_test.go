@@ -306,14 +306,14 @@ func TestConversationProjection(t *testing.T) {
 		page := protocol.DefaultConversationPage()
 		page.Session = protocol.SessionID{1}
 		page.Runs = []protocol.ConversationRun{{Turn: protocol.TurnID{1}, Kind: "task", Status: "failed", Error: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Provider rejected the request"}}}
-		_, session, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
-		if session.Diagnostic == nil || session.Diagnostic.Detail != "Provider rejected the request" || len(session.Diagnostic.Fields) != 1 || session.Diagnostic.Fields[0][1] != string(protocol.ErrorCodeUnavailable) {
-			t.Fatal("latest failed-run diagnostic was not projected")
+		failedTurns, session, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		if blocks := failedTurns[0].Reply.Blocks; session.Diagnostic != nil || len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Text != "Provider rejected the request" || len(blocks[0].Fields) != 1 || blocks[0].Fields[0] != [2]string{"code", string(protocol.ErrorCodeUnavailable)} {
+			t.Fatal("failed-run detail was missing from the reply or duplicated after it")
 		}
 		// A failed automatic compaction says why once: its own block replaces the run's.
 		page.Entries = []protocol.ConversationEntry{{ID: "failure", Turn: protocol.TurnID{1}, Author: "system", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"compaction_failure","failure":{"source":"automatic","stage":"request","reason":"request_failed","continued":false,"cause":"Provider rejected the request"}}`)}}}}
 		compacting, reported, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
-		if blocks := compacting[0].Reply.Blocks; len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Label != "chat_compact_failed" || blocks[0].Text != "Provider rejected the request" || reported.Diagnostic == nil {
+		if blocks := compacting[0].Reply.Blocks; len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Label != "chat_compact_failed" || blocks[0].Text != "Provider rejected the request" || len(blocks[0].Fields) != 1 || reported.Diagnostic != nil {
 			t.Fatalf("failed compaction blocks = %+v", compacting[0].Reply.Blocks)
 		}
 		// The failure that paused automatic compaction says so in its title, still
@@ -386,7 +386,7 @@ func TestConversationProjection(t *testing.T) {
 		if len(retries) != 2 || retries[0].Stopped || retries[0].Detail != "slow down" || !retries[1].Stopped || retries[1].Reason != "chat_model_rate_limited" || retries[1].Detail != "" {
 			t.Fatalf("stopped retries = %+v", retries)
 		}
-		if title != "chat_model_rate_limited" || failed.Diagnostic == nil || failed.Diagnostic.Title != "chat_model_rate_limited" || i18n.In("zh-CN", title) == title {
+		if title != "chat_model_rate_limited" || failed.Diagnostic != nil || i18n.In("zh-CN", title) == title {
 			t.Fatal("the stop reason is not the failure's title", title, failed.Diagnostic)
 		}
 		// Built-in tools carry their label key and the kind of a failure without a message, in the user's language.

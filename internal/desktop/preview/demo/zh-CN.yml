@@ -573,3 +573,4 @@ notice.migrated: "已完成，用时 12 分 05 秒"
 
 # What the microphone hears (shell.go)
 dictation.text: "再给突发流量的情况补一个测试"
+handbook.0.guide: 摘要只保留决定和接下来的步骤

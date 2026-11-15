@@ -19,23 +19,37 @@ import (
 // a helper for a grouped test to call as a subtest; it starts no process.
 func TestShellCommand(t *testing.T) {
 	t.Helper()
-	if command, variables, directory, err := shellCommand("linux", protocol.TerminalSettings{}, "/work"); err != nil || command != nil || variables != nil || directory != "/work" {
+	if command, variables, directory, err := shellCommand("windows", protocol.TerminalSettings{}, "/work", nil); err != nil || command != nil || variables != nil || directory != "/work" {
 		t.Fatalf("default shell = %v %v %q %v", command, variables, directory, err)
 	}
 	shell := filepath.Join(t.TempDir(), "shell")
-	if _, _, _, err := shellCommand("linux", protocol.TerminalSettings{Shell: shell}, "/work"); err == nil {
+	if _, _, _, err := shellCommand("linux", protocol.TerminalSettings{Shell: shell}, "/work", nil); err == nil {
 		t.Fatal("a missing shell was accepted")
 	}
 	if err := os.WriteFile(shell, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	command, variables, _, err := shellCommand("linux", protocol.TerminalSettings{Shell: shell}, "/work")
+	command, variables, _, err := shellCommand("linux", protocol.TerminalSettings{Shell: shell}, "/work", nil)
 	if err != nil || !slices.Equal(command, []string{shell, "-l"}) || !slices.Equal(variables, []string{"SHELL=" + shell}) {
 		t.Fatalf("login shell = %v %v %v", command, variables, err)
 	}
-	command, _, _, err = shellCommand("linux", protocol.TerminalSettings{Shell: shell, ShellArguments: []string{"-i"}}, "/work")
+	command, _, _, err = shellCommand("linux", protocol.TerminalSettings{Shell: shell, ShellArguments: []string{"-i"}}, "/work", nil)
 	if err != nil || !slices.Equal(command, []string{shell, "-i"}) {
 		t.Fatalf("shell with arguments = %v %v", command, err)
+	}
+	t.Setenv("SHELL", "/fixture/stale-shell")
+	command, variables, _, err = shellCommand("linux", protocol.TerminalSettings{}, "/work", []string{"SHELL=/fixture/old-shell", "SHELL=" + shell})
+	if err != nil || !slices.Equal(command, []string{shell, "-l"}) || !slices.Equal(variables, []string{"SHELL=" + shell}) {
+		t.Fatalf("captured account shell = %v %v %v", command, variables, err)
+	}
+	command, _, _, err = shellCommand("linux", protocol.TerminalSettings{ShellArguments: []string{"-i"}}, "/work", []string{"SHELL=" + shell})
+	if err != nil || !slices.Equal(command, []string{shell, "-i"}) {
+		t.Fatalf("captured shell with explicit arguments = %v %v", command, err)
+	}
+	for goos, want := range map[string]string{"darwin": "/bin/zsh", "linux": "/bin/sh"} {
+		if actual := loginShell(goos, nil); actual != want {
+			t.Fatalf("default %s shell = %q, want %q", goos, actual, want)
+		}
 	}
 	if values := Environment([]string{"A=1", "B=2"}, protocol.TerminalSettings{Environment: map[string]string{"B": "3", "C": "4"}}); !slices.Equal(values, []string{"A=1", "B=2", "B=3", "C=4"}) {
 		t.Fatalf("environment = %v", values)
@@ -60,7 +74,7 @@ func TestShellCommand(t *testing.T) {
 		{"no distribution", launcher, nil, `\\wsl$\Ubuntu\home`, nil, "", "WSL worktree requires its matching distribution"},
 		{"network share", launcher, nil, `\\server\share\work`, nil, "", "WSL worktree requires a local drive or matching distribution path"},
 	} {
-		command, _, directory, err := shellCommand("windows", protocol.TerminalSettings{Shell: test.shell, ShellArguments: test.arguments}, test.root)
+		command, _, directory, err := shellCommand("windows", protocol.TerminalSettings{Shell: test.shell, ShellArguments: test.arguments}, test.root, nil)
 		message := ""
 		var failure *protocol.Fault
 		if errors.As(err, &failure) {

@@ -10,9 +10,11 @@ func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 
 // Compact prepares a reply's blocks for display: blank text goes, calls
 // that never group get blocks of their own, and adjacent tool blocks, and
-// adjacent children blocks, join.
+// adjacent children blocks, join. Failures stay at the end of the answer,
+// outside the work region even when later work or children were projected.
 func Compact(blocks []Block) []Block {
 	var out []Block
+	var failures []Block
 	push := func(b Block) {
 		if n := len(out); n > 0 {
 			last := &out[n-1]
@@ -29,6 +31,8 @@ func Compact(blocks []Block) []Block {
 	}
 	for _, b := range blocks {
 		switch {
+		case b.Kind == ErrorBlock:
+			failures = append(failures, b)
 		case b.Kind == TextBlock && strings.TrimSpace(b.Text) == "":
 		case b.Kind == ToolsBlock:
 			for _, c := range b.Calls {
@@ -38,16 +42,16 @@ func Compact(blocks []Block) []Block {
 			push(b)
 		}
 	}
-	return out
+	return append(out, failures...)
 }
 
 // work reports a block that belongs in the collapsible work region:
 // everything but text, questions, the answer's pictures, files and
-// visuals, the notice that the answer was cut, and tool blocks of
+// visuals, failures, the notice that the answer was cut, and tool blocks of
 // interactions alone.
 func work(b Block) bool {
 	switch b.Kind {
-	case TextBlock, QuestionBlock, ImagesBlock, FilesBlock, VisualBlock, LimitBlock:
+	case TextBlock, QuestionBlock, ImagesBlock, FilesBlock, VisualBlock, ErrorBlock, LimitBlock:
 		return false
 	case ToolsBlock:
 		for _, c := range b.Calls {

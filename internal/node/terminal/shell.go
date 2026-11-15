@@ -53,11 +53,14 @@ func launchVariables(goos, root string) []string {
 }
 
 // shellCommand returns the program of a new shell terminal, the variables it
-// adds and its working directory. A nil command starts the platform's login
-// shell.
-func shellCommand(goos string, settings protocol.TerminalSettings, root string) (command, variables []string, directory string, err error) {
+// adds and its working directory. Unix defaults use the Node's captured
+// account shell, rather than the controller process's inherited SHELL.
+func shellCommand(goos string, settings protocol.TerminalSettings, root string, environment []string) (command, variables []string, directory string, err error) {
 	if settings.Shell == "" {
-		return nil, nil, root, nil
+		if goos == "windows" {
+			return nil, nil, root, nil
+		}
+		settings.Shell = loginShell(goos, environment)
 	}
 	command = append([]string{settings.Shell}, settings.ShellArguments...)
 	if goos != "windows" {
@@ -97,9 +100,12 @@ func shellCommand(goos string, settings protocol.TerminalSettings, root string) 
 	return append(command, "--cd", target), nil, directory, nil
 }
 
-// loginShell is the shell the terminal runtime starts for an empty command.
-func loginShell(environment []string) string {
+// loginShell selects the Node's captured account shell for a plain terminal.
+func loginShell(goos string, environment []string) string {
 	shell := "/bin/sh"
+	if goos == "darwin" {
+		shell = "/bin/zsh"
+	}
 	for _, entry := range environment {
 		if value, found := strings.CutPrefix(entry, "SHELL="); found && value != "" {
 			shell = value

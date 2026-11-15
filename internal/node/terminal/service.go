@@ -125,7 +125,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	default:
 		var variables []string
 		var err error
-		if command, variables, directory, err = shellCommand(runtime.GOOS, launch.Settings, launch.Root); err != nil {
+		if command, variables, directory, err = shellCommand(runtime.GOOS, launch.Settings, launch.Root, environment); err != nil {
 			return protocol.TerminalInfo{}, err
 		}
 		environment = append(environment, variables...)
@@ -186,10 +186,6 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	}
 	release := func() {}
 	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && process.SandboxSupported() {
-		if len(command) == 0 {
-			// A wrapper replaces argv[0], so ask for the login startup files.
-			command = []string{loginShell(environment), "-l"}
-		}
 		confined, variables, free, err := launch.Sandbox(launch.Root, command, environment)
 		if err != nil {
 			finish(protocol.TerminalInfo{}, err)

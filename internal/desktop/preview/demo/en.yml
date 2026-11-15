@@ -575,3 +575,4 @@ notice.migrated: "Completed in 12m 05s"
 
 # What the microphone hears (shell.go)
 dictation.text: "Add a test for the burst case as well"
+handbook.0.guide: Keep the summary focused on decisions and next steps

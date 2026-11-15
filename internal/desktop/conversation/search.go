@@ -44,7 +44,11 @@ func Find(turns []Turn, query string) []Match {
 		for n := range strings.Count(strings.ToLower(turns[i].User), q) {
 			out = append(out, Match{Turn: i, User: true, N: n})
 		}
-		for n := range strings.Count(strings.ToLower(searchable(turns[i].Reply.Blocks)), q) {
+		answer := searchable(turns[i].Reply.Blocks)
+		if len(turns[i].Segments) > 0 {
+			answer = segmentedText(&turns[i])
+		}
+		for n := range strings.Count(strings.ToLower(answer), q) {
 			out = append(out, Match{Turn: i, N: n})
 		}
 	}

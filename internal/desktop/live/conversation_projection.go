@@ -168,8 +168,66 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 	associations := map[string][]toolAssociation{}
 	// started is the background task each call started, by the call's row.
 	started := map[string]string{}
-	// User entries replace the captured pending input once canonical history arrives.
-	canonicalUsers := map[protocol.TurnID]bool{}
+	inputs := client.TranscriptInputs(page)
+	type inputPosition struct {
+		turn     protocol.TurnID
+		sequence uint64
+	}
+	canonicalInputs := map[protocol.TurnID]map[inputPosition][]conversation.Input{}
+	claimedInputs := map[protocol.TurnID][]conversation.Input{}
+	for owner, values := range inputs {
+		position, ok := positions[owner]
+		if !ok {
+			continue
+		}
+		t := &turns[position]
+		t.User = ""
+		segmented := len(values) > 1 || len(values) == 1 && values[0].Turn != owner
+		if segmented {
+			t.Segments = []conversation.Segment{{}}
+		}
+		for _, value := range values {
+			input := conversation.Input{ID: value.Turn.String(), User: value.Message.Text}
+			if value.TimestampMs != 0 {
+				input.Sent = time.UnixMilli(value.TimestampMs)
+			} else {
+				input.Sent = t.Sent
+			}
+			if input.User != "" {
+				if t.User != "" {
+					t.User += "\n\n"
+				}
+				t.User += input.User
+			}
+			for _, attachment := range value.Attachments {
+				kind := attachmentFileKind(attachment.Spec.Name, attachment.Spec.MediaType)
+				if kind == conversation.ImageFile || slices.Contains(value.ImageIDs, attachment.ID) {
+					input.Images = append(input.Images, len(t.Images))
+					t.Images = append(t.Images, conversation.Image{ID: attachment.ID.String(), Name: attachment.Spec.Name})
+				} else {
+					input.Files = append(input.Files, len(t.Files))
+					t.Files = append(t.Files, conversation.File{ID: attachment.ID.String(), Path: attachment.Spec.Name, Mime: attachment.Spec.MediaType, Size: int64(attachment.Spec.Size), Kind: kind})
+				}
+			}
+			if t.Sent.IsZero() {
+				t.Sent = input.Sent
+			}
+			if !segmented {
+				continue
+			}
+			if value.Turn == owner {
+				t.Segments[0].Inputs = append(t.Segments[0].Inputs, input)
+			} else if value.Canonical {
+				if canonicalInputs[owner] == nil {
+					canonicalInputs[owner] = map[inputPosition][]conversation.Input{}
+				}
+				key := inputPosition{value.Turn, value.Sequence}
+				canonicalInputs[owner][key] = append(canonicalInputs[owner][key], input)
+			} else {
+				claimedInputs[owner] = append(claimedInputs[owner], input)
+			}
+		}
+	}
 	summarized := map[int]bool{}
 	for _, entry := range page.Entries {
 		owner := owners[entry.Turn]
@@ -179,41 +237,13 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		}
 		t := &turns[position]
 		if entry.Author == "user" {
-			// The continued turn's own input is the package's prompt; guidance
-			// joined into it is the user's and shows as usual.
-			if t.Marker != nil && entry.Turn == owner {
-				continue
-			}
-			if !canonicalUsers[owner] {
-				t.User = ""
-				canonicalUsers[owner] = true
-			}
-			var parts []string
-			for _, part := range entry.Parts {
-				if part.Kind == "text" {
-					if text, ok := detail[string](part.Data); ok {
-						parts = append(parts, text)
-					}
+			if values := canonicalInputs[owner][inputPosition{entry.Turn, entry.Sequence}]; len(values) > 0 {
+				last := len(t.Segments) - 1
+				if len(t.Reply.Blocks) > t.Segments[last].From {
+					t.Segments = append(t.Segments, conversation.Segment{From: len(t.Reply.Blocks)})
+					last++
 				}
-				switch part.Kind {
-				case "image":
-					if image, ok := detail[protocol.ConversationImage](part.Data); ok {
-						t.Images = append(t.Images, conversation.Image{ID: image.Attachment.ID.String(), Name: image.Attachment.Spec.Name})
-					}
-				case "attachment":
-					if file, ok := detail[protocol.Attachment](part.Data); ok {
-						t.Files = append(t.Files, conversation.File{ID: file.ID.String(), Path: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size)})
-					}
-				}
-			}
-			if text := strings.Join(parts, ""); text != "" {
-				if t.User != "" {
-					t.User += "\n\n"
-				}
-				t.User += text
-			}
-			if t.Sent.IsZero() {
-				t.Sent = time.UnixMilli(entry.TimestampMs)
+				t.Segments[last].Inputs = append(t.Segments[last].Inputs, values...)
 			}
 			continue
 		}
@@ -243,7 +273,7 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 			// Search is work in the accepted layout, so it precedes the answer.
 			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language, now)
+		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language, now, segmentFrom(t))
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -279,11 +309,16 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 	for _, draft := range snapshot.Drafts {
 		if position, ok := positions[owners[draft.Turn]]; ok {
 			t := &turns[position]
-			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language, now)
+			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language, now, segmentFrom(t))
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
 			}
 		}
+	}
+	for owner, values := range claimedInputs {
+		t := &turns[positions[owner]]
+		last := len(t.Segments) - 1
+		t.Segments[last].Inputs = append(t.Segments[last].Inputs, values...)
 	}
 	for _, r := range runs {
 		if position, ok := positions[owners[r.Turn]]; ok && r.Error != nil {
@@ -300,22 +335,24 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 			}
 			title := failureKey(*r.Error)
 			// A compaction that failed has said so, with this cause, on its own block.
-			if !slices.ContainsFunc(t.Reply.Blocks, func(block conversation.Block) bool {
+			index := slices.IndexFunc(t.Reply.Blocks, func(block conversation.Block) bool {
 				return block.Kind == conversation.ErrorBlock && (block.Label == "chat_compact_failed" || block.Label == "chat_compact_failed_paused") && block.Text == r.Error.Message
-			}) {
+			})
+			if index < 0 {
+				index = len(t.Reply.Blocks)
 				t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
 			}
-			if position == len(turns)-1 && session.Diagnostic == nil {
-				session.Diagnostic = &conversation.Diagnostic{Title: title, Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
-			}
+			t.Reply.Blocks[index].Fields = [][2]string{{"code", string(r.Error.Code)}}
 		}
 	}
 	calls := map[string]*conversation.Call{}
 	for ti := range turns {
 		firstProgress := -1
 		retries := map[string]int{}
+		boundaries := make([]int, len(turns[ti].Reply.Blocks)+1)
 		blocks := turns[ti].Reply.Blocks[:0]
-		for _, block := range turns[ti].Reply.Blocks {
+		for index, block := range turns[ti].Reply.Blocks {
+			boundaries[index] = len(blocks)
 			if retry := block.Retry; retry != nil && retry.Request != "" {
 				if position, exists := retries[retry.Request]; exists {
 					blocks[position] = block
@@ -331,6 +368,11 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 				firstProgress = len(blocks)
 			}
 			blocks = append(blocks, block)
+		}
+		boundaries[len(boundaries)-1] = len(blocks)
+		for index := range turns[ti].Segments {
+			segment := &turns[ti].Segments[index]
+			segment.From = boundaries[segment.From]
 		}
 		turns[ti].Reply.Blocks = blocks
 		for bi := range turns[ti].Reply.Blocks {
@@ -690,14 +732,22 @@ func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
 	return nil
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string, now time.Time) {
+// segmentFrom prevents adjacent text from crossing a consumed input boundary.
+func segmentFrom(turn *conversation.Turn) int {
+	if len(turn.Segments) == 0 {
+		return 0
+	}
+	return turn.Segments[len(turn.Segments)-1].From
+}
+
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string, now time.Time, from int) {
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
 			continue
 		case "text":
 			if text, ok := detail[string](part.Data); ok && text != "" {
-				if n := len(reply.Blocks); n > 0 && reply.Blocks[n-1].Kind == conversation.TextBlock {
+				if n := len(reply.Blocks); n > from && reply.Blocks[n-1].Kind == conversation.TextBlock {
 					reply.Blocks[n-1].Text += text
 				} else {
 					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.TextBlock, Text: text})

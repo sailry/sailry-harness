@@ -111,6 +111,9 @@ func cited(blocks []Block, cites []Citation) []Block {
 func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 	p := theme.Of(c)
 	text := AnswerText(blocks)
+	if len(t.Segments) > 0 {
+		text = segmentedText(t)
+	}
 	session := s.renderSession
 	row := ui.Row(c.Key("footer")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.MutedForeground)
 	hovered := row.Hovered()
@@ -172,6 +175,22 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 			ui.Text(c, t.Reply.Finished.Format("15:04")).FontSize(14).SingleLine()
 		}
 	})
+}
+
+// segmentedText keeps the answer of every exchange when guidance interrupted
+// a task; work in a later segment does not hide an earlier answer from Copy.
+func segmentedText(t *Turn) string {
+	var texts []string
+	for index, segment := range t.Segments {
+		end := len(t.Reply.Blocks)
+		if index+1 < len(t.Segments) {
+			end = t.Segments[index+1].From
+		}
+		if text := AnswerText(Compact(t.Reply.Blocks[segment.From:end])); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, "\n\n")
 }
 
 // ExportSupported reports whether this system exports format.

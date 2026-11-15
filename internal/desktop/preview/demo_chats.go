@@ -53,6 +53,18 @@ func (b *demo) handbook() *Conversation {
 		{Kind: cv.CompactionBlock, Label: "handoff", Text: b.t("handbook.handoff")},
 		text(b.t("handbook.0.more")),
 	}
+	// Guidance arrives after the first answer and keeps its own attachments.
+	guide := b.t("handbook.0.guide")
+	start.Sent = Now.Add(-12 * time.Minute)
+	start.Files = []cv.File{{ID: start.ID + "/outline", Path: "handbook/outline.md", Mime: "text/markdown", Kind: cv.MarkdownFile, Text: b.t("handbook.file")}}
+	picture := pictures()[0]
+	picture.ID, picture.Name = start.ID+"/scan", "outline.png"
+	start.Images = []cv.Image{picture}
+	start.Segments = []cv.Segment{
+		{Inputs: []cv.Input{{ID: start.ID, User: start.User, Sent: start.Sent, Files: []int{0}}}},
+		{From: 2, Inputs: []cv.Input{{ID: start.ID + "/guide", User: guide, Sent: start.Sent.Add(30 * time.Second), Images: []int{0}}}},
+	}
+	start.User += "\n\n" + guide
 	ask := b.user(id+"/2", "handbook.2.user")
 	ask.Reply = done(cv.Completed, 14)
 	// A long chapter's answer ended at the model's output limit.

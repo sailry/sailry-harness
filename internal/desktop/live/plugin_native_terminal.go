@@ -9,16 +9,18 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type pluginNativeTerminal struct {
-	id     protocol.TerminalID
-	state  *liveTerminal
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	view   *myterminal.Terminal
-	closed bool
+	id      protocol.TerminalID
+	state   *liveTerminal
+	display preferences.Terminal
+	cancel  context.CancelFunc
+	mu      sync.Mutex
+	view    *myterminal.Terminal
+	closed  bool
 }
 
 type pluginNativeTerminalConn struct {
@@ -117,6 +119,10 @@ func (state *pluginNativeState) renderTerminal(view *ui.Context, element plugins
 	if mounted.state.reading || mounted.state.terminal == nil {
 		return ui.Row(view).Fill().Center().Children(func() { kit.Loader(view, 20) }), nil
 	}
+	if display := state.runtime.localRuntime().terminalDisplay(); display != mounted.display {
+		mounted.state.terminal.SetFont(terminalFont(display))
+		mounted.display = display
+	}
 	terminal := myterminal.View(view, mounted.state.terminal).Grow(1).MinHeight(0).FillWidth().Disabled(suspended)
 	if !suspended && state.terminalFocus == id.String() {
 		terminal.Focus()
@@ -151,7 +157,8 @@ func pluginTerminalInScope(scope protocol.PluginContext, info protocol.TerminalI
 
 func (state *pluginNativeState) mountTerminal(identity string, id protocol.TerminalID, local, remote bool) *pluginNativeTerminal {
 	ctx, cancel := context.WithCancel(state.native.Context)
-	mounted := &pluginNativeTerminal{id: id, cancel: cancel, state: &liveTerminal{owner: state.runtime, reading: true}}
+	display := state.runtime.localRuntime().terminalDisplay()
+	mounted := &pluginNativeTerminal{id: id, cancel: cancel, display: display, state: &liveTerminal{owner: state.runtime, reading: true}}
 	state.terminals[identity] = mounted
 	if !state.runtime.async(func() {
 		output, err := state.execute(ctx, protocol.Command{Kind: "inspect_terminal", Data: protocol.CommandInspectTerminalPayload{Terminal: id}})
@@ -173,6 +180,7 @@ func (state *pluginNativeState) mountTerminal(identity string, id protocol.Termi
 				scoped := &pluginNativeTerminalConn{terminalConn: connection, native: state}
 				terminal, err = myterminal.New(myterminal.Options{
 					Conn: scoped, ResizeByConn: true, ClipboardRead: myterminal.ClipboardAsk, Transparent: true,
+					Font:    terminalFont(display),
 					OnClear: func(myterminal.Clear) bool { connection.clearScreen(); return true },
 				})
 				if err == nil {
@@ -202,6 +210,10 @@ func (state *pluginNativeState) mountTerminal(identity string, id protocol.Termi
 				return
 			}
 			mounted.state.conn, mounted.state.terminal = connection, terminal
+			if current := state.runtime.localRuntime().terminalDisplay(); current != display {
+				terminal.SetFont(terminalFont(current))
+				mounted.display = current
+			}
 		})
 	}) {
 		mounted.state.reading, mounted.state.failed = false, true

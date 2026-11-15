@@ -50,7 +50,7 @@ func TestRetryWaitBudgetProjectsItsOwnTerminalReason(t *testing.T) {
 				t.Fatal(err)
 			}
 			turns, session, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: restored}, "en")
-			if len(turns) != 1 || turns[0].Reply.Status != conversation.Failed || session.Diagnostic == nil || session.Diagnostic.Title != "chat_model_retry_wait_exhausted" {
+			if len(turns) != 1 || turns[0].Reply.Status != conversation.Failed || session.Diagnostic != nil {
 				t.Fatalf("waiting budget lost its terminal presentation: turns=%+v diagnostic=%+v", turns, session.Diagnostic)
 			}
 			var retry *conversation.Retry
@@ -61,6 +61,9 @@ func TestRetryWaitBudgetProjectsItsOwnTerminalReason(t *testing.T) {
 				}
 				if block.Kind == conversation.ErrorBlock {
 					title = block.Label
+					if len(block.Fields) != 1 || block.Fields[0] != [2]string{"code", string(fault.Code)} || block.Text != fault.Message {
+						t.Fatalf("waiting budget lost its original failure: %+v", block)
+					}
 				}
 			}
 			if title != "chat_model_retry_wait_exhausted" {

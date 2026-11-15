@@ -250,11 +250,28 @@ func validateRecordedPage(page protocol.ConversationPage) error {
 }
 
 func verifyRecordedText(snapshot protocol.ConversationSnapshot, turns []conversation.Turn) error {
+	type exchange struct {
+		user protocol.TurnID
+		text string
+	}
 	type text struct {
 		input     string
 		users     []string
 		canonical bool
 		assistant strings.Builder
+		order     []exchange
+	}
+	appendExchange := func(order []exchange, value exchange) []exchange {
+		if value.user == (protocol.TurnID{}) {
+			if value.text == "" {
+				return order
+			}
+			if last := len(order) - 1; last >= 0 && order[last].user == (protocol.TurnID{}) {
+				order[last].text += value.text
+				return order
+			}
+		}
+		return append(order, value)
 	}
 	runs := map[protocol.TurnID]protocol.ConversationRun{}
 	for _, run := range snapshot.Page.Runs {
@@ -314,11 +331,13 @@ func verifyRecordedText(snapshot protocol.ConversationSnapshot, turns []conversa
 				continue // A package continuation's own prompt is not UI copy.
 			}
 			value.canonical = true
+			value.order = appendExchange(value.order, exchange{user: entry.Turn, text: partText})
 			if partText != "" {
 				value.users = append(value.users, partText)
 			}
 		} else {
 			value.assistant.WriteString(partText)
+			value.order = appendExchange(value.order, exchange{text: partText})
 		}
 	}
 	for _, draft := range snapshot.Drafts {
@@ -331,6 +350,7 @@ func verifyRecordedText(snapshot protocol.ConversationSnapshot, turns []conversa
 		}
 		if value := expected[owner(draft.Turn)]; value != nil {
 			value.assistant.WriteString(partText)
+			value.order = appendExchange(value.order, exchange{text: partText})
 		}
 	}
 	for _, turn := range turns {
@@ -348,6 +368,38 @@ func verifyRecordedText(snapshot protocol.ConversationSnapshot, turns []conversa
 		}
 		if answerText(turn.Reply) != value.assistant.String() {
 			return errors.New("The production projection changed recorded assistant text or its turn")
+		}
+		order := []exchange{}
+		if len(turn.Segments) == 0 {
+			if value.canonical || turn.User != "" {
+				order = appendExchange(order, exchange{user: id, text: turn.User})
+			}
+			order = appendExchange(order, exchange{text: answerText(turn.Reply)})
+		} else {
+			for index, segment := range turn.Segments {
+				end := len(turn.Reply.Blocks)
+				if index+1 < len(turn.Segments) {
+					end = turn.Segments[index+1].From
+				}
+				if segment.From < 0 || segment.From > end || end > len(turn.Reply.Blocks) || index == 0 && segment.From != 0 {
+					return errors.New("The production projection changed recorded reply boundaries")
+				}
+				for _, input := range segment.Inputs {
+					inputID, err := protocol.ParseTurnID(input.ID)
+					if err != nil {
+						return errors.New("The production projection lost a recorded input identity")
+					}
+					order = appendExchange(order, exchange{user: inputID, text: input.User})
+				}
+				order = appendExchange(order, exchange{text: answerText(conversation.Reply{Blocks: turn.Reply.Blocks[segment.From:end]})})
+			}
+		}
+		wantOrder := value.order
+		if !value.canonical && value.input != "" {
+			wantOrder = append([]exchange{{user: id, text: value.input}}, wantOrder...)
+		}
+		if !slices.Equal(order, wantOrder) {
+			return errors.New("The production projection changed recorded input and reply order")
 		}
 		delete(expected, id)
 	}

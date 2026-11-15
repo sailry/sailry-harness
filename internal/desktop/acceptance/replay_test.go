@@ -277,8 +277,34 @@ func TestRecordedTextRetainsJoinedUsersAndHidesContinuationPrompts(t *testing.T)
 	if err := verifyRecordedText(snapshot, turns); err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 2 || !strings.HasSuffix(turns[0].User, "\n\nJoined user guidance") || turns[1].User != "" || answerText(turns[1].Reply) != "Public continuation answer" {
+	if len(turns) != 2 || len(turns[0].Segments) != 2 || len(turns[0].Segments[0].Inputs) != 1 || len(turns[0].Segments[1].Inputs) != 1 ||
+		turns[0].Segments[0].Inputs[0].ID != root.Turn.String() || turns[0].Segments[1].Inputs[0].ID != joined.Turn.String() ||
+		turns[0].Segments[1].Inputs[0].User != "Joined user guidance" || turns[0].Segments[1].From != 1 ||
+		turns[1].User != "" || answerText(turns[1].Reply) != "Public continuation answer" {
 		t.Fatalf("joined guidance or continuation visibility changed: %+v", turns)
+	}
+	for _, change := range []string{"merged_into_initial_input", "moved_before_answer", "wrong_input_identity", "wrong_reply_boundary"} {
+		t.Run(change, func(t *testing.T) {
+			changed := slices.Clone(turns)
+			changed[0].Segments = slices.Clone(turns[0].Segments)
+			for index := range changed[0].Segments {
+				changed[0].Segments[index].Inputs = slices.Clone(turns[0].Segments[index].Inputs)
+			}
+			switch change {
+			case "merged_into_initial_input":
+				changed[0].Segments = nil
+			case "moved_before_answer":
+				changed[0].Segments[0].Inputs = append(changed[0].Segments[0].Inputs, changed[0].Segments[1].Inputs...)
+				changed[0].Segments[1].Inputs = nil
+			case "wrong_input_identity":
+				changed[0].Segments[1].Inputs[0].ID = root.Turn.String()
+			case "wrong_reply_boundary":
+				changed[0].Segments[1].From = 0
+			}
+			if err := verifyRecordedText(snapshot, changed); err == nil {
+				t.Fatal("the replay accepted changed guidance chronology")
+			}
+		})
 	}
 	turns[1].User = "Internal continuation prompt"
 	if err := verifyRecordedText(snapshot, turns); err == nil {
