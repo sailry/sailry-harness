@@ -15,6 +15,7 @@ import '../../resources/ports_page.dart';
 import '../message_composer.dart';
 import '../conversation_frame.dart';
 import 'activity_strip.dart';
+import 'attention.dart';
 import 'attachments.dart';
 import 'configuration.dart';
 import 'connection_status.dart';
@@ -103,6 +104,14 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   bool _watching = false;
   bool _restarting = false;
   bool _away = false;
+  bool _current = false;
+  ModalRoute<dynamic>? _route;
+  late final _attention = ConversationAttention(
+    host: widget.host,
+    sessionId: widget.sessionId,
+    session: () => _session,
+    active: () => mounted && !_closed && !_away && _route?.isCurrent != false,
+  );
   Animation<double>? _entrance;
 
   /// Whether the push transition has finished. The transcript is held until
@@ -130,15 +139,22 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _submission.addListener(_rebuild);
-    unawaited(_acknowledge());
+    widget.host.addListener(_acknowledge);
     unawaited(_watch());
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    _route = route;
+    final current = route?.isCurrent ?? true;
+    if (_current != current) {
+      _current = current;
+      _acknowledge();
+    }
     if (_settled) return;
-    final animation = ModalRoute.of(context)?.animation;
+    final animation = route?.animation;
     if (identical(animation, _entrance)) return;
     _entrance?.removeStatusListener(_entered);
     _entrance = animation;
@@ -163,6 +179,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       _away = true;
     } else if (state == AppLifecycleState.resumed && _away) {
       _away = false;
+      _acknowledge();
       // The stream can stall in the background; resubscribe for a fresh view.
       final updates = _updates;
       if (updates != null) {
@@ -174,21 +191,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     }
   }
 
-  Future<void> _acknowledge() async {
-    final attention = object(object(_session['activity'])['attention']);
-    if (attention['unread'] != true) return;
-    try {
-      await widget.host.command('set_session_read', {
-        'session': widget.sessionId,
-        'expected_revision': attention['revision'],
-        'read': true,
-      });
-    } catch (error) {
-      if (mounted) {
-        showToast(context, failureLabel(error, translate: context.tr));
-      }
-    }
-  }
+  void _acknowledge() => unawaited(_attention.observe());
 
   Future<void> _watch() async {
     if (_closed || _watching) return;
@@ -311,6 +314,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void dispose() {
     _closed = true;
     WidgetsBinding.instance.removeObserver(this);
+    widget.host.removeListener(_acknowledge);
+    _attention.dispose();
     _entrance?.removeStatusListener(_entered);
     final updates = _updates;
     if (updates != null) unawaited(updates.close());

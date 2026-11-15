@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
 import 'package:sailry_bridge/api/speech.dart';
+import 'package:sailry_bridge/bridge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 import 'package:sailry_mobile/runtime/speech.dart';
@@ -123,6 +124,7 @@ class Channel extends Fake implements Connection {
   final requests = <String>[];
   final resolved = <String>[];
   bool uncertain = false;
+  Object? executionFailure;
   String? response;
   @override
   Future<String> resolve({required String request}) async {
@@ -141,6 +143,7 @@ class Channel extends Fake implements Connection {
   @override
   Future<String> execute({required String request}) async {
     requests.add(request);
+    if (executionFailure != null) throw executionFailure!;
     if (uncertain) throw StateError('response was lost');
     if (response != null) return response!;
     final kind = (jsonDecode(request) as Map)['kind'];
@@ -790,6 +793,35 @@ void main() {
           expect(channel.requests.length, 1, reason: caseName);
           await host.close();
           host.dispose();
+        },
+      ),
+      (
+        "native faults retain their classification",
+        (caseName) async {
+          for (final code in ['unavailable', 'cancelled', 'invalid_request']) {
+            final channel = Channel()
+              ..executionFailure = BridgeFailure(
+                code: code,
+                message: 'Native operation failed',
+              );
+            final host = HostConnection.test(
+              id: 'node',
+              label: 'Node',
+              connection: channel,
+            );
+            await expectLater(
+              host.execute('original'),
+              throwsA(
+                isA<CommandFailure>()
+                    .having((failure) => failure.code, 'code', code)
+                    .having((failure) => failure.retained, 'retained', false),
+              ),
+              reason: caseName,
+            );
+            expect(channel.requests, ['original']);
+            await host.close();
+            host.dispose();
+          }
         },
       ),
       (

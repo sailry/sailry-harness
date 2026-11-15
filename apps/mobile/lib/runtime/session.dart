@@ -524,6 +524,12 @@ class HostConnection extends ChangeNotifier {
     Map<String, dynamic> result;
     try {
       result = object(jsonDecode(await send()));
+    } on BridgeFailure catch (failure) {
+      throw CommandFailure(
+        failure.code,
+        detail: failure.message,
+        request: request,
+      );
     } catch (_) {
       throw CommandFailure('outcome_unknown', request: request);
     }
