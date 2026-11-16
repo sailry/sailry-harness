@@ -1,0 +1,147 @@
+//go:build integration && !windows
+
+package host
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/shipped"
+)
+
+func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
+	for _, test := range []struct {
+		name, corrupt string
+		serviceFails  bool
+	}{
+		{name: "publish all runtime files"},
+		{name: "service failure restores old runtime", serviceFails: true},
+		{name: "damaged Turso is refused", corrupt: "libturso_sync_sdk_kit.so"},
+		{name: "damaged seal is refused", corrupt: shipped.SealName},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			stage, root, profile := filepath.Join(directory, "stage"), filepath.Join(directory, "current"), filepath.Join(directory, "profile")
+			paths := DeploymentOptions{ProgramRoot: root, Profile: profile, ServicePath: filepath.Join(directory, "service"), CommandPath: filepath.Join(directory, "command")}
+			write := func(name string, body []byte, mode os.FileMode) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(name, body, mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			current := map[string][]byte{
+				"sailry-host":              []byte("old Host"),
+				"libsailry_iroh.so":        []byte("old transport"),
+				"libturso_sync_sdk_kit.so": []byte("old engine"),
+				shipped.SealName:           []byte("old seal"),
+				"managed-go-host":          []byte("1\n"),
+			}
+			for name, body := range current {
+				write(filepath.Join(root, name), body, 0o700)
+			}
+			write(paths.ServicePath, []byte("fixture service"), 0o600)
+			if err := os.Symlink(filepath.Join(root, "sailry-host"), paths.CommandPath); err != nil {
+				t.Fatal(err)
+			}
+			// Deployment owns program files only. Existing canonical storage and
+			// its journal must survive both publication and service rollback.
+			stored := map[string][]byte{
+				"storage/node.sqlite":     []byte("existing canonical database"),
+				"storage/node.sqlite-wal": []byte("existing canonical journal"),
+				"identity":                []byte("existing identity"),
+			}
+			for name, body := range stored {
+				write(filepath.Join(profile, name), body, 0o600)
+			}
+			next := map[string][]byte{
+				"sailry-host":              []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
+				"libsailry_iroh.so":        []byte("new transport"),
+				"libturso_sync_sdk_kit.so": []byte("new engine"),
+			}
+			for name, body := range next {
+				write(filepath.Join(stage, name), body, 0o700)
+			}
+			seal := shipped.Seal{Version: 1, Target: "linux/amd64"}
+			for _, name := range []string{"libsailry_iroh.so", "libturso_sync_sdk_kit.so"} {
+				entry, err := shipped.Record(stage, name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seal.Files = append(seal.Files, entry)
+			}
+			writeHostSeal(t, stage, seal)
+			var err error
+			next[shipped.SealName], err = os.ReadFile(filepath.Join(stage, shipped.SealName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := "#!/bin/sh\nexit 0\n"
+			if test.serviceFails {
+				service = "#!/bin/sh\nexit 1\n"
+			}
+			write(filepath.Join(stage, "service.sh"), []byte(service), 0o700)
+			artifacts := map[string]*artifact{}
+			for name, body := range next {
+				digest := sha256.Sum256(body)
+				artifacts[name] = &artifact{name: name, digest: hex.EncodeToString(digest[:])}
+			}
+			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, true, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.corrupt != "" {
+				write(filepath.Join(stage, test.corrupt), []byte("damaged"), 0o600)
+			}
+			// Keep all service operations inside the fixture on every POSIX host.
+			tools := filepath.Join(directory, "bin")
+			for name, body := range map[string]string{
+				"uname":     "#!/bin/sh\nprintf 'Linux\\n'\n",
+				"id":        "#!/bin/sh\nprintf '0\\n'\n",
+				"systemctl": "#!/bin/sh\nexit 0\n",
+			} {
+				write(filepath.Join(tools, name), []byte(body), 0o700)
+			}
+			if _, err := exec.LookPath("sha256sum"); err != nil {
+				write(filepath.Join(tools, "sha256sum"), []byte("#!/bin/sh\nexec shasum -a 256 \"$@\"\n"), 0o700)
+			}
+			command := exec.CommandContext(t.Context(), "/bin/sh", "-s")
+			command.Dir = directory
+			command.Env = []string{"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH")}
+			command.Stdin = strings.NewReader(script)
+			output, err := command.CombinedOutput()
+			want := next
+			if test.serviceFails || test.corrupt != "" {
+				want = current
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || test.serviceFails && exit.ExitCode() != 73 {
+					t.Fatalf("failed update returned %v: %s", err, output)
+				}
+			} else if err != nil {
+				t.Fatalf("publication: %v: %s", err, output)
+			}
+			for name, body := range want {
+				actual, err := os.ReadFile(filepath.Join(root, name))
+				if err != nil || !bytes.Equal(actual, body) {
+					t.Fatalf("published runtime %s = %q, %v", name, actual, err)
+				}
+			}
+			for name, body := range stored {
+				actual, err := os.ReadFile(filepath.Join(profile, name))
+				if err != nil || !bytes.Equal(actual, body) {
+					t.Fatalf("existing profile %s changed: %q, %v", name, actual, err)
+				}
+			}
+		})
+	}
+}

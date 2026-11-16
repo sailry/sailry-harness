@@ -115,7 +115,12 @@ func TestSSHInstallationContracts(t *testing.T) {
 	}
 	paths := DeploymentOptions{ProgramRoot: "/program", Profile: "/profile", ServicePath: "/service", CommandPath: "/command"}
 	selected := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://relay.example/a'\"$x"}}}
-	script, err := deploymentScript("/tmp/sailry-bootstrap-fixture", "libsailry_iroh.so", strings.Repeat("a", 64), strings.Repeat("b", 64), paths, false, &selected)
+	script, err := deploymentScript("/tmp/sailry-bootstrap-fixture",
+		&artifact{name: "sailry-host", digest: strings.Repeat("a", 64)},
+		&artifact{name: "libsailry_iroh.so", digest: strings.Repeat("b", 64)},
+		&artifact{name: "libturso_sync_sdk_kit.so", digest: strings.Repeat("c", 64)},
+		&artifact{name: "native-seal.json", digest: strings.Repeat("d", 64)},
+		paths, false, &selected)
 	if err != nil || !strings.Contains(script, "set -- '--relay' 'https://relay.example/a'\"'\"'\"$x'") || strings.Contains(script, "curl ") || strings.Contains(script, "releases/latest") {
 		t.Fatal("local deployment changed network arguments or fetched a mutable release")
 	}
