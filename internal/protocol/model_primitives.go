@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	VERSION                   = 1
+	VERSION                   = 2
 	MAX_FRAME_BYTES           = 16 * 1024 * 1024
 	MAX_FILE_BYTES            = 128 * 1024
 	MAX_EDIT_BYTES            = 64 * 1024 * 1024
