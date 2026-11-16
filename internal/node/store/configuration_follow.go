@@ -101,6 +101,9 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 		id := protocol.NodeID(source)
 		status.Source = &id
 	}
+	if !user.Local && user.Controller != nil {
+		status.Source = user.Controller
+	}
 	rows, err := db.QueryContext(ctx, "SELECT host,revision,configuration,secrets,failure FROM configuration_follow_targets WHERE user=?1 ORDER BY host", user.ID.String())
 	if err != nil {
 		return status, err
@@ -127,6 +130,11 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return status, err
+	}
+	if !user.Local && user.Controller != nil {
+		// Legacy mirror conflicts and local overrides describe superseded
+		// copies. The controller cache uses its own revision and failure state.
+		return status, nil
 	}
 	rows, err = db.QueryContext(ctx, "SELECT category,CASE WHEN local_id='' THEN id ELSE local_id END,state,message FROM configuration_follow_records WHERE user=?1 AND state!='applied' ORDER BY category,id", user.ID.String())
 	if err != nil {

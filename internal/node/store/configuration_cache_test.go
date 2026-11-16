@@ -34,6 +34,45 @@ func controllerCacheFixture(t *testing.T) (*Store, protocol.NodeID, protocol.Nod
 	return storage, node, controller, WithUser(t.Context(), user)
 }
 
+func TestConfigurationCacheStatusIgnoresLegacyCopyConflicts(t *testing.T) {
+	storage, _, controller, ctx := controllerCacheFixture(t)
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		old := protocol.NodeID{62}
+		if _, err := db.ExecContext(ctx, "INSERT INTO configuration_follow_sources(user,source,revision) VALUES(?1,?2,7)", user.ID.String(), old[:]); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO configuration_follow_records(user,category,id,source,revision,digest,state,message,body,materialized)
+VALUES(?1,'providers','old',?2,1,'old','conflict','legacy mirror conflict','{}',0)`, user.ID.String(), old[:]); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO configuration_follow_mcp_overrides(user,plugin,server) VALUES(?1,'old','server')", user.ID.String()); err != nil {
+			return err
+		}
+		status, err := ReadConfigurationFollow(ctx, db)
+		if err != nil {
+			return err
+		}
+		if status.Source == nil || *status.Source != controller || len(status.Issues) != 0 || len(status.MCPLocal) != 0 {
+			return fmt.Errorf("cache status retained obsolete copy controls: %+v", status)
+		}
+		var retained int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM configuration_follow_records WHERE user=?1", user.ID.String()).Scan(&retained); err != nil {
+			return err
+		}
+		if retained != 1 {
+			return fmt.Errorf("status read removed historical configuration")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 	seen := map[string]bool{}
 	for _, name := range ConfigurationCategories {

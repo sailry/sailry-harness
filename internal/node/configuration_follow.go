@@ -144,8 +144,8 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 				}
 			})
 			defer cancelWatch()
-			// Target authorization and explicit retries wake reconciliation without
-			// waiting for another source edit.
+			// Reconnects and explicit retries wake reconciliation without waiting
+			// for another controller edit.
 			if err := observer.Start(scoped); err != nil && scoped.Err() != nil {
 				return
 			}
@@ -462,20 +462,9 @@ func ExecuteConfigurationFollow(ctx context.Context, db *sql.Conn, node, caller 
 			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration manifest is required"}
 		}
 		events, err = store.ApplyConfigurationManifest(ctx, db, node, caller, *input.Manifest)
-	case "set_source":
-		err = store.SetConfigurationSource(ctx, db, node, caller, input.Source, input.ExpectedRevision)
-	case "set_target":
-		if input.Target == nil {
-			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration target is required"}
-		}
-		err = store.SaveConfigurationTarget(ctx, db, *input.Target, input.ExpectedRevision)
-	case "mcp_local":
-		err = store.SetConfigurationMCPServerLocal(ctx, db, input.Plugin, input.Server, input.Local)
-	case "detach":
-		err = store.DetachConfigurationCopies(ctx, db, input.Category)
 	case "sync":
 	default:
-		err = &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration follow action is invalid"}
+		err = &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration follow action is not supported"}
 	}
 	if err != nil {
 		return protocol.Output{}, nil, err
