@@ -312,6 +312,10 @@ func dispatchRequired[Value any](ctx context.Context, db *sql.Conn, table, packa
 		var empty Value
 		return empty, fault(protocol.ErrorCodeNotFound, "dispatch resource is unavailable")
 	}
+	if err := bindStoredDispatchLocation(ctx, db, value); err != nil {
+		var empty Value
+		return empty, err
+	}
 	return *value, nil
 }
 
@@ -330,7 +334,20 @@ func dispatchList[Value any](ctx context.Context, db *sql.Conn, table, packageNa
 		query = "SELECT body FROM dispatch_jobs WHERE package=?1 AND " + dispatchJobFilter("", 2, 3) + " ORDER BY rowid"
 		arguments = append(arguments, actor)
 	}
-	return readBodies[Value](ctx, db, query, arguments...)
+	values, err := readBodies[Value](ctx, db, query, arguments...)
+	if err != nil || len(values) == 0 {
+		return values, err
+	}
+	node, err := dispatchNode(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	for i := range values {
+		if err := bindDispatchLocation(node, &values[i]); err != nil {
+			return nil, err
+		}
+	}
+	return values, nil
 }
 
 func dispatchChanged(owners []string) protocol.Event {

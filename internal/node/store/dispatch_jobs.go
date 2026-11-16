@@ -20,6 +20,10 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 	if before != nil {
 		cursor = *before
 	}
+	node, err := dispatchNode(ctx, db)
+	if err != nil {
+		return protocol.DispatchPage{}, err
+	}
 	user, actor, userErr := pluginUserIDs(ctx, db)
 	if userErr != nil {
 		return protocol.DispatchPage{}, userErr
@@ -44,6 +48,9 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 		if err := json.Unmarshal(body, &job); err != nil {
 			return protocol.DispatchPage{}, err
 		}
+		if err := bindDispatchLocation(node, &job); err != nil {
+			return protocol.DispatchPage{}, err
+		}
 		page.Jobs = append(page.Jobs, job)
 		cursor = sequence
 	}
@@ -51,6 +58,9 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 }
 
 func putDispatchJob(ctx context.Context, db *sql.Conn, job protocol.DispatchJob) error {
+	if err := bindStoredDispatchLocation(ctx, db, &job); err != nil {
+		return err
+	}
 	user, actor, userErr := pluginUserIDs(ctx, db)
 	if userErr != nil {
 		return userErr
@@ -296,6 +306,9 @@ func readDispatchInvocation(ctx context.Context, db *sql.Conn, identity string) 
 	var callback protocol.DispatchCallback
 	var reference *protocol.PluginReference
 	if err := json.Unmarshal(body, &job); err != nil {
+		return job, callback, reference, err
+	}
+	if err := bindStoredDispatchLocation(ctx, db, &job); err != nil {
 		return job, callback, reference, err
 	}
 	if err := json.Unmarshal(encodedCallback, &callback); err != nil {

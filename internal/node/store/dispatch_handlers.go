@@ -14,6 +14,9 @@ import (
 )
 
 func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, handler protocol.DispatchHandler) (protocol.DispatchHandler, error) {
+	if err := bindStoredDispatchLocation(ctx, db, &handler); err != nil {
+		return protocol.DispatchHandler{}, err
+	}
 	for _, name := range []string{handler.Name, handler.Source.Package, handler.Source.Topic, handler.Queue} {
 		if err := dispatchName(name); err != nil {
 			return protocol.DispatchHandler{}, err
@@ -85,6 +88,9 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 }
 
 func dispatchRequest(node protocol.NodeID, job protocol.DispatchJob, callback protocol.DispatchCallback, reference *protocol.PluginReference) (protocol.Request, error) {
+	if err := bindDispatchLocation(node, &job); err != nil {
+		return protocol.Request{}, err
+	}
 	event, err := dispatchDocument(job.Event)
 	if err != nil {
 		return protocol.Request{}, err

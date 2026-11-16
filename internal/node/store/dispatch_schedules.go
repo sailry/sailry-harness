@@ -14,6 +14,9 @@ import (
 )
 
 func saveDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, schedule protocol.DispatchSchedule, timestamp int64) (protocol.DispatchSchedule, error) {
+	if err := bindStoredDispatchLocation(ctx, db, &schedule); err != nil {
+		return protocol.DispatchSchedule{}, err
+	}
 	if err := dispatchName(schedule.Topic); err != nil {
 		return protocol.DispatchSchedule{}, err
 	}
@@ -75,6 +78,9 @@ func saveDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string,
 }
 
 func putDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, schedule protocol.DispatchSchedule) error {
+	if err := bindStoredDispatchLocation(ctx, db, &schedule); err != nil {
+		return err
+	}
 	user, userErr := pluginUserID(ctx, db)
 	if userErr != nil {
 		return userErr

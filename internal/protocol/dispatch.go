@@ -159,12 +159,15 @@ func (value *DispatchCompletion) UnmarshalText(data []byte) error {
 }
 
 type DispatchHandler struct {
-	Name     string           `json:"name"`
-	Revision uint64           `json:"revision"`
-	Enabled  bool             `json:"enabled"`
-	Source   DispatchSource   `json:"source"`
-	Queue    string           `json:"queue"`
-	Callback DispatchCallback `json:"callback"`
+	// ExecutionNode owns this handler and its queue. Omitted legacy values
+	// are bound to the Node that stores the record.
+	ExecutionNode *NodeID          `json:"execution_node,omitempty"`
+	Name          string           `json:"name"`
+	Revision      uint64           `json:"revision"`
+	Enabled       bool             `json:"enabled"`
+	Source        DispatchSource   `json:"source"`
+	Queue         string           `json:"queue"`
+	Callback      DispatchCallback `json:"callback"`
 }
 
 func DefaultDispatchHandler() DispatchHandler {
@@ -294,13 +297,14 @@ func (value *DispatchTiming) UnmarshalJSON(data []byte) error {
 }
 
 type DispatchSchedule struct {
-	ID       ScheduleID      `json:"id"`
-	Revision uint64          `json:"revision"`
-	Enabled  bool            `json:"enabled"`
-	Topic    string          `json:"topic"`
-	Payload  json.RawMessage `json:"payload"`
-	Timing   DispatchTiming  `json:"timing"`
-	NextMs   *int64          `json:"next_ms"`
+	ExecutionNode *NodeID         `json:"execution_node,omitempty"`
+	ID            ScheduleID      `json:"id"`
+	Revision      uint64          `json:"revision"`
+	Enabled       bool            `json:"enabled"`
+	Topic         string          `json:"topic"`
+	Payload       json.RawMessage `json:"payload"`
+	Timing        DispatchTiming  `json:"timing"`
+	NextMs        *int64          `json:"next_ms"`
 }
 
 func DefaultDispatchSchedule() DispatchSchedule {
@@ -369,16 +373,17 @@ func (value *DispatchStatus) UnmarshalText(data []byte) error {
 }
 
 type DispatchJob struct {
-	ID         JobID          `json:"id"`
-	Event      DispatchEvent  `json:"event"`
-	Handler    string         `json:"handler"`
-	Queue      string         `json:"queue"`
-	Request    RequestID      `json:"request"`
-	Status     DispatchStatus `json:"status"`
-	CreatedMs  int64          `json:"created_ms"`
-	StartedMs  *int64         `json:"started_ms"`
-	FinishedMs *int64         `json:"finished_ms"`
-	Error      *Fault         `json:"error"`
+	ExecutionNode *NodeID        `json:"execution_node,omitempty"`
+	ID            JobID          `json:"id"`
+	Event         DispatchEvent  `json:"event"`
+	Handler       string         `json:"handler"`
+	Queue         string         `json:"queue"`
+	Request       RequestID      `json:"request"`
+	Status        DispatchStatus `json:"status"`
+	CreatedMs     int64          `json:"created_ms"`
+	StartedMs     *int64         `json:"started_ms"`
+	FinishedMs    *int64         `json:"finished_ms"`
+	Error         *Fault         `json:"error"`
 }
 
 func DefaultDispatchJob() DispatchJob {

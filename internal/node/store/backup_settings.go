@@ -227,6 +227,9 @@ func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protoco
 		return invalid("backup handler revision is exhausted")
 	}
 	handler.Revision++
+	if err := bindStoredDispatchLocation(ctx, db, &handler); err != nil {
+		return err
+	}
 	body, err := encode(handler)
 	if err != nil {
 		return err

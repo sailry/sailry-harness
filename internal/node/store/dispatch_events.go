@@ -91,6 +91,9 @@ func publishDispatch(ctx context.Context, db *sql.Conn, event protocol.DispatchE
 }
 
 func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.PluginReference, handler protocol.DispatchHandler, event protocol.DispatchEvent, timestamp int64, sessionStart bool) (protocol.DispatchJob, error) {
+	if err := bindStoredDispatchLocation(ctx, db, &handler); err != nil {
+		return protocol.DispatchJob{}, err
+	}
 	user, actor, userErr := pluginUserIDs(ctx, db)
 	if userErr != nil {
 		return protocol.DispatchJob{}, userErr
@@ -106,6 +109,7 @@ func enqueueDispatch(ctx context.Context, db *sql.Conn, reference *protocol.Plug
 	job := protocol.DispatchJob{
 		ID: protocol.NewJobID(), Event: event, Handler: handler.Name, Queue: handler.Queue,
 		Request: protocol.NewRequestID(), Status: protocol.DispatchStatusQueued, CreatedMs: timestamp,
+		ExecutionNode: handler.ExecutionNode,
 	}
 	// A scheduled occurrence never overlaps its own handler's previous run: it
 	// is recorded as skipped instead of started. An explicit enqueue or a

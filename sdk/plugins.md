@@ -60,6 +60,15 @@ on the source session's later settings or continued existence. A project task st
 worktree; an unassigned source may create a fresh unassigned session with null
 project and worktree. Node-wide management retains its ordinary creation authority.
 
+Dispatch handlers, schedules and jobs include `execution_node`, the 32-byte Node
+identity that owns their queue and runs their callbacks. A new independent plan
+is saved through its selected execution Node; project plans remain on the
+project's Node. Omitted legacy values resolve to the Node holding the record.
+This field describes ownership and cannot redirect a stored callback to another
+Node. Queued jobs retain the callback and execution Node captured at admission,
+even after the handler or the visible desktop selection changes. Session queue
+commands use the session's existing Node and need no second host selector.
+
 `execution: "model"` runs the selected model without a delegation roster and rejects
 team/member overrides. `execution: "team"` captures a team and its roles; omitted
 execution retains the Default team behavior. A `team` selection is `{id, revision?}`.

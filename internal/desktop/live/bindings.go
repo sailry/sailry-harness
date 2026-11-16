@@ -45,6 +45,10 @@ func (r *Runtime) conversationRuntime(cv *viewmodel.Conversation, comp *composer
 			}
 		}
 		cv.Node, comp.Host = node, node
+	} else if comp != nil {
+		// An admitted session and every queue action retain its execution
+		// Node even when a different draft or device monitor is selected.
+		comp.Host = node
 	}
 	return root.runtimeFor(node)
 }

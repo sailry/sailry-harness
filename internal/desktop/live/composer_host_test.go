@@ -42,7 +42,7 @@ func TestProjectlessDraftExecutionHost(t *testing.T) {
 	}
 	cv.ID, cv.Node, comp.Host = protocol.NewSessionID().String(), remote.controller.Target().String(), local.controller.Target().String()
 	local.bindings[cv.Node] = remote
-	if local.conversationRuntime(cv, comp) != remote {
+	if local.conversationRuntime(cv, comp) != remote || comp.Host != cv.Node {
 		t.Fatal("admitted conversation followed draft host state")
 	}
 }

@@ -77,7 +77,7 @@ func TestDispatchSessionStartCapture(t *testing.T) {
 					return fmt.Errorf("callback was not recovered: %d, %v", len(batch.Work), err)
 				}
 				request := batch.Work[0].Request
-				if request.Plugin == nil || request.Plugin.Session == nil || *request.Plugin.Session != source.ID || request.Plugin.Worktree == nil || *request.Plugin.Worktree != source.Worktree {
+				if request.Target != f.node || request.Plugin == nil || request.Plugin.Session == nil || *request.Plugin.Session != source.ID || request.Plugin.Worktree == nil || *request.Plugin.Worktree != source.Worktree {
 					return errors.New("callback lost its source identity")
 				}
 				if _, err := AuthorizePluginRequest(ctx, db, f.node, protocol.NodeID{91}, request, nil); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
