@@ -30,9 +30,9 @@ func (transport scopedKnowledgeTransport) ScopedKnowledge(_ context.Context, cal
 func TestScopedKnowledgeKeepsExecutionEntryAndStorageRequest(t *testing.T) {
 	execution, storage := protocol.NodeID{2}, protocol.NodeID{3}
 	var calls []protocol.ScopedKnowledgeCall
-	var commands []protocol.Request
+	var command protocol.Request
 	value := New(scopedKnowledgeTransport{
-		knowledgeRouteTransport: knowledgeRouteTransport{clientTransport: &clientTransport{}, target: execution, entry: protocol.NodeID{1}, sent: &commands},
+		knowledgeRouteTransport: knowledgeRouteTransport{clientTransport: &clientTransport{}, target: execution, entry: protocol.NodeID{1}, sent: &command},
 		calls:                   &calls,
 	})
 	t.Cleanup(func() { _ = value.Close() })
@@ -45,8 +45,8 @@ func TestScopedKnowledgeKeepsExecutionEntryAndStorageRequest(t *testing.T) {
 	if outcome, err := value.ScopedKnowledgeOutcome(t.Context(), request); err != nil || outcome.Kind != "not_admitted" {
 		t.Fatalf("scoped recovery: %+v: %v", outcome, err)
 	}
-	if len(commands) != 0 || len(calls) != 2 || calls[0].Request.Target != storage || calls[0].Request.ID != request.ID ||
+	if command.ID != (protocol.RequestID{}) || len(calls) != 2 || calls[0].Request.Target != storage || calls[0].Request.ID != request.ID ||
 		calls[1].Original == nil || calls[1].Original.ID != request.ID || calls[1].Request.Target != storage {
-		t.Fatalf("scoped call used an ordinary storage route or rewrote its request: commands=%+v calls=%+v", commands, calls)
+		t.Fatalf("scoped call used an ordinary storage route or rewrote its request: command=%+v calls=%+v", command, calls)
 	}
 }
