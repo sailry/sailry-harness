@@ -855,3 +855,26 @@ CREATE TABLE ssh_local_trust (
  key BLOB NOT NULL,
  PRIMARY KEY(user,profile,host,port)
 );
+
+CREATE TABLE configuration_snapshots (
+ user TEXT NOT NULL REFERENCES users(id),
+ root TEXT NOT NULL,
+ source BLOB NOT NULL CHECK(length(source)=32),
+ category TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>0),
+ bytes INTEGER NOT NULL CHECK(bytes>0),
+ digest TEXT NOT NULL,
+ next_page INTEGER NOT NULL DEFAULT 0 CHECK(next_page>=0),
+ state TEXT NOT NULL DEFAULT 'receiving' CHECK(state IN ('receiving','complete','superseded')),
+ PRIMARY KEY(user,root)
+);
+CREATE INDEX configuration_snapshots_category ON configuration_snapshots(user,category,source);
+CREATE TABLE configuration_snapshot_pages (
+ user TEXT NOT NULL,
+ root TEXT NOT NULL,
+ page INTEGER NOT NULL CHECK(page>=0),
+ digest TEXT NOT NULL,
+ data BLOB,
+ PRIMARY KEY(user,root,page),
+ FOREIGN KEY(user,root) REFERENCES configuration_snapshots(user,root) ON DELETE CASCADE
+);

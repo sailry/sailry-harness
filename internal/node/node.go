@@ -669,7 +669,7 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 	}
 
 	if SupportsConfigurationFollow(request.Command.Kind) {
-		output, err := node.ReadConfigurationFollow(ctx, caller, request.Command)
+		output, err := node.ReadConfigurationFollow(ctx, caller, request)
 		return response(output, err)
 	}
 	if store.SupportsProviderCommand(request.Command.Kind) {

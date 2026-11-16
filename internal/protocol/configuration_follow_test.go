@@ -7,9 +7,9 @@ import (
 
 func TestConfigurationFollowCommandClassification(t *testing.T) {
 	t.Parallel()
-	for _, action := range []string{"read", "manifest", "package_state", "cache_package", "apply", "set_source", "set_target", "mcp_local", "detach", "sync"} {
+	for _, action := range []string{"read", "manifest", "package_state", "cache_package", "snapshot_state", "apply_page", "apply", "set_source", "set_target", "mcp_local", "detach", "sync"} {
 		command := Command{Kind: "configuration_follow", Data: &ConfigurationFollowCommand{Action: action}}
-		expected := action != "read" && action != "manifest" && action != "package_state" && action != "cache_package"
+		expected := action != "read" && action != "manifest" && action != "package_state" && action != "cache_package" && action != "snapshot_state" && action != "apply_page"
 		if command.Durable() != expected {
 			t.Fatalf("%s durable=%v", action, command.Durable())
 		}

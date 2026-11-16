@@ -376,10 +376,10 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 				return
 			}
 		}
-		_, err = configurationRemote(ctx, remote, request)
+		err = node.deliverConfigurationSnapshot(ctx, remote, request)
 		if err != nil {
 			var definitive *protocol.Fault
-			if errors.As(err, &definitive) && definitive.Code != protocol.ErrorCodeOutcomeUnknown && definitive.Code != protocol.ErrorCodeUnavailable && definitive.Code != protocol.ErrorCodeCancelled {
+			if errors.As(err, &definitive) && definitive.Code != protocol.ErrorCodeOutcomeUnknown && definitive.Code != protocol.ErrorCodeUnavailable && definitive.Code != protocol.ErrorCodeCancelled && definitive.Code != protocol.ErrorCodeBusy {
 				_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 					return store.CompleteConfigurationFollowDelivery(ctx, db, address.ID, category, request.ID)
 				})
@@ -405,13 +405,16 @@ func pointerNode(value protocol.NodeID) *protocol.NodeID { return &value }
 
 func SupportsConfigurationFollow(kind string) bool { return kind == "configuration_follow" }
 
-func (node *Node) ReadConfigurationFollow(ctx context.Context, caller protocol.NodeID, command protocol.Command) (protocol.Output, error) {
-	input, ok := dispatchPayload[protocol.ConfigurationFollowCommand](command.Data)
+func (node *Node) ReadConfigurationFollow(ctx context.Context, caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+	input, ok := dispatchPayload[protocol.ConfigurationFollowCommand](request.Command.Data)
 	if !ok {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration follow command is invalid"}
 	}
 	if input.Action == "cache_package" || input.Action == "package_state" {
 		return node.readConfigurationPackage(ctx, caller, input)
+	}
+	if input.Action == "apply_page" {
+		return node.applyConfigurationSnapshotPage(ctx, caller, request, input.Page)
 	}
 	var output protocol.Output
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -430,6 +433,13 @@ func (node *Node) ReadConfigurationFollow(ctx context.Context, caller protocol.N
 		case "kv_pending":
 			value, err := store.ReadPersonalKVPending(ctx, db, node.ID(), caller)
 			output = protocol.Output{Kind: "personal_kv_pending", Data: value}
+			return err
+		case "snapshot_state":
+			if input.Page == nil {
+				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration snapshot header is required"}
+			}
+			value, err := store.ReadConfigurationSnapshot(ctx, db, node.ID(), caller, *input.Page)
+			output = protocol.Output{Kind: "configuration_snapshot", Data: value}
 			return err
 		}
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration follow read action is invalid"}

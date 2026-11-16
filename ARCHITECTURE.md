@@ -187,6 +187,13 @@ rows. A single configuration registry owns category export, validation, events
 and invalidation. Cached records are never published onward as another
 controller's source.
 
+Configuration snapshots travel in bounded pages under one persisted delivery
+identity. Receivers retain staged pages and their digests across restarts; the
+complete snapshot, absent-record cleanup, events and completion receipt commit
+together. Interrupted transfers leave the current cache intact. Page retries
+reuse their original identities and completed receipts without entering the
+business-effect ledger.
+
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy
 provider-sharing metadata remains readable but grants no cross-user access.

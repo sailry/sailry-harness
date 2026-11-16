@@ -65,6 +65,7 @@ type ConfigurationFollowCommand struct {
 	Target           *ConfigurationFollowTarget `json:"target,omitempty"`
 	ExpectedRevision uint64                     `json:"expected_revision,omitempty"`
 	Manifest         *ConfigurationManifest     `json:"manifest,omitempty"`
+	Page             *ConfigurationSnapshotPage `json:"page,omitempty"`
 	Category         string                     `json:"category,omitempty"`
 	Plugin           string                     `json:"plugin,omitempty"`
 	Server           string                     `json:"server,omitempty"`
@@ -91,5 +92,6 @@ func init() {
 	outputVariants["configuration_follow"] = func() any { return new(ConfigurationFollowStatus) }
 	outputVariants["configuration_manifest"] = func() any { return new(ConfigurationManifest) }
 	outputVariants["configuration_package"] = func() any { return new(ConfigurationPackageStatus) }
+	outputVariants["configuration_snapshot"] = func() any { return new(ConfigurationSnapshotProgress) }
 	eventVariants["configuration_follow_changed"] = func() any { return new(ConfigurationFollowStatus) }
 }

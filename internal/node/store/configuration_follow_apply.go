@@ -15,19 +15,9 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 	if err := validateConfigurationManifest(manifest); err != nil {
 		return nil, err
 	}
-	if manifest.Source != caller || caller == node {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "configuration source does not match authenticated caller")
-	}
-	user, err := CurrentUser(ctx, db)
+	user, err := configurationReceiver(ctx, db, node, caller, manifest.Source)
 	if err != nil {
 		return nil, err
-	}
-	member, err := CallerUser(ctx, db, node, caller)
-	if err != nil || member.ID != user.ID {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "configuration source is not a member of this user")
-	}
-	if user.Local {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "host-local configuration is not a controller replica")
 	}
 	if user.Controller != nil {
 		return applyConfigurationCache(ctx, db, node, caller, manifest)
@@ -186,6 +176,27 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 		return nil, err
 	}
 	return append(events, protocol.Event{Kind: "configuration_follow_changed", Data: current}), nil
+}
+
+func configurationReceiver(ctx context.Context, db *sql.Conn, node, caller, source protocol.NodeID) (protocol.User, error) {
+	if source != caller || caller == node {
+		return protocol.User{}, fault(protocol.ErrorCodePermissionDenied, "configuration source does not match authenticated caller")
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return user, err
+	}
+	member, err := CallerUser(ctx, db, node, caller)
+	if err != nil || member.ID != user.ID {
+		return user, fault(protocol.ErrorCodePermissionDenied, "configuration source is not a member of this user")
+	}
+	if user.Local {
+		return user, fault(protocol.ErrorCodePermissionDenied, "host-local configuration is not a controller replica")
+	}
+	if user.Controller != nil && *user.Controller != caller {
+		return user, fault(protocol.ErrorCodePermissionDenied, "configuration belongs to a different controller")
+	}
+	return user, nil
 }
 
 func configurationCopyCollision(ctx context.Context, db *sql.Conn, category, id string) error {
