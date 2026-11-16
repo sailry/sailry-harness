@@ -21,14 +21,15 @@ type readAdmissionStep struct {
 }
 
 type readAdmissionScript struct {
-	t          *testing.T
-	steps      []readAdmissionStep
-	next       int
-	opened     int
-	closed     bool
-	rowsOpened int
-	rowsClosed int
-	cancel     context.CancelFunc
+	t           *testing.T
+	steps       []readAdmissionStep
+	next        int
+	opened      int
+	closed      bool
+	rowsOpened  int
+	rowsClosed  int
+	cancel      context.CancelFunc
+	reopenError error
 }
 
 func (script *readAdmissionScript) Driver() driver.Driver { return script }
@@ -37,6 +38,9 @@ func (script *readAdmissionScript) Open(string) (driver.Conn, error) {
 }
 func (script *readAdmissionScript) Connect(context.Context) (driver.Conn, error) {
 	script.opened++
+	if script.opened > 1 && script.reopenError != nil {
+		return nil, script.reopenError
+	}
 	return script, nil
 }
 func (script *readAdmissionScript) Close() error {

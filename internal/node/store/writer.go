@@ -87,12 +87,12 @@ func (writer *writer) batch(first *writeJob) {
 			return
 		}
 	}
-	if _, err := writer.connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		// Nothing ran. A connection that cannot begin is replaced.
-		if writer.settle(ctx) != nil {
-			writer.failed = writer.reopen(ctx)
+	if err := writer.begin(first.context); err != nil {
+		if first.context.Err() != nil {
+			first.done <- err
+		} else {
+			first.done <- uncommitted(err)
 		}
-		first.done <- uncommitted(err)
 		return
 	}
 	var completed []*writeJob
@@ -155,6 +155,31 @@ func (writer *writer) batch(first *writeJob) {
 			job.result = failure
 		}
 		job.done <- job.result
+	}
+}
+
+func (writer *writer) begin(ctx context.Context) error {
+	cleanup := context.WithoutCancel(ctx)
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, err := writer.connection.ExecContext(ctx, "BEGIN IMMEDIATE")
+		if err == nil {
+			return nil
+		}
+		if state := writer.settle(cleanup); state != nil {
+			writer.failed = writer.reopen(cleanup)
+			return errors.Join(err, state)
+		}
+		if !transactionConflict(err) || attempt >= conflictRetries {
+			return err
+		}
+		// Turso may refuse an exclusive writer while a reader is committing.
+		// No callback has run, and settle confirmed that no transaction remains.
+		if err := waitForConflict(ctx, attempt); err != nil {
+			return err
+		}
 	}
 }
 

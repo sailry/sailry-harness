@@ -13,6 +13,8 @@ import (
 	turso "turso.tech/database/tursogo"
 )
 
+const conflictRetries = 8
+
 // Read pins the snapshot before invoking its callback exactly once.
 func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) error {
 	state, err := handle.acquire(ctx)
@@ -50,18 +52,14 @@ func beginRead(ctx context.Context, connection *sql.Conn) error {
 		if cleanup := rollbackRead(ctx, connection); cleanup != nil {
 			return errors.Join(err, cleanup)
 		}
-		if !readAdmissionConflict(err) || attempt >= 8 {
+		if !transactionConflict(err) || attempt >= conflictRetries {
 			return err
 		}
 		// Turso admits a fresh MVCC snapshot on its first table read. A
 		// checkpoint may refuse it, so retry only before invoking the callback
 		// and after ending the failed transaction, as in the Rust store.
-		delay := time.NewTimer(time.Millisecond << min(attempt, 6))
-		select {
-		case <-ctx.Done():
-			delay.Stop()
-			return ctx.Err()
-		case <-delay.C:
+		if err := waitForConflict(ctx, attempt); err != nil {
+			return err
 		}
 	}
 }
@@ -83,11 +81,11 @@ func pinRead(ctx context.Context, connection *sql.Conn) error {
 	return errors.Join(err, rows.Err(), rows.Close())
 }
 
-func readAdmissionConflict(err error) bool {
+func transactionConflict(err error) bool {
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		causes := joined.Unwrap()
 		for _, cause := range causes {
-			if !readAdmissionConflict(cause) {
+			if !transactionConflict(cause) {
 				return false
 			}
 		}
@@ -106,6 +104,17 @@ func readAdmissionConflict(err error) bool {
 			message == "Commit dependency aborted, rollback and retry the whole transaction"
 	}
 	return false
+}
+
+func waitForConflict(ctx context.Context, attempt int) error {
+	delay := time.NewTimer(time.Millisecond << min(attempt, 6))
+	defer delay.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-delay.C:
+		return nil
+	}
 }
 
 func rollbackRead(ctx context.Context, connection *sql.Conn) error {
