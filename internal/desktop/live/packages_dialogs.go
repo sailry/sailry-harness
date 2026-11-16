@@ -13,6 +13,7 @@ import (
 )
 
 func (r *Runtime) packageDialogs(c *ui.Context) {
+	r.configurationAuthorizationDialog(c)
 	r.skillSelectionDialog(c)
 	// Settings pages draw a package's configuration themselves.
 	if r.App.Page != shell.SettingsPage {

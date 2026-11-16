@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -19,9 +20,8 @@ import (
 )
 
 // TestSettingsTarget drives the Node-owned settings pages over two Nodes
-// that answer with different values: every page reads and saves on the Node
-// of the selected host, turns to another host's Node when the selection
-// changes, and keeps the desktop's telemetry consent on the local Node.
+// that answer with different values: device monitoring never changes the
+// controller's configuration Node, pending drafts or captured saves.
 func TestSettingsTarget(t *testing.T) {
 	nodes := []protocol.NodeID{{1}, {2}}
 	transports := make([]*conversationTestTransport, len(nodes))
@@ -29,10 +29,11 @@ func TestSettingsTarget(t *testing.T) {
 	// external is the compaction revision another controller saved on a
 	// Node, 0 for none; the Node's transport guards it.
 	external := make([]uint64, len(nodes))
-	// doubt, when set, holds the other host's next prevent sleep save until
+	// doubt, when set, holds the local Node's next prevent sleep save until
 	// it is closed; the Node then answers that it can never tell what the
 	// save did.
 	var doubt chan struct{}
+	var saving chan struct{}
 	controllers := make([]*client.Client, len(nodes))
 	for index, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
@@ -51,7 +52,8 @@ func TestSettingsTarget(t *testing.T) {
 			case "read_power_settings":
 				return output("power_settings", protocol.PowerSettings{Revision: revision, PreventSleep: index == 1})
 			case "save_power_settings":
-				if index == 1 && doubt != nil {
+				if index == 0 && doubt != nil {
+					close(saving)
 					<-doubt
 					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the save was not observed"}}, true
 				}
@@ -99,7 +101,7 @@ func TestSettingsTarget(t *testing.T) {
 				input.Settings.Revision++
 				return output("code_index_settings", input.Settings)
 			case "inspect_request":
-				if query, ok := detail[protocol.CommandInspectRequestPayload](request.Command.Data); ok && index == 1 && doubt != nil {
+				if query, ok := detail[protocol.CommandInspectRequestPayload](request.Command.Data); ok && index == 0 && doubt != nil {
 					return output("request_outcome", protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: protocol.RequestOutcome{Kind: "unknown"}})
 				}
 			case "save_telemetry_settings":
@@ -145,7 +147,7 @@ func TestSettingsTarget(t *testing.T) {
 			tester.Frame()
 		}
 	}
-	// show selects a host as the rail does and runs the frame's settings steps.
+	// show changes only the monitored device and runs the settings frame steps.
 	show := func(host string) {
 		root.App.Host = host
 		root.nodeSettingsFrame()
@@ -205,61 +207,61 @@ func TestSettingsTarget(t *testing.T) {
 		}
 	})
 
-	t.Run("selecting a host turns every page to its Node", func(t *testing.T) {
-		m.Compaction.Draft = 95 // a draft of the Node the pages leave
+	t.Run("monitoring another host retains the local drafts", func(t *testing.T) {
+		m.Compaction.Draft = 95
+		before := sent(1)
 		show(nodes[1].String())
-		if m.Compaction.Draft == 95 || len(m.Channels) != 0 {
-			t.Error("the previous Node's draft stayed on the pages")
-		}
 		settle()
-		held(t, 1)
-		for _, kind := range reads {
-			if count(1, kind) == 0 {
-				t.Errorf("%s was not read on the selected host", kind)
-			}
+		if m.Compaction.Draft != 95 || m.Compaction.Saved != 60 || m.Power.Revision != 1 {
+			t.Fatal("device monitor reset local settings draft")
 		}
-		if _, ok := m.HooksContext(); ok {
-			t.Error("the hooks of a conversation on another host were offered for the selected host")
+		if root.settingsOwner() != root || remote.settingsOwner() != root || root.packageOwner() != root || remote.packageOwner() != root {
+			t.Fatal("configuration ownership followed monitored host")
 		}
+		if len(sent(1)) != len(before) {
+			t.Fatalf("monitor read remote settings: %v", sent(1)[len(before):])
+		}
+		m.Compaction.Draft = m.Compaction.Saved
+		held(t, 0)
 	})
 
-	t.Run("every save goes to the selected Node", func(t *testing.T) {
-		before := sent(0)
-		m.Power.Draft = false
+	t.Run("every global save goes to the local Node", func(t *testing.T) {
+		before := sent(1)
+		m.Power.Draft = true
 		m.SavePower()
 		m.Compaction.Draft = 75
 		m.ProviderActions.SaveCompaction()
 		m.Concurrency.Draft = 2
 		m.TeamActions.SaveConcurrency()
 		m.SaveMedia()
-		m.Sandbox.Draft = true
+		m.Sandbox.Draft = false
 		m.SaveSandbox()
-		m.CodeIndex.Draft = true
+		m.CodeIndex.Draft = false
 		m.SaveCodeIndex()
 		m.TeamActions.SaveRole(viewmodel.Role{Key: "review", Name: "Review"}, func(kit.Outcome) {})
 		m.ProviderActions.RefreshCatalog()
 		m.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Command: "run"}}, func(bool) {})
 		settle()
 		for _, kind := range []string{"save_power_settings", "save_compaction_settings", "save_team_settings", "save_media_settings", "save_sandbox_settings", "save_code_index_settings", "put_role", "refresh_model_catalog", "install_mcp"} {
-			if count(1, kind) != 1 {
-				t.Errorf("%s reached the selected host %d times", kind, count(1, kind))
+			if count(0, kind) != 1 {
+				t.Errorf("%s reached local Node %d times", kind, count(0, kind))
 			}
-			if slices.Contains(sent(0)[len(before):], kind) {
-				t.Errorf("%s was sent to the local Node", kind)
+			if slices.Contains(sent(1)[len(before):], kind) {
+				t.Errorf("%s was sent to monitored remote", kind)
 			}
 		}
-		if m.Power.Revision != 3 || m.Power.Saved || m.Compaction.Revision != 3 || m.Compaction.Saved != 75 || m.Concurrency.Revision != 3 || m.Concurrency.Saved != 2 || m.Sandbox.Revision != 3 || !m.Sandbox.Saved || m.CodeIndex.Revision != 3 || !m.CodeIndex.Saved || m.CodeIndex.Pending {
+		if m.Power.Revision != 2 || !m.Power.Saved || m.Compaction.Revision != 2 || m.Compaction.Saved != 75 || m.Concurrency.Revision != 2 || m.Concurrency.Saved != 2 || m.Sandbox.Revision != 2 || m.Sandbox.Saved || m.CodeIndex.Revision != 2 || m.CodeIndex.Saved || m.CodeIndex.Pending {
 			t.Errorf("the saved values were not taken: power %+v, compaction %+v, concurrency %+v, sandbox %+v, code index %+v", m.Power, m.Compaction, m.Concurrency, m.Sandbox, m.CodeIndex)
 		}
 	})
 
 	t.Run("a code index save that conflicts puts the switch back", func(t *testing.T) {
-		m.CodeIndex.Draft = false
+		m.CodeIndex.Draft = true
 		m.SaveCodeIndex()
 		settle()
-		// The switch shows what the Node answers the read that follows.
-		if m.CodeIndex.Draft || m.CodeIndex.Saved || m.CodeIndex.Revision != 2 || m.CodeIndex.Pending || count(1, "read_code_index_settings") != 2 {
-			t.Errorf("code index shows %+v after a conflict, read %d times", m.CodeIndex, count(1, "read_code_index_settings"))
+		// The switch shows what the local Node answers the read that follows.
+		if !m.CodeIndex.Draft || !m.CodeIndex.Saved || m.CodeIndex.Revision != 1 || m.CodeIndex.Pending || count(0, "read_code_index_settings") != 2 {
+			t.Errorf("code index shows %+v after a conflict, read %d times", m.CodeIndex, count(0, "read_code_index_settings"))
 		}
 		if !tester.HasText(i18n.In("en", "code_index_settings_conflict")) {
 			t.Errorf("the conflict was not reported: %q", tester.Texts())
@@ -275,60 +277,46 @@ func TestSettingsTarget(t *testing.T) {
 		}
 	})
 
-	t.Run("an answer for a Node the pages left is dropped", func(t *testing.T) {
-		show(nodes[0].String())
-		settle()
-		held(t, 0)
-		// The other host's reads are still on their way when the selection
-		// returns: the pages keep the local Node's values.
-		show(nodes[1].String())
-		show(nodes[0].String())
-		settle()
-		held(t, 0)
-	})
-
-	t.Run("a save in doubt on a Node the pages left reads nothing into them", func(t *testing.T) {
-		show(nodes[1].String())
-		settle()
-		reads := count(1, "read_power_settings")
-		doubt = make(chan struct{})
-		m.Power.Draft = !m.Power.Draft
+	t.Run("monitor changes preserve a pending local save", func(t *testing.T) {
+		doubt, saving = make(chan struct{}), make(chan struct{})
+		m.Power.Draft = false
 		m.SavePower()
-		show(nodes[0].String())
-		// The local Node's values arrive while the other host's save waits.
-		for range 8 {
-			root.workers.Wait()
-			tester.Frame()
+		select {
+		case <-saving:
+		case <-time.After(5 * time.Second):
+			t.Fatal("local save did not start")
 		}
-		held(t, 0)
+		show(nodes[1].String())
+		show("offline-host")
+		if !m.Power.Pending || m.Power.Draft {
+			t.Fatal("monitor change discarded pending local save")
+		}
 		close(doubt)
 		settle()
 		doubt = nil
-		held(t, 0)
-		if count(1, "read_power_settings") != reads {
-			t.Error("the Node the pages left was read again for its save in doubt")
+		if m.Power.Pending {
+			t.Fatal("local completion did not settle after monitor change")
 		}
 		if !tester.HasText(i18n.In("en", settings.PowerMessages.Uncertain)) {
-			t.Errorf("the save in doubt was not reported: %q", tester.Texts())
+			t.Errorf("unknown local save was not reported: %q", tester.Texts())
+		}
+		if count(1, "save_power_settings") != 0 {
+			t.Fatal("save escaped to monitored host")
 		}
 	})
-
-	t.Run("a host without a connection has no Node to edit", func(t *testing.T) {
-		before := [2]int{len(sent(0)), len(sent(1))}
-		show("0000000000000000000000000000000000000000000000000000000000000009")
-		if !m.Power.Pending || !m.Compaction.Pending || !m.Concurrency.Pending || !m.Media.Pending || !m.CodeIndex.Pending || m.SaveSandbox != nil || m.ProviderActions.Available() {
-			t.Error("a host without a connection left a setting editable")
+	t.Run("offline monitor keeps local configuration available", func(t *testing.T) {
+		show("offline-host")
+		settle()
+		if root.shownSettings() != root || !m.ProviderActions.Available() || m.SaveSandbox == nil {
+			t.Fatal("offline monitor disabled local settings")
 		}
-		saved := true
-		m.ProviderActions.Save(settings.ProviderDraft{}, func(ok bool) { saved = ok })
+		before := count(0, "save_power_settings")
+		m.Power.Draft = !m.Power.Draft
 		m.SavePower()
 		settle()
-		if saved || len(sent(0)) != before[0] || len(sent(1)) != before[1] {
-			t.Error("a save without a Node was sent to another one")
+		if count(0, "save_power_settings") != before+1 || count(1, "save_power_settings") != 0 {
+			t.Fatal("offline monitor redirected local save")
 		}
-		show(nodes[0].String())
-		settle()
-		held(t, 0)
 	})
 
 	t.Run("another controller's compaction save is followed", func(t *testing.T) {
@@ -349,7 +337,7 @@ func TestSettingsTarget(t *testing.T) {
 		m.Compaction.Draft = 90
 		root.nodeSettingsFrame()
 		settle()
-		if count(0, "read_compaction_settings") != reads || m.Compaction.Revision != 1 {
+		if count(0, "read_compaction_settings") != reads || m.Compaction.Revision != 2 {
 			t.Errorf("the threshold was read over a draft: %+v", m.Compaction)
 		}
 		m.Compaction.Draft = m.Compaction.Saved
@@ -392,5 +380,51 @@ func (t *settingsTestTransport) report(snapshot protocol.Snapshot) {
 		case stream.updates <- protocol.Update{Kind: "snapshot", Data: snapshot}:
 		default:
 		}
+	}
+}
+
+func TestGlobalSettingsFramesIgnoreMonitoredHost(t *testing.T) {
+	transport := &conversationTestTransport{snapshot: protocol.DefaultSnapshot()}
+	transport.snapshot.Node = protocol.NodeID{1}
+	controller := client.New(transport)
+	defer controller.Close()
+	root := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	remote := &Runtime{parent: root, App: root.App}
+	root.terminalSettings.known = true
+	root.terminalSettings.model = settings.Stored[settings.TerminalHost]{Revision: 3}
+	root.backupSettings.known, root.backupSettings.saved.Revision = true, 4
+	root.localModels.known, root.localModels.watching = true, true
+	root.localModels.settings = protocol.DefaultModelsLocalSettings()
+	root.localModels.settings.Revision = 5
+	root.localModels.availability = map[protocol.ModelsKind]protocol.ModelsCatalogAvailability{
+		protocol.ModelsKindOcr: {Kind: "available"},
+	}
+	root.App.Page = shell.SettingsPage
+	root.App.Settings.Section = settings.General
+	root.terminalSettingsFrame()
+	root.backupSettingsFrame(nil)
+	root.App.Settings.Host.Draft.Env = []viewmodel.EnvVar{{Key: "DRAFT", Value: "retained"}}
+	root.App.Settings.Backup.Draft.Directory = "/draft/backup"
+	for _, monitored := range []string{"paired-host", "offline-host"} {
+		root.App.Host = monitored
+		root.terminalSettingsFrame()
+		root.backupSettingsFrame(nil)
+		root.App.Settings.Section = settings.OCR
+		root.localModelsFrame()
+		root.App.Settings.Section = settings.General
+		if root.terminalSettings.shown != root || root.backupSettings.shown != root || root.localModels.shown != root || remote.packageOwner() != root {
+			t.Fatal("a global configuration frame followed the device monitor")
+		}
+		if got := root.App.Settings.Host; len(got.Draft.Env) != 1 || got.Draft.Env[0].Key != "DRAFT" || got.Revision != 3 {
+			t.Fatalf("terminal draft lost across monitor navigation: %+v", got)
+		}
+		if root.App.Settings.Backup.Draft.Directory != "/draft/backup" || root.App.Settings.OCR.Enabled.Revision != 5 {
+			t.Fatal("backup or model configuration was replaced by monitor navigation")
+		}
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if len(transport.requests) != 0 {
+		t.Fatalf("changing only a monitor dispatched configuration requests: %+v", transport.requests)
 	}
 }

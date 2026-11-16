@@ -87,30 +87,7 @@ func providers(c *ui.Context, s *State) {
 		})
 	})
 	providerEditorDialog(c, m)
-	authorization(c, "login", &m.login, func() {
-		if ch := m.channel(m.loginFor); ch != nil {
-			channelTile(c, ch, 48)
-		}
-	}, func() { m.signIn(m.loginFor) }, func() {
-		if strings.TrimSpace(m.login.Pasted) == "" {
-			kit.Toast(c, kit.Failed, i18n.T(c, "provider_login_callback_required"))
-			return
-		}
-		if m.Live && m.ProviderActions.SubmitLogin != nil {
-			m.ProviderActions.SubmitLogin(m.login.Pasted)
-		} else {
-			notice(c)
-		}
-	})
-	if w := &m.loginWarning; w.open {
-		proceed := w.proceed
-		if confirm(c, "login-warning", &w.open, i18n.T(c, w.verb)+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
-			proceed()
-		}
-		if !w.open {
-			*w = loginWarning{}
-		}
-	}
+	providerAuthorizationDialog(c, m)
 	if ch := m.channel(m.removing); ch != nil {
 		open := true
 		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title"), ch.Name+"\n"+i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
@@ -1436,4 +1413,31 @@ func ProviderPicker(c *ui.Context, s *State, chosen, back func()) {
 		s.provider.returnTo = back
 		chosen()
 	})
+}
+
+func providerAuthorizationDialog(c *ui.Context, m *Model) {
+	authorization(c, "login", &m.login, func() {
+		if ch := m.channel(m.loginFor); ch != nil {
+			channelTile(c, ch, 48)
+		}
+	}, func() { m.signIn(m.loginFor) }, func() {
+		if strings.TrimSpace(m.login.Pasted) == "" {
+			kit.Toast(c, kit.Failed, i18n.T(c, "provider_login_callback_required"))
+			return
+		}
+		if m.Live && m.ProviderActions.SubmitLogin != nil {
+			m.ProviderActions.SubmitLogin(m.login.Pasted)
+		} else {
+			notice(c)
+		}
+	})
+	if w := &m.loginWarning; w.open {
+		proceed := w.proceed
+		if confirm(c, "login-warning", &w.open, i18n.T(c, w.verb)+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
+			proceed()
+		}
+		if !w.open {
+			*w = loginWarning{}
+		}
+	}
 }

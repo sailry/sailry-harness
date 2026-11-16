@@ -19,8 +19,8 @@ func (r *Runtime) readSettings() {
 	}
 	if r.parent == nil {
 		r.readTelemetry()
+		r.readSandbox()
 	}
-	r.readSandbox()
 }
 
 func (r *Runtime) readPower() {

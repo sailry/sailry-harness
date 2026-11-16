@@ -125,7 +125,11 @@ their visibility, including when older stored records omit that field.
 Projectless resources remain personal. Projects retain their execution Node;
 the rail has no global Node switch. Settings Connections opens device monitors
 and pairing management without changing execution or configuration scope. A new
-projectless draft chooses its execution Node inside the Chats location menu. Model providers, channels and credentials
+projectless draft chooses its execution Node inside the Chats location menu.
+Global settings and package configuration belong to the controller's local Node;
+project hook settings remain on the project's execution Node. Explicit authorization
+for a followed configuration keeps its target only in the authorization dialog.
+Model providers, channels and credentials
 belong only to their authenticated user namespace; machine administrators do not
 gain another user's configuration access. Legacy provider sharing fields remain
 readable for storage and protocol compatibility but grant no cross-user access.

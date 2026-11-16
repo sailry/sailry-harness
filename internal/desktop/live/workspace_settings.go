@@ -26,8 +26,10 @@ func (r *Runtime) initWorkspaceSettings() {
 		return
 	}
 	state.hookModels = map[protocol.WorktreeID]*settings.Stored[settings.HookSettings]{}
-	if owner := r.localRuntime().workspaceSettingsOwner; owner == nil || owner == r {
+	if r.parent == nil {
 		state.sandboxModel = r.App.Settings.Sandbox
+	}
+	if owner := r.localRuntime().workspaceSettingsOwner; owner == nil || owner == r {
 		if state.worktree != (protocol.WorktreeID{}) {
 			value := r.App.Settings.Hooks
 			state.hookModels[state.worktree] = &value
@@ -44,20 +46,24 @@ func (r *Runtime) workspaceHooksModel(id protocol.WorktreeID) *settings.Stored[s
 	return model
 }
 func (r *Runtime) captureWorkspaceSettings() {
+	r.initWorkspaceSettings()
+	if r.parent == nil {
+		r.workspaceSettings.sandboxModel = r.App.Settings.Sandbox
+	}
 	if r.localRuntime().workspaceSettingsOwner != r {
 		return
 	}
-	r.initWorkspaceSettings()
-	r.workspaceSettings.sandboxModel = r.App.Settings.Sandbox
 	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
 		*r.workspaceHooksModel(id) = r.App.Settings.Hooks
 	}
 }
 func (r *Runtime) publishWorkspaceSettings() {
+	if r.parent == nil {
+		r.App.Settings.Sandbox = r.workspaceSettings.sandboxModel
+	}
 	if r.localRuntime().workspaceSettingsOwner != r {
 		return
 	}
-	r.App.Settings.Sandbox = r.workspaceSettings.sandboxModel
 	r.App.Settings.Hooks = settings.Stored[settings.HookSettings]{}
 	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
 		r.App.Settings.Hooks = *r.workspaceHooksModel(id)
@@ -67,51 +73,55 @@ func (r *Runtime) bindWorkspaceSettings() {
 	root := r.localRuntime()
 	r.initWorkspaceSettings()
 	root.workspaceSettingsOwner = r
-	root.App.Settings.SaveSandbox = r.saveSandbox
+	root.App.Settings.SaveSandbox = root.saveSandbox
 	root.App.Settings.SaveHooks = r.saveWorkspaceHooks
 	root.App.Settings.HooksContext = r.hookContext
 	root.App.Settings.HooksSandboxed = r.hooksSandboxed
 	r.publishWorkspaceSettings()
 }
 
-// workspaceSettingsFrame keeps the sandbox and the hooks on the Node
-// Settings edits (settings_target.go), holding each Node's drafts while
-// another shows. A host without a connection has neither: the sandbox
-// switch waits and the hooks page asks for a project.
+// workspaceSettingsFrame keeps sandbox configuration local and hooks on the
+// selected project's execution Node. Hook editors and in-flight saves retain
+// their captured owner and worktree while navigation changes.
 func (r *Runtime) workspaceSettingsFrame() {
 	root := r.localRuntime()
-	owner := root.settingsOwner()
+	root.captureWorkspaceSettings()
+	root.App.Settings.SaveSandbox = root.saveSandbox
+	state := &root.workspaceSettings
+	if (!state.sandboxKnown || root.snapshot().SandboxSettingsRevision > state.sandboxRevision) && !state.sandboxModel.Pending {
+		root.readSandbox()
+	}
+	owner := root.selectedRuntime()
 	previous := root.workspaceSettingsOwner
 	if previous != nil {
-		previous.captureWorkspaceSettings()
+		if previous != root {
+			previous.captureWorkspaceSettings()
+		}
 		if root.App.Settings.HooksEditing() {
 			owner = previous
 		}
 	}
 	if owner == nil {
-		if previous != nil {
-			m := root.App.Settings
-			root.workspaceSettingsOwner = nil
-			m.SaveSandbox, m.SaveHooks, m.HooksSandboxed = nil, nil, nil
-			m.HooksContext = func() (string, bool) { return "", false }
-			m.Sandbox, m.Hooks = settings.Stored[bool]{}, settings.Stored[settings.HookSettings]{}
+		root.workspaceSettingsOwner = nil
+		m := root.App.Settings
+		m.SaveHooks, m.HooksSandboxed = nil, nil
+		m.HooksContext = func() (string, bool) { return "", false }
+		m.Hooks = settings.Stored[settings.HookSettings]{}
+	} else {
+		if previous != owner {
+			owner.bindWorkspaceSettings()
 		}
-		return
+		owner.refreshWorkspaceSettings()
 	}
-	if previous != owner {
-		owner.bindWorkspaceSettings()
-	}
-	owner.refreshWorkspaceSettings()
+	root.publishWorkspaceSettings()
 }
+
 func (r *Runtime) refreshWorkspaceSettings() {
 	if r.ctx != nil && r.ctx.Err() != nil {
 		return
 	}
 	r.initWorkspaceSettings()
 	state := &r.workspaceSettings
-	if (!state.sandboxKnown || r.snapshot().SandboxSettingsRevision != state.sandboxRevision) && !state.sandboxModel.Pending {
-		r.readSandbox()
-	}
 	// The hooks are those of the conversation shown, when it runs on this
 	// Node; a conversation on another host has its hooks on that host.
 	var id protocol.WorktreeID

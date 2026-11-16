@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -30,7 +31,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("browser address", testBrowserAddress)
 	t.Run("browser capture", testBrowserCapture)
 	t.Run("browser call deadline", testBrowserDeadline)
-	t.Run("remote settings keep their owner through navigation and completion", func(t *testing.T) {
+	t.Run("project hooks stay remote while sandbox remains local", func(t *testing.T) {
 		owners := make([]*Runtime, 2)
 		transports := make([]*conversationTestTransport, 2)
 		data := &viewmodel.Data{Workspace: &viewmodel.Workspace{}}
@@ -39,9 +40,23 @@ func TestWorkspaceHookSettings(t *testing.T) {
 			node, project, worktree, session := protocol.NodeID{byte(index + 1)}, protocol.NewProjectID(), protocol.NewWorktreeID(), protocol.NewSessionID()
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node = node
+			snapshot.SandboxSettingsRevision = uint64(index + 3)
 			snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/owner"}}
 			snapshot.Sessions = []protocol.Session{{ID: session, Project: &project, Worktree: worktree}}
 			transports[index] = &conversationTestTransport{snapshot: snapshot}
+			transports[index].handle = func(request protocol.Request) (link.Response, bool) {
+				switch request.Command.Kind {
+				case "save_hooks":
+					input, _ := detail[protocol.CommandSaveHooksPayload](request.Command.Data)
+					input.Settings.Revision++
+					return link.Response{Output: protocol.Output{Kind: "hooks", Data: protocol.HooksState{Settings: input.Settings, Sandboxed: true}}}, true
+				case "save_sandbox_settings":
+					input, _ := detail[protocol.SandboxSettings](request.Command.Data)
+					input.Revision++
+					return link.Response{Output: protocol.Output{Kind: "sandbox_settings", Data: input}}, true
+				}
+				return link.Response{}, false
+			}
 			controller := client.New(transports[index])
 			if err := controller.Start(t.Context()); err != nil {
 				t.Fatal(err)
@@ -52,7 +67,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 				ctx: t.Context(), controller: controller, App: app,
 				busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
 				workspaceSettings: workspaceSettingsState{
-					worktree: worktree, sandboxKnown: true,
+					worktree: worktree, sandboxKnown: true, sandboxRevision: snapshot.SandboxSettingsRevision,
 					hookModels:   map[protocol.WorktreeID]*settings.Stored[settings.HookSettings]{worktree: hooks},
 					sandboxModel: settings.Stored[bool]{Revision: uint64(index + 3)},
 				},
@@ -64,20 +79,20 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		local.bindings = map[string]*Runtime{remote.controller.Target().String(): remote}
 		local.bindWorkspaceSettings()
 		localSession, remoteSession := transports[0].snapshot.Sessions[0].ID.String(), transports[1].snapshot.Sessions[0].ID.String()
-		// The sandbox and the hooks are the selected host's: a conversation
-		// on another host does not turn the pages to its Node.
+		// Project selection owns hooks independently of the monitored device.
 		localHost, remoteHost := local.controller.Target().String(), remote.controller.Target().String()
 		app.Host = localHost
 		local.OpenSession(remoteSession)
 		local.workspaceSettingsFrame()
-		if _, ok := app.Settings.HooksContext(); ok || app.Settings.Sandbox.Revision != 3 {
-			t.Fatal("a conversation on another host turned the local host's settings to its Node")
+		if label, ok := app.Settings.HooksContext(); !ok || !strings.Contains(label, remoteHost) || app.Settings.Hooks.Revision != 8 || app.Settings.Sandbox.Revision != 3 {
+			t.Fatal("remote project hooks or local sandbox lost their owner")
 		}
 		app.Host = remoteHost
 		local.workspaceSettingsFrame()
-		if label, ok := app.Settings.HooksContext(); !ok || !strings.Contains(label, remote.controller.Target().String()) || app.Settings.Hooks.Revision != 8 {
-			t.Fatal("remote hooks read and consent did not share an execution owner")
+		if app.Settings.Sandbox.Revision != 3 || app.Settings.Hooks.Revision != 8 {
+			t.Fatal("monitor changed settings ownership")
 		}
+
 		app.Settings.Hooks.Draft.Enabled = true
 		app.Settings.SaveHooks()
 		app.Settings.Sandbox.Draft = true
@@ -86,6 +101,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		local.OpenSession(localSession)
 		local.workspaceSettingsFrame()
 		remote.workers.Wait()
+		local.workers.Wait()
 		tester := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			local.mu.Lock()
@@ -97,14 +113,14 @@ func TestWorkspaceHookSettings(t *testing.T) {
 			}
 		}, 640, 480)
 		tester.Frame()
-		if app.Settings.Hooks.Revision != 7 || app.Settings.Hooks.Draft.Enabled || app.Settings.Sandbox.Revision != 3 || app.Settings.Sandbox.Draft {
-			t.Fatal("remote completion overwrote the local settings draft")
+		if app.Settings.Hooks.Revision != 7 || app.Settings.Hooks.Draft.Enabled || app.Settings.Sandbox.Revision != 4 || !app.Settings.Sandbox.Draft {
+			t.Fatal("remote hook completion overwrote local hooks or sandbox completion")
 		}
 		transports[1].mu.Lock()
 		requests := append([]protocol.Request(nil), transports[1].requests...)
 		transports[1].mu.Unlock()
-		if len(requests) != 2 {
-			t.Fatalf("remote settings dispatched %d requests", len(requests))
+		if len(requests) != 1 {
+			t.Fatalf("remote hooks dispatched %d requests", len(requests))
 		}
 		for _, request := range requests {
 			if request.Target != remote.controller.Target() {
@@ -117,6 +133,12 @@ func TestWorkspaceHookSettings(t *testing.T) {
 				}
 			}
 		}
+		transports[0].mu.Lock()
+		localRequests := append([]protocol.Request(nil), transports[0].requests...)
+		transports[0].mu.Unlock()
+		if len(localRequests) != 1 || localRequests[0].Command.Kind != "save_sandbox_settings" || localRequests[0].Target != local.controller.Target() {
+			t.Fatalf("sandbox save escaped local Node: %+v", localRequests)
+		}
 		if controller, ok := local.SessionClient(remoteSession); !ok || controller != remote.controller {
 			t.Fatal("export lost the remote session owner after local navigation")
 		}
@@ -124,7 +146,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		local.OpenSession(remoteSession)
 		local.workspaceSettingsFrame()
 		if !app.Settings.Hooks.Draft.Enabled || !app.Settings.Sandbox.Draft || app.Settings.Hooks.Pending || app.Settings.Sandbox.Pending {
-			t.Fatal("navigation lost the retained remote settings draft")
+			t.Fatal("navigation lost the retained remote hook or local sandbox draft")
 		}
 	})
 	for _, admitted := range []bool{false, true} {

@@ -207,13 +207,13 @@ func (r *Runtime) deleteSpeechModel(id string) {
 }
 
 // updateSpeechModel looks for a newer version of a registered speech model:
-// the selected host's Node resolves its source at its head. A version that
+// the controller's local Node resolves its source at its head. A version that
 // is installed is "Already up to date"; another is registered and
 // downloaded.
 func (r *Runtime) updateSpeechModel(id string) {
 	root := r.localRuntime()
 	manager := root.speechManager()
-	owner := root.runtimeFor(root.App.Host)
+	owner := root.settingsOwner()
 	if manager == nil || owner == nil {
 		return
 	}

@@ -217,13 +217,10 @@ func (r *Runtime) initB8Packages() {
 	r.packagesFrame(nil)
 }
 
+// packageOwner keeps global package pages and configuration on the controller.
 func (r *Runtime) packageOwner() *Runtime {
-	root := r.localRuntime()
-	owner := root.runtimeFor(root.App.Host)
-	if owner == nil && (root.App.Host == "" || root.App.Host == root.controller.Target().String()) {
-		owner = root
-	}
-	if owner != nil && owner.packages == nil {
+	owner := r.localRuntime()
+	if owner.packages == nil {
 		owner.packages = newPackageState()
 	}
 	return owner

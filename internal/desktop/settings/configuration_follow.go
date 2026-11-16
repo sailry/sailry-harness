@@ -114,3 +114,14 @@ func (m *Model) AuthorizeFollowedConnection(id string) {
 		}
 	}
 }
+
+// ExplicitAuthorizationDialogs reuses the existing editors on a captured Node's
+// model without replacing the controller's configuration lists or drafts.
+func ExplicitAuthorizationDialogs(c *ui.Context, m *Model) bool {
+	providerAuthorizationDialog(c, m)
+	connectorDialog(c, m)
+	PackageConfigurationDialog(c, m)
+	connectorAuthorizationDialog(c, m)
+	return m.login.Open || m.loginWarning.open || m.connector.open || m.connector.pending ||
+		m.config.open || m.config.pending || m.ConnectorActions != nil && m.ConnectorActions.Authorization.Open
+}

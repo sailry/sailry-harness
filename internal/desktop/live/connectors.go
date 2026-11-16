@@ -154,7 +154,8 @@ func (r *Runtime) readConnectorPackages() {
 // projectConnectors shows the Node's services and connector types on the
 // page that holds this Node.
 func (r *Runtime) projectConnectors() {
-	if !r.showsSettings() {
+	scope := r.localRuntime().configurationAuthorization
+	if !r.showsSettings() && (scope == nil || scope.owner != r) {
 		return
 	}
 	var types []viewmodel.ConnectorType
@@ -244,7 +245,12 @@ func (r *Runtime) projectConnectors() {
 		}
 		services = append(services, service)
 	}
-	r.App.Settings.ConnTypes, r.App.Settings.Services = types, services
+	if r.showsSettings() {
+		r.App.Settings.ConnTypes, r.App.Settings.Services = types, services
+	}
+	if scope != nil && scope.owner == r {
+		scope.model.ConnTypes, scope.model.Services = types, services
+	}
 }
 
 // standaloneServer fills the server with the definition it was added by

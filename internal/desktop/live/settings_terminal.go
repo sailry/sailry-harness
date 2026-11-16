@@ -13,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Terminal: the selected host's shell and environment, read
+// Settings › Terminal: the controller's local shell and environment, read
 // when the page shows and saved whole on every change.
 
 // terminalSettingsState is a Node's terminal settings as the page edits
@@ -33,7 +33,7 @@ type terminalSettingsState struct {
 	visible  bool
 }
 
-// terminalSettingsFrame keeps the page on the selected host's Node: it
+// terminalSettingsFrame keeps the page on the controller's local Node: it
 // takes back the draft the page edited, shows the Node's, and reads its
 // settings when they are unknown, a save left them in doubt, or the Node
 // reports a newer revision. Nothing is read while another page shows.
@@ -41,7 +41,7 @@ func (r *Runtime) terminalSettingsFrame() {
 	root := r.localRuntime()
 	state := &root.terminalSettings
 	m := root.App.Settings
-	owner := root.runtimeFor(root.App.Host)
+	owner := root.settingsOwner()
 	if previous := state.shown; previous != nil {
 		previous.terminalSettings.model = m.Host
 		if m.TerminalEditing() {

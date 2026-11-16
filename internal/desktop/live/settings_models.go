@@ -13,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › OCR, Knowledge and Decision: the selected host's local models
+// Settings › OCR, Knowledge and Decision: the controller Node's local models
 // and which of them each kind uses, read when one of the pages shows,
 // followed through the Node's events and saved whole at the revision read.
 // Dictation's speech models are the controller's, not a Node's
@@ -58,7 +58,7 @@ type localModelState struct {
 	knowledge bool
 }
 
-// localModelsFrame keeps the local-model pages on the selected host's
+// localModelsFrame keeps the local-model pages on the controller's local
 // Node: it reads the Node's settings and models when they are unknown, a
 // save left them in doubt or an event reported a change, follows the
 // Node's events from the first visit on, and shows the result. Nothing is
@@ -73,9 +73,9 @@ func (r *Runtime) localModelsFrame() {
 			m.ModelActions = root.modelActions()
 		}
 		m.Speech, m.SpeechModel = speechModels(root.Preferences.Data.DictationModel(), root.speechManager())
-		// The library searches and resolves through the selected host's
+		// The library searches and resolves through the controller's local
 		// Node; what it installs and removes is the controller's.
-		owner := root.runtimeFor(root.App.Host)
+		owner := root.settingsOwner()
 		if owner != state.shown {
 			m.CloseModelDialogs()
 		}
@@ -87,7 +87,7 @@ func (r *Runtime) localModelsFrame() {
 		state.visible, state.knowledge = false, false
 		return
 	}
-	owner := root.runtimeFor(root.App.Host)
+	owner := root.settingsOwner()
 	entered := !state.visible || owner != state.shown
 	if owner != state.shown {
 		// The library and the details belong to the Node they were opened on.

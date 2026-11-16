@@ -239,25 +239,7 @@ func connectors(c *ui.Context, m *Model) {
 	mcpDialog(c, m)
 	PackageConfigurationDialog(c, m)
 	connectorDialog(c, m)
-	if m.Live && m.ConnectorActions != nil {
-		actions := m.ConnectorActions
-		if consent := actions.Consent; consent != nil && consent.Open {
-			lines := []string{t("connector_consent_effect")}
-			for _, change := range consent.Changes {
-				lines = append(lines, t("connector_changed_"+change))
-			}
-			if kit.AlertDialog(c.Key("connector-consent"), &consent.Open, t("connector_confirm")+" "+consent.Target, strings.Join(lines, "\n"), t("settings_cancel"), t("connector_confirm")) == 1 {
-				consent.Apply(true)
-			}
-		}
-		authorization(c, "connector-login", &actions.Authorization, func() {
-			serviceTile(c, actions.Authorization.Title, "")
-		}, actions.Retry, func() {
-			if actions.Submit != nil {
-				actions.Submit(actions.Authorization.Pasted)
-			}
-		})
-	}
+	connectorAuthorizationDialog(c, m)
 	if s := m.service(m.connRemoving); s != nil {
 		open := true
 		if confirm(c, "remove", &open, t("connector_remove"), t("connector_remove_effect", "name", s.Name), t("connector_remove")) {
@@ -1171,4 +1153,27 @@ func accountSkeleton(c *ui.Context) {
 			}}.row(c, "account-loading", "")
 		}, nil)
 	})
+}
+
+func connectorAuthorizationDialog(c *ui.Context, m *Model) {
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	if m.Live && m.ConnectorActions != nil {
+		actions := m.ConnectorActions
+		if consent := actions.Consent; consent != nil && consent.Open {
+			lines := []string{t("connector_consent_effect")}
+			for _, change := range consent.Changes {
+				lines = append(lines, t("connector_changed_"+change))
+			}
+			if kit.AlertDialog(c.Key("connector-consent"), &consent.Open, t("connector_confirm")+" "+consent.Target, strings.Join(lines, "\n"), t("settings_cancel"), t("connector_confirm")) == 1 {
+				consent.Apply(true)
+			}
+		}
+		authorization(c, "connector-login", &actions.Authorization, func() {
+			serviceTile(c, actions.Authorization.Title, "")
+		}, actions.Retry, func() {
+			if actions.Submit != nil {
+				actions.Submit(actions.Authorization.Pasted)
+			}
+		})
+	}
 }

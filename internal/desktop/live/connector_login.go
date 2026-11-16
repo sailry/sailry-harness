@@ -119,9 +119,10 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 	attempt := &liveAuthorization{ctx: ctx, cancel: cancel, connector: draft, title: kind.Declaration.Display.Label}
 	attempt.connector.Fields = maps.Clone(draft.Fields)
 	r.authorizations.connector = attempt
-	actions := r.App.Settings.ConnectorActions
+	actions := r.authorizationSettings().ConnectorActions
 	actions.Authorization = settings.Authorization{Open: true, Title: attempt.title, Flow: settings.FlowStarting, Callback: manual, Cancel: r.cancelConnectorLogin,
 		OpenURL: func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }}
+	attempt.view = &actions.Authorization
 	payload := protocol.CommandStartConnectorLoginPayload{Package: kind.Package, Connector: kind.Declaration.ID, Method: method, Input: input}
 	if connection, exists := r.authorizations.connections[draft.Service]; exists {
 		payload.Connection, payload.ExpectedRevision = &connection.ID, &draft.ExpectedRevision
@@ -191,7 +192,7 @@ func (r *Runtime) watchConnectorLogin(ctx context.Context, attempt *liveAuthoriz
 					browser, _ := detail[protocol.PluginConnectorLoginStateBrowserPayload](value.State.Data)
 					state.Data = protocol.ConversationLoginStateBrowserPayload{AuthorizationUrl: browser.Url, ExpiresAtMs: browser.ExpiresAtMs}
 				}
-				view := &r.App.Settings.ConnectorActions.Authorization
+				view := r.authorizationView(attempt, false)
 				expiry, terminal := projectAuthorization(view, state)
 				if state.Kind == "browser" && view.URL != "" {
 					c.OpenURL(view.URL)
@@ -233,7 +234,7 @@ func (r *Runtime) submitConnectorLogin(callback string) {
 	if attempt == nil || attempt.id == (protocol.RequestID{}) {
 		return
 	}
-	view := &r.App.Settings.ConnectorActions.Authorization
+	view := r.authorizationView(attempt, false)
 	view.Busy = true
 	r.execute(protocol.Command{Kind: "submit_connector_input", Data: protocol.CommandSubmitConnectorInputPayload{Attempt: attempt.id, Input: protocol.NewSecret(callback)}}, func(c *ui.Context, _ protocol.Output, err error) {
 		if r.authorizations.connector != attempt {
@@ -252,7 +253,7 @@ func (r *Runtime) cancelConnectorLogin() {
 	if attempt == nil {
 		return
 	}
-	view := &r.App.Settings.ConnectorActions.Authorization
+	view := r.authorizationView(attempt, false)
 	// As cancelProviderLogin: nothing is left to cancel on the Node.
 	if attempt.id == (protocol.RequestID{}) || attempt.ctx.Err() != nil {
 		view.Open = false

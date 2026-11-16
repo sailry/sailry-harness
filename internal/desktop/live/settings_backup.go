@@ -18,7 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Backup: the selected host's storage, schedule and archives.
+// Settings › Backup: the controller's local storage, schedule and archives.
 // Settings are read when the page shows and after every action; the
 // schedule's draft is saved shortly after it changes.
 
@@ -70,14 +70,13 @@ type backupSchedule struct {
 	timezone     string
 }
 
-// backupSettingsFrame keeps the page on the selected host's Node. Turning
-// to another host drops the dialogs and their drafts; the Node's settings
-// are read when unknown or after an action, and only while the page shows.
+// backupSettingsFrame keeps the page and its drafts on the controller's local
+// Node. Settings are read when unknown or after an action, while the page shows.
 func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	root := r.localRuntime()
 	state := &root.backupSettings
 	m := root.App.Settings
-	owner := root.runtimeFor(root.App.Host)
+	owner := root.settingsOwner()
 	if state.actions == nil {
 		state.actions = root.backupActions()
 	}
@@ -114,12 +113,6 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 		owner.readBackupSettings()
 	}
 	state.actions.Host = i18n.T(c, "local_host_name")
-	if owner != root {
-		state.actions.Host = root.App.Host
-		if host := root.hostState(root.App.Host); host != nil {
-			state.actions.Host = host.view.Name
-		}
-	}
 	m.Archived, m.Sessions = backupSessions(owner.snapshot().Sessions, i18n.T(c, "conversation"))
 	owner.saveBackupSchedule(time.Now())
 }
@@ -520,7 +513,10 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 		},
 		ChooseFolder: func(initial string, selected func(string)) {
 			owner := state.shown
-			r.chooseDirectory(r.App.Host, state.actions.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
+			if owner == nil {
+				return
+			}
+			r.chooseDirectory(owner.controller.Target().String(), state.actions.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
 		},
 		Export: func() {
 			owner := ready()

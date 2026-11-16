@@ -7,28 +7,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings edits one Node: the host selected in the shell (App.Host, the
-// local Node by default), as the reference binds every page to its settings
-// Node. Prevent sleep, providers, the compaction threshold, media models,
-// teams, roles, child concurrency, connectors, MCP, the sandbox, the code
-// index and hooks are that Node's, beside the terminal, backup, local model, plugin and
-// Python pages. Language, appearance, shortcuts, notifications, dictation
-// and telemetry consent are this desktop's and stay local.
-//
-// The pages share one view model, so only the Runtime shown writes it: an
-// answer for a Node the pages left is dropped, or is a toast alone when it
-// ends a save. Turning to another host drops the pages' drafts and editors
-// and reads the new Node.
+// Settings edits the controller's local Node. A device monitor does not change
+// configuration ownership. Workspace hooks separately follow the selected
+// project's execution Node (workspace_settings.go).
 
-// settingsOwner is the Runtime of the Node Settings edits, nil while the
-// selected host has no connection.
-func (r *Runtime) settingsOwner() *Runtime {
-	root := r.localRuntime()
-	return root.runtimeFor(root.App.Host)
-}
+// settingsOwner is the local Runtime that owns controller configuration.
+func (r *Runtime) settingsOwner() *Runtime { return r.localRuntime() }
 
-// shownSettings is the Runtime whose Node the pages hold: the local one
-// until the pages turn to another host, nil for a host without a connection.
+// shownSettings is the Runtime currently bound to the configuration pages.
+// Normal frames keep this on the local Node.
 func (r *Runtime) shownSettings() *Runtime {
 	root := r.localRuntime()
 	if !root.settingsTurned {
@@ -170,7 +157,7 @@ func (r *Runtime) initNodeSettings() {
 	r.enterNodeSettings()
 }
 
-// nodeSettingsFrame keeps the pages on the selected host's Node and follows
+// nodeSettingsFrame keeps the pages on the local Node and follows
 // what that Node reports: its roles and teams, and newer power, compaction
 // and team settings.
 func (r *Runtime) nodeSettingsFrame() {

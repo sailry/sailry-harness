@@ -102,27 +102,14 @@ func (r *Runtime) initConfigurationFollowActions() {
 			}
 		},
 		Authorize: func(view *settings.ConfigurationFollowEditor, issue settings.ConfigurationFollowIssue) {
-			if current == nil || current.model != view {
+			if current == nil || current.model != view || view.Loading || view.Pending {
 				return
 			}
 			current.owner = r.runtimeFor(view.Device.ID)
 			if current.owner == nil {
 				return
 			}
-			r.App.Host = view.Device.ID
-			r.showNodeSettings(current.owner)
-			model.FollowEditor = nil
-			switch issue.Category {
-			case "providers":
-				r.App.Settings.Open(settings.Providers)
-				current.owner.beginProviderLogin(issue.ID)
-			case "connections":
-				r.App.Settings.Open(settings.Connectors)
-				model.AuthorizeFollowedConnection(issue.ID)
-			case "plugin_settings":
-				r.App.Settings.Open(settings.Connectors)
-				current.owner.configurePackage(issue.ID)
-			}
+			r.beginConfigurationAuthorization(current.owner, view, issue)
 		},
 	}
 }

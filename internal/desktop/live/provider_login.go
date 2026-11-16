@@ -46,6 +46,7 @@ type liveAuthorization struct {
 	provider   string
 	connector  settings.ConnectorDraft
 	title      string
+	view       *settings.Authorization
 	generation uint64
 	ctx        context.Context
 }
@@ -154,7 +155,7 @@ func (r *Runtime) beginProviderLogin(id string) {
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
+		r.authorizationSettings().WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
 		return
 	}
 	r.startProviderLogin(id)
@@ -195,8 +196,10 @@ func (r *Runtime) startProviderLogin(id string) {
 	}
 	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name}
 	r.authorizations.provider = attempt
-	r.App.Settings.BeginProviderAuthorization(id, provider.Name, manual)
-	view := r.App.Settings.ProviderAuthorization()
+	model := r.authorizationSettings()
+	model.BeginProviderAuthorization(id, provider.Name, manual)
+	view := model.ProviderAuthorization()
+	attempt.view = view
 	view.OpenURL = func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }
 	r.execute(protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision, Redirect: redirect}}, func(c *ui.Context, output protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
@@ -294,7 +297,7 @@ func projectAuthorization(view *settings.Authorization, state protocol.Conversat
 }
 
 func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, value protocol.ConversationLoginUpdate) {
-	view := r.App.Settings.ProviderAuthorization()
+	view := r.authorizationView(attempt, true)
 	expiry, terminal := projectAuthorization(view, value.State)
 	if value.State.Kind == "browser" && view.URL != "" {
 		c.OpenURL(view.URL)
@@ -359,7 +362,7 @@ func (r *Runtime) submitProviderLogin(callback string) {
 	if attempt == nil || attempt.id == (protocol.RequestID{}) {
 		return
 	}
-	view := r.App.Settings.ProviderAuthorization()
+	view := r.authorizationView(attempt, true)
 	view.Busy = true
 	r.execute(protocol.Command{Kind: "complete_provider_login", Data: protocol.CommandCompleteProviderLoginPayload{Attempt: attempt.id, Callback: protocol.NewSecret(callback)}}, func(c *ui.Context, _ protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
@@ -378,7 +381,7 @@ func (r *Runtime) cancelProviderLogin() {
 	if attempt == nil {
 		return
 	}
-	view := r.App.Settings.ProviderAuthorization()
+	view := r.authorizationView(attempt, true)
 	view.Cancelling = true
 	// An attempt the Node never began or has already ended (its context is
 	// over) has nothing to cancel there: the dialog closes by itself.
