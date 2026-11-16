@@ -47,7 +47,9 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 	// ended, until the stop reason says why.
 	cut := map[int64]*anthropicBlock{}
 	terminal, reason := false, ""
-	for stream.Next() {
+	// message_stop follows final usage; waiting for HTTP EOF afterward can
+	// turn an already completed message into a retryable connection failure.
+	for !terminal && stream.Next() {
 		value, err := decodeSDK(stream.Current().RawJSON())
 		if err != nil {
 			emitter.fail(err)

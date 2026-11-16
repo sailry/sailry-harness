@@ -316,6 +316,10 @@ model step; tool calls execute only after that step completes. Consumers without
 a draft-reset boundary stop automatic retry after emitting content. Summary
 requests buffer their output. Cancellation interrupts waits. Permanent failures
 terminate the request, and completed tools are not replayed.
+Responses and Anthropic streams complete at their explicit terminal event after
+final output and usage have arrived; a later HTTP disconnect does not restart
+that completed step. Other stream formats retain their required trailing usage
+and termination handling.
 
 Tools come from the captured enabled declarations. Everyday file, command, Git,
 code and web tools are initially exposed; `tool_search` discovers other declared
