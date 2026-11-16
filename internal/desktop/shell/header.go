@@ -357,9 +357,9 @@ func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 
 // hasDetails reports whether the page has something for the right column:
 // the conversation's panel, the host's metrics, a selected extension's
-// details over Settings and the Market, or a package page's own.
+// details over Settings and the Market, or workspace resource details.
 func (a *App) hasDetails() bool {
-	return a.Page == ConversationPage || a.Page == HostPage || a.extensionDetails() || a.pluginDetails()
+	return a.Page == ConversationPage || a.Page == HostPage || a.extensionDetails() || a.workspaceDetails()
 }
 
 // panelHeader is the header segment over the right column, owned by what the
@@ -383,6 +383,11 @@ func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
 	}
 	if a.Page == HostPage {
 		title(i18n.T(c, "metrics_title"))
+		return
+	}
+	if a.resourceDetails() {
+		// The resource toolbar names its tree or branch and keeps its
+		// actions together; do not repeat that title in the window band.
 		return
 	}
 	seg.PaddingStart(8)

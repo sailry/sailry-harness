@@ -127,9 +127,15 @@ func (a *App) pluginDetails() bool {
 	return a.Page == PluginPage && a.PluginDetails != nil
 }
 
+// resourceDetails is the project list beside a full-page Files or Git
+// document. Panel tabs keep their own compact list-and-document layout.
+func (a *App) resourceDetails() bool { return a.paged() != "" && a.project() != nil }
+
+func (a *App) workspaceDetails() bool { return a.pluginDetails() || a.resourceDetails() }
+
 // RevealDetails shows the right column again after its toggle folded it.
 func (a *App) RevealDetails() {
-	if a.Page == PluginPage {
+	if a.Page == PluginPage || a.paged() != "" {
 		a.pluginWorkspacePrefs().Folded = false
 		return
 	}

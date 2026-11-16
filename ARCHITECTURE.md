@@ -411,7 +411,9 @@ navigation and settings pages resolve from declarations. Workspace content,
 navigation and details project into the shell's common columns; shell layout owns
 resizing, dividers and visibility. SSH and database workflows use package
 surfaces and reusable native components. Files and Git use the core panels; their
-package navigation and panel surfaces are not mounted. Local terminal tabs also
+full-page resource lists use the shell's details column, width and fold toggle,
+while conversation tabs retain their compact adaptive layout. Their package
+navigation and panel surfaces are not mounted. Local terminal tabs also
 use the shared native terminal, which packages can embed. A package name does not
 grant a privileged renderer.
 

@@ -1,7 +1,8 @@
 package shell
 
-// PluginWorkspacePrefs belong to one package Workspace. Conversation panel
-// widths and other package Workspaces keep their own choices.
+// PluginWorkspacePrefs belong to one workspace, including the core Files
+// and Git pages. Conversation panels and other workspaces keep their own
+// widths and fold choices.
 type PluginWorkspacePrefs struct {
 	Width  float32 `json:"width"`
 	Folded bool    `json:"folded,omitempty"`

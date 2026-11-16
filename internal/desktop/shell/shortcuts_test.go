@@ -67,7 +67,7 @@ func testCloseFocusedPage(t *testing.T) {
 	for _, f := range []struct {
 		label, inside string
 		page          Page
-	}{{"files", "A native desktop Agent workspace.", FilesPage}, {"git", "Tracked · 3", GitPage}} {
+	}{{"files", "A native desktop Agent workspace.", FilesPage}, {"git", "New text", GitPage}} {
 		a, tt := newTester(t)
 		clickButton(t, tt, i18n.In("en", f.label))
 		settle(tt)
@@ -90,7 +90,15 @@ func testCloseFocusedPage(t *testing.T) {
 		if a.Page != f.page || len(opened()) != 1 {
 			t.Fatalf("%s: ⌘W from the rail closed the page", f.label)
 		}
-		click(t, tt, f.inside)
+		if f.page == GitPage {
+			info, ok := tt.Access(f.inside)
+			if !ok {
+				t.Fatal("the Git page has no diff document")
+			}
+			tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		} else {
+			click(t, tt, f.inside)
+		}
 		tt.Key(ui.Cmd, ui.KeyW)
 		settle(tt)
 		if a.Page != f.page || len(opened()) != 0 {

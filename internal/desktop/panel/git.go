@@ -56,7 +56,6 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 		}
 	})
 	if pr.gitEmpty(c, true) {
-		pr.gitDialogs(c)
 		return
 	}
 	pending := append([]PendingOperation(nil), v.switchPending...)
@@ -87,7 +86,6 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 		pr.changeList(c, own, open)
 		pr.commitBox(c)
 	}
-	pr.gitDialogs(c)
 }
 
 // changesToolbar is Diff, the changes' total +N −M, and Stage all or

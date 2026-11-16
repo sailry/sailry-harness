@@ -62,7 +62,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			if pr != nil {
 				pr.reveal = func(path string) { s.Show(Tab{Files, path}) }
 			}
-			pr.view(c, t.Kind, t.ID, own, nil, func(path string) { s.Show(Tab{t.Kind, path}) })
+			pr.view(c, t.Kind, t.ID, own, func(path string) { s.Show(Tab{t.Kind, path}) })
 		case History:
 			s.history(c)
 		case Documents:
@@ -181,20 +181,55 @@ func itemLook(c *ui.Context, k Kind, path string) (*ui.SVG, string) {
 	return icon, path[strings.LastIndex(path, "/")+1:]
 }
 
-// Page builds a project resource, Files or Changes, as an independent
-// page in the main column: the page host, over the same Project the tabs
-// show. A strip of the open items heads its main area; the item shown
-// last opens with the page. files goes to the Files page, where Git's
-// Open source shows a file.
+// Page builds a project resource's document and open-item strip in the
+// main column. PageDetails supplies its list separately so the Shell owns
+// both columns' layout. Both surfaces share the panel tabs' Project.
+// files goes to the Files page, where Git's Open source shows a file.
 func Page(c *ui.Context, k Kind, pr *Project, files func()) {
-	ui.Column(c.Key(k)).Grow(1).MinHeight(0).Children(func() {
+	box := ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0)
+	if pr != nil {
+		pr.stacked = false
+		pr.narrow = box.LayoutBounds().W < diffSplitMin
+	}
+	box.Children(func() {
 		if pr != nil && pr.shown(k) != "" {
 			pr.show(k, pr.shown(k))
 		}
 		if pr != nil {
 			pr.reveal = func(string) { files() }
+			pr.promptDialog(c)
+			pr.strip(c, k)
 		}
-		pr.view(c, k, pr.shownOr(k), true, func() { pr.strip(c, k) }, func(path string) { pr.show(k, path) })
+		pr.document(c, k, pr.shownOr(k), true)
+		if pr != nil && k == Changes {
+			pr.gitDialogs(c)
+		}
+	})
+}
+
+// PageKeys binds the resource page's shortcuts on the Shell container
+// shared by its document and details. Binding once keeps Git chords intact
+// as focus moves between those sibling columns.
+func PageKeys(c *ui.Context, k Kind, pr *Project, scope ui.Element) {
+	if k == Changes && pr != nil {
+		pr.gitKeys(c, scope)
+	}
+}
+
+// PageDetails builds the resource list in the Shell's right column. Its
+// width, visibility and resize handle belong to the Shell, not Project.pair.
+func PageDetails(c *ui.Context, k Kind, pr *Project) {
+	if pr == nil {
+		return
+	}
+	pr.stacked = false
+	ui.Column(c.Key(k)).Grow(1).MinWidth(0).MinHeight(0).Children(func() {
+		open := func(path string) { pr.show(k, path) }
+		if k == Files {
+			pr.tree(c, true, open)
+		} else {
+			pr.gitDetails(c, true, open)
+		}
 	})
 }
 
@@ -274,47 +309,50 @@ func tab(c *ui.Context, key any, l tabLook, show, close, keep, release func()) {
 	kit.StripTabBody(c, b, l.icon, l.label, l.active, hovered, l.busy, i18n.T(c, "close"), close).OnClick(show)
 }
 
-// view is the Files or Git component in either host for the item path,
-// or the project prompt when there is no project: head heads the main
-// area (the page's strip), and the side list's choice calls open. The
-// host that owns the scrolling keeps it in the project; while the page
-// and the closing panel both show a resource, the page owns it, as MyGo
-// binds a ScrollState to one container per build.
-func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(), open func(path string)) {
+// view is the Files or Git component in a panel tab for the item path,
+// or the project prompt when there is no project. The side list's choice
+// calls open. The host that owns the scrolling keeps it in the project;
+// while a page and closing panel both show a resource, the page owns it,
+// as MyGo binds a ScrollState to one container per build.
+func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open func(path string)) {
 	if pr == nil {
 		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
 		return
 	}
-	if k == Files && path != "" {
-		pr.readFile(path)
-	} else if k == Changes && path != "" && path != allChanges && !pr.gitDocumentKnown(path) {
-		pr.readDiff(path, pr.Git.scope)
-	}
-	main := func() {
-		if head != nil {
-			head()
-		}
-		switch {
-		case k == Files:
-			pr.filePreview(c, path, own)
-		case path == allChanges:
-			pr.combined(c)
-		default:
-			pr.diff(c, path)
-		}
-	}
+	main := func() { pr.document(c, k, path, own) }
 	pr.promptDialog(c)
-	// The page heads its main area; the panel's tabs do not.
-	page := head != nil
 	if k == Files {
-		pr.pair(c, "files", page, &pr.Files.side, filesLeast, main, func() { pr.tree(c, own, open) })
+		pr.pair(c, "files", false, &pr.Files.side, filesLeast, main, func() { pr.tree(c, own, open) })
 		return
 	}
 	box := ui.Column(c.Key("git")).Grow(1).MinHeight(0)
 	pr.gitKeys(c, box)
 	box.Children(func() {
-		pr.pair(c, "changes", page, &pr.Git.side, gitLeast, main, func() { pr.gitDetails(c, own, open) })
+		pr.pair(c, "changes", false, &pr.Git.side, gitLeast, main, func() { pr.gitDetails(c, own, open) })
 	})
+	pr.gitDialogs(c)
+}
+
+// document is the shared file editor or diff, without a host's columns.
+func (pr *Project) document(c *ui.Context, k Kind, path string, own bool) {
+	if pr == nil {
+		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
+		return
+	}
+	switch {
+	case k == Files:
+		if path != "" {
+			pr.readFile(path)
+		}
+		pr.filePreview(c, path, own)
+	case path == allChanges:
+		pr.combined(c)
+	default:
+		if path != "" && !pr.gitDocumentKnown(path) {
+			pr.readDiff(path, pr.Git.scope)
+		}
+		pr.diff(c, path)
+	}
 }
 
 // scroll is the project's ScrollState s for the host that owns it, nil

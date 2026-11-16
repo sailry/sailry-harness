@@ -129,7 +129,7 @@ type App struct {
 	// it is saved with the window's other choices (prefs.go).
 	DiffSplit bool
 	// ListShare is the share of the height a list takes above its document
-	// where the panel or a page is too narrow for both side by side
+	// where a conversation panel is too narrow for both side by side
 	// (panel.BindListShare); 0 is the first share. The divider between them
 	// writes it, and it is saved as DiffSplit is.
 	ListShare float32
@@ -342,9 +342,12 @@ func (a *App) View(c *ui.Context) {
 	a.followSelection()
 	a.followPanes()
 	a.sweepOverviews()
+	if a.paged() != "" {
+		a.SetPluginWorkspace(a.feature(), 0, 260, 320)
+	}
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color.
-	band, panel := p.TitleBar, p.Background
+	band, fill := p.TitleBar, p.Background
 	if c.Vibrancy() && theme.IsDark(c, a.Mode) == system {
 		// The window material shows through: the outer band at 45% of the title
 		// bar, the panel at 83.5% of the background. The material takes the
@@ -352,14 +355,14 @@ func (a *App) View(c *ui.Context) {
 		// shows that appearance too, followed or forced: a forced mode of the
 		// other appearance paints opaque, so the band never shows a material of
 		// the other appearance.
-		band, panel = p.TitleBar.Alpha(a.Surfaces.Sidebar), p.Background.Alpha(a.Surfaces.Main)
+		band, fill = p.TitleBar.Alpha(a.Surfaces.Sidebar), p.Background.Alpha(a.Surfaces.Main)
 	}
 	c.Root().Background(band)
 	// The window's art and effects lie under the band and the panel, which
 	// turns translucent over them as over the window material.
 	window := kit.Backdrop(c, "background.window")
 	if window != nil {
-		panel = p.Background.Alpha(a.Surfaces.Main)
+		fill = p.Background.Alpha(a.Surfaces.Main)
 	}
 	a.frosted = window != nil
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
@@ -371,10 +374,12 @@ func (a *App) View(c *ui.Context) {
 		ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 			a.rail(c)
 			// The panel's outline: a 1 DIP top and left edge, rounded at the top left.
-			ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
-				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
-				a.nav(c, f, panel)
-				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
+			body := ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
+				Radius(p.RadiusLg, 0, 0, 0).Clip()
+			panel.PageKeys(c, a.paged(), a.project(), body)
+			body.Children(func() {
+				a.nav(c, f, fill)
+				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
 				// On the conversation standing alone ⌘W closes its tab.
 				a.pane(c, main, &a.mainPane, a.closable() || a.tabClosable(), func() {
 					if !a.closePageTab(c) && !a.ClosePage() {
@@ -382,7 +387,7 @@ func (a *App) View(c *ui.Context) {
 					}
 				})
 				a.mainColumn(c, main, f)
-				a.details(c, f, panel)
+				a.details(c, f, fill)
 			})
 		})
 	})
@@ -452,12 +457,12 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	// sidebar's motion does not toggle it.
 	nav := f.navWidth * navTarget
 	f.panelW = ClampPanel(a.PanelWidth, w, nav)
-	if a.pluginDetails() {
+	if a.workspaceDetails() {
 		f.panelW = a.clampPluginDetails(a.pluginWorkspacePrefs().Width, w, nav)
 	}
 	f.fitted = PanelFits(w, nav, f.panelW)
 	f.showsPanel = (a.Page == ConversationPage && a.PanelOpen || a.Page == HostPage && a.Metrics || a.extensionDetails() ||
-		a.pluginDetails() && !a.pluginWorkspacePrefs().Folded) && f.fitted
+		a.workspaceDetails() && !a.pluginWorkspacePrefs().Folded) && f.fitted
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
@@ -508,7 +513,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		clamp := func(v float32) float32 {
 			return ClampPanel(v, w, f.navWidth*f.nav)
 		}
-		if a.pluginDetails() {
+		if a.workspaceDetails() {
 			width, reset = &a.pluginWorkspacePrefs().Width, a.pluginDetailsDefault
 			clamp = func(v float32) float32 { return a.clampPluginDetails(v, w, f.navWidth*f.nav) }
 		}
@@ -521,7 +526,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.Settings.CloseDetails()
 				return
 			}
-			if a.pluginDetails() {
+			if a.workspaceDetails() {
 				a.pluginWorkspacePrefs().Folded = true
 				a.mainPane.Focus(c)
 				return
@@ -540,6 +545,10 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 			}
 			if a.pluginDetails() {
 				a.PluginDetails(c)
+				return
+			}
+			if a.resourceDetails() {
+				panel.PageDetails(c, a.paged(), a.project())
 				return
 			}
 			if a.Page == HostPage {
@@ -598,7 +607,7 @@ func (a *App) togglePanel() {
 		a.Settings.CloseDetails()
 		return
 	}
-	if a.pluginDetails() {
+	if a.workspaceDetails() {
 		state := a.pluginWorkspacePrefs()
 		state.Folded = !state.Folded
 		return

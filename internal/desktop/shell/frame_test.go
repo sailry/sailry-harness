@@ -421,8 +421,8 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	}
 	// A file's preview and a subagent's session are their conversation's:
 	// their tabs are not kept, neither from a file that has them.
-	// A narrow host stacks a list over its document. The handle between
-	// them sets the list's share of the height, the window's as the side
+	// A narrow conversation panel stacks a list over its document. Its
+	// handle sets the list's share of the height, the window's as the side
 	// columns' widths are: it is saved, restored, and absent from an
 	// earlier file, which loads the default.
 	t.Run("stacked list", func(t *testing.T) {
@@ -437,10 +437,12 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 			return ui.Rect{}
 		}
 		open := func(a *App) *ui.Tester {
-			tt := ui.NewTesterWith(a.View, 700, 820, opaque)
+			tt := ui.NewTesterWith(a.View, 900, 820, opaque)
 			tt.SetLocale("en")
-			a.Navigate(FilesPage)
-			tt.Frame()
+			a.NavOpen = false
+			a.PanelOpen = true
+			a.Panel.Open(panel.Files)
+			still(tt)
 			tt.Frame()
 			return tt
 		}
@@ -1376,7 +1378,7 @@ func testHeaderSplit(t *testing.T) {
 	}
 
 	// A page without a right column: the toggle shows disabled.
-	for _, page := range []Page{FilesPage, ActivityPage, NotificationsPage, SettingsPage, MarketPage} {
+	for _, page := range []Page{ActivityPage, NotificationsPage, SettingsPage, MarketPage} {
 		a.Navigate(page)
 		still(tt)
 		if f := fold(); !f.Disabled || f.Bounds.X != 1280-12-HeaderButton {

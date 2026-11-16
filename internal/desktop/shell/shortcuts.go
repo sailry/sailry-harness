@@ -143,6 +143,9 @@ func (a *App) dialog() bool {
 // (App.pane), nothing outside them.
 func (a *App) closeFocused(c *ui.Context) {
 	switch {
+	case a.workspaceDetails() && !a.pluginWorkspacePrefs().Folded && c.FocusWithin(a.panelPane):
+		a.pluginWorkspacePrefs().Folded = true
+		a.mainPane.Focus(c)
 	case a.PanelOpen && c.FocusWithin(a.panelPane):
 		a.closeTab(c)
 	case c.FocusWithin(a.mainPane):

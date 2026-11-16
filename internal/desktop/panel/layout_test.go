@@ -43,7 +43,7 @@ func testDiffFooter(t *testing.T) {
 	tt2 := ui.NewTesterWith(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		kit.BindDiffSplit(c, &split)
-		ui.Column(c).Fill().Children(func() { Page(c, Changes, pr, func() {}) })
+		pageView(c, Changes, pr)
 	}, width, height, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt2.SetLocale("en")
 	tt2.Frame()

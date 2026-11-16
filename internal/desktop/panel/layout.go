@@ -14,8 +14,8 @@ const (
 	handle    = 6
 )
 
-// One rule lays out every list and its document, Files and Git, in the
-// panel's tabs and on the rail's pages alike.
+// One rule lays out Files and Git lists inside the conversation panel's
+// tabs. Full-page lists use the Shell's details column.
 const (
 	// stackBelow is the host width under which the list goes above the
 	// document: the list's first width and a 500 DIP document no longer fit

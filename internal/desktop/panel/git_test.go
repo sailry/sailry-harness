@@ -26,11 +26,26 @@ func pageTester(t *testing.T, k Kind) (*Project, *ui.Tester) {
 	// headless frame and none of the assertions.
 	tt := ui.NewTesterWith(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Children(func() { Page(c, k, pr, func() {}) })
+		pageView(c, k, pr)
 	}, 1100, 760, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	return pr, tt
+}
+
+// pageView supplies the two Shell slots without importing the Shell,
+// which depends on panel. Project's compact tab width is fixture layout.
+func pageView(c *ui.Context, k Kind, pr *Project) {
+	box := ui.Row(c).Fill().MinWidth(0).MinHeight(0)
+	PageKeys(c, k, pr, box)
+	box.Children(func() {
+		ui.Column(c.Key("document")).Grow(1).MinWidth(0).MinHeight(0).Children(func() { Page(c, k, pr, func() {}) })
+		width := pr.Git.side
+		if k == Files {
+			width = pr.Files.side
+		}
+		ui.Column(c.Key("details")).Width(width).Shrink(0).MinHeight(0).Children(func() { PageDetails(c, k, pr) })
+	})
 }
 
 // shot writes the last frame to $SAILRY_SNAPSHOTS/name.png, when set.
@@ -418,7 +433,7 @@ func TestGitPage(t *testing.T) {
 			tt := ui.NewTesterWith(func(c *ui.Context) {
 				theme.Apply(c, "", mode)
 				kit.BindDiffSplit(c, &split)
-				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { Page(c, Changes, pr, func() {}) })
+				ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { pageView(c, Changes, pr) })
 			}, 1180, 760, ui.TesterOptions{Dark: mode == theme.Dark, Preferences: ui.Preferences{ReduceTransparency: true}})
 			tt.SetLocale("en")
 			tt.SetScale(2)
