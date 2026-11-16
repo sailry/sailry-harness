@@ -328,7 +328,10 @@ func connectionSaveSsh(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	default:
 		return protocol.Command{}, invalid("SSH credential is required")
 	}
-	profile := protocol.SshProfile{ID: saved.ID, Sharing: saved.Sharing, Authentication: authentication, HostKey: saved.HostKey}
+	profile := protocol.SshProfile{
+		ID: saved.ID, Sharing: saved.Sharing, Authentication: authentication, HostKey: saved.HostKey,
+		AuthenticationNode: saved.AuthenticationNode,
+	}
 	if previous == nil {
 		profile.ID = protocol.NewSshID()
 		if profile.Sharing, err = connectionTurnSharing(ctx, db, turn); err != nil {
