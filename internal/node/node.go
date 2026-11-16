@@ -433,6 +433,9 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 }
 
 func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	if knowledgeCommand(request.Command.Kind) || request.Command.Kind == "read_resource_catalog" {
+		return node.admitResourceCommand(ctx, caller, request)
+	}
 	if request.Target != node.ID() || request.Version != protocol.VERSION {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "Node or protocol version mismatch"}
 	}

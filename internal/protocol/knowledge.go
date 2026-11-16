@@ -891,12 +891,13 @@ func (value KnowledgeHit) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgePage struct {
-	Hits       []KnowledgeHit `json:"hits"`
-	NextOffset *uint32        `json:"next_offset"`
-	Mode       KnowledgeMode  `json:"mode"`
-	Indexing   bool           `json:"indexing"`
-	Model      *string        `json:"model"`
-	Untrusted  bool           `json:"untrusted"`
+	Sources    []ResourceSourceStatus `json:"sources,omitempty"`
+	Hits       []KnowledgeHit         `json:"hits"`
+	NextOffset *uint32                `json:"next_offset"`
+	Mode       KnowledgeMode          `json:"mode"`
+	Indexing   bool                   `json:"indexing"`
+	Model      *string                `json:"model"`
+	Untrusted  bool                   `json:"untrusted"`
 }
 
 func DefaultKnowledgePage() KnowledgePage {

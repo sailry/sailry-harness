@@ -41,3 +41,8 @@ func (remote *Remote) Resource(ctx context.Context, call protocol.ResourceCall) 
 	}
 	return remote.dispatchCall(ctx, call.Request, wire.Call{Kind: wire.CallResource, Resource: &call}, stream, compressed)
 }
+
+// ForTarget retains this authenticated entry for a shell resource selection.
+func (remote *Remote) ForTarget(target protocol.NodeID) Transport {
+	return remote.link.Via(remote.address, target)
+}

@@ -123,3 +123,33 @@ func bindKnowledgeSource(definition *protocol.KnowledgeDefinition, node protocol
 		definition.Source.Data = value
 	}
 }
+
+// CheckKnowledgeOutcome checks current collection access before a stored result
+// can be disclosed again. A delete result has no remaining source to expose.
+func CheckKnowledgeOutcome(ctx context.Context, db *sql.Conn, request protocol.Request, output protocol.Output) error {
+	if output.Kind != "knowledge_collection" {
+		return nil
+	}
+	var collection protocol.KnowledgeCollection
+	switch value := output.Data.(type) {
+	case protocol.KnowledgeCollection:
+		collection = value
+	case *protocol.KnowledgeCollection:
+		if value == nil {
+			return knowledgeDenied("knowledge collection is unavailable")
+		}
+		collection = *value
+	default:
+		return knowledgeDenied("knowledge collection is unavailable")
+	}
+	entries, err := AllowedKnowledge(ctx, db, request)
+	if err != nil {
+		return err
+	}
+	for _, stored := range entries {
+		if stored.Collection.ID == collection.ID {
+			return nil
+		}
+	}
+	return knowledgeDenied("knowledge collection is unavailable")
+}

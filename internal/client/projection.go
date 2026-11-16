@@ -453,7 +453,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		if change.Credential.Node != projection.node {
 			return false, fault(protocol.ErrorCodeWrongTarget, "credential belongs to another Node")
 		}
-	case "local_models_changed", "local_model_settings_changed", "knowledge_collections_changed",
+	case "local_models_changed", "local_model_settings_changed", "knowledge_collections_changed", "resource_catalog_changed",
 		"telemetry_settings_changed", "backup_settings_changed", "python_settings_changed",
 		"plugin_values_changed", "dispatch_changed", "tools_completed", "configuration_follow_changed":
 		// These invalidate feature reads; they do not replace a Snapshot field.

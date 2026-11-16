@@ -18,6 +18,7 @@ type RouteKey struct {
 // through its controller. Request.Target remains the resource's actual Node.
 // The Link authenticates the execution peer; no user identity is accepted here.
 type ResourceCall struct {
+	Local    bool           `json:"local,omitempty"`
 	Request  Request        `json:"request"`
 	Original *Request       `json:"original,omitempty"`
 	Scope    *ResourceScope `json:"scope,omitempty"`

@@ -90,7 +90,7 @@ func (r *Runtime) updateCollection(id string) {
 // at the Node's revision.
 func (r *Runtime) changeCollection(id string, command func(protocol.KnowledgeCollection) protocol.Command) {
 	s := &r.knowledge
-	index := slices.IndexFunc(s.collections, func(x protocol.KnowledgeCollection) bool { return x.ID.String() == id })
+	index := slices.IndexFunc(s.collections, func(x protocol.KnowledgeCollection) bool { return knowledgeCollectionKey(x) == id })
 	if index < 0 || s.acting[s.collections[index].ID] {
 		return
 	}
@@ -99,7 +99,15 @@ func (r *Runtime) changeCollection(id string, command func(protocol.KnowledgeCol
 		s.acting = map[protocol.KnowledgeID]bool{}
 	}
 	s.acting[x.ID] = true
-	r.saveSetting(command(x), settings.CollectionMessages, func(output protocol.Output, ok bool) {
+	owner := r
+	if x.Node != (protocol.NodeID{}) && x.Node != r.controller.Target() {
+		owner = r.localRuntime().runtimeFor(x.Node.String())
+		if owner == nil {
+			delete(s.acting, x.ID)
+			return
+		}
+	}
+	owner.saveSetting(command(x), settings.CollectionMessages, func(output protocol.Output, ok bool) {
 		delete(s.acting, x.ID)
 		s.stale = true
 		if changed, valid := detail[protocol.KnowledgeCollection](output.Data); ok && valid && output.Kind == "knowledge_collection" {
@@ -112,7 +120,7 @@ func (r *Runtime) changeCollection(id string, command func(protocol.KnowledgeCol
 // brought a newer one.
 func (s *knowledgeState) accept(changed protocol.KnowledgeCollection) {
 	for i := range s.collections {
-		if s.collections[i].ID == changed.ID && s.collections[i].Revision <= changed.Revision {
+		if s.collections[i].ID == changed.ID && s.collections[i].Node == changed.Node && s.collections[i].Revision <= changed.Revision {
 			s.collections[i] = changed
 		}
 	}
@@ -122,7 +130,7 @@ func (s *knowledgeState) accept(changed protocol.KnowledgeCollection) {
 func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[protocol.KnowledgeID]bool) []viewmodel.KnowledgeCollection {
 	views := make([]viewmodel.KnowledgeCollection, 0, len(collections))
 	for _, x := range collections {
-		view := viewmodel.KnowledgeCollection{ID: x.ID.String(), Name: x.Definition.Name, Busy: acting[x.ID],
+		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, Busy: acting[x.ID],
 			Sources: x.Progress.Sources, Failed: x.Progress.Failed}
 		if len(x.Progress.Failures) > 0 {
 			first := x.Progress.Failures[0]
@@ -148,4 +156,11 @@ func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[proto
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
 	return views
+}
+
+func knowledgeCollectionKey(collection protocol.KnowledgeCollection) string {
+	if collection.Node == (protocol.NodeID{}) {
+		return collection.ID.String()
+	}
+	return collection.Node.String() + "/" + collection.ID.String()
 }

@@ -58,8 +58,9 @@ func (node *Node) StartConfigurationFollow() error {
 		defer func() {
 			runtime.mu.Lock()
 			defer runtime.mu.Unlock()
-			for _, peer := range runtime.peers {
+			for id, peer := range runtime.peers {
 				peer.cancel()
+				resourceProjections.Delete(resourceProjectionKey{node, id})
 			}
 		}()
 		for {
@@ -139,6 +140,7 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 			remote, observer := peer.remote, peer.client
 			defer observer.Close()
 			cancelWatch := observer.OnChange(func() {
+				node.notifyResourceCatalog(address.ID, observer)
 				select {
 				case peer.wake <- struct{}{}:
 				default:
@@ -181,6 +183,7 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 	for id, peer := range runtime.peers {
 		if !seen[id] {
 			peer.cancel()
+			resourceProjections.Delete(resourceProjectionKey{node, id})
 			delete(runtime.peers, id)
 		}
 	}

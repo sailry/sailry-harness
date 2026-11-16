@@ -1,6 +1,7 @@
 package live
 
 import (
+	"encoding/hex"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -26,13 +27,20 @@ type knowledgeViewer struct {
 func knowledgeRequest(source shell.Source) (protocol.KnowledgeCitationRequest, bool) {
 	collection, err := protocol.ParseKnowledgeID(source.Collection)
 	input := protocol.KnowledgeCitationRequest{Collection: collection, Chunk: source.Chunk, Revision: source.Revision, Limit: 16 * 1024}
+	if source.Node != "" {
+		decoded, nodeErr := hex.DecodeString(source.Node)
+		if nodeErr != nil || len(decoded) != len(input.Node) {
+			return input, false
+		}
+		copy(input.Node[:], decoded)
+	}
 	return input, err == nil && knowledge.ValidateCitation(input) == nil
 }
 
 // knowledgeMatches reports whether a page answers its request.
 func knowledgeMatches(page protocol.KnowledgeCitationPage, input protocol.KnowledgeCitationRequest) bool {
 	citation := page.Citation
-	return citation.Collection == input.Collection && citation.Chunk == input.Chunk && citation.Revision == input.Revision &&
+	return (input.Node == (protocol.NodeID{}) || citation.Node == input.Node) && citation.Collection == input.Collection && citation.Chunk == input.Chunk && citation.Revision == input.Revision &&
 		citation.Link == knowledge.CitationURL(citation) && page.Offset == input.Offset && page.Context == input.Context &&
 		page.Untrusted && len(page.Text) <= int(input.Limit) &&
 		(page.NextOffset == nil || *page.NextOffset > input.Offset && uint64(*page.NextOffset) == uint64(input.Offset)+uint64(len(page.Text)))
@@ -134,6 +142,9 @@ func (r *Runtime) openKnowledge(c *ui.Context, node string, source shell.Source)
 	if !valid {
 		kit.Toast(c, kit.Failed, i18n.T(c, "knowledge_citation_invalid"))
 		return
+	}
+	if input.Node != (protocol.NodeID{}) {
+		node = input.Node.String()
 	}
 	owner := root.runtimeFor(node)
 	if owner == nil {

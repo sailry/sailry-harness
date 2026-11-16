@@ -106,10 +106,11 @@ func knowledgeToolCommand(operation protocol.ToolOperation, arguments json.RawMe
 		case *protocol.KnowledgeDraftSourceStoragePayload:
 			definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Node: draft.Node, Scope: source.Scope, Prefix: source.Prefix}}
 		}
-		return protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}},
+		return protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Node: draft.Node, Definition: definition}},
 			knowledge.ValidateDefinition(definition)
 	}
 	var input struct {
+		Node             *protocol.NodeID     `json:"node,omitempty"`
 		ID               protocol.KnowledgeID `json:"id"`
 		ExpectedRevision uint64               `json:"expected_revision"`
 	}
@@ -120,9 +121,9 @@ func knowledgeToolCommand(operation protocol.ToolOperation, arguments json.RawMe
 		return protocol.Command{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "knowledge collection revision must be positive"}
 	}
 	if operation == protocol.ToolOperationKnowledgeRebuild {
-		return protocol.Command{Kind: "rebuild_knowledge_collection", Data: &protocol.CommandRebuildKnowledgeCollectionPayload{ID: input.ID, ExpectedRevision: input.ExpectedRevision}}, nil
+		return protocol.Command{Kind: "rebuild_knowledge_collection", Data: &protocol.CommandRebuildKnowledgeCollectionPayload{Node: input.Node, ID: input.ID, ExpectedRevision: input.ExpectedRevision}}, nil
 	}
-	return protocol.Command{Kind: "delete_knowledge_collection", Data: &protocol.CommandDeleteKnowledgeCollectionPayload{ID: input.ID, ExpectedRevision: input.ExpectedRevision}}, nil
+	return protocol.Command{Kind: "delete_knowledge_collection", Data: &protocol.CommandDeleteKnowledgeCollectionPayload{Node: input.Node, ID: input.ID, ExpectedRevision: input.ExpectedRevision}}, nil
 }
 
 // knowledgeTools binds the knowledge operations a turn's packages declare.
@@ -144,12 +145,21 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 		var mu sync.Mutex
 		calls := map[string]*protocol.Request{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
-		tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
+		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 			command, err := knowledgeToolCommand(declaration.Operation, call.Arguments, inv.Run.Worktree)
 			if err != nil {
 				return err
 			}
-			request := protocol.NewRequest(node.ID(), command)
+			target := node.ID()
+			if command.Kind == "query_knowledge" || command.Kind == "list_knowledge_collections" {
+				if inv.User.Controller != nil {
+					target = *inv.User.Controller
+				}
+			}
+			if selected := knowledgeTarget(protocol.Request{Command: command}); selected != (protocol.NodeID{}) {
+				target = selected
+			}
+			request := protocol.NewRequest(target, command)
 			request.Plugin = &scope
 			mu.Lock()
 			calls[call.ID] = &request

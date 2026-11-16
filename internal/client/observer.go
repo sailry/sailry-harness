@@ -133,6 +133,8 @@ func (client *Client) Watch(ctx context.Context, kind string, argument json.RawM
 		return nil, err
 	}
 	switch kind {
+	case "watch_resources":
+		return client.watchResourceCatalog(ctx), nil
 	case "watch":
 		return client.watchView(ctx), nil
 	case "watch_commands", "watch_conversation":

@@ -14,12 +14,12 @@ import (
 // Source is a knowledge citation's identity
 // (sailry-knowledge://<collection>/<chunk>?revision=<rev>).
 type Source struct {
-	Collection, Chunk, Revision string
+	Collection, Chunk, Revision, Node string
 }
 
 // ParseSource reads a knowledge link, rejecting what the reference rejects:
 // another scheme, a user, password or port, a fragment, more path segments,
-// and any query but one revision.
+// and query fields other than revision and an optional storage Node.
 func ParseSource(link string) (Source, bool) {
 	u, err := url.Parse(link)
 	if err != nil || !strings.EqualFold(u.Scheme, "sailry-knowledge") || u.User != nil || u.Port() != "" ||
@@ -31,10 +31,10 @@ func ParseSource(link string) (Source, bool) {
 		return Source{}, false
 	}
 	q, err := url.ParseQuery(u.RawQuery)
-	if err != nil || len(q) != 1 || len(q["revision"]) != 1 || q.Get("revision") == "" {
+	if err != nil || len(q["revision"]) != 1 || q.Get("revision") == "" || len(q) > 2 || len(q["node"]) > 1 || len(q) == 2 && q.Get("node") == "" {
 		return Source{}, false
 	}
-	return Source{Collection: u.Host, Chunk: chunk, Revision: q.Get("revision")}, true
+	return Source{Collection: u.Host, Chunk: chunk, Revision: q.Get("revision"), Node: q.Get("node")}, true
 }
 
 // reading is the knowledge viewer's state: the citation and its page, or the
