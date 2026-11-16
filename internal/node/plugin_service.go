@@ -382,8 +382,12 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 	node.plugins.mu.Unlock()
 	defer func() { node.plugins.mu.Lock(); delete(node.plugins.invocations, identity); node.plugins.mu.Unlock() }()
 	operation = node.plugins.memory.Context(operation, scope.Package, "callback", pluginMemoryUser(operation))
+	controller := node.ID()
+	if user.Controller != nil {
+		controller = *user.Controller
+	}
 	value, err := plugins.RunCallback(operation, plugins.ScriptBundle{Entry: host.Entry, Files: files}, handler, input,
-		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Deadline: time.Now().Add(time.Minute)}, readOnly,
+		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Controller: controller, Deadline: time.Now().Add(time.Minute)}, readOnly,
 		func(ctx context.Context, command protocol.Request) (protocol.Output, error) {
 			return node.dispatchCallbackResult(ctx, command)
 		})

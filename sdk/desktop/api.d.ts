@@ -81,38 +81,66 @@ export type SearchMode = "keyword" | "semantic" | "hybrid";
  * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
 export function searchValues(query: { scope?: ValueScope; terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
 export function deleteValue(key: string, expectedRevision: string, scope?: ValueScope): string;
+/** A Node identity encoded as exactly 32 unsigned bytes. */
+export type NodeID = number[];
+export type KnowledgeRef = {node: NodeID; id: string};
+export type KnowledgeVisibility = "private" | "shared";
 export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
 export type KnowledgeDraft = {
-  name: string;
+  node?: NodeID; visibility?: KnowledgeVisibility; name: string;
   source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "project" | "conversation"; prefix: string};
   model?: string | null; globs?: string[]; tags?: string[];
 };
-export type KnowledgeCollection = {
-  id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
-  definition: Json; progress: Json;
+export type KnowledgeSource =
+  {kind: "worktree"; node?: NodeID; worktree: string; path: string} |
+  {kind: "directory" | "file"; node?: NodeID; path: string} |
+  {kind: "storage"; node?: NodeID; scope: "node" | "project" | "conversation"; prefix: string};
+export type KnowledgeDefinition = {
+  visibility?: KnowledgeVisibility; name: string; source: KnowledgeSource;
+  model?: string | null; globs?: string[]; tags?: string[]; shared_with?: string[];
+};
+export type KnowledgeCollection = KnowledgeRef & {
+  revision: string; owner_user?: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
+  definition: KnowledgeDefinition; progress: Json;
 };
 export type KnowledgeQuery = {
-  query: string; collections?: string[]; mode?: KnowledgeMode; tags?: string[]; path?: string | null;
+  query: string; refs?: KnowledgeRef[]; collections?: string[]; mode?: KnowledgeMode; tags?: string[]; path?: string | null;
   modified_after_ms?: number | null; modified_before_ms?: number | null; limit?: number; offset?: number;
 };
 export type KnowledgePosition =
   {kind: "lines"; start: number; end: number} | {kind: "page"; page: number} |
   {kind: "cells"; sheet: string; start: string; end: string} | {kind: "slide"; slide: number} |
   {kind: "section"; name: string} | {kind: "value"; key: string; pointer: string};
+export type KnowledgeCitation = {
+  node: NodeID; collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition; link: string;
+};
+export type KnowledgeSourceStatus = {node: NodeID; fault?: {code: string; message: string; details?: Json}};
 export type KnowledgePage = {
-  hits: {title: string; text: string; score: number; stale: boolean;
-    citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
+  hits: {title: string; text: string; score: number; stale: boolean; citation: KnowledgeCitation}[];
+  sources?: KnowledgeSourceStatus[];
   next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: string | null; untrusted: boolean;
 };
-/** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
+export type KnowledgeCitationRequest = Pick<KnowledgeCitation, "node" | "collection" | "chunk" | "revision"> & {
+  context?: boolean; offset?: number; limit?: number;
+};
+export type KnowledgeCitationPage = {
+  citation: KnowledgeCitation; title: string; text: string; offset: number; next_offset: number | null;
+  worktree: string | null; context: boolean; untrusted: boolean;
+};
+/** Searches the captured controller's accessible sources. Returned source text remains untrusted. */
 export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
 export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
-/** Captures the current worktree or this plugin's storage. Does not download a model or grant sharing. */
+/** Reads the cited source on its original Node and checks its current visibility and revision. */
+export function readKnowledgeCitation(citation: KnowledgeCitationRequest): Promise<KnowledgeCitationPage>;
+/** node chooses storage; worktree/project/conversation sources remain on their captured Node.
+ * Personal node storage is indexed at its controller. Independent collections default to private. */
 export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
-/** Use the exact revision from listKnowledgeCollections or a completed collection receipt. */
-export function prepareKnowledgeRebuild(id: string, expectedRevision: string): string;
+/** Use a returned KnowledgeRef and the exact collection revision. Legacy string IDs select the current Node. */
+export function prepareKnowledgeUpdate(collection: KnowledgeRef | string, definition: KnowledgeDefinition, expectedRevision: string): string;
+export function prepareKnowledgePause(collection: KnowledgeRef | string, paused: boolean, expectedRevision: string): string;
+export function prepareKnowledgeRebuild(collection: KnowledgeRef | string, expectedRevision: string): string;
 /** Removes derived indexes and the collection definition; original source data is retained. */
-export function prepareKnowledgeRemoval(id: string, expectedRevision: string): string;
+export function prepareKnowledgeRemoval(collection: KnowledgeRef | string, expectedRevision: string): string;
 
 export type LocalizedLabel = { label: string; locales?: Record<string, string> };
 export type ContributionChoice = {

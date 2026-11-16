@@ -15,6 +15,7 @@ import (
 type HostBinding struct {
 	Context       context.Context
 	Client        *client.Client
+	Resources     *client.Client
 	Target        protocol.NodeID
 	Scope         protocol.PluginContext
 	Locale        string

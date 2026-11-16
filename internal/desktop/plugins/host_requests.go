@@ -23,7 +23,7 @@ func (owner *Host) prepare(ctx context.Context, command protocol.Command) (json.
 	if owner.binding.Client == nil {
 		return nil, hostUnavailable("plugin Client is unavailable")
 	}
-	request := owner.binding.Client.Prepare(command)
+	request := owner.prepareHostCommand(command)
 	scope := owner.scope()
 	request.Plugin = &scope
 	owner.mu.Lock()
@@ -56,10 +56,10 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 	if pending {
 		return nil, hostInvalid("settings save is pending")
 	}
-	request := owner.binding.Client.Prepare(command)
+	request := owner.prepareHostCommand(command)
 	scope := owner.scope()
 	request.Plugin = &scope
-	output, err := owner.binding.Client.Execute(ctx, request)
+	output, err := owner.executeHostCommand(ctx, request)
 	if stop, long := hostCancellation(request); long && err != nil && ctx.Err() != nil {
 		// The view closed on work the Node still does for it.
 		cancellation := owner.binding.Client.Prepare(stop)
@@ -116,10 +116,10 @@ func (owner *Host) complete(ctx context.Context, identity string, confirm bool) 
 	if err != nil {
 		return nil, err
 	}
-	output, failure := owner.binding.Client.Execute(ctx, request)
+	output, failure := owner.executeHostCommand(ctx, request)
 	if failure != nil && confirm && request.Command.Durable() && hostRequestUncertain(failure) {
 		for {
-			outcome, err := owner.binding.Client.Outcome(ctx, request)
+			outcome, err := owner.hostCommandOutcome(ctx, request)
 			if err != nil {
 				return nil, errors.New("unconfirmed")
 			}
@@ -184,7 +184,7 @@ func (owner *Host) outcome(ctx context.Context, identity string) (json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	outcome, err := owner.binding.Client.Outcome(ctx, request)
+	outcome, err := owner.hostCommandOutcome(ctx, request)
 	if err != nil {
 		return nil, err
 	}

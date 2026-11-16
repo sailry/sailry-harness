@@ -111,13 +111,23 @@ export function prepareNotification(content) {
 }
 export async function queryKnowledge(query) { return read("query_knowledge", query); }
 export async function listKnowledgeCollections() { return read("list_knowledge_collections"); }
-/** Captures this worktree or the plugin's own storage; never accepts owner or sharing overrides. */
+export async function readKnowledgeCitation(citation) { return read("read_knowledge_citation", citation); }
+/** Captures this worktree or the plugin's own storage on its owning Node. */
 export function prepareKnowledgeCollection(draft) { return call("knowledge.create", draft); }
-export function prepareKnowledgeRebuild(id, expectedRevision) {
-  return prepareRequest({kind:"rebuild_knowledge_collection",data:{id,expected_revision:expectedRevision}});
+function knowledgeReference(collection) {
+  return typeof collection === "string" ? {id:collection} : {node:collection.node,id:collection.id};
 }
-export function prepareKnowledgeRemoval(id, expectedRevision) {
-  return prepareRequest({kind:"delete_knowledge_collection",data:{id,expected_revision:expectedRevision}});
+export function prepareKnowledgeUpdate(collection, definition, expectedRevision) {
+  return prepareRequest({kind:"update_knowledge_collection",data:{...knowledgeReference(collection),definition,expected_revision:expectedRevision}});
+}
+export function prepareKnowledgePause(collection, paused, expectedRevision) {
+  return prepareRequest({kind:"pause_knowledge_collection",data:{...knowledgeReference(collection),paused,expected_revision:expectedRevision}});
+}
+export function prepareKnowledgeRebuild(collection, expectedRevision) {
+  return prepareRequest({kind:"rebuild_knowledge_collection",data:{...knowledgeReference(collection),expected_revision:expectedRevision}});
+}
+export function prepareKnowledgeRemoval(collection, expectedRevision) {
+  return prepareRequest({kind:"delete_knowledge_collection",data:{...knowledgeReference(collection),expected_revision:expectedRevision}});
 }
 export async function inspectGit() { return read("inspect_git", {worktree: scope.worktree}); }
 export async function readFile(path) { return read("read_file", {worktree: scope.worktree, path}); }

@@ -127,10 +127,13 @@ func (owner *Host) addWorkspaceSDK(add hostSDKAdd) {
 	add("listMediaModels", true, owner.readOperation("list_media_models", nil))
 	add("prepareMediaSettings", false, owner.prepareOperation("save_media_settings", firstArgument))
 	add("queryKnowledge", true, owner.readOperation("query_knowledge", firstArgument))
+	add("readKnowledgeCitation", true, owner.readOperation("read_knowledge_citation", firstArgument))
 	add("listKnowledgeCollections", true, owner.readOperation("list_knowledge_collections", nil))
 	add("prepareKnowledgeCollection", false, owner.prepareKnowledgeCollection)
-	add("prepareKnowledgeRebuild", false, owner.prepareOperation("rebuild_knowledge_collection", namedArguments("id", "expected_revision")))
-	add("prepareKnowledgeRemoval", false, owner.prepareOperation("delete_knowledge_collection", namedArguments("id", "expected_revision")))
+	add("prepareKnowledgeUpdate", false, owner.prepareKnowledgeChange("update_knowledge_collection", "definition", "expected_revision"))
+	add("prepareKnowledgePause", false, owner.prepareKnowledgeChange("pause_knowledge_collection", "paused", "expected_revision"))
+	add("prepareKnowledgeRebuild", false, owner.prepareKnowledgeChange("rebuild_knowledge_collection", "expected_revision"))
+	add("prepareKnowledgeRemoval", false, owner.prepareKnowledgeChange("delete_knowledge_collection", "expected_revision"))
 	add("prepareTerminal", false, owner.prepareTerminal)
 	add("prepareOpenTerminal", false, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		terminal, err := hostValue[protocol.TerminalID](arguments, 0)
@@ -191,7 +194,7 @@ func (owner *Host) prepareKnowledgeCollection(ctx context.Context, arguments []j
 	if err != nil {
 		return nil, err
 	}
-	definition := protocol.KnowledgeDefinition{Name: draft.Name, Model: draft.Model, Globs: draft.Globs, Tags: draft.Tags, SharedWith: []string{}}
+	definition := protocol.KnowledgeDefinition{Visibility: draft.Visibility, Name: draft.Name, Model: draft.Model, Globs: draft.Globs, Tags: draft.Tags, SharedWith: []string{}}
 	body, _ := hostJSON(draft.Source.Data)
 	switch draft.Source.Kind {
 	case "worktree":
@@ -199,21 +202,25 @@ func (owner *Host) prepareKnowledgeCollection(ctx context.Context, arguments []j
 		if err != nil {
 			return nil, err
 		}
+		if draft.Node != nil && *draft.Node != owner.binding.Client.Target() {
+			return nil, hostInvalid("worktree knowledge belongs to its captured execution Node")
+		}
 		var source protocol.KnowledgeDraftSourceWorktreePayload
 		if json.Unmarshal(body, &source) != nil {
 			return nil, hostInvalid("invalid knowledge source")
 		}
-		definition.Source = protocol.KnowledgeSource{Kind: "worktree", Data: protocol.KnowledgeSourceWorktreePayload{Worktree: worktree, Path: source.Path}}
+		definition.Source = protocol.KnowledgeSource{Kind: "worktree", Data: protocol.KnowledgeSourceWorktreePayload{Node: draft.Node, Worktree: worktree, Path: source.Path}}
 	case "storage":
 		var source protocol.KnowledgeSourceStoragePayload
 		if json.Unmarshal(body, &source) != nil {
 			return nil, hostInvalid("invalid knowledge source")
 		}
+		source.Node = draft.Node
 		definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: source}
 	default:
 		return nil, hostInvalid("invalid knowledge source")
 	}
-	return owner.prepareData(ctx, "create_knowledge_collection", map[string]any{"definition": definition, "plugin": nil})
+	return owner.prepareData(ctx, "create_knowledge_collection", map[string]any{"node": draft.Node, "definition": definition, "plugin": nil})
 }
 
 func hostViewport() protocol.TerminalViewport {

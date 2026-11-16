@@ -33,7 +33,7 @@ func scriptCommandRevisions(value any) error {
 	case "write_plugin_value", "write_plugin_conversation_value", "write_indexed_plugin_value",
 		"remove_plugin_value", "remove_plugin_conversation_value", "read_conversation_run",
 		"submit_turn", "queue_turn", "set_session_config", "set_session_team", "continue_turn",
-		"rebuild_knowledge_collection", "delete_knowledge_collection", "start_connector_login":
+		"update_knowledge_collection", "pause_knowledge_collection", "rebuild_knowledge_collection", "delete_knowledge_collection", "start_connector_login":
 		revision := scriptAt(value, "data", "expected_revision")
 		if revision != nil {
 			converted, err := scriptRevision(revision, false, "revision must be an exact integer or decimal string")

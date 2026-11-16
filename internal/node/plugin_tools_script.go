@@ -48,8 +48,12 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	scope := owner.scope
 	operation = owner.node.plugins.memory.Context(operation, scope.Package, "tool", pluginMemoryUser(operation))
 	execution := &plugins.ScriptExecution{CallID: &identity, Mode: owner.invocation.Turn.Config.Mode, ReadOnly: readOnly, Turn: owner.state, Writes: owner.writes[identity]}
+	controller := owner.node.ID()
+	if owner.invocation.User.Controller != nil {
+		controller = *owner.invocation.User.Controller
+	}
 	result, err := plugins.RunTool(operation, owner.bundle, handler, input, plugins.ScriptEnvironment{
-		Context: scope, Target: owner.node.ID(), Deadline: time.Now().Add(plugins.ScriptCallTimeout),
+		Context: scope, Target: owner.node.ID(), Controller: controller, Deadline: time.Now().Add(plugins.ScriptCallTimeout),
 	}, owner.node.dispatchCallbackResult, execution)
 	if owner.writes == nil {
 		owner.writes = map[protocol.RequestID]uint64{}

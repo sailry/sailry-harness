@@ -24,6 +24,7 @@ type scriptBridge struct {
 	ctx           context.Context
 	deadline      time.Time
 	target        protocol.NodeID
+	controller    protocol.NodeID
 	scope         protocol.PluginContext
 	execution     *ScriptExecution
 	dispatch      ScriptDispatch
@@ -181,7 +182,11 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 	if !scriptCommandAllowed(command.Kind) {
 		return nil, scriptPermission("command is not exposed to host callbacks")
 	}
-	request := protocol.NewRequest(bridge.target, command)
+	target := bridge.target
+	if protocol.KnowledgeCommand(command.Kind) {
+		target = protocol.KnowledgeRequestTarget(command, bridge.target, bridge.controller)
+	}
+	request := protocol.NewRequest(target, command)
 	scope := bridge.scope
 	request.Plugin = &scope
 	if command.Durable() && bridge.execution != nil {
@@ -285,17 +290,20 @@ func (bridge *scriptBridge) knowledgeCommand(encoded []byte) (any, error) {
 		if bridge.scope.Worktree == nil {
 			return nil, scriptInvalid("knowledge source requires a captured worktree")
 		}
-		source.Data = protocol.KnowledgeSourceWorktreePayload{Worktree: *bridge.scope.Worktree, Path: payload.Path}
+		if draft.Node != nil && *draft.Node != bridge.target {
+			return nil, scriptInvalid("worktree knowledge belongs to its captured execution Node")
+		}
+		source.Data = protocol.KnowledgeSourceWorktreePayload{Node: draft.Node, Worktree: *bridge.scope.Worktree, Path: payload.Path}
 	case *protocol.KnowledgeDraftSourceStoragePayload:
-		source.Data = protocol.KnowledgeSourceStoragePayload{Scope: payload.Scope, Prefix: payload.Prefix}
+		source.Data = protocol.KnowledgeSourceStoragePayload{Node: draft.Node, Scope: payload.Scope, Prefix: payload.Prefix}
 	default:
 		return nil, scriptInvalid("invalid knowledge collection draft")
 	}
 	definition := protocol.KnowledgeDefinition{
 		Name: draft.Name, Source: source, Model: draft.Model, Globs: draft.Globs,
-		Tags: draft.Tags, SharedWith: []string{},
+		Tags: draft.Tags, SharedWith: []string{}, Visibility: draft.Visibility,
 	}
-	return scriptJSONValue(protocol.Command{Kind: "create_knowledge_collection", Data: protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}})
+	return scriptJSONValue(protocol.Command{Kind: "create_knowledge_collection", Data: protocol.CommandCreateKnowledgeCollectionPayload{Node: draft.Node, Definition: definition}})
 }
 
 func scriptModelCommand(operation string, body []byte) (any, error) {
@@ -358,7 +366,9 @@ func scriptWriteIdentity(call protocol.RequestID, sequence uint64) protocol.Requ
 func scriptToolWrite(command protocol.Command, value any) bool {
 	switch command.Kind {
 	case "write_plugin_value", "remove_plugin_value", "write_plugin_conversation_value",
-		"remove_plugin_conversation_value", "register_local_model", "install_local_model":
+		"remove_plugin_conversation_value", "register_local_model", "install_local_model",
+		"create_knowledge_collection", "update_knowledge_collection", "pause_knowledge_collection",
+		"rebuild_knowledge_collection", "delete_knowledge_collection":
 		return true
 	case "plugin_transaction":
 		operations, _ := scriptAt(value, "data", "operations").([]any)
@@ -389,8 +399,8 @@ func scriptCommandAllowed(kind string) bool {
 		"read_installations", "dismiss_installation", "read_plugin_value",
 		"read_plugin_conversation_value", "list_plugin_keys", "write_plugin_value",
 		"write_plugin_conversation_value", "write_indexed_plugin_value", "search_plugin_values",
-		"fetch_web", "cancel_web_fetch", "query_knowledge", "list_knowledge_collections",
-		"create_knowledge_collection", "rebuild_knowledge_collection", "delete_knowledge_collection",
+		"fetch_web", "cancel_web_fetch", "query_knowledge", "read_knowledge_citation", "list_knowledge_collections",
+		"create_knowledge_collection", "update_knowledge_collection", "pause_knowledge_collection", "rebuild_knowledge_collection", "delete_knowledge_collection",
 		"remove_plugin_value", "remove_plugin_conversation_value", "read_plugin_settings",
 		"read_plugin_connection", "publish_notification", "dispatch", "stop_dispatch_turn",
 		"read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query",

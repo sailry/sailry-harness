@@ -441,7 +441,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		actions = mounted.info.Extension.Actions
 	}
 	host := desktopplugins.NewHost(desktopplugins.HostBinding{
-		Context: mounted.ctx, Client: mounted.owner.controller, Scope: mounted.scope, Locale: mounted.locale,
+		Context: mounted.ctx, Client: mounted.owner.controller, Resources: root.controller, Scope: mounted.scope, Locale: mounted.locale,
 		Actions: actions, Contributions: mounted.hooks, Native: native,
 		ReadFiles:    slices.Contains(actions, protocol.PluginActionReadFiles),
 		UsageSources: root.pluginUsageSources, UsageChanges: root.pluginUsageChanges(mounted.ctx),

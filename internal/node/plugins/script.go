@@ -28,9 +28,10 @@ type ScriptBundle struct {
 }
 
 type ScriptEnvironment struct {
-	Context  protocol.PluginContext
-	Target   protocol.NodeID
-	Deadline time.Time
+	Context    protocol.PluginContext
+	Target     protocol.NodeID
+	Controller protocol.NodeID
+	Deadline   time.Time
 }
 
 type ScriptDispatch func(context.Context, protocol.Request) (protocol.Output, error)
@@ -86,7 +87,7 @@ func runScript(ctx context.Context, bundle ScriptBundle, handler string, input a
 		deadline = contextual
 	}
 	bridge := &scriptBridge{
-		ctx: ctx, deadline: deadline, target: environment.Target, scope: environment.Context,
+		ctx: ctx, deadline: deadline, target: environment.Target, controller: environment.Controller, scope: environment.Context,
 		execution: execution, dispatch: dispatch,
 		drafts: map[string]scriptDraft{}, faults: map[string]*protocol.Fault{},
 		installations: map[protocol.RequestID]bool{},

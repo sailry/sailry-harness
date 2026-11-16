@@ -150,20 +150,15 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 			if err != nil {
 				return err
 			}
-			target := node.ID()
-			personalSource := false
-			if created, ok := command.Data.(*protocol.CommandCreateKnowledgeCollectionPayload); ok {
-				source := store.ReadKnowledgeSource(created.Definition.Source)
-				personalSource = source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeNode
+			if created, ok := command.Data.(*protocol.CommandCreateKnowledgeCollectionPayload); ok && created.Definition.Source.Kind == "worktree" &&
+				created.Node != nil && *created.Node != node.ID() {
+				return &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "worktree knowledge belongs to its captured execution Node"}
 			}
-			if command.Kind == "query_knowledge" || command.Kind == "list_knowledge_collections" || personalSource {
-				if inv.User.Controller != nil {
-					target = *inv.User.Controller
-				}
+			controller := node.ID()
+			if inv.User.Controller != nil {
+				controller = *inv.User.Controller
 			}
-			if selected := knowledgeTarget(protocol.Request{Command: command}); selected != (protocol.NodeID{}) {
-				target = selected
-			}
+			target := protocol.KnowledgeRequestTarget(command, node.ID(), controller)
 			request := protocol.NewRequest(target, command)
 			request.Plugin = &scope
 			mu.Lock()
