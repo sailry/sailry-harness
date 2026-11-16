@@ -25,9 +25,10 @@ type Context struct {
 	Activity Activity
 	// Queue is the messages waiting for the reply to end, oldest first.
 	Queue []Queued
-	// Projects and Repository locate the conversation: its project and
-	// worktree, and the worktree's checkout. The composer draws no host
-	// choice (AGENTS.md, Removed UI).
+	// Hosts are execution choices for a projectless draft. A project supplies
+	// its own host; admitted conversations keep their captured location.
+	Hosts []Host
+	// Projects and Repository locate the conversation and its checkout.
 	Projects   []Project
 	Repository Repository
 	// References is the @ picker's root page; Commands the / picker's.
@@ -179,6 +180,12 @@ type Queued struct {
 	// now stays enabled on it, as on a row not guiding. Guidance aimed at
 	// another turn has it disabled.
 	Joining bool
+}
+
+// Host is an execution choice for a projectless draft.
+type Host struct {
+	ID, Name string
+	Offline  bool
 }
 
 // Project is a location choice: a project and its worktrees.

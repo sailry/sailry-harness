@@ -670,6 +670,7 @@ composer_permission_project_description
 composer_permission_full_description
 composer_host_local
 composer_no_project
+composer_execution_host
 composer_branch_none
 composer_settings
 composer_back

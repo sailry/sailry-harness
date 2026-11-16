@@ -652,6 +652,7 @@ composer_permission_project_description: 프로젝트 파일 자동 편집; 명�
 composer_permission_full_description: 프로젝트 외부에서도 파일을 편집하고 명령을 자동으로 실행
 composer_host_local: 로컬 장치
 composer_no_project: 대화
+composer_execution_host: Execution host
 composer_branch_none: 브랜치 없음
 composer_settings: 세션 설정
 composer_back: 뒤로

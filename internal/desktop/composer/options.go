@@ -222,7 +222,7 @@ func permissionColor(p *theme.Palette, m Permission) ui.Color {
 // project is the draft's project, nil for a chat without one.
 func (s *State) project(ctx *Context) *Project {
 	for i := range ctx.Projects {
-		if ctx.Projects[i].ID == s.Project {
+		if ctx.Projects[i].ID == s.Project && (s.Host == "" || ctx.Projects[i].Host == s.Host) {
 			return &ctx.Projects[i]
 		}
 	}
@@ -267,45 +267,62 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
-// projectButton is the location, the one project control of the bar: a
-// package's control of the same choice is not drawn beside it (live
-// plugin_controls.go). It reads the project's name, or Chats for none,
-// and a menu of Chats, every host's projects with a check on the current
-// one, then Add project. The composer has no host choice
-// (AGENTS.md, Removed UI): the draft runs on its project's host, which choosing
-// a project sets.
+// chooseLocation changes only an unadmitted draft. Files may already be
+// creating its session, so their target stays captured while they transfer.
+func (s *State) chooseLocation(ctx *Context, host, project, worktree string) {
+	if ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0 {
+		return
+	}
+	if host != s.Host {
+		s.Host, s.Model, s.Team, s.MemberModels = host, "", "", nil
+		s.Features, s.Effort = map[string]string{}, 2
+	}
+	s.Project, s.Worktree = project, worktree
+}
+
+// projectButton locates a draft: Chats can choose an execution host within
+// this menu, while every project supplies its own host.
 func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
+	} else if s.Project == "" && len(ctx.Hosts) > 1 && s.Host != ctx.Hosts[0].ID {
+		for _, host := range ctx.Hosts {
+			if host.ID == s.Host {
+				label += " · " + host.Name
+			}
+		}
 	}
+	locked := ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0
 	if s.projectPicker {
 		s.projectPicker = false
-		if !ctx.Readonly && !ctx.LocationLocked {
+		if !locked {
 			kit.OpenMenu(c, s.menuID("project"), true)
 		}
 	}
 	kit.MenuButton(c.Key("project"), s.menuID("project"), func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, form)
+		contextButton(c, b.Disabled(locked), icon, label, form)
 	}, func(m *kit.Menu) {
-		choose := func(id string) {
-			if id == s.Project {
-				return
-			}
-			s.Project, s.Worktree = id, ""
-			if pr := s.project(ctx); pr != nil && len(pr.Worktrees) > 0 {
-				if pr.Host != "" && pr.Host != s.Host {
-					s.Host, s.Model, s.Team, s.MemberModels = pr.Host, "", "", nil
-				}
-				s.Worktree = pr.Worktrees[0].Branch
-			}
-		}
 		if m.Item(i18n.T(c, "composer_no_project")).Icon(icons.Inbox).Checked(s.Project == "").Chosen() {
-			choose("")
+			s.chooseLocation(ctx, s.Host, "", "")
+		}
+		if len(ctx.Hosts) > 1 {
+			m.Submenu(i18n.T(c, "composer_execution_host"), func(m *kit.Menu) {
+				for _, host := range ctx.Hosts {
+					if m.Item(host.Name).Icon(icons.Monitor).Checked(host.ID == s.Host).Disabled(host.Offline).Chosen() {
+						s.chooseLocation(ctx, host.ID, "", "")
+					}
+				}
+			}).Icon(icons.Monitor)
+			m.Separator()
 		}
 		for _, pr := range ctx.Projects {
-			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project).Chosen() {
-				choose(pr.ID)
+			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project && pr.Host == s.Host).Chosen() {
+				worktree := ""
+				if len(pr.Worktrees) > 0 {
+					worktree = pr.Worktrees[0].Branch
+				}
+				s.chooseLocation(ctx, pr.Host, pr.ID, worktree)
 			}
 		}
 		m.Separator()

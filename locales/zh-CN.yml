@@ -1261,6 +1261,7 @@ composer_mode_flagship: "协作"
 composer_mode_flagship_description: "多代理协作处理代码和文件，适合重构与整理"
 composer_context: 上下文 —
 composer_no_project: 对话
+composer_execution_host: 执行主机
 composer_branch_none: 无 worktree
 composer_host_local: 本机
 composer_host_remote: 远程

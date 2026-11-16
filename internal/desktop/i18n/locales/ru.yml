@@ -652,6 +652,7 @@ composer_permission_project_description: Редактировать файлы �
 composer_permission_full_description: Редактирование файлов и автоматическое выполнение команд, в том числе вне проекта
 composer_host_local: Локальное устройство
 composer_no_project: Чаты
+composer_execution_host: Execution host
 composer_branch_none: Отделения нет
 composer_settings: Настройки сеанса
 composer_back: Назад

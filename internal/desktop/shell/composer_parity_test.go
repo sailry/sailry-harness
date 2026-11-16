@@ -95,7 +95,7 @@ func control(tt *ui.Tester, name string) (ui.AccessInfo, bool) {
 }
 
 // composerParity are the composer's controls that follow the reference: the
-// packages' modes, the absent host choice, a child session's tray, the queue row
+// packages' modes, scoped host choices, a child session's tray, the queue row
 // states, pasted and dropped files, /compact's focus and a stale reference.
 func composerParity(t *testing.T) {
 	t.Run("plugin modes", func(t *testing.T) {
@@ -186,13 +186,12 @@ func composerParity(t *testing.T) {
 		}
 	})
 
-	// The composer has no host choice (AGENTS.md, Removed UI): neither the
-	// context bar nor, below the icon width, the compact settings popover
-	// has a control named after one of the preview's two hosts.
-	t.Run("no host control", func(t *testing.T) {
+	// Host choices belong inside the location menu, without another chip.
+	t.Run("host choice stays inside the location menu", func(t *testing.T) {
 		for _, width := range []int{960, 440} {
 			tt, _, _ := composerWith(t, width, func(s *composer.State, ctx *composer.Context) {
 				ctx.LocationLocked = false
+				ctx.Hosts = []composer.Host{{ID: "local", Name: zh("local_host_name")}, {ID: "remote", Name: zh("remote_host_name")}}
 			})
 			if width == 440 {
 				for _, e := range tt.AccessAll() {

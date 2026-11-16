@@ -652,6 +652,7 @@ composer_permission_project_description: 自动修改项目文件，执行命令
 composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
 composer_host_local: 本机
 composer_no_project: 对话
+composer_execution_host: 执行主机
 composer_branch_none: 无 worktree
 composer_settings: 会话设置
 composer_back: 返回

@@ -275,7 +275,15 @@ func (a *App) Composer(id string) *composer.State {
 		model = a.Data.Models[0].ID
 	}
 	s := composer.New(model)
-	s.Host = a.Host
+	for _, host := range a.Data.Hosts {
+		if host.Local {
+			s.Host = host.ID
+			break
+		}
+	}
+	if cv := a.Data.Find(id); cv != nil && cv.Node != "" {
+		s.Host = cv.Node
+	}
 	if pr := a.Data.ProjectOf(id); pr != nil {
 		s.Host, s.Project, s.Worktree = pr.Host, pr.ID, pr.Branch
 		if cv := a.Data.Find(id); cv != nil && cv.Worktree != "" {

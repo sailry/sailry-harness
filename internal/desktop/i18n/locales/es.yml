@@ -652,6 +652,7 @@ composer_permission_project_description: Editar archivos de proyecto automática
 composer_permission_full_description: Edite archivos y ejecute comandos automáticamente, incluso fuera del proyecto
 composer_host_local: Dispositivo local
 composer_no_project: Chats
+composer_execution_host: Execution host
 composer_branch_none: No hay sucursal
 composer_settings: Configuración de sesión
 composer_back: Atrás

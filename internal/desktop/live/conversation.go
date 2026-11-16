@@ -185,8 +185,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	}
 	if owner := r.conversationRuntime(cv, comp); owner == nil {
 		cv.Session.Connection = conversation.Offline
-		// The Host is gone: the read-only bar still names the draft's project.
-		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue, Projects: r.composerProjects()},
+		// An unadmitted draft can choose another execution host while offline.
+		return &composer.Context{Readonly: !unsentDraft(cv), SendBlocked: true, LocationLocked: r.draftSubmitted(cv), Interactions: cv.Waiting, Queue: cv.Queue, Projects: r.composerProjects(), Hosts: r.composerHosts(c)},
 			&conversationActions{r: r, c: c, cv: cv, comp: comp}
 	} else if owner != r {
 		return owner.conversation(c, cv, comp)
@@ -303,8 +303,12 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			ctx.Families = append(ctx.Families, family)
 		}
 	}
-	// The composer has no host choice (AGENTS.md, Removed UI); a draft runs
-	// on its project's Node.
+	if unsentDraft(cv) {
+		ctx.Readonly = false
+		ctx.SendBlocked = !r.controller.Connected()
+		ctx.LocationLocked = r.draftSubmitted(cv)
+	}
+	ctx.Hosts = r.composerHosts(c)
 	ctx.Projects = r.composerProjects()
 	if s, ok := r.session(cv.ID); ok {
 		ctx.LocationLocked = true
@@ -347,7 +351,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	// A new turn needs a configured model and no creation under way; the
 	// running reply's guidance uses that turn's.
 	outgoing := r.composerOutgoing[cv.ID]
-	ctx.SendBlocked = !comp.Running && (err != nil || r.conversationCreating[cv.ID] || outgoing != nil && outgoing.transcript)
+	ctx.SendBlocked = ctx.SendBlocked || !comp.Running && (err != nil || r.conversationCreating[cv.ID] || outgoing != nil && outgoing.transcript)
 	ctx.SelectModel = func() {
 		// The providers are those of the Node this conversation runs on.
 		root := r.localRuntime()

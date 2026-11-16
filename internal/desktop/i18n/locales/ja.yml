@@ -652,6 +652,7 @@ composer_permission_project_description: プロジェクトファイルを自動
 composer_permission_full_description: プロジェクトの外部を含むファイルを編集し、コマンドを自動的に実行します
 composer_host_local: ローカルデバイス
 composer_no_project: チャット
+composer_execution_host: Execution host
 composer_branch_none: 分枝なし
 composer_settings: セッションの設定
 composer_back: 戻る

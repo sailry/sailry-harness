@@ -197,6 +197,7 @@ activity_all_projects: All projects
 activity_no_project: Chats
 sessions_unassigned: Chats
 composer_no_project: Chats
+composer_execution_host: Execution host
 activity_waiting: Needs attention
 activity_completed: Completed
 activity_failed: Failed

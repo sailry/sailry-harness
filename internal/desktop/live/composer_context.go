@@ -89,6 +89,19 @@ func (r *Runtime) composerProjects() []composer.Project {
 	return projects
 }
 
+func (r *Runtime) composerHosts(c *ui.Context) []composer.Host {
+	root := r.localRuntime()
+	hosts := []composer.Host{{ID: root.controller.Target().String(), Name: i18n.T(c, "composer_host_local")}}
+	for _, host := range root.App.Data.Hosts {
+		if host.Local || host.ID == hosts[0].ID {
+			continue
+		}
+		owner := root.runtimeFor(host.ID)
+		hosts = append(hosts, composer.Host{ID: host.ID, Name: host.Name, Offline: owner == nil || !owner.controller.Connected()})
+	}
+	return hosts
+}
+
 // staleReference reports a chosen command or skill the picker listed on a
 // page entered earlier and the conversation offers no more: its package was
 // disabled, removed or reconfigured meanwhile.
