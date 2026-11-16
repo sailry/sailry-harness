@@ -52,6 +52,14 @@ func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 		!RuntimeCredentialEvent("credential_changed") || !RuntimeCredentialEvent("connections_changed") {
 		t.Fatal("configuration event routing inferred names or missed runtime metadata")
 	}
+	for _, dependency := range [][2]string{
+		{"plugins", "plugin_settings"}, {"plugin_settings", "providers"}, {"providers", "runtime_credentials"},
+		{"runtime_credentials", "roles"}, {"roles", "teams"}, {"ssh_profiles", "database_profiles"},
+	} {
+		if slices.Index(ConfigurationCategories, dependency[0]) >= slices.Index(ConfigurationCategories, dependency[1]) {
+			t.Fatalf("configuration dependency order reversed: %v", dependency)
+		}
+	}
 }
 
 func TestConfigurationCacheKeepsControllerRefsAndCapturedVersions(t *testing.T) {

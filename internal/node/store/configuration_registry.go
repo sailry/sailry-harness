@@ -172,10 +172,33 @@ func init() {
 		},
 	})
 	RegisterConfigurationKind(ConfigurationKind{
+		Name: "plugin_settings", Events: []string{"plugin_changed", "plugin_removed"}, Runtime: true, Export: exportPluginSettingsConfiguration,
+		Validate: validateConfigurationIdentity(func(value pluginFollowSettings) string { return pluginSettingsCacheID(value.Package) }),
+	})
+	RegisterConfigurationKind(ConfigurationKind{
 		Name: "providers", Events: []string{"provider_changed", "provider_removed"}, Runtime: true, Export: exportProviderConfiguration,
 		Validate: validateConfigurationIdentity(func(value protocol.ConversationProvider) string { return value.ID.String() }),
 		Changed:  changedConfiguration[protocol.ConversationProvider]("provider_changed"),
 		Removed:  removedConfiguration("provider_removed", protocol.ParseProviderID, func(id protocol.ProviderID) any { return protocol.EventProviderRemovedPayload{ID: id} }),
+	})
+	RegisterConfigurationKind(ConfigurationKind{
+		Name: "runtime_credentials", Events: []string{"credential_changed", "provider_changed", "provider_removed", "connections_changed"},
+		Runtime: true, Export: func(ctx context.Context, db *sql.Conn, options ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
+			return ExportRuntimeCredentials(ctx, db, options.Node)
+		},
+		Validate: validateRuntimeConfiguration, Changed: changedRuntimeCredentials,
+		Removed: func(id string) (*protocol.Event, error) {
+			if !strings.HasPrefix(id, "provider:") {
+				return nil, nil
+			}
+			credential, err := protocol.ParseCredentialID(strings.TrimPrefix(id, "provider:"))
+			if err != nil {
+				return nil, err
+			}
+			// The surrounding cache event supplies the authenticated controller
+			// scope; the removed identifier wakes the captured generation.
+			return &protocol.Event{Kind: "credential_changed", Data: protocol.EventCredentialChangedPayload{Credential: protocol.CredentialRef{ID: credential}, Revision: 1}}, nil
+		},
 	})
 	RegisterConfigurationKind(ConfigurationKind{
 		Name: "roles", Events: []string{"role_changed", "role_removed"}, Export: exportRoleConfiguration,
@@ -212,32 +235,9 @@ func init() {
 		Changed: changedRevision("team_settings_changed", func(revision uint64) any { return protocol.EventTeamSettingsChangedPayload{Revision: revision} }),
 	})
 	RegisterConfigurationKind(ConfigurationKind{
-		Name: "plugin_settings", Events: []string{"plugin_changed", "plugin_removed"}, Runtime: true, Export: exportPluginSettingsConfiguration,
-		Validate: validateConfigurationIdentity(func(value pluginFollowSettings) string { return pluginSettingsCacheID(value.Package) }),
-	})
-	RegisterConfigurationKind(ConfigurationKind{
 		Name: "connections", Events: []string{"connections_changed"}, Runtime: true, Export: exportConnectionConfiguration,
 		Validate: validateConfigurationIdentity(func(value pluginFollowConnection) string { return value.ID.String() }),
 		Changed:  changedConnections,
-	})
-	RegisterConfigurationKind(ConfigurationKind{
-		Name: "runtime_credentials", Events: []string{"credential_changed", "provider_changed", "provider_removed", "connections_changed"},
-		Runtime: true, Export: func(ctx context.Context, db *sql.Conn, options ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
-			return ExportRuntimeCredentials(ctx, db, options.Node)
-		},
-		Validate: validateRuntimeConfiguration, Changed: changedRuntimeCredentials,
-		Removed: func(id string) (*protocol.Event, error) {
-			if !strings.HasPrefix(id, "provider:") {
-				return nil, nil
-			}
-			credential, err := protocol.ParseCredentialID(strings.TrimPrefix(id, "provider:"))
-			if err != nil {
-				return nil, err
-			}
-			// The surrounding cache event supplies the authenticated controller
-			// scope; the removed identifier wakes the captured generation.
-			return &protocol.Event{Kind: "credential_changed", Data: protocol.EventCredentialChangedPayload{Credential: protocol.CredentialRef{ID: credential}, Revision: 1}}, nil
-		},
 	})
 	registerPersonalConfiguration("media", "media_settings_changed", nil)
 	registerPersonalConfiguration("compaction", "compaction_settings_changed", func(revision uint64) any { return protocol.EventCompactionSettingsChangedPayload{Revision: revision} })
