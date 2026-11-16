@@ -66,8 +66,12 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 		if input, ok := original.Command.Data.(*protocol.CommandCreateSessionAtPayload); ok {
 			remoteOutput = input.Target != node.ID()
 		}
-		if err := node.authorizeCommandDB(ctx, db, caller, original); err != nil {
-			return deniedOutcome(), nil
+		// Host handler receipts retain a foreign capture for audit. Its IDs
+		// are not local resources; the caller's recorded user owns the result.
+		if original.Command.Kind != "call_host_handler" {
+			if err := node.authorizeCommandDB(ctx, db, caller, original); err != nil {
+				return deniedOutcome(), nil
+			}
 		}
 	}
 	var output *protocol.Output
