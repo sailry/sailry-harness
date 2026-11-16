@@ -365,6 +365,13 @@ ON CONFLICT(user) DO UPDATE SET revision=revision+1`, user.ID.String()); err != 
 	events := []protocol.Event{}
 	if receipt.Applied {
 		events = append(events, protocol.Event{Kind: "plugin_values_changed", Data: protocol.EventPluginValuesChangedPayload{Name: group.Package.Name}})
+		changed, err := PersonalKnowledgeChanged(ctx, db, group.Package.Name)
+		if err != nil {
+			return receipt, nil, err
+		}
+		if changed {
+			events = append(events, protocol.Event{Kind: "knowledge_collections_changed"})
+		}
 	}
 	return receipt, events, nil
 }
