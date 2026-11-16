@@ -114,6 +114,9 @@ func runtimeConnector(ctx context.Context, db *sql.Conn, record ConnectorRecord)
 			value.State = "rejected"
 		}
 	}
+	if value.State == "machine_bound" || value.State == "revoked" {
+		return value, nil
+	}
 	info, err := ReadPlugin(ctx, db, record.Plugin)
 	if err != nil {
 		return value, err

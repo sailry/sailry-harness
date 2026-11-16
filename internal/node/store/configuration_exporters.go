@@ -193,7 +193,15 @@ func exportPluginSettingsConfiguration(ctx context.Context, db *sql.Conn, option
 		}
 		var secret *protocol.Secret
 		if options.Secrets && len(settings.Secrets) != 0 {
-			body, err := json.Marshal(pluginFollowSecrets{Slots: settings.Secrets})
+			slots := maps.Clone(settings.Secrets)
+			if info.Extension != nil {
+				for _, authentication := range info.Extension.ModelAuth {
+					if name := authentication.Client.ClientSecretSetting; name != nil {
+						delete(slots, *name)
+					}
+				}
+			}
+			body, err := json.Marshal(pluginFollowSecrets{Slots: slots})
 			if err != nil {
 				return nil, err
 			}
