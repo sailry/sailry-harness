@@ -419,6 +419,35 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 		}
 		return &oauth2.Token{AccessToken: value.Expose(), TokenType: "Bearer"}, nil
 	}
+	value, _ := source.node.auth.connectorLocks.LoadOrStore(source.record.ID, make(chan struct{}, 1))
+	lock := value.(chan struct{})
+	select {
+	case lock <- struct{}{}:
+		defer func() { <-lock }()
+	case <-source.ctx.Done():
+		return nil, source.ctx.Err()
+	}
+	var current store.ConnectorRecord
+	err := source.node.profile.Store.Node.Read(source.ctx, func(db *sql.Conn) error {
+		var err error
+		current, err = store.ReadConnectorRecord(source.ctx, db, source.record.ID)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !current.Enabled || current.Login != nil || current.AuthRevision != source.record.AuthRevision || current.Grant == nil {
+		return nil, connectorUnavailable()
+	}
+	if current.Grant.Extra["renewal_pending"] == "true" {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"}
+	}
+	if current.GrantRevision != source.record.GrantRevision {
+		if err := json.Unmarshal([]byte(current.Grant.Extra["mcp_oauth"]), &source.value); err != nil {
+			return nil, connectorUnavailable()
+		}
+	}
+	source.record = current
 	if due := store.ConnectorRenewalAt(source.record); source.value.Token.Valid() && (due == nil || *due > uint64(time.Now().UnixMilli())) {
 		return &source.value.Token, nil
 	}
@@ -427,7 +456,7 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	pending.Extra = maps.Clone(pending.Extra)
 	pending.Extra["renewal_pending"] = "true"
 	recording := context.WithoutCancel(source.ctx)
-	err := source.node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
+	err = source.node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 		var err error
 		source.record, err = store.SaveConnectorGrant(recording, db, source.record, pending)
 		return err

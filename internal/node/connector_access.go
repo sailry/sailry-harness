@@ -48,6 +48,18 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if record.Method == protocol.PluginConnectorKindSecret {
 		return nil, nil
 	}
+	if record.Method == protocol.PluginConnectorKindMcpOauth {
+		source, err := node.connectorMCPSource(record, ctx)
+		if err != nil {
+			return nil, err
+		}
+		token, err := source.Token()
+		if err != nil {
+			return nil, err
+		}
+		value := protocol.NewSecret(token.AccessToken)
+		return &value, nil
+	}
 	value, _ := node.auth.connectorLocks.LoadOrStore(record.ID, make(chan struct{}, 1))
 	lock := value.(chan struct{})
 	select {
@@ -104,18 +116,6 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if due == nil || *due > uint64(time.Now().UnixMilli()) {
 		token := protocol.NewSecret(record.Grant.Access)
 		return &token, nil
-	}
-	if record.Method == protocol.PluginConnectorKindMcpOauth {
-		source, err := node.connectorMCPSource(record, ctx)
-		if err != nil {
-			return nil, err
-		}
-		token, err := source.Token()
-		if err != nil {
-			return nil, err
-		}
-		value := protocol.NewSecret(token.AccessToken)
-		return &value, nil
 	}
 	capture := store.ConnectorLoginCapture{Record: record, Declaration: declaration}
 	declarationAuth, fields, err := connectorModelAuth(capture, false)
