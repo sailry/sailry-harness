@@ -82,7 +82,7 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 				continue
 			}
 			due := ConnectorRenewalAt(record)
-			if due == nil {
+			if due == nil || record.Grant.ExpiresAtMs == nil || *record.Grant.IssuedAtMs >= *record.Grant.ExpiresAtMs {
 				continue
 			}
 			info, err := ReadPlugin(owner, db, record.Plugin)

@@ -47,7 +47,7 @@ func (node *Node) serveCredentialRenewals(ctx context.Context, clock clockwork.C
 				if candidate.Connection != nil {
 					key = candidate.User.ID.String() + ":connector:" + candidate.Connection.ID.String() + ":" + strconv.FormatUint(candidate.Connection.AuthRevision, 10)
 				}
-				if revision, ok := attempted[key]; ok && revision == candidate.Revision {
+				if due, ok := attempted[key]; ok && due == candidate.DueMs {
 					continue
 				}
 				due := time.UnixMilli(int64(candidate.DueMs))
@@ -57,7 +57,7 @@ func (node *Node) serveCredentialRenewals(ctx context.Context, clock clockwork.C
 					}
 					continue
 				}
-				attempted[key] = candidate.Revision
+				attempted[key] = candidate.DueMs
 				owner := store.WithUser(ctx, candidate.User)
 				if candidate.Provider != nil {
 					_, _ = node.providerAuthorization(owner, *candidate.Provider, candidate.Credential)
