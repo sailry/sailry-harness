@@ -172,6 +172,7 @@ func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 		<-started
 		other := protocol.NodeID{}
 		other[0] = 1
+		trustedCallerFixture(t, node, other)
 		dispatchFixture(t, node, other, protocol.NewRequest(node.ID(), protocol.Command{Kind: "cancel_web_fetch", Data: protocol.CommandCancelWebFetchPayload{Request: request.ID}}))
 		select {
 		case <-cancelled:

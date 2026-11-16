@@ -1632,11 +1632,19 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Retirer « $name » de cet appareil ? Associez-le à nouveau pour vous reconnecter';
+    return 'Retirer « $name » et y révoquer cet appareil ? Les données restent sur l’hôte. Si c’est votre dernier appareil, un administrateur devra rétablir l’accès.';
   }
 
   @override
   String get hostRemoved => 'Hôte retiré';
+
+  @override
+  String get hostOriginDirect => 'Appairage direct';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
 
   @override
   String get hostRemoveFailed => 'Impossible de retirer l’hôte';

@@ -644,7 +644,7 @@
   "pairExpired": "페어링 코드가 만료되었습니다. 새 코드 가져오기",
   "pairing": "연결 중",
   "hostRemove": "호스트 제거",
-  "hostRemoveConfirm": "이 기기에서 ‘{name}’을 제거할까요? 다시 연결하려면 재페어링이 필요합니다",
+  "hostRemoveConfirm": "‘{name}’을 제거하고 이 기기의 접근 권한을 취소할까요? 데이터는 호스트에 남습니다. 마지막 기기라면 관리자가 접근 권한을 복구해야 합니다.",
   "hostRemoved": "호스트를 제거했습니다",
   "hostRemoveFailed": "호스트를 제거할 수 없습니다",
   "hostMetricsFailed": "호스트 상태를 읽을 수 없음",
@@ -884,5 +884,7 @@
   "demoReviewNotes": "# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n",
   "demoNotesPrompt": "Create a short release review checklist for the sign-in page.",
   "demoSimulatedReply": "I'll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.",
-  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001"
+  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
+  "hostOriginDirect": "직접 페어링",
+  "hostOriginSource": "{name} 경유"
 }

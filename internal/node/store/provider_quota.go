@@ -37,7 +37,7 @@ func providerQuotaPresent(quota protocol.ConversationQuotaSnapshot) bool {
 }
 
 func ReconcileProviderQuotas(ctx context.Context, db *sql.Conn, node protocol.NodeID) ([]protocol.Event, error) {
-	values, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")
+	values, err := providerConfigurations(ctx, db)
 	if err != nil {
 		return nil, err
 	}

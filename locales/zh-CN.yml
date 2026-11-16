@@ -218,6 +218,9 @@ workspace_native_menu_platform: 当前平台暂不支持系统右键菜单
 workspace_project: 项目概览
 project_add: 添加项目
 project_host: 主机
+project_visibility: 可见范围
+project_visibility_private: 私有
+project_visibility_shared: 主机共享
 project_new: 新建项目
 project_edit: 编辑项目
 project_path_in_use: 路径已关联会话或 worktree，不能直接修改
@@ -2238,11 +2241,16 @@ usage_column_provider: 供应商
 usage_column_project: 归属
 usage_column_first_token: TTFT
 connections_hosts: 主机
-connections_mobile: 移动端
+connections_mobile: 主控设备
+connections_bidirectional: 双向
+connections_legacy_bidirectional: 旧版双向
+connections_only_host: 仅主机
+connections_only_controller: 仅主控
+connections_direction_saved: 已更新设备访问方向
 connections_online: 在线
 connections_offline: 离线
 connections_device: '设备 %{id}'
-connections_revoke_confirm: 解除配对后需要重新连接
+connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。
 
 db_catalog: 数据库
 db_catalog_loading: 加载中
@@ -2258,6 +2266,9 @@ host_install_unknown: 安装结果未确认，请检查主机后重试
 host_ssh_windows_pairing: 请在 Windows 主机安装并打开 Sailry 桌面版，再使用配对码添加。
 
 pairing_share_hint: 在另一台设备的「远程连接」中输入配对码
+pairing_invitation_kind: 邀请类型
+pairing_other_user: 其他用户
+pairing_my_device: 我的设备
 db_catalog_failed: 加载失败，收起后重试
 db_data: 数据
 db_sql_tab: SQL

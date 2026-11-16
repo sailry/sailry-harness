@@ -11,9 +11,10 @@ type PluginTransactionOperation struct {
 	Data any
 }
 type PluginTransactionOperationWritePayload struct {
-	Key              string          `json:"key"`
-	Value            json.RawMessage `json:"value"`
-	ExpectedRevision uint64          `json:"expected_revision"`
+	Key              string             `json:"key"`
+	Value            json.RawMessage    `json:"value"`
+	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultPluginTransactionOperationWritePayload() PluginTransactionOperationWritePayload {
@@ -43,6 +44,7 @@ type PluginTransactionOperationIndexPayload struct {
 	Value            json.RawMessage    `json:"value"`
 	Index            PluginStorageIndex `json:"index"`
 	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultPluginTransactionOperationIndexPayload() PluginTransactionOperationIndexPayload {
@@ -69,8 +71,9 @@ func (value PluginTransactionOperationIndexPayload) MarshalJSON() ([]byte, error
 }
 
 type PluginTransactionOperationRemovePayload struct {
-	Key              string `json:"key"`
-	ExpectedRevision uint64 `json:"expected_revision"`
+	Key              string             `json:"key"`
+	ExpectedRevision uint64             `json:"expected_revision"`
+	Scope            PluginStorageScope `json:"scope,omitempty"`
 }
 
 func DefaultPluginTransactionOperationRemovePayload() PluginTransactionOperationRemovePayload {

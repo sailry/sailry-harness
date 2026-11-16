@@ -7,8 +7,9 @@ import (
 )
 
 type TeamSettings struct {
-	Revision         uint64 `json:"revision"`
-	ChildConcurrency uint64 `json:"child_concurrency"`
+	Source           *ConfigurationOrigin `json:"source,omitempty"`
+	Revision         uint64               `json:"revision"`
+	ChildConcurrency uint64               `json:"child_concurrency"`
 }
 
 func DefaultTeamSettings() TeamSettings {
@@ -87,15 +88,16 @@ func (value TeamSelection) MarshalJSON() ([]byte, error) {
 }
 
 type TeamProfile struct {
-	ID           TeamID              `json:"id"`
-	Revision     uint64              `json:"revision"`
-	Key          string              `json:"key"`
-	Name         string              `json:"name"`
-	Appearance   *ProjectsAppearance `json:"appearance"`
-	Description  string              `json:"description"`
-	Model        *RoleModel          `json:"model"`
-	Instructions string              `json:"instructions"`
-	Members      []RoleID            `json:"members"`
+	Source       *ConfigurationOrigin `json:"source,omitempty"`
+	ID           TeamID               `json:"id"`
+	Revision     uint64               `json:"revision"`
+	Key          string               `json:"key"`
+	Name         string               `json:"name"`
+	Appearance   *ProjectsAppearance  `json:"appearance"`
+	Description  string               `json:"description"`
+	Model        *RoleModel           `json:"model"`
+	Instructions string               `json:"instructions"`
+	Members      []RoleID             `json:"members"`
 }
 
 func DefaultTeamProfile() TeamProfile {

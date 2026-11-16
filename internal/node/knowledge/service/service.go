@@ -22,6 +22,8 @@ const batch = 4
 type Options struct {
 	// Index is the knowledge database of the profile.
 	Index *store.Handle
+	// Context restores the stored source principal for one background collection.
+	Context func(context.Context, store.KnowledgeStored) (context.Context, error)
 	// Catalog lists every registered collection.
 	Catalog func(ctx context.Context) ([]store.KnowledgeStored, error)
 	// Allowed lists the collections a request may read.

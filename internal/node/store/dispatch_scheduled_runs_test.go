@@ -68,7 +68,7 @@ func TestScheduledRuns(t *testing.T) {
 			return protocol.Request{}, protocol.JobID{}, err
 		}
 		reference := dispatchReference(item.info.Summary)
-		if _, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2)", reference.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_user_installations(user,name,revision,installed,body) VALUES((SELECT id FROM users WHERE local=1),?1,1,1,?2)", reference.Name, body); err != nil {
 			return protocol.Request{}, protocol.JobID{}, err
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_packages(name,digest,body) VALUES(?1,?2,?3)", reference.Name, reference.Digest, body); err != nil {

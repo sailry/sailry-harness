@@ -27,7 +27,7 @@ func insertBranchSession(ctx context.Context, db *sql.Conn, previous protocol.Se
 	if value.Project != nil {
 		project = value.Project.String()
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO sessions(rowid,id,project,worktree,revision) VALUES(?1,?2,?3,?4,1)", value.CreationOrder, value.ID.String(), project, worktree.String()); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO sessions(rowid,id,project,worktree,revision,owner) SELECT ?1,?2,?3,?4,1,owner FROM sessions WHERE id=?5", value.CreationOrder, value.ID.String(), project, worktree.String(), previous.ID.String()); err != nil {
 		return value, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO session_revisions(session,revision,worktree,config,profile,roles) SELECT ?1,1,?2,config,profile,roles FROM session_revisions WHERE session=?3 AND revision=?4", value.ID.String(), worktree.String(), previous.ID.String(), previous.Revision); err != nil {

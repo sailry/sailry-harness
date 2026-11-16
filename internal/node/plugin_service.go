@@ -23,12 +23,14 @@ import (
 )
 
 type pluginInvocation struct {
-	caller   protocol.NodeID
-	request  protocol.RequestID
-	info     protocol.PluginInfo
-	scope    protocol.PluginContext
-	cancel   context.CancelFunc
-	readOnly bool
+	caller      protocol.NodeID
+	request     protocol.RequestID
+	user        protocol.User
+	storageUser protocol.UserID
+	info        protocol.PluginInfo
+	scope       protocol.PluginContext
+	cancel      context.CancelFunc
+	readOnly    bool
 }
 
 type pluginControls struct {
@@ -72,10 +74,45 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 	}
 	node.plugins = controls
 	node.collectPlugins(ctx)
+	var users []protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		users, err = store.ListUsers(ctx, db)
+		return err
+	}); err != nil {
+		return err
+	}
+	for _, user := range users {
+		if user.State != "active" {
+			continue
+		}
+		if err := node.InitializeUserPlugins(ctx, user); err != nil {
+			return err
+		}
+	}
+	return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1 WHERE singleton=1")
+		return err
+	})
+}
+
+// InitializeUserPlugins installs bundled defaults without copying another user's
+// settings or restoring that user's explicit removal choices.
+func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User) error {
+	ctx = store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
 	for _, entry := range plugins.BundledDefaults() {
 		var current *protocol.PluginInfo
 		var recorded bool
+		editable := true
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			if err := store.CheckConfigurationEditable(ctx, db, "plugins", entry.Name); err != nil {
+				var failure *protocol.Fault
+				if errors.As(err, &failure) && failure.Code == protocol.ErrorCodePermissionDenied {
+					editable = false
+					return nil
+				}
+				return err
+			}
 			var err error
 			current, err = store.ReadPlugin(ctx, db, entry.Name)
 			if err != nil {
@@ -87,17 +124,20 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		if err != nil {
 			return err
 		}
+		if !editable {
+			continue
+		}
 		if recorded && current == nil || current != nil && (current.Origin == nil || current.Origin.Kind != "bundled") {
 			continue
 		}
-		inspected, err := controls.manager.InspectBundled(ctx, entry.Name)
+		inspected, err := node.plugins.manager.InspectBundled(ctx, entry.Name)
 		if err != nil {
 			return err
 		}
 		if current != nil && !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
 			continue
 		}
-		info, err := controls.manager.InstallBundled(ctx, entry.Name)
+		info, err := node.plugins.manager.InstallBundled(ctx, entry.Name)
 		if err != nil {
 			return err
 		}
@@ -114,6 +154,13 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 	}
 	for _, name := range plugins.RetiredBundled() {
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			if err := store.CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
+				var failure *protocol.Fault
+				if errors.As(err, &failure) && failure.Code == protocol.ErrorCodePermissionDenied {
+					return nil
+				}
+				return err
+			}
 			current, err := store.ReadPlugin(ctx, db, name)
 			if err != nil || current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
 				return err
@@ -133,15 +180,12 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		return err
 	}
 	for _, summary := range summaries {
-		if err := controls.mcp.Observe(summary); err != nil {
+		if err := node.plugins.mcp.Observe(summary, user.ID.String()); err != nil {
 			return err
 		}
 	}
-	controls.mcp.FinishInventory()
-	return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		_, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1 WHERE singleton=1")
-		return err
-	})
+	node.plugins.mcp.FinishInventory(user.ID.String())
+	return nil
 }
 
 // collectPlugins deletes the package versions and settings revisions nothing
@@ -216,6 +260,13 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 				node.plugins.mu.Unlock()
 				return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation does not own this action"}
 			}
+			actor, actorErr := store.CurrentUser(ctx, db)
+			owner, ownerErr := store.ResolveUser(ctx, db, invocation.user.ID)
+			if actorErr != nil || ownerErr != nil || actor.ID != owner.ID {
+				node.plugins.mu.Unlock()
+				return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation belongs to another user"}
+			}
+			ctx = store.WithCapturedUser(ctx, invocation.storageUser)
 			value := invocation.info
 			value.Summary.Enabled = true
 			captured = &value
@@ -254,12 +305,30 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin provenance is required"}
 	}
 	var info protocol.PluginInfo
+	var user protocol.User
+	var storageUser protocol.UserID
 	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var captureErr error
+		user, captureErr = store.CurrentUser(ctx, db)
+		if captureErr != nil {
+			return captureErr
+		}
+		storageUser, captureErr = store.CapturedUser(ctx, db)
+		if captureErr != nil {
+			return captureErr
+		}
 		var captured *protocol.PluginInfo
 		if request.Plugin.Invocation != nil {
 			node.plugins.mu.Lock()
 			invocation := node.plugins.invocations[*request.Plugin.Invocation]
 			if invocation != nil && caller == node.ID() && reflect.DeepEqual(invocation.scope, *request.Plugin) {
+				owner, ownerErr := store.ResolveUser(ctx, db, invocation.user.ID)
+				if ownerErr != nil || owner.ID != user.ID {
+					node.plugins.mu.Unlock()
+					return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation belongs to another user"}
+				}
+				storageUser = invocation.storageUser
+				ctx = store.WithCapturedUser(ctx, storageUser)
 				value := invocation.info
 				value.Summary.Enabled = true
 				captured = &value
@@ -297,12 +366,13 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	ctx = store.WithCapturedUser(store.WithUser(ctx, user), storageUser)
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	scope := *request.Plugin
 	identity := protocol.NewRequestID()
 	scope.Invocation = &identity
-	invocation := &pluginInvocation{caller: caller, request: request.ID, info: info, scope: scope, cancel: cancel, readOnly: readOnly}
+	invocation := &pluginInvocation{caller: caller, request: request.ID, user: user, storageUser: storageUser, info: info, scope: scope, cancel: cancel, readOnly: readOnly}
 	node.plugins.mu.Lock()
 	if len(node.plugins.invocations) >= 64 {
 		node.plugins.mu.Unlock()
@@ -311,7 +381,7 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 	node.plugins.invocations[identity] = invocation
 	node.plugins.mu.Unlock()
 	defer func() { node.plugins.mu.Lock(); delete(node.plugins.invocations, identity); node.plugins.mu.Unlock() }()
-	operation = node.plugins.memory.Context(operation, scope.Package, "callback")
+	operation = node.plugins.memory.Context(operation, scope.Package, "callback", pluginMemoryUser(operation))
 	value, err := plugins.RunCallback(operation, plugins.ScriptBundle{Entry: host.Entry, Files: files}, handler, input,
 		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Deadline: time.Now().Add(time.Minute)}, readOnly,
 		func(ctx context.Context, command protocol.Request) (protocol.Output, error) {
@@ -331,38 +401,48 @@ func (node *Node) beginPluginExecution(ctx context.Context, request protocol.Req
 	if !active {
 		return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "plugin turn is no longer running"}
 	}
-	operation, cancel := context.WithCancel(owner)
+	operation, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopOwner := context.AfterFunc(owner, cancel)
 	stop := context.AfterFunc(ctx, cancel)
-	return operation, func() { stop(); cancel(); finish() }, nil
+	return operation, func() { stop(); stopOwner(); cancel(); finish() }, nil
 }
 
-func (node *Node) pluginCommitted(changes []protocol.Event) {
+func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.Context) {
+	ctx := node.ctx
+	if len(contexts) != 0 {
+		ctx = contexts[0]
+	}
+	user, err := node.pluginRuntimeUser(ctx)
+	if err != nil {
+		return
+	}
 	packagesChanged := false
 	for _, change := range changes {
 		if change.Kind == "plugin_changed" {
 			packagesChanged = true
 			if summary, ok := dispatchPayload[protocol.PluginSummary](change.Data); ok {
-				_ = node.plugins.mcp.Observe(summary)
+				_ = node.plugins.mcp.Observe(summary, user.String())
 				// A disabled, updated or reconfigured package starts its programs anew.
-				node.plugins.programs.Invalidate(summary.Name)
-				node.retainComputerOverlay(summary.Name)
+				node.plugins.programs.Invalidate(pluginProgramOwner(user, summary.Name))
+				node.retainComputerOverlay(summary.Name, ctx)
 			}
 		}
 		if change.Kind == "plugin_removed" {
 			packagesChanged = true
 			if removed, ok := dispatchPayload[protocol.EventPluginRemovedPayload](change.Data); ok {
-				_ = node.plugins.mcp.Invalidate(removed.Name)
-				node.plugins.programs.Invalidate(removed.Name)
-				node.retainComputerOverlay(removed.Name)
+				_ = node.plugins.mcp.Invalidate(removed.Name, user.String())
+				node.plugins.programs.Invalidate(pluginProgramOwner(user, removed.Name))
+				node.retainComputerOverlay(removed.Name, ctx)
 			}
 		}
 	}
 	if packagesChanged && node.plugins.python != nil {
-		_ = node.retainPackagePython(context.WithoutCancel(node.ctx))
+		_ = node.retainPackagePython(context.WithoutCancel(ctx))
 	}
 	if packagesChanged {
 		node.authChanged()
 	}
+	node.NotifyConfigurationFollow(changes)
 	node.wakeDispatch()
 	node.publish()
 	node.agent.Committed()

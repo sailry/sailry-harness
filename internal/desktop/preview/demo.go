@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	cv "github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/protocol"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -241,6 +242,9 @@ func Demo(locale, host string) *Data {
 		{ID: "notes", Name: "growth-notes", Path: "~/Documents/growth-notes", Branch: "main", Host: host,
 			Worktrees:     []Worktree{{Branch: "main", Path: "~/Documents/growth-notes", Main: true}},
 			Conversations: []*Conversation{b.signIn()}},
+	}
+	for _, project := range d.Projects {
+		project.Visibility = protocol.ProjectVisibilityPrivate
 	}
 	d.Projects[0].Icon, d.Projects[0].Color = "server", "teal"
 	d.Projects[1].Icon, d.Projects[1].Color = "analytics", "violet"

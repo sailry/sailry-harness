@@ -60,6 +60,8 @@ type Project struct {
 	Path          string
 	Branch        string
 	Host          string // the Host's ID
+	Owner         *protocol.UserID
+	Visibility    protocol.ProjectVisibility
 	Worktrees     []Worktree
 	Conversations []*Conversation
 }

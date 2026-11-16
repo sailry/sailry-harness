@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -150,6 +151,7 @@ func ReadPluginSettings(ctx context.Context, db *sql.Conn, reference protocol.Pl
 }
 
 func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.CommandSavePluginSettingsPayload, targets ...map[string]string) (protocol.PluginSettingsState, error) {
+	editErr := CheckConfigurationEditable(ctx, db, "plugin_settings", input.Package.Name)
 	info, err := ReadPlugin(ctx, db, input.Package.Name)
 	if err != nil {
 		return protocol.PluginSettingsState{}, err
@@ -173,6 +175,34 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	destinations := map[string]string{}
 	if len(targets) != 0 {
 		destinations = targets[0]
+	}
+	if editErr != nil {
+		var failure *protocol.Fault
+		if !errors.As(editErr, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
+			return protocol.PluginSettingsState{}, editErr
+		}
+		if !reflect.DeepEqual(stored.Values, input.Values) {
+			return protocol.PluginSettingsState{}, editErr
+		}
+		for name, update := range input.Secrets {
+			binding := settingsBinding(info.Settings, name)
+			if binding == nil || binding.Server == nil {
+				if update.Kind != "keep" {
+					return protocol.PluginSettingsState{}, editErr
+				}
+				continue
+			}
+			if update.Kind == "keep" && destinations[name] == stored.McpTargets[name] {
+				continue
+			}
+			local, err := ConfigurationMCPServerLocal(ctx, db, input.Package.Name, *binding.Server)
+			if err != nil {
+				return protocol.PluginSettingsState{}, err
+			}
+			if !local {
+				return protocol.PluginSettingsState{}, editErr
+			}
+		}
 	}
 	for name := range input.Secrets {
 		if settingsBinding(info.Settings, name) == nil {
@@ -247,7 +277,11 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	if err != nil {
 		return protocol.PluginSettingsState{}, err
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,?2,?3)", info.Summary.Name, revision, body); err != nil {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return protocol.PluginSettingsState{}, err
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO plugin_user_settings(user,plugin,revision,body) VALUES(?4,?1,?2,?3)", info.Summary.Name, revision, body, user); err != nil {
 		return protocol.PluginSettingsState{}, err
 	}
 	if err := savePluginInventory(ctx, db, *info, true); err != nil {
@@ -257,7 +291,11 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 }
 
 func clearPluginSecretHistory(ctx context.Context, db *sql.Conn, plugin, name string) error {
-	rows, err := db.QueryContext(ctx, "SELECT revision,body FROM plugin_settings WHERE plugin=?1", plugin)
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT revision,body FROM plugin_user_settings WHERE plugin=?1 AND user=?2", plugin, user)
 	if err != nil {
 		return err
 	}
@@ -304,7 +342,7 @@ func clearPluginSecretHistory(ctx context.Context, db *sql.Conn, plugin, name st
 		return err
 	}
 	for _, update := range updates {
-		if _, err := db.ExecContext(ctx, "UPDATE plugin_settings SET body=?1 WHERE plugin=?2 AND revision=?3", update.body, plugin, update.revision); err != nil {
+		if _, err := db.ExecContext(ctx, "UPDATE plugin_user_settings SET body=?1 WHERE plugin=?2 AND revision=?3 AND user=?4", update.body, plugin, update.revision, user); err != nil {
 			return err
 		}
 	}

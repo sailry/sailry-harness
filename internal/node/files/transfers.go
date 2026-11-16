@@ -26,6 +26,7 @@ const idleTimeout = 30 * time.Second
 type transferEntry struct {
 	caller     protocol.NodeID
 	root       string
+	worktree   protocol.WorktreeID
 	state      string
 	expires    time.Time
 	timer      func() bool
@@ -92,6 +93,11 @@ func (t *Transfers) reserve(caller protocol.NodeID, root string, e *transferEntr
 	}
 	id := protocol.NewStreamID()
 	e.caller, e.root, e.state, e.expires = caller, root, "ready", t.now().Add(openTimeout)
+	if e.upload != nil {
+		e.worktree = e.upload.Worktree
+	} else if e.attachment != nil {
+		e.worktree = e.attachment.Spec.Worktree
+	}
 	t.entries[id] = e
 	t.expiryLocked(id, e)
 	return id, nil
@@ -276,7 +282,7 @@ func (t *Transfers) DownloadFile(ctx context.Context, caller protocol.NodeID, ro
 	if err != nil {
 		return out, err
 	}
-	e := &transferEntry{file: file, download: true, stamp: stamp}
+	e := &transferEntry{file: file, download: true, stamp: stamp, worktree: worktree}
 	info, err := file.Stat()
 	if err == nil {
 		e.size = uint64(info.Size())
@@ -664,4 +670,19 @@ func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, r
 		cleanupTransfer(entry)
 	}
 	return out, err
+}
+
+// Scope reads the captured worktree before Open consumes the single-use transfer.
+// Ownership is checked here and again when the resource stream is opened.
+func (t *Transfers) Scope(caller protocol.NodeID, id protocol.StreamID) (protocol.WorktreeID, bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry := t.entries[id]
+	if entry == nil {
+		return protocol.WorktreeID{}, false, nil
+	}
+	if entry.caller != caller {
+		return protocol.WorktreeID{}, true, transferMissing()
+	}
+	return entry.worktree, true, nil
 }

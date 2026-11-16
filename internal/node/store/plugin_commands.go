@@ -4,12 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func ReadPluginCommand(ctx context.Context, db *sql.Conn, request protocol.Request) (protocol.Output, error) {
+	ctx, err := PluginStorageRequestContext(ctx, db, request)
+	if err != nil {
+		return protocol.Output{}, err
+	}
 	switch request.Command.Kind {
 	case "list_plugins":
 		value, err := ReadPlugins(ctx, db)
@@ -56,6 +61,10 @@ func ReadPluginCommand(ctx context.Context, db *sql.Conn, request protocol.Reque
 func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
 	if request.Plugin == nil {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
+	}
+	ctx, scopeErr := PluginStorageRequestContext(ctx, db, request)
+	if scopeErr != nil {
+		return protocol.Output{}, nil, scopeErr
 	}
 	scope := request.Plugin
 	var value any
@@ -172,7 +181,17 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 	default:
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "plugin command is unavailable")
 	}
-	return protocol.Output{Kind: kind, Data: value}, []protocol.Event{{Kind: "plugin_values_changed", Data: protocol.EventPluginValuesChangedPayload{Name: scope.Package.Name}}}, err
+	change := protocol.EventPluginValuesChangedPayload{Name: scope.Package.Name}
+	if space, ok := ctx.Value(pluginSpaceKey{}).(string); ok {
+		if id, project := strings.CutPrefix(space, "project:"); project {
+			parsed, parseErr := protocol.ParseProjectID(id)
+			if parseErr != nil {
+				return protocol.Output{}, nil, parseErr
+			}
+			change.Project = &parsed
+		}
+	}
+	return protocol.Output{Kind: kind, Data: value}, []protocol.Event{{Kind: "plugin_values_changed", Data: change}}, err
 }
 
 func pluginTransactionCommand(operation protocol.PluginTransactionOperation, reference protocol.PluginReference) (protocol.Command, error) {

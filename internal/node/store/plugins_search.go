@@ -23,26 +23,24 @@ func PluginSearchDefinition(name string) string {
 	table := pluginSearchTable(name)
 	index := table + "_fts"
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s(id INTEGER PRIMARY KEY,key TEXT NOT NULL UNIQUE,field0 TEXT NOT NULL,field1 TEXT NOT NULL,cjk0 TEXT NOT NULL,cjk1 TEXT NOT NULL,tags TEXT NOT NULL,ordinal INTEGER NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS %[2]s USING fts5(field0,field1,cjk0,cjk1,content='%[1]s',content_rowid='id',tokenize='ascii tokenchars ''+#''');
-CREATE TRIGGER IF NOT EXISTS %[2]s_insert AFTER INSERT ON %[1]s BEGIN
-INSERT INTO %[2]s(rowid,field0,field1,cjk0,cjk1) VALUES(new.id,new.field0,new.field1,new.cjk0,new.cjk1);
-END;
-CREATE TRIGGER IF NOT EXISTS %[2]s_delete AFTER DELETE ON %[1]s BEGIN
-INSERT INTO %[2]s(%[2]s,rowid,field0,field1,cjk0,cjk1) VALUES('delete',old.id,old.field0,old.field1,old.cjk0,old.cjk1);
-END;
-CREATE TRIGGER IF NOT EXISTS %[2]s_update AFTER UPDATE ON %[1]s BEGIN
-INSERT INTO %[2]s(%[2]s,rowid,field0,field1,cjk0,cjk1) VALUES('delete',old.id,old.field0,old.field1,old.cjk0,old.cjk1);
-INSERT INTO %[2]s(rowid,field0,field1,cjk0,cjk1) VALUES(new.id,new.field0,new.field1,new.cjk0,new.cjk1);
-END;`, table, index)
+CREATE INDEX IF NOT EXISTS %[2]s ON %[1]s USING fts(field0,field1,cjk0,cjk1) WITH(tokenizer='whitespace');`, table, index)
 }
 
 func pluginSearchExists(ctx context.Context, db *sql.Conn, name string) (bool, error) {
+	scoped, err := pluginSearchName(ctx, db, name)
+	if err != nil {
+		return false, err
+	}
 	var exists bool
-	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)", pluginSearchTable(name)).Scan(&exists)
+	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)", pluginSearchTable(scoped)).Scan(&exists)
 	return exists, err
 }
 
 func replacePluginSearch(ctx context.Context, db *sql.Conn, name, key string, index *protocol.PluginStorageIndex) error {
+	scoped, err := pluginSearchName(ctx, db, name)
+	if err != nil {
+		return err
+	}
 	exists, err := pluginSearchExists(ctx, db, name)
 	if err != nil {
 		return err
@@ -51,11 +49,18 @@ func replacePluginSearch(ctx context.Context, db *sql.Conn, name, key string, in
 		if index == nil {
 			return nil
 		}
-		if _, err := db.ExecContext(ctx, PluginSearchDefinition(name)); err != nil {
+		if _, err := db.ExecContext(ctx, PluginSearchDefinition(scoped)); err != nil {
 			return err
 		}
 	}
-	table := pluginSearchTable(name)
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO plugin_search_spaces(space,name) VALUES(?1,?2) ON CONFLICT(space,name) DO NOTHING", space, name); err != nil {
+		return err
+	}
+	table := pluginSearchTable(scoped)
 	if index == nil {
 		_, err = db.ExecContext(ctx, "DELETE FROM "+table+" WHERE key=?1", key)
 		return err
@@ -108,20 +113,33 @@ func pluginSearchRows(ctx context.Context, db *sql.Conn, name string, query prot
 	if len(query.Terms) != 0 && expression == "" {
 		return nil, nil
 	}
-	table := pluginSearchTable(name)
-	index := table + "_fts"
-	parameters := []any{name}
+	scoped, err := pluginSearchName(ctx, db, name)
+	if err != nil {
+		return nil, err
+	}
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	table := pluginSearchTable(scoped)
+	parameters := []any{name, space}
 	parameter := func(value any) string {
 		parameters = append(parameters, value)
 		return fmt.Sprintf("?%d", len(parameters))
 	}
-	where := []string{"v.name=?1", "v.value IS NOT NULL"}
-	join := table + " AS f JOIN plugin_values AS v ON v.key=f.key"
+	where := []string{"v.name=?1", "v.space=?2", "v.value IS NOT NULL"}
+	candidates := ""
+	join := table + " AS f JOIN plugin_space_values AS v ON v.key=f.key"
 	order := "f.ordinal DESC,v.key ASC"
 	if expression != "" {
-		join += " JOIN " + index + " ON " + index + ".rowid=f.id"
-		where = append(where, index+" MATCH "+parameter(expression))
-		order = fmt.Sprintf("bm25(%s,%d,%d,%d,%d) ASC,", index, query.Weights[0], query.Weights[1], query.Weights[0], query.Weights[1]) + order
+		weighted := make([]string, 0, 4)
+		for index, field := range []string{"field0", "field1", "cjk0", "cjk1"} {
+			weighted = append(weighted, fmt.Sprintf("%s:(%s)^%d", field, expression, query.Weights[index%2]))
+		}
+		queryParameter := parameter(strings.Join(weighted, " OR "))
+		candidates = fmt.Sprintf("WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,%[1]s) AS score FROM %[2]s WHERE fts_match(field0,field1,cjk0,cjk1,%[1]s)) ", queryParameter, table)
+		join = "candidates c JOIN " + table + " AS f ON c.id=f.id JOIN plugin_space_values AS v ON v.key=f.key"
+		order = "c.score DESC," + order
 	}
 	for _, tag := range query.All {
 		where = append(where, "EXISTS(SELECT 1 FROM json_each(f.tags) WHERE value="+parameter(tag)+")")
@@ -133,7 +151,7 @@ func pluginSearchRows(ctx context.Context, db *sql.Conn, name string, query prot
 		}
 		where = append(where, "EXISTS(SELECT 1 FROM json_each(f.tags) WHERE value IN("+strings.Join(choices, ",")+"))")
 	}
-	sqlText := "SELECT " + columns + " FROM " + join + " WHERE " + strings.Join(where, " AND ") +
+	sqlText := candidates + "SELECT " + columns + " FROM " + join + " WHERE " + strings.Join(where, " AND ") +
 		" ORDER BY " + order + " LIMIT " + parameter(limit) + " OFFSET " + parameter(offset)
 	return db.QueryContext(ctx, sqlText, parameters...)
 }
@@ -203,7 +221,10 @@ func SearchPluginValues(ctx context.Context, db *sql.Conn, reference protocol.Pl
 		if entry.Revision == 0 || !json.Valid(entry.Value) {
 			return page, invalid("invalid stored plugin search value")
 		}
-		entry.Value, err = plugins.ProjectStorageValue(plugins.StorageCollection(info, protocol.PluginStorageScopeNode, entry.Key), entry.Value)
+		if pluginValueScope(ctx) == protocol.PluginStorageScopeProject && plugins.StorageCollection(info, protocol.PluginStorageScopeProject, entry.Key) == nil {
+			return page, fault(protocol.ErrorCodePermissionDenied, "plugin project storage is not declared")
+		}
+		entry.Value, err = plugins.ProjectStorageValue(plugins.StorageCollection(info, pluginValueScope(ctx), entry.Key), entry.Value)
 		if err != nil {
 			return page, err
 		}
@@ -226,24 +247,58 @@ func PluginSearchDefinitions(ctx context.Context, db *sql.Conn) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	names := []string{}
+	names := map[string]bool{}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		names = append(names, name)
+		names[name] = true
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
+	if err := closeRows(rows); err != nil {
 		return nil, err
 	}
-	definitions := []string{}
-	for _, name := range names {
-		exists, err := pluginSearchExists(ctx, db, name)
+	var scoped bool
+	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='plugin_search_spaces')").Scan(&scoped); err != nil {
+		return nil, err
+	}
+	if scoped {
+		rows, err := db.QueryContext(ctx, "SELECT space,name FROM plugin_search_spaces ORDER BY space,name")
 		if err != nil {
+			return nil, err
+		}
+		type scopedName struct{ space, name string }
+		var records []scopedName
+		for rows.Next() {
+			var entry scopedName
+			if err := rows.Scan(&entry.space, &entry.name); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			records = append(records, entry)
+		}
+		if err := closeRows(rows); err != nil {
+			return nil, err
+		}
+		if len(records) != 0 {
+			local, err := pluginLegacyStorageUser(ctx, db)
+			if err != nil {
+				return nil, err
+			}
+			for _, entry := range records {
+				name := entry.name
+				if entry.space != "user:"+local.String() {
+					name = entry.space + "\x00" + name
+				}
+				names[name] = true
+			}
+		}
+	}
+	definitions := []string{}
+	for _, name := range sortedKeys(names) {
+		var exists bool
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?1)", pluginSearchTable(name)).Scan(&exists); err != nil {
 			return nil, err
 		}
 		if exists {

@@ -93,7 +93,7 @@ func commandObservation(command protocol.Command) observation {
 	if command.Durable() {
 		return changing
 	}
-	if command.Kind == "dispatch" {
+	if command.Kind == "dispatch" || command.Kind == "identity" || command.Kind == "configuration_follow" {
 		// Its listing and reading actions.
 		return readOnly
 	}

@@ -17,13 +17,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (node *Node) prepare(command protocol.Command) (store.PreparedPaths, error) {
+func (node *Node) prepare(ctx context.Context, command protocol.Command) (store.PreparedPaths, error) {
 	if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && command.Kind == "create_project" && draft.Source.Kind == "clone" {
 		if err := store.ValidateProjectDraft(*draft); err != nil {
 			return store.PreparedPaths{}, err
 		}
 		source := draft.Source.Data.(*protocol.ProjectsSourceClonePayload)
-		canonical, err := node.git.Clone(node.ctx, source.Url, draft.Path, source.Branch)
+		canonical, err := node.git.Clone(ctx, source.Url, draft.Path, source.Branch)
 		return store.PreparedPaths{Path: canonical}, err
 	}
 	prepared, err := store.PreparePaths(command)
@@ -44,12 +44,12 @@ func (node *Node) prepare(command protocol.Command) (store.PreparedPaths, error)
 	}
 	var root string
 	var trees []protocol.Worktree
-	err = node.profile.Store.Node.Read(node.ctx, func(db *sql.Conn) error {
-		if err := db.QueryRowContext(node.ctx, "SELECT path FROM projects WHERE id=?1", project.String()).Scan(&root); err != nil {
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		if err := db.QueryRowContext(ctx, "SELECT path FROM projects WHERE id=?1", project.String()).Scan(&root); err != nil {
 			return err
 		}
 		var err error
-		trees, err = store.ReadWorktrees(node.ctx, db)
+		trees, err = store.ReadWorktrees(ctx, db)
 		return err
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -59,11 +59,11 @@ func (node *Node) prepare(command protocol.Command) (store.PreparedPaths, error)
 		return prepared, err
 	}
 	if command.Kind == "register_worktree" {
-		return prepared, verifyGitMembership(node.ctx, root, prepared.Path)
+		return prepared, verifyGitMembership(ctx, root, prepared.Path)
 	}
 	for _, tree := range trees {
 		if tree.Project != nil && *tree.Project == project && !tree.Main {
-			if err := verifyGitMembership(node.ctx, prepared.Path, tree.Path); err != nil {
+			if err := verifyGitMembership(ctx, prepared.Path, tree.Path); err != nil {
 				return prepared, err
 			}
 		}

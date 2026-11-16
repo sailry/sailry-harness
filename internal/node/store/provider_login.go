@@ -100,6 +100,9 @@ func providerAuthDeclaration(ctx context.Context, db *sql.Conn, provider protoco
 
 func CaptureProviderLogin(ctx context.Context, db *sql.Conn, id protocol.ProviderID, expected uint64, attempt protocol.RequestID) (ProviderLoginCapture, error) {
 	var capture ProviderLoginCapture
+	if err := checkProviderWrite(configurationApplyContext(ctx), db, id); err != nil {
+		return capture, err
+	}
 	saved, err := currentProvider(ctx, db, id, &expected)
 	if err != nil {
 		return capture, err
@@ -244,7 +247,7 @@ type ProviderRenewal struct {
 // CaptureProviderAuthorization also reads the unlisted provider a paired Node
 // forwarded, which holds only a transferable authentication.
 func CaptureProviderAuthorization(ctx context.Context, db *sql.Conn, id protocol.ProviderID) (protocol.ConversationProvider, error) {
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
+	saved, err := readProviderConfiguration(ctx, db, id)
 	if err != nil {
 		return protocol.ConversationProvider{}, err
 	}
@@ -257,7 +260,7 @@ func CaptureProviderAuthorization(ctx context.Context, db *sql.Conn, id protocol
 // authorizationProvider also admits the unlisted provider a paired Node
 // forwarded, whose only account kind is the transferable Copilot grant.
 func authorizationProvider(ctx context.Context, db *sql.Conn, provider protocol.ConversationProvider) (*providerConfiguration, error) {
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", provider.ID.String())
+	saved, err := capturedProviderConfiguration(ctx, db, provider)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +294,7 @@ func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.
 	} else if grant.Kind != protocol.AuthenticationCopilot && (value.Auth == nil || !value.Auth.Matches(capture.Target)) {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "model authentication changed; sign in again")
 	}
-	return resolveProviderKey(ctx, db, node, reference, provider.ID)
+	return resolveCapturedProviderKey(ctx, db, node, reference, provider)
 }
 
 func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef, now time.Time) (*ProviderRenewal, error) {

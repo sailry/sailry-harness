@@ -1616,11 +1616,19 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Remove “$name” from this device? Pair again to reconnect';
+    return 'Remove “$name” and revoke this device there? Host data remains. If this is your last device, an administrator must restore access.';
   }
 
   @override
   String get hostRemoved => 'Host removed';
+
+  @override
+  String get hostOriginDirect => 'Direct pairing';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
 
   @override
   String get hostRemoveFailed => 'Could not remove host';

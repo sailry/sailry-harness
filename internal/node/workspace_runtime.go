@@ -72,7 +72,7 @@ func (node *Node) closeWorkspace() error {
 	node.closeCodeIndex()
 	return errors.Join(node.processes.Close(), node.transfers.Close(), node.watches.close())
 }
-func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.StreamID) (link.Stream, error) {
+func (node *Node) open(ctx context.Context, caller protocol.NodeID, id protocol.StreamID) (link.Stream, error) {
 	if err := node.begin(); err != nil {
 		return nil, err
 	}

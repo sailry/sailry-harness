@@ -65,7 +65,7 @@ func (r *Runtime) teamsFrame() {
 
 func roleView(role protocol.RoleProfile) viewmodel.Role {
 	model, effort := roleModelView(role.Model)
-	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, Instructions: role.Instructions, Features: roleFeatures(role.Model), Avatar: roleAvatar(role.Appearance)}
+	return viewmodel.Role{ID: role.ID.String(), Revision: role.Revision, Key: role.Key, Name: role.Name, Description: role.Description, Model: model, Effort: effort, ReadOnly: role.ReadOnly, ConfigurationReadOnly: role.Source != nil, Instructions: role.Instructions, Features: roleFeatures(role.Model), Avatar: roleAvatar(role.Appearance)}
 }
 
 // roleAvatar is the avatar a role's appearance names: its icon, when that
@@ -116,7 +116,7 @@ func roleFeatures(model *protocol.RoleModel) map[string]string {
 
 func teamView(team protocol.TeamProfile) viewmodel.Team {
 	model, effort := roleModelView(team.Model)
-	view := viewmodel.Team{ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions, Features: roleFeatures(team.Model), Avatar: teamAvatar(team.Appearance)}
+	view := viewmodel.Team{ConfigurationReadOnly: team.Source != nil, ID: team.ID.String(), Revision: team.Revision, Name: team.Name, Description: team.Description, Lead: model, Effort: effort, Instructions: team.Instructions, Features: roleFeatures(team.Model), Avatar: teamAvatar(team.Appearance)}
 	for _, member := range team.Members {
 		view.Members = append(view.Members, member.String())
 	}
@@ -162,6 +162,7 @@ func (r *Runtime) readTeamSettings() {
 // answered before a save whose result was accepted since.
 func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
 	field := &r.App.Settings.Concurrency
+	r.App.Settings.ConcurrencyReadOnly = value.Source != nil
 	if !r.showsSettings() || field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
 		return
 	}

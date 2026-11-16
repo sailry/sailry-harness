@@ -97,7 +97,7 @@ func (owner *Host) sdkModule() HostModule {
 	})
 	add("listModels", true, owner.readOperation("list_plugin_models", nil))
 	add("resolveModel", false, resolveHostModel)
-	add("getValue", true, owner.readOperation("read_plugin_value", namedArguments("key")))
+	add("getValue", true, owner.readOperation("read_plugin_value", namedArgumentsWithDefaults(map[string]any{"scope": "node"}, "key", "scope")))
 	add("listKeys", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		prefix, err := hostOptional(arguments, 0, "")
 		if err != nil {
@@ -111,11 +111,15 @@ func (owner *Host) sdkModule() HostModule {
 		if err != nil {
 			return nil, err
 		}
-		return owner.readData(ctx, "list_plugin_keys", map[string]any{"prefix": prefix, "after": after, "limit": limit})
+		storage, err := hostOptional(arguments, 3, "node")
+		if err != nil {
+			return nil, err
+		}
+		return owner.readData(ctx, "list_plugin_keys", map[string]any{"prefix": prefix, "after": after, "limit": limit, "scope": storage})
 	})
-	add("setValue", false, owner.prepareOperation("write_plugin_value", namedArguments("key", "value", "expected_revision")))
-	add("indexedValue", false, owner.prepareOperation("write_indexed_plugin_value", namedArguments("key", "value", "index", "expected_revision")))
-	add("deleteValue", false, owner.prepareOperation("remove_plugin_value", namedArguments("key", "expected_revision")))
+	add("setValue", false, owner.prepareOperation("write_plugin_value", namedArgumentsWithDefaults(map[string]any{"scope": "node"}, "key", "value", "expected_revision", "scope")))
+	add("indexedValue", false, owner.prepareOperation("write_indexed_plugin_value", namedArgumentsWithDefaults(map[string]any{"scope": "node"}, "key", "value", "index", "expected_revision", "scope")))
+	add("deleteValue", false, owner.prepareOperation("remove_plugin_value", namedArgumentsWithDefaults(map[string]any{"scope": "node"}, "key", "expected_revision", "scope")))
 	add("searchValues", true, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		query, err := hostValue[map[string]json.RawMessage](arguments, 0)
 		if err != nil {

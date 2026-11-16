@@ -121,15 +121,17 @@ export type ProviderHttpResponse = {status:number;headers:Record<string,string[]
 export function requestProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):Promise<ProviderHttpResponse>;
 /** Complete the stable request ID with completeRequest; retry that ID after uncertain outcomes. */
 export function prepareProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):string;
-export function getValue(key: string): Promise<Entry>;
+export type ValueScope = "node" | "project";
+/** node is personal; project requires a declared project collection and a captured project. */
+export function getValue(key: string, scope?: ValueScope): Promise<Entry>;
 export function getConversationValue(key: string): Promise<ConversationEntry>;
-export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
-export function setValue(key: string, value: Json, expectedRevision: string): string;
-export function deleteValue(key: string, expectedRevision: string): string;
+export function listKeys(prefix?: string, after?: string | null, limit?: number, scope?: ValueScope): Promise<{ keys: string[]; after: string | null }>;
+export function setValue(key: string, value: Json, expectedRevision: string, scope?: ValueScope): string;
+export function deleteValue(key: string, expectedRevision: string, scope?: ValueScope): string;
 export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
 export type KnowledgeDraft = {
   name: string;
-  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
+  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "project" | "conversation"; prefix: string};
   model?: string | null; globs?: string[]; tags?: string[];
 };
 export type KnowledgeCollection = {

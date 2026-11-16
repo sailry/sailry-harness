@@ -260,12 +260,13 @@ func (value DatabaseServer) MarshalJSON() ([]byte, error) {
 }
 
 type DatabaseProfile struct {
-	Sharing    *ConnectionSharing `json:"sharing,omitempty"`
-	ID         DatabaseID         `json:"id"`
-	Revision   uint64             `json:"revision"`
-	Name       string             `json:"name"`
-	Connection DatabaseConnection `json:"connection"`
-	ReadOnly   bool               `json:"read_only"`
+	Source     *ConfigurationOrigin `json:"source,omitempty"`
+	Sharing    *ConnectionSharing   `json:"sharing,omitempty"`
+	ID         DatabaseID           `json:"id"`
+	Revision   uint64               `json:"revision"`
+	Name       string               `json:"name"`
+	Connection DatabaseConnection   `json:"connection"`
+	ReadOnly   bool                 `json:"read_only"`
 }
 
 func DefaultDatabaseProfile() DatabaseProfile {

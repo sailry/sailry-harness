@@ -44,6 +44,8 @@ import (
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	accessMu          sync.Mutex
+	accessObservers   map[*accessObservation]struct{}
 	pluginStatus      *pluginStatusService
 	terminals         *terminal.Service
 	auth              *authControls
@@ -121,6 +123,8 @@ func projectEffect(kind string) bool {
 }
 
 type commandJob struct {
+	user       protocol.User
+	scope      context.Context
 	caller     protocol.NodeID
 	request    protocol.Request
 	body       []byte
@@ -133,6 +137,7 @@ var _ link.Handler = (*Node)(nil)
 
 // Options injects native process and clock boundaries for deterministic owners.
 type Options struct {
+	Headless       bool
 	MCP            *mcp.Options
 	Python         *python.Options
 	DispatchClock  clockwork.Clock
@@ -160,6 +165,11 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	if err := profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if options.Headless {
+			if err := store.MigrateHeadlessPeers(ctx, db); err != nil {
+				return err
+			}
+		}
 		if err := admission.Recover(ctx, db); err != nil {
 			return err
 		}
@@ -436,12 +446,16 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if err := json.Unmarshal(encoded, &request); err != nil {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command"}
 	}
-	if request.Plugin != nil {
-		if request.Command.Durable() {
-			if accepted, handled, err := node.replayPluginAdmission(ctx, caller, request, encoded); handled || err != nil {
-				return accepted, err
-			}
+	ctx, err = node.authorizeCommand(ctx, caller, request)
+	if err != nil {
+		return link.Admission{}, err
+	}
+	if request.Command.Durable() && request.Command.Kind != "create_session_at" {
+		if accepted, handled, err := node.replayAdmission(ctx, caller, request, encoded); handled || err != nil {
+			return accepted, err
 		}
+	}
+	if request.Plugin != nil {
 		if err := node.validatePluginRequest(ctx, caller, request); err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
@@ -517,7 +531,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		return link.Admission{}, nodeFault(err)
 	}
 	if !externalCommand(request.Command) {
-		result, err := node.execute(commandJob{caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
+		result, err := node.execute(commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, body: encoded}, store.PreparedPaths{}, nil)
 		if err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
@@ -547,7 +561,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 	if projectEffect(request.Command.Kind) {
 		lane = &node.lanes[projectLane]
 	}
-	lane.queue = append(lane.queue, commandJob{caller: caller, request: request, admitted: true, completion: completion})
+	lane.queue = append(lane.queue, commandJob{user: userFromContext(ctx), scope: ctx, caller: caller, request: request, admitted: true, completion: completion})
 	node.signal(lane)
 	return accepted, nil
 }
@@ -585,6 +599,10 @@ func externalCommand(command protocol.Command) bool {
 		return true
 	}
 	switch command.Kind {
+	case "configuration_follow":
+		// Applying a manifest updates plugin lifecycles after its transaction.
+		// Those owners may admit work and must run outside the admission lock.
+		return true
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
 	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
@@ -601,7 +619,7 @@ func externalCommand(command protocol.Command) bool {
 }
 
 func supportedCommand(kind string) bool {
-	if store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) || store.SupportsTeamRead(kind) || store.SupportsTeamCommand(kind) {
+	if kind == "identity" || SupportsConfigurationFollow(kind) || store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) || store.SupportsTeamRead(kind) || store.SupportsTeamCommand(kind) {
 		return true
 	}
 	switch kind {
@@ -620,6 +638,11 @@ func supportedCommand(kind string) bool {
 }
 
 func (node *Node) read(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	var accessErr error
+	ctx, accessErr = node.authorizeCommand(ctx, caller, request)
+	if accessErr != nil {
+		return response(protocol.Output{}, accessErr)
+	}
 	if input, ok := request.Command.Data.(*protocol.CommandReadToolOutputPayload); ok && input.Stream != nil {
 		if request.Plugin != nil {
 			return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"})
@@ -638,6 +661,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		return response(protocol.Output{Kind: "command_output_page", Data: page}, err)
 	}
 
+	if SupportsConfigurationFollow(request.Command.Kind) {
+		output, err := node.ReadConfigurationFollow(ctx, caller, request.Command)
+		return response(output, err)
+	}
 	if store.SupportsProviderCommand(request.Command.Kind) {
 		if err := node.renewCommandProvider(ctx, request); err != nil {
 			return response(protocol.Output{}, err)
@@ -663,6 +690,10 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			}
 		}
 		switch request.Command.Kind {
+		case "identity":
+			var err error
+			output, err = store.ReadIdentityCommand(ctx, db, node.ID(), caller, request.Command)
+			return err
 		case "snapshot":
 			value, err := store.Snapshot(ctx, db, node.ID())
 			output = protocol.Output{Kind: "snapshot", Data: value}
@@ -670,6 +701,9 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "inspect_request":
 			input := request.Command.Data.(*protocol.CommandInspectRequestPayload)
 			value, err := admission.Inspect(ctx, db, caller, input.ID, input.Digest)
+			if err == nil {
+				value, err = node.inspectOutcomeAccess(ctx, db, caller, input.ID, value)
+			}
 			output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: value}}
 			return err
 		case "read_session":
@@ -745,15 +779,22 @@ func (node *Node) run(lane *commandLane) {
 	defer close(lane.done)
 	for job, ok := node.next(lane); ok; job, ok = node.next(lane) {
 		projectEffect := projectEffect(job.request.Command.Kind)
-		prepared, prepareErr := node.prepare(job.request.Command)
+		ctx := node.commandContext(job)
+		prepareErr := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			return node.authorizeCommandDB(ctx, db, job.caller, job.request)
+		})
+		var prepared store.PreparedPaths
+		if prepareErr == nil {
+			prepared, prepareErr = node.prepare(ctx, job.request.Command)
+		}
 		if prepareErr == nil && job.request.Command.Kind == "remove_project" {
 			prepared.TerminalsClosed, prepareErr = node.closeProjectResources(job.request.Command)
 		}
 		if prepareErr == nil {
-			prepareErr = node.renewCommandProvider(node.ctx, job.request)
+			prepareErr = node.renewCommandProvider(ctx, job.request)
 		}
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
-			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
+			job.provider, prepareErr = node.prepareProvider(ctx, job.caller, job.request)
 		}
 		// A clone and the checks above run unlocked; recording which roots
 		// exist excludes workspace effects. Creating or removing a worktree
@@ -779,69 +820,94 @@ func (node *Node) run(lane *commandLane) {
 	}
 }
 
+// commandContext uses the Node lifetime and only the admitted actor's values.
+func (node *Node) commandContext(job commandJob) context.Context {
+	ctx := store.WithUser(node.ctx, job.user)
+	if job.scope != nil {
+		if storage, ok := store.CapturedUserFromContext(job.scope); ok {
+			ctx = store.WithCapturedUser(ctx, storage)
+		}
+		if captured, _ := job.scope.Value(capturedDispatchKey{}).(bool); captured {
+			ctx = context.WithValue(ctx, capturedDispatchKey{}, true)
+		}
+	}
+	return ctx
+}
+
 func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareErr error) (link.Response, error) {
+	ctx := node.commandContext(job)
 	unlock := node.agent.LockDecision(job.request.Command)
 	defer unlock()
 	publication := node.agent.LockPublication()
-	defer publication()
 	var output protocol.Output
 	var operationErr error
 	var changes []protocol.Event
 	var reviewChanges []store.AgentReviewChange
 	var previous *link.Response
-	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		if !job.admitted {
 			var err error
-			previous, err = admission.Admit(node.ctx, db, job.caller, job.request, job.body)
+			previous, err = admission.Admit(ctx, db, job.caller, job.request, job.body)
 			if err != nil || previous != nil {
 				return err
 			}
 		}
-		if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_command"); err != nil {
+		if _, err := db.ExecContext(ctx, "SAVEPOINT sailry_command"); err != nil {
 			return err
 		}
 		operationErr = prepareErr
+		if operationErr == nil {
+			operationErr = node.authorizeCommandDB(ctx, db, job.caller, job.request)
+		}
 		if operationErr == nil && job.request.Plugin != nil {
-			operationErr = node.validatePluginRequestDB(node.ctx, db, job.caller, job.request)
+			operationErr = node.validatePluginRequestDB(ctx, db, job.caller, job.request)
 		}
 		if operationErr == nil {
 			switch {
+			case job.request.Command.Kind == "identity":
+				output, changes, operationErr = store.ExecuteIdentityCommand(ctx, db, node.ID(), job.caller, job.request)
+				if operationErr == nil {
+					changes = append(changes, protocol.Event{Kind: "projection_invalidated"})
+				}
+			case SupportsConfigurationFollow(job.request.Command.Kind):
+				output, changes, operationErr = ExecuteConfigurationFollow(ctx, db, node.ID(), job.caller, job.request.Command)
 			case store.SupportsTeamCommand(job.request.Command.Kind):
-				output, changes, operationErr = store.ExecuteTeamCommand(node.ctx, db, job.request.Command)
+				output, changes, operationErr = store.ExecuteTeamCommand(ctx, db, job.request.Command)
 			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
-				output, changes, operationErr = store.ExecuteBackgroundCommand(node.ctx, db, node.ID(), job.caller, job.request, time.Now())
+				output, changes, operationErr = store.ExecuteBackgroundCommand(ctx, db, node.ID(), job.caller, job.request, time.Now())
 			case store.SupportsAgentCommand(job.request.Command.Kind):
-				output, changes, operationErr = store.ExecuteAgentCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.caller, job.request, time.Now())
+				output, changes, operationErr = store.ExecuteAgentCommand(ctx, db, node.ID(), node.profile.Ownership.Path, job.caller, job.request, time.Now())
 			case store.SupportsProviderCommand(job.request.Command.Kind):
-				output, changes, operationErr = store.ExecuteProviderCommand(node.ctx, db, node.ID(), job.request, job.provider)
+				output, changes, operationErr = store.ExecuteProviderCommand(ctx, db, node.ID(), job.request, job.provider)
 			default:
-				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
+				output, changes, operationErr = store.ExecuteCommand(ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
 		}
-		if operationErr == nil && job.request.Command.Kind == "continue_turn" {
-			changes, operationErr = node.followKnowledgeStorage(node.ctx, db, job.request, changes)
+		if operationErr == nil && (job.request.Command.Kind == "continue_turn" || SupportsConfigurationFollow(job.request.Command.Kind)) {
+			changes, operationErr = node.followKnowledgeStorage(ctx, db, job.request, changes)
 		}
 		if operationErr == nil {
 			var reviewEvents []protocol.Event
-			reviewChanges, reviewEvents, operationErr = store.ApplyReviewCommand(node.ctx, db, job.request, output, time.Now())
+			reviewChanges, reviewEvents, operationErr = store.ApplyReviewCommand(ctx, db, job.request, output, time.Now())
 			changes = append(changes, reviewEvents...)
 		}
 		if operationErr != nil {
 			reviewChanges = nil
-			if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_command"); err != nil {
+			if _, err := db.ExecContext(ctx, "ROLLBACK TO sailry_command"); err != nil {
 				return err
 			}
 			changes = nil
 		}
-		if _, err := db.ExecContext(node.ctx, "RELEASE sailry_command"); err != nil {
+		if _, err := db.ExecContext(ctx, "RELEASE sailry_command"); err != nil {
 			return err
 		}
-		if _, err := store.RecordEvents(node.ctx, db, node.ID(), changes); err != nil {
+		if _, err := store.RecordEvents(ctx, db, node.ID(), changes); err != nil {
 			return err
 		}
-		return admission.Complete(node.ctx, db, job.caller, job.request.ID, response(output, operationErr))
+		return admission.Complete(ctx, db, job.caller, job.request.ID, response(output, operationErr))
 	})
 	if previous != nil {
+		publication()
 		return *previous, err
 	}
 	if err == nil {
@@ -850,8 +916,20 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		}
 		node.conversationEvents(changes)
 		node.systemEvents(changes)
+	}
+	publication()
+	if err == nil {
+		node.NotifyConfigurationFollow(changes)
+		if operationErr == nil && job.request.Command.Kind == "identity" {
+			if refreshErr := node.RefreshIdentity(ctx); refreshErr != nil {
+				slog.Warn("Identity connection refresh failed", "error", refreshErr)
+			}
+		}
+		if operationErr == nil && SupportsConfigurationFollow(job.request.Command.Kind) {
+			node.pluginCommitted(changes, ctx)
+		}
 		if operationErr == nil {
-			node.refreshKnowledgeStorage(job.request.Command, nil)
+			node.refreshKnowledgeStorage(job.request.Command, changes)
 		}
 	}
 	return response(output, operationErr), err
@@ -906,6 +984,7 @@ func (node *Node) pruneLedger() {
 }
 
 func (node *Node) publish() {
+	node.publishAccess()
 	node.subscribersMu.Lock()
 	defer node.subscribersMu.Unlock()
 	for subscriber := range node.subscribers {

@@ -50,13 +50,20 @@ func providerCredentialMetadata(provider protocol.ProviderID, id protocol.Creden
 	return metadata
 }
 func providerCredentials(ctx context.Context, db *sql.Conn) ([]protocol.Credential, error) {
-	saved, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")
+	saved, err := providerConfigurations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	result := []protocol.Credential{}
 	for _, provider := range saved {
 		for id, value := range provider.Authorizations {
+			if provider.Provider != nil && provider.Provider.Shared && !user.Administrator && (provider.Provider.Credential == nil || provider.Provider.Credential.ID != id) {
+				continue
+			}
 			result = append(result, providerCredentialMetadata(provider.ID, id, value))
 		}
 	}
@@ -68,15 +75,26 @@ func providerCredentials(ctx context.Context, db *sql.Conn) ([]protocol.Credenti
 // retained by captured work. An unlisted provider counts while a live session
 // uses it, including session-private providers imported from another Node.
 func providerCredentialCapacity(ctx context.Context, db *sql.Conn, replacing protocol.ProviderID, additional int) error {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return err
+	}
+	owner, present, err := configurationOwner(ctx, db, "providers", replacing.String())
+	if err != nil {
+		return err
+	}
+	if present {
+		user.ID = owner
+	}
 	var count int
-	err := db.QueryRowContext(ctx, `SELECT count(*) FROM providers p JOIN json_each(p.body,'$.authorizations') a
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM providers p JOIN json_each(p.body,'$.authorizations') a
  ON a.key=json_extract(p.body,'$.provider.credential.id')
- WHERE p.id!=?1 AND json_extract(a.value,'$.key') IS NOT NULL
+ WHERE p.id!=?1 AND COALESCE(p.user,(SELECT id FROM users WHERE local=1))=?2 AND json_extract(a.value,'$.key') IS NOT NULL
  AND (json_extract(p.body,'$.listed') OR EXISTS(
  SELECT 1 FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision
  WHERE s.state!='removed' AND (json_extract(r.config,'$.provider')=p.id
  OR json_extract(r.profile,'$.provider.id')=p.id
- OR EXISTS(SELECT 1 FROM json_each(r.roles,'$.providers') source WHERE json_extract(source.value,'$.id')=p.id))))`, replacing.String()).Scan(&count)
+ OR EXISTS(SELECT 1 FROM json_each(r.roles,'$.providers') source WHERE json_extract(source.value,'$.id')=p.id))))`, replacing.String(), user.ID.String()).Scan(&count)
 	if err != nil {
 		return err
 	}

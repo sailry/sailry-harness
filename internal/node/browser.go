@@ -411,7 +411,8 @@ func (node *Node) dispatchBrowser(ctx context.Context, caller protocol.NodeID, r
 	go func() {
 		defer node.work.Done()
 		defer close(completion)
-		output, effectErr := node.useBrowser(node.ctx, caller, request.ID, *input)
+		owner := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+		output, effectErr := node.useBrowser(owner, caller, request.ID, *input)
 		completion <- node.settle(caller, request.ID, response(output, effectErr))
 	}()
 	return result, nil

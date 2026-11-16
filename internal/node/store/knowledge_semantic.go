@@ -30,6 +30,7 @@ const (
 // text is indexed.
 type SemanticPlan struct {
 	Package     protocol.PluginReference
+	Space       string
 	Collections []KnowledgeStored
 	Keyword     []PluginValueRank
 	Eligible    map[string]bool
@@ -90,7 +91,7 @@ func semanticDeclarations(ctx context.Context, db *sql.Conn, reference protocol.
 	}
 	var declarations []protocol.PluginStorageCollection
 	for _, collection := range info.Extension.Storage.Collections {
-		if collection.Scope == protocol.PluginStorageScopeNode && collection.Index != nil && collection.Index.Semantic {
+		if collection.Scope == pluginValueScope(ctx) && collection.Index != nil && collection.Index.Semantic {
 			declarations = append(declarations, collection)
 		}
 	}
@@ -138,16 +139,38 @@ func semanticIdentifier(name, selector string, exact bool) protocol.KnowledgeID 
 // plugin's Node storage source under the ID of its selector.
 func knowledgeAutomatic(stored KnowledgeStored) bool {
 	source := ReadKnowledgeSource(stored.Collection.Definition.Source)
-	if !stored.Automatic || stored.Collection.Owner.Kind != "plugin" || source.Kind != "storage" || source.Scope != protocol.PluginStorageScopeNode {
+	if !stored.Automatic || stored.Collection.Owner.Kind != "plugin" || source.Kind != "storage" || (source.Scope != protocol.PluginStorageScopeNode && source.Scope != protocol.PluginStorageScopeProject) {
 		return false
 	}
-	name := knowledgeOwner(stored.Collection.Owner)
+	name := stored.Capture.Namespace
+	if name == "" {
+		name = knowledgeOwner(stored.Collection.Owner)
+	}
 	return semanticIdentifier(name, source.Prefix, false) == stored.Collection.ID || semanticIdentifier(name, source.Prefix, true) == stored.Collection.ID
+}
+
+func semanticNamespace(stored KnowledgeStored) string {
+	if stored.Capture.Namespace != "" {
+		return stored.Capture.Namespace
+	}
+	return knowledgeOwner(stored.Collection.Owner)
 }
 
 // ensureSemantic registers the declared collections of a package that have
 // an indexed value pointing at its text. It returns the registered ones.
 func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) ([]KnowledgeStored, bool, error) {
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return nil, false, err
+	}
+	namespace, err := pluginSearchName(ctx, db, reference.Name)
+	if err != nil {
+		return nil, false, err
+	}
+	user, err := CapturedUser(ctx, db)
+	if err != nil {
+		return nil, false, err
+	}
 	declarations, err := semanticDeclarations(ctx, db, reference)
 	if err != nil {
 		return nil, false, err
@@ -164,14 +187,14 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 		}
 		selector, exact := semanticSelector(declaration)
 		var exists bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND json_type(index_data,'$.source')='object')",
-			reference.Name, exact, selector).Scan(&exists); err != nil {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_space_values WHERE name=?1 AND space=?4 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND json_type(index_data,'$.source')='object')",
+			reference.Name, exact, selector, space).Scan(&exists); err != nil {
 			return nil, false, err
 		}
 		if !exists {
 			continue
 		}
-		id := semanticIdentifier(reference.Name, selector, exact)
+		id := semanticIdentifier(namespace, selector, exact)
 		if position := slices.IndexFunc(entries, func(stored KnowledgeStored) bool { return stored.Collection.ID == id }); position >= 0 {
 			previous := &entries[position]
 			if !knowledgeAutomatic(*previous) {
@@ -184,6 +207,7 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 			// An old admitted turn retains access without replacing a newer package capture.
 			if *previous.Capture.Package != reference && latest != nil && plugins.PackageReference(*latest) == reference {
 				previous.Capture.Package = &reference
+				previous.Capture.User = &user
 				if err := advanceKnowledge(previous); err != nil {
 					return nil, false, err
 				}
@@ -200,11 +224,11 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 		collection.Owner = protocol.KnowledgeOwner{Kind: "plugin", Data: protocol.KnowledgeOwnerPluginPayload{Name: reference.Name}}
 		collection.Definition = protocol.KnowledgeDefinition{
 			Name:   reference.Name + " storage",
-			Source: protocol.KnowledgeSource{Kind: "storage", Data: protocol.KnowledgeSourceStoragePayload{Scope: protocol.PluginStorageScopeNode, Prefix: selector}},
+			Source: protocol.KnowledgeSource{Kind: "storage", Data: protocol.KnowledgeSourceStoragePayload{Scope: pluginValueScope(ctx), Prefix: selector}},
 			Globs:  []string{}, Tags: []string{}, SharedWith: []string{},
 		}
 		collection.Progress.Generation = 1
-		entry := KnowledgeStored{Collection: collection, Capture: KnowledgeCapture{Package: &reference}, Automatic: true}
+		entry := KnowledgeStored{Collection: collection, Capture: KnowledgeCapture{Package: &reference, User: &user, Space: space, Namespace: namespace}, Automatic: true}
 		if err := persistKnowledge(ctx, db, entry); err != nil {
 			return nil, false, err
 		}
@@ -216,6 +240,24 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 // RegisterKnowledgeSemantic registers the semantic collections of every
 // enabled package. It runs when the Node starts and after a package changes.
 func RegisterKnowledgeSemantic(ctx context.Context, db *sql.Conn) (bool, error) {
+	if _, scoped := UserFromContext(ctx); !scoped {
+		users, err := ListUsers(ctx, db)
+		if err != nil {
+			return false, err
+		}
+		changed := false
+		for _, user := range users {
+			if user.State != "active" {
+				continue
+			}
+			registered, err := RegisterKnowledgeSemantic(WithCapturedUser(WithUser(ctx, user), user.ID), db)
+			if err != nil {
+				return false, err
+			}
+			changed = changed || registered
+		}
+		return changed, nil
+	}
 	infos, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return false, err
@@ -245,6 +287,45 @@ func KnowledgeStorageChanged(ctx context.Context, db *sql.Conn, request protocol
 	if request.Plugin == nil {
 		return false, nil
 	}
+	if input, ok := request.Command.Data.(*protocol.CommandPluginTransactionPayload); ok {
+		changed := false
+		for _, operation := range input.Operations {
+			switch operation.Kind {
+			case "write", "index", "remove", "conversation_write", "conversation_remove", "continue":
+			default:
+				continue
+			}
+			command, err := pluginTransactionCommand(operation, request.Plugin.Package)
+			if err != nil {
+				return false, err
+			}
+			nested := request
+			nested.Command = command
+			updated, err := KnowledgeStorageChanged(ctx, db, nested)
+			if err != nil {
+				return false, err
+			}
+			changed = changed || updated
+		}
+		return changed, nil
+	}
+	switch input := request.Command.Data.(type) {
+	case *protocol.CommandWritePluginConversationValuePayload, *protocol.CommandRemovePluginConversationValuePayload:
+		return false, nil
+	case *protocol.CommandContinueTurnPayload:
+		if input.Scope == protocol.PluginStorageScopeConversation {
+			return false, nil
+		}
+	}
+	var scopeErr error
+	ctx, scopeErr = PluginStorageRequestContext(ctx, db, request)
+	if scopeErr != nil {
+		return false, scopeErr
+	}
+	space, scopeErr := pluginValueSpace(ctx, db)
+	if scopeErr != nil {
+		return false, scopeErr
+	}
 	_, changed, err := ensureSemantic(ctx, db, request.Plugin.Package)
 	if err != nil {
 		return false, err
@@ -257,7 +338,7 @@ func KnowledgeStorageChanged(ctx context.Context, db *sql.Conn, request protocol
 		if err := semanticCancelled(ctx); err != nil {
 			return false, err
 		}
-		if !knowledgeAutomatic(stored) || stored.Capture.Package.Name != request.Plugin.Package.Name || stored.Collection.Progress.Status == protocol.KnowledgeStatusPending {
+		if !knowledgeAutomatic(stored) || stored.Capture.Space != space || stored.Capture.Package.Name != request.Plugin.Package.Name || stored.Collection.Progress.Status == protocol.KnowledgeStatusPending {
 			continue
 		}
 		if err := advanceKnowledge(&stored); err != nil {
@@ -283,7 +364,7 @@ func semanticDeclaration(ctx context.Context, db *sql.Conn, stored KnowledgeStor
 	}
 	for _, declaration := range declarations {
 		selector, exact := semanticSelector(declaration)
-		if semanticIdentifier(stored.Capture.Package.Name, selector, exact) == stored.Collection.ID {
+		if semanticIdentifier(semanticNamespace(stored), selector, exact) == stored.Collection.ID {
 			return declaration, nil
 		}
 	}
@@ -293,6 +374,10 @@ func semanticDeclaration(ctx context.Context, db *sql.Conn, stored KnowledgeStor
 // semanticRecord captures one indexed value whose index points at raw text
 // inside the package's semantic collections.
 func semanticRecord(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, declarations []protocol.PluginStorageCollection, key string) (*KnowledgeStorageRecord, error) {
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	if err := pluginKey(key, false); err != nil {
 		return nil, err
 	}
@@ -301,7 +386,7 @@ func semanticRecord(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 	}
 	var revision int64
 	var body, encoded []byte
-	err := db.QueryRowContext(ctx, "SELECT revision,value,index_data FROM plugin_values WHERE name=?1 AND key=?2", reference.Name, key).Scan(&revision, &body, &encoded)
+	err = db.QueryRowContext(ctx, "SELECT revision,value,index_data FROM plugin_space_values WHERE name=?1 AND key=?2 AND space=?3", reference.Name, key, space).Scan(&revision, &body, &encoded)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && (body == nil || encoded == nil) {
 		return nil, nil
 	}
@@ -355,8 +440,12 @@ func semanticSources(ctx context.Context, db *sql.Conn, stored KnowledgeStored, 
 		return nil, nil, err
 	}
 	selector, exact := semanticSelector(declaration)
-	keys, err := knowledgeKeys(ctx, db, "SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND (?4 IS NULL OR key>?4) ORDER BY key LIMIT ?5",
-		reference.Name, exact, selector, after, limit+1)
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
+	keys, err := knowledgeKeys(ctx, db, "SELECT key FROM plugin_space_values WHERE name=?1 AND space=?6 AND value IS NOT NULL AND index_data IS NOT NULL AND (?2=1 AND key=?3 OR ?2=0 AND substr(key,1,length(?3))=?3) AND (?4 IS NULL OR key>?4) ORDER BY key LIMIT ?5",
+		reference.Name, exact, selector, after, limit+1, space)
 	return keys, func(key string) (*KnowledgeStorageRecord, error) {
 		return semanticRecord(ctx, db, reference, declarations, key)
 	}, err
@@ -392,6 +481,10 @@ func semanticQuery(request protocol.Request) (*protocol.PluginStorageSearch, err
 // keyword search, or one without text, selects no collection.
 func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.Request) (SemanticPlan, error) {
 	var plan SemanticPlan
+	ctx, scopeErr := PluginStorageRequestContext(ctx, db, request)
+	if scopeErr != nil {
+		return plan, scopeErr
+	}
 	if err := semanticCancelled(ctx); err != nil {
 		return plan, err
 	}
@@ -407,6 +500,13 @@ func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.R
 	}
 	reference := request.Plugin.Package
 	plan.Package, plan.Eligible = reference, map[string]bool{}
+	if plan.Space, err = pluginValueSpace(ctx, db); err != nil {
+		return plan, err
+	}
+	namespace, err := pluginSearchName(ctx, db, reference.Name)
+	if err != nil {
+		return plan, err
+	}
 	var declarations []protocol.PluginStorageCollection
 	if query.Mode != protocol.KnowledgeModeKeyword && query.Query != nil && strings.TrimSpace(*query.Query) != "" {
 		if declarations, err = semanticDeclarations(ctx, db, reference); err != nil {
@@ -422,7 +522,7 @@ func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.R
 				return plan, err
 			}
 			selector, exact := semanticSelector(declaration)
-			id := semanticIdentifier(reference.Name, selector, exact)
+			id := semanticIdentifier(namespace, selector, exact)
 			position := slices.IndexFunc(entries, func(stored KnowledgeStored) bool { return stored.Collection.ID == id })
 			if position < 0 {
 				continue
@@ -438,8 +538,8 @@ func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.R
 		return plan, err
 	}
 	if len(plan.Collections) != 0 {
-		keys, err := knowledgeKeys(ctx, db, "SELECT v.key FROM plugin_values v WHERE v.name=?1 AND v.value IS NOT NULL AND v.index_data IS NOT NULL AND json_type(v.index_data,'$.source')='object' AND EXISTS(SELECT 1 FROM plugin_values original WHERE original.name=v.name AND original.key=json_extract(v.index_data,'$.source.key') AND original.value IS NOT NULL) ORDER BY v.key LIMIT ?2",
-			reference.Name, maxPluginKeys)
+		keys, err := knowledgeKeys(ctx, db, "SELECT v.key FROM plugin_space_values v WHERE v.name=?1 AND v.space=?3 AND v.value IS NOT NULL AND v.index_data IS NOT NULL AND json_type(v.index_data,'$.source')='object' AND EXISTS(SELECT 1 FROM plugin_space_values original WHERE original.name=v.name AND original.space=v.space AND original.key=json_extract(v.index_data,'$.source.key') AND original.value IS NOT NULL) ORDER BY v.key LIMIT ?2",
+			reference.Name, maxPluginKeys, plan.Space)
 		if err != nil {
 			return plan, err
 		}
@@ -466,6 +566,10 @@ func sameModelChoice(left, right protocol.ModelsLocalChoice) bool {
 // back to the keyword page and reports it stale.
 func MaterializeSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.Request, plan SemanticPlan, selection SemanticSelection) (page protocol.PluginStorageSearchPage, stale bool, err error) {
 	page = protocol.DefaultPluginStorageSearchPage()
+	ctx, err = PluginStorageRequestContext(ctx, db, request)
+	if err != nil {
+		return page, false, err
+	}
 	if err := semanticCancelled(ctx); err != nil {
 		return page, false, err
 	}
@@ -475,8 +579,12 @@ func MaterializeSemanticSearch(ctx context.Context, db *sql.Conn, request protoc
 	if _, err := knowledgePackage(ctx, db, *request.Plugin); err != nil {
 		return page, false, err
 	}
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return page, false, err
+	}
 	reference := request.Plugin.Package
-	if reference != plan.Package {
+	if reference != plan.Package || space != plan.Space {
 		return page, false, knowledgeDenied("semantic plan belongs to another capture")
 	}
 	query, err := semanticQuery(request)

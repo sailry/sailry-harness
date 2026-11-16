@@ -340,6 +340,9 @@ project_remove_named: 프로젝트 “%{name}”을 제거할까요? 터미널�
 project_remove_preview: 미리보기 레코드 제거
 project_name: 프로젝트 이름
 project_host: 호스트
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: 프로젝트 경로
 project_destination: 대상
 project_repository: 저장소
@@ -821,6 +824,11 @@ connection_route_relay: Relay
 connections_device: 장치 %{id}
 connections_hosts: 호스트
 connections_mobile: 모바일
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: 오프라인
 connections_online: 온라인
 connections_revoke_confirm: 페어링을 제거하려면 다시 연결해야 합니다
@@ -886,6 +894,9 @@ model_library_selected: 선택됨
 model_library_source: 소스
 pairing_connect: 장치 연결
 pairing_local_code: 로컬 페어링 코드
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: 6자리 페어링 코드 입력
 pairing_preview_disabled: UI 미리보기는 실제 장치를 연결하지 않습니다. --data-dir 으로 시작하여 페어링합니다
 pairing_relay_address: 주소
@@ -2338,3 +2349,21 @@ meter_tokens: 토큰
 meter_speed: 속도
 meter_show_details: 자세히 보기
 meter_hide_details: 접기
+configuration_follow_title: Configuration sync
+configuration_follow_loading: Reading sync status
+configuration_follow_controller: Controller
+configuration_follow_description: Edit on the controller. Each controller has its own configuration on this host.
+configuration_follow_this_device: This device's configuration
+configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
+configuration_follow_waiting: Waiting for controller configuration
+configuration_follow_unavailable: Could not read sync status
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatic sync
+configuration_follow_issues: Needs attention
+configuration_follow_authorize: Authorize
+configuration_follow_missing_key: API key is missing; check the controller configuration.
+configuration_follow_from_source: From controller
+configuration_follow_requested: Sync requested
+configuration_follow_failed: Configuration sync failed
+configuration_follow_conflict: Configuration changed; retry sync
+configuration_follow_unknown: Sync request is unconfirmed; retry to check its status

@@ -129,6 +129,7 @@ func (stream *fixtureContextStream) written() []byte {
 type fixturePeerStore struct {
 	mu              sync.Mutex
 	trusted         map[protocol.NodeID]bool
+	directions      map[protocol.NodeID]PeerDirection
 	addresses       map[protocol.NodeID]EndpointAddress
 	trustOutcome    error
 	rememberOutcome error
@@ -161,8 +162,51 @@ func (store *fixturePeerStore) SetTrust(_ context.Context, peer protocol.NodeID,
 		store.trusted[peer] = true
 	} else {
 		delete(store.trusted, peer)
+		delete(store.directions, peer)
 		delete(store.addresses, peer)
 	}
+	return store.trustOutcome
+}
+
+func (store *fixturePeerStore) Directions(context.Context) ([]PeerTrust, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	values := make([]PeerTrust, 0, len(store.trusted))
+	for id := range store.trusted {
+		direction := store.directions[id]
+		if direction == "" {
+			direction = DirectionBoth
+		}
+		values = append(values, PeerTrust{ID: id, Direction: direction})
+	}
+	return values, nil
+}
+
+func (store *fixturePeerStore) PairPeer(_ context.Context, peer protocol.NodeID, direction PeerDirection) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.directions == nil {
+		store.directions = make(map[protocol.NodeID]PeerDirection)
+	}
+	previous := store.directions[peer]
+	if store.trusted[peer] && previous == "" {
+		previous = DirectionBoth
+	}
+	store.directions[peer] = mergeDirection(previous, direction)
+	store.trusted[peer] = true
+	return store.trustOutcome
+}
+
+func (store *fixturePeerStore) SetDirection(_ context.Context, peer protocol.NodeID, direction PeerDirection) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if !store.trusted[peer] {
+		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not paired"}
+	}
+	if store.directions == nil {
+		store.directions = make(map[protocol.NodeID]PeerDirection)
+	}
+	store.directions[peer] = direction
 	return store.trustOutcome
 }
 
@@ -181,8 +225,8 @@ func newFixtureLink(t *testing.T) *Link {
 	ctx, cancel := context.WithCancel(t.Context())
 	link := &Link{
 		ctx: ctx, cancel: cancel, softwareVersion: ProductVersion,
-		store:   &fixturePeerStore{trusted: map[protocol.NodeID]bool{}, addresses: map[protocol.NodeID]EndpointAddress{}},
-		trusted: map[protocol.NodeID]bool{}, addresses: map[protocol.NodeID]EndpointAddress{},
+		store:   &fixturePeerStore{trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{}},
+		trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{},
 		outgoing: map[protocol.NodeID]*outgoingSlot{}, work: make(chan func(), maxTasks),
 		now: func() time.Time { return time.Unix(100, 0) },
 		timeout: func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
@@ -393,6 +437,7 @@ func TestServerUsesCertifiedCallerAndOrdersReceipt(t *testing.T) {
 	link := newFixtureLink(t)
 	caller, target := protocol.NodeID{2}, protocol.NodeID{1}
 	link.trusted[caller] = true
+	link.directions[caller] = DirectionBoth
 	request := protocol.NewRequest(target, protocol.Command{Kind: "save_terminal_settings", Data: protocol.DefaultTerminalSettings()})
 	var incoming bytes.Buffer
 	if err := wire.Write(&incoming, link.envelope(wire.Call{Kind: wire.CallCommand, Request: &request}), false); err != nil {
@@ -480,6 +525,7 @@ func TestServerCancelsAbandonedSubscriptionPreparation(t *testing.T) {
 	link := newFixtureLink(t)
 	caller := protocol.NodeID{2}
 	link.trusted[caller] = true
+	link.directions[caller] = DirectionBoth
 	topic := protocol.Topic{Kind: "node"}
 	var incoming bytes.Buffer
 	if err := wire.Write(&incoming, link.envelope(wire.Call{Kind: wire.CallSubscribe, Topic: &topic}), false); err != nil {
@@ -517,6 +563,7 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	link := newFixtureLink(t)
 	caller := protocol.NodeID{2}
 	link.trusted[caller] = true
+	link.directions[caller] = DirectionBoth
 	request := protocol.NewRequest(protocol.NodeID{1}, protocol.Command{Kind: "snapshot"})
 	var incoming bytes.Buffer
 	if err := wire.Write(&incoming, link.envelope(wire.Call{Kind: wire.CallCommand, Request: &request}), false); err != nil {
@@ -545,6 +592,7 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	t.Run("undeclared_command_is_not_dispatched", func(t *testing.T) {
 		link := newFixtureLink(t)
 		link.trusted[caller] = true
+		link.directions[caller] = DirectionBoth
 		envelope, err := json.Marshal(link.envelope(wire.Call{Kind: wire.CallCommand, Request: &request}))
 		if err != nil {
 			t.Fatal(err)
@@ -623,6 +671,7 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	t.Run("admitted_read_context_lives_through_completion", func(t *testing.T) {
 		link := newFixtureLink(t)
 		link.trusted[caller] = true
+		link.directions[caller] = DirectionBoth
 		stream := newFixtureStream(incoming.Bytes())
 		continueRead := make(chan struct{})
 		var release sync.Once

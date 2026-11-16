@@ -44,7 +44,7 @@ func restoredProfile(ctx context.Context, current, restored string) (string, str
 			return refuse("restored profile overlaps the profile in use")
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(restored, "storage", "node.sqlite")); err != nil {
+	if _, err := os.Lstat(filepath.Join(restored, "storage", "node.turso")); err != nil {
 		return refuse("restored profile holds no Node database")
 	}
 	profile, err := OpenProfile(ctx, restored)

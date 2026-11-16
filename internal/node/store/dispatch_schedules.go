@@ -33,7 +33,11 @@ func saveDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string,
 	if err != nil {
 		return protocol.DispatchSchedule{}, err
 	}
-	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2", packageName, schedule.ID.String())
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.DispatchSchedule{}, userErr
+	}
+	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_user_schedules WHERE package=?1 AND id=?2 AND user=?3", packageName, schedule.ID.String(), user)
 	if err != nil {
 		return protocol.DispatchSchedule{}, err
 	}
@@ -45,7 +49,7 @@ func saveDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string,
 		return protocol.DispatchSchedule{}, err
 	}
 	if previous == nil {
-		if err := dispatchCapacity(ctx, db, "dispatch_schedules", packageName); err != nil {
+		if err := dispatchCapacity(ctx, db, "dispatch_user_schedules", packageName); err != nil {
 			return protocol.DispatchSchedule{}, err
 		}
 	}
@@ -71,7 +75,11 @@ func saveDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string,
 }
 
 func putDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, schedule protocol.DispatchSchedule) error {
-	if err := dispatchBudget(ctx, db, "dispatch_schedules", packageName, "id", schedule.ID.String(), schedule); err != nil {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
+	if err := dispatchBudget(ctx, db, "dispatch_user_schedules", packageName, "id", schedule.ID.String(), schedule); err != nil {
 		return err
 	}
 	body, err := encode(schedule)
@@ -82,14 +90,18 @@ func putDispatchSchedule(ctx context.Context, db *sql.Conn, packageName string, 
 	if schedule.Enabled {
 		due = schedule.NextMs
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO dispatch_schedules(package,id,next_ms,body) VALUES(?1,?2,?3,?4) ON CONFLICT(package,id) DO UPDATE SET next_ms=excluded.next_ms,body=excluded.body",
-		packageName, schedule.ID.String(), due, body)
+	_, err = db.ExecContext(ctx, "INSERT INTO dispatch_user_schedules(package,id,next_ms,body,user) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(user,package,id) DO UPDATE SET next_ms=excluded.next_ms,body=excluded.body",
+		packageName, schedule.ID.String(), due, body, user)
 	return err
 }
 
 func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([]string, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, userErr
+	}
 	type record struct{ packageName, identity string }
-	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_schedules WHERE next_ms<=?1 ORDER BY next_ms", timestamp)
+	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_user_schedules WHERE next_ms<=?1 AND user=?2 ORDER BY next_ms", timestamp, user)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +123,7 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 	if len(records) == 0 {
 		return changed, nil
 	}
-	plugins, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+	plugins, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +141,7 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 		if attempted == 64 {
 			break
 		}
-		schedule, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", item.packageName, "id", item.identity)
+		schedule, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", item.packageName, "id", item.identity)
 		if err != nil {
 			return nil, err
 		}
@@ -176,11 +188,15 @@ func dueDispatchSchedules(ctx context.Context, db *sql.Conn, timestamp int64) ([
 }
 
 func nextDispatchSchedule(ctx context.Context, db *sql.Conn, timestamp int64) (*int64, error) {
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return nil, userErr
+	}
 	type record struct {
 		packageName string
 		due         int64
 	}
-	rows, err := db.QueryContext(ctx, "SELECT package,min(next_ms) FROM dispatch_schedules WHERE next_ms IS NOT NULL GROUP BY package")
+	rows, err := db.QueryContext(ctx, "SELECT package,min(next_ms) FROM dispatch_user_schedules WHERE next_ms IS NOT NULL AND user=?1 GROUP BY package", user)
 	if err != nil {
 		return nil, err
 	}

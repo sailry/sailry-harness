@@ -22,7 +22,7 @@ func TestPluginCallbackOutlivesSourceSession(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "UPDATE plugins SET body=?2 WHERE name=?1", f.info.Summary.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=?2 WHERE name=?1", f.info.Summary.Name, body); err != nil {
 			return err
 		}
 		if _, err := db.ExecContext(ctx, "UPDATE plugin_packages SET body=?2 WHERE digest=?1", f.info.Summary.Digest, body); err != nil {
@@ -155,7 +155,7 @@ func TestPluginPackageActionsKeepPlanRestrictions(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2)", info.Summary.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_user_installations(user,name,revision,installed,body) VALUES((SELECT id FROM users WHERE local=1),?1,1,1,?2)", info.Summary.Name, body); err != nil {
 			return err
 		}
 		scope := protocol.DefaultPluginContext()

@@ -28,7 +28,17 @@ disconnect does not stop admitted work.
 
 Official plugins and themes are separate repositories, pinned by the `plugins/`
 and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
-installation. Installed packages and their mutable data live in the Node profile.
+installation. Installed packages and their mutable data live in the Node profile. Immutable
+package content is shared by digest; installation choices, settings revisions,
+connections, writable package directories and reusable runtimes belong to the
+Node's authenticated user. Default plugin KV is personal to that user and Node.
+Packages may declare project collections shared across authorized project users;
+conversation storage retains its session scope. Admitted work preserves its
+captured storage user independently of later identity merges. Dispatch handlers,
+schedules, events and jobs use the live user namespace; every queued job also
+retains its original storage user. The shared scheduler restores both principals
+for callback execution and recovery. Native automatic backups belong to the local
+Node owner.
 
 ## Components and dependencies
 
@@ -43,7 +53,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/client` | Typed commands, projections, ordering, deduplication, request and snapshot recovery |
 | `internal/node` | Startup, admission, configuration, execution and resource-service composition |
 | `internal/node/agent` | Turn engine, canonical records, prompt, model adapters, tools and streaming feed |
-| `internal/node/store` | SQLite schema, transactions, durable requests, session records and event log |
+| `internal/node/store` | Turso schema, transactions, durable requests, session records and event log |
 | `internal/node/program` | Package-declared executable lifecycle and process isolation |
 | `internal/core` | Profile ownership, paths, confined files and common faults |
 | `internal/localmodels` | Model registry, verified installation and CPU inference scheduling |
@@ -102,6 +112,14 @@ navigation layer does not change that scope. File and Git operations retain thei
 captured worktree; SSH, database and plugin surfaces retain their Node and resource
 identity. Registered projects remain at their original filesystem paths.
 
+Projects have a Node-local user owner and private or host-shared visibility.
+Projectless resources remain personal. Node authenticates callers before every
+command family, direct subscription and byte stream; typed resource identifiers
+are checked centrally and unknown commands fail closed. Snapshots, catalogs and
+batch events contain only accessible resources. Event audiences retain deletion
+scope, hidden rows advance the cursor without payload, and visibility changes
+invalidate projections. Buffered events and open streams recheck current access.
+
 `Session` is the common conversation container for controllers, Host automation
 and plugin assistants. `StartSession` creates a session and admits its first turn
 atomically. An optional immutable association (`namespace`, `kind`, `id`) links a
@@ -124,21 +142,26 @@ diagnostics exclude credentials. Desktop controller preferences live at
 
 ### Storage
 
-`internal/node/store` uses SQLite for `storage/node.sqlite` and
-`storage/knowledge.sqlite`. Each database has one writer goroutine, WAL mode and a
-separate read-only pool. The writer groups queued operations in a
+`internal/node/store` uses the native Turso engine through the official
+`turso.tech/database/tursogo` SDK for `storage/node.turso` and
+`storage/knowledge.turso`, retaining the Rust filenames and file families.
+Each database has one writer goroutine, MVCC mode and a separate read-only pool.
+The writer groups queued operations in a
 `BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become
 visible to callers after commit. Identifiers and event sequences advance in the
 same transaction as their records.
 
-Writer connections attempt automatic checkpoints once the WAL reaches 256 pages,
-spreading checkpoint I/O across commits while retaining full synchronous durability.
+Every connection uses full synchronous durability. `internal/turso` delegates SQL
+and value binding to the official SDK. Its native extension supplies connection
+ownership and interruption, which SDK 0.8.3 does not expose. Cancellation joins
+the interrupt watcher before reusing a connection. The shipped native library
+enables the same full-text index implementation as the Rust database.
 
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
 files and configuration are independent. Worktree code indexes live under
-`cache/code-index/<WorktreeId>/index.sqlite`.
+`cache/code-index/<WorktreeId>/index.turso`.
 
 Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
 excluded through Git's `info/exclude`. Command, browser and transfer staging uses
@@ -165,16 +188,18 @@ JSON input. These are current decoding semantics, not a restriction that future
 contracts must remain at version 1.
 
 Current Node storage uses `node.storage_generation=1`. Startup accepts an empty
-database or owned storage with the expected identity and generation. Missing or
-unsupported generations and foreign databases fail without replacing the database.
+database or owned storage with the expected identity and generation. An owned
+Rust database without that column receives the normal additive schema default.
+Unsupported generations and foreign databases fail without replacing the database.
 Schema additions are rehearsed on an isolated snapshot, backed up and applied
 transactionally with current-format validation. Configuration and recovery records
 are checked at startup; history and captured turns are checked when read.
-Recognized database files from another storage engine are moved unopened into
-`storage/rust-archive/`; they are not imported or deleted. Before moving them,
-startup copies the existing plugin packages and attachments into the same archive.
-The active directories remain available to any current database, whose normal
-collection can then remove unreferenced resources without losing the archived copy.
+Existing Turso files are opened in place. Startup does not move, convert or
+automatically select archived databases. Preview `.sqlite` files are not selected,
+converted or removed. Legacy plugin records stay
+preserved when the normal schema update adds per-user configuration tables;
+initialization runs once with those tables so later restarts do not resurrect
+removed configuration.
 
 Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` to
 `~/.sailry` at link time. Development checks use isolated profiles as described in
@@ -184,7 +209,9 @@ Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` t
 
 Backups include both databases, referenced packages, attachments, session documents
 and registered managed workspaces. Maintenance pauses transactions, checkpoints
-and closes databases, then copies complete file families. Password-encrypted age
+and closes databases, then copies complete native file families (the active basename,
+the sibling `.db-log`, `-wal` and `-tshm`). Both databases are reopened even when copying fails
+or is cancelled. Password-encrypted age
 archives support local folders, WebDAV and S3. Restore validates into an empty
 profile, retains Node identity and does not start it. Automatic backups use the
 Node's dispatch service. A restored identity must not run beside its original.
@@ -196,6 +223,15 @@ Node's dispatch service. A restored identity must not run beside its original.
 3. Link acknowledges safe receipt; Node executes and records the business outcome.
 4. Client observes the result and ordered events, recovering by the same request
    identity after a disconnect.
+
+Durable admission captures the authenticated user separately from its original
+device caller. Internal task callbacks retain that actor after device revocation;
+new public requests always resolve current membership. A group merge canonicalizes
+authorization while retaining immutable turn and plugin storage principals, so
+equal revision numbers cannot substitute another user's credentials. Recovery
+metadata stores command kind, actor and typed resource IDs, never authored text
+or secrets. Inspecting or replaying a result rechecks current access without
+repeating its effect; remote session forwarding retains its specialized recovery.
 
 The in-process local transport fixes its authenticated caller at construction and
 uses the same Node handler as remote transport. Transport receipt and business
@@ -399,7 +435,15 @@ authorization. Declared programs start without a shell, with a scrubbed environm
 bounded execution and idle cleanup. Service connections inject credentials only
 into declared origins, headers, MCP servers or environment targets.
 
-The Node-owned MCP pool keys connections by package digest, settings revision,
+Plugin package files are digest-shared. Installations, enablement, settings,
+connections, dispatch handlers and personal KV/search spaces belong to one user.
+The existing node storage scope is personal; explicit project storage uses the
+captured accessible project and is shared only through that project's visibility.
+Conversation storage remains session-scoped. Background indexing and scheduled
+callbacks restore their admitted user and original storage principal. Runtime
+diagnostics filter instances by user.
+
+The Node-owned MCP pool keys connections by user, package digest, settings revision,
 server, authorization and launch parameters. Failed or uncertain cleanup reports
 `OutcomeUnknown`. Skills resolve `SKILL.md` and confined resources from captured
 packages and grant no additional permission. Detailed declarations and examples
@@ -469,6 +513,69 @@ records.
 
 ## Pairing and operations
 
+Each Node records local users independently of device identities. The local user
+is an administrator; existing paired devices migrate into that user without
+losing access. The sharer chooses another user or my device before issuing an
+invitation. Another user creates a separate group for an unknown inbound device;
+my device joins the sharer's group. Repeat pairing preserves existing membership.
+The first separate paired user also becomes an administrator. Node resolves each
+authenticated caller to this local principal before resource and configuration
+access. Device revocation preserves data; removing a user's last inbound device
+requires explicit confirmation and leaves an orphan an administrator may assign.
+
+A source sponsors its own explicit my-devices on directly paired outbound hosts.
+An unknown device can join the sponsor's group; a device already in another group
+gets a pending proposal and must confirm after its own controller verifies its
+authenticated my-device relationship with that source. Confirmation merges the
+whole original group, devices and owned resources in one transaction. Target
+personal conflicts win, source originals remain archived, and immutable admitted
+plugin settings retain their original storage principal. The local administrator
+flag can move to the surviving group; legacy singleton and search namespaces keep
+their original owner rather than following that flag.
+
+The source directory contains itself and directly paired outbound hosts, with
+their last authenticated display names. Link retains those names with peer
+metadata so an introduced offline host can be identified before it connects. A
+verified my-device controller imports those hosts as direct outbound connections,
+deduplicated by endpoint identity. Direct pairs and other-source origins survive
+source removal; explicit local removals are not undone by refresh. Source
+revisions discard stale directory replies. Durable sponsorship and revocation
+deliveries retain exact request IDs across offline recovery, and membership
+generations prevent delayed grants or revocations restoring removed access.
+Directories and sponsorship do not propagate another inbound user's namespace
+through a Node's single Link identity, and they do not form a mesh.
+
+Removing an outbound host first attempts remote self-revocation, then removes
+local trust even when the host is unavailable. The controller peer store or
+Node store retains the exact remote request and its known or uncertain outcome
+after local removal. This is diagnostic history without a retry worker; another
+explicit pairing starts a new attempt and preserves earlier records.
+
+Each controller's local Node is the authority for its personal configuration.
+Directly paired execution hosts automatically mirror it, including static keys,
+into that controller's authenticated user namespace. A host keeps separate copies
+for independent controllers; its host-local configuration and other users are not
+overwritten. Explicit my-device groups retain their shared user identity.
+Manifests reconcile versions, deletions and digests in dependency order; exact
+package archives materialize before their settings, including when a host's
+initial bundled package has the same version but different contents. Transport
+identities and digests remain unchanged; a durable source-to-local ID association
+isolates globally keyed records and their typed references in each user space.
+Source-marked copies are read-only. Renewable account and OAuth authorization is
+completed independently on each host. Captured tasks continue using their frozen
+revisions. Machine settings and plugin business data do not travel with personal
+configuration.
+
+Peer trust records an inbound controller, an outbound host, or both directions.
+An invitation grants inbound controller access on the inviter and outbound host
+access on the claimant. A separate invitation in the opposite direction combines
+the permissions. Paired endpoint inspection remains available for device metadata;
+commands, observations and byte streams enforce the execution direction. Legacy
+Desktop peers retain both directions until narrowed; authenticated inspection can
+narrow a legacy nonexecution endpoint to controller without changing membership.
+The existing connection menu exposes host-only/controller-only choices and marks
+legacy bidirectional access. Headless Host peers migrate to controllers.
+
 Link uses iroh endpoint identity for authenticated transport. The pairing service
 exchanges a six-digit, one-minute code for an opaque invitation ticket; Link
 authenticates the endpoint and persists trust. Reconnect reuses that trust. An
@@ -483,7 +590,7 @@ commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logi
 Host starts with an explicit profile, network configuration and opt-in pairing.
 Add Host installs checksum-verified assets over Node-owned SSH, starts systemd or
 launchd and pairs through a private bootstrap ticket. Windows controllers deploy a
-Linux Host into WSL2. Host's `submit`, `wait` and `share` management commands use
+Linux Host into WSL2. Host's `submit`, `wait`, `share`, `users` and `devices` management commands use
 the running owner's private Unix socket and never create another storage owner.
 
 Host metrics use one Node sampler for local and remote reads. macOS disk rates map

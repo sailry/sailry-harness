@@ -10,7 +10,7 @@ import (
 	"runtime/debug"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"modernc.org/sqlite"
+	turso "turso.tech/database/tursogo"
 )
 
 type writeJob struct {
@@ -45,8 +45,7 @@ type writer struct {
 
 // Write submits related SQL without external effects or transaction controls.
 // An admitted callback is not replayed, and its caller waits for the commit result.
-// A callback returns its first SQL error: SQLite ends the transaction itself
-// when a write statement is interrupted or cannot complete.
+// A callback returns its first SQL error so that the writer can roll its work back.
 func (handle *Handle) Write(ctx context.Context, callback func(*sql.Conn) error) error {
 	state, err := handle.acquire(ctx)
 	if err != nil {
@@ -88,12 +87,12 @@ func (writer *writer) batch(first *writeJob) {
 			return
 		}
 	}
-	if _, err := writer.connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		// Nothing ran. A connection that cannot begin is replaced.
-		if writer.settle(ctx) != nil {
-			writer.failed = writer.reopen(ctx)
+	if err := writer.begin(first.context); err != nil {
+		if first.context.Err() != nil {
+			first.done <- err
+		} else {
+			first.done <- uncommitted(err)
 		}
-		first.done <- uncommitted(err)
 		return
 	}
 	var completed []*writeJob
@@ -159,9 +158,34 @@ func (writer *writer) batch(first *writeJob) {
 	}
 }
 
+func (writer *writer) begin(ctx context.Context) error {
+	cleanup := context.WithoutCancel(ctx)
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, err := writer.connection.ExecContext(ctx, "BEGIN IMMEDIATE")
+		if err == nil {
+			return nil
+		}
+		if state := writer.settle(cleanup); state != nil {
+			writer.failed = writer.reopen(cleanup)
+			return errors.Join(err, state)
+		}
+		if !transactionConflict(err) || attempt >= conflictRetries {
+			return err
+		}
+		// Turso may refuse an exclusive writer while a reader is committing.
+		// No callback has run, and settle confirmed that no transaction remains.
+		if err := waitForConflict(ctx, attempt); err != nil {
+			return err
+		}
+	}
+}
+
 // settle leaves the connection outside any transaction, or reports that it
-// cannot tell. ROLLBACK ends a transaction that is still open. SQLite ends the
-// transaction itself when a write statement or a COMMIT cannot complete, and
+// cannot tell. ROLLBACK ends a transaction that is still open. The engine may end
+// the transaction itself when a write statement or a COMMIT cannot complete, and
 // ROLLBACK then fails only because none is active; an empty transaction that
 // begins and ends proves that state instead of reading it from the error.
 func (writer *writer) settle(ctx context.Context) error {
@@ -207,15 +231,10 @@ func uncommitted(cause error) error {
 	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}, cause)
 }
 
-// storageFull names the disk when SQLite could not store a change for lack of
-// space. SQLite has rolled the transaction back by then, so retrying is safe.
+// storageFull names the disk when the native engine cannot store a change.
 func storageFull(cause error) error {
-	var failure *sqlite.Error
-	if !errors.As(cause, &failure) || failure.Code()&0xff != sqliteFull {
+	if !errors.Is(cause, turso.ErrTursoDatabaseFull) {
 		return cause
 	}
 	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage is full; free disk space and retry the operation"}, cause)
 }
-
-// sqliteFull is SQLITE_FULL, the primary result code of a full disk or database.
-const sqliteFull = 13

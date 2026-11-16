@@ -101,9 +101,12 @@ func (node *Node) dispatchPlugins(ctx context.Context, caller protocol.NodeID, r
 			completion <- result
 			close(completion)
 		}()
-		operation := owner
-		if !accepted.Receipt.Durable {
-			operation = ctx
+		operation := ctx
+		if accepted.Receipt.Durable {
+			var cancel context.CancelFunc
+			operation, cancel = context.WithCancel(context.WithoutCancel(ctx))
+			stop := context.AfterFunc(owner, cancel)
+			defer func() { stop(); cancel() }()
 		}
 		if accepted.Receipt.Durable {
 			result = node.executePlugin(operation, caller, request, report)
@@ -264,7 +267,7 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 	if prepared.release != nil {
 		defer prepared.release()
 	}
-	recording := context.WithoutCancel(node.ctx)
+	recording := context.WithoutCancel(ctx)
 	var output protocol.Output
 	var changes []protocol.Event
 	err := node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
@@ -308,7 +311,7 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	node.authCommitted(caller, request, operationErr)
-	node.pluginCommitted(changes)
+	node.pluginCommitted(changes, ctx)
 	if operationErr == nil {
 		node.refreshKnowledgeStorage(request.Command, changes)
 	}

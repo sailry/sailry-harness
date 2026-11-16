@@ -42,7 +42,7 @@ type Launch struct {
 type Service struct {
 	ctx     context.Context
 	node    protocol.NodeID
-	changed func(protocol.TerminalInfo)
+	changed func(context.Context, protocol.TerminalInfo)
 	mu      sync.Mutex
 	stopped bool
 	handles map[protocol.TerminalID]*handle
@@ -59,6 +59,7 @@ type starting struct {
 
 type handle struct {
 	service  *Service
+	ctx      context.Context
 	mu       sync.Mutex
 	changes  sync.Mutex
 	terminal *myterminal.Terminal
@@ -95,7 +96,7 @@ func (value *handle) track(output []byte) {
 	value.publish()
 }
 
-func New(ctx context.Context, node protocol.NodeID, changed func(protocol.TerminalInfo)) *Service {
+func New(ctx context.Context, node protocol.NodeID, changed func(context.Context, protocol.TerminalInfo)) *Service {
 	service := &Service{ctx: ctx, node: node, changed: changed, handles: map[protocol.TerminalID]*handle{}, starts: map[protocol.TerminalID]*starting{}, done: make(chan struct{})}
 	context.AfterFunc(ctx, func() { _ = service.Close() })
 	return service
@@ -198,7 +199,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		}
 		command, environment, release = confined, append(environment, variables...), sync.OnceFunc(free)
 	}
-	value := &handle{service: service, viewport: launch.Viewport, release: release, starting: true, streams: map[*subscription]struct{}{}, finished: make(chan struct{}), info: protocol.TerminalInfo{
+	value := &handle{ctx: context.WithoutCancel(ctx), service: service, viewport: launch.Viewport, release: release, starting: true, streams: map[*subscription]struct{}{}, finished: make(chan struct{}), info: protocol.TerminalInfo{
 		ID: launch.ID, Worktree: &launch.Worktree, Tool: launch.Tool, Access: &access,
 		Status: protocol.TerminalStatus{Kind: "running"}, Title: &title, Directory: &launch.Root,
 		Owner: &launch.Caller, Revision: launch.Revision,
@@ -291,7 +292,7 @@ func (value *handle) publish() {
 		return
 	}
 	value.publishedFinal = info.Status.Kind != "running"
-	value.service.publish(info)
+	value.service.publish(value.ctx, info)
 }
 
 func (value *handle) finish(status protocol.TerminalStatus) protocol.TerminalInfo {
@@ -326,9 +327,9 @@ func (value *handle) finish(status protocol.TerminalStatus) protocol.TerminalInf
 	return info
 }
 
-func (service *Service) publish(info protocol.TerminalInfo) {
+func (service *Service) publish(ctx context.Context, info protocol.TerminalInfo) {
 	if service.changed != nil {
-		service.changed(info)
+		service.changed(ctx, info)
 	}
 }
 

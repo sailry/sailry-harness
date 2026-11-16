@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -39,14 +40,28 @@ func snapshotDatabase(path, parent string) (_ *schemaPreview, failure error) {
 		return nil, err
 	}
 	target := filepath.Join(storage, filepath.Base(path))
-	if err := copyDatabase(path, target); err != nil {
+	if err := copyDatabase(context.Background(), path, target); err != nil {
 		return nil, err
 	}
 	return &schemaPreview{path: target, directory: directory}, nil
 }
 
+// Copy keeps every source connection closed while copying the native family.
+// Reopen and Close wait for the copy to finish or return its cancellation.
+func (closed *Closed) Copy(ctx context.Context, target string) error {
+	closed.mu.Lock()
+	defer closed.mu.Unlock()
+	if closed.finished {
+		return core.ErrStopped
+	}
+	return copyDatabase(ctx, closed.Path(), target)
+}
+
 // copyDatabase requires the lifecycle owner to close every handle first.
-func copyDatabase(source, target string) error {
+func copyDatabase(ctx context.Context, source, target string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := checkDatabaseFiles(source); err != nil {
 		return err
 	}
@@ -62,6 +77,9 @@ func copyDatabase(source, target string) error {
 	defer targetRoot.Close()
 	sources, targets := core.DatabaseFiles(source), core.DatabaseFiles(target)
 	for index, sourcePath := range sources {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		name := filepath.Base(sourcePath)
 		before, err := sourceRoot.Lstat(name)
 		if errors.Is(err, os.ErrNotExist) && index > 0 {
@@ -87,7 +105,7 @@ func copyDatabase(source, target string) error {
 			_ = input.Close()
 			return err
 		}
-		count, copyErr := io.Copy(output, input)
+		count, copyErr := io.Copy(output, &databaseCopyReader{ctx: ctx, input: input})
 		after, statErr := input.Stat()
 		inputErr := input.Close()
 		if copyErr == nil && statErr == nil && (count != before.Size() || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime())) {
@@ -102,6 +120,18 @@ func copyDatabase(source, target string) error {
 		}
 	}
 	return nil
+}
+
+type databaseCopyReader struct {
+	ctx   context.Context
+	input io.Reader
+}
+
+func (reader *databaseCopyReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.input.Read(buffer)
 }
 
 func saveBeforeUpgrade(path string) (string, error) {

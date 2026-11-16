@@ -1,0 +1,14 @@
+Official Go driver: turso.tech/database/tursogo v0.8.3
+https://docs.turso.tech/sdk/go/quickstart
+
+Native ABI sources: turso_sdk_kit =0.8.3, turso_sync_sdk_kit =0.8.3
+https://github.com/tursodatabase/turso
+Upstream commit: 607bff9fd0e547a25a97b3bf06e83bcc5d99d53c
+License: MIT (LICENSE-Turso)
+Local SDK feature: fts
+Rust toolchain: 1.98.0
+
+The packaging crate re-exports the official ABIs and adds connection ownership
+and interruption functions through the official Rust API. SQL and engine
+implementation remain upstream. Cargo.lock pins the entire native dependency
+graph; native-seal.json records each shipped binary after platform signing.

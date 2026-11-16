@@ -156,6 +156,12 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			return
 		}
 		err := node.tasks.Submit(func(owner context.Context) {
+			if user, ok := store.UserFromContext(ctx); ok {
+				owner = store.WithUser(owner, user)
+			}
+			if user, ok := store.CapturedUserFromContext(ctx); ok {
+				owner = store.WithCapturedUser(owner, user)
+			}
 			operation, cancel := context.WithCancel(owner)
 			defer cancel()
 			node.auth.mu.Lock()
@@ -165,7 +171,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			if stopped {
 				return
 			}
-			operation = node.plugins.memory.Context(operation, capture.Target.Package, "callback")
+			operation = node.plugins.memory.Context(operation, capture.Target.Package, "callback", pluginMemoryUser(operation))
 			result, err := authorization.Run(operation, authorization.Input{
 				Declaration: capture.Target.Declaration, Fields: capture.Target.Fields, Redirect: redirect, Callback: returned, Bundle: bundle,
 				Client: node.auth.client,
@@ -183,10 +189,18 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			}
 			var changes []protocol.Event
 			if err == nil {
-				recording := context.WithoutCancel(node.ctx)
+				recording := context.WithoutCancel(ctx)
 				err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 					var err error
 					changes, err = store.CompleteProviderLogin(recording, db, node.ID(), capture, grant)
+					if err == nil {
+						err = store.RefreshConfigurationAuthorization(recording, db)
+					}
+					if err == nil {
+						var status protocol.ConfigurationFollowStatus
+						status, err = store.ReadConfigurationFollow(recording, db)
+						changes = append(changes, protocol.Event{Kind: "configuration_follow_changed", Data: status})
+					}
 					if err == nil {
 						_, err = store.RecordEvents(recording, db, node.ID(), changes)
 					}
@@ -201,7 +215,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 				_ = node.setProviderLogin(entry, state)
 				return
 			}
-			node.pluginCommitted(changes)
+			node.pluginCommitted(changes, ctx)
 			for _, change := range changes {
 				if change.Kind != "provider_changed" {
 					continue
@@ -351,6 +365,12 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 	node.auth.renewals[reference.ID] = renewal
 	node.auth.mu.Unlock()
 	err := node.tasks.Submit(func(owner context.Context) {
+		if user, ok := store.UserFromContext(ctx); ok {
+			owner = store.WithUser(owner, user)
+		}
+		if user, ok := store.CapturedUserFromContext(ctx); ok {
+			owner = store.WithCapturedUser(owner, user)
+		}
 		err := node.runProviderRenewal(owner, provider, reference)
 		node.auth.mu.Lock()
 		renewal.err = err
@@ -397,7 +417,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		return err
 	}
 	target := renewal.Capture.Target
-	ctx = node.plugins.memory.Context(ctx, target.Package, "callback")
+	ctx = node.plugins.memory.Context(ctx, target.Package, "callback", pluginMemoryUser(ctx))
 	bundle, err := node.providerBundle(ctx, target)
 	transport := &renewalTransport{base: node.auth.client.Transport}
 	client := *node.auth.client
@@ -463,7 +483,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		}
 	}
 	var changes []protocol.Event
-	recording := context.WithoutCancel(node.ctx)
+	recording := context.WithoutCancel(ctx)
 	err = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
 		var err error
 		changes, err = store.CompleteProviderRenewal(recording, db, node.ID(), *renewal, grant)
@@ -473,7 +493,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		return err
 	})
 	if err == nil {
-		node.pluginCommitted(changes)
+		node.pluginCommitted(changes, ctx)
 		err = failure
 	}
 	return err

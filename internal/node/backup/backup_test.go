@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/webdav"
 )
@@ -39,8 +40,8 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 	}
 	files := map[string][]byte{
 		"link.key":                      bytes.Repeat([]byte{7}, 32),
-		"storage/node.sqlite":           []byte("node database"),
-		"storage/knowledge.sqlite":      []byte("knowledge database"),
+		"storage/node.turso":            []byte("node database"),
+		"storage/knowledge.turso":       []byte("knowledge database"),
 		"attachments/one":               large,
 		"plugins/packages/digest/run":   []byte("#!/bin/sh\n"),
 		"plugins/packages/digest/data":  []byte("{}"),
@@ -87,7 +88,16 @@ func fixtureSnapshotCopied(t *testing.T, profile string, files map[string][]byte
 	t.Cleanup(func() { _ = snapshot.Close() })
 	for _, name := range databaseNames {
 		write := func(_ context.Context, target string) error {
-			return os.WriteFile(target, files["storage/"+name], 0o600)
+			for _, member := range core.DatabaseFiles(name) {
+				body, present := files["storage/"+member]
+				if !present {
+					continue
+				}
+				if err := os.WriteFile(filepath.Join(filepath.Dir(target), member), body, 0o600); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		if err := snapshot.Freeze(t.Context(), name, write); err != nil {
 			t.Fatal(err)
@@ -187,7 +197,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 		valid := func() Manifest {
 			digest := strings.Repeat("0", 64)
 			return Manifest{Version: 1, OriginalProfile: profile, Files: []File{
-				{Path: "link.key", SHA256: digest, Mode: 0o600}, {Path: "storage/node.sqlite", SHA256: digest, Mode: 0o600},
+				{Path: "link.key", SHA256: digest, Mode: 0o600}, {Path: "storage/node.turso", SHA256: digest, Mode: 0o600},
 			}}
 		}
 		for _, test := range []struct {
@@ -204,7 +214,13 @@ func TestBackupArchiveLayout(t *testing.T) {
 			{"missing identity", func(manifest *Manifest) { manifest.Files = manifest.Files[1:] }},
 			{"missing database", func(manifest *Manifest) { manifest.Files = manifest.Files[:1] }},
 			{"log without database", func(manifest *Manifest) {
-				manifest.Files = append(manifest.Files, File{Path: "storage/knowledge.sqlite-wal", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+				manifest.Files = append(manifest.Files, File{Path: "storage/knowledge.turso-wal", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+			}},
+			{"MVCC log without database", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "storage/knowledge.db-log", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
+			}},
+			{"shared memory without database", func(manifest *Manifest) {
+				manifest.Files = append(manifest.Files, File{Path: "storage/knowledge.turso-tshm", SHA256: manifest.Files[0].SHA256, Mode: 0o600})
 			}},
 			{"duplicate", func(manifest *Manifest) { manifest.Files = append(manifest.Files, manifest.Files[0]) }},
 			{"digest", func(manifest *Manifest) { manifest.Files[0].SHA256 = "abc" }},

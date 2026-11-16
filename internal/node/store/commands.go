@@ -11,10 +11,18 @@ import (
 func ExecuteCommand(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, profile string, request protocol.Request, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
 	switch request.Command.Kind {
 	case "create_project":
-		return createProject(ctx, db, *request.Command.Data.(*protocol.ProjectsDraft), prepared)
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		return createProject(ctx, db, user.ID, *request.Command.Data.(*protocol.ProjectsDraft), prepared)
 	case "register_project":
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
 		input := request.Command.Data.(*protocol.CommandRegisterProjectPayload)
-		return createProject(ctx, db, protocol.ProjectsDraft{Name: input.Name, Path: input.Path, Appearance: protocol.DefaultProjectsAppearance()}, prepared)
+		return createProject(ctx, db, user.ID, protocol.ProjectsDraft{Name: input.Name, Path: input.Path, Appearance: protocol.DefaultProjectsAppearance(), Visibility: input.Visibility}, prepared)
 	case "update_project":
 		return updateProject(ctx, db, *request.Command.Data.(*protocol.CommandUpdateProjectPayload), prepared)
 	case "remove_project":

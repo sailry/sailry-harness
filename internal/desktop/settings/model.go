@@ -154,23 +154,24 @@ type BackupLast struct {
 // Model is the settings pages' view model.
 type Model struct {
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
-	Live              bool
-	SavePower         func()
-	SaveSandbox       func()
-	SaveCodeIndex     func()
-	SaveHooks         func()
-	HooksContext      func() (string, bool)
-	HooksSandboxed    func() bool
-	TeamActions       *TeamActions
-	SaveTelemetry     func()
-	ResetTelemetry    func()
-	SendDiagnostics   func()
-	SaveTerminal      func()
-	ProviderActions   ProviderActions
-	ConnectorActions  *ConnectorActions
-	PackageActions    *PackageActions
-	AppearanceActions *AppearanceActions
-	ModelActions      *ModelActions
+	Live                bool
+	SavePower           func()
+	SaveSandbox         func()
+	SaveCodeIndex       func()
+	SaveHooks           func()
+	HooksContext        func() (string, bool)
+	HooksSandboxed      func() bool
+	ConcurrencyReadOnly bool
+	TeamActions         *TeamActions
+	SaveTelemetry       func()
+	ResetTelemetry      func()
+	SendDiagnostics     func()
+	SaveTerminal        func()
+	ProviderActions     ProviderActions
+	ConnectorActions    *ConnectorActions
+	PackageActions      *PackageActions
+	AppearanceActions   *AppearanceActions
+	ModelActions        *ModelActions
 	// PermissionActions are the live permissions page's; the preview has none.
 	PermissionActions *PermissionActions
 	// General.
@@ -315,6 +316,8 @@ type Model struct {
 	Relays            []string
 	ConnectionRelays  []RelayChoice
 	ConnectionActions *ConnectionActions
+	FollowActions     *ConfigurationFollowActions
+	FollowEditor      *ConfigurationFollowEditor
 	ConnectionPending bool
 	ConnectionStage   string
 	// ConnectionFailure is how the Add host dialog's last attempt ended,

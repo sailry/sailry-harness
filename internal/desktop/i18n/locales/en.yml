@@ -340,6 +340,9 @@ project_remove_named: Remove project “%{name}”? Its terminals will close; fi
 project_remove_preview: Remove preview record
 project_name: Project name
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Project path
 project_destination: Destination
 project_repository: Repository
@@ -820,10 +823,15 @@ connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Device %{id}
 connections_hosts: Hosts
-connections_mobile: Mobile
+connections_mobile: Controllers
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Offline
 connections_online: Online
-connections_revoke_confirm: Removing pairing requires reconnecting
+connections_revoke_confirm: Remove this pairing? Removing a user's last device leaves its data without device access.
 dictation_access: Microphone access
 dictation_access_granted: Allowed
 dictation_access_hint: Allow access for this app; checks again when you return
@@ -886,6 +894,9 @@ model_library_selected: Selected
 model_library_source: Source
 pairing_connect: Connect device
 pairing_local_code: Local pairing code
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: Enter 6-digit pairing code
 pairing_preview_disabled: UI preview does not connect real devices; start with --data-dir to pair
 pairing_relay_address: iroh address
@@ -2338,3 +2349,21 @@ meter_tokens: Tokens
 meter_speed: Speed
 meter_show_details: Show details
 meter_hide_details: Show less
+configuration_follow_title: Configuration sync
+configuration_follow_loading: Reading sync status
+configuration_follow_controller: Controller
+configuration_follow_description: Edit on the controller. Each controller has its own configuration on this host.
+configuration_follow_this_device: This device's configuration
+configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
+configuration_follow_waiting: Waiting for controller configuration
+configuration_follow_unavailable: Could not read sync status
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatic sync
+configuration_follow_issues: Needs attention
+configuration_follow_authorize: Authorize
+configuration_follow_missing_key: API key is missing; check the controller configuration.
+configuration_follow_from_source: From controller
+configuration_follow_requested: Sync requested
+configuration_follow_failed: Configuration sync failed
+configuration_follow_conflict: Configuration changed; retry sync
+configuration_follow_unknown: Sync request is unconfirmed; retry to check its status

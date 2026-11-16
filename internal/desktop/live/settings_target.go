@@ -59,6 +59,10 @@ func (r *Runtime) initNodeSettings() {
 	m.SaveCodeIndex = func() { on(func(owner *Runtime) { owner.saveCodeIndex() }) }
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },
+		CanShare: func() bool {
+			owner := r.shownSettings()
+			return owner != nil && owner.snapshot().User != nil && owner.snapshot().User.Administrator
+		},
 		Available: func() bool {
 			owner := r.shownSettings()
 			return owner != nil && owner.controller.Connected()

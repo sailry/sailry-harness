@@ -1598,11 +1598,19 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return '이 기기에서 ‘$name’을 제거할까요? 다시 연결하려면 재페어링이 필요합니다';
+    return '‘$name’을 제거하고 이 기기의 접근 권한을 취소할까요? 데이터는 호스트에 남습니다. 마지막 기기라면 관리자가 접근 권한을 복구해야 합니다.';
   }
 
   @override
   String get hostRemoved => '호스트를 제거했습니다';
+
+  @override
+  String get hostOriginDirect => '직접 페어링';
+
+  @override
+  String hostOriginSource(String name) {
+    return '$name 경유';
+  }
 
   @override
   String get hostRemoveFailed => '호스트를 제거할 수 없습니다';

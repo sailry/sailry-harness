@@ -28,8 +28,12 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		return protocol.PluginInfo{}, invalid("invalid plugin configuration revision")
 	}
 	if reference.SettingsRevision != 0 {
+		user, err := pluginUserID(ctx, db)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
 		var exists bool
-		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_settings WHERE plugin=?1 AND revision=?2)", reference.Name, reference.SettingsRevision).Scan(&exists); err != nil {
+		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_user_settings WHERE plugin=?1 AND revision=?2 AND user=?3)", reference.Name, reference.SettingsRevision, user).Scan(&exists); err != nil {
 			return protocol.PluginInfo{}, err
 		}
 		if !exists {

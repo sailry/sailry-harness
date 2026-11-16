@@ -32,7 +32,8 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
     AND substr(json_extract(e.body,'$.created'),1,19)>=?1
     AND substr(json_extract(e.body,'$.created'),1,19)<=?2
     AND (?3='[]' OR s.project IN (SELECT value FROM json_each(?3)))
-    AND (?4='[]' OR r.worktree IN (SELECT value FROM json_each(?4))))
+    AND (?4='[]' OR r.worktree IN (SELECT value FROM json_each(?4)))
+    AND (CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?8 ELSE EXISTS(SELECT 1 FROM projects access WHERE access.id=s.project AND (access.visibility='shared' OR coalesce(access.owner,(SELECT id FROM users WHERE local=1))=?8)) END))
     SELECT
     json_extract(e.body,'$.created'),
     max(0,json_extract(e.usage,'$.input')),

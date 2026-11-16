@@ -21,7 +21,7 @@ func databaseBinding(ctx context.Context, db *sql.Conn, connection protocol.Data
 	if !valid {
 		return binding, invalid("invalid database connection")
 	}
-	profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", target.Ssh.String())
+	profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", target.Ssh.String())
 	if err != nil {
 		return binding, err
 	}
@@ -44,6 +44,13 @@ func captureDatabaseCredential(ctx context.Context, db *sql.Conn, connection pro
 // target it was entered for. A changed database connection or SSH host, port,
 // username or authentication requires a new password.
 func checkDatabaseCredential(ctx context.Context, db *sql.Conn, id protocol.DatabaseID, connection protocol.DatabaseConnection) error {
+	profile, err := ReadDatabase(ctx, db, id)
+	if err != nil {
+		return err
+	}
+	if profile == nil {
+		return fault(protocol.ErrorCodeNotFound, "database profile does not exist on this Node")
+	}
 	var stored []byte
 	if err := db.QueryRowContext(ctx, "SELECT password_target FROM database_profiles WHERE id=?1", id.String()).Scan(&stored); err != nil {
 		return err

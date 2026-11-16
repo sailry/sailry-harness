@@ -340,6 +340,9 @@ project_remove_named: プロジェクト「%{name}」を削除しますか？タ
 project_remove_preview: プレビューレコードを削除
 project_name: プロジェクト名
 project_host: ホスト
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: プロジェクトパス
 project_destination: 宛先
 project_repository: リポジトリ
@@ -821,6 +824,11 @@ connection_route_relay: Relay
 connections_device: デバイス %{id}
 connections_hosts: ホスト
 connections_mobile: モバイル
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: オフライン
 connections_online: オンライン
 connections_revoke_confirm: ペアリングを削除するには再接続が必要です
@@ -886,6 +894,9 @@ model_library_selected: 選択済み
 model_library_source: ソース
 pairing_connect: デバイスを接続
 pairing_local_code: ローカルペアリングコード
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: 6 桁のペアリングコードを入力
 pairing_preview_disabled: UI プレビューは実際のデバイスを接続しません。ペアを作成するには --data-dir を起動してください
 pairing_relay_address: いろはの住所
@@ -2338,3 +2349,21 @@ meter_tokens: トークン
 meter_speed: 速度
 meter_show_details: 詳細を表示
 meter_hide_details: 折りたたむ
+configuration_follow_title: Configuration sync
+configuration_follow_loading: Reading sync status
+configuration_follow_controller: Controller
+configuration_follow_description: Edit on the controller. Each controller has its own configuration on this host.
+configuration_follow_this_device: This device's configuration
+configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
+configuration_follow_waiting: Waiting for controller configuration
+configuration_follow_unavailable: Could not read sync status
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatic sync
+configuration_follow_issues: Needs attention
+configuration_follow_authorize: Authorize
+configuration_follow_missing_key: API key is missing; check the controller configuration.
+configuration_follow_from_source: From controller
+configuration_follow_requested: Sync requested
+configuration_follow_failed: Configuration sync failed
+configuration_follow_conflict: Configuration changed; retry sync
+configuration_follow_unknown: Sync request is unconfirmed; retry to check its status

@@ -67,6 +67,10 @@ go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 
 The helper directory points source runs at the staged computer-use helper;
 `go run` places its executable in a temporary directory without bundled helpers.
+Store tests and source runs also need the FTS-enabled Turso library. Build it
+once with `sh native/turso/build.sh`, using the pinned standard Rust toolchain
+in `PATH`. The loader finds the checkout's `.runtime/native/<goos>-<goarch>/`
+directory; `SAILRY_TURSO_LIB` can select an explicit source-build library.
 The Desktop recipes supply this helper path automatically:
 
 - `just desktop` opens the installed release data at `~/.sailry`.
@@ -365,13 +369,14 @@ bundled Python interpreter keeps `disable-library-validation`. Windows packaging
 currently leaves `windows.certificate` and `windows.signCommand` unset in
 `mygo.json`, so its artifacts are unsigned.
 
-A release opens its profile in place using `storage/node.sqlite` and
-`storage/knowledge.sqlite`. Recognized databases from another storage engine move
-unopened into `storage/rust-archive/`; their sessions and settings are not imported.
-Plugin packages and attachments are copied into that archive before the database
-files move, so current storage can collect unreferenced resources safely. Node
-identity, controller preferences, themes and file trees remain in place.
-`cmd/sailry-desktop/upgrade_integration_test.go` checks this on a synthetic profile.
+A release opens `storage/node.turso` and `storage/knowledge.turso` in place with
+the official Turso Go SDK. The existing schema synchronizer adds compatible
+tables and fields to owned Rust databases. It does not convert files, archive
+the active database or select an archived copy. Preview `.sqlite` files are left
+untouched and are not selected as the active database. Node identity,
+controller preferences, themes and file trees remain in place.
+`cmd/sailry-desktop/upgrade_integration_test.go` checks this with real native
+databases initialized from the recorded Rust schema.
 
 The Desktop update feed is written by
 `go run ./internal/desktop/updater/cmd/update-feed -version <version> -output
@@ -391,7 +396,7 @@ holds `sailry-host`, the iroh library, the pinned runtimes of
 `native/fetch -host`, the files of `internal/node/host/deployment/package/`,
 `build.json`, the dependency lock files and `licenses/` from
 `internal/node/host/deployment/licenses.sh`, whose optional fourth argument
-names the command package. On macOS only `sailry-host` and the iroh library
+names the command package. On macOS `sailry-host`, the iroh library and the Turso library
 are signed: the pinned runtimes keep the bytes their locks record, so the
 archive is not notarized. The release carries `install-host.sh`,
 `SHA256SUMS-installer`, the archives and one `SHA256SUMS-<triple>` each. SSH
@@ -530,7 +535,7 @@ same Node as Desktop and never opens an interactive Agent prompt. Service
 options are `--data-dir`, `--bind`, `--internet`, repeated `--relay`,
 `--pairing-service`, `--bootstrap` and `--telemetry on|off`. Network modes are
 mutually exclusive; the default binds loopback and pairing is opt-in.
-`--version`, `share`, `submit` and `wait` are management commands;
+`--version`, `share`, `users`, `devices`, `submit` and `wait` are management commands;
 `acceptance` is the explicit manual session test runner described above.
 
 ```sh
@@ -544,6 +549,17 @@ The running binary loads its target's iroh library through the shared loader.
 `share --data-dir <profile>` asks the existing owner to publish a private
 six-digit pairing code. Keep PINs, invitation tickets, profile contents and
 private endpoint output out of logs intended for distribution.
+
+Invitations default to another user. `share --kind my_device` instead joins the
+sharing user's device group; an administrator may add `--user <user id>` to choose
+an existing active group. The choice is captured by the sharing endpoint and
+confirmed over authenticated Link, rather than trusted from the invitation text.
+`users list` and `devices list` inspect membership. `users administrator <id>
+on|off` manages administrators; the local user stays an administrator. `devices
+revoke <device id> --confirm-last` explicitly permits leaving a user's data without
+device access. `users assign <orphan id> <target id>` assigns that retained group.
+Mutations accept `--request-id <id>` and return the request ID with their JSON
+result; an uncertain result is recovered with that same ID.
 
 Management talks to the running Node through a profile-private owner-only Unix
 socket with a v1 envelope. It never starts another persistence owner. Submit uses

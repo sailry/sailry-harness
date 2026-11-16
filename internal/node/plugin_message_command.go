@@ -66,9 +66,10 @@ func (node *Node) dispatchPluginMessageCommand(ctx context.Context, caller proto
 		close(completed)
 		return accepted, true, nil
 	}
-	work := func(owner context.Context) {
+	work := func(context.Context) {
 		defer node.work.Done()
 		defer close(completed)
+		owner := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
 		output, err := node.runPluginMessageCommand(owner, caller, *child)
 		completed <- node.settle(caller, request.ID, response(output, err))
 	}
@@ -105,7 +106,7 @@ func pluginMessageCommandCandidate(request protocol.Request) bool {
 }
 
 func (node *Node) runPluginMessageCommand(ctx context.Context, caller protocol.NodeID, child protocol.Request) (protocol.Output, error) {
-	accepted, err := node.Dispatch(ctx, caller, child)
+	accepted, err := node.dispatchCaptured(ctx, caller, child)
 	if err != nil {
 		return protocol.Output{}, err
 	}

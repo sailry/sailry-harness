@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -13,11 +14,13 @@ import (
 )
 
 type controller struct {
-	endpoint *link.Link
-	claim    link.PairingClaim
-	inbox    client.Inbox
-	mu       sync.Mutex
-	clients  map[protocol.NodeID]*client.Client
+	endpoint       *link.Link
+	claim          link.PairingClaim
+	inbox          client.Inbox
+	mu             sync.Mutex
+	clients        map[protocol.NodeID]*client.Client
+	identityCancel context.CancelFunc
+	identityDone   chan struct{}
 }
 
 type input struct {
@@ -74,6 +77,7 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 			return nil, err
 		}
 		owner := &controller{endpoint: endpoint, clients: map[protocol.NodeID]*client.Client{}}
+		owner.startIdentitySync(lifetime)
 		return runtime.add(0, "controller", owner, lifetime, cancel)
 	case "new":
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
@@ -121,9 +125,17 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		if err != nil {
 			return nil, err
 		}
+		relationships, err := owner.endpoint.Relationships(ctx)
+		if err != nil {
+			return nil, err
+		}
+		metadata := map[protocol.NodeID]link.PeerRelationship{}
+		for _, relationship := range relationships {
+			metadata[relationship.ID] = relationship
+		}
 		result := make([]string, 0, len(peers))
 		for _, peer := range peers {
-			encoded, err := encode(peer)
+			encoded, err := peerAddressMetadata(peer, metadata[peer.ID])
 			if err != nil {
 				return nil, err
 			}
@@ -135,7 +147,8 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		if err := json.Unmarshal([]byte(values.Address), &address); err != nil {
 			return nil, invalid("invalid peer address")
 		}
-		return nil, owner.endpoint.SetTrust(ctx, address.ID, false)
+		_, err := client.RemoveHost(ctx, owner.endpoint, address, func(local context.Context) error { return owner.endpoint.SetTrust(local, address.ID, false) })
+		return nil, err
 	case "network_changed":
 		return nil, owner.endpoint.NetworkChanged(ctx)
 	case "connect":
@@ -187,7 +200,30 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 	return nil, invalid("unknown controller operation")
 }
 
+// Routing remains the ordinary Link address. The optional relationship member
+// is local controller metadata for presentation; it never grants peer trust.
+func peerAddressMetadata(address link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
+	body, err := json.Marshal(address)
+	if err != nil {
+		return "", err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return "", err
+	}
+	sources := make([]string, 0, len(relationship.Sources))
+	for _, source := range relationship.Sources {
+		sources = append(sources, source.String())
+	}
+	value["relationship"] = map[string]any{"direct": relationship.Direct, "sources": sources, "name": relationship.Name}
+	return encode(value)
+}
+
 func (owner *controller) close() error {
+	if owner.identityCancel != nil {
+		owner.identityCancel()
+		<-owner.identityDone
+	}
 	owner.mu.Lock()
 	clients := make([]*client.Client, 0, len(owner.clients))
 	for _, shared := range owner.clients {
@@ -199,4 +235,35 @@ func (owner *controller) close() error {
 		_ = shared.Close()
 	}
 	return owner.endpoint.Close()
+}
+
+func (owner *controller) startIdentitySync(ctx context.Context) {
+	ctx, owner.identityCancel = context.WithCancel(ctx)
+	owner.identityDone = make(chan struct{})
+	go func() {
+		defer close(owner.identityDone)
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			addresses, err := owner.endpoint.Peers(ctx)
+			if err == nil {
+				for _, address := range addresses {
+					if ctx.Err() != nil {
+						return
+					}
+					if !owner.endpoint.Direction(address.ID).AllowsOutbound() {
+						continue
+					}
+					remote := client.New(owner.endpoint.Remote(address))
+					_ = client.SyncIdentity(ctx, owner.endpoint, remote)
+					_ = remote.Close()
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 }

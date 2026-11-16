@@ -39,7 +39,7 @@ func testPluginCollection(t *testing.T) {
 		}
 		settings := func(name string, revisions ...int) error {
 			for _, revision := range revisions {
-				if err := exec("INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,?2,X'7B7D')", name, revision); err != nil {
+				if err := exec("INSERT INTO plugin_user_settings(user,plugin,revision,body) VALUES((SELECT id FROM users WHERE local=1),?1,?2,X'7B7D')", name, revision); err != nil {
 					return err
 				}
 			}
@@ -115,8 +115,8 @@ func testPluginCollection(t *testing.T) {
 			}
 			var stored, revisions []string
 			for query, values := range map[string]*[]string{
-				"SELECT digest FROM plugin_packages ORDER BY digest":                         &stored,
-				"SELECT plugin||'/'||revision FROM plugin_settings ORDER BY plugin,revision": &revisions,
+				"SELECT digest FROM plugin_packages ORDER BY digest":                              &stored,
+				"SELECT plugin||'/'||revision FROM plugin_user_settings ORDER BY plugin,revision": &revisions,
 			} {
 				rows, err := db.QueryContext(ctx, query)
 				if err != nil {

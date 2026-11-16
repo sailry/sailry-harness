@@ -84,7 +84,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		return &token, nil
 	}
 	if record.Method == protocol.PluginConnectorKindMcpOauth {
-		source, err := node.connectorMCPSource(record)
+		source, err := node.connectorMCPSource(record, ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		pending.Extra = map[string]string{}
 	}
 	pending.Extra["renewal_pending"] = "true"
-	owner := context.WithoutCancel(node.ctx)
+	owner := context.WithoutCancel(ctx)
 	err = node.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
 		var err error
 		record, err = store.SaveConnectorGrant(owner, db, record, pending)
@@ -120,7 +120,11 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if err != nil {
 		return nil, err
 	}
-	operation, cancel := context.WithTimeout(node.ctx, authorization.Deadline)
+	lifetime, err := node.pluginOwnerContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operation, cancel := context.WithTimeout(lifetime, authorization.Deadline)
 	defer cancel()
 	transport := &renewalTransport{base: node.auth.client.Transport}
 	client := *node.auth.client
@@ -138,7 +142,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 			issued, err = authorization.ParseIssued(document, declarationAuth.Refresh.Token, uint64(time.Now().UnixMilli()), previous.Grant)
 		}
 		if err != nil {
-			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err)
+			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
 			return nil, err
 		}
 	} else {
@@ -147,7 +151,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 			err = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "connector authorization returned no grant"}
 		}
 		if err != nil {
-			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err)
+			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
 			return nil, err
 		}
 		issued = *result.Issued
@@ -172,13 +176,17 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 // renewal credential. A request that never left and a definite refusal both
 // leave the stored grant as it was, so the marker is removed; the first can be
 // tried again, the second needs a new sign-in.
-func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous authorization.Issued, sent bool, cause error) (store.ConnectorRecord, error) {
+func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous authorization.Issued, sent bool, cause error, contexts ...context.Context) (store.ConnectorRecord, error) {
+	ctx := node.ctx
+	if len(contexts) != 0 {
+		ctx = contexts[0]
+	}
 	var fault *protocol.Fault
 	refused := sent && errors.As(cause, &fault) && fault.Code == protocol.ErrorCodePermissionDenied
 	if sent && !refused {
 		return record, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal did not complete; connect again"}
 	}
-	owner := context.WithoutCancel(node.ctx)
+	owner := context.WithoutCancel(ctx)
 	var restored store.ConnectorRecord
 	err := node.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
 		var err error

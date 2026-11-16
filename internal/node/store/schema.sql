@@ -25,13 +25,16 @@ CREATE TABLE IF NOT EXISTS requests (
     status TEXT NOT NULL CHECK(status IN ('admitted','completed','unknown')),
     result TEXT,
     at INTEGER NOT NULL DEFAULT 0,
+    scope BLOB,
     PRIMARY KEY(caller,id)
 );
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
-    appearance BLOB NOT NULL
+    appearance BLOB NOT NULL,
+    owner TEXT REFERENCES users(id),
+    visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','shared'))
 );
 CREATE TABLE IF NOT EXISTS defaults (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
@@ -45,6 +48,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','archived','removed')),
     project TEXT REFERENCES projects(id),
+    owner TEXT REFERENCES users(id),
     worktree TEXT REFERENCES worktrees(id),
     revision INTEGER NOT NULL,
     history_revision INTEGER NOT NULL DEFAULT 1
@@ -78,6 +82,7 @@ CREATE TABLE IF NOT EXISTS artifact_revisions (
 CREATE TABLE IF NOT EXISTS worktrees (
     id TEXT PRIMARY KEY,
     project TEXT REFERENCES projects(id),
+    owner TEXT REFERENCES users(id),
     path TEXT NOT NULL UNIQUE,
     main INTEGER NOT NULL CHECK(main IN (0,1))
 );
@@ -128,12 +133,14 @@ CREATE TABLE IF NOT EXISTS turns (
     revision INTEGER NOT NULL,
     request TEXT NOT NULL,
     caller BLOB NOT NULL,
+    user TEXT REFERENCES users(id),
     FOREIGN KEY(session,revision) REFERENCES session_revisions(session,revision),
     FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
 );
 CREATE INDEX IF NOT EXISTS turns_session ON turns(session);
 CREATE TABLE IF NOT EXISTS events (
     cursor INTEGER PRIMARY KEY,
+    audience BLOB,
     body BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS usage_metadata_events ON events(cursor)
@@ -149,8 +156,20 @@ CREATE TABLE IF NOT EXISTS agent_delegations (
     body BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agent_delegations_call ON agent_delegations(parent_turn,entry,part);
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    administrator INTEGER NOT NULL CHECK(administrator IN (0,1)),
+    local INTEGER NOT NULL DEFAULT 0 CHECK(local IN (0,1)),
+    state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','merged')),
+    merged_into TEXT REFERENCES users(id)
+);
+CREATE UNIQUE INDEX users_local ON users(local) WHERE local=1;
 CREATE TABLE IF NOT EXISTS link_peers (
-    identity BLOB PRIMARY KEY CHECK(length(identity)=32)
+    identity BLOB PRIMARY KEY CHECK(length(identity)=32),
+    direction TEXT NOT NULL DEFAULT 'both' CHECK(direction IN ('controller','host','both')),
+    legacy INTEGER NOT NULL DEFAULT 1 CHECK(legacy IN (0,1)),
+    user TEXT REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS link_addresses (
     identity BLOB PRIMARY KEY REFERENCES link_peers(identity) ON DELETE CASCADE,
@@ -162,14 +181,28 @@ CREATE TABLE IF NOT EXISTS plugin_settings (
     body BLOB NOT NULL,
     PRIMARY KEY(plugin,revision)
 );
+CREATE TABLE plugin_user_settings (
+    user TEXT NOT NULL REFERENCES users(id),
+    plugin TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,plugin,revision)
+);
 CREATE TABLE plugin_connections (
     id TEXT PRIMARY KEY,
     plugin TEXT NOT NULL,
     connector TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision>0),
-    body BLOB NOT NULL
+    body BLOB NOT NULL,
+    user TEXT REFERENCES users(id)
 );
 CREATE INDEX plugin_connections_owner ON plugin_connections(plugin,connector);
+CREATE INDEX plugin_connections_user ON plugin_connections(user,plugin,connector);
+CREATE TABLE plugin_connection_captures (
+    connection TEXT NOT NULL REFERENCES plugin_connections(id) ON DELETE CASCADE,
+    user TEXT NOT NULL REFERENCES users(id),
+    PRIMARY KEY(connection,user)
+);
 CREATE TABLE turn_connections (
     turn TEXT NOT NULL REFERENCES turns(id),
     plugin TEXT NOT NULL,
@@ -186,6 +219,20 @@ CREATE TABLE plugin_values (
     value BLOB,
     index_data BLOB,
     PRIMARY KEY(name,key)
+);
+CREATE TABLE plugin_space_values (
+    space TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    value BLOB,
+    index_data BLOB,
+    PRIMARY KEY(space,name,key)
+);
+CREATE TABLE plugin_search_spaces (
+    space TEXT NOT NULL,
+    name TEXT NOT NULL,
+    PRIMARY KEY(space,name)
 );
 -- Opaque private checkpoints share immutable records across conversation branches.
 CREATE TABLE plugin_conversation_records (
@@ -213,6 +260,7 @@ CREATE TABLE plugin_conversation_values (
 CREATE TABLE IF NOT EXISTS terminals (
     id TEXT PRIMARY KEY,
     worktree TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
+    owner TEXT REFERENCES users(id),
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS terminal_settings (
@@ -229,15 +277,19 @@ CREATE TABLE IF NOT EXISTS search_settings (
 );
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
+    shared INTEGER NOT NULL DEFAULT 0 CHECK(shared IN (0,1)),
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS roles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     key TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
 CREATE TABLE IF NOT EXISTS teams (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     key TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
@@ -247,11 +299,13 @@ CREATE TABLE IF NOT EXISTS team_settings (
 );
 CREATE TABLE IF NOT EXISTS ssh_profiles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     body BLOB NOT NULL,
     credential TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS database_profiles (
     id TEXT PRIMARY KEY,
+    user TEXT REFERENCES users(id),
     body BLOB NOT NULL,
     password TEXT NOT NULL,
     password_target BLOB
@@ -401,6 +455,15 @@ CREATE TABLE IF NOT EXISTS plugins (
     installed INTEGER NOT NULL CHECK(installed IN (0,1)),
     body BLOB NOT NULL
 );
+CREATE TABLE plugin_user_installations (
+    user TEXT NOT NULL REFERENCES users(id),
+    name TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    settings_revision INTEGER NOT NULL DEFAULT 0,
+    installed INTEGER NOT NULL CHECK(installed IN (0,1)),
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,name)
+);
 CREATE TABLE IF NOT EXISTS plugin_packages (
     digest TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -449,12 +512,35 @@ CREATE TABLE dispatch_schedules (
     PRIMARY KEY(package,id)
 );
 CREATE INDEX dispatch_schedules_due ON dispatch_schedules(next_ms);
+CREATE TABLE dispatch_user_handlers (
+    user TEXT NOT NULL REFERENCES users(id),
+    package TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    body BLOB NOT NULL,
+    reference BLOB NOT NULL,
+    PRIMARY KEY(user,package,name)
+);
+CREATE INDEX dispatch_user_handlers_source ON dispatch_user_handlers(user,source,topic);
+CREATE TABLE dispatch_user_schedules (
+    user TEXT NOT NULL REFERENCES users(id),
+    package TEXT NOT NULL,
+    id TEXT NOT NULL,
+    next_ms INTEGER,
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,package,id)
+);
+CREATE INDEX dispatch_user_schedules_due ON dispatch_user_schedules(user,next_ms);
 CREATE TABLE dispatch_events (
+    user TEXT REFERENCES users(id),
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     body BLOB NOT NULL
 );
 CREATE TABLE dispatch_jobs (
+    user TEXT REFERENCES users(id),
+    storage_user TEXT REFERENCES users(id),
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     package TEXT NOT NULL,
@@ -465,9 +551,11 @@ CREATE TABLE dispatch_jobs (
     reference BLOB NOT NULL
 );
 CREATE INDEX dispatch_jobs_queue ON dispatch_jobs(package,queue,status,sequence);
+CREATE INDEX dispatch_jobs_user ON dispatch_jobs(user,status,sequence);
 CREATE TABLE notifications (
     sequence INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
+    owner TEXT REFERENCES users(id),
     body BLOB NOT NULL
 );
 
@@ -538,3 +626,152 @@ CREATE TABLE local_model_settings (
 CREATE TABLE IF NOT EXISTS power_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
 
 CREATE TABLE compaction_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
+
+CREATE TABLE removed_resource_audiences (kind TEXT NOT NULL,id TEXT NOT NULL,audience BLOB NOT NULL,PRIMARY KEY(kind,id));
+CREATE TABLE IF NOT EXISTS user_defaults (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    revision INTEGER NOT NULL,
+    config BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS user_team_settings (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    body BLOB NOT NULL
+);
+
+CREATE TABLE user_personal_settings (user TEXT NOT NULL REFERENCES users(id),kind TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(user,kind));
+CREATE TABLE identity_memberships (
+    device BLOB PRIMARY KEY CHECK(length(device)=32),
+    user TEXT NOT NULL REFERENCES users(id),
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    active INTEGER NOT NULL CHECK(active IN (0,1))
+);
+CREATE TABLE identity_sponsorships (
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    request TEXT NOT NULL,
+    device BLOB NOT NULL CHECK(length(device)=32),
+    user TEXT NOT NULL REFERENCES users(id),
+    address TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','accepted','cancelled')),
+    PRIMARY KEY(sponsor,request)
+);
+CREATE INDEX identity_sponsorships_device ON identity_sponsorships(device,state);
+CREATE TABLE identity_directory (
+    user TEXT PRIMARY KEY REFERENCES users(id),
+    revision INTEGER NOT NULL CHECK(revision>0),
+    hosts BLOB NOT NULL
+);
+CREATE TABLE identity_deliveries (
+    request TEXT PRIMARY KEY,
+    user TEXT NOT NULL REFERENCES users(id),
+    host BLOB NOT NULL CHECK(length(host)=32),
+    address TEXT NOT NULL,
+    device BLOB NOT NULL CHECK(length(device)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    kind TEXT NOT NULL CHECK(kind IN ('sponsor','revoke')),
+    body BLOB NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','unknown','completed','cancelled','blocked')),
+    fault BLOB,
+    UNIQUE(host,device,generation,kind)
+);
+CREATE INDEX identity_deliveries_state ON identity_deliveries(state,host);
+CREATE TABLE identity_turn_origins (
+    turn TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE,
+    user TEXT NOT NULL REFERENCES users(id)
+);
+CREATE TABLE identity_storage_origin (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    user TEXT NOT NULL REFERENCES users(id)
+);
+CREATE TABLE identity_merge_conflicts (
+    source TEXT NOT NULL REFERENCES users(id),
+    target TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(source,kind,key)
+);
+
+CREATE TABLE identity_peer_origins (
+    peer BLOB PRIMARY KEY CHECK(length(peer)=32),
+    name TEXT NOT NULL DEFAULT '',
+    direct INTEGER NOT NULL CHECK(direct IN (0,1)),
+    direct_direction TEXT NOT NULL DEFAULT '' CHECK(direct_direction IN ('','controller','host','both')),
+    my_device INTEGER NOT NULL CHECK(my_device IN (0,1)),
+    removed INTEGER NOT NULL CHECK(removed IN (0,1)),
+    sources BLOB NOT NULL,
+    directory_revision INTEGER NOT NULL DEFAULT 0 CHECK(directory_revision>=0)
+);
+
+CREATE TABLE identity_sponsor_epochs (
+    sponsor BLOB NOT NULL CHECK(length(sponsor)=32),
+    device BLOB NOT NULL CHECK(length(device)=32),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    revoked INTEGER NOT NULL CHECK(revoked IN (0,1)),
+    PRIMARY KEY(sponsor,device)
+);
+
+CREATE TABLE identity_host_removals (
+    request TEXT PRIMARY KEY,
+    host BLOB NOT NULL CHECK(length(host)=32),
+    body BLOB NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('pending','unknown','completed','failed')),
+    fault BLOB,
+    active INTEGER NOT NULL CHECK(active IN (0,1))
+);
+CREATE UNIQUE INDEX identity_host_removals_active ON identity_host_removals(host) WHERE active=1;
+CREATE TABLE IF NOT EXISTS configuration_follow_sources (
+ user TEXT PRIMARY KEY REFERENCES users(id),
+ source BLOB CHECK(source IS NULL OR length(source)=32),
+ revision INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_targets (
+ user TEXT NOT NULL REFERENCES users(id),
+ host BLOB NOT NULL CHECK(length(host)=32),
+ revision INTEGER NOT NULL,
+ configuration INTEGER NOT NULL CHECK(configuration IN (0,1)),
+ secrets INTEGER NOT NULL CHECK(secrets IN (0,1)),
+ failure BLOB,
+ PRIMARY KEY(user,host)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_records (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ id TEXT NOT NULL,
+ local_id TEXT NOT NULL DEFAULT '',
+ source BLOB NOT NULL CHECK(length(source)=32),
+ revision INTEGER NOT NULL,
+ digest TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('applied','pending','conflict','authorization')),
+ materialized INTEGER NOT NULL DEFAULT 0 CHECK(materialized IN (0,1)),
+ message TEXT NOT NULL,
+ body BLOB,
+ PRIMARY KEY(user,category,id)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_versions (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ source BLOB NOT NULL CHECK(length(source)=32),
+ revision INTEGER NOT NULL,
+ digest TEXT NOT NULL,
+ PRIMARY KEY(user,category,source)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_deliveries (
+ user TEXT NOT NULL REFERENCES users(id),
+ host BLOB NOT NULL CHECK(length(host)=32),
+ category TEXT NOT NULL,
+ request BLOB NOT NULL,
+ PRIMARY KEY(user,host,category)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_mcp_overrides (
+ user TEXT NOT NULL REFERENCES users(id),
+ plugin TEXT NOT NULL,
+ server TEXT NOT NULL,
+ PRIMARY KEY(user,plugin,server)
+);
+CREATE TABLE IF NOT EXISTS configuration_follow_packages (
+ digest TEXT PRIMARY KEY,
+ name TEXT NOT NULL,
+ body BLOB NOT NULL,
+ mcp BLOB NOT NULL
+);

@@ -31,7 +31,7 @@ func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data
 	slices.Sort(pinOrders)
 	pinOrders = slices.Compact(pinOrders)
 	for _, p := range snapshot.Projects {
-		pr := &viewmodel.Project{ID: p.ID.String(), Name: p.Name, Path: p.Path, Host: owner, Icon: p.Appearance.Icon, Color: p.Appearance.Color}
+		pr := &viewmodel.Project{ID: p.ID.String(), Name: p.Name, Path: p.Path, Host: owner, Icon: p.Appearance.Icon, Color: p.Appearance.Color, Owner: p.Owner, Visibility: p.Visibility}
 		for _, w := range snapshot.Worktrees {
 			if w.Project != nil && *w.Project == p.ID {
 				pr.Worktrees = append(pr.Worktrees, viewmodel.Worktree{Path: w.Path, Main: w.Main})

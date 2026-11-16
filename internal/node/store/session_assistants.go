@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -110,7 +111,15 @@ func assistantWorkspace(ctx context.Context, db *sql.Conn, profile string, bindi
 	if declaration.Resource != protocol.PluginConversationResourcePlugin {
 		return protocol.WorktreeID{}, invalid("plugin assistant requires its declared resource")
 	}
-	root, err := core.AssistantWorkspace(profile, binding)
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.WorktreeID{}, err
+	}
+	workspaceProfile := profile
+	if !user.Local {
+		workspaceProfile = filepath.Join(profile, "users", user.ID.String())
+	}
+	root, err := core.AssistantWorkspace(workspaceProfile, binding)
 	if err != nil {
 		return protocol.WorktreeID{}, err
 	}
@@ -123,7 +132,7 @@ func assistantWorkspace(ctx context.Context, db *sql.Conn, profile string, bindi
 		return protocol.WorktreeID{}, err
 	}
 	id := protocol.NewWorktreeID()
-	_, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,NULL,?2,0)", id.String(), root)
+	_, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main,owner) VALUES(?1,NULL,?2,0,?3)", id.String(), root, user.ID.String())
 	return id, err
 }
 

@@ -144,7 +144,7 @@ func TestDispatchContracts(test *testing.T) {
 				*page.Jobs[0].Event.ScheduledMs != dispatchAt(test, "2026-10-21T09:00:00Z") {
 				return fmt.Errorf("downtime delivery lost the latest occurrence: %+v", page)
 			}
-			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err == nil && (stored.NextMs == nil || *stored.NextMs != dispatchAt(test, "2026-10-22T09:00:00Z") || stored.Revision != item.Revision) {
 				return errors.New("calendar consumption changed the revision or next occurrence")
 			}
@@ -189,7 +189,7 @@ func TestDispatchContracts(test *testing.T) {
 			if len(owners) != 0 {
 				return errors.New("full queue consumed its occurrence")
 			}
-			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err != nil {
 				return err
 			}
@@ -221,7 +221,7 @@ func TestDispatchContracts(test *testing.T) {
 			if !reflect.DeepEqual(owners, []string{fixture.reference.Name}) {
 				return errors.New("freeing queue capacity did not release the occurrence")
 			}
-			stored, err = dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			stored, err = dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err == nil && (stored.NextMs == nil || *stored.NextMs != dispatchAt(test, "2026-10-20T09:00:00Z")) {
 				return errors.New("released occurrence has an incorrect next cursor")
 			}
@@ -257,7 +257,7 @@ func TestDispatchContracts(test *testing.T) {
 			if len(owners) == 0 {
 				return errors.New("enabled one-shot was not delivered")
 			}
-			item, err = dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			item, err = dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err != nil {
 				return err
 			}
@@ -307,7 +307,7 @@ func TestDispatchContracts(test *testing.T) {
 			if len(page.Jobs) != 1 || page.Jobs[0].Event.ScheduledMs == nil || *page.Jobs[0].Event.ScheduledMs != 5000 {
 				return errors.New("missed interval ticks were replayed instead of coalesced")
 			}
-			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err == nil && (stored.NextMs == nil || *stored.NextMs != 6000) {
 				return errors.New("interval cursor drifted from its anchor")
 			}
@@ -385,7 +385,7 @@ func TestDispatchContracts(test *testing.T) {
 			if len(list) != 5 || !skipped(list[2], 3000) {
 				return fmt.Errorf("occurrence behind a running job was not skipped: %+v", list)
 			}
-			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_user_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err != nil {
 				return err
 			}
@@ -610,7 +610,7 @@ func TestDispatchContracts(test *testing.T) {
 			old := fixture.reference
 			// The stored compatibility records the installing build; the
 			// running build decides whether the package dispatches.
-			stored, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", old.Name)
+			stored, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_user_installations WHERE name=?1", old.Name)
 			if err != nil {
 				return err
 			}
@@ -619,7 +619,7 @@ func TestDispatchContracts(test *testing.T) {
 			if err != nil {
 				return err
 			}
-			if _, err := db.ExecContext(ctx, "UPDATE plugins SET body=?1 WHERE name=?2", stale, old.Name); err != nil {
+			if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=?1 WHERE name=?2", stale, old.Name); err != nil {
 				return err
 			}
 			current, err := dispatchCurrent(ctx, db, old.Name)
@@ -631,7 +631,7 @@ func TestDispatchContracts(test *testing.T) {
 			if err != nil {
 				return err
 			}
-			if _, err := db.ExecContext(ctx, "UPDATE plugins SET body=?1 WHERE name=?2", body, old.Name); err != nil {
+			if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=?1 WHERE name=?2", body, old.Name); err != nil {
 				return err
 			}
 			handler := fixture.handler
@@ -684,7 +684,7 @@ func TestDispatchContracts(test *testing.T) {
 			if err != nil {
 				return err
 			}
-			if _, err := db.ExecContext(ctx, "UPDATE plugins SET body=?1 WHERE name=?2", body, old.Name); err != nil {
+			if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=?1 WHERE name=?2", body, old.Name); err != nil {
 				return err
 			}
 			_, err = DispatchPackage(ctx, db, fixture.node, fixture.node, original)
@@ -806,7 +806,7 @@ func newDispatchFixture(test *testing.T, topic string) dispatchFixture {
 		if err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2)", fixture.reference.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_user_installations(user,name,revision,installed,body) VALUES((SELECT id FROM users WHERE local=1),?1,1,1,?2)", fixture.reference.Name, body); err != nil {
 			return err
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_packages(name,digest,body) VALUES(?1,?2,?3)", fixture.reference.Name, fixture.reference.Digest, body); err != nil {

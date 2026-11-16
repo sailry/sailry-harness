@@ -55,6 +55,11 @@ func (owner *mcpLaunchOwner) close() error {
 }
 
 func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo, settings store.ResolvedPluginSettings, name string, server protocol.PluginMcpServer) (prepared mcp.Configuration, resultErr error) {
+	user, err := node.pluginRuntimeUser(ctx)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.User = user.String()
 	prepared.Package, prepared.Server, prepared.Options = plugins.PackageReference(info), name, mcp.ServerOptions(server)
 	prepared.Launch.Kind = server.Kind
 	prepared.Authorization = map[string]any{"settings": settings.Secrets}
@@ -86,12 +91,17 @@ func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo
 		if err != nil {
 			return prepared, err
 		}
-		err = profile.CreatePrivateDirectories("plugins/data/" + info.Summary.Name)
+		relativeData, err := node.pluginDataDirectory(ctx, info.Summary.Name)
+		if err != nil {
+			profile.Close()
+			return prepared, err
+		}
+		err = profile.CreatePrivateDirectories(relativeData)
 		profile.Close()
 		if err != nil {
 			return prepared, err
 		}
-		dataPath := filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name)
+		dataPath := filepath.Join(node.profile.Ownership.Path, filepath.FromSlash(relativeData))
 		owner.dataRoot, err = os.OpenRoot(dataPath)
 		if err != nil {
 			return prepared, err

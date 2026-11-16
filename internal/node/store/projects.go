@@ -88,7 +88,11 @@ func validateAppearance(appearance protocol.ProjectsAppearance) error {
 }
 
 func ReadProjects(ctx context.Context, db *sql.Conn) ([]protocol.Project, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id,name,path,appearance FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) ORDER BY rowid")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id,name,path,appearance,owner,visibility FROM projects WHERE id NOT IN (SELECT project FROM removed_projects) AND (visibility='shared' OR coalesce(owner,(SELECT id FROM users WHERE local=1))=?1) ORDER BY rowid", user.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +102,8 @@ func ReadProjects(ctx context.Context, db *sql.Conn) ([]protocol.Project, error)
 		var value protocol.Project
 		var id string
 		var body []byte
-		if err := rows.Scan(&id, &value.Name, &value.Path, &body); err != nil {
+		var owner sql.NullString
+		if err := rows.Scan(&id, &value.Name, &value.Path, &body, &owner, &value.Visibility); err != nil {
 			return nil, err
 		}
 		value.ID, err = protocol.ParseProjectID(id)
@@ -108,16 +113,32 @@ func ReadProjects(ctx context.Context, db *sql.Conn) ([]protocol.Project, error)
 		if err := json.Unmarshal(body, &value.Appearance); err != nil {
 			return nil, err
 		}
+		value.Owner, err = projectOwner(owner)
+		if err != nil {
+			return nil, err
+		}
 		values = append(values, value)
 	}
 	return values, rows.Err()
+}
+
+func projectOwner(owner sql.NullString) (*protocol.UserID, error) {
+	if !owner.Valid {
+		return nil, nil
+	}
+	id, err := protocol.ParseUserID(owner.String)
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 func checkProject(ctx context.Context, db *sql.Conn, expected protocol.Project) error {
 	var actual protocol.Project
 	var id string
 	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT id,name,path,appearance FROM projects WHERE id=?1", expected.ID.String()).Scan(&id, &actual.Name, &actual.Path, &body)
+	var owner sql.NullString
+	err := db.QueryRowContext(ctx, "SELECT id,name,path,appearance,owner,visibility FROM projects WHERE id=?1", expected.ID.String()).Scan(&id, &actual.Name, &actual.Path, &body, &owner, &actual.Visibility)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fault(protocol.ErrorCodeRevisionConflict, "project changed; reload before saving")
 	}
@@ -130,6 +151,15 @@ func checkProject(ctx context.Context, db *sql.Conn, expected protocol.Project) 
 	}
 	if err := json.Unmarshal(body, &actual.Appearance); err != nil {
 		return err
+	}
+	if expected.Owner != nil {
+		actual.Owner, err = projectOwner(owner)
+		if err != nil {
+			return err
+		}
+	}
+	if expected.Visibility == "" {
+		expected.Visibility = protocol.ProjectVisibilityPrivate
 	}
 	if !reflect.DeepEqual(actual, expected) {
 		return fault(protocol.ErrorCodeRevisionConflict, "project changed; reload before saving")
@@ -144,12 +174,28 @@ func checkProject(ctx context.Context, db *sql.Conn, expected protocol.Project) 
 	return nil
 }
 
-func createProject(ctx context.Context, db *sql.Conn, input protocol.ProjectsDraft, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
-	value := protocol.Project{ID: protocol.NewProjectID(), Name: strings.TrimSpace(input.Name), Path: prepared.Path, Appearance: input.Appearance}
+func createProject(ctx context.Context, db *sql.Conn, owner protocol.UserID, input protocol.ProjectsDraft, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
+	visibility := input.Visibility
+	if visibility == "" {
+		visibility = protocol.ProjectVisibilityPrivate
+	}
+	if visibility != protocol.ProjectVisibilityPrivate && visibility != protocol.ProjectVisibilityShared {
+		return protocol.Output{}, nil, invalid("project visibility is invalid")
+	}
+	value := protocol.Project{ID: protocol.NewProjectID(), Name: strings.TrimSpace(input.Name), Path: prepared.Path, Appearance: input.Appearance, Owner: &owner, Visibility: visibility}
 	var removedID string
-	err := db.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1", value.Path).Scan(&removedID)
+	var removedOwner sql.NullString
+	err := db.QueryRowContext(ctx, "SELECT p.id,p.owner FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1", value.Path).Scan(&removedID, &removedOwner)
 	if err == nil {
 		value.ID, err = protocol.ParseProjectID(removedID)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if err := CheckProjectAccess(ctx, db, value.ID, true); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		// Registration restores the original project; its owner does not change.
+		value.Owner, err = projectOwner(removedOwner)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -160,7 +206,7 @@ func createProject(ctx context.Context, db *sql.Conn, input protocol.ProjectsDra
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if _, err := db.ExecContext(ctx, "UPDATE projects SET name=?2,appearance=?3 WHERE id=?1", removedID, value.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "UPDATE projects SET name=?2,appearance=?3,visibility=?4 WHERE id=?1", removedID, value.Name, body, value.Visibility); err != nil {
 			return protocol.Output{}, nil, err
 		}
 	} else {
@@ -178,7 +224,7 @@ func createProject(ctx context.Context, db *sql.Conn, input protocol.ProjectsDra
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO projects(id,name,path,appearance) VALUES(?1,?2,?3,?4)", value.ID.String(), value.Name, value.Path, body); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO projects(id,name,path,appearance,owner,visibility) VALUES(?1,?2,?3,?4,?5,?6)", value.ID.String(), value.Name, value.Path, body, owner.String(), value.Visibility); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,?2,?3,1)", protocol.NewWorktreeID().String(), value.ID.String(), value.Path); err != nil {
@@ -191,6 +237,16 @@ func createProject(ctx context.Context, db *sql.Conn, input protocol.ProjectsDra
 func updateProject(ctx context.Context, db *sql.Conn, input protocol.CommandUpdateProjectPayload, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
 	if err := checkProject(ctx, db, input.Expected); err != nil {
 		return protocol.Output{}, nil, err
+	}
+	visibility := input.Expected.Visibility
+	if input.Visibility != nil {
+		visibility = *input.Visibility
+	}
+	if visibility == "" {
+		visibility = protocol.ProjectVisibilityPrivate
+	}
+	if visibility != protocol.ProjectVisibilityPrivate && visibility != protocol.ProjectVisibilityShared {
+		return protocol.Output{}, nil, invalid("project visibility is invalid")
 	}
 	if prepared.Path != input.Expected.Path {
 		var duplicate, busy bool
@@ -216,12 +272,16 @@ func updateProject(ctx context.Context, db *sql.Conn, input protocol.CommandUpda
 			return protocol.Output{}, nil, err
 		}
 	}
-	value := protocol.Project{ID: input.Expected.ID, Name: strings.TrimSpace(input.Name), Path: prepared.Path, Appearance: input.Appearance}
+	value := protocol.Project{ID: input.Expected.ID, Name: strings.TrimSpace(input.Name), Path: prepared.Path, Appearance: input.Appearance, Visibility: visibility}
 	body, err := encode(value.Appearance)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	_, err = db.ExecContext(ctx, "UPDATE projects SET name=?2,path=?3,appearance=?4 WHERE id=?1", value.ID.String(), value.Name, value.Path, body)
+	var owner sql.NullString
+	if err := db.QueryRowContext(ctx, "UPDATE projects SET name=?2,path=?3,appearance=?4,visibility=?5 WHERE id=?1 RETURNING owner", value.ID.String(), value.Name, value.Path, body, value.Visibility).Scan(&owner); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	value.Owner, err = projectOwner(owner)
 	return protocol.Output{Kind: "project", Data: value}, []protocol.Event{{Kind: "project_changed", Data: value}}, err
 }
 
@@ -326,7 +386,11 @@ func recordProjectRemoval(ctx context.Context, db *sql.Conn, expected protocol.P
 }
 
 func ReadWorktrees(ctx context.Context, db *sql.Conn) ([]protocol.Worktree, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id,project,path,main FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY rowid")
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT w.id,w.project,w.path,w.main FROM worktrees w LEFT JOIN projects p ON p.id=w.project WHERE w.id NOT IN (SELECT worktree FROM removed_worktrees) AND (CASE WHEN w.project IS NULL THEN coalesce(w.owner,(SELECT id FROM users WHERE local=1))=?1 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?1 END) ORDER BY w.rowid`, user.ID.String())
 	if err != nil {
 		return nil, err
 	}

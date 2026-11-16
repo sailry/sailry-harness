@@ -177,9 +177,13 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 		return nil
 	}
 	reference := plugins.PackageReference(*info)
+	user, err := node.pluginRuntimeUser(ctx)
+	if err != nil {
+		return err
+	}
 	var settings store.ResolvedPluginSettings
 	var connections []protocol.PluginConnectorConnection
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		if settings, err = store.ResolvePluginSettings(ctx, db, reference); err != nil {
 			return err
@@ -221,7 +225,7 @@ func (node *Node) projectPluginMCP(ctx context.Context, info *protocol.PluginInf
 				entry.Availability = connectorAvailability(*info, declarations, connections, entry.Name)
 			}
 		}
-		entry.Runtime = node.plugins.mcp.Status(reference, entry.Name)
+		entry.Runtime = node.plugins.mcp.Status(reference, entry.Name, user.String())
 		launched = launched || entry.Transport == protocol.PluginMcpTransportStdio && entry.Availability == protocol.PluginMcpAvailabilityAvailable
 	}
 	if info.Settings == nil && !launched {

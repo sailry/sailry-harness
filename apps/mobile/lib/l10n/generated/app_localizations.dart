@@ -3213,7 +3213,7 @@ abstract class AppLocalizations {
   /// No description provided for @hostRemoveConfirm.
   ///
   /// In en, this message translates to:
-  /// **'Remove “{name}” from this device? Pair again to reconnect'**
+  /// **'Remove “{name}” and revoke this device there? Host data remains. If this is your last device, an administrator must restore access.'**
   String hostRemoveConfirm(String name);
 
   /// No description provided for @hostRemoved.
@@ -3221,6 +3221,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Host removed'**
   String get hostRemoved;
+
+  /// No description provided for @hostOriginDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct pairing'**
+  String get hostOriginDirect;
+
+  /// No description provided for @hostOriginSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Via {name}'**
+  String hostOriginSource(String name);
 
   /// No description provided for @hostRemoveFailed.
   ///

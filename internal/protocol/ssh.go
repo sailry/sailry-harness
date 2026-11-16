@@ -227,15 +227,16 @@ func (value SshTerminalLaunch) MarshalJSON() ([]byte, error) {
 }
 
 type SshProfile struct {
-	Sharing        *ConnectionSharing `json:"sharing,omitempty"`
-	ID             SshID              `json:"id"`
-	Revision       uint64             `json:"revision"`
-	Name           string             `json:"name"`
-	Host           string             `json:"host"`
-	Port           uint16             `json:"port"`
-	Username       string             `json:"username"`
-	Authentication SshAuthentication  `json:"authentication"`
-	HostKey        *SshHostKey        `json:"host_key"`
+	Source         *ConfigurationOrigin `json:"source,omitempty"`
+	Sharing        *ConnectionSharing   `json:"sharing,omitempty"`
+	ID             SshID                `json:"id"`
+	Revision       uint64               `json:"revision"`
+	Name           string               `json:"name"`
+	Host           string               `json:"host"`
+	Port           uint16               `json:"port"`
+	Username       string               `json:"username"`
+	Authentication SshAuthentication    `json:"authentication"`
+	HostKey        *SshHostKey          `json:"host_key"`
 }
 
 func DefaultSshProfile() SshProfile {

@@ -200,12 +200,12 @@ func TestProfileLeftovers(t *testing.T) {
 		return target
 	}
 	removed := []string{
-		filepath.Dir(write("tmp/backup-1/node.sqlite", 0o600)),
-		filepath.Dir(write("tmp/restore-1/storage/node.sqlite", 0o600)),
+		filepath.Dir(write("tmp/backup-1/node.turso", 0o600)),
+		filepath.Dir(write("tmp/restore-1/storage/node.turso", 0o600)),
 		write("tmp/command-output-1", 0o600),
-		filepath.Dir(write("storage/.upgrade-1/storage/node.sqlite", 0o600)),
-		filepath.Dir(write("storage/.schema-reference-1/reference.sqlite", 0o600)),
-		filepath.Dir(filepath.Dir(write("storage/backups/.upgrade-1/storage/node.sqlite", 0o600))),
+		filepath.Dir(write("storage/.upgrade-1/storage/node.turso", 0o600)),
+		filepath.Dir(write("storage/.schema-reference-1/reference.turso", 0o600)),
+		filepath.Dir(filepath.Dir(write("storage/backups/.upgrade-1/storage/node.turso", 0o600))),
 		filepath.Dir(write("plugins/packages/.staging-1/plugin.json", 0o600)),
 		filepath.Dir(write("python/staging/environment-1/pyvenv.cfg", 0o600)),
 	}
@@ -226,11 +226,11 @@ func TestProfileLeftovers(t *testing.T) {
 	kept := []string{
 		// The process service kills the group this names, then removes it.
 		write("tmp/command-group-1", 0o600),
-		write("storage/backups/node-before-upgrade-1/node.sqlite", 0o600),
+		write("storage/backups/node-before-upgrade-1/node.turso", 0o600),
 		write("storage/.upgraded", 0o600),
 		write("plugins/packages/published/plugin.json", 0o600),
 		write("python/environments/published/pyvenv.cfg", 0o600),
-		filepath.Join(path, "storage", "node.sqlite"),
+		filepath.Join(path, "storage", "node.turso"),
 		filepath.Join(path, "link.key"),
 		outside,
 	}

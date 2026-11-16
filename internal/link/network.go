@@ -64,6 +64,7 @@ type Link struct {
 	mu              sync.RWMutex
 	name            *string
 	trusted         map[protocol.NodeID]bool
+	directions      map[protocol.NodeID]PeerDirection
 	addresses       map[protocol.NodeID]EndpointAddress
 	outgoing        map[protocol.NodeID]*outgoingSlot
 	incoming        map[*iroh.Connection]protocol.NodeID
@@ -119,7 +120,7 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 	if options.Peers == nil {
 		return nil, invalidLink("peer storage is required")
 	}
-	peers, err := options.Peers.Peers(ctx)
+	peers, err := options.Peers.Directions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +151,7 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 	link := &Link{
 		endpoint: endpoint, ctx: lifetime, cancel: cancel, handler: options.Handler,
 		store: options.Peers, softwareVersion: options.SoftwareVersion,
-		trusted: map[protocol.NodeID]bool{}, addresses: map[protocol.NodeID]EndpointAddress{},
+		trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{},
 		outgoing: map[protocol.NodeID]*outgoingSlot{}, incoming: map[*iroh.Connection]protocol.NodeID{},
 		work: make(chan func(), maxTasks), now: time.Now, timeout: context.WithTimeout,
 		selection: selection, relayURLs: relays, ticks: connectionTicks,
@@ -159,7 +160,13 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 		link.softwareVersion = ProductVersion
 	}
 	for _, peer := range peers {
-		link.trusted[peer] = true
+		if !peer.Direction.Valid() || link.trusted[peer.ID] {
+			cancel()
+			_ = endpoint.Close()
+			return nil, invalidLink("invalid stored peer direction")
+		}
+		link.trusted[peer.ID] = true
+		link.directions[peer.ID] = peer.Direction
 	}
 	for _, address := range addresses {
 		if link.trusted[address.ID] {
@@ -240,27 +247,21 @@ func (link *Link) Inspect(ctx context.Context, address EndpointAddress) (PeerInf
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	return link.inspectConnection(ctx, connection)
+	info, err := link.inspectConnection(ctx, connection)
+	if err == nil && info.Name != nil {
+		err = link.RememberPeerName(ctx, address.ID, *info.Name)
+	}
+	return info, err
 }
 
 func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bool) error {
-	link.trustUpdate.Lock()
-	defer link.trustUpdate.Unlock()
-	if err := link.ctx.Err(); err != nil {
-		return linkNetwork(err)
+	err := link.updateTrust(ctx, peer, func() error {
+		return link.store.SetTrust(ctx, peer, trusted)
+	})
+	if err == nil && !trusted {
+		err = link.RefreshPeers(ctx)
 	}
-	if err := link.store.SetTrust(ctx, peer, trusted); err != nil {
-		if faultValue(err).Code == protocol.ErrorCodeOutcomeUnknown {
-			reconciled := link.reconcilePeer(ctx, peer)
-			if reconciled != nil && !trusted {
-				link.applyTrust(peer, false)
-			}
-			return errors.Join(err, reconciled)
-		}
-		return err
-	}
-	link.applyTrust(peer, trusted)
-	return nil
+	return err
 }
 
 // Disconnect closes the cached connection to a paired peer; the next use
@@ -287,16 +288,27 @@ func (link *Link) Disconnect(peer protocol.NodeID) {
 	}
 }
 
-func (link *Link) applyTrust(peer protocol.NodeID, trusted bool) {
+func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 	link.mu.Lock()
+	previous := link.directions[peer]
+	trusted := direction.Valid()
+	if link.directions == nil {
+		link.directions = make(map[protocol.NodeID]PeerDirection)
+	}
 	link.trusted[peer] = trusted
+	link.directions[peer] = direction
 	var outgoing *outgoingSlot
 	var incoming []*iroh.Connection
 	if !trusted {
 		delete(link.trusted, peer)
+		delete(link.directions, peer)
 		delete(link.addresses, peer)
+	}
+	if !trusted || previous.AllowsOutbound() && !direction.AllowsOutbound() {
 		outgoing = link.outgoing[peer]
 		delete(link.outgoing, peer)
+	}
+	if !trusted || previous.AllowsInbound() && !direction.AllowsInbound() {
 		for connection, caller := range link.incoming {
 			if caller == peer {
 				incoming = append(incoming, connection)
@@ -348,7 +360,7 @@ func (link *Link) remember(ctx context.Context, address EndpointAddress) error {
 func (link *Link) reconcilePeer(ctx context.Context, peer protocol.NodeID) error {
 	scoped, cancel := link.operation(context.WithoutCancel(ctx), false)
 	defer cancel()
-	peers, err := link.store.Peers(scoped)
+	peers, err := link.store.Directions(scoped)
 	if err != nil {
 		return err
 	}
@@ -356,12 +368,20 @@ func (link *Link) reconcilePeer(ctx context.Context, peer protocol.NodeID) error
 	if err != nil {
 		return err
 	}
-	trusted := false
+	var direction PeerDirection
 	for _, stored := range peers {
-		trusted = trusted || stored == peer
+		if !stored.Direction.Valid() {
+			return invalidLink("invalid stored peer direction")
+		}
+		if stored.ID == peer {
+			if direction != "" {
+				return invalidLink("duplicate stored peer identity")
+			}
+			direction = stored.Direction
+		}
 	}
-	link.applyTrust(peer, trusted)
-	if trusted {
+	link.applyTrust(peer, direction)
+	if direction.Valid() {
 		link.mu.Lock()
 		delete(link.addresses, peer)
 		for _, address := range addresses {

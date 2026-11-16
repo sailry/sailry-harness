@@ -131,6 +131,10 @@ func terminalFinished(terminal protocol.TerminalInfo) bool {
 func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 	snapshot := projection.snapshot
 	switch event.Kind {
+	case "projection_invalidated":
+		return true, nil
+	case "cursor":
+		return false, nil
 	case "project_registered", "project_changed", "project_removed":
 		// Registration also creates the main worktree in the same transaction.
 		return true, nil
@@ -451,7 +455,7 @@ func (projection *Projection) reduce(event protocol.Event) (bool, error) {
 		}
 	case "local_models_changed", "local_model_settings_changed", "knowledge_collections_changed",
 		"telemetry_settings_changed", "backup_settings_changed", "python_settings_changed",
-		"plugin_values_changed", "dispatch_changed", "tools_completed":
+		"plugin_values_changed", "dispatch_changed", "tools_completed", "configuration_follow_changed":
 		// These invalidate feature reads; they do not replace a Snapshot field.
 	default:
 		// An event a newer Node of this protocol version declares and this

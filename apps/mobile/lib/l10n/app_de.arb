@@ -644,7 +644,7 @@
   "pairExpired": "Der Pairing-Code ist abgelaufen; erhalte einen neuen Code",
   "pairing": "Verbindung wird hergestellt",
   "hostRemove": "Host entfernen",
-  "hostRemoveConfirm": "„{name}“ von diesem Gerät entfernen? Zum erneuten Verbinden neu koppeln",
+  "hostRemoveConfirm": "„{name}“ entfernen und diesem Gerät dort den Zugriff entziehen? Die Daten bleiben auf dem Host. Ist dies Ihr letztes Gerät, muss ein Administrator den Zugriff wiederherstellen.",
   "hostRemoved": "Host entfernt",
   "hostRemoveFailed": "Host konnte nicht entfernt werden",
   "hostMetricsFailed": "Hoststatus kann nicht gelesen werden",
@@ -884,5 +884,7 @@
   "demoReviewNotes": "# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n",
   "demoNotesPrompt": "Create a short release review checklist for the sign-in page.",
   "demoSimulatedReply": "I'll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.",
-  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001"
+  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
+  "hostOriginDirect": "Direkte Kopplung",
+  "hostOriginSource": "Über {name}"
 }

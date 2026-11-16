@@ -55,13 +55,17 @@ func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.
 	return nil
 }
 func refreshProviderMetadata(ctx context.Context, db *sql.Conn) ([]protocol.Event, error) {
-	saved, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")
+	saved, err := providerConfigurations(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	events := []protocol.Event{}
 	for _, stored := range saved {
-		if !stored.Listed || stored.Provider == nil {
+		if !stored.Listed || stored.Provider == nil || stored.Provider.Shared && !user.Administrator {
 			continue
 		}
 		provider := *stored.Provider

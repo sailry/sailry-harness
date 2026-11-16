@@ -78,7 +78,8 @@ func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, requ
 	go func() {
 		defer node.work.Done()
 		defer close(completion)
-		completion <- node.executeHost(caller, request)
+		owner := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+		completion <- node.executeHost(owner, caller, request)
 	}()
 	return accepted, nil
 }
@@ -96,7 +97,8 @@ func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request 
 		value, err := node.hostSampler.Sample(ctx, node.ID(), input.Detailed)
 		return response(protocol.Output{Kind: "host_metrics", Data: value}, err)
 	case "read_plugin_memory":
-		return response(protocol.Output{Kind: "plugin_memory", Data: node.plugins.memory.Read()}, nil)
+		value, err := node.readPluginMemory(ctx)
+		return response(protocol.Output{Kind: "plugin_memory", Data: value}, err)
 	case "read_host_install":
 		input := request.Command.Data.(*protocol.CommandReadHostInstallPayload)
 		value, err := node.hostInstalls.Read(caller, input.Request, request.Plugin)
@@ -116,40 +118,48 @@ func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request 
 	return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "Host read expected"})
 }
 
-func (node *Node) executeHost(caller protocol.NodeID, request protocol.Request) link.Response {
+func (node *Node) executeHost(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
 	var output protocol.Output
 	var operationErr error
 	configuration := request.Command.Kind == "save_ssh" || request.Command.Kind == "trust_ssh" || request.Command.Kind == "remove_ssh"
 	if !configuration {
-		output, operationErr = node.runHost(caller, request)
+		operationErr = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			return node.authorizeCommandDB(ctx, db, caller, request)
+		})
+		if operationErr == nil {
+			output, operationErr = node.runHost(ctx, caller, request)
+		}
 	}
-	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-		var events []protocol.Event
+	var events []protocol.Event
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		if configuration {
-			if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_ssh_configuration"); err != nil {
+			if _, err := db.ExecContext(ctx, "SAVEPOINT sailry_ssh_configuration"); err != nil {
 				return err
 			}
-			operationErr = node.validatePluginRequestDB(node.ctx, db, caller, request)
+			operationErr = node.authorizeCommandDB(ctx, db, caller, request)
+			if operationErr == nil {
+				operationErr = node.validatePluginRequestDB(ctx, db, caller, request)
+			}
 			if operationErr == nil && request.Command.Kind == "save_ssh" {
-				operationErr = store.RecordConnectionSave(node.ctx, db, request)
+				operationErr = store.RecordConnectionSave(ctx, db, request)
 			}
 			if operationErr == nil {
-				output, events, operationErr = store.ExecuteSshCommand(node.ctx, db, request.Command)
+				output, events, operationErr = store.ExecuteSshCommand(ctx, db, request.Command)
 			}
 			if operationErr != nil {
 				events = nil
-				if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_ssh_configuration"); err != nil {
+				if _, err := db.ExecContext(ctx, "ROLLBACK TO sailry_ssh_configuration"); err != nil {
 					return err
 				}
 			}
-			if _, err := db.ExecContext(node.ctx, "RELEASE sailry_ssh_configuration"); err != nil {
+			if _, err := db.ExecContext(ctx, "RELEASE sailry_ssh_configuration"); err != nil {
 				return err
 			}
-			if _, err := store.RecordEvents(node.ctx, db, node.ID(), events); err != nil {
+			if _, err := store.RecordEvents(ctx, db, node.ID(), events); err != nil {
 				return err
 			}
 		}
-		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
+		return admission.Complete(ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
 		if configuration {
@@ -158,7 +168,8 @@ func (node *Node) executeHost(caller protocol.NodeID, request protocol.Request) 
 		// The operation ran outside the transaction, so its result is what is stored.
 		return node.settle(caller, request.ID, response(output, operationErr))
 	}
-	if configuration {
+	if configuration && operationErr == nil {
+		node.NotifyConfigurationFollow(events)
 		node.publish()
 	}
 	return response(output, operationErr)

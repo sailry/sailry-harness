@@ -132,7 +132,7 @@ func teams(c *ui.Context, m *Model) {
 		kit.Card(c, func() {
 			kit.WideRow(c, "concurrency", t("teams_concurrency"), t("teams_concurrency_description"), func() {
 				shown := min(16, max(1, m.Concurrency.Draft))
-				if ui.StepSlider(c.Key("slider"), &shown, 1, 16, 1).Label(t("teams_concurrency")).Grow(1).Disabled(m.Concurrency.Pending || m.Live && m.TeamActions == nil).Changed() {
+				if ui.StepSlider(c.Key("slider"), &shown, 1, 16, 1).Label(t("teams_concurrency")).Grow(1).Disabled(m.ConcurrencyReadOnly || m.Concurrency.Pending || m.Live && m.TeamActions == nil).Changed() {
 					m.Concurrency.Draft = shown
 					if m.Live && m.TeamActions != nil {
 						m.TeamActions.SaveConcurrency()
@@ -269,7 +269,13 @@ func teamRows(c *ui.Context, m *Model) {
 		for i := range m.Teams {
 			tm := &m.Teams[i]
 			meta := roleCount(c, len(tm.Members)) + " · " + m.modelSummary(c, tm.Lead, "team_follow_conversation")
+			if tm.ConfigurationReadOnly {
+				meta += " · " + i18n.T(c, "configuration_follow_from_source")
+			}
 			row(tm.ID, tm.Name, tm.Description, meta, tm.Avatar, false, tm.Members, func() {
+				if tm.ConfigurationReadOnly {
+					return
+				}
 				x := *tm
 				x.Members = slices.Clone(tm.Members)
 				m.teamEdit = teamEditor{open: true, team: x}
@@ -288,14 +294,17 @@ func roleRows(c *ui.Context, m *Model) {
 		for i := range m.Roles {
 			r := &m.Roles[i]
 			desc := m.modelSummary(c, r.Model, "role_inherit")
+			if r.ConfigurationReadOnly {
+				desc += " · " + i18n.T(c, "configuration_follow_from_source")
+			}
 			if r.ReadOnly {
 				desc += " · " + i18n.T(c, "teams_read_only")
 			}
 			kit.Entry(c, r.ID, func() {
 				kit.MediaRow(c, r.Name, desc, func() { kit.RoleAvatar(c, r.ID, r.Avatar, kit.TileSize) }, nil)
 			}, nil, func() {
-				kit.Action(c.Key("edit"), icons.Pencil, i18n.T(c, "settings_edit"), false).OnClick(func() { m.roleEdit = roleEditor{open: true, role: *r} })
-				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), false).OnClick(func() { m.roleRemoving = r.ID })
+				kit.Action(c.Key("edit"), icons.Pencil, i18n.T(c, "settings_edit"), false).Disabled(r.ConfigurationReadOnly).OnClick(func() { m.roleEdit = roleEditor{open: true, role: *r} })
+				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), false).Disabled(r.ConfigurationReadOnly).OnClick(func() { m.roleRemoving = r.ID })
 			})
 		}
 	})

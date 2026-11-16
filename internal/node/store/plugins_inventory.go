@@ -25,7 +25,11 @@ func ReadPlugins(ctx context.Context, db *sql.Conn) ([]protocol.PluginSummary, e
 }
 
 func ReadPluginInfos(ctx context.Context, db *sql.Conn) ([]protocol.PluginInfo, error) {
-	infos, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE installed=1 ORDER BY name")
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	infos, err := readBodies[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_user_installations WHERE user=?1 AND installed=1 ORDER BY name", user)
 	for index := range infos {
 		refreshPluginCompatibility(&infos[index])
 	}
@@ -36,7 +40,11 @@ func ReadPlugin(ctx context.Context, db *sql.Conn, name string) (*protocol.Plugi
 	if !plugins.ValidateName(name) {
 		return nil, invalid("invalid plugin name")
 	}
-	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", name)
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_user_installations WHERE name=?1 AND user=?2 AND installed=1", name, user)
 	if info != nil {
 		refreshPluginCompatibility(info)
 	}
@@ -52,14 +60,22 @@ func refreshPluginCompatibility(info *protocol.PluginInfo) {
 }
 
 func PluginRecorded(ctx context.Context, db *sql.Conn, name string) (bool, error) {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return false, err
+	}
 	var recorded bool
-	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)", name).Scan(&recorded)
+	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND user=?2)", name, user).Scan(&recorded)
 	return recorded, err
 }
 
 func pluginRevision(ctx context.Context, db *sql.Conn, name string) (uint64, uint64, error) {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return 0, 0, err
+	}
 	var revision, settings uint64
-	err := db.QueryRowContext(ctx, "SELECT revision,settings_revision FROM plugins WHERE name=?1", name).Scan(&revision, &settings)
+	err = db.QueryRowContext(ctx, "SELECT revision,settings_revision FROM plugin_user_installations WHERE name=?1 AND user=?2", name, user).Scan(&revision, &settings)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, 0, nil
 	}
@@ -67,17 +83,24 @@ func pluginRevision(ctx context.Context, db *sql.Conn, name string) (uint64, uin
 }
 
 func savePluginInventory(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, installed bool) error {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return err
+	}
 	body, err := encode(info)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, `INSERT INTO plugins(name,revision,settings_revision,installed,body) VALUES(?1,?2,?3,?4,?5)
-ON CONFLICT(name) DO UPDATE SET revision=excluded.revision,settings_revision=excluded.settings_revision,installed=excluded.installed,body=excluded.body`,
-		info.Summary.Name, info.Summary.Revision, info.Summary.SettingsRevision, installed, body)
+	_, err = db.ExecContext(ctx, `INSERT INTO plugin_user_installations(user,name,revision,settings_revision,installed,body) VALUES(?6,?1,?2,?3,?4,?5)
+ON CONFLICT(user,name) DO UPDATE SET revision=excluded.revision,settings_revision=excluded.settings_revision,installed=excluded.installed,body=excluded.body`,
+		info.Summary.Name, info.Summary.Revision, info.Summary.SettingsRevision, installed, body, user)
 	return err
 }
 
 func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, expectedRevision uint64, enabled bool) (protocol.PluginInfo, error) {
+	if err := CheckConfigurationEditable(ctx, db, "plugins", info.Summary.Name); err != nil {
+		return protocol.PluginInfo{}, err
+	}
 	if !plugins.ValidateName(info.Summary.Name) || len(info.Summary.Digest) != 64 {
 		return protocol.PluginInfo{}, invalid("invalid plugin package identity")
 	}
@@ -103,8 +126,12 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	if current != nil {
 		enabled = current.Summary.Enabled
 	}
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return protocol.PluginInfo{}, err
+	}
 	var maximum uint64
-	if err := db.QueryRowContext(ctx, "SELECT COALESCE(MAX(revision),0) FROM plugin_settings WHERE plugin=?1", info.Summary.Name).Scan(&maximum); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT COALESCE(MAX(revision),0) FROM plugin_user_settings WHERE plugin=?1 AND user=?2", info.Summary.Name, user).Scan(&maximum); err != nil {
 		return protocol.PluginInfo{}, err
 	}
 	if maximum > math.MaxInt64 {
@@ -141,7 +168,13 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 // once the package is replaced, disabled or removed. A queued one needs no
 // stop: claiming it checks its package again and cancels it.
 func stopPluginContinuations(ctx context.Context, db *sql.Conn, name string) error {
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_continuations c JOIN agent_runs a ON a.turn=c.turn WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status')='running'", name)
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return err
+	}
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_continuations c JOIN agent_runs a ON a.turn=c.turn
+JOIN turns t ON t.id=a.turn
+WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status')='running' AND coalesce((SELECT user FROM identity_turn_origins o WHERE o.turn=t.id),t.user)=?2`, name, user)
 	if err != nil {
 		return err
 	}
@@ -154,6 +187,9 @@ func stopPluginContinuations(ctx context.Context, db *sql.Conn, name string) err
 }
 
 func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64, enabled bool) (protocol.PluginInfo, error) {
+	if err := CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
+		return protocol.PluginInfo{}, err
+	}
 	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
@@ -184,6 +220,9 @@ func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRe
 }
 
 func RemovePlugin(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64) (protocol.PluginSummary, error) {
+	if err := CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
+		return protocol.PluginSummary{}, err
+	}
 	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginSummary{}, err
@@ -203,7 +242,11 @@ func RemovePlugin(ctx context.Context, db *sql.Conn, name string, expectedRevisi
 	// can reach them once it is gone. A package with declared connectors keeps
 	// its records for a later install.
 	if info.McpSource != nil {
-		if _, err := db.ExecContext(ctx, "DELETE FROM plugin_connections WHERE plugin=?1", name); err != nil {
+		user, err := pluginUserID(ctx, db)
+		if err != nil {
+			return protocol.PluginSummary{}, err
+		}
+		if _, err := db.ExecContext(ctx, "DELETE FROM plugin_connections WHERE plugin=?1 AND user=?2", name, user); err != nil {
 			return protocol.PluginSummary{}, err
 		}
 	}
@@ -226,8 +269,12 @@ func ResolvePluginInfo(ctx context.Context, db *sql.Conn, reference protocol.Plu
 }
 
 func PluginSettingsBody(ctx context.Context, db *sql.Conn, name string, revision uint64) (json.RawMessage, error) {
+	user, err := pluginUserID(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2", name, revision).Scan(&body)
+	err = db.QueryRowContext(ctx, "SELECT body FROM plugin_user_settings WHERE plugin=?1 AND revision=?2 AND user=?3", name, revision, user).Scan(&body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "plugin configuration revision is unavailable")
 	}

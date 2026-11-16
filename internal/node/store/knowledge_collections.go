@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -125,6 +126,13 @@ func requiredKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection does not exist")
 	}
 	stored := entries[index]
+	allowed, err := knowledgeUserAllowed(ctx, db, stored)
+	if err != nil {
+		return KnowledgeStored{}, err
+	}
+	if !allowed {
+		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection is unavailable")
+	}
 	if scope := request.Plugin; scope != nil {
 		if stored.Collection.Owner.Kind != "plugin" || knowledgeOwner(stored.Collection.Owner) != scope.Package.Name {
 			return KnowledgeStored{}, knowledgeDenied("knowledge collection belongs to another owner")
@@ -281,7 +289,24 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 		}
 	}
 	if present && stored.Collection.Owner.Kind == "plugin" {
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1 AND installed=1)", knowledgeOwner(stored.Collection.Owner)).Scan(&present); err != nil {
+		query := "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)"
+		arguments := []any{knowledgeOwner(stored.Collection.Owner)}
+		if !strings.HasPrefix(stored.Capture.Space, "project:") {
+			user, err := CurrentUser(ctx, db)
+			if stored.Capture.User != nil {
+				user, err = ResolveUser(ctx, db, *stored.Capture.User)
+			}
+			if err != nil {
+				return false, err
+			}
+			owner := user.ID
+			if strings.HasPrefix(stored.Capture.Space, "user:") && stored.Capture.User != nil {
+				owner = *stored.Capture.User
+			}
+			query = "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1 AND user=?2)"
+			arguments = append(arguments, owner.String())
+		}
+		if err := db.QueryRowContext(ctx, query, arguments...).Scan(&present); err != nil {
 			return false, err
 		}
 	}

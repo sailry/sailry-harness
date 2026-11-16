@@ -57,7 +57,7 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background
 	go func() {
 		defer r.workers.Done()
 		defer release()
-		ctx := r.ctx
+		ctx := store.WithCapturedUser(store.WithUser(r.ctx, x.inv.User), x.inv.StorageUser)
 		if err := r.preflightChildWorkspace(parent, x, arguments); err != nil {
 			returned <- toolFault(err)
 			return

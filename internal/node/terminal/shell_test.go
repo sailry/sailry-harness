@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -129,7 +130,7 @@ func TestShellCommand(t *testing.T) {
 
 		var reports []protocol.TerminalActivityReport
 		value := &handle{info: protocol.TerminalInfo{Status: protocol.TerminalStatus{Kind: "running"}}}
-		value.service = &Service{changed: func(info protocol.TerminalInfo) { reports = append(reports, *info.Activity) }}
+		value.service = &Service{changed: func(_ context.Context, info protocol.TerminalInfo) { reports = append(reports, *info.Activity) }}
 		value.track([]byte("\x1b]9;4;3\a"))
 		value.track([]byte("still working\x1b]9;4;3\a"))
 		value.track([]byte("\x1b]133;D\a"))

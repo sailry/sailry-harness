@@ -47,7 +47,7 @@ func TestDispatchSessionStartCapture(t *testing.T) {
 					return fmt.Errorf("ordinary session caller created another session: %v", err)
 				}
 				if scenario == "legacy_handler" {
-					if _, err := db.ExecContext(ctx, "UPDATE dispatch_handlers SET reference=json_remove(reference,'$.session_start')"); err != nil {
+					if _, err := db.ExecContext(ctx, "UPDATE dispatch_user_handlers SET reference=json_remove(reference,'$.session_start')"); err != nil {
 						return err
 					}
 				}

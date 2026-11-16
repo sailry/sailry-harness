@@ -52,18 +52,36 @@ func (node *Node) wakeDispatch() {
 func (node *Node) CheckSchedules() { node.wakeDispatch() }
 
 func (node *Node) dispatchTick(ctx context.Context, recovering bool) (dispatcher.Batch, error) {
-	var batch dispatcher.Batch
-	var changes []protocol.Event
+	batch := dispatcher.Batch{Work: []dispatcher.Work{}}
+	changed := false
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		var err error
-		batch, changes, err = store.DispatchTick(ctx, db, node.ID(), node.dispatch.clock.Now().UnixMilli(), recovering)
+		users, err := store.ListUsers(ctx, db)
 		if err != nil {
 			return err
 		}
-		_, err = store.RecordEvents(ctx, db, node.ID(), changes)
-		return err
+		for _, user := range users {
+			if user.State != "active" {
+				continue
+			}
+			owner := store.WithUser(ctx, user)
+			current, events, err := store.DispatchTick(owner, db, node.ID(), node.dispatch.clock.Now().UnixMilli(), recovering)
+			if err != nil {
+				return err
+			}
+			if _, err := store.RecordEvents(owner, db, node.ID(), events); err != nil {
+				return err
+			}
+			changed = changed || len(events) != 0
+			batch.Work = append(batch.Work, current.Work...)
+			batch.Pending = batch.Pending || current.Pending
+			if current.NextMs != nil && (batch.NextMs == nil || *current.NextMs < *batch.NextMs) {
+				next := *current.NextMs
+				batch.NextMs = &next
+			}
+		}
+		return nil
 	})
-	if err == nil && len(changes) != 0 {
+	if err == nil && changed {
 		node.publish()
 	}
 	return batch, err
@@ -71,6 +89,14 @@ func (node *Node) dispatchTick(ctx context.Context, recovering bool) (dispatcher
 
 func (node *Node) finishDispatch(ctx context.Context, job protocol.JobID, result error) error {
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		owner, err := store.DispatchJobContext(ctx, db, job)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		ctx = owner
 		changes, err := store.FinishDispatch(ctx, db, job, result, node.dispatch.clock.Now().UnixMilli())
 		if err != nil {
 			return err
@@ -86,6 +112,10 @@ func (node *Node) finishDispatch(ctx context.Context, job protocol.JobID, result
 }
 
 func (node *Node) executeDispatchCallback(ctx context.Context, work dispatcher.Work) error {
+	if work.User.ID == (protocol.UserID{}) || work.StorageUser == (protocol.UserID{}) {
+		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "scheduled operation has no user capture"}
+	}
+	ctx = store.WithCapturedUser(store.WithUser(ctx, work.User), work.StorageUser)
 	output, err := node.dispatchCallbackResult(ctx, work.Request)
 	if err != nil || work.Completion == protocol.DispatchCompletionCommand {
 		return err
@@ -98,7 +128,7 @@ func (node *Node) executeDispatchCallback(ctx context.Context, work dispatcher.W
 }
 
 func (node *Node) dispatchCallbackResult(ctx context.Context, request protocol.Request) (protocol.Output, error) {
-	accepted, err := node.Dispatch(ctx, node.ID(), request)
+	accepted, err := node.dispatchCaptured(ctx, node.ID(), request)
 	if err != nil {
 		return protocol.Output{}, err
 	}

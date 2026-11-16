@@ -11,7 +11,7 @@ import (
 )
 
 func readWebSearchStored(ctx context.Context, db *sql.Conn) (searchStored, error) {
-	value, err := readBody[searchStored](ctx, db, "SELECT body FROM search_settings WHERE singleton=1")
+	value, err := readPersonalSetting[searchStored](ctx, db, "search")
 	if err != nil {
 		return searchStored{}, err
 	}
@@ -95,7 +95,7 @@ func SaveSearchSettings(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO search_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body); err != nil {
+	if err = writePersonalSetting(ctx, db, "search", body); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	return protocol.Output{Kind: "search_settings", Data: saved.Settings}, []protocol.Event{{Kind: "search_settings_changed", Data: protocol.EventSearchSettingsChangedPayload{Revision: saved.Settings.Revision}}}, nil

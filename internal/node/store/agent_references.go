@@ -62,6 +62,9 @@ func ReadAgentReference(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 		return nil, err
 	}
 	visible := func(target protocol.SessionID) error {
+		if err := CheckSessionAccess(ctx, db, target); err != nil {
+			return err
+		}
 		value, e := ReadSession(ctx, db, target)
 		if e != nil {
 			return e
@@ -248,6 +251,9 @@ func validateAgentReferences(ctx context.Context, db *sql.Conn, session protocol
 			id, _ := dispatchValue[protocol.SessionID](reference.Target.Data)
 			target, err := ReadSession(ctx, db, id)
 			if err != nil {
+				return err
+			}
+			if err := CheckSessionAccess(ctx, db, id); err != nil {
 				return err
 			}
 			if !sameProject(target.Project, session.Project) {

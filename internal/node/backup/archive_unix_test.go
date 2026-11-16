@@ -13,8 +13,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestFreezeRejectsLinkedDatabaseMember(t *testing.T) {
+	t.Parallel()
+	for _, hard := range []bool{false, true} {
+		name := "symbolic"
+		if hard {
+			name = "hard"
+		}
+		t.Run(name, func(t *testing.T) {
+			snapshot, err := NewSnapshot(t.TempDir(), protocol.NodeID{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer snapshot.Close()
+			external := filepath.Join(t.TempDir(), "source")
+			if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err = snapshot.Freeze(t.Context(), "node.turso", func(_ context.Context, target string) error {
+				if err := os.WriteFile(target, []byte("database"), 0o600); err != nil {
+					return err
+				}
+				if hard {
+					return os.Link(external, core.DatabaseFiles(target)[1])
+				}
+				return os.Symlink(external, core.DatabaseFiles(target)[1])
+			})
+			if code(err) != protocol.ErrorCodeInvalidRequest {
+				t.Fatalf("linked database member accepted: %v", err)
+			}
+		})
+	}
+}
 
 // A workspace holds links, special files, files it cannot read and files that
 // are being written. None of them may fail the backup of the databases.

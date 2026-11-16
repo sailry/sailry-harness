@@ -26,26 +26,19 @@ func TestRestoredIntegrity(t *testing.T) {
 	}
 	// An index with entries, emptied below: its table still reads, so only
 	// the integrity check sees that the two disagree.
-	var index string
-	var root, size int64
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		if _, err := db.ExecContext(ctx, "CREATE TABLE restored_fixture(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)"); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO restored_fixture(name) VALUES('one'),('two'),('three')"); err != nil {
-			return err
-		}
-		if err := db.QueryRowContext(ctx, "SELECT name,rootpage FROM sqlite_schema WHERE type='index' AND tbl_name='restored_fixture'").Scan(&index, &root); err != nil {
-			return err
-		}
-		return db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&size)
+		_, err := db.ExecContext(ctx, "INSERT INTO restored_fixture(name) VALUES('one'),('two'),('three')")
+		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.Close(); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(staging, "storage", "node.sqlite")
+	path := filepath.Join(staging, "storage", "node.turso")
 	target := filepath.Join(t.TempDir(), "target")
 
 	// The fixture table is not part of the schema, so a sound copy is
@@ -54,17 +47,35 @@ func TestRestoredIntegrity(t *testing.T) {
 		t.Fatalf("restore of a sound database with a foreign table: %v", err)
 	}
 
-	// Fold the write-ahead log, so the main file holds every page.
+	// MVCC assigns physical index roots at checkpoint. Reopen after folding
+	// the log so both the root number and its pages come from the main file.
 	handle, err := OpenHandle(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer handle.Close()
 	closed, err := handle.Pause(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := errors.Join(closed.Close(), handle.Close()); err != nil {
+	if err := closed.Reopen(ctx); err != nil {
 		t.Fatal(err)
+	}
+	var index string
+	var root, size int64
+	if err := handle.Read(ctx, func(db *sql.Conn) error {
+		if err := db.QueryRowContext(ctx, "SELECT name,rootpage FROM sqlite_schema WHERE type='index' AND tbl_name='restored_fixture'").Scan(&index, &root); err != nil {
+			return err
+		}
+		return db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&size)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := handle.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if root <= 1 {
+		t.Fatalf("checkpointed index %s has no physical root: %d", index, root)
 	}
 	// An empty leaf page in place of the index's root.
 	page := make([]byte, size)

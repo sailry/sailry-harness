@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -30,8 +31,12 @@ func pluginValueRevision(actual, expected uint64) error {
 func readPluginValue(ctx context.Context, db *sql.Conn, name, key string) (protocol.PluginStorageEntry, error) {
 	entry := protocol.DefaultPluginStorageEntry()
 	entry.Key = key
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return entry, err
+	}
 	var value []byte
-	err := db.QueryRowContext(ctx, "SELECT revision,value FROM plugin_values WHERE name=?1 AND key=?2", name, key).Scan(&entry.Revision, &value)
+	err = db.QueryRowContext(ctx, "SELECT revision,value FROM plugin_space_values WHERE name=?1 AND key=?2 AND space=?3", name, key, space).Scan(&entry.Revision, &value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return entry, nil
 	}
@@ -56,9 +61,12 @@ func ReadPluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plugi
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
+	if pluginValueScope(ctx) == protocol.PluginStorageScopeProject && plugins.StorageCollection(info, protocol.PluginStorageScopeProject, key) == nil {
+		return protocol.PluginStorageEntry{}, fault(protocol.ErrorCodePermissionDenied, "plugin project storage is not declared")
+	}
 	entry, err := readPluginValue(ctx, db, reference.Name, key)
 	if err == nil && entry.Present {
-		entry.Value, err = plugins.ProjectStorageValue(plugins.StorageCollection(info, protocol.PluginStorageScopeNode, key), entry.Value)
+		entry.Value, err = plugins.ProjectStorageValue(plugins.StorageCollection(info, pluginValueScope(ctx), key), entry.Value)
 	}
 	return entry, err
 }
@@ -71,6 +79,9 @@ func WritePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plug
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
+	if pluginValueScope(ctx) == protocol.PluginStorageScopeProject && plugins.StorageCollection(info, protocol.PluginStorageScopeProject, key) == nil {
+		return protocol.PluginStorageEntry{}, fault(protocol.ErrorCodePermissionDenied, "plugin project storage is not declared")
+	}
 	current, err := readPluginValue(ctx, db, reference.Name, key)
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
@@ -82,7 +93,7 @@ func WritePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plug
 	if current.Present {
 		previous = current.Value
 	}
-	value, err = plugins.NormalizeStorageValue(plugins.StorageCollection(info, protocol.PluginStorageScopeNode, key), previous, value)
+	value, err = plugins.NormalizeStorageValue(plugins.StorageCollection(info, pluginValueScope(ctx), key), previous, value)
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
@@ -97,10 +108,14 @@ func WritePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plug
 		}
 	}
 	var count, total, old int64
-	if err := db.QueryRowContext(ctx, "SELECT count(*),coalesce(sum(length(value)+coalesce(length(index_data),0)),0) FROM plugin_values WHERE name=?1 AND value IS NOT NULL", reference.Name).Scan(&count, &total); err != nil {
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(coalesce(length(value),0)+coalesce(length(index_data),0)),0) FROM plugin_values WHERE name=?1 AND key=?2", reference.Name, key).Scan(&old); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT count(*),coalesce(sum(length(value)+coalesce(length(index_data),0)),0) FROM plugin_space_values WHERE name=?1 AND space=?2 AND value IS NOT NULL", reference.Name, space).Scan(&count, &total); err != nil {
+		return protocol.PluginStorageEntry{}, err
+	}
+	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(coalesce(length(value),0)+coalesce(length(index_data),0)),0) FROM plugin_space_values WHERE name=?1 AND key=?2 AND space=?3", reference.Name, key, space).Scan(&old); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
 	if !current.Present {
@@ -113,9 +128,9 @@ func WritePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plug
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES(?1,?2,?3,?4,?5)
-ON CONFLICT(name,key) DO UPDATE SET revision=excluded.revision,value=excluded.value,index_data=excluded.index_data`,
-		reference.Name, key, revision, []byte(value), indexData); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO plugin_space_values(space,name,key,revision,value,index_data) VALUES(?6,?1,?2,?3,?4,?5)
+ON CONFLICT(space,name,key) DO UPDATE SET revision=excluded.revision,value=excluded.value,index_data=excluded.index_data`,
+		reference.Name, key, revision, []byte(value), indexData, space); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
 	if err := replacePluginSearch(ctx, db, reference.Name, key, index); err != nil {
@@ -128,8 +143,12 @@ func RemovePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plu
 	if err := pluginKey(key, false); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	if _, err := ResolvePluginInfo(ctx, db, reference); err != nil {
+	info, err := ResolvePluginInfo(ctx, db, reference)
+	if err != nil {
 		return protocol.PluginStorageEntry{}, err
+	}
+	if pluginValueScope(ctx) == protocol.PluginStorageScopeProject && plugins.StorageCollection(info, protocol.PluginStorageScopeProject, key) == nil {
+		return protocol.PluginStorageEntry{}, fault(protocol.ErrorCodePermissionDenied, "plugin project storage is not declared")
 	}
 	current, err := readPluginValue(ctx, db, reference.Name, key)
 	if err != nil {
@@ -145,7 +164,11 @@ func RemovePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plu
 	if err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE plugin_values SET revision=?1,value=NULL,index_data=NULL WHERE name=?2 AND key=?3", revision, reference.Name, key); err != nil {
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return protocol.PluginStorageEntry{}, err
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE plugin_space_values SET revision=?1,value=NULL,index_data=NULL WHERE name=?2 AND key=?3 AND space=?4", revision, reference.Name, key, space); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
 	if err := replacePluginSearch(ctx, db, reference.Name, key, nil); err != nil {
@@ -162,16 +185,26 @@ func ListPluginKeys(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 	if limit == 0 || after != nil && (pluginKey(*after, false) != nil || !strings.HasPrefix(*after, prefix)) {
 		return page, invalid("invalid plugin key page")
 	}
-	if _, err := ResolvePluginInfo(ctx, db, reference); err != nil {
+	info, err := ResolvePluginInfo(ctx, db, reference)
+	if err != nil {
 		return page, err
+	}
+	if pluginValueScope(ctx) == protocol.PluginStorageScopeProject && (info.Extension == nil || info.Extension.Storage == nil || !slices.ContainsFunc(info.Extension.Storage.Collections, func(collection protocol.PluginStorageCollection) bool {
+		return collection.Scope == protocol.PluginStorageScopeProject
+	})) {
+		return page, fault(protocol.ErrorCodePermissionDenied, "plugin project storage is not declared")
 	}
 	cursor := ""
 	if after != nil {
 		cursor = *after
 	}
 	limit = min(limit, 100)
-	rows, err := db.QueryContext(ctx, "SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL AND key>?2 AND substr(key,1,length(?3))=?3 ORDER BY key LIMIT ?4",
-		reference.Name, cursor, prefix, int(limit)+1)
+	space, err := pluginValueSpace(ctx, db)
+	if err != nil {
+		return page, err
+	}
+	rows, err := db.QueryContext(ctx, "SELECT key FROM plugin_space_values WHERE name=?1 AND space=?5 AND value IS NOT NULL AND key>?2 AND substr(key,1,length(?3))=?3 ORDER BY key LIMIT ?4",
+		reference.Name, cursor, prefix, int(limit)+1, space)
 	if err != nil {
 		return page, err
 	}

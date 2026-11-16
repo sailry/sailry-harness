@@ -81,7 +81,7 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 		if ref.Node != node {
 			return fault(protocol.ErrorCodePermissionDenied, "credential references must belong to the execution Node")
 		}
-		stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE json_type(body,?1) IS NOT NULL", `$.authorizations."`+ref.ID.String()+`"`)
+		stored, err := readProviderConfiguration(ctx, db, config.Provider)
 		if err != nil {
 			return err
 		}
@@ -99,7 +99,7 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 			return fault(protocol.ErrorCodePermissionDenied, "credential expired; authenticate again")
 		}
 	}
-	stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", config.Provider.String())
+	stored, err := readProviderConfiguration(ctx, db, config.Provider)
 	if err != nil {
 		return err
 	}
@@ -168,7 +168,15 @@ type providerAuthorization struct {
 func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) {
 	var value protocol.Defaults
 	var body []byte
-	err := db.QueryRowContext(ctx, "SELECT revision,config FROM defaults WHERE singleton=1").Scan(&value.Revision, &body)
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return value, err
+	}
+	if user.Local {
+		err = db.QueryRowContext(ctx, "SELECT revision,config FROM defaults WHERE singleton=1").Scan(&value.Revision, &body)
+	} else {
+		err = db.QueryRowContext(ctx, "SELECT revision,config FROM user_defaults WHERE user=?1", user.ID.String()).Scan(&value.Revision, &body)
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return protocol.DefaultDefaults(), nil
 	}
@@ -180,5 +188,51 @@ func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) 
 		return value, err
 	}
 	value.Config = &config
-	return value, nil
+	value.Source, err = configurationOrigin(ctx, db, "defaults", "default")
+	return value, err
+}
+
+// SaveDefaults replaces only the active user's default session configuration.
+func SaveDefaults(ctx context.Context, db *sql.Conn, node protocol.NodeID, input protocol.Defaults) (protocol.Defaults, error) {
+	if err := CheckConfigurationEditable(ctx, db, "defaults", "default"); err != nil {
+		return protocol.Defaults{}, err
+	}
+	current, err := ReadDefaults(ctx, db)
+	if err != nil {
+		return protocol.Defaults{}, err
+	}
+	if err := checkRevision(current.Revision, input.Revision); err != nil {
+		return protocol.Defaults{}, err
+	}
+	if input.Config == nil {
+		return protocol.Defaults{}, invalid("default session configuration is required")
+	}
+	saved, err := readProviderConfiguration(ctx, db, input.Config.Provider)
+	if err != nil {
+		return protocol.Defaults{}, err
+	}
+	if saved == nil || !saved.Listed || saved.Provider == nil {
+		return protocol.Defaults{}, fault(protocol.ErrorCodeNotFound, "default provider does not exist")
+	}
+	if err := validateConfig(ctx, db, node, *input.Config); err != nil {
+		return protocol.Defaults{}, err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.Defaults{}, err
+	}
+	input.Revision, err = nextRevision(current.Revision)
+	if err != nil {
+		return protocol.Defaults{}, err
+	}
+	body, err := encode(input.Config)
+	if err != nil {
+		return protocol.Defaults{}, err
+	}
+	if user.Local {
+		_, err = db.ExecContext(ctx, "INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", input.Revision, body)
+	} else {
+		_, err = db.ExecContext(ctx, "INSERT INTO user_defaults(user,revision,config) VALUES(?1,?2,?3) ON CONFLICT(user) DO UPDATE SET revision=excluded.revision,config=excluded.config", user.ID.String(), input.Revision, body)
+	}
+	return input, err
 }

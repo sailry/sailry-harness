@@ -43,7 +43,11 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 			return protocol.DispatchHandler{}, invalid("event binding must point to an existing command data field")
 		}
 	}
-	previous, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_handlers WHERE package=?1 AND name=?2", reference.Name, handler.Name)
+	user, userErr := pluginUserID(ctx, db)
+	if userErr != nil {
+		return protocol.DispatchHandler{}, userErr
+	}
+	previous, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", reference.Name, handler.Name, user)
 	if err != nil {
 		return protocol.DispatchHandler{}, err
 	}
@@ -55,7 +59,7 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 		return protocol.DispatchHandler{}, err
 	}
 	if previous == nil {
-		if err := dispatchCapacity(ctx, db, "dispatch_handlers", reference.Name); err != nil {
+		if err := dispatchCapacity(ctx, db, "dispatch_user_handlers", reference.Name); err != nil {
 			return protocol.DispatchHandler{}, err
 		}
 	}
@@ -63,7 +67,7 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 	if err != nil {
 		return protocol.DispatchHandler{}, err
 	}
-	if err := dispatchBudget(ctx, db, "dispatch_handlers", reference.Name, "name", handler.Name, handler); err != nil {
+	if err := dispatchBudget(ctx, db, "dispatch_user_handlers", reference.Name, "name", handler.Name, handler); err != nil {
 		return protocol.DispatchHandler{}, err
 	}
 	body, err := encode(handler)
@@ -75,8 +79,8 @@ func saveDispatchHandler(ctx context.Context, db *sql.Conn, reference protocol.P
 	if err != nil {
 		return protocol.DispatchHandler{}, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(package,name) DO UPDATE SET source=excluded.source,topic=excluded.topic,body=excluded.body,reference=excluded.reference",
-		reference.Name, handler.Name, handler.Source.Package, handler.Source.Topic, body, capture)
+	_, err = db.ExecContext(ctx, "INSERT INTO dispatch_user_handlers(package,name,source,topic,body,reference,user) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(user,package,name) DO UPDATE SET source=excluded.source,topic=excluded.topic,body=excluded.body,reference=excluded.reference",
+		reference.Name, handler.Name, handler.Source.Package, handler.Source.Topic, body, capture, user)
 	return handler, err
 }
 

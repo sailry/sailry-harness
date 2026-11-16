@@ -167,7 +167,18 @@ func (service *Service) sweep(ctx context.Context, watches *watches) error {
 		}
 		found := &failures{generation: generation, epoch: epoch, sources: map[string]failed{}}
 		service.failures[stored.Collection.ID] = found
-		err := service.collection(ctx, stored, choice, installed, watches, previous, found)
+		operation := ctx
+		var err error
+		if service.options.Context != nil {
+			captured, captureErr := service.options.Context(ctx, stored)
+			err = captureErr
+			if err == nil {
+				operation = captured
+			}
+		}
+		if err == nil {
+			err = service.collection(operation, stored, choice, installed, watches, previous, found)
+		}
 		if err == nil {
 			retry = retry || found.retryable()
 			continue
@@ -181,7 +192,7 @@ func (service *Service) sweep(ctx context.Context, watches *watches) error {
 		retry = retry || found.retryable()
 		slog.Warn("knowledge indexing paused", "collection", stored.Collection.ID.String(), "error", message(err))
 		sources, chunks, _ := service.index.Counts(ctx, service.binding(stored, choice))
-		_ = service.options.Progress(ctx, stored.Collection.ID, generation, protocol.KnowledgeProgress{
+		_ = service.options.Progress(operation, stored.Collection.ID, generation, protocol.KnowledgeProgress{
 			Status: protocol.KnowledgeStatusPaused, Sources: sources, Completed: sources, Chunks: chunks,
 			Skipped: stored.Collection.Progress.Skipped, Generation: generation,
 			Failures: []protocol.KnowledgeFailure{{Reason: message(err)}},

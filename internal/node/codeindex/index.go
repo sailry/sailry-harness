@@ -340,8 +340,9 @@ func (i *index) search(ctx context.Context, query *protocol.CodeIndexSearch) (pr
 	if terms != "" {
 		// Scores are materialized before the joins so every filter applies
 		// to the ranked candidates.
-		statement = "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(symbols_fts) AS score FROM symbols_fts WHERE symbols_fts MATCH ?6) SELECT s.body FROM candidates f JOIN symbols s ON s.id=f.id WHERE " + searchFilter + " ORDER BY " + searchOrder + ",f.score DESC,s.path,s.id LIMIT ?4"
-		values = append(values, terms)
+		statement = "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?6) AS score FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,?6)) SELECT s.body FROM candidates f JOIN symbols s ON s.id=f.id WHERE " + searchFilter + " ORDER BY " + searchOrder + ",f.score DESC,s.path,s.id LIMIT ?4"
+		expression := "field0:(" + terms + ") OR field1:(" + terms + ") OR cjk0:(" + terms + ") OR cjk1:(" + terms + ")"
+		values = append(values, expression)
 	}
 	err := i.handle.Read(ctx, func(db *sql.Conn) error {
 		rows, err := db.QueryContext(ctx, statement, values...)

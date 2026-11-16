@@ -76,8 +76,8 @@ if test "$(uname -s)" = Darwin; then
     signing=(--sign "$APPLE_SIGNING_IDENTITY" --timestamp)
     test -z "${APPLE_SIGNING_KEYCHAIN:-}" || signing+=(--keychain "$APPLE_SIGNING_KEYCHAIN")
   fi
-  codesign --force "${signing[@]}" "$stage/host/libsailry_iroh.dylib" "$stage/host/sailry-host"
-  codesign --verify --strict "$stage/host/libsailry_iroh.dylib" "$stage/host/sailry-host"
+  codesign --force "${signing[@]}" "$stage/host/libsailry_iroh.dylib" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
+  codesign --verify --strict "$stage/host/libsailry_iroh.dylib" "$stage/host/libturso_sync_sdk_kit.dylib" "$stage/host/sailry-host"
 fi
 go run ./native/fetch -target "$platform" -host -seal "$stage/host"
 

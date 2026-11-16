@@ -31,6 +31,7 @@ type MemoryTracker struct {
 type memoryScope struct {
 	tracker    *MemoryTracker
 	packageRef protocol.PluginReference
+	user       string
 	kind       string
 }
 
@@ -39,6 +40,7 @@ type memoryContextKey struct{}
 type memoryInstance struct {
 	tracker    *MemoryTracker
 	packageRef protocol.PluginReference
+	user       string
 	kind       string
 	// These fields are protected by tracker.mu. idle takes a Translation's
 	// mutex with TryLock before it reads the engine, never waiting for JS.
@@ -54,11 +56,15 @@ func NewMemoryTracker() *MemoryTracker {
 
 // Context carries the captured package identity to a VM constructor. It
 // changes neither the script's authority nor its cancellation and budgets.
-func (tracker *MemoryTracker) Context(ctx context.Context, pkg protocol.PluginReference, kind string) context.Context {
+func (tracker *MemoryTracker) Context(ctx context.Context, pkg protocol.PluginReference, kind string, users ...string) context.Context {
 	if tracker == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, memoryContextKey{}, memoryScope{tracker: tracker, packageRef: pkg, kind: kind})
+	user := ""
+	if len(users) != 0 {
+		user = users[0]
+	}
+	return context.WithValue(ctx, memoryContextKey{}, memoryScope{tracker: tracker, packageRef: pkg, user: user, kind: kind})
 }
 
 func (runtime *scriptVM) attachMemory() {
@@ -66,7 +72,7 @@ func (runtime *scriptVM) attachMemory() {
 	if !exists {
 		return
 	}
-	entry := &memoryInstance{tracker: scope.tracker, packageRef: scope.packageRef, kind: scope.kind, busy: true}
+	entry := &memoryInstance{tracker: scope.tracker, packageRef: scope.packageRef, user: scope.user, kind: scope.kind, busy: true}
 	scope.tracker.mu.Lock()
 	scope.tracker.instances[entry] = struct{}{}
 	scope.tracker.mu.Unlock()
@@ -133,11 +139,14 @@ func (runtime *scriptVM) detachMemory() {
 // Read renews diagnostic demand and samples idle translations without
 // waiting for executing JavaScript. A busy instance retains its older
 // estimate or nil; a call starting during a walk uses the existing mutex.
-func (tracker *MemoryTracker) Read() *protocol.PluginMemorySnapshot {
+func (tracker *MemoryTracker) Read(users ...string) *protocol.PluginMemorySnapshot {
 	tracker.mu.Lock()
 	tracker.until = tracker.now().Add(memoryLease)
 	idle := make([]func(), 0, len(tracker.instances))
 	for entry := range tracker.instances {
+		if len(users) != 0 && !slices.Contains(users, entry.user) {
+			continue
+		}
 		if entry.idle != nil {
 			idle = append(idle, entry.idle)
 		}
@@ -155,6 +164,9 @@ func (tracker *MemoryTracker) Read() *protocol.PluginMemorySnapshot {
 	}
 	groups := map[key]*protocol.PluginMemorySample{}
 	for entry := range tracker.instances {
+		if len(users) != 0 && !slices.Contains(users, entry.user) {
+			continue
+		}
 		id := key{entry.packageRef, entry.kind}
 		sample := groups[id]
 		if sample == nil {

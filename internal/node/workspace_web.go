@@ -18,44 +18,68 @@ type webOperationKey struct {
 	search  bool
 }
 type workspaceWeb struct {
-	mu     sync.Mutex
-	active map[webOperationKey]context.CancelFunc
-	fetch  *web.Fetcher
-	search *web.Searcher
+	mu      sync.Mutex
+	active  map[webOperationKey]context.CancelFunc
+	fetch   *web.Fetcher
+	search  map[protocol.UserID]*web.Searcher
+	options web.SearchOptions
 }
 
 func (node *Node) initWeb(ctx context.Context, options Options) error {
-	node.web = &workspaceWeb{active: map[webOperationKey]context.CancelFunc{}, fetch: web.NewFetcher(options.Fetch), search: web.NewSearcher(options.Search)}
+	node.web = &workspaceWeb{active: map[webOperationKey]context.CancelFunc{}, fetch: web.NewFetcher(options.Fetch), search: map[protocol.UserID]*web.Searcher{}, options: options.Search}
 	return node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		settings, err := store.ReadSearchSettings(ctx, db)
-		if err == nil {
-			node.web.search.Configure(settings)
+		if err != nil {
+			return err
 		}
-		return err
+		user, err := store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		node.web.searcher(user.ID, settings)
+		return nil
 	})
 }
-func (node *Node) webContext(caller protocol.NodeID, request protocol.Request, search bool) (context.Context, func(), error) {
-	parent := node.ctx
-	finish := func() {}
-	if request.Plugin != nil && request.Plugin.Turn != nil {
-		var ok bool
-		parent, finish, ok = node.agent.BeginOperation(*request.Plugin.Turn)
-		if !ok {
-			return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "web operation turn is no longer running"}
-		}
+
+func (workspace *workspaceWeb) searcher(user protocol.UserID, settings protocol.SearchSettings) *web.Searcher {
+	workspace.mu.Lock()
+	defer workspace.mu.Unlock()
+	searcher := workspace.search[user]
+	if searcher == nil {
+		searcher = web.NewSearcher(workspace.options)
+		workspace.search[user] = searcher
+	}
+	// Driver cooldowns and result caches belong to the configured user.
+	searcher.Configure(settings)
+	return searcher
+}
+
+func (node *Node) webContext(ctx context.Context, caller protocol.NodeID, request protocol.Request, search bool) (context.Context, func(), error) {
+	parent, finish, err := node.beginPluginExecution(ctx, request)
+	if err != nil {
+		return nil, nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
+	stop := context.AfterFunc(node.ctx, cancel)
 	key := webOperationKey{caller, request.ID, search}
 	node.web.mu.Lock()
 	if _, exists := node.web.active[key]; exists {
 		node.web.mu.Unlock()
+		stop()
 		cancel()
 		finish()
 		return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "web request is already running"}
 	}
 	node.web.active[key] = cancel
 	node.web.mu.Unlock()
-	return ctx, func() { cancel(); node.web.mu.Lock(); delete(node.web.active, key); node.web.mu.Unlock(); finish() }, nil
+	return ctx, func() {
+		stop()
+		cancel()
+		node.web.mu.Lock()
+		delete(node.web.active, key)
+		node.web.mu.Unlock()
+		finish()
+	}, nil
 }
 func (node *Node) cancelWeb(caller protocol.NodeID, id protocol.RequestID, search bool) {
 	node.web.mu.Lock()
@@ -76,15 +100,6 @@ func (node *Node) workspaceWebIO(ctx context.Context, caller protocol.NodeID, re
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
 			return store.SaveSearchSettings(ctx, db, request, *input)
 		}
-		effect.after = func() {
-			_ = node.profile.Store.Node.Read(context.WithoutCancel(node.ctx), func(db *sql.Conn) error {
-				value, err := store.ReadSearchSettings(context.WithoutCancel(node.ctx), db)
-				if err == nil {
-					node.web.search.Configure(value)
-				}
-				return err
-			})
-		}
 		return protocol.Output{}, nil
 	case "cancel_web_fetch":
 		id := request.Command.Data.(*protocol.CommandCancelWebFetchPayload).Request
@@ -99,12 +114,12 @@ func (node *Node) workspaceWebIO(ctx context.Context, caller protocol.NodeID, re
 	if request.Command.Kind == "test_search_driver" && !store.SearchSettingsController(request) {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "search driver tests require a controller"}
 	}
-	operation, release, err := node.webContext(caller, request, search)
+	operation, release, err := node.webContext(ctx, caller, request, search)
 	if err != nil {
 		return protocol.Output{}, err
 	}
 	defer release()
-	plan, err := node.searchPlan(operation, request)
+	plan, user, err := node.searchPlan(operation, request)
 	if err != nil {
 		return protocol.Output{}, err
 	}
@@ -129,7 +144,7 @@ func (node *Node) workspaceWebIO(ctx context.Context, caller protocol.NodeID, re
 		input = *request.Command.Data.(*protocol.SearchRequest)
 	}
 	metric, started := node.telemetry.Capture(), time.Now()
-	page, err := node.web.search.SearchFresh(operation, plan, input, fresh)
+	page, err := node.web.searcher(user, plan.Settings).SearchFresh(operation, plan, input, fresh)
 	metric.Record(searchObservation(plan, page, err, time.Since(started)))
 	return protocol.Output{Kind: "search_page", Data: page}, err
 }
@@ -141,13 +156,18 @@ func (node *Node) searchRenderer(plan web.SearchPlan, enabled bool) *web.Rendere
 	}
 	return &web.Renderer{Key: *auth.Key}
 }
-func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web.SearchPlan, error) {
+func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web.SearchPlan, protocol.UserID, error) {
 	var plan web.SearchPlan
+	var user protocol.User
 	var provider protocol.ConversationProvider
 	var selection *protocol.SearchModelConfig
 	var modelErr error
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
+		user, err = store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
 		plan, err = store.ReadWebSearchPlan(ctx, db)
 		if err != nil {
 			return err
@@ -159,7 +179,7 @@ func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web
 		return nil
 	})
 	if err != nil {
-		return plan, err
+		return plan, user.ID, err
 	}
 	plan.Model = func(ctx context.Context, input protocol.SearchRequest) (protocol.SearchPage, error) {
 		if selection == nil {
@@ -185,5 +205,5 @@ func (node *Node) searchPlan(ctx context.Context, request protocol.Request) (web
 		}
 		return node.nativeSearch(ctx, request, binding, turn, input)
 	}
-	return plan, nil
+	return plan, user.ID, nil
 }

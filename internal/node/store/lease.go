@@ -5,10 +5,15 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	turso "turso.tech/database/tursogo"
 )
+
+const conflictRetries = 8
 
 // Read pins the snapshot before invoking its callback exactly once.
 func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) error {
@@ -22,42 +27,112 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 		return err
 	}
 	defer connection.Close()
-	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+	if err := beginRead(ctx, connection); err != nil {
 		return err
 	}
-	rows, err := connection.QueryContext(ctx, "SELECT rootpage FROM sqlite_schema LIMIT 1")
-	if err == nil {
-		for rows.Next() {
-			var rootpage int64
-			if err = rows.Scan(&rootpage); err != nil {
-				break
-			}
-		}
-		err = errors.Join(err, rows.Err(), rows.Close())
-	}
-	if err == nil {
-		err = callback(connection)
-	}
+	err = callback(connection)
 	if err == nil {
 		_, err = connection.ExecContext(ctx, "COMMIT")
 		if err == nil {
 			return nil
 		}
 	}
-	_, cleanup := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
-	if cleanup != nil {
+	return errors.Join(err, rollbackRead(ctx, connection))
+}
+
+func beginRead(ctx context.Context, connection *sql.Conn) error {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := pinRead(ctx, connection)
+		if err == nil {
+			return nil
+		}
+		if cleanup := rollbackRead(ctx, connection); cleanup != nil {
+			return errors.Join(err, cleanup)
+		}
+		if !transactionConflict(err) || attempt >= conflictRetries {
+			return err
+		}
+		// Turso admits a fresh MVCC snapshot on its first table read. A
+		// checkpoint may refuse it, so retry only before invoking the callback
+		// and after ending the failed transaction, as in the Rust store.
+		if err := waitForConflict(ctx, attempt); err != nil {
+			return err
+		}
+	}
+}
+
+func pinRead(ctx context.Context, connection *sql.Conn) error {
+	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+		return err
+	}
+	rows, err := connection.QueryContext(ctx, "SELECT rootpage FROM sqlite_schema LIMIT 1")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var rootpage int64
+		if err = rows.Scan(&rootpage); err != nil {
+			break
+		}
+	}
+	return errors.Join(err, rows.Err(), rows.Close())
+}
+
+func transactionConflict(err error) bool {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		for _, cause := range causes {
+			if !transactionConflict(cause) {
+				return false
+			}
+		}
+		return len(causes) != 0
+	}
+	if errors.Is(err, turso.ErrTursoBusy) {
+		// The SDK also uses Busy for an unfinished statement on this same
+		// connection. Waiting cannot finish that statement.
+		return !strings.Contains(err.Error(), "SQL statements in progress")
+	}
+	// SDK 0.8.3 does not recognize native TURSO_BUSY_SNAPSHOT (6). Match
+	// its two exact messages without making other generic errors retryable.
+	if errors.Is(err, turso.ErrTursoGeneric) {
+		message := strings.TrimPrefix(err.Error(), turso.ErrTursoGeneric.Error()+": ")
+		return message == "database snapshot is stale, rollback and retry the transaction" ||
+			message == "Commit dependency aborted, rollback and retry the whole transaction"
+	}
+	return false
+}
+
+func waitForConflict(ctx context.Context, attempt int) error {
+	delay := time.NewTimer(time.Millisecond << min(attempt, 6))
+	defer delay.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-delay.C:
+		return nil
+	}
+}
+
+func rollbackRead(ctx context.Context, connection *sql.Conn) error {
+	_, err := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+	if err != nil {
 		_ = connection.Raw(func(any) error { return driver.ErrBadConn })
 	}
-	return errors.Join(err, cleanup)
+	return err
 }
 
 // Exclusive drains existing reads and admitted writes and blocks new leases.
 type Exclusive struct {
 	handle *Handle
 	writer *writer
+	mu     sync.Mutex
 	// pinned counts the read transactions that outlive this lease.
-	pinned int64
-	close  sync.Once
+	pinned   int64
+	finished bool
 }
 
 func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
@@ -78,7 +153,12 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 func (exclusive *Exclusive) Connection() *sql.Conn { return exclusive.writer.connection }
 
 func (exclusive *Exclusive) Close() error {
-	exclusive.close.Do(func() { exclusive.handle.leases.Release(allLeases - exclusive.pinned) })
+	exclusive.mu.Lock()
+	defer exclusive.mu.Unlock()
+	if !exclusive.finished {
+		exclusive.finished = true
+		exclusive.handle.leases.Release(allLeases - exclusive.pinned)
+	}
 	return nil
 }
 
@@ -94,28 +174,42 @@ func (handle *Handle) Pause(ctx context.Context) (*Closed, error) {
 	if err != nil {
 		return nil, err
 	}
-	var busy, log, checkpointed int
-	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
-		_ = exclusive.Close()
+	defer exclusive.Close()
+	return exclusive.Pause(ctx)
+}
+
+// Pause checkpoints and closes the database without releasing ownership
+// between a read of its metadata and a copy of its files.
+func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
+	exclusive.mu.Lock()
+	defer exclusive.mu.Unlock()
+	if exclusive.finished {
+		return nil, core.ErrStopped
+	}
+	if exclusive.pinned != 0 {
+		return nil, errors.New("database has pinned read transactions")
+	}
+	rows, err := exclusive.Connection().QueryContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	if err != nil {
 		return nil, err
 	}
-	if busy != 0 {
-		_ = exclusive.Close()
-		return nil, errors.New("database checkpoint is busy")
+	for rows.Next() {
 	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	handle := exclusive.handle
 	handle.mu.Lock()
 	state := handle.state
 	handle.state = nil
 	handle.mu.Unlock()
+	// Closing this lease later must not release the Closed owner's permits.
+	exclusive.finished = true
+	closed := &Closed{handle: handle}
 	if err := state.close(); err != nil {
-		handle.mu.Lock()
-		handle.stopped = true
-		handle.mu.Unlock()
-		_ = exclusive.Close()
-		return nil, err
+		return nil, errors.Join(err, closed.Reopen(context.WithoutCancel(ctx)))
 	}
-	// The Closed owner takes the existing permit without releasing it in between.
-	return &Closed{handle: handle}, nil
+	return closed, nil
 }
 
 func (closed *Closed) Path() string { return closed.handle.path }

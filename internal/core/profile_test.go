@@ -65,8 +65,8 @@ func TestProfileLockExcludes(t *testing.T) {
 				t.Fatalf("private mode: %s", info.Mode())
 			}
 		}
-		path := filepath.Join(profile.Path, "storage", "node.sqlite")
-		want := []string{path, path + "-wal", path + "-shm"}
+		path := filepath.Join(profile.Path, "storage", "node.turso")
+		want := []string{path, filepath.Join(profile.Path, "storage", "node.db-log"), path + "-wal", path + "-tshm"}
 		if got := DatabaseFiles(path); !slices.Equal(got, want) {
 			t.Fatalf("database family: %v", got)
 		}

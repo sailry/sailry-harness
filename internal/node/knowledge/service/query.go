@@ -31,7 +31,7 @@ const (
 	// that every captured grant and source filter applies before the
 	// candidate limit. The grants and filters are evaluated once per source,
 	// not once per matching chunk.
-	keywords = "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(chunks_fts,2,1,2,1) AS score FROM chunks_fts WHERE chunks_fts MATCH ?7), admitted_sources AS MATERIALIZED (SELECT s.id FROM sources s JOIN collections k ON k.id=s.collection " + granted + " WHERE " + sourced + ") SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id JOIN admitted_sources a ON a.id=c.source ORDER BY f.score DESC,c.key LIMIT 100"
+	keywords = "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?7) AS score FROM chunks WHERE fts_match(field0,field1,cjk0,cjk1,?7)), admitted_sources AS MATERIALIZED (SELECT s.id FROM sources s JOIN collections k ON k.id=s.collection " + granted + " WHERE " + sourced + ") SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id JOIN admitted_sources a ON a.id=c.source ORDER BY f.score DESC,c.key LIMIT 100"
 )
 
 func searchCancelled(ctx context.Context) error {
@@ -135,7 +135,8 @@ func (index Index) ranks(ctx context.Context, db *sql.Conn, stamps map[string]st
 	scores := map[string]float32{}
 	var keyword, semantic []string
 	if terms := knowledge.Query(query.Query); terms != "" {
-		rows, err := db.QueryContext(ctx, keywords, grants, tags, path, after, before, choices, terms)
+		expression := "field0:(" + terms + ")^2 OR field1:(" + terms + ") OR cjk0:(" + terms + ")^2 OR cjk1:(" + terms + ")"
+		rows, err := db.QueryContext(ctx, keywords, grants, tags, path, after, before, choices, expression)
 		if err != nil {
 			return nil, "", err
 		}

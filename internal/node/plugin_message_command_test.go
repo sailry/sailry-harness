@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -61,7 +62,26 @@ func testPluginMessageCommandOutputs(t *testing.T) {
 	})
 	t.Run("durable replay precedes live package and session resolution", func(t *testing.T) {
 		node := nodeFixture(t)
-		session := sessionFixture(t, node)
+		caller := protocol.NodeID{93}
+		ctx := t.Context()
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			if err := store.PairLinkPeer(ctx, db, caller, link.DirectionController); err != nil {
+				return err
+			}
+			user, err := store.CallerUser(ctx, db, node.ID(), caller)
+			ctx = store.WithUser(ctx, user)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model = protocol.NewProviderID(), "fixture"
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		created := dispatchFixture(t, node, caller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}))
+		if created.Fault != nil {
+			t.Fatal(created.Fault)
+		}
+		session := created.Output.Data.(protocol.Session)
 		entry := "dev.sailry.platform/host/main.js"
 		source := t.TempDir()
 		for name, content := range map[string]string{
@@ -77,13 +97,13 @@ export async function command(input){const current=await getValue("runs");const 
 				t.Fatal(err)
 			}
 		}
-		info, err := node.plugins.manager.Install(t.Context(), source, "", "message-command-fixture")
+		info, err := node.plugins.manager.Install(ctx, source, "", "message-command-fixture")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			var err error
-			info, err = store.InstallPlugin(t.Context(), db, info, 0, true)
+			info, err = store.InstallPlugin(ctx, db, info, 0, true)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -93,7 +113,7 @@ export async function command(input){const current=await getValue("runs");const 
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
 			Session: session.ID, ExpectedRevision: session.Revision, Message: message,
 		}})
-		first := dispatchFixture(t, node, node.ID(), request)
+		first := dispatchFixture(t, node, caller, request)
 		if first.Fault != nil || first.Output.Kind != "plugin_result" {
 			t.Fatalf("slash command did not run without a model provider: %#v", first)
 		}
@@ -111,26 +131,28 @@ export async function command(input){const current=await getValue("runs");const 
 		}
 		replay := func(label string) {
 			t.Helper()
-			repeated := dispatchFixture(t, node, node.ID(), request)
+			repeated := dispatchFixture(t, node, caller, request)
 			encoded, err := json.Marshal(repeated.Output.Data)
 			if err != nil || repeated.Fault != nil || repeated.Output.Kind != "plugin_result" || string(encoded) != string(body) {
 				t.Fatalf("%s lost original durable result: %#v %v", label, repeated, err)
 			}
 		}
-		commandFixture(t, node, protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{
+		if result := dispatchFixture(t, node, caller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{
 			Session: session.ID, ExpectedRevision: session.Revision, Title: "Changed after command",
-		}})
+		}})); result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
 		replay("changed session revision")
 		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
 			var err error
-			info, err = store.SetPluginEnabled(t.Context(), db, info.Summary.Name, info.Summary.Revision, false)
+			info, err = store.SetPluginEnabled(ctx, db, info.Summary.Name, info.Summary.Revision, false)
 			return err
 		}); err != nil {
 			t.Fatal(err)
 		}
 		replay("disabled package")
 		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-			_, err := store.RemovePlugin(t.Context(), db, info.Summary.Name, info.Summary.Revision)
+			_, err := store.RemovePlugin(ctx, db, info.Summary.Name, info.Summary.Revision)
 			return err
 		}); err != nil {
 			t.Fatal(err)
@@ -139,12 +161,12 @@ export async function command(input){const current=await getValue("runs");const 
 		changed := request
 		message.Text = "/fixture changed"
 		changed.Command.Data = protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: message}
-		if _, err := node.Dispatch(t.Context(), node.ID(), changed); !pluginMessageFault(err, protocol.ErrorCodeConflict) {
+		if _, err := node.Dispatch(t.Context(), caller, changed); !pluginMessageFault(err, protocol.ErrorCodeConflict) {
 			t.Fatalf("same identifier accepted another request body: %v", err)
 		}
 		var count int
 		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
-			value, err := store.ReadPluginValue(t.Context(), db, plugins.PackageReference(info), "runs")
+			value, err := store.ReadPluginValue(ctx, db, plugins.PackageReference(info), "runs")
 			if err != nil {
 				return err
 			}
@@ -159,12 +181,12 @@ export async function command(input){const current=await getValue("runs");const 
 			t.Fatal(err)
 		}
 		if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-			_, err := admission.Admit(t.Context(), db, node.ID(), pending, pendingBody)
+			_, err := admission.Admit(ctx, db, caller, pending, pendingBody)
 			return err
 		}); err != nil {
 			t.Fatal(err)
 		}
-		unsettled := dispatchFixture(t, node, node.ID(), pending)
+		unsettled := dispatchFixture(t, node, caller, pending)
 		if unsettled.Fault == nil || unsettled.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
 			t.Fatalf("admitted command was rerouted after package removal: %#v", unsettled)
 		}

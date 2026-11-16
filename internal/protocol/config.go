@@ -191,8 +191,9 @@ func (value SessionConfig) MarshalJSON() ([]byte, error) {
 }
 
 type Defaults struct {
-	Revision uint64         `json:"revision"`
-	Config   *SessionConfig `json:"config"`
+	Source   *ConfigurationOrigin `json:"source,omitempty"`
+	Revision uint64               `json:"revision"`
+	Config   *SessionConfig       `json:"config"`
 }
 
 func DefaultDefaults() Defaults {

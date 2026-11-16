@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,12 +16,124 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/backup"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
 
 const backupFixturePassphrase = "correct horse battery"
+
+type cancelBackupCopy struct {
+	context.Context
+	target string
+	cancel context.CancelFunc
+}
+
+func (ctx cancelBackupCopy) Err() error {
+	if _, err := os.Stat(ctx.target); err == nil {
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
+func TestFreezeBackupReopensAfterFailure(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		existing string
+	}{
+		{"main copy fails", "node.turso"},
+		{"knowledge copy fails", "knowledge.turso"},
+		{"cancel while copying", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			profile := t.TempDir()
+			if err := core.PrivateDirectory(filepath.Join(profile, "storage")); err != nil {
+				t.Fatal(err)
+			}
+			var handles []*store.Handle
+			var exclusive []*store.Exclusive
+			for _, name := range []string{"node.turso", "knowledge.turso"} {
+				handle, err := store.OpenHandle(ctx, filepath.Join(profile, "storage", name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer handle.Close()
+				if err := handle.Write(ctx, func(connection *sql.Conn) error {
+					_, err := connection.ExecContext(ctx, "CREATE TABLE fixture(value INTEGER)")
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+				lease, err := handle.Exclusive(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lease.Close()
+				handles, exclusive = append(handles, handle), append(exclusive, lease)
+			}
+			snapshot, err := backup.NewSnapshot(profile, protocol.NodeID{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer snapshot.Close()
+			copyContext := ctx
+			if test.existing != "" {
+				// A conflicting destination fails after both source handles close.
+				if err := os.WriteFile(filepath.Join(snapshot.Directory, "storage", test.existing), []byte("existing"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				cancelled, cancel := context.WithCancel(ctx)
+				defer cancel()
+				// The first copy read cancels after its target is created, when
+				// both source databases are already closed.
+				copyContext = cancelBackupCopy{cancelled, filepath.Join(snapshot.Directory, "storage", "node.turso"), cancel}
+			}
+			err = freezeBackup(copyContext, snapshot, exclusive[0], exclusive[1])
+			if err == nil {
+				t.Fatal("copy finished despite its injected failure")
+			}
+			if test.existing == "" {
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeCancelled {
+					t.Fatalf("cancelled backup = %v", err)
+				}
+			}
+			for _, handle := range handles {
+				if err := handle.Write(ctx, func(connection *sql.Conn) error {
+					_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(1)")
+					return err
+				}); err != nil {
+					t.Fatalf("database did not resume after failed backup: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCaptureBackupRevisionFailureReleasesLeases(t *testing.T) {
+	t.Parallel()
+	node := backupFixtureNode(t, filepath.Join(t.TempDir(), "profile"), nil)
+	settings := backupFixtureConfigure(t, node, filepath.Join(t.TempDir(), "backups"))
+	_, packed, err := node.captureBackup(t.Context(), settings.Revision+1)
+	var fault *protocol.Fault
+	if packed != nil || !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("stale backup revision = %v, %v", packed, err)
+	}
+	for _, handle := range []*store.Handle{node.profile.Store.Node, node.profile.Store.Knowledge} {
+		if err := handle.Read(t.Context(), func(connection *sql.Conn) error {
+			var value int
+			return connection.QueryRowContext(t.Context(), "SELECT 1").Scan(&value)
+		}); err != nil {
+			t.Fatalf("database lease leaked after stale backup revision: %v", err)
+		}
+	}
+}
 
 func backupFixtureNode(t *testing.T, path string, clock clockwork.Clock) *Node {
 	t.Helper()
@@ -336,7 +449,7 @@ func TestRestoreIntoEmptyProfile(t *testing.T) {
 	if output.Target != target || output.Record.Node != node.ID() || output.Record.SizeBytes != download.Size || output.Record.Files != download.Record.Files {
 		t.Fatalf("restored = %#v", output)
 	}
-	for _, name := range []string{"link.key", filepath.Join("storage", "node.sqlite")} {
+	for _, name := range []string{"link.key", filepath.Join("storage", "node.turso")} {
 		info, err := os.Stat(filepath.Join(target, name))
 		if err != nil || !info.Mode().IsRegular() {
 			t.Fatalf("%s: %v", name, err)
@@ -374,7 +487,7 @@ func TestScheduleNextRun(t *testing.T) {
 		t.Helper()
 		var due sql.NullInt64
 		if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
-			return db.QueryRowContext(t.Context(), "SELECT next_ms FROM dispatch_schedules WHERE package='' AND id='40ca706e-25c1-45ca-bacf-61ee028fb608'").Scan(&due)
+			return db.QueryRowContext(t.Context(), "SELECT next_ms FROM dispatch_user_schedules WHERE package='' AND id='40ca706e-25c1-45ca-bacf-61ee028fb608'").Scan(&due)
 		}); err != nil {
 			t.Fatal(err)
 		}

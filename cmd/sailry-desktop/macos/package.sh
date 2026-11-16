@@ -5,7 +5,7 @@
 #
 #   cmd/sailry-desktop/macos/package.sh [-artifacts <dir>]
 #
-# -artifacts is the CI native job's directory of iroh and capture libraries;
+# -artifacts is the CI native job's directory of iroh, Turso and capture libraries;
 # without it the libraries already built in .runtime/native are used.
 #
 # .runtime/package/out/darwin-<arch> receives Sailry.app, the disk image

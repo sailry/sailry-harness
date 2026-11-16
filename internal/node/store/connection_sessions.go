@@ -58,7 +58,7 @@ func connectionSharing(ctx context.Context, db *sql.Conn, resource protocol.Conn
 		}
 	case "ssh":
 		if id, valid := dispatchValue[protocol.SshID](resource.Data); valid {
-			profile, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", id.String())
+			profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", id.String())
 			if err != nil || profile == nil {
 				return nil, false, err
 			}
@@ -116,7 +116,11 @@ func connectionWorkspace(ctx context.Context, db *sql.Conn, profile string, reso
 	if !errors.Is(err, sql.ErrNoRows) {
 		return protocol.WorktreeID{}, err
 	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.WorktreeID{}, err
+	}
 	id := protocol.NewWorktreeID()
-	_, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,NULL,?2,0)", id.String(), root)
+	_, err = db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main,owner) VALUES(?1,NULL,?2,0,?3)", id.String(), root, user.ID.String())
 	return id, err
 }

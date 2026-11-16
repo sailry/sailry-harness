@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type Status = viewmodel.Status
@@ -100,6 +101,7 @@ func Load() *Data {
 	simulation(big).queued = 2
 	big.Commands, big.Badges = background(), []composer.StatusBadge{goal()}
 	for _, p := range d.Projects {
+		p.Visibility = protocol.ProjectVisibilityPrivate
 		p.Host = "local"
 		p.Worktrees = []Worktree{{Branch: p.Branch, Path: p.Path, Main: true}}
 	}

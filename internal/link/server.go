@@ -154,6 +154,9 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is no longer paired"})
 	}
 	if envelope.Call.Kind != wire.CallInspect {
+		if !link.Direction(peer).AllowsInbound() {
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer cannot call this execution service"})
+		}
 		host := uint16(protocol.VERSION)
 		if err := checkCompatibility(envelope.Protocol, envelope.SoftwareVersion, &host, &link.softwareVersion); err != nil {
 			return link.reject(ctx, stream, faultValue(err))
@@ -263,7 +266,7 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 				}
 				break
 			}
-			if !link.isTrusted(peer) {
+			if !link.Direction(peer).AllowsInbound() {
 				return nil
 			}
 			if err := link.writeReply(ctx, stream, wire.Reply{Kind: wire.ReplyUpdate, Update: &update}, compressed); err != nil {

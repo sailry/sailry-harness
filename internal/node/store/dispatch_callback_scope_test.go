@@ -48,7 +48,7 @@ func TestDispatchCallbackScope(t *testing.T) {
 				var handlers []protocol.DispatchHandler
 				if err := f.storage.Node.Read(ctx, func(db *sql.Conn) error {
 					var err error
-					handlers, err = dispatchList[protocol.DispatchHandler](ctx, db, "dispatch_handlers", f.scope.Package.Name)
+					handlers, err = dispatchList[protocol.DispatchHandler](ctx, db, "dispatch_user_handlers", f.scope.Package.Name)
 					return err
 				}); err != nil {
 					t.Fatal(err)
@@ -236,7 +236,7 @@ func newDispatchScopeFixture(t *testing.T) dispatchScopeFixture {
 		if err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,installed,body) VALUES(?1,1,1,?2)", f.scope.Package.Name, body); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_user_installations(user,name,revision,installed,body) VALUES((SELECT id FROM users WHERE local=1),?1,1,1,?2)", f.scope.Package.Name, body); err != nil {
 			return err
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_packages(name,digest,body) VALUES(?1,?2,?3)", f.scope.Package.Name, f.scope.Package.Digest, body); err != nil {

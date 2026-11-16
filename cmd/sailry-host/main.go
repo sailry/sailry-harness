@@ -43,8 +43,14 @@ func run(args []string) (int, error) {
 	if len(args) > 0 && args[0] == "acceptance-cleanup" {
 		return runAcceptance(ctx, append([]string{"--cleanup"}, args[1:]...), os.Stdout)
 	}
+	if len(args) > 0 && args[0] == "follow" {
+		return 0, hostctl.RunFollow(ctx, args[1:], os.Stdout)
+	}
 	if len(args) > 0 && args[0] == "share" {
 		return 0, hostctl.RunShare(ctx, args[1:], os.Stdout, os.Stderr)
+	}
+	if len(args) > 0 && (args[0] == "users" || args[0] == "devices") {
+		return hostctl.RunIdentity(ctx, args, os.Stdout)
 	}
 	if len(args) > 0 && (args[0] == "submit" || args[0] == "wait") {
 		options, help, err := hostctl.ParseTask(args, os.Stdin)
@@ -70,6 +76,7 @@ func run(args []string) (int, error) {
 		defer closeLogs()
 	}
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
+		Headless:    true,
 		MCP:         &mcp.Options{Warm: true},
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},

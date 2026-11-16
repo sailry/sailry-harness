@@ -181,11 +181,16 @@ func RecordBackupOutcome(ctx context.Context, db *sql.Conn, outcome protocol.Bac
 
 // configureBackupDispatch registers the one controller-only scheduled command.
 func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protocol.BackupSettings, timestamp int64) error {
+	local, userErr := LocalUser(ctx, db)
+	if userErr != nil {
+		return userErr
+	}
+	ctx = WithCapturedUser(WithUser(ctx, local), local.ID)
 	id, err := protocol.ParseScheduleID(backupSchedule)
 	if err != nil {
 		return err
 	}
-	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2", dispatchNativeOwner, backupSchedule)
+	previous, err := readBody[protocol.DispatchSchedule](ctx, db, "SELECT body FROM dispatch_user_schedules WHERE package=?1 AND id=?2 AND user=?3", dispatchNativeOwner, backupSchedule, local.ID.String())
 	if err != nil {
 		return err
 	}
@@ -211,7 +216,7 @@ func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protoco
 			Command: &protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: settings.Revision}},
 		},
 	}
-	registered, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_handlers WHERE package=?1 AND name=?2", dispatchNativeOwner, backupHandler)
+	registered, err := readBody[protocol.DispatchHandler](ctx, db, "SELECT body FROM dispatch_user_handlers WHERE package=?1 AND name=?2 AND user=?3", dispatchNativeOwner, backupHandler, local.ID.String())
 	if err != nil {
 		return err
 	}
@@ -226,8 +231,8 @@ func configureBackupDispatch(ctx context.Context, db *sql.Conn, settings protoco
 	if err != nil {
 		return err
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_handlers(package,name,source,topic,body,reference) VALUES(?1,?2,?1,?2,?3,?4) ON CONFLICT(package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference",
-		dispatchNativeOwner, backupHandler, body, []byte("null")); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_user_handlers(package,name,source,topic,body,reference,user) VALUES(?1,?2,?1,?2,?3,?4,?5) ON CONFLICT(user,package,name) DO UPDATE SET body=excluded.body,reference=excluded.reference",
+		dispatchNativeOwner, backupHandler, body, []byte("null"), local.ID.String()); err != nil {
 		return err
 	}
 	if err := cancelDispatchPending(ctx, db, dispatchNativeOwner, backupHandler, timestamp); err != nil {
@@ -298,9 +303,8 @@ func PrepareBackup(ctx context.Context, db *sql.Conn, profile string, command pr
 	return err
 }
 
-// BackupSource reads the plan and the profile-relative content roots of one
-// snapshot, on the connection that pins the state the database copy is made
-// from.
+// BackupSource reads the plan and profile-relative content roots while the
+// caller holds exclusive ownership through the database copy.
 func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, revision uint64) (backup.Plan, []string, error) {
 	var identity []byte
 	if err := db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
@@ -362,29 +366,4 @@ func backupStrings(ctx context.Context, db *sql.Conn, query string) ([]string, e
 		values = append(values, value)
 	}
 	return values, errors.Join(err, rows.Err(), rows.Close())
-}
-
-// Pause checkpoints and closes the database while keeping the exclusive
-// lease, so nothing is admitted between the source read and the file copy.
-func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
-	handle := exclusive.handle
-	var busy, log, checkpointed int
-	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
-		return nil, err
-	}
-	if busy != 0 {
-		return nil, errors.New("database checkpoint is busy")
-	}
-	handle.mu.Lock()
-	state := handle.state
-	handle.state = nil
-	handle.mu.Unlock()
-	closed := &Closed{handle: handle}
-	// The Closed owner takes the existing permit without releasing it in between.
-	exclusive.close.Do(func() {})
-	if err := state.close(); err != nil {
-		_ = closed.Close()
-		return nil, err
-	}
-	return closed, nil
 }

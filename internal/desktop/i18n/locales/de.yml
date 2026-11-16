@@ -340,6 +340,9 @@ project_remove_named: Projekt „%{name}“ entfernen? Seine Terminals werden ge
 project_remove_preview: Vorschaudatensatz entfernen
 project_name: Name des Projekts
 project_host: Host
+project_visibility: Visibility
+project_visibility_private: Private
+project_visibility_shared: Host shared
 project_path: Projektpfad
 project_destination: Ziel
 project_repository: Repository
@@ -821,6 +824,11 @@ connection_route_relay: Relay
 connections_device: Gerät %{id}
 connections_hosts: Hosts
 connections_mobile: Mobil
+connections_bidirectional: Bidirectional
+connections_legacy_bidirectional: Legacy bidirectional
+connections_only_host: Host only
+connections_only_controller: Controller only
+connections_direction_saved: Device access updated
 connections_offline: Offline
 connections_online: Online
 connections_revoke_confirm: Das Entfernen der Kopplung erfordert eine Neuverbindung
@@ -886,6 +894,9 @@ model_library_selected: Ausgewählt
 model_library_source: Quelle
 pairing_connect: Verbinden Sie Gerät
 pairing_local_code: Lokaler Pairingcode
+pairing_invitation_kind: Invite
+pairing_my_device: My device
+pairing_other_user: Other user
 pairing_pin_hint: 6-stelligen Pairing-Code eingeben
 pairing_preview_disabled: UI-Vorschau verbindet keine echten Geräte; starten Sie mit --data-dir, um zu paaren
 pairing_relay_address: Adresse von iroh
@@ -2338,3 +2349,21 @@ meter_tokens: Tokens
 meter_speed: Tempo
 meter_show_details: Details anzeigen
 meter_hide_details: Weniger anzeigen
+configuration_follow_title: Configuration sync
+configuration_follow_loading: Reading sync status
+configuration_follow_controller: Controller
+configuration_follow_description: Edit on the controller. Each controller has its own configuration on this host.
+configuration_follow_this_device: This device's configuration
+configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
+configuration_follow_waiting: Waiting for controller configuration
+configuration_follow_unavailable: Could not read sync status
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatic sync
+configuration_follow_issues: Needs attention
+configuration_follow_authorize: Authorize
+configuration_follow_missing_key: API key is missing; check the controller configuration.
+configuration_follow_from_source: From controller
+configuration_follow_requested: Sync requested
+configuration_follow_failed: Configuration sync failed
+configuration_follow_conflict: Configuration changed; retry sync
+configuration_follow_unknown: Sync request is unconfirmed; retry to check its status

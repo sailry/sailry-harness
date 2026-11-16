@@ -142,6 +142,13 @@ func ReadSessions(ctx context.Context, db *sql.Conn) ([]protocol.Session, error)
 	}
 	values := make([]protocol.Session, 0, len(ids))
 	for _, id := range ids {
+		if err := CheckSessionAccess(ctx, db, id); err != nil {
+			var denied *protocol.Fault
+			if errors.As(err, &denied) && denied.Code == protocol.ErrorCodePermissionDenied {
+				continue
+			}
+			return nil, err
+		}
 		value, err := ReadSession(ctx, db, id)
 		if err != nil {
 			return nil, err
@@ -286,7 +293,14 @@ func createProfiledSession(ctx context.Context, db *sql.Conn, node protocol.Node
 	if input.Project != nil {
 		project = input.Project.String()
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO sessions(rowid,id,project,worktree,revision) VALUES(?1,?2,?3,?4,1)", value.CreationOrder, value.ID.String(), project, value.Worktree.String()); err != nil {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO sessions(rowid,id,project,worktree,revision,owner) VALUES(?1,?2,?3,?4,1,?5)", value.CreationOrder, value.ID.String(), project, value.Worktree.String(), user.ID.String()); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if err := captureWorktreeUser(ctx, db, value.Worktree, user.ID); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	if err := insertSessionRevision(ctx, db, value); err != nil {
@@ -535,7 +549,11 @@ func reorderSessions(ctx context.Context, db *sql.Conn, input protocol.CommandSe
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeRevisionConflict, "session order changed")
 	}
 	if slices.Equal(current, input.Sessions) {
-		return protocol.Output{Kind: "session_order", Data: order}, nil, nil
+		visible, err := accessibleSessionOrder(ctx, db, order)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		return protocol.Output{Kind: "session_order", Data: visible}, nil, nil
 	}
 	index := 0
 	for position, id := range order {
@@ -544,5 +562,9 @@ func reorderSessions(ctx context.Context, db *sql.Conn, input protocol.CommandSe
 			index++
 		}
 	}
-	return protocol.Output{Kind: "session_order", Data: order}, []protocol.Event{{Kind: "sessions_reordered", Data: order}}, nil
+	visible, err := accessibleSessionOrder(ctx, db, order)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	return protocol.Output{Kind: "session_order", Data: visible}, []protocol.Event{{Kind: "sessions_reordered", Data: order}}, nil
 }

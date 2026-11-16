@@ -38,11 +38,15 @@ done < "$task_scratch/modules.tsv" > "$task_scratch/collected.tsv"
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name:.[0],version:.[1],notices:(.[2] == "true")})' \
   "$task_scratch/collected.tsv" > "$task_output/go-modules.json"
 
-# Rust crates linked into the iroh library, read with its pinned toolchain.
-(cd "$task_root/native/iroh" && cargo metadata --locked --format-version 1 --filter-platform "$task_target") \
-  > "$task_scratch/metadata.json"
-jq --arg package sailry-iroh -f "$task_root/internal/node/host/deployment/dependencies.jq" \
-  "$task_scratch/metadata.json" > "$task_scratch/packages.json"
+# Rust crates linked into the native libraries, read with their pinned toolchains.
+for task_native in iroh turso; do
+  (cd "$task_root/native/$task_native" && cargo metadata --locked --format-version 1 --filter-platform "$task_target") \
+    > "$task_scratch/$task_native-metadata.json"
+  jq --arg package "sailry-$task_native" -f "$task_root/internal/node/host/deployment/dependencies.jq" \
+    "$task_scratch/$task_native-metadata.json" > "$task_scratch/$task_native-packages.json"
+done
+jq -s 'add | unique_by(.id) | sort_by(.name, .version)' \
+  "$task_scratch/iroh-packages.json" "$task_scratch/turso-packages.json" > "$task_scratch/packages.json"
 jq --arg root "$task_root/" 'map({name,version,license,repository,
   source:(.source // (.manifest_path | ltrimstr($root) | sub("/Cargo.toml$";"")))})' \
   "$task_scratch/packages.json" > "$task_output/dependencies.json"
@@ -82,6 +86,9 @@ done < <(jq -r '.[] | [.name,.version,.manifest_path,(.license_file // "")] | @t
 mkdir "$task_output/source-notices"
 cp "$task_root"/native/*-LICENSE "$task_root"/native/*.lock.json \
   "$task_root/internal/localmodels/decision/llama-runtime.lock.json" "$task_output/source-notices/"
+cp "$task_root/native/turso/LICENSE-Turso" "$task_output/source-notices/turso-LICENSE"
+cp "$task_root/native/turso/SOURCE" "$task_output/source-notices/turso-SOURCE"
+cp "$task_root/native/turso/Cargo.lock" "$task_output/source-notices/turso-Cargo.lock"
 jq '[.[] | select(.license == null)] | map({name,version,source})' \
   "$task_output/dependencies.json" > "$task_output/undeclared.json"
 printf 'Collected %s crate and %s module declarations for %s\n' \

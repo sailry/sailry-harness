@@ -17,13 +17,17 @@ import (
 // pre-upgrade database copy, which the restored profile retains.
 func PrepareRestored(ctx context.Context, staging string, node protocol.NodeID, original, target string) ([]string, error) {
 	storage := filepath.Join(staging, "storage")
-	handle, err := OpenHandle(ctx, filepath.Join(storage, "node.sqlite"))
+	path, err := nodeDatabasePath(ctx, storage)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := OpenHandle(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	err = prepareRestored(ctx, handle, node, original, target)
 	if err == nil {
-		// The checkpoint leaves the family complete in its main file.
+		// Close the native database family before publishing the restore.
 		var closed *Closed
 		if closed, err = handle.Pause(ctx); err == nil {
 			err = closed.Close()
@@ -32,7 +36,7 @@ func PrepareRestored(ctx context.Context, staging string, node protocol.NodeID, 
 	if err = errors.Join(err, handle.Close()); err != nil {
 		return nil, err
 	}
-	if err := checkRestoredKnowledge(ctx, filepath.Join(storage, "knowledge.sqlite")); err != nil {
+	if err := checkRestoredKnowledge(ctx, filepath.Join(storage, "knowledge.turso")); err != nil {
 		return nil, err
 	}
 	var retained []string

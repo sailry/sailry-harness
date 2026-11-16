@@ -169,7 +169,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		// A forwarded session runs on the provider its source Node captured.
 		selectedProvider = &session.Profile.Provider
 	} else {
-		config, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+		config, err := readProviderConfiguration(ctx, db, session.Config.Provider)
 		if err != nil {
 			return value, err
 		}
@@ -202,7 +202,14 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)", value.ID.String(), session.ID.String(), session.Revision, request.ID.String(), caller[:], string(kind), plugins, roles, seq); err != nil {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return value, err
+	}
+	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid,user) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", value.ID.String(), session.ID.String(), session.Revision, request.ID.String(), caller[:], string(kind), plugins, roles, seq, user.ID.String()); err != nil {
+		return value, err
+	}
+	if err = retainTurnOrigin(ctx, db, value.ID); err != nil {
 		return value, err
 	}
 	run := protocol.DefaultConversationRun()
@@ -297,6 +304,15 @@ func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocati
 	}
 }
 func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now time.Time) (*AgentInvocation, []protocol.Event, error) {
+	origin, err := OriginalTurnUser(ctx, db, turn)
+	if err != nil {
+		return nil, nil, err
+	}
+	user, err := ResolveUser(ctx, db, origin.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	ctx = WithCapturedUser(WithUser(ctx, user), origin.ID)
 	initial, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
 		return nil, nil, err
@@ -326,6 +342,7 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	session.Worktree = run.Worktree
 	session.Roles = queued.Turn.Roles
 	inv := &AgentInvocation{Session: session, Run: run, Turn: queued.Turn, Message: queued.Message, Instructions: []AgentInstruction{}}
+	inv.User, inv.StorageUser = user, origin.ID
 	if err = captureAssistant(ctx, db, inv); err != nil {
 		return nil, nil, err
 	}
@@ -398,7 +415,13 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 		ref = inv.Provider.Credential
 	}
 	if ref != nil {
-		stored, e := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", session.Config.Provider.String())
+		var stored *providerConfiguration
+		var e error
+		if inv.Provider != nil {
+			stored, e = capturedProviderConfiguration(ctx, db, *inv.Provider)
+		} else {
+			stored, e = readProviderConfiguration(ctx, db, session.Config.Provider)
+		}
 		if e != nil {
 			return nil, nil, e
 		}

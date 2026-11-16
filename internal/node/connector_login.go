@@ -210,7 +210,7 @@ func (node *Node) runConnectorLogin(ctx context.Context, capture *store.Connecto
 			}
 			returned = callback
 		}
-		operation := node.plugins.memory.Context(ctx, capture.Attempt.Package, "callback")
+		operation := node.plugins.memory.Context(ctx, capture.Attempt.Package, "callback", pluginMemoryUser(ctx))
 		result, err := authorization.Run(operation, authorization.Input{Declaration: declaration, Fields: fields, Redirect: redirect, Callback: returned, Bundle: bundle, HostID: node.auth.host, Progress: progress})
 		return result.Issued, err
 	}

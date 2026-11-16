@@ -36,8 +36,8 @@ var settleRetry = time.Second
 // did. The last two are final; nothing changes such a row except Prune, and
 // Resolve for a request that another Node holds too.
 
-// CredentialBody is the ledger identity of a request that carries a secret:
-// its digest, so replay is exact and the secret is never retained.
+// CredentialBody is the ledger identity of a new request that carries a secret:
+// its digest, so replay is exact and the secret is not added to the ledger.
 func CredentialBody(body []byte) []byte {
 	hash := blake3.Sum256(body)
 	return []byte(credentialPrefix + hex.EncodeToString(hash[:]))
@@ -55,7 +55,7 @@ func DigestOnly(kind string) bool {
 		"save_plugin_settings", "save_plugin_mcp", "install_mcp",
 		"start_connector_login", "submit_connector_input", "update_connection",
 		"save_backup_settings", "restore_backup", "restore_backup_file",
-		"dispatch", "plugin_transaction":
+		"dispatch", "plugin_transaction", "configuration_follow":
 		return true
 	default:
 		return false
@@ -76,7 +76,7 @@ func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request pr
 	if err != nil || previous != nil {
 		return previous, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,at) VALUES(?1,?2,?3,'admitted',?4)", caller[:], request.ID.String(), Body(request.Command, encoded), time.Now().Unix())
+	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,at,scope) VALUES(?1,?2,?3,'admitted',?4,?5)", caller[:], request.ID.String(), Body(request.Command, encoded), time.Now().Unix(), scopeBody(ctx, request))
 	return nil, err
 }
 
@@ -91,7 +91,9 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 	var result sql.NullString
 	err := db.QueryRowContext(ctx, "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2", caller[:], request.ID.String()).Scan(&previous, &status, &result)
 	if err == nil {
-		if !bytes.Equal(previous, body) {
+		// Older versions retained the exact serialized request. Its bytes remain
+		// the replay identity; accepting it does not rewrite the stored record.
+		if !bytes.Equal(previous, body) && !bytes.Equal(previous, encoded) {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}
 		}
 		if status == "completed" {

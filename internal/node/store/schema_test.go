@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/turso"
 )
 
 func schemaFixture(t *testing.T) (string, protocol.NodeID, *Store) {
@@ -169,15 +170,11 @@ func TestGenerationOneKeeps(t *testing.T) {
 
 func TestGenerationUnknownFails(t *testing.T) {
 	t.Parallel()
-	// "missing" is storage without the column; every other name is its value.
-	for _, literal := range []string{"missing", "NULL", "0", "-1", "2", "'1'", "1.0", "X'01'"} {
+	for _, literal := range []string{"NULL", "0", "-1", "2", "'1'", "1.0", "X'01'"} {
 		t.Run(literal, func(t *testing.T) {
 			t.Parallel()
 			profile, node, original := schemaFixture(t)
 			alteration, generation := "ALTER TABLE node DROP COLUMN storage_generation; ALTER TABLE node ADD COLUMN storage_generation; UPDATE node SET plugin_defaults=1,storage_generation="+literal, "SELECT quote(storage_generation) FROM node"
-			if literal == "missing" {
-				alteration, generation = "ALTER TABLE node DROP COLUMN storage_generation; UPDATE node SET plugin_defaults=1", "SELECT CASE count(*) WHEN 0 THEN 'missing' ELSE 'declared' END FROM pragma_table_info('node') WHERE name='storage_generation'"
-			}
 			schemaExecute(t, original.Node, alteration)
 			schemaExecute(t, original.Knowledge, "UPDATE metadata SET version=7")
 			if err := original.Close(); err != nil {
@@ -190,7 +187,7 @@ func TestGenerationUnknownFails(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "node.storage_generation") || !strings.Contains(err.Error(), "existing data was not changed") {
 				t.Fatalf("unknown generation error: %v", err)
 			}
-			raw, err := OpenHandle(context.Background(), filepath.Join(profile, "storage", "node.sqlite"))
+			raw, err := OpenHandle(context.Background(), filepath.Join(profile, "storage", "node.turso"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +204,7 @@ func TestGenerationUnknownFails(t *testing.T) {
 			if actual != literal {
 				t.Fatalf("generation changed: got %q, want %q", actual, literal)
 			}
-			if got := readOnlySchemaInteger(t, filepath.Join(profile, "storage", "knowledge.sqlite"), "SELECT version FROM metadata"); got != 7 {
+			if got := readOnlySchemaInteger(t, filepath.Join(profile, "storage", "knowledge.turso"), "SELECT version FROM metadata"); got != 7 {
 				t.Fatalf("refused storage changed its derived database: %d", got)
 			}
 			if backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*")); err != nil || len(backups) != 0 {
@@ -221,13 +218,14 @@ func TestGenerationUnknownFails(t *testing.T) {
 		if err := original.Close(); err != nil {
 			t.Fatal(err)
 		}
-		path := filepath.Join(profile, "storage", "node.sqlite")
-		unchecked, err := sql.Open("sqlite", databaseDSN(path, false))
+		path := filepath.Join(profile, "storage", "node.turso")
+		connector, err := turso.Connector(path, false)
 		if err != nil {
 			t.Fatal(err)
 		}
+		unchecked := sql.OpenDB(connector)
 		unchecked.SetMaxOpenConns(1)
-		_, err = unchecked.ExecContext(context.Background(), "PRAGMA foreign_keys=OFF; INSERT INTO session_attention(session,revision,unread) VALUES('orphan',1,0)")
+		_, err = unchecked.ExecContext(context.Background(), "PRAGMA foreign_keys=0; INSERT INTO session_attention(session,revision,unread) VALUES('orphan',1,0)")
 		if err = errors.Join(err, unchecked.Close()); err != nil {
 			t.Fatal(err)
 		}
@@ -253,76 +251,40 @@ func TestGenerationUnknownFails(t *testing.T) {
 			t.Fatalf("refused storage changed its records: %d", got)
 		}
 	})
-	t.Run("foreign storage engine", func(t *testing.T) {
+	t.Run("malformed native storage is untouched", func(t *testing.T) {
 		t.Parallel()
 		profile := t.TempDir()
 		storage := filepath.Join(profile, "storage")
 		if err := core.PrivateDirectory(storage); err != nil {
 			t.Fatal(err)
 		}
-		names := []string{"node.turso", "node.turso-wal", "node.db-log", "node.sqlite3", "knowledge.turso", "knowledge.db"}
-		for _, name := range names {
-			if err := os.WriteFile(filepath.Join(storage, name), []byte(name), 0o600); err != nil {
-				t.Fatal(err)
-			}
+		path := filepath.Join(storage, "node.turso")
+		body := []byte("malformed native storage")
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
 		}
-		// The release profile is the directory the Rust Node used: its
-		// databases move to the archive, unopened and unchanged.
-		for range 2 {
-			opened, err := Open(context.Background(), profile, protocol.NodeID{})
-			if err != nil {
-				t.Fatalf("a profile with Rust databases did not open: %v", err)
-			}
-			if err := opened.Close(); err != nil {
-				t.Fatal(err)
-			}
+		preview := filepath.Join(storage, "node.sqlite")
+		if err := os.WriteFile(preview, []byte("preview database"), 0o600); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := os.Stat(filepath.Join(storage, "node.sqlite")); err != nil {
-			t.Fatalf("SQLite storage: %v", err)
+		opened, err := Open(context.Background(), profile, protocol.NodeID{})
+		if opened != nil {
+			_ = opened.Close()
 		}
-		for _, name := range names {
-			if _, err := os.Lstat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("%s stayed in storage: %v", name, err)
-			}
-			if body, err := os.ReadFile(filepath.Join(storage, RustArchive, name)); err != nil || string(body) != name {
-				t.Fatalf("archived %s changed: %q, %v", name, body, err)
-			}
+		if err == nil {
+			t.Fatal("malformed native database was accepted")
 		}
-		// A later Rust run leaves a new set, one name of which the archive
-		// already holds. The whole set goes to the next archive, the Node
-		// starts, and the earlier archive is unchanged.
-		for round := 2; round <= 3; round++ {
-			later := []string{"knowledge.db-log", "node.turso", "node.turso-wal"}
-			for _, name := range later {
-				if err := os.WriteFile(filepath.Join(storage, name), fmt.Appendf(nil, "%s %d", name, round), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			opened, err := Open(context.Background(), profile, protocol.NodeID{})
-			if err != nil {
-				t.Fatalf("a profile a Rust build ran in again did not open: %v", err)
-			}
-			if err := opened.Close(); err != nil {
-				t.Fatal(err)
-			}
-			for _, name := range later {
-				if _, err := os.Lstat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("%s stayed in storage: %v", name, err)
-				}
-				archived := filepath.Join(storage, fmt.Sprintf("%s-%d", RustArchive, round), name)
-				if body, err := os.ReadFile(archived); err != nil || string(body) != fmt.Sprintf("%s %d", name, round) {
-					t.Fatalf("archived %s changed: %q, %v", archived, body, err)
-				}
-			}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != string(body) {
+			t.Fatalf("existing database changed: %q, %v", got, err)
 		}
-		for _, name := range names {
-			if body, err := os.ReadFile(filepath.Join(storage, RustArchive, name)); err != nil || string(body) != name {
-				t.Fatalf("first archive changed %s: %q, %v", name, body, err)
-			}
+		if body, err := os.ReadFile(preview); err != nil || string(body) != "preview database" {
+			t.Fatalf("preview database changed: %v", err)
 		}
-		// A name the first archive does not hold must not split a set.
-		if _, err := os.Lstat(filepath.Join(storage, RustArchive, "knowledge.db-log")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("a later set was split across archives: %v", err)
+		for _, name := range []string{"knowledge.turso", "rust-archive", "backups"} {
+			if _, err := os.Stat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused native storage created %s: %v", name, err)
+			}
 		}
 	})
 }
@@ -335,6 +297,7 @@ func TestStartupAddsMissingObjects(t *testing.T) {
 	}{
 		{"table", "DROP TABLE hook_settings", "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='hook_settings'", 1},
 		{"index", "DROP INDEX session_association_identity", "SELECT count(*) FROM sqlite_schema WHERE type='index' AND name='session_association_identity'", 1},
+		{"legacy generation", "ALTER TABLE node DROP COLUMN storage_generation", "SELECT storage_generation FROM node WHERE singleton=1", 1},
 		{"column", "ALTER TABLE sessions DROP COLUMN history_revision", "SELECT count(*) FROM pragma_table_info('sessions') WHERE name='history_revision'", 1},
 		{"current empty roles", "DELETE FROM roles", "SELECT count(*) FROM roles", 0},
 	} {
@@ -355,6 +318,7 @@ func TestStartupAddsMissingObjects(t *testing.T) {
 		for _, item := range []struct{ actual, wanted string }{
 			{"create table records(id integer primary key, /* value */ value text default 'Kept')", "CREATE TABLE records(id INTEGER PRIMARY KEY,value TEXT DEFAULT 'Kept')"},
 			{"CREATE TABLE records(id INTEGER PRIMARY KEY,parent INTEGER,FOREIGN KEY(parent) REFERENCES parents(id))", "CREATE TABLE records(id INTEGER PRIMARY KEY,parent INTEGER REFERENCES parents(id))"},
+			{`CREATE TABLE "agent_state" (owner TEXT NOT NULL, "key" TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(owner,"key"))`, `CREATE TABLE agent_state(owner TEXT NOT NULL,key TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(owner,key))`},
 		} {
 			actual, err := parseTable(item.actual)
 			if err != nil {
@@ -373,7 +337,65 @@ func TestStartupAddsMissingObjects(t *testing.T) {
 				}
 			}
 		}
+		for _, item := range []struct{ actual, wanted string }{
+			{`"key" TEXT`, `key TEXT NOT NULL`},
+			{`"key" TEXT DEFAULT 'kept'`, `key TEXT DEFAULT 'Kept'`},
+		} {
+			actual, err := parseTable("CREATE TABLE records(" + item.actual + ")")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wanted, err := parseTable("CREATE TABLE records(" + item.wanted + ")")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if schemaColumn("records", "key", actual.columns["key"]) == schemaColumn("records", "key", wanted.columns["key"]) {
+				t.Fatal("identifier quoting hid a changed column constraint or literal")
+			}
+		}
 	})
+}
+
+func TestStartupPreservesLegacyCredentialRequests(t *testing.T) {
+	t.Parallel()
+	for _, additive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("additive=%t", additive), func(t *testing.T) {
+			t.Parallel()
+			profile, node, storage := schemaFixture(t)
+			request := protocol.NewRequestID()
+			body := []byte(`{"command":{"kind":"put_credential","value":"fixture-secret"}}`)
+			schemaExecute(t, storage.Node, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'completed')", node[:], request.String(), body)
+			if additive {
+				schemaExecute(t, storage.Node, "ALTER TABLE node DROP COLUMN storage_generation")
+			}
+			if err := storage.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				opened := reopenSchemaFixture(t, profile, node)
+				var retained []byte
+				var status string
+				if err := opened.Node.Read(t.Context(), func(db *sql.Conn) error {
+					return db.QueryRowContext(t.Context(), "SELECT body,status FROM requests WHERE caller=?1 AND id=?2", node[:], request.String()).Scan(&retained, &status)
+				}); err != nil || string(retained) != string(body) || status != "completed" {
+					t.Fatalf("legacy request was changed during startup: %v", err)
+				}
+				if got := schemaInteger(t, opened.Node, "SELECT storage_generation FROM node WHERE singleton=1"); got != 1 {
+					t.Fatalf("normal additive schema update: generation %d", got)
+				}
+				if err := opened.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantBackups := 0
+			if additive {
+				wantBackups = 1
+			}
+			if backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*")); err != nil || len(backups) != wantBackups {
+				t.Fatalf("unexpected schema backups: got %d, want %d, %v", len(backups), wantBackups, err)
+			}
+		})
+	}
 }
 
 func TestUpdateBackupBeforeApply(t *testing.T) {
@@ -396,7 +418,7 @@ func TestUpdateBackupBeforeApply(t *testing.T) {
 			if (err != nil) != invalid {
 				t.Fatalf("update error: %v", err)
 			}
-			backups, globErr := filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.sqlite"))
+			backups, globErr := filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.turso"))
 			if globErr != nil {
 				t.Fatal(globErr)
 			}
@@ -404,7 +426,7 @@ func TestUpdateBackupBeforeApply(t *testing.T) {
 				if len(backups) != 0 {
 					t.Fatalf("failed rehearsal published a backup: %v", backups)
 				}
-				if got := readOnlySchemaInteger(t, filepath.Join(profile, "storage", "node.sqlite"), "SELECT count(*) FROM sqlite_schema WHERE name='session_association_identity'"); got != 0 {
+				if got := readOnlySchemaInteger(t, filepath.Join(profile, "storage", "node.turso"), "SELECT count(*) FROM sqlite_schema WHERE name='session_association_identity'"); got != 0 {
 					t.Fatal("failed rehearsal applied the live update")
 				}
 				return
@@ -456,10 +478,11 @@ func TestUpdateBackupBeforeApply(t *testing.T) {
 
 func readOnlySchemaInteger(t *testing.T, path, query string) int64 {
 	t.Helper()
-	database, err := sql.Open("sqlite", databaseDSN(path, true))
+	connector, err := turso.Connector(path, true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	database := sql.OpenDB(connector)
 	defer database.Close()
 	var value int64
 	if err := database.QueryRowContext(context.Background(), query).Scan(&value); err != nil {

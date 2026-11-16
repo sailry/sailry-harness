@@ -57,7 +57,7 @@ func TestDispatchTransactionAuthorizationOrder(t *testing.T) {
 				t.Fatalf("transaction allowed=%t: %v", allowed, err)
 			}
 			if err := f.storage.Node.Read(ctx, func(db *sql.Conn) error {
-				for _, table := range []string{"dispatch_handlers", "dispatch_schedules"} {
+				for _, table := range []string{"dispatch_user_handlers", "dispatch_user_schedules"} {
 					var count int
 					if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
 						return err

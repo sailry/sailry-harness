@@ -26,6 +26,9 @@ func transferable(authentication protocol.Authentication) error {
 
 // exportCredential reads one transferable secret and its expiry for a paired Node.
 func exportCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, reference protocol.CredentialRef, provider protocol.ConversationProvider) (protocol.Secret, *uint64, error) {
+	if err := checkProviderWrite(ctx, db, provider.ID); err != nil {
+		return protocol.Secret{}, nil, err
+	}
 	if err := transferable(provider.Authentication); err != nil {
 		return protocol.Secret{}, nil, err
 	}
@@ -33,7 +36,7 @@ func exportCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, r
 	if err != nil {
 		return protocol.Secret{}, nil, err
 	}
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", provider.ID.String())
+	saved, err := readProviderConfiguration(ctx, db, provider.ID)
 	if err != nil {
 		return protocol.Secret{}, nil, err
 	}
@@ -55,7 +58,7 @@ func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller proto
 	if caller != node || input.Target == node {
 		return protocol.Request{}, fault(protocol.ErrorCodePermissionDenied, "only the local controller can forward configuration to another Node")
 	}
-	saved, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", input.Config.Provider.String())
+	saved, err := readProviderConfiguration(ctx, db, input.Config.Provider)
 	if err != nil {
 		return protocol.Request{}, err
 	}
@@ -129,6 +132,11 @@ func retainPrivateProvider(ctx context.Context, db *sql.Conn, node protocol.Node
 		return provider, err
 	}
 	provider.ID, provider.Credential = protocol.NewProviderID(), nil
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return provider, err
+	}
+	provider.Owner, provider.Shared = &user.ID, false
 	stored := providerConfiguration{ID: provider.ID, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
 	if secret != nil {
 		authorization, err := importedAuthorization(provider.Authentication, *secret, expiry)
@@ -291,7 +299,7 @@ func importSession(ctx context.Context, db *sql.Conn, node, caller protocol.Node
 // once no remaining session uses them. Their secrets leave with them.
 func removePrivateProviders(ctx context.Context, db *sql.Conn, candidates []protocol.ProviderID) error {
 	for _, id := range candidates {
-		stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
+		stored, err := readProviderConfiguration(ctx, db, id)
 		if err != nil {
 			return err
 		}
@@ -336,6 +344,9 @@ func ListAssociatedSessions(ctx context.Context, db *sql.Conn, request protocol.
 	}
 	sequence := uint64(math.MaxInt64)
 	if input.Before != nil {
+		if err := CheckSessionAccess(ctx, db, *input.Before); err != nil {
+			return page, err
+		}
 		session, err := ReadSession(ctx, db, *input.Before)
 		if err != nil {
 			return page, err
@@ -345,10 +356,14 @@ func ListAssociatedSessions(ctx context.Context, db *sql.Conn, request protocol.
 		}
 		sequence = session.CreationOrder
 	}
-	rows, err := db.QueryContext(ctx, `SELECT s.id FROM sessions s JOIN session_associations a ON a.session=s.id
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return page, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT s.id FROM sessions s JOIN session_associations a ON a.session=s.id LEFT JOIN projects p ON p.id=s.project
  WHERE a.namespace=?1 AND a.kind=?2 AND a.identity=?3 AND s.state!='removed'
- AND s.rowid<?4 AND (?5 IS NULL OR s.worktree=?5) ORDER BY s.rowid DESC LIMIT ?6`,
-		input.Association.Namespace, input.Association.Kind, input.Association.ID, int64(sequence), scope, int64(input.Limit)+1)
+ AND s.rowid<?4 AND (?5 IS NULL OR s.worktree=?5) AND (CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?7 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?7 END) ORDER BY s.rowid DESC LIMIT ?6`,
+		input.Association.Namespace, input.Association.Kind, input.Association.ID, int64(sequence), scope, int64(input.Limit)+1, user.ID.String())
 	if err != nil {
 		return page, err
 	}

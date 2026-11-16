@@ -6,6 +6,28 @@ import (
 	"encoding/json"
 )
 
+type ProjectVisibility string
+
+const (
+	ProjectVisibilityPrivate ProjectVisibility = "private"
+	ProjectVisibilityShared  ProjectVisibility = "shared"
+)
+
+func (value ProjectVisibility) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
+func (value *ProjectVisibility) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch ProjectVisibility(decoded) {
+	case ProjectVisibilityPrivate, ProjectVisibilityShared:
+		*value = ProjectVisibility(decoded)
+		return nil
+	default:
+		return unknownEnum(data, value, decoded)
+	}
+}
+
 type ProjectsCatalog struct {
 	Projects  []Project  `json:"projects"`
 	Worktrees []Worktree `json:"worktrees"`
@@ -111,6 +133,7 @@ type ProjectsDraft struct {
 	Path       string             `json:"path"`
 	Appearance ProjectsAppearance `json:"appearance"`
 	Source     ProjectsSource     `json:"source"`
+	Visibility ProjectVisibility  `json:"visibility,omitempty"`
 }
 
 func DefaultProjectsDraft() ProjectsDraft {
@@ -119,11 +142,13 @@ func DefaultProjectsDraft() ProjectsDraft {
 		Path:       "",
 		Appearance: DefaultProjectsAppearance(),
 		Source:     ProjectsSource{},
+		Visibility: ProjectVisibilityPrivate,
 	}
 }
 func (value *ProjectsDraft) UnmarshalJSON(data []byte) error {
 	type plain ProjectsDraft
 	decoded := plain{}
+	decoded.Visibility = ProjectVisibilityPrivate
 	if err := DecodeObject(data, &decoded, []string{"name", "path", "appearance", "source"}, false); err != nil {
 		return err
 	}
@@ -133,5 +158,8 @@ func (value *ProjectsDraft) UnmarshalJSON(data []byte) error {
 func (value ProjectsDraft) MarshalJSON() ([]byte, error) {
 	type plain ProjectsDraft
 	encoded := plain(value)
+	if encoded.Visibility == ProjectVisibilityPrivate {
+		encoded.Visibility = ""
+	}
 	return json.Marshal(encoded)
 }

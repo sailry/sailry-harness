@@ -63,6 +63,7 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 	}
 	captured.Bundle = plugins.ScriptBundle{Entry: captured.Declaration.Script.Entry, Files: files}
 	captured.Memory = node.plugins.memory
+	captured.User = pluginMemoryUser(ctx)
 	// A setting is the user's current choice, so the installed package's
 	// values are read now, not those of the provider's captured revision.
 	captured.Settings = plugins.SettingDefaults(info.Settings)
@@ -128,9 +129,17 @@ func (node *Node) captureAgentModel(ctx context.Context, binding model.Binding) 
 		}
 		for _, declared := range info.Extension.Programs {
 			if declared.ID == declaration.Acp.Program {
+				user, err := node.pluginRuntimeUser(ctx)
+				if err != nil {
+					return captured, false, err
+				}
+				directory, err := node.pluginDataDirectory(ctx, info.Summary.Name)
+				if err != nil {
+					return captured, false, err
+				}
 				return model.ACPCapture{
-					Adapter: declaration, Program: declared, Owner: info.Summary.Name, Version: link.ProductVersion,
-					Dir:  filepath.Join(node.profile.Ownership.Path, "plugins", "data", info.Summary.Name, "programs", declared.ID),
+					Adapter: declaration, Program: declared, Owner: pluginProgramOwner(user, info.Summary.Name), Version: link.ProductVersion,
+					Dir:  filepath.Join(node.profile.Ownership.Path, filepath.FromSlash(directory), "programs", declared.ID),
 					Host: node.environment.TerminalValues(), Pool: node.plugins.programs,
 				}, true, nil
 			}

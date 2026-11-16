@@ -1622,11 +1622,19 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String hostRemoveConfirm(String name) {
-    return 'Remover “$name” deste dispositivo? Emparelhe novamente para reconectar';
+    return 'Remover “$name” e revogar o acesso deste dispositivo? Os dados permanecem no host. Se este for seu último dispositivo, um administrador precisará restaurar o acesso.';
   }
 
   @override
   String get hostRemoved => 'Host removido';
+
+  @override
+  String get hostOriginDirect => 'Pareamento direto';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
 
   @override
   String get hostRemoveFailed => 'Não foi possível remover o host';
@@ -2316,6 +2324,14 @@ class AppLocalizationsPt extends AppLocalizations {
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
 class AppLocalizationsPtBr extends AppLocalizationsPt {
   AppLocalizationsPtBr() : super('pt_BR');
+
+  @override
+  String get hostOriginDirect => 'Pareamento direto';
+
+  @override
+  String hostOriginSource(String name) {
+    return 'Via $name';
+  }
 
   @override
   String get usageHitRate => 'Taxa de acerto do cache';

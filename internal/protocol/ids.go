@@ -96,6 +96,41 @@ func (identity *RequestID) UnmarshalText(data []byte) error {
 	return nil
 }
 
+type UserID [16]byte
+
+func NewUserID() UserID { return UserID(uuid.New()) }
+
+func ParseUserID(value string) (UserID, error) {
+	identity, err := parseIdentifier(value)
+	return UserID(identity), err
+}
+
+func (identity UserID) String() string { return uuid.UUID(identity).String() }
+
+func (identity UserID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }
+
+func (identity *UserID) UnmarshalJSON(data []byte) error { return DecodeValue(data, identity) }
+
+func (identity *UserID) DecodeJSON(decoder *Decoder) error {
+	decoded, err := identifierFrom(decoder)
+	if err != nil {
+		return err
+	}
+	*identity = UserID(decoded)
+	return nil
+}
+
+func (identity UserID) MarshalText() ([]byte, error) { return uuid.UUID(identity).MarshalText() }
+
+func (identity *UserID) UnmarshalText(data []byte) error {
+	decoded, err := parseIdentifier(string(data))
+	if err != nil {
+		return err
+	}
+	*identity = UserID(decoded)
+	return nil
+}
+
 type ProjectID [16]byte
 
 func NewProjectID() ProjectID { return ProjectID(uuid.New()) }

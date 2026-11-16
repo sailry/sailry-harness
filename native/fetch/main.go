@@ -7,8 +7,8 @@
 //
 // Downloads come only from the official release URLs in the lock files under
 // native/ and internal/localmodels/decision, are checked against their pinned
-// size and SHA-256, and are cached in .runtime/native/dl. The iroh and capture
-// libraries have no upstream binaries: they are taken from the CI native
+// size and SHA-256, and are cached in .runtime/native/dl. The iroh, Turso and
+// capture builds are taken from the CI native
 // job's artifacts (-artifacts, checked against its SHA256SUMS), or from an
 // earlier local build already in the output directory. libghostty-vt is not
 // handled here; `mygo build` downloads it from the terminal plugin's manifest.
@@ -128,6 +128,7 @@ func main() {
 	fail(run.helper())
 	fail(run.python())
 	fail(run.built(names[0], "sh native/iroh/build.sh", *artifacts))
+	fail(run.built(tursoLibrary(goos), "sh native/turso/build.sh", *artifacts))
 	if !*host {
 		fail(run.built(names[1], "sh native/capture/build.sh, on Windows see native/capture/README.md", *artifacts))
 	}
@@ -159,6 +160,16 @@ func built(goos string) []string {
 		return []string{"sailry_iroh.dll", "sailry-capture.dll"}
 	}
 	return []string{"libsailry_iroh.so", "libsailry-capture.so"}
+}
+
+func tursoLibrary(goos string) string {
+	switch goos {
+	case "darwin":
+		return "libturso_sync_sdk_kit.dylib"
+	case "windows":
+		return "turso_sync_sdk_kit.dll"
+	}
+	return "libturso_sync_sdk_kit.so"
 }
 
 func fail(err error) {
@@ -611,6 +622,7 @@ func (run *stage) seal(location, platform string, host bool, identity, entitleme
 	if host {
 		names = names[:1]
 	}
+	names = append(names, tursoLibrary(run.goos))
 	for _, file := range asset.Files {
 		if !host || file.Role != "speech" {
 			names = append(names, file.Name)

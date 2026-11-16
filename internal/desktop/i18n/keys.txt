@@ -354,6 +354,9 @@ project_remove_named
 project_remove_preview
 project_name
 project_host
+project_visibility
+project_visibility_private
+project_visibility_shared
 project_path
 project_destination
 project_repository
@@ -840,6 +843,11 @@ connection_route_relay
 connections_device
 connections_hosts
 connections_mobile
+connections_bidirectional
+connections_legacy_bidirectional
+connections_only_host
+connections_only_controller
+connections_direction_saved
 connections_offline
 connections_online
 connections_revoke_confirm
@@ -905,6 +913,9 @@ model_library_selected
 model_library_source
 pairing_connect
 pairing_local_code
+pairing_invitation_kind
+pairing_my_device
+pairing_other_user
 pairing_pin_hint
 pairing_preview_disabled
 pairing_relay_address
@@ -2351,3 +2362,23 @@ meter_tokens
 meter_speed
 meter_show_details
 meter_hide_details
+
+# Configuration sync
+configuration_follow_title
+configuration_follow_loading
+configuration_follow_controller
+configuration_follow_description
+configuration_follow_this_device
+configuration_follow_local_description
+configuration_follow_waiting
+configuration_follow_unavailable
+configuration_follow_targets
+configuration_follow_automatic
+configuration_follow_issues
+configuration_follow_authorize
+configuration_follow_missing_key
+configuration_follow_from_source
+configuration_follow_requested
+configuration_follow_failed
+configuration_follow_conflict
+configuration_follow_unknown

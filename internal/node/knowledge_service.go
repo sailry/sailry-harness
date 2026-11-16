@@ -85,6 +85,12 @@ func (node *Node) followKnowledgeStorage(ctx context.Context, db *sql.Conn, requ
 // command.
 func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []protocol.Event) {
 	switch command.Kind {
+	case "identity":
+		if action, valid := dispatchPayload[protocol.IdentityCommand](command.Data); valid && (action.Kind == "confirm_sponsorship" || action.Kind == "assign_orphan_user") {
+			// A user merge changes the personal catalog and its captured sources.
+			node.knowledge.Invalidate()
+		}
+		return
 	case "install_plugin", "install_plugin_source", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
 	case "remove_plugin", "remove_project", "remove_session", "remove_sessions":
 		// The pass removes the collections these owned.
@@ -104,6 +110,15 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		Working: node.power.Hold,
 		Index:   node.profile.Store.Knowledge,
 		Catalog: node.knowledgeCatalog,
+		Context: func(ctx context.Context, stored store.KnowledgeStored) (context.Context, error) {
+			var operation context.Context
+			err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var err error
+				operation, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				return err
+			})
+			return operation, nodeFault(err)
+		},
 		Allowed: func(ctx context.Context, request protocol.Request) (allowed []store.KnowledgeStored, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 				allowed, err = store.AllowedKnowledge(ctx, db, request)
@@ -193,6 +208,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		Sources: func(ctx context.Context, stored store.KnowledgeStored, after *string) (page store.KnowledgeStoragePage, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				page, err = store.ReadKnowledgeStoragePage(ctx, db, stored, after, store.KnowledgeStoragePageLimit)
 				return err
 			})
@@ -200,6 +219,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		Source: func(ctx context.Context, stored store.KnowledgeStored, key string) (record *store.KnowledgeStorageRecord, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				record, err = store.ReadKnowledgeStorageRecord(ctx, db, stored, key)
 				return err
 			})
@@ -207,6 +230,10 @@ func (node *Node) knowledgeOptions() knowledgeservice.Options {
 		},
 		SourceCurrent: func(ctx context.Context, stored store.KnowledgeStored, record store.KnowledgeStorageRecord) (current bool, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				ctx, err = store.KnowledgeExecutionContext(ctx, db, stored)
+				if err != nil {
+					return err
+				}
 				current, err = store.KnowledgeStorageUnchanged(ctx, db, stored, record)
 				return err
 			})
@@ -346,27 +373,32 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 	}
 	var output protocol.Output
 	var operationErr error
-	err = node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
-		if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_knowledge"); err != nil {
+	operation := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+	err = node.profile.Store.Node.Write(operation, func(db *sql.Conn) error {
+		if _, err := db.ExecContext(operation, "SAVEPOINT sailry_knowledge"); err != nil {
 			return err
 		}
 		var events []protocol.Event
-		if operationErr = node.validatePluginRequestDB(node.ctx, db, caller, request); operationErr == nil {
-			output, events, operationErr = store.ExecuteKnowledge(node.ctx, db, request)
+		operationErr = node.authorizeCommandDB(operation, db, caller, request)
+		if operationErr == nil {
+			operationErr = node.validatePluginRequestDB(operation, db, caller, request)
+		}
+		if operationErr == nil {
+			output, events, operationErr = store.ExecuteKnowledge(operation, db, request)
 		}
 		if operationErr != nil {
 			events = nil
-			if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_knowledge"); err != nil {
+			if _, err := db.ExecContext(operation, "ROLLBACK TO sailry_knowledge"); err != nil {
 				return err
 			}
 		}
-		if _, err := db.ExecContext(node.ctx, "RELEASE sailry_knowledge"); err != nil {
+		if _, err := db.ExecContext(operation, "RELEASE sailry_knowledge"); err != nil {
 			return err
 		}
-		if _, err := store.RecordEvents(node.ctx, db, node.ID(), events); err != nil {
+		if _, err := store.RecordEvents(operation, db, node.ID(), events); err != nil {
 			return err
 		}
-		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
+		return admission.Complete(operation, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
 		completion <- node.unapplied(caller, request.ID, err)

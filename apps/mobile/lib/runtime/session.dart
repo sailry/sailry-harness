@@ -64,6 +64,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   Translator _translate = tr;
   bool _internet = true;
   Future<Controller>? _opening;
+  Timer? _peerPoll;
+  Future<void>? _peerRefresh;
 
   // This is only a startup hint. Link still validates and owns the peer record.
   static Future<bool> _hasSavedPeers(String path) async {
@@ -73,7 +75,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (await file.length() > 1024 * 1024) return true;
       final record = object(jsonDecode(await file.readAsString()));
       final peers = record['peers'];
-      return peers is! List || peers.isNotEmpty;
+      return peers is! List ||
+          peers.any((peer) => peer is! Map || peer['removed'] != true);
     } catch (_) {
       return true;
     }
@@ -202,6 +205,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (_closed || controller != opened) {
         throw StateError('controller is closed');
       }
+      _peerPoll?.cancel();
+      _peerPoll = Timer.periodic(const Duration(seconds: 10), (_) {
+        unawaited(refreshHosts());
+      });
       return opened;
     } catch (_) {
       if (controller == opened) {
@@ -287,15 +294,57 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     return pending;
   }
 
-  Future<HostConnection> _connect(String address, Controller owner) async {
+  /// Reconciles Link's authenticated directory without changing the selected
+  /// host or forgetting source-only peers under a new local removal intent.
+  Future<void> refreshHosts() {
+    final owner = controller;
+    if (_closed || !ready || owner == null) return Future.value();
+    return _peerRefresh ??=
+        _change(owner, () async {
+              final addresses = await owner.peers();
+              if (_closed || controller != owner) return;
+              final ids = <String>{};
+              for (final address in addresses) {
+                final id = text(object(jsonDecode(address))['id']);
+                if (id.isEmpty) {
+                  throw const FormatException('endpoint has no identity');
+                }
+                ids.add(id);
+              }
+              for (final target in List.of(_hosts)) {
+                if (!target.isDemo && !ids.contains(target.id)) {
+                  await _remove(target, owner, forget: false);
+                }
+              }
+              for (final address in addresses) {
+                if (_closed || controller != owner) return;
+                final target = await _connect(address, owner, select: false);
+                if (!target.connected) unawaited(target.refresh());
+              }
+            })
+            .catchError((Object failure) {
+              if (!_closed && controller == owner) {
+                debugPrint('Host directory unavailable: $failure');
+              }
+            })
+            .whenComplete(() => _peerRefresh = null);
+  }
+
+  Future<HostConnection> _connect(
+    String address,
+    Controller owner, {
+    bool select = true,
+  }) async {
     if (_closed || controller != owner) {
       throw StateError('controller is closed');
     }
-    final id = text(object(jsonDecode(address))['id']);
+    final decoded = object(jsonDecode(address));
+    final id = text(decoded['id']);
     if (id.isEmpty) throw const FormatException('endpoint has no identity');
     final existing = host(id);
     if (existing != null) {
-      selectHost(id);
+      existing._applyPeerMetadata(decoded);
+      if (select) selectHost(id);
       return existing;
     }
     final connection = await owner.connect(address: address);
@@ -309,15 +358,17 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     }
     final registered = host(id);
     if (registered != null) {
+      registered._applyPeerMetadata(decoded);
       try {
         await connection.close();
       } finally {
         connection.dispose();
       }
-      selectHost(id);
+      if (select) selectHost(id);
       return registered;
     }
-    final connected = HostConnection._(id, address, connection);
+    final connected = HostConnection._(id, address, connection)
+      .._applyPeerMetadata(decoded);
     connected.addListener(_changed);
     _hosts.add(connected);
     _selected ??= id;
@@ -359,12 +410,16 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _remove(HostConnection target, Controller? owner) async {
+  Future<void> _remove(
+    HostConnection target,
+    Controller? owner, {
+    bool forget = true,
+  }) async {
     if (host(target.id) != target) return;
     if (target.isDemo) {
       await _demoPreferences?.setBool(_demoEnabledKey, false);
       await _demoPreferences?.setBool(_demoSelectedKey, false);
-    } else {
+    } else if (forget) {
       await owner!.forget(address: target.address);
     }
     if (_closed || controller != owner || host(target.id) != target) return;
@@ -417,6 +472,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
               }
             })
             .whenComplete(() {
+              unawaited(refreshHosts());
               // Views can be stale after a long background period.
               if (!returned || _closed || controller != owner) return;
               for (final host in List.of(_hosts)) {
@@ -444,6 +500,8 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _release() async {
+    _peerPoll?.cancel();
+    _peerPoll = null;
     final hosts = List<HostConnection>.of(_hosts);
     _hosts.clear();
     _selected = null;
@@ -522,7 +580,49 @@ class HostConnection extends ChangeNotifier {
   Connection get connection =>
       _connection ?? (throw StateError('test connection has no native handle'));
   String? _label;
-  String get label => _label ?? (id.length > 12 ? id.substring(0, 12) : id);
+  String _directoryName = '';
+  bool direct = true;
+  List<String> sources = const [];
+  String get label =>
+      _label ??
+      (_directoryName.isNotEmpty
+          ? _directoryName
+          : (id.length > 12 ? id.substring(0, 12) : id));
+
+  void _applyPeerMetadata(Map<String, dynamic> address) {
+    final relationship = object(address['relationship']);
+    final nextDirect = relationship.isEmpty || relationship['direct'] == true;
+    final rawSources = relationship['sources'];
+    final nextSources = rawSources is List
+        ? (rawSources.whereType<String>().toList()..sort())
+        : sources;
+    final name = text(relationship['name'], _directoryName);
+    final changed =
+        direct != nextDirect ||
+        sources.join('\u0000') != nextSources.join('\u0000') ||
+        _directoryName != name;
+    direct = nextDirect;
+    sources = List.unmodifiable(nextSources);
+    _directoryName = name;
+    if (changed && !_closed) notifyListeners();
+  }
+
+  String originDescription(
+    Translator translate,
+    Iterable<HostConnection> hosts,
+  ) {
+    if (isDemo) return '';
+    if (direct || sources.isEmpty) return translate('hostOriginDirect');
+    final names = sources
+        .map((source) {
+          final known = hosts.where((host) => host.id == source).firstOrNull;
+          return known?.label ??
+              (source.length > 12 ? source.substring(0, 12) : source);
+        })
+        .join(', ');
+    return translate('hostOriginSource').replaceAll('{name}', names);
+  }
+
   Map<String, dynamic> snapshot = {};
   Map<String, dynamic> info = {};
   List<Map<String, dynamic>> notifications = [];
@@ -625,7 +725,8 @@ class HostConnection extends ChangeNotifier {
       final response = await command('inspect_host');
       if (_closed) return;
       info = object(response['data']);
-      _label = text(info['name'], label);
+      final name = text(info['name']);
+      if (name.isNotEmpty) _label = name;
       notifyListeners();
     } catch (failure) {
       if (!_closed) error = failure;

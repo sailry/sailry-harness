@@ -83,6 +83,13 @@ func (node *Node) workspaceRoot(ctx context.Context, id protocol.WorktreeID, int
 			return err
 		}
 		profile := node.profile.Ownership.Path
+		user, err := store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		if !user.Local && strings.HasPrefix(root, filepath.Join(profile, "users", user.ID.String())+string(filepath.Separator)) {
+			profile = filepath.Join(profile, "users", user.ID.String())
+		}
 		if session, err := protocol.ParseSessionID(filepath.Base(root)); err == nil && root == core.SessionWorkspace(profile, session) {
 			return db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)", session.String(), id.String()).Scan(&owned)
 		}
@@ -175,12 +182,12 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 		defer close(completion)
 		operationContext := ctx
 		if result.Receipt.Durable {
-			operationContext = node.ctx
+			operationContext = node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
 		}
 		effect := &workspaceCompletion{}
 		output, effectErr := node.workspaceIO(operationContext, caller, request, nil, effect)
 		if result.Receipt.Durable {
-			output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(node.ctx), caller, request, output, effectErr, effect)
+			output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(operationContext), caller, request, output, effectErr, effect)
 		}
 		// A completed command's effect is visible to its caller's next command.
 		effect.close()
@@ -190,6 +197,11 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 }
 
 func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, prepared *files.Prepared, effect *workspaceCompletion) (protocol.Output, error) {
+	var accessErr error
+	ctx, accessErr = node.authorizeCommand(ctx, caller, request)
+	if accessErr != nil {
+		return protocol.Output{}, accessErr
+	}
 	command := request.Command
 	if terminalCommand(command.Kind) {
 		return node.terminalIO(ctx, caller, request, effect)

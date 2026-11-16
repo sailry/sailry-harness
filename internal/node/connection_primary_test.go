@@ -32,6 +32,7 @@ func testSSHPrimary(t *testing.T, node *Node, ordinary protocol.Session, primary
 	config.Assistant = &protocol.PluginConversationBinding{Package: owner, ID: "ssh"}
 	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)
 	controller := protocol.NodeID{93}
+	trustedCallerFixture(t, node, controller)
 	admitted := dispatchFixture(t, node, controller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Manage another SSH connection"}}}))
 	if admitted.Fault != nil {
 		t.Fatal(admitted.Fault)

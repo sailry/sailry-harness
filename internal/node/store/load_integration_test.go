@@ -24,8 +24,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 	knowledgeText "github.com/sailry/sailry-harness/internal/node/knowledge"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/turso"
 	"lukechampine.com/blake3"
-	sqlite "modernc.org/sqlite"
 )
 
 const storageLoadSessions = 20
@@ -36,7 +36,7 @@ const storageLoadCollection = "01890f00-1234-7000-8000-000000000002"
 const storageLoadWorktree = "01890f00-1234-7000-8000-000000000001"
 
 const storageLoadFilter = "JOIN sources s ON s.id=c.source JOIN collections k ON k.id=s.collection JOIN json_each(?1) admitted ON json_extract(admitted.value,'$.id')=k.id AND json_extract(admitted.value,'$.scope')=lower(hex(k.scope)) AND json_extract(admitted.value,'$.rebuild')=k.rebuild AND (json_extract(admitted.value,'$.generation')=k.generation OR (json_extract(admitted.value,'$.semantic')=0 AND k.generation<=json_extract(admitted.value,'$.generation'))) WHERE NOT EXISTS(SELECT 1 FROM json_each(?2) wanted WHERE NOT EXISTS(SELECT 1 FROM json_each(s.tags) actual WHERE actual.value=wanted.value)) AND (?3 IS NULL OR substr(s.locator,1,length(?3))=?3) AND (?4 IS NULL OR s.modified_ms>=?4) AND (?5 IS NULL OR s.modified_ms<=?5)"
-const storageLoadKeywordSQL = "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(chunks_fts,2,1,2,1) AS score FROM chunks_fts WHERE chunks_fts MATCH ?6) SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id " + storageLoadFilter + " AND (json_array_length(?9)=0 OR EXISTS(SELECT 1 FROM json_each(?9) wanted JOIN json_each(s.tags) actual ON actual.value=wanted.value)) ORDER BY f.score DESC,c.key LIMIT 100"
+const storageLoadKeywordSQL = "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?6) AS score FROM chunks WHERE fts_match(field0,field1,cjk0,cjk1,?6)) SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id " + storageLoadFilter + " AND (json_array_length(?9)=0 OR EXISTS(SELECT 1 FROM json_each(?9) wanted JOIN json_each(s.tags) actual ON actual.value=wanted.value)) ORDER BY f.score DESC,c.key LIMIT 100"
 
 type storageLoadMeasurements struct {
 	mu             sync.Mutex
@@ -113,7 +113,7 @@ func storageLoadFixture(t testing.TB) storageLoadReport {
 	if err := core.PrivateDirectory(codeDirectory); err != nil {
 		t.Fatal(err)
 	}
-	code, err := OpenHandle(ctx, filepath.Join(codeDirectory, "index.sqlite"))
+	code, err := OpenHandle(ctx, filepath.Join(codeDirectory, "index.turso"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func storageLoadFixture(t testing.TB) storageLoadReport {
 		}
 	}()
 	if err := code.Write(ctx, func(connection *sql.Conn) error {
-		_, err := connection.ExecContext(ctx, sqliteSchema(CodeSchema))
+		_, err := connection.ExecContext(ctx, CodeSchema)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func (connection *storageLoadConnection) CheckNamedValue(value *driver.NamedValu
 func storageLoadObserveCommits(t testing.TB, handle *Handle, measurements *storageLoadMeasurements) func() {
 	t.Helper()
 	ctx := context.Background()
-	connector, err := sqlite.NewConnector(databaseDSN(handle.Path(), false))
+	connector, err := turso.Connector(handle.Path(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,8 @@ func storageLoadKeywordExpression(ctx context.Context, connection *sql.Conn, ter
 		path = &prefix
 	}
 	admitted := fmt.Sprintf(`[{"id":%q,"scope":%q,"generation":1,"rebuild":0,"semantic":true}]`, storageLoadCollection, strings.Repeat("0", 64))
-	rows, err := connection.QueryContext(ctx, storageLoadKeywordSQL, admitted, tags, path, nil, nil, terms, nil, nil, "[]")
+	expression := "field0:(" + terms + ")^2 OR field1:(" + terms + ") OR cjk0:(" + terms + ")^2 OR cjk1:(" + terms + ")"
+	rows, err := connection.QueryContext(ctx, storageLoadKeywordSQL, admitted, tags, path, nil, nil, expression, nil, nil, "[]")
 	if err != nil {
 		return nil, err
 	}
@@ -645,13 +646,8 @@ func storageLoadRebuildCode(ctx context.Context, handle *Handle) error {
 			return err
 		}
 	}
-	if err := handle.Write(ctx, func(connection *sql.Conn) error {
-		return storageLoadExec(ctx, connection, "INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')")
-	}); err != nil {
-		return err
-	}
 	return handle.Read(ctx, func(connection *sql.Conn) error {
-		return storageLoadInteger(ctx, connection, `SELECT count(*) FROM symbols_fts WHERE symbols_fts MATCH '"fixture"'`, storageLoadCodeFiles)
+		return storageLoadInteger(ctx, connection, `SELECT count(*) FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,'"fixture"')`, storageLoadCodeFiles)
 	})
 }
 

@@ -40,7 +40,7 @@ func ExecuteBackgroundCommand(ctx context.Context, db *sql.Conn, node, caller pr
 }
 
 func validContinuation(ctx context.Context, db *sql.Conn, fence continuationFence, session protocol.SessionID) (bool, error) {
-	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1 AND installed=1", fence.Package.Name)
+	info, err := ReadPlugin(ctx, db, fence.Package.Name)
 	if err != nil {
 		return false, err
 	}
@@ -49,8 +49,26 @@ func validContinuation(ctx context.Context, db *sql.Conn, fence continuationFenc
 	}
 	var current bool
 	switch fence.Scope {
-	case protocol.PluginStorageScopeNode:
-		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_values WHERE name=?1 AND key=?2 AND revision=?3 AND value IS NOT NULL)", fence.Package.Name, fence.Key, fence.Revision).Scan(&current)
+	case protocol.PluginStorageScopeNode, protocol.PluginStorageScopeProject:
+		if fence.Scope == protocol.PluginStorageScopeProject {
+			var worktree string
+			if err := db.QueryRowContext(ctx, "SELECT worktree FROM sessions WHERE id=?1", session.String()).Scan(&worktree); err != nil {
+				return false, err
+			}
+			id, err := protocol.ParseWorktreeID(worktree)
+			if err != nil {
+				return false, err
+			}
+			ctx, err = pluginStorageContext(ctx, db, protocol.PluginContext{Worktree: &id}, fence.Scope)
+			if err != nil {
+				return false, err
+			}
+		}
+		space, spaceErr := pluginValueSpace(ctx, db)
+		if spaceErr != nil {
+			return false, spaceErr
+		}
+		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_space_values WHERE name=?1 AND key=?2 AND revision=?3 AND space=?4 AND value IS NOT NULL)", fence.Package.Name, fence.Key, fence.Revision, space).Scan(&current)
 	case protocol.PluginStorageScopeConversation:
 		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_conversation_values v JOIN plugin_conversation_records r ON r.sequence=v.record WHERE v.name=?1 AND v.key=?2 AND v.session=?3 AND v.revision=?4 AND v.restored=0 AND r.value IS NOT NULL)", fence.Package.Name, fence.Key, session.String(), fence.Revision).Scan(&current)
 	default:
@@ -127,7 +145,7 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if chain.Count >= chain.Limit {
 		return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalLimit, "automatic turn limit reached", &chain)
 	}
-	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugins WHERE name=?1", fence.Package.Name)
+	info, err := ReadPlugin(ctx, db, fence.Package.Name)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}

@@ -34,15 +34,15 @@ func TestWindowsStoreSecurity(t *testing.T) {
 			t.Fatalf("new database family is not private: %v", err)
 		}
 	})
-	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
-		name := suffix
-		if name == "" {
+	for index := range core.DatabaseFiles("node.turso") {
+		name := core.DatabaseFiles("node.turso")[index]
+		if index == 0 {
 			name = "database"
 		}
 		t.Run("reject shared "+name, func(t *testing.T) {
 			path := windowsStoreFixture(t)
-			fixture := path + suffix
-			if suffix != "" {
+			fixture := core.DatabaseFiles(path)[index]
+			if index != 0 {
 				if err := os.WriteFile(fixture, []byte("preserved sidecar fixture"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -87,7 +87,7 @@ func windowsStoreFixture(t *testing.T) string {
 	if err := core.PrivateDirectory(directory); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(directory, "node.sqlite")
+	path := filepath.Join(directory, "node.turso")
 	handle, err := OpenHandle(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)

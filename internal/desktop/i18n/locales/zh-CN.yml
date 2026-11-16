@@ -340,6 +340,9 @@ project_remove_named: 确认移除项目“%{name}”？将关闭其终端，文
 project_remove_preview: 移除示例记录
 project_name: 项目名称
 project_host: 主机
+project_visibility: 可见范围
+project_visibility_private: 私有
+project_visibility_shared: 主机共享
 project_path: 项目路径
 project_destination: 保存位置
 project_repository: 仓库
@@ -820,10 +823,15 @@ connection_route_p2p: P2P
 connection_route_relay: 中继
 connections_device: 设备 %{id}
 connections_hosts: 主机
-connections_mobile: 移动端
+connections_mobile: 主控设备
+connections_bidirectional: 双向
+connections_legacy_bidirectional: 旧版双向
+connections_only_host: 仅主机
+connections_only_controller: 仅主控
+connections_direction_saved: 已更新设备访问方向
 connections_offline: 离线
 connections_online: 在线
-connections_revoke_confirm: 解除配对后需要重新连接
+connections_revoke_confirm: 解除此配对？移除用户的最后一台设备后，其数据将保留但无法由设备访问。
 dictation_access: 麦克风权限
 dictation_access_granted: 已授权
 dictation_access_hint: 为当前应用允许访问，返回后自动检测
@@ -886,6 +894,9 @@ model_library_selected: 已选择
 model_library_source: 来源
 pairing_connect: 连接设备
 pairing_local_code: 本机配对码
+pairing_invitation_kind: 邀请类型
+pairing_my_device: 我的设备
+pairing_other_user: 其他用户
 pairing_pin_hint: 输入 6 位配对码
 pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。
 pairing_relay_address: iroh 地址
@@ -2338,3 +2349,21 @@ meter_tokens: 用量
 meter_speed: 速度
 meter_show_details: 显示详情
 meter_hide_details: 收起
+configuration_follow_title: 配置同步
+configuration_follow_loading: 正在读取同步状态
+configuration_follow_controller: 控制端
+configuration_follow_description: 在控制端编辑配置，主机为每个控制端分别保存。
+configuration_follow_this_device: 本设备的配置
+configuration_follow_local_description: 配置会自动同步到已连接的主机。
+configuration_follow_waiting: 等待控制端配置
+configuration_follow_unavailable: 无法读取同步状态
+configuration_follow_targets: 执行主机
+configuration_follow_automatic: 自动同步
+configuration_follow_issues: 待处理
+configuration_follow_authorize: 授权
+configuration_follow_missing_key: 缺少 API 密钥，请检查控制端配置。
+configuration_follow_from_source: 来自控制端
+configuration_follow_requested: 已请求同步
+configuration_follow_failed: 配置同步失败
+configuration_follow_conflict: 配置已更改，请重试同步
+configuration_follow_unknown: 同步请求尚未确认，请重试以检查状态

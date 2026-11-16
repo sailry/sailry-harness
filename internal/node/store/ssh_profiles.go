@@ -13,13 +13,17 @@ import (
 )
 
 func ListSsh(ctx context.Context, db *sql.Conn) ([]protocol.SshProfile, error) {
-	return readBodies[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles ORDER BY id")
+	return listUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles")
 }
 
 func ReadSsh(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint64) (protocol.SshProfile, protocol.SshCredential, error) {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.SshProfile{}, protocol.SshCredential{}, err
+	}
 	var body []byte
 	var credential string
-	if err := db.QueryRowContext(ctx, "SELECT body,credential FROM ssh_profiles WHERE id=?1", id.String()).Scan(&body, &credential); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT body,credential FROM ssh_profiles WHERE id=?1 AND COALESCE(user,(SELECT id FROM users WHERE local=1))=?2", id.String(), user.ID.String()).Scan(&body, &credential); err != nil {
 		if err == sql.ErrNoRows {
 			err = fault(protocol.ErrorCodeNotFound, "SSH profile does not exist on this Node")
 		}
@@ -33,14 +37,21 @@ func ReadSsh(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint
 	if err := checkRevision(profile.Revision, revision); err != nil {
 		return profile, secret, err
 	}
-	err := json.Unmarshal([]byte(credential), &secret)
+	err = json.Unmarshal([]byte(credential), &secret)
 	return profile, secret, err
 }
 
 func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Command) (protocol.Output, []protocol.Event, error) {
 	switch input := command.Data.(type) {
 	case *protocol.CommandSaveSshPayload:
-		previous, err := readBody[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles WHERE id=?1", input.Profile.ID.String())
+		if err := checkConfigurationOwner(ctx, db, "ssh_profiles", input.Profile.ID.String()); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		previous, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", input.Profile.ID.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
@@ -98,7 +109,7 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 			return protocol.Output{}, nil, err
 		}
 		if previous == nil {
-			_, err = db.ExecContext(ctx, "INSERT INTO ssh_profiles(id,body,credential) VALUES(?1,?2,?3)", profile.ID.String(), body, encodedCredential)
+			_, err = db.ExecContext(ctx, "INSERT INTO ssh_profiles(id,user,body,credential) VALUES(?1,?2,?3,?4)", profile.ID.String(), user.ID.String(), body, encodedCredential)
 		} else {
 			_, err = db.ExecContext(ctx, "UPDATE ssh_profiles SET body=?2,credential=COALESCE(?3,credential) WHERE id=?1", profile.ID.String(), body, encodedCredential)
 		}
@@ -125,6 +136,9 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 		_, err = db.ExecContext(ctx, "UPDATE ssh_profiles SET body=?2 WHERE id=?1", profile.ID.String(), body)
 		return protocol.Output{Kind: "ssh_profile", Data: profile}, []protocol.Event{{Kind: "ssh_changed", Data: profile}}, err
 	case *protocol.CommandRemoveSshPayload:
+		if err := CheckConfigurationEditable(ctx, db, "ssh_profiles", input.Profile.String()); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if _, _, err := ReadSsh(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}

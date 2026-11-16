@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -10,12 +11,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/ssh"
 )
 
-func (node *Node) runHost(caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
-	if handled, output, err := node.dispatchResource(node.ctx, caller, request); handled {
+func (node *Node) runHost(ctx context.Context, caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+	if handled, output, err := node.dispatchResource(ctx, caller, request); handled {
 		return output, err
 	}
 	if input, ok := request.Command.Data.(*protocol.CommandStopHostProcessPayload); ok {
-		err := host.StopProcess(node.ctx, input.Pid, input.StartedAtSecs, input.Force)
+		err := host.StopProcess(ctx, input.Pid, input.StartedAtSecs, input.Force)
 		return protocol.Output{Kind: "host_process_signalled", Data: protocol.OutputHostProcessSignalledPayload{Pid: input.Pid, StartedAtSecs: input.StartedAtSecs}}, err
 	}
 	var id protocol.SshID
@@ -38,14 +39,14 @@ func (node *Node) runHost(caller protocol.NodeID, request protocol.Request) (pro
 	}
 	var profile protocol.SshProfile
 	var credential protocol.SshCredential
-	if err := node.profile.Store.Node.Read(node.ctx, func(db *sql.Conn) error {
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		profile, credential, err = store.ReadSsh(node.ctx, db, id, revision)
+		profile, credential, err = store.ReadSsh(ctx, db, id, revision)
 		return err
 	}); err != nil {
 		return protocol.Output{}, err
 	}
-	scoped, finish, err := node.hostInstalls.Begin(node.ctx, caller, request)
+	scoped, finish, err := node.hostInstalls.Begin(ctx, caller, request)
 	if err != nil {
 		return protocol.Output{}, err
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -201,41 +202,21 @@ func (node *Node) backupPlan(ctx context.Context, expected *uint64) (backup.Plan
 	return plan, err
 }
 
-// captureBackup pins one state of both databases, copies it with SQLite's
-// online backup and archives the content that state lists. The exclusive
-// leases last only until both read transactions exist: the Node keeps
-// reading and writing while the copy, the capture and the upload run.
+// captureBackup copies both closed native databases under exclusive ownership.
+// The Node resumes reading and writing before content capture and upload.
 func (node *Node) captureBackup(ctx context.Context, revision uint64) (backup.Plan, *backup.Packed, error) {
 	profile, storage := node.profile.Ownership.Path, node.profile.Store
 	main, err := storage.Node.Exclusive(ctx)
 	if err != nil {
 		return backup.Plan{}, nil, err
 	}
+	defer main.Close()
 	knowledge, err := storage.Knowledge.Exclusive(ctx)
 	if err != nil {
-		_ = main.Close()
 		return backup.Plan{}, nil, err
 	}
-	var pinned []*store.Pinned
-	for _, exclusive := range []*store.Exclusive{main, knowledge} {
-		if err == nil {
-			var state *store.Pinned
-			if state, err = exclusive.Pin(ctx); err == nil {
-				pinned = append(pinned, state)
-			}
-		}
-	}
-	err = errors.Join(err, main.Close(), knowledge.Close())
-	release := func() {
-		for _, state := range pinned {
-			_ = state.Close()
-		}
-	}
-	defer release()
-	if err != nil {
-		return backup.Plan{}, nil, err
-	}
-	plan, roots, err := store.BackupSource(ctx, pinned[0].Connection(), node.ID(), profile, revision)
+	defer knowledge.Close()
+	plan, roots, err := store.BackupSource(ctx, main.Connection(), node.ID(), profile, revision)
 	if err != nil {
 		return backup.Plan{}, nil, err
 	}
@@ -248,12 +229,7 @@ func (node *Node) captureBackup(ctx context.Context, revision uint64) (backup.Pl
 	if err != nil {
 		return backup.Plan{}, nil, err
 	}
-	for index, name := range []string{"node.sqlite", "knowledge.sqlite"} {
-		if err == nil {
-			err = snapshot.Freeze(ctx, name, pinned[index].Copy)
-		}
-	}
-	release()
+	err = freezeBackup(ctx, snapshot, main, knowledge)
 	if err == nil {
 		err = snapshot.Capture(ctx, roots)
 	}
@@ -266,4 +242,29 @@ func (node *Node) captureBackup(ctx context.Context, revision uint64) (backup.Pl
 		return backup.Plan{}, nil, err
 	}
 	return plan, packed, nil
+}
+
+// freezeBackup retains both leases through the file copies and reopens every
+// closed database before returning, even after cancellation or a copy failure.
+func freezeBackup(ctx context.Context, snapshot *backup.Snapshot, main, knowledge *store.Exclusive) (result error) {
+	var closed []*store.Closed
+	defer func() {
+		cleanup := context.WithoutCancel(ctx)
+		for index := len(closed) - 1; index >= 0; index-- {
+			result = errors.Join(result, closed[index].Reopen(cleanup))
+		}
+	}()
+	for _, exclusive := range []*store.Exclusive{main, knowledge} {
+		state, err := exclusive.Pause(ctx)
+		if err != nil {
+			return err
+		}
+		closed = append(closed, state)
+	}
+	for _, database := range closed {
+		if err := snapshot.Freeze(ctx, filepath.Base(database.Path()), database.Copy); err != nil {
+			return err
+		}
+	}
+	return nil
 }

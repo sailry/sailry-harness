@@ -13,10 +13,10 @@ import (
 )
 
 func ReadRoles(ctx context.Context, db *sql.Conn) ([]protocol.RoleProfile, error) {
-	return readBodies[protocol.RoleProfile](ctx, db, "SELECT body FROM roles ORDER BY key")
+	return listUserConfiguration[protocol.RoleProfile](ctx, db, "roles")
 }
 func ReadTeams(ctx context.Context, db *sql.Conn) ([]protocol.TeamProfile, error) {
-	return readBodies[protocol.TeamProfile](ctx, db, "SELECT body FROM teams ORDER BY key")
+	return listUserConfiguration[protocol.TeamProfile](ctx, db, "teams")
 }
 
 func roleKey(key string) bool {
@@ -136,7 +136,7 @@ func validateRoleModel(provider protocol.ConversationProvider, selection protoco
 	return providers.ValidateSelection(provider, config)
 }
 func listedRoleProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderID) (protocol.ConversationProvider, error) {
-	stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", id.String())
+	stored, err := readProviderConfiguration(ctx, db, id)
 	if err != nil {
 		return protocol.ConversationProvider{}, err
 	}
@@ -149,7 +149,14 @@ func putRole(ctx context.Context, db *sql.Conn, role protocol.RoleProfile, expec
 	if err := ValidateRole(role); err != nil {
 		return role, err
 	}
-	current, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", role.ID.String())
+	if err := checkConfigurationOwner(ctx, db, "roles", role.ID.String()); err != nil {
+		return role, err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return role, err
+	}
+	current, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", role.ID.String())
 	if err != nil {
 		return role, err
 	}
@@ -161,7 +168,7 @@ func putRole(ctx context.Context, db *sql.Conn, role protocol.RoleProfile, expec
 		return role, err
 	}
 	var used bool
-	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM roles WHERE key=?1 AND id<>?2)", role.Key, role.ID.String()).Scan(&used); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM roles WHERE key=?1 AND id<>?2)", configurationKey(user, role.Key), role.ID.String()).Scan(&used); err != nil {
 		return role, err
 	}
 	if used {
@@ -187,7 +194,7 @@ func putRole(ctx context.Context, db *sql.Conn, role protocol.RoleProfile, expec
 	if err != nil {
 		return role, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body", role.ID.String(), role.Key, body)
+	_, err = db.ExecContext(ctx, "INSERT INTO roles(id,user,key,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body", role.ID.String(), user.ID.String(), configurationKey(user, role.Key), body)
 	return role, err
 }
 
@@ -218,7 +225,14 @@ func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expec
 	if err := ValidateTeam(team); err != nil {
 		return team, err
 	}
-	current, err := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", team.ID.String())
+	if err := checkConfigurationOwner(ctx, db, "teams", team.ID.String()); err != nil {
+		return team, err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return team, err
+	}
+	current, err := readUserConfiguration[protocol.TeamProfile](ctx, db, "teams", team.ID.String())
 	if err != nil {
 		return team, err
 	}
@@ -230,14 +244,14 @@ func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expec
 		return team, err
 	}
 	var used bool
-	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM teams WHERE key=?1 AND id<>?2)", team.Key, team.ID.String()).Scan(&used); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM teams WHERE key=?1 AND id<>?2)", configurationKey(user, team.Key), team.ID.String()).Scan(&used); err != nil {
 		return team, err
 	}
 	if used {
 		return team, fault(protocol.ErrorCodeConflict, "team key is already in use")
 	}
 	for _, id := range team.Members {
-		role, err := readBody[protocol.RoleProfile](ctx, db, "SELECT body FROM roles WHERE id=?1", id.String())
+		role, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", id.String())
 		if err != nil {
 			return team, err
 		}
@@ -265,10 +279,17 @@ func putTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile, expec
 	return team, err
 }
 func writeTeam(ctx context.Context, db *sql.Conn, team protocol.TeamProfile) error {
+	if err := checkConfigurationOwner(ctx, db, "teams", team.ID.String()); err != nil {
+		return err
+	}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return err
+	}
 	body, err := encode(team)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO teams(id,key,body) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body", team.ID.String(), team.Key, body)
+	_, err = db.ExecContext(ctx, "INSERT INTO teams(id,user,key,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET key=excluded.key,body=excluded.body", team.ID.String(), user.ID.String(), configurationKey(user, team.Key), body)
 	return err
 }

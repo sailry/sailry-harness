@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/turso"
 	"golang.org/x/sync/semaphore"
-	_ "modernc.org/sqlite"
 )
 
 const allLeases = math.MaxInt64
@@ -110,10 +109,11 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	if err := createDatabaseFile(path); err != nil {
 		return nil, err
 	}
-	writeDB, err := sql.Open("sqlite", databaseDSN(path, false))
+	connector, err := turso.Connector(path, false)
 	if err != nil {
 		return nil, err
 	}
+	writeDB := sql.OpenDB(connector)
 	writeDB.SetMaxOpenConns(1)
 	writeDB.SetMaxIdleConns(1)
 	defer func() {
@@ -133,22 +133,24 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	var mode string
 	journal := "PRAGMA journal_mode"
 	if !initialized {
-		journal = "PRAGMA journal_mode=WAL"
+		journal = "PRAGMA journal_mode=mvcc"
 	}
 	if err := connection.QueryRowContext(ctx, journal).Scan(&mode); err != nil {
 		return nil, err
 	}
-	if !strings.EqualFold(mode, "wal") {
-		return nil, errors.New("Node database is not in WAL mode")
+	if !strings.EqualFold(mode, "mvcc") && !strings.EqualFold(mode, "wal") {
+		return nil, errors.New("Node database is not in MVCC or WAL mode")
 	}
-	readDB, err := sql.Open("sqlite", databaseDSN(path, true))
+	reader, err := turso.Connector(path, true)
 	if err != nil {
 		return nil, err
 	}
+	readDB := sql.OpenDB(reader)
 	// A reader beyond the idle set is reopened with its pragmas on every read;
 	// database/sql keeps only two by default.
 	readDB.SetMaxIdleConns(8)
-	if err := readDB.PingContext(ctx); err != nil {
+	var ready int
+	if err := readDB.QueryRowContext(ctx, "SELECT 1").Scan(&ready); err != nil {
 		_ = readDB.Close()
 		return nil, err
 	}
@@ -162,29 +164,6 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	}
 	go state.writer.run()
 	return state, nil
-}
-
-func databaseDSN(path string, readonly bool) string {
-	name := filepath.ToSlash(path)
-	if filepath.VolumeName(path) != "" && !strings.HasPrefix(name, "/") {
-		name = "/" + name
-	}
-	location := url.URL{Scheme: "file", Path: name}
-	options := url.Values{}
-	options.Set("mode", "rw")
-	options.Add("_pragma", "foreign_keys(1)")
-	options.Add("_pragma", "synchronous(FULL)")
-	options.Add("_pragma", "busy_timeout(0)")
-	if readonly {
-		options.Set("mode", "ro")
-		options.Add("_pragma", "query_only(1)")
-	} else {
-		// Automatic checkpoints run inside COMMIT. Smaller WAL batches reduce
-		// foreground I/O bursts without relaxing FULL synchronous durability.
-		options.Add("_pragma", "wal_autocheckpoint(256)")
-	}
-	location.RawQuery = options.Encode()
-	return location.String()
 }
 
 func checkDatabaseFiles(path string) error {

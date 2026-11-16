@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/shipped"
 	cryptossh "golang.org/x/crypto/ssh"
 	"golang.org/x/mod/semver"
 )
@@ -35,6 +36,7 @@ type artifact struct {
 	file   *os.File
 	digest string
 	name   string
+	size   int64
 }
 
 type installedIdentity struct {
@@ -65,14 +67,15 @@ func openArtifact(root, name string) (*artifact, error) {
 		return nil, unavailable("locally built Host artifact could not be read")
 	}
 	digest := sha256.New()
-	if _, err = io.Copy(digest, file); err == nil {
+	size, err := io.Copy(digest, file)
+	if err == nil {
 		_, err = file.Seek(0, io.SeekStart)
 	}
 	if err != nil {
 		_ = file.Close()
 		return nil, unavailable("locally built Host artifact could not be verified")
 	}
-	return &artifact{file: file, digest: hex.EncodeToString(digest.Sum(nil)), name: name}, nil
+	return &artifact{file: file, digest: hex.EncodeToString(digest.Sum(nil)), name: name, size: size}, nil
 }
 
 func targetPlatform(platform string) (string, string, error) {
@@ -167,7 +170,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 	if _, missing := os.Lstat(filepath.Join(root, "sailry-host")); errors.Is(missing, fs.ErrNotExist) {
 		err = owner.installRelease(ctx, connection, caller, request, expected, selection)
 	} else {
-		err = owner.installLocal(ctx, connection, caller, request, root, native, paths, expected, selection)
+		err = owner.installLocal(ctx, connection, caller, request, root, target, native, paths, expected, selection)
 	}
 	if err != nil {
 		return protocol.SshOutcome{}, err
@@ -198,7 +201,7 @@ const stageCommand = "umask 077; command -v python3 >/dev/null || { echo 'python
 
 // installLocal verifies and uploads the locally built Host artifacts of the
 // target, then activates them with the embedded deployment scripts.
-func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, native string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
+func (owner *Installations) installLocal(ctx context.Context, connection *cryptossh.Client, caller protocol.NodeID, request protocol.RequestID, root, target, native string, paths DeploymentOptions, expected *protocol.NodeID, selection *protocol.NetworkSelection) error {
 	binary, err := openArtifact(root, "sailry-host")
 	if err != nil {
 		return err
@@ -209,6 +212,26 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 		return err
 	}
 	defer library.file.Close()
+	database, err := openArtifact(root, "libturso_sync_sdk_kit"+filepath.Ext(native))
+	if err != nil {
+		return err
+	}
+	defer database.file.Close()
+	seal, err := openArtifact(root, shipped.SealName)
+	if err != nil {
+		return err
+	}
+	defer seal.file.Close()
+	manifest, err := shipped.Read(root, strings.Replace(target, "-", "/", 1))
+	if err != nil {
+		return unavailable("locally built Host package seal is unavailable or invalid")
+	}
+	for _, input := range []*artifact{library, database} {
+		entry, present := manifest.File(input.name)
+		if !present || entry.Size != input.size || entry.SHA256 != input.digest {
+			return unavailable("locally built Host native artifacts do not match their package seal")
+		}
+	}
 	if expected != nil {
 		identity, err := inspectInstalled(ctx, connection, paths)
 		if err != nil {
@@ -234,7 +257,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 		}
 	}()
 	owner.Progress(caller, request, "installing")
-	for _, input := range []*artifact{binary, library} {
+	for _, input := range []*artifact{binary, library, database, seal} {
 		destination, _ := shellQuote(stage + "/" + input.name)
 		if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, input.file); err != nil {
 			return err
@@ -245,7 +268,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
 		return err
 	}
-	script, err := deploymentScript(stage, native, binary.digest, library.digest, paths, expected != nil, selection)
+	script, err := deploymentScript(stage, binary, library, database, seal, paths, expected != nil, selection)
 	if err != nil {
 		return err
 	}
@@ -360,12 +383,13 @@ func inspectInstalled(ctx context.Context, connection *cryptossh.Client, paths D
 	return identity, nil
 }
 
-func deploymentScript(stage, native, digest, nativeDigest string, paths DeploymentOptions, update bool, selection *protocol.NetworkSelection) (string, error) {
+func deploymentScript(stage string, binary, native, database, seal *artifact, paths DeploymentOptions, update bool, selection *protocol.NetworkSelection) (string, error) {
 	if !semver.IsValid("v" + link.ProductVersion) {
 		return "", invalid("invalid target Host version")
 	}
 	values := []struct{ name, value string }{
-		{"install_stage", stage}, {"install_native", native}, {"install_digest", digest}, {"install_native_digest", nativeDigest},
+		{"install_stage", stage}, {"install_native", native.name}, {"install_turso", database.name},
+		{"install_digest", binary.digest}, {"install_native_digest", native.digest}, {"install_turso_digest", database.digest}, {"install_seal_digest", seal.digest},
 		{"install_root", paths.ProgramRoot}, {"install_data", paths.Profile}, {"install_service_path", paths.ServicePath},
 		{"install_command", paths.CommandPath}, {"install_version", link.ProductVersion},
 	}

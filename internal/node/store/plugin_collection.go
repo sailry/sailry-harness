@@ -30,11 +30,12 @@ UNION SELECT json_extract(config,'$.assistant.package') FROM session_revisions W
 // install or capture a package.
 func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, error) {
 	type revision struct {
+		user     string
 		plugin   string
 		revision uint64
 	}
 	packages, settings := map[string]struct{}{}, map[revision]struct{}{}
-	rows, err := db.QueryContext(ctx, "SELECT name,settings_revision,installed,json_extract(body,'$.summary.digest') FROM plugins")
+	rows, err := db.QueryContext(ctx, "SELECT user,name,settings_revision,installed,json_extract(body,'$.summary.digest') FROM plugin_user_installations")
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +43,7 @@ func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, err
 		var held revision
 		var installed bool
 		var digest string
-		if err = rows.Scan(&held.plugin, &held.revision, &installed, &digest); err != nil {
+		if err = rows.Scan(&held.user, &held.plugin, &held.revision, &installed, &digest); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -52,6 +53,23 @@ func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, err
 		if held.revision != 0 {
 			settings[held] = struct{}{}
 		}
+	}
+	if err = closeRows(rows); err != nil {
+		return nil, err
+	}
+	// A verified follow package can be pending reconciliation after transfer.
+	// Its cache record is an explicit holder until the source copy is applied.
+	rows, err = db.QueryContext(ctx, "SELECT digest FROM configuration_follow_packages")
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var digest string
+		if err = rows.Scan(&digest); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		packages[digest] = struct{}{}
 	}
 	if err = closeRows(rows); err != nil {
 		return nil, err
@@ -73,32 +91,34 @@ func CollectPlugins(ctx context.Context, db *sql.Conn) (map[string]struct{}, err
 		}
 		packages[reference.Digest] = struct{}{}
 		if reference.SettingsRevision != 0 {
-			settings[revision{reference.Name, reference.SettingsRevision}] = struct{}{}
+			settings[revision{plugin: reference.Name, revision: reference.SettingsRevision}] = struct{}{}
 		}
 	}
 	if err = closeRows(rows); err != nil {
 		return nil, err
 	}
 	var unused []revision
-	rows, err = db.QueryContext(ctx, "SELECT plugin,revision FROM plugin_settings")
+	rows, err = db.QueryContext(ctx, "SELECT user,plugin,revision FROM plugin_user_settings")
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var stored revision
-		if err = rows.Scan(&stored.plugin, &stored.revision); err != nil {
+		if err = rows.Scan(&stored.user, &stored.plugin, &stored.revision); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		if _, held := settings[stored]; !held {
-			unused = append(unused, stored)
+			if _, captured := settings[revision{plugin: stored.plugin, revision: stored.revision}]; !captured {
+				unused = append(unused, stored)
+			}
 		}
 	}
 	if err = closeRows(rows); err != nil {
 		return nil, err
 	}
 	for _, stored := range unused {
-		if _, err = db.ExecContext(ctx, "DELETE FROM plugin_settings WHERE plugin=?1 AND revision=?2", stored.plugin, stored.revision); err != nil {
+		if _, err = db.ExecContext(ctx, "DELETE FROM plugin_user_settings WHERE plugin=?1 AND revision=?2 AND user=?3", stored.plugin, stored.revision, stored.user); err != nil {
 			return nil, err
 		}
 	}

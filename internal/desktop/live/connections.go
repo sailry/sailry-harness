@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -34,6 +35,8 @@ type connectionState struct {
 	shareChange     *connectionNetworkChange
 	localName       string
 	revoking        map[string]bool
+	revocations     map[protocol.NodeID]protocol.Request
+	narrowing       map[string]bool
 	wsl             wslDistributions
 }
 
@@ -53,6 +56,7 @@ func (r *Runtime) initConnectionActions() {
 		name, _ := os.Hostname()
 		r.connections = &connectionState{localName: name}
 	}
+	r.initConfigurationFollowActions()
 	state := r.connections
 	if r.network != nil {
 		state.endpoint = r.network.endpoint
@@ -62,6 +66,7 @@ func (r *Runtime) initConnectionActions() {
 		Add:         r.addConnection,
 		CheckStatus: r.checkSSHHost,
 		Revoke:      r.revokeConnection,
+		Narrow:      r.narrowConnection,
 		EditNetwork: r.editConnectionNetwork,
 		SaveNetwork: r.saveConnectionNetwork,
 		RetryShare:  func() { r.startConnectionShare(0) },
@@ -137,7 +142,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	if model.Sharing() {
 		draft := model.ConnectionDraft()
 		selected, err := r.connectionSelection(draft)
-		key := encoded(selected)
+		key := encoded(selected) + ":" + string(draft.Invitation)
 		if err != nil {
 			key = draft.Address
 		}
@@ -175,7 +180,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 func (r *Runtime) connectionStatus() settings.ConnectionStatus {
 	state := r.connections
 	status := settings.ConnectionStatus{
-		Revoking: state.revoking, Distributions: state.wsl.names,
+		Revoking: state.revoking, Narrowing: state.narrowing, Distributions: state.wsl.names,
 		DistributionsLoading: state.wsl.loading, DistributionsLoaded: state.wsl.loaded,
 	}
 	if !r.App.Settings.Adding() {
@@ -349,11 +354,24 @@ func (r *Runtime) revokeNode(node string, finished func()) {
 		state.revoking = map[string]bool{}
 	}
 	state.revoking[node] = true
-	endpoint := state.endpoint
+	if state.revocations == nil {
+		state.revocations = map[protocol.NodeID]protocol.Request{}
+	}
+	request, retained := state.revocations[id]
+	if !retained {
+		request = r.controller.Prepare(protocol.Command{Kind: "identity", Data: protocol.IdentityCommand{Kind: "revoke_device", Data: protocol.RevokeDevice{Device: id, ConfirmLast: true}}})
+		state.revocations[id] = request
+	}
+	controller := r.controller
 	r.async(func() {
-		err := endpoint.SetTrust(r.ctx, id, false)
+		var address link.EndpointAddress
+		address.ID = id
+		_, err := client.RemoveHost(r.ctx, state.endpoint, address, func(local context.Context) error { _, err := controller.Settle(local, request); return err })
 		r.enqueue(func(c *ui.Context) {
 			delete(state.revoking, node)
+			if !client.Retained(err) {
+				delete(state.revocations, id)
+			}
 			if finished != nil {
 				finished()
 			}
@@ -393,7 +411,7 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 		for _, peer := range r.network.snapshot() {
 			id := peer.address.ID.String()
 			remembered, exists := known[id]
-			device := viewmodel.Device{ID: id, Execution: true, Online: peer.online}
+			device := viewmodel.Device{ID: id, Execution: true, Online: peer.online, Direction: string(peer.trust.Direction), Legacy: peer.trust.Legacy}
 			if exists {
 				device.Execution = remembered.Execution
 				if remembered.Name != nil {
@@ -410,11 +428,17 @@ func (r *Runtime) projectDevices() []viewmodel.Device {
 				}
 				device.OS, device.Version = system(id), stringValue(peer.info.SoftwareVersion)
 			}
+			if device.Name == "" {
+				device.Name = peer.rememberedName
+			}
 			if device.Online && peer.connection.Route != nil {
 				device.Route = string(*peer.connection.Route)
 				if peer.connection.RTTMS != nil {
 					device.RTT = int(*peer.connection.RTTMS)
 				}
+			}
+			if peer.trust.Direction.Valid() {
+				device.Execution = peer.trust.Direction.AllowsOutbound() && device.Execution
 			}
 			devices = append(devices, device)
 		}

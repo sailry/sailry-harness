@@ -53,7 +53,11 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	if query.Models == nil {
 		models = []byte("[]")
 	}
-	rows, err := db.QueryContext(ctx, agentUsageRows, time.UnixMilli(query.StartMs).UTC().Format("2006-01-02T15:04:05"), time.UnixMilli(query.EndMs).UTC().Format("2006-01-02T15:04:05"), string(projects), string(worktrees), string(providers), string(models), 100001)
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return report, err
+	}
+	rows, err := db.QueryContext(ctx, agentUsageRows, time.UnixMilli(query.StartMs).UTC().Format("2006-01-02T15:04:05"), time.UnixMilli(query.EndMs).UTC().Format("2006-01-02T15:04:05"), string(projects), string(worktrees), string(providers), string(models), 100001, user.ID.String())
 	if err != nil {
 		return report, err
 	}
