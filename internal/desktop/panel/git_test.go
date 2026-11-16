@@ -36,7 +36,7 @@ func pageTester(t *testing.T, k Kind) (*Project, *ui.Tester) {
 // pageView supplies the two Shell slots without importing the Shell,
 // which depends on panel. Project's compact tab width is fixture layout.
 func pageView(c *ui.Context, k Kind, pr *Project) {
-	box := ui.Row(c).Fill().MinWidth(0).MinHeight(0)
+	box := ui.Row(c).Fill().MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
 	PageKeys(c, k, pr, box)
 	box.Children(func() {
 		ui.Column(c.Key("document")).Grow(1).MinWidth(0).MinHeight(0).Children(func() { Page(c, k, pr, func() {}) })

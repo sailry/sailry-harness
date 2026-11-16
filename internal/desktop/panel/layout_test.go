@@ -51,7 +51,7 @@ func testDiffFooter(t *testing.T) {
 	// The diff starts under the page's strip: no toolbar row, and no
 	// segmented choice anywhere.
 	text, ok := tt2.Access("New text")
-	if !ok || text.Bounds.Y > barHeight+1 {
+	if !ok || text.Bounds.H <= 0 || text.Bounds.Y > barHeight+1 {
 		t.Fatalf("the diff starts at %v (%v), under a toolbar's room", text.Bounds, ok)
 	}
 	edge := width - pr.Git.side
