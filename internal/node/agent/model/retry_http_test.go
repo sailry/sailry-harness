@@ -1,9 +1,11 @@
 package model
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,5 +191,146 @@ func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 				t.Fatal("retry changed the captured request body")
 			}
 		})
+	}
+}
+
+func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
+	for _, kind := range []string{"responses", "anthropic"} {
+		for _, content := range []string{"text", "tool"} {
+			for _, ending := range []string{"idle", "truncated"} {
+				t.Run(kind+"/"+content+"/"+ending, func(t *testing.T) {
+					payload := fixture(t, kind+"-"+content+".sse")
+					var requests atomic.Int32
+					closed := make(chan struct{}, MainRetries+1)
+					server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+						_, _ = io.Copy(io.Discard, request.Body)
+						requests.Add(1)
+						writer.Header().Set("Content-Type", "text/event-stream")
+						if ending == "truncated" {
+							writer.Header().Set("Content-Length", strconv.Itoa(len(payload)+100))
+						}
+						_, _ = writer.Write(payload)
+						writer.(http.Flusher).Flush()
+						if ending == "idle" {
+							<-request.Context().Done()
+						}
+						closed <- struct{}{}
+					}))
+					t.Cleanup(server.Close)
+					language, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					// A completed protocol event must release a still-open body,
+					// rather than waiting for the response inactivity deadline.
+					sdk := language.(*sdkModel)
+					transport := sdk.client.Transport.(responseTransport)
+					transport.stall = 250 * time.Millisecond
+					sdk.client.Transport = transport
+					timer := &policyClock{}
+					var attempts []Attempt
+					text, calls, finishes, resets := "", 0, 0, 0
+					err = Run(t.Context(), language, requestCall(t, kind), Main, timer, func(attempt Attempt) error {
+						attempts = append(attempts, attempt)
+						return nil
+					}, func(part fantasy.StreamPart) bool {
+						switch part.Type {
+						case fantasy.StreamPartTypeTextDelta:
+							text += part.Delta
+						case fantasy.StreamPartTypeToolCall:
+							calls++
+							if part.ID != "stable-call" || part.ToolCallName != "read" || part.ToolCallInput != `{"path":"file"}` {
+								t.Errorf("completed tool call changed: %+v", part)
+							}
+						case fantasy.StreamPartTypeFinish:
+							finishes++
+						}
+						return true
+					}, func() { resets++ })
+					if err != nil || requests.Load() != 1 || len(attempts) != 1 || len(timer.delays) != 0 || resets != 0 || finishes != 1 {
+						t.Fatalf("completed response retried or failed: requests=%d attempts=%d waits=%v resets=%d finishes=%d error=%v", requests.Load(), len(attempts), timer.delays, resets, finishes, err)
+					}
+					if content == "text" && (text != "Read complete" || calls != 0) || content == "tool" && calls != 1 {
+						t.Fatalf("completed output changed: text=%q calls=%d", text, calls)
+					}
+					attempt := attempts[0]
+					if attempt.Failure != nil || attempt.Status == nil || *attempt.Status != http.StatusOK || attempt.ResponseUs == nil || attempt.Usage.Output == nil || *attempt.Usage.Output != 3 {
+						t.Fatalf("completed response lost status or final usage: %+v", attempt)
+					}
+					select {
+					case <-closed:
+					case <-time.After(2 * time.Second):
+						t.Fatal("completed stream left its HTTP request open")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSDKCancellationReleasesRequestWithoutRetry(t *testing.T) {
+	prefixes := map[string]string{
+		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"retain\"}\n\n",
+		"chat":      "data: {\"id\":\"chat\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"retain\"},\"finish_reason\":null}]}\n\n",
+		"anthropic": "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+			"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"retain\"}}\n\n",
+		"google": "data: {\"candidates\":[{\"index\":0,\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"retain\"}]}}]}\n\n",
+	}
+	for kind, prefix := range prefixes {
+		for _, phase := range []string{"before_headers", "partial_output"} {
+			t.Run(kind+"/"+phase, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				var requests atomic.Int32
+				closed := make(chan struct{}, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					_, _ = io.Copy(io.Discard, request.Body)
+					requests.Add(1)
+					if phase == "before_headers" {
+						cancel()
+					} else {
+						writer.Header().Set("Content-Type", "text/event-stream")
+						_, _ = io.WriteString(writer, prefix)
+						writer.(http.Flusher).Flush()
+					}
+					<-request.Context().Done()
+					closed <- struct{}{}
+				}))
+				t.Cleanup(server.Close)
+				language, err := newSDK(ctx, transportConfig{Kind: kind, Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				timer := &policyClock{}
+				var attempts []Attempt
+				output, resets, finishes := "", 0, 0
+				err = Run(ctx, language, requestCall(t, kind), Main, timer, func(attempt Attempt) error {
+					attempts = append(attempts, attempt)
+					return nil
+				}, func(part fantasy.StreamPart) bool {
+					if part.Type == fantasy.StreamPartTypeTextDelta {
+						output += part.Delta
+						cancel()
+					}
+					if part.Type == fantasy.StreamPartTypeFinish {
+						finishes++
+					}
+					return true
+				}, func() { resets++ })
+				failure := Classify(err)
+				if failure == nil || failure.Kind != Cancelled || requests.Load() != 1 || len(attempts) != 1 || len(timer.delays) != 0 || resets != 0 || finishes != 0 {
+					t.Fatalf("cancellation retried or completed: failure=%+v requests=%d attempts=%d waits=%v resets=%d finishes=%d", failure, requests.Load(), len(attempts), timer.delays, resets, finishes)
+				}
+				attempt := attempts[0]
+				if attempt.Failure == nil || attempt.Failure.Kind != Cancelled || attempt.RetryDelay != nil || phase == "before_headers" && (attempt.Status != nil || attempt.ResponseUs != nil) || phase == "partial_output" && (output != "retain" || attempt.Status == nil || *attempt.Status != http.StatusOK || attempt.ResponseUs == nil) {
+					t.Fatalf("cancellation changed output or response boundary: output=%q attempt=%+v", output, attempt)
+				}
+				select {
+				case <-closed:
+				case <-time.After(2 * time.Second):
+					t.Fatal("cancelled stream left its HTTP request open")
+				}
+			})
+		}
 	}
 }

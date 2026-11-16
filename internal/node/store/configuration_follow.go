@@ -30,7 +30,7 @@ func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string)
 	}
 	var source []byte
 	var revision uint64
-	err = db.QueryRowContext(ctx, "SELECT source,revision FROM configuration_follow_records WHERE user=?1 AND category=?2 AND id=?3 AND materialized=1", user.ID.String(), category, id).Scan(&source, &revision)
+	err = db.QueryRowContext(ctx, "SELECT source,revision FROM configuration_follow_records WHERE user=?1 AND category=?2 AND CASE WHEN local_id='' THEN id ELSE local_id END=?3 AND materialized=1", user.ID.String(), category, id).Scan(&source, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -114,7 +114,7 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return status, err
 	}
-	rows, err = db.QueryContext(ctx, "SELECT category,id,state,message FROM configuration_follow_records WHERE user=?1 AND state!='applied' ORDER BY category,id", user.ID.String())
+	rows, err = db.QueryContext(ctx, "SELECT category,CASE WHEN local_id='' THEN id ELSE local_id END,state,message FROM configuration_follow_records WHERE user=?1 AND state!='applied' ORDER BY category,id", user.ID.String())
 	if err != nil {
 		return status, err
 	}
@@ -221,9 +221,9 @@ func SaveConfigurationTarget(ctx context.Context, db *sql.Conn, target protocol.
 	return err
 }
 
-// EnsureConfigurationTarget is called only after a direct outbound host reports
-// the authenticated receiving user's role. Public hosts default to no keys.
-func EnsureConfigurationTarget(ctx context.Context, db *sql.Conn, host protocol.NodeID, administrator bool) error {
+// EnsureConfigurationTarget is called only after a trusted direct host resolves
+// the authenticated caller's separate personal configuration namespace.
+func EnsureConfigurationTarget(ctx context.Context, db *sql.Conn, host protocol.NodeID) error {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err
@@ -231,7 +231,7 @@ func EnsureConfigurationTarget(ctx context.Context, db *sql.Conn, host protocol.
 	if !user.Local {
 		return fault(protocol.ErrorCodePermissionDenied, "configuration source is not local")
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_targets(user,host,revision,configuration,secrets) VALUES(?1,?2,1,1,?3) ON CONFLICT(user,host) DO NOTHING", user.ID.String(), host[:], administrator)
+	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_targets(user,host,revision,configuration,secrets) VALUES(?1,?2,1,1,1) ON CONFLICT(user,host) DO UPDATE SET revision=revision+1,configuration=1,secrets=1 WHERE configuration=0 OR secrets=0", user.ID.String(), host[:])
 	return err
 }
 
@@ -348,6 +348,11 @@ func validateConfigurationManifest(value protocol.ConfigurationManifest) error {
 }
 
 func ConfigurationMCPServerLocal(ctx context.Context, db *sql.Conn, plugin, server string) (bool, error) {
+	if origin, err := configurationOrigin(ctx, db, "plugin_settings", plugin); err != nil {
+		return false, err
+	} else if origin != nil {
+		return false, nil
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return false, err

@@ -165,16 +165,24 @@ func exportPluginFollowRecords(ctx context.Context, db *sql.Conn, category strin
 
 func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, record protocol.ConfigurationFollowRecord) error {
 	id := record.ID
-	if origin, err := configurationOrigin(ctx, db, category, id); err != nil {
-		return err
-	} else if origin != nil {
-		return checkConfigurationCopySource(ctx, db, origin)
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err
 	}
 	var exists bool
+	if category == "connections" {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE id=?1 AND user<>?2)", id, user.ID.String()).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return fault(protocol.ErrorCodeConflict, "source identity belongs to another user")
+		}
+	}
+	if origin, err := configurationOrigin(ctx, db, category, id); err != nil {
+		return err
+	} else if origin != nil {
+		return checkConfigurationCopySource(ctx, db, origin)
+	}
 	switch category {
 	case "plugins":
 		var incoming protocol.PluginInfo
@@ -185,8 +193,13 @@ func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, r
 		if err != nil {
 			return err
 		}
-		// Untouched bundled installations are the target's bootstrap baseline,
-		// not a conflicting personal edit. Explicit removals remain protected.
+		// The controller owns this separate receiving namespace, including its
+		// initial bundled packages. Adopting its exact artifact is an explicit
+		// mirror operation, independent of automatic SemVer update rules.
+		if !user.Local {
+			return nil
+		}
+		// Local-only legacy follow keeps its original collision rules.
 		if current != nil && current.Origin != nil && current.Origin.Kind == "bundled" && incoming.Origin != nil && incoming.Origin.Kind == "bundled" && current.Summary.Digest == incoming.Summary.Digest && current.Summary.Revision == 1 && current.Summary.SettingsRevision == 0 {
 			return nil
 		}
@@ -203,6 +216,9 @@ func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, r
 		}
 		return nil
 	case "connections":
+		if !user.Local {
+			return nil
+		}
 		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE id=?1)", id).Scan(&exists)
 	}
 	if err != nil {
@@ -278,42 +294,17 @@ func applyPluginFollowRecord(ctx context.Context, db *sql.Conn, node protocol.No
 		if info == nil || info.Summary.Digest != incoming.Package.Digest {
 			return nil, false, fault(protocol.ErrorCodeNotConfigured, "matching plugin version is pending")
 		}
-		_, declared, err := followedPackage(ctx, db, incoming.Package)
-		if err != nil {
+		incoming.Package = plugins.PackageReference(*info)
+		if _, _, err := followedPackage(ctx, db, incoming.Package); err != nil {
 			return nil, false, err
 		}
 		old, err := readStoredPluginSettings(ctx, db, *info)
 		if err != nil {
 			return nil, false, err
 		}
-		local := map[string]bool{}
-		for _, server := range info.Mcp {
-			value, err := ConfigurationMCPServerLocal(ctx, db, record.ID, server.Name)
-			if err != nil {
-				return nil, false, err
-			}
-			local[server.Name] = value
-		}
 		if len(info.Mcp) > 0 {
 			if err := validateMCPConfiguration(*info, incoming.MCP); err != nil {
 				return nil, false, err
-			}
-			current, err := EffectivePluginMCP(ResolvedPluginSettings{MCP: old.Mcp}, declared)
-			if err != nil {
-				return nil, false, err
-			}
-			for server, isLocal := range local {
-				if isLocal {
-					incoming.MCP.Servers[server] = current.Servers[server]
-					if incoming.Allowed == nil {
-						incoming.Allowed = map[string]bool{}
-					}
-					allowed, exists := old.McpAllowed[server]
-					if !exists {
-						allowed = true
-					}
-					incoming.Allowed[server] = allowed
-				}
 			}
 		}
 		slots := pluginFollowSecrets{Slots: map[string]protocol.Secret{}}
@@ -329,13 +320,11 @@ func applyPluginFollowRecord(ctx context.Context, db *sql.Conn, node protocol.No
 				if field.Secret == nil {
 					continue
 				}
-				binding := field.Secret
 				update := protocol.PluginSettingsSecretUpdate{Kind: "clear"}
 				if sameSettingsBinding(old, info.Settings, name, targets) {
 					update.Kind = "keep"
 				}
-				isLocal := binding.Server != nil && local[*binding.Server]
-				if key, ok := slots.Slots[name]; ok && !isLocal {
+				if key, ok := slots.Slots[name]; ok {
 					update = protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: key}
 				}
 				updates[name] = update

@@ -17,7 +17,7 @@ import (
 func Browse(ctx context.Context, directory *string, after *protocol.DirectoryCursor) (protocol.FileBrowserListing, error) {
 	out := protocol.DefaultFileBrowserListing()
 	out.Separator = protocol.Char(string(filepath.Separator))
-	home, e := os.UserHomeDir()
+	home, e := browserHome(os.UserHomeDir, user.Current)
 	if e != nil && directory == nil {
 		return out, e
 	}
@@ -93,4 +93,20 @@ func Browse(ctx context.Context, directory *string, after *protocol.DirectoryCur
 	}
 	add(protocol.FileBrowserLocation{Kind: protocol.FileBrowserLocationKindRoot, Path: filepath.VolumeName(path) + string(filepath.Separator)})
 	return out, nil
+}
+
+// A system service may have no HOME environment, while its OS account still
+// has a home. Preserve explicit absolute homes for isolated source runs.
+func browserHome(environment func() (string, error), account func() (*user.User, error)) (string, error) {
+	if home, err := environment(); err == nil && filepath.IsAbs(home) && utf8.ValidString(home) {
+		return home, nil
+	}
+	current, err := account()
+	if err != nil {
+		return "", err
+	}
+	if current == nil || !filepath.IsAbs(current.HomeDir) || !utf8.ValidString(current.HomeDir) {
+		return "", invalid("the host account has no absolute UTF-8 home directory")
+	}
+	return current.HomeDir, nil
 }

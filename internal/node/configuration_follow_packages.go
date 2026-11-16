@@ -31,11 +31,14 @@ func (node *Node) readConfigurationPackage(ctx context.Context, caller protocol.
 		if err != nil || user.ID != member.ID {
 			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "configuration source is not a member of this user"}
 		}
+		if user.Local {
+			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "host-local configuration is not a controller replica"}
+		}
 		status, err := store.ReadConfigurationFollow(ctx, db)
 		if err != nil {
 			return err
 		}
-		if status.Source != nil && *status.Source != caller || status.Source == nil && status.Revision != 0 {
+		if status.Source != nil && *status.Source != caller {
 			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "configuration belongs to another source"}
 		}
 		return nil

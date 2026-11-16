@@ -22,6 +22,9 @@ func MergeIdentityUsers(ctx context.Context, db *sql.Conn, sourceID, targetID pr
 	if source.ID == target.ID {
 		return target, nil
 	}
+	if err := checkConfigurationFollowMerge(ctx, db, source.ID, target.ID); err != nil {
+		return target, err
+	}
 	target.Local = target.Local || source.Local
 	target.Administrator = target.Administrator || source.Administrator || target.Local
 	if err := InitializeIdentity(ctx, db); err != nil {

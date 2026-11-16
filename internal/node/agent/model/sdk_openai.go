@@ -93,7 +93,9 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 		reasoning[id] = true
 		return emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningEnd, ID: id, ProviderMetadata: fantasy.ProviderMetadata{fantasyopenai.Name: metadata}})
 	}
-	for stream.Next() {
+	// The terminal response carries final output and usage. Its success does
+	// not depend on the server closing the HTTP body afterward.
+	for !terminal && stream.Next() {
 		value, err := decodeSDK(stream.Current().RawJSON())
 		if err != nil {
 			emitter.fail(err)

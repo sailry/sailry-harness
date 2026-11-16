@@ -2,7 +2,6 @@ package live
 
 import (
 	"encoding/hex"
-	"slices"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -17,8 +16,7 @@ type configurationFollowEditor struct {
 	model      *settings.ConfigurationFollowEditor
 	owner      *Runtime
 	controller *client.Client
-	change     *protocol.ConfigurationFollowCommand
-	mutate     func(protocol.ConfigurationFollowCommand)
+	retry      func()
 }
 
 func (r *Runtime) initConfigurationFollowActions() {
@@ -32,73 +30,67 @@ func (r *Runtime) initConfigurationFollowActions() {
 		if editor.model.Pending || editor.model.Loading {
 			return
 		}
+		editor.owner = r.runtimeFor(editor.model.Device.ID)
+		editor.model.Unavailable = editor.owner == nil
+		if editor.owner != nil {
+			editor.controller = editor.owner.controller
+		}
 		editor.model.Loading = true
 		r.async(func() {
 			status, err := editor.controller.ReadConfigurationFollow(r.ctx)
-			var identity protocol.IdentityState
-			var packages []protocol.PluginInfo
-			if err == nil {
-				controller := editor.controller
-				out, readErr := controller.Do(r.ctx, protocol.Command{Kind: "identity", Data: protocol.IdentityCommand{Kind: "read_identity"}})
-				if readErr == nil {
-					identity, _ = detail[protocol.IdentityState](out.Data)
-				}
-				if editor.owner != nil {
-					for _, summary := range editor.owner.snapshot().Plugins {
-						out, readErr := controller.Do(r.ctx, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: summary.Name}})
-						if info, ok := detail[protocol.PluginInfo](out.Data); readErr == nil && ok {
-							packages = append(packages, info)
-						}
-					}
-				}
-			}
 			r.enqueue(func(c *ui.Context) {
 				if current != editor || model.FollowEditor != editor.model {
 					return
 				}
 				editor.model.Loading = false
+				editor.model.ReadFailed = err != nil
 				if err != nil {
 					r.reportKeys(c, err, "configuration_follow_failed", "configuration_follow_conflict", "configuration_follow_unknown")
 					return
 				}
-				r.projectConfigurationFollow(editor.model, status, identity, packages)
+				r.projectConfigurationFollow(editor.model, status, editor.controller.Snapshot().Providers)
 			})
 		})
 	}
 	model.FollowActions = &settings.ConfigurationFollowActions{
 		Open: func(device viewmodel.Device) {
-			controller, err := r.connectionClient(device)
-			if err != nil {
-				r.Report(err)
-				return
-			}
-			editor := &configurationFollowEditor{model: &settings.ConfigurationFollowEditor{Device: device}, controller: controller, owner: r.runtimeFor(device.ID)}
-			editor.model.Unavailable = editor.owner == nil
-			current = editor
-			model.FollowEditor = editor.model
-			// Connected host runtimes own uncertain requests and route saves to their
-			// own authenticated Client. A disappearing host keeps this editor's draft.
-			editor.mutate = func(command protocol.ConfigurationFollowCommand) {
-				if editor.owner == nil || editor.model.Pending {
+			var controller *client.Client
+			if owner := r.runtimeFor(device.ID); owner != nil {
+				controller = owner.controller
+			} else {
+				var err error
+				controller, err = r.connectionClient(device)
+				if err != nil {
+					r.Report(err)
 					return
 				}
-				editor.change = &command
+			}
+			editor := &configurationFollowEditor{model: &settings.ConfigurationFollowEditor{Device: device}, controller: controller}
+			current = editor
+			model.FollowEditor = editor.model
+			// The selected Host retains an uncertain sync request, so retrying
+			// through its Runtime preserves the original request identity.
+			editor.retry = func() {
+				if editor.model.Pending || editor.model.Loading {
+					return
+				}
+				editor.owner = r.runtimeFor(device.ID)
+				if editor.owner == nil {
+					refresh(editor)
+					return
+				}
+				editor.model.Unavailable = false
 				editor.model.Pending = true
-				editor.owner.execute(protocol.Command{Kind: "configuration_follow", Data: &command}, func(c *ui.Context, output protocol.Output, err error) {
+				editor.owner.execute(protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "sync"}}, func(c *ui.Context, output protocol.Output, err error) {
 					editor.model.Pending = false
-					editor.model.Locked = faultCode(err) == protocol.ErrorCodeOutcomeUnknown || client.Retained(err)
-					if err != nil {
-						if !editor.model.Locked {
-							editor.change = nil
-						}
-						r.reportKeys(c, err, "configuration_follow_failed", "configuration_follow_conflict", "configuration_follow_unknown")
-						return
-					}
-					editor.change = nil
 					if current != editor || model.FollowEditor != editor.model {
 						return
 					}
-					kit.Toast(c, kit.Done, i18n.T(c, "configuration_follow_saved"))
+					if err != nil {
+						r.reportKeys(c, err, "configuration_follow_failed", "configuration_follow_conflict", "configuration_follow_unknown")
+						return
+					}
+					kit.Toast(c, kit.Done, i18n.T(c, "configuration_follow_requested"))
 					refresh(editor)
 				})
 			}
@@ -106,52 +98,15 @@ func (r *Runtime) initConfigurationFollowActions() {
 		},
 		Refresh: func(view *settings.ConfigurationFollowEditor) {
 			if current != nil && current.model == view {
-				if current.model.Locked && current.change != nil {
-					current.mutate(*current.change)
-				} else {
-					refresh(current)
-				}
-			}
-		},
-		Source: func(view *settings.ConfigurationFollowEditor) {
-			if current == nil || current.model != view || view.Source < 0 || view.Source >= len(view.Sources) {
-				return
-			}
-			var source *protocol.NodeID
-			if raw := view.Sources[view.Source].ID; raw != "" {
-				id, ok := configurationNodeID(raw)
-				if !ok {
-					return
-				}
-				source = &id
-			}
-			current.mutate(protocol.ConfigurationFollowCommand{Action: "set_source", Source: source, ExpectedRevision: view.Revision})
-		},
-		Target: func(view *settings.ConfigurationFollowEditor, index int) {
-			if current == nil || current.model != view || index < 0 || index >= len(view.Targets) {
-				return
-			}
-			choice := view.Targets[index]
-			id, ok := configurationNodeID(choice.ID)
-			if !ok {
-				return
-			}
-			current.mutate(protocol.ConfigurationFollowCommand{Action: "set_target", ExpectedRevision: choice.Revision, Target: &protocol.ConfigurationFollowTarget{Host: id, Configuration: choice.Configuration, Secrets: choice.Secrets}})
-		},
-		MCPLocal: func(view *settings.ConfigurationFollowEditor, index int) {
-			if current == nil || current.model != view || index < 0 || index >= len(view.MCP) {
-				return
-			}
-			choice := view.MCP[index]
-			current.mutate(protocol.ConfigurationFollowCommand{Action: "mcp_local", Plugin: choice.Plugin, Server: choice.Server, Local: choice.Local})
-		},
-		Detach: func(view *settings.ConfigurationFollowEditor) {
-			if current != nil && current.model == view {
-				current.mutate(protocol.ConfigurationFollowCommand{Action: "detach"})
+				current.retry()
 			}
 		},
 		Authorize: func(view *settings.ConfigurationFollowEditor, issue settings.ConfigurationFollowIssue) {
-			if current == nil || current.model != view || current.owner == nil {
+			if current == nil || current.model != view {
+				return
+			}
+			current.owner = r.runtimeFor(view.Device.ID)
+			if current.owner == nil {
 				return
 			}
 			r.App.Host = view.Device.ID
@@ -180,42 +135,15 @@ func configurationNodeID(value string) (protocol.NodeID, bool) {
 	return protocol.NodeID(raw), true
 }
 
-func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowEditor, status protocol.ConfigurationFollowStatus, identity protocol.IdentityState, packages []protocol.PluginInfo) {
-	view.Revision = status.Revision
-	view.Disabled = status.Source == nil && status.Revision != 0
-	view.Sources = []settings.ConfigurationSourceChoice{{LabelKey: "configuration_follow_disabled"}}
-	if status.User != nil && status.User.Local {
-		view.Sources = append(view.Sources, settings.ConfigurationSourceChoice{ID: view.Device.ID, LabelKey: "configuration_follow_this_host"})
-	}
-	for _, member := range identity.Devices {
-		if member.User != identity.User.ID || member.Device.String() == view.Device.ID || member.Direction == "host" {
-			continue
-		}
-		id := member.Device.String()
-		if slices.ContainsFunc(view.Sources, func(choice settings.ConfigurationSourceChoice) bool { return choice.ID == id }) {
-			continue
-		}
-		view.Sources = append(view.Sources, settings.ConfigurationSourceChoice{ID: id, Name: r.configurationHostName(id)})
-	}
-	view.Source = 0
-	chosen := ""
+func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowEditor, status protocol.ConfigurationFollowStatus, providers []protocol.ConversationProvider) {
+	view.Local = status.User != nil && status.User.Local
+	view.Source = ""
 	if status.Source != nil {
-		chosen = status.Source.String()
-	} else if status.Revision == 0 && status.User != nil && status.User.Local {
-		chosen = view.Device.ID
-	}
-	for i, choice := range view.Sources {
-		if choice.ID == chosen {
-			view.Source = i
-		}
-	}
-	if chosen != "" && !slices.ContainsFunc(view.Sources, func(choice settings.ConfigurationSourceChoice) bool { return choice.ID == chosen }) {
-		view.Sources = append(view.Sources, settings.ConfigurationSourceChoice{ID: chosen, Name: r.configurationHostName(chosen)})
-		view.Source = len(view.Sources) - 1
+		view.Source = r.configurationHostName(status.Source.String())
 	}
 	view.Targets = nil
 	for _, target := range status.Targets {
-		value := settings.ConfigurationTargetChoice{ID: target.Host.String(), Name: r.configurationHostName(target.Host.String()), Revision: target.Revision, Configuration: target.Configuration, Secrets: target.Secrets}
+		value := settings.ConfigurationTargetStatus{ID: target.Host.String(), Name: r.configurationHostName(target.Host.String())}
 		if target.Error != nil {
 			value.Failure = target.Error.Message
 		}
@@ -223,38 +151,30 @@ func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowE
 	}
 	view.Issues = nil
 	for _, issue := range status.Issues {
-		view.Issues = append(view.Issues, settings.ConfigurationFollowIssue{Category: issue.Category, ID: issue.ID, State: issue.State, Message: issue.Message, Authorize: issue.State == "authorization" && (issue.Category == "providers" || issue.Category == "connections" || issue.Category == "plugin_settings")})
+		value := settings.ConfigurationFollowIssue{Category: issue.Category, ID: issue.ID, State: issue.State, Message: issue.Message}
+		if issue.State == "authorization" {
+			switch issue.Category {
+			case "providers":
+				for _, provider := range providers {
+					if provider.ID.String() != issue.ID {
+						continue
+					}
+					if provider.Authentication == protocol.AuthenticationApiKey {
+						value.MessageKey = "configuration_follow_missing_key"
+					} else {
+						value.Authorize = provider.Authentication != ""
+					}
+					break
+				}
+			case "connections", "plugin_settings":
+				value.Authorize = true
+			}
+		}
+		view.Issues = append(view.Issues, value)
 	}
-	view.MCP = nil
-	for _, info := range packages {
-		if info.Summary.Source == nil {
-			continue
-		}
-		for _, server := range info.Mcp {
-			local := slices.ContainsFunc(status.MCPLocal, func(choice protocol.ConfigurationMCPLocal) bool {
-				return choice.Plugin == info.Summary.Name && choice.Server == server.Name
-			})
-			view.MCP = append(view.MCP, settings.ConfigurationMCPLocal{Plugin: info.Summary.Name, Server: server.Name, Local: local})
-		}
-	}
-	slices.SortFunc(view.MCP, func(a, b settings.ConfigurationMCPLocal) int {
-		if a.Plugin < b.Plugin {
-			return -1
-		}
-		if a.Plugin > b.Plugin {
-			return 1
-		}
-		if a.Server < b.Server {
-			return -1
-		}
-		if a.Server > b.Server {
-			return 1
-		}
-		return 0
-	})
 }
 func (r *Runtime) configurationHostName(id string) string {
-	for _, device := range r.projectDevices() {
+	for _, device := range r.App.Settings.Devices {
 		if device.ID == id && device.Name != "" {
 			return device.Name + " · " + id[:min(8, len(id))]
 		}

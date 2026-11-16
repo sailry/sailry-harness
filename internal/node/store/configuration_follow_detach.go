@@ -37,9 +37,9 @@ func DetachConfigurationCopies(ctx context.Context, db *sql.Conn, category strin
 	for _, category := range categories {
 		switch category {
 		case "providers":
-			_, err = db.ExecContext(ctx, "UPDATE providers SET body=json_remove(body,'$.provider.source') WHERE user=?1 AND id IN (SELECT id FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
+			_, err = db.ExecContext(ctx, "UPDATE providers SET body=json_remove(body,'$.provider.source') WHERE user=?1 AND id IN (SELECT CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
 		case "roles", "teams", "ssh_profiles", "database_profiles":
-			_, err = db.ExecContext(ctx, "UPDATE "+category+" SET body=json_remove(body,'$.source') WHERE user=?1 AND id IN (SELECT id FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
+			_, err = db.ExecContext(ctx, "UPDATE "+category+" SET body=json_remove(body,'$.source') WHERE user=?1 AND id IN (SELECT CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
 		case "plugins":
 			_, err = db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=json_remove(body,'$.summary.source') WHERE user=?1 AND name IN (SELECT id FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
 		case "team_settings":
@@ -73,15 +73,15 @@ func RefreshConfigurationAuthorization(ctx context.Context, db *sql.Conn) error 
 	if err != nil {
 		return err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT category,id FROM configuration_follow_records WHERE user=?1 AND state='authorization'", user.ID.String())
+	rows, err := db.QueryContext(ctx, "SELECT category,id,CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND state='authorization'", user.ID.String())
 	if err != nil {
 		return err
 	}
-	type entry struct{ category, id string }
+	type entry struct{ category, id, local string }
 	var entries []entry
 	for rows.Next() {
 		var value entry
-		if err := rows.Scan(&value.category, &value.id); err != nil {
+		if err := rows.Scan(&value.category, &value.id, &value.local); err != nil {
 			rows.Close()
 			return err
 		}
@@ -94,7 +94,7 @@ func RefreshConfigurationAuthorization(ctx context.Context, db *sql.Conn) error 
 		ready := false
 		switch entry.category {
 		case "providers":
-			id, err := protocol.ParseProviderID(entry.id)
+			id, err := protocol.ParseProviderID(entry.local)
 			if err != nil {
 				return err
 			}
@@ -117,7 +117,7 @@ func RefreshConfigurationAuthorization(ctx context.Context, db *sql.Conn) error 
 				ready = state.Ready
 			}
 		case "connections":
-			id, err := protocol.ParseRequestID(entry.id)
+			id, err := protocol.ParseRequestID(entry.local)
 			if err != nil {
 				return err
 			}

@@ -143,8 +143,8 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 				}
 			})
 			defer cancelWatch()
-			// Target policy and local MCP choices are target-owned changes. Observing
-			// that Node wakes reconciliation without waiting for another source edit.
+			// Target authorization and explicit retries wake reconciliation without
+			// waiting for another source edit.
 			if err := observer.Start(scoped); err != nil && scoped.Err() != nil {
 				return
 			}
@@ -232,6 +232,7 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		}
 		_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecordConfigurationTargetFailure(ctx, db, address.ID, failure) })
 	}
+	bindSource := false
 	if discover {
 		output, err := configurationRemote(ctx, remote, protocol.NewRequest(address.ID, protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "read"}}))
 		if err != nil {
@@ -242,8 +243,11 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		if body, err := json.Marshal(output.Data); err != nil || json.Unmarshal(body, &status) != nil || status.User == nil {
 			return
 		}
+		// Rebind a retained legacy copy with a metadata-only apply even when
+		// every record already matches the controller's manifest.
+		bindSource = status.Source == nil
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			return store.EnsureConfigurationTarget(ctx, db, address.ID, status.User.Administrator)
+			return store.EnsureConfigurationTarget(ctx, db, address.ID)
 		}); err != nil {
 			return
 		}
@@ -264,7 +268,7 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			break
 		}
 	}
-	if status.Source != nil && *status.Source != node.ID() || status.Source == nil && status.Revision != 0 {
+	if status.Source != nil && *status.Source != node.ID() {
 		return
 	}
 	if target == nil || !target.Configuration {
@@ -310,7 +314,7 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_deliveries WHERE user=?1 AND host=?2 AND category=?3)", local.ID.String(), address.ID[:], category).Scan(&pending); err != nil {
 				return err
 			}
-			if !pending && known.Revision == manifest.Revision && len(known.Records) == len(manifest.Records) {
+			if !pending && !bindSource && known.Revision == manifest.Revision && len(known.Records) == len(manifest.Records) {
 				matches := true
 				have := map[string]string{}
 				for _, record := range known.Records {
