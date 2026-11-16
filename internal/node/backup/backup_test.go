@@ -86,11 +86,7 @@ func fixtureSnapshotCopied(t *testing.T, profile string, files map[string][]byte
 	}
 	snapshot.copied = copied
 	t.Cleanup(func() { _ = snapshot.Close() })
-	names := databaseNames
-	if _, ok := files["storage/"+compatibleNodeName]; ok {
-		names[0] = compatibleNodeName
-	}
-	for _, name := range names {
+	for _, name := range databaseNames {
 		write := func(_ context.Context, target string) error {
 			for _, member := range core.DatabaseFiles(name) {
 				body, present := files["storage/"+member]

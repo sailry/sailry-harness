@@ -23,9 +23,13 @@ func TestStartupPreservesLinkedResourcesWhenStorageIsIncompatible(t *testing.T) 
 			if err := core.PrivateDirectory(storage); err != nil {
 				t.Fatal(err)
 			}
-			database := filepath.Join(storage, "node.sqlite")
-			original := []byte("existing SQLite database")
+			database := filepath.Join(storage, "node.turso")
+			original := []byte("malformed native database")
 			if err := os.WriteFile(database, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			preview := filepath.Join(storage, "node.sqlite")
+			if err := os.WriteFile(preview, []byte("preview database"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			outside := filepath.Join(t.TempDir(), "private")
@@ -49,13 +53,16 @@ func TestStartupPreservesLinkedResourcesWhenStorageIsIncompatible(t *testing.T) 
 			if got, err := os.ReadFile(database); err != nil || !bytes.Equal(got, original) {
 				t.Fatalf("existing database changed: %v", err)
 			}
+			if got, err := os.ReadFile(preview); err != nil || string(got) != "preview database" {
+				t.Fatalf("preview database changed: %v", err)
+			}
 			if target, err := os.Readlink(link); err != nil || target != outside {
 				t.Fatalf("linked resource changed: %q, %v", target, err)
 			}
 			if got, err := os.ReadFile(outside); err != nil || string(got) != "outside bytes" {
 				t.Fatalf("outside resource changed: %v", err)
 			}
-			for _, name := range []string{"node.turso", "rust-archive"} {
+			for _, name := range []string{"knowledge.turso", "rust-archive", "backups"} {
 				if _, err := os.Stat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("unexpected startup output %s: %v", name, err)
 				}

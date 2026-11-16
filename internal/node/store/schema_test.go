@@ -251,28 +251,40 @@ func TestGenerationUnknownFails(t *testing.T) {
 			t.Fatalf("refused storage changed its records: %d", got)
 		}
 	})
-	t.Run("foreign storage engine is untouched", func(t *testing.T) {
+	t.Run("malformed native storage is untouched", func(t *testing.T) {
 		t.Parallel()
 		profile := t.TempDir()
 		storage := filepath.Join(profile, "storage")
 		if err := core.PrivateDirectory(storage); err != nil {
 			t.Fatal(err)
 		}
-		path := filepath.Join(storage, "node.sqlite")
-		body := []byte("existing SQLite storage")
+		path := filepath.Join(storage, "node.turso")
+		body := []byte("malformed native storage")
 		if err := os.WriteFile(path, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if opened, err := Open(context.Background(), profile, protocol.NodeID{}); err == nil {
+		preview := filepath.Join(storage, "node.sqlite")
+		if err := os.WriteFile(preview, []byte("preview database"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		opened, err := Open(context.Background(), profile, protocol.NodeID{})
+		if opened != nil {
 			_ = opened.Close()
-			t.Fatal("foreign database was accepted")
+		}
+		if err == nil {
+			t.Fatal("malformed native database was accepted")
 		}
 		got, err := os.ReadFile(path)
 		if err != nil || string(got) != string(body) {
 			t.Fatalf("existing database changed: %q, %v", got, err)
 		}
-		if _, err := os.Stat(filepath.Join(storage, "node.turso")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("a replacement database was created: %v", err)
+		if body, err := os.ReadFile(preview); err != nil || string(body) != "preview database" {
+			t.Fatalf("preview database changed: %v", err)
+		}
+		for _, name := range []string{"knowledge.turso", "rust-archive", "backups"} {
+			if _, err := os.Stat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused native storage created %s: %v", name, err)
+			}
 		}
 	})
 }

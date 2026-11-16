@@ -21,13 +21,9 @@ import (
 
 func TestNativeDatabaseFamilyArchive(t *testing.T) {
 	t.Parallel()
-	for _, nodeName := range []string{"node.turso", compatibleNodeName} {
+	for _, nodeName := range []string{"node.turso"} {
 		t.Run(nodeName, func(t *testing.T) {
 			profile, files := fixtureProfile(t)
-			if nodeName != databaseNames[0] {
-				files["storage/"+nodeName] = files["storage/"+databaseNames[0]]
-				delete(files, "storage/"+databaseNames[0])
-			}
 			for _, name := range []string{nodeName, databaseNames[1]} {
 				for _, member := range core.DatabaseFiles(name)[1:] {
 					files["storage/"+member] = []byte("native " + member)

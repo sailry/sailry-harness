@@ -29,8 +29,6 @@ const manifestName = "sailry-backup.json"
 
 var databaseNames = [2]string{"node.turso", "knowledge.turso"}
 
-const compatibleNodeName = "node.sqlite"
-
 type File struct {
 	Path   string `json:"path"`
 	Size   uint64 `json:"size"`
@@ -132,7 +130,7 @@ func (snapshot *Snapshot) skip(path, reason string) {
 // Freeze adds one database family. The storage owner writes a consistent,
 // closed native snapshot at the supplied base path before returning.
 func (snapshot *Snapshot) Freeze(ctx context.Context, name string, write func(ctx context.Context, target string) error) error {
-	if name != databaseNames[0] && name != databaseNames[1] && name != compatibleNodeName {
+	if name != databaseNames[0] && name != databaseNames[1] {
 		return invalid("invalid native backup database name")
 	}
 	if err := cancelled(ctx); err != nil {
@@ -590,17 +588,13 @@ func (manifest *Manifest) RefreshDatabases(ctx context.Context, root string) err
 	if err := manifest.Validate(); err != nil {
 		return err
 	}
-	names := databaseNames
-	if slices.ContainsFunc(manifest.Files, func(file File) bool { return file.Path == "storage/"+compatibleNodeName }) {
-		names[0] = compatibleNodeName
-	}
 	directory, err := os.OpenRoot(filepath.Join(root, "storage"))
 	if err != nil {
 		return ioFault(err)
 	}
 	defer directory.Close()
 	var files []File
-	for _, name := range names {
+	for _, name := range databaseNames {
 		for index, member := range core.DatabaseFiles(name) {
 			if err := cancelled(ctx); err != nil {
 				return err
@@ -609,7 +603,7 @@ func (manifest *Manifest) RefreshDatabases(ctx context.Context, root string) err
 			if errors.Is(err, fs.ErrNotExist) && index > 0 {
 				continue
 			}
-			if errors.Is(err, fs.ErrNotExist) && name != names[0] {
+			if errors.Is(err, fs.ErrNotExist) && name != databaseNames[0] {
 				break
 			}
 			if err != nil {
@@ -702,16 +696,11 @@ func (manifest *Manifest) Validate() error {
 			return invalid("invalid backup skip record")
 		}
 	}
-	nativeNode, compatibleNode := paths["storage/"+databaseNames[0]], paths["storage/"+compatibleNodeName]
-	if nativeNode == compatibleNode || !paths[identityName] {
+	if !paths["storage/"+databaseNames[0]] || !paths[identityName] {
 		return invalid("backup database or identity is missing")
 	}
-	names := databaseNames
-	if compatibleNode {
-		names[0] = compatibleNodeName
-	}
 	allowed := map[string]bool{}
-	for _, name := range names {
+	for _, name := range databaseNames {
 		if paths["storage/"+name] {
 			for _, member := range core.DatabaseFiles("storage/" + name) {
 				allowed[member] = true
@@ -727,7 +716,7 @@ func (manifest *Manifest) Validate() error {
 }
 
 func database(path string) bool {
-	for _, name := range []string{databaseNames[0], databaseNames[1], compatibleNodeName} {
+	for _, name := range databaseNames {
 		for _, member := range core.DatabaseFiles("storage/" + name) {
 			if member == path {
 				return true

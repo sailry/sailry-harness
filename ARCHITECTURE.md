@@ -144,9 +144,8 @@ diagnostics exclude credentials. Desktop controller preferences live at
 
 `internal/node/store` uses the native Turso engine through the official
 `turso.tech/database/tursogo` SDK for `storage/node.turso` and
-`storage/knowledge.turso`. An existing `storage/node.sqlite` is opened in place
-by the same native engine, keeping its filename and WAL mode. New databases use
-MVCC. Each database has one writer goroutine and a separate read-only pool.
+`storage/knowledge.turso`, retaining the Rust filenames and file families.
+Each database has one writer goroutine, MVCC mode and a separate read-only pool.
 The writer groups queued operations in a
 `BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become
 visible to callers after commit. Identifiers and event sequences advance in the
@@ -196,10 +195,8 @@ Schema additions are rehearsed on an isolated snapshot, backed up and applied
 transactionally with current-format validation. Configuration and recovery records
 are checked at startup; history and captured turns are checked when read.
 Existing Turso files are opened in place. Startup does not move, convert or
-automatically select archived databases. Before opening a retained `node.sqlite`,
-a read-only schema inspection rejects unsupported SQLite virtual tables, including
-FTS5. Existing derived `knowledge.sqlite` and code indexes remain untouched;
-normal indexing rebuilds the native indexes from their sources. Legacy plugin records stay
+automatically select archived databases. Preview `.sqlite` files are not selected,
+converted or removed. Legacy plugin records stay
 preserved when the normal schema update adds per-user configuration tables;
 initialization runs once with those tables so later restarts do not resurrect
 removed configuration.
