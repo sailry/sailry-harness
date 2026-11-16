@@ -148,6 +148,22 @@ func testHostUsageSample(t *testing.T) {
 			t.Fatalf("the sample's models are %#v", hostAt(providers[0], "models"))
 		}
 
+		if _, err := call(owner, "watchUsage", filtered, "true"); err != nil {
+			t.Fatalf("aggregate model filter was refused: %v", err)
+		}
+		if event, err := call(owner, "nextUsageChange", `""`); err != nil || hostAt(event, "all") != true ||
+			hostAt(event, "view", "summary", "totals", "responses") != "1" {
+			t.Fatalf("aggregate model filter observes %#v, %v", event, err)
+		}
+		for _, field := range []string{"projects", "worktrees", "providers"} {
+			scoped := strings.Replace(query, `"`+field+`":[]`, `"`+field+`":["`+project.String()+`"]`, 1)
+			_, err := call(owner, "watchUsage", scoped, "true")
+			var failure *protocol.Fault
+			if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeInvalidRequest {
+				t.Fatalf("aggregate %s filter was accepted: %v", field, err)
+			}
+		}
+
 		// A watch observes the sample once; a refresh reads it anew.
 		if _, err := call(owner, "watchUsage", query, "false"); err != nil {
 			t.Fatal(err)

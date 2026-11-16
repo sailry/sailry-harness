@@ -112,6 +112,13 @@ navigation layer does not change that scope. File and Git operations retain thei
 captured worktree; SSH, database and plugin surfaces retain their Node and resource
 identity. Registered projects remain at their original filesystem paths.
 
+Usage statistics read each execution Node's accessible project and provider
+inventory, independently of recorded usage. Filter selections retain Node plus
+resource ID; project and provider queries go to that Node. Client combines
+all-project reports and their request pages, preserving partial source failures
+and the timestamp, Node and sequence pagination order. The statistics plugin owns
+the filters and presentation, without a separate host selection.
+
 Projects have a Node-local user owner and private or host-shared visibility.
 New projects default to host-shared visibility; existing private projects keep
 their visibility, including when older stored records omit that field.

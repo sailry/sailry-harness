@@ -207,8 +207,8 @@ func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 	if err != nil {
 		return err
 	}
-	if all && (len(query.Projects) != 0 || len(query.Worktrees) != 0 || len(query.Providers) != 0 || len(query.Models) != 0) {
-		return hostInvalid("cross-Node usage requires an unfiltered resource scope")
+	if all && (len(query.Projects) != 0 || len(query.Worktrees) != 0 || len(query.Providers) != 0) {
+		return hostInvalid("cross-Node usage cannot filter Node-local resource identities")
 	}
 	sample := owner.sampledUsage()
 	var selected *client.Client

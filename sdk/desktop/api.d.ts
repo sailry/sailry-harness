@@ -265,6 +265,7 @@ export interface UsageQuery {start_ms:number|string;end_ms:number|string;utc_off
 export function usageSources():{node:string;label:string}[];
 export function readUsageInventory(node?:string):Promise<{node:string;projects:{id:string;name:string}[];providers:{id:string;name:string;/** Provider type logo asset; null for generic providers. */icon:string|null;models:string[]}[]}>;
 export function readUsageChoices(query:UsageQuery,node?:string):Promise<Record<string,unknown>>;
+/** all combines connected usage sources; only model names and the global request cursor may filter across Nodes. Project, worktree and provider IDs require all=false and their owning node. */
 export function watchUsage(query:UsageQuery,all:boolean,node?:string):void;
 export function nextUsageChange(cursor:string):Promise<{cursor:string;all:boolean;view:Record<string,unknown>|null}>;
 export function refreshUsage():void;

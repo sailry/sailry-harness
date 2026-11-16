@@ -32,6 +32,17 @@ share the scoped request contract with bounded snapshot observations.
 | Declarative UI | `publishContributions(states)`, `nextContributionEvent()`, `closeContribution(id)` |
 | Low-level context, resources and UI | Existing `sailry` exports: `context`, `theme`, `Header`, `Image`, `Conversation`, `header_action`, `next_change` |
 
+Workspace and settings pages with `usage.read` use `usageSources()` and
+`nextUsageSources(seen)` to discover execution Nodes. `readUsageInventory(node)`
+lists that Node's current accessible projects and providers even without usage;
+keep Node plus resource ID as the selection identity. `watchUsage(query, false,
+node)` routes project, worktree and provider filters to their owning Node.
+`watchUsage(query, true)` combines sources through Client's canonical overview;
+model names may filter across Nodes, but Node-local resource IDs may not.
+Aggregate observations include `sources`, `summary`, `complete` and `error`; show
+partial source failures alongside available totals. Retain the exact returned
+request position, including its Node, for pagination.
+
 Desktop and headless callbacks share the same session admission and execution commands.
 `startSession({project, worktree, config, title, message, execution, team, models,
 association})` prepares one durable request: complete it with `completeRequest(id)`
