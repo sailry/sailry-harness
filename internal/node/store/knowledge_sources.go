@@ -235,6 +235,9 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 			if err != nil {
 				return err
 			}
+			if source.Scope == protocol.PluginStorageScopeNode && strings.HasPrefix(capture.Space, "controller:") {
+				return invalid("personal knowledge sources belong to the controller Node")
+			}
 			capture.Worktree, capture.Session = nil, nil
 			break
 		}

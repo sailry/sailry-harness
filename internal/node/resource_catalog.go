@@ -145,15 +145,15 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 		return !searching || len(query.Refs) == 0 || slices.ContainsFunc(query.Refs, func(reference protocol.KnowledgeRef) bool { return reference.Node == id })
 	}
 	leaf := func(id protocol.NodeID) protocol.ResourceCall {
-		copy := call
-		copy.Local = true
-		copy.Request.Target = id
+		command := request.Command
 		if searching {
 			selected := *query
 			selected.Offset, selected.Limit = 0, knowledge.PageLimit
-			copy.Request.Command.Data = &selected
+			command.Data = &selected
 		}
-		return copy
+		selected := protocol.NewRequest(id, command)
+		selected.Plugin = request.Plugin
+		return protocol.ResourceCall{Local: true, Request: selected, Scope: call.Scope}
 	}
 	if searchNode(node.ID()) {
 		workers.Go(func() {

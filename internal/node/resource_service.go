@@ -60,7 +60,10 @@ func (node *Node) admitResourceCommand(ctx context.Context, caller protocol.Node
 	// Local resources remain usable without the controller. A query with no
 	// selected Node asks the controller's complete view while it is reachable.
 	localResource := request.Target == node.ID() && request.Command.Kind != "query_knowledge" && request.Command.Kind != "list_knowledge_collections"
-	if controller != node.ID() && !localResource && selected != node.ID() && request.Plugin != nil {
+	if query, ok := request.Command.Data.(*protocol.KnowledgeQuery); ok && protocol.KnowledgeQueryLocal(*query, node.ID()) {
+		localResource = true
+	}
+	if (caller == node.ID() || caller == controller) && controller != node.ID() && !localResource && selected != node.ID() {
 		return node.sendResource(verified, controller, protocol.ResourceCall{Request: request, Scope: scope}, false)
 	}
 	aggregate := request.Command.Kind == "list_knowledge_collections" || request.Command.Kind == "query_knowledge"
@@ -68,33 +71,7 @@ func (node *Node) admitResourceCommand(ctx context.Context, caller protocol.Node
 }
 
 func knowledgeTarget(request protocol.Request) protocol.NodeID {
-	var selected *protocol.NodeID
-	switch input := request.Command.Data.(type) {
-	case *protocol.CommandCreateKnowledgeCollectionPayload:
-		selected = input.Node
-		if selected == nil {
-			selected = store.ReadKnowledgeSource(input.Definition.Source).Node
-		}
-	case *protocol.CommandUpdateKnowledgeCollectionPayload:
-		selected = input.Node
-		if selected == nil {
-			selected = store.ReadKnowledgeSource(input.Definition.Source).Node
-		}
-	case *protocol.CommandDeleteKnowledgeCollectionPayload:
-		selected = input.Node
-	case *protocol.CommandRebuildKnowledgeCollectionPayload:
-		selected = input.Node
-	case *protocol.CommandPauseKnowledgeCollectionPayload:
-		selected = input.Node
-	case *protocol.KnowledgeCitationRequest:
-		if input.Node != (protocol.NodeID{}) {
-			return input.Node
-		}
-	}
-	if selected != nil {
-		return *selected
-	}
-	return protocol.NodeID{}
+	return protocol.KnowledgeTarget(request.Command)
 }
 
 func (node *Node) captureResourceScope(ctx context.Context, request protocol.Request) (*protocol.ResourceScope, error) {
@@ -120,6 +97,9 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	if err := call.Validate(); err != nil {
 		return link.Admission{}, err
 	}
+	if caller == node.ID() {
+		return node.localResource(ctx, call)
+	}
 	if node.network == nil || call.Request.Version != protocol.VERSION {
 		return link.Admission{}, permissionDenied()
 	}
@@ -140,9 +120,6 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 		original = *call.Original
 	}
 	if original.Plugin == nil && call.Scope != nil || original.Plugin != nil && (call.Scope == nil || !reflect.DeepEqual(original.Plugin, call.Scope.Origin)) {
-		return link.Admission{}, permissionDenied()
-	}
-	if !inbound && (call.Scope == nil || call.Scope.Origin == nil || call.Scope.Origin.Turn == nil && call.Scope.Origin.Invocation == nil) {
 		return link.Admission{}, permissionDenied()
 	}
 	var actor protocol.User
@@ -175,6 +152,31 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "resource call cannot forward through a storage Node"}
 	}
 	return node.routeKnowledge(verified, caller, call, !inbound)
+}
+
+func (node *Node) localResource(ctx context.Context, call protocol.ResourceCall) (link.Admission, error) {
+	original := call.Request
+	if call.Original != nil {
+		original = *call.Original
+	}
+	if original.Version != protocol.VERSION || call.Scope != nil {
+		return link.Admission{}, permissionDenied()
+	}
+	verified, err := node.authorizeCommand(ctx, node.ID(), original)
+	if err != nil {
+		return link.Admission{}, err
+	}
+	if err := node.validatePluginRequest(verified, node.ID(), original); err != nil {
+		return link.Admission{}, nodeFault(err)
+	}
+	if selected := knowledgeTarget(original); selected != (protocol.NodeID{}) && selected != original.Target {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "knowledge request must target its storage Node"}
+	}
+	call.Scope, err = node.captureResourceScope(verified, original)
+	if err != nil {
+		return link.Admission{}, err
+	}
+	return node.routeKnowledge(verified, node.ID(), call, true)
 }
 
 func (node *Node) routeKnowledge(ctx context.Context, caller protocol.NodeID, call protocol.ResourceCall, aggregate bool) (link.Admission, error) {

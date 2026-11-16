@@ -20,13 +20,7 @@ import (
 )
 
 func knowledgeCommand(kind string) bool {
-	switch kind {
-	case "query_knowledge", "read_knowledge_citation", "read_knowledge_candidates", "list_knowledge_collections",
-		"create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection",
-		"rebuild_knowledge_collection", "pause_knowledge_collection":
-		return true
-	}
-	return false
+	return protocol.KnowledgeCommand(kind)
 }
 
 // initKnowledge registers the semantic storage collections of the enabled

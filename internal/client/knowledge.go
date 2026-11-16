@@ -2,15 +2,21 @@ package client
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 // PrepareKnowledge pins the storage Node before an operation acquires its
 // request identity. Callers retain this exact request for outcome recovery.
 func (client *Client) PrepareKnowledge(ref protocol.KnowledgeRef, command protocol.Command) protocol.Request {
 	target := ref.Node
+	if target == (protocol.NodeID{}) {
+		target = protocol.KnowledgeTarget(command)
+	}
 	if target == (protocol.NodeID{}) {
 		target = client.Target()
 	}
@@ -43,6 +49,41 @@ func (client *Client) Knowledge(ctx context.Context, ref protocol.KnowledgeRef, 
 func (client *Client) KnowledgeOutcome(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
 	if request.Target == client.Target() {
 		return client.Outcome(ctx, request)
+	}
+	if local, ok := client.transport.(interface {
+		LocalResource(context.Context, protocol.ResourceCall) (link.Admission, error)
+	}); ok {
+		if request.Version != protocol.VERSION || !request.Command.Durable() || !protocol.KnowledgeCommand(request.Command.Kind) {
+			return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInvalidRequest, "invalid knowledge outcome request")
+		}
+		body, err := json.Marshal(request)
+		if err != nil {
+			return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInvalidRequest, "request could not be encoded")
+		}
+		digest := blake3.Sum256(body)
+		inspection := protocol.NewRequest(request.Target, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{
+			ID: request.ID, Digest: hex.EncodeToString(digest[:]),
+		}})
+		accepted, err := local.LocalResource(ctx, protocol.ResourceCall{Request: inspection, Original: &request})
+		if err != nil {
+			return protocol.RequestOutcome{}, err
+		}
+		select {
+		case response, open := <-accepted.Completion:
+			if !open {
+				return protocol.RequestOutcome{}, unknownCompletion()
+			}
+			if response.Fault != nil {
+				return protocol.RequestOutcome{}, response.Fault
+			}
+			result, err := payload[protocol.OutputRequestOutcomePayload](response.Output.Data)
+			if response.Output.Kind != "request_outcome" || err != nil || result.ID != request.ID {
+				return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInternal, "request outcome response does not match the query")
+			}
+			return result.Outcome, nil
+		case <-ctx.Done():
+			return protocol.RequestOutcome{}, ctx.Err()
+		}
 	}
 	router, ok := client.transport.(interface {
 		ForTarget(protocol.NodeID) link.Transport

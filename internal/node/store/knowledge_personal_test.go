@@ -44,6 +44,7 @@ func TestPersonalKnowledgeUsesLocalViewRevisionAndDropsChangedSources(t *testing
 		query := protocol.DefaultPluginStorageSearch()
 		text := "unmatched text"
 		query.Query, query.Mode = &text, protocol.KnowledgeModeSemantic
+		query.Weights, query.Limit = [2]uint16{2, 1}, 10
 		request := protocol.NewRequest(fixture.node, protocol.Command{Kind: "search_plugin_values", Data: &query})
 		request.Plugin = &protocol.PluginContext{Package: fixture.reference}
 		candidates := protocol.KnowledgeCandidates{Available: true, Candidates: []protocol.KnowledgeCandidate{{Key: record.Key, Revision: record.Identity()}}}
