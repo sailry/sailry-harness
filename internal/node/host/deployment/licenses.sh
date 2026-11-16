@@ -18,7 +18,7 @@ task_notices() {
   while IFS= read -r task_license; do
     task_relative="${task_license#"$1/"}"
     mkdir -p "$(dirname "$2/$task_relative")"
-    cp "$task_license" "$2/$task_relative"
+    cp -f "$task_license" "$2/$task_relative"
   done < <(find "$1" -type f \( -name 'LICENSE*' -o -name 'LICENCE*' -o -name 'COPYING*' -o -name 'NOTICE*' -o -name 'THIRD_PARTY_NOTICES*' \))
 }
 
@@ -61,7 +61,7 @@ while IFS=$'\t' read -r task_name task_version task_manifest task_declared; do
       *) task_license="$task_directory/$task_declared" ;;
     esac
     if test -f "$task_license"; then
-      cp "$task_license" "$task_destination/$(basename "$task_license")"
+      cp -f "$task_license" "$task_destination/$(basename "$task_license")"
     fi
   fi
   # Git workspaces commonly keep their shared license above an individual crate.
@@ -70,7 +70,7 @@ while IFS=$'\t' read -r task_name task_version task_manifest task_declared; do
     for task_license in "$task_parent"/LICENSE* "$task_parent"/LICENCE* \
       "$task_parent"/COPYING* "$task_parent"/NOTICE*; do
       if test -f "$task_license"; then
-        cp "$task_license" "$task_destination/$(basename "$task_license")"
+        cp -f "$task_license" "$task_destination/$(basename "$task_license")"
       fi
     done
     if test -n "$(ls -A "$task_destination")"; then break; fi
