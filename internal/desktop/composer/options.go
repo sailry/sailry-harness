@@ -280,18 +280,11 @@ func (s *State) chooseLocation(ctx *Context, host, project, worktree string) {
 	s.Project, s.Worktree = project, worktree
 }
 
-// projectButton locates a draft: Chats can choose an execution host within
-// this menu, while every project supplies its own host.
+// projectButton locates a draft. Every project supplies its own host.
 func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form controlForm) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
-	} else if s.Project == "" && len(ctx.Hosts) > 1 && s.Host != ctx.Hosts[0].ID {
-		for _, host := range ctx.Hosts {
-			if host.ID == s.Host {
-				label += " · " + host.Name
-			}
-		}
 	}
 	locked := ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0
 	if s.projectPicker {
@@ -305,16 +298,6 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form
 	}, func(m *kit.Menu) {
 		if m.Item(i18n.T(c, "composer_no_project")).Icon(icons.Inbox).Checked(s.Project == "").Chosen() {
 			s.chooseLocation(ctx, s.Host, "", "")
-		}
-		if len(ctx.Hosts) > 1 {
-			m.Submenu(i18n.T(c, "composer_execution_host"), func(m *kit.Menu) {
-				for _, host := range ctx.Hosts {
-					if m.Item(host.Name).Icon(icons.Monitor).Checked(host.ID == s.Host).Disabled(host.Offline).Chosen() {
-						s.chooseLocation(ctx, host.ID, "", "")
-					}
-				}
-			}).Icon(icons.Monitor)
-			m.Separator()
 		}
 		for _, pr := range ctx.Projects {
 			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project && pr.Host == s.Host).Chosen() {
@@ -331,6 +314,33 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form
 		m.Separator()
 		if m.Item(i18n.T(c, "project_add")).Icon(icons.Plus).Chosen() {
 			actions.AddProject()
+		}
+	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
+}
+
+// hostButton sits beside the location choice for a projectless chat. A
+// project's host is captured by the project and cannot be chosen separately.
+func (s *State) hostButton(c *ui.Context, ctx *Context, form controlForm) {
+	if s.Project != "" || len(ctx.Hosts) < 2 {
+		return
+	}
+	label := ctx.Hosts[0].Name
+	for _, host := range ctx.Hosts {
+		if host.ID == s.Host {
+			label = host.Name
+			break
+		}
+	}
+	locked := ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0
+	kit.MenuButton(c.Key("host"), s.menuID("host"), func(b ui.Element) {
+		button := contextButton(c, b.Disabled(locked), icons.Monitor, label, form)
+		kit.Tooltip(c, button, i18n.T(c, "composer_execution_host"))
+	}, func(m *kit.Menu) {
+		for i, host := range ctx.Hosts {
+			selected := host.ID == s.Host || s.Host == "" && i == 0
+			if m.Item(host.Name).Icon(icons.Monitor).Checked(selected).Disabled(host.Offline).Chosen() {
+				s.chooseLocation(ctx, host.ID, "", "")
+			}
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
 }
@@ -503,6 +513,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 			s.renderPluginControls(c, "composer", ControlMenu)
 			if narrow {
 				s.projectButton(c, ctx, actions, menuForm)
+				s.hostButton(c, ctx, menuForm)
 				s.worktreeMenu(c, ctx, actions, menuForm)
 			}
 		}

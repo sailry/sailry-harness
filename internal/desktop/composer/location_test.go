@@ -16,10 +16,15 @@ func TestDraftLocationMenu(t *testing.T) {
 		Projects: []Project{{ID: "same", Host: "local", Name: "Local folder"}, {ID: "same", Host: "remote", Name: "Remote folder"}}}
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
-		ui.Column(c).Fill().Justify(ui.End).Padding(20).Children(func() { state.projectButton(c, ctx, nil, toolbarForm) })
+		ui.Column(c).Fill().Justify(ui.End).Padding(20).Children(func() { state.contextBar(c, ctx, nil) })
 	}, 600, 480)
 	tester.SetLocale("en")
 	tester.Frame()
+	project, projectFound := tester.Access(i18n.In("en", "composer_no_project"))
+	host, hostFound := tester.Access("This device")
+	if !projectFound || !hostFound || host.Bounds.X < project.Bounds.X+project.Bounds.W || host.Bounds.Y != project.Bounds.Y {
+		t.Fatalf("host choice must sit beside the project choice: project=%+v host=%+v", project, host)
+	}
 	click := func(name string) {
 		t.Helper()
 		if err := tester.Click(name); err != nil {
@@ -28,16 +33,21 @@ func TestDraftLocationMenu(t *testing.T) {
 		tester.Advance(300 * time.Millisecond)
 		tester.Frame()
 	}
-	click(i18n.In("en", "composer_no_project"))
-	click(i18n.In("en", "composer_execution_host"))
+	click("This device")
 	click("Debian")
 	if state.Host != "remote" || state.Project != "" || state.Model != "" || state.Team != "" || state.Draft != "Keep my draft" {
 		t.Fatalf("host choice lost draft or retained another host's configuration: %+v", state)
 	}
-	click(i18n.In("en", "composer_no_project") + " · Debian")
+	click(i18n.In("en", "composer_no_project"))
+	if tester.HasText(i18n.In("en", "composer_execution_host")) {
+		t.Fatal("project menu still contains an execution-host submenu")
+	}
 	click("Local folder")
 	if state.Host != "local" || state.Project != "same" || state.Worktree != "" || state.project(ctx).Name != "Local folder" {
 		t.Fatalf("plain project did not supply its own host: %+v", state)
+	}
+	if _, found := tester.Access("This device"); found {
+		t.Fatal("project host can be selected independently of its project")
 	}
 	click("Local folder")
 	click("Remote folder")

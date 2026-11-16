@@ -515,6 +515,7 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 		location.Children(func() {
 			if !narrow {
 				s.projectButton(c, ctx, actions, toolbarForm)
+				s.hostButton(c, ctx, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
 			}
 			s.renderPluginControls(c, "context", ControlStart)
