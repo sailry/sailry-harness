@@ -57,6 +57,8 @@ func TestConfigurationFollowEventsKeepObservationAlive(t *testing.T) {
 	}
 	subscription.updates <- projectionEvent(4, "power_settings_changed", protocol.EventPowerSettingsChangedPayload{Revision: 7})
 	wait(4)
+	subscription.updates <- projectionEvent(5, "connections_changed", protocol.DefaultPluginConnectorChanges())
+	wait(5)
 	if !controller.Connected() || controller.Snapshot().PowerSettingsRevision != 7 {
 		t.Fatal("ordinary Node events stopped following a configuration policy change")
 	}

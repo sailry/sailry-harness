@@ -75,6 +75,7 @@ VALUES(?1,'providers','old',?2,1,'old','conflict','legacy mirror conflict','{}',
 
 func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 	seen := map[string]bool{}
+	storage, _, _, ctx := controllerCacheFixture(t)
 	for _, name := range ConfigurationCategories {
 		kind, exists := configurationKind(name)
 		if !exists || kind.Export == nil || seen[name] {
@@ -84,6 +85,27 @@ func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 		for _, event := range kind.Events {
 			if !ConfigurationChanged(event) || !slices.Contains(ConfigurationDirtyKinds(event), name) {
 				t.Fatalf("category %s event %s has no dirty routing", name, event)
+			}
+		}
+		if kind.Changed != nil {
+			if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+				events, err := kind.Changed(ctx, db, nil)
+				if err != nil {
+					return err
+				}
+				for _, event := range events {
+					body, err := json.Marshal(event)
+					if err != nil {
+						return fmt.Errorf("%s event %s: %w", name, event.Kind, err)
+					}
+					var decoded protocol.Event
+					if err := json.Unmarshal(body, &decoded); err != nil {
+						return fmt.Errorf("%s event %s decode: %w", name, event.Kind, err)
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
 			}
 		}
 	}

@@ -10632,6 +10632,7 @@ var eventVariants = variantFactories{"cursor": nil, "projection_invalidated": ni
 	"backup_settings_changed":       func() any { return new(EventBackupSettingsChangedPayload) },
 	"python_settings_changed":       func() any { return new(EventPythonSettingsChangedPayload) },
 	"plugin_changed":                func() any { return new(PluginSummary) },
+	"connections_changed":           func() any { return new(PluginConnectorChanges) },
 	"plugin_values_changed":         func() any { return new(EventPluginValuesChangedPayload) },
 	"plugin_removed":                func() any { return new(EventPluginRemovedPayload) },
 	"role_changed":                  func() any { return new(RoleProfile) },

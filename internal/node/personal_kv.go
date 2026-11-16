@@ -50,6 +50,7 @@ func (node *Node) reconcilePersonalKV(ctx context.Context, remote *link.Remote) 
 		}
 		if len(changes) > 0 {
 			node.pluginCommitted(changes, ctx)
+			node.refreshKnowledgeStorage(protocol.Command{}, changes)
 		}
 		command := protocol.ConfigurationFollowCommand{Action: "kv_ack", KVReceipt: &receipt}
 		if err := node.deliverPersonalKV(ctx, remote, "kv_ack", &command); err != nil {
