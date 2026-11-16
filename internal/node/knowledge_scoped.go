@@ -37,6 +37,17 @@ func (node *Node) ScopedKnowledge(ctx context.Context, caller protocol.NodeID, c
 	if err := node.validatePluginRequest(verified, caller, original); err != nil {
 		return link.Admission{}, nodeFault(err)
 	}
+	if original.Plugin.Worktree != nil {
+		// Access checks let the local owner address missing resources so their
+		// service can report NotFound. A scope captured for forwarding must
+		// actually belong here before its provenance is trusted elsewhere.
+		if err := node.profile.Store.Node.Read(verified, func(db *sql.Conn) error {
+			_, err := store.ReadWorkspaceRoot(verified, db, *original.Plugin.Worktree, false)
+			return err
+		}); err != nil {
+			return link.Admission{}, nodeFault(err)
+		}
+	}
 	scope, err := node.captureResourceScope(verified, original)
 	if err != nil {
 		return link.Admission{}, err
