@@ -115,7 +115,10 @@ identity. Registered projects remain at their original filesystem paths.
 Projects have a Node-local user owner and private or host-shared visibility.
 New projects default to host-shared visibility; existing private projects keep
 their visibility, including when older stored records omit that field.
-Projectless resources remain personal. Model providers, channels and credentials
+Projectless resources remain personal. Projects retain their execution Node;
+the rail has no global Node switch. Settings Connections opens device monitors
+and pairing management without changing execution or configuration scope. A new
+projectless draft chooses its execution Node inside the Chats location menu. Model providers, channels and credentials
 belong only to their authenticated user namespace; machine administrators do not
 gain another user's configuration access. Legacy provider sharing fields remain
 readable for storage and protocol compatibility but grant no cross-user access.

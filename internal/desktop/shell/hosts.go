@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
@@ -59,7 +60,17 @@ func (a *App) sample(c *ui.Context, h *host.Host) {
 	h.Metrics = x.metrics
 }
 
-// openHost chooses a host and shows its page (Shell::select_host), with
+// OpenHost opens the device monitor from Connections without changing a project.
+func (a *App) OpenHost(id string) {
+	for _, device := range a.Data.Hosts {
+		if device.ID == id {
+			a.openHost(id, false)
+			return
+		}
+	}
+}
+
+// openHost shows one host monitor, with
 // its update dialog open when update is set.
 func (a *App) openHost(id string, update bool) {
 	a.Host = id
@@ -87,8 +98,8 @@ func (a *App) hostView(c *ui.Context) {
 	host.Page(c, st, h, a.hostActions())
 }
 
-// hostActions are the chosen host's actions, as its page and the rail's
-// host menu run them: the live controller's, and the window's own for what
+// hostActions are the monitored host's actions: the live controller's,
+// and the window's own for what
 // it leaves out.
 func (a *App) hostActions() host.Actions {
 	actions := host.Actions{}
@@ -119,4 +130,46 @@ func (a *App) hostName(c *ui.Context, name string) string {
 		return i18n.T(c, name)
 	}
 	return name
+}
+
+// hostMenu keeps device operations on the monitor for that device.
+func (a *App) hostMenu(c *ui.Context, m *kit.Menu) {
+	h, st := a.hostPage()
+	if h == nil {
+		return
+	}
+	actions := a.hostActions()
+	if (a.Hooks.EditHost != nil || !a.Demo()) && m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+		if a.Hooks.EditHost != nil {
+			a.Hooks.EditHost(a.Host)
+		} else {
+			a.notice(c)
+		}
+	}
+	if m.Item(i18n.T(c, "project_add")).Chosen() {
+		a.Sidebar.OpenEditorAtHost(a.Host)
+	}
+	m.Separator()
+	m.Submenu(i18n.T(c, "port_mappings"), func(sub *kit.Menu) {
+		for _, port := range h.Ports {
+			if sub.Item(port.Route()).Disabled(!port.Listening).Chosen() {
+				host.OpenPort(c, port, actions)
+			}
+		}
+		if len(h.Ports) > 0 {
+			sub.Separator()
+		}
+		if sub.Item(i18n.T(c, "port_title")).Chosen() {
+			st.OpenPorts()
+		}
+	})
+	if h.Update != nil && m.Item(i18n.T(c, "host_update")).Chosen() {
+		st.OpenUpdate(h)
+	}
+	if actions.Revoke != nil {
+		m.Separator()
+		if m.Item(i18n.T(c, "live_revoke")).Danger().Disabled(h.Revoking).Chosen() {
+			st.AskRevoke()
+		}
+	}
 }

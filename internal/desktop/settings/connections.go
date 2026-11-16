@@ -176,7 +176,7 @@ func connections(c *ui.Context, m *Model) {
 // devices lists the hosts (execution) or the mobile controllers: each a media
 // row of its platform, name and short ID, then its latency, its status dot
 // and label, and revoking its pairing. A host's context menu edits its
-// network.
+// network and opens its monitor.
 func devices(c *ui.Context, m *Model, execution bool) {
 	p := theme.Of(c)
 	var list []viewmodel.Device
@@ -193,6 +193,9 @@ func devices(c *ui.Context, m *Model, execution bool) {
 		for _, d := range list {
 			row := ui.Row(c.Key(d.ID)).Padding(12, 0).Gap(12)
 			row.ContextMenu(func(menu *ui.Menu) {
+				if execution && m.ConnectionActions != nil && m.ConnectionActions.Inspect != nil && menu.Item(i18n.T(c, "workspace_host")).Chosen() {
+					m.ConnectionActions.Inspect(d)
+				}
 				if !d.Local && d.Direction == "both" {
 					for _, choice := range []struct{ direction, key string }{{"host", "connections_only_host"}, {"controller", "connections_only_controller"}} {
 						if menu.Item(i18n.T(c, choice.key)).Disabled(m.pairing.status.Narrowing[d.ID]).Chosen() && m.ConnectionActions != nil && m.ConnectionActions.Narrow != nil {
@@ -253,7 +256,7 @@ func devices(c *ui.Context, m *Model, execution bool) {
 					feedback.ConnectionStatus(c.Key("status"), state, feedback.ConnectionStatusOptions{Online: text, Reconnecting: text, Offline: text}).
 						Shrink(0).AlignSelf(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground)
 					ui.Row(c).Width(28).Justify(ui.End).Children(func() {
-						if d.Local {
+						if d.Local && (!execution || m.ConnectionActions == nil || m.ConnectionActions.Inspect == nil) {
 							return
 						}
 						// A pairing being removed cannot be removed again.
@@ -266,6 +269,12 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						kit.MenuButton(c.Key("menu"), "device-menu-"+d.ID, func(b ui.Element) {
 							kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
 						}, func(menu *kit.Menu) {
+							if execution && m.ConnectionActions != nil && m.ConnectionActions.Inspect != nil && menu.Item(i18n.T(c, "workspace_host")).Chosen() {
+								m.ConnectionActions.Inspect(d)
+							}
+							if d.Local {
+								return
+							}
 							// Editing a host's network asks the host for it.
 							if execution && menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
 								if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {

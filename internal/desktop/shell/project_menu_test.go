@@ -480,48 +480,27 @@ func TestProjectMenu(t *testing.T) {
 		}
 	})
 
-	// The rail's host menu over the demo: Host information and Add project
-	// work; Edit, which is the controller's, is absent where the preview
-	// would only tell its notice.
+	// Host operations remain scoped to the monitored device in Demo mode.
 	t.Run("HostMenu", func(t *testing.T) {
-		open := func(tt *ui.Tester) []string {
-			t.Helper()
-			info, ok := tt.AccessByRole(ui.RoleMenuButton, en("hosts"))
-			if !ok {
-				t.Fatalf("no host picker: %q", tt.Texts())
-			}
-			tt.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-			tt.Frame()
-			return tt.Menu()
-		}
 		a, tt := demo(t)
-		items := open(tt)
-		if slices.Contains(items, en("connection_action_edit")) {
-			t.Fatalf("the demo's host menu offers Edit: %q", items)
+		a.OpenHost("local")
+		settle(tt)
+		openHostMore(t, tt)
+		if _, ok := tt.AccessByRole(ui.RoleMenuItem, en("connection_action_edit")); ok {
+			t.Fatal("demo device menu offers live Edit")
 		}
-		for _, key := range []string{"workspace_host", "project_add", "port_mappings"} {
-			if !slices.Contains(items, en(key)) {
-				t.Fatalf("the demo's host menu lacks %q: %q", en(key), items)
+		for _, key := range []string{"project_add", "port_mappings"} {
+			if _, ok := tt.AccessByRole(ui.RoleMenuItem, en(key)); !ok {
+				t.Fatalf("demo device menu lacks %q", key)
 			}
 		}
-		if err := tt.ChooseMenuItem(en("workspace_host")); err != nil {
-			t.Fatal(err)
-		}
+		clickItem(t, tt, en("project_add"))
 		settle(tt)
-		if a.Page != HostPage {
-			t.Fatalf("Host information showed page %d", a.Page)
+		if draft := a.Sidebar.Draft(); !draft.Open || draft.Project != nil {
+			t.Fatal("Add project opened no creation draft")
 		}
-		open(tt)
-		if err := tt.ChooseMenuItem(en("project_add")); err != nil {
-			t.Fatal(err)
-		}
-		settle(tt)
-		if !a.Sidebar.Draft().Open {
-			t.Fatal("Add project opened no editor")
-		}
-		_, pt := newTester(t)
-		if items := open(pt); !slices.Contains(items, en("connection_action_edit")) {
-			t.Fatalf("the preview's host menu lost Edit: %q", items)
+		if _, ok := tt.AccessByRole(ui.RoleMenuButton, en("hosts")); ok {
+			t.Fatal("demo retains global host switching")
 		}
 	})
 

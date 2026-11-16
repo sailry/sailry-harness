@@ -21,6 +21,8 @@ type ConnectionDraft struct {
 }
 
 type ConnectionActions struct {
+	// Inspect opens a device monitor; it does not select a configuration Node.
+	Inspect     func(viewmodel.Device)
 	Add         func(ConnectionDraft, func(bool))
 	CheckStatus func(func(bool))
 	Revoke      func(viewmodel.Device)

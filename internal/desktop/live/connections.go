@@ -63,6 +63,7 @@ func (r *Runtime) initConnectionActions() {
 	}
 	model := r.App.Settings.Model
 	model.ConnectionActions = &settings.ConnectionActions{
+		Inspect:     func(device viewmodel.Device) { r.App.OpenHost(device.ID) },
 		Add:         r.addConnection,
 		CheckStatus: r.checkSSHHost,
 		Revoke:      r.revokeConnection,

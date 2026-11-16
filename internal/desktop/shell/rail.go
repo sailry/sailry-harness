@@ -4,7 +4,6 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -137,7 +136,7 @@ func (a *App) openFeature(c *ui.Context, id string) {
 }
 
 // rail is the column of features: 36 DIP ghost buttons, the pinned features
-// in their order and More at the top; notifications, hosts, search and
+// in their order and More at the top; notifications, search and
 // settings at the bottom.
 func (a *App) rail(c *ui.Context) {
 	ui.Column(c.Key("rail")).Width(RailWidth).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -161,7 +160,6 @@ func (a *App) rail(c *ui.Context) {
 			}
 			transfers.Button(c, a.installs, &a.installsOpen, retry)
 		}
-		a.hostPicker(c)
 		railChosen(c, kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open), a.search.open).
 			OnClick(func() { a.openSearch() })
 		railChosen(c, kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage), a.Page == SettingsPage).
@@ -267,93 +265,6 @@ func featureDropLine(c *ui.Context, p *theme.Palette, after bool) {
 	line.Children(func() {
 		ui.Box(c.Key("dot")).Absolute().Left(0).Top(-2).Size(8, 8).Radius(4).Background(p.Primary).PassThrough()
 	})
-}
-
-// hostMenu is the rest of the host picker's right-click menu: the chosen
-// host's port forwards, each opening its address, over Port forwarding, which
-// opens the host page's picker; Update for every host that has one, opening
-// its page with the update dialog; and Remove pairing for a paired host,
-// which asks on its page.
-func (a *App) hostMenu(c *ui.Context, m *ui.Menu) {
-	h, st := a.hostPage()
-	actions := a.hostActions()
-	m.Separator()
-	m.Submenu(i18n.T(c, "port_mappings"), func(sub *ui.Menu) {
-		for _, port := range h.Ports {
-			if sub.Item(port.Route()).Disabled(!port.Listening).Chosen() {
-				host.OpenPort(c, port, actions)
-			}
-		}
-		if len(h.Ports) > 0 {
-			sub.Separator()
-		}
-		if sub.Item(i18n.T(c, "port_title")).Chosen() {
-			a.openHost(a.Host, false)
-			st.OpenPorts()
-		}
-	})
-	for _, other := range a.Data.Hosts {
-		if other.Update && m.Item(i18n.T(c, "sidebar_host_update")+" "+a.hostName(c, other.Name)).Chosen() {
-			a.openHost(other.ID, true)
-		}
-	}
-	if actions.Revoke != nil {
-		m.Separator()
-		if m.Item(i18n.T(c, "live_revoke")).Danger().Disabled(h.Revoking).Chosen() {
-			a.openHost(a.Host, false)
-			st.AskRevoke()
-		}
-	}
-}
-
-// hostPicker is the host picker: the hosts with a check on this one, and Add
-// host; a dot when a host has an update, which its right-click menu and the
-// host's page offer. Its right-click menu is the system's.
-func (a *App) hostPicker(c *ui.Context) {
-	p := theme.Of(c)
-	update := false
-	for _, h := range a.Data.Hosts {
-		update = update || h.Update
-	}
-	b := kit.MenuButton(c.Key("hosts"), "hosts", func(b ui.Element) {
-		railChosen(c, kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", RailButton, a.Page == HostPage), a.Page == HostPage)
-	}, func(m *kit.Menu) {
-		for _, h := range a.Data.Hosts {
-			// No trailing Update: the right-click menu and the host's
-			// page offer it, and the button's dot tells one is ready.
-			if m.Item(a.hostName(c, h.Name)).Checked(h.ID == a.Host).Chosen() {
-				a.openHost(h.ID, false)
-			}
-		}
-		m.Separator()
-		if m.Item(i18n.T(c, "host_add")).Icon(icons.Plus).Chosen() {
-			a.addHost()
-		}
-	}, kit.MenuOptions{At: ui.AnchorRight, Self: ui.AnchorLeft, MaxHeight: 480})
-	b.ContextMenu(func(m *ui.Menu) {
-		if m.Item(i18n.T(c, "workspace_host")).Chosen() {
-			a.openHost(a.Host, false)
-		}
-		// Edit is the controller's. The preview tells its notice; the demo
-		// over a preview window, which tells none, has no such item.
-		if (a.Hooks.EditHost != nil || !a.Demo()) && m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-			if a.Hooks.EditHost != nil {
-				a.Hooks.EditHost(a.Host)
-			} else {
-				a.notice(c)
-			}
-		}
-		m.Separator()
-		if m.Item(i18n.T(c, "project_add")).Chosen() {
-			a.Sidebar.OpenEditor(nil)
-		}
-		a.hostMenu(c, m)
-	})
-	if update {
-		b.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(ui.Rect{X: r.X + r.W - 12, Y: r.Y + 6, W: 6, H: 6}, p.Primary, 3)
-		})
-	}
 }
 
 // railChosen marks b, the rail's chosen destination, in the package's

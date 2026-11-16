@@ -135,7 +135,7 @@ func (h *Host) Connection() feedback.Connection {
 // uptimes and the processes' count, its port forwards, and Update for a host
 // updated from here. The platform and the versions show here alone. A live host's status is CrychicUI's
 // ConnectionStatus; the preview's is its note. It has no Remove pairing
-// button (AGENTS.md, Removed UI): the rail's host menu asks for it.
+// button: the host page's More menu asks for it.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	ui.Row(c.Key("header")).Wrap().GapX(16).GapY(12).AlignItems(ui.Center).Children(func() {

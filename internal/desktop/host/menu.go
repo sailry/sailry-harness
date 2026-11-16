@@ -7,7 +7,7 @@ import (
 )
 
 // OpenPort opens a forward's local address, as the page's port buttons do:
-// the rail's host menu lists the forwards too.
+// the host page's More menu lists the forwards too.
 func OpenPort(c *ui.Context, port Port, act Actions) { openPort(c, port, act) }
 
 // OpenPorts opens the page's port picker.

@@ -195,7 +195,7 @@ type App struct {
 	// children are the subagent sessions opened in the panel, by ID.
 	children map[string][]conversation.Turn
 
-	// Host is the host chosen in the rail, whose page HostPage shows;
+	// Host is the device whose monitor HostPage shows;
 	// hosts are the host pages' data, made from the dataset as first
 	// shown, and their UI state. Metrics is whether the host page's right
 	// column shows the metrics summary (layout.panel_open of Page::Host):
@@ -234,6 +234,23 @@ type App struct {
 func New(d *preview.Data) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
+	// Sample connection rows and monitors refer to the same sample devices.
+	devices := a.Settings.Devices
+	a.Settings.Devices = nil
+	index := 0
+	for _, device := range devices {
+		if !device.Execution {
+			a.Settings.Devices = append(a.Settings.Devices, device)
+			continue
+		}
+		if index >= len(d.Hosts) {
+			continue
+		}
+		h := d.Hosts[index]
+		device.ID, device.Local = h.ID, h.Local
+		a.Settings.Devices = append(a.Settings.Devices, device)
+		index++
+	}
 	a.installs = preview.Installations()
 	a.Messages.OpenLink = a.sampleLink
 	return a
@@ -257,6 +274,7 @@ func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
 		Welcome: onboarding.Guide{Seen: true},
 	}
+	st.ConnectionActions = &settings.ConnectionActions{Inspect: func(device viewmodel.Device) { a.OpenHost(device.ID) }}
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)
 	}

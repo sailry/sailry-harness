@@ -81,6 +81,11 @@ func (a *App) header(c *ui.Context, f frame) {
 				a.band = band{}
 				a.trail(c)
 				ui.Spacer(c)
+				if a.Page == HostPage {
+					kit.MenuButton(c.Key("host-more"), "host-more-"+a.Host, func(b ui.Element) {
+						kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", HeaderButton, false)
+					}, func(m *kit.Menu) { a.hostMenu(c, m) }, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
+				}
 				if project := a.overviewProject(); a.Page == ProjectPage && project != nil {
 					kit.MenuButton(c.Key("more"), "project-more", func(b ui.Element) {
 						kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", HeaderButton, false)
