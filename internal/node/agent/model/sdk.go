@@ -332,6 +332,11 @@ func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
 }
 
 func (emitter *sdkEmitter) fail(cause error) {
+	// No HTTP response reached this transport, so a completion event was not yet expected.
+	if emitter.ctx.Err() == nil && emitter.facts.status == 0 && (errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF)) {
+		emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &Failure{Kind: Network, Message: "Model connection ended before response headers"}})
+		return
+	}
 	message := "model stream failed"
 	if errors.Is(cause, context.Canceled) || errors.Is(emitter.ctx.Err(), context.Canceled) {
 		message = "model request cancelled"
