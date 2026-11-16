@@ -1,0 +1,14 @@
+[package]
+name = "sailry-turso"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+name = "turso_sync_sdk_kit"
+crate-type = ["cdylib"]
+
+[dependencies]
+turso_local = { package = "turso_sdk_kit", version = "=0.8.3", features = ["fts"] }
+turso_sync = { package = "turso_sync_sdk_kit", version = "=0.8.3" }

@@ -69,7 +69,7 @@ jobs:
           esac
           if [ -n "$base" ]; then
             changed=$(git diff --name-only "$base" HEAD)
-            grep -Eq '^native/(iroh|capture)/' <<< "$changed" || native=false
+            grep -Eq '^native/(iroh|turso|capture)/|^\.github/workflows/ci\.yml$' <<< "$changed" || native=false
             grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol|shipped)|native/iroh)/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$' <<< "$changed" || mobile=false
           fi
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
@@ -120,14 +120,15 @@ jobs:
           done
 
   test:
+    needs: turso
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
         lane: [packages, shell-0, shell-1, shell-2]
         include:
-          - { os: windows-2025, lane: platform }
-          - { os: macos-15, lane: platform }
+          - { os: windows-2025, lane: platform, target: windows-amd64 }
+          - { os: macos-15, lane: platform, target: darwin-arm64 }
     runs-on: ${{ matrix.os }}
     env:
       GO_CACHE_ROLE: test
@@ -183,11 +184,94 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes fonts-noto-cjk
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: turso-${{ matrix.target || 'linux-amd64' }}
+          path: .runtime/native/${{ matrix.target || 'linux-amd64' }}
+      - name: Turso runtime
+        working-directory: .runtime/native/${{ matrix.target || 'linux-amd64' }}
+        run: |
+          if command -v sha256sum >/dev/null; then
+            sha256sum --check SHA256SUMS
+          else
+            shasum -a 256 --check SHA256SUMS
+          fi
       - name: Test
         run: bash .github/scripts/test.sh '${{ matrix.lane }}'
 
+  # Every storage test needs the FTS engine. Cache only this pinned runtime,
+  # independently of the conditional iroh/capture build.
+  turso:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-amd64, library: libturso_sync_sdk_kit.so }
+          - { os: ubuntu-24.04-arm, target: linux-arm64, library: libturso_sync_sdk_kit.so }
+          - { os: macos-15, target: darwin-arm64, library: libturso_sync_sdk_kit.dylib }
+          - { os: macos-15-intel, target: darwin-amd64, library: libturso_sync_sdk_kit.dylib }
+          - { os: windows-2025, target: windows-amd64, library: turso_sync_sdk_kit.dll }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Repository line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: runtime
+        with:
+          path: |
+            .runtime/native/${{ matrix.target }}/${{ matrix.library }}
+            .runtime/native/${{ matrix.target }}/SHA256SUMS
+          key: turso-native-v1-${{ matrix.target }}-${{ hashFiles('native/turso/**') }}
+      - name: Pinned Rust toolchain
+        if: steps.runtime.outputs.cache-hit != 'true'
+        working-directory: native/turso
+        run: rustup toolchain install
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
+        with:
+          version: 0.16.0
+          use-cache: false
+      - name: GNU libc target
+        if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-zigbuild --version 0.23.4 --locked
+          echo 'SAILRY_GLIBC=2.34' >> "$GITHUB_ENV"
+      - name: Build
+        if: steps.runtime.outputs.cache-hit != 'true'
+        run: sh native/turso/build.sh
+      - name: Checksum
+        if: steps.runtime.outputs.cache-hit != 'true'
+        working-directory: .runtime/native/${{ matrix.target }}
+        run: |
+          if command -v sha256sum >/dev/null; then
+            sha256sum '${{ matrix.library }}' > SHA256SUMS
+          else
+            shasum -a 256 '${{ matrix.library }}' > SHA256SUMS
+          fi
+      - name: GNU libc floor
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          grep -q 'requires GNU libc 2.34 or later' internal/node/wsl/preflight.sh
+          needed=$(objdump -T '.runtime/native/${{ matrix.target }}/${{ matrix.library }}' |
+            grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          test "$(printf '%s\n%s\n' "$needed" 2.34 | sort -V | tail -n 1)" = 2.34
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: turso-${{ matrix.target }}
+          path: |
+            .runtime/native/${{ matrix.target }}/${{ matrix.library }}
+            .runtime/native/${{ matrix.target }}/SHA256SUMS
+          include-hidden-files: true
+          if-no-files-found: error
+
   native:
-    needs: scope
+    needs: [scope, turso]
     if: needs.scope.outputs.native == 'true'
     strategy:
       fail-fast: false
@@ -232,6 +316,10 @@ jobs:
         run: |
           sh native/iroh/build.sh
           sh native/capture/build.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: turso-${{ matrix.target }}
+          path: .runtime/native/${{ matrix.target }}
       - name: GNU libc floor
         if: runner.os == 'Linux'
         run: |
@@ -239,20 +327,22 @@ jobs:
           # The build and the preflight must name the same version, and the
           # library must need nothing newer.
           grep -q "requires GNU libc $SAILRY_GLIBC or later" internal/node/wsl/preflight.sh
-          needed=$(objdump -T ".runtime/native/${{ matrix.target }}/libsailry_iroh.so" |
-            grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
-          echo "libsailry_iroh.so needs GNU libc $needed"
-          test "$(printf '%s\n%s\n' "$needed" "$SAILRY_GLIBC" | sort -V | tail -n 1)" = "$SAILRY_GLIBC"
+          for library in libsailry_iroh.so libturso_sync_sdk_kit.so; do
+            needed=$(objdump -T ".runtime/native/${{ matrix.target }}/$library" |
+              grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+            echo "$library needs GNU libc $needed"
+            test "$(printf '%s\n%s\n' "$needed" "$SAILRY_GLIBC" | sort -V | tail -n 1)" = "$SAILRY_GLIBC"
+          done
       # The artifact is the directory `go run ./native/fetch -artifacts` reads:
-      # the two libraries and their SHA256SUMS at its root.
+      # the built libraries and their SHA256SUMS at its root.
       - name: Checksums
         working-directory: .runtime/native/${{ matrix.target }}
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in
-            Windows) set -- sailry_iroh.dll sailry-capture.dll ;;
-            macOS) set -- libsailry_iroh.dylib libsailry-capture.dylib ;;
-            *) set -- libsailry_iroh.so libsailry-capture.so ;;
+            Windows) set -- sailry_iroh.dll turso_sync_sdk_kit.dll sailry-capture.dll ;;
+            macOS) set -- libsailry_iroh.dylib libturso_sync_sdk_kit.dylib libsailry-capture.dylib ;;
+            *) set -- libsailry_iroh.so libturso_sync_sdk_kit.so libsailry-capture.so ;;
           esac
           mkdir artifact
           for name in "$@"; do
