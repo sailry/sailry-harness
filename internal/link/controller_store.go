@@ -37,6 +37,7 @@ type controllerPeer struct {
 	Removed           bool                 `json:"removed"`
 	Sources           []protocol.NodeID    `json:"sources,omitempty"`
 	DirectoryRevision uint64               `json:"directory_revision"`
+	HasNode           *bool                `json:"has_node,omitempty"`
 }
 
 func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {
@@ -239,6 +240,23 @@ func (store *controllerStore) Directions(ctx context.Context) ([]PeerTrust, erro
 
 func (store *controllerStore) PairPeer(ctx context.Context, id protocol.NodeID, direction PeerDirection) error {
 	return store.PairMember(ctx, id, direction, InvitationScope{Kind: protocol.InvitationOtherUser})
+}
+
+func (store *controllerStore) ClassifyPeer(ctx context.Context, id protocol.NodeID, hasNode bool) error {
+	return store.update(ctx, func(peers *[]controllerPeer) error {
+		for index := range *peers {
+			peer := &(*peers)[index]
+			if peer.ID != id || peer.Removed || !peer.Direction.Valid() {
+				continue
+			}
+			if peer.HasNode != nil && *peer.HasNode != hasNode {
+				return invalidLink("paired device type changed")
+			}
+			peer.HasNode = &hasNode
+			return nil
+		}
+		return pairingRejected()
+	})
 }
 
 func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID, direction PeerDirection, scope InvitationScope) error {

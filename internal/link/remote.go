@@ -13,9 +13,28 @@ import (
 type Remote struct {
 	link    *Link
 	address EndpointAddress
+	target  *protocol.NodeID
 }
 
-func (remote *Remote) Target() protocol.NodeID { return remote.address.ID }
+func (remote *Remote) Target() protocol.NodeID {
+	if remote.target != nil {
+		return *remote.target
+	}
+	return remote.address.ID
+}
+
+// Route retains the authenticated entry separately from the resource owner.
+func (remote *Remote) Route() protocol.RouteKey {
+	return protocol.RouteKey{Entry: remote.address.ID, Target: remote.Target()}
+}
+
+func (remote *Remote) writeCall(ctx context.Context, stream contextStream, call wire.Call, compressed bool) error {
+	envelope := remote.link.envelope(call)
+	envelope.Target = remote.target
+	scoped, cancel := remote.link.operation(ctx, true)
+	defer cancel()
+	return wire.Write(scopedWriter{scoped, stream}, envelope, compressed)
+}
 
 func (remote *Remote) Open(ctx context.Context, resource protocol.StreamID) (Stream, error) {
 	connection, compressed, err := remote.link.connection(ctx, remote.address, true)
@@ -34,7 +53,7 @@ func (remote *Remote) Open(ctx context.Context, resource protocol.StreamID) (Str
 			_ = stream.Close()
 		}
 	}()
-	if err := remote.link.writeCall(ctx, stream, wire.Call{Kind: wire.CallOpenStream, Stream: &resource}, compressed); err != nil {
+	if err := remote.writeCall(ctx, stream, wire.Call{Kind: wire.CallOpenStream, Stream: &resource}, compressed); err != nil {
 		return nil, err
 	}
 	var reply wire.Reply
@@ -70,13 +89,17 @@ func (remote *Remote) Dispatch(ctx context.Context, request protocol.Request) (A
 }
 
 func (remote *Remote) dispatchStream(ctx context.Context, request protocol.Request, stream contextStream, compressed bool) (Admission, error) {
+	return remote.dispatchCall(ctx, request, wire.Call{Kind: wire.CallCommand, Request: &request}, stream, compressed)
+}
+
+func (remote *Remote) dispatchCall(ctx context.Context, request protocol.Request, call wire.Call, stream contextStream, compressed bool) (Admission, error) {
 	observing := false
 	defer func() {
 		if !observing {
 			_ = stream.Close()
 		}
 	}()
-	if err := remote.link.writeCall(ctx, stream, wire.Call{Kind: wire.CallCommand, Request: &request}, compressed); err != nil {
+	if err := remote.writeCall(ctx, stream, call, compressed); err != nil {
 		var fault *protocol.Fault
 		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeInvalidRequest {
 			return Admission{}, err
@@ -148,7 +171,7 @@ func (remote *Remote) Subscribe(ctx context.Context, topic protocol.Topic) (Subs
 			_ = stream.Close()
 		}
 	}()
-	if err := remote.link.writeCall(ctx, stream, wire.Call{Kind: wire.CallSubscribe, Topic: &topic}, compressed); err != nil {
+	if err := remote.writeCall(ctx, stream, wire.Call{Kind: wire.CallSubscribe, Topic: &topic}, compressed); err != nil {
 		return nil, err
 	}
 	if err := stream.CloseWrite(); err != nil {

@@ -32,6 +32,12 @@ type Handler interface {
 	Subscribe(context.Context, protocol.NodeID, protocol.Topic) (Subscription, error)
 }
 
+// ResourceHandler implements only the limited reverse resource channel.
+// caller is always the authenticated execution peer, never a wire-supplied user.
+type ResourceHandler interface {
+	Resource(context.Context, protocol.NodeID, protocol.ResourceCall) (Admission, error)
+}
+
 // Transport binds a controller to one Node without owning business state.
 type Transport interface {
 	Open(context.Context, protocol.StreamID) (Stream, error)

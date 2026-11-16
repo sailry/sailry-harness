@@ -47,6 +47,7 @@ type PeerInfo struct {
 	Protocol        *uint16
 	Latency         time.Duration
 	Zstd            bool
+	HasNode         *bool
 }
 
 func (info PeerInfo) Compatibility() error {
@@ -54,6 +55,7 @@ func (info PeerInfo) Compatibility() error {
 }
 
 type Link struct {
+	nodeID          protocol.NodeID
 	endpoint        *iroh.Endpoint
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -65,6 +67,7 @@ type Link struct {
 	name            *string
 	trusted         map[protocol.NodeID]bool
 	directions      map[protocol.NodeID]PeerDirection
+	peerKinds       sync.Map // NodeID -> bool, learned through authenticated exchange
 	addresses       map[protocol.NodeID]EndpointAddress
 	outgoing        map[protocol.NodeID]*outgoingSlot
 	incoming        map[*iroh.Connection]protocol.NodeID
@@ -149,7 +152,7 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 	}
 	lifetime, cancel := context.WithCancel(ctx)
 	link := &Link{
-		endpoint: endpoint, ctx: lifetime, cancel: cancel, handler: options.Handler,
+		nodeID: options.Identity.ID(), endpoint: endpoint, ctx: lifetime, cancel: cancel, handler: options.Handler,
 		store: options.Peers, softwareVersion: options.SoftwareVersion,
 		trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{},
 		outgoing: map[protocol.NodeID]*outgoingSlot{}, incoming: map[*iroh.Connection]protocol.NodeID{},
@@ -292,6 +295,9 @@ func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 	link.mu.Lock()
 	previous := link.directions[peer]
 	trusted := direction.Valid()
+	if previous != direction {
+		link.peerKinds.Delete(peer)
+	}
 	if link.directions == nil {
 		link.directions = make(map[protocol.NodeID]PeerDirection)
 	}
@@ -303,6 +309,7 @@ func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 		delete(link.trusted, peer)
 		delete(link.directions, peer)
 		delete(link.addresses, peer)
+		link.peerKinds.Delete(peer)
 	}
 	if !trusted || previous.AllowsOutbound() && !direction.AllowsOutbound() {
 		outgoing = link.outgoing[peer]
@@ -451,7 +458,8 @@ func (link *Link) timeoutContext(ctx context.Context, duration time.Duration) (c
 
 func (link *Link) envelope(call wire.Call) wire.Envelope {
 	version := uint16(protocol.VERSION)
-	return wire.Envelope{SoftwareVersion: &link.softwareVersion, Protocol: &version, Zstd: true, Call: call}
+	hasNode := link.handler != nil
+	return wire.Envelope{SoftwareVersion: &link.softwareVersion, Protocol: &version, Zstd: true, Call: call, HasNode: &hasNode}
 }
 
 func (link *Link) endpointReply() wire.Endpoint {
@@ -459,6 +467,7 @@ func (link *Link) endpointReply() wire.Endpoint {
 	name := link.name
 	link.mu.RUnlock()
 	version := uint16(protocol.VERSION)
+	hasNode := link.handler != nil
 	platform := runtime.GOOS
 	if platform == "darwin" {
 		platform = "macos"
@@ -466,6 +475,7 @@ func (link *Link) endpointReply() wire.Endpoint {
 	return wire.Endpoint{
 		SoftwareVersion: &link.softwareVersion, Protocol: &version, Zstd: true,
 		Execution: link.handler != nil, Name: name, Platform: platform,
+		HasNode: &hasNode,
 	}
 }
 

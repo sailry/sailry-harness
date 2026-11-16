@@ -153,8 +153,22 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 	if !link.isTrusted(peer) {
 		return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is no longer paired"})
 	}
+	// Old peers may still inspect version metadata, but cannot execute a v2
+	// call before the authenticated device type is recorded.
+	if envelope.HasNode != nil {
+		if err := link.classifyPeer(ctx, peer, *envelope.HasNode); err != nil {
+			return link.reject(ctx, stream, faultValue(err))
+		}
+	} else if protocol.VERSION >= 2 && envelope.Call.Kind != wire.CallInspect {
+		return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "device type is required"})
+	}
 	if envelope.Call.Kind != wire.CallInspect {
-		if !link.Direction(peer).AllowsInbound() {
+		if envelope.Call.Kind == wire.CallResource {
+			kind, known := link.peerKinds.Load(peer)
+			if !known || !kind.(bool) || !link.directHost(ctx, peer) && !link.directController(ctx, peer) {
+				return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "resource caller is not a direct Node"})
+			}
+		} else if !link.Direction(peer).AllowsInbound() {
 			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer cannot call this execution service"})
 		}
 		host := uint16(protocol.VERSION)
@@ -164,6 +178,17 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		if link.handler == nil {
 			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "controller has no execution service"})
 		}
+	}
+	if envelope.Target != nil && *envelope.Target != link.identity() {
+		if envelope.Call.Kind == wire.CallSubscribe {
+			select {
+			case subscriptions <- struct{}{}:
+				defer func() { <-subscriptions }()
+			default:
+				return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "subscription capacity exhausted"})
+			}
+		}
+		return link.relay(ctx, peer, stream, envelope, compressed)
 	}
 	switch envelope.Call.Kind {
 	case wire.CallInspect:
@@ -196,41 +221,22 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		if envelope.Call.Request == nil {
 			return invalidLink("command request expected")
 		}
-		request := *envelope.Call.Request
-		dispatchContext := link.ctx
-		release := func() {}
-		if !request.Command.Durable() {
-			dispatchContext, release = observeStream(ctx, stream)
+		return link.serveCommand(ctx, peer, stream, *envelope.Call.Request, compressed, link.handler.Dispatch)
+	case wire.CallResource:
+		if envelope.Call.Resource == nil {
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "resource operation is not supported"})
 		}
-		defer release()
-		admission, err := link.handler.Dispatch(dispatchContext, peer, request)
-		cancelled := dispatchContext.Err() != nil
-		if err != nil {
-			if cancelled {
-				return nil
-			}
+		if err := envelope.Call.Resource.Validate(); err != nil {
 			return link.reject(ctx, stream, faultValue(err))
 		}
-		if err := link.writeFrame(ctx, stream, wire.Reply{Kind: wire.ReplyReceipt, Receipt: &admission.Receipt}); err != nil {
-			return err
+		handler, ok := link.handler.(ResourceHandler)
+		if !ok {
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource routing is unavailable"})
 		}
-		var response Response
-		select {
-		case <-ctx.Done():
-			return linkNetwork(ctx.Err())
-		case completed, open := <-admission.Completion:
-			response = completed
-			if !open {
-				response.Fault = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Node completion is unavailable"}
-			}
-		}
-		result := wire.Response{Output: &response.Output, Fault: response.Fault}
-		if result.Fault != nil {
-			result.Output = nil
-		}
-		if err := link.writeReply(ctx, stream, wire.Reply{Kind: wire.ReplyCompleted, Completed: &result}, compressed); err != nil {
-			return err
-		}
+		call := *envelope.Call.Resource
+		return link.serveCommand(ctx, peer, stream, call.Request, compressed, func(ctx context.Context, caller protocol.NodeID, _ protocol.Request) (Admission, error) {
+			return handler.Resource(ctx, caller, call)
+		})
 	case wire.CallSubscribe:
 		if envelope.Call.Topic == nil {
 			return invalidLink("subscription topic expected")
@@ -275,6 +281,44 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		}
 	default:
 		return invalidLink("Link call expected")
+	}
+	return linkNetwork(stream.CloseWrite())
+}
+
+func (link *Link) serveCommand(ctx context.Context, peer protocol.NodeID, stream contextStream, request protocol.Request, compressed bool, dispatch func(context.Context, protocol.NodeID, protocol.Request) (Admission, error)) error {
+	dispatchContext := link.ctx
+	release := func() {}
+	if !request.Command.Durable() {
+		dispatchContext, release = observeStream(ctx, stream)
+	}
+	defer release()
+	admission, err := dispatch(dispatchContext, peer, request)
+	cancelled := dispatchContext.Err() != nil
+	if err != nil {
+		if cancelled {
+			return nil
+		}
+		return link.reject(ctx, stream, faultValue(err))
+	}
+	if err := link.writeFrame(ctx, stream, wire.Reply{Kind: wire.ReplyReceipt, Receipt: &admission.Receipt}); err != nil {
+		return err
+	}
+	var response Response
+	select {
+	case <-ctx.Done():
+		return linkNetwork(ctx.Err())
+	case completed, open := <-admission.Completion:
+		response = completed
+		if !open {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Node completion is unavailable"}
+		}
+	}
+	result := wire.Response{Output: &response.Output, Fault: response.Fault}
+	if result.Fault != nil {
+		result.Output = nil
+	}
+	if err := link.writeReply(ctx, stream, wire.Reply{Kind: wire.ReplyCompleted, Completed: &result}, compressed); err != nil {
+		return err
 	}
 	return linkNetwork(stream.CloseWrite())
 }

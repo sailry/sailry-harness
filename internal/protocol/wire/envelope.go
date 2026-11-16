@@ -17,13 +17,15 @@ const (
 	CallOpenStream CallKind = "open_stream"
 	CallCommand    CallKind = "command"
 	CallSubscribe  CallKind = "subscribe"
+	CallResource   CallKind = "resource"
 )
 
 type Call struct {
-	Kind    CallKind
-	Stream  *protocol.StreamID
-	Request *protocol.Request
-	Topic   *protocol.Topic
+	Kind     CallKind
+	Stream   *protocol.StreamID
+	Request  *protocol.Request
+	Topic    *protocol.Topic
+	Resource *protocol.ResourceCall
 }
 
 var callVariants = map[string]func() any{
@@ -31,6 +33,7 @@ var callVariants = map[string]func() any{
 	"open_stream": func() any { return new(protocol.StreamID) },
 	"command":     func() any { return new(protocol.Request) },
 	"subscribe":   func() any { return new(protocol.Topic) },
+	"resource":    func() any { return new(protocol.ResourceCall) },
 }
 
 func (call Call) MarshalJSON() ([]byte, error) {
@@ -42,6 +45,8 @@ func (call Call) MarshalJSON() ([]byte, error) {
 		payload = call.Request
 	case CallSubscribe:
 		payload = call.Topic
+	case CallResource:
+		payload = call.Resource
 	}
 	return protocol.MarshalUnion("kind", "data", string(call.Kind), payload, callVariants)
 }
@@ -61,6 +66,8 @@ func (call *Call) DecodeJSON(decoder *protocol.Decoder) error {
 		decoded.Request = payload.(*protocol.Request)
 	case CallSubscribe:
 		decoded.Topic = payload.(*protocol.Topic)
+	case CallResource:
+		decoded.Resource = payload.(*protocol.ResourceCall)
 	}
 	*call = decoded
 	return nil
@@ -71,6 +78,11 @@ type Envelope struct {
 	Protocol        *uint16
 	Zstd            bool
 	Call            Call
+	HasNode         *bool
+	Target          *protocol.NodeID
+	// RawData preserves a relayed business payload, including peer fields this
+	// build does not know. Only transport metadata is rewritten at the next hop.
+	RawData json.RawMessage
 	// Undecoded is set by decoding alone: the identifier of a command request
 	// whose version, identifier and target decoded and whose command did not,
 	// because this build does not declare its kind or cannot read its
@@ -81,16 +93,29 @@ type Envelope struct {
 
 func (envelope Envelope) MarshalJSON() ([]byte, error) {
 	metadata, err := json.Marshal(struct {
-		SoftwareVersion *string `json:"software_version"`
-		Protocol        *uint16 `json:"protocol"`
-		Zstd            bool    `json:"zstd"`
-	}{envelope.SoftwareVersion, envelope.Protocol, envelope.Zstd})
+		SoftwareVersion *string          `json:"software_version"`
+		Protocol        *uint16          `json:"protocol"`
+		Zstd            bool             `json:"zstd"`
+		HasNode         *bool            `json:"has_node,omitempty"`
+		Target          *protocol.NodeID `json:"target,omitempty"`
+	}{envelope.SoftwareVersion, envelope.Protocol, envelope.Zstd, envelope.HasNode, envelope.Target})
 	if err != nil {
 		return nil, err
 	}
-	call, err := json.Marshal(envelope.Call)
-	if err != nil {
-		return nil, err
+	var call []byte
+	if envelope.RawData != nil {
+		call, err = json.Marshal(struct {
+			Kind CallKind        `json:"kind"`
+			Data json.RawMessage `json:"data"`
+		}{envelope.Call.Kind, envelope.RawData})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		call, err = json.Marshal(envelope.Call)
+		if err != nil {
+			return nil, err
+		}
 	}
 	flattened := append(metadata[:len(metadata)-1], ',')
 	return append(flattened, call[1:]...), nil
@@ -98,9 +123,12 @@ func (envelope Envelope) MarshalJSON() ([]byte, error) {
 
 func (envelope *Envelope) UnmarshalJSON(data []byte) error {
 	var metadata struct {
-		SoftwareVersion *string `json:"software_version"`
-		Protocol        *uint16 `json:"protocol"`
-		Zstd            bool    `json:"zstd"`
+		SoftwareVersion *string          `json:"software_version"`
+		Protocol        *uint16          `json:"protocol"`
+		Zstd            bool             `json:"zstd"`
+		HasNode         *bool            `json:"has_node,omitempty"`
+		Target          *protocol.NodeID `json:"target,omitempty"`
+		Data            json.RawMessage  `json:"data"`
 	}
 	if err := protocol.DecodeObject(data, &metadata, nil, false); err != nil {
 		return err
@@ -114,7 +142,12 @@ func (envelope *Envelope) UnmarshalJSON(data []byte) error {
 		}
 		call, undecoded = Call{Kind: CallCommand}, &id
 	}
-	*envelope = Envelope{metadata.SoftwareVersion, metadata.Protocol, metadata.Zstd, call, undecoded}
+	*envelope = Envelope{
+		SoftwareVersion: metadata.SoftwareVersion, Protocol: metadata.Protocol,
+		Zstd: metadata.Zstd, Call: call, HasNode: metadata.HasNode,
+		Target: metadata.Target, RawData: append(json.RawMessage(nil), metadata.Data...),
+		Undecoded: undecoded,
+	}
 	return nil
 }
 
@@ -163,6 +196,7 @@ type Endpoint struct {
 	Execution       bool    `json:"execution"`
 	Name            *string `json:"name"`
 	Platform        string  `json:"platform"`
+	HasNode         *bool   `json:"has_node,omitempty"`
 }
 
 func (endpoint *Endpoint) UnmarshalJSON(data []byte) error {

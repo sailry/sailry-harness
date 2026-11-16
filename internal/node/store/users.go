@@ -63,7 +63,31 @@ func readUser(ctx context.Context, db *sql.Conn, query string, args ...any) (pro
 		}
 		value.MergedInto = &target
 	}
+	var controller []byte
+	if err := db.QueryRowContext(ctx, "SELECT controller FROM users WHERE id=?1", value.ID.String()).Scan(&controller); err != nil {
+		return value, err
+	}
+	if len(controller) != 0 {
+		if len(controller) != len(protocol.NodeID{}) {
+			return value, errors.New("invalid user controller")
+		}
+		id := protocol.NodeID(controller)
+		value.Controller = &id
+	}
 	return value, nil
+}
+
+// CurrentController resolves the authority for personal configuration. A local
+// or legacy user without a recorded controller keeps this Node as authority.
+func CurrentController(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol.NodeID, error) {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return protocol.NodeID{}, err
+	}
+	if user.Controller != nil {
+		return *user.Controller, nil
+	}
+	return node, nil
 }
 
 func ListUsers(ctx context.Context, db *sql.Conn) ([]protocol.User, error) {

@@ -56,6 +56,7 @@ func (ticket *pairingTicket) UnmarshalJSON(encoded []byte) error {
 type pairingClaim struct {
 	Token   pairingToken    `json:"token"`
 	Address EndpointAddress `json:"address"`
+	HasNode *bool           `json:"has_node,omitempty"`
 }
 
 func (claim *pairingClaim) UnmarshalJSON(encoded []byte) error {
@@ -71,10 +72,18 @@ func (claim *pairingClaim) UnmarshalJSON(encoded []byte) error {
 type pairingResult struct {
 	Fault    *protocol.Fault
 	MyDevice bool
+	HasNode  *bool
 }
 
 func (result pairingResult) MarshalJSON() ([]byte, error) {
 	if result.Fault == nil {
+		if result.HasNode != nil {
+			return json.Marshal(struct {
+				OK       any   `json:"Ok"`
+				MyDevice bool  `json:"my_device,omitempty"`
+				HasNode  *bool `json:"has_node"`
+			}{nil, result.MyDevice, result.HasNode})
+		}
 		if result.MyDevice {
 			return []byte(`{"Ok":null,"my_device":true}`), nil
 		}
@@ -90,11 +99,12 @@ func (result *pairingResult) UnmarshalJSON(encoded []byte) error {
 		OK       json.RawMessage `json:"Ok"`
 		Err      json.RawMessage `json:"Err"`
 		MyDevice bool            `json:"my_device"`
+		HasNode  *bool           `json:"has_node"`
 	}
 	if protocol.DecodeObject(encoded, &fields, nil, true) != nil || (len(fields.OK) == 0) == (len(fields.Err) == 0) {
 		return pairingRejected()
 	}
-	result.Fault, result.MyDevice = nil, fields.MyDevice
+	result.Fault, result.MyDevice, result.HasNode = nil, fields.MyDevice, fields.HasNode
 	if len(fields.OK) != 0 {
 		if !bytes.Equal(bytes.TrimSpace(fields.OK), []byte("null")) {
 			return pairingRejected()
@@ -265,7 +275,8 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 		return EndpointAddress{}, linkNetwork(err)
 	}
 	defer stream.Close()
-	if err := link.writeFrame(ctx, stream, pairingClaim{Token: ticket.Token, Address: address}); err != nil {
+	hasNode := link.handler != nil
+	if err := link.writeFrame(ctx, stream, pairingClaim{Token: ticket.Token, Address: address, HasNode: &hasNode}); err != nil {
 		return EndpointAddress{}, err
 	}
 	if err := stream.CloseWrite(); err != nil {
@@ -282,7 +293,11 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if accepted.MyDevice {
 		scope.Kind = protocol.InvitationMyDevice
 	}
-	if err := link.pairMember(ctx, info.RemoteID, DirectionHost, scope); err != nil {
+	if accepted.HasNode != nil {
+		if err := link.pairIdentity(ctx, info.RemoteID, DirectionHost, *accepted.HasNode); err != nil {
+			return EndpointAddress{}, err
+		}
+	} else if err := link.pairMember(ctx, info.RemoteID, DirectionHost, scope); err != nil {
 		return EndpointAddress{}, err
 	}
 	if err := link.remember(ctx, ticket.Address); err != nil {
@@ -361,12 +376,14 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 	}
 	var accepted error
 	var scope InvitationScope
-	if claim.Address.ID != peer || len(claim.Address.Addrs) > 16 {
+	if claim.Address.ID != peer || len(claim.Address.Addrs) > 16 || protocol.VERSION >= 2 && claim.HasNode == nil {
 		accepted = pairingRejected()
 	} else {
-		scope, accepted = link.acceptPairingScope(link.ctx, claim.Token, peer, claim.Address)
+		scope, accepted = link.acceptPairingIdentity(link.ctx, claim.Token, peer, claim.Address, claim.HasNode)
 	}
 	result := pairingResult{}
+	hasNode := link.handler != nil
+	result.HasNode = &hasNode
 	result.MyDevice = accepted == nil && scope.Kind == protocol.InvitationMyDevice
 	if accepted != nil {
 		fault := faultValue(accepted)
@@ -389,6 +406,10 @@ func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer pr
 }
 
 func (link *Link) acceptPairingScope(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress) (InvitationScope, error) {
+	return link.acceptPairingIdentity(ctx, token, peer, address, nil)
+}
+
+func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress, hasNode *bool) (InvitationScope, error) {
 	link.offerMu.Lock()
 	offer := link.offer
 	if offer == nil || subtle.ConstantTimeCompare(offer.token[:], token[:]) != 1 ||
@@ -401,14 +422,24 @@ func (link *Link) acceptPairingScope(ctx context.Context, token pairingToken, pe
 	claimed := peer
 	offer.peer = &claimed
 	link.offerMu.Unlock()
-	if err := link.pairMember(ctx, peer, DirectionController, offer.scope); err != nil {
+	scope := offer.scope
+	if hasNode != nil {
+		scope = InvitationScope{Kind: protocol.InvitationOtherUser}
+	}
+	var paired error
+	if hasNode != nil {
+		paired = link.pairIdentity(ctx, peer, DirectionController, *hasNode)
+	} else {
+		paired = link.pairMember(ctx, peer, DirectionController, scope)
+	}
+	if paired != nil {
 		// A claimant that gained no trust leaves the invitation to the others.
 		link.offerMu.Lock()
 		if offer.peer == &claimed && !link.isTrusted(peer) {
 			offer.peer = nil
 		}
 		link.offerMu.Unlock()
-		return InvitationScope{}, err
+		return InvitationScope{}, paired
 	}
 	if err := link.remember(ctx, address); err != nil {
 		return InvitationScope{}, err
@@ -418,7 +449,7 @@ func (link *Link) acceptPairingScope(ctx context.Context, token pairingToken, pe
 		offer.accept.Do(func() { close(offer.paired) })
 	}
 	link.offerMu.Unlock()
-	return offer.scope, nil
+	return scope, nil
 }
 
 func channelClosed(channel <-chan struct{}) bool {

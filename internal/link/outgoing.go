@@ -339,9 +339,20 @@ func (link *Link) inspectConnection(ctx context.Context, connection *iroh.Connec
 		return PeerInfo{}, invalidLink("endpoint inspection expected")
 	}
 	endpoint := reply.Endpoint
+	if endpoint.HasNode != nil {
+		certified, err := connection.Info(ctx)
+		if err != nil {
+			return PeerInfo{}, linkNetwork(err)
+		}
+		if err := link.classifyPeer(ctx, certified.RemoteID, *endpoint.HasNode); err != nil {
+			return PeerInfo{}, err
+		}
+	} else if endpoint.Protocol != nil && *endpoint.Protocol >= 2 {
+		return PeerInfo{}, invalidLink("device type is required")
+	}
 	return PeerInfo{
 		Execution: endpoint.Execution, Name: endpoint.Name, Platform: endpoint.Platform,
 		SoftwareVersion: endpoint.SoftwareVersion, Protocol: endpoint.Protocol, Zstd: endpoint.Zstd,
-		Latency: time.Since(started),
+		Latency: time.Since(started), HasNode: endpoint.HasNode,
 	}, nil
 }
