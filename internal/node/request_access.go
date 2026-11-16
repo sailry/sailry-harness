@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"github.com/sailry/sailry-harness/internal/node/admission"
-	"github.com/sailry/sailry-harness/internal/node/store"
 	"reflect"
 
+	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,12 +24,14 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 	}
 	var original protocol.Request
 	remoteOutput := false
+	externalPlugin := false
 	if len(captured) > 0 {
 		var scope admission.Scope
 		if err := json.Unmarshal(captured, &scope); err != nil {
 			return outcome, err
 		}
 		remoteOutput = scope.Remote
+		externalPlugin = scope.ExternalPlugin && protocol.KnowledgeCommand(scope.Kind)
 		user, err := store.CurrentUser(ctx, db)
 		if err != nil {
 			return outcome, err
@@ -66,9 +68,9 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 		if input, ok := original.Command.Data.(*protocol.CommandCreateSessionAtPayload); ok {
 			remoteOutput = input.Target != node.ID()
 		}
-		// Host handler receipts retain a foreign capture for audit. Its IDs
-		// are not local resources; the caller's recorded user owns the result.
-		if original.Command.Kind != "call_host_handler" {
+		// Trusted cross-Node receipts retain a foreign capture for audit. Its
+		// provenance IDs are not local resources; the recorded user owns it.
+		if original.Command.Kind != "call_host_handler" && !externalPlugin {
 			if err := node.authorizeCommandDB(ctx, db, caller, original); err != nil {
 				return deniedOutcome(), nil
 			}
@@ -82,6 +84,11 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 		output = value.Ok
 	}
 	if output != nil && !remoteOutput {
+		if protocol.KnowledgeCommand(original.Command.Kind) {
+			if err := store.CheckKnowledgeOutcome(ctx, db, original, *output); err != nil {
+				return deniedOutcome(), nil
+			}
+		}
 		if err := authorizeOutcomeValue(ctx, db, *output); err != nil {
 			return deniedOutcome(), nil
 		}

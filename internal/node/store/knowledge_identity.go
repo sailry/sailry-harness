@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -13,7 +14,7 @@ type knowledgePackageKey struct{}
 // checked its origin. Its Turn and Session belong to the execution Node, so the
 // storage Node reads the captured package instead of resolving foreign IDs.
 func WithKnowledgePackage(ctx context.Context, info protocol.PluginInfo) context.Context {
-	return context.WithValue(ctx, knowledgePackageKey{}, info)
+	return context.WithValue(admission.WithExternalPlugin(ctx), knowledgePackageKey{}, info)
 }
 
 // KnowledgePackageFromContext reads only the package installed by the verified
@@ -145,12 +146,19 @@ func CheckKnowledgeOutcome(ctx context.Context, db *sql.Conn, request protocol.R
 	default:
 		return knowledgeDenied("knowledge collection is unavailable")
 	}
-	entries, err := AllowedKnowledge(ctx, db, request)
+	entries, err := loadKnowledge(ctx, db)
 	if err != nil {
 		return err
 	}
 	for _, stored := range entries {
-		if stored.Collection.ID == collection.ID {
+		if stored.Collection.ID != collection.ID {
+			continue
+		}
+		visible, err := knowledgeUserAllowed(ctx, db, stored)
+		if err != nil {
+			return err
+		}
+		if visible && knowledgeVisible(stored, request) {
 			return nil
 		}
 	}

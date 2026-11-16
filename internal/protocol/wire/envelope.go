@@ -13,27 +13,30 @@ const PairALPN = "sailry/pair/1"
 type CallKind string
 
 const (
-	CallInspect    CallKind = "inspect"
-	CallOpenStream CallKind = "open_stream"
-	CallCommand    CallKind = "command"
-	CallSubscribe  CallKind = "subscribe"
-	CallResource   CallKind = "resource"
+	CallInspect         CallKind = "inspect"
+	CallOpenStream      CallKind = "open_stream"
+	CallCommand         CallKind = "command"
+	CallSubscribe       CallKind = "subscribe"
+	CallResource        CallKind = "resource"
+	CallScopedKnowledge CallKind = "scoped_knowledge"
 )
 
 type Call struct {
-	Kind     CallKind
-	Stream   *protocol.StreamID
-	Request  *protocol.Request
-	Topic    *protocol.Topic
-	Resource *protocol.ResourceCall
+	Kind            CallKind
+	Stream          *protocol.StreamID
+	Request         *protocol.Request
+	Topic           *protocol.Topic
+	Resource        *protocol.ResourceCall
+	ScopedKnowledge *protocol.ScopedKnowledgeCall
 }
 
 var callVariants = map[string]func() any{
-	"inspect":     nil,
-	"open_stream": func() any { return new(protocol.StreamID) },
-	"command":     func() any { return new(protocol.Request) },
-	"subscribe":   func() any { return new(protocol.Topic) },
-	"resource":    func() any { return new(protocol.ResourceCall) },
+	"inspect":          nil,
+	"open_stream":      func() any { return new(protocol.StreamID) },
+	"command":          func() any { return new(protocol.Request) },
+	"subscribe":        func() any { return new(protocol.Topic) },
+	"resource":         func() any { return new(protocol.ResourceCall) },
+	"scoped_knowledge": func() any { return new(protocol.ScopedKnowledgeCall) },
 }
 
 func (call Call) MarshalJSON() ([]byte, error) {
@@ -47,6 +50,8 @@ func (call Call) MarshalJSON() ([]byte, error) {
 		payload = call.Topic
 	case CallResource:
 		payload = call.Resource
+	case CallScopedKnowledge:
+		payload = call.ScopedKnowledge
 	}
 	return protocol.MarshalUnion("kind", "data", string(call.Kind), payload, callVariants)
 }
@@ -68,6 +73,8 @@ func (call *Call) DecodeJSON(decoder *protocol.Decoder) error {
 		decoded.Topic = payload.(*protocol.Topic)
 	case CallResource:
 		decoded.Resource = payload.(*protocol.ResourceCall)
+	case CallScopedKnowledge:
+		decoded.ScopedKnowledge = payload.(*protocol.ScopedKnowledgeCall)
 	}
 	*call = decoded
 	return nil

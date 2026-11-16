@@ -66,6 +66,27 @@ func TestEnvelopeRetainsUnknownRoutedCommand(t *testing.T) {
 	}
 }
 
+func TestEnvelopeSeparatesScopedExecutionFromKnowledgeStorage(t *testing.T) {
+	execution, storage := protocol.NodeID{2}, protocol.NodeID{3}
+	scope := protocol.DefaultPluginContext()
+	request := protocol.NewRequest(storage, protocol.Command{Kind: "list_knowledge_collections"})
+	request.Plugin = &scope
+	call := protocol.ScopedKnowledgeCall{Request: request}
+	envelope := Envelope{Target: &execution, Call: Call{Kind: CallScopedKnowledge, ScopedKnowledge: &call}}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Envelope
+	if err := protocol.DecodeAs(protocol.PeerCommand, encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Target == nil || *decoded.Target != execution || decoded.Call.ScopedKnowledge == nil ||
+		decoded.Call.ScopedKnowledge.Request.Target != storage || decoded.Call.ScopedKnowledge.Request.ID != request.ID {
+		t.Fatalf("execution route changed the storage request: %+v", decoded)
+	}
+}
+
 func TestRawFramePreservesPagesAcrossCompression(t *testing.T) {
 	for _, compressed := range []bool{false, true} {
 		t.Run(fmt.Sprint(compressed), func(t *testing.T) {

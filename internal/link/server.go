@@ -239,6 +239,21 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 		return link.serveCommand(ctx, peer, stream, call.Request, compressed, func(ctx context.Context, caller protocol.NodeID, _ protocol.Request) (Admission, error) {
 			return handler.Resource(ctx, caller, call)
 		})
+	case wire.CallScopedKnowledge:
+		call := envelope.Call.ScopedKnowledge
+		if call == nil {
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "scoped knowledge operation is required"})
+		}
+		if err := call.Validate(); err != nil {
+			return link.reject(ctx, stream, faultValue(err))
+		}
+		handler, ok := link.handler.(ScopedKnowledgeHandler)
+		if !ok {
+			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "scoped knowledge routing is unavailable"})
+		}
+		return link.serveCommand(ctx, peer, stream, call.Request, compressed, func(ctx context.Context, caller protocol.NodeID, _ protocol.Request) (Admission, error) {
+			return handler.ScopedKnowledge(ctx, caller, *call)
+		})
 	case wire.CallSubscribe:
 		if envelope.Call.Topic == nil {
 			return invalidLink("subscription topic expected")

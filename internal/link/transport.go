@@ -38,6 +38,12 @@ type ResourceHandler interface {
 	Resource(context.Context, protocol.NodeID, protocol.ResourceCall) (Admission, error)
 }
 
+// ScopedKnowledgeHandler validates a controller's plugin scope at its execution
+// Node. Unlike ResourceHandler it accepts no trusted runtime capture.
+type ScopedKnowledgeHandler interface {
+	ScopedKnowledge(context.Context, protocol.NodeID, protocol.ScopedKnowledgeCall) (Admission, error)
+}
+
 // Transport binds a controller to one Node without owning business state.
 type Transport interface {
 	Open(context.Context, protocol.StreamID) (Stream, error)

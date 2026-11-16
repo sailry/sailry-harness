@@ -19,6 +19,15 @@ func (link *Link) relay(ctx context.Context, peer protocol.NodeID, incoming cont
 	}
 	switch envelope.Call.Kind {
 	case wire.CallCommand, wire.CallSubscribe, wire.CallOpenStream:
+	case wire.CallScopedKnowledge:
+		// The envelope selects the execution Node that owns the plugin scope.
+		// The inner request retains its independent final storage target.
+		if envelope.Call.ScopedKnowledge == nil {
+			return link.reject(ctx, incoming, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "scoped knowledge operation is required"})
+		}
+		if err := envelope.Call.ScopedKnowledge.Validate(); err != nil {
+			return link.reject(ctx, incoming, faultValue(err))
+		}
 	default:
 		return link.reject(ctx, incoming, protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "unsupported routed operation"})
 	}

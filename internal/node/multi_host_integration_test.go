@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	knowledgeservice "github.com/sailry/sailry-harness/internal/node/knowledge/service"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -225,6 +226,124 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	cited, valid := dispatchPayload[protocol.KnowledgeCitationPage](output.Data)
 	if err != nil || !valid || !strings.Contains(cited.Text, "uniquecontroller") {
 		t.Fatalf("executor did not read the original storage citation: %+v: %v", output, err)
+	}
+	pluginName := "scoped-knowledge"
+	pluginSource := t.TempDir()
+	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"` + pluginName + `","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","knowledge.read","knowledge.write"]}}}`
+	if err := os.WriteFile(filepath.Join(pluginSource, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := a.plugins.manager.Install(ctx, pluginSource, "", pluginName)
+	if err != nil || len(info.Issues) != 0 {
+		t.Fatalf("scoped knowledge fixture: %+v: %v", info.Issues, err)
+	}
+	if err := a.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		info, err = store.InstallPlugin(ctx, db, info, 0, true)
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordEvents(ctx, db, a.ID(), []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a.NotifyConfigurationFollow([]protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
+	a.publish()
+	wait("scoped package reaches execution hosts", func() bool {
+		for _, host := range []*Node{b, c} {
+			ready := false
+			owner := store.WithUser(ctx, remoteUser(host))
+			if err := host.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+				current, err := store.ReadPlugin(owner, db, pluginName)
+				ready = err == nil && current != nil && current.Summary.Digest == info.Summary.Digest
+				return err
+			}); err != nil || !ready {
+				return false
+			}
+		}
+		return true
+	})
+	kc.Definition.SharedWith = []string{pluginName}
+	kc = collection(execute(desktop, desktop.PrepareKnowledge(protocol.KnowledgeRef{Node: c.ID()}, protocol.Command{
+		Kind: "update_knowledge_collection", Data: &protocol.CommandUpdateKnowledgeCollectionPayload{
+			Node: &kc.Node, ID: kc.ID, ExpectedRevision: kc.Revision, Definition: kc.Definition,
+		},
+	})))
+	var scopeWorktree protocol.WorktreeID
+	wait("workspace scope reaches mobile execution view", func() bool {
+		for _, worktree := range via.Snapshot().Worktrees {
+			if worktree.Project != nil && *worktree.Project == viaProject.ID {
+				scopeWorktree = worktree.ID
+				return true
+			}
+		}
+		return false
+	})
+	pluginScope := protocol.DefaultPluginContext()
+	pluginScope.Package, pluginScope.Worktree = plugins.PackageReference(info), &scopeWorktree
+	scopedQuery := protocol.DefaultKnowledgeQuery()
+	scopedQuery.Query, scopedQuery.Mode, scopedQuery.Limit = "executorlocal", protocol.KnowledgeModeKeyword, 5
+	scopedQuery.Refs = []protocol.KnowledgeRef{{Node: c.ID(), ID: kc.ID}}
+	scopedRequest := protocol.NewRequest(c.ID(), protocol.Command{Kind: "query_knowledge", Data: &scopedQuery})
+	scopedRequest.Plugin = &pluginScope
+	var scopedHit protocol.KnowledgeHit
+	wait("mobile workspace query validates at B before routing to C", func() bool {
+		output, err := via.ExecuteScopedKnowledge(ctx, scopedRequest)
+		page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
+		if err != nil {
+			t.Fatalf("scoped cross-host query: %v", err)
+		}
+		if !valid || len(page.Hits) != 1 {
+			return false
+		}
+		scopedHit = page.Hits[0]
+		return scopedHit.Citation.Node == c.ID() && scopedHit.Citation.Collection == kc.ID
+	})
+	scopedRead := protocol.NewRequest(c.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &protocol.KnowledgeCitationRequest{
+		Node: c.ID(), Collection: kc.ID, Chunk: scopedHit.Citation.Chunk, Revision: scopedHit.Citation.Revision, Limit: 4096,
+	}})
+	scopedRead.Plugin = &pluginScope
+	output, err = via.ExecuteScopedKnowledge(ctx, scopedRead)
+	scopedCitation, valid := dispatchPayload[protocol.KnowledgeCitationPage](output.Data)
+	if err != nil || !valid || !strings.Contains(scopedCitation.Text, "executorlocal") {
+		t.Fatalf("scoped citation lost its storage Node: %+v: %v", output, err)
+	}
+	if _, err := mobile.ExecuteScopedKnowledge(ctx, scopedRead); err == nil {
+		t.Fatal("controller accepted the execution host's foreign workspace scope")
+	}
+	personalDefinition := protocol.DefaultKnowledgeDefinition()
+	personalDefinition.Name = "Scoped personal library"
+	personalDefinition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Scope: protocol.PluginStorageScopeNode}}
+	scopedCreate := protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
+		Node: &addressA.ID, Definition: personalDefinition,
+	}})
+	scopedCreate.Plugin = &pluginScope
+	output, err = via.ExecuteScopedKnowledge(ctx, scopedCreate)
+	if err != nil || collection(output).Node != a.ID() {
+		t.Fatalf("scoped create did not reach its canonical Node: %+v: %v", output, err)
+	}
+	if recovered, err := via.ScopedKnowledgeOutcome(ctx, scopedCreate); err != nil || recovered.Kind != "completed" {
+		t.Fatalf("scoped create recovery lost its original request: %+v: %v", recovered, err)
+	}
+	selectedLibrary := protocol.NewRequest(c.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
+		Node: &kc.Node, Plugin: &pluginName, Definition: definition("Plugin library", "scopedplugin"),
+	}})
+	pluginLibrary := collection(execute(desktop, selectedLibrary))
+	scopedPause := protocol.NewRequest(c.ID(), protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{
+		Node: &pluginLibrary.Node, ID: pluginLibrary.ID, ExpectedRevision: pluginLibrary.Revision, Paused: true,
+	}})
+	scopedPause.Plugin = &pluginScope
+	output, err = via.ExecuteScopedKnowledge(ctx, scopedPause)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused := collection(output)
+	recoveredPause, err := mobile.KnowledgeOutcome(ctx, scopedPause)
+	recoveredResult, valid := dispatchPayload[protocol.Result[protocol.Output, protocol.Fault]](recoveredPause.Data)
+	if err != nil || recoveredPause.Kind != "completed" || !valid || recoveredResult.Ok == nil ||
+		collection(*recoveredResult.Ok).ID != paused.ID || collection(*recoveredResult.Ok).Revision != paused.Revision {
+		t.Fatalf("ordinary outcome recovery treated foreign plugin scope as local: %+v: %v", recoveredPause, err)
 	}
 	phoneKB.Definition.Visibility = protocol.KnowledgeVisibilityShared
 	phoneKB = collection(execute(direct, direct.PrepareKnowledge(protocol.KnowledgeRef{Node: b.ID()}, protocol.Command{

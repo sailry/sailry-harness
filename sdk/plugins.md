@@ -1055,7 +1055,11 @@ and `prepareKnowledgeRemoval`. Complete and recover each through its original
 request ID. A legacy string collection ID selects the current Node; use an
 explicit reference for another host. Removal deletes the collection and derived
 index, preserving the original source data. Scoped calls validate the captured
-package at its execution Node before using the controller's route.
+package at its execution Node before using the controller's route. Workspace UI
+calls retain that validation Node separately from a reference's storage Node;
+personal storage collections still default to the controller. Recovery keeps the
+original request and checks the current collection visibility without treating
+another Node's workspace identifiers as local resources.
 
 ## Resource components
 

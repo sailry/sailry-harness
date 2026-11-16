@@ -9,10 +9,17 @@ import (
 )
 
 type userKey struct{}
+type externalPluginKey struct{}
 
 // WithUser retains only the authenticated actor for ledger outcome recovery.
 func WithUser(ctx context.Context, user protocol.UserID) context.Context {
 	return context.WithValue(ctx, userKey{}, user)
+}
+
+// WithExternalPlugin records that a trusted execution Node already validated
+// the plugin origin. Its provenance IDs are not resources in this Node.
+func WithExternalPlugin(ctx context.Context) context.Context {
+	return context.WithValue(ctx, externalPluginKey{}, true)
 }
 
 type Resource struct {
@@ -22,10 +29,11 @@ type Resource struct {
 
 // Scope contains no authored text, settings, configuration or credentials.
 type Scope struct {
-	Kind      string           `json:"kind"`
-	User      *protocol.UserID `json:"user,omitempty"`
-	Remote    bool             `json:"remote,omitempty"`
-	Resources []Resource       `json:"resources,omitempty"`
+	Kind           string           `json:"kind"`
+	User           *protocol.UserID `json:"user,omitempty"`
+	Remote         bool             `json:"remote,omitempty"`
+	ExternalPlugin bool             `json:"external_plugin,omitempty"`
+	Resources      []Resource       `json:"resources,omitempty"`
 }
 
 func scopeBody(ctx context.Context, request protocol.Request) []byte {
@@ -33,6 +41,8 @@ func scopeBody(ctx context.Context, request protocol.Request) []byte {
 	if user, ok := ctx.Value(userKey{}).(protocol.UserID); ok {
 		value.User = &user
 	}
+	external, _ := ctx.Value(externalPluginKey{}).(bool)
+	value.ExternalPlugin = external && protocol.KnowledgeCommand(request.Command.Kind)
 	if request.Command.Kind == "call_host_handler" {
 		// The handler's origin may be another execution Node. Its typed
 		// resource IDs are provenance, not resources in this ledger.
@@ -46,7 +56,9 @@ func scopeBody(ctx context.Context, request protocol.Request) []byte {
 	if !value.Remote {
 		scopeResources(reflect.ValueOf(request.Command.Data), &value.Resources)
 	}
-	scopeResources(reflect.ValueOf(request.Plugin), &value.Resources)
+	if !value.ExternalPlugin {
+		scopeResources(reflect.ValueOf(request.Plugin), &value.Resources)
+	}
 	body, _ := json.Marshal(value)
 	return body
 }

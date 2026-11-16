@@ -659,8 +659,13 @@ receiving database. Requests bind the actual target and original ID before
 dispatch. Recovery additionally binds the exact original command and digest.
 The channel cannot carry arbitrary reverse commands. Scoped knowledge requests
 validate at their captured execution Node before using the controller's resource
-route. Historical sponsorship and identity-merge records remain readable but
-are not replayed or used to grant new access.
+route. A workspace UI uses the same validation path even when the selected
+collection lives elsewhere: its transport route identifies the execution Node,
+while its unchanged request identifies the storage Node. Stored receipts record
+foreign plugin provenance separately from local resources, and recovery checks
+the recorded user and the collection's current visibility. Historical sponsorship
+and identity-merge records remain readable but are not replayed or used to grant
+new access.
 
 Removing an outbound host first attempts remote self-revocation, then removes
 local trust even when the host is unavailable. The controller peer store or

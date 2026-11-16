@@ -31,7 +31,7 @@ func (owner *Host) prepareHostCommand(command protocol.Command) protocol.Request
 		return owner.binding.Client.Prepare(command)
 	}
 	entry := owner.knowledgeClient()
-	target := protocol.KnowledgeRequestTarget(command, owner.binding.Client.Target(), entry.Target())
+	target := protocol.KnowledgeRequestTarget(command, owner.binding.Client.Target(), owner.resourceClient().Target())
 	return entry.PrepareKnowledge(protocol.KnowledgeRef{Node: target}, command)
 }
 
@@ -40,6 +40,9 @@ func (owner *Host) executeHostCommand(ctx context.Context, request protocol.Requ
 		return owner.resourceClient().ExecuteHostCall(ctx, request)
 	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
+		if request.Plugin != nil && (request.Plugin.Worktree != nil || request.Plugin.Session != nil) && request.Target != owner.binding.Client.Target() {
+			return owner.binding.Client.ExecuteScopedKnowledge(ctx, request)
+		}
 		return owner.knowledgeClient().ExecuteKnowledge(ctx, request)
 	}
 	return owner.binding.Client.Execute(ctx, request)
@@ -50,6 +53,9 @@ func (owner *Host) hostCommandOutcome(ctx context.Context, request protocol.Requ
 		return owner.resourceClient().HostCallOutcome(ctx, request)
 	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
+		if request.Plugin != nil && (request.Plugin.Worktree != nil || request.Plugin.Session != nil) && request.Target != owner.binding.Client.Target() {
+			return owner.binding.Client.ScopedKnowledgeOutcome(ctx, request)
+		}
 		return owner.knowledgeClient().KnowledgeOutcome(ctx, request)
 	}
 	return owner.binding.Client.Outcome(ctx, request)
