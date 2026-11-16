@@ -465,6 +465,29 @@ func TestDraftChecks(t *testing.T) {
 
 // The provider editor's steps and checks.
 func TestProviderEditor(t *testing.T) {
+	t.Run("account variants share one brand entry", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Brands = []preview.Brand{{ID: "workbuddy", Name: "WorkBuddy", Methods: []preview.Method{
+			{ID: "china", Name: "WorkBuddy China", Login: "provider_access_login", Access: "provider_access_login"},
+			{ID: "global", Name: "WorkBuddy International", Login: "provider_access_login", Access: "provider_access_login"},
+			{ID: "codebuddy", Name: "CodeBuddy International", Login: "provider_access_login", Access: "provider_access_login"},
+		}}}
+		m.provider.add(m)
+		tester := ui.NewTesterWith(func(c *ui.Context) { providerEditorDialog(c, m) }, 900, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tester.SetLocale("en")
+		tester.Frame()
+		tester.Advance(time.Second)
+		if !tester.HasText("WorkBuddy") || tester.HasText("WorkBuddy China") || tester.HasText("CodeBuddy International") {
+			t.Fatal("account variants were displayed as separate first-level entries")
+		}
+		if err := tester.Click("WorkBuddy"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+		if m.provider.step != stepMethod || !tester.HasText("WorkBuddy China") || !tester.HasText("WorkBuddy International") || !tester.HasText("CodeBuddy International") {
+			t.Fatal("grouped account entry did not show its method choices")
+		}
+	})
 	m := NewModel(preview.SettingsData())
 	e := &m.provider
 	e.add(m)
