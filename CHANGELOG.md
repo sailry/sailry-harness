@@ -3,6 +3,42 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## 0.2.0-alpha.2 — Unreleased
+
+### Changes
+
+- Use the initiating controller's unified directory for local and directly
+  connected hosts. Keep entry and target identities separate through Desktop,
+  Mobile, resource operations, subscriptions and request recovery.
+- Keep projects and knowledge on their selected storage Node, with private or
+  shared visibility independent of location. Aggregate knowledge retrieval and
+  preserve source identity, citations and partial failures across hosts.
+- Keep personal configuration authoritative on the controller and cache exact
+  source IDs, revisions, settings and package digests separately for each user
+  on execution hosts.
+- Share execution credentials from the controller without copying renewal
+  secrets. Refresh after one quarter of the actual token lifetime and resume an
+  expired model step in its original turn after the same account is renewed.
+- Commit personal plugin KV and local dispatch or session effects atomically,
+  then reconcile only the personal writes through a durable outbox and source
+  revision checks. Preserve conflicts and never replay scheduling or other effects.
+- Add execution-host selection to independent reminders and scheduled tasks.
+  Keep edits, controls, queue jobs and history on the resource's original host.
+- Bind database files, SSH key files and SSH agents to their actual Node so
+  cached configuration cannot resolve a path or credential on another machine.
+- Group the official WorkBuddy package's regional channel choices under one
+  brand while preserving their route and account identities.
+- Classify paired mobile shells and controller Nodes from authenticated peer
+  metadata, preserving stored history and direct trust while retiring identity
+  merge, sponsorship and imported-directory access paths.
+
+### Compatibility
+
+Desktop, Host and Mobile use Link protocol 2 and must be upgraded together.
+The plugin manifest and extension remain version 1; packages using the new
+multi-host methods require Sailry `0.2.0-alpha.2`. Existing Node storage and history
+stay in place.
+
 ## [0.2.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.1) — 2026-11-16
 
 This prerelease is the first distribution of the Go rewrite. It includes Desktop

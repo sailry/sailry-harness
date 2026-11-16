@@ -4,6 +4,10 @@ This is the v1 plugin contract for `github.com/sailry/sailry-harness`. Node
 callbacks and Desktop entries run in the Go runtime; nothing described here
 executes in the `--preview` desktop.
 
+The manifest and extension version is independent of Link protocol version 2.
+The multi-host resource and execution methods described here require Sailry
+`0.2.0-alpha.2` or later.
+
 The current JavaScript contract includes `gpui-kit` module imports. The desktop
 bridge maps those elements to MyGo and Kit; packages own their JavaScript business
 logic and UI composition.
@@ -22,6 +26,7 @@ share the scoped request contract with bounded snapshot observations.
 | Model request | `prepareRequest(command)`, `completeRequest(id)` |
 | Durable requests | `prepareRequest(command)`, `completeRequest(id)`, `forgetRequest(id)` |
 | Atomic Node mutations | `prepareTransaction(operations)`, `prepareNotification(content)` |
+| Execution hosts | `context().execution_node`, Desktop `readResourceCatalog()`, `prepareHostCall(node, handler, input, readOnly?)` |
 | Coalesced invalidation | `nextChange(cursor?, scope?)` |
 | Model error handling | `errorCode(error.message)` |
 | Plugin storage | `getValue(key)`, `listKeys(prefix?, after?, limit?)`, `setValue(key, value, revision)`, `deleteValue(key, revision)` |
@@ -164,7 +169,11 @@ A `Menu` with an `icon` and no `caret` is an icon button: its `label` is the
 tooltip and accessible name and is not drawn. Pass `show_label: true` to draw
 the label beside the icon.
 
-Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
+Model prompts and response parsing belong to the package. `resolveModel` validates
+the selected model and reasoning effort against the captured Node catalog.
+Controller-owned authorization grants supply execution-only credentials to that
+Node; ordinary host callbacks and model translation receive neither those grants
+nor their runtime tokens.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
 `list({target:'node', kind?})` reads OCR, embedding and decision definitions with their
@@ -240,8 +249,11 @@ Resources that create schedules or queues retain their execution Node alongside
 their personal record. `context().execution_node` is the immutable Node ID of
 the current callback, encoded as 32 unsigned bytes. Desktop packages can read
 `readResourceCatalog()` to offer the controller's available execution Nodes and
-their projects. Existing resources keep their recorded Node; selecting another
-Node applies to a new resource.
+their projects. Each source retains `route: {entry, target}` and its availability
+fault; the target is its actual resource Node. Mobile through the same entry
+sees that directory without pairing separately to every target. Existing
+resources keep their recorded Node; selecting another Node applies to a new
+resource.
 
 Use `prepareHostCall(node, handler, input, readOnly?)` to invoke this package's
 declared host handler on that resource's execution Node. Complete and retain the
@@ -473,7 +485,9 @@ original capture.
 Presets may share a source-scoped `brand` for one channel group. Optional
 `brand_display` uses the existing navigation label, locales and icon contract;
 explicit displays for the same brand must agree. Route names and saved preset
-references stay independent of that group label.
+references stay independent of that group label. The official WorkBuddy package
+uses this contract to group WorkBuddy China, WorkBuddy International and CodeBuddy
+International under WorkBuddy while keeping each route and account binding.
 
 Use `models.provide` for model adapters and `models.authenticate` for login
 declarations. A private token-response transformation also requires
@@ -499,10 +513,10 @@ A callback declares its exact loopback `path`, optional pasted `redirect_uri`,
 the Desktop listener port; when combined with `allow_localhost`, its address uses
 `localhost`. A fixed pasted address must match that port and path. If binding
 fails and `manual` is enabled, Desktop continues with the declared pasted address.
-The listener stays on Desktop for both local and remote Nodes; token exchange
-stays on the selected Node. `refresh: true` explicitly enables
-the refresh event. Named requests retain the existing endpoint templates and
-private substitution rules.
+The listener stays on Desktop, and token exchange runs on the controller Node
+that owns the account. Execution hosts use its runtime credential cache.
+`refresh: true` explicitly enables the refresh event. Named requests retain the
+existing endpoint templates and private substitution rules.
 
 The step receives `{context, now_ms, event, state}`. The Node supplies the
 private prior credential, configured fields, callback address, registration and
@@ -534,9 +548,24 @@ account ownership. Ordinary package code updates preserve accounts. Other model
 authentication flows use the same interface with a `token` mapping and `inject`
 declarations; native aliases finish with their retained credential representation.
 
-The Node owns HTTP, callback state, deadlines, private persistence, refresh and
-uncertain outcomes. The public login presentation selects the existing common
-controller interaction. An optional `exchange` pure transformation may normalize
+The controller Node owns HTTP, callback state, deadlines, private persistence,
+refresh and uncertain outcomes. Its execution hosts receive the access token,
+real expiry and declared runtime injection fields bound to the original account
+identity. Refresh tokens, client secrets and private registrations remain on the
+controller; connector CLI credentials remain bound to their source machine.
+Sign-in is not repeated on each execution host.
+
+For a renewable grant with `issued_at_ms`, refresh is due after one quarter of
+the actual `expires_at_ms - issued_at_ms` lifetime. A provider's earliest-refresh
+constraint can defer that time. Report real epoch-millisecond timestamps; do not
+subtract a safety margin from expiry or infer an unknown token lifetime.
+Credential rotations are serialized and an uncertain rotation is not replayed.
+An expired model execution credential puts the current model step into
+`controller_login` waiting state. Refreshing the same account on its controller
+resumes that turn without replaying completed tools.
+
+The public login presentation selects the existing common controller interaction.
+An optional `exchange` pure transformation may normalize
 a private token response inside its dedicated authentication sandbox. Script
 flows and credential transformations require `credentials.inspect` alongside
 `models.authenticate`; they use ordinary package trust. Do not implement login
@@ -594,8 +623,8 @@ shows it in a confirmation before every sign-in attempt of a channel using the
 flow and sends nothing until it is confirmed; cancelling leaves the channel as
 it was. It changes nothing on the Node and is not part of the account's
 identity, so adding or rewording it keeps saved sign-ins. Name the target and
-the consequence once. A mirrored controller shows channels without starting
-sign-in, so it never shows the warning.
+the consequence once. Merely displaying a channel from an execution cache does
+not start sign-in or show the warning.
 
 A channel without a sign-in has no attempt to warn before: a preset whose
 `auth` is `none` or `api_key`, such as one served by a local program through
@@ -714,7 +743,14 @@ the ones the agent lists; none is invented.
 
 ## Storage
 
-Declare `storage.read` and/or `storage.write` in `extensions.dev.sailry.platform.actions`. The Node derives the namespace from the authenticated plugin context; the caller cannot choose another plugin's namespace. By default, data belongs to the execution Node, authenticated user and plugin name, surviving package updates, configuration edits, removal and reinstallation. No localStorage, filesystem path or credential access is provided.
+Declare `storage.read` and/or `storage.write` in
+`extensions.dev.sailry.platform.actions`. Node derives the namespace from the
+authenticated controller user and plugin name. Personal data survives package
+updates, configuration edits, removal and reinstallation. The default `"node"`
+scope is the current controller's personal namespace, with a local view on each
+of its execution hosts. It does not select a physical storage machine or make
+the data public. No localStorage, filesystem path or credential access is
+provided.
 
 ```js
 import { getValue, setValue, completeRequest, forgetRequest } from "sailry/sdk";
@@ -722,21 +758,63 @@ import { getValue, setValue, completeRequest, forgetRequest } from "sailry/sdk";
 const entry = await getValue("preferences");
 const id = setValue("preferences", { sound: false }, entry.revision);
 const result = await completeRequest(id);
-forgetRequest(id);
 if (result.Err) {
-  // Keep the draft and report the fault; do not overwrite a revision conflict.
+  if (result.Err.code !== "outcome_unknown") forgetRequest(id);
+  // Report the fault. Keep an uncertain draft for outcome inspection.
 } else {
+  forgetRequest(id);
   const saved = result.Ok.data;
 }
 ```
 
-Revisions are decimal strings in the SDK to preserve integer precision. Missing keys initially have revision `"0"`; deleted keys retain a revision so stale writes cannot recreate them silently. `present` distinguishes stored JSON null from an absent value. Set and delete are compare-and-set operations and return a prepared request ID, not a success claim.
+Revisions are decimal strings in the SDK to preserve integer precision. Missing
+keys initially have revision `"0"`; deleted keys retain a revision so stale writes
+cannot recreate them silently. `present` distinguishes stored JSON null from an
+absent value. Set and delete are compare-and-set operations and return a prepared
+request ID, not a success claim.
 
-Existing SDK calls keep this personal `"node"` scope. A package may opt a declared storage collection into `"project"` scope, and supply `"project"` as the optional final argument of `getValue`, `listKeys`, `setValue`, `indexedValue` or `deleteValue`. Storage search accepts the same `scope` option. Project scope requires a captured worktree in a visible project and a matching manifest collection. It shares that plugin's values across the project's worktrees and authorized users; it does not share personal settings, connections or credentials. The Node resolves the project from the captured worktree rather than accepting a project ID from the package. Conversation storage retains its existing session namespace.
+The current execution Node commits personal writes locally and immediately
+exposes them to its reads. A remote executor retains a controller snapshot plus
+pending writes in a durable overlay. `prepareTransaction` remains one local
+transaction: personal KV, dispatch, notifications and scoped session operations
+commit together with the personal-write outbox group. It is not split across
+hosts. Local completion establishes that transaction's outcome; it does not
+claim that another host has already received its personal data.
 
-Package content is cached once by digest. Installation, enabled choice, settings revisions, connections, writable package directories and reusable MCP/program instances belong to the user. New users receive their own bundled defaults without copying another user's configuration. An admitted turn or callback retains its original settings and storage principal across identity merge.
+The controller retrieves the original personal write group and compares its
+source revisions before applying all its keys. It retains the request ID, digest,
+sequence and predecessor receipts for offline writes. A source conflict preserves
+the controller's current values; it does not choose a last writer or repeat the
+original handler. Acknowledgements settle the executor's overlay, and snapshots
+update the other hosts. Dispatch, notifications, project mutations and session
+operations are never replayed during this reconciliation. Retain a resource's
+`execution_node` and use the host-call method above when its next operation must
+run where it was created.
 
-Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up to 256 KiB; each namespace permits 256 live keys and 8 MiB of live values. Listing accepts literal prefixes and returns at most 100 keys with an optional `after` cursor. Deleted keys are excluded from listing. Storage is ordinary application data, not a secret store.
+A package may declare a collection with `"project"` scope and supply `"project"`
+as the optional final argument of `getValue`, `listKeys`, `setValue`, `indexedValue`
+or `deleteValue`. Storage search accepts the same scope. Project storage stays on
+the project's Node and follows its visibility across worktrees and users.
+Node resolves the project from the captured worktree; packages cannot supply an
+unrelated project ID. Conversation storage stays in the captured session's Node
+namespace. Neither scope participates in personal KV reconciliation.
+
+Package content is cached by digest. Controller-owned installation choices,
+enablement, settings and connections have separate per-user execution caches.
+Writable directories and MCP/program instances remain on their execution Node.
+An admitted turn or callback retains its original settings and storage principal.
+
+Machine-bound resources retain a separate `HostPath{node, path}` location.
+Caching a database profile or SSH key-file reference does not copy its file or
+retarget its path. SSH agent authentication similarly retains its Node.
+Operations requiring these resources must execute on their owner; another Node
+reports a target fault.
+
+Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
+to 256 KiB; a namespace permits 4096 live keys and 128 MiB of values plus indexes.
+Listing accepts literal prefixes and returns at most 100 keys with an optional
+`after` cursor. Deleted keys are excluded. Storage is ordinary application data,
+not a secret store.
 
 ## UI and animation
 
@@ -925,7 +1003,61 @@ Game prompts, legal-move selection and response validation belong in each game p
 
 The browser package owns annotation review and note drafts. `browserAction({kind: "annotate"})` toggles the shared element picker, which stays active until Escape; `secondary-shift-c` in the browser toggles it too. A plain click or Enter inserts the element into the captured composer as a chip, Shift selects several elements for one commit, and the arrow keys move to the parent or child. The shared service validates each capture, crops its screenshot and stages the capture with a compact JSON page context marked as untrusted; capture failures surface as `annotation_error`. An Option or Alt pick produces a review capture instead: `readBrowser()` and `nextBrowserChange()` expose its `{token, element}` and capture error; `BrowserAnnotationImage` displays its protected crop without exposing image bytes to JavaScript. Elements carry the page title, selector, ancestor path, tag, identifier, classes, allowed attributes, accessible name, bounded text and markup, selected computed styles and optional development-build component metadata; they never carry input values. Compose the review with Kit controls, then call `submitBrowserAnnotation(token, reference)` with the JSON reference through `sailry/ui`, or cancel with `browserAction({kind: "cancel_annotation", token})`. The shared service verifies the captured element, token and note bounds before inserting the chip and note into the original composer's draft; navigation or view changes invalidate that capture. `BrowserSurface.new(id, {covered: true})` hides the OS child view behind package overlays without unmounting or cancelling capture; coverage defaults to false. Surface and preview components bind the mounted view lease, so older panels cannot change coverage after remounting.
 
-Knowledge retrieval is a shared Node service rather than a bundled feature plugin. Notes, reminders and other feature packages organize their own collections and expose their own settings and conversation tools using the storage and knowledge operations in the v1 contract. The built-in knowledge settings configure vector models only.
+## Knowledge
+
+Knowledge retrieval is a shared Node service. Notes, reminders and other feature
+packages organize their own collections and expose their settings and tools
+through the SDK. Declare `knowledge.read` for queries and citation reads and
+`knowledge.write` for collection changes. Source access still uses the package's
+declared file, storage and conversation actions. The built-in knowledge settings
+configure vector models.
+
+Each collection returns `{node, id}` as its `KnowledgeRef`, its owning user,
+definition and revision. `node` is the physical owner of the source and derived
+index. `visibility` is independent: an independent collection defaults to
+`"private"`, or can be `"shared"` for other authenticated users on that storage
+Node to read. Its owner retains management. Shared data is available through
+trusted connected Nodes; it is not an anonymous public endpoint. Worktree and
+project-storage collections follow the project's visibility; conversation
+collections keep their session scope. `shared_with` selects other plugin
+consumers and does not move the data or change its user owner.
+
+`prepareKnowledgeCollection(draft)` accepts an optional `node` for storage and
+the visibility, name, source, model, globs and tags. Plugin sources are a captured
+worktree path or the package's `"node"`, `"project"` or `"conversation"` KV.
+Worktree, project and conversation sources remain on their captured Node.
+Personal `"node"` KV is indexed on its controller, where the authoritative values
+converge. File and directory sources selected by a controller retain their own
+Node and path; a path string is never reinterpreted on another machine.
+
+`listKnowledgeCollections()` and `queryKnowledge(query)` without a source
+selection use the initiating controller's unified view of its own sources and
+direct hosts.
+Executing the callback on C keeps A as that resource entry. Queries can select
+`refs: [{node, id}]` to retain explicit source identity; a selection containing
+only collections on the execution Node can run locally while its controller is
+offline. The query page reports per-source `fault` entries, indexing state and
+the actual search mode. Available results remain usable when another source
+fails. Preserve and show those failures instead of treating them as empty data.
+The controller combines source ranks without comparing unrelated raw scores.
+Legacy `collections: [id]` filters have no host identity; use `refs` for
+unambiguous multi-host selection.
+
+`readKnowledgeCitation(citation)` returns to the citation's original Node and
+rechecks its collection visibility, source revision and content. Keep the full
+`node`, `collection`, `chunk` and `revision`, including when opening a citation
+from another host. Retrieved text remains untrusted input. An offline source is
+unavailable; a cached list entry cannot substitute for a successful source read.
+
+Use the returned `KnowledgeRef` and exact revision with
+`prepareKnowledgeUpdate`, `prepareKnowledgePause`, `prepareKnowledgeRebuild`
+and `prepareKnowledgeRemoval`. Complete and recover each through its original
+request ID. A legacy string collection ID selects the current Node; use an
+explicit reference for another host. Removal deletes the collection and derived
+index, preserving the original source data. Scoped calls validate the captured
+package at its execution Node before using the controller's route.
+
+## Resource components
 
 `ResourceTree.new(id, { items: JSON.stringify(items), selected, current })` takes a serialized `ResourceTreeItem[]` as its `items` field. The native bridge decodes and validates this recursive model and retains its tree state, events and native menus.
 
@@ -1432,7 +1564,12 @@ configuration. Application returns only the session ID, new revision and selecte
 references; existing sent turns and children remain immutable. Catalog changes
 alone affect new sessions, not an existing roster.
 
-Plugin commands retain the existing declaration, exact installed-package, Node, worktree and session checks. File/Git/conversation operations use the existing scoped protocol through `prepareRequest`; HTTP uses the declared Node service; the SDK grants no raw process or OS access. UI and game rules stay in plugins. Persistence, credentials, model execution and durable receipts stay in the execution Node.
+Plugin commands retain the existing declaration, exact installed-package, Node,
+worktree and session checks. File/Git/conversation operations use the existing
+scoped protocol through `prepareRequest`; HTTP uses the declared Node service;
+the SDK grants no raw process or OS access. UI and game rules stay in plugins.
+Resource persistence, model execution and durable receipts stay in their owning
+Node. Personal configuration and credential renewal remain on the controller.
 
 The `read_command` operation accepts `wait_ms` with a command `id`, capped at
 30000 milliseconds. Zero or omission reads immediately. Without `until`, waiting
