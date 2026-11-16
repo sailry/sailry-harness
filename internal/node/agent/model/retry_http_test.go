@@ -66,6 +66,72 @@ func TestHTTP408RetriesOnlyThroughSailryPolicy(t *testing.T) {
 	}
 }
 
+func TestSDKPreheaderEOFRetriesTheSameRequest(t *testing.T) {
+	for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
+		t.Run(kind, func(t *testing.T) {
+			var requests atomic.Int32
+			bodies := make(chan string, MainRetries+1)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				bodies <- string(body)
+				if requests.Add(1) == 1 {
+					connection, _, err := writer.(http.Hijacker).Hijack()
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					defer connection.Close()
+					_, _ = io.WriteString(connection, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n")
+					return
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write(fixture(t, kind+"-text.sse"))
+			}))
+			t.Cleanup(server.Close)
+			name := "fixture"
+			if kind == "anthropic" {
+				name = "claude-opus-4-8"
+			}
+			language, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: name, Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			timer := &policyClock{beforeSleep: func() {
+				if count := requests.Load(); count != 1 {
+					t.Fatalf("SDK sent %d requests before Sailry's retry wait", count)
+				}
+			}}
+			var attempts []Attempt
+			output := ""
+			err = Run(t.Context(), language, requestCall(t, kind), Main, timer, func(attempt Attempt) error {
+				attempts = append(attempts, attempt)
+				return nil
+			}, func(part fantasy.StreamPart) bool {
+				if part.Type == fantasy.StreamPartTypeTextDelta {
+					output += part.Delta
+				}
+				return true
+			}, nil)
+			if err != nil || requests.Load() != 2 || len(attempts) != 2 || len(timer.delays) != 1 || output != "Read complete" {
+				t.Fatalf("preheader EOF recovery: requests=%d attempts=%d waits=%v output=%q error=%v", requests.Load(), len(attempts), timer.delays, output, err)
+			}
+			first, last := attempts[0], attempts[1]
+			if first.Failure == nil || first.Failure.Kind != Network || first.Failure.Message != "Model connection ended before response headers" || !first.Failure.Retryable() ||
+				first.Status != nil || first.ResponseUs != nil || first.RetryDelay == nil || *first.RetryDelay != timer.delays[0] ||
+				timer.delays[0] < 800*time.Millisecond || timer.delays[0] > 1200*time.Millisecond ||
+				last.Failure != nil || last.Status == nil || *last.Status != http.StatusOK || first.RequestID != last.RequestID || last.Index != 1 {
+				t.Fatalf("preheader EOF lost its transport boundary or retry identity: %+v", attempts)
+			}
+			if first, second := <-bodies, <-bodies; first != second {
+				t.Fatal("retry changed the captured request body")
+			}
+		})
+	}
+}
+
 func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 	prefixes := map[string]string{
 		"responses": "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"delta\":\"discard\"}\n\n",
@@ -116,7 +182,7 @@ func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 			if err != nil || requests.Load() != 2 || len(attempts) != 2 || resets != 1 || output != "Read complete" {
 				t.Fatalf("SDK stream recovery: requests=%d attempts=%d resets=%d output=%q error=%v", requests.Load(), len(attempts), resets, output, err)
 			}
-			if first := attempts[0]; first.Failure == nil || first.Failure.Kind != InvalidResponse || !first.Failure.Retryable() || first.Status == nil || *first.Status != 200 || first.RetryDelay == nil || attempts[1].Failure != nil {
+			if first := attempts[0]; first.Failure == nil || first.Failure.Kind != InvalidResponse || first.Failure.Message != "Model stream ended before a completion event" || !first.Failure.Retryable() || first.Status == nil || *first.Status != 200 || first.ResponseUs == nil || first.RetryDelay == nil || attempts[1].Failure != nil {
 				t.Fatalf("SDK EOF lost its status, cause or retry observation: %+v", attempts)
 			}
 			if first, second := <-bodies, <-bodies; first != second {
