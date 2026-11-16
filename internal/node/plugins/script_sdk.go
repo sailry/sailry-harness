@@ -407,7 +407,7 @@ func scriptToolWrite(command protocol.Command, value any) bool {
 func scriptCommandAllowed(kind string) bool {
 	switch kind {
 	case "read_computer_permissions", "request_computer_permission", "request_provider_http",
-		"list_connector_types", "list_connections", "start_connector_login", "cancel_connector_login",
+		"list_connector_types", "list_connections", "start_connector_login", "cancel_connector_login", "list_plugin_models",
 		"execute_provider_http", "plugin_transaction", "list_roles", "list_teams",
 		"list_associated_sessions", "read_artifact", "list_artifacts", "list_artifact_revisions",
 		"read_session", "read_conversation", "read_conversation_runs", "read_conversation_run",
