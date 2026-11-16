@@ -400,6 +400,12 @@ type ConversationRun struct {
 	Notice       bool                           `json:"notice"`
 	Notices      []ConversationBackgroundNotice `json:"notices"`
 	Input        *ConversationSentInput         `json:"input,omitempty"`
+	Waiting      *ConversationRunWaiting        `json:"waiting,omitempty"`
+}
+
+type ConversationRunWaiting struct {
+	Kind       string        `json:"kind"`
+	Credential CredentialRef `json:"credential"`
 }
 
 func DefaultConversationRun() ConversationRun {

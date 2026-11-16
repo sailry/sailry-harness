@@ -176,6 +176,7 @@ func CompleteProviderLogin(ctx context.Context, db *sql.Conn, node protocol.Node
 	if grant.Kind != saved.Provider.Authentication {
 		return nil, invalid("authorization authentication does not match the provider")
 	}
+	stampProviderGrant(&grant, uint64(time.Now().UnixMilli()))
 	body, err := json.Marshal(grant)
 	if err != nil {
 		return nil, err
@@ -271,6 +272,13 @@ func authorizationProvider(ctx context.Context, db *sql.Conn, provider protocol.
 }
 
 func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
+	controller, err := CurrentController(ctx, db, node)
+	if err != nil {
+		return nil, err
+	}
+	if controller != node {
+		return ReadRuntimeProviderCredential(ctx, db, node, provider, reference)
+	}
 	saved, err := authorizationProvider(ctx, db, provider)
 	if err != nil {
 		return nil, err
@@ -298,6 +306,13 @@ func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.
 }
 
 func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef, now time.Time) (*ProviderRenewal, error) {
+	controller, err := CurrentController(ctx, db, node)
+	if err != nil {
+		return nil, err
+	}
+	if controller != node {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "only the controller renews account credentials")
+	}
 	if reference.Node != node {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
 	}
@@ -328,8 +343,8 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 	} else if grant.Kind != protocol.AuthenticationCopilot && (value.Auth == nil || !value.Auth.Matches(capture.Target)) {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "model authentication changed; sign in again")
 	}
-	expiry := grant.Expiry()
-	if expiry == nil || *expiry > uint64(now.Add(time.Minute).UnixMilli()) {
+	due := grant.RenewalAt()
+	if due == nil || *due > uint64(now.UnixMilli()) {
 		return nil, nil
 	}
 	if grant.EarliestRefreshAt != nil && *grant.EarliestRefreshAt > uint64(now.UnixMilli()) {
@@ -376,6 +391,11 @@ func CompleteProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.No
 		return nil, fault(protocol.ErrorCodeRevisionConflict, "provider authorization changed during renewal")
 	}
 	grant.RenewalPending = false
+	if grant.Record == nil && (grant.Access != renewal.Grant.Access || grant.ExpiresAtMs != renewal.Grant.ExpiresAtMs) {
+		issued := uint64(time.Now().UnixMilli())
+		grant.IssuedAtMs = &issued
+	}
+	stampProviderGrant(&grant, uint64(time.Now().UnixMilli()))
 	body, err := json.Marshal(grant)
 	if err != nil {
 		return nil, err
@@ -393,4 +413,42 @@ func CompleteProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.No
 	events := []protocol.Event{{Kind: "credential_changed", Data: protocol.EventCredentialChangedPayload{Credential: protocol.CredentialRef{Node: node, ID: renewal.Credential}, Revision: current.Revision}}}
 	quotaChanges, err := ReconcileProviderQuotas(ctx, db, node)
 	return append(events, quotaChanges...), err
+}
+
+func stampProviderGrant(grant *providers.AccountGrant, issued uint64) {
+	if grant.Record != nil {
+		if grant.Record.Issued.IssuedAtMs == nil {
+			grant.Record.Issued.IssuedAtMs = &issued
+		}
+	} else if grant.IssuedAtMs == nil {
+		grant.IssuedAtMs = &issued
+	}
+}
+
+func MarkProviderRenewalUncertain(ctx context.Context, db *sql.Conn, provider protocol.ConversationProvider, id protocol.CredentialID) error {
+	saved, err := authorizationProvider(ctx, db, provider)
+	if err != nil {
+		return err
+	}
+	value, ok := saved.Authorizations[id]
+	if !ok || value.Key == nil {
+		return nil
+	}
+	var grant providers.AccountGrant
+	if err := json.Unmarshal([]byte(value.Key.Expose()), &grant); err != nil {
+		return err
+	}
+	grant.RenewalUncertain = true
+	body, err := json.Marshal(grant)
+	if err != nil {
+		return err
+	}
+	secret := protocol.NewSecret(string(body))
+	value.Key = &secret
+	value.Revision, err = nextRevision(value.Revision)
+	if err != nil {
+		return err
+	}
+	saved.Authorizations[id] = value
+	return saveProviderConfiguration(ctx, db, *saved)
 }

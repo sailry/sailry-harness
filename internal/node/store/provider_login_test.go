@@ -76,11 +76,19 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		if err := saveProviderConfiguration(ctx, db, *current); err != nil {
 			return err
 		}
-		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, time.Now())
+		storedGrant, err := providers.DecodeAccount(current.Authorizations[current.Provider.Credential.ID].Key, authentication)
+		if err != nil || storedGrant.RenewalAt() == nil {
+			return fmt.Errorf("login did not preserve its issue and refresh times: %v", err)
+		}
+		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
+		if renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt.Add(-time.Millisecond)); err != nil || renewal != nil {
+			return fmt.Errorf("account renewed before one quarter of its lifetime: %v", err)
+		}
+		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
 		if err != nil || renewal == nil {
 			return fmt.Errorf("renewal did not capture the expiring account: %v", err)
 		}
-		if _, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, time.Now()); err == nil {
+		if _, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt); err == nil {
 			return fmt.Errorf("pending rotating renewal was replayed")
 		}
 		grant.Access, grant.Refresh, grant.ExpiresAtMs = "rotated-access", "rotated-refresh", uint64(time.Now().Add(time.Hour).UnixMilli())

@@ -13,7 +13,7 @@ import (
 )
 
 func ParseIssued(document any, mapping protocol.PluginModelAuthMapping, now uint64, previous *Issued) (Issued, error) {
-	result := Issued{Extra: map[string]string{}}
+	result := Issued{Extra: map[string]string{}, IssuedAtMs: &now}
 	var err error
 	result.Access, err = text(document, mapping.Access)
 	if err != nil || !validToken(result.Access) {

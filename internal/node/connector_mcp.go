@@ -93,7 +93,8 @@ func connectorOAuthIssued(config *oauth2.Config, token *oauth2.Token) authorizat
 	extra := map[string]string{}
 	body, _ := json.Marshal(connectorOAuthRecord{Config: *config, Token: *token})
 	extra["mcp_oauth"] = string(body)
-	issued := authorization.Issued{Access: token.AccessToken, Extra: extra}
+	issuedAt := uint64(time.Now().UnixMilli())
+	issued := authorization.Issued{Access: token.AccessToken, Extra: extra, IssuedAtMs: &issuedAt}
 	if token.RefreshToken != "" {
 		refresh := token.RefreshToken
 		issued.Refresh = &refresh
@@ -372,12 +373,25 @@ type connectorOAuthSource struct {
 	mu     sync.Mutex
 	record store.ConnectorRecord
 	value  connectorOAuthRecord
+	remote bool
 }
 
 func (node *Node) connectorMCPSource(record store.ConnectorRecord, contexts ...context.Context) (*connectorOAuthSource, error) {
 	ctx := node.ctx
 	if len(contexts) != 0 {
 		ctx = contexts[0]
+	}
+	var remote bool
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		controller, err := store.CurrentController(ctx, db, node.ID())
+		remote = controller != node.ID()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		return &connectorOAuthSource{ctx: ctx, node: node, record: record, remote: true}, nil
 	}
 	owner, err := node.pluginOwnerContext(ctx)
 	if err != nil {
@@ -393,7 +407,19 @@ func (node *Node) connectorMCPSource(record store.ConnectorRecord, contexts ...c
 func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	if source.value.Token.Valid() {
+	if source.remote {
+		var value *protocol.Secret
+		err := source.node.profile.Store.Node.Read(source.ctx, func(db *sql.Conn) error {
+			var err error
+			value, err = store.ReadRuntimeConnectorCredential(source.ctx, db, source.node.ID(), source.record)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &oauth2.Token{AccessToken: value.Expose(), TokenType: "Bearer"}, nil
+	}
+	if due := store.ConnectorRenewalAt(source.record); source.value.Token.Valid() && (due == nil || *due > uint64(time.Now().UnixMilli())) {
 		return &source.value.Token, nil
 	}
 	previous := *source.record.Grant
@@ -438,6 +464,6 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	source.record, source.value.Token = record, *token
-	source.node.authChanged()
+	source.node.connectorCredentialCommitted(source.ctx, record)
 	return token, nil
 }

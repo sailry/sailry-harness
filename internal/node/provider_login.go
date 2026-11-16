@@ -337,14 +337,69 @@ func (node *Node) authorizeTurnProvider(ctx context.Context, invocation *store.A
 	if reference == nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
 	}
-	secret, err := node.providerAuthorization(ctx, *invocation.Provider, *reference)
+	secret, err := node.awaitProviderAuthorization(ctx, *invocation.Provider, *reference, func(waiting bool) error {
+		var state *protocol.ConversationRunWaiting
+		if waiting {
+			state = &protocol.ConversationRunWaiting{Kind: "controller_login", Credential: *reference}
+		}
+		return node.setCredentialWait(context.WithoutCancel(ctx), invocation.Run.Turn, state)
+	})
 	if err == nil {
 		invocation.Secret, invocation.AuthorizationFailure = secret, nil
 	}
 	return err
 }
 
+func (node *Node) awaitProviderAuthorization(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef, project func(bool) error) (*protocol.Secret, error) {
+	waiting := false
+	defer func() {
+		if waiting {
+			_ = project(false)
+		}
+	}()
+	for {
+		// Subscribe before checking the cache: a commit between the read and
+		// waiting must still wake this exact, already admitted model step.
+		node.auth.mu.Lock()
+		changed, closed := node.auth.changed, node.auth.closed
+		node.auth.mu.Unlock()
+		if closed {
+			return nil, context.Canceled
+		}
+		secret, err := node.providerAuthorization(ctx, provider, reference)
+		if err == nil {
+			return secret, nil
+		}
+		var failure *protocol.Fault
+		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeExpired {
+			return nil, err
+		}
+		if !waiting {
+			if err := project(true); err != nil {
+				return nil, err
+			}
+			waiting = true
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
 func (node *Node) providerAuthorization(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
+	var remote bool
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		controller, err := store.CurrentController(ctx, db, node.ID())
+		remote = controller != node.ID()
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	if remote {
+		return node.readProviderAuthorization(ctx, provider, reference)
+	}
 	if reference.Node != node.ID() {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "credential belongs to another Node"}
 	}
@@ -395,6 +450,22 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 		}
 	}
 	return node.readProviderAuthorization(ctx, provider, reference)
+}
+
+func (node *Node) setCredentialWait(ctx context.Context, turn protocol.TurnID, waiting *protocol.ConversationRunWaiting) error {
+	var changes []protocol.Event
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		changes, err = store.SetRunCredentialWait(ctx, db, turn, waiting)
+		if err == nil && len(changes) != 0 {
+			_, err = store.RecordEvents(ctx, db, node.ID(), changes)
+		}
+		return err
+	})
+	if err == nil && len(changes) != 0 {
+		node.publish()
+	}
+	return err
 }
 
 func (node *Node) readProviderAuthorization(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
@@ -479,6 +550,11 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 			// The grant was never marked: a later use repeats the exchange.
 			return err
 		default:
+			_ = node.profile.Store.Node.Write(context.WithoutCancel(ctx), func(db *sql.Conn) error {
+				return store.MarkProviderRenewalUncertain(context.WithoutCancel(ctx), db, renewal.Capture.Provider, renewal.Credential)
+			})
+			node.authChanged()
+			node.NotifyConfigurationFollow([]protocol.Event{{Kind: "credential_changed"}})
 			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
 		}
 	}
@@ -494,6 +570,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	})
 	if err == nil {
 		node.pluginCommitted(changes, ctx)
+		node.authChanged()
 		err = failure
 	}
 	return err

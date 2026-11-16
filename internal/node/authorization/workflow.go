@@ -37,6 +37,7 @@ type Input struct {
 type Issued struct {
 	AccountLabel *string           `json:"account_label,omitempty"`
 	Access       string            `json:"access"`
+	IssuedAtMs   *uint64           `json:"issued_at_ms,omitempty"`
 	Refresh      *string           `json:"refresh"`
 	ExpiresAtMs  *uint64           `json:"expires_at_ms"`
 	Extra        map[string]string `json:"extra"`

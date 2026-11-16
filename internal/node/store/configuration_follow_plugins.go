@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -24,12 +25,29 @@ type pluginFollowSecrets struct {
 	Slots map[string]protocol.Secret `json:"slots"`
 }
 type pluginFollowConnection struct {
-	Package   protocol.PluginReference     `json:"package"`
-	ID        protocol.PluginConnectorID   `json:"id"`
-	Connector string                       `json:"connector"`
-	Method    protocol.PluginConnectorKind `json:"method"`
-	Enabled   bool                         `json:"enabled"`
-	Fields    map[string]string            `json:"fields"`
+	Package       protocol.PluginReference          `json:"package"`
+	ID            protocol.PluginConnectorID        `json:"id"`
+	Connector     string                            `json:"connector"`
+	Method        protocol.PluginConnectorKind      `json:"method"`
+	Enabled       bool                              `json:"enabled"`
+	Fields        map[string]string                 `json:"fields"`
+	Revision      uint64                            `json:"revision"`
+	AuthRevision  uint64                            `json:"auth_revision"`
+	GrantRevision uint64                            `json:"grant_revision"`
+	Identity      *protocol.PluginConnectorIdentity `json:"identity,omitempty"`
+	Bound         *ConnectorBound                   `json:"bound,omitempty"`
+	State         protocol.PluginConnectorState     `json:"state"`
+	CheckedAtMs   *uint64                           `json:"checked_at_ms,omitempty"`
+	Login         *protocol.RequestID               `json:"login,omitempty"`
+}
+
+func (value pluginFollowConnection) runtimeRecord() ConnectorRecord {
+	return ConnectorRecord{
+		ID: value.ID, Plugin: value.Package.Name, Connector: value.Connector, Revision: value.Revision,
+		AuthRevision: value.AuthRevision, GrantRevision: value.GrantRevision, Method: value.Method,
+		Enabled: value.Enabled, Fields: value.Fields, Identity: value.Identity, Bound: value.Bound,
+		State: value.State, CheckedAtMs: value.CheckedAtMs, Login: value.Login,
+	}
 }
 
 // CacheConfigurationPackage records metadata only after Node has materialized
@@ -152,12 +170,19 @@ func exportPluginFollowRecords(ctx context.Context, db *sql.Conn, category strin
 				return nil, err
 			}
 			for _, record := range values {
-				value := pluginFollowConnection{Package: plugins.PackageReference(info), ID: record.ID, Connector: record.Connector, Method: record.Method, Enabled: record.Enabled, Fields: record.Fields}
-				var secret any
-				if includeSecrets && record.Method == protocol.PluginConnectorKindSecret && len(record.Secrets) > 0 {
-					secret = record.Secrets
+				value := pluginFollowConnection{
+					Package: plugins.PackageReference(info), ID: record.ID, Connector: record.Connector, Method: record.Method,
+					Enabled: record.Enabled, Fields: record.Fields, Revision: record.Revision, AuthRevision: record.AuthRevision,
+					GrantRevision: record.GrantRevision, Identity: record.Identity, Bound: record.Bound, State: record.State,
+					CheckedAtMs: record.CheckedAtMs, Login: record.Login,
 				}
-				if err := add(record.ID.String(), record.Revision, value, secret); err != nil {
+				value.Fields = maps.Clone(value.Fields)
+				for name := range value.Fields {
+					if !providers.RuntimeField(name) {
+						delete(value.Fields, name)
+					}
+				}
+				if err := add(record.ID.String(), record.Revision, value, nil); err != nil {
 					return nil, err
 				}
 			}

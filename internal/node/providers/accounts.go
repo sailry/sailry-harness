@@ -41,25 +41,28 @@ type AccountRecord struct {
 }
 
 type AccountGrant struct {
-	Kind              protocol.Authentication `json:"kind"`
-	Access            string                  `json:"access,omitempty"`
-	Refresh           string                  `json:"refresh,omitempty"`
-	ExpiresAtMs       uint64                  `json:"expires_at_ms,omitempty"`
-	EarliestRefreshAt *uint64                 `json:"earliest_refresh_at,omitempty"`
-	AccountID         *string                 `json:"account_id,omitempty"`
-	ClientID          string                  `json:"client_id,omitempty"`
-	Subject           string                  `json:"subject,omitempty"`
-	Email             *string                 `json:"email,omitempty"`
-	IDToken           string                  `json:"id_token,omitempty"`
-	Scopes            []string                `json:"scopes,omitempty"`
-	OrgID             *string                 `json:"org_id,omitempty"`
-	OrgName           *string                 `json:"org_name,omitempty"`
-	InstallationID    *string                 `json:"installation_id,omitempty"`
-	Github            string                  `json:"github,omitempty"`
-	Endpoint          string                  `json:"endpoint,omitempty"`
-	Record            *AccountRecord          `json:"record,omitempty"`
-	RenewalPending    bool                    `json:"renewal_pending"`
-	RenewalRejected   bool                    `json:"renewal_rejected,omitempty"`
+	Kind              protocol.Authentication     `json:"kind"`
+	Access            string                      `json:"access,omitempty"`
+	IssuedAtMs        *uint64                     `json:"issued_at_ms,omitempty"`
+	Refresh           string                      `json:"refresh,omitempty"`
+	ExpiresAtMs       uint64                      `json:"expires_at_ms,omitempty"`
+	EarliestRefreshAt *uint64                     `json:"earliest_refresh_at,omitempty"`
+	AccountID         *string                     `json:"account_id,omitempty"`
+	ClientID          string                      `json:"client_id,omitempty"`
+	Subject           string                      `json:"subject,omitempty"`
+	Email             *string                     `json:"email,omitempty"`
+	IDToken           string                      `json:"id_token,omitempty"`
+	Scopes            []string                    `json:"scopes,omitempty"`
+	OrgID             *string                     `json:"org_id,omitempty"`
+	OrgName           *string                     `json:"org_name,omitempty"`
+	InstallationID    *string                     `json:"installation_id,omitempty"`
+	Github            string                      `json:"github,omitempty"`
+	Endpoint          string                      `json:"endpoint,omitempty"`
+	Record            *AccountRecord              `json:"record,omitempty"`
+	RenewalPending    bool                        `json:"renewal_pending"`
+	RenewalUncertain  bool                        `json:"renewal_uncertain,omitempty"`
+	RenewalRejected   bool                        `json:"renewal_rejected,omitempty"`
+	Runtime           *protocol.RuntimeCredential `json:"runtime,omitempty"`
 }
 
 func (target AccountTarget) Matches(current AccountTarget) bool {
@@ -169,7 +172,7 @@ func DecodeAccount(secret *protocol.Secret, authentication protocol.Authenticati
 	if secret == nil || json.Unmarshal([]byte(secret.Expose()), &grant) != nil || grant.Kind != authentication {
 		return grant, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
 	}
-	if grant.RenewalPending {
+	if grant.RenewalPending || grant.RenewalUncertain {
 		return grant, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "authorization refresh did not complete; sign in again"}
 	}
 	if grant.RenewalRejected {
@@ -229,6 +232,11 @@ func (grant AccountGrant) Secrets() []protocol.Secret {
 			add(value)
 		}
 	}
+	if grant.Runtime != nil {
+		for _, value := range grant.Runtime.Headers {
+			add(value.Expose())
+		}
+	}
 	return result
 }
 
@@ -259,6 +267,12 @@ func AccountHeaders(provider protocol.ConversationProvider, secret *protocol.Sec
 	}
 	if expiry := grant.Expiry(); expiry != nil && *expiry <= uint64(time.Now().UnixMilli()) {
 		return grant, nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization expired; sign in again"}
+	}
+	if grant.Runtime != nil {
+		headers, err := runtimeHeaders(provider, grant)
+		if err != nil || grant.Kind == protocol.AuthenticationPlugin {
+			return grant, headers, err
+		}
 	}
 	fields, err := OAuthFields(provider)
 	if err != nil {
@@ -340,6 +354,14 @@ func AccountResourceHeaders(provider protocol.ConversationProvider, secret *prot
 	grant, err := DecodeAccount(secret, provider.Authentication)
 	if err != nil {
 		return grant, nil, err
+	}
+	if grant.Runtime != nil {
+		if _, err := runtimeHeaders(provider, grant); err != nil {
+			return grant, nil, err
+		}
+	}
+	if expiry := grant.Expiry(); expiry != nil && *expiry <= uint64(time.Now().UnixMilli()) {
+		return grant, nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "provider authorization expired"}
 	}
 	if !AccountResourceEndpoint(provider.Authentication, target) || grant.Access == "" || !httpguts.ValidHeaderFieldValue(grant.Access) {
 		return grant, nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider resource origin is not authorized"}

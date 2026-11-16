@@ -27,6 +27,24 @@ type connectorCachedCLI struct {
 }
 
 func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRecord, declaration protocol.PluginConnectorDeclaration) (*protocol.Secret, error) {
+	var remote bool
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		controller, err := store.CurrentController(ctx, db, node.ID())
+		remote = controller != node.ID()
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		var token *protocol.Secret
+		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			token, err = store.ReadRuntimeConnectorCredential(ctx, db, node.ID(), record)
+			return err
+		})
+		return token, err
+	}
 	if record.Method == protocol.PluginConnectorKindSecret {
 		return nil, nil
 	}
@@ -39,7 +57,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		return nil, ctx.Err()
 	}
 	var current store.ConnectorRecord
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		current, err = store.ReadConnectorRecord(ctx, db, record.ID)
 		return err
@@ -79,7 +97,14 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if record.Grant.Extra["renewal_pending"] == "true" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"}
 	}
-	if record.Grant.ExpiresAtMs == nil || *record.Grant.ExpiresAtMs > uint64(time.Now().UnixMilli()) {
+	if record.Grant.Extra["renewal_rejected"] == "true" {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
+	}
+	due := store.ConnectorRenewalAt(record)
+	if due == nil && record.Grant.ExpiresAtMs != nil && *record.Grant.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization cannot be refreshed"}
+	}
+	if due == nil || *due > uint64(time.Now().UnixMilli()) {
 		token := protocol.NewSecret(record.Grant.Access)
 		return &token, nil
 	}
@@ -120,6 +145,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if err != nil {
 		return nil, err
 	}
+	defer func() { node.connectorCredentialCommitted(owner, record) }()
 	lifetime, err := node.pluginOwnerContext(ctx)
 	if err != nil {
 		return nil, err
@@ -184,7 +210,25 @@ func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous 
 	var fault *protocol.Fault
 	refused := sent && errors.As(cause, &fault) && fault.Code == protocol.ErrorCodePermissionDenied
 	if sent && !refused {
+		if record.Grant != nil {
+			uncertain := *record.Grant
+			uncertain.Extra = maps.Clone(uncertain.Extra)
+			uncertain.Extra["renewal_uncertain"] = "true"
+			_ = node.profile.Store.Node.Write(context.WithoutCancel(ctx), func(db *sql.Conn) error {
+				var err error
+				record, err = store.SaveConnectorGrant(context.WithoutCancel(ctx), db, record, uncertain)
+				return err
+			})
+			node.connectorCredentialCommitted(ctx, record)
+		}
 		return record, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal did not complete; connect again"}
+	}
+	previous.Extra = maps.Clone(previous.Extra)
+	if previous.Extra == nil {
+		previous.Extra = map[string]string{}
+	}
+	if refused {
+		previous.Extra["renewal_rejected"] = "true"
 	}
 	owner := context.WithoutCancel(ctx)
 	var restored store.ConnectorRecord
@@ -197,10 +241,36 @@ func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous 
 		return record, err
 	}
 	record = restored
+	node.connectorCredentialCommitted(ctx, record)
 	if refused {
 		return record, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
 	}
 	return record, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "connector service could not be reached"}
+}
+
+func (node *Node) connectorCredentialCommitted(ctx context.Context, record store.ConnectorRecord) {
+	recording := context.WithoutCancel(ctx)
+	var changes []protocol.Event
+	_ = node.profile.Store.Node.Write(recording, func(db *sql.Conn) error {
+		value := protocol.DefaultPluginConnectorChanges()
+		var err error
+		value.Types, err = store.ConnectorTypes(recording, db)
+		if err == nil {
+			value.Connections, err = store.Connections(recording, db)
+		}
+		if err != nil {
+			return err
+		}
+		node.auth.mu.Lock()
+		value.Cursor = node.auth.cursor + 1
+		node.auth.mu.Unlock()
+		changes = []protocol.Event{{Kind: "connections_changed", Data: value}}
+		_, err = store.RecordEvents(recording, db, node.ID(), changes)
+		return err
+	})
+	node.authChanged()
+	node.NotifyConfigurationFollow(changes)
+	node.publish()
 }
 
 func (node *Node) authorizePluginHTTP(ctx context.Context, request protocol.Request, info protocol.PluginInfo, input protocol.PluginHttpRequest, prepared plugins.HTTPInput) (plugins.HTTPInput, error) {

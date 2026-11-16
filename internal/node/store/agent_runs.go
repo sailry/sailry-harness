@@ -499,6 +499,7 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		}
 	}
 	run.Status = status
+	run.Waiting = nil
 	run.Error = failure
 	ms := now.UnixMilli()
 	run.FinishedMs = &ms
