@@ -174,6 +174,15 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 // The launcher lists its four resources, Browser, Terminal, Files and Git,
 // centred in the panel, and neither History nor Documents.
 func TestPanelLauncherCentred(t *testing.T) {
+	// The rail names Files and Git too: the launcher's rows are the panel's.
+	row := func(tt *ui.Tester, lang string, r panel.Resource) (ui.AccessInfo, bool) {
+		for _, info := range tt.AccessAll() {
+			if info.Role == ui.RoleButton && info.Name == i18n.In(lang, r.Label) && info.Bounds.X >= 640 {
+				return info, true
+			}
+		}
+		return ui.AccessInfo{}, false
+	}
 	for _, lang := range []string{"en", "zh-CN"} {
 		_, tt := newTester(t)
 		tt.SetLocale(lang)
@@ -182,23 +191,13 @@ func TestPanelLauncherCentred(t *testing.T) {
 		tt.Frame()
 		// The launcher has no title: its rows are centred between the header
 		// and the window's bottom edge.
-		// The rail names Files and Git too: the launcher's rows are the
-		// panel's.
-		row := func(r panel.Resource) (ui.AccessInfo, bool) {
-			for _, info := range tt.AccessAll() {
-				if info.Role == ui.RoleButton && info.Name == i18n.In(lang, r.Label) && info.Bounds.X >= 640 {
-					return info, true
-				}
-			}
-			return ui.AccessInfo{}, false
-		}
 		for _, r := range panel.Resources[4:] {
-			if _, listed := row(r); listed {
+			if _, listed := row(tt, lang, r); listed {
 				t.Fatalf("%s: the launcher lists %s", lang, r.Label)
 			}
 		}
-		head, ok := row(panel.Resources[0])
-		tail, found := row(panel.Resources[3])
+		head, ok := row(tt, lang, panel.Resources[0])
+		tail, found := row(tt, lang, panel.Resources[3])
 		if !ok || !found || head.Bounds.X < 640 || tail.Bounds.X != head.Bounds.X {
 			t.Fatalf("%s: launcher rows %v %v: %+v %+v", lang, ok, found, head.Bounds, tail.Bounds)
 		}
@@ -213,11 +212,14 @@ func TestPanelLauncherCentred(t *testing.T) {
 		tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
 		tt.Advance(time.Second)
 		tt.Frame()
-		row, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", r.Label))
-		tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		button, ok := row(tt, "en", r)
+		if !ok {
+			t.Fatalf("the launcher has no %q row", r.Label)
+		}
+		tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
 		tt.Frame()
-		if a.Panel.Active.Kind != r.Kind {
-			t.Errorf("the %q row opened %v", r.Label, a.Panel.Active)
+		if a.Panel.Active.Kind != r.Kind || a.Page != ConversationPage {
+			t.Errorf("the %q row opened %v on page %v", r.Label, a.Panel.Active, a.Page)
 		}
 	}
 }

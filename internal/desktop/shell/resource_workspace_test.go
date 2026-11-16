@@ -38,7 +38,7 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 	}
 	for _, page := range pages {
 		a.Navigate(page.page)
-		still(tester)
+		tester.Frame()
 		state := a.pluginWorkspacePrefs()
 		if state.Width != 320 || state.Folded || a.pluginWorkspace != page.key {
 			t.Fatalf("page %v initial details: %+v (%q)", page.page, state, a.pluginWorkspace)
@@ -103,12 +103,15 @@ func TestResourceWorkspaceDetails(t *testing.T) {
 	clickButton(t, tester, details)
 	settle(tester)
 	a.Navigate(GitPage)
-	still(tester)
+	tester.Frame()
 	row("README.md")
 	a.Navigate(FilesPage)
-	still(tester)
+	tester.Frame()
 	if !a.pluginWorkspacePrefs().Folded {
 		t.Fatal("switching pages lost the Files fold choice")
+	}
+	if _, exists := tester.AccessByRole(ui.RoleTreeItem, "go.mod"); exists {
+		t.Fatal("the first frame of the folded Files page retained another page's details")
 	}
 	a.RevealDetails()
 	still(tester)

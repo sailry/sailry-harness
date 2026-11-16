@@ -497,7 +497,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 }
 
 // The first frame of a page already lays the side list out at its width
-// (220), with no frame at the split's minimum.
+// (320), with no frame at the split's minimum or a hidden column.
 func TestSplitFirstFrame(t *testing.T) {
 	a, tt := newTester(t)
 	a.Navigate(FilesPage)
@@ -508,13 +508,13 @@ func TestSplitFirstFrame(t *testing.T) {
 	}
 	// The row fills the list inside its 8 DIP padding, at the window's
 	// right edge.
-	if got := 1280 - row.Bounds.X + 8; got < 219 || got > 221 || row.Bounds.W < 203 || row.Bounds.W > 205 {
+	if got := 1280 - row.Bounds.X + 8; got < 319 || got > 321 || row.Bounds.W < 303 || row.Bounds.W > 305 || row.Bounds.H <= 0 {
 		t.Errorf("the first frame's side list is %v wide, row %v", got, row.Bounds)
 	}
-	// Both columns fill the page's height from under the tab strip: the
-	// list's first row and the editor's toolbar sit at its top.
-	save, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "files_save"))
-	if row.Bounds.Y > 140 || save.Bounds.Y > 140 {
+	// Both shell columns fill the page's height: the list's first row and
+	// the editor's toolbar sit at the top of their content.
+	save, found := tt.AccessByRole(ui.RoleButton, i18n.In("en", "files_save"))
+	if !found || row.Bounds.Y > 140 || save.Bounds.Y > 140 || save.Bounds.H <= 0 {
 		t.Errorf("the split's columns do not start at the top: tree row %v, Save %v", row.Bounds, save.Bounds)
 	}
 }

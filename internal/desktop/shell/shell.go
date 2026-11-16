@@ -118,6 +118,9 @@ type App struct {
 	PluginDetailsHeader func(*ui.Context)
 	PluginDetailsLabel  string
 	PanelWidth          float32
+	// resourceColumn is the last frame's full-page resource owning details.
+	// Changing owners settles the destination; folding within it animates.
+	resourceColumn panel.Kind
 
 	pluginWorkspace      string
 	pluginWorkspaces     map[string]*PluginWorkspacePrefs
@@ -467,7 +470,18 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	if f.showsPanel {
 		target = 1
 	}
-	f.details = root.AnimateTo("details", target, Motion)
+	resource := panel.Kind("")
+	if a.resourceDetails() {
+		resource = a.paged()
+	}
+	if resource != a.resourceColumn {
+		// A resource's list belongs to its page, including the first frame
+		// its project becomes available. It inherits no other page's motion.
+		f.details = root.Jump("details", target)
+		a.resourceColumn = resource
+	} else {
+		f.details = root.AnimateTo("details", target, Motion)
+	}
 	f.mainWidth = max(w-RailWidth-1-nav-f.panelW*target, 0)
 	actual := max(w-RailWidth-1-f.navWidth*f.nav-f.panelW*f.details, 0)
 	f.mainShift = (actual - f.mainWidth) / 2
