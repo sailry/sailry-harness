@@ -8,6 +8,7 @@
   "main": ".",
   "out": "../../.runtime/package/out",
   "macos": {
+    "icon": "../../assets/branding/Sailry.icns",
     "minimumSystemVersion": "13.0",
     "entitlements": "macos/app.entitlements.plist",
     "helperEntitlements": {
