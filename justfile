@@ -29,7 +29,7 @@ demo:
 
 # Run Desktop with release data by default, dev data for "dev", or a named test profile.
 desktop name="": native
-    SAILRY_HELPERS_DIR={{ quote(native / "helpers") }} go run ./cmd/sailry-desktop --data-dir {{ quote(if name == "" { home_directory() / ".sailry" } else if name == "dev" { home_directory() / ".sailry-go" } else { profiles / name }) }}
+    SAILRY_HELPERS_DIR={{ quote(native / "helpers") }} go run ./cmd/sailry-desktop --data-dir {{ quote(if name == "" { home_directory() / ".sailry" } else if name == "dev" { home_directory() / ".sailry-dev" } else { profiles / name }) }}
 
 # Build and run Host against the fixed profile .runtime/profiles/<name>; extra arguments are Host options such as --internet.
 host name="host" *options: native

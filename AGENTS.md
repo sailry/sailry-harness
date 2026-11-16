@@ -63,7 +63,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for the implemented system and
 - Reuse native libraries. Rebuild when native source, C ABI, dependency pins or
   target changes. Go-only work does not require another Cargo build.
 - Tests use `t.TempDir()`. Manual development runs use
-  `--data-dir .runtime/profiles/<fixed-name>`. `~/.sailry-go` is reserved for user
+  `--data-dir .runtime/profiles/<fixed-name>`. `~/.sailry-dev` is reserved for user
   acceptance and `~/.sailry` for installed releases.
 - Cross-compilation does not establish another operating system's behavior.
   Platform and physical-device acceptance run on the corresponding target.

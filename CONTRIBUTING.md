@@ -74,7 +74,7 @@ directory; `SAILRY_TURSO_LIB` can select an explicit source-build library.
 The Desktop recipes supply this helper path automatically:
 
 - `just desktop` opens the installed release data at `~/.sailry`.
-- `just desktop dev` opens the development data at `~/.sailry-go`.
+- `just desktop dev` opens the development data at `~/.sailry-dev`.
 - `just desktop <name>` opens an isolated test profile at `.runtime/profiles/<name>`
   for any other name.
 
@@ -420,7 +420,7 @@ limitations. A historical checklist or passing headless test does not establish
 current platform acceptance.
 
 Development checks use `just desktop <fixed-name>` with an isolated profile.
-For user acceptance, `just desktop dev` opens `~/.sailry-go`; `just desktop`
+For user acceptance, `just desktop dev` opens `~/.sailry-dev`; `just desktop`
 opens the installed release profile at `~/.sailry`.
 Account and device checks require the corresponding account or device and remain
 explicitly initiated.
