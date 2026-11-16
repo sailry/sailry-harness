@@ -51,6 +51,17 @@ type liveAuthorization struct {
 	ctx        context.Context
 }
 
+func (r *Runtime) authorizationView(attempt *liveAuthorization, provider bool) *settings.Authorization {
+	if attempt.view == nil {
+		if provider {
+			attempt.view = r.App.Settings.ProviderAuthorization()
+		} else {
+			attempt.view = &r.App.Settings.ConnectorActions.Authorization
+		}
+	}
+	return attempt.view
+}
+
 func localAuthorization(ctx context.Context, presentation *protocol.PluginModelAuthPresentation) (*string, <-chan string, bool, error) {
 	path, port, manual, needed, localhost := "/auth/callback", uint16(0), false, false, false
 	if presentation != nil {
@@ -155,7 +166,7 @@ func (r *Runtime) beginProviderLogin(id string) {
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		r.authorizationSettings().WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
+		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
 		return
 	}
 	r.startProviderLogin(id)
@@ -196,7 +207,7 @@ func (r *Runtime) startProviderLogin(id string) {
 	}
 	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name}
 	r.authorizations.provider = attempt
-	model := r.authorizationSettings()
+	model := r.App.Settings.Model
 	model.BeginProviderAuthorization(id, provider.Name, manual)
 	view := model.ProviderAuthorization()
 	attempt.view = view

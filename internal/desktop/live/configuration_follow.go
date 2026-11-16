@@ -31,7 +31,6 @@ func (r *Runtime) initConfigurationFollowActions() {
 			return
 		}
 		editor.owner = r.runtimeFor(editor.model.Device.ID)
-		editor.model.Unavailable = editor.owner == nil
 		if editor.owner != nil {
 			editor.controller = editor.owner.controller
 		}
@@ -48,7 +47,7 @@ func (r *Runtime) initConfigurationFollowActions() {
 					r.reportKeys(c, err, "configuration_follow_failed", "configuration_follow_conflict", "configuration_follow_unknown")
 					return
 				}
-				r.projectConfigurationFollow(editor.model, status, editor.controller.Snapshot().Providers)
+				r.projectConfigurationFollow(editor.model, status)
 			})
 		})
 	}
@@ -79,7 +78,6 @@ func (r *Runtime) initConfigurationFollowActions() {
 					refresh(editor)
 					return
 				}
-				editor.model.Unavailable = false
 				editor.model.Pending = true
 				editor.owner.execute(protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "sync"}}, func(c *ui.Context, output protocol.Output, err error) {
 					editor.model.Pending = false
@@ -101,16 +99,6 @@ func (r *Runtime) initConfigurationFollowActions() {
 				current.retry()
 			}
 		},
-		Authorize: func(view *settings.ConfigurationFollowEditor, issue settings.ConfigurationFollowIssue) {
-			if current == nil || current.model != view || view.Loading || view.Pending {
-				return
-			}
-			current.owner = r.runtimeFor(view.Device.ID)
-			if current.owner == nil {
-				return
-			}
-			r.beginConfigurationAuthorization(current.owner, view, issue)
-		},
 	}
 }
 
@@ -122,11 +110,15 @@ func configurationNodeID(value string) (protocol.NodeID, bool) {
 	return protocol.NodeID(raw), true
 }
 
-func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowEditor, status protocol.ConfigurationFollowStatus, providers []protocol.ConversationProvider) {
+func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowEditor, status protocol.ConfigurationFollowStatus) {
 	view.Local = status.User != nil && status.User.Local
 	view.Source = ""
-	if status.Source != nil {
-		view.Source = r.configurationHostName(status.Source.String())
+	source := status.Source
+	if status.User != nil && status.User.Controller != nil {
+		source = status.User.Controller
+	}
+	if source != nil && !view.Local {
+		view.Source = r.configurationHostName(source.String())
 	}
 	view.Targets = nil
 	for _, target := range status.Targets {
@@ -138,26 +130,9 @@ func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowE
 	}
 	view.Issues = nil
 	for _, issue := range status.Issues {
-		value := settings.ConfigurationFollowIssue{Category: issue.Category, ID: issue.ID, State: issue.State, Message: issue.Message}
-		if issue.State == "authorization" {
-			switch issue.Category {
-			case "providers":
-				for _, provider := range providers {
-					if provider.ID.String() != issue.ID {
-						continue
-					}
-					if provider.Authentication == protocol.AuthenticationApiKey {
-						value.MessageKey = "configuration_follow_missing_key"
-					} else {
-						value.Authorize = provider.Authentication != ""
-					}
-					break
-				}
-			case "connections", "plugin_settings":
-				value.Authorize = true
-			}
-		}
-		view.Issues = append(view.Issues, value)
+		view.Issues = append(view.Issues, settings.ConfigurationFollowIssue{
+			Category: issue.Category, ID: issue.ID, State: issue.State, Message: issue.Message,
+		})
 	}
 }
 func (r *Runtime) configurationHostName(id string) string {

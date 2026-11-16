@@ -12,20 +12,18 @@ type ConfigurationTargetStatus struct {
 	ID, Name, Failure string
 }
 type ConfigurationFollowIssue struct {
-	Category, ID, State, Message, MessageKey string
-	Authorize                                bool
+	Category, ID, State, Message string
 }
 type ConfigurationFollowEditor struct {
-	Device                                           viewmodel.Device
-	Source                                           string
-	Targets                                          []ConfigurationTargetStatus
-	Issues                                           []ConfigurationFollowIssue
-	Local, Loading, Pending, ReadFailed, Unavailable bool
+	Device                              viewmodel.Device
+	Source                              string
+	Targets                             []ConfigurationTargetStatus
+	Issues                              []ConfigurationFollowIssue
+	Local, Loading, Pending, ReadFailed bool
 }
 type ConfigurationFollowActions struct {
-	Open      func(viewmodel.Device)
-	Refresh   func(*ConfigurationFollowEditor)
-	Authorize func(*ConfigurationFollowEditor, ConfigurationFollowIssue)
+	Open    func(viewmodel.Device)
+	Refresh func(*ConfigurationFollowEditor)
 }
 
 func configurationFollowDialog(c *ui.Context, m *Model) {
@@ -73,19 +71,7 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 				kit.Group(c, "issues", t("configuration_follow_issues"), "", nil, func() {
 					kit.Card(c, func() {
 						for _, issue := range e.Issues {
-							message := issue.Message
-							if issue.MessageKey != "" {
-								message = t(issue.MessageKey)
-							}
-							kit.Row(c, issue.Category+"/"+issue.ID, issue.Category+" / "+issue.ID, message, func() {
-								if issue.Authorize {
-									kit.Secondary(c, t("configuration_follow_authorize")).Disabled(e.Pending || e.Unavailable).OnClick(func() {
-										if m.FollowActions != nil && m.FollowActions.Authorize != nil {
-											m.FollowActions.Authorize(e, issue)
-										}
-									})
-								}
-							})
+							kit.Row(c, issue.Category+"/"+issue.ID, issue.Category+" / "+issue.ID, issue.Message, nil)
 						}
 					})
 				})
@@ -103,25 +89,4 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 	if !open && !e.Pending {
 		m.FollowEditor = nil
 	}
-}
-
-// AuthorizeFollowedConnection opens the existing connection form on this host.
-func (m *Model) AuthorizeFollowedConnection(id string) {
-	for i := range m.Services {
-		if m.Services[i].ID == id {
-			m.editService(&m.Services[i])
-			return
-		}
-	}
-}
-
-// ExplicitAuthorizationDialogs reuses the existing editors on a captured Node's
-// model without replacing the controller's configuration lists or drafts.
-func ExplicitAuthorizationDialogs(c *ui.Context, m *Model) bool {
-	providerAuthorizationDialog(c, m)
-	connectorDialog(c, m)
-	PackageConfigurationDialog(c, m)
-	connectorAuthorizationDialog(c, m)
-	return m.login.Open || m.loginWarning.open || m.connector.open || m.connector.pending ||
-		m.config.open || m.config.pending || m.ConnectorActions != nil && m.ConnectorActions.Authorization.Open
 }

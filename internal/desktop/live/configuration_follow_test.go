@@ -31,47 +31,43 @@ func TestConfigurationFollowProjectionKeepsControllerAndHostStatus(t *testing.T)
 	r.App.Settings.Devices = []viewmodel.Device{{ID: source.String(), Name: "Controller"}, {ID: target.String(), Name: "Execution host"}}
 	view := &settings.ConfigurationFollowEditor{}
 	status := protocol.ConfigurationFollowStatus{
-		// The first paired administrator still has a personal mirror; machine
-		// administrator permission does not select the host's local configuration.
-		User:   &protocol.User{Administrator: true},
-		Source: &source,
+		User:   &protocol.User{Administrator: true, Controller: &source},
+		Source: &target,
 		Targets: []protocol.ConfigurationFollowTarget{{Host: target, Error: &protocol.Fault{
 			Code: protocol.ErrorCodeUnavailable, Message: "Host is offline",
 		}}},
 	}
-	r.projectConfigurationFollow(view, status, nil)
+	r.projectConfigurationFollow(view, status)
 	if view.Local || view.Source != "Controller · "+source.String()[:8] || len(view.Targets) != 1 || view.Targets[0].Name != "Execution host · "+target.String()[:8] || view.Targets[0].Failure != "Host is offline" {
 		t.Fatalf("controller namespace or host error was lost: %+v", view)
 	}
-	r.projectConfigurationFollow(view, protocol.ConfigurationFollowStatus{User: &protocol.User{Local: true}}, nil)
+	r.projectConfigurationFollow(view, protocol.ConfigurationFollowStatus{User: &protocol.User{Local: true}})
 	if !view.Local || view.Source != "" || len(view.Targets) != 0 || len(view.Issues) != 0 {
 		t.Fatalf("a previous host's status leaked into local configuration: %+v", view)
 	}
 }
 
-func TestConfigurationFollowProjectionOffersRealAuthorization(t *testing.T) {
+func TestConfigurationFollowProjectionPreservesFailureReasons(t *testing.T) {
 	r := &Runtime{App: &shell.App{Settings: settings.NewLive()}}
 	view := &settings.ConfigurationFollowEditor{}
 	account, key := protocol.ProviderID{1}, protocol.ProviderID{2}
 	status := protocol.ConfigurationFollowStatus{Issues: []protocol.ConfigurationFollowIssue{
-		{Category: "providers", ID: account.String(), State: "authorization"},
-		{Category: "providers", ID: key.String(), State: "authorization"},
+		{Category: "providers", ID: account.String(), State: "authorization", Message: "Sign in on the controller"},
+		{Category: "providers", ID: key.String(), State: "authorization", Message: "API key is missing on the controller"},
 		{Category: "providers", ID: account.String(), State: "conflict", Message: "Package is unavailable"},
-		{Category: "connections", ID: "connection", State: "authorization"},
-		{Category: "plugin_settings", ID: "fixture", State: "authorization"},
-		{Category: "roles", ID: "role", State: "pending"},
+		{Category: "connections", ID: "connection", State: "authorization", Message: "Connection is machine-bound"},
+		{Category: "plugin_settings", ID: "fixture", State: "authorization", Message: "Setting is unavailable"},
+		{Category: "roles", ID: "role", State: "pending", Message: "Configuration has not arrived"},
 	}}
-	r.projectConfigurationFollow(view, status, []protocol.ConversationProvider{
-		{ID: account, Authentication: protocol.AuthenticationClaudeOAuth},
-		{ID: key, Authentication: protocol.AuthenticationApiKey},
-	})
-	for i, want := range []bool{true, false, false, true, true, false} {
-		if view.Issues[i].Authorize != want || view.Issues[i].ID != status.Issues[i].ID {
-			t.Fatalf("issue %d lost its target identity or authorization action: %+v", i, view.Issues[i])
-		}
+	r.projectConfigurationFollow(view, status)
+	if len(view.Issues) != len(status.Issues) {
+		t.Fatalf("failure reasons were omitted: %+v", view.Issues)
 	}
-	if view.Issues[1].MessageKey != "configuration_follow_missing_key" || view.Issues[2].Message != "Package is unavailable" {
-		t.Fatalf("missing key or real failure was hidden: %+v", view.Issues)
+	for i, want := range status.Issues {
+		got := view.Issues[i]
+		if got.Category != want.Category || got.ID != want.ID || got.State != want.State || got.Message != want.Message {
+			t.Fatalf("issue %d lost its identity or failure reason: %+v", i, got)
+		}
 	}
 }
 

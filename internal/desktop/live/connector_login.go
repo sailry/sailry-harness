@@ -119,7 +119,7 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 	attempt := &liveAuthorization{ctx: ctx, cancel: cancel, connector: draft, title: kind.Declaration.Display.Label}
 	attempt.connector.Fields = maps.Clone(draft.Fields)
 	r.authorizations.connector = attempt
-	actions := r.authorizationSettings().ConnectorActions
+	actions := r.App.Settings.ConnectorActions
 	actions.Authorization = settings.Authorization{Open: true, Title: attempt.title, Flow: settings.FlowStarting, Callback: manual, Cancel: r.cancelConnectorLogin,
 		OpenURL: func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }}
 	attempt.view = &actions.Authorization

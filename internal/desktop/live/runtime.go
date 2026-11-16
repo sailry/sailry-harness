@@ -74,7 +74,6 @@ type Runtime struct {
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
 
-	configurationAuthorization *configurationAuthorization
 	// acknowledged is the attention revision each shown session was marked
 	// read at (attentionFrame).
 	acknowledged map[string]uint64

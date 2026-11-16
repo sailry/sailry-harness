@@ -130,8 +130,9 @@ and pairing management without changing execution or configuration scope. A new
 projectless draft chooses its execution Node with a separate control beside
 the Chats location menu.
 Global settings and package configuration belong to the controller's local Node;
-project hook settings remain on the project's execution Node. Explicit authorization
-for a followed configuration keeps its target only in the authorization dialog.
+project hook settings remain on the project's execution Node. Execution hosts keep
+isolated configuration caches; sign-in and credential refresh remain on the
+controller, which supplies the credentials needed for execution.
 Model providers, channels and credentials
 belong only to their authenticated user namespace; machine administrators do not
 gain another user's configuration access. Legacy provider sharing fields remain
