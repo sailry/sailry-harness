@@ -67,7 +67,15 @@ go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 
 The helper directory points source runs at the staged computer-use helper;
 `go run` places its executable in a temporary directory without bundled helpers.
-`just desktop` supplies this path automatically.
+The Desktop recipes supply this helper path automatically:
+
+- `just desktop` opens the installed release data at `~/.sailry`.
+- `just desktop dev` opens the development data at `~/.sailry-go`.
+- `just desktop <name>` opens an isolated test profile at `.runtime/profiles/<name>`
+  for any other name.
+
+These commands run the current checkout; the choice selects data, not a different
+application version. Close another instance using that profile before starting.
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
 backend startup before opening any profile, including an explicit `--data-dir`.
@@ -84,9 +92,10 @@ commands with the same environment: `just preview`, `just desktop <name>` and
 `just host <name>` (profiles under `.runtime/profiles/<name>`), `just check` for
 the standard Go checks, and the test, plugin, pairing-service and Mobile recipes.
 
-Implementer runs use `--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
-`~/.sailry-go` only for user acceptance. Never run against `~/.sailry`; it is the
-installed release profile. Tests use `t.TempDir()`.
+Implementer checks use `--data-dir .runtime/profiles/<fixed-name>` or
+`just desktop <fixed-name>`. The user-facing `just desktop` and `just desktop dev`
+recipes intentionally select the release and development acceptance profiles;
+do not use them for routine automated checks. Tests use `t.TempDir()`.
 
 ## Layout
 
@@ -398,8 +407,9 @@ areas affected by a change and record the build, operating system, result and
 limitations. A historical checklist or passing headless test does not establish
 current platform acceptance.
 
-Development runs use `just desktop` or another isolated profile. The user's
-acceptance profile is `~/.sailry-go`; the installed release profile is `~/.sailry`.
+Development checks use `just desktop <fixed-name>` with an isolated profile.
+For user acceptance, `just desktop dev` opens `~/.sailry-go`; `just desktop`
+opens the installed release profile at `~/.sailry`.
 Account and device checks require the corresponding account or device and remain
 explicitly initiated.
 
