@@ -557,15 +557,12 @@ The running binary loads its target's iroh library through the shared loader.
 six-digit pairing code. Keep PINs, invitation tickets, profile contents and
 private endpoint output out of logs intended for distribution.
 
-Invitations default to another user. `share --kind my_device` instead joins the
-sharing user's device group; an administrator may add `--user <user id>` to choose
-an existing active group. The choice is captured by the sharing endpoint and
-confirmed over authenticated Link, rather than trusted from the invitation text.
-`users list` and `devices list` inspect membership. `users administrator <id>
-on|off` manages administrators; the local user stays an administrator. `devices
-revoke <device id> --confirm-last` explicitly permits leaving a user's data without
-device access. `users assign <orphan id> <target id>` assigns that retained group.
-Mutations accept `--request-id <id>` and return the request ID with their JSON
+Pairing determines the peer's role from its authenticated `has_node` declaration.
+Mobile shells use the entry's local user; peers hosting a Node receive their own
+controller identity. Invitations do not select or merge users.
+`users list` and `devices list` inspect membership. `devices revoke <device id>
+--confirm-last` explicitly permits leaving a user's data without device access.
+Revocation accepts `--request-id <id>` and returns the request ID with its JSON
 result; an uncertain result is recovered with that same ID.
 
 Management talks to the running Node through a profile-private owner-only Unix

@@ -117,9 +117,12 @@ func (network *Network) discover() {
 		return
 	}
 	names := map[protocol.NodeID]string{}
+	direct := map[protocol.NodeID]bool{}
 	for _, relationship := range relationships {
 		names[relationship.ID] = relationship.Name
+		direct[relationship.ID] = relationship.Direct && !relationship.Removed
 	}
+	addresses = slices.DeleteFunc(addresses, func(address link.EndpointAddress) bool { return !direct[address.ID] })
 	trust := map[protocol.NodeID]link.PeerTrust{}
 	for _, value := range directions {
 		trust[value.ID] = value
@@ -207,9 +210,6 @@ func (network *Network) inspect(id protocol.NodeID) {
 			ctx, peer.cancel = context.WithCancel(network.ctx)
 		}
 		network.mu.Unlock()
-		if err == nil && controller != nil {
-			_ = client.SyncIdentity(network.ctx, network.endpoint, controller)
-		}
 		if create {
 			err = controller.Start(network.ctx)
 		} else if err == nil && controller != nil && !controller.Connected() {

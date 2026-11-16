@@ -9,6 +9,22 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// RetireImportedPeerRoutes removes only outbound access inherited from an old
+// directory. Explicit pairing directions and provenance records remain intact.
+func RetireImportedPeerRoutes(ctx context.Context, db *sql.Conn) error {
+	if _, err := db.ExecContext(ctx, `UPDATE link_peers SET direction='controller'
+WHERE direction='both' AND EXISTS (
+ SELECT 1 FROM identity_peer_origins o WHERE o.peer=link_peers.identity
+ AND (o.direct=0 OR o.direct_direction='controller')
+)`); err != nil {
+		return err
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM link_peers WHERE direction='host' AND EXISTS (
+ SELECT 1 FROM identity_peer_origins o WHERE o.peer=link_peers.identity AND o.direct=0
+)`)
+	return err
+}
+
 // PairPeerIdentity records fresh membership and its authenticated device type in
 // one transaction. A shell joins the local user without creating an orphan user.
 func PairPeerIdentity(ctx context.Context, db *sql.Conn, node, peer protocol.NodeID, direction link.PeerDirection, hasNode bool) error {

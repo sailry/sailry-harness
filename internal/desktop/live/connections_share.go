@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -97,7 +96,7 @@ func (r *Runtime) startConnectionShare(delay time.Duration) {
 				}
 			}
 		})
-		session, err := endpoint.ShareFor(ctx, origin, link.InvitationScope{Kind: draft.Invitation})
+		session, err := endpoint.Share(ctx, origin)
 		if err != nil {
 			r.enqueue(func(c *ui.Context) {
 				if state.shareGeneration == generation {

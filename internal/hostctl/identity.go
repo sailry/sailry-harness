@@ -13,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const IdentityUsage = "Usage: sailry-host users list|administrator <user id> on|off|assign <orphan user id> <target user id> [--data-dir <profile>] [--request-id <id>]\n       sailry-host devices list|revoke <device id> [--confirm-last] [--data-dir <profile>] [--request-id <id>]"
+const IdentityUsage = "Usage: sailry-host users list [--data-dir <profile>]\n       sailry-host devices list|revoke <device id> [--confirm-last] [--data-dir <profile>] [--request-id <id>]"
 
 type identityOptions struct {
 	profile string
@@ -64,25 +64,6 @@ func parseIdentity(args []string) (identityOptions, error) {
 	switch {
 	case (category == "users" || category == "devices") && action == "list" && len(positionals) == 2:
 		options.action = protocol.IdentityCommand{Kind: "read_identity"}
-	case category == "users" && action == "administrator" && len(positionals) == 4:
-		user, err := protocol.ParseUserID(positionals[2])
-		if err != nil {
-			return options, err
-		}
-		if positionals[3] != "on" && positionals[3] != "off" {
-			return options, errors.New("administrator must be on or off")
-		}
-		options.action = protocol.IdentityCommand{Kind: "set_user_administrator", Data: protocol.UserAdministrator{User: user, Administrator: positionals[3] == "on"}}
-	case category == "users" && action == "assign" && len(positionals) == 4:
-		source, err := protocol.ParseUserID(positionals[2])
-		if err != nil {
-			return options, err
-		}
-		target, err := protocol.ParseUserID(positionals[3])
-		if err != nil {
-			return options, err
-		}
-		options.action = protocol.IdentityCommand{Kind: "assign_orphan_user", Data: protocol.AssignOrphanUser{Source: source, Target: target}}
 	case category == "devices" && action == "revoke" && len(positionals) == 3:
 		body, err := hex.DecodeString(positionals[2])
 		if err != nil || len(body) != len(protocol.NodeID{}) {

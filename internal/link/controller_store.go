@@ -38,6 +38,7 @@ type controllerPeer struct {
 	Sources           []protocol.NodeID    `json:"sources,omitempty"`
 	DirectoryRevision uint64               `json:"directory_revision"`
 	HasNode           *bool                `json:"has_node,omitempty"`
+	DirectoryOnly     bool                 `json:"directory_only,omitempty"`
 }
 
 func (peer *controllerPeer) UnmarshalJSON(encoded []byte) error {
@@ -117,6 +118,11 @@ func openControllerStore(path string) (Identity, *controllerStore, error) {
 			return Identity{}, nil, err
 		}
 		store.peers = record.Peers
+		if retireControllerImportedRoutes(store.peers) {
+			if err := store.update(context.Background(), func(*[]controllerPeer) error { return nil }); err != nil {
+				return Identity{}, nil, err
+			}
+		}
 	case errors.Is(err, os.ErrNotExist):
 		if err := store.update(context.Background(), func(*[]controllerPeer) error { return nil }); err != nil {
 			return Identity{}, nil, err
@@ -136,7 +142,7 @@ func decodeControllerRecord(encoded []byte) (controllerRecord, error) {
 	unique := make(map[protocol.NodeID]struct{}, len(record.Peers))
 	active := 0
 	for _, peer := range record.Peers {
-		if !peer.Removed {
+		if !peer.Removed && !peer.DirectoryOnly {
 			active++
 		}
 		_, duplicate := unique[peer.ID]
@@ -159,7 +165,7 @@ func (store *controllerStore) Peers(ctx context.Context) ([]protocol.NodeID, err
 	defer store.mu.Unlock()
 	peers := make([]protocol.NodeID, 0, len(store.peers))
 	for _, peer := range store.peers {
-		if !peer.Removed {
+		if !peer.Removed && !peer.DirectoryOnly {
 			peers = append(peers, peer.ID)
 		}
 	}
@@ -174,7 +180,7 @@ func (store *controllerStore) Addresses(ctx context.Context) ([]EndpointAddress,
 	defer store.mu.Unlock()
 	addresses := make([]EndpointAddress, 0, len(store.peers))
 	for _, peer := range store.peers {
-		if !peer.Removed && peer.Address != nil {
+		if !peer.Removed && !peer.DirectoryOnly && peer.Address != nil {
 			addresses = append(addresses, cloneAddress(*peer.Address))
 		}
 	}
@@ -211,6 +217,7 @@ func (store *controllerStore) SetTrust(ctx context.Context, id protocol.NodeID, 
 					}
 					(*peers)[index].Removed = false
 					(*peers)[index].Direct = true
+					(*peers)[index].DirectoryOnly = false
 					(*peers)[index].DirectDirection = (*peers)[index].Direction
 				}
 				return nil
@@ -231,7 +238,7 @@ func (store *controllerStore) Directions(ctx context.Context) ([]PeerTrust, erro
 	defer store.mu.Unlock()
 	values := make([]PeerTrust, 0, len(store.peers))
 	for _, peer := range store.peers {
-		if !peer.Removed {
+		if !peer.Removed && !peer.DirectoryOnly {
 			values = append(values, PeerTrust{ID: peer.ID, Direction: peer.Direction})
 		}
 	}
@@ -277,6 +284,7 @@ func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID
 				(*peers)[index].Direction = mergeDirection((*peers)[index].Direction, direction)
 				(*peers)[index].DirectDirection = mergeDirection((*peers)[index].DirectDirection, direction)
 				(*peers)[index].Direct = true
+				(*peers)[index].DirectoryOnly = false
 				(*peers)[index].Removed = false
 				(*peers)[index].MyDevice = (*peers)[index].MyDevice || scope.Kind == protocol.InvitationMyDevice
 				return nil
@@ -296,6 +304,7 @@ func (store *controllerStore) SetDirection(ctx context.Context, id protocol.Node
 			if (*peers)[index].ID == id && !(*peers)[index].Removed {
 				(*peers)[index].Direction = direction
 				(*peers)[index].Direct = true
+				(*peers)[index].DirectoryOnly = false
 				(*peers)[index].DirectDirection = direction
 				return nil
 			}
@@ -323,7 +332,7 @@ func (store *controllerStore) update(ctx context.Context, update func(*[]control
 	}
 	active := 0
 	for _, peer := range peers {
-		if !peer.Removed {
+		if !peer.Removed && !peer.DirectoryOnly {
 			active++
 		}
 	}

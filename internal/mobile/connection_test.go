@@ -143,22 +143,22 @@ func TestMobileUncertainRequest(t *testing.T) {
 func TestMobileClosedConnectionLeavesNoClient(t *testing.T) {
 	t.Parallel()
 	node := protocol.NodeID{1}
-	owner := &controller{clients: map[protocol.NodeID]*client.Client{}}
+	owner := &controller{clients: map[protocol.RouteKey]*client.Client{}}
 	first := &connection{client: client.New(noticeTransport{node: node}), controller: owner}
 	second := &connection{client: client.New(noticeTransport{node: node}), controller: owner}
 	// A second connect to the same peer replaces the first as its Client.
-	owner.clients[node] = first.client
-	owner.clients[node] = second.client
+	owner.clients[protocol.RouteKey{Entry: node, Target: node}] = first.client
+	owner.clients[protocol.RouteKey{Entry: node, Target: node}] = second.client
 	if err := first.close(); err != nil {
 		t.Fatal(err)
 	}
-	if owner.clients[node] != second.client {
+	if owner.clients[protocol.RouteKey{Entry: node, Target: node}] != second.client {
 		t.Fatal("closing a replaced connection removed the current Client")
 	}
 	if err := second.close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, kept := owner.clients[node]; kept {
+	if _, kept := owner.clients[protocol.RouteKey{Entry: node, Target: node}]; kept {
 		t.Fatal("a closed Client stayed reachable for notification commands")
 	}
 }
@@ -360,7 +360,7 @@ func TestMobileUnobservedConnectionPreservesInbox(t *testing.T) {
 				Kind: "notification", NotificationKind: protocol.NotificationKindInfo,
 			}
 			controller := &controller{}
-			controller.inbox.Merge(node, []client.Notice{notice})
+			controller.inbox(protocol.RouteKey{Entry: node, Target: node}).Merge(node, []client.Notice{notice})
 			shared := client.New(noticeTransport{node: node})
 			t.Cleanup(func() { _ = shared.Close() })
 			owner := &connection{client: shared, controller: controller}
@@ -383,8 +383,8 @@ func TestMobileUnobservedConnectionPreservesInbox(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			retained := controller.inbox.Notices()
-			if len(retained) != 1 || retained[0].ID != notice.ID || controller.inbox.Unread() != 1 {
+			retained := controller.inbox(protocol.RouteKey{Entry: node, Target: node}).Notices()
+			if len(retained) != 1 || retained[0].ID != notice.ID || controller.inbox(protocol.RouteKey{Entry: node, Target: node}).Unread() != 1 {
 				t.Fatal("an unobserved connection discarded retained Node notices")
 			}
 		})

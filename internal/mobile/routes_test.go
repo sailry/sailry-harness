@@ -1,0 +1,120 @@
+package mobile
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+type routedNoticeTransport struct {
+	noticeTransport
+	entry protocol.NodeID
+}
+
+func (transport routedNoticeTransport) Route() protocol.RouteKey {
+	return protocol.RouteKey{Entry: transport.entry, Target: transport.node}
+}
+
+func TestMobileRouteMetadataKeepsEntryAndTargetSeparate(t *testing.T) {
+	entry := link.EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{json.RawMessage(`{"Ip":"127.0.0.1:4321"}`)}}
+	target := link.EndpointAddress{ID: protocol.NodeID{2}, Addrs: []json.RawMessage{}}
+	encoded, err := routedPeerMetadata(entry, target, link.PeerRelationship{ID: target.ID, Sources: []protocol.NodeID{entry.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := decodePeerRoute(encoded)
+	if err != nil || route.Entry.ID != entry.ID || route.Target.ID != target.ID || len(route.Entry.Addrs) != 1 || len(route.Target.Addrs) != 0 {
+		t.Fatalf("route metadata changed endpoint ownership: %#v %v", route, err)
+	}
+	direct, err := peerAddressMetadata(target, link.PeerRelationship{ID: target.ID, Direct: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directRoute, err := decodePeerRoute(direct)
+	if err != nil || directRoute.Entry.ID != target.ID || directRoute.Target.ID != target.ID {
+		t.Fatalf("direct route was changed: %#v %v", directRoute, err)
+	}
+}
+
+func TestMobileNotificationsRetainSeparateEntryNamespaces(t *testing.T) {
+	owner := &controller{}
+	target, entry := protocol.NodeID{2}, protocol.NodeID{1}
+	direct := protocol.RouteKey{Entry: target, Target: target}
+	via := protocol.RouteKey{Entry: entry, Target: target}
+	notice := client.Notice{
+		ID:   client.NoticeID{Node: target, Cursor: 8, Target: client.NoticeTarget{Kind: "notification", Notification: protocol.NewNotificationID()}},
+		Kind: "notification", NotificationKind: protocol.NotificationKindInfo,
+	}
+	owner.inbox(direct).Merge(target, []client.Notice{notice})
+	owner.inbox(via).Merge(target, []client.Notice{notice})
+	value, err := owner.notifications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Notices []struct {
+			ID struct {
+				Node  protocol.NodeID `json:"node"`
+				Entry protocol.NodeID `json:"entry"`
+			} `json:"id"`
+		} `json:"notices"`
+		Unread int `json:"unread"`
+	}
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Notices) != 2 || result.Unread != 2 || result.Notices[0].ID.Node != target ||
+		result.Notices[1].ID.Node != target || result.Notices[0].ID.Entry == result.Notices[1].ID.Entry {
+		t.Fatalf("entry-specific notifications were merged: %+v", result)
+	}
+}
+
+func TestMobileClosingEntryPreservesIndependentRoute(t *testing.T) {
+	target, entry := protocol.NodeID{2}, protocol.NodeID{1}
+	direct := client.New(noticeTransport{node: target})
+	via := client.New(routedNoticeTransport{noticeTransport: noticeTransport{node: target}, entry: entry})
+	t.Cleanup(func() { _ = direct.Close(); _ = via.Close() })
+	owner := &controller{clients: map[protocol.RouteKey]*client.Client{direct.Route(): direct, via.Route(): via}}
+	owner.closeEntry(entry)
+	if owner.clients[direct.Route()] != direct || owner.clients[via.Route()] != nil {
+		t.Fatal("closing one entry changed an independent route to the same Node")
+	}
+}
+
+type mobileCatalogTransport struct {
+	noticeTransport
+	catalog protocol.ResourceCatalog
+}
+
+func (transport mobileCatalogTransport) Dispatch(_ context.Context, request protocol.Request) (link.Admission, error) {
+	completed := make(chan link.Response, 1)
+	completed <- link.Response{Output: protocol.Output{Kind: "resource_catalog", Data: transport.catalog}}
+	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completed}, nil
+}
+
+func TestMobileCatalogCreatesRoutesWithoutPairingMembers(t *testing.T) {
+	entry, target := protocol.NodeID{1}, protocol.NodeID{2}
+	catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{
+		{Node: entry, Route: protocol.RouteKey{Entry: entry, Target: entry}, Name: "Desktop"},
+		{Node: target, Route: protocol.RouteKey{Entry: entry, Target: target}, Name: "Build host"},
+	}}
+	shared := client.New(mobileCatalogTransport{noticeTransport: noticeTransport{node: entry}, catalog: catalog})
+	t.Cleanup(func() { _ = shared.Close() })
+	value, err := shared.ReadResourceCatalog(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := link.EndpointAddress{ID: entry, Addrs: []json.RawMessage{}}
+	encoded, err := catalogPeerRoutes(address, value)
+	if err != nil || len(encoded) != 1 {
+		t.Fatalf("catalog members were not routed: %v %v", encoded, err)
+	}
+	route, err := decodePeerRoute(encoded[0])
+	if err != nil || route.Entry.ID != entry || route.Target.ID != target {
+		t.Fatalf("catalog route lost its authority: %#v %v", route, err)
+	}
+}

@@ -228,6 +228,43 @@ String address(String id) => jsonEncode({'id': id});
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('same Node has independent direct and entry routes', () async {
+    String routed(String entry, String target) => jsonEncode({
+      'id': target,
+      'entry_address': {'id': entry},
+      'route': {'entry': entry, 'target': target},
+      'relationship': {
+        'direct': entry == target,
+        'sources': [entry],
+      },
+    });
+    final owner = Owner();
+    final channels = <String, Channel>{};
+    owner.connecting = (address) async {
+      final channel = Channel()..subscription.failure = StateError('offline');
+      channels[address] = channel;
+      return channel;
+    };
+    owner.addresses.addAll([
+      routed('a', 'a'),
+      routed('a', 'b'),
+      routed('b', 'b'),
+    ]);
+    final session = AppSession.test(controller: owner);
+    await session.refreshHosts();
+    final via = session.host('a/b')!;
+    final direct = session.host('b')!;
+    expect(via.nodeId, direct.nodeId);
+    expect(via.entryId, 'a');
+    expect(via.connection, isNot(same(direct.connection)));
+    expect(via.routed, isTrue);
+    await session.removeHost(session.host('a')!);
+    expect(session.host('a/b'), isNull);
+    expect(session.host('b'), same(direct));
+    expect(channels[direct.address]!.closes, 0);
+    await session.close();
+    session.dispose();
+  });
   test(
     'host provenance follows native records and retains live names',
     () async {

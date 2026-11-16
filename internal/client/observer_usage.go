@@ -162,13 +162,27 @@ func (client *Client) ReadUsage(ctx context.Context, query protocol.UsageQuery) 
 }
 
 type usageSource struct {
-	Node protocol.NodeID `json:"node"`
-	View usageView       `json:"view"`
+	Node  protocol.NodeID `json:"node"`
+	Entry protocol.NodeID `json:"entry"`
+	View  usageView       `json:"view"`
 }
 
 type usageScopedGroup struct {
 	Node  protocol.NodeID     `json:"node"`
+	Entry protocol.NodeID     `json:"entry"`
 	Group protocol.UsageGroup `json:"group"`
+}
+
+type usageRequestData protocol.UsageRequest
+
+type usageScopedRequest struct {
+	usageRequestData
+	Entry protocol.NodeID `json:"entry"`
+}
+
+type usageScopedPage struct {
+	Items   []usageScopedRequest `json:"items"`
+	HasMore bool                 `json:"has_more"`
 }
 
 type usageSummary struct {
@@ -176,7 +190,7 @@ type usageSummary struct {
 	Days     []protocol.UsagePoint `json:"days"`
 	Recent   []protocol.UsagePoint `json:"recent"`
 	Groups   []usageScopedGroup    `json:"groups"`
-	Requests protocol.UsagePage    `json:"requests"`
+	Requests usageScopedPage       `json:"requests"`
 }
 
 type usageOverview struct {
@@ -191,20 +205,20 @@ func WatchOverview(ctx context.Context, clients []*Client, argument json.RawMess
 	if json.Unmarshal(argument, &query) != nil {
 		return nil, fault(protocol.ErrorCodeInvalidRequest, "invalid usage query")
 	}
-	unique := map[protocol.NodeID]*Client{}
+	unique := map[protocol.RouteKey]*Client{}
 	for _, client := range clients {
-		unique[client.Target()] = client
+		unique[client.Route()] = client
 	}
 	if len(unique) == 0 {
 		return nil, fault(protocol.ErrorCodeInvalidRequest, "usage overview requires an execution Node")
 	}
 	observer := newObserver(ctx)
-	sources := map[protocol.NodeID]usageView{}
+	sources := map[protocol.RouteKey]usageView{}
 	children := make([]*Observer, 0, len(unique))
-	for node := range unique {
-		sources[node] = usageView{}
+	for route := range unique {
+		sources[route] = usageView{}
 	}
-	for node, client := range unique {
+	for route, client := range unique {
 		child := client.watchUsageView(observer.ctx, query)
 		children = append(children, child)
 		observer.run(func() {
@@ -220,7 +234,7 @@ func WatchOverview(ctx context.Context, clients []*Client, argument json.RawMess
 					return
 				}
 				observer.mu.Lock()
-				sources[node] = value
+				sources[route] = value
 				observer.mu.Unlock()
 				observer.notify()
 			}
@@ -235,11 +249,16 @@ func WatchOverview(ctx context.Context, clients []*Client, argument json.RawMess
 		observer.mu.Lock()
 		defer observer.mu.Unlock()
 		value := usageOverview{Sources: make([]usageSource, 0, len(sources)), Complete: true}
-		for node, source := range sources {
-			value.Sources = append(value.Sources, usageSource{Node: node, View: copyValue(source)})
+		for route, source := range sources {
+			value.Sources = append(value.Sources, usageSource{Node: route.Target, Entry: route.Entry, View: copyValue(source)})
 			value.Complete = value.Complete && source.Connected && !source.Refreshing && source.Error == nil && source.Report != nil
 		}
-		slices.SortFunc(value.Sources, func(left, right usageSource) int { return bytes.Compare(left.Node[:], right.Node[:]) })
+		slices.SortFunc(value.Sources, func(left, right usageSource) int {
+			if order := bytes.Compare(left.Entry[:], right.Entry[:]); order != 0 {
+				return order
+			}
+			return bytes.Compare(left.Node[:], right.Node[:])
+		})
 		summary, err := summarizeUsage(value.Sources)
 		value.Summary, value.Error = summary, observerFault(err)
 		value.Complete = value.Complete && err == nil
@@ -261,9 +280,13 @@ func WatchOverview(ctx context.Context, clients []*Client, argument json.RawMess
 }
 
 func summarizeUsage(sources []usageSource) (*usageSummary, error) {
-	value := &usageSummary{Groups: []usageScopedGroup{}, Requests: protocol.DefaultUsagePage()}
+	value := &usageSummary{Groups: []usageScopedGroup{}, Requests: usageScopedPage{Items: []usageScopedRequest{}}}
 	days, recent := map[int64]protocol.UsagePoint{}, map[int64]protocol.UsagePoint{}
-	requests := map[protocol.UsagePosition]protocol.UsageRequest{}
+	type requestKey struct {
+		entry    protocol.NodeID
+		position protocol.UsagePosition
+	}
+	requests := map[requestKey]usageScopedRequest{}
 	available := false
 	for _, source := range sources {
 		report := source.View.Report
@@ -276,7 +299,7 @@ func summarizeUsage(sources []usageSource) (*usageSummary, error) {
 			return nil, err
 		}
 		for _, request := range report.Requests.Items {
-			requests[request.Position] = request
+			requests[requestKey{entry: source.Entry, position: request.Position}] = usageScopedRequest{usageRequestData: usageRequestData(request), Entry: source.Entry}
 		}
 		for index, points := range [][]protocol.UsagePoint{report.Days, report.Recent} {
 			target := days
@@ -303,7 +326,7 @@ func summarizeUsage(sources []usageSource) (*usageSummary, error) {
 			}
 		}
 		for _, group := range report.Groups {
-			value.Groups = append(value.Groups, usageScopedGroup{Node: source.Node, Group: group})
+			value.Groups = append(value.Groups, usageScopedGroup{Node: source.Node, Entry: source.Entry, Group: group})
 		}
 	}
 	if !available {
@@ -321,8 +344,11 @@ func summarizeUsage(sources []usageSource) (*usageSummary, error) {
 	for _, request := range requests {
 		value.Requests.Items = append(value.Requests.Items, request)
 	}
-	slices.SortFunc(value.Requests.Items, func(left, right protocol.UsageRequest) int {
-		return -compareUsagePosition(left.Position, right.Position)
+	slices.SortFunc(value.Requests.Items, func(left, right usageScopedRequest) int {
+		if position := compareUsagePosition(left.Position, right.Position); position != 0 {
+			return -position
+		}
+		return bytes.Compare(left.Entry[:], right.Entry[:])
 	})
 	if len(value.Requests.Items) > 20 {
 		value.Requests.Items = value.Requests.Items[:20]

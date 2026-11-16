@@ -23,6 +23,12 @@ typedef CommandHandler =
       Map<String, dynamic>? data,
     );
 
+String _addressRouteKey(Map<String, dynamic> address) {
+  final target = text(address['id']);
+  final entry = text(object(address['route'])['entry'], target);
+  return entry == target ? target : '$entry/$target';
+}
+
 /// Presentation lifetime only. Client and Link own trust and projections.
 class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   AppSession()
@@ -305,7 +311,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
               if (_closed || controller != owner) return;
               final ids = <String>{};
               for (final address in addresses) {
-                final id = text(object(jsonDecode(address))['id']);
+                final id = _addressRouteKey(object(jsonDecode(address)));
                 if (id.isEmpty) {
                   throw const FormatException('endpoint has no identity');
                 }
@@ -339,7 +345,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       throw StateError('controller is closed');
     }
     final decoded = object(jsonDecode(address));
-    final id = text(decoded['id']);
+    final id = _addressRouteKey(decoded);
     if (id.isEmpty) throw const FormatException('endpoint has no identity');
     final existing = host(id);
     if (existing != null) {
@@ -423,6 +429,13 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       await owner!.forget(address: target.address);
     }
     if (_closed || controller != owner || host(target.id) != target) return;
+    if (!target.routed) {
+      for (final child in List.of(_hosts)) {
+        if (child.routed && child.entryId == target.nodeId) {
+          await _remove(child, owner, forget: false);
+        }
+      }
+    }
     target.removeListener(_changed);
     _hosts.remove(target);
     if (_selected == target.id) {
@@ -574,6 +587,9 @@ class HostConnection extends ChangeNotifier {
 
   final String id;
   final String address;
+  String get nodeId => id.split('/').last;
+  String get entryId => id.split('/').first;
+  bool get routed => entryId != nodeId;
   final Connection? _connection;
   bool get isDemo => _connection is DemoConnection;
   CommandHandler? _handler;
@@ -615,7 +631,9 @@ class HostConnection extends ChangeNotifier {
     if (direct || sources.isEmpty) return translate('hostOriginDirect');
     final names = sources
         .map((source) {
-          final known = hosts.where((host) => host.id == source).firstOrNull;
+          final known = hosts
+              .where((host) => host.nodeId == source && !host.routed)
+              .firstOrNull;
           return known?.label ??
               (source.length > 12 ? source.substring(0, 12) : source);
         })

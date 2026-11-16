@@ -23,8 +23,10 @@ Node ── agent loop + resource services ── models / files / Git / PTY / S
 Node owns execution, configuration, credentials and durable conversation history.
 Link authenticates peers and transports requests and observations. Client reduces
 those observations into ordered controller state. MyGo and Flutter own view state.
-Mobile connects directly to a Node; Desktop is not its gateway. A controller
-disconnect does not stop admitted work.
+Mobile selects an entry Node and uses its resource directory. A Desktop entry
+can relay its own mobile shell to directly connected hosts, preserving the
+entry and target as separate identities. A controller disconnect does not stop
+admitted work.
 
 Official plugins and themes are separate repositories, pinned by the `plugins/`
 and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
@@ -537,37 +539,27 @@ records.
 
 ## Pairing and operations
 
-Each Node records local users independently of device identities. The local user
-is an administrator; existing paired devices migrate into that user without
-losing access. The sharer chooses another user or my device before issuing an
-invitation. Another user creates a separate group for an unknown inbound device;
-my device joins the sharer's group. Repeat pairing preserves existing membership.
-The first separate paired user also becomes an administrator. Node resolves each
-authenticated caller to this local principal before resource and configuration
-access. Device revocation preserves data; removing a user's last inbound device
-requires explicit confirmation and leaves an orphan an administrator may assign.
+Each Node records users independently of device identities. Pairing and the
+authenticated hello report whether the peer hosts a Node. A mobile shell uses
+the entry's local user; a remote Node retains a separate user whose controller
+is that peer. Existing pairings are classified on authenticated reconnection.
+Classification preserves captured task owners, stored history and resource
+ownership. Invitations do not select a user group or trigger a merge.
 
-A source sponsors its own explicit my-devices on directly paired outbound hosts.
-An unknown device can join the sponsor's group; a device already in another group
-gets a pending proposal and must confirm after its own controller verifies its
-authenticated my-device relationship with that source. Confirmation merges the
-whole original group, devices and owned resources in one transaction. Target
-personal conflicts win, source originals remain archived, and immutable admitted
-plugin settings retain their original storage principal. The local administrator
-flag can move to the surviving group; legacy singleton and search namespaces keep
-their original owner rather than following that flag.
+The resource catalog contains the entry itself and its directly connected hosts.
+Mobile retains `{Entry, Target}` for clients, projections, notifications and
+recovery. A directory member never creates another trusted peer or a recursive
+directory import. Commands, subscriptions and byte streams traverse the entry
+with the original request identity and actual resource target; each hop negotiates
+its own compression and retains frame boundaries and stream half-closes.
 
-The source directory contains itself and directly paired outbound hosts, with
-their last authenticated display names. Link retains those names with peer
-metadata so an introduced offline host can be identified before it connects. A
-verified my-device controller imports those hosts as direct outbound connections,
-deduplicated by endpoint identity. Direct pairs and other-source origins survive
-source removal; explicit local removals are not undone by refresh. Source
-revisions discard stale directory replies. Durable sponsorship and revocation
-deliveries retain exact request IDs across offline recovery, and membership
-generations prevent delayed grants or revocations restoring removed access.
-Directories and sponsorship do not propagate another inbound user's namespace
-through a Node's single Link identity, and they do not form a mesh.
+Execution Nodes use the limited resource channel to reach their captured
+controller's knowledge view. The controller can serve locally or forward once
+to a directly connected storage Node. Forwarded storage calls explicitly select
+local handling and use the authenticated controller's user. The channel carries
+knowledge operations and bound recovery requests, never arbitrary reverse
+commands. Historical sponsorship records remain readable but are not replayed
+or used to grant new access.
 
 Removing an outbound host first attempts remote self-revocation, then removes
 local trust even when the host is unavailable. The controller peer store or

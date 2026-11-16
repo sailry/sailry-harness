@@ -143,7 +143,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 	if model.Sharing() {
 		draft := model.ConnectionDraft()
 		selected, err := r.connectionSelection(draft)
-		key := encoded(selected) + ":" + string(draft.Invitation)
+		key := encoded(selected)
 		if err != nil {
 			key = draft.Address
 		}

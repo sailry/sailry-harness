@@ -10,18 +10,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type shareRequest struct {
-	Version uint8                   `json:"version"`
-	Command string                  `json:"command"`
-	Origin  string                  `json:"origin"`
-	Kind    protocol.InvitationKind `json:"kind,omitempty"`
-	User    *protocol.UserID        `json:"user,omitempty"`
+	Version uint8  `json:"version"`
+	Command string `json:"command"`
+	Origin  string `json:"origin"`
 }
 
 type shareResponse struct {
@@ -36,37 +33,7 @@ func serveShare(ctx context.Context, line []byte, writer io.Writer, endpoint *li
 	if len(line) > 8192 || protocol.DecodeObject(line, &request, []string{"version", "command", "origin"}, true) != nil || request.Version != 1 || request.Command != "share" {
 		return errors.New("unsupported Host share request")
 	}
-	if request.Kind == "" {
-		request.Kind = protocol.InvitationOtherUser
-	}
-	if !request.Kind.Valid() || request.User != nil && request.Kind != protocol.InvitationMyDevice {
-		return errors.New("invalid Host invitation scope")
-	}
-	if request.User != nil {
-		controller := client.New(transport)
-		defer controller.Close()
-		output, err := controller.Do(ctx, protocol.Command{Kind: "identity", Data: protocol.IdentityCommand{Kind: "read_identity"}})
-		if err != nil {
-			return err
-		}
-		state, ok := output.Data.(*protocol.IdentityState)
-		if value, valueOK := output.Data.(protocol.IdentityState); valueOK {
-			state, ok = &value, true
-		}
-		if !ok || state == nil || output.Kind != "identity_state" || !state.User.Administrator {
-			return errors.New("administrator access is required")
-		}
-		active := false
-		for _, user := range state.Users {
-			if user.ID == *request.User && user.State == "active" {
-				active = true
-			}
-		}
-		if !active {
-			return errors.New("invitation user is unavailable")
-		}
-	}
-	session, err := endpoint.ShareFor(ctx, request.Origin, link.InvitationScope{Kind: request.Kind, User: request.User})
+	session, err := endpoint.Share(ctx, request.Origin)
 	if err != nil {
 		return err
 	}
@@ -91,13 +58,11 @@ func serveShare(ctx context.Context, line []byte, writer io.Writer, endpoint *li
 
 func RunShare(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	profile, origin := "", link.DefaultPairingService
-	kind := protocol.InvitationOtherUser
-	var user *protocol.UserID
 	seen := map[string]bool{}
 	for index := 0; index < len(args); index++ {
 		flag := args[index]
-		if seen[flag] || flag != "--data-dir" && flag != "--pairing-service" && flag != "--kind" && flag != "--user" || index+1 == len(args) {
-			return errors.New("Usage: sailry-host share [--data-dir <profile>] [--pairing-service <HTTPS origin>] [--kind other_user|my_device] [--user <user id>]")
+		if seen[flag] || flag != "--data-dir" && flag != "--pairing-service" || index+1 == len(args) {
+			return errors.New("Usage: sailry-host share [--data-dir <profile>] [--pairing-service <HTTPS origin>]")
 		}
 		seen[flag] = true
 		index++
@@ -108,18 +73,7 @@ func RunShare(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			}
 		} else if flag == "--pairing-service" {
 			origin = args[index]
-		} else if flag == "--kind" {
-			kind = protocol.InvitationKind(args[index])
-		} else {
-			id, err := protocol.ParseUserID(args[index])
-			if err != nil {
-				return err
-			}
-			user = &id
 		}
-	}
-	if !kind.Valid() || user != nil && kind != protocol.InvitationMyDevice {
-		return errors.New("invalid invitation kind or user")
 	}
 	if err := validateOrigin(origin); err != nil {
 		return err
@@ -138,7 +92,7 @@ func RunShare(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	defer connection.Close()
 	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
 	defer stop()
-	if err := writeLine(connection, shareRequest{Version: 1, Command: "share", Origin: origin, Kind: kind, User: user}, 8192); err != nil {
+	if err := writeLine(connection, shareRequest{Version: 1, Command: "share", Origin: origin}, 8192); err != nil {
 		return err
 	}
 	reader := bufio.NewReader(connection)

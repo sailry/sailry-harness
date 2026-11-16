@@ -177,9 +177,6 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID(), owner: node}, Name: name,
 	})
 	if err == nil {
-		err = node.startIdentitySync()
-	}
-	if err == nil {
 		err = node.StartConfigurationFollow()
 	}
 	return err

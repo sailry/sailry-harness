@@ -44,20 +44,8 @@ func ExecuteIdentityCommand(ctx context.Context, db *sql.Conn, node, caller prot
 		return protocol.Output{}, nil, err
 	}
 	switch action.Kind {
-	case "sponsor_device":
-		value, err := identityPayload[protocol.SponsorDevice](action.Data)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		result, err := SponsorIdentityDevice(ctx, db, node, caller, request.ID, value)
-		return protocol.Output{Kind: "device_sponsorship", Data: result}, nil, err
-	case "confirm_sponsorship":
-		value, err := identityPayload[protocol.ConfirmSponsorship](action.Data)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		result, err := ConfirmIdentitySponsorship(ctx, db, node, caller, value)
-		return protocol.Output{Kind: "device_sponsorship", Data: result}, nil, err
+	case "sponsor_device", "confirm_sponsorship", "assign_orphan_user", "set_user_administrator":
+		return protocol.Output{}, nil, invalid("legacy identity mutation is no longer supported")
 	case "revoke_device":
 		value, err := identityPayload[protocol.RevokeDevice](action.Data)
 		if err != nil {
@@ -65,20 +53,6 @@ func ExecuteIdentityCommand(ctx context.Context, db *sql.Conn, node, caller prot
 		}
 		err = RevokeIdentityDevice(ctx, db, node, caller, value)
 		return protocol.Output{Kind: "device_revoked", Data: protocol.DeviceRevoked{Device: value.Device}}, nil, err
-	case "set_user_administrator":
-		value, err := identityPayload[protocol.UserAdministrator](action.Data)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		result, err := SetIdentityAdministrator(ctx, db, node, caller, value)
-		return protocol.Output{Kind: "user_changed", Data: result}, nil, err
-	case "assign_orphan_user":
-		value, err := identityPayload[protocol.AssignOrphanUser](action.Data)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		result, err := AssignIdentityOrphan(ctx, db, node, caller, value)
-		return protocol.Output{Kind: "user_changed", Data: result}, nil, err
 	}
 	return protocol.Output{}, nil, invalid("unsupported identity mutation")
 }

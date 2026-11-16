@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -14,13 +13,12 @@ import (
 )
 
 type controller struct {
-	endpoint       *link.Link
-	claim          link.PairingClaim
-	inbox          client.Inbox
-	mu             sync.Mutex
-	clients        map[protocol.NodeID]*client.Client
-	identityCancel context.CancelFunc
-	identityDone   chan struct{}
+	endpoint    *link.Link
+	claim       link.PairingClaim
+	mu          sync.Mutex
+	clients     map[protocol.RouteKey]*client.Client
+	inboxes     map[protocol.RouteKey]*client.Inbox
+	directories map[protocol.NodeID][]string
 }
 
 type input struct {
@@ -76,8 +74,7 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 			cancel()
 			return nil, err
 		}
-		owner := &controller{endpoint: endpoint, clients: map[protocol.NodeID]*client.Client{}}
-		owner.startIdentitySync(lifetime)
+		owner := &controller{endpoint: endpoint, clients: map[protocol.RouteKey]*client.Client{}}
 		return runtime.add(0, "controller", owner, lifetime, cancel)
 	case "new":
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
@@ -121,56 +118,42 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		}
 		return encode(address)
 	case "peers":
-		peers, err := owner.endpoint.Peers(ctx)
-		if err != nil {
-			return nil, err
-		}
-		relationships, err := owner.endpoint.Relationships(ctx)
-		if err != nil {
-			return nil, err
-		}
-		metadata := map[protocol.NodeID]link.PeerRelationship{}
-		for _, relationship := range relationships {
-			metadata[relationship.ID] = relationship
-		}
-		result := make([]string, 0, len(peers))
-		for _, peer := range peers {
-			encoded, err := peerAddressMetadata(peer, metadata[peer.ID])
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, encoded)
-		}
-		return result, nil
+		return owner.peers(ctx)
 	case "forget":
-		var address link.EndpointAddress
-		if err := json.Unmarshal([]byte(values.Address), &address); err != nil {
-			return nil, invalid("invalid peer address")
+		route, err := decodePeerRoute(values.Address)
+		if err != nil {
+			return nil, err
 		}
-		_, err := client.RemoveHost(ctx, owner.endpoint, address, func(local context.Context) error { return owner.endpoint.SetTrust(local, address.ID, false) })
+		if route.Target.ID != route.Entry.ID {
+			return nil, invalid("remove the entry Node to close its resource routes")
+		}
+		_, err = client.RemoveHost(ctx, owner.endpoint, route.Entry, func(local context.Context) error { return owner.endpoint.SetTrust(local, route.Entry.ID, false) })
+		if err == nil {
+			owner.closeEntry(route.Entry.ID)
+		}
 		return nil, err
 	case "network_changed":
 		return nil, owner.endpoint.NetworkChanged(ctx)
 	case "connect":
-		var address link.EndpointAddress
-		if err := json.Unmarshal([]byte(values.Address), &address); err != nil {
-			return nil, invalid("invalid peer address")
+		route, err := decodePeerRoute(values.Address)
+		if err != nil {
+			return nil, err
 		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, handle)
 		detach()
-		shared := client.New(owner.endpoint.Remote(address))
+		shared := client.New(owner.endpoint.Via(route.Entry, route.Target.ID))
 		connection := &connection{client: shared, controller: owner}
 		// Registered first: closing the connection, also when it cannot be
 		// added, removes exactly this Client again.
 		owner.mu.Lock()
-		owner.clients[address.ID] = shared
+		if owner.clients == nil {
+			owner.clients = map[protocol.RouteKey]*client.Client{}
+		}
+		owner.clients[shared.Route()] = shared
 		owner.mu.Unlock()
 		return runtime.add(handle, "connection", connection, lifetime, cancel)
 	case "notifications":
-		return encode(struct {
-			Notices []client.Notice `json:"notices"`
-			Unread  int             `json:"unread"`
-		}{Notices: owner.inbox.Notices(), Unread: owner.inbox.Unread()})
+		return owner.notifications()
 	case "watch_usage":
 		if len(values.Addresses) == 0 {
 			return nil, invalid("usage overview requires an execution Node")
@@ -178,13 +161,13 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		lifetime, cancel, detach := runtime.lifetime(ctx, handle)
 		clients := make([]*client.Client, 0, len(values.Addresses))
 		for _, encoded := range values.Addresses {
-			var address link.EndpointAddress
-			if err := json.Unmarshal([]byte(encoded), &address); err != nil {
+			route, err := decodePeerRoute(encoded)
+			if err != nil {
 				detach()
 				cancel()
-				return nil, invalid("invalid peer address")
+				return nil, err
 			}
-			clients = append(clients, client.New(owner.endpoint.Remote(address)))
+			clients = append(clients, client.New(owner.endpoint.Via(route.Entry, route.Target.ID)))
 		}
 		observer, err := client.WatchOverview(lifetime, clients, json.RawMessage(values.Query))
 		detach()
@@ -200,10 +183,13 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 	return nil, invalid("unknown controller operation")
 }
 
-// Routing remains the ordinary Link address. The optional relationship member
-// is local controller metadata for presentation; it never grants peer trust.
+// Metadata preserves the actual resource identity and the authenticated entry.
 func peerAddressMetadata(address link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
-	body, err := json.Marshal(address)
+	return routedPeerMetadata(address, address, relationship)
+}
+
+func routedPeerMetadata(entry, target link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
+	body, err := json.Marshal(target)
 	if err != nil {
 		return "", err
 	}
@@ -216,54 +202,21 @@ func peerAddressMetadata(address link.EndpointAddress, relationship link.PeerRel
 		sources = append(sources, source.String())
 	}
 	value["relationship"] = map[string]any{"direct": relationship.Direct, "sources": sources, "name": relationship.Name}
+	value["entry_address"] = entry
+	value["route"] = map[string]string{"entry": entry.ID.String(), "target": target.ID.String()}
 	return encode(value)
 }
 
 func (owner *controller) close() error {
-	if owner.identityCancel != nil {
-		owner.identityCancel()
-		<-owner.identityDone
-	}
 	owner.mu.Lock()
 	clients := make([]*client.Client, 0, len(owner.clients))
 	for _, shared := range owner.clients {
 		clients = append(clients, shared)
 	}
-	owner.clients = map[protocol.NodeID]*client.Client{}
+	owner.clients = map[protocol.RouteKey]*client.Client{}
 	owner.mu.Unlock()
 	for _, shared := range clients {
 		_ = shared.Close()
 	}
 	return owner.endpoint.Close()
-}
-
-func (owner *controller) startIdentitySync(ctx context.Context) {
-	ctx, owner.identityCancel = context.WithCancel(ctx)
-	owner.identityDone = make(chan struct{})
-	go func() {
-		defer close(owner.identityDone)
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			addresses, err := owner.endpoint.Peers(ctx)
-			if err == nil {
-				for _, address := range addresses {
-					if ctx.Err() != nil {
-						return
-					}
-					if !owner.endpoint.Direction(address.ID).AllowsOutbound() {
-						continue
-					}
-					remote := client.New(owner.endpoint.Remote(address))
-					_ = client.SyncIdentity(ctx, owner.endpoint, remote)
-					_ = remote.Close()
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
 }

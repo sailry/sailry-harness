@@ -129,13 +129,15 @@ class _HostListState extends State<_HostList> {
               Navigator.pop(context);
               widget.session.selectHost(host.id);
             },
-            trailing: IconButton(
-              tooltip: context.tr('hostRemove'),
-              onPressed: _removing.contains(host.id)
-                  ? null
-                  : () => _remove(host),
-              icon: const AppIcon('trash', size: 18),
-            ),
+            trailing: host.routed
+                ? null
+                : IconButton(
+                    tooltip: context.tr('hostRemove'),
+                    onPressed: _removing.contains(host.id)
+                        ? null
+                        : () => _remove(host),
+                    icon: const AppIcon('trash', size: 18),
+                  ),
           ),
         ],
         const SizedBox(height: 14),

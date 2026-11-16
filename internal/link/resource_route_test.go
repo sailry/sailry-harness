@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
@@ -107,7 +108,7 @@ func TestRelayedRepliesPreserveFramesAndPerHopCompression(t *testing.T) {
 						raw = append(raw[:len(raw)-1], []byte(`,"future_receipt":{"retained":true}}`)...)
 					}
 					rawFrames = append(rawFrames, raw)
-					if err := wire.Write(&upstream, raw, sourceCompressed && frame.Kind != wire.ReplyReceipt); err != nil {
+					if err := wire.Write(&upstream, json.RawMessage(raw), sourceCompressed && frame.Kind != wire.ReplyReceipt); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -196,5 +197,23 @@ func TestRelayOnlyServesOwnShellAndMatchingTarget(t *testing.T) {
 				t.Fatalf("invalid route reached a target: %#v %v", reply, err)
 			}
 		})
+	}
+}
+
+func TestRelayCompletionReadsDoNotExpireWhileIdle(t *testing.T) {
+	service := newFixtureLink(t)
+	timed := false
+	service.timeout = func(ctx context.Context, _ time.Duration) (context.Context, context.CancelFunc) {
+		timed = true
+		return context.WithCancel(ctx)
+	}
+	completed := wire.Reply{Kind: wire.ReplyCompleted, Completed: &wire.Response{Output: &protocol.Output{Kind: "notifications_updated"}}}
+	stream := newFixtureStream(fixtureFrames(t, completed))
+	frame, err := service.readRelayFrame(t.Context(), stream, wire.NewReader(false))
+	if err != nil || len(frame) == 0 {
+		t.Fatalf("completion read failed: %s %v", frame, err)
+	}
+	if timed {
+		t.Fatal("idle completion observation imposed an I/O deadline")
 	}
 }

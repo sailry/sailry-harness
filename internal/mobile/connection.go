@@ -150,7 +150,7 @@ func (owner *connection) close() error {
 	// A closed Client must not stay the peer's Client for notification commands.
 	if owner.controller != nil {
 		owner.controller.mu.Lock()
-		if id := owner.client.Target(); owner.controller.clients[id] == owner.client {
+		if id := owner.client.Route(); owner.controller.clients[id] == owner.client {
 			delete(owner.controller.clients, id)
 		}
 		owner.controller.mu.Unlock()
@@ -180,7 +180,7 @@ func (owner *observation) invoke(ctx context.Context, _ *Runtime, _ uint64, meth
 				return nil, err
 			}
 			if state.Snapshot != nil {
-				owner.connection.controller.inbox.Merge(owner.connection.client.Target(), owner.connection.client.Notices())
+				owner.connection.controller.inbox(owner.connection.client.Route()).Merge(owner.connection.client.Target(), owner.connection.client.Notices())
 			}
 		}
 		return string(view), nil

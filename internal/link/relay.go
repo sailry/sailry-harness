@@ -159,7 +159,9 @@ func (link *Link) relayReplies(ctx context.Context, incoming, outgoing contextSt
 }
 
 func (link *Link) readRelayFrame(ctx context.Context, stream contextStream, reader *wire.Reader) (json.RawMessage, error) {
-	scoped, cancel := link.operation(ctx, true)
+	// A task completion or subscription may legitimately be idle. Match the
+	// direct Remote reader: cancellation bounds observation, not an idle timer.
+	scoped, cancel := link.operation(ctx, false)
 	defer cancel()
 	return reader.Raw(scopedReader{scoped, stream})
 }

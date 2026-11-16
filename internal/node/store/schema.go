@@ -250,6 +250,9 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 			return err
 		}
 	}
+	if err := RetireImportedPeerRoutes(ctx, connection); err != nil {
+		return err
+	}
 	validate := validateStored
 	if definition.state == schemaCurrent {
 		validate = validateStartup

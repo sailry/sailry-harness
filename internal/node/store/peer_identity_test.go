@@ -141,3 +141,56 @@ func TestExistingIndependentUserIsReusedByClassification(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRetireImportedNodePeersPreservesExplicitDirections(t *testing.T) {
+	t.Parallel()
+	_, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		source, imported, direct, inbound, removed := protocol.NodeID{1}, protocol.NodeID{2}, protocol.NodeID{3}, protocol.NodeID{4}, protocol.NodeID{5}
+		for _, peer := range []protocol.NodeID{imported, direct, inbound} {
+			if err := PairLinkPeer(ctx, db, peer, link.DirectionHost); err != nil {
+				return err
+			}
+		}
+		if err := SetLinkDirection(ctx, db, inbound, link.DirectionBoth); err != nil {
+			return err
+		}
+		for _, value := range []link.PeerRelationship{
+			{ID: imported, Sources: []protocol.NodeID{source}},
+			{ID: direct, Direct: true, DirectDirection: link.DirectionHost, Sources: []protocol.NodeID{source}},
+			{ID: inbound, Direct: true, DirectDirection: link.DirectionController, Sources: []protocol.NodeID{source}},
+			{ID: removed, Removed: true, Sources: []protocol.NodeID{source}},
+		} {
+			if err := writeIdentityPeer(ctx, db, value); err != nil {
+				return err
+			}
+		}
+		for range 2 {
+			if err := RetireImportedPeerRoutes(ctx, db); err != nil {
+				return err
+			}
+		}
+		directions, err := LinkDirections(ctx, db)
+		if err != nil {
+			return err
+		}
+		present := map[protocol.NodeID]link.PeerDirection{}
+		for _, value := range directions {
+			present[value.ID] = value.Direction
+		}
+		if present[imported] != "" || present[direct] != link.DirectionHost || present[inbound] != link.DirectionController {
+			return errors.New("retirement changed an explicit pairing or retained imported trust")
+		}
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM identity_peer_origins").Scan(&count); err != nil || count != 4 {
+			return errors.New("retirement discarded provenance or removal records")
+		}
+		if _, err := CallerUser(ctx, db, node, inbound); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
