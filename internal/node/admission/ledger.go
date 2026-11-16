@@ -36,8 +36,8 @@ var settleRetry = time.Second
 // did. The last two are final; nothing changes such a row except Prune, and
 // Resolve for a request that another Node holds too.
 
-// CredentialBody is the ledger identity of a request that carries a secret:
-// its digest, so replay is exact and the secret is never retained.
+// CredentialBody is the ledger identity of a new request that carries a secret:
+// its digest, so replay is exact and the secret is not added to the ledger.
 func CredentialBody(body []byte) []byte {
 	hash := blake3.Sum256(body)
 	return []byte(credentialPrefix + hex.EncodeToString(hash[:]))
@@ -91,7 +91,9 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 	var result sql.NullString
 	err := db.QueryRowContext(ctx, "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2", caller[:], request.ID.String()).Scan(&previous, &status, &result)
 	if err == nil {
-		if !bytes.Equal(previous, body) {
+		// Older versions retained the exact serialized request. Its bytes remain
+		// the replay identity; accepting it does not rewrite the stored record.
+		if !bytes.Equal(previous, body) && !bytes.Equal(previous, encoded) {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}
 		}
 		if status == "completed" {

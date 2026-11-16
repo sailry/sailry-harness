@@ -161,15 +161,6 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 			return err
 		}
 		definition.state = schemaUpdate
-		if !definition.plan.created["requests"] {
-			pending, err := ledgerSecretsPending(ctx, connection)
-			if err != nil {
-				return err
-			}
-			if pending {
-				return incompatibleDatabase(definition.path, "legacy credential-bearing requests cannot be securely rewritten by this Turso version")
-			}
-		}
 		if len(definition.plan.statements) != 0 {
 			return nil
 		}

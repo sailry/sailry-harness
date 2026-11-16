@@ -358,33 +358,43 @@ func TestStartupAddsMissingObjects(t *testing.T) {
 
 func TestStartupPreservesLegacyCredentialRequests(t *testing.T) {
 	t.Parallel()
-	profile, node, storage := schemaFixture(t)
-	request := protocol.NewRequestID()
-	body := []byte(`{"command":{"kind":"put_credential","value":"fixture-secret"}}`)
-	schemaExecute(t, storage.Node, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'completed')", node[:], request.String(), body)
-	if err := storage.Close(); err != nil {
-		t.Fatal(err)
-	}
-	opened, err := Open(t.Context(), profile, node)
-	if opened != nil {
-		_ = opened.Close()
-	}
-	if err == nil || !strings.Contains(err.Error(), "cannot be securely rewritten") {
-		t.Fatalf("legacy credential request: %v", err)
-	}
-	handle, err := OpenHandle(t.Context(), filepath.Join(profile, "storage", "node.turso"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handle.Close()
-	var retained []byte
-	if err := handle.Read(t.Context(), func(db *sql.Conn) error {
-		return db.QueryRowContext(t.Context(), "SELECT body FROM requests WHERE caller=?1 AND id=?2", node[:], request.String()).Scan(&retained)
-	}); err != nil || string(retained) != string(body) {
-		t.Fatalf("legacy request changed: %v", err)
-	}
-	if backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*")); err != nil || len(backups) != 0 {
-		t.Fatalf("refused request created backups: %v, %v", backups, err)
+	for _, additive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("additive=%t", additive), func(t *testing.T) {
+			t.Parallel()
+			profile, node, storage := schemaFixture(t)
+			request := protocol.NewRequestID()
+			body := []byte(`{"command":{"kind":"put_credential","value":"fixture-secret"}}`)
+			schemaExecute(t, storage.Node, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'completed')", node[:], request.String(), body)
+			if additive {
+				schemaExecute(t, storage.Node, "ALTER TABLE node DROP COLUMN storage_generation")
+			}
+			if err := storage.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				opened := reopenSchemaFixture(t, profile, node)
+				var retained []byte
+				var status string
+				if err := opened.Node.Read(t.Context(), func(db *sql.Conn) error {
+					return db.QueryRowContext(t.Context(), "SELECT body,status FROM requests WHERE caller=?1 AND id=?2", node[:], request.String()).Scan(&retained, &status)
+				}); err != nil || string(retained) != string(body) || status != "completed" {
+					t.Fatalf("legacy request was changed during startup: %v", err)
+				}
+				if got := schemaInteger(t, opened.Node, "SELECT storage_generation FROM node WHERE singleton=1"); got != 1 {
+					t.Fatalf("normal additive schema update: generation %d", got)
+				}
+				if err := opened.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantBackups := 0
+			if additive {
+				wantBackups = 1
+			}
+			if backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "*")); err != nil || len(backups) != wantBackups {
+				t.Fatalf("unexpected schema backups: got %d, want %d, %v", len(backups), wantBackups, err)
+			}
+		})
 	}
 }
 

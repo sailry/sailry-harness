@@ -10,9 +10,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
-	"strings"
 
-	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -57,25 +55,6 @@ func matchesUpgradeDefault(table, name string, value []byte) bool {
 const checkpointWatermarkPending = "SELECT coalesce((SELECT max(rowid) FROM file_checkpoints),0)>coalesce((SELECT value FROM counters WHERE namespace='file_checkpoints'),0)"
 
 const missingArtifactKind = "CASE WHEN json_valid(body) THEN json_type(body)='object' AND json_type(body,'$.kind') IS NULL ELSE 0 END"
-
-// rawSecretRequest selects the admissions of secret-bearing commands that an
-// earlier build stored as their serialized request. put_credential left the
-// contract on 2026-11-12; a row an earlier build kept for it still holds a key.
-var rawSecretRequest = func() string {
-	kinds := []string{"'put_credential'"}
-	for _, kind := range protocol.CommandKinds() {
-		if admission.DigestOnly(kind) {
-			kinds = append(kinds, "'"+kind+"'")
-		}
-	}
-	return "CASE WHEN json_valid(CAST(body AS TEXT)) THEN json_extract(CAST(body AS TEXT),'$.command.kind') IN (" + strings.Join(kinds, ",") + ") ELSE 0 END"
-}()
-
-func ledgerSecretsPending(ctx context.Context, connection *sql.Conn) (bool, error) {
-	var pending bool
-	err := connection.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM requests WHERE "+rawSecretRequest+")").Scan(&pending)
-	return pending, err
-}
 
 func upgradesNeeded(ctx context.Context, connection *sql.Conn) (bool, error) {
 	for _, table := range []string{"artifacts", "artifact_revisions"} {
