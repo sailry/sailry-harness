@@ -3,7 +3,9 @@ package files
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -12,6 +14,39 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/shirou/gopsutil/v4/disk"
 )
+
+func TestBrowserHomeFallsBackToHostAccount(t *testing.T) {
+	home := t.TempDir()
+	for _, environment := range []string{"", "relative/home", string([]byte{'/', 0xff})} {
+		t.Run(strconv.Quote(environment), func(t *testing.T) {
+			value, err := browserHome(func() (string, error) {
+				if environment == "" {
+					return "", errors.New("HOME is not defined")
+				}
+				return environment, nil
+			}, func() (*user.User, error) { return &user.User{HomeDir: home}, nil })
+			if err != nil || value != home {
+				t.Fatalf("service home=%q, error=%v", value, err)
+			}
+		})
+	}
+	t.Run("explicit home", func(t *testing.T) {
+		value, err := browserHome(func() (string, error) { return home, nil }, func() (*user.User, error) {
+			t.Fatal("valid environment home should not look up another account")
+			return nil, nil
+		})
+		if err != nil || value != home {
+			t.Fatalf("explicit home=%q, error=%v", value, err)
+		}
+	})
+	t.Run("invalid account home", func(t *testing.T) {
+		if _, err := browserHome(func() (string, error) { return "", nil }, func() (*user.User, error) {
+			return &user.User{HomeDir: "relative"}, nil
+		}); err == nil {
+			t.Fatal("relative account home accepted")
+		}
+	})
+}
 
 // TestBrowseLocations is not parallel: it browses under a home of its own,
 // set in the environment.

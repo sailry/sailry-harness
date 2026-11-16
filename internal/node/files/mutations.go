@@ -3,6 +3,7 @@ package files
 import (
 	"context"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -148,7 +149,7 @@ func BrowserTargets(action protocol.FileBrowserAction) ([]BrowserTarget, error) 
 		return nil, invalid("invalid browser action")
 	}
 	var out []BrowserTarget
-	home, _ := os.UserHomeDir()
+	home, _ := browserHome(os.UserHomeDir, user.Current)
 	home, _ = filepath.EvalSymlinks(home)
 	for _, path := range paths {
 		target, err := browserSplit(path)
