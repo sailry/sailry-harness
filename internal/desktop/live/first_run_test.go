@@ -631,7 +631,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	for _, kind := range sent()[before:] {
 		entry[kind]++
 	}
-	for _, kind := range []string{"read_plugin_view", "scheduled-tasks:list_plugin_keys", "scheduled-tasks:read_project_catalog", "scheduled-tasks:list_plugin_models", "scheduled-tasks:list_teams"} {
+	for _, kind := range []string{"read_plugin_view", "scheduled-tasks:list_plugin_keys", "read_resource_catalog", "scheduled-tasks:list_plugin_models", "scheduled-tasks:list_teams"} {
 		if entry[kind] != 1 {
 			t.Errorf("entering the page sent %s %d times: %q", kind, entry[kind], sent()[before:])
 		}

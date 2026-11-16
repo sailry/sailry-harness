@@ -52,9 +52,15 @@ func TestCommandLogClassification(t *testing.T) {
 	t.Logf("%d commands: %d durable and %d transient recorded as changes, %d traced reads, %d slow reads, %d read-only, %d transfers, %d interactive",
 		len(registered), durable, counts[changing], counts[traced], counts[slow], counts[readOnly], counts[transfer], counts[interactive])
 
-	// A schedule's reads are the one payload-dependent admission.
+	// Payload-dependent reads retain their corresponding observation policy.
 	if class := commandObservation(protocol.Command{Kind: "dispatch", Data: protocol.CommandDispatchPayload{Action: protocol.DispatchCommand{Kind: "list_jobs"}}}); class != readOnly {
 		t.Errorf("a schedule read is observed as %d", class)
+	}
+	if class := commandObservation(protocol.Command{Kind: "call_host_handler", Data: protocol.HostHandlerCall{Handler: "history", ReadOnly: true}}); class != slow {
+		t.Errorf("a host handler read is observed as %d", class)
+	}
+	if class := commandObservation(protocol.Command{Kind: "call_host_handler", Data: protocol.HostHandlerCall{Handler: "save"}}); class != changing {
+		t.Errorf("a host handler mutation is observed as %d", class)
 	}
 	if class := commandObservation(protocol.Command{Kind: "unregistered_command"}); class != changing {
 		t.Errorf("an unknown command is observed as %d, want a full record", class)

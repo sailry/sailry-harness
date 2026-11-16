@@ -49,7 +49,7 @@ var transientCommands = func() map[string]observation {
 		traced:   {"search_skill_catalog", "discover_registry_skill", "read_skill_document"},
 		slow: {
 			"read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn_capture", "read_turn", "read_command_page",
-			"read_tool_output", "read_tool_detail", "read_session", "read_plugin_callback", "call_host_handler", "read_plugin_value", "read_plugin_conversation_value",
+			"read_tool_output", "read_tool_detail", "read_session", "read_plugin_callback", "read_plugin_value", "read_plugin_conversation_value",
 			"list_ssh", "list_databases", "list_plugin_models", "read_model_catalog", "read_model_scores", "read_project_catalog",
 		},
 		transfer: {
@@ -92,6 +92,9 @@ var transientCommands = func() map[string]observation {
 func commandObservation(command protocol.Command) observation {
 	if command.Durable() {
 		return changing
+	}
+	if command.Kind == "call_host_handler" {
+		return slow
 	}
 	if command.Kind == "dispatch" || command.Kind == "identity" || command.Kind == "configuration_follow" {
 		// Its listing and reading actions.
