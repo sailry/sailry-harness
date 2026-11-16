@@ -44,6 +44,13 @@ func TestDraftLocationMenu(t *testing.T) {
 	if state.Host != "remote" || state.project(ctx).Name != "Remote folder" {
 		t.Fatalf("same-ID project was resolved on another host: %+v", state)
 	}
+	ctx.Projects[1].Worktrees = []Worktree{{Branch: "main", Main: true}, {Branch: "feature"}}
+	state.Worktree = "feature"
+	click("Remote folder")
+	click("Remote folder")
+	if state.Worktree != "feature" {
+		t.Fatal("reselecting the current project reset the draft's checkout")
+	}
 }
 
 func TestCapturedLocationCannotChange(t *testing.T) {

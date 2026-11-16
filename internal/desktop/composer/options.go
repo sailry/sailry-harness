@@ -318,6 +318,9 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, form
 		}
 		for _, pr := range ctx.Projects {
 			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project && pr.Host == s.Host).Chosen() {
+				if pr.ID == s.Project && pr.Host == s.Host {
+					return
+				}
 				worktree := ""
 				if len(pr.Worktrees) > 0 {
 					worktree = pr.Worktrees[0].Branch
