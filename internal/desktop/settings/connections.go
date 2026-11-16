@@ -26,21 +26,20 @@ const (
 	ByWSL
 )
 
-// methodLabels are the methods' labels, by Method.
+// methodLabels name SSH authentication methods within the installation flow.
 var methodLabels = []string{"host_pairing_mode", "ssh_password", "ssh_private_key", "ssh_key_file", "ssh_agent_short", "host_wsl"}
 
 // hostOS is the system the methods are offered for.
 var hostOS = runtime.GOOS
 
-// hostMethods are the methods this computer can act on: WSL only on
-// Windows, and the SSH agent only where the Node reaches it through a
-// socket, which Windows' agent does not offer.
-func hostMethods() []Method {
-	offered := []Method{ByPairing, ByPassword, ByPrivateKey, ByKeyFile}
-	if hostOS == "windows" {
-		return append(offered, ByWSL)
+// sshMethods are the authentication methods this Node can use to install a
+// Host. Its agent socket is available on Unix systems.
+func sshMethods() []Method {
+	offered := []Method{ByPassword, ByPrivateKey, ByKeyFile}
+	if hostOS != "windows" {
+		offered = append(offered, ByAgent)
 	}
-	return append(offered, ByAgent)
+	return offered
 }
 
 // SSH is whether the method logs in over SSH.
@@ -89,6 +88,7 @@ type pairing struct {
 	relay                   int // of relayOptions
 	address                 string
 	method                  int // a Method
+	authentication          Method
 	code                    string
 	name, host, port, user  string
 	secret, key, passphrase string
@@ -369,9 +369,8 @@ func relayFields(c *ui.Context, pr *pairing, relays []string, bare bool) {
 	}
 }
 
-// addHost is the network, the method, and the pairing code, the SSH login or
-// the WSL distribution, with Connect or Install. An installation whose
-// outcome is uncertain locks the draft and offers Check status.
+// addHost separates connecting an existing device from installing a Host. Only
+// installation chooses the new Host's network and SSH authentication.
 func addHost(c *ui.Context, m *Model) {
 	pr := &m.pairing
 	if !pr.adding {
@@ -381,29 +380,41 @@ func addHost(c *ui.Context, m *Model) {
 	p := theme.Of(c)
 	title := i18n.T(c, "host_add")
 	locked := m.ConnectionPending || pr.status.Recovery
-	// The title over its hint; the relay network; the method as segments;
-	// the pairing code centered, or the SSH login with host and port on one
-	// row.
 	var tabs float32
 	kit.Dialog(c.Key("add-host"), &pr.adding, func() {
 		ui.Column(c.Key("head")).Gap(4).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
+			hint := "host_pairing_hint"
+			if Method(pr.method) != ByPairing {
+				hint = "host_install_hint"
+			}
+			ui.Text(c, i18n.T(c, hint)).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
-			offered := hostMethods()
-			names := make([]string, len(offered))
-			for index, method := range offered {
-				names[index] = i18n.T(c, methodLabels[method])
+			names := []string{i18n.T(c, "host_pairing_mode"), i18n.T(c, "host_ssh_mode")}
+			if hostOS == "windows" {
+				names = append(names, i18n.T(c, "host_wsl"))
 			}
-			choice := max(slices.Index(offered, Method(pr.method)), 0)
-			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, true)
-			// The tabs keep their labels whole and span the fields: the
-			// dialog widens where they run longer than its width.
+			choice := 0
+			if Method(pr.method).SSH() {
+				choice = 1
+			} else if Method(pr.method) == ByWSL {
+				choice = 2
+			}
 			props := kit.SegmentedProps{Block: true, Natural: true}
 			tabs = kit.SegmentedWidth(c, names, props)
-			kit.Segmented(c, "method", &choice, names, props).Disabled(locked).Label(i18n.T(c, "connection"))
-			pr.method = int(offered[choice])
+			kit.Segmented(c, "mode", &choice, names, props).Disabled(locked).Label(i18n.T(c, "connection"))
+			switch choice {
+			case 0:
+				pr.method = int(ByPairing)
+			case 1:
+				if !pr.authentication.SSH() {
+					pr.authentication = ByPassword
+				}
+				pr.method = int(pr.authentication)
+			case 2:
+				pr.method = int(ByWSL)
+			}
 			switch method := Method(pr.method); {
 			case method == ByPairing:
 				codePanel(c, func() {
@@ -411,8 +422,23 @@ func addHost(c *ui.Context, m *Model) {
 					ui.Text(c, i18n.T(c, "pairing_pin_hint")).FontSize(13).TextColor(p.MutedForeground)
 				})
 			case method == ByWSL:
+				connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, false)
 				wslFields(c, pr, locked)
 			default:
+				connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, locked, false)
+				offered := sshMethods()
+				names := make([]string, len(offered))
+				for index, method := range offered {
+					names[index] = i18n.T(c, methodLabels[method])
+				}
+				choice := max(slices.Index(offered, method), 0)
+				label := i18n.T(c, "ssh_authentication")
+				kit.Field(c, "authentication", label, "", func() {
+					tabs = max(tabs, kit.SegmentedWidth(c, names, props))
+					kit.Segmented(c, "method", &choice, names, props).Disabled(locked).Label(label)
+				})
+				pr.authentication = offered[choice]
+				pr.method = int(pr.authentication)
 				sshFields(c, pr, m, locked)
 				scopeFields(c, pr, locked)
 			}
@@ -569,6 +595,8 @@ func sshFields(c *ui.Context, pr *pairing, m *Model, locked bool) {
 				})
 			})
 		})
+	case ByAgent:
+		ui.Text(c, i18n.T(c, "host_ssh_agent_hint")).FontSize(13).TextColor(p.MutedForeground)
 	}
 	if method := Method(pr.method); method == ByPrivateKey || method == ByKeyFile {
 		label := i18n.T(c, "ssh_passphrase")

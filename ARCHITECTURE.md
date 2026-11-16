@@ -706,6 +706,13 @@ authenticates the endpoint and persists trust. Reconnect reuses that trust. An
 iroh data relay carries encrypted traffic when direct transport is unavailable;
 the pairing service and data relay are distinct services.
 
+A pairing code connects to an already-running Node and follows the relay address
+in its invitation; the claiming device does not choose or change its own relay
+selection. Relay selection belongs to the Node whose address is being published,
+including when a Host generates a code, or to an SSH/WSL installation before its
+new Node starts. SSH installation supports password, private key, key file and,
+where available, the installing Node's SSH agent as authentication methods.
+
 Desktop windows share one Network and its remote Clients. Peer discovery runs on
 changes and periodically. Only compatible execution peers become Node Clients;
 paired controllers remain devices. Node relay changes use revision-checked durable
@@ -714,8 +721,11 @@ commands. Cloudflare and EdgeOne pairing adapters share the ticket-exchange logi
 Host starts with an explicit profile, network configuration and opt-in pairing.
 Add Host installs checksum-verified assets over Node-owned SSH, starts systemd or
 launchd and pairs through a private bootstrap ticket. Windows controllers deploy a
-Linux Host into WSL2. Host's `submit`, `wait`, `share`, `users` and `devices` management commands use
-the running owner's private Unix socket and never create another storage owner.
+Linux Host into WSL2. The installed `sailry` command offers an interactive menu;
+`link` selects the Host's network before publishing a pairing code. `share` remains
+an alias using the current network. Host's `link`, `share`, `submit`, `wait`,
+`users` and `devices` management commands use the running owner's private Unix
+socket and never create another storage owner.
 
 Host metrics use one Node sampler for local and remote reads. macOS disk rates map
 APFS volumes to physical device counters; volumes sharing a physical device share

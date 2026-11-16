@@ -143,10 +143,11 @@ func ReportSharing(ctx context.Context, endpoint *link.Link, origin string, stdo
 
 func reportShare(state link.ShareState, stdout, stderr io.Writer) error {
 	var err error
+	tty := terminal(stdout)
 	switch state.Kind {
 	case "preparing":
 	case "ready":
-		if len(state.Code) != 6 {
+		if len(state.Code) != 6 || state.ExpiresAtMS == 0 {
 			return errors.New("invalid Host pairing PIN")
 		}
 		for _, char := range state.Code {
@@ -154,17 +155,56 @@ func reportShare(state link.ShareState, stdout, stderr io.Writer) error {
 				return errors.New("invalid Host pairing PIN")
 			}
 		}
-		_, err = fmt.Fprintf(stdout, "Pairing PIN: %s (expires at Unix ms %d); keep private\n", state.Code, state.ExpiresAtMS)
+		if state.ExpiresAtMS > uint64(1<<63-1) {
+			return errors.New("invalid Host pairing expiry")
+		}
+		remaining := time.Until(time.UnixMilli(int64(state.ExpiresAtMS))).Round(time.Second)
+		expiry := "expired"
+		if remaining > 0 {
+			expiry = "expires in " + humanDuration(remaining)
+		}
+		terminator := "\n"
+		prefix := ""
+		if tty {
+			prefix, terminator = "\r\033[2K", ""
+		}
+		_, err = fmt.Fprintf(stdout, "%sPairing code: %s (%s; keep private)%s", prefix, state.Code, expiry, terminator)
 	case "retrying":
-		_, err = fmt.Fprintln(stderr, "Pairing service unavailable; retrying")
+		if tty {
+			_, err = io.WriteString(stdout, "\r\033[2KPairing service unavailable; retrying...")
+		} else {
+			_, err = fmt.Fprintln(stderr, "Pairing service unavailable; retrying")
+		}
 	case "paired":
+		if tty {
+			if _, err = io.WriteString(stdout, "\n"); err != nil {
+				return err
+			}
+		}
 		_, err = fmt.Fprintln(stdout, "Pairing complete; sharing stopped")
 	case "closed":
+		if tty {
+			if _, err = io.WriteString(stdout, "\n"); err != nil {
+				return err
+			}
+		}
 		_, err = fmt.Fprintln(stdout, "Pairing closed")
 	default:
 		err = errors.New("invalid Host share state")
 	}
 	return err
+}
+
+func humanDuration(value time.Duration) string {
+	seconds := int64(value.Round(time.Second) / time.Second)
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes, remainder := seconds/60, seconds%60
+	if remainder == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm %ds", minutes, remainder)
 }
 
 func Bootstrap(ctx context.Context, profile string, endpoint *link.Link) error {

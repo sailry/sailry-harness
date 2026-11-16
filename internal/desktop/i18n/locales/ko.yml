@@ -877,6 +877,10 @@ hooks_unknown: 저장 결과가 불확실합니다. 원래 요청을 재시도�
 host_install: 설치 및 연결
 host_pairing_hint: Sailry가 설치된 기기에 연결
 host_pairing_mode: 페어링 코드
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: 인증
 connection: 연결
 knowledge_downloading: 다운로드 중
 knowledge_install: 설치

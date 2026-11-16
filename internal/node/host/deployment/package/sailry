@@ -10,11 +10,11 @@ if test -L "$task_script"; then
   esac
 fi
 task_root="$(cd "$(dirname "$task_script")" && pwd)"
-task_command="${1:-help}"
+task_command="${1:-menu}"
 if test "$#" -gt 0; then shift; fi
 case "$task_command" in
   version) test "$#" = 0; exec "$task_root/sailry-host" --version ;;
-  share|submit|wait)
+  link|share|submit|wait)
     task_profile_given=false
     task_value=false
     for task_argument in "$@"; do
@@ -60,6 +60,17 @@ case "$task_command" in
       esac
     fi
     ;;
-  help|--help|-h) printf 'Usage: sailry <version|start|stop|restart|status|share|submit|wait|update>\n' ;;
+  menu)
+    if test "$#" -gt 0; then
+      exec "$task_root/sailry-host" menu "$@"
+    fi
+    if test -z "${HOME:-}"; then
+      echo 'HOME is unavailable; use --data-dir' >&2
+      exit 1
+    fi
+    exec "$task_root/sailry-host" menu --data-dir "$HOME/.sailry-host"
+    ;;
+  serve) exec "$task_root/sailry-host" serve "$@" ;;
+  help|--help|-h) exec "$task_root/sailry-host" help ;;
   *) echo 'Unknown command; use sailry help' >&2; exit 1 ;;
 esac

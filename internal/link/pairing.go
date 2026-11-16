@@ -255,6 +255,9 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 			return EndpointAddress{}, err
 		}
 	}
+	if err := link.insertAddressRelays(ctx, ticket.Address); err != nil {
+		return EndpointAddress{}, err
+	}
 	scoped, cancel := link.operation(ctx, true)
 	connection, err := link.endpoint.Connect(scoped, ticket.Address, wire.PairALPN)
 	cancel()

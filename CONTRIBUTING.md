@@ -542,7 +542,12 @@ same Node as Desktop and never opens an interactive Agent prompt. Service
 options are `--data-dir`, `--bind`, `--internet`, repeated `--relay`,
 `--pairing-service`, `--bootstrap` and `--telemetry on|off`. Network modes are
 mutually exclusive; the default binds loopback and pairing is opt-in.
-`--version`, `share`, `users`, `devices`, `submit` and `wait` are management commands;
+The installed `sailry` wrapper with no arguments opens a numbered command menu
+on a terminal and prints help when input is redirected. Its `link`, `status`,
+`start`, `stop`, `restart`, `update` and `help` entries manage the installed Host.
+Starting `sailry-host` with service options continues to run the Host in the
+foreground. `--version`, `link`, `share`, `users`, `devices`, `submit` and `wait` are
+management commands;
 `acceptance` is the explicit manual session test runner described above.
 
 ```sh
@@ -553,9 +558,17 @@ go build -o .runtime/sailry-host ./cmd/sailry-host
 ```
 
 The running binary loads its target's iroh library through the shared loader.
-`share --data-dir <profile>` asks the existing owner to publish a private
-six-digit pairing code. Keep PINs, invitation tickets, profile contents and
-private endpoint output out of logs intended for distribution.
+`sailry link --data-dir <profile>` interactively selects one of the running Node's
+network presets or a custom HTTPS relay, saves that selection with a revision
+check, then asks the existing owner to publish a private six-digit pairing code.
+Press Enter to confirm each selection. The scriptable form is
+`sailry link --data-dir <profile> --relay <preset-id|iroh|custom> [--address <HTTPS URL>] [--pairing-service <HTTPS origin>]`.
+`sailry share --data-dir <profile>` remains an alias that publishes a code using
+the current network selection. The code display refreshes in place with its
+remaining lifetime. Pairing from a controller uses the relay route in the Host's
+invitation; it does not change the controller's own network selection. Keep PINs,
+invitation tickets, profile contents and private endpoint output out of logs
+intended for distribution.
 
 Pairing determines the peer's role from its authenticated `has_node` declaration.
 Mobile shells use the entry's local user; peers hosting a Node receive their own

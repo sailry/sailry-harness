@@ -361,13 +361,27 @@ func TestDraftChecks(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		tt.Frame()
-		if tt.HasText(en("host_wsl")) || !tt.HasText(en("ssh_agent_short")) {
-			t.Fatalf("methods off Windows: %q", tt.Texts())
+		if tt.HasText(en("host_wsl")) || !tt.HasText(en("host_pairing_mode")) || tt.HasText(en("pairing_relay_server")) {
+			t.Fatalf("pairing mode or platform options: %q", tt.Texts())
 		}
-		// The agent has no secret; a shared connection names its projects.
+		// Pairing follows the invited Host's route and needs no local network
+		// selection. SSH installation chooses a network and authentication.
+		click(en("host_ssh_mode"))
+		if !tt.HasText(en("pairing_relay_server")) || !tt.HasText(en("ssh_authentication")) {
+			t.Fatalf("SSH installation fields: %q", tt.Texts())
+		}
+		click(en("host_pairing_mode"))
+		if tt.HasText(en("pairing_relay_server")) || !tt.HasText(en("pairing_pin_hint")) {
+			t.Fatalf("returning to pairing mode: %q", tt.Texts())
+		}
+		click(en("host_ssh_mode"))
 		click(en("ssh_agent_short"))
+		// The agent has no secret; a shared connection names its projects.
 		if Method(m.pairing.method) != ByAgent || tt.HasText(en("ssh_passphrase")) {
 			t.Fatalf("agent method %d: %q", m.pairing.method, tt.Texts())
+		}
+		if !tt.HasText(en("host_ssh_agent_hint")) {
+			t.Fatalf("SSH Agent is not explained as local SSH authentication: %q", tt.Texts())
 		}
 		click(en("connection_projects"))
 		shot("connections-add-agent-en")

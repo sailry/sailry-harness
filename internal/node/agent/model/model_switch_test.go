@@ -143,3 +143,122 @@ func TestModelSwitchPreservesCanonicalHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordedSessionSwitchesAcrossAnthropicResponsesAndGemini(t *testing.T) {
+	responses := []string{"Sonnet response", "GPT response", "Gemini response"}
+	fixtureResponse := func(name, text string) string {
+		t.Helper()
+		return strings.ReplaceAll(string(fixture(t, name)), "Read complete", text)
+	}
+	server := serverFixture(t,
+		fixtureResponse("anthropic-text.sse", responses[0]),
+		fixtureResponse("responses-text.sse", responses[1]),
+		fixtureResponse("google-text.sse", responses[2]),
+	)
+	session := protocol.NewSessionID()
+	bind := func(api protocol.ConversationModelApi, model string) Binding {
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Enabled = protocol.NewProviderID(), true
+		provider.Api, provider.Authentication, provider.Endpoint = api, protocol.AuthenticationApiKey, server.URL
+		provider.Name = string(api) + " fixture"
+		entry := protocol.DefaultConversationModel()
+		entry.ID, entry.Output, entry.Reasoning = model, 8192, true
+		provider.Models = []protocol.ConversationModel{entry}
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model = provider.ID, model
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
+		config.Effort = protocol.Effort{Kind: "high"}
+		secret := protocol.NewSecret("fixture-key")
+		binding, err := Capture(provider, config, &secret, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return binding
+	}
+	channels := []struct {
+		api   protocol.ConversationModelApi
+		model string
+		path  string
+	}{
+		{protocol.ConversationModelApiAnthropic, "claude-sonnet-5-5", "/v1/messages"},
+		{protocol.ConversationModelApiResponses, "gpt-6.1-sol", "/responses"},
+		{protocol.ConversationModelApiGemini, "gemini-3.8-flash", "/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse"},
+	}
+	message := func(turn protocol.TurnID, role canonical.Role, text string) canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(role, canonical.Text(0, text)), time.Time{})
+	}
+	turns := make([]protocol.TurnID, len(channels))
+	for index := range turns {
+		turns[index] = protocol.NewTurnID()
+	}
+	records := []canonical.Record{message(turns[0], canonical.User, "Read the project status")}
+	bindings := make([]Binding, len(channels))
+	for index, channel := range channels {
+		bindings[index] = bind(channel.api, channel.model)
+	}
+	send := func(binding Binding, turn protocol.TurnID) capturedRequest {
+		t.Helper()
+		before, err := json.Marshal(records)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call, err := BuildCall(binding, Request{System: systemText, Records: records})
+		if err != nil {
+			t.Fatal(err)
+		}
+		language, err := New(t.Context(), binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := collect(t, language, call)
+		var reply strings.Builder
+		finished := false
+		for _, part := range parts {
+			switch part.Type {
+			case fantasy.StreamPartTypeTextDelta:
+				reply.WriteString(part.Delta)
+			case fantasy.StreamPartTypeFinish:
+				finished = true
+			}
+		}
+		if !finished || reply.Len() == 0 {
+			t.Fatal("recorded provider response did not finish with text")
+		}
+		after, err := json.Marshal(records)
+		if err != nil || string(before) != string(after) {
+			t.Fatal("switching channels changed canonical session history")
+		}
+		assistant := message(turn, canonical.Assistant, reply.String())
+		assistant.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Inference: &canonical.Inference{
+			Provider: "sailry:" + binding.Provider.ID.String(), RequestedModel: binding.Config.Model,
+		}}
+		records = append(records, assistant)
+		requests := server.captured()
+		return requests[len(requests)-1]
+	}
+
+	for index, binding := range bindings {
+		if binding.Session != session {
+			t.Fatalf("channel %s replaced the session identity", binding.Provider.Api)
+		}
+		if index > 0 {
+			records = append(records, message(turns[index], canonical.User, "Continue with "+binding.Config.Model))
+		}
+		request := send(binding, turns[index])
+		if request.Path != channels[index].path {
+			t.Errorf("%s route = %q; want %q", binding.Provider.Api, request.Path, channels[index].path)
+		}
+		if binding.Provider.Api != protocol.ConversationModelApiGemini && request.Body["model"] != binding.Config.Model {
+			t.Errorf("%s request model = %v; want %q", binding.Provider.Api, request.Body["model"], binding.Config.Model)
+		}
+		for previous := 0; previous <= index; previous++ {
+			if !strings.Contains(string(request.Raw), responses[previous]) && previous < index {
+				t.Errorf("%s request lost prior %s response %q", binding.Config.Model, channels[previous].api, responses[previous])
+			}
+		}
+	}
+	requests := server.captured()
+	if len(requests) != len(channels) {
+		t.Fatalf("same-session channel switches made %d requests, want %d", len(requests), len(channels))
+	}
+}

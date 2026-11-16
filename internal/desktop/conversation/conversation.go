@@ -575,7 +575,8 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				key := "work-" + key
 				workOpen, chosen := s.work[key]
 				if !chosen {
-					workOpen = active && !s.CompactDisplay
+					// Only a successful final result folds its work by default.
+					workOpen = r.Status != Completed
 				}
 				statusKey := StatusKey(r.Status)
 				if !latest {

@@ -31,38 +31,19 @@ func main() {
 }
 
 func run(args []string) (int, error) {
-	if len(args) == 1 && (args[0] == "--version" || args[0] == "version") {
-		_, err := fmt.Fprintln(os.Stdout, "Sailry Host "+link.ProductVersion)
-		return 0, err
-	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if len(args) > 0 && args[0] == "acceptance" {
-		return runAcceptance(ctx, args[1:], os.Stdout)
-	}
-	if len(args) > 0 && args[0] == "acceptance-cleanup" {
-		return runAcceptance(ctx, append([]string{"--cleanup"}, args[1:]...), os.Stdout)
-	}
-	if len(args) > 0 && args[0] == "follow" {
-		return 0, hostctl.RunFollow(ctx, args[1:], os.Stdout)
-	}
-	if len(args) > 0 && args[0] == "share" {
-		return 0, hostctl.RunShare(ctx, args[1:], os.Stdout, os.Stderr)
-	}
-	if len(args) > 0 && (args[0] == "users" || args[0] == "devices") {
-		return hostctl.RunIdentity(ctx, args, os.Stdout)
-	}
-	if len(args) > 0 && (args[0] == "submit" || args[0] == "wait") {
-		options, help, err := hostctl.ParseTask(args, os.Stdin)
-		if err != nil {
-			return 1, err
-		}
-		if help {
-			_, err := fmt.Fprintln(os.Stdout, hostctl.TaskUsage)
-			return 0, err
-		}
-		return hostctl.RunTask(ctx, options, os.Stdout)
-	}
+	return hostctl.RunCLI(ctx, args, os.Stdin, os.Stdout, os.Stderr, hostctl.CLIHandlers{
+		Service: func(ctx context.Context, args []string) (int, error) {
+			return runService(ctx, args, cancel)
+		},
+		Acceptance: func(ctx context.Context, args []string) (int, error) {
+			return runAcceptance(ctx, args, os.Stdout)
+		},
+	})
+}
+
+func runService(ctx context.Context, args []string, cancel context.CancelFunc) (int, error) {
 	options, help, err := hostctl.ParseService(args)
 	if err != nil {
 		return 1, err

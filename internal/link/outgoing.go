@@ -157,6 +157,10 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 		}
 	}
 	scoped, cancel := link.operation(slotContext, true)
+	if err := link.insertAddressRelays(scoped, target); err != nil {
+		cancel()
+		return nil, false, err
+	}
 	connection, err := link.endpoint.Connect(scoped, target, wire.NodeALPN)
 	cancel()
 	if err != nil {
@@ -233,6 +237,10 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	stopSlot := context.AfterFunc(slot.ctx, cancel)
 	defer func() { stopSlot(); cancel() }()
 	dialing, expire := link.timeoutContext(scoped, ioTimeout)
+	if err := link.insertAddressRelays(dialing, address); err != nil {
+		expire()
+		return err
+	}
 	connection, err := link.endpoint.Connect(dialing, address, wire.NodeALPN)
 	expire()
 	if err != nil {

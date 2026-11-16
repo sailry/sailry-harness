@@ -877,6 +877,10 @@ hooks_unknown: Enregistrement incertain ; réessayez la requête initiale
 host_install: Installer et connecter
 host_pairing_hint: Connecter un appareil Sailry existant
 host_pairing_mode: Code de jumelage
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: Authentification
 connection: Connexion
 knowledge_downloading: Téléchargement
 knowledge_install: Installer

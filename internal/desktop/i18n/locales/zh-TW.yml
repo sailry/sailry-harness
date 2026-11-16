@@ -877,6 +877,10 @@ hooks_unknown: 儲存結果不確定，請重試原請求
 host_install: 安裝並連線
 host_pairing_hint: 連線已安裝 Sailry 的裝置
 host_pairing_mode: 配對碼
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: 認證方式
 connection: 主機管理
 knowledge_downloading: 下載中
 knowledge_install: 安裝

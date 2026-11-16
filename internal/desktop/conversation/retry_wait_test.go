@@ -28,11 +28,9 @@ func TestRetryWaitBudgetShowsDistinctTerminalLabel(t *testing.T) {
 			if !ok {
 				t.Fatal("the failed turn has no work disclosure")
 			}
-			tester.ClickAt(work.Bounds.X+work.Bounds.W/2, work.Bounds.Y+work.Bounds.H/2)
-			tester.Frame()
 			label := i18n.In(language, "chat_model_retry_wait_exhausted")
-			if label == "chat_model_retry_wait_exhausted" || !tester.HasText(label) {
-				t.Fatalf("waiting budget has no translated terminal label: %q", tester.Texts())
+			if label == "chat_model_retry_wait_exhausted" || !tester.HasText(label) || !work.Expanded {
+				t.Fatalf("failed work was folded or the wait budget has no translated terminal label: %q", tester.Texts())
 			}
 			for _, wrong := range []string{
 				i18n.In(language, "chat_model_retry_exhausted"),
@@ -46,6 +44,43 @@ func TestRetryWaitBudgetShowsDistinctTerminalLabel(t *testing.T) {
 			}
 			if retry.Attempt != 2 || retry.Exhausted {
 				t.Fatal("rendering invented exhausted attempts")
+			}
+		})
+	}
+}
+
+func TestWorkRegionFoldsOnlyAfterSuccessfulCompletion(t *testing.T) {
+	for _, row := range []struct {
+		name   string
+		status conversation.RunStatus
+		open   bool
+	}{
+		{"queued", conversation.Queued, true},
+		{"running", conversation.Running, true},
+		{"stopping", conversation.Stopping, true},
+		{"unsynced", conversation.Unsynced, true},
+		{"failed", conversation.Failed, true},
+		{"cancelled", conversation.Cancelled, true},
+		{"interrupted", conversation.Interrupted, true},
+		{"continued", conversation.Continued, true},
+		{"completed", conversation.Completed, false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			state := conversation.New()
+			state.CompactDisplay = true
+			turns := []conversation.Turn{{ID: "turn", User: "Task", Reply: conversation.Reply{Status: row.status, Blocks: []conversation.Block{
+				{Kind: conversation.ToolsBlock, Calls: []conversation.Call{{ID: "command", Name: "command", Label: "Command", Detail: "make check", Code: true}}},
+				{Kind: conversation.TextBlock, Text: "Done"},
+			}}}}
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				ui.Column(c).Fill().Children(func() { conversation.View(c, state, "session", turns, &conversation.Session{}, noActions{}) })
+			}, 800, 500)
+			tester.SetLocale("en")
+			tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+			tester.Frame()
+			if got := tester.HasText("make check"); got != row.open {
+				t.Fatalf("work visible = %v, want %v: %q", got, row.open, tester.Texts())
 			}
 		})
 	}

@@ -877,6 +877,10 @@ hooks_unknown: Speichern ungewiss; ursprüngliche Anfrage erneut versuchen
 host_install: Installieren und verbinden
 host_pairing_hint: Mit einem vorhandenen Sailry-Gerät verbinden
 host_pairing_mode: Kopplungscode
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: Authentifizierung
 connection: Verbindung
 knowledge_downloading: Wird heruntergeladen
 knowledge_install: Installieren

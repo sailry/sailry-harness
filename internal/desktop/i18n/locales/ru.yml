@@ -877,6 +877,10 @@ hooks_unknown: Результат сохранения неизвестен; п�
 host_install: Установка и подключение
 host_pairing_hint: Подключить устройство с Sailry
 host_pairing_mode: Код сопряжения
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: Аутентификация
 connection: Соединение
 knowledge_downloading: Загрузка
 knowledge_install: Установить

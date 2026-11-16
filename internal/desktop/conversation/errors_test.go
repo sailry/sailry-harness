@@ -75,9 +75,6 @@ func TestReplyFailureStaysAboveActionsOutsideWork(t *testing.T) {
 				if got := tester.Clipboard(); got != title+"\ncode: unavailable\n\n"+cause {
 					t.Fatalf("failure Copy changed the original detail: %q", got)
 				}
-				if err := tester.Click(i18n.In(language, "turn_failed")); err != nil {
-					t.Fatal(err)
-				}
 				tester.Frame()
 				if err := tester.Click("Command"); err != nil {
 					t.Fatal(err)

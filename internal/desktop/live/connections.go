@@ -116,7 +116,7 @@ func (r *Runtime) connectionsFrame(c *ui.Context) {
 		}
 	}
 	model.SetConnectionStatus(r.connectionStatus())
-	visible := model.Adding() || model.Sharing()
+	visible := model.Sharing() || model.Adding() && model.ConnectionDraft().Method != settings.ByPairing
 	if visible != state.visible {
 		state.visible = visible
 		if visible {
@@ -283,14 +283,6 @@ func (r *Runtime) addConnection(draft settings.ConnectionDraft, completed func(b
 		completed(false)
 		return
 	}
-	selected, err := r.connectionSelection(draft)
-	if err != nil {
-		r.enqueue(func(c *ui.Context) {
-			kit.Toast(c, kit.Failed, i18n.T(c, "pairing_relay_invalid"))
-			completed(false)
-		})
-		return
-	}
 	ctx, cancel := context.WithCancel(r.ctx)
 	state.pairCancel = cancel
 	state.pairGeneration++
@@ -300,7 +292,9 @@ func (r *Runtime) addConnection(draft settings.ConnectionDraft, completed func(b
 	endpoint := state.endpoint
 	r.async(func() {
 		defer cancel()
-		_, err := endpoint.PairPINOnNetwork(ctx, origin, draft.Code, selected, &state.claim)
+		// The invitation carries the existing Host's route. Selecting a
+		// network belongs to installing or sharing a Host, not claiming it.
+		_, err := endpoint.PairPIN(ctx, origin, draft.Code, &state.claim)
 		r.enqueue(func(c *ui.Context) {
 			if state.pairGeneration != generation {
 				return

@@ -896,6 +896,10 @@ hooks_unknown
 host_install
 host_pairing_hint
 host_pairing_mode
+host_ssh_mode
+host_install_hint
+host_ssh_agent_hint
+ssh_authentication
 connection
 knowledge_downloading
 knowledge_install

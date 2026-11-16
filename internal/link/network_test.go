@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -762,6 +763,23 @@ func TestAddressMergeRetainsSupportedVariants(t *testing.T) {
 				t.Fatalf("relay readiness: %v %v", ready, denied)
 			}
 		})
+	}
+}
+
+func TestAddressRelayURLsForPeerRouting(t *testing.T) {
+	address := EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{
+		json.RawMessage(`{"Relay":"https://N0.example:443"}`),
+		json.RawMessage(`{"Ip":"127.0.0.1:1234"}`),
+		json.RawMessage(`{"Relay":"https://relay.example/"}`),
+		json.RawMessage(`{"Relay":"https://n0.example/"}`),
+		json.RawMessage(`{"Relay":"http://insecure.example"}`),
+		json.RawMessage(`{"Relay":"https://user:secret@example.com"}`),
+		json.RawMessage(`{"Future":"retained"}`),
+	}}
+	got := addressRelayURLs(address)
+	want := []string{"https://n0.example/", "https://relay.example/"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("peer relay routes = %#v, want %#v", got, want)
 	}
 }
 

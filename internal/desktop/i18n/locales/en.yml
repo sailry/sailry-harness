@@ -877,6 +877,10 @@ hooks_unknown: Hook save is uncertain; retry the original request
 host_install: Install and connect
 host_pairing_hint: Connect to an existing Sailry device
 host_pairing_mode: Pairing code
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: Authentication
 connection: Connection
 knowledge_downloading: Downloading
 knowledge_install: Install

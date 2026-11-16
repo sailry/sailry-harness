@@ -877,6 +877,10 @@ hooks_unknown: 保存結果が不明です。元の要求を再試行してく�
 host_install: インストールと接続
 host_pairing_hint: 既存の Sailry デバイスに接続
 host_pairing_mode: ペアリングコード
+host_ssh_mode: Install via SSH
+host_install_hint: Install Sailry on a server and connect
+host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+ssh_authentication: 認証
 connection: コネクション
 knowledge_downloading: ダウンロード中
 knowledge_install: インストール

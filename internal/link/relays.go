@@ -33,26 +33,15 @@ func (link *Link) SelectNetwork(ctx context.Context, selection protocol.NetworkS
 	if err != nil {
 		return err
 	}
-	scoped, cancel := link.operation(ctx, false)
-	defer cancel()
-	link.mu.Lock()
-	if link.relayUpdate == nil {
-		link.relayUpdate = make(chan struct{}, 1)
-		link.relayUpdate <- struct{}{}
+	scoped, release, err := link.acquireRelayUpdate(ctx)
+	if err != nil {
+		return err
 	}
-	update := link.relayUpdate
-	link.mu.Unlock()
-	select {
-	case <-scoped.Done():
-		return linkNetwork(scoped.Err())
-	case <-update:
-	}
-	defer func() { update <- struct{}{} }()
+	defer release()
 	if err := scoped.Err(); err != nil {
 		return linkNetwork(err)
 	}
 	link.mu.RLock()
-	previous := append([]string{}, link.relayURLs...)
 	direct := link.selection == nil
 	link.mu.RUnlock()
 	if direct {
@@ -61,6 +50,9 @@ func (link *Link) SelectNetwork(ctx context.Context, selection protocol.NetworkS
 	apply := func(previous, next []string) error {
 		return link.replaceRelays(context.WithoutCancel(scoped), previous, next)
 	}
+	link.mu.Lock()
+	previous := append([]string{}, link.relayURLs...)
+	link.mu.Unlock()
 	if err := apply(previous, next); err != nil {
 		return errors.Join(err, apply(next, previous))
 	}
@@ -78,6 +70,68 @@ func (link *Link) SelectNetwork(ctx context.Context, selection protocol.NetworkS
 	link.selection, link.relayURLs = &selection, next
 	link.mu.Unlock()
 	return nil
+}
+
+func (link *Link) acquireRelayUpdate(ctx context.Context) (context.Context, func(), error) {
+	scoped, cancel := link.operation(ctx, false)
+	link.mu.Lock()
+	if link.relayUpdate == nil {
+		link.relayUpdate = make(chan struct{}, 1)
+		link.relayUpdate <- struct{}{}
+	}
+	update := link.relayUpdate
+	link.mu.Unlock()
+	select {
+	case <-scoped.Done():
+		err := linkNetwork(scoped.Err())
+		cancel()
+		return nil, nil, err
+	case <-update:
+		return scoped, func() {
+			update <- struct{}{}
+			cancel()
+		}, nil
+	}
+}
+
+// insertAddressRelays makes routes advertised by a paired peer available to
+// this endpoint without changing the local relay selection it advertises.
+// Peer addresses are retained by the existing peer store, so the same routes
+// are restored on the next dial after an endpoint restart.
+func (link *Link) insertAddressRelays(ctx context.Context, address EndpointAddress) error {
+	relays := addressRelayURLs(address)
+	if len(relays) == 0 {
+		return nil
+	}
+	scoped, release, err := link.acquireRelayUpdate(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	for _, relay := range relays {
+		if err := scoped.Err(); err != nil {
+			return linkNetwork(err)
+		}
+		if err := link.endpoint.InsertRelay(scoped, relay); err != nil {
+			return linkNetwork(err)
+		}
+	}
+	return nil
+}
+
+func addressRelayURLs(address EndpointAddress) []string {
+	seen := make(map[string]bool)
+	relays := make([]string, 0, len(address.Addrs))
+	for _, hint := range address.Addrs {
+		relay, ok := relayHint(hint)
+		if !ok || seen[relay] {
+			continue
+		}
+		seen[relay] = true
+		relays = append(relays, relay)
+	}
+	sort.Strings(relays)
+	return relays
 }
 
 func (link *Link) replaceRelays(ctx context.Context, previous, next []string) error {
