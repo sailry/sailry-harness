@@ -380,7 +380,7 @@ func TestSubscriptionCancellationRetainsPartialFrame(t *testing.T) {
 
 func TestProtocolControlsCompatibility(t *testing.T) {
 	t.Parallel()
-	version, old, newer := uint16(protocol.VERSION), uint16(0), uint16(2)
+	version, old, newer := uint16(protocol.VERSION), uint16(0), uint16(protocol.VERSION+1)
 	unknownVersion, otherVersion := "invalid", "999.0.0"
 	if err := checkCompatibility(&version, &unknownVersion, &version, &otherVersion); err != nil {
 		t.Fatalf("product version blocked matching protocol: %v", err)

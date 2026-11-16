@@ -20,6 +20,9 @@ func CheckPluginPlanAction(ctx context.Context, db *sql.Conn, request protocol.R
 	}
 	allowed := action.ReadOnly() || request.Command.Kind == "write_artifact" && action == protocol.PluginActionWriteArtifacts
 	switch request.Command.Kind {
+	case "call_host_handler":
+		input, valid := protocol.HostHandlerPayload(request.Command)
+		allowed = valid && input.ReadOnly
 	case "read_installations", "dismiss_installation", "read_plugin_settings", "list_plugin_models", "guide_turn":
 		allowed = true
 	case "dispatch":

@@ -135,6 +135,12 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	if err != nil || actor.State != "active" {
 		return link.Admission{}, permissionDenied()
 	}
+	if original.Command.Kind == "call_host_handler" {
+		if inbound && call.Request.Target != node.ID() {
+			return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "host handler cannot forward through an execution Node"}
+		}
+		return node.routeHostHandler(store.WithUser(ctx, actor), caller, call)
+	}
 	verified, err := store.WithKnowledgeScope(store.WithUser(ctx, actor), call.Scope)
 	if err != nil {
 		return link.Admission{}, err
@@ -175,6 +181,9 @@ func (node *Node) localResource(ctx context.Context, call protocol.ResourceCall)
 	call.Scope, err = node.captureResourceScope(verified, original)
 	if err != nil {
 		return link.Admission{}, err
+	}
+	if original.Command.Kind == "call_host_handler" {
+		return node.routeHostHandler(verified, node.ID(), call)
 	}
 	return node.routeKnowledge(verified, node.ID(), call, true)
 }
@@ -272,7 +281,10 @@ func resourceFault(err error) *protocol.Fault {
 // readKnowledgeOutcome inspects exactly the target's original request. It does
 // not reissue effects and never interprets remote plugin Turn IDs as local IDs.
 func (node *Node) readKnowledgeOutcome(ctx context.Context, caller protocol.NodeID, call protocol.ResourceCall) (protocol.Output, error) {
-	input := call.Request.Command.Data.(*protocol.CommandInspectRequestPayload)
+	input, valid := dispatchPayload[protocol.CommandInspectRequestPayload](call.Request.Command.Data)
+	if !valid {
+		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid resource inspection"}
+	}
 	var outcome protocol.RequestOutcome
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error

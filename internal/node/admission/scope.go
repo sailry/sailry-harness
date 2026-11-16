@@ -33,6 +33,13 @@ func scopeBody(ctx context.Context, request protocol.Request) []byte {
 	if user, ok := ctx.Value(userKey{}).(protocol.UserID); ok {
 		value.User = &user
 	}
+	if request.Command.Kind == "call_host_handler" {
+		// The handler's origin may be another execution Node. Its typed
+		// resource IDs are provenance, not resources in this ledger.
+		value.Remote = true
+		body, _ := json.Marshal(value)
+		return body
+	}
 	if command, ok := request.Command.Data.(*protocol.CommandCreateSessionAtPayload); ok {
 		value.Remote = command.Target != request.Target
 	}

@@ -10,6 +10,10 @@ import (
 )
 
 func (owner *Host) prepare(ctx context.Context, command protocol.Command) (json.RawMessage, error) {
+	return owner.prepareAt(ctx, owner.target(), command)
+}
+
+func (owner *Host) prepareAt(ctx context.Context, target protocol.NodeID, command protocol.Command) (json.RawMessage, error) {
 	if err := owner.check(ctx); err != nil {
 		return nil, err
 	}
@@ -24,6 +28,10 @@ func (owner *Host) prepare(ctx context.Context, command protocol.Command) (json.
 		return nil, hostUnavailable("plugin Client is unavailable")
 	}
 	request := owner.prepareHostCommand(command)
+	if command.Kind == "call_host_handler" {
+		request = protocol.NewRequest(target, command)
+	}
+
 	scope := owner.scope()
 	request.Plugin = &scope
 	owner.mu.Lock()

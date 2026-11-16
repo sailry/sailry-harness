@@ -83,6 +83,7 @@ export type StatusState = {
   /** Values are at most 4096 UTF-8 bytes; progress is a finite percentage in [0, 100]. */
   details?: {label: {label: string; locales?: Record<string, string>}; value: string; progress?: number | null}[];
 };
+/** Immutable runtime facts include execution_node as 32 unsigned bytes. */
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;
@@ -94,6 +95,9 @@ export function startSession(draft: {
   association?: SessionAssociation | null;
 }): string;
 export function prepareRequest(command: Json): string;
+/** Calls only this package's declared handler; readOnly requires host.read_only.
+ * Retain the original draft ID after an uncertain result. */
+export function prepareHostCall(node: NodeID, handler: string, input: Json, readOnly?: boolean): string;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
 /** A known zero-write key-CAS rejection, excluding caller/configuration fences and uncertainty. */

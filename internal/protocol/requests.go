@@ -7,6 +7,10 @@ func NewRequest(target NodeID, command Command) Request {
 
 // Durable follows the v1 admission classification shared by Node and controllers.
 func (command Command) Durable() bool {
+	if command.Kind == "call_host_handler" {
+		call, ok := HostHandlerPayload(command)
+		return !ok || !call.ReadOnly
+	}
 	if command.Kind == "identity" {
 		switch action := command.Data.(type) {
 		case IdentityCommand:

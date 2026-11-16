@@ -19,6 +19,13 @@ func (owner *Host) knowledgeClient() *client.Client {
 	return owner.binding.Client
 }
 
+func (owner *Host) resourceClient() *client.Client {
+	if owner.binding.Resources != nil {
+		return owner.binding.Resources
+	}
+	return owner.binding.Client
+}
+
 func (owner *Host) prepareHostCommand(command protocol.Command) protocol.Request {
 	if !protocol.KnowledgeCommand(command.Kind) {
 		return owner.binding.Client.Prepare(command)
@@ -29,6 +36,9 @@ func (owner *Host) prepareHostCommand(command protocol.Command) protocol.Request
 }
 
 func (owner *Host) executeHostCommand(ctx context.Context, request protocol.Request) (protocol.Output, error) {
+	if request.Command.Kind == "call_host_handler" {
+		return owner.resourceClient().ExecuteHostCall(ctx, request)
+	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
 		return owner.knowledgeClient().ExecuteKnowledge(ctx, request)
 	}
@@ -36,6 +46,9 @@ func (owner *Host) executeHostCommand(ctx context.Context, request protocol.Requ
 }
 
 func (owner *Host) hostCommandOutcome(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
+	if request.Command.Kind == "call_host_handler" {
+		return owner.resourceClient().HostCallOutcome(ctx, request)
+	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
 		return owner.knowledgeClient().KnowledgeOutcome(ctx, request)
 	}

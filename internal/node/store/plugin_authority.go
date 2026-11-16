@@ -459,7 +459,7 @@ func checkPluginWorktreeManagement(ctx context.Context, db *sql.Conn, request pr
 
 func pluginAction(kind string) (protocol.PluginAction, bool) {
 	switch kind {
-	case "call_plugin", "read_plugin_callback", "cancel_plugin_call", "read_plugin_settings", "read_plugin_connection", "plugin_transaction":
+	case "call_plugin", "call_host_handler", "read_plugin_callback", "cancel_plugin_call", "read_plugin_settings", "read_plugin_connection", "plugin_transaction":
 		return "", true
 	case "save_plugin_settings":
 		return "", true

@@ -50,6 +50,9 @@ export function sendMessage(message, revision, session=scope.session) {
   return prepareRequest({kind:"queue_turn",data:{message,session:session ?? scope.session,expected_revision:revision}});
 }
 export function prepareRequest(command) { return call("prepare", command); }
+export function prepareHostCall(node, handler, input, readOnly=false) {
+  return call("host.prepare", {node,handler,input,read_only:readOnly});
+}
 export function prepareTransaction(operations) {
   return prepareRequest({kind: "plugin_transaction", data: {operations}});
 }

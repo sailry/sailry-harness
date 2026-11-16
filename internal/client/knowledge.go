@@ -47,14 +47,21 @@ func (client *Client) Knowledge(ctx context.Context, ref protocol.KnowledgeRef, 
 // KnowledgeOutcome follows the original entry and target without retrying a
 // mutation under a new identity.
 func (client *Client) KnowledgeOutcome(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
+	if !protocol.KnowledgeCommand(request.Command.Kind) {
+		return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInvalidRequest, "invalid knowledge outcome request")
+	}
+	return client.resourceOutcome(ctx, request)
+}
+
+func (client *Client) resourceOutcome(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
 	if request.Target == client.Target() {
 		return client.Outcome(ctx, request)
 	}
 	if local, ok := client.transport.(interface {
 		LocalResource(context.Context, protocol.ResourceCall) (link.Admission, error)
 	}); ok {
-		if request.Version != protocol.VERSION || !request.Command.Durable() || !protocol.KnowledgeCommand(request.Command.Kind) {
-			return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInvalidRequest, "invalid knowledge outcome request")
+		if request.Version != protocol.VERSION || !request.Command.Durable() || !protocol.ResourceCommand(request.Command.Kind) {
+			return protocol.RequestOutcome{}, fault(protocol.ErrorCodeInvalidRequest, "invalid resource outcome request")
 		}
 		body, err := json.Marshal(request)
 		if err != nil {

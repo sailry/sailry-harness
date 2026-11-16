@@ -28,7 +28,31 @@ func (owner *Host) sdkModule() HostModule {
 			return nil, err
 		}
 		hostStringRevision(value, "package", "settings_revision")
+		if object, ok := value.(map[string]any); ok {
+			object["execution_node"] = owner.target()
+		}
 		return hostJSON(value)
+	})
+	add("prepareHostCall", false, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
+		target, err := hostValue[protocol.NodeID](arguments, 0)
+		if err != nil || target == (protocol.NodeID{}) {
+			return nil, hostInvalid("host handler target is required")
+		}
+		handler, err := hostValue[string](arguments, 1)
+		if err != nil || handler == "" || len(arguments) < 3 {
+			return nil, hostInvalid("host handler name and input are required")
+		}
+		input, err := hostValue[any](arguments, 2)
+		if err != nil {
+			return nil, err
+		}
+		readOnly, err := hostOptional(arguments, 3, false)
+		if err != nil {
+			return nil, err
+		}
+		return owner.prepareAt(ctx, target, protocol.Command{Kind: "call_host_handler", Data: protocol.HostHandlerCall{
+			Handler: handler, Input: input, ReadOnly: readOnly,
+		}})
 	})
 	add("prepareRequest", false, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		if len(arguments) == 0 {
@@ -39,6 +63,16 @@ func (owner *Host) sdkModule() HostModule {
 			return nil, err
 		}
 		return owner.prepare(ctx, command)
+	})
+	add("readResourceCatalog", true, func(ctx context.Context, _ []json.RawMessage) (json.RawMessage, error) {
+		if owner.resourceClient() == nil {
+			return nil, hostUnavailable("resource Client is unavailable")
+		}
+		value, err := owner.resourceClient().ReadResourceCatalog(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return hostJSON(value)
 	})
 	add("prepareTransaction", false, func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		operations, err := hostValue[[]json.RawMessage](arguments, 0)

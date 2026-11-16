@@ -69,3 +69,33 @@ func TestResourceCallKeepsOrdinaryCommandsOut(t *testing.T) {
 		}
 	}
 }
+
+func TestHostHandlerRequestKeepsRecoveryAndReadOnlyContract(t *testing.T) {
+	target := NodeID{7}
+	request := NewRequest(target, Command{Kind: "call_host_handler", Data: HostHandlerCall{Handler: "save", Input: map[string]any{"id": "kept"}}})
+	if !request.Command.Durable() {
+		t.Fatal("mutable host handler was not durable")
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Request
+	if err := json.Unmarshal(body, &decoded); err != nil || decoded.Target != target || decoded.ID != request.ID {
+		t.Fatalf("host call changed identity: %+v %v", decoded, err)
+	}
+	digest := blake3.Sum256(body)
+	inspection := NewRequest(target, Command{Kind: "inspect_request", Data: CommandInspectRequestPayload{
+		ID: request.ID, Digest: hex.EncodeToString(digest[:]),
+	}})
+	if err := (ResourceCall{Request: inspection, Original: &request}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	request.Command.Data = HostHandlerCall{Handler: "history", Input: nil, ReadOnly: true}
+	if request.Command.Durable() {
+		t.Fatal("read-only host handler was durable")
+	}
+	if err := (ResourceCall{Request: inspection, Original: &request}).Validate(); err == nil {
+		t.Fatal("read-only call accepted as a durable recovery")
+	}
+}

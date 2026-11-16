@@ -11,7 +11,7 @@ func TestUsageOverviewKeepsEqualTargetsOnDifferentEntries(t *testing.T) {
 	direct := New(&clientTransport{})
 	via := New(routedClientTransport{clientTransport: &clientTransport{}, entry: protocol.NodeID{9}})
 	t.Cleanup(func() { _ = direct.Close(); _ = via.Close() })
-	argument, err := json.Marshal(protocol.UsageQuery{})
+	argument, err := json.Marshal(protocol.UsageQuery{Dimension: protocol.UsageDimensionProvider})
 	if err != nil {
 		t.Fatal(err)
 	}

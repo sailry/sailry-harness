@@ -21,7 +21,7 @@ export function listAssociatedSessions(association: SessionAssociation, before?:
 export function setSessionExecution(selection: ExecutionSelection, expectedRevision: string, session?: string | null): string;
 export type Entry = { key: string; revision: string; value: Json; present: boolean };
 /** Immutable resource and package binding for this view. */
-export function context(): { package: {name: string; digest: string; settings_revision: string}; worktree: string | null; session: string | null; turn: string | null; invocation: string | null };
+export function context(): { package: {name: string; digest: string; settings_revision: string}; execution_node: NodeID; worktree: string | null; session: string | null; turn: string | null; invocation: string | null };
 /** Creates a fresh identifier without admitting an operation. */
 export function newId(): string;
 export function errorCode(message: string): string;
@@ -45,6 +45,16 @@ export function listModels(): Promise<{ models: Json[] }>;
 export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;
 export function resolveModel(settings: Json, catalog: Json, field: string): Model;
 export function prepareRequest(command: Json): string;
+/** Calls a declared handler of this package on its actual execution Node.
+ * Read-only calls require host.read_only. The original target and request ID survive recovery. */
+export function prepareHostCall(node: NodeID, handler: string, input: Json, readOnly?: boolean): string;
+/** The controller's directly connected Nodes, including unavailable sources. */
+export function readResourceCatalog(): Promise<{
+  entry: NodeID;
+  sources: {node: NodeID; route: {entry: NodeID; target: NodeID}; name: string; platform: string;
+    projects: {id: string; name: string}[]; worktrees: Json[]; knowledge: KnowledgeCollection[];
+    fault?: {code: string; message: string}}[];
+}>;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
 export type NotificationDraft = {

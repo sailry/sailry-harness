@@ -34,7 +34,7 @@ func (value *ResourceCall) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Validate binds recovery to the exact captured knowledge request. An
+// Validate binds recovery to the exact captured resource request. An
 // inspection cannot turn this limited channel into a general request lookup.
 func (call ResourceCall) Validate() error {
 	invalid := func() error {
@@ -74,14 +74,14 @@ func (call ResourceCall) Validate() error {
 	return nil
 }
 
-// ResourceCommand limits the reverse execution channel to the knowledge
-// service. Ordinary commands keep their existing direction checks.
+// ResourceCommand limits the reverse execution channel to knowledge and a
+// captured package's declared host handlers.
 func ResourceCommand(kind string) bool {
 	switch kind {
 	case "list_knowledge_collections", "create_knowledge_collection",
 		"update_knowledge_collection", "delete_knowledge_collection",
 		"pause_knowledge_collection", "rebuild_knowledge_collection",
-		"query_knowledge", "read_knowledge_citation", "read_knowledge_candidates":
+		"query_knowledge", "read_knowledge_citation", "read_knowledge_candidates", "call_host_handler":
 		return true
 	}
 	return false

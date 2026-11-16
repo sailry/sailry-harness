@@ -76,8 +76,11 @@ func (bridge *scriptBridge) operation(operation, body string) (any, error) {
 			return nil, err
 		}
 		scriptStringRevision(value, "package", "settings_revision")
+		if object, ok := value.(map[string]any); ok {
+			object["execution_node"] = bridge.target
+		}
 		return value, nil
-	case "prepare", "read", "knowledge.create", "models.prepare", "models.register", "models.list":
+	case "prepare", "read", "host.prepare", "knowledge.create", "models.prepare", "models.register", "models.list":
 		return bridge.prepare(operation, body)
 	case "complete":
 		var identity string
@@ -146,7 +149,22 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 	if err != nil {
 		return nil, scriptInvalid("invalid SDK command")
 	}
-	if operation == "knowledge.create" {
+	target := bridge.target
+	if operation == "host.prepare" {
+		var input struct {
+			Node     protocol.NodeID `json:"node"`
+			Handler  string          `json:"handler"`
+			Input    any             `json:"input"`
+			ReadOnly bool            `json:"read_only"`
+		}
+		if json.Unmarshal([]byte(body), &input) != nil || input.Node == (protocol.NodeID{}) || strings.TrimSpace(input.Handler) == "" {
+			return nil, scriptInvalid("invalid host handler target or name")
+		}
+		target = input.Node
+		value, err = scriptJSONValue(protocol.Command{Kind: "call_host_handler", Data: protocol.HostHandlerCall{
+			Handler: input.Handler, Input: input.Input, ReadOnly: input.ReadOnly,
+		}})
+	} else if operation == "knowledge.create" {
 		value, err = bridge.knowledgeCommand([]byte(body))
 	} else if strings.HasPrefix(operation, "models.") {
 		value, err = scriptModelCommand(operation, []byte(body))
@@ -179,10 +197,9 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 			return nil, scriptPermission("script tools cannot dispatch durable commands")
 		}
 	}
-	if !scriptCommandAllowed(command.Kind) {
+	if operation != "host.prepare" && !scriptCommandAllowed(command.Kind) {
 		return nil, scriptPermission("command is not exposed to host callbacks")
 	}
-	target := bridge.target
 	if protocol.KnowledgeCommand(command.Kind) {
 		target = protocol.KnowledgeRequestTarget(command, bridge.target, bridge.controller)
 	}
@@ -365,6 +382,8 @@ func scriptWriteIdentity(call protocol.RequestID, sequence uint64) protocol.Requ
 
 func scriptToolWrite(command protocol.Command, value any) bool {
 	switch command.Kind {
+	case "call_host_handler":
+		return true
 	case "write_plugin_value", "remove_plugin_value", "write_plugin_conversation_value",
 		"remove_plugin_conversation_value", "register_local_model", "install_local_model",
 		"create_knowledge_collection", "update_knowledge_collection", "pause_knowledge_collection",

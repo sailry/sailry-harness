@@ -227,6 +227,23 @@ Node denies mutations before dispatch. Omitted declarations retain ordinary
 stable request ID. Reads retain their supplied package and scope: a concurrent
 package change can reject a live read rather than switching it to newer code.
 
+Resources that create schedules or queues retain their execution Node alongside
+their personal record. `context().execution_node` is the immutable Node ID of
+the current callback, encoded as 32 unsigned bytes. Desktop packages can read
+`readResourceCatalog()` to offer the controller's available execution Nodes and
+their projects. Existing resources keep their recorded Node; selecting another
+Node applies to a new resource.
+
+Use `prepareHostCall(node, handler, input, readOnly?)` to invoke this package's
+declared host handler on that resource's execution Node. Complete and retain the
+returned draft using the ordinary SDK request lifecycle. The helper fixes the
+real target before assigning the request ID; outcome recovery never creates
+another invocation. A read-only call must name `host.read_only`. Calls follow
+the initiating controller's direct hosts, and an unavailable target returns a
+fault without executing a local substitute. The target creates a local callback
+scope; foreign session and turn IDs are not interpreted as target resources.
+The original captured package version remains authoritative.
+
 Authorized Code tools may use `prepareTransaction` with their own namespace's
 `write` and `remove` operations. They retain the ordinary atomic batch budget,
 revision checks and stable request ID. Plan and read-only callbacks cannot write;

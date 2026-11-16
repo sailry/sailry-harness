@@ -433,6 +433,9 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 }
 
 func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+	if request.Command.Kind == "call_host_handler" {
+		return node.admitHostHandler(ctx, caller, request)
+	}
 	if knowledgeCommand(request.Command.Kind) || request.Command.Kind == "read_resource_catalog" {
 		return node.admitResourceCommand(ctx, caller, request)
 	}

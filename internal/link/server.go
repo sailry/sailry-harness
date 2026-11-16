@@ -153,6 +153,12 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 	if !link.isTrusted(peer) {
 		return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is no longer paired"})
 	}
+	if envelope.Call.Kind != wire.CallInspect {
+		host := uint16(protocol.VERSION)
+		if err := checkCompatibility(envelope.Protocol, envelope.SoftwareVersion, &host, &link.softwareVersion); err != nil {
+			return link.reject(ctx, stream, faultValue(err))
+		}
+	}
 	// Old peers may still inspect version metadata, but cannot execute a v2
 	// call before the authenticated device type is recorded.
 	if envelope.HasNode != nil {
@@ -170,10 +176,6 @@ func (link *Link) serveRequest(ctx context.Context, peer protocol.NodeID, stream
 			}
 		} else if !link.Direction(peer).AllowsInbound() {
 			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer cannot call this execution service"})
-		}
-		host := uint16(protocol.VERSION)
-		if err := checkCompatibility(envelope.Protocol, envelope.SoftwareVersion, &host, &link.softwareVersion); err != nil {
-			return link.reject(ctx, stream, faultValue(err))
 		}
 		if link.handler == nil {
 			return link.reject(ctx, stream, protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "controller has no execution service"})

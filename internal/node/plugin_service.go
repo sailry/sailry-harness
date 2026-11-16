@@ -342,6 +342,10 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	return node.runPluginHandler(ctx, caller, request, *request.Plugin, info, user, storageUser, handler, input, readOnly)
+}
+
+func (node *Node) runPluginHandler(ctx context.Context, caller protocol.NodeID, request protocol.Request, scope protocol.PluginContext, info protocol.PluginInfo, user protocol.User, storageUser protocol.UserID, handler string, input any, readOnly bool) (protocol.Output, error) {
 	if info.Extension == nil || info.Extension.Host == nil {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin has no host callbacks"}
 	}
@@ -362,14 +366,13 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin callback is not declared read-only"}
 		}
 	}
-	files, err := node.plugins.manager.ReadBundle(ctx, request.Plugin.Package, host.Entry, host.Resources)
+	files, err := node.plugins.manager.ReadBundle(ctx, scope.Package, host.Entry, host.Resources)
 	if err != nil {
 		return protocol.Output{}, err
 	}
 	ctx = store.WithCapturedUser(store.WithUser(ctx, user), storageUser)
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
-	scope := *request.Plugin
 	identity := protocol.NewRequestID()
 	scope.Invocation = &identity
 	invocation := &pluginInvocation{caller: caller, request: request.ID, user: user, storageUser: storageUser, info: info, scope: scope, cancel: cancel, readOnly: readOnly}
