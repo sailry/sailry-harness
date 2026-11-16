@@ -7,7 +7,6 @@ import (
 	"errors"
 	"math"
 	"strings"
-	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"

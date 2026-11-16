@@ -18,17 +18,6 @@ func configurationCacheUser(ctx context.Context, db *sql.Conn) (protocol.User, b
 	return user, err == nil && !user.Local && user.Controller != nil, err
 }
 
-func CurrentController(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol.NodeID, error) {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return protocol.NodeID{}, err
-	}
-	if user.Controller != nil {
-		return *user.Controller, nil
-	}
-	return node, nil
-}
-
 func ReadConfigurationCache(ctx context.Context, db *sql.Conn, category, id string) (json.RawMessage, bool, error) {
 	user, cached, err := configurationCacheUser(ctx, db)
 	if err != nil || !cached {

@@ -26,7 +26,7 @@ func (command Command) Durable() bool {
 				action = *value
 			}
 		}
-		return action.Action != "read" && action.Action != "manifest" && action.Action != "cache_package" && action.Action != "package_state"
+		return action.Action != "read" && action.Action != "manifest" && action.Action != "cache_package" && action.Action != "package_state" && action.Action != "kv_pending"
 	}
 	if command.Kind == "dispatch" {
 		var action DispatchCommand

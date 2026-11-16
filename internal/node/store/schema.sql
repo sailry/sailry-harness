@@ -800,3 +800,49 @@ CREATE TABLE configuration_cache (
  expires_at_ms INTEGER,
  PRIMARY KEY(user,category,id)
 );
+
+CREATE TABLE personal_kv_clock (
+ user TEXT PRIMARY KEY REFERENCES users(id),
+ revision INTEGER NOT NULL DEFAULT 0 CHECK(revision>=0),
+ sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence>=0)
+);
+CREATE TABLE personal_kv_base (
+ user TEXT NOT NULL REFERENCES users(id),
+ plugin TEXT NOT NULL,
+ key TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>=0),
+ value BLOB,
+ index_data BLOB,
+ PRIMARY KEY(user,plugin,key)
+);
+CREATE TABLE personal_kv_outbox (
+ user TEXT NOT NULL REFERENCES users(id),
+ request TEXT NOT NULL,
+ sequence INTEGER NOT NULL CHECK(sequence>0),
+ digest TEXT NOT NULL,
+ body BLOB NOT NULL,
+ PRIMARY KEY(user,request),
+ UNIQUE(user,sequence)
+);
+CREATE TABLE personal_kv_receipts (
+ user TEXT NOT NULL REFERENCES users(id),
+ executor BLOB NOT NULL CHECK(length(executor)=32),
+ request TEXT NOT NULL,
+ sequence INTEGER NOT NULL CHECK(sequence>0),
+ digest TEXT NOT NULL,
+ body BLOB NOT NULL,
+ PRIMARY KEY(user,executor,request),
+ UNIQUE(user,executor,sequence)
+);
+CREATE TABLE personal_kv_snapshot (
+ user TEXT PRIMARY KEY REFERENCES users(id),
+ generation INTEGER NOT NULL CHECK(generation>=0),
+ cursor BLOB
+);
+CREATE TABLE personal_kv_snapshot_records (
+ user TEXT NOT NULL REFERENCES users(id),
+ plugin TEXT NOT NULL,
+ key TEXT NOT NULL,
+ body BLOB NOT NULL,
+ PRIMARY KEY(user,plugin,key)
+);

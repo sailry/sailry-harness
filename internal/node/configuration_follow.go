@@ -89,7 +89,7 @@ func (node *Node) NotifyConfigurationFollow(changes []protocol.Event) {
 	relevant := false
 	for _, change := range changes {
 		switch change.Kind {
-		case "provider_changed", "provider_removed", "role_changed", "role_removed", "team_changed", "team_removed", "team_settings_changed", "defaults_changed", "ssh_changed", "ssh_removed", "database_changed", "database_removed", "plugin_changed", "plugin_removed", "connections_changed", "configuration_follow_changed":
+		case "provider_changed", "provider_removed", "credential_changed", "role_changed", "role_removed", "team_changed", "team_removed", "team_settings_changed", "defaults_changed", "ssh_changed", "ssh_removed", "database_changed", "database_removed", "plugin_changed", "plugin_removed", "connections_changed", "configuration_follow_changed", "plugin_values_changed":
 			relevant = true
 		}
 	}
@@ -394,6 +394,10 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			return
 		}
 	}
+	if err := node.reconcilePersonalKV(ctx, remote); err != nil {
+		fail(err)
+		return
+	}
 	_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecordConfigurationTargetFailure(ctx, db, address.ID, nil) })
 }
 
@@ -423,6 +427,10 @@ func (node *Node) ReadConfigurationFollow(ctx context.Context, caller protocol.N
 			value, err := store.ReadConfigurationManifest(ctx, db, caller, input.Category)
 			output = protocol.Output{Kind: "configuration_manifest", Data: value}
 			return err
+		case "kv_pending":
+			value, err := store.ReadPersonalKVPending(ctx, db, node.ID(), caller)
+			output = protocol.Output{Kind: "personal_kv_pending", Data: value}
+			return err
 		}
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration follow read action is invalid"}
 	})
@@ -439,6 +447,16 @@ func ExecuteConfigurationFollow(ctx context.Context, db *sql.Conn, node, caller 
 	var events []protocol.Event
 	var err error
 	switch input.Action {
+	case "kv_ack":
+		if input.KVReceipt == nil {
+			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "personal data receipt is required"}
+		}
+		events, err = store.AcknowledgePersonalKV(ctx, db, node, caller, *input.KVReceipt)
+	case "kv_snapshot":
+		if input.KVSnapshot == nil {
+			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "personal data snapshot page is required"}
+		}
+		events, err = store.StagePersonalKVSnapshot(ctx, db, node, caller, *input.KVSnapshot)
 	case "apply":
 		if input.Manifest == nil {
 			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration manifest is required"}

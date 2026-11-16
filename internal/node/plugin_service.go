@@ -442,6 +442,12 @@ func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.
 	if packagesChanged {
 		node.authChanged()
 	}
+	for _, change := range changes {
+		switch change.Kind {
+		case "credential_changed", "connections_changed", "provider_changed", "provider_removed", "configuration_follow_changed":
+			node.RuntimeCredentialsChanged()
+		}
+	}
 	node.NotifyConfigurationFollow(changes)
 	node.wakeDispatch()
 	node.publish()

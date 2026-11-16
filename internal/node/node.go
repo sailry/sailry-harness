@@ -280,6 +280,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	go value.pruneLedger()
 	value.initDispatch(options.DispatchClock)
+	value.startCredentialRenewals()
 	value.initPluginStatus()
 	value.startMCP()
 	value.sweepSessionWorkspaces()
@@ -920,6 +921,12 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	publication()
 	if err == nil {
 		node.NotifyConfigurationFollow(changes)
+		for _, change := range changes {
+			switch change.Kind {
+			case "credential_changed", "connections_changed", "provider_changed", "provider_removed", "configuration_follow_changed":
+				node.RuntimeCredentialsChanged()
+			}
+		}
 		if operationErr == nil && job.request.Command.Kind == "identity" {
 			if refreshErr := node.RefreshIdentity(ctx); refreshErr != nil {
 				slog.Warn("Identity connection refresh failed", "error", refreshErr)

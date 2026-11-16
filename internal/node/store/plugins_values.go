@@ -136,7 +136,8 @@ ON CONFLICT(space,name,key) DO UPDATE SET revision=excluded.revision,value=exclu
 	if err := replacePluginSearch(ctx, db, reference.Name, key, index); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	return protocol.PluginStorageEntry{Key: key, Revision: revision, Value: value, Present: true}, nil
+	result := protocol.PluginStorageEntry{Key: key, Revision: revision, Value: value, Present: true}
+	return result, recordPersonalKVWrite(ctx, db, reference.Name, result, index)
 }
 
 func RemovePluginValue(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, key string, expectedRevision uint64) (protocol.PluginStorageEntry, error) {
@@ -174,7 +175,8 @@ func RemovePluginValue(ctx context.Context, db *sql.Conn, reference protocol.Plu
 	if err := replacePluginSearch(ctx, db, reference.Name, key, nil); err != nil {
 		return protocol.PluginStorageEntry{}, err
 	}
-	return protocol.PluginStorageEntry{Key: key, Revision: revision, Value: json.RawMessage("null")}, nil
+	result := protocol.PluginStorageEntry{Key: key, Revision: revision, Value: json.RawMessage("null")}
+	return result, recordPersonalKVWrite(ctx, db, reference.Name, result, nil)
 }
 
 func ListPluginKeys(ctx context.Context, db *sql.Conn, reference protocol.PluginReference, prefix string, after *string, limit uint16) (protocol.PluginStoragePage, error) {

@@ -71,6 +71,8 @@ type ConfigurationFollowCommand struct {
 	Local            bool                       `json:"local,omitempty"`
 	Stream           *StreamID                  `json:"stream,omitempty"`
 	Package          *PluginReference           `json:"package,omitempty"`
+	KVReceipt        *PersonalKVReceipt         `json:"kv_receipt,omitempty"`
+	KVSnapshot       *PersonalKVSnapshot        `json:"kv_snapshot,omitempty"`
 }
 
 func (value *ConfigurationFollowCommand) UnmarshalJSON(data []byte) error { return Decode(data, value) }

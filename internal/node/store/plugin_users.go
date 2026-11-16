@@ -148,13 +148,20 @@ type pluginSpaceKey struct{}
 // a plugin. Project storage commands resolve their project before setting it.
 func pluginValueSpace(ctx context.Context, db *sql.Conn) (string, error) {
 	if space, ok := ctx.Value(pluginSpaceKey{}).(string); ok {
+		if value, personal := strings.CutPrefix(space, "user:"); personal {
+			user, err := protocol.ParseUserID(value)
+			if err != nil {
+				return "", err
+			}
+			return personalPluginSpace(ctx, db, user)
+		}
 		return space, nil
 	}
 	user, err := CapturedUser(ctx, db)
 	if err != nil {
 		return "", err
 	}
-	return "user:" + user.String(), nil
+	return personalPluginSpace(ctx, db, user)
 }
 
 func pluginValueScope(ctx context.Context) protocol.PluginStorageScope {
