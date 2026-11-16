@@ -16,7 +16,7 @@ func TestStorageCandidatesCarryOnlySourceIdentity(t *testing.T) {
 	model := localmodels.DefaultEmbedding
 	collection := protocol.DefaultKnowledgeCollection()
 	collection.ID, collection.Revision, collection.Progress.Generation = protocol.NewKnowledgeID(), 1, 1
-	collection.Owner = protocol.KnowledgeOwner{Kind: "controller"}
+	collection.Owner = protocol.KnowledgeOwner{Kind: "plugin", Data: &protocol.KnowledgeOwnerPluginPayload{Name: "fixture"}}
 	collection.Definition.Name = "Personal memory"
 	collection.Definition.Model = &model
 	collection.Definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Scope: protocol.PluginStorageScopeNode}}
@@ -38,7 +38,8 @@ func TestStorageCandidatesCarryOnlySourceIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.service.index.Replace(t.Context(), binding, Document{Locator: "entry/record", Revision: revision, Embedded: true}, []Part{{Title: "Private title", Text: "Private contents", Vector: &vector}}); err != nil {
+	position := protocol.KnowledgePosition{Kind: "value", Data: &protocol.KnowledgePositionValuePayload{Key: "entry/raw", Pointer: "/text"}}
+	if err := fixture.service.index.Replace(t.Context(), binding, Document{Locator: "entry/record", Revision: revision, Embedded: true}, []Part{{Title: "Private title", Text: "Private contents", Position: position, Vector: &vector}}); err != nil {
 		t.Fatal(err)
 	}
 	candidates, err := fixture.service.StorageCandidates(t.Context(), request)
