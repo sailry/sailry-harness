@@ -17,7 +17,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -373,7 +375,11 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 // Node's workflow driver against a local server standing in for GitHub.
 // Over 3 s: a Node start, then two polls at GitHub's one-second interval.
 func TestCopilotSignIn(t *testing.T) {
-	node := nodeFixture(t)
+	// Keep proactive renewal behind the fixture's explicit grant transitions.
+	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	node := systemNodeFixture(t, Options{
+		DispatchClock: clockwork.NewFakeClockAt(time.Unix(0, 0)), Environment: &environment, MCP: fixtureMCPOptions(),
+	})
 	var polls, exchanges, modelQueries atomic.Int32
 	answer := func(writer http.ResponseWriter, status int, body string) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -402,8 +408,8 @@ func TestCopilotSignIn(t *testing.T) {
 				request.Header.Get("Editor-Plugin-Version") != providers.DefaultCopilotEditorPlugin || request.Header.Get("User-Agent") != providers.DefaultCopilotAgent {
 				t.Errorf("session exchange: %s %v", request.Method, request.Header)
 			}
-			// The first two sessions end within the renewal window; the third
-			// exchange finds the GitHub token revoked.
+			// The first two sessions remain valid until the fixture advances
+			// their issue time; the third exchange finds the GitHub token revoked.
 			switch count := exchanges.Add(1); count {
 			case 1, 2:
 				body, _ := json.Marshal(map[string]any{"token": "session-" + string(rune('0'+count)), "expires_at": time.Now().Add(330 * time.Second).Unix(),
@@ -511,8 +517,38 @@ func TestCopilotSignIn(t *testing.T) {
 		}
 		return providers.DecodeAccount(invocation.Secret, provider.Authentication)
 	}
-	// The stored session is within a minute of its early expiry, so the next
-	// use repeats the exchange with the GitHub token and keeps the pinned endpoint.
+	advanceGrant := func() {
+		t.Helper()
+		path := `$.authorizations."` + provider.Credential.ID.String() + `".key`
+		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			var body string
+			if err := db.QueryRowContext(ctx, "SELECT json_extract(body,?2) FROM providers WHERE id=?1", provider.ID.String(), path).Scan(&body); err != nil {
+				return err
+			}
+			secret := protocol.NewSecret(body)
+			grant, err := providers.DecodeAccount(&secret, provider.Authentication)
+			if err != nil {
+				return err
+			}
+			issued := grant.ExpiresAtMs - uint64((20 * time.Minute).Milliseconds())
+			grant.IssuedAtMs = &issued
+			encoded, err := json.Marshal(grant)
+			if err != nil {
+				return err
+			}
+			_, err = db.ExecContext(ctx, "UPDATE providers SET body=json_set(body,?2,?3) WHERE id=?1", provider.ID.String(), path, string(encoded))
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if grant, err := authorize(); err != nil || grant.Access != "session-1" || exchanges.Load() != 1 {
+		t.Fatalf("fresh grant was renewed before its scheduled time: %+v after %d exchanges: %v", grant, exchanges.Load(), err)
+	}
+	// Advancing the stored issue time passes the quarter-lifetime boundary;
+	// the next use repeats the exchange and keeps the pinned endpoint.
+	advanceGrant()
 	grant, err := authorize()
 	if err != nil || grant.Access != "session-2" || grant.Github != "github-token" || grant.Endpoint != "https://api.githubcopilot.com" || grant.RenewalPending || exchanges.Load() != 2 {
 		t.Fatalf("renewal returned %+v after %d exchanges: %v", grant, exchanges.Load(), err)
@@ -526,6 +562,7 @@ func TestCopilotSignIn(t *testing.T) {
 	}
 	// A revoked GitHub token is a refusal: the grant is marked and later uses
 	// ask for a new sign-in without another request.
+	advanceGrant()
 	var fault *protocol.Fault
 	if _, err := authorize(); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodePermissionDenied || exchanges.Load() != 3 {
 		t.Fatalf("revoked sign-in returned %v after %d exchanges", err, exchanges.Load())
