@@ -54,16 +54,9 @@ func providerCredentials(ctx context.Context, db *sql.Conn) ([]protocol.Credenti
 	if err != nil {
 		return nil, err
 	}
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return nil, err
-	}
 	result := []protocol.Credential{}
 	for _, provider := range saved {
 		for id, value := range provider.Authorizations {
-			if provider.Provider != nil && provider.Provider.Shared && !user.Administrator && (provider.Provider.Credential == nil || provider.Provider.Credential.ID != id) {
-				continue
-			}
 			result = append(result, providerCredentialMetadata(provider.ID, id, value))
 		}
 	}

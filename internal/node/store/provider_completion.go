@@ -59,13 +59,9 @@ func refreshProviderMetadata(ctx context.Context, db *sql.Conn) ([]protocol.Even
 	if err != nil {
 		return nil, err
 	}
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return nil, err
-	}
 	events := []protocol.Event{}
 	for _, stored := range saved {
-		if !stored.Listed || stored.Provider == nil || stored.Provider.Shared && !user.Administrator {
+		if !stored.Listed || stored.Provider == nil {
 			continue
 		}
 		provider := *stored.Provider

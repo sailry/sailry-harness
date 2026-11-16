@@ -115,10 +115,15 @@ identity. Registered projects remain at their original filesystem paths.
 Projects have a Node-local user owner and private or host-shared visibility.
 New projects default to host-shared visibility; existing private projects keep
 their visibility, including when older stored records omit that field.
-Projectless resources remain personal. Node authenticates callers before every
-command family, direct subscription and byte stream; typed resource identifiers
-are checked centrally and unknown commands fail closed. Snapshots, catalogs and
-batch events contain only accessible resources. Event audiences retain deletion
+Projectless resources remain personal. Model providers, channels and credentials
+belong only to their authenticated user namespace; machine administrators do not
+gain another user's configuration access. Legacy provider sharing fields remain
+readable for storage and protocol compatibility but grant no cross-user access.
+Already admitted tasks retain their captured provider and credential authority.
+Node authenticates callers before every command family, direct subscription and
+byte stream; typed resource identifiers are checked centrally and unknown commands
+fail closed. Snapshots, catalogs and batch events contain only accessible
+resources. Event audiences retain deletion
 scope, hidden rows advance the cursor without payload, and visibility changes
 invalidate projections. Buffered events and open streams recheck current access.
 
@@ -557,7 +562,8 @@ Each controller's local Node is the authority for its personal configuration.
 Directly paired execution hosts automatically mirror it, including static keys,
 into that controller's authenticated user namespace. A host keeps separate copies
 for independent controllers; its host-local configuration and other users are not
-overwritten. Explicit my-device groups retain their shared user identity.
+overwritten. Provider sharing flags are cleared in exported and materialized
+configuration. Explicit my-device groups retain their shared user identity.
 Manifests reconcile versions, deletions and digests in dependency order; exact
 package archives materialize before their settings, including when a host's
 initial bundled package has the same version but different contents. Transport

@@ -9,21 +9,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// readProviderConfiguration admits personal providers and host-provided models.
-// Secret use remains internal; settings/export paths additionally require write access.
+// readProviderConfiguration admits only the current user's configuration.
+// The legacy shared flag never grants access to another user's provider.
 func readProviderConfiguration(ctx context.Context, db *sql.Conn, id protocol.ProviderID) (*providerConfiguration, error) {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
 	}
-	return scanProviderConfiguration(db.QueryRowContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)),shared FROM providers WHERE id=?1 AND (COALESCE(user,(SELECT id FROM users WHERE local=1))=?2 OR shared=1)`, id.String(), user.ID.String()))
+	return scanProviderConfiguration(db.QueryRowContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)) FROM providers WHERE id=?1 AND COALESCE(user,(SELECT id FROM users WHERE local=1))=?2`, id.String(), user.ID.String()))
 }
 
 func scanProviderConfiguration(row interface{ Scan(...any) error }) (*providerConfiguration, error) {
 	var body []byte
 	var owner string
-	var shared bool
-	if err := row.Scan(&body, &owner, &shared); errors.Is(err, sql.ErrNoRows) {
+	if err := row.Scan(&body, &owner); errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -37,7 +36,7 @@ func scanProviderConfiguration(row interface{ Scan(...any) error }) (*providerCo
 		return nil, err
 	}
 	if saved.Provider != nil {
-		saved.Provider.Owner, saved.Provider.Shared = &ownerID, shared
+		saved.Provider.Owner, saved.Provider.Shared = &ownerID, false
 	}
 	return &saved, nil
 }
@@ -47,7 +46,7 @@ func providerConfigurations(ctx context.Context, db *sql.Conn) ([]providerConfig
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.QueryContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)),shared FROM providers WHERE COALESCE(user,(SELECT id FROM users WHERE local=1))=?1 OR shared=1 ORDER BY rowid`, user.ID.String())
+	rows, err := db.QueryContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)) FROM providers WHERE COALESCE(user,(SELECT id FROM users WHERE local=1))=?1 ORDER BY rowid`, user.ID.String())
 	if err != nil {
 		return nil, err
 	}
@@ -64,13 +63,13 @@ func providerConfigurations(ctx context.Context, db *sql.Conn) ([]providerConfig
 }
 
 // Captured provider records are admitted turn state, never request drafts. A
-// later visibility change cannot revoke work already admitted with a host model.
+// legacy shared flag can recover credentials only for already admitted work.
 func capturedProviderConfiguration(ctx context.Context, db *sql.Conn, captured protocol.ConversationProvider) (*providerConfiguration, error) {
 	saved, err := readProviderConfiguration(ctx, db, captured.ID)
 	if err != nil || saved != nil || !captured.Shared || captured.Owner == nil {
 		return saved, err
 	}
-	saved, err = scanProviderConfiguration(db.QueryRowContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)),shared FROM providers WHERE id=?1`, captured.ID.String()))
+	saved, err = scanProviderConfiguration(db.QueryRowContext(ctx, `SELECT body,COALESCE(user,(SELECT id FROM users WHERE local=1)) FROM providers WHERE id=?1`, captured.ID.String()))
 	if err != nil || saved == nil || saved.Provider == nil || saved.Provider.Owner == nil {
 		return nil, err
 	}
@@ -89,19 +88,12 @@ func checkProviderWrite(ctx context.Context, db *sql.Conn, id protocol.ProviderI
 		return err
 	}
 	var owner string
-	var shared bool
-	err = db.QueryRowContext(ctx, `SELECT COALESCE(user,(SELECT id FROM users WHERE local=1)),shared FROM providers WHERE id=?1`, id.String()).Scan(&owner, &shared)
+	err = db.QueryRowContext(ctx, `SELECT COALESCE(user,(SELECT id FROM users WHERE local=1)) FROM providers WHERE id=?1`, id.String()).Scan(&owner)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
-	}
-	if shared {
-		if !user.Administrator {
-			return fault(protocol.ErrorCodePermissionDenied, "host-provided models are managed by an administrator")
-		}
-		return nil
 	}
 	if owner != user.ID.String() {
 		return fault(protocol.ErrorCodeNotFound, "provider does not exist")
@@ -109,7 +101,7 @@ func checkProviderWrite(ctx context.Context, db *sql.Conn, id protocol.ProviderI
 	return nil
 }
 
-// ReadProviderSnapshot exposes only the current user's providers and host models.
+// ReadProviderSnapshot exposes only the current user's providers.
 // Authentication material is absent from both returned public projections.
 func ReadProviderSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) ([]protocol.ConversationProvider, []protocol.ConversationQuotaSnapshot, error) {
 	saved, err := providerConfigurations(ctx, db)

@@ -63,20 +63,33 @@ func TestSharedSessionQueuesUsersInCanonicalHistory(t *testing.T) {
 			return protocol.Output{}
 		}
 	}
-	provider := forwardingProvider(t, node, "https://shared-session.invalid/v1")
-	provider.Shared = true
-	call(node.ID(), protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: provider.Revision}})
+	personal := map[protocol.NodeID]protocol.ConversationProvider{}
+	for _, caller := range []protocol.NodeID{first, second} {
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Name = protocol.NewProviderID(), "Personal fixture"
+		provider.Api, provider.Authentication = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey
+		provider.Endpoint, provider.Enabled, provider.DefaultModel = "https://shared-session.invalid/v1", true, "fixture"
+		selected := protocol.DefaultConversationModel()
+		selected.ID, selected.Context, selected.Output = "fixture", 200000, 8192
+		provider.Models = []protocol.ConversationModel{selected}
+		secret := protocol.NewSecret("personal-" + caller.String())
+		personal[caller] = call(caller, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}}).Data.(protocol.ConversationProvider)
+	}
 	draft := protocol.DefaultProjectsDraft()
 	draft.Name, draft.Path, draft.Visibility = "Shared", t.TempDir(), protocol.ProjectVisibilityShared
 	draft.Source = protocol.ProjectsSource{Kind: "local"}
 	project := call(first, protocol.Command{Kind: "create_project", Data: draft}).Data.(protocol.Project)
 	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model = provider.ID, "fixture"
+	config.Provider, config.Model = personal[first].ID, "fixture"
 	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 	session := call(first, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 	turns := []protocol.QueuedTurn{}
 	for index, caller := range []protocol.NodeID{first, second} {
 		current := call(caller, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}).Data.(protocol.Session)
+		if index != 0 {
+			config.Provider = personal[caller].ID
+			current = call(caller, protocol.Command{Kind: "set_session_config", Data: protocol.CommandSetSessionConfigPayload{Session: current.ID, ExpectedRevision: current.Revision, Config: config}}).Data.(protocol.Session)
+		}
 		input := protocol.DefaultConversationInput()
 		input.Text = []string{"First user message", "Second user message"}[index]
 		turns = append(turns, call(caller, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: current.ID, ExpectedRevision: current.Revision, Message: input}}).Data.(protocol.QueuedTurn))

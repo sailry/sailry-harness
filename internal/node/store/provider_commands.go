@@ -66,16 +66,14 @@ func saveProviderConfiguration(ctx context.Context, db *sql.Conn, saved provider
 	if !present {
 		owner = user.ID
 	}
-	shared := false
 	if saved.Provider != nil {
-		saved.Provider.Owner = &owner
-		shared = saved.Provider.Shared
+		saved.Provider.Owner, saved.Provider.Shared = &owner, false
 	}
 	body, err := encode(saved)
 	if err != nil {
 		return err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO providers(id,user,shared,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET shared=excluded.shared,body=excluded.body", saved.ID.String(), owner.String(), shared, body)
+	_, err = db.ExecContext(ctx, "INSERT INTO providers(id,user,shared,body) VALUES(?1,?2,0,?3) ON CONFLICT(id) DO UPDATE SET shared=excluded.shared,body=excluded.body", saved.ID.String(), owner.String(), body)
 	return err
 }
 func providerList(ctx context.Context, db *sql.Conn) ([]protocol.ConversationProvider, error) {
@@ -215,9 +213,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if provider.Shared && !user.Administrator {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "host-provided models are managed by an administrator")
-		}
+		provider.Shared = false
 		saved, err := readProviderConfiguration(ctx, db, provider.ID)
 		if err != nil {
 			return protocol.Output{}, nil, err

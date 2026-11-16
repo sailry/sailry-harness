@@ -34,6 +34,7 @@ func TestConfigurationFollowSeparatesControllerNamespaces(t *testing.T) {
 	}
 	provider := providerFixture()
 	provider.Name, provider.Revision = "Host-local provider", 1
+	provider.Shared = true
 	if err := storage.Node.Write(local, func(db *sql.Conn) error {
 		return saveProviderConfiguration(local, db, providerConfiguration{ID: provider.ID, Provider: &provider, Listed: true})
 	}); err != nil {
@@ -58,6 +59,7 @@ func TestConfigurationFollowSeparatesControllerNamespaces(t *testing.T) {
 		ctx    context.Context
 	}{{source, first}, {secondSource, second}} {
 		provider.Name = []string{"Controller A", "Controller B"}[index]
+		provider.Shared = true
 		key := protocol.NewSecret([]string{"controller-a-key", "controller-b-key"}[index])
 		if err := applyFollowFixture(t, storage, fixture.ctx, node, fixture.caller, "providers", 1, followRecord(t, provider.ID.String(), 1, provider, &key)); err != nil {
 			t.Fatal(err)
@@ -94,8 +96,15 @@ func TestConfigurationFollowSeparatesControllerNamespaces(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if len(providers) != 1 || providers[0].Provider.Name != provider.Name || providers[0].ID != mapped {
+			if len(providers) != 1 || providers[0].Provider.Name != provider.Name || providers[0].ID != mapped || providers[0].Provider.Shared {
 				return errors.New("controller saw another namespace's provider")
+			}
+			var shared bool
+			if err := db.QueryRowContext(fixture.ctx, "SELECT shared OR COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", id).Scan(&shared); err != nil {
+				return err
+			}
+			if shared {
+				return errors.New("controller mirror persisted the legacy sharing flag")
 			}
 			credential := providers[0].Provider.Credential
 			if credential == nil || providers[0].Authorizations[credential.ID].Key == nil || providers[0].Authorizations[credential.ID].Key.Expose() != key.Expose() {

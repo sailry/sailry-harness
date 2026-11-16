@@ -10,7 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestProviderUsersAndHostModels(t *testing.T) {
+func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 	t.Parallel()
 	_, node, storage := schemaFixture(t)
 	ctx := t.Context()
@@ -68,45 +68,165 @@ func TestProviderUsersAndHostModels(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		values, quotas, err := ReadProviderSnapshot(otherCtx, db, node)
-		if err != nil || len(values) != 1 || values[0].ID != shared.ID || len(quotas) != 0 {
-			return fmt.Errorf("host model snapshot: %v", err)
+		if shared.Shared {
+			return errors.New("save retained the legacy sharing flag")
 		}
-		if key, err := resolveProviderKey(otherCtx, db, node, *shared.Credential, shared.ID); err != nil || key.Expose() != "host-key" {
-			return fmt.Errorf("host model execution: %v", err)
-		}
-		if _, err := ReadProviderCommand(otherCtx, db, node, protocol.Command{Kind: "read_provider_key", Data: &protocol.CommandReadProviderKeyPayload{Provider: shared.ID, ExpectedRevision: shared.Revision}}); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
-			return fmt.Errorf("host key disclosure: %v", err)
-		}
-		if _, err := save(otherCtx, shared, "replacement-key"); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
-			return fmt.Errorf("host provider mutation: %v", err)
-		}
-		if _, _, err := exportCredential(otherCtx, db, node, *shared.Credential, shared); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
-			return fmt.Errorf("host key export: %v", err)
-		}
-		if _, err := save(adminCtx, shared, "rotated-host-key"); err != nil {
-			return err
-		}
-		// Captured revisions retain their old key through rotation and visibility edits.
-		latest, err := currentProvider(adminCtx, db, shared.ID, nil)
+		// Reproduce an existing row and an admitted capture from the old policy.
+		legacy, err := readProviderConfiguration(ownCtx, db, shared.ID)
 		if err != nil {
 			return err
 		}
-		changed := *latest.Provider
-		changed.Shared = false
-		if _, err := save(adminCtx, changed, "private-host-key"); err != nil {
+		legacy.Provider.Shared = true
+		body, err := encode(legacy)
+		if err != nil {
 			return err
 		}
-		if current, err := readProviderConfiguration(otherCtx, db, shared.ID); err != nil || current != nil {
-			return fmt.Errorf("narrowed host model remains visible: %v", err)
+		if _, err := db.ExecContext(ctx, "UPDATE providers SET shared=1,body=?2 WHERE id=?1", shared.ID.String(), body); err != nil {
+			return err
 		}
 		shared.Shared = true
+		for _, scoped := range []context.Context{otherCtx, adminCtx} {
+			if values, err := providerList(scoped, db); err != nil || len(values) != 0 {
+				return fmt.Errorf("legacy provider list crossed users: %v", err)
+			}
+			if values, quotas, err := ReadProviderSnapshot(scoped, db, node); err != nil || len(values) != 0 || len(quotas) != 0 {
+				return fmt.Errorf("legacy provider snapshot crossed users: %v", err)
+			}
+			if values, err := providerCredentials(scoped, db); err != nil || len(values) != 0 {
+				return fmt.Errorf("legacy credential metadata crossed users: %v", err)
+			}
+			if current, err := readProviderConfiguration(scoped, db, shared.ID); err != nil || current != nil {
+				return fmt.Errorf("legacy provider read crossed users: %v", err)
+			}
+			if _, err := resolveProviderKey(scoped, db, node, *shared.Credential, shared.ID); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
+				return fmt.Errorf("legacy key resolution crossed users: %v", err)
+			}
+			if _, err := ReadProviderCommand(scoped, db, node, protocol.Command{Kind: "read_provider_key", Data: &protocol.CommandReadProviderKeyPayload{Provider: shared.ID, ExpectedRevision: shared.Revision}}); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+				return fmt.Errorf("legacy key disclosure: %v", err)
+			}
+			if _, err := save(scoped, shared, "replacement-key"); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+				return fmt.Errorf("legacy provider overwrite: %v", err)
+			}
+			if _, _, err := ExecuteProviderCommand(scoped, db, node, protocol.Request{Command: protocol.Command{Kind: "remove_provider", Data: &protocol.CommandRemoveProviderPayload{Provider: shared.ID, ExpectedRevision: shared.Revision}}}, nil); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+				return fmt.Errorf("legacy provider removal: %v", err)
+			}
+			if _, _, err := exportCredential(scoped, db, node, *shared.Credential, shared); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+				return fmt.Errorf("legacy key export: %v", err)
+			}
+		}
+		current, err := currentProvider(ownCtx, db, shared.ID, nil)
+		if err != nil {
+			return err
+		}
+		if current.Provider.Shared || current.Provider.Owner == nil || *current.Provider.Owner != owner.ID {
+			return errors.New("legacy owner projection is not personal")
+		}
+		if key, err := resolveProviderKey(ownCtx, db, node, *shared.Credential, shared.ID); err != nil || key.Expose() != "host-key" {
+			return fmt.Errorf("owner key was lost: %v", err)
+		}
+		manifest, err := ExportConfigurationManifest(ownCtx, db, node, protocol.NodeID{7}, "providers", true)
+		if err != nil {
+			return err
+		}
+		if len(manifest.Records) != 2 {
+			return errors.New("legacy provider was lost from owner export")
+		}
+		for _, record := range manifest.Records {
+			var provider protocol.ConversationProvider
+			if err := decodeConfigurationRecord(record, &provider); err != nil {
+				return err
+			}
+			if provider.Shared || provider.Owner != nil || provider.Source != nil {
+				return errors.New("export retained source ownership or sharing")
+			}
+		}
+		var columnShared, bodyShared bool
+		if err := db.QueryRowContext(ctx, "SELECT shared,COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", shared.ID.String()).Scan(&columnShared, &bodyShared); err != nil {
+			return err
+		}
+		if !columnShared || !bodyShared {
+			return errors.New("reading legacy configuration rewrote stored data")
+		}
+		changed, err := save(ownCtx, shared, "private-host-key")
+		if err != nil {
+			return err
+		}
+		if changed.Shared {
+			return errors.New("owner save retained sharing")
+		}
+		if err := db.QueryRowContext(ctx, "SELECT shared,COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", shared.ID.String()).Scan(&columnShared, &bodyShared); err != nil {
+			return err
+		}
+		if columnShared || bodyShared {
+			return errors.New("owner save did not clear sharing")
+		}
+		// Only the immutable legacy capture may recover the pre-rotation key.
 		if key, err := resolveCapturedProviderKey(otherCtx, db, node, *shared.Credential, shared); err != nil || key.Expose() != "host-key" {
 			return fmt.Errorf("captured host key was lost: %v", err)
+		}
+		uncaptured := shared
+		uncaptured.Shared = false
+		if _, err := resolveCapturedProviderKey(otherCtx, db, node, *shared.Credential, uncaptured); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
+			return fmt.Errorf("uncaptured provider recovered another user's key: %v", err)
+		}
+		uncaptured = shared
+		uncaptured.Owner = &other.ID
+		if _, err := resolveCapturedProviderKey(otherCtx, db, node, *shared.Credential, uncaptured); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+			return fmt.Errorf("captured owner mismatch accepted: %v", err)
 		}
 		return nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProviderCommandsCannotEnableSharing(t *testing.T) {
+	t.Parallel()
+	_, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		user, err := CreateUser(ctx, db, "Personal controller")
+		if err != nil {
+			return err
+		}
+		if err := SetUserAdministrator(ctx, db, user.ID, false); err != nil {
+			return err
+		}
+		user.Administrator = false
+		personal := WithUser(ctx, user)
+		for _, kind := range []string{"put_provider", "save_provider"} {
+			provider := providerFixture()
+			provider.Shared = true
+			var payload any = &protocol.CommandPutProviderPayload{Provider: provider}
+			if kind == "save_provider" {
+				key := protocol.NewSecret("personal-fixture-key")
+				payload = &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &key}
+			}
+			output, changes, err := ExecuteProviderCommand(personal, db, node, protocol.Request{Command: protocol.Command{Kind: kind, Data: payload}}, nil)
+			if err != nil {
+				return err
+			}
+			saved := output.Data.(protocol.ConversationProvider)
+			if saved.Shared || saved.Owner == nil || *saved.Owner != user.ID {
+				return fmt.Errorf("%s did not return a personal provider", kind)
+			}
+			if len(changes) != 1 || changes[0].Data.(protocol.ConversationProvider).Shared {
+				return fmt.Errorf("%s emitted a shared provider", kind)
+			}
+			var columnShared, bodyShared bool
+			if err := db.QueryRowContext(ctx, "SELECT shared,COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", saved.ID.String()).Scan(&columnShared, &bodyShared); err != nil {
+				return err
+			}
+			if columnShared || bodyShared {
+				return fmt.Errorf("%s persisted sharing", kind)
+			}
+		}
+		if values, err := providerList(ctx, db); err != nil || len(values) != 0 {
+			return fmt.Errorf("local administrator saw personal controller providers: %v", err)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
