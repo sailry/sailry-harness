@@ -12,8 +12,10 @@ import (
 // A target installation, connector or storage key (including a removal
 // tombstone) wins a conflict; source originals remain in the merge archive.
 func MergePluginUsers(ctx context.Context, db *sql.Conn, source, target protocol.User) error {
+	if _, err := db.ExecContext(ctx, `INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user=?1 ON CONFLICT(connection,user) DO NOTHING`, source.ID.String()); err != nil {
+		return err
+	}
 	statements := []string{
-		`INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user=?1 ON CONFLICT(connection,user) DO NOTHING`,
 		`INSERT INTO plugin_user_settings(user,plugin,revision,body)
 SELECT ?2,s.plugin,s.revision,s.body FROM plugin_user_settings s
 WHERE s.user=?1 AND NOT EXISTS(SELECT 1 FROM plugin_user_installations t WHERE t.user=?2 AND t.name=s.plugin)

@@ -5,24 +5,86 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"modernc.org/sqlite"
+	"github.com/sailry/sailry-harness/internal/turso"
+	sdk "turso.tech/database/tursogo"
 )
 
-// refuseCommits makes SQLite turn every COMMIT of the connection into a
-// rollback, as it does itself when the commit cannot be written.
-func refuseCommits(t *testing.T, connection *sql.Conn, refuse bool) error {
+type writerFaultConnector struct{ driver.Connector }
+
+func (connector writerFaultConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	connection, err := connector.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &writerFaultConnection{Conn: connection}, nil
+}
+
+type writerFaultConnection struct {
+	driver.Conn
+	mode string
+}
+
+func (connection *writerFaultConnection) ExecContext(ctx context.Context, query string, arguments []driver.NamedValue) (driver.Result, error) {
+	execer := connection.Conn.(driver.ExecerContext)
+	command := strings.ToUpper(strings.TrimSpace(query))
+	if connection.mode == "full storage" && strings.HasPrefix(command, "INSERT INTO FIXTURE") {
+		return nil, sdk.ErrTursoDatabaseFull
+	}
+	if connection.mode == "rollback commit" && command == "COMMIT" {
+		_, err := execer.ExecContext(ctx, "ROLLBACK", nil)
+		return nil, errors.Join(errors.New("fixture commit failed after rollback"), err)
+	}
+	if connection.mode == "refuse transaction control" && (command == "COMMIT" || command == "ROLLBACK" || strings.HasPrefix(command, "BEGIN")) {
+		return nil, errors.New("fixture transaction control unavailable")
+	}
+	return execer.ExecContext(ctx, query, arguments)
+}
+
+func (connection *writerFaultConnection) QueryContext(ctx context.Context, query string, arguments []driver.NamedValue) (driver.Rows, error) {
+	return connection.Conn.(driver.QueryerContext).QueryContext(ctx, query, arguments)
+}
+
+func (connection *writerFaultConnection) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	return connection.Conn.(driver.ConnPrepareContext).PrepareContext(ctx, query)
+}
+
+func installWriterFaults(t *testing.T, handle *Handle) {
+	t.Helper()
+	connector, err := turso.Connector(handle.Path(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database := sql.OpenDB(writerFaultConnector{connector})
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	connection, err := database.Conn(t.Context())
+	if err != nil {
+		_ = database.Close()
+		t.Fatal(err)
+	}
+	exclusive, err := handle.Exclusive(t.Context())
+	if err != nil {
+		_ = connection.Close()
+		_ = database.Close()
+		t.Fatal(err)
+	}
+	previous, previousDB := handle.state.writer.connection, handle.state.writeDB
+	handle.state.writeDB = database
+	handle.state.writer.database = database
+	handle.state.writer.connection = connection
+	if err := errors.Join(previous.Close(), previousDB.Close(), exclusive.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setWriterFault(t *testing.T, connection *sql.Conn, mode string) error {
 	t.Helper()
 	return connection.Raw(func(raw any) error {
-		var hook sqlite.CommitHookFn
-		if refuse {
-			hook = func() int32 { return 1 }
-		}
-		raw.(sqlite.HookRegisterer).RegisterCommitHook(hook)
+		raw.(*writerFaultConnection).mode = mode
 		return nil
 	})
 }
@@ -60,22 +122,23 @@ func TestWriterAfterFailedCommit(t *testing.T) {
 		t.Helper()
 		var fault *protocol.Fault
 		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy {
-			t.Fatalf("a commit SQLite rolled back must be retryable: %v", err)
+			t.Fatalf("a commit that rolled back must be retryable: %v", err)
 		}
 	}
 
-	t.Run("SQLite rolled the commit back", func(t *testing.T) {
+	t.Run("engine rolled the commit back", func(t *testing.T) {
 		t.Parallel()
 		handle, ctx := driverFixture(t)
+		installWriterFaults(t, handle)
 		err := handle.Write(ctx, func(connection *sql.Conn) error {
-			if err := refuseCommits(t, connection, true); err != nil {
+			if err := setWriterFault(t, connection, "rollback commit"); err != nil {
 				return err
 			}
 			_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(1,1)")
 			return err
 		})
 		retryable(t, err)
-		if err := refuseCommits(t, handle.state.writer.connection, false); err != nil {
+		if err := setWriterFault(t, handle.state.writer.connection, ""); err != nil {
 			t.Fatal(err)
 		}
 		if err := insert(ctx, handle, 2); err != nil {
@@ -143,19 +206,13 @@ func TestWriterAfterFailedCommit(t *testing.T) {
 	t.Run("commit failed and the connection cannot say why", func(t *testing.T) {
 		t.Parallel()
 		handle, ctx := driverFixture(t)
+		installWriterFaults(t, handle)
 		err := handle.Write(ctx, func(connection *sql.Conn) error {
 			if _, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(1,1)"); err != nil {
 				return err
 			}
 			// COMMIT, ROLLBACK and BEGIN are all refused from here on.
-			return connection.Raw(func(raw any) error {
-				return raw.(sqlite.AuthorizerRegisterer).RegisterAuthorizer(func(action sqlite.AuthorizerActionCode, _, _, _, _ string) sqlite.AuthorizerReturnCode {
-					if action == sqlite.AuthTransaction {
-						return sqlite.AuthorizerDeny
-					}
-					return sqlite.AuthorizerOK
-				})
-			})
+			return setWriterFault(t, connection, "refuse transaction control")
 		})
 		var fault *protocol.Fault
 		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown {
@@ -172,27 +229,32 @@ func TestWriterAfterFailedCommit(t *testing.T) {
 	t.Run("full storage is named", func(t *testing.T) {
 		t.Parallel()
 		handle, ctx := driverFixture(t)
-		if err := handle.Write(ctx, func(connection *sql.Conn) error {
-			var pages int
-			if err := connection.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages); err != nil {
+		installWriterFaults(t, handle)
+		// MVCC does not allocate pages during the write, so max_page_count
+		// cannot simulate a full disk. Inject the official error after a real
+		// change and verify that no partial job survives its rollback.
+		err := handle.Write(ctx, func(connection *sql.Conn) error {
+			if _, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(1,1)"); err != nil {
 				return err
 			}
-			return connection.QueryRowContext(ctx, fmt.Sprintf("PRAGMA max_page_count=%d", pages+2)).Scan(&pages)
-		}); err != nil {
-			t.Fatal(err)
-		}
-		// The statement fails with SQLITE_FULL, and the job that preceded it in
-		// the transaction is known to be uncommitted.
-		err := handle.Write(ctx, func(connection *sql.Conn) error {
-			_, err := connection.ExecContext(ctx, "CREATE TABLE filler(body BLOB); INSERT INTO filler VALUES(zeroblob(1048576))")
+			if err := setWriterFault(t, connection, "full storage"); err != nil {
+				return err
+			}
+			_, err := connection.ExecContext(ctx, "INSERT INTO fixture VALUES(3,3)")
 			return err
 		})
 		var fault *protocol.Fault
 		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy || !strings.Contains(fault.Message, "storage is full") {
 			t.Fatalf("full storage: %v", err)
 		}
+		if err := setWriterFault(t, handle.state.writer.connection, ""); err != nil {
+			t.Fatal(err)
+		}
 		if err := insert(ctx, handle, 2); err != nil {
 			t.Fatalf("write after full storage: %v", err)
+		}
+		if ids := stored(t, ctx, handle); len(ids) != 1 || ids[0] != 2 {
+			t.Fatalf("partial job survived full storage: %v", ids)
 		}
 	})
 }

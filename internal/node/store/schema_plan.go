@@ -26,6 +26,9 @@ func prepareSchemaPlan(ctx context.Context, connection *sql.Conn, path string, e
 	if err != nil {
 		return schemaPlan{}, err
 	}
+	if err := removeSearchBacking(actual, expected, path); err != nil {
+		return schemaPlan{}, err
+	}
 	if err := removeRetainedTables(actual, path); err != nil {
 		return schemaPlan{}, err
 	}

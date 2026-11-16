@@ -55,6 +55,7 @@ require (
 	github.com/sergi/go-diff v1.4.0
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/studio-b12/gowebdav v0.13.0
+	github.com/tursodatabase/turso-go-platform-libs v0.8.3
 	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yldm-tech/ai-logo/mygo v1.20.0
 	github.com/yuin/goldmark v1.8.7
@@ -74,6 +75,7 @@ require (
 	modernc.org/libc v1.80.1
 	modernc.org/sqlite v1.62.0
 	rsc.io/qr v0.2.0
+	turso.tech/database/tursogo v0.8.3
 )
 
 require (

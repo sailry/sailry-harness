@@ -3,14 +3,15 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// initializePluginUsers moves legacy mutable state to the local user after the
-// additive schema upgrade. Removing the legacy rows makes this idempotent and
-// prevents old, unscoped readers from exposing another user's live state.
+// initializePluginUsers fills the local user's state when the per-user tables
+// are first created. The bootstrap transaction retains legacy source rows; later
+// schema updates do not repeat this step or resurrect removed user settings.
 func initializePluginUsers(ctx context.Context, db *sql.Conn) error {
 	user, err := LocalUser(ctx, db)
 	if err != nil {
@@ -23,17 +24,12 @@ func initializePluginUsers(ctx context.Context, db *sql.Conn) error {
 		"INSERT INTO plugin_search_spaces(space,name) SELECT 'user:'||?1,name FROM plugin_values WHERE index_data IS NOT NULL ON CONFLICT(space,name) DO NOTHING",
 		"INSERT INTO plugin_search_spaces(space,name) SELECT 'user:'||?1,name FROM plugins WHERE true ON CONFLICT(space,name) DO NOTHING",
 		"UPDATE plugin_connections SET user=?1 WHERE user IS NULL",
-		"INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user IS NOT NULL ON CONFLICT(connection,user) DO NOTHING",
+		"INSERT INTO plugin_connection_captures(connection,user) SELECT id,user FROM plugin_connections WHERE user=?1 ON CONFLICT(connection,user) DO NOTHING",
 		"UPDATE knowledge_collections SET body=json_set(body,'$.capture.user',?1) WHERE json_extract(body,'$.capture.user') IS NULL",
 		"UPDATE knowledge_collections SET body=json_set(body,'$.capture.space','user:'||?1) WHERE json_extract(body,'$.collection.definition.source.kind')='storage' AND json_extract(body,'$.collection.definition.source.scope')='node' AND json_extract(body,'$.capture.space') IS NULL",
 	} {
 		if _, err := db.ExecContext(ctx, statement, user.ID.String()); err != nil {
-			return err
-		}
-	}
-	for _, table := range []string{"plugins", "plugin_settings", "plugin_values"} {
-		if _, err := db.ExecContext(ctx, "DELETE FROM "+table); err != nil {
-			return err
+			return fmt.Errorf("initialize plugin users (%s): %w", statement, err)
 		}
 	}
 	return initializeDispatchUsers(ctx, db)

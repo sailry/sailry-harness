@@ -19,7 +19,6 @@ func initializeDispatchUsers(ctx context.Context, db *sql.Conn) error {
 		"UPDATE dispatch_jobs SET user=?1 WHERE user IS NULL",
 		"UPDATE dispatch_jobs SET storage_user=?1 WHERE storage_user IS NULL",
 		"UPDATE dispatch_events SET user=?1 WHERE user IS NULL",
-		"DELETE FROM dispatch_handlers", "DELETE FROM dispatch_schedules",
 	} {
 		if _, err := db.ExecContext(ctx, statement, user.ID.String()); err != nil {
 			return err

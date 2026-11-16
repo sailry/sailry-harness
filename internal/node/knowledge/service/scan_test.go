@@ -387,8 +387,10 @@ func TestSemanticScan(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				rows, err := db.QueryContext(ctx, "WITH candidates AS MATERIALIZED (SELECT rowid AS id,-bm25(chunks_fts,2,1,2,1) AS score FROM chunks_fts WHERE chunks_fts MATCH ?7) SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id "+filter+" ORDER BY f.score DESC,c.key LIMIT 100",
-					granting(query), tagsJSON(query.Tags), path, nil, nil, "[]", knowledge.Query(query.Query))
+				terms := knowledge.Query(query.Query)
+				expression := "field0:(" + terms + ")^2 OR field1:(" + terms + ") OR cjk0:(" + terms + ")^2 OR cjk1:(" + terms + ")"
+				rows, err := db.QueryContext(ctx, "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?7) AS score FROM chunks WHERE fts_match(field0,field1,cjk0,cjk1,?7)) SELECT c.key,f.score FROM candidates f JOIN chunks c ON c.id=f.id "+filter+" ORDER BY f.score DESC,c.key LIMIT 100",
+					granting(query), tagsJSON(query.Tags), path, nil, nil, "[]", expression)
 				if err != nil {
 					return err
 				}

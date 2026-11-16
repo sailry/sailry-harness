@@ -137,3 +137,97 @@ func TestPluginUserNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLegacyPluginBootstrapPreservesSourcesAndRemoval(t *testing.T) {
+	t.Parallel()
+	profile, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	info := pluginTestInfo("legacy-fixture", 'a')
+	info.Summary.Revision, info.Summary.SettingsRevision = 1, 1
+	info.Summary.Enabled = true
+	body, err := encode(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if _, err := db.ExecContext(ctx, "DROP TABLE plugin_user_installations"); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugins(name,revision,settings_revision,installed,body) VALUES(?1,1,1,1,?2)", info.Summary.Name, body); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)", info.Summary.Name, []byte(`{}`)); err != nil {
+			return err
+		}
+		_, err := db.ExecContext(ctx, "INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES(?1,'kept',1,?2,NULL)", info.Summary.Name, []byte(`{"kept":true}`))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	storage = reopenSchemaFixture(t, profile, node)
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		installed, err := ReadPlugin(ctx, db, info.Summary.Name)
+		if err != nil || installed == nil {
+			return fmt.Errorf("legacy plugin was not initialized: %v", err)
+		}
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM plugin_space_values WHERE name=?1", info.Summary.Name).Scan(&count); err != nil || count != 1 {
+			return fmt.Errorf("legacy value was not initialized: count=%d, %v", count, err)
+		}
+		if _, err := RemovePlugin(ctx, db, info.Summary.Name, 1); err != nil {
+			return err
+		}
+		for _, statement := range []string{
+			"DELETE FROM plugin_user_settings WHERE plugin=?1",
+			"DELETE FROM plugin_space_values WHERE name=?1",
+		} {
+			if _, err := db.ExecContext(ctx, statement, info.Summary.Name); err != nil {
+				return err
+			}
+		}
+		// Force a later additive schema update, not only a current-schema restart.
+		_, err = db.ExecContext(ctx, "DROP INDEX session_association_identity")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	storage = reopenSchemaFixture(t, profile, node)
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		installed, err := ReadPlugin(ctx, db, info.Summary.Name)
+		if err != nil || installed != nil {
+			return fmt.Errorf("removed legacy plugin was reinstalled: %v", err)
+		}
+		for _, item := range []struct{ table, column string }{
+			{"plugins", "name"}, {"plugin_settings", "plugin"}, {"plugin_values", "name"},
+			{"plugin_user_settings", "plugin"}, {"plugin_space_values", "name"},
+		} {
+			var count int
+			if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+item.table+" WHERE "+item.column+"=?1", info.Summary.Name).Scan(&count); err != nil {
+				return err
+			}
+			want := 1
+			if item.table == "plugin_user_settings" || item.table == "plugin_space_values" {
+				want = 0
+			}
+			if count != want {
+				return fmt.Errorf("%s has %d records, want %d", item.table, count, want)
+			}
+		}
+		var retained []byte
+		if err := db.QueryRowContext(ctx, "SELECT body FROM plugins WHERE name=?1", info.Summary.Name).Scan(&retained); err != nil {
+			return err
+		}
+		if string(retained) != string(body) {
+			return fmt.Errorf("legacy plugin source changed")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

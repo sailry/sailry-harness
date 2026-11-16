@@ -303,9 +303,8 @@ func PrepareBackup(ctx context.Context, db *sql.Conn, profile string, command pr
 	return err
 }
 
-// BackupSource reads the plan and the profile-relative content roots of one
-// snapshot, on the connection that pins the state the database copy is made
-// from.
+// BackupSource reads the plan and profile-relative content roots while the
+// caller holds exclusive ownership through the database copy.
 func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, revision uint64) (backup.Plan, []string, error) {
 	var identity []byte
 	if err := db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
@@ -367,29 +366,4 @@ func backupStrings(ctx context.Context, db *sql.Conn, query string) ([]string, e
 		values = append(values, value)
 	}
 	return values, errors.Join(err, rows.Err(), rows.Close())
-}
-
-// Pause checkpoints and closes the database while keeping the exclusive
-// lease, so nothing is admitted between the source read and the file copy.
-func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
-	handle := exclusive.handle
-	var busy, log, checkpointed int
-	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
-		return nil, err
-	}
-	if busy != 0 {
-		return nil, errors.New("database checkpoint is busy")
-	}
-	handle.mu.Lock()
-	state := handle.state
-	handle.state = nil
-	handle.mu.Unlock()
-	closed := &Closed{handle: handle}
-	// The Closed owner takes the existing permit without releasing it in between.
-	exclusive.close.Do(func() {})
-	if err := state.close(); err != nil {
-		_ = closed.Close()
-		return nil, err
-	}
-	return closed, nil
 }

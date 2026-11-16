@@ -115,7 +115,7 @@ func (f *fixture) search(text string) protocol.CodeIndexSearchPage {
 }
 
 func (f *fixture) database() string {
-	return filepath.Join(f.profile, "cache", "code-index", f.id.String(), "index.sqlite")
+	return filepath.Join(f.profile, "cache", "code-index", f.id.String(), "index.turso")
 }
 
 // origin is the place and resolution of one reference.

@@ -7,12 +7,8 @@ import (
 	"errors"
 	"sync"
 
-	"modernc.org/sqlite"
+	"github.com/sailry/sailry-harness/internal/core"
 )
-
-// snapshotPages is one step of the page copy: the copy answers cancellation
-// between steps of sixteen mebibytes at the default page size.
-const snapshotPages = 4096
 
 // Pinned is a read transaction that began under an exclusive lease and
 // outlives it. It keeps one lease, so the database stays open until Close.
@@ -25,8 +21,13 @@ type Pinned struct {
 // Pin begins a read transaction on the database exactly as it is under the
 // exclusive lease. The transaction keeps its share of the lease when the
 // exclusive owner closes, so reads and writes continue while the pinned state
-// is read or copied.
+// is read.
 func (exclusive *Exclusive) Pin(ctx context.Context) (*Pinned, error) {
+	exclusive.mu.Lock()
+	defer exclusive.mu.Unlock()
+	if exclusive.finished {
+		return nil, core.ErrStopped
+	}
 	handle := exclusive.handle
 	handle.mu.Lock()
 	state := handle.state
@@ -51,32 +52,6 @@ func (exclusive *Exclusive) Pin(ctx context.Context) (*Pinned, error) {
 
 // Connection reads the pinned state.
 func (pinned *Pinned) Connection() *sql.Conn { return pinned.connection }
-
-// Copy writes the pinned state as a complete database in a new private file
-// with SQLite's online backup. The source is neither closed nor blocked.
-func (pinned *Pinned) Copy(ctx context.Context, target string) error {
-	if err := createDatabaseFile(target); err != nil {
-		return err
-	}
-	return pinned.connection.Raw(func(connection any) error {
-		source, ok := connection.(interface {
-			NewBackup(string) (*sqlite.Backup, error)
-		})
-		if !ok {
-			return errors.New("database driver has no online backup")
-		}
-		copying, err := source.NewBackup(databaseDSN(target, false))
-		if err != nil {
-			return err
-		}
-		for more := true; more && err == nil; {
-			if err = ctx.Err(); err == nil {
-				more, err = copying.Step(snapshotPages)
-			}
-		}
-		return errors.Join(err, copying.Finish())
-	})
-}
 
 func (pinned *Pinned) Close() error {
 	var err error

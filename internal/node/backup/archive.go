@@ -27,8 +27,9 @@ import (
 
 const manifestName = "sailry-backup.json"
 
-// The SQLite fallback's file families replace the Turso names of the reference layout.
-var databaseNames = [2]string{"node.sqlite", "knowledge.sqlite"}
+var databaseNames = [2]string{"node.turso", "knowledge.turso"}
+
+const compatibleNodeName = "node.sqlite"
 
 type File struct {
 	Path   string `json:"path"`
@@ -128,17 +129,15 @@ func (snapshot *Snapshot) skip(path, reason string) {
 	}
 }
 
-// Freeze adds one database. write produces the complete database, as one
-// consistent state, in a new file at the path it is given; the storage owner
-// does that while the database stays in use.
+// Freeze adds one database family. The storage owner writes a consistent,
+// closed native snapshot at the supplied base path before returning.
 func (snapshot *Snapshot) Freeze(ctx context.Context, name string, write func(ctx context.Context, target string) error) error {
-	if name != databaseNames[0] && name != databaseNames[1] {
+	if name != databaseNames[0] && name != databaseNames[1] && name != compatibleNodeName {
 		return invalid("invalid native backup database name")
 	}
 	if err := cancelled(ctx); err != nil {
 		return err
 	}
-	relative := "storage/" + name
 	if err := write(ctx, filepath.Join(snapshot.Directory, "storage", name)); err != nil {
 		if ctx.Err() != nil {
 			return cancelled(ctx)
@@ -150,24 +149,34 @@ func (snapshot *Snapshot) Freeze(ctx context.Context, name string, write func(ct
 		return ioFault(err)
 	}
 	defer directory.Close()
-	for _, member := range core.DatabaseFiles(name)[1:] {
-		if _, err := directory.Lstat(member); !errors.Is(err, fs.ErrNotExist) {
-			return invalid("backup database copy is not one complete file")
+	for index, member := range core.DatabaseFiles(name) {
+		if err := cancelled(ctx); err != nil {
+			return err
+		}
+		if _, err := directory.Lstat(member); errors.Is(err, fs.ErrNotExist) && index > 0 {
+			continue
+		} else if err != nil {
+			return ioFault(err)
+		}
+		input, info, err := openRegular(directory, member)
+		if err != nil {
+			return err
+		}
+		err = regularDatabase(info)
+		var size uint64
+		var sum string
+		if err == nil {
+			size, sum, err = copyHash(ctx, input, io.Discard, uint64(info.Size()))
+		}
+		err = errors.Join(err, input.Close())
+		if err != nil {
+			return err
+		}
+		if err := snapshot.add(File{Path: "storage/" + member, Size: size, SHA256: sum, Mode: 0o600}); err != nil {
+			return err
 		}
 	}
-	input, info, err := openRegular(directory, name)
-	if err != nil {
-		return err
-	}
-	defer input.Close()
-	if err := regularDatabase(info); err != nil {
-		return err
-	}
-	size, sum, err := copyHash(ctx, input, io.Discard, uint64(info.Size()))
-	if err != nil {
-		return err
-	}
-	return snapshot.add(File{Path: relative, Size: size, SHA256: sum, Mode: 0o600})
+	return nil
 }
 
 // Capture copies the profile-relative roots the storage owner listed. Only
@@ -578,13 +587,20 @@ func appendEntry(ctx context.Context, archive *tar.Writer, path string, size uin
 // RefreshDatabases recomputes the database entries after restore validation
 // checkpointed or upgraded the staged databases.
 func (manifest *Manifest) RefreshDatabases(ctx context.Context, root string) error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	names := databaseNames
+	if slices.ContainsFunc(manifest.Files, func(file File) bool { return file.Path == "storage/"+compatibleNodeName }) {
+		names[0] = compatibleNodeName
+	}
 	directory, err := os.OpenRoot(filepath.Join(root, "storage"))
 	if err != nil {
 		return ioFault(err)
 	}
 	defer directory.Close()
 	var files []File
-	for _, name := range databaseNames {
+	for _, name := range names {
 		for index, member := range core.DatabaseFiles(name) {
 			if err := cancelled(ctx); err != nil {
 				return err
@@ -593,7 +609,7 @@ func (manifest *Manifest) RefreshDatabases(ctx context.Context, root string) err
 			if errors.Is(err, fs.ErrNotExist) && index > 0 {
 				continue
 			}
-			if errors.Is(err, fs.ErrNotExist) && name != databaseNames[0] {
+			if errors.Is(err, fs.ErrNotExist) && name != names[0] {
 				break
 			}
 			if err != nil {
@@ -686,22 +702,32 @@ func (manifest *Manifest) Validate() error {
 			return invalid("invalid backup skip record")
 		}
 	}
-	if !paths["storage/"+databaseNames[0]] || !paths[identityName] {
+	nativeNode, compatibleNode := paths["storage/"+databaseNames[0]], paths["storage/"+compatibleNodeName]
+	if nativeNode == compatibleNode || !paths[identityName] {
 		return invalid("backup database or identity is missing")
 	}
-	for _, name := range databaseNames {
-		family := core.DatabaseFiles("storage/" + name)
-		for _, member := range family[1:] {
-			if paths[member] && !paths[family[0]] {
-				return invalid("backup database or logical log is missing")
+	names := databaseNames
+	if compatibleNode {
+		names[0] = compatibleNodeName
+	}
+	allowed := map[string]bool{}
+	for _, name := range names {
+		if paths["storage/"+name] {
+			for _, member := range core.DatabaseFiles("storage/" + name) {
+				allowed[member] = true
 			}
+		}
+	}
+	for _, file := range manifest.Files {
+		if database(file.Path) && !allowed[file.Path] {
+			return invalid("backup database or logical log is missing")
 		}
 	}
 	return nil
 }
 
 func database(path string) bool {
-	for _, name := range databaseNames {
+	for _, name := range []string{databaseNames[0], databaseNames[1], compatibleNodeName} {
 		for _, member := range core.DatabaseFiles("storage/" + name) {
 			if member == path {
 				return true

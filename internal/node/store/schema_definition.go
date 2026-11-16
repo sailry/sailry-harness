@@ -30,6 +30,8 @@ func parseTable(sql string) (tableDefinition, error) {
 		header: normalizeSQL(sql[:start]), columns: make(map[string]string),
 		constraints: make(map[string]struct{}), options: normalizeSQL(sql[end+1:]),
 	}
+	header, table, _ := strings.Cut(result.header, "TABLE")
+	result.header = header + "TABLE " + normalizeIdentifier(table)
 	var references []string
 	for _, clause := range clauses {
 		words := strings.Fields(clause)
@@ -48,9 +50,32 @@ func parseTable(sql string) (tableDefinition, error) {
 			if _, exists := result.columns[name]; exists {
 				return tableDefinition{}, invalidDefinition()
 			}
-			result.columns[name] = clause
+			// Turso reconstructs declarations and quotes keyword identifiers such
+			// as key; SQLite retains their authored, unquoted spelling.
+			result.columns[name] = name + clause[len(first):]
 		}
 	}
+	constraints := make(map[string]struct{}, len(result.constraints))
+	for constraint := range result.constraints {
+		for _, prefix := range []string{"PRIMARY KEY(", "UNIQUE("} {
+			if tail, ok := strings.CutPrefix(constraint, prefix); ok {
+				fields, after, found := strings.Cut(tail, ")")
+				if found {
+					columns := strings.Split(fields, ",")
+					for index, column := range columns {
+						name, order, _ := strings.Cut(column, " ")
+						columns[index] = normalizeIdentifier(name)
+						if order != "" {
+							columns[index] += " " + order
+						}
+					}
+					constraint = prefix + strings.Join(columns, ",") + ")" + after
+				}
+			}
+		}
+		constraints[constraint] = struct{}{}
+	}
+	result.constraints = constraints
 	for _, reference := range references {
 		body, prefixed := strings.CutPrefix(reference, "FOREIGN KEY(")
 		field, clause, separated := strings.Cut(body, ")")
@@ -69,6 +94,21 @@ func parseTable(sql string) (tableDefinition, error) {
 		}
 	}
 	return result, nil
+}
+
+func normalizeIdentifier(identifier string) string {
+	identifier = strings.TrimSpace(identifier)
+	if len(identifier) >= 2 {
+		switch {
+		case identifier[0] == '"' && identifier[len(identifier)-1] == '"':
+			identifier = strings.ReplaceAll(identifier[1:len(identifier)-1], `""`, `"`)
+		case identifier[0] == '`' && identifier[len(identifier)-1] == '`':
+			identifier = strings.ReplaceAll(identifier[1:len(identifier)-1], "``", "`")
+		case identifier[0] == '[' && identifier[len(identifier)-1] == ']':
+			identifier = identifier[1 : len(identifier)-1]
+		}
+	}
+	return strings.ToUpper(identifier)
 }
 
 func tableClauses(body string) ([]string, error) {

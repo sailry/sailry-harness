@@ -23,17 +23,7 @@ func PluginSearchDefinition(name string) string {
 	table := pluginSearchTable(name)
 	index := table + "_fts"
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s(id INTEGER PRIMARY KEY,key TEXT NOT NULL UNIQUE,field0 TEXT NOT NULL,field1 TEXT NOT NULL,cjk0 TEXT NOT NULL,cjk1 TEXT NOT NULL,tags TEXT NOT NULL,ordinal INTEGER NOT NULL);
-CREATE VIRTUAL TABLE IF NOT EXISTS %[2]s USING fts5(field0,field1,cjk0,cjk1,content='%[1]s',content_rowid='id',tokenize='ascii tokenchars ''+#''');
-CREATE TRIGGER IF NOT EXISTS %[2]s_insert AFTER INSERT ON %[1]s BEGIN
-INSERT INTO %[2]s(rowid,field0,field1,cjk0,cjk1) VALUES(new.id,new.field0,new.field1,new.cjk0,new.cjk1);
-END;
-CREATE TRIGGER IF NOT EXISTS %[2]s_delete AFTER DELETE ON %[1]s BEGIN
-INSERT INTO %[2]s(%[2]s,rowid,field0,field1,cjk0,cjk1) VALUES('delete',old.id,old.field0,old.field1,old.cjk0,old.cjk1);
-END;
-CREATE TRIGGER IF NOT EXISTS %[2]s_update AFTER UPDATE ON %[1]s BEGIN
-INSERT INTO %[2]s(%[2]s,rowid,field0,field1,cjk0,cjk1) VALUES('delete',old.id,old.field0,old.field1,old.cjk0,old.cjk1);
-INSERT INTO %[2]s(rowid,field0,field1,cjk0,cjk1) VALUES(new.id,new.field0,new.field1,new.cjk0,new.cjk1);
-END;`, table, index)
+CREATE INDEX IF NOT EXISTS %[2]s ON %[1]s USING fts(field0,field1,cjk0,cjk1) WITH(tokenizer='whitespace');`, table, index)
 }
 
 func pluginSearchExists(ctx context.Context, db *sql.Conn, name string) (bool, error) {
@@ -132,19 +122,24 @@ func pluginSearchRows(ctx context.Context, db *sql.Conn, name string, query prot
 		return nil, err
 	}
 	table := pluginSearchTable(scoped)
-	index := table + "_fts"
 	parameters := []any{name, space}
 	parameter := func(value any) string {
 		parameters = append(parameters, value)
 		return fmt.Sprintf("?%d", len(parameters))
 	}
 	where := []string{"v.name=?1", "v.space=?2", "v.value IS NOT NULL"}
+	candidates := ""
 	join := table + " AS f JOIN plugin_space_values AS v ON v.key=f.key"
 	order := "f.ordinal DESC,v.key ASC"
 	if expression != "" {
-		join += " JOIN " + index + " ON " + index + ".rowid=f.id"
-		where = append(where, index+" MATCH "+parameter(expression))
-		order = fmt.Sprintf("bm25(%s,%d,%d,%d,%d) ASC,", index, query.Weights[0], query.Weights[1], query.Weights[0], query.Weights[1]) + order
+		weighted := make([]string, 0, 4)
+		for index, field := range []string{"field0", "field1", "cjk0", "cjk1"} {
+			weighted = append(weighted, fmt.Sprintf("%s:(%s)^%d", field, expression, query.Weights[index%2]))
+		}
+		queryParameter := parameter(strings.Join(weighted, " OR "))
+		candidates = fmt.Sprintf("WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,%[1]s) AS score FROM %[2]s WHERE fts_match(field0,field1,cjk0,cjk1,%[1]s)) ", queryParameter, table)
+		join = "candidates c JOIN " + table + " AS f ON c.id=f.id JOIN plugin_space_values AS v ON v.key=f.key"
+		order = "c.score DESC," + order
 	}
 	for _, tag := range query.All {
 		where = append(where, "EXISTS(SELECT 1 FROM json_each(f.tags) WHERE value="+parameter(tag)+")")
@@ -156,7 +151,7 @@ func pluginSearchRows(ctx context.Context, db *sql.Conn, name string, query prot
 		}
 		where = append(where, "EXISTS(SELECT 1 FROM json_each(f.tags) WHERE value IN("+strings.Join(choices, ",")+"))")
 	}
-	sqlText := "SELECT " + columns + " FROM " + join + " WHERE " + strings.Join(where, " AND ") +
+	sqlText := candidates + "SELECT " + columns + " FROM " + join + " WHERE " + strings.Join(where, " AND ") +
 		" ORDER BY " + order + " LIMIT " + parameter(limit) + " OFFSET " + parameter(offset)
 	return db.QueryContext(ctx, sqlText, parameters...)
 }

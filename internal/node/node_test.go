@@ -602,9 +602,9 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A secret-bearing request interrupted after its admission, and the rows
-	// an earlier build left for such commands: their complete request.
-	const legacyKey = "legacy-ledger-key"
+	// Secret-bearing requests retain their replay identity as digests, including
+	// a completed request and two requests interrupted after admission.
+	const secret = "fixture-ledger-key"
 	encode := func(request protocol.Request) []byte {
 		t.Helper()
 		body, err := json.Marshal(request)
@@ -614,28 +614,24 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 		return body
 	}
 	interrupted := protocol.NewRequest(id, secretCommands("interrupted-ledger-key")["save_provider"])
-	legacyCompleted := protocol.NewRequest(id, secretCommands(legacyKey)["save_provider"])
-	legacyAdmitted := protocol.NewRequest(id, secretCommands(legacyKey)["save_ssh"])
-	recorded, err := json.Marshal(protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "recorded before the update"}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	completed := protocol.NewRequest(id, secretCommands(secret)["save_provider"])
+	admitted := protocol.NewRequest(id, secretCommands(secret)["save_ssh"])
+	interruptedBody, completedBody, admittedBody := encode(interrupted), encode(completed), encode(admitted)
+	recorded := link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "recorded before the restart"}}
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		if _, err := admission.Admit(ctx, db, id, request, body); err != nil {
 			return err
 		}
-		if _, err := admission.Admit(ctx, db, id, interrupted, encode(interrupted)); err != nil {
+		if _, err := admission.Admit(ctx, db, id, interrupted, interruptedBody); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)", id[:], legacyCompleted.ID.String(), encode(legacyCompleted), string(recorded)); err != nil {
+		if _, err := admission.Admit(ctx, db, id, completed, completedBody); err != nil {
 			return err
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", id[:], legacyAdmitted.ID.String(), encode(legacyAdmitted)); err != nil {
+		if err := admission.Complete(ctx, db, id, completed.ID, recorded); err != nil {
 			return err
 		}
-		// A command that has left the contract since: its row still holds a key.
-		retired := `{"command":{"kind":"put_credential","data":{"secret":"retired-` + legacyKey + `"}}}`
-		_, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)", id[:], protocol.NewRequestID().String(), []byte(retired), string(recorded))
+		_, err := admission.Admit(ctx, db, id, admitted, admittedBody)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -669,8 +665,8 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 		}
 		return len(entries)
 	}
-	if len(stored(legacyKey)) == 0 || len(stored("interrupted-ledger-key")) != 0 || backups() != 0 {
-		t.Fatalf("before the update: legacy secret in %v, interrupted secret in %v, %d backups", stored(legacyKey), stored("interrupted-ledger-key"), backups())
+	if len(stored(secret)) != 0 || len(stored("interrupted-ledger-key")) != 0 || backups() != 0 {
+		t.Fatalf("before the restart: secret in %v, interrupted secret in %v, %d backups", stored(secret), stored("interrupted-ledger-key"), backups())
 	}
 	restarted, err := startFixtureNode(ctx, path)
 	if err != nil {
@@ -686,33 +682,32 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
 		t.Fatalf("recovery = %#v", result)
 	}
-	for name, unfinished := range map[string]protocol.Request{"interrupted": interrupted, "legacy": legacyAdmitted} {
+	for name, unfinished := range map[string]protocol.Request{"interrupted": interrupted, "admitted": admitted} {
 		result := dispatchFixture(t, restarted, id, unfinished)
 		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeOutcomeUnknown {
 			t.Fatalf("%s secret-bearing recovery = %#v", name, result)
 		}
 	}
-	// The update kept the replay identity of the rows it replaced.
-	if result := dispatchFixture(t, restarted, id, legacyCompleted); result.Fault == nil || result.Fault.Message != "recorded before the update" {
-		t.Fatalf("legacy replay = %#v", result)
+	if result := dispatchFixture(t, restarted, id, completed); result.Fault == nil || *result.Fault != *recorded.Fault {
+		t.Fatalf("completed replay = %#v", result)
 	}
-	for _, legacy := range []protocol.Request{legacyCompleted, legacyAdmitted} {
-		changed := legacy
-		changed.Command = secretCommands("another-secret")[legacy.Command.Kind]
+	for _, keptRequest := range []protocol.Request{completed, admitted} {
+		changed := keptRequest
+		changed.Command = secretCommands("another-secret")[keptRequest.Command.Kind]
 		var conflict *protocol.Fault
 		if _, err := restarted.Dispatch(ctx, id, changed); !errors.As(err, &conflict) || conflict.Code != protocol.ErrorCodeConflict {
-			t.Fatalf("legacy %s with another secret = %v", legacy.Command.Kind, err)
+			t.Fatalf("replayed %s with another secret = %v", keptRequest.Command.Kind, err)
 		}
-		digest := blake3.Sum256(encode(legacy))
+		digest := blake3.Sum256(encode(keptRequest))
 		var kept []byte
 		if err := restarted.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			return db.QueryRowContext(ctx, "SELECT body FROM requests WHERE caller=?1 AND id=?2", id[:], legacy.ID.String()).Scan(&kept)
+			return db.QueryRowContext(ctx, "SELECT body FROM requests WHERE caller=?1 AND id=?2", id[:], keptRequest.ID.String()).Scan(&kept)
 		}); err != nil || string(kept) != "credential-v1:"+hex.EncodeToString(digest[:]) {
-			t.Fatalf("legacy %s body = %q, %v", legacy.Command.Kind, kept, err)
+			t.Fatalf("retained %s body = %q, %v", keptRequest.Command.Kind, kept, err)
 		}
-		inspection := commandFixture(t, restarted, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: legacy.ID, Digest: hex.EncodeToString(digest[:])}})
-		if want := map[string]string{"save_provider": "completed", "save_ssh": "unknown"}[legacy.Command.Kind]; inspection.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != want {
-			t.Fatalf("legacy %s inspection = %#v, want %s", legacy.Command.Kind, inspection, want)
+		inspection := commandFixture(t, restarted, protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: keptRequest.ID, Digest: hex.EncodeToString(digest[:])}})
+		if want := map[string]string{"save_provider": "completed", "save_ssh": "unknown"}[keptRequest.Command.Kind]; inspection.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != want {
+			t.Fatalf("retained %s inspection = %#v, want %s", keptRequest.Command.Kind, inspection, want)
 		}
 	}
 	if providers := commandFixture(t, restarted, protocol.Command{Kind: "list_providers"}).Data.([]protocol.ConversationProvider); len(providers) != 0 {
@@ -783,14 +778,14 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 		}
 		gate("DROP TRIGGER result_refused")
 	})
-	// Neither the database, its log, nor the backup that preceded the update
-	// keeps the secret, and a later start has nothing left to replace.
+	// Neither the database nor its sidecars keep the secret, and reopening the
+	// current schema requires no bootstrap backup.
 	stopped = true
 	if err := restarted.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if files := stored(legacyKey); len(files) != 0 || backups() != 1 {
-		t.Fatalf("after the update: legacy secret in %v, %d backups", files, backups())
+	if files := stored(secret); len(files) != 0 || backups() != 0 {
+		t.Fatalf("after the restart: secret in %v, %d backups", files, backups())
 	}
 	again, err := startFixtureNode(ctx, path)
 	if err != nil {
@@ -799,8 +794,8 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if err := again.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if files := stored(legacyKey); len(files) != 0 || backups() != 1 {
-		t.Fatalf("after another start: legacy secret in %v, %d backups", files, backups())
+	if files := stored(secret); len(files) != 0 || backups() != 0 {
+		t.Fatalf("after another start: secret in %v, %d backups", files, backups())
 	}
 }
 

@@ -104,10 +104,20 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 	profile, node, storage := schemaFixture(t)
 	ctx := t.Context()
 	peer := protocol.NodeID{9}
-	schemaExecute(t, storage.Node, "INSERT INTO link_peers(identity,user) VALUES(?1,(SELECT id FROM users WHERE local=1))", peer[:])
-	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN user")
-	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN direction")
-	schemaExecute(t, storage.Node, "ALTER TABLE link_peers DROP COLUMN legacy")
+	// Turso retains foreign-key clauses when dropping their columns. Build
+	// the actual legacy declaration in this synthetic fixture instead.
+	exclusive, err := storage.Node.Exclusive(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = exclusive.Connection().ExecContext(ctx, "PRAGMA foreign_keys=0; DROP TABLE link_peers; CREATE TABLE link_peers(identity BLOB PRIMARY KEY CHECK(length(identity)=32))")
+	if err == nil {
+		_, err = exclusive.Connection().ExecContext(ctx, "INSERT INTO link_peers(identity) VALUES(?1)", peer[:])
+	}
+	_, restore := exclusive.Connection().ExecContext(ctx, "PRAGMA foreign_keys=1")
+	if err := errors.Join(err, restore, exclusive.Close()); err != nil {
+		t.Fatal(err)
+	}
 	for _, table := range []string{"projects", "sessions", "worktrees", "terminals", "notifications"} {
 		schemaExecute(t, storage.Node, "UPDATE "+table+" SET owner=NULL")
 	}
@@ -125,7 +135,7 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrated := reopenSchemaFixture(t, profile, node)
-	err := migrated.Node.Read(ctx, func(db *sql.Conn) error {
+	err = migrated.Node.Read(ctx, func(db *sql.Conn) error {
 		local, err := LocalUser(ctx, db)
 		if err != nil {
 			return err
@@ -149,7 +159,7 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.sqlite"))
+	backups, err := filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.turso"))
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("migration backup: %v, %v", backups, err)
 	}
@@ -157,7 +167,7 @@ func TestLegacyUsersMigrationPreservesPeerAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = reopenSchemaFixture(t, profile, node)
-	backups, err = filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.sqlite"))
+	backups, err = filepath.Glob(filepath.Join(profile, "storage", "backups", "node-before-upgrade-*", "node.turso"))
 	if err != nil || len(backups) != 1 {
 		t.Fatalf("current startup repeated migration: %v, %v", backups, err)
 	}

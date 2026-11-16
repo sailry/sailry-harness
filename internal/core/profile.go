@@ -107,5 +107,5 @@ func Temporary(profile string) (string, error) {
 }
 
 func DatabaseFiles(path string) []string {
-	return []string{path, path + "-wal", path + "-shm"}
+	return []string{path, strings.TrimSuffix(path, filepath.Ext(path)) + ".db-log", path + "-wal", path + "-tshm"}
 }

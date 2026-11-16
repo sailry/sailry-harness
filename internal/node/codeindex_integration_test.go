@@ -759,7 +759,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		}
 
 		// Removing the project removes the cache of its worktree.
-		if _, err := os.Stat(filepath.Join(cache(worktree), "index.sqlite")); err != nil {
+		if _, err := os.Stat(filepath.Join(cache(worktree), "index.turso")); err != nil {
 			t.Fatalf("the project has no index cache: %v", err)
 		}
 		var current protocol.Project
@@ -791,7 +791,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		name := "helper"
 		_, failure = acceptanceCall[protocol.CodeIndexGraphGraphPage](t, node, protocol.Command{Kind: "graph_code", Data: protocol.CommandGraphCodePayload{Worktree: main, Query: protocol.CodeIndexGraph{View: protocol.CodeIndexGraphViewCallers, Name: &name, Paths: []string{}, Depth: 3, Limit: 50}}})
 		acceptanceFault(t, "disabled graph", failure, protocol.ErrorCodeNotConfigured, "code index is disabled")
-		if _, err := os.Stat(filepath.Join(cache(main), "index.sqlite")); err != nil {
+		if _, err := os.Stat(filepath.Join(cache(main), "index.turso")); err != nil {
 			t.Fatalf("disabling removed the cache: %v", err)
 		}
 		_, failure = acceptanceCall[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: 0, Enabled: true}, ExpectedRevision: 0}})
@@ -819,7 +819,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		if found := codeSymbols(codeSearch(t, node, created.ID, protocol.CodeIndexSearch{Query: "build"}).Symbols); !slices.Equal(found, []codeSymbol{{"lib/index.rs", "build", "function", 4}}) {
 			t.Fatalf("the second worktree found %+v", found)
 		}
-		if _, err := os.Stat(filepath.Join(cache(created.ID), "index.sqlite")); err != nil {
+		if _, err := os.Stat(filepath.Join(cache(created.ID), "index.turso")); err != nil {
 			t.Fatalf("the worktree has no index cache: %v", err)
 		}
 		acceptanceDo[json.RawMessage](t, node, protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: created.ID, ExpectedHead: commit, ExpectedBranch: "feature"}})
@@ -827,7 +827,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		if _, err := os.Stat(cache(created.ID)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("the removed worktree's index cache remains: %v", err)
 		}
-		if _, err := os.Stat(filepath.Join(cache(main), "index.sqlite")); err != nil {
+		if _, err := os.Stat(filepath.Join(cache(main), "index.turso")); err != nil {
 			t.Fatalf("removing a worktree removed the main cache: %v", err)
 		}
 	})
@@ -838,7 +838,7 @@ func TestCodeIndexCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 		stopped = true
-		database := filepath.Join(cache(main), "index.sqlite")
+		database := filepath.Join(cache(main), "index.turso")
 		if found := codeFingerprints(t, database, ""); !slices.Equal(found, []string{codeindex.Fingerprint}) {
 			t.Fatalf("the index carries fingerprints %v, want %s", found, codeindex.Fingerprint)
 		}

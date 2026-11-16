@@ -55,9 +55,10 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 type Exclusive struct {
 	handle *Handle
 	writer *writer
+	mu     sync.Mutex
 	// pinned counts the read transactions that outlive this lease.
-	pinned int64
-	close  sync.Once
+	pinned   int64
+	finished bool
 }
 
 func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
@@ -78,7 +79,12 @@ func (handle *Handle) Exclusive(ctx context.Context) (*Exclusive, error) {
 func (exclusive *Exclusive) Connection() *sql.Conn { return exclusive.writer.connection }
 
 func (exclusive *Exclusive) Close() error {
-	exclusive.close.Do(func() { exclusive.handle.leases.Release(allLeases - exclusive.pinned) })
+	exclusive.mu.Lock()
+	defer exclusive.mu.Unlock()
+	if !exclusive.finished {
+		exclusive.finished = true
+		exclusive.handle.leases.Release(allLeases - exclusive.pinned)
+	}
 	return nil
 }
 
@@ -94,28 +100,42 @@ func (handle *Handle) Pause(ctx context.Context) (*Closed, error) {
 	if err != nil {
 		return nil, err
 	}
-	var busy, log, checkpointed int
-	if err := exclusive.Connection().QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &checkpointed); err != nil {
-		_ = exclusive.Close()
+	defer exclusive.Close()
+	return exclusive.Pause(ctx)
+}
+
+// Pause checkpoints and closes the database without releasing ownership
+// between a read of its metadata and a copy of its files.
+func (exclusive *Exclusive) Pause(ctx context.Context) (*Closed, error) {
+	exclusive.mu.Lock()
+	defer exclusive.mu.Unlock()
+	if exclusive.finished {
+		return nil, core.ErrStopped
+	}
+	if exclusive.pinned != 0 {
+		return nil, errors.New("database has pinned read transactions")
+	}
+	rows, err := exclusive.Connection().QueryContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	if err != nil {
 		return nil, err
 	}
-	if busy != 0 {
-		_ = exclusive.Close()
-		return nil, errors.New("database checkpoint is busy")
+	for rows.Next() {
 	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return nil, err
+	}
+	handle := exclusive.handle
 	handle.mu.Lock()
 	state := handle.state
 	handle.state = nil
 	handle.mu.Unlock()
+	// Closing this lease later must not release the Closed owner's permits.
+	exclusive.finished = true
+	closed := &Closed{handle: handle}
 	if err := state.close(); err != nil {
-		handle.mu.Lock()
-		handle.stopped = true
-		handle.mu.Unlock()
-		_ = exclusive.Close()
-		return nil, err
+		return nil, errors.Join(err, closed.Reopen(context.WithoutCancel(ctx)))
 	}
-	// The Closed owner takes the existing permit without releasing it in between.
-	return &Closed{handle: handle}, nil
+	return closed, nil
 }
 
 func (closed *Closed) Path() string { return closed.handle.path }

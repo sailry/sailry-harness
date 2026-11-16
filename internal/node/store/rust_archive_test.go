@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,12 +12,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestRustArchiveResources(t *testing.T) {
+func TestStartupPreservesInactiveStorage(t *testing.T) {
 	t.Parallel()
-	for _, current := range []bool{false, true} {
-		name := "fresh storage"
-		if current {
-			name = "current storage"
+	for _, active := range []bool{false, true} {
+		name := "preserved original requires explicit selection"
+		if active {
+			name = "active database leaves preserved original alone"
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -25,9 +26,9 @@ func TestRustArchiveResources(t *testing.T) {
 			if err := core.PrivateDirectory(storage); err != nil {
 				t.Fatal(err)
 			}
-			open := func() {
-				t.Helper()
-				opened, err := Open(t.Context(), profile, protocol.NodeID{})
+			node := protocol.NodeID{1}
+			if active {
+				opened, err := Open(t.Context(), profile, node)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -35,79 +36,46 @@ func TestRustArchiveResources(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if current {
-				open()
-			}
-			oldDatabase := filepath.Join(storage, "node.turso")
-			if err := os.WriteFile(oldDatabase, []byte("opaque database"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			resources := map[string]string{
+			files := map[string]string{
+				"storage/rust-archive/node.turso":                          "preserved original database",
+				"storage/rust-archive/knowledge.turso":                     "preserved original knowledge",
 				"plugins/packages/" + strings.Repeat("a", 64) + "/main.js": "export default {}",
 				"attachments/" + protocol.NewAttachmentID().String():       "attachment bytes",
 			}
-			modes := map[string]os.FileMode{}
-			for name, body := range resources {
+			for name, body := range files {
 				path := filepath.Join(profile, filepath.FromSlash(name))
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				modes[name] = info.Mode()
-			}
-			check := func(base, name, expected string) {
-				t.Helper()
-				path := filepath.Join(base, filepath.FromSlash(name))
-				body, err := os.ReadFile(path)
-				if err != nil || string(body) != expected {
-					t.Fatalf("resource %s changed: %q, %v", path, body, err)
-				}
-				info, err := os.Stat(path)
-				if err != nil || info.Mode() != modes[name] {
-					t.Fatalf("resource %s lost its permissions: %v, %v", path, info, err)
-				}
-			}
-			open()
-			if _, err := os.Lstat(oldDatabase); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("the old database stayed live: %v", err)
-			}
-			archive := filepath.Join(storage, RustArchive)
-			if body, err := os.ReadFile(filepath.Join(archive, "node.turso")); err != nil || string(body) != "opaque database" {
-				t.Fatalf("the archived database changed: %q, %v", body, err)
-			}
-			for name, body := range resources {
-				check(archive, name, body)
-				// Existing Go references keep their live files. Later changes
-				// to those files must not change the kept archive's bytes.
-				check(profile, name, body)
-				if err := os.WriteFile(filepath.Join(profile, filepath.FromSlash(name)), []byte("current "+body), modes[name].Perm()); err != nil {
+				if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			open()
-			if _, err := os.Stat(filepath.Join(storage, RustArchive+"-2")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("an ordinary restart archived resources again: %v", err)
+			opened, err := Open(t.Context(), profile, node)
+			if opened != nil {
+				if closeErr := opened.Close(); closeErr != nil {
+					t.Fatal(closeErr)
+				}
 			}
-			for name, body := range resources {
-				check(archive, name, body)
-				check(profile, name, "current "+body)
-			}
-			// A later foreign database gets its own matching resource
-			// snapshot without replacing either the live files or the first.
-			if err := os.WriteFile(oldDatabase, []byte("later opaque database"), 0o600); err != nil {
+			if active && err != nil {
 				t.Fatal(err)
 			}
-			open()
-			for name, body := range resources {
-				check(archive, name, body)
-				check(filepath.Join(storage, RustArchive+"-2"), name, "current "+body)
-				check(profile, name, "current "+body)
+			if !active && (err == nil || !strings.Contains(err.Error(), "preserved")) {
+				t.Fatalf("inactive preserved storage: %v", err)
+			}
+			for name, body := range files {
+				got, err := os.ReadFile(filepath.Join(profile, filepath.FromSlash(name)))
+				if err != nil || !bytes.Equal(got, []byte(body)) {
+					t.Fatalf("preserved file %s changed: %v", name, err)
+				}
+			}
+			if !active {
+				if _, err := os.Stat(filepath.Join(storage, "node.turso")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("a replacement database was created: %v", err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(storage, "rust-archive-2")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("startup moved storage to a new archive: %v", err)
 			}
 		})
 	}

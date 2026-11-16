@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/turso"
 )
 
 func databaseDirectory(t *testing.T) string {
@@ -44,7 +46,7 @@ func assertPrivateDatabase(t *testing.T, path string) {
 func driverFixture(t *testing.T) (*Handle, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	handle, err := OpenHandle(ctx, filepath.Join(databaseDirectory(t), "node.sqlite"))
+	handle, err := OpenHandle(ctx, filepath.Join(databaseDirectory(t), "node.turso"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +62,62 @@ func driverFixture(t *testing.T) (*Handle, context.Context) {
 		t.Fatal(err)
 	}
 	return handle, ctx
+}
+
+func TestParameterBlobNullability(t *testing.T) {
+	t.Parallel()
+	handle, ctx := driverFixture(t)
+	if err := handle.Write(ctx, func(connection *sql.Conn) error {
+		_, err := connection.ExecContext(ctx, "CREATE TABLE blobs(id INTEGER PRIMARY KEY,value BLOB)")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for id, item := range []struct {
+		name   string
+		value  any
+		kind   string
+		length int
+	}{
+		{"nil bytes", []byte(nil), "null", -1},
+		{"nil named bytes", json.RawMessage(nil), "null", -1},
+		{"empty bytes", []byte{}, "blob", 0},
+		{"empty named bytes", json.RawMessage{}, "blob", 0},
+		{"body", []byte("value"), "blob", 5},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			if err := handle.Write(ctx, func(connection *sql.Conn) error {
+				statement, err := connection.PrepareContext(ctx, "INSERT INTO blobs VALUES(?1,?2)")
+				if err != nil {
+					return err
+				}
+				defer statement.Close()
+				_, err = statement.ExecContext(ctx, id, item.value)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := handle.Read(ctx, func(connection *sql.Conn) error {
+				var kind string
+				var length int
+				if err := connection.QueryRowContext(ctx, "SELECT typeof(value),coalesce(length(value),-1) FROM blobs WHERE id=?1", id).Scan(&kind, &length); err != nil {
+					return err
+				}
+				if kind != item.kind || length != item.length {
+					return fmt.Errorf("stored value: got %s/%d, want %s/%d", kind, length, item.kind, item.length)
+				}
+				if err := connection.QueryRowContext(ctx, "SELECT typeof(?1),coalesce(length(?1),-1)", item.value).Scan(&kind, &length); err != nil {
+					return err
+				}
+				if kind != item.kind || length != item.length {
+					return fmt.Errorf("query parameter: got %s/%d, want %s/%d", kind, length, item.kind, item.length)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func TestConcurrentWritersCommit(t *testing.T) {
@@ -304,6 +362,42 @@ func TestReadLeaseQueryOnly(t *testing.T) {
 	}
 }
 
+func TestPreparedReadCancellationReusesConnection(t *testing.T) {
+	t.Parallel()
+	handle, ctx := driverFixture(t)
+	err := handle.Read(ctx, func(connection *sql.Conn) error {
+		statement, err := connection.PrepareContext(ctx, "WITH RECURSIVE spin(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM spin WHERE x<4000000000) SELECT count(*) FROM spin")
+		if err != nil {
+			return err
+		}
+		defer statement.Close()
+		cancelled, cancel := context.WithCancel(ctx)
+		defer cancel()
+		timer := time.AfterFunc(30*time.Millisecond, cancel)
+		defer timer.Stop()
+		started := time.Now()
+		var count int64
+		if err := statement.QueryRowContext(cancelled).Scan(&count); !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("prepared query cancellation: %w", err)
+		}
+		if time.Since(started) > 2*time.Second {
+			return errors.New("prepared query did not stop promptly")
+		}
+		// Every later operation uses the same lease and native connection. A
+		// late cancellation must never interrupt the next successful query.
+		for range 20 {
+			var ready int
+			if err := connection.QueryRowContext(ctx, "SELECT 1").Scan(&ready); err != nil || ready != 1 {
+				return fmt.Errorf("query after cancellation: ready=%d, %w", ready, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPauseBlocksLeases(t *testing.T) {
 	t.Parallel()
 	handle, ctx := driverFixture(t)
@@ -350,11 +444,12 @@ func TestOpenRejectsLinks(t *testing.T) {
 	t.Parallel()
 	t.Run("existing journal mode stays unchanged", func(t *testing.T) {
 		path := filepath.Join(databaseDirectory(t), "other.sqlite")
-		database, err := sql.Open("sqlite", path)
+		connector, err := turso.Connector(path, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := database.Exec("CREATE TABLE fixture(value INTEGER)"); err != nil {
+		database := sql.OpenDB(connector)
+		if _, err := database.Exec("CREATE TABLE fixture(value INTEGER); INSERT INTO fixture VALUES(42)"); err != nil {
 			t.Fatal(err)
 		}
 		if err := database.Close(); err != nil {
@@ -364,23 +459,46 @@ func TestOpenRejectsLinks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handle, err := OpenHandle(context.Background(), path)
-		if handle != nil {
-			_ = handle.Close()
+		identity, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if err == nil {
-			t.Fatal("existing non-WAL database accepted")
+		handle, err := OpenHandle(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var mode string
+		err = handle.Read(t.Context(), func(db *sql.Conn) error {
+			if err := db.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&mode); err != nil {
+				return err
+			}
+			var value int
+			if err := db.QueryRowContext(t.Context(), "SELECT value FROM fixture").Scan(&value); err != nil {
+				return err
+			}
+			if value != 42 {
+				return fmt.Errorf("existing value changed: %d", value)
+			}
+			return nil
+		})
+		if err = errors.Join(err, handle.Close()); err != nil || mode != "wal" {
+			t.Fatalf("existing journal mode changed: %q, %v", mode, err)
 		}
 		after, err := os.ReadFile(path)
-		if err != nil || !bytes.Equal(before, after) {
-			t.Fatalf("rejected database changed: %v", err)
+		if err != nil || len(before) < 20 || len(after) < 20 || !bytes.Equal(before[:20], after[:20]) {
+			t.Fatalf("existing database format changed during open: %v", err)
+		}
+		current, err := os.Stat(path)
+		if err != nil || !os.SameFile(identity, current) {
+			t.Fatalf("existing database was replaced during open: %v", err)
 		}
 	})
-	for _, name := range []string{"", "-wal", "-shm"} {
+	for _, name := range []string{"node.turso", "node.db-log", "node.turso-wal", "node.turso-tshm"} {
 		for _, kind := range []string{"symlink", "hardlink", "directory"} {
 			t.Run(kind+name, func(t *testing.T) {
 				t.Parallel()
-				path := filepath.Join(databaseDirectory(t), "node.sqlite")
+				path := filepath.Join(databaseDirectory(t), "node.turso")
+				member := filepath.Join(filepath.Dir(path), name)
 				target := filepath.Join(t.TempDir(), "target")
 				if err := os.WriteFile(target, []byte("fixture"), 0o600); err != nil {
 					t.Fatal(err)
@@ -388,11 +506,11 @@ func TestOpenRejectsLinks(t *testing.T) {
 				var err error
 				switch kind {
 				case "symlink":
-					err = os.Symlink(target, path+name)
+					err = os.Symlink(target, member)
 				case "hardlink":
-					err = os.Link(target, path+name)
+					err = os.Link(target, member)
 				case "directory":
-					err = os.Mkdir(path+name, 0o700)
+					err = os.Mkdir(member, 0o700)
 				}
 				if err != nil {
 					if kind == "symlink" && runtime.GOOS == "windows" {

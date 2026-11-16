@@ -29,7 +29,7 @@ func TestWindowsProfileSecurity(t *testing.T) {
 		if err := validateExistingWindowsFile(key); err != nil {
 			t.Fatal(err)
 		}
-		database := filepath.Join(path, "storage", "node.sqlite")
+		database := filepath.Join(path, "storage", "node.turso")
 		if err := PrepareDatabase(database); err != nil {
 			t.Fatal(err)
 		}
@@ -86,7 +86,7 @@ func TestWindowsProfileSecurity(t *testing.T) {
 			t.Fatalf("owner refusal created a lock: %v", err)
 		}
 	})
-	for _, target := range []string{"directory", "identity", "lock", "database", "node.sqlite-wal", "node.sqlite-shm", "node.sqlite-journal"} {
+	for _, target := range []string{"directory", "identity", "lock", "database", "node.turso-wal", "node.db-log", "node.turso-tshm"} {
 		t.Run("reject shared "+target, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "profile")
 			if target == "directory" {
@@ -95,7 +95,7 @@ func TestWindowsProfileSecurity(t *testing.T) {
 				t.Fatal(err)
 			}
 			fixture := path
-			database := filepath.Join(path, "node.sqlite")
+			database := filepath.Join(path, "node.turso")
 			var operation func() error
 			operation = func() error {
 				profile, err := AcquireProfile(path)
@@ -115,7 +115,7 @@ func TestWindowsProfileSecurity(t *testing.T) {
 				}
 				fixture = database
 				operation = func() error { return PrepareDatabase(database) }
-			case "node.sqlite-wal", "node.sqlite-shm", "node.sqlite-journal":
+			case "node.turso-wal", "node.db-log", "node.turso-tshm":
 				fixture = filepath.Join(path, target)
 				operation = func() error { return PrepareDatabase(database) }
 			}
@@ -155,7 +155,7 @@ func TestWindowsProfileSecurity(t *testing.T) {
 		if err := PrivateDirectory(path); err != nil {
 			t.Fatal(err)
 		}
-		database := filepath.Join(path, "node.sqlite")
+		database := filepath.Join(path, "node.turso")
 		if err := PrepareDatabase(database); err != nil {
 			t.Fatal(err)
 		}

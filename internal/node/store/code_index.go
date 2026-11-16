@@ -17,7 +17,7 @@ func OpenCodeIndex(ctx context.Context, path string) (*Handle, error) {
 		return nil, err
 	}
 	if err := handle.Write(ctx, func(connection *sql.Conn) error {
-		if _, err := connection.ExecContext(ctx, sqliteSchema(CodeSchema)); err != nil {
+		if _, err := connection.ExecContext(ctx, CodeSchema); err != nil {
 			return err
 		}
 		var version int64

@@ -176,7 +176,7 @@ func (s *Service) worktree(id protocol.WorktreeID, root string) (*worktree, erro
 		known.used = time.Now()
 		return known, nil
 	}
-	created := &worktree{root: root, database: filepath.Join(s.directory(id), "index.sqlite"), sync: make(chan *progress, 1), dirty: dirty{paths: map[string]uint64{}}, used: time.Now()}
+	created := &worktree{root: root, database: filepath.Join(s.directory(id), "index.turso"), sync: make(chan *progress, 1), dirty: dirty{paths: map[string]uint64{}}, used: time.Now()}
 	created.sync <- &progress{}
 	created.stopped, created.stop = context.WithCancel(s.closed)
 	s.worktrees[id] = created

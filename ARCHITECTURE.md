@@ -53,7 +53,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/client` | Typed commands, projections, ordering, deduplication, request and snapshot recovery |
 | `internal/node` | Startup, admission, configuration, execution and resource-service composition |
 | `internal/node/agent` | Turn engine, canonical records, prompt, model adapters, tools and streaming feed |
-| `internal/node/store` | SQLite schema, transactions, durable requests, session records and event log |
+| `internal/node/store` | Turso schema, transactions, durable requests, session records and event log |
 | `internal/node/program` | Package-declared executable lifecycle and process isolation |
 | `internal/core` | Profile ownership, paths, confined files and common faults |
 | `internal/localmodels` | Model registry, verified installation and CPU inference scheduling |
@@ -142,21 +142,27 @@ diagnostics exclude credentials. Desktop controller preferences live at
 
 ### Storage
 
-`internal/node/store` uses SQLite for `storage/node.sqlite` and
-`storage/knowledge.sqlite`. Each database has one writer goroutine, WAL mode and a
-separate read-only pool. The writer groups queued operations in a
+`internal/node/store` uses the native Turso engine through the official
+`turso.tech/database/tursogo` SDK for `storage/node.turso` and
+`storage/knowledge.turso`. An existing `storage/node.sqlite` is opened in place
+by the same native engine, keeping its filename and WAL mode. New databases use
+MVCC. Each database has one writer goroutine and a separate read-only pool.
+The writer groups queued operations in a
 `BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become
 visible to callers after commit. Identifiers and event sequences advance in the
 same transaction as their records.
 
-Writer connections attempt automatic checkpoints once the WAL reaches 256 pages,
-spreading checkpoint I/O across commits while retaining full synchronous durability.
+Every connection uses full synchronous durability. `internal/turso` delegates SQL
+and value binding to the official SDK. Its native extension supplies connection
+ownership and interruption, which SDK 0.8.3 does not expose. Cancellation joins
+the interrupt watcher before reusing a connection. The shipped native library
+enables the same full-text index implementation as the Rust database.
 
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
 files and configuration are independent. Worktree code indexes live under
-`cache/code-index/<WorktreeId>/index.sqlite`.
+`cache/code-index/<WorktreeId>/index.turso`.
 
 Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
 excluded through Git's `info/exclude`. Command, browser and transfer staging uses
@@ -183,16 +189,20 @@ JSON input. These are current decoding semantics, not a restriction that future
 contracts must remain at version 1.
 
 Current Node storage uses `node.storage_generation=1`. Startup accepts an empty
-database or owned storage with the expected identity and generation. Missing or
-unsupported generations and foreign databases fail without replacing the database.
+database or owned storage with the expected identity and generation. An owned
+Rust database without that column receives the normal additive schema default.
+Unsupported generations and foreign databases fail without replacing the database.
 Schema additions are rehearsed on an isolated snapshot, backed up and applied
 transactionally with current-format validation. Configuration and recovery records
 are checked at startup; history and captured turns are checked when read.
-Recognized database files from another storage engine are moved unopened into
-`storage/rust-archive/`; they are not imported or deleted. Before moving them,
-startup copies the existing plugin packages and attachments into the same archive.
-The active directories remain available to any current database, whose normal
-collection can then remove unreferenced resources without losing the archived copy.
+Existing Turso files are opened in place. Startup does not move, convert or
+automatically select archived databases. Before opening a retained `node.sqlite`,
+a read-only schema inspection rejects unsupported SQLite virtual tables, including
+FTS5. Existing derived `knowledge.sqlite` and code indexes remain untouched;
+normal indexing rebuilds the native indexes from their sources. Legacy plugin records stay
+preserved when the normal schema update adds per-user configuration tables;
+initialization runs once with those tables so later restarts do not resurrect
+removed configuration.
 
 Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` to
 `~/.sailry` at link time. Development checks use isolated profiles as described in
@@ -202,7 +212,9 @@ Source builds default to `~/.sailry-go`. Release packaging sets `core.Default` t
 
 Backups include both databases, referenced packages, attachments, session documents
 and registered managed workspaces. Maintenance pauses transactions, checkpoints
-and closes databases, then copies complete file families. Password-encrypted age
+and closes databases, then copies complete native file families (the active basename,
+the sibling `.db-log`, `-wal` and `-tshm`). Both databases are reopened even when copying fails
+or is cancelled. Password-encrypted age
 archives support local folders, WebDAV and S3. Restore validates into an empty
 profile, retains Node identity and does not start it. Automatic backups use the
 Node's dispatch service. A restored identity must not run beside its original.

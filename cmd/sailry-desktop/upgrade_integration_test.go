@@ -3,16 +3,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
+	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,7 +29,21 @@ import (
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
+)
+
+//go:embed testdata/rust-node-schema.sql
+var rustNodeSchema string
+
+const (
+	rustSession    = "0197c0de-0000-7000-8000-000000000001"
+	rustWorktree   = "0197c0de-0000-7000-8000-000000000002"
+	rustAttachment = "0197c0de-0000-7000-8000-000000000004"
+	rustPlugin     = "rust-upgrade-fixture"
+	rustTitle      = "Preserved Rust conversation"
 )
 
 // rustPreferences is desktop/preferences.json as the Rust application's
@@ -106,7 +125,7 @@ const rustPreferences = `{
 
 // rustProfile writes the files a Rust-era ~/.sailry holds, following
 // runtime-core/src/profile.rs and the owners of each directory, and returns
-// the profile path. Database bodies are opaque: the Go Node never opens them.
+// the profile path. Its native databases use the historical Rust schema.
 func rustProfile(t *testing.T) string {
 	t.Helper()
 	profile := filepath.Join(t.TempDir(), ".sailry")
@@ -114,47 +133,31 @@ func rustProfile(t *testing.T) string {
 	for index := range seed {
 		seed[index] = byte(index + 1)
 	}
-	database := func(name string) []byte {
-		return append([]byte("SQLite format 3\x00"), []byte("turso "+name+" pages written by the Rust Node")...)
-	}
 	files := map[string][]byte{
-		"node.lock": {},
-		"link.key":  seed,
-		// runtime-core database_files: the database, its log and both side files.
-		"storage/node.turso":           database("node"),
-		"storage/node.db-log":          database("node log"),
-		"storage/node.turso-wal":       database("node wal"),
-		"storage/node.turso-tshm":      database("node tshm"),
-		"storage/knowledge.turso":      database("knowledge"),
-		"storage/knowledge.db-log":     database("knowledge log"),
-		"storage/knowledge.turso-wal":  database("knowledge wal"),
-		"storage/knowledge.turso-tshm": database("knowledge tshm"),
-		"storage/backups/node-before-upgrade-0197c0de-0000-7000-8000-00000000000a.turso": database("backup"),
+		"node.lock":                {},
+		"link.key":                 seed,
 		"desktop/preferences.json": []byte(rustPreferences),
-		"plugins/packages/3f0c9a51d2e84b7796a5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3/plugin.json": []byte(`{"name":"dev.sailry.platform","version":"0.1.0"}`),
-		"plugins/packages/3f0c9a51d2e84b7796a5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3/main.js":     []byte("export default {}\n"),
-		"plugins/data/dev.sailry.platform/state.json":                                                   []byte(`{"count":1}`),
-		"attachments/0197c0de-0000-7000-8000-000000000004":                                              []byte("attachment bytes\n"),
-		"models/embedding/bge-small/files/model.onnx":                                                   []byte("onnx"),
-		"models/decision/laya/model.gguf":                                                               []byte("gguf"),
-		"models/ocr/ppocr/model.onnx":                                                                   []byte("onnx"),
-		"models/sensevoice-int8/model.onnx":                                                             []byte("onnx"),
-		"models/sensevoice-int8/tokens.txt":                                                             []byte("a\n"),
-		"models/speech.json":                                                                            []byte(`{"version":1}`),
-		"python/environments/0a1b2c/pyvenv.cfg":                                                         []byte("home = /bundle\n"),
-		"python/environments/0a1b2c/receipt.json":                                                       []byte(`{"version":1}`),
-		"python/cache/wheel.whl":                                                                        []byte("wheel"),
-		"python/staging/leftover/file":                                                                  []byte("staged"),
-		"worktrees/0197c0de-0000-7000-8000-000000000002/README.md":                                      []byte("managed worktree\n"),
-		"workspaces/sessions/0197c0de-0000-7000-8000-000000000001/notes.txt":                            []byte("session files\n"),
-		"assistants/9e107d9d372bb6826bd81d3542a419d6/workspace/draft.md":                                []byte("assistant files\n"),
-		"artifacts/0197c0de-0000-7000-8000-000000000003/index.html":                                     []byte("<p>artifact</p>"),
-		"cache/code-index/0197c0de-0000-7000-8000-000000000002/index.turso":                             database("code index"),
-		"logs/desktop/sailry.2026-11-10.log":                                                            []byte("rust log line\n"),
-		"logs/host/sailry.2026-11-10.log":                                                               []byte("rust host log line\n"),
-		"tools/chromium/128.0/chrome":                                                                   []byte("browser"),
-		"updater/receipt.json":                                                                          []byte(`{"version":"0.1.4"}`),
-		"tmp/leftover.bin":                                                                              []byte("temporary"),
+		"plugins/data/" + rustPlugin + "/state.json":                         []byte(`{"count":1}`),
+		"attachments/" + rustAttachment:                                      []byte("attachment bytes\n"),
+		"models/embedding/bge-small/files/model.onnx":                        []byte("onnx"),
+		"models/decision/laya/model.gguf":                                    []byte("gguf"),
+		"models/ocr/ppocr/model.onnx":                                        []byte("onnx"),
+		"models/sensevoice-int8/model.onnx":                                  []byte("onnx"),
+		"models/sensevoice-int8/tokens.txt":                                  []byte("a\n"),
+		"models/speech.json":                                                 []byte(`{"version":1}`),
+		"python/environments/0a1b2c/pyvenv.cfg":                              []byte("home = /bundle\n"),
+		"python/environments/0a1b2c/receipt.json":                            []byte(`{"version":1}`),
+		"python/cache/wheel.whl":                                             []byte("wheel"),
+		"python/staging/leftover/file":                                       []byte("staged"),
+		"worktrees/0197c0de-0000-7000-8000-000000000002/README.md":           []byte("managed worktree\n"),
+		"workspaces/sessions/0197c0de-0000-7000-8000-000000000001/notes.txt": []byte("session files\n"),
+		"assistants/9e107d9d372bb6826bd81d3542a419d6/workspace/draft.md":     []byte("assistant files\n"),
+		"artifacts/0197c0de-0000-7000-8000-000000000003/index.html":          []byte("<p>artifact</p>"),
+		"logs/desktop/sailry.2026-11-10.log":                                 []byte("rust log line\n"),
+		"logs/host/sailry.2026-11-10.log":                                    []byte("rust host log line\n"),
+		"tools/chromium/128.0/chrome":                                        []byte("browser"),
+		"updater/receipt.json":                                               []byte(`{"version":"0.1.4"}`),
+		"tmp/leftover.bin":                                                   []byte("temporary"),
 	}
 	// An installed theme is theme.json and its declared resources, the files
 	// the Rust installer writes from an official package.
@@ -184,7 +187,127 @@ func rustProfile(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	rustDatabases(t, profile, seed)
 	return profile
+}
+
+func rustDatabases(t *testing.T, profile string, seed []byte) {
+	t.Helper()
+	ctx := t.Context()
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"`+rustPlugin+`","version":"0.1.0"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "main.js"), []byte("export default {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := plugins.NewManager(profile).Install(ctx, source, "", rustPlugin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Summary.Revision, info.Summary.SettingsRevision, info.Summary.Enabled = 1, 1, false
+	encode := func(value any) []byte {
+		t.Helper()
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	public := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	attachment := protocol.DefaultAttachment()
+	attachment.ID, err = protocol.ParseAttachmentID(rustAttachment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment.Spec.Worktree, err = protocol.ParseWorktreeID(rustWorktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment.Spec.Name, attachment.Spec.MediaType = "kept.txt", "text/plain"
+	attachment.Spec.Size = uint64(len("attachment bytes\n"))
+	attachment.Spec.Revision = fmt.Sprintf("%x", blake3.Sum256([]byte("attachment bytes\n")))
+	telemetryBody := encode(protocol.DefaultTelemetrySettings())
+	modelsBody := encode(protocol.DefaultModelsLocalSettings())
+	config := protocol.DefaultSessionConfig()
+	config.Provider, err = protocol.ParseProviderID("0197c0de-0000-7000-8000-000000000006")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Model, config.Mode, config.Permission = "fixture-model", protocol.WorkModeCode, protocol.PermissionAsk
+	configBody := encode(config)
+	rolesBody := encode(protocol.DefaultRoleSnapshot())
+	titleBody := encode(rustTitle)
+	attachmentBody := encode(attachment)
+	pluginBody := encode(info)
+	create := func(path, schema string, populate func(*sql.Conn) error) {
+		t.Helper()
+		if err := core.PrivateDirectory(filepath.Dir(path)); err != nil {
+			t.Fatal(err)
+		}
+		handle, err := store.OpenHandle(ctx, path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer handle.Close()
+		if err := handle.Write(ctx, func(db *sql.Conn) error {
+			if _, err := db.ExecContext(ctx, schema); err != nil {
+				return err
+			}
+			if populate != nil {
+				return populate(db)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		closed, err := handle.Pause(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := closed.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	populate := func(db *sql.Conn) error {
+		if _, err := db.ExecContext(ctx, "PRAGMA application_id=0x5341494c; PRAGMA user_version=1"); err != nil {
+			return err
+		}
+		for _, statement := range []struct {
+			query string
+			args  []any
+		}{
+			{"INSERT INTO node(singleton,identity,plugin_defaults,tool_defaults,tool_metadata_names) VALUES(1,?1,1,1,1)", []any{public}},
+			{"INSERT INTO telemetry_settings VALUES(1,?1)", []any{telemetryBody}},
+			{"INSERT INTO local_model_settings VALUES(1,?1)", []any{modelsBody}},
+			{"INSERT INTO worktrees(id,path,main) VALUES(?1,?2,1)", []any{rustWorktree, filepath.Join(profile, "worktrees", rustWorktree)}},
+			{"INSERT INTO sessions(rowid,id,worktree,revision) VALUES(1,?1,?2,1)", []any{rustSession, rustWorktree}},
+			{"INSERT INTO counters(namespace,value) VALUES('sessions',1)", nil},
+			{"INSERT INTO session_revisions(session,revision,worktree,config,roles) VALUES(?1,1,?2,?3,?4)", []any{rustSession, rustWorktree, configBody, rolesBody}},
+			{"INSERT INTO agent_state(owner,key,body) VALUES(?1,'sailry.session_title',?2)", []any{rustSession, titleBody}},
+			{"INSERT INTO attachments(id,worktree,caller,body) VALUES(?1,?2,?3,?4)", []any{rustAttachment, rustWorktree, public, attachmentBody}},
+			{"INSERT INTO plugins(name,revision,settings_revision,installed,body) VALUES(?1,1,1,1,?2)", []any{rustPlugin, pluginBody}},
+			{"INSERT INTO plugin_packages(digest,name,body) VALUES(?1,?2,?3)", []any{info.Summary.Digest, rustPlugin, pluginBody}},
+			{"INSERT INTO plugin_settings(plugin,revision,body) VALUES(?1,1,?2)", []any{rustPlugin, []byte(`{"schema":null,"values":{},"slots":{},"mcp_targets":{},"mcp":null}`)}},
+			{"INSERT INTO plugin_values(name,key,revision,value) VALUES(?1,'kept',1,?2)", []any{rustPlugin, []byte(`{"count":1}`)}},
+		} {
+			if _, err := db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+				return err
+			}
+		}
+		var modern int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('sessions') WHERE name='owner'").Scan(&modern); err != nil {
+			return err
+		}
+		if modern != 0 {
+			return errors.New("Rust fixture already includes the new owner column")
+		}
+		return nil
+	}
+	create(filepath.Join(profile, "storage", "node.turso"), rustNodeSchema, populate)
+	create(filepath.Join(profile, "storage", "knowledge.turso"), store.KnowledgeSchema, nil)
+	create(filepath.Join(profile, "cache", "code-index", rustWorktree, "index.turso"), store.CodeSchema, nil)
+	create(filepath.Join(profile, "storage", "backups", "node-before-upgrade-0197c0de-0000-7000-8000-00000000000a.turso"), rustNodeSchema, nil)
 }
 
 // snapshot records every file of the profile outside tmp, which both
@@ -227,22 +350,15 @@ func snapshot(t *testing.T, profile string) map[string]string {
 	return files
 }
 
-// preserved fails when a file of before is missing or changed and returns
-// the files that were added. The Rust databases directly in storage and their
-// collected resources are kept together in storage/rust-archive. Resource
-// copies retain their bytes and permissions even when current storage's
-// collectors remove the unreferenced live files.
-func preserved(t *testing.T, profile string, before map[string]string) []string {
+// preserved checks every retained file byte and permission. Successful startup
+// may change the two native database families through additive schema sync;
+// refused startup must preserve those files byte for byte as well.
+func preserved(t *testing.T, profile string, before map[string]string, started bool) []string {
 	t.Helper()
 	after := snapshot(t, profile)
 	for name, state := range before {
-		// A Node that opened its storage archived the database; a refused
-		// start left it where it was.
-		if archived := "storage/" + store.RustArchive + strings.TrimPrefix(name, "storage"); path.Dir(name) == "storage" && after[name] == "" {
-			before[archived], name = state, archived
-		} else if (strings.HasPrefix(name, "plugins/packages/") || strings.HasPrefix(name, "attachments/")) && after["storage/"+store.RustArchive+"/node.turso"] != "" {
-			archived := path.Join("storage", store.RustArchive, name)
-			before[archived], name = state, archived
+		if started && (slices.Contains(core.DatabaseFiles("storage/node.turso"), name) || slices.Contains(core.DatabaseFiles("storage/knowledge.turso"), name)) {
+			continue
 		}
 		switch current, present := after[name]; {
 		case !present:
@@ -258,6 +374,88 @@ func preserved(t *testing.T, profile string, before map[string]string) []string 
 		}
 	}
 	return added
+}
+
+func assertRustProjection(t *testing.T, backend *desktopBackend) {
+	t.Helper()
+	projection, err := backend.Node.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := slices.IndexFunc(projection.Sessions, func(value protocol.Session) bool { return value.ID.String() == rustSession })
+	if session < 0 || projection.Sessions[session].Activity.Title != rustTitle || projection.Sessions[session].Worktree.String() != rustWorktree {
+		t.Fatalf("Rust session was not projected: %+v", projection.Sessions)
+	}
+	installed := slices.IndexFunc(projection.Plugins, func(value protocol.PluginSummary) bool { return value.Name == rustPlugin })
+	if installed < 0 || projection.Plugins[installed].Enabled || projection.Plugins[installed].Revision != 1 || projection.Plugins[installed].SettingsRevision != 1 {
+		t.Fatalf("Rust plugin configuration was not projected: %+v", projection.Plugins)
+	}
+}
+
+func assertRustStored(t *testing.T, profile string) {
+	t.Helper()
+	ctx := t.Context()
+	handle, err := store.OpenHandle(ctx, filepath.Join(profile, "storage", "node.turso"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handle.Close()
+	if err := handle.Read(ctx, func(db *sql.Conn) error {
+		var owner, local, state, title string
+		if err := db.QueryRowContext(ctx, "SELECT id FROM users WHERE local=1").Scan(&local); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT owner,state FROM sessions WHERE id=?1", rustSession).Scan(&owner, &state); err != nil {
+			return err
+		}
+		if owner != local || state != "active" {
+			return errors.New("additive session owner did not retain the local user's session")
+		}
+		if err := db.QueryRowContext(ctx, "SELECT body FROM agent_state WHERE owner=?1 AND key='sailry.session_title'", rustSession).Scan(&title); err != nil {
+			return err
+		}
+		if title != `"`+rustTitle+`"` {
+			return errors.New("Rust conversation title changed")
+		}
+		for _, query := range []string{
+			"SELECT count(*) FROM plugins WHERE name='" + rustPlugin + "' AND installed=1 AND revision=1 AND settings_revision=1",
+			"SELECT count(*) FROM plugin_user_installations WHERE name='" + rustPlugin + "' AND user=(SELECT id FROM users WHERE local=1) AND installed=1 AND revision=1 AND settings_revision=1",
+			"SELECT count(*) FROM plugin_settings WHERE plugin='" + rustPlugin + "' AND revision=1",
+			"SELECT count(*) FROM plugin_user_settings WHERE plugin='" + rustPlugin + "' AND user=(SELECT id FROM users WHERE local=1) AND revision=1",
+		} {
+			var count int
+			if err := db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+				return err
+			}
+			if count != 1 {
+				return fmt.Errorf("Rust record was not retained: %s", query)
+			}
+		}
+		var legacy, current []byte
+		if err := db.QueryRowContext(ctx, "SELECT value FROM plugin_values WHERE name=?1 AND key='kept'", rustPlugin).Scan(&legacy); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT value FROM plugin_space_values WHERE name=?1 AND key='kept' AND space='user:'||(SELECT id FROM users WHERE local=1)", rustPlugin).Scan(&current); err != nil {
+			return err
+		}
+		if !bytes.Equal(legacy, []byte(`{"count":1}`)) || !bytes.Equal(current, legacy) {
+			return errors.New("Rust plugin data or its local user copy changed")
+		}
+		var attachment protocol.Attachment
+		var body []byte
+		if err := db.QueryRowContext(ctx, "SELECT body FROM attachments WHERE id=?1", rustAttachment).Scan(&body); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(body, &attachment); err != nil {
+			return err
+		}
+		if attachment.ID.String() != rustAttachment || attachment.Spec.Worktree.String() != rustWorktree || attachment.Spec.Size != uint64(len("attachment bytes\n")) {
+			return errors.New("Rust attachment metadata changed")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // startDesktop runs the Desktop backend start of openBackend with a local
@@ -298,6 +496,14 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 	t.Run("compatible profile", func(t *testing.T) {
 		profile := rustProfile(t)
 		before := snapshot(t, profile)
+		originals := map[string]fs.FileInfo{}
+		for _, name := range []string{"node.turso", "knowledge.turso"} {
+			info, err := os.Stat(filepath.Join(profile, "storage", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			originals[name] = info
+		}
 		orphans := []string{
 			filepath.Join("plugins", "packages", strings.Repeat("a", 64), "main.js"),
 			filepath.Join("attachments", "0197c0de-0000-7000-8000-000000000005"),
@@ -305,7 +511,7 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 		for round := 1; round <= 2; round++ {
 			if round == 2 {
 				// Resources published without a committed reference are still
-				// collected on an ordinary restart beside the kept archive.
+				// collected on an ordinary restart of the reused database.
 				for _, orphan := range orphans {
 					if err := os.MkdirAll(filepath.Dir(filepath.Join(profile, orphan)), 0o700); err != nil {
 						t.Fatal(err)
@@ -347,17 +553,23 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 			if err != nil || len(installed) != 1 || installed[0].Package.ID != data.Appearance.Package {
 				t.Errorf("installed themes = %d, %v", len(installed), err)
 			}
-			preserved(t, profile, before)
-			if _, err := os.Stat(filepath.Join(profile, "storage", store.RustArchive, "node.turso")); err != nil {
-				t.Errorf("the Rust database was not archived: %v", err)
+			assertRustProjection(t, backend)
+			preserved(t, profile, before, true)
+			for name, original := range originals {
+				current, err := os.Stat(filepath.Join(profile, "storage", name))
+				if err != nil || !os.SameFile(original, current) {
+					t.Errorf("original %s was replaced: %v", name, err)
+				}
+			}
+			for _, forbidden := range []string{"rust-archive", "node.sqlite", "knowledge.sqlite"} {
+				if _, err := os.Lstat(filepath.Join(profile, "storage", forbidden)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("startup created unexpected storage %s: %v", forbidden, err)
+				}
 			}
 			if round == 2 {
 				for _, orphan := range orphans {
 					if _, err := os.Stat(filepath.Join(profile, orphan)); !errors.Is(err, os.ErrNotExist) {
-						t.Errorf("the kept archive prevented current resource collection of %s: %v", orphan, err)
-					}
-					if _, err := os.Stat(filepath.Join(profile, "storage", store.RustArchive, orphan)); !errors.Is(err, os.ErrNotExist) {
-						t.Errorf("an ordinary restart added current resource %s to the archive: %v", orphan, err)
+						t.Errorf("unreferenced resource %s was not collected: %v", orphan, err)
 					}
 				}
 			}
@@ -370,16 +582,14 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 			if err := backend.Close(); err != nil {
 				t.Fatalf("stop %d: %v", round, err)
 			}
+			assertRustStored(t, profile)
 			added := map[string]int{}
-			for _, name := range preserved(t, profile, before) {
+			for _, name := range preserved(t, profile, before, true) {
 				parts := strings.SplitN(name, "/", 3)
 				added[strings.Join(parts[:min(len(parts), 2)], "/")]++
 			}
 			_, temporary := os.Stat(filepath.Join(profile, "tmp", "leftover.bin"))
 			t.Logf("round %d: files added by the Go Node: %v; tmp leftover: %v", round, added, temporary)
-			if _, err := os.Stat(filepath.Join(profile, "storage", "node.sqlite")); err != nil {
-				t.Errorf("Go storage: %v", err)
-			}
 		}
 	})
 
@@ -427,7 +637,7 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 			if !strings.Contains(err.Error(), damage.fault) {
 				t.Errorf("fault = %v, want %q", err, damage.fault)
 			}
-			added := preserved(t, profile, before)
+			added := preserved(t, profile, before, false)
 			for _, file := range added {
 				if !strings.HasPrefix(file, "logs/desktop/") {
 					t.Errorf("refused start created %s", file)
@@ -460,7 +670,7 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 		if err := backend.Close(); err != nil {
 			t.Fatal(err)
 		}
-		preserved(t, profile, before)
+		preserved(t, profile, before, true)
 	})
 }
 

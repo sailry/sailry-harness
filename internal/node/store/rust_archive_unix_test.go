@@ -3,17 +3,17 @@
 package store
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestRustArchiveRefusesLinkedResources(t *testing.T) {
+func TestStartupPreservesLinkedResourcesWhenStorageIsIncompatible(t *testing.T) {
 	t.Parallel()
 	for _, linked := range []string{"plugins/packages/private", "attachments"} {
 		t.Run(linked, func(t *testing.T) {
@@ -23,22 +23,20 @@ func TestRustArchiveRefusesLinkedResources(t *testing.T) {
 			if err := core.PrivateDirectory(storage); err != nil {
 				t.Fatal(err)
 			}
-			database := filepath.Join(storage, "node.turso")
-			if err := os.WriteFile(database, []byte("opaque database"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			packages := filepath.Join(profile, "plugins", "packages", strings.Repeat("a", 64))
-			if err := os.MkdirAll(packages, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(packages, "main.js"), []byte("resource"), 0o600); err != nil {
+			database := filepath.Join(storage, "node.sqlite")
+			original := []byte("existing SQLite database")
+			if err := os.WriteFile(database, original, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			outside := filepath.Join(t.TempDir(), "private")
 			if err := os.WriteFile(outside, []byte("outside bytes"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(outside, filepath.Join(profile, filepath.FromSlash(linked))); err != nil {
+			link := filepath.Join(profile, filepath.FromSlash(linked))
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, link); err != nil {
 				t.Fatal(err)
 			}
 			opened, err := Open(t.Context(), profile, protocol.NodeID{})
@@ -46,44 +44,20 @@ func TestRustArchiveRefusesLinkedResources(t *testing.T) {
 				_ = opened.Close()
 			}
 			if err == nil {
-				t.Fatal("a linked resource was copied into the archive")
+				t.Fatal("incompatible storage was accepted")
 			}
-			if body, err := os.ReadFile(database); err != nil || string(body) != "opaque database" {
-				t.Fatalf("a failed resource copy moved its database: %q, %v", body, err)
+			if got, err := os.ReadFile(database); err != nil || !bytes.Equal(got, original) {
+				t.Fatalf("existing database changed: %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(storage, RustArchive, "node.turso")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("the database was archived before its resources: %v", err)
+			if target, err := os.Readlink(link); err != nil || target != outside {
+				t.Fatalf("linked resource changed: %q, %v", target, err)
 			}
-			if _, err := os.Stat(filepath.Join(storage, "node.sqlite")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("a failed archive created current storage: %v", err)
+			if got, err := os.ReadFile(outside); err != nil || string(got) != "outside bytes" {
+				t.Fatalf("outside resource changed: %v", err)
 			}
-			if _, err := os.Lstat(filepath.Join(storage, RustArchive, filepath.FromSlash(linked))); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("the archive published an outside resource: %v", err)
-			}
-			if linked == "attachments" {
-				// The package copy completed before the later resource failed.
-				// A repaired retry keeps that snapshot and publishes a new set.
-				if err := os.Remove(filepath.Join(profile, linked)); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(packages, "main.js"), []byte("current resource"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				opened, err := Open(t.Context(), profile, protocol.NodeID{})
-				if err != nil {
-					t.Fatalf("a repaired archive did not open: %v", err)
-				}
-				if err := opened.Close(); err != nil {
-					t.Fatal(err)
-				}
-				for archive, expected := range map[string]string{RustArchive: "resource", RustArchive + "-2": "current resource"} {
-					path := filepath.Join(storage, archive, "plugins", "packages", strings.Repeat("a", 64), "main.js")
-					if body, err := os.ReadFile(path); err != nil || string(body) != expected {
-						t.Fatalf("the retried archive replaced resources: %q, %v", body, err)
-					}
-				}
-				if body, err := os.ReadFile(filepath.Join(storage, RustArchive+"-2", "node.turso")); err != nil || string(body) != "opaque database" {
-					t.Fatalf("the repaired set lost its database: %q, %v", body, err)
+			for _, name := range []string{"node.turso", "rust-archive"} {
+				if _, err := os.Stat(filepath.Join(storage, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("unexpected startup output %s: %v", name, err)
 				}
 			}
 		})

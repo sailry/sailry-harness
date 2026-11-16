@@ -32,10 +32,16 @@ ON CONFLICT(user,package,id) DO NOTHING`,
 		for _, statement := range []string{
 			`INSERT INTO dispatch_user_handlers(user,package,name,source,topic,body,reference) SELECT ?2,package,name,source,topic,body,reference FROM dispatch_user_handlers WHERE user=?1 AND package='' ON CONFLICT(user,package,name) DO NOTHING`,
 			`INSERT INTO dispatch_user_schedules(user,package,id,next_ms,body) SELECT ?2,package,id,next_ms,body FROM dispatch_user_schedules WHERE user=?1 AND package='' ON CONFLICT(user,package,id) DO NOTHING`,
+		} {
+			if _, err := db.ExecContext(ctx, statement, source.ID.String(), target.ID.String()); err != nil {
+				return err
+			}
+		}
+		for _, statement := range []string{
 			`DELETE FROM dispatch_user_handlers WHERE user=?1 AND package=''`,
 			`DELETE FROM dispatch_user_schedules WHERE user=?1 AND package=''`,
 		} {
-			if _, err := db.ExecContext(ctx, statement, source.ID.String(), target.ID.String()); err != nil {
+			if _, err := db.ExecContext(ctx, statement, source.ID.String()); err != nil {
 				return err
 			}
 		}

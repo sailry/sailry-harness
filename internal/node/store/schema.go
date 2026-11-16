@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -48,108 +49,16 @@ func (storage *Store) CloseIdle() error {
 	return errors.Join(knowledge, node)
 }
 
-// rustDatabases are the database files the Rust Node kept in storage. Each
-// name also covers its side files (name-wal, name-log and the like).
-var rustDatabases = [...]string{
-	"node.turso", "knowledge.turso", "node.db", "knowledge.db", "node.sqlite3", "knowledge.sqlite3",
-}
-
-// RustArchive receives the Rust databases and their collected file resources.
-// A later set of them goes to a numbered sibling ("rust-archive-2", ...).
-const RustArchive = "rust-archive"
-
-// archiveRustDatabases moves the Rust Node's databases out of storage,
-// unopened and unchanged; nothing is imported, replaced or deleted. Packages
-// and attachments are copied before any database moves: their only remaining
-// references may be in those databases, outside the current store's collectors.
-// Live resources stay in place because a current Go database can reference them
-// too. A later set goes to an archive that holds none of its target names.
-func archiveRustDatabases(ctx context.Context, storage string) error {
-	entries, err := os.ReadDir(storage)
-	if err != nil {
-		return err
-	}
-	var names []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.Type().IsRegular() && slices.ContainsFunc(rustDatabases[:], func(database string) bool {
-			return name == database || strings.HasPrefix(name, database+"-")
-		}) {
-			names = append(names, name)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	profile := filepath.Dir(storage)
-	var resources []string
-	for _, name := range []string{"plugins/packages", "attachments"} {
-		if _, err := os.Lstat(filepath.Join(profile, filepath.FromSlash(name))); err == nil {
-			resources = append(resources, name)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	archive := filepath.Join(storage, RustArchive)
-	for number := 2; ; number++ {
-		held := false
-		for _, name := range append(names, resources...) {
-			if _, err := os.Lstat(filepath.Join(archive, name)); err == nil {
-				held = true
-				break
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return err
-			}
-		}
-		if !held {
-			break
-		}
-		archive = filepath.Join(storage, fmt.Sprintf("%s-%d", RustArchive, number))
-	}
-	if err := core.PrivateDirectory(archive); err != nil {
-		return err
-	}
-	if len(resources) != 0 {
-		profile, err = filepath.Abs(profile)
-		if err == nil {
-			profile, err = filepath.EvalSymlinks(profile)
-		}
-		if err != nil {
-			return err
-		}
-		files, err := core.OpenFiles(profile, core.ManualFiles)
-		if err != nil {
-			return err
-		}
-		defer files.Close()
-		for _, name := range resources {
-			if err := core.PrivateDirectory(filepath.Dir(filepath.Join(archive, filepath.FromSlash(name)))); err != nil {
-				return err
-			}
-			target := filepath.ToSlash(filepath.Join("storage", filepath.Base(archive), filepath.FromSlash(name)))
-			if err := files.CopyEntry(ctx, name, target); err != nil {
-				return fmt.Errorf("archive Rust resource %q: %w", name, err)
-			}
-		}
-	}
-	for _, name := range names {
-		if err := os.Rename(filepath.Join(storage, name), filepath.Join(archive, name)); err != nil {
-			return fmt.Errorf("archive Rust database %q: %w", name, err)
-		}
-	}
-	return nil
-}
-
 // Open is called only by the owner of the profile's advisory lock.
 func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, failure error) {
 	storage := filepath.Join(profile, "storage")
 	if err := core.PrivateDirectory(storage); err != nil {
 		return nil, err
 	}
-	if err := archiveRustDatabases(ctx, storage); err != nil {
+	path, err := nodeDatabasePath(ctx, storage)
+	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(storage, "node.sqlite")
 	handle, err := OpenHandle(ctx, path)
 	if err != nil {
 		return nil, err
@@ -173,23 +82,12 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	}); err != nil {
 		return nil, err
 	}
-	if definition.ledger {
-		// Fold the log into the database file and truncate it, so neither
-		// keeps a page image that precedes the replacement.
-		closed, err := handle.Pause(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := closed.Reopen(ctx); err != nil {
-			return nil, err
-		}
-	}
-	knowledge, err := OpenHandle(ctx, filepath.Join(storage, "knowledge.sqlite"))
+	knowledge, err := OpenHandle(ctx, filepath.Join(storage, "knowledge.turso"))
 	if err != nil {
 		return nil, err
 	}
 	if err := knowledge.Write(ctx, func(connection *sql.Conn) error {
-		if _, err := connection.ExecContext(ctx, sqliteSchema(KnowledgeSchema)); err != nil {
+		if _, err := connection.ExecContext(ctx, KnowledgeSchema); err != nil {
 			return err
 		}
 		var version int64
@@ -220,8 +118,6 @@ type currentSchema struct {
 	expected schemaObjects
 	plan     schemaPlan
 	path     string
-	// ledger reports admissions of secret-bearing commands stored in full.
-	ledger bool
 }
 
 func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (currentSchema, error) {
@@ -266,8 +162,12 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 		}
 		definition.state = schemaUpdate
 		if !definition.plan.created["requests"] {
-			if definition.ledger, err = ledgerSecretsPending(ctx, connection); err != nil {
+			pending, err := ledgerSecretsPending(ctx, connection)
+			if err != nil {
 				return err
+			}
+			if pending {
+				return incompatibleDatabase(definition.path, "legacy credential-bearing requests cannot be securely rewritten by this Turso version")
 			}
 		}
 		if len(definition.plan.statements) != 0 {
@@ -280,7 +180,7 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 		if err != nil {
 			return err
 		}
-		if !pending && !definition.ledger {
+		if !pending {
 			definition.state = schemaCurrent
 		}
 		return nil
@@ -291,7 +191,7 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 func (definition currentSchema) initialize(ctx context.Context, connection *sql.Conn, node protocol.NodeID) error {
 	switch definition.state {
 	case schemaFresh:
-		if _, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema)); err != nil {
+		if _, err := connection.ExecContext(ctx, NodeSchema); err != nil {
 			return err
 		}
 	case schemaUpdate:
@@ -347,8 +247,10 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := InitializeIdentity(ctx, connection); err != nil {
 			return err
 		}
-		if err := initializePluginUsers(ctx, connection); err != nil {
-			return err
+		if definition.state == schemaFresh || definition.plan.created["plugin_user_installations"] {
+			if err := initializePluginUsers(ctx, connection); err != nil {
+				return err
+			}
 		}
 		if err := InitializeConfigurationUsers(ctx, connection); err != nil {
 			return err
@@ -394,15 +296,8 @@ func rehearseSchemaUpdate(ctx context.Context, handle *Handle, definition curren
 	if err := errors.Join(rehearsalError, rehearsal.Close()); err != nil {
 		return err
 	}
-	backup, err := saveBeforeUpgrade(handle.Path())
-	if err != nil {
+	if _, err := saveBeforeUpgrade(handle.Path()); err != nil {
 		return err
-	}
-	if definition.ledger {
-		// The backup would otherwise keep the secrets this update removes.
-		if err := digestLedgerCopy(ctx, backup); err != nil {
-			return err
-		}
 	}
 	return closed.Reopen(ctx)
 }
@@ -444,15 +339,15 @@ func verifyNodeIdentity(ctx context.Context, connection *sql.Conn, path string, 
 	return nil
 }
 
-// verifyGeneration accepts only generation 1. Storage in any other state is
-// refused and left untouched; nothing here removes or resets a database.
+// verifyGeneration permits the known generation or its additive schema default.
+// Ownership and identity were verified before inspecting this legacy column.
 func verifyGeneration(ctx context.Context, connection *sql.Conn, path string) error {
 	var declared, current bool
 	if err := connection.QueryRowContext(ctx, "SELECT count(*) FROM pragma_table_info('node') WHERE name='storage_generation'").Scan(&declared); err != nil {
 		return err
 	}
 	if !declared {
-		return incompatibleDatabase(path, "node.storage_generation is missing")
+		return nil
 	}
 	if err := connection.QueryRowContext(ctx, "SELECT CASE WHEN typeof(storage_generation)='integer' AND storage_generation=1 THEN 1 ELSE 0 END FROM node WHERE singleton=1").Scan(&current); err != nil {
 		return err
@@ -469,13 +364,13 @@ func referenceSchema(ctx context.Context, parent string, additional ...string) (
 		return nil, err
 	}
 	defer os.RemoveAll(directory)
-	handle, err := OpenHandle(ctx, filepath.Join(directory, "reference.sqlite"))
+	handle, err := OpenHandle(ctx, filepath.Join(directory, "reference.turso"))
 	if err != nil {
 		return nil, err
 	}
 	defer handle.Close()
 	if err := handle.Write(ctx, func(connection *sql.Conn) error {
-		if _, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema)); err != nil {
+		if _, err := connection.ExecContext(ctx, NodeSchema); err != nil {
 			return err
 		}
 		for _, definition := range additional {
@@ -491,6 +386,9 @@ func referenceSchema(ctx context.Context, parent string, additional ...string) (
 	err = handle.Read(ctx, func(connection *sql.Conn) error {
 		var err error
 		objects, err = readSchemaObjects(ctx, connection)
+		if err == nil {
+			err = removeSearchBacking(objects, objects, handle.Path())
+		}
 		return err
 	})
 	return objects, err
@@ -507,6 +405,20 @@ func readSchemaObjects(ctx context.Context, connection *sql.Conn) (schemaObjects
 		var name, kind, declaration string
 		if err := rows.Scan(&name, &kind, &declaration); err != nil {
 			return nil, err
+		}
+		if kind == "table" && name == "__turso_internal_mvcc_meta" {
+			stored, err := parseTable(declaration)
+			if err != nil {
+				return nil, err
+			}
+			expected, err := parseTable("CREATE TABLE __turso_internal_mvcc_meta(k TEXT,v INTEGER NOT NULL)")
+			if err != nil {
+				return nil, err
+			}
+			if !sameTableShape(expected, stored) || !maps.Equal(expected.columns, stored.columns) {
+				return nil, errors.New("invalid native database metadata; existing data was not changed")
+			}
+			continue
 		}
 		objects[schemaObject{kind, name}] = declaration
 	}
@@ -547,6 +459,9 @@ func removeRetainedTables(actual schemaObjects, path string) error {
 func verifySchemaObjects(ctx context.Context, connection *sql.Conn, path string, expected schemaObjects) error {
 	actual, err := readSchemaObjects(ctx, connection)
 	if err != nil {
+		return err
+	}
+	if err := removeSearchBacking(actual, expected, path); err != nil {
 		return err
 	}
 	if err := removeRetainedTables(actual, path); err != nil {
@@ -597,6 +512,31 @@ func verifySchemaObjects(ctx context.Context, connection *sql.Conn, path string,
 	return nil
 }
 
+// Native FTS backing objects are lazy and belong only to an exact declared index.
+func removeSearchBacking(actual, expected schemaObjects, path string) error {
+	for _, identity := range sortedObjects(expected) {
+		if identity.kind != "index" || !strings.Contains(normalizeSQL(expected[identity]), "USING FTS(") {
+			continue
+		}
+		table := "__turso_internal_fts_dir_" + identity.name
+		index := table + "_key"
+		tableObject, indexObject := schemaObject{"table", table}, schemaObject{"index", index}
+		tableSQL, hasTable := actual[tableObject]
+		indexSQL, hasIndex := actual[indexObject]
+		delete(actual, tableObject)
+		delete(actual, indexObject)
+		if !hasTable && !hasIndex {
+			continue
+		}
+		expectedTable := "CREATE TABLE " + table + " (path TEXT NOT NULL, chunk_no INTEGER NOT NULL, bytes BLOB NOT NULL)"
+		expectedIndex := "CREATE INDEX IF NOT EXISTS " + index + " ON " + table + " USING backing_btree (path, chunk_no, bytes)"
+		if !hasTable || !hasIndex || normalizeSQL(tableSQL) != normalizeSQL(expectedTable) || normalizeSQL(indexSQL) != normalizeSQL(expectedIndex) {
+			return incompatibleDatabase(path, "native search backing objects do not match their declared index")
+		}
+	}
+	return nil
+}
+
 // auditReferences refuses storage in which a row names a missing parent.
 func auditReferences(ctx context.Context, connection *sql.Conn) error {
 	tables, err := schemaTableNames(NodeSchema)
@@ -604,12 +544,56 @@ func auditReferences(ctx context.Context, connection *sql.Conn) error {
 		return err
 	}
 	for _, table := range tables {
-		rows, err := connection.QueryContext(ctx, "PRAGMA foreign_key_check("+quoteIdentifier(table)+")")
-		if err != nil {
+		if err := auditTableReferences(ctx, connection, table); err != nil {
 			return err
 		}
-		invalid := rows.Next()
-		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+	}
+	return nil
+}
+
+func auditTableReferences(ctx context.Context, connection *sql.Conn, table string) error {
+	// Turso 0.8.3 exposes the foreign key declarations, but does not implement
+	// foreign_key_check. Audit those same declarations without changing data.
+	rows, err := connection.QueryContext(ctx, "PRAGMA foreign_key_list("+quoteIdentifier(table)+")")
+	if err != nil {
+		return err
+	}
+	type columns struct{ child, parent string }
+	type foreignKey struct {
+		parent  string
+		columns map[int]columns
+	}
+	keys := map[int]*foreignKey{}
+	for rows.Next() {
+		var id, position int
+		var parent, childColumn, parentColumn, onUpdate, onDelete, match string
+		if err := rows.Scan(&id, &position, &parent, &childColumn, &parentColumn, &onUpdate, &onDelete, &match); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		key := keys[id]
+		if key == nil {
+			key = &foreignKey{parent: parent, columns: map[int]columns{}}
+			keys[id] = key
+		}
+		if _, duplicate := key.columns[position]; duplicate || key.parent != parent {
+			_ = rows.Close()
+			return errors.New("invalid stored foreign key declaration")
+		}
+		key.columns[position] = columns{childColumn, parentColumn}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		var present, matching []string
+		for _, column := range key.columns {
+			present = append(present, "c."+quoteIdentifier(column.child)+" IS NOT NULL")
+			matching = append(matching, "p."+quoteIdentifier(column.parent)+"=c."+quoteIdentifier(column.child))
+		}
+		query := "SELECT EXISTS(SELECT 1 FROM " + quoteIdentifier(table) + " c WHERE " + strings.Join(present, " AND ") + " AND NOT EXISTS(SELECT 1 FROM " + quoteIdentifier(key.parent) + " p WHERE " + strings.Join(matching, " AND ") + "))"
+		var invalid bool
+		if err := connection.QueryRowContext(ctx, query).Scan(&invalid); err != nil {
 			return err
 		}
 		if invalid {
