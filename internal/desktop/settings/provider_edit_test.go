@@ -101,21 +101,18 @@ func TestSavedProviderKeyReadKeepsDraft(t *testing.T) {
 	}
 }
 
-func TestProviderEditorRetainsHostSharedChoice(t *testing.T) {
+func TestProviderEditorKeepsConfigurationIsolated(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Live = true
 	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", API: "responses", Custom: true, Keyed: true}}}}
 	ch := preview.Channel{ID: "shared", Name: "Shared", Brand: "fixture", Method: "compatible", API: "responses", Endpoint: "https://fixture.test", Auth: preview.AuthKey, Shared: true, KeySet: true, Models: []preview.ChannelModel{{ID: "model", Name: "Model", Context: 128000}}}
 	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) {
-		if !draft.Channel.Shared {
-			t.Error("editor dropped host sharing")
+		if draft.Channel.Shared {
+			t.Error("editor retained obsolete host sharing")
 		}
 		done(false)
 	}
 	m.provider.edit(m, &ch)
-	if !m.provider.shared {
-		t.Fatal("editor lost host shared choice")
-	}
 	if problem := m.provider.save(m); problem != "" {
 		t.Fatal(problem)
 	}

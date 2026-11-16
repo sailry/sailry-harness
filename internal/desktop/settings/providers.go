@@ -245,9 +245,6 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 				access = "OAuth"
 			}
 			desc := access + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
-			if ch.Shared {
-				desc += " · " + i18n.T(c, "project_visibility_shared")
-			}
 			if ch.Source != "" {
 				desc += " · " + i18n.T(c, "configuration_follow_from_source")
 			}
@@ -484,7 +481,6 @@ type providerEditor struct {
 	route               int
 	name, endpoint, key string
 	keySet              bool
-	shared              bool
 	originalKey         string
 	keyShown            bool
 	apiVersion          string    // Azure OpenAI's, asked for where the route is that API
@@ -529,7 +525,6 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
 	e.revision = ch.Revision
-	e.shared = ch.Shared
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
 	if m.Live && !ch.ConfigurationReadOnly && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
@@ -808,7 +803,7 @@ func (e *providerEditor) save(m *Model) string {
 			return ""
 		}
 		e.probing, e.saving = true, true
-		channel := preview.Channel{Shared: e.shared, ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
 		if e.azure() {
 			channel.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
@@ -1083,17 +1078,6 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	}
 	ui.Column(c.Key("form")).Gap(16).Children(func() {
 		input("name", t("settings_name"), t("provider_name_hint"), &e.name, false)
-		if m.Live && m.ProviderActions.CanShare != nil && m.ProviderActions.CanShare() {
-			scope := 0
-			if e.shared {
-				scope = 1
-			}
-			kit.Field(c, "visibility", t("project_visibility"), "", func() {
-				if pick(c, "scope", t("project_visibility"), &scope, []string{t("project_visibility_private"), t("project_visibility_shared")}, e.probing).Changed() {
-					e.shared = scope == 1
-				}
-			})
-		}
 		// The protocol is a choice where the method has several, and the
 		// plain name of a method that names its only one.
 		if !routeField(c, e, "api", t("provider_api"), axisProtocol) && len(e.method.Routes) == 0 && e.method.API != "" {
