@@ -888,9 +888,8 @@ func apiMethods(b *preview.Brand) []preview.Method {
 }
 
 // brandPicker is two groups of outlined pills, each with its heading and
-// its marks: the account sign-ins by name, one for each sign-in method,
-// then the brands that have API methods. A sign-in opens its form; a brand
-// opens its only API method's form or asks which. before runs ahead of a
+// its marks: account sign-ins grouped by brand, then brands with API methods.
+// A brand opens its only method's form or asks which. before runs ahead of a
 // choice and after it, as the welcome guide opens the editor (nil for
 // none).
 func brandPicker(c *ui.Context, m *Model, before, after func()) {
@@ -928,18 +927,26 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 		})
 	}
 	type login struct {
-		brand  *preview.Brand
-		method preview.Method
-		label  string
+		brand   *preview.Brand
+		methods []preview.Method
+		label   string
 	}
 	var logins []login
 	var brands []*preview.Brand
 	for i := range m.Brands {
 		b := &m.Brands[i]
+		var methods []preview.Method
 		for _, x := range b.Methods {
 			if x.Login != "" {
-				logins = append(logins, login{b, x, loginLabel(c, x)})
+				methods = append(methods, x)
 			}
+		}
+		if len(methods) > 0 {
+			label := b.Name
+			if len(methods) == 1 {
+				label = loginLabel(c, methods[0])
+			}
+			logins = append(logins, login{b, methods, label})
 		}
 		if len(apiMethods(b)) > 0 {
 			brands = append(brands, b)
@@ -949,12 +956,11 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
 		group("provider_access_login", len(logins), func() {
 			for _, x := range logins {
-				// The method's own mark, else its brand's.
-				mark := x.method.Icon
-				if icons.Brand(mark) == nil {
-					mark = x.brand.ID
+				mark := x.brand.ID
+				if len(x.methods) == 1 && icons.Brand(x.methods[0].Icon) != nil {
+					mark = x.methods[0].Icon
 				}
-				chip("login-"+x.method.ID, x.label, mark, func() { m.chooseProvider(x.brand, []preview.Method{x.method}) })
+				chip("login-"+x.brand.ID, x.label, mark, func() { m.chooseProvider(x.brand, x.methods) })
 			}
 		})
 		group("provider_access_key", len(brands), func() {
