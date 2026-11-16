@@ -209,7 +209,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		return c.dispatchCallbackResult(executorCtx, request)
 	}
 	query := protocol.DefaultKnowledgeQuery()
-	query.Query, query.Mode = "uniquecontroller", protocol.KnowledgeModeKeyword
+	query.Query, query.Mode, query.Limit = "uniquecontroller", protocol.KnowledgeModeKeyword, 5
 	var hit protocol.KnowledgeHit
 	wait("keyword index through executor controller storage route", func() bool {
 		output, err := runtimeCall(protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &query}))
@@ -233,7 +233,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		},
 	})))
 	sharedQuery := protocol.DefaultKnowledgeQuery()
-	sharedQuery.Query, sharedQuery.Mode = "hostlocal", protocol.KnowledgeModeKeyword
+	sharedQuery.Query, sharedQuery.Mode, sharedQuery.Limit = "hostlocal", protocol.KnowledgeModeKeyword, 5
 	sharedQuery.Refs = []protocol.KnowledgeRef{{Node: b.ID(), ID: phoneKB.ID}}
 	var sharedHit protocol.KnowledgeHit
 	wait("shared library visible without another grant", func() bool {
@@ -315,7 +315,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		t.Fatalf("entry revocation broke the independent direct host route: %v", err)
 	}
 	localQuery := protocol.DefaultKnowledgeQuery()
-	localQuery.Query, localQuery.Mode = "executorlocal", protocol.KnowledgeModeKeyword
+	localQuery.Query, localQuery.Mode, localQuery.Limit = "executorlocal", protocol.KnowledgeModeKeyword, 5
 	localQuery.Refs = []protocol.KnowledgeRef{{Node: c.ID(), ID: kc.ID}}
 	wait("executor local index", func() bool {
 		output, err := runtimeCall(protocol.NewRequest(c.ID(), protocol.Command{Kind: "query_knowledge", Data: &localQuery}))
