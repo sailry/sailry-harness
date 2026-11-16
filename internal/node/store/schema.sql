@@ -846,3 +846,12 @@ CREATE TABLE personal_kv_snapshot_records (
  body BLOB NOT NULL,
  PRIMARY KEY(user,plugin,key)
 );
+
+CREATE TABLE ssh_local_trust (
+ user TEXT NOT NULL REFERENCES users(id),
+ profile TEXT NOT NULL,
+ host TEXT NOT NULL,
+ port INTEGER NOT NULL,
+ key BLOB NOT NULL,
+ PRIMARY KEY(user,profile,host,port)
+);

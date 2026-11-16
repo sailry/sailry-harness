@@ -64,15 +64,9 @@ func (node *Node) capturePluginModel(ctx context.Context, binding model.Binding)
 	captured.Bundle = plugins.ScriptBundle{Entry: captured.Declaration.Script.Entry, Files: files}
 	captured.Memory = node.plugins.memory
 	captured.User = pluginMemoryUser(ctx)
-	// A setting is the user's current choice, so the installed package's
-	// values are read now, not those of the provider's captured revision.
 	captured.Settings = plugins.SettingDefaults(info.Settings)
 	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		current, err := store.ReadPlugin(ctx, db, selection.Package.Name)
-		if err != nil || current == nil || current.Settings == nil {
-			return err
-		}
-		resolved, err := store.ResolvePluginSettings(ctx, db, plugins.PackageReference(*current))
+		resolved, err := store.ResolvePluginSettings(ctx, db, *selection.Package)
 		if err == nil {
 			captured.Settings = resolved.Values
 		}

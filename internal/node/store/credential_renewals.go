@@ -55,6 +55,9 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 				if json.Unmarshal([]byte(value.Key.Expose()), &grant) != nil || grant.RenewalPending || grant.RenewalUncertain || grant.RenewalRejected {
 					continue
 				}
+				if grant.IssuedAtMs == nil && (grant.Record == nil || grant.Record.Issued.IssuedAtMs == nil) {
+					continue
+				}
 				due := grant.RenewalAt()
 				if due == nil {
 					continue
@@ -74,7 +77,7 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 			return nil, err
 		}
 		for _, record := range connections {
-			if !record.Enabled || record.Login != nil || record.Grant == nil || record.Method == protocol.PluginConnectorKindLocalCli ||
+			if !record.Enabled || record.Login != nil || record.Grant == nil || record.Grant.IssuedAtMs == nil || record.Method == protocol.PluginConnectorKindLocalCli ||
 				record.Grant.Extra["renewal_pending"] == "true" || record.Grant.Extra["renewal_rejected"] == "true" {
 				continue
 			}

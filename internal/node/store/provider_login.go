@@ -344,7 +344,8 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 		return nil, fault(protocol.ErrorCodeNotConfigured, "model authentication changed; sign in again")
 	}
 	due := grant.RenewalAt()
-	if due == nil || *due > uint64(now.UnixMilli()) {
+	expiry := grant.Expiry()
+	if due == nil || *due > uint64(now.UnixMilli()) && (expiry == nil || *expiry > uint64(now.Add(time.Minute).UnixMilli())) {
 		return nil, nil
 	}
 	if grant.EarliestRefreshAt != nil && *grant.EarliestRefreshAt > uint64(now.UnixMilli()) {

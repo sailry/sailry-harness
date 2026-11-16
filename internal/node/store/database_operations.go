@@ -89,6 +89,16 @@ func PrepareDatabase(ctx context.Context, db *sql.Conn, storage string, command 
 	if readOnly {
 		profile.ReadOnly = true
 	}
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return operation, err
+	}
+	if err := checkHostPath(node, profile.Location); err != nil {
+		return operation, err
+	}
+	if databasePath(profile.Connection) != "" && profile.Location == nil {
+		return operation, fault(protocol.ErrorCodeNotConfigured, "database file location is missing its owning Node")
+	}
 	if profile.Connection.Kind != "sqlite" {
 		if err := checkDatabaseCredential(ctx, db, id, profile.Connection); err != nil {
 			return operation, err
@@ -102,11 +112,14 @@ func PrepareDatabase(ctx context.Context, db *sql.Conn, storage string, command 
 			return operation, err
 		}
 	}
-	var password string
-	if err := db.QueryRowContext(ctx, "SELECT password FROM database_profiles WHERE id=?1", id.String()).Scan(&password); err != nil {
-		return operation, err
+	var password protocol.Secret
+	if profile.Connection.Kind != "sqlite" {
+		password, err = readDatabasePassword(ctx, db, id)
+		if err != nil {
+			return operation, err
+		}
 	}
-	operation.Profile, operation.Password = profile, protocol.NewSecret(password)
+	operation.Profile, operation.Password = profile, password
 	operation.Ssh, err = prepareDatabaseTunnel(ctx, db, profile.Connection)
 	return operation, err
 }
@@ -125,7 +138,17 @@ func prepareDatabaseTest(ctx context.Context, db *sql.Conn, operation DatabaseOp
 	if err := checkRevision(current, input.ExpectedRevision); err != nil {
 		return operation, err
 	}
-	if err := validateDatabaseConnection(input.Profile.Connection, input.Password); err != nil {
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return operation, err
+	}
+	if err := bindDatabasePath(&input.Profile, node); err != nil {
+		return operation, err
+	}
+	if err := checkHostPath(node, input.Profile.Location); err != nil {
+		return operation, err
+	}
+	if err := validateDatabaseProfile(input.Profile, input.Password, node); err != nil {
 		return operation, err
 	}
 	switch {
@@ -135,11 +158,10 @@ func prepareDatabaseTest(ctx context.Context, db *sql.Conn, operation DatabaseOp
 		if err := checkDatabaseCredential(ctx, db, input.Profile.ID, input.Profile.Connection); err != nil {
 			return operation, err
 		}
-		var password string
-		if err := db.QueryRowContext(ctx, "SELECT password FROM database_profiles WHERE id=?1", input.Profile.ID.String()).Scan(&password); err != nil {
+		operation.Password, err = readDatabasePassword(ctx, db, input.Profile.ID)
+		if err != nil {
 			return operation, err
 		}
-		operation.Password = protocol.NewSecret(password)
 	}
 	operation.Profile = input.Profile
 	operation.Ssh, err = prepareDatabaseTunnel(ctx, db, input.Profile.Connection)

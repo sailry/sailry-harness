@@ -98,8 +98,9 @@ func (value SshCredentialPrivateKeyPayload) MarshalJSON() ([]byte, error) {
 }
 
 type SshCredentialKeyPathPayload struct {
-	Path       Secret  `json:"path"`
-	Passphrase *Secret `json:"passphrase"`
+	Path       Secret    `json:"path"`
+	Passphrase *Secret   `json:"passphrase"`
+	Location   *HostPath `json:"location,omitempty"`
 }
 
 func DefaultSshCredentialKeyPathPayload() SshCredentialKeyPathPayload {
@@ -227,16 +228,17 @@ func (value SshTerminalLaunch) MarshalJSON() ([]byte, error) {
 }
 
 type SshProfile struct {
-	Source         *ConfigurationOrigin `json:"source,omitempty"`
-	Sharing        *ConnectionSharing   `json:"sharing,omitempty"`
-	ID             SshID                `json:"id"`
-	Revision       uint64               `json:"revision"`
-	Name           string               `json:"name"`
-	Host           string               `json:"host"`
-	Port           uint16               `json:"port"`
-	Username       string               `json:"username"`
-	Authentication SshAuthentication    `json:"authentication"`
-	HostKey        *SshHostKey          `json:"host_key"`
+	Source             *ConfigurationOrigin `json:"source,omitempty"`
+	Sharing            *ConnectionSharing   `json:"sharing,omitempty"`
+	ID                 SshID                `json:"id"`
+	Revision           uint64               `json:"revision"`
+	Name               string               `json:"name"`
+	Host               string               `json:"host"`
+	Port               uint16               `json:"port"`
+	Username           string               `json:"username"`
+	Authentication     SshAuthentication    `json:"authentication"`
+	HostKey            *SshHostKey          `json:"host_key"`
+	AuthenticationNode *NodeID              `json:"authentication_node,omitempty"`
 }
 
 func DefaultSshProfile() SshProfile {

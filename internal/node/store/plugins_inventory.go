@@ -290,7 +290,13 @@ func PluginSettingsBody(ctx context.Context, db *sql.Conn, name string, revision
 	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
 		return nil, err
 	} else if cached {
-		record, err := cachedPluginSettings(ctx, db, name, revision)
+		info, err := ReadPlugin(ctx, db, name)
+		if err != nil || info == nil {
+			return nil, err
+		}
+		reference := plugins.PackageReference(*info)
+		reference.SettingsRevision = revision
+		record, err := cachedPluginSettings(ctx, db, reference)
 		if err != nil {
 			return nil, err
 		}

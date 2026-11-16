@@ -51,6 +51,22 @@ func checkDatabaseCredential(ctx context.Context, db *sql.Conn, id protocol.Data
 	if profile == nil {
 		return fault(protocol.ErrorCodeNotFound, "database profile does not exist on this Node")
 	}
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return err
+	} else if cached {
+		expected, err := encode(connection)
+		if err != nil {
+			return err
+		}
+		stored, err := encode(profile.Connection)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(expected, stored) {
+			return fault(protocol.ErrorCodeNotConfigured, "database credential target changed")
+		}
+		return nil
+	}
 	var stored []byte
 	if err := db.QueryRowContext(ctx, "SELECT password_target FROM database_profiles WHERE id=?1", id.String()).Scan(&stored); err != nil {
 		return err
@@ -78,4 +94,22 @@ func checkDatabaseCredential(ctx context.Context, db *sql.Conn, id protocol.Data
 		return fault(protocol.ErrorCodeNotConfigured, "database credential target changed; enter a password")
 	}
 	return nil
+}
+
+func readDatabasePassword(ctx context.Context, db *sql.Conn, id protocol.DatabaseID) (protocol.Secret, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return protocol.Secret{}, err
+	} else if cached {
+		record, err := readConfigurationCacheRecord(ctx, db, "database_profiles", id.String(), 0)
+		if err != nil {
+			return protocol.Secret{}, err
+		}
+		if record == nil || record.Secret == nil {
+			return protocol.Secret{}, fault(protocol.ErrorCodeNotConfigured, "controller database credential is unavailable")
+		}
+		return *record.Secret, nil
+	}
+	var value string
+	err := db.QueryRowContext(ctx, "SELECT password FROM database_profiles WHERE id=?1", id.String()).Scan(&value)
+	return protocol.NewSecret(value), err
 }

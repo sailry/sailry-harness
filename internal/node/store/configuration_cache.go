@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -91,6 +90,11 @@ func cacheConfigurationRecord(ctx context.Context, db *sql.Conn, user protocol.U
 	if err := decodeConfigurationRecord(record, &value); err != nil {
 		return err
 	}
+	if kind, ok := configurationKind(category); ok && kind.Validate != nil {
+		if err := kind.Validate(ctx, db, record); err != nil {
+			return err
+		}
+	}
 	var secret any
 	if record.Secret != nil {
 		secret = record.Secret.Expose()
@@ -153,6 +157,17 @@ func applyConfigurationCache(ctx context.Context, db *sql.Conn, node, caller pro
 		}
 		seen[record.ID] = true
 	}
+	// Event hooks receive the committed content even when delivery omitted
+	// an unchanged body that the receiver already had.
+	for index := range manifest.Records {
+		if len(manifest.Records[index].Body) == 0 {
+			cached, err := readConfigurationCacheRecord(ctx, db, manifest.Category, manifest.Records[index].ID, 0)
+			if err != nil || cached == nil {
+				return nil, err
+			}
+			manifest.Records[index] = *cached
+		}
+	}
 	rows, err := db.QueryContext(ctx, "SELECT id FROM configuration_cache WHERE user=?1 AND category=?2", user.ID.String(), manifest.Category)
 	if err != nil {
 		return nil, err
@@ -188,17 +203,52 @@ ON CONFLICT(user) DO UPDATE SET source=excluded.source,revision=revision+1 WHERE
 	if err != nil {
 		return nil, err
 	}
-	return []protocol.Event{{Kind: "configuration_follow_changed", Data: status}}, nil
+	changes, err := configurationCacheEvents(ctx, db, manifest, removed)
+	if err != nil {
+		return nil, err
+	}
+	return append(changes, protocol.Event{Kind: "configuration_follow_changed", Data: status}), nil
 }
 
-func cachedPluginSettings(ctx context.Context, db *sql.Conn, name string, revision uint64) (storedPluginSettings, error) {
+func configurationCacheEvents(ctx context.Context, db *sql.Conn, manifest protocol.ConfigurationManifest, removed []string) ([]protocol.Event, error) {
+	kind, ok := configurationKind(manifest.Category)
+	if !ok {
+		return nil, invalid("unsupported configuration category")
+	}
+	changes := []protocol.Event{}
+	if kind.Changed != nil {
+		current, err := kind.Changed(ctx, db, manifest.Records)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, current...)
+	}
+	if kind.Removed != nil {
+		for _, id := range removed {
+			change, err := kind.Removed(id)
+			if err != nil {
+				return nil, err
+			}
+			if change != nil {
+				changes = append(changes, *change)
+			}
+		}
+	}
+	return changes, nil
+}
+
+func pluginSettingsCacheID(reference protocol.PluginReference) string {
+	return reference.Name + ":" + reference.Digest
+}
+
+func cachedPluginSettings(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (storedPluginSettings, error) {
 	// Settings revision zero is a real default capture; wire record revisions
 	// are positive, so the immutable cache uses revision + 1.
-	cachedRevision, err := nextRevision(revision)
+	cachedRevision, err := nextRevision(reference.SettingsRevision)
 	if err != nil {
 		return storedPluginSettings{}, err
 	}
-	record, err := readConfigurationCacheRecord(ctx, db, "plugin_settings", name, cachedRevision)
+	record, err := readConfigurationCacheRecord(ctx, db, "plugin_settings", pluginSettingsCacheID(reference), cachedRevision)
 	if err != nil {
 		return storedPluginSettings{}, err
 	}
@@ -213,7 +263,7 @@ func cachedPluginSettings(ctx context.Context, db *sql.Conn, name string, revisi
 	if err != nil {
 		return storedPluginSettings{}, err
 	}
-	if value.Package.Name != name || value.Package.SettingsRevision != revision {
+	if value.Package != reference {
 		return storedPluginSettings{}, invalid("cached plugin settings identity differs from its capture")
 	}
 	if info.Settings != nil {
@@ -225,7 +275,14 @@ func cachedPluginSettings(ctx context.Context, db *sql.Conn, name string, revisi
 		Schema: info.Settings, Values: value.Values, Slots: map[string]*protocol.Secret{},
 		McpTargets: MCPSettingsTargets(info.Settings, value.MCP), McpAllowed: value.Allowed,
 	}
-	result.Mcp, err = json.Marshal(value.MCP)
+	declared := value.MCP
+	if len(declared.Servers) == 0 {
+		_, declared, err = followedPackage(ctx, db, reference)
+		if err != nil {
+			return result, err
+		}
+	}
+	result.Mcp, err = json.Marshal(declared)
 	if err != nil {
 		return result, err
 	}
@@ -257,21 +314,27 @@ func cachedProviderConfiguration(ctx context.Context, db *sql.Conn, id protocol.
 	if err != nil {
 		return nil, err
 	}
-	var nodeBytes []byte
-	if err := db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&nodeBytes); err != nil {
-		return nil, err
-	}
-	if len(nodeBytes) != 32 {
-		return nil, fmt.Errorf("invalid Node identity")
-	}
-	node := protocol.NodeID(nodeBytes)
 	provider.Owner, provider.Shared = &user.ID, false
 	provider.Source = &protocol.ConfigurationOrigin{Node: *user.Controller, Revision: record.Revision}
 	saved := &providerConfiguration{ID: provider.ID, Listed: true, Provider: &provider, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
 	if provider.Credential != nil {
-		provider.Credential.Node = node
-		if record.Secret != nil {
-			saved.Authorizations[provider.Credential.ID] = providerAuthorization{Key: record.Secret, Authentication: provider.Authentication, Revision: record.Revision, ExpiresAtMs: record.ExpiresAtMs}
+		body, found, err := ReadConfigurationCache(ctx, db, "runtime_credentials", "provider:"+provider.Credential.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			var runtime protocol.RuntimeCredential
+			if err := json.Unmarshal(body, &runtime); err != nil {
+				return nil, err
+			}
+			var key *protocol.Secret
+			if runtime.State == "ready" || runtime.State == "uncertain" {
+				value := runtime.Access
+				key = &value
+			}
+			saved.Authorizations[provider.Credential.ID] = providerAuthorization{
+				Authentication: provider.Authentication, Revision: runtime.Revision, Key: key, ExpiresAtMs: runtime.ExpiresAtMs,
+			}
 		}
 	}
 	return saved, nil

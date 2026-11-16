@@ -11,22 +11,29 @@ import (
 // ReadPluginVersion reads an immutable package capture independently of its live
 // installation. It never creates inventory or substitutes a newer package.
 func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return protocol.PluginInfo{}, err
+	} else if cached {
+		info, _, err := followedPackage(ctx, db, reference)
+		if err != nil {
+			return info, err
+		}
+		if _, err := cachedPluginSettings(ctx, db, reference); err != nil {
+			return info, err
+		}
+		info.Summary.SettingsRevision = reference.SettingsRevision
+		refreshPluginCompatibility(&info)
+		if info.Summary.Compatibility.Kind != "compatible" {
+			return info, fault(protocol.ErrorCodeNotConfigured, "plugin version is incompatible")
+		}
+		return info, nil
+	}
 	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_packages WHERE digest=?1 AND name=?2", reference.Digest, reference.Name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
 	if info == nil {
-		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-			return protocol.PluginInfo{}, err
-		} else if cached {
-			value, _, err := followedPackage(ctx, db, reference)
-			if err != nil {
-				return protocol.PluginInfo{}, err
-			}
-			info = &value
-		} else {
-			return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is unavailable on this Node")
-		}
+		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is unavailable on this Node")
 	}
 	if info.Summary.Name != reference.Name || info.Summary.Digest != reference.Digest {
 		return protocol.PluginInfo{}, invalid("stored plugin version identity differs from its capture")
@@ -38,15 +45,6 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		return protocol.PluginInfo{}, invalid("invalid plugin configuration revision")
 	}
 	if reference.SettingsRevision != 0 {
-		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-			return protocol.PluginInfo{}, err
-		} else if cached {
-			if _, err := cachedPluginSettings(ctx, db, reference.Name, reference.SettingsRevision); err != nil {
-				return protocol.PluginInfo{}, err
-			}
-			info.Summary.SettingsRevision = reference.SettingsRevision
-			return *info, nil
-		}
 		user, err := pluginUserID(ctx, db)
 		if err != nil {
 			return protocol.PluginInfo{}, err

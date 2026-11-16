@@ -267,6 +267,7 @@ type DatabaseProfile struct {
 	Name       string               `json:"name"`
 	Connection DatabaseConnection   `json:"connection"`
 	ReadOnly   bool                 `json:"read_only"`
+	Location   *HostPath            `json:"location,omitempty"`
 }
 
 func DefaultDatabaseProfile() DatabaseProfile {

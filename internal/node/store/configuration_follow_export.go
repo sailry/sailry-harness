@@ -33,156 +33,17 @@ func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host p
 	if !user.Local {
 		return value, fault(protocol.ErrorCodePermissionDenied, "only local configuration can be published")
 	}
-	add := func(id string, revision uint64, body any, secret *protocol.Secret, expiry *uint64) error {
-		origin, err := configurationOrigin(ctx, db, category, id)
-		if err != nil {
-			return err
-		}
-		if origin != nil {
-			return nil
-		}
-		raw, err := encode(body)
-		if err != nil {
-			return err
-		}
-		record := protocol.ConfigurationFollowRecord{ID: id, Revision: max(1, revision), Body: raw, Secret: secret, ExpiresAtMs: expiry}
-		record.Digest, err = configurationDigest(record)
-		if err != nil {
-			return err
-		}
-		value.Records = append(value.Records, record)
-		return nil
-	}
-	switch category {
-	case "providers":
-		values, err := providerConfigurations(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		for _, saved := range values {
-			if !saved.Listed || saved.Provider == nil || saved.Provider.Owner == nil || *saved.Provider.Owner != user.ID {
-				continue
-			}
-			provider := *saved.Provider
-			provider.Owner, provider.Shared, provider.Source = nil, false, nil
-			provider.Consent = nil
-			if err := add(provider.ID.String(), provider.Revision, provider, nil, nil); err != nil {
-				return value, err
-			}
-		}
-	case "runtime_credentials":
-		value.Records, err = ExportRuntimeCredentials(ctx, db, node)
-		if err != nil {
-			return value, err
-		}
-	case "roles":
-		values, err := ReadRoles(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		for _, item := range values {
-			item.Source = nil
-			if err := add(item.ID.String(), item.Revision, item, nil, nil); err != nil {
-				return value, err
-			}
-		}
-	case "teams":
-		values, err := ReadTeams(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		for _, item := range values {
-			item.Source = nil
-			if err := add(item.ID.String(), item.Revision, item, nil, nil); err != nil {
-				return value, err
-			}
-		}
-	case "ssh_profiles":
-		values, err := ListSsh(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		for _, item := range values {
-			if item.Authentication == protocol.SshAuthenticationKeyPath {
-				continue
-			}
-			item.Source = nil
-			item.HostKey = nil
-			var key *protocol.Secret
-			if secrets {
-				_, credential, err := ReadSsh(ctx, db, item.ID, item.Revision)
-				if err != nil {
-					return value, err
-				}
-				body, err := encode(credential)
-				if err != nil {
-					return value, err
-				}
-				secret := protocol.NewSecret(string(body))
-				key = &secret
-			}
-			if err := add(item.ID.String(), item.Revision, item, key, nil); err != nil {
-				return value, err
-			}
-		}
-	case "database_profiles":
-		values, err := ListDatabases(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		for _, item := range values {
-			item.Source = nil
-			var key *protocol.Secret
-			if secrets {
-				var raw string
-				if err := db.QueryRowContext(ctx, "SELECT password FROM database_profiles WHERE id=?1", item.ID.String()).Scan(&raw); err != nil {
-					return value, err
-				}
-				secret := protocol.NewSecret(raw)
-				key = &secret
-			}
-			if err := add(item.ID.String(), item.Revision, item, key, nil); err != nil {
-				return value, err
-			}
-		}
-	case "defaults":
-		item, err := ReadDefaults(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		if item.Config != nil {
-			item.Source = nil
-			copy := *item.Config
-			copy.Resource, copy.Assistant = nil, nil
-			if !secrets {
-				copy.Credential = nil
-			}
-			item.Config = &copy
-			if err := add("default", item.Revision, item, nil, nil); err != nil {
-				return value, err
-			}
-		}
-	case "team_settings":
-		item, err := ReadTeamSettings(ctx, db)
-		if err != nil {
-			return value, err
-		}
-		item.Source = nil
-		if err := add("default", item.Revision, item, nil, nil); err != nil {
-			return value, err
-		}
-	case "plugins", "plugin_settings", "connections":
-		declared := map[string]protocol.PluginMcpConfiguration{}
-		if len(declarations) > 0 {
-			declared = declarations[0]
-		}
-		records, err := exportPluginFollowRecords(ctx, db, category, secrets, declared)
-		if err != nil {
-			return value, err
-		}
-		value.Records = records
-	default:
+	kind, ok := configurationKind(category)
+	if !ok || kind.Export == nil {
 		return value, invalid("unsupported configuration category")
+	}
+	options := ConfigurationExport{Node: node, Secrets: secrets, Declarations: map[string]protocol.PluginMcpConfiguration{}}
+	if len(declarations) != 0 {
+		options.Declarations = declarations[0]
+	}
+	value.Records, err = kind.Export(ctx, db, options)
+	if err != nil {
+		return value, err
 	}
 	digest, err := configurationManifestDigest(value.Records)
 	if err != nil {

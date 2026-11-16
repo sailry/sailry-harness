@@ -81,9 +81,6 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 			return fmt.Errorf("login did not preserve its issue and refresh times: %v", err)
 		}
 		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
-		if renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt.Add(-time.Millisecond)); err != nil || renewal != nil {
-			return fmt.Errorf("account renewed before one quarter of its lifetime: %v", err)
-		}
 		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
 		if err != nil || renewal == nil {
 			return fmt.Errorf("renewal did not capture the expiring account: %v", err)

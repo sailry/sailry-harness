@@ -151,6 +151,13 @@ func connectionSaveDatabase(ctx context.Context, db *sql.Conn, turn protocol.Tur
 				}
 			}
 			profile.Connection = protocol.DatabaseConnection{Kind: "sqlite", Data: &protocol.DatabaseConnectionSqlitePayload{Path: path}}
+			if input.Path != nil || previous == nil || previous.Connection.Kind != "sqlite" {
+				node, err := storageNode(ctx, db)
+				if err != nil {
+					return protocol.Command{}, err
+				}
+				profile.Location = &protocol.HostPath{Node: node, Path: path}
+			}
 		} else {
 			if input.Path != nil {
 				return protocol.Command{}, invalid("network database connection does not accept a path")
@@ -177,6 +184,7 @@ func connectionSaveDatabase(ctx context.Context, db *sql.Conn, turn protocol.Tur
 				return protocol.Command{}, err
 			}
 			profile.Connection = protocol.DatabaseConnection{Kind: "network", Data: &target}
+			profile.Location = nil
 		}
 	}
 	return protocol.Command{Kind: "save_database", Data: &protocol.CommandSaveDatabasePayload{Profile: profile, ExpectedRevision: expected}}, nil

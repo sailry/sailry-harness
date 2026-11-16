@@ -15,12 +15,39 @@ import (
 const databaseProfileCapacity = 128
 
 func ListDatabases(ctx context.Context, db *sql.Conn) ([]protocol.DatabaseProfile, error) {
-	return listUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles")
+	values, err := listUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles")
+	if err != nil {
+		return nil, err
+	}
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil || cached {
+		return values, err
+	}
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	for index := range values {
+		if err := bindDatabasePath(&values[index], node); err != nil {
+			return nil, err
+		}
+	}
+	return values, nil
 }
 
 // ReadDatabase returns nil when the profile is not saved on this Node.
 func ReadDatabase(ctx context.Context, db *sql.Conn, id protocol.DatabaseID) (*protocol.DatabaseProfile, error) {
-	return readUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles", id.String())
+	value, err := readUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles", id.String())
+	if err != nil || value == nil {
+		return value, err
+	}
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil || cached {
+		return value, err
+	}
+	node, err := storageNode(ctx, db)
+	if err == nil {
+		err = bindDatabasePath(value, node)
+	}
+	return value, err
 }
 
 func currentDatabase(ctx context.Context, db *sql.Conn, id protocol.DatabaseID, revision uint64) (protocol.DatabaseProfile, error) {
@@ -94,7 +121,14 @@ func saveDatabase(ctx context.Context, db *sql.Conn, input protocol.CommandSaveD
 	if profile.Name == "" || len(profile.Name) > 256 {
 		return protocol.Output{}, nil, invalid("invalid database profile name")
 	}
-	if err := validateDatabaseConnection(profile.Connection, input.Password); err != nil {
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if err := bindDatabasePath(&profile, node); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if err := validateDatabaseProfile(profile, input.Password, node); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	if _, err := databaseTunnelProfile(ctx, db, profile.Connection); err != nil {
@@ -144,6 +178,28 @@ func saveDatabase(ctx context.Context, db *sql.Conn, input protocol.CommandSaveD
 		return protocol.Output{}, nil, err
 	}
 	return protocol.Output{Kind: "database_profile", Data: profile}, []protocol.Event{{Kind: "database_changed", Data: profile}}, nil
+}
+
+func validateDatabaseProfile(profile protocol.DatabaseProfile, password *protocol.Secret, node protocol.NodeID) error {
+	if profile.Location != nil && profile.Location.Node != node {
+		if profile.Location.Path != databasePath(profile.Connection) || profile.Location.Path == "" ||
+			len(profile.Location.Path) > 4096 || strings.ContainsRune(profile.Location.Path, 0) {
+			return invalid("invalid database file location")
+		}
+		switch profile.Connection.Kind {
+		case "sqlite":
+			if password != nil {
+				return invalid("SQLite does not use a network password")
+			}
+			return nil
+		case "socket":
+			target, valid := dispatchValue[protocol.DatabaseConnectionSocketPayload](profile.Connection.Data)
+			if valid {
+				return validateDatabaseNetwork(target.Engine, target.Port, target.Database, target.Username, password)
+			}
+		}
+	}
+	return validateDatabaseConnection(profile.Connection, password)
 }
 
 func validateDatabaseConnection(connection protocol.DatabaseConnection, password *protocol.Secret) error {

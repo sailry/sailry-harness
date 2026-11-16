@@ -1,0 +1,167 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+func controllerCacheFixture(t *testing.T) (*Store, protocol.NodeID, protocol.NodeID, context.Context) {
+	t.Helper()
+	_, node, storage := schemaFixture(t)
+	controller := protocol.NodeID{61}
+	var user protocol.User
+	err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
+		var err error
+		user, err = CreateUser(t.Context(), db, "Cache controller")
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(t.Context(), "UPDATE users SET controller=?2 WHERE id=?1", user.ID.String(), controller[:])
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user.Controller = &controller
+	return storage, node, controller, WithUser(t.Context(), user)
+}
+
+func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
+	seen := map[string]bool{}
+	for _, name := range ConfigurationCategories {
+		kind, exists := configurationKind(name)
+		if !exists || kind.Export == nil || seen[name] {
+			t.Fatalf("incomplete or duplicate registered category %s", name)
+		}
+		seen[name] = true
+		for _, event := range kind.Events {
+			if !ConfigurationChanged(event) || !slices.Contains(ConfigurationDirtyKinds(event), name) {
+				t.Fatalf("category %s event %s has no dirty routing", name, event)
+			}
+		}
+	}
+	if ConfigurationChanged("unregistered_changed") || RuntimeCredentialEvent("role_changed") ||
+		!RuntimeCredentialEvent("credential_changed") || !RuntimeCredentialEvent("connections_changed") {
+		t.Fatal("configuration event routing inferred names or missed runtime metadata")
+	}
+}
+
+func TestConfigurationCacheKeepsControllerRefsAndCapturedVersions(t *testing.T) {
+	storage, node, controller, ctx := controllerCacheFixture(t)
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		provider := providerFixture()
+		provider.Revision = 1
+		provider.Credential = &protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
+		expiry := uint64(time.Now().Add(time.Hour).UnixMilli())
+		credential := protocol.RuntimeCredential{
+			Controller: controller, Kind: "provider", ID: provider.Credential.ID.String(), Generation: provider.Credential.ID.String(),
+			Revision: 3, State: "ready", Provider: &provider.ID, Authentication: protocol.AuthenticationApiKey,
+			Access: protocol.NewSecret("cache-api-key"), ExpiresAtMs: &expiry,
+		}
+		for category, record := range map[string]protocol.ConfigurationFollowRecord{
+			"providers":           followRecord(t, provider.ID.String(), provider.Revision, provider, nil),
+			"runtime_credentials": followRecord(t, credential.CacheID(), credential.Revision, credential, nil),
+		} {
+			if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+				Source: controller, Category: category, Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
+			}); err != nil {
+				return err
+			}
+		}
+		saved, err := readProviderConfiguration(ctx, db, provider.ID)
+		if err != nil || saved == nil || saved.Provider.Credential.Node != controller {
+			return fmt.Errorf("cache rewrote controller credential identity: %w", err)
+		}
+		key, err := resolveProviderKey(ctx, db, node, *saved.Provider.Credential, saved.ID)
+		if err != nil || key.Expose() != "cache-api-key" {
+			return fmt.Errorf("cache did not resolve execution key: %w", err)
+		}
+		info := pluginTestInfo("history-cache", 'a')
+		schema, err := plugins.ValidateSettings([]byte(`{"$schema":"` + plugins.SettingsSchema + `","type":"object","additionalProperties":false,"properties":{"choice":{"type":"string"}}}`))
+		if err != nil {
+			return err
+		}
+		info.Settings = &schema
+		declared := protocol.PluginMcpConfiguration{Servers: map[string]protocol.PluginMcpServer{}}
+		if err := CacheConfigurationPackage(ctx, db, info, declared); err != nil {
+			return err
+		}
+		capture := plugins.PackageReference(info)
+		old := pluginFollowSettings{Package: capture, Values: map[string]json.RawMessage{"choice": json.RawMessage(`"old"`)}, MCP: declared}
+		oldRecord := followRecord(t, pluginSettingsCacheID(capture), 1, old, nil)
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "plugin_settings", Revision: 1, Records: []protocol.ConfigurationFollowRecord{oldRecord},
+		}); err != nil {
+			return err
+		}
+		info.Summary.Digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		if err := CacheConfigurationPackage(ctx, db, info, declared); err != nil {
+			return err
+		}
+		current := pluginFollowSettings{Package: plugins.PackageReference(info), Values: map[string]json.RawMessage{"choice": json.RawMessage(`"new"`)}, MCP: declared}
+		currentRecord := followRecord(t, pluginSettingsCacheID(current.Package), 1, current, nil)
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "plugin_settings", Revision: 2, Records: []protocol.ConfigurationFollowRecord{currentRecord},
+		}); err != nil {
+			return err
+		}
+		oldSettings, err := cachedPluginSettings(ctx, db, capture)
+		if err != nil || string(oldSettings.Values["choice"]) != `"old"` {
+			return fmt.Errorf("package update replaced captured zero-revision settings: %w", err)
+		}
+		newSettings, err := cachedPluginSettings(ctx, db, current.Package)
+		if err != nil || string(newSettings.Values["choice"]) != `"new"` {
+			return fmt.Errorf("new package did not receive its own settings: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPersonalConfigurationCacheNeverFallsBackToExecutor(t *testing.T) {
+	storage, node, controller, ctx := controllerCacheFixture(t)
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if value, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media"); err != nil || value != nil {
+			return fmt.Errorf("remote media inherited local settings: %v", err)
+		}
+		media := protocol.DefaultMediaSettings()
+		media.Revision = 7
+		record := followRecord(t, "default", 8, media, nil)
+		changes, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "personal:media", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
+		})
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(changes, func(event protocol.Event) bool { return event.Kind == "media_settings_changed" }) {
+			return fmt.Errorf("personal media update did not publish its event")
+		}
+		value, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
+		if err != nil || value == nil || value.Revision != 7 {
+			return fmt.Errorf("personal media not read from controller cache: %w", err)
+		}
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		var localRows int
+		err = db.QueryRowContext(ctx, "SELECT count(*) FROM user_personal_settings WHERE user=?1 AND kind='media'", user.ID.String()).Scan(&localRows)
+		if err != nil || localRows != 0 {
+			return fmt.Errorf("cache wrote formal personal settings: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

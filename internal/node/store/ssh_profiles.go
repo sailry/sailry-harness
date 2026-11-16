@@ -13,10 +13,86 @@ import (
 )
 
 func ListSsh(ctx context.Context, db *sql.Conn) ([]protocol.SshProfile, error) {
-	return listUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles")
+	values, err := listUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles")
+	if err != nil {
+		return nil, err
+	}
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	_, cached, err := configurationCacheUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	for index := range values {
+		if !cached {
+			if err := bindSshAuthentication(&values[index], nil, node); err != nil {
+				return nil, err
+			}
+		} else if err := readSshTrust(ctx, db, &values[index]); err != nil {
+			return nil, err
+		}
+	}
+	return values, nil
 }
 
 func ReadSsh(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint64) (protocol.SshProfile, protocol.SshCredential, error) {
+	profile, credential, err := readSshRecord(ctx, db, id, revision)
+	if err != nil {
+		return profile, credential, err
+	}
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return profile, credential, err
+	}
+	if profile.Authentication == protocol.SshAuthenticationAgent || profile.Authentication == protocol.SshAuthenticationKeyPath {
+		if profile.AuthenticationNode == nil {
+			return profile, credential, fault(protocol.ErrorCodeNotConfigured, "SSH authentication is missing its owning Node")
+		}
+		if *profile.AuthenticationNode != node {
+			return profile, credential, fault(protocol.ErrorCodeWrongTarget, "SSH authentication belongs to Node "+profile.AuthenticationNode.String())
+		}
+	}
+	if profile.Authentication == protocol.SshAuthenticationKeyPath {
+		value, ok := dispatchValue[protocol.SshCredentialKeyPathPayload](credential.Data)
+		if !ok || value.Location == nil || value.Location.Node != node {
+			return profile, credential, fault(protocol.ErrorCodeWrongTarget, "SSH key file is not on this execution Node")
+		}
+	}
+	return profile, credential, nil
+}
+
+func readSshRecord(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint64) (protocol.SshProfile, protocol.SshCredential, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return protocol.SshProfile{}, protocol.SshCredential{}, err
+	} else if cached {
+		record, err := readConfigurationCacheRecord(ctx, db, "ssh_profiles", id.String(), 0)
+		if err != nil || record == nil {
+			if err == nil {
+				err = fault(protocol.ErrorCodeNotFound, "controller SSH profile is unavailable")
+			}
+			return protocol.SshProfile{}, protocol.SshCredential{}, err
+		}
+		var profile protocol.SshProfile
+		var credential protocol.SshCredential
+		if err := json.Unmarshal(record.Body, &profile); err != nil {
+			return profile, credential, err
+		}
+		if err := checkRevision(profile.Revision, revision); err != nil {
+			return profile, credential, err
+		}
+		if record.Secret != nil {
+			if err := json.Unmarshal([]byte(record.Secret.Expose()), &credential); err != nil {
+				return profile, credential, err
+			}
+		} else if profile.Authentication == protocol.SshAuthenticationAgent {
+			credential.Kind = "agent"
+		} else {
+			return profile, credential, fault(protocol.ErrorCodeNotConfigured, "controller SSH credential is unavailable")
+		}
+		return profile, credential, readSshTrust(ctx, db, &profile)
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return protocol.SshProfile{}, protocol.SshCredential{}, err
@@ -38,6 +114,13 @@ func ReadSsh(ctx context.Context, db *sql.Conn, id protocol.SshID, revision uint
 		return profile, secret, err
 	}
 	err = json.Unmarshal([]byte(credential), &secret)
+	if err == nil {
+		node, nodeErr := storageNode(ctx, db)
+		if nodeErr != nil {
+			return profile, secret, nodeErr
+		}
+		err = bindSshAuthentication(&profile, &secret, node)
+	}
 	return profile, secret, err
 }
 
@@ -66,6 +149,13 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 			return protocol.Output{}, nil, err
 		}
 		profile := input.Profile
+		node, err := storageNode(ctx, db)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if err := bindSshAuthentication(&profile, input.Credential, node); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		profile.Name = strings.TrimSpace(profile.Name)
 		profile.Host = strings.TrimSpace(profile.Host)
 		profile.Username = strings.TrimSpace(profile.Username)
@@ -115,13 +205,22 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 		}
 		return protocol.Output{Kind: "ssh_profile", Data: profile}, []protocol.Event{{Kind: "ssh_changed", Data: profile}}, err
 	case *protocol.CommandTrustSshPayload:
-		profile, _, err := ReadSsh(ctx, db, input.Profile, input.ExpectedRevision)
+		profile, _, err := readSshRecord(ctx, db, input.Profile, input.ExpectedRevision)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		digest, err := base64.RawStdEncoding.DecodeString(strings.TrimPrefix(input.Key.Fingerprint, "SHA256:"))
 		if input.Key.Algorithm == "" || len(input.Key.Algorithm) > 128 || !strings.HasPrefix(input.Key.Fingerprint, "SHA256:") || err != nil || len(digest) != 32 {
 			return protocol.Output{}, nil, invalid("invalid SSH host key")
+		}
+		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+			return protocol.Output{}, nil, err
+		} else if cached {
+			if err := saveSshTrust(ctx, db, profile, input.Key); err != nil {
+				return protocol.Output{}, nil, err
+			}
+			profile.HostKey = &input.Key
+			return protocol.Output{Kind: "ssh_profile", Data: profile}, []protocol.Event{{Kind: "ssh_changed", Data: profile}}, nil
 		}
 		profile.Revision, err = nextRevision(input.ExpectedRevision)
 		if err != nil {

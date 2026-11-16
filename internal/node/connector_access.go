@@ -97,9 +97,6 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if record.Grant.Extra["renewal_pending"] == "true" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"}
 	}
-	if record.Grant.Extra["renewal_rejected"] == "true" {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
-	}
 	due := store.ConnectorRenewalAt(record)
 	if due == nil && record.Grant.ExpiresAtMs != nil && *record.Grant.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization cannot be refreshed"}

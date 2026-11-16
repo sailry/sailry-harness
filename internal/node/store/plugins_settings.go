@@ -34,6 +34,11 @@ type ResolvedPluginSettings struct {
 }
 
 func readStoredPluginSettings(ctx context.Context, db *sql.Conn, info protocol.PluginInfo) (storedPluginSettings, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return storedPluginSettings{}, err
+	} else if cached {
+		return cachedPluginSettings(ctx, db, plugins.PackageReference(info))
+	}
 	if info.Summary.SettingsRevision == 0 {
 		return storedPluginSettings{
 			Schema: info.Settings, Values: plugins.SettingDefaults(info.Settings), Slots: map[string]*protocol.Secret{},

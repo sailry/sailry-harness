@@ -11,8 +11,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-var ConfigurationCategories = []string{"plugins", "providers", "roles", "teams", "ssh_profiles", "database_profiles", "defaults", "team_settings", "plugin_settings", "connections", "runtime_credentials"}
-
 type configurationApplyKey struct{}
 
 func configurationApplyContext(ctx context.Context) context.Context {
@@ -349,10 +347,7 @@ func ReadConfigurationManifest(ctx context.Context, db *sql.Conn, source protoco
 }
 
 func validateConfigurationManifest(value protocol.ConfigurationManifest) error {
-	valid := false
-	for _, category := range ConfigurationCategories {
-		valid = valid || value.Category == category
-	}
+	_, valid := configurationKind(value.Category)
 	if !valid || value.Revision == 0 || value.Revision > math.MaxInt64 || len(value.Records) > 4096 {
 		return invalid("configuration manifest is invalid")
 	}

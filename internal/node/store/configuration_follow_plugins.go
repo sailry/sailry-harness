@@ -8,10 +8,8 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strings"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
-	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -90,108 +88,6 @@ func followedPackage(ctx context.Context, db *sql.Conn, reference protocol.Plugi
 	err = json.Unmarshal(mcp, &declared)
 	return info, declared, err
 }
-func exportPluginFollowRecords(ctx context.Context, db *sql.Conn, category string, includeSecrets bool, declared map[string]protocol.PluginMcpConfiguration) ([]protocol.ConfigurationFollowRecord, error) {
-	records := []protocol.ConfigurationFollowRecord{}
-	add := func(id string, revision uint64, value any, secret any) error {
-		origin, err := configurationOrigin(ctx, db, category, id)
-		if err != nil {
-			return err
-		}
-		if origin != nil {
-			return nil
-		}
-		body, err := encode(value)
-		if err != nil {
-			return err
-		}
-		record := protocol.ConfigurationFollowRecord{ID: id, Revision: max(1, revision), Body: body}
-		if secret != nil {
-			raw, err := encode(secret)
-			if err != nil {
-				return err
-			}
-			value := protocol.NewSecret(string(raw))
-			record.Secret = &value
-		}
-		record.Digest, err = configurationDigest(record)
-		if err != nil {
-			return err
-		}
-		records = append(records, record)
-		return nil
-	}
-	infos, err := ReadPluginInfos(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	for _, info := range infos {
-		if origin, err := configurationOrigin(ctx, db, "plugins", info.Summary.Name); err != nil {
-			return nil, err
-		} else if origin != nil {
-			continue
-		}
-		switch category {
-		case "plugins":
-			info.Summary.Source = nil
-			if err := add(info.Summary.Name, info.Summary.Revision, info, nil); err != nil {
-				return nil, err
-			}
-		case "plugin_settings":
-			settings, err := ResolvePluginSettings(ctx, db, plugins.PackageReference(info))
-			if err != nil {
-				return nil, err
-			}
-			mcp := declared[info.Summary.Name]
-			if len(info.Mcp) > 0 {
-				mcp, err = EffectivePluginMCP(settings, mcp)
-				if err != nil {
-					return nil, err
-				}
-			}
-			value := pluginFollowSettings{Package: plugins.PackageReference(info), Values: settings.Values, MCP: mcp, Allowed: settings.MCPAllowed}
-			var secret any
-			if includeSecrets && len(settings.Secrets) > 0 {
-				secret = pluginFollowSecrets{Slots: settings.Secrets}
-			}
-			revision, err := nextRevision(info.Summary.SettingsRevision)
-			if err != nil {
-				return nil, err
-			}
-			if err := add(info.Summary.Name, revision, value, secret); err != nil {
-				return nil, err
-			}
-		case "connections":
-			user, err := CurrentUser(ctx, db)
-			if err != nil {
-				return nil, err
-			}
-			values, err := readBodies[ConnectorRecord](ctx, db, "SELECT body FROM plugin_connections WHERE user=?1 AND plugin=?2 ORDER BY id", user.ID.String(), info.Summary.Name)
-			if err != nil {
-				return nil, err
-			}
-			for _, record := range values {
-				value := pluginFollowConnection{
-					Package: plugins.PackageReference(info), ID: record.ID, Connector: record.Connector, Method: record.Method,
-					Enabled: record.Enabled, Fields: record.Fields, Revision: record.Revision, AuthRevision: record.AuthRevision,
-					GrantRevision: record.GrantRevision, Identity: record.Identity, Bound: record.Bound, State: record.State,
-					CheckedAtMs: record.CheckedAtMs, Login: record.Login,
-				}
-				value.Fields = maps.Clone(value.Fields)
-				for name := range value.Fields {
-					if !providers.RuntimeField(name) {
-						delete(value.Fields, name)
-					}
-				}
-				if err := add(record.ID.String(), record.Revision, value, nil); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-	slices.SortFunc(records, func(a, b protocol.ConfigurationFollowRecord) int { return strings.Compare(a.ID, b.ID) })
-	return records, nil
-}
-
 func pluginFollowCollision(ctx context.Context, db *sql.Conn, category string, record protocol.ConfigurationFollowRecord) error {
 	id := record.ID
 	user, err := CurrentUser(ctx, db)
