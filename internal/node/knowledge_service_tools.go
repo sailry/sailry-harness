@@ -151,7 +151,12 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 				return err
 			}
 			target := node.ID()
-			if command.Kind == "query_knowledge" || command.Kind == "list_knowledge_collections" {
+			personalSource := false
+			if created, ok := command.Data.(*protocol.CommandCreateKnowledgeCollectionPayload); ok {
+				source := store.ReadKnowledgeSource(created.Definition.Source)
+				personalSource = source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeNode
+			}
+			if command.Kind == "query_knowledge" || command.Kind == "list_knowledge_collections" || personalSource {
 				if inv.User.Controller != nil {
 					target = *inv.User.Controller
 				}

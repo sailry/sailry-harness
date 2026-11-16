@@ -68,6 +68,9 @@ func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
 	remote := client.New(&resourceCatalogTransport{target: remoteID})
 	t.Cleanup(func() { _ = remote.Close() })
 	ctx := resourceCatalogFixture(t, node, map[protocol.NodeID]*client.Client{remoteID: remote})
+	previous := protocol.Project{ID: protocol.NewProjectID(), Name: "Offline project"}
+	resourceProjections.Store(resourceProjectionKey{node, remoteID}, &resourceProjection{source: protocol.ResourceSource{Projects: []protocol.Project{previous}}})
+	t.Cleanup(func() { resourceProjections.Delete(resourceProjectionKey{node, remoteID}) })
 	catalog, err := node.resourceCatalog(ctx)
 	if err != nil || len(catalog.Sources) != 2 || catalog.Entry != node.ID() {
 		t.Fatalf("catalog: %+v: %v", catalog, err)
@@ -76,7 +79,7 @@ func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
 		if source.Route.Entry != node.ID() || source.Route.Target != source.Node {
 			t.Fatalf("source lost its entry: %+v", source)
 		}
-		if source.Node == remoteID && (source.Fault == nil || source.Fault.Code != protocol.ErrorCodeUnavailable) {
+		if source.Node == remoteID && (source.Fault == nil || source.Fault.Code != protocol.ErrorCodeUnavailable || len(source.Projects) != 1 || source.Projects[0].ID != previous.ID) {
 			t.Fatalf("offline source silently disappeared: %+v", source)
 		}
 	}

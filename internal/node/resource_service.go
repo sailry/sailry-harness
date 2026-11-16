@@ -165,6 +165,12 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	if err := store.CheckKnowledgeScope(verified, original); err != nil {
 		return link.Admission{}, err
 	}
+	if original.Command.Kind == "read_knowledge_candidates" {
+		query, valid := original.Command.Data.(*protocol.PluginStorageSearch)
+		if !valid || query.Scope != "" && query.Scope != protocol.PluginStorageScopeNode {
+			return link.Admission{}, permissionDenied()
+		}
+	}
 	if inbound && call.Request.Target != node.ID() {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "resource call cannot forward through a storage Node"}
 	}

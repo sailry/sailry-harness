@@ -81,7 +81,7 @@ func ResourceCommand(kind string) bool {
 	case "list_knowledge_collections", "create_knowledge_collection",
 		"update_knowledge_collection", "delete_knowledge_collection",
 		"pause_knowledge_collection", "rebuild_knowledge_collection",
-		"query_knowledge", "read_knowledge_citation":
+		"query_knowledge", "read_knowledge_citation", "read_knowledge_candidates":
 		return true
 	}
 	return false

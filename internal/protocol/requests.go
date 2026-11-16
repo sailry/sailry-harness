@@ -52,6 +52,7 @@ func (command Command) Durable() bool {
 		"list_artifact_revisions",
 		"read_project_catalog",
 		"read_resource_catalog",
+		"read_knowledge_candidates",
 		"read_activity_catalog",
 		"read_worktree_catalog",
 		"open_port",

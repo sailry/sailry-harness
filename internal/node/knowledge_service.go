@@ -21,7 +21,7 @@ import (
 
 func knowledgeCommand(kind string) bool {
 	switch kind {
-	case "query_knowledge", "read_knowledge_citation", "list_knowledge_collections",
+	case "query_knowledge", "read_knowledge_citation", "read_knowledge_candidates", "list_knowledge_collections",
 		"create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection",
 		"rebuild_knowledge_collection", "pause_knowledge_collection":
 		return true
@@ -422,6 +422,10 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 }
 
 func (node *Node) readKnowledge(ctx context.Context, request protocol.Request) (protocol.Output, error) {
+	if request.Command.Kind == "read_knowledge_candidates" {
+		candidates, err := node.knowledge.StorageCandidates(ctx, request)
+		return protocol.Output{Kind: "knowledge_candidates", Data: candidates}, err
+	}
 	switch input := request.Command.Data.(type) {
 	case *protocol.KnowledgeQuery:
 		page, err := node.knowledge.Query(ctx, request, *input)

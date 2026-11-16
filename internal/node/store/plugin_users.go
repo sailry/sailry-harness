@@ -104,6 +104,13 @@ func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeSto
 			return allowed, err
 		}
 	}
+	if strings.HasPrefix(stored.Capture.Space, "user:") {
+		storage, err := CapturedUser(ctx, db)
+		if err != nil {
+			return false, err
+		}
+		return stored.Capture.Space == "user:"+storage.String() || stored.Collection.Definition.Visibility == protocol.KnowledgeVisibilityShared, nil
+	}
 	owned, err := knowledgeOwned(ctx, db, stored)
 	return owned || stored.Collection.Definition.Visibility == protocol.KnowledgeVisibilityShared, err
 }

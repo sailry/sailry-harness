@@ -51,6 +51,9 @@ func CheckKnowledgeScope(ctx context.Context, request protocol.Request) error {
 		return knowledgeDenied("resource call package differs from its captured scope")
 	}
 	action := protocol.PluginActionReadKnowledge
+	if request.Command.Kind == "read_knowledge_candidates" {
+		action = protocol.PluginActionReadStorage
+	}
 	if request.Command.Durable() {
 		action = protocol.PluginActionWriteKnowledge
 	}

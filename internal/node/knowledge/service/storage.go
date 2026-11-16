@@ -198,3 +198,77 @@ func selectValues(query protocol.PluginStorageSearch, plan store.SemanticPlan, h
 	}
 	return selection
 }
+
+// StorageCandidates ranks only this Node's canonical storage collections. It
+// returns source stamps so a remote executor can materialize its local view.
+func (service *Service) StorageCandidates(ctx context.Context, request protocol.Request) (protocol.KnowledgeCandidates, error) {
+	result := protocol.KnowledgeCandidates{Candidates: []protocol.KnowledgeCandidate{}}
+	query, found := request.Command.Data.(*protocol.PluginStorageSearch)
+	if !found || query.Scope != "" && query.Scope != protocol.PluginStorageScopeNode {
+		return result, invalid("personal storage search expected")
+	}
+	plan, err := service.options.Plan(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	if query.Query == nil || strings.TrimSpace(*query.Query) == "" || len(plan.Collections) == 0 {
+		return result, nil
+	}
+	retrieval := protocol.DefaultKnowledgeQuery()
+	retrieval.Query, retrieval.Mode, retrieval.Tags, retrieval.Limit = *query.Query, protocol.KnowledgeModeSemantic, query.All, knowledge.PageLimit
+	for _, stored := range plan.Collections {
+		retrieval.Collections = append(retrieval.Collections, stored.Collection.ID)
+	}
+	choice := service.options.Choice()
+	prepared := prepared{}
+	models := map[string]string{}
+	for _, stored := range plan.Collections {
+		binding := service.binding(stored, choice)
+		prepared.bindings = append(prepared.bindings, binding)
+		prepared.indexing = prepared.indexing || stored.Collection.Progress.Status == protocol.KnowledgeStatusPending || stored.Collection.Progress.Status == protocol.KnowledgeStatusIndexing
+		if !stored.Collection.Paused && binding.Model != "" {
+			models[binding.Model] = binding.Identity
+		}
+	}
+	names := make([]string, 0, len(models))
+	for model := range models {
+		names = append(names, model)
+	}
+	slices.Sort(names)
+	for _, model := range names {
+		identity := models[model]
+		vectors, err := service.options.Encode(ctx, model, choice, []string{retrieval.Query}, true)
+		if err != nil {
+			if code(err) == protocol.ErrorCodeNotConfigured {
+				continue
+			}
+			return result, err
+		}
+		if len(vectors) != 1 {
+			return result, newFault(protocol.ErrorCodeInternal, "embedding query count differs")
+		}
+		if nonzero(vectors[0]) {
+			prepared.embeddings = append(prepared.embeddings, Embedding{Model: model, Identity: identity, Values: vectors[0]})
+		}
+	}
+	result.Indexing, result.Available = prepared.indexing, len(prepared.embeddings) != 0
+	hits, err := service.index.Candidates(ctx, retrieval, prepared.bindings, prepared.embeddings, query.Any)
+	if err != nil {
+		return result, err
+	}
+	current, err := service.options.Plan(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	for _, stored := range plan.Collections {
+		if !slices.ContainsFunc(current.Collections, func(latest store.KnowledgeStored) bool { return store.SameKnowledgeStored(stored, latest) }) {
+			return result, changedSource()
+		}
+	}
+	for _, hit := range hits {
+		if plan.Eligible[hit.Citation.Path] && current.Eligible[hit.Citation.Path] {
+			result.Candidates = append(result.Candidates, protocol.KnowledgeCandidate{Collection: hit.Citation.Collection, Key: hit.Citation.Path, Revision: hit.Citation.Revision, Score: hit.Score})
+		}
+	}
+	return result, nil
+}

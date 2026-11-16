@@ -82,7 +82,13 @@ func KnowledgeStorageCommand(command protocol.Command) bool {
 // semanticDeclarations lists the Node collections a captured package opts
 // into semantic recall for.
 func semanticDeclarations(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) ([]protocol.PluginStorageCollection, error) {
-	info, err := ResolvePluginInfo(ctx, db, reference)
+	var info protocol.PluginInfo
+	var err error
+	if captured, present := KnowledgePackageFromContext(ctx); present {
+		info = captured
+	} else {
+		info, err = ResolvePluginInfo(ctx, db, reference)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +168,9 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 	space, err := pluginValueSpace(ctx, db)
 	if err != nil {
 		return nil, false, err
+	}
+	if strings.HasPrefix(space, "controller:") {
+		return nil, false, nil
 	}
 	namespace, err := pluginSearchName(ctx, db, reference.Name)
 	if err != nil {
@@ -511,7 +520,7 @@ func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.R
 		return plan, err
 	}
 	var declarations []protocol.PluginStorageCollection
-	if query.Mode != protocol.KnowledgeModeKeyword && query.Query != nil && strings.TrimSpace(*query.Query) != "" {
+	if query.Mode != protocol.KnowledgeModeKeyword && query.Query != nil && strings.TrimSpace(*query.Query) != "" && !strings.HasPrefix(plan.Space, "controller:") {
 		if declarations, err = semanticDeclarations(ctx, db, reference); err != nil {
 			return plan, err
 		}

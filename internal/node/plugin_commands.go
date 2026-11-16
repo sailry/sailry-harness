@@ -422,7 +422,7 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 		return node.pluginModelCatalog(ctx, request)
 	}
 	if request.Command.Kind == "search_plugin_values" {
-		page, err := node.knowledge.SearchStorage(ctx, request)
+		page, err := node.searchKnowledgeStorage(ctx, request)
 		return protocol.Output{Kind: "plugin_search", Data: page}, err
 	}
 	if output, handled, err := node.prepareAuthCommand(ctx, caller, request); handled {

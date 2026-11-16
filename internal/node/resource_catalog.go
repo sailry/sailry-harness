@@ -57,6 +57,12 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 	for id, peer := range peers {
 		workers.Go(func() {
 			source := protocol.ResourceSource{Node: id, Route: protocol.RouteKey{Entry: node.ID(), Target: id}, Name: names[id]}
+			if state, exists := resourceProjections.Load(resourceProjectionKey{node, id}); exists {
+				cached := state.(*resourceProjection)
+				cached.mu.Lock()
+				source.Projects, source.Worktrees, source.Knowledge = cached.source.Projects, cached.source.Worktrees, cached.source.Knowledge
+				cached.mu.Unlock()
+			}
 			if !peer.Connected() {
 				source.Fault = resourceUnavailable()
 			} else {
@@ -72,6 +78,13 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 					source.Fault = resourceUnavailable()
 				}
 			}
+			if source.Fault == nil {
+				state, _ := resourceProjections.LoadOrStore(resourceProjectionKey{node, id}, &resourceProjection{})
+				cached := state.(*resourceProjection)
+				cached.mu.Lock()
+				cached.source = source
+				cached.mu.Unlock()
+			}
 			mu.Lock()
 			catalog.Sources = append(catalog.Sources, source)
 			mu.Unlock()
@@ -79,6 +92,9 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 	}
 	workers.Wait()
 	slices.SortStableFunc(catalog.Sources, func(a, b protocol.ResourceSource) int {
+		if a.Node == b.Node {
+			return 0
+		}
 		if a.Node == node.ID() {
 			return -1
 		}
@@ -162,6 +178,7 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 	close(results)
 	collections := []protocol.KnowledgeCollection{}
 	page := protocol.DefaultKnowledgePage()
+	ranks := map[string]float64{}
 	page.Untrusted = true
 	if searching {
 		page.Mode = query.Mode
@@ -185,7 +202,11 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 				page.Sources[len(page.Sources)-1].Fault = resourceUnavailable()
 				continue
 			}
-			page.Hits = append(page.Hits, part.Hits...)
+			for position, hit := range part.Hits {
+				key := hit.Citation.Node.String() + "/" + hit.Citation.Collection.String() + "/" + hit.Citation.Chunk
+				ranks[key] = 1 / float64(60+position+1)
+				page.Hits = append(page.Hits, hit)
+			}
 			page.Indexing = page.Indexing || part.Indexing
 			if !modelSeen {
 				page.Model, page.Mode, modelSeen = part.Model, part.Mode, true
@@ -208,8 +229,15 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 		return protocol.Output{Kind: "knowledge_collections", Data: collections}, nil
 	}
 	slices.SortFunc(page.Sources, func(a, b protocol.ResourceSourceStatus) int { return cmp.Compare(a.Node.String(), b.Node.String()) })
+	for index := range page.Hits {
+		hit := &page.Hits[index]
+		key := hit.Citation.Node.String() + "/" + hit.Citation.Collection.String() + "/" + hit.Citation.Chunk
+		hit.Score = uint32(ranks[key] * 1_000_000)
+	}
 	slices.SortFunc(page.Hits, func(a, b protocol.KnowledgeHit) int {
-		return cmp.Or(cmp.Compare(b.Score, a.Score), cmp.Compare(a.Citation.Node.String(), b.Citation.Node.String()), cmp.Compare(a.Citation.Collection.String(), b.Citation.Collection.String()), cmp.Compare(a.Citation.Chunk, b.Citation.Chunk))
+		left := a.Citation.Node.String() + "/" + a.Citation.Collection.String() + "/" + a.Citation.Chunk
+		right := b.Citation.Node.String() + "/" + b.Citation.Collection.String() + "/" + b.Citation.Chunk
+		return cmp.Or(cmp.Compare(ranks[right], ranks[left]), cmp.Compare(a.Citation.Node.String(), b.Citation.Node.String()), cmp.Compare(a.Citation.Collection.String(), b.Citation.Collection.String()), cmp.Compare(a.Citation.Chunk, b.Citation.Chunk))
 	})
 	start := min(uint64(query.Offset), uint64(len(page.Hits)))
 	end := min(start+uint64(min(query.Limit, knowledge.PageLimit)), uint64(len(page.Hits)))
@@ -221,8 +249,9 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 	return protocol.Output{Kind: "knowledge_search", Data: page}, nil
 }
 
-// resourceProjections tracks only direct-source content, so a propagated
-// invalidation cannot circulate between Nodes connected in both directions.
+// resourceProjections retains direct-source projections and coalesces changes
+// into one reader per source. Derived invalidations cannot circulate because
+// only a changed local resource projection publishes another notification.
 var resourceProjections sync.Map
 
 type resourceProjectionKey struct {
@@ -230,35 +259,84 @@ type resourceProjectionKey struct {
 	source protocol.NodeID
 }
 
+type resourceProjection struct {
+	mu      sync.Mutex
+	running bool
+	dirty   bool
+	known   bool
+	digest  [32]byte
+	source  protocol.ResourceSource
+}
+
 func (node *Node) notifyResourceCatalog(source protocol.NodeID, remote *client.Client) {
-	_ = node.tasks.Submit(func(ctx context.Context) {
-		snapshot := remote.Snapshot()
-		projection := struct {
-			Connected bool
-			Projects  []protocol.Project
-			Worktrees []protocol.Worktree
-			Knowledge []protocol.KnowledgeCollection
-		}{Connected: remote.Connected(), Projects: snapshot.Projects, Worktrees: snapshot.Worktrees}
-		if projection.Connected {
-			request := protocol.NewRequest(source, protocol.Command{Kind: "list_knowledge_collections"})
-			if output, err := resourceResult(ctx, remote.Resource, protocol.ResourceCall{Request: request, Local: true}); err == nil {
-				projection.Knowledge, _ = dispatchPayload[[]protocol.KnowledgeCollection](output.Data)
+	key := resourceProjectionKey{node, source}
+	value, _ := resourceProjections.LoadOrStore(key, &resourceProjection{})
+	state := value.(*resourceProjection)
+	state.mu.Lock()
+	state.dirty = true
+	if state.running {
+		state.mu.Unlock()
+		return
+	}
+	state.running = true
+	state.mu.Unlock()
+	err := node.tasks.Submit(func(ctx context.Context) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		defer context.AfterFunc(node.ctx, cancel)()
+		for {
+			if ctx.Err() != nil {
+				state.mu.Lock()
+				state.running = false
+				state.mu.Unlock()
+				return
+			}
+			state.mu.Lock()
+			if !state.dirty {
+				state.running = false
+				state.mu.Unlock()
+				return
+			}
+			state.dirty = false
+			projected := state.source
+			state.mu.Unlock()
+			projected.Node, projected.Route = source, protocol.RouteKey{Entry: node.ID(), Target: source}
+			projected.Fault = nil
+			if !remote.Connected() {
+				projected.Fault = resourceUnavailable()
+			} else {
+				snapshot := remote.Snapshot()
+				projected.Projects, projected.Worktrees = snapshot.Projects, snapshot.Worktrees
+				request := protocol.NewRequest(source, protocol.Command{Kind: "list_knowledge_collections"})
+				if output, err := resourceResult(ctx, remote.Resource, protocol.ResourceCall{Request: request, Local: true}); err == nil {
+					projected.Knowledge, _ = dispatchPayload[[]protocol.KnowledgeCollection](output.Data)
+				} else {
+					projected.Fault = resourceFault(err)
+				}
+			}
+			encoded, err := json.Marshal(projected)
+			if err != nil {
+				continue
+			}
+			digest := blake3.Sum256(encoded)
+			state.mu.Lock()
+			changed := !state.known || state.digest != digest
+			state.known, state.digest, state.source = true, digest, projected
+			state.mu.Unlock()
+			if !changed {
+				continue
+			}
+			if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+				_, err := store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
+				return err
+			}); err == nil {
+				node.publish()
 			}
 		}
-		encoded, err := json.Marshal(projection)
-		if err != nil {
-			return
-		}
-		digest := blake3.Sum256(encoded)
-		key := resourceProjectionKey{node, source}
-		if previous, present := resourceProjections.Swap(key, digest); present && previous == digest {
-			return
-		}
-		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			_, err := store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
-			return err
-		}); err == nil {
-			node.publish()
-		}
 	})
+	if err != nil {
+		state.mu.Lock()
+		state.running = false
+		state.mu.Unlock()
+	}
 }
