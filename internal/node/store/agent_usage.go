@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -224,7 +225,8 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			addUsageModel(&report.Recent[bucket], row.model, row.tokens)
 		}
 		position := protocol.UsagePosition{TimestampMs: ms, Node: node, Sequence: row.sequence}
-		if query.Before != nil && (ms > query.Before.TimestampMs || ms == query.Before.TimestampMs && row.sequence >= query.Before.Sequence) {
+		if before := query.Before; before != nil && (ms > before.TimestampMs || ms == before.TimestampMs &&
+			(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && row.sequence >= before.Sequence)) {
 			continue
 		}
 		request := protocol.DefaultUsageRequest()
