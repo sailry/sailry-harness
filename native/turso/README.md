@@ -20,8 +20,11 @@ interruption through its C ABI, and its context checks alone cannot stop a
 CPU-bound statement. Cancellation callbacks must finish before the connection
 is closed or returned to its pool.
 
-Run `sh native/turso/build.sh` on the target platform. The pinned Rust toolchain
-produces one file in `.runtime/native/<goos>-<goarch>/`:
+Run `sh native/turso/build.sh` on the target platform with the standard rustup
+`cargo`/`rustc` proxies first in `PATH` (`$HOME/.cargo/bin`). They read the
+pinned `rust-toolchain.toml`; a custom Cargo executable can use a different
+output layout. The pinned toolchain produces one file in
+`.runtime/native/<goos>-<goarch>/`:
 
 | Target | Filename |
 | --- | --- |

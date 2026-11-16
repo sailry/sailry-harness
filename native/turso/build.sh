@@ -17,6 +17,8 @@ output="$root/.runtime/native/$platform-$architecture"
 mkdir -p "$output"
 export CARGO_TARGET_DIR="$output/turso-cargo"
 cd "$root/native/turso"
+# Use the pinned rustup toolchain; an unrelated cargo earlier in PATH may
+# change Cargo's output layout or ignore rust-toolchain.toml.
 build=release
 # Match the GNU libc floor used by the Host installer and the iroh library.
 if [ "$platform" = linux ] && [ -n "${SAILRY_GLIBC-}" ]; then
