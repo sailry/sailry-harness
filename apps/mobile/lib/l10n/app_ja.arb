@@ -82,6 +82,7 @@
   "conversationWaitingChild": "1 件のサブエージェントを待機中",
   "conversationWaitingChildren": "{count} 件のサブエージェントを待機中",
   "conversationCompacting": "コンパクト化文脈",
+  "conversationWaitingController": "コントローラーのログイン更新を待機中",
   "conversationCompacted": "コンテキスト圧縮",
   "conversationToolWaiting": "待機中",
   "conversationStartCoding": "実行を開始",

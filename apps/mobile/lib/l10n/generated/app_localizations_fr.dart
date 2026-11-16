@@ -192,7 +192,8 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationCompacting => 'Compacter le contexte';
 
   @override
-  String get conversationWaitingController => 'Waiting for controller sign-in';
+  String get conversationWaitingController =>
+      'En attente de la connexion du contrôleur';
 
   @override
   String get conversationCompacted => 'Contexte compacté';

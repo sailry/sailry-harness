@@ -82,6 +82,7 @@
   "conversationWaitingChild": "等待 1 個子代理",
   "conversationWaitingChildren": "等待 {count} 個子代理",
   "conversationCompacting": "正在壓縮上下文",
+  "conversationWaitingController": "等待主控更新登入",
   "conversationCompacted": "上下文已壓縮",
   "conversationToolWaiting": "等待執行",
   "conversationStartCoding": "開始執行",

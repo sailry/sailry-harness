@@ -82,6 +82,7 @@
   "conversationWaitingChild": "Warten auf einen Unteragenten",
   "conversationWaitingChildren": "Warten auf {count} Unteragenten",
   "conversationCompacting": "Kompaktierung des Kontexts",
+  "conversationWaitingController": "Warten auf die Anmeldung am Controller",
   "conversationCompacted": "Kontext komprimiert",
   "conversationToolWaiting": "Ausstehend",
   "conversationStartCoding": "Ausführung starten",

@@ -574,3 +574,7 @@ notice.migrated: "已完成，用时 12 分 05 秒"
 # What the microphone hears (shell.go)
 dictation.text: "再给突发流量的情况补一个测试"
 handbook.0.guide: 摘要只保留决定和接下来的步骤
+controller_login.title: 登录后继续
+controller_login.0.user: 总结一下部署检查结果。
+controller_login.0.partial: 部署检查结果已收集，可以开始总结。
+controller_login.1.user: 继续总结。

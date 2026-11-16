@@ -82,6 +82,7 @@
   "conversationWaitingChild": "하위 에이전트 1개 대기 중",
   "conversationWaitingChildren": "하위 에이전트 {count}개 대기 중",
   "conversationCompacting": "컨텍스트 압축",
+  "conversationWaitingController": "컨트롤러 로그인 업데이트 대기 중",
   "conversationCompacted": "컨텍스트 압축됨",
   "conversationToolWaiting": "보류 중",
   "conversationStartCoding": "실행 시작",

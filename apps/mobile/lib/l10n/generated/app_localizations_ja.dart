@@ -184,7 +184,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationCompacting => 'コンパクト化文脈';
 
   @override
-  String get conversationWaitingController => 'Waiting for controller sign-in';
+  String get conversationWaitingController => 'コントローラーのログイン更新を待機中';
 
   @override
   String get conversationCompacted => 'コンテキスト圧縮';

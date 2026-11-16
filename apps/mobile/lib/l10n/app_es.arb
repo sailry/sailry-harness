@@ -82,6 +82,7 @@
   "conversationWaitingChild": "Esperando a un subagente",
   "conversationWaitingChildren": "Esperando a {count} subagentes",
   "conversationCompacting": "Compactación del contexto",
+  "conversationWaitingController": "Esperando el inicio de sesión del controlador",
   "conversationCompacted": "Contexto compactado",
   "conversationToolWaiting": "Pendiente",
   "conversationStartCoding": "Iniciar la ejecución",

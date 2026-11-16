@@ -249,7 +249,7 @@ func Demo(locale, host string) *Data {
 	d.Projects[0].Icon, d.Projects[0].Color = "server", "teal"
 	d.Projects[1].Icon, d.Projects[1].Color = "analytics", "violet"
 	d.Projects[2].Icon, d.Projects[2].Color = "writing", "amber"
-	d.Unassigned = []*Conversation{b.handbook(), b.hashing(), b.staging(), b.releaseNotes(), b.translate()}
+	d.Unassigned = []*Conversation{b.handbook(), b.hashing(), b.staging(), b.releaseNotes(), b.translate(), b.waitingForController()}
 	DemoReplies(d, locale)
 	return d
 }

@@ -82,6 +82,7 @@
   "conversationWaitingChild": "Ожидание субагента",
   "conversationWaitingChildren": "Ожидание субагентов: {count}",
   "conversationCompacting": "Сжатие контекста",
+  "conversationWaitingController": "Ожидание входа на управляющем устройстве",
   "conversationCompacted": "Контекст уплотнён",
   "conversationToolWaiting": "В ожидании",
   "conversationStartCoding": "Начало исполнения",

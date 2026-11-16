@@ -190,7 +190,8 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationCompacting => 'Compactando o contexto';
 
   @override
-  String get conversationWaitingController => 'Waiting for controller sign-in';
+  String get conversationWaitingController =>
+      'Aguardando o login no controlador';
 
   @override
   String get conversationCompacted => 'Contexto compactado';

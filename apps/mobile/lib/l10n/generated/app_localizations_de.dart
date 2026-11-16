@@ -192,7 +192,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationCompacting => 'Kompaktierung des Kontexts';
 
   @override
-  String get conversationWaitingController => 'Waiting for controller sign-in';
+  String get conversationWaitingController =>
+      'Warten auf die Anmeldung am Controller';
 
   @override
   String get conversationCompacted => 'Kontext komprimiert';

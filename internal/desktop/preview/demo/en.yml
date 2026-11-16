@@ -576,3 +576,7 @@ notice.migrated: "Completed in 12m 05s"
 # What the microphone hears (shell.go)
 dictation.text: "Add a test for the burst case as well"
 handbook.0.guide: Keep the summary focused on decisions and next steps
+controller_login.title: Continue after sign-in
+controller_login.0.user: Summarize the deployment checks.
+controller_login.0.partial: The deployment checks are collected and ready to summarize.
+controller_login.1.user: Continue with the summary.

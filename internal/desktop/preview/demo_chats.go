@@ -144,3 +144,13 @@ func (b *demo) translate() *Conversation {
 	c.Turns[0].Controls = cv.Controls{NoExport: true, NoWorktree: true}
 	return c
 }
+
+func (b *demo) waitingForController() *Conversation {
+	const id = "chat/controller-login"
+	completed := b.user(id+"/0", "controller_login.0.user")
+	completed.Reply = done(cv.Completed, 16)
+	completed.Reply.Blocks = []cv.Block{text(b.t("controller_login.0.partial"))}
+	turn := b.user(id+"/1", "controller_login.1.user")
+	turn.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(92), Phase: cv.WaitingController}
+	return b.conv(id, "controller_login.title", Running, 3*time.Minute, cv.Usage{Tokens: 4300, Speed: 78, Cost: 0.003, Cached: 2100, Context: 0.02}, completed, turn)
+}
