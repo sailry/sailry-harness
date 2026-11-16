@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	turso "turso.tech/database/tursogo"
 )
 
 // Read pins the snapshot before invoking its callback exactly once.
@@ -22,33 +25,95 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 		return err
 	}
 	defer connection.Close()
-	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+	if err := beginRead(ctx, connection); err != nil {
 		return err
 	}
-	rows, err := connection.QueryContext(ctx, "SELECT rootpage FROM sqlite_schema LIMIT 1")
-	if err == nil {
-		for rows.Next() {
-			var rootpage int64
-			if err = rows.Scan(&rootpage); err != nil {
-				break
-			}
-		}
-		err = errors.Join(err, rows.Err(), rows.Close())
-	}
-	if err == nil {
-		err = callback(connection)
-	}
+	err = callback(connection)
 	if err == nil {
 		_, err = connection.ExecContext(ctx, "COMMIT")
 		if err == nil {
 			return nil
 		}
 	}
-	_, cleanup := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
-	if cleanup != nil {
+	return errors.Join(err, rollbackRead(ctx, connection))
+}
+
+func beginRead(ctx context.Context, connection *sql.Conn) error {
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := pinRead(ctx, connection)
+		if err == nil {
+			return nil
+		}
+		if cleanup := rollbackRead(ctx, connection); cleanup != nil {
+			return errors.Join(err, cleanup)
+		}
+		if !readAdmissionConflict(err) || attempt >= 8 {
+			return err
+		}
+		// Turso admits a fresh MVCC snapshot on its first table read. A
+		// checkpoint may refuse it, so retry only before invoking the callback
+		// and after ending the failed transaction, as in the Rust store.
+		delay := time.NewTimer(time.Millisecond << min(attempt, 6))
+		select {
+		case <-ctx.Done():
+			delay.Stop()
+			return ctx.Err()
+		case <-delay.C:
+		}
+	}
+}
+
+func pinRead(ctx context.Context, connection *sql.Conn) error {
+	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+		return err
+	}
+	rows, err := connection.QueryContext(ctx, "SELECT rootpage FROM sqlite_schema LIMIT 1")
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var rootpage int64
+		if err = rows.Scan(&rootpage); err != nil {
+			break
+		}
+	}
+	return errors.Join(err, rows.Err(), rows.Close())
+}
+
+func readAdmissionConflict(err error) bool {
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		for _, cause := range causes {
+			if !readAdmissionConflict(cause) {
+				return false
+			}
+		}
+		return len(causes) != 0
+	}
+	if errors.Is(err, turso.ErrTursoBusy) {
+		// The SDK also uses Busy for an unfinished statement on this same
+		// connection. Waiting cannot finish that statement.
+		return !strings.Contains(err.Error(), "SQL statements in progress")
+	}
+	// SDK 0.8.3 does not recognize native TURSO_BUSY_SNAPSHOT (6). Match
+	// its two exact messages without making other generic errors retryable.
+	if errors.Is(err, turso.ErrTursoGeneric) {
+		message := strings.TrimPrefix(err.Error(), turso.ErrTursoGeneric.Error()+": ")
+		return message == "database snapshot is stale, rollback and retry the transaction" ||
+			message == "Commit dependency aborted, rollback and retry the whole transaction"
+	}
+	return false
+}
+
+func rollbackRead(ctx context.Context, connection *sql.Conn) error {
+	_, err := connection.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+	if err != nil {
 		_ = connection.Raw(func(any) error { return driver.ErrBadConn })
 	}
-	return errors.Join(err, cleanup)
+	return err
 }
 
 // Exclusive drains existing reads and admitted writes and blocks new leases.
