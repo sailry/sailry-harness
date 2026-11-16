@@ -99,8 +99,14 @@ func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 		if err != nil {
 			return value, err
 		}
-		if provider.Credential != nil && provider.Credential.Node != node {
-			return value, fault(protocol.ErrorCodePermissionDenied, "role provider belongs to another Node")
+		if provider.Credential != nil {
+			controller, err := CurrentController(ctx, db, node)
+			if err != nil {
+				return value, err
+			}
+			if provider.Credential.Node != controller {
+				return value, fault(protocol.ErrorCodePermissionDenied, "role provider belongs to another controller")
+			}
 		}
 		for _, role := range value.Profiles {
 			if role.Model != nil && role.Model.Provider == id {
