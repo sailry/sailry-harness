@@ -12,7 +12,7 @@ func TestDispatchExecutionNodeRemainsOptionalAndExact(t *testing.T) {
 		body     string
 		location func([]byte) (*NodeID, error)
 	}{
-		{"handler", `{"name":"queue","revision":1,"enabled":true,"source":{"package":"fixture","topic":"run"},"queue":"queue","callback":{"scope":{},"completion":"command","command":null,"bindings":{}}}`,
+		{"handler", `{"name":"queue","revision":1,"enabled":true,"source":{"package":"fixture","topic":"run"},"queue":"queue","callback":{"scope":{},"completion":"command","command":{"kind":"snapshot"},"bindings":{}}}`,
 			func(body []byte) (*NodeID, error) {
 				var value DispatchHandler
 				err := json.Unmarshal(body, &value)
