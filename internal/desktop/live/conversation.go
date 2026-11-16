@@ -191,6 +191,11 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	} else if owner != r {
 		return owner.conversation(c, cv, comp)
 	}
+	if unsentDraft(cv) {
+		// Drafts have no conversation observation to clear an old Host's
+		// offline state after the user changes their execution location.
+		cv.Session.Connection = conversation.Connected
+	}
 	snapshot := r.snapshot()
 	var page protocol.ConversationPage
 	unsynced := false
