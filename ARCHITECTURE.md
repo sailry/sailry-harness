@@ -187,6 +187,14 @@ rows. A single configuration registry owns category export, validation, events
 and invalidation. Cached records are never published onward as another
 controller's source.
 
+Remote session creation forwards frozen provider and role metadata under the
+original request identity. The executor resolves their controller cache and
+runtime credentials without remapping IDs or importing account grants. Missing
+cache revisions reject admission; they do not trigger an on-demand configuration
+copy. The source retains the forwarded metadata with its request so an unknown
+outcome can be recovered after configuration changes or a restart. Historical
+session-private provider records remain stored for existing sessions.
+
 Configuration snapshots travel in bounded pages under one persisted delivery
 identity. Receivers retain staged pages and their digests across restarts; the
 complete snapshot, absent-record cleanup, events and completion receipt commit

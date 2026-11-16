@@ -21,7 +21,8 @@ func forwardUnknown() *protocol.Fault {
 }
 
 // dispatchSessionForward admits a session for another Node and sends this
-// Node's provider, secret and roles to it over the paired Link. The transfer
+// Node's captured provider and roles over the paired Link. Execution secrets
+// come from the target's controller cache. The transfer
 // runs outside the command lanes, so a slow peer delays no local command.
 //
 // A replay whose recorded outcome is unknown sends the import again: the target

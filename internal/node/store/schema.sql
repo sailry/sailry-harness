@@ -28,6 +28,13 @@ CREATE TABLE IF NOT EXISTS requests (
     scope BLOB,
     PRIMARY KEY(caller,id)
 );
+CREATE TABLE session_forwards (
+ caller BLOB NOT NULL,
+ request TEXT NOT NULL,
+ body BLOB NOT NULL,
+ PRIMARY KEY(caller,request),
+ FOREIGN KEY(caller,request) REFERENCES requests(caller,id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

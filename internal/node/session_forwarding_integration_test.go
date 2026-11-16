@@ -4,6 +4,7 @@ package node
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,12 +15,13 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Two Nodes pair over the loopback Link. The first Node's local controller
-// creates a session on the second with a provider only the first has, and a
-// turn on the second authorizes with the forwarded credential.
+// creates a session after the controller cache is ready. The session and turn
+// retain the source identities and use only cached runtime credentials.
 func TestSessionForwardingIntegration(test *testing.T) {
 	ctx, cancel := context.WithTimeout(test.Context(), 60*time.Second)
 	defer cancel()
@@ -71,14 +73,58 @@ func TestSessionForwardingIntegration(test *testing.T) {
 		test.Fatalf("forward to an unpaired Node: %v", err)
 	}
 
+	remote := client.New(a.Link().Remote(address))
+	defer remote.Close()
+	if err := remote.Start(ctx); err != nil {
+		test.Fatal(err)
+	}
+	// Cache publication is independent from session admission. An unavailable
+	// capture is an honest rejection; forwarding never copies it on demand.
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		ready := false
+		err := b.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			user, err := store.CallerUser(ctx, db, b.ID(), a.ID())
+			if err != nil {
+				return err
+			}
+			owner := store.WithUser(ctx, user)
+			key, err := store.ReadRuntimeProviderCredential(owner, db, b.ID(), provider, *provider.Credential)
+			ready = err == nil && key != nil && key.Expose() == forwardedKey
+			if !ready {
+				return nil
+			}
+			for _, category := range []string{"providers", "roles", "teams"} {
+				manifest, err := store.ReadConfigurationManifest(owner, db, a.ID(), category)
+				if err != nil {
+					return err
+				}
+				ready = ready && manifest.Revision != 0
+			}
+			return nil
+		})
+		if err != nil {
+			test.Fatal(err)
+		}
+		if ready {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			test.Fatal(context.Cause(ctx))
+		case <-ticker.C:
+		}
+	}
+
 	request := local.Prepare(protocol.Command{Kind: "create_session_at", Data: protocol.CommandCreateSessionAtPayload{Target: b.ID(), Config: &config, ProviderRevision: provider.Revision}})
 	output, err := local.Execute(ctx, request)
 	if err != nil {
 		test.Fatal(err)
 	}
 	session, valid := dispatchPayload[protocol.Session](output.Data)
-	if !valid || session.Profile == nil || session.Profile.Source != a.ID() || session.Config.Provider == provider.ID ||
-		session.Config.Credential == nil || session.Config.Credential.Node != b.ID() {
+	if !valid || session.Profile == nil || session.Profile.Source != a.ID() || session.Config.Provider != provider.ID ||
+		session.Config.Credential == nil || *session.Config.Credential != *provider.Credential {
 		test.Fatalf("forwarded session = %#v", output.Data)
 	}
 	replay, err := local.Execute(ctx, request)
@@ -92,11 +138,6 @@ func TestSessionForwardingIntegration(test *testing.T) {
 		}
 	}
 
-	remote := client.New(a.Link().Remote(address))
-	defer remote.Close()
-	if err := remote.Start(ctx); err != nil {
-		test.Fatal(err)
-	}
 	projection, err := remote.Do(ctx, protocol.Command{Kind: "snapshot"})
 	visible, ok := dispatchPayload[protocol.Snapshot](projection.Data)
 	if err != nil || !ok || len(visible.Sessions) != 1 || visible.Sessions[0].ID != session.ID || len(snapshotFixture(test, b).Sessions) != 0 {

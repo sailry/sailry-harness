@@ -113,10 +113,48 @@ func inspectForward(t *testing.T, node *Node, request protocol.Request) protocol
 	return commandFixture(t, node, query).Data.(protocol.OutputRequestOutcomePayload).Outcome
 }
 
-// A session created on a paired Node carries the local provider, its
-// transferable secret and the captured roles. The target keeps them private to
-// that session. Over 1 s: each Node start installs and verifies the bundled
-// packages.
+// forwardingControllerFixture uses authenticated v2 controller membership.
+// Legacy SetLinkTrust fixtures instead resolve the host-local user.
+func forwardingControllerFixture(t *testing.T, target *Node, controller protocol.NodeID) context.Context {
+	t.Helper()
+	var user protocol.User
+	if err := target.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		if err := store.PairPeerIdentity(t.Context(), db, target.ID(), controller, link.DirectionController, true); err != nil {
+			return err
+		}
+		var err error
+		user, err = store.CallerUser(t.Context(), db, target.ID(), controller)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return store.WithUser(t.Context(), user)
+}
+
+// syncForwardingFixture completes the normal configuration boundary explicitly;
+// session creation must not fetch or import missing configuration itself.
+func syncForwardingFixture(t *testing.T, source, target *Node) {
+	t.Helper()
+	for _, category := range []string{"providers", "runtime_credentials", "roles", "teams"} {
+		var manifest protocol.ConfigurationManifest
+		if err := source.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+			var err error
+			manifest, err = store.ExportConfigurationManifest(t.Context(), db, source.ID(), target.ID(), category, true)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		result := dispatchFixture(t, target, source.ID(), protocol.NewRequest(target.ID(), protocol.Command{
+			Kind: "configuration_follow", Data: protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &manifest},
+		}))
+		if result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+	}
+}
+
+// Forwarding retains canonical controller identities and uses the executor's
+// isolated runtime cache. Over 1 s: Nodes verify the bundled packages.
 func TestSessionForwarding(t *testing.T) {
 	t.Parallel()
 	authorizations := make(chan string, 16)
@@ -130,15 +168,20 @@ func TestSessionForwarding(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	a, b := nodeFixture(t), nodeFixture(t)
-	trustedCallerFixture(t, b, a.ID())
+	owner := forwardingControllerFixture(t, b, a.ID())
 	trustedCallerFixture(t, a, b.ID())
 	sends := 0
 	paired := func(ctx context.Context, request protocol.Request) (link.Admission, error) {
 		sends++
+		bundle, ok := dispatchPayload[protocol.SessionImport](request.Command.Data)
+		if !ok || bundle.Secret != nil || bundle.ExpiresAtMs != nil || len(bundle.RoleCredentials) != 0 {
+			t.Fatal("session forward carried credentials")
+		}
 		return b.Dispatch(ctx, a.ID(), request)
 	}
 	a.forward = paired
 	provider := forwardingProvider(t, a, server.URL+"/v1")
+	syncForwardingFixture(t, a, b)
 	if provider.Credential == nil {
 		t.Fatal("saved provider has no credential")
 	}
@@ -154,7 +197,23 @@ func TestSessionForwarding(t *testing.T) {
 			t.Fatalf("result = %#v, fault %v; want %s %q", result.Output, result.Fault, code, message)
 		}
 	}
-	sessions := func(node *Node) int { return len(snapshotFixture(t, node).Sessions) }
+	sessions := func(node *Node) int {
+		if node == a {
+			return len(snapshotFixture(t, node).Sessions)
+		}
+		result := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "snapshot"}))
+		if result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+		return len(result.Output.Data.(protocol.Snapshot).Sessions)
+	}
+	readSession := func(id protocol.SessionID) protocol.Session {
+		result := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}))
+		if result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+		return result.Output.Data.(protocol.Session)
+	}
 
 	request := forward(provider.Revision, config)
 	created := dispatchFixture(t, a, a.ID(), request)
@@ -163,23 +222,26 @@ func TestSessionForwarding(t *testing.T) {
 	}
 	session := created.Output.Data.(protocol.Session)
 
-	t.Run("target stores a private provider", func(t *testing.T) {
-		stored := commandFixture(t, b, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}).Data.(protocol.Session)
-		if stored.Profile == nil || stored.Profile.Source != a.ID() || stored.Config.Provider == provider.ID || stored.Profile.Provider.ID != stored.Config.Provider ||
-			stored.Config.Credential == nil || stored.Config.Credential.Node != b.ID() || stored.Config.Credential.ID == provider.Credential.ID {
+	t.Run("target retains canonical controller captures", func(t *testing.T) {
+		stored := readSession(session.ID)
+		if stored.Profile == nil || stored.Profile.Source != a.ID() || stored.Config.Provider != provider.ID || stored.Profile.Provider.ID != provider.ID ||
+			stored.Config.Credential == nil || *stored.Config.Credential != *provider.Credential {
 			t.Fatalf("imported session = %#v", stored)
 		}
-		if sessions(a) != 0 || sessions(b) != 1 {
-			t.Fatalf("sessions: source %d, target %d", sessions(a), sessions(b))
+		if sessions(a) != 0 || sessions(b) != 1 || len(snapshotFixture(t, b).Sessions) != 0 {
+			t.Fatalf("sessions: source %d, controller target %d", sessions(a), sessions(b))
 		}
-		for _, listed := range commandFixture(t, b, protocol.Command{Kind: "list_providers"}).Data.([]protocol.ConversationProvider) {
-			if listed.ID == stored.Config.Provider || listed.Name == provider.Name {
-				t.Fatalf("forwarded provider is listed on the target: %#v", listed)
+		if body, exists := storedProvider(t, b, stored.Config.Provider); exists {
+			t.Fatalf("forward materialized a private provider: %s", body)
+		}
+		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+			key, err := store.ReadRuntimeProviderCredential(owner, db, b.ID(), stored.Profile.Provider, *stored.Config.Credential)
+			if err == nil && (key == nil || key.Expose() != forwardedKey) {
+				return errors.New("forwarded session did not use cached controller credential")
 			}
-		}
-		body, exists := storedProvider(t, b, stored.Config.Provider)
-		if !exists || !strings.Contains(body, `"listed":false`) || !strings.Contains(body, forwardedKey) {
-			t.Fatalf("private provider row = %s", body)
+			return err
+		}); err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -257,25 +319,6 @@ func TestSessionForwarding(t *testing.T) {
 		missing.Credential = nil
 		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision, missing)), protocol.ErrorCodeNotFound, "source provider does not exist")
 
-		// An account sign-in stays with the Node that performed it.
-		account := provider
-		account.ID, account.Name, account.Authentication = protocol.NewProviderID(), "Account", protocol.AuthenticationClaudeOAuth
-		account.Credential = &protocol.CredentialRef{Node: a.ID(), ID: protocol.NewCredentialID()}
-		public, err := json.Marshal(account)
-		if err != nil {
-			t.Fatal(err)
-		}
-		row := fmt.Sprintf(`{"id":%q,"provider":%s,"listed":true,"authorizations":{%q:{"authentication":"claude_oauth","revision":1,"key":"account-grant"}},"quota":null}`,
-			account.ID.String(), public, account.Credential.ID.String())
-		if err := a.profile.Store.Node.Write(context.Background(), func(db *sql.Conn) error {
-			_, err := db.ExecContext(context.Background(), "INSERT INTO providers(id,body) VALUES(?1,?2)", account.ID.String(), []byte(row))
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		signed := config
-		signed.Provider, signed.Credential = account.ID, account.Credential
-		fails(t, dispatchFixture(t, a, a.ID(), forward(account.Revision, signed)), protocol.ErrorCodeNotConfigured, "Claude sign-in is required on the execution Node")
 		// The explicit selection is authoritative: no credential forwards no secret.
 		unsigned := config
 		unsigned.Credential = nil
@@ -288,39 +331,33 @@ func TestSessionForwarding(t *testing.T) {
 		}
 	})
 
-	t.Run("target refuses", func(t *testing.T) {
+	t.Run("target refuses uncached metadata and attached credentials", func(t *testing.T) {
 		before := sessions(b)
 		bundle := protocol.DefaultSessionImport()
 		bundle.Source, bundle.Config, bundle.Provider = a.ID(), config, provider
+		bundle.Roles = session.Roles
 		secret := protocol.NewSecret(forwardedKey)
-		bundle.Secret = &secret
-		bundle.Roles.Execution = protocol.ConversationExecutionModel
 		send := func(caller protocol.NodeID, bundle protocol.SessionImport) link.Response {
 			return dispatchFixture(t, b, caller, protocol.NewRequest(b.ID(), protocol.Command{Kind: "import_session", Data: bundle}))
 		}
 		fails(t, send(b.ID(), bundle), protocol.ErrorCodePermissionDenied, "configuration source does not match the paired caller")
-		local := bundle
-		local.Source = b.ID()
-		fails(t, send(b.ID(), local), protocol.ErrorCodePermissionDenied, "configuration source does not match the paired caller")
-		unsecured := bundle
-		unsecured.Secret = nil
-		fails(t, send(a.ID(), unsecured), protocol.ErrorCodeInvalidRequest, "configuration import is inconsistent")
-		account := bundle
-		account.Provider.Authentication = protocol.AuthenticationChatGptOAuth
-		fails(t, send(a.ID(), account), protocol.ErrorCodeNotConfigured, "ChatGPT sign-in is required on the execution Node")
+		attached := bundle
+		attached.Secret = &secret
+		fails(t, send(a.ID(), attached), protocol.ErrorCodeInvalidRequest, "session imports use cached controller credentials")
 		roles := bundle
-		roles.RoleCredentials = []protocol.RoleProviderSecret{{Provider: protocol.NewProviderID(), Secret: secret}}
-		fails(t, send(a.ID(), roles), protocol.ErrorCodeInvalidRequest, "role credential import is inconsistent")
+		roles.RoleCredentials = []protocol.RoleProviderSecret{{Provider: provider.ID, Secret: secret}}
+		fails(t, send(a.ID(), roles), protocol.ErrorCodeInvalidRequest, "session imports use cached controller credentials")
+		missing := bundle
+		missing.Provider.ID = protocol.NewProviderID()
+		missing.Config.Provider = missing.Provider.ID
+		fails(t, send(a.ID(), missing), protocol.ErrorCodeNotConfigured, "captured controller provider is unavailable on the execution Node")
 		if sessions(b) != before {
-			t.Fatalf("a refused import created %d sessions", sessions(b)-before)
-		}
-		if text := nodeText(t, b); strings.Contains(text, forwardedKey) {
-			t.Fatalf("a refused import retained its secret: %s", text)
+			t.Fatal("refused import created a session")
 		}
 		var rows int
-		if err := b.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
-			return db.QueryRowContext(context.Background(), "SELECT count(*) FROM providers WHERE instr(body,?1)>0", forwardedKey).Scan(&rows)
-		}); err != nil || rows != 1 {
+		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+			return db.QueryRowContext(owner, "SELECT count(*) FROM providers WHERE instr(body,?1)>0", forwardedKey).Scan(&rows)
+		}); err != nil || rows != 0 {
 			t.Fatalf("%d provider rows hold the forwarded secret, %v", rows, err)
 		}
 	})
@@ -347,6 +384,22 @@ func TestSessionForwarding(t *testing.T) {
 		if calls != 2 || sessions(b) != before+1 {
 			t.Fatalf("unknown forward: %d sends, %d sessions", calls, sessions(b)-before)
 		}
+		// Mutate the source after the target has admitted the request. Recovery
+		// must replay its retained package rather than recapturing a new body.
+		if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+			_, err := db.ExecContext(t.Context(), "UPDATE providers SET body=json_set(body,'$.provider.name','Changed after admission') WHERE id=?1", provider.ID.String())
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+				_, err := db.ExecContext(t.Context(), "UPDATE providers SET body=json_set(body,'$.provider.name',?2) WHERE id=?1", provider.ID.String(), provider.Name)
+				return err
+			}); err != nil {
+				t.Error(err)
+			}
+		}()
 		// A target that holds other content under the identifier settles nothing.
 		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
 			refused := make(chan link.Response, 1)
@@ -364,7 +417,7 @@ func TestSessionForwarding(t *testing.T) {
 		if resolved.Fault != nil || !valid {
 			t.Fatalf("resolved = %#v, %v", resolved.Output, resolved.Fault)
 		}
-		stored := commandFixture(t, b, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: recorded.ID}}).Data.(protocol.Session)
+		stored := readSession(recorded.ID)
 		if stored.Profile == nil || stored.Profile.Source != a.ID() || sessions(b) != before+1 {
 			t.Fatalf("resolved session = %#v, %d created", stored, sessions(b)-before)
 		}
@@ -439,26 +492,22 @@ func TestSessionForwarding(t *testing.T) {
 		}
 	})
 
-	t.Run("removal deletes the private provider", func(t *testing.T) {
-		current := commandFixture(t, b, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}).Data.(protocol.Session)
-		private := current.Config.Provider
+	t.Run("removal preserves the shared controller cache", func(t *testing.T) {
+		current := readSession(session.ID)
 		for {
 			removed := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: current.Revision}}))
 			if removed.Fault == nil {
 				break
 			}
-			// The turn above may still be finishing.
 			if removed.Fault.Code != protocol.ErrorCodeBusy || t.Context().Err() != nil {
 				t.Fatal(removed.Fault)
 			}
 		}
-		if body, exists := storedProvider(t, b, private); exists {
-			t.Fatalf("private provider outlived its session: %s", body)
-		}
-		for _, credential := range commandFixture(t, b, protocol.Command{Kind: "list_credentials"}).Data.([]protocol.Credential) {
-			if credential.Provider == private {
-				t.Fatalf("private credential outlived its session: %#v", credential)
-			}
+		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+			_, err := store.ReadRuntimeProviderCredential(owner, db, b.ID(), current.Profile.Provider, *current.Config.Credential)
+			return err
+		}); err != nil {
+			t.Fatalf("session removal deleted its controller cache: %v", err)
 		}
 		if _, exists := storedProvider(t, a, provider.ID); !exists {
 			t.Fatal("removal on the target touched the source provider")

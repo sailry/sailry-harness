@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
+	"reflect"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/providers"
@@ -46,10 +48,9 @@ func exportCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, r
 	return *secret, saved.Authorizations[reference.ID].ExpiresAtMs, nil
 }
 
-// PrepareSessionForward packages the local provider, its transferable secret
-// and the captured roles into the import a paired Node admits under the same
-// request identifier. Only the local controller may forward, and only to
-// another Node.
+// PrepareSessionForward freezes only controller configuration references. Runtime
+// credentials reach the executor through its isolated cache, never this request.
+// Replays retain the exact original metadata even after source edits or removal.
 func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request) (protocol.Request, error) {
 	input, ok := request.Command.Data.(*protocol.CommandCreateSessionAtPayload)
 	if !ok || input.Config == nil {
@@ -57,6 +58,16 @@ func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller proto
 	}
 	if caller != node || input.Target == node {
 		return protocol.Request{}, fault(protocol.ErrorCodePermissionDenied, "only the local controller can forward configuration to another Node")
+	}
+	var frozen []byte
+	err := db.QueryRowContext(ctx, "SELECT body FROM session_forwards WHERE caller=?1 AND request=?2", caller[:], request.ID.String()).Scan(&frozen)
+	if err == nil {
+		var forwarded protocol.Request
+		err = json.Unmarshal(frozen, &forwarded)
+		return forwarded, err
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return protocol.Request{}, err
 	}
 	saved, err := readProviderConfiguration(ctx, db, input.Config.Provider)
 	if err != nil {
@@ -73,32 +84,23 @@ func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller proto
 	}
 	bundle := protocol.DefaultSessionImport()
 	bundle.Source, bundle.Project, bundle.Worktree, bundle.Config = node, input.Project, input.Worktree, *input.Config
-	bundle.Provider = *saved.Provider
-	// The explicit selection is authoritative, including an absent credential.
-	bundle.Provider.Credential = input.Config.Credential
-	if reference := input.Config.Credential; reference != nil {
-		secret, expiry, err := exportCredential(ctx, db, node, *reference, bundle.Provider)
-		if err != nil {
-			return protocol.Request{}, err
-		}
-		bundle.Secret, bundle.ExpiresAtMs = &secret, expiry
+	bundle.Provider, err = CaptureProvider(ctx, db, *saved.Provider)
+	if err != nil {
+		return protocol.Request{}, err
 	}
+	// The explicit selection remains authoritative, including no credential.
+	bundle.Provider.Credential = input.Config.Credential
 	bundle.Roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, nil, nil)
 	if err != nil {
 		return protocol.Request{}, err
 	}
-	bundle.RoleCredentials = []protocol.RoleProviderSecret{}
-	for _, provider := range bundle.Roles.Providers {
-		if provider.Credential == nil {
-			continue
-		}
-		secret, expiry, err := exportCredential(ctx, db, node, *provider.Credential, provider)
-		if err != nil {
-			return protocol.Request{}, err
-		}
-		bundle.RoleCredentials = append(bundle.RoleCredentials, protocol.RoleProviderSecret{Provider: provider.ID, Secret: secret, ExpiresAtMs: expiry})
+	forwarded := protocol.Request{Version: request.Version, ID: request.ID, Target: input.Target, Command: protocol.Command{Kind: "import_session", Data: &bundle}}
+	frozen, err = encode(forwarded)
+	if err != nil {
+		return protocol.Request{}, err
 	}
-	return protocol.Request{Version: request.Version, ID: request.ID, Target: input.Target, Command: protocol.Command{Kind: "import_session", Data: &bundle}}, nil
+	_, err = db.ExecContext(ctx, "INSERT INTO session_forwards(caller,request,body) VALUES(?1,?2,?3)", caller[:], request.ID.String(), frozen)
+	return forwarded, err
 }
 
 // importedAuthorization validates one forwarded secret as a new credential.
@@ -120,179 +122,166 @@ func importedAuthorization(authentication protocol.Authentication, secret protoc
 	return providerAuthorization{Authentication: authentication, Revision: 1, Key: &secret, ExpiresAtMs: expiry}, nil
 }
 
-// retainPrivateProvider stores a forwarded provider under a new identity that
-// cannot alias a provider configured on this Node. It is never listed.
-func retainPrivateProvider(ctx context.Context, db *sql.Conn, node protocol.NodeID, source protocol.ConversationProvider, secret *protocol.Secret, expiry *uint64) (protocol.ConversationProvider, error) {
+// cachedForwardProvider resolves the retained controller revision and its current
+// runtime credential. A forward cannot materialize configuration or bypass a
+// missing cache by attaching a secret to the session request.
+func cachedForwardProvider(ctx context.Context, db *sql.Conn, node protocol.NodeID, source protocol.ConversationProvider) (protocol.ConversationProvider, error) {
+	record, err := readConfigurationCacheRecord(ctx, db, "providers", source.ID.String(), source.Revision)
+	if err != nil {
+		return protocol.ConversationProvider{}, err
+	}
+	if record == nil {
+		return protocol.ConversationProvider{}, fault(protocol.ErrorCodeNotConfigured, "captured controller provider is unavailable on the execution Node")
+	}
 	var provider protocol.ConversationProvider
-	raw, err := encode(source)
+	if err := json.Unmarshal(record.Body, &provider); err != nil {
+		return provider, err
+	}
+	provider, err = CaptureProvider(ctx, db, provider)
 	if err != nil {
 		return provider, err
 	}
-	if err := json.Unmarshal(raw, &provider); err != nil {
-		return provider, err
+	// Owner/projection metadata differs across Nodes. The explicit credential
+	// is selected independently of the provider's current default account.
+	expected := source
+	expected.Owner, expected.Shared, expected.Source, expected.Consent = nil, false, nil, nil
+	provider.Owner, provider.Shared, provider.Source, provider.Consent = nil, false, nil, nil
+	provider.Credential = source.Credential
+	if !reflect.DeepEqual(provider, expected) {
+		return provider, fault(protocol.ErrorCodeRevisionConflict, "captured controller provider differs from its cached revision")
 	}
-	provider.ID, provider.Credential = protocol.NewProviderID(), nil
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return provider, err
-	}
-	provider.Owner, provider.Shared = &user.ID, false
-	stored := providerConfiguration{ID: provider.ID, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
-	if secret != nil {
-		authorization, err := importedAuthorization(provider.Authentication, *secret, expiry)
-		if err != nil {
+	if provider.Credential != nil {
+		if _, err := ReadRuntimeProviderCredential(ctx, db, node, provider, *provider.Credential); err != nil {
 			return provider, err
 		}
-		id := protocol.NewCredentialID()
-		stored.Authorizations[id] = authorization
-		provider.Credential = &protocol.CredentialRef{Node: node, ID: id}
 	}
-	if err := providers.ValidateConfiguration(provider); err != nil {
-		return provider, err
-	}
-	configured := provider
-	stored.Provider = &configured
-	return provider, saveProviderConfiguration(ctx, db, stored)
+	return provider, nil
 }
 
-// importSessionRoles stores each forwarded role provider privately and rewrites
-// the snapshot to those identities.
-func importSessionRoles(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, snapshot protocol.RoleSnapshot, credentials []protocol.RoleProviderSecret) (protocol.RoleSnapshot, error) {
-	selected := map[protocol.ProviderID]bool{}
+func cachedForwardRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID, snapshot protocol.RoleSnapshot) (protocol.RoleSnapshot, error) {
+	if snapshot.Execution != protocol.ConversationExecutionModel && snapshot.Execution != protocol.ConversationExecutionTeam {
+		return snapshot, invalid("invalid execution selection")
+	}
+	if snapshot.Execution == protocol.ConversationExecutionModel && (len(snapshot.Profiles) != 0 || snapshot.Team != nil || len(snapshot.Instructions) != 0 || len(snapshot.Models) != 0 || len(snapshot.Providers) != 0) {
+		return snapshot, invalid("model execution cannot include a delegation roster")
+	}
 	for _, role := range snapshot.Profiles {
+		record, err := readConfigurationCacheRecord(ctx, db, "roles", role.ID.String(), role.Revision)
+		if err != nil {
+			return snapshot, err
+		}
+		if record == nil {
+			return snapshot, fault(protocol.ErrorCodeNotConfigured, "captured controller role is unavailable on the execution Node")
+		}
+		var cached protocol.RoleProfile
+		if err := json.Unmarshal(record.Body, &cached); err != nil {
+			return snapshot, err
+		}
+		role.Source, cached.Source = nil, nil
+		if !reflect.DeepEqual(role, cached) {
+			return snapshot, fault(protocol.ErrorCodeRevisionConflict, "captured controller role differs from its cached revision")
+		}
+	}
+	if snapshot.Team != nil {
+		record, err := readConfigurationCacheRecord(ctx, db, "teams", snapshot.Team.ID.String(), snapshot.Team.Revision)
+		if err != nil {
+			return snapshot, err
+		}
+		if record == nil {
+			return snapshot, fault(protocol.ErrorCodeNotConfigured, "captured controller team is unavailable on the execution Node")
+		}
+		var team protocol.TeamProfile
+		if err := json.Unmarshal(record.Body, &team); err != nil {
+			return snapshot, err
+		}
+		if team.Instructions != snapshot.Instructions {
+			return snapshot, invalid("session team instructions differ from their capture")
+		}
+	}
+	providers := make(map[protocol.ProviderID]protocol.ConversationProvider, len(snapshot.Providers))
+	for _, source := range snapshot.Providers {
+		if _, exists := providers[source.ID]; exists {
+			return snapshot, invalid("session role providers must be distinct")
+		}
+		provider, err := cachedForwardProvider(ctx, db, node, source)
+		if err != nil {
+			return snapshot, err
+		}
+		providers[source.ID] = provider
+	}
+	// completeRoleSnapshot validates role/model selections. Resolve exclusively
+	// against the frozen providers so a newer default cannot replace a capture.
+	return completeCapturedRoleSnapshot(snapshot, providers)
+}
+
+func completeCapturedRoleSnapshot(snapshot protocol.RoleSnapshot, providers map[protocol.ProviderID]protocol.ConversationProvider) (protocol.RoleSnapshot, error) {
+	ids, keys, used := map[protocol.RoleID]bool{}, map[string]bool{}, map[protocol.ProviderID]bool{}
+	validate := func(model protocol.RoleModel) error {
+		provider, ok := providers[model.Provider]
+		if !ok {
+			return invalid("session role providers do not match the selected models")
+		}
+		used[provider.ID] = true
+		return validateRoleModel(provider, model)
+	}
+	for _, role := range snapshot.Profiles {
+		if err := ValidateRole(role); err != nil {
+			return snapshot, err
+		}
+		if ids[role.ID] || keys[role.Key] {
+			return snapshot, invalid("session roles must have distinct identities and keys")
+		}
+		ids[role.ID], keys[role.Key] = true, true
 		if role.Model != nil {
-			selected[role.Model.Provider] = true
-		}
-	}
-	for _, model := range snapshot.Models {
-		selected[model.Provider] = true
-	}
-	required := map[protocol.ProviderID]bool{}
-	for _, provider := range snapshot.Providers {
-		if !selected[provider.ID] {
-			return snapshot, invalid("session role providers do not match the selected models")
-		}
-		delete(selected, provider.ID)
-		if provider.Credential != nil {
-			if provider.Credential.Node != caller {
-				return snapshot, invalid("role credential import is inconsistent")
+			if err := validate(*role.Model); err != nil {
+				return snapshot, err
 			}
-			required[provider.ID] = true
 		}
 	}
-	if len(selected) != 0 {
+	for id, model := range snapshot.Models {
+		if !ids[id] {
+			return snapshot, invalid("member model requires a role in the session roster")
+		}
+		if err := validate(model); err != nil {
+			return snapshot, err
+		}
+	}
+	if len(used) != len(providers) {
 		return snapshot, invalid("session role providers do not match the selected models")
 	}
-	supplied := map[protocol.ProviderID]protocol.RoleProviderSecret{}
-	for _, credential := range credentials {
-		if _, duplicate := supplied[credential.Provider]; duplicate || !required[credential.Provider] {
-			return snapshot, invalid("role credential import is inconsistent")
-		}
-		supplied[credential.Provider] = credential
+	for index, source := range snapshot.Providers {
+		snapshot.Providers[index] = providers[source.ID]
 	}
-	if len(supplied) != len(required) {
-		return snapshot, invalid("role credential import is inconsistent")
-	}
-	profiles := make([]protocol.RoleProfile, len(snapshot.Profiles))
-	copy(profiles, snapshot.Profiles)
-	models := make(map[protocol.RoleID]protocol.RoleModel, len(snapshot.Models))
-	for id, model := range snapshot.Models {
-		models[id] = model
-	}
-	imported := make([]protocol.ConversationProvider, 0, len(snapshot.Providers))
-	for _, source := range snapshot.Providers {
-		captured, err := CaptureProvider(ctx, db, source)
-		if err != nil {
-			return snapshot, err
-		}
-		// A partner channel keeps its policy; any other captured binding is
-		// resolved again on this Node.
-		if captured.Preset == nil || captured.Preset.Source.Kind != "partner" {
-			captured.Binding = nil
-		} else if err := providers.ValidateBinding(captured); err != nil {
-			return snapshot, err
-		}
-		var secret *protocol.Secret
-		var expiry *uint64
-		if credential, exists := supplied[source.ID]; exists {
-			secret, expiry = &credential.Secret, credential.ExpiresAtMs
-		}
-		provider, err := retainPrivateProvider(ctx, db, node, captured, secret, expiry)
-		if err != nil {
-			return snapshot, err
-		}
-		for index := range profiles {
-			if model := profiles[index].Model; model != nil && model.Provider == source.ID {
-				rewritten := *model
-				rewritten.Provider = provider.ID
-				profiles[index].Model = &rewritten
-			}
-		}
-		for id, model := range models {
-			if model.Provider == source.ID {
-				model.Provider = provider.ID
-				models[id] = model
-			}
-		}
-		imported = append(imported, provider)
-	}
-	snapshot.Profiles, snapshot.Models, snapshot.Providers = profiles, models, imported
-	if snapshot.Execution == protocol.ConversationExecutionModel {
-		if len(snapshot.Profiles) != 0 || snapshot.Team != nil || len(snapshot.Instructions) != 0 || len(snapshot.Models) != 0 {
-			return snapshot, invalid("model execution cannot include a delegation roster")
-		}
-		return snapshot, nil
-	}
-	return completeRoleSnapshot(ctx, db, node, snapshot)
+	return snapshot, nil
 }
 
-// importSession creates a session from the configuration a paired Node
-// forwarded. The provider and its secret are private to that session.
+// importSession retains canonical controller captures. Old private provider rows
+// remain readable for historical sessions, but new imports never create them.
 func importSession(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, profile string, bundle protocol.SessionImport) (protocol.Output, []protocol.Event, error) {
 	if bundle.Source != caller || caller == node {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "configuration source does not match the paired caller")
 	}
+	user, cached, err := configurationCacheUser(ctx, db)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if !cached || user.Controller == nil || *user.Controller != caller {
+		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "session configuration does not belong to this controller")
+	}
 	selected, captured := bundle.Config.Credential, bundle.Provider.Credential
 	if bundle.Config.Provider != bundle.Provider.ID || (selected == nil) != (captured == nil) || selected != nil && (*selected != *captured || selected.Node != caller) ||
-		(selected == nil) != (bundle.Secret == nil) || bundle.Secret == nil && bundle.ExpiresAtMs != nil {
-		return protocol.Output{}, nil, invalid("configuration import is inconsistent")
+		bundle.Secret != nil || bundle.ExpiresAtMs != nil || len(bundle.RoleCredentials) != 0 {
+		return protocol.Output{}, nil, invalid("session imports use cached controller credentials")
 	}
-	provider, err := retainPrivateProvider(ctx, db, node, bundle.Provider, bundle.Secret, bundle.ExpiresAtMs)
+	provider, err := cachedForwardProvider(ctx, db, node, bundle.Provider)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	config := bundle.Config
-	config.Provider, config.Credential = provider.ID, provider.Credential
-	roles, err := importSessionRoles(ctx, db, node, caller, bundle.Roles, bundle.RoleCredentials)
+	roles, err := cachedForwardRoles(ctx, db, node, bundle.Roles)
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if config.Assistant != nil {
-		installed, err := ReadPlugin(ctx, db, config.Assistant.Package.Name)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if installed == nil || installed.Summary.Compatibility.Kind != "compatible" || installed.Summary.Digest != config.Assistant.Package.Digest {
-			return protocol.Output{}, nil, invalid("plugin assistant package is unavailable on the destination Node")
-		}
-		binding := *config.Assistant
-		binding.Package = protocol.PluginReference{Name: installed.Summary.Name, Digest: installed.Summary.Digest, SettingsRevision: installed.Summary.SettingsRevision}
-		config.Assistant = &binding
-	}
-	provider, err = CaptureProvider(ctx, db, provider)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	output, events, err := createProfiledSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Project: bundle.Project, Worktree: bundle.Worktree, Config: &config}, &protocol.SessionProfile{Source: caller, Provider: provider}, &roles)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	// The session now references every private role provider. Check their total
-	// together so an over-capacity import rolls back the entire transaction.
-	if err := providerCredentialCapacity(ctx, db, protocol.ProviderID{}, 0); err != nil {
-		return protocol.Output{}, nil, err
-	}
-	return output, events, nil
+	return createProfiledSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Project: bundle.Project, Worktree: bundle.Worktree, Config: &bundle.Config}, &protocol.SessionProfile{Source: caller, Provider: provider}, &roles)
 }
 
 // removePrivateProviders deletes the providers forwarded for removed sessions
