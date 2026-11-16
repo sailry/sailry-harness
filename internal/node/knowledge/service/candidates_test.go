@@ -16,6 +16,7 @@ func TestStorageCandidatesCarryOnlySourceIdentity(t *testing.T) {
 	model := localmodels.DefaultEmbedding
 	collection := protocol.DefaultKnowledgeCollection()
 	collection.ID, collection.Revision, collection.Progress.Generation = protocol.NewKnowledgeID(), 1, 1
+	collection.Owner = protocol.KnowledgeOwner{Kind: "controller"}
 	collection.Definition.Name = "Personal memory"
 	collection.Definition.Model = &model
 	collection.Definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Scope: protocol.PluginStorageScopeNode}}
