@@ -56,6 +56,12 @@ func newPersonalKVFixture(t *testing.T, controller protocol.NodeID) personalKVFi
 			if _, err := ApplyConfigurationManifest(fixture.ctx, db, node, controller, protocol.ConfigurationManifest{Source: controller, Category: "plugins", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record}}); err != nil {
 				return err
 			}
+			reference := plugins.PackageReference(info)
+			settings := pluginFollowSettings{Package: reference, Values: map[string]json.RawMessage{}, MCP: protocol.PluginMcpConfiguration{}}
+			record = followRecord(t, pluginSettingsCacheID(reference), 1, settings, nil)
+			if _, err := ApplyConfigurationManifest(fixture.ctx, db, node, controller, protocol.ConfigurationManifest{Source: controller, Category: "plugin_settings", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record}}); err != nil {
+				return err
+			}
 		} else {
 			var err error
 			info, err = InstallPlugin(t.Context(), db, info, 0, true)

@@ -925,8 +925,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	if err == nil {
 		node.NotifyConfigurationFollow(changes)
 		for _, change := range changes {
-			switch change.Kind {
-			case "credential_changed", "connections_changed", "provider_changed", "provider_removed", "configuration_follow_changed":
+			if store.RuntimeCredentialEvent(change.Kind) {
 				node.RuntimeCredentialsChanged()
 			}
 		}

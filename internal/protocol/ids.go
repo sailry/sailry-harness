@@ -515,6 +515,11 @@ type CredentialID [16]byte
 
 func NewCredentialID() CredentialID { return CredentialID(uuid.New()) }
 
+func ParseCredentialID(value string) (CredentialID, error) {
+	id, err := uuid.Parse(value)
+	return CredentialID(id), err
+}
+
 func (identity CredentialID) String() string { return uuid.UUID(identity).String() }
 
 func (identity CredentialID) MarshalJSON() ([]byte, error) { return identifierJSON(identity) }

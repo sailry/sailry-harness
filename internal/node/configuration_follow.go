@@ -89,10 +89,7 @@ func (node *Node) StartConfigurationFollow() error {
 func (node *Node) NotifyConfigurationFollow(changes []protocol.Event) {
 	relevant := false
 	for _, change := range changes {
-		switch change.Kind {
-		case "provider_changed", "provider_removed", "credential_changed", "role_changed", "role_removed", "team_changed", "team_removed", "team_settings_changed", "defaults_changed", "ssh_changed", "ssh_removed", "database_changed", "database_removed", "plugin_changed", "plugin_removed", "connections_changed", "configuration_follow_changed", "plugin_values_changed":
-			relevant = true
-		}
+		relevant = relevant || store.ConfigurationChanged(change.Kind) || change.Kind == "configuration_follow_changed" || change.Kind == "plugin_values_changed"
 	}
 	if !relevant {
 		return

@@ -317,7 +317,15 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 	}
 	waitPersonal(second, 2)
 	before := waitPersonal(first, 1)
-	must(first, nil, protocol.Command{Kind: "identity", Data: &protocol.IdentityCommand{Kind: "assign_orphan_user", Data: &protocol.AssignOrphanUser{Source: second.ID, Target: first.ID}}})
+	// Construct a retained pre-v2 merge directly. New identity-merge commands
+	// are retired, while its captured storage and derived indexes remain valid.
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := store.MergeIdentityUsers(store.WithUser(ctx, first), db, second.ID, first.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	node.knowledge.Invalidate()
 	merged := personalCollection(first)
 	if merged.Collection.ID != before.Collection.ID || merged.Collection.Progress.Generation <= before.Collection.Progress.Generation {
 		t.Fatalf("merge retained a stale target generation: before=%+v, after=%+v", before.Collection, merged.Collection)
