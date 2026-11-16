@@ -128,12 +128,14 @@ func (value *ProjectsSource) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ProjectsDraft creates a project; omitted visibility is shared. Stored Project
+// values retain their legacy private default.
 type ProjectsDraft struct {
 	Name       string             `json:"name"`
 	Path       string             `json:"path"`
 	Appearance ProjectsAppearance `json:"appearance"`
 	Source     ProjectsSource     `json:"source"`
-	Visibility ProjectVisibility  `json:"visibility,omitempty"`
+	Visibility ProjectVisibility  `json:"visibility"`
 }
 
 func DefaultProjectsDraft() ProjectsDraft {
@@ -142,13 +144,13 @@ func DefaultProjectsDraft() ProjectsDraft {
 		Path:       "",
 		Appearance: DefaultProjectsAppearance(),
 		Source:     ProjectsSource{},
-		Visibility: ProjectVisibilityPrivate,
+		Visibility: ProjectVisibilityShared,
 	}
 }
 func (value *ProjectsDraft) UnmarshalJSON(data []byte) error {
 	type plain ProjectsDraft
 	decoded := plain{}
-	decoded.Visibility = ProjectVisibilityPrivate
+	decoded.Visibility = ProjectVisibilityShared
 	if err := DecodeObject(data, &decoded, []string{"name", "path", "appearance", "source"}, false); err != nil {
 		return err
 	}
@@ -158,8 +160,8 @@ func (value *ProjectsDraft) UnmarshalJSON(data []byte) error {
 func (value ProjectsDraft) MarshalJSON() ([]byte, error) {
 	type plain ProjectsDraft
 	encoded := plain(value)
-	if encoded.Visibility == ProjectVisibilityPrivate {
-		encoded.Visibility = ""
+	if encoded.Visibility == "" {
+		encoded.Visibility = ProjectVisibilityShared
 	}
 	return json.Marshal(encoded)
 }

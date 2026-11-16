@@ -92,6 +92,34 @@ void main() {
     second.dispose();
   });
 
+  testWidgets('new projects explicitly share on their owning host', (
+    tester,
+  ) async {
+    Map<String, dynamic>? requested;
+    final host = source(
+      'project-host',
+      command: (kind, data) async {
+        expect(kind, 'register_project');
+        requested = data;
+        return {'data': <String, dynamic>{}};
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(session, Scaffold(body: ProjectForm(host: host))),
+    );
+    await tester.enterText(find.byType(TextField).at(0), 'Shared project');
+    await tester.enterText(find.byType(TextField).at(1), '/shared-project');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pumpAndSettle();
+    expect(requested, {
+      'name': 'Shared project',
+      'path': '/shared-project',
+      'visibility': 'shared',
+    });
+    await release(tester, session);
+  });
+
   testWidgets('tasks aggregate hosts and route row actions to their owner', (
     tester,
   ) async {

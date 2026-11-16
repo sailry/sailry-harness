@@ -49,8 +49,9 @@ func (s *State) Editing() bool { return s.editor.Open }
 // OpenEditor opens the project editor for pr, or for a new project.
 func (s *State) OpenEditor(pr *preview.Project) {
 	s.editorGeneration++
-	s.editor = Editor{Open: true, Project: pr, Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityPrivate)}
+	s.editor = Editor{Open: true, Project: pr, Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityShared)}
 	if pr != nil {
+		s.editor.Visibility = string(protocol.ProjectVisibilityPrivate)
 		s.editor.Name, s.editor.Path, s.editor.source = pr.Name, pr.Path, pr.Path
 		s.editor.host = pr.Host
 		if pr.Visibility != "" {
@@ -438,7 +439,7 @@ func (s *State) browse(c *ui.Context, register bool) {
 // dataset, the demo's too, lists the sample catalog's directories.
 func (s *State) OpenFolder(c *ui.Context, host string) {
 	s.editorGeneration++
-	s.editor = Editor{Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityPrivate), host: host, folder: true}
+	s.editor = Editor{Icon: "folder", Color: "none", Visibility: string(protocol.ProjectVisibilityShared), host: host, folder: true}
 	if host == "" && len(s.Data.Hosts) > 0 {
 		s.editor.host = s.Data.Hosts[0].ID
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // TestEditorChecks groups the project editor's pure checks; each case keeps its own fixture.
@@ -101,5 +102,40 @@ func testSampleTree(t *testing.T) {
 	s.Actions = &Actions{}
 	if s.Catalog("local") != nil {
 		t.Fatal("a live window has a sample tree")
+	}
+}
+
+func TestProjectEditorVisibilityDefaults(t *testing.T) {
+	s := New(preview.Load(), preview.Big)
+	for _, open := range []struct {
+		name string
+		run  func()
+	}{
+		{"new", func() { s.OpenEditor(nil) }},
+		{"host", func() { s.OpenEditorAtHost("remote") }},
+		{"clone", s.OpenCloneEditor},
+	} {
+		t.Run(open.name, func(t *testing.T) {
+			open.run()
+			if got := s.Draft(); got.Project != nil || got.Visibility != string(protocol.ProjectVisibilityShared) {
+				t.Fatalf("new project draft = %+v", got)
+			}
+		})
+	}
+	for _, visibility := range []protocol.ProjectVisibility{"", protocol.ProjectVisibilityPrivate, protocol.ProjectVisibilityShared} {
+		project := &preview.Project{Name: "Existing", Path: "/existing", Visibility: visibility}
+		s.OpenEditor(project)
+		want := visibility
+		if want == "" {
+			want = protocol.ProjectVisibilityPrivate
+		}
+		if got := s.Draft(); got.Project != project || got.Visibility != string(want) {
+			t.Fatalf("editing %q changed visibility to %q", visibility, got.Visibility)
+		}
+	}
+	// Open folder also creates a new project when its directory is not registered.
+	s.OpenFolder(nil, "new-host")
+	if got := s.Draft(); got.Visibility != string(protocol.ProjectVisibilityShared) || !got.folder {
+		t.Fatalf("open-folder draft = %+v", got)
 	}
 }

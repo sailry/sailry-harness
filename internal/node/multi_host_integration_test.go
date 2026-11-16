@@ -65,6 +65,7 @@ func TestMultiHostIdentityAndOfflineRevocationIntegration(t *testing.T) {
 	defer remoteB.Close()
 	project := func(remote *client.Client, name string) protocol.Project {
 		draft := protocol.DefaultProjectsDraft()
+		draft.Visibility = protocol.ProjectVisibilityPrivate
 		draft.Name, draft.Path, draft.Source = name, t.TempDir(), protocol.ProjectsSource{Kind: "local"}
 		output, err := remote.Do(ctx, protocol.Command{Kind: "create_project", Data: draft})
 		if err != nil {

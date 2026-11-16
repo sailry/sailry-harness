@@ -7764,20 +7764,20 @@ func (value CommandTrashFilePayload) MarshalJSON() ([]byte, error) {
 type CommandRegisterProjectPayload struct {
 	Name       string            `json:"name"`
 	Path       string            `json:"path"`
-	Visibility ProjectVisibility `json:"visibility,omitempty"`
+	Visibility ProjectVisibility `json:"visibility"`
 }
 
 func DefaultCommandRegisterProjectPayload() CommandRegisterProjectPayload {
 	return CommandRegisterProjectPayload{
 		Name:       "",
 		Path:       "",
-		Visibility: ProjectVisibilityPrivate,
+		Visibility: ProjectVisibilityShared,
 	}
 }
 func (value *CommandRegisterProjectPayload) UnmarshalJSON(data []byte) error {
 	type plain CommandRegisterProjectPayload
 	decoded := plain{}
-	decoded.Visibility = ProjectVisibilityPrivate
+	decoded.Visibility = ProjectVisibilityShared
 	if err := DecodeObject(data, &decoded, []string{"name", "path"}, false); err != nil {
 		return err
 	}
@@ -7787,8 +7787,8 @@ func (value *CommandRegisterProjectPayload) UnmarshalJSON(data []byte) error {
 func (value CommandRegisterProjectPayload) MarshalJSON() ([]byte, error) {
 	type plain CommandRegisterProjectPayload
 	encoded := plain(value)
-	if encoded.Visibility == ProjectVisibilityPrivate {
-		encoded.Visibility = ""
+	if encoded.Visibility == "" {
+		encoded.Visibility = ProjectVisibilityShared
 	}
 	return json.Marshal(encoded)
 }

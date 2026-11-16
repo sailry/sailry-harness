@@ -30,6 +30,7 @@ class ProjectFormState extends State<ProjectForm> {
       await widget.host.command('register_project', {
         'name': _name.text.trim(),
         'path': _path.text.trim(),
+        'visibility': 'shared',
       });
       if (mounted) Navigator.pop(context);
     } catch (failure) {

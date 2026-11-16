@@ -177,7 +177,7 @@ func checkProject(ctx context.Context, db *sql.Conn, expected protocol.Project) 
 func createProject(ctx context.Context, db *sql.Conn, owner protocol.UserID, input protocol.ProjectsDraft, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
 	visibility := input.Visibility
 	if visibility == "" {
-		visibility = protocol.ProjectVisibilityPrivate
+		visibility = protocol.ProjectVisibilityShared
 	}
 	if visibility != protocol.ProjectVisibilityPrivate && visibility != protocol.ProjectVisibilityShared {
 		return protocol.Output{}, nil, invalid("project visibility is invalid")
@@ -185,7 +185,8 @@ func createProject(ctx context.Context, db *sql.Conn, owner protocol.UserID, inp
 	value := protocol.Project{ID: protocol.NewProjectID(), Name: strings.TrimSpace(input.Name), Path: prepared.Path, Appearance: input.Appearance, Owner: &owner, Visibility: visibility}
 	var removedID string
 	var removedOwner sql.NullString
-	err := db.QueryRowContext(ctx, "SELECT p.id,p.owner FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1", value.Path).Scan(&removedID, &removedOwner)
+	var removedVisibility protocol.ProjectVisibility
+	err := db.QueryRowContext(ctx, "SELECT p.id,p.owner,p.visibility FROM projects p JOIN removed_projects r ON r.project=p.id WHERE p.path=?1", value.Path).Scan(&removedID, &removedOwner, &removedVisibility)
 	if err == nil {
 		value.ID, err = protocol.ParseProjectID(removedID)
 		if err != nil {
@@ -194,7 +195,8 @@ func createProject(ctx context.Context, db *sql.Conn, owner protocol.UserID, inp
 		if err := CheckProjectAccess(ctx, db, value.ID, true); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		// Registration restores the original project; its owner does not change.
+		// Registration restores the original project, including its owner and visibility.
+		value.Visibility = removedVisibility
 		value.Owner, err = projectOwner(removedOwner)
 		if err != nil {
 			return protocol.Output{}, nil, err

@@ -113,6 +113,8 @@ captured worktree; SSH, database and plugin surfaces retain their Node and resou
 identity. Registered projects remain at their original filesystem paths.
 
 Projects have a Node-local user owner and private or host-shared visibility.
+New projects default to host-shared visibility; existing private projects keep
+their visibility, including when older stored records omit that field.
 Projectless resources remain personal. Node authenticates callers before every
 command family, direct subscription and byte stream; typed resource identifiers
 are checked centrally and unknown commands fail closed. Snapshots, catalogs and
