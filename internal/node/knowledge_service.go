@@ -107,6 +107,7 @@ func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []pr
 func (node *Node) knowledgeOptions() knowledgeservice.Options {
 	registry := node.localModels.registry
 	return knowledgeservice.Options{
+		Node:    node.ID(),
 		Working: node.power.Hold,
 		Index:   node.profile.Store.Knowledge,
 		Catalog: node.knowledgeCatalog,
@@ -374,14 +375,22 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 	var output protocol.Output
 	var operationErr error
 	operation := node.commandContext(commandJob{user: userFromContext(ctx), scope: ctx})
+	if verified, _ := ctx.Value(knowledgeLocalKey{}).(bool); verified {
+		operation = context.WithValue(operation, knowledgeLocalKey{}, true)
+		if info, present := store.KnowledgePackageFromContext(ctx); present {
+			operation = store.WithKnowledgePackage(operation, info)
+		}
+	}
 	err = node.profile.Store.Node.Write(operation, func(db *sql.Conn) error {
 		if _, err := db.ExecContext(operation, "SAVEPOINT sailry_knowledge"); err != nil {
 			return err
 		}
 		var events []protocol.Event
-		operationErr = node.authorizeCommandDB(operation, db, caller, request)
-		if operationErr == nil {
-			operationErr = node.validatePluginRequestDB(operation, db, caller, request)
+		if verified, _ := operation.Value(knowledgeLocalKey{}).(bool); !verified {
+			operationErr = node.authorizeCommandDB(operation, db, caller, request)
+			if operationErr == nil {
+				operationErr = node.validatePluginRequestDB(operation, db, caller, request)
+			}
 		}
 		if operationErr == nil {
 			output, events, operationErr = store.ExecuteKnowledge(operation, db, request)

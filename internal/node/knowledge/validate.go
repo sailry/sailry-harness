@@ -34,7 +34,7 @@ func ValidateDefinition(definition protocol.KnowledgeDefinition) error {
 			return !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-' || character == '_' || character == '.')
 		})
 	}
-	valid := strings.TrimSpace(definition.Name) != "" && !strings.ContainsRune(definition.Name, 0) &&
+	valid := (definition.Visibility == "" || definition.Visibility == protocol.KnowledgeVisibilityPrivate || definition.Visibility == protocol.KnowledgeVisibilityShared) && strings.TrimSpace(definition.Name) != "" && !strings.ContainsRune(definition.Name, 0) &&
 		(definition.Model == nil || localmodels.ValidID(*definition.Model)) && filters(definition.Tags) && filters(definition.Globs)
 	for _, name := range definition.SharedWith {
 		valid = valid && shared(name)
@@ -92,5 +92,9 @@ func ValidateCitation(request protocol.KnowledgeCitationRequest) error {
 
 // CitationURL is the link a Node generates for an indexed chunk.
 func CitationURL(citation protocol.KnowledgeCitation) string {
-	return fmt.Sprintf("sailry-knowledge://%s/%s?revision=%s", citation.Collection, citation.Chunk, citation.Revision)
+	link := fmt.Sprintf("sailry-knowledge://%s/%s?revision=%s", citation.Collection, citation.Chunk, citation.Revision)
+	if citation.Node != (protocol.NodeID{}) {
+		link += "&node=" + citation.Node.String()
+	}
+	return link
 }

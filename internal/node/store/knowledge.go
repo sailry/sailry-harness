@@ -17,12 +17,13 @@ const MaxKnowledgeCollections = 128
 
 // KnowledgeCapture is the plugin scope a collection was created in.
 type KnowledgeCapture struct {
-	Package   *protocol.PluginReference `json:"package"`
-	Worktree  *protocol.WorktreeID      `json:"worktree"`
-	Session   *protocol.SessionID       `json:"session"`
-	User      *protocol.UserID          `json:"user,omitempty"`
-	Space     string                    `json:"space,omitempty"`
-	Namespace string                    `json:"namespace,omitempty"`
+	ExternalPackage bool                      `json:"external_package,omitempty"`
+	Package         *protocol.PluginReference `json:"package"`
+	Worktree        *protocol.WorktreeID      `json:"worktree"`
+	Session         *protocol.SessionID       `json:"session"`
+	User            *protocol.UserID          `json:"user,omitempty"`
+	Space           string                    `json:"space,omitempty"`
+	Namespace       string                    `json:"namespace,omitempty"`
 }
 
 // KnowledgeStored is one durable collection with its captured scope. The
@@ -35,6 +36,7 @@ type KnowledgeStored struct {
 
 // KnowledgeSource is the flat reading of a source union.
 type KnowledgeSource struct {
+	Node     *protocol.NodeID            `json:"node,omitempty"`
 	Kind     string                      `json:"kind"`
 	Worktree protocol.WorktreeID         `json:"worktree"`
 	Path     string                      `json:"path"`
@@ -73,7 +75,7 @@ func sameJSON(left, right any) bool {
 // SameKnowledgeStored compares the identity an indexing pass or a citation
 // read captured with the current collection.
 func SameKnowledgeStored(left, right KnowledgeStored) bool {
-	return left.Collection.ID == right.Collection.ID && left.Collection.Revision == right.Collection.Revision &&
+	return left.Collection.Node == right.Collection.Node && left.Collection.OwnerUser == right.Collection.OwnerUser && left.Collection.ID == right.Collection.ID && left.Collection.Revision == right.Collection.Revision &&
 		left.Collection.Rebuild == right.Collection.Rebuild && left.Collection.Paused == right.Collection.Paused &&
 		left.Collection.Progress.Generation == right.Collection.Progress.Generation && left.Automatic == right.Automatic &&
 		sameJSON(left.Collection.Owner, right.Collection.Owner) && sameJSON(left.Collection.Definition, right.Collection.Definition) &&

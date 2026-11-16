@@ -37,6 +37,9 @@ func (service *Service) permitted(ctx context.Context, request protocol.Request,
 // whose collection, source or chunk changed is reported and reindexed.
 func (service *Service) Citation(ctx context.Context, request protocol.Request, input protocol.KnowledgeCitationRequest) (protocol.KnowledgeCitationPage, error) {
 	none := protocol.DefaultKnowledgeCitationPage()
+	if input.Node != (protocol.NodeID{}) && input.Node != service.options.Node {
+		return none, newFault(protocol.ErrorCodeWrongTarget, "knowledge citation belongs to another Node")
+	}
 	if err := knowledge.ValidateCitation(input); err != nil {
 		return none, err
 	}
@@ -99,6 +102,8 @@ func (service *Service) Citation(ctx context.Context, request protocol.Request, 
 	if !store.SameKnowledgeStored(current, stored) || !sameChoice(service.options.Choice(), choice) {
 		return none, changedSource()
 	}
+	indexed.citation.Node = service.options.Node
+	indexed.citation.Link = knowledge.CitationURL(indexed.citation)
 	return page(indexed, text, input, worktree)
 }
 

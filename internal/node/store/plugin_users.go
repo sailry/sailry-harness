@@ -35,25 +35,55 @@ func initializePluginUsers(ctx context.Context, db *sql.Conn) error {
 	return initializeDispatchUsers(ctx, db)
 }
 
-func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {
+// knowledgeOwned resolves the stable captured owner through any user merge.
+func knowledgeOwned(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return false, err
 	}
-	owned := stored.Capture.User == nil && user.Local
-	if stored.Capture.User != nil {
-		owner, err := ResolveUser(ctx, db, *stored.Capture.User)
-		if err != nil {
-			return false, err
-		}
-		owned = owner.ID == user.ID
+	if stored.Capture.User == nil {
+		return user.Local, nil
 	}
-	if strings.HasPrefix(stored.Capture.Space, "user:") {
-		storage, err := CapturedUser(ctx, db)
-		if err != nil {
-			return false, err
+	owner, err := ResolveUser(ctx, db, *stored.Capture.User)
+	return owner.ID == user.ID, err
+}
+
+// knowledgeProjectVisibility identifies the authoritative container before any
+// independent collection sharing is considered. A missing container is private
+// and inaccessible until the ordinary orphan sweep removes it.
+func knowledgeProjectVisibility(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (*protocol.ProjectVisibility, error) {
+	var project string
+	if id, ok := strings.CutPrefix(stored.Capture.Space, "project:"); ok {
+		project = id
+	} else if stored.Capture.Worktree != nil {
+		var selected sql.NullString
+		err := db.QueryRowContext(ctx, "SELECT project FROM worktrees w WHERE w.id=?1 AND NOT EXISTS(SELECT 1 FROM removed_worktrees r WHERE r.worktree=w.id)", stored.Capture.Worktree.String()).Scan(&selected)
+		if err == sql.ErrNoRows {
+			visibility := protocol.ProjectVisibilityPrivate
+			return &visibility, nil
 		}
-		return stored.Capture.Space == "user:"+storage.String(), nil
+		if err != nil {
+			return nil, err
+		}
+		if selected.Valid {
+			project = selected.String
+		}
+	}
+	if project == "" {
+		return nil, nil
+	}
+	visibility := protocol.ProjectVisibilityPrivate
+	err := db.QueryRowContext(ctx, "SELECT visibility FROM projects p WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=p.id)", project).Scan(&visibility)
+	if err == sql.ErrNoRows {
+		err = nil
+	}
+	return &visibility, err
+}
+
+func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return false, err
 	}
 	var allowed bool
 	if project, ok := strings.CutPrefix(stored.Capture.Space, "project:"); ok {
@@ -74,7 +104,8 @@ func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeSto
 			return allowed, err
 		}
 	}
-	return owned, nil
+	owned, err := knowledgeOwned(ctx, db, stored)
+	return owned || stored.Collection.Definition.Visibility == protocol.KnowledgeVisibilityShared, err
 }
 
 // KnowledgeExecutionContext restores the owner of a trusted indexing capture.

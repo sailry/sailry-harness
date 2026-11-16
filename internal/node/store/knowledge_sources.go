@@ -20,6 +20,13 @@ import (
 // knowledgePackage resolves the plugin a request acts as. Admission already
 // checked the running turn or callback.
 func knowledgePackage(ctx context.Context, db *sql.Conn, scope protocol.PluginContext) (protocol.PluginInfo, error) {
+	if info, present := ctx.Value(knowledgePackageKey{}).(protocol.PluginInfo); present {
+		reference := protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
+		if reference != scope.Package {
+			return protocol.PluginInfo{}, knowledgeDenied("resource call package differs from its captured scope")
+		}
+		return info, nil
+	}
 	if scope.Turn != nil || scope.Invocation != nil {
 		return ResolvePluginInfo(ctx, db, scope.Package)
 	}
@@ -65,7 +72,8 @@ func knowledgeOwnership(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return protocol.KnowledgeOwner{}, KnowledgeCapture{}, err
 		}
 		owner, reference := plugin(info)
-		return owner, KnowledgeCapture{Package: reference, Worktree: scope.Worktree, Session: scope.Session, User: &user}, nil
+		_, external := KnowledgePackageFromContext(ctx)
+		return owner, KnowledgeCapture{Package: reference, Worktree: scope.Worktree, Session: scope.Session, User: &user, ExternalPackage: external}, nil
 	}
 	if selected != nil {
 		info, err := currentKnowledgePlugin(ctx, db, *selected)
@@ -134,8 +142,8 @@ func knowledgeTarget(root string, parts []string) error {
 	return nil
 }
 
-func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request, definition protocol.KnowledgeDefinition, capture *KnowledgeCapture) error {
-	if err := knowledge.ValidateDefinition(definition); err != nil {
+func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request, definition *protocol.KnowledgeDefinition, capture *KnowledgeCapture) error {
+	if err := knowledge.ValidateDefinition(*definition); err != nil {
 		return err
 	}
 	for _, pattern := range definition.Globs {
@@ -152,8 +160,22 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		info = &captured
 	}
 	source := ReadKnowledgeSource(definition.Source)
+	node, err := nodeIdentity(ctx, db)
+	if err != nil {
+		return err
+	}
+	if source.Node != nil && *source.Node != node {
+		return invalid("knowledge source belongs to another Node")
+	}
+	bindKnowledgeSource(definition, node)
+	if definition.Visibility == "" {
+		definition.Visibility = protocol.KnowledgeVisibilityPrivate
+	}
 	switch source.Kind {
 	case "worktree":
+		if err := CheckWorktreeAccess(ctx, db, source.Worktree); err != nil {
+			return err
+		}
 		if scope := request.Plugin; scope != nil && (scope.Worktree == nil || *scope.Worktree != source.Worktree || !knowledgeDeclares(*info, protocol.PluginActionReadFiles)) {
 			return knowledgeDenied("knowledge source is outside the captured file access")
 		}
@@ -176,7 +198,7 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 			return err
 		}
 		worktree := source.Worktree
-		capture.Worktree, capture.Session = &worktree, nil
+		capture.Worktree, capture.Session, capture.Space = &worktree, nil, ""
 	case "directory", "file":
 		if request.Plugin != nil {
 			return knowledgeDenied("absolute knowledge sources require a controller selection")
@@ -195,7 +217,7 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		if source.Kind == "directory" && !metadata.IsDir() || source.Kind == "file" && !metadata.Mode().IsRegular() {
 			return invalid("knowledge sources require regular files or directories")
 		}
-		capture.Worktree, capture.Session = nil, nil
+		capture.Worktree, capture.Session, capture.Space = nil, nil, ""
 	case "storage":
 		if capture.Package == nil {
 			return knowledgeDenied("knowledge storage sources require a real plugin owner")
@@ -216,6 +238,7 @@ func validateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 			capture.Worktree, capture.Session = nil, nil
 			break
 		}
+		capture.Space = ""
 		if capture.Session == nil {
 			return knowledgeDenied("conversation storage requires a captured session")
 		}
@@ -257,6 +280,9 @@ func checkKnowledge(stored KnowledgeStored) error {
 		return invalid("invalid automatic knowledge collection")
 	}
 	source := ReadKnowledgeSource(collection.Definition.Source)
+	if source.Node != nil && *source.Node != collection.Node {
+		return invalid("knowledge source and collection belong to different Nodes")
+	}
 	switch {
 	case collection.Owner.Kind == "controller" && stored.Capture.Package == nil && source.Kind != "storage":
 	case collection.Owner.Kind == "plugin" && stored.Capture.Package != nil && knowledgeOwner(collection.Owner) == stored.Capture.Package.Name:

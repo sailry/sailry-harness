@@ -99,12 +99,12 @@ func knowledgeToolCommand(operation protocol.ToolOperation, arguments json.RawMe
 		if err := json.Unmarshal(arguments, &draft); err != nil {
 			return protocol.Command{}, knowledgeArguments(err)
 		}
-		definition := protocol.KnowledgeDefinition{Name: draft.Name, Model: draft.Model, Globs: draft.Globs, Tags: draft.Tags, SharedWith: []string{}}
+		definition := protocol.KnowledgeDefinition{Visibility: draft.Visibility, Name: draft.Name, Model: draft.Model, Globs: draft.Globs, Tags: draft.Tags, SharedWith: []string{}}
 		switch source := draft.Source.Data.(type) {
 		case *protocol.KnowledgeDraftSourceWorktreePayload:
-			definition.Source = protocol.KnowledgeSource{Kind: "worktree", Data: &protocol.KnowledgeSourceWorktreePayload{Worktree: worktree, Path: source.Path}}
+			definition.Source = protocol.KnowledgeSource{Kind: "worktree", Data: &protocol.KnowledgeSourceWorktreePayload{Node: draft.Node, Worktree: worktree, Path: source.Path}}
 		case *protocol.KnowledgeDraftSourceStoragePayload:
-			definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Scope: source.Scope, Prefix: source.Prefix}}
+			definition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Node: draft.Node, Scope: source.Scope, Prefix: source.Prefix}}
 		}
 		return protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}},
 			knowledge.ValidateDefinition(definition)

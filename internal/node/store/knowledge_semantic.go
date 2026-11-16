@@ -229,6 +229,9 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 		}
 		collection.Progress.Generation = 1
 		entry := KnowledgeStored{Collection: collection, Capture: KnowledgeCapture{Package: &reference, User: &user, Space: space, Namespace: namespace}, Automatic: true}
+		if err := projectKnowledge(ctx, db, &entry); err != nil {
+			return nil, false, err
+		}
 		if err := persistKnowledge(ctx, db, entry); err != nil {
 			return nil, false, err
 		}

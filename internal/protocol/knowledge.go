@@ -11,6 +11,7 @@ type KnowledgeSource struct {
 	Data any
 }
 type KnowledgeSourceWorktreePayload struct {
+	Node     *NodeID    `json:"node,omitempty"`
 	Worktree WorktreeID `json:"worktree"`
 	Path     string     `json:"path"`
 }
@@ -37,7 +38,8 @@ func (value KnowledgeSourceWorktreePayload) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeSourceDirectoryPayload struct {
-	Path string `json:"path"`
+	Node *NodeID `json:"node,omitempty"`
+	Path string  `json:"path"`
 }
 
 func DefaultKnowledgeSourceDirectoryPayload() KnowledgeSourceDirectoryPayload {
@@ -61,7 +63,8 @@ func (value KnowledgeSourceDirectoryPayload) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeSourceFilePayload struct {
-	Path string `json:"path"`
+	Node *NodeID `json:"node,omitempty"`
+	Path string  `json:"path"`
 }
 
 func DefaultKnowledgeSourceFilePayload() KnowledgeSourceFilePayload {
@@ -85,6 +88,7 @@ func (value KnowledgeSourceFilePayload) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeSourceStoragePayload struct {
+	Node   *NodeID            `json:"node,omitempty"`
 	Scope  PluginStorageScope `json:"scope"`
 	Prefix string             `json:"prefix"`
 }
@@ -170,17 +174,28 @@ func (value *KnowledgeOwner) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// KnowledgeVisibility is independent of the Node that stores a collection.
+// Project-backed collections use their project's current visibility.
+type KnowledgeVisibility = ProjectVisibility
+
+const (
+	KnowledgeVisibilityPrivate = ProjectVisibilityPrivate
+	KnowledgeVisibilityShared  = ProjectVisibilityShared
+)
+
 type KnowledgeDefinition struct {
-	Name       string          `json:"name"`
-	Source     KnowledgeSource `json:"source"`
-	Model      *string         `json:"model"`
-	Globs      []string        `json:"globs"`
-	Tags       []string        `json:"tags"`
-	SharedWith []string        `json:"shared_with"`
+	Visibility KnowledgeVisibility `json:"visibility,omitempty"`
+	Name       string              `json:"name"`
+	Source     KnowledgeSource     `json:"source"`
+	Model      *string             `json:"model"`
+	Globs      []string            `json:"globs"`
+	Tags       []string            `json:"tags"`
+	SharedWith []string            `json:"shared_with"`
 }
 
 func DefaultKnowledgeDefinition() KnowledgeDefinition {
 	return KnowledgeDefinition{
+		Visibility: KnowledgeVisibilityPrivate,
 		Name:       "",
 		Source:     KnowledgeSource{},
 		Model:      nil,
@@ -191,7 +206,7 @@ func DefaultKnowledgeDefinition() KnowledgeDefinition {
 }
 func (value *KnowledgeDefinition) UnmarshalJSON(data []byte) error {
 	type plain KnowledgeDefinition
-	decoded := plain{}
+	decoded := plain{Visibility: KnowledgeVisibilityPrivate}
 	decoded.Model = nil
 	decoded.Globs = []string{}
 	decoded.Tags = []string{}
@@ -212,25 +227,28 @@ func (value KnowledgeDefinition) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeDraft struct {
-	Name   string               `json:"name"`
-	Source KnowledgeDraftSource `json:"source"`
-	Model  *string              `json:"model"`
-	Globs  []string             `json:"globs"`
-	Tags   []string             `json:"tags"`
+	Node       *NodeID              `json:"node,omitempty"`
+	Visibility KnowledgeVisibility  `json:"visibility,omitempty"`
+	Name       string               `json:"name"`
+	Source     KnowledgeDraftSource `json:"source"`
+	Model      *string              `json:"model"`
+	Globs      []string             `json:"globs"`
+	Tags       []string             `json:"tags"`
 }
 
 func DefaultKnowledgeDraft() KnowledgeDraft {
 	return KnowledgeDraft{
-		Name:   "",
-		Source: KnowledgeDraftSource{},
-		Model:  nil,
-		Globs:  []string{},
-		Tags:   []string{},
+		Visibility: KnowledgeVisibilityPrivate,
+		Name:       "",
+		Source:     KnowledgeDraftSource{},
+		Model:      nil,
+		Globs:      []string{},
+		Tags:       []string{},
 	}
 }
 func (value *KnowledgeDraft) UnmarshalJSON(data []byte) error {
 	type plain KnowledgeDraft
-	decoded := plain{}
+	decoded := plain{Visibility: KnowledgeVisibilityPrivate}
 	decoded.Model = nil
 	decoded.Globs = []string{}
 	decoded.Tags = []string{}
@@ -428,6 +446,8 @@ func (value KnowledgeProgress) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeCollection struct {
+	Node       NodeID              `json:"node,omitzero"`
+	OwnerUser  UserID              `json:"owner_user,omitzero"`
 	ID         KnowledgeID         `json:"id"`
 	Revision   uint64              `json:"revision"`
 	Rebuild    uint64              `json:"rebuild"`
@@ -502,15 +522,16 @@ func (value *KnowledgeMode) UnmarshalText(data []byte) error {
 }
 
 type KnowledgeQuery struct {
-	Query            string        `json:"query"`
-	Collections      []KnowledgeID `json:"collections"`
-	Mode             KnowledgeMode `json:"mode"`
-	Tags             []string      `json:"tags"`
-	Path             *string       `json:"path"`
-	ModifiedAfterMs  *uint64       `json:"modified_after_ms"`
-	ModifiedBeforeMs *uint64       `json:"modified_before_ms"`
-	Limit            uint16        `json:"limit"`
-	Offset           uint32        `json:"offset"`
+	Refs             []KnowledgeRef `json:"refs,omitempty"`
+	Query            string         `json:"query"`
+	Collections      []KnowledgeID  `json:"collections"`
+	Mode             KnowledgeMode  `json:"mode"`
+	Tags             []string       `json:"tags"`
+	Path             *string        `json:"path"`
+	ModifiedAfterMs  *uint64        `json:"modified_after_ms"`
+	ModifiedBeforeMs *uint64        `json:"modified_before_ms"`
+	Limit            uint16         `json:"limit"`
+	Offset           uint32         `json:"offset"`
 }
 
 func DefaultKnowledgeQuery() KnowledgeQuery {
@@ -727,6 +748,7 @@ func (value *KnowledgePosition) UnmarshalJSON(data []byte) error {
 }
 
 type KnowledgeCitation struct {
+	Node       NodeID            `json:"node,omitzero"`
 	Collection KnowledgeID       `json:"collection"`
 	Chunk      string            `json:"chunk"`
 	Revision   string            `json:"revision"`
@@ -761,6 +783,7 @@ func (value KnowledgeCitation) MarshalJSON() ([]byte, error) {
 }
 
 type KnowledgeCitationRequest struct {
+	Node       NodeID      `json:"node,omitzero"`
 	Collection KnowledgeID `json:"collection"`
 	Chunk      string      `json:"chunk"`
 	Revision   string      `json:"revision"`

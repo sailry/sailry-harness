@@ -20,6 +20,7 @@ const batch = 4
 
 // Options connects the service to the Node that owns it.
 type Options struct {
+	Node protocol.NodeID
 	// Index is the knowledge database of the profile.
 	Index *store.Handle
 	// Context restores the stored source principal for one background collection.
@@ -170,13 +171,14 @@ func nonzero(vector []float32) bool {
 // prepared is what one search may read: the admitted bindings, the query
 // vector of each of their models and whether any of them is still indexing.
 type prepared struct {
-	bindings   []Binding
-	embeddings []Embedding
-	indexing   bool
+	collections map[protocol.KnowledgeID]store.KnowledgeStored
+	bindings    []Binding
+	embeddings  []Embedding
+	indexing    bool
 }
 
 func (service *Service) prepare(ctx context.Context, request protocol.Request, query protocol.KnowledgeQuery) (prepared, error) {
-	var result prepared
+	result := prepared{collections: map[protocol.KnowledgeID]store.KnowledgeStored{}}
 	if err := knowledge.ValidateQuery(query); err != nil {
 		return result, err
 	}
@@ -191,6 +193,10 @@ func (service *Service) prepare(ctx context.Context, request protocol.Request, q
 		if len(query.Collections) != 0 && !slices.Contains(query.Collections, stored.Collection.ID) {
 			continue
 		}
+		if len(query.Refs) != 0 && !slices.Contains(query.Refs, protocol.KnowledgeRef{Node: stored.Collection.Node, ID: stored.Collection.ID}) {
+			continue
+		}
+		result.collections[stored.Collection.ID] = stored
 		binding := service.binding(stored, choice)
 		result.bindings = append(result.bindings, binding)
 		status := stored.Collection.Progress.Status
@@ -228,5 +234,30 @@ func (service *Service) Query(ctx context.Context, request protocol.Request, que
 	if err != nil {
 		return protocol.DefaultKnowledgePage(), err
 	}
-	return service.index.Search(ctx, query, prepared.bindings, prepared.embeddings, prepared.indexing)
+	page, err := service.index.Search(ctx, query, prepared.bindings, prepared.embeddings, prepared.indexing)
+	if err != nil {
+		return page, err
+	}
+	current, err := service.options.Allowed(ctx, request)
+	if err != nil {
+		return protocol.DefaultKnowledgePage(), err
+	}
+	available := make(map[protocol.KnowledgeID]store.KnowledgeStored, len(current))
+	for _, stored := range current {
+		available[stored.Collection.ID] = stored
+	}
+	for index := range page.Hits {
+		hit := &page.Hits[index]
+		captured, admitted := prepared.collections[hit.Citation.Collection]
+		latest, accessible := available[hit.Citation.Collection]
+		if !admitted || !accessible {
+			return protocol.DefaultKnowledgePage(), newFault(protocol.ErrorCodePermissionDenied, "knowledge collection is not accessible")
+		}
+		if !store.SameKnowledgeStored(captured, latest) {
+			return protocol.DefaultKnowledgePage(), changedSource()
+		}
+		hit.Citation.Node = service.options.Node
+		hit.Citation.Link = knowledge.CitationURL(hit.Citation)
+	}
+	return page, nil
 }

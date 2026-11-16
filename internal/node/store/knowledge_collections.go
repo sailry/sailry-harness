@@ -54,6 +54,9 @@ func loadKnowledge(ctx context.Context, db *sql.Conn) ([]KnowledgeStored, error)
 		if err := json.Unmarshal(record.body, &stored); err != nil {
 			return nil, err
 		}
+		if err := projectKnowledge(ctx, db, &stored); err != nil {
+			return nil, err
+		}
 		if err := checkKnowledge(stored); err != nil {
 			return nil, err
 		}
@@ -84,6 +87,9 @@ func knowledgeManual(entries []KnowledgeStored) int {
 }
 
 func persistKnowledge(ctx context.Context, db *sql.Conn, stored KnowledgeStored) error {
+	if err := projectKnowledge(ctx, db, &stored); err != nil {
+		return err
+	}
 	if err := checkKnowledge(stored); err != nil {
 		return err
 	}
@@ -126,11 +132,18 @@ func requiredKnowledge(ctx context.Context, db *sql.Conn, request protocol.Reque
 		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection does not exist")
 	}
 	stored := entries[index]
-	allowed, err := knowledgeUserAllowed(ctx, db, stored)
+	allowed, err := knowledgeOwned(ctx, db, stored)
 	if err != nil {
 		return KnowledgeStored{}, err
 	}
 	if !allowed {
+		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection is unavailable")
+	}
+	visible, err := knowledgeUserAllowed(ctx, db, stored)
+	if err != nil {
+		return KnowledgeStored{}, err
+	}
+	if !visible {
 		return KnowledgeStored{}, fault(protocol.ErrorCodeNotFound, "knowledge collection is unavailable")
 	}
 	if scope := request.Plugin; scope != nil {
@@ -176,13 +189,16 @@ func createKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if err := validateKnowledge(ctx, db, request, definition, &capture); err != nil {
+	if err := validateKnowledge(ctx, db, request, &definition, &capture); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	collection := protocol.DefaultKnowledgeCollection()
 	collection.ID, collection.Revision, collection.Owner, collection.Definition = protocol.NewKnowledgeID(), 1, owner, definition
 	collection.Progress.Generation = 1
 	stored := KnowledgeStored{Collection: collection, Capture: capture}
+	if err := projectKnowledge(ctx, db, &stored); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	if err := persistKnowledge(ctx, db, stored); err != nil {
 		return protocol.Output{}, nil, err
 	}
@@ -197,10 +213,13 @@ func updateKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 	if request.Plugin != nil && !slices.Equal(stored.Collection.Definition.SharedWith, definition.SharedWith) {
 		return protocol.Output{}, nil, knowledgeDenied("collection sharing requires a controller")
 	}
-	if err := validateKnowledge(ctx, db, request, definition, &stored.Capture); err != nil {
+	if err := validateKnowledge(ctx, db, request, &definition, &stored.Capture); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	stored.Collection.Definition = definition
+	if err := projectKnowledge(ctx, db, &stored); err != nil {
+		return protocol.Output{}, nil, err
+	}
 	if err := advanceKnowledge(&stored); err != nil {
 		return protocol.Output{}, nil, err
 	}
@@ -280,6 +299,14 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 			AND (w.project IS NOT NULL OR EXISTS(SELECT 1 FROM sessions s WHERE s.worktree=w.id AND s.state!='removed')))`, source.Worktree.String()).Scan(&present); err != nil {
 			return false, err
 		}
+	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeProject:
+		project, valid := strings.CutPrefix(stored.Capture.Space, "project:")
+		if !valid {
+			return true, nil
+		}
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM projects p WHERE p.id=?1 AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=p.id))", project).Scan(&present); err != nil {
+			return false, err
+		}
 	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeConversation:
 		if stored.Capture.Session == nil {
 			return true, nil
@@ -288,7 +315,7 @@ func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored
 			return false, err
 		}
 	}
-	if present && stored.Collection.Owner.Kind == "plugin" {
+	if present && stored.Collection.Owner.Kind == "plugin" && !stored.Capture.ExternalPackage {
 		query := "SELECT EXISTS(SELECT 1 FROM plugin_user_installations WHERE name=?1 AND installed=1)"
 		arguments := []any{knowledgeOwner(stored.Collection.Owner)}
 		if !strings.HasPrefix(stored.Capture.Space, "project:") {
