@@ -69,7 +69,7 @@ jobs:
           esac
           if [ -n "$base" ]; then
             changed=$(git diff --name-only "$base" HEAD)
-            grep -Eq '^native/(iroh|turso|capture)/|^\.github/workflows/ci\.yml$' <<< "$changed" || native=false
+            grep -Eq '^native/(iroh|turso|capture|windows)/|^\.github/workflows/ci\.yml$' <<< "$changed" || native=false
             grep -Eq '^(apps/mobile|cmd/sailry-mobile|internal/(mobile|client|link|protocol|shipped)|native/iroh)/|^(go\.(mod|sum)|\.github/workflows/ci\.yml)$' <<< "$changed" || mobile=false
           fi
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
@@ -320,6 +320,10 @@ jobs:
         with:
           name: turso-${{ matrix.target }}
           path: .runtime/native/${{ matrix.target }}
+      - name: Windows C++ runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./native/windows/crt.ps1
       - name: GNU libc floor
         if: runner.os == 'Linux'
         run: |
@@ -340,7 +344,10 @@ jobs:
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in
-            Windows) set -- sailry_iroh.dll turso_sync_sdk_kit.dll sailry-capture.dll ;;
+            Windows)
+              set -- sailry_iroh.dll turso_sync_sdk_kit.dll sailry-capture.dll windows-crt.json
+              while IFS= read -r name; do set -- "$@" "$name"; done < <(jq -r '.files[]' windows-crt.json | tr -d '\r')
+              ;;
             macOS) set -- libsailry_iroh.dylib libturso_sync_sdk_kit.dylib libsailry-capture.dylib ;;
             *) set -- libsailry_iroh.so libturso_sync_sdk_kit.so libsailry-capture.so ;;
           esac

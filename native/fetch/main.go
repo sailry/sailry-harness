@@ -8,10 +8,12 @@
 // Downloads come only from the official release URLs in the lock files under
 // native/ and internal/localmodels/decision, are checked against their pinned
 // size and SHA-256, and are cached in .runtime/native/dl. The iroh, Turso and
-// capture builds are taken from the CI native
-// job's artifacts (-artifacts, checked against its SHA256SUMS), or from an
-// earlier local build already in the output directory. libghostty-vt is not
-// handled here; `mygo build` downloads it from the terminal plugin's manifest.
+// capture builds are taken from the CI native job's artifacts (-artifacts,
+// checked against its SHA256SUMS), or from an
+// earlier local build already in the output directory. Windows artifacts
+// also carry the app-local Microsoft C++ runtime and its original notices.
+// libghostty-vt is not handled here; `mygo build` downloads it from the
+// terminal plugin's manifest.
 //
 // -seal is the step after packaging and signing. It records the shipped
 // native libraries in native-seal.json, the lock of the libraries that have
@@ -127,6 +129,7 @@ func main() {
 	fail(run.llama())
 	fail(run.helper())
 	fail(run.python())
+	fail(run.windowsCRT(*artifacts))
 	fail(run.built(names[0], "sh native/iroh/build.sh", *artifacts))
 	fail(run.built(tursoLibrary(goos), "sh native/turso/build.sh", *artifacts))
 	if !*host {
@@ -565,6 +568,32 @@ func (run *stage) built(name, build, artifacts string) error {
 	return nil
 }
 
+func (run *stage) windowsCRT(artifacts string) error {
+	if run.goos != "windows" {
+		return nil
+	}
+	const build = "pwsh -File native/windows/crt.ps1"
+	if err := run.built(shipped.WindowsCRTManifest, build, artifacts); err != nil {
+		return err
+	}
+	crt, err := shipped.ReadWindowsCRT(run.output)
+	if errors.Is(err, fs.ErrNotExist) && artifacts == "" {
+		return nil // built already reports the missing local runtime.
+	}
+	if err != nil {
+		return err
+	}
+	if triples[crt.Target] != run.triple {
+		return errors.New("Windows CRT belongs to another platform")
+	}
+	for _, name := range crt.Files {
+		if err := run.built(name, build, artifacts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // copyTree copies a file or directory, keeping links and permissions.
 func copyTree(source, destination string) error {
 	return filepath.WalkDir(source, func(current string, item fs.DirEntry, err error) error {
@@ -623,6 +652,17 @@ func (run *stage) seal(location, platform string, host bool, identity, entitleme
 		names = names[:1]
 	}
 	names = append(names, tursoLibrary(run.goos))
+	if run.goos == "windows" {
+		crt, err := shipped.ReadWindowsCRT(directory)
+		if err != nil {
+			return err
+		}
+		if crt.Target != platform {
+			return errors.New("Windows CRT belongs to another platform")
+		}
+		names = append(names, shipped.WindowsCRTManifest)
+		names = append(names, crt.Files...)
+	}
 	for _, file := range asset.Files {
 		if !host || file.Role != "speech" {
 			names = append(names, file.Name)

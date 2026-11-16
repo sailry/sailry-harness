@@ -329,6 +329,11 @@ signed update catalog retain the complete version, such as `0.2.0-alpha.1`.
 Windows x64 Desktop on Linux or macOS with NSIS installed: the installer
 `Sailry-x86_64-pc-windows-msvc-setup.exe` (mygo's per-user NSIS installer) and
 the portable `Sailry-x86_64-pc-windows-msvc.zip`.
+The Windows native artifact also contains the app-local Microsoft C++ runtime
+from its installed compiler, with original redistribution notices and checksums.
+`native/fetch` puts those files beside the executable and includes them in the
+seal; no system-wide redistributable installation is required. See
+[`native/windows/README.md`](native/windows/README.md) for local staging.
 
 ```sh
 unset GOROOT
@@ -352,7 +357,9 @@ libraries, which have no upstream pin. The loaders compare hashes; the code
 signature itself is enforced by macOS, not by Sailry.
 `cmd/sailry-desktop/package_integration_test.go` checks a built package's
 loaders from inside it: compile it with the release `-ldflags`, copy it beside
-the packaged executable and seal the bundle again.
+the packaged executable and seal the bundle again. The Turso check creates a
+temporary database and exercises its native full-text index; it does not open a
+user database or start Node, models or tools.
 
 Signing is configured by the packaging scripts and release workflow.
 `SAILRY_SIGNING=developer-id` needs the variables `APPLE_SIGNING_IDENTITY` and

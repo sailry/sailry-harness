@@ -5,8 +5,8 @@
 #
 #   cmd/sailry-desktop/windows/package.sh -artifacts <dir>
 #
-# -artifacts is the CI native job's directory of the Windows iroh, Turso and capture
-# libraries, which only Windows builds.
+# -artifacts is the CI native job's directory of the Windows iroh, Turso, capture
+# and app-local Microsoft C++ runtime, including checksums and notices.
 #
 # .runtime/package/out/windows-amd64 receives the application directory, the
 # installer Sailry-x86_64-pc-windows-msvc-setup.exe and the portable

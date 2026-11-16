@@ -124,6 +124,9 @@ func verifyLibrary(directory, name string, requireSeal bool) (string, error) {
 		err = errors.New("the package has no native seal; reinstall the application")
 	} else if err == nil {
 		err = seal.Check(directory, name)
+		if err == nil {
+			err = seal.CheckWindowsCRT(directory)
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("Turso native library is unavailable: %w", err)

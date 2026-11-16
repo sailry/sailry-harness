@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/speech"
 	"github.com/sailry/sailry-harness/internal/speech/capture"
+	"github.com/sailry/sailry-harness/internal/turso"
 )
 
 // TestPackagedNativeLayout runs the production loaders from inside a
@@ -35,6 +38,31 @@ func TestPackagedNativeLayout(t *testing.T) {
 	// A probe linked like a release (-X …/internal/core.Default) takes the
 	// packaged-only path: sealed libraries, no SAILRY_IROH_LIB.
 	t.Logf("release build: %v", core.Release())
+	t.Run("Turso FTS", func(t *testing.T) {
+		if core.Release() {
+			t.Setenv("SAILRY_TURSO_LIB", filepath.Join(t.TempDir(), "ignored"))
+		}
+		connector, err := turso.Connector(filepath.Join(t.TempDir(), "probe.turso"), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db := sql.OpenDB(connector)
+		defer db.Close()
+		ctx := context.Background()
+		for _, statement := range []string{
+			"CREATE TABLE probe (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+			"CREATE INDEX probe_fts ON probe USING fts(body) WITH(tokenizer='whitespace')",
+			"INSERT INTO probe(body) VALUES ('packaged native search')",
+		} {
+			if _, err := db.ExecContext(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var count int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM probe WHERE fts_match(body, 'native')").Scan(&count); err != nil || count != 1 {
+			t.Fatalf("Turso FTS: count=%d, error=%v", count, err)
+		}
+	})
 	if err := onnx.Initialize(); err != nil {
 		t.Errorf("onnxruntime: %v", err)
 	}

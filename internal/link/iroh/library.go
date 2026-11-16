@@ -84,5 +84,8 @@ func loadSealed(directory, name string) error {
 	if err := seal.Check(directory, name); err != nil {
 		return fmt.Errorf("native iroh library is unavailable: %w", err)
 	}
+	if err := seal.CheckWindowsCRT(directory); err != nil {
+		return fmt.Errorf("native iroh library is unavailable: %w", err)
+	}
 	return Load(filepath.Join(directory, name))
 }

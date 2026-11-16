@@ -37,6 +37,24 @@ func TestReleaseRequiresSealedTurso(t *testing.T) {
 	}
 	writeSeal := func(target string, files ...shipped.File) {
 		t.Helper()
+		if runtime.GOOS == "windows" {
+			crt := shipped.WindowsCRT{Version: 1, Target: runtime.GOOS + "/" + runtime.GOARCH, Toolset: "fixture", Files: []string{"msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "windows-crt-Redist.txt", "windows-crt-ThirdPartyNotices.txt"}}
+			manifest, _ := json.Marshal(crt)
+			for _, name := range append([]string{shipped.WindowsCRTManifest}, crt.Files...) {
+				body := []byte(name)
+				if name == shipped.WindowsCRTManifest {
+					body = manifest
+				}
+				if err := os.WriteFile(filepath.Join(directory, name), body, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				record, err := shipped.Record(directory, name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				files = append(files, record)
+			}
+		}
 		body, err := json.Marshal(shipped.Seal{Version: 1, Target: target, Files: files})
 		if err != nil {
 			t.Fatal(err)
@@ -59,6 +77,15 @@ func TestReleaseRequiresSealedTurso(t *testing.T) {
 	writeSeal(target, record)
 	if _, err := verifyLibrary(directory, name, true); err != nil {
 		t.Fatalf("sealed runtime: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(filepath.Join(directory, "vcruntime140.dll")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := verifyLibrary(directory, name, true); err == nil {
+			t.Fatal("accepted a packaged runtime without its CRT")
+		}
+		writeSeal(target, record)
 	}
 	if err := os.WriteFile(path, []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
