@@ -152,6 +152,7 @@ turn_generating: 応答
 turn_awaiting_response: 思考
 turn_waiting_child: 1 件のサブエージェントを待機中
 turn_waiting_children: '%{count} 件のサブエージェントを待機中'
+turn_waiting_controller: Waiting for controller sign-in
 approval_rejected: 拒否済み
 approval_reject: 拒否
 approval_allow_once: 許可

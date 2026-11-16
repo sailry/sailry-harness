@@ -311,6 +311,8 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ? 'conversationQueued'
           : run['status'] == 'stopping'
           ? 'conversationStopping'
+          : object(run['waiting'])['kind'] == 'controller_login'
+          ? 'conversationWaitingController'
           : run['kind'] == 'compaction'
           ? 'conversationCompacting'
           : waiting

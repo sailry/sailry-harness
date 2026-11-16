@@ -31,6 +31,15 @@ import (
 )
 
 func TestConversationProjection(t *testing.T) {
+	t.Run("controller login waits within the active turn", func(t *testing.T) {
+		page := protocol.DefaultConversationPage()
+		page.Session = protocol.SessionID{1}
+		page.Runs = []protocol.ConversationRun{{Session: page.Session, Turn: protocol.TurnID{1}, Kind: "task", Status: "running", Waiting: &protocol.ConversationRunWaiting{Kind: "controller_login"}}}
+		turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		if len(turns) != 1 || turns[0].Reply.Status != conversation.Running || turns[0].Reply.Phase != conversation.WaitingController {
+			t.Fatalf("controller login wait changed the turn lifecycle: %#v", turns)
+		}
+	})
 	t.Run("selected role and skill retain canonical identities", func(t *testing.T) {
 		role := protocol.RoleReference{ID: protocol.NewRoleID(), Revision: 7}
 		encoded, err := json.Marshal(role)

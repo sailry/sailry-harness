@@ -152,6 +152,7 @@ turn_generating: 正在回复
 turn_awaiting_response: 正在思考
 turn_waiting_child: 等待 1 个子代理
 turn_waiting_children: 等待 %{count} 个子代理
+turn_waiting_controller: 等待主控更新登录
 approval_rejected: 已拒绝
 approval_reject: 拒绝
 approval_allow_once: 允许

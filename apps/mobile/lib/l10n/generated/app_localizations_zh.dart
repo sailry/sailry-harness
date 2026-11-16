@@ -182,6 +182,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationCompacting => '正在压缩上下文';
 
   @override
+  String get conversationWaitingController => '等待主控更新登录';
+
+  @override
   String get conversationCompacted => '上下文已压缩';
 
   @override

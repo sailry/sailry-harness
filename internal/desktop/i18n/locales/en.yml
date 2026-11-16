@@ -152,6 +152,7 @@ turn_generating: Responding
 turn_awaiting_response: Thinking
 turn_waiting_child: Waiting for 1 subagent
 turn_waiting_children: Waiting for %{count} subagents
+turn_waiting_controller: Waiting for controller sign-in
 approval_rejected: Denied
 approval_reject: Deny
 approval_allow_once: Allow

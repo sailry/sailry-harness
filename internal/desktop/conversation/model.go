@@ -43,6 +43,7 @@ const (
 	AwaitingResponse
 	Compacting
 	WaitingChildren // Reply.Waiting is the count
+	WaitingController
 )
 
 // Turn is a user message and the reply to it.

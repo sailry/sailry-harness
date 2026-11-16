@@ -152,6 +152,7 @@ turn_generating: 응답 중
 turn_awaiting_response: 생각
 turn_waiting_child: 하위 에이전트 1개 대기 중
 turn_waiting_children: 하위 에이전트 %{count}개 대기 중
+turn_waiting_controller: Waiting for controller sign-in
 approval_rejected: 거부됨
 approval_reject: 거부
 approval_allow_once: 허용

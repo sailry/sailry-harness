@@ -185,6 +185,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationCompacting => '컨텍스트 압축';
 
   @override
+  String get conversationWaitingController => 'Waiting for controller sign-in';
+
+  @override
   String get conversationCompacted => '컨텍스트 압축됨';
 
   @override

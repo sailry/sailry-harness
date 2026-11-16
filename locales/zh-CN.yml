@@ -1192,6 +1192,7 @@ turn_tools_running: 正在执行
 turn_generating: 正在回复
 turn_compacting: 正在压缩
 turn_waiting_child: 等待 1 个子代理
+turn_waiting_controller: 等待主控更新登录
 turn_waiting_children: "等待 %{count} 个子代理"
 turn_reasoning: 思考过程
 chat_context_summary: 上下文摘要

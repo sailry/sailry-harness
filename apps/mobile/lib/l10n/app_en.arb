@@ -89,6 +89,7 @@
     }
   },
   "conversationCompacting": "Compacting context",
+  "conversationWaitingController": "Waiting for controller sign-in",
   "conversationCompacted": "Context compacted",
   "conversationToolWaiting": "Pending",
   "conversationStartCoding": "Start execution",

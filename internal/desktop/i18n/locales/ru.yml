@@ -152,6 +152,7 @@ turn_generating: Реагирование
 turn_awaiting_response: Мысли
 turn_waiting_child: Ожидание субагента
 turn_waiting_children: 'Ожидание субагентов: %{count}'
+turn_waiting_controller: Waiting for controller sign-in
 approval_rejected: Отклонено
 approval_reject: Отклонить
 approval_allow_once: Разрешить

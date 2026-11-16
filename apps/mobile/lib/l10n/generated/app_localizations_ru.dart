@@ -189,6 +189,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationCompacting => 'Сжатие контекста';
 
   @override
+  String get conversationWaitingController => 'Waiting for controller sign-in';
+
+  @override
   String get conversationCompacted => 'Контекст уплотнён';
 
   @override

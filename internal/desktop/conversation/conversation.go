@@ -748,6 +748,8 @@ func phaseRow(c *ui.Context, r *Reply) {
 		} else {
 			label = i18n.T(c, "turn_waiting_children", "count", r.Waiting)
 		}
+	case WaitingController:
+		label = i18n.T(c, "turn_waiting_controller")
 	default:
 		label = i18n.T(c, "turn_thinking")
 	}

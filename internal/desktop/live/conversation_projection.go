@@ -498,6 +498,13 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 			}
 		}
 	}
+	for _, run := range runs {
+		if run.Waiting != nil && run.Waiting.Kind == "controller_login" {
+			if position, ok := positions[run.Turn]; ok && turns[position].Reply.Status.Active() {
+				turns[position].Reply.Phase = conversation.WaitingController
+			}
+		}
+	}
 	var queue []composer.Queued
 	for _, item := range page.Queue.Items {
 		// A turn that started is in the transcript, not waiting any more.

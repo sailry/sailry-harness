@@ -189,6 +189,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationCompacting => 'Compactación del contexto';
 
   @override
+  String get conversationWaitingController => 'Waiting for controller sign-in';
+
+  @override
   String get conversationCompacted => 'Contexto compactado';
 
   @override

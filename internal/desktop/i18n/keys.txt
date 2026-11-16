@@ -160,6 +160,7 @@ turn_generating
 turn_awaiting_response
 turn_waiting_child
 turn_waiting_children
+turn_waiting_controller
 approval_rejected
 approval_reject
 approval_allow_once

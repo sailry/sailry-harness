@@ -444,6 +444,12 @@ abstract class AppLocalizations {
   /// **'Compacting context'**
   String get conversationCompacting;
 
+  /// No description provided for @conversationWaitingController.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for controller sign-in'**
+  String get conversationWaitingController;
+
   /// No description provided for @conversationCompacted.
   ///
   /// In en, this message translates to:
