@@ -49,6 +49,20 @@ func applyFollowFixture(t *testing.T, storage *Store, ctx context.Context, node,
 		return err
 	})
 }
+
+func followLocalID(t *testing.T, storage *Store, ctx context.Context, category, id string) string {
+	t.Helper()
+	var local string
+	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		local, err = configurationLocalID(ctx, db, category, id)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return local
+}
+
 func TestConfigurationFollowPreservesIdentitySecretsAndCapturedCredentials(t *testing.T) {
 	t.Parallel()
 	storage, node, source, ctx := followFixture(t)
@@ -59,9 +73,13 @@ func TestConfigurationFollowPreservesIdentitySecretsAndCapturedCredentials(t *te
 	if err := applyFollowFixture(t, storage, ctx, node, source, "providers", 1, record); err != nil {
 		t.Fatal(err)
 	}
+	localID, err := protocol.ParseProviderID(followLocalID(t, storage, ctx, "providers", provider.ID.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var first protocol.ConversationProvider
 	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
-		saved, err := readProviderConfiguration(ctx, db, provider.ID)
+		saved, err := readProviderConfiguration(ctx, db, localID)
 		if err != nil {
 			return err
 		}
@@ -69,10 +87,10 @@ func TestConfigurationFollowPreservesIdentitySecretsAndCapturedCredentials(t *te
 			return errors.New("followed provider absent")
 		}
 		first = *saved.Provider
-		if first.ID != provider.ID || first.Source == nil || first.Source.Node != source || first.Source.Revision != 11 || first.Revision != 1 || first.Credential == nil || first.Credential.Node != node {
+		if first.ID == provider.ID || first.ID != localID || first.Source == nil || first.Source.Node != source || first.Source.Revision != 11 || first.Revision != 1 || first.Credential == nil || first.Credential.Node != node {
 			return errors.New("source and target identities were not retained separately")
 		}
-		if err := CheckConfigurationEditable(ctx, db, "providers", provider.ID.String()); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+		if err := CheckConfigurationEditable(ctx, db, "providers", localID.String()); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
 			return errors.New("followed provider is editable")
 		}
 		return nil
@@ -95,7 +113,7 @@ func TestConfigurationFollowPreservesIdentitySecretsAndCapturedCredentials(t *te
 		t.Fatal(err)
 	}
 	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
-		saved, err := readProviderConfiguration(ctx, db, provider.ID)
+		saved, err := readProviderConfiguration(ctx, db, localID)
 		if err != nil {
 			return err
 		}
@@ -111,7 +129,7 @@ func TestConfigurationFollowPreservesIdentitySecretsAndCapturedCredentials(t *te
 		t.Fatal(err)
 	}
 }
-func TestConfigurationFollowRoleConflictAndPendingDeletion(t *testing.T) {
+func TestConfigurationFollowOwnsReceivingRoleKey(t *testing.T) {
 	t.Parallel()
 	storage, node, source, ctx := followFixture(t)
 	local := protocol.DefaultRoleProfile()
@@ -121,6 +139,7 @@ func TestConfigurationFollowRoleConflictAndPendingDeletion(t *testing.T) {
 	}
 	incoming := local
 	incoming.ID = protocol.NewRoleID()
+	incoming.Name = "Controller reviewer"
 	incoming.Revision = 5
 	record := followRecord(t, incoming.ID.String(), 5, incoming, nil)
 	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, record); err != nil {
@@ -131,15 +150,15 @@ func TestConfigurationFollowRoleConflictAndPendingDeletion(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if len(status.Issues) != 1 || status.Issues[0].State != "conflict" {
-			return errors.New("role key conflict was not surfaced")
+		if len(status.Issues) != 0 {
+			return errors.New("receiving namespace role was left in conflict")
 		}
 		roles, err := ReadRoles(ctx, db)
 		if err != nil {
 			return err
 		}
-		if len(roles) != 1 || roles[0].ID != local.ID {
-			return errors.New("source overwrote local role")
+		if len(roles) != 1 || roles[0].ID != local.ID || roles[0].Name != incoming.Name || roles[0].Source == nil {
+			return errors.New("source did not own its receiving role namespace")
 		}
 		return nil
 	}); err != nil {
@@ -153,8 +172,8 @@ func TestConfigurationFollowRoleConflictAndPendingDeletion(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if len(roles) != 1 || roles[0].ID != local.ID {
-			return errors.New("reconciliation deleted local conflicting role")
+		if len(roles) != 0 {
+			return errors.New("source deletion did not remove its receiving copy")
 		}
 		return nil
 	}); err != nil {
@@ -170,13 +189,14 @@ func TestConfigurationFollowRetainsGoodCopyDuringConflictAndDetach(t *testing.T)
 	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, followRecord(t, role.ID.String(), 3, role, nil)); err != nil {
 		t.Fatal(err)
 	}
+	localID := followLocalID(t, storage, ctx, "roles", role.ID.String())
 	role.Key = "invalid key"
 	role.Revision++
 	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 2, followRecord(t, role.ID.String(), 4, role, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		if err := CheckConfigurationEditable(ctx, db, "roles", role.ID.String()); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+		if err := CheckConfigurationEditable(ctx, db, "roles", localID); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
 			return errors.New("failed update unlocked previous good copy")
 		}
 		status, err := ReadConfigurationFollow(ctx, db)
@@ -191,10 +211,10 @@ func TestConfigurationFollowRetainsGoodCopyDuringConflictAndDetach(t *testing.T)
 		t.Fatal(err)
 	}
 	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
-		if err := CheckConfigurationEditable(ctx, db, "roles", role.ID.String()); err != nil {
+		if err := CheckConfigurationEditable(ctx, db, "roles", localID); err != nil {
 			return err
 		}
-		value, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", role.ID.String())
+		value, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", localID)
 		if err != nil {
 			return err
 		}

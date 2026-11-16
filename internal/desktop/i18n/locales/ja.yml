@@ -2349,22 +2349,21 @@ meter_tokens: トークン
 meter_speed: 速度
 meter_show_details: 詳細を表示
 meter_hide_details: 折りたたむ
-configuration_follow_title: Configuration follow
-configuration_follow_source: Source host
-configuration_follow_source_description: Followed copies are edited on their source host.
-configuration_follow_disabled: Disabled
-configuration_follow_this_host: This host
-configuration_follow_targets: Following hosts
-configuration_follow_configuration: Configuration
-configuration_follow_secrets: Static credentials
-configuration_follow_secrets_description: The host administrator can access credentials stored on this host.
-configuration_follow_mcp: Local MCP servers
-configuration_follow_mcp_description: Keep this server's configuration on this host.
-configuration_follow_issues: Pending configuration
+configuration_follow_title: Configuration sync
+configuration_follow_loading: Reading sync status
+configuration_follow_controller: Controller
+configuration_follow_description: Edit on the controller. Each controller has its own configuration on this host.
+configuration_follow_this_device: This device's configuration
+configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
+configuration_follow_waiting: Waiting for controller configuration
+configuration_follow_unavailable: Could not read sync status
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatic sync
+configuration_follow_issues: Needs attention
 configuration_follow_authorize: Authorize
-configuration_follow_detach: Keep as local copies
-configuration_follow_from_source: From source host
-configuration_follow_saved: Configuration follow saved
-configuration_follow_failed: Configuration follow failed
-configuration_follow_conflict: Configuration changed; reload before saving
-configuration_follow_unknown: The save outcome is unknown; check status before retrying
+configuration_follow_missing_key: API key is missing; check the controller configuration.
+configuration_follow_from_source: From controller
+configuration_follow_requested: Sync requested
+configuration_follow_failed: Configuration sync failed
+configuration_follow_conflict: Configuration changed; retry sync
+configuration_follow_unknown: Sync request is unconfirmed; retry to check its status

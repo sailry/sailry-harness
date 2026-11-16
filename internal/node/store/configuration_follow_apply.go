@@ -26,12 +26,12 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 	if err != nil || member.ID != user.ID {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "configuration source is not a member of this user")
 	}
+	if user.Local {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "host-local configuration is not a controller replica")
+	}
 	status, err := ReadConfigurationFollow(ctx, db)
 	if err != nil {
 		return nil, err
-	}
-	if status.Source == nil && status.Revision != 0 {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "configuration following is disabled")
 	}
 	if status.Source == nil {
 		if err := SetConfigurationSource(ctx, db, node, caller, &caller, status.Revision); err != nil {
@@ -59,25 +59,54 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 	ctx = configurationApplyContext(ctx)
 	events := []protocol.Event{}
 	seen := map[string]bool{}
+	localIDs := map[string]string{}
+	retained := map[string]bool{}
+	claim := func(local, source string) error {
+		if previous, exists := localIDs[local]; exists && previous != source {
+			return invalid("configuration records share a target identity")
+		}
+		localIDs[local] = source
+		return nil
+	}
 	for _, record := range manifest.Records {
 		seen[record.ID] = true
-		var digest, state string
+		var digest, state, localID string
 		var materialized bool
-		err = db.QueryRowContext(ctx, "SELECT digest,state,materialized FROM configuration_follow_records WHERE user=?1 AND category=?2 AND id=?3 AND source=?4", user.ID.String(), manifest.Category, record.ID, caller[:]).Scan(&digest, &state, &materialized)
+		err = db.QueryRowContext(ctx, "SELECT digest,state,materialized,CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND category=?2 AND id=?3 AND source=?4", user.ID.String(), manifest.Category, record.ID, caller[:]).Scan(&digest, &state, &materialized, &localID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		if digest == record.Digest && (state == "applied" || state == "authorization") {
+			if err := claim(localID, record.ID); err != nil {
+				return nil, err
+			}
+			retained[localID] = materialized
 			continue
 		}
 		if len(record.Body) == 0 {
 			return nil, fault(protocol.ErrorCodeRevisionConflict, "configuration manifest needs missing record content")
 		}
+		local, err := localConfigurationRecord(ctx, db, manifest.Category, record)
+		if err != nil {
+			return nil, err
+		}
+		if err := claim(local.ID, record.ID); err != nil {
+			return nil, err
+		}
+		// A replacement source identity may adopt the same role/team key. Keep
+		// its last usable copy and lock even when the replacement cannot apply.
+		if !materialized {
+			origin, err := configurationOrigin(ctx, db, manifest.Category, local.ID)
+			if err != nil {
+				return nil, err
+			}
+			materialized = origin != nil && origin.Node == caller
+		}
 		var failure error
 		if _, err := db.ExecContext(ctx, "SAVEPOINT follow_record"); err != nil {
 			return nil, err
 		}
-		changed, missing, applyErr := applyConfigurationRecord(ctx, db, node, manifest.Category, record)
+		changed, missing, applyErr := applyConfigurationRecord(ctx, db, node, manifest.Category, local)
 		if applyErr != nil {
 			failure = applyErr
 			_, err = db.ExecContext(ctx, "ROLLBACK TO follow_record")
@@ -106,22 +135,23 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 				state, message = "authorization", "authorization is required on this host"
 			}
 		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO configuration_follow_records(user,category,id,source,revision,digest,state,message,body,materialized) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(user,category,id) DO UPDATE SET source=excluded.source,revision=excluded.revision,digest=excluded.digest,state=excluded.state,message=excluded.message,body=excluded.body,materialized=excluded.materialized", user.ID.String(), manifest.Category, record.ID, caller[:], record.Revision, record.Digest, state, message, record.Body, materialized); err != nil {
+		if _, err := db.ExecContext(ctx, "INSERT INTO configuration_follow_records(user,category,id,source,revision,digest,state,message,body,materialized,local_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(user,category,id) DO UPDATE SET source=excluded.source,revision=excluded.revision,digest=excluded.digest,state=excluded.state,message=excluded.message,body=excluded.body,materialized=excluded.materialized,local_id=excluded.local_id", user.ID.String(), manifest.Category, record.ID, caller[:], record.Revision, record.Digest, state, message, record.Body, materialized, local.ID); err != nil {
 			return nil, err
 		}
+		retained[local.ID] = materialized
 	}
-	rows, err := db.QueryContext(ctx, "SELECT id,materialized FROM configuration_follow_records WHERE user=?1 AND category=?2 AND source=?3", user.ID.String(), manifest.Category, caller[:])
+	rows, err := db.QueryContext(ctx, "SELECT id,CASE WHEN local_id='' THEN id ELSE local_id END,materialized FROM configuration_follow_records WHERE user=?1 AND category=?2 AND source=?3", user.ID.String(), manifest.Category, caller[:])
 	if err != nil {
 		return nil, err
 	}
 	type removed struct {
-		id           string
+		id, local    string
 		materialized bool
 	}
 	var stale []removed
 	for rows.Next() {
 		var item removed
-		if err := rows.Scan(&item.id, &item.materialized); err != nil {
+		if err := rows.Scan(&item.id, &item.local, &item.materialized); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -133,8 +163,8 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 		return nil, err
 	}
 	for _, item := range stale {
-		if item.materialized {
-			changed, err := removeConfigurationCopy(ctx, db, node, manifest.Category, item.id)
+		if item.materialized && !retained[item.local] {
+			changed, err := removeConfigurationCopy(ctx, db, node, manifest.Category, item.local)
 			if err != nil {
 				return nil, err
 			}
@@ -156,6 +186,22 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 }
 
 func configurationCopyCollision(ctx context.Context, db *sql.Conn, category, id string) error {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return err
+	}
+	var exists bool
+	switch category {
+	case "providers", "roles", "teams", "ssh_profiles", "database_profiles":
+		owner, present, err := configurationOwner(ctx, db, category, id)
+		if err != nil {
+			return err
+		}
+		if present && owner != user.ID {
+			return fault(protocol.ErrorCodeConflict, "source identity belongs to another user")
+		}
+		exists = present
+	}
 	origin, err := configurationOrigin(ctx, db, category, id)
 	if err != nil {
 		return err
@@ -163,19 +209,24 @@ func configurationCopyCollision(ctx context.Context, db *sql.Conn, category, id 
 	if origin != nil {
 		return checkConfigurationCopySource(ctx, db, origin)
 	}
-	var exists bool
 	switch category {
 	case "providers", "roles", "teams", "ssh_profiles", "database_profiles":
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+category+" WHERE id=?1)", id).Scan(&exists); err != nil {
-			return err
+		if !user.Local {
+			return nil
 		}
 	case "defaults":
+		if !user.Local {
+			return nil
+		}
 		value, err := ReadDefaults(ctx, db)
 		if err != nil {
 			return err
 		}
 		exists = value.Config != nil
 	case "team_settings":
+		if !user.Local {
+			return nil
+		}
 		value, err := ReadTeamSettings(ctx, db)
 		if err != nil {
 			return err
@@ -488,6 +539,17 @@ func applyConfigurationRecord(ctx context.Context, db *sql.Conn, node protocol.N
 }
 
 func removeConfigurationCopy(ctx context.Context, db *sql.Conn, node protocol.NodeID, category, id string) ([]protocol.Event, error) {
+	switch category {
+	case "providers", "roles", "teams", "ssh_profiles", "database_profiles":
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		owner, present, err := configurationOwner(ctx, db, category, id)
+		if err != nil || !present || owner != user.ID {
+			return nil, err
+		}
+	}
 	switch category {
 	case "providers":
 		provider, err := protocol.ParseProviderID(id)

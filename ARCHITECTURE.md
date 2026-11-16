@@ -542,16 +542,20 @@ Node store retains the exact remote request and its known or uncertain outcome
 after local removal. This is diagnostic history without a retry worker; another
 explicit pairing starts a new attempt and preserves earlier records.
 
-Personal configuration follows a single selected source over direct authenticated
-host connections. Per-host switches control configuration and static secrets
-independently. Manifests reconcile versions, deletions and digests in dependency
-order; exact package archives materialize before their settings. Source-marked
-copies are read-only, local conflicts remain intact, and independent account
-authorization is listed as pending rather than copying renewable login tokens.
-MCP servers can retain explicit local overrides. Disabling follow keeps the last
-usable configuration; detaching converts copies to editable local records.
-Captured tasks continue using their frozen revisions. Machine settings and plugin
-business data do not travel with configuration.
+Each controller's local Node is the authority for its personal configuration.
+Directly paired execution hosts automatically mirror it, including static keys,
+into that controller's authenticated user namespace. A host keeps separate copies
+for independent controllers; its host-local configuration and other users are not
+overwritten. Explicit my-device groups retain their shared user identity.
+Manifests reconcile versions, deletions and digests in dependency order; exact
+package archives materialize before their settings, including when a host's
+initial bundled package has the same version but different contents. Transport
+identities and digests remain unchanged; a durable source-to-local ID association
+isolates globally keyed records and their typed references in each user space.
+Source-marked copies are read-only. Renewable account and OAuth authorization is
+completed independently on each host. Captured tasks continue using their frozen
+revisions. Machine settings and plugin business data do not travel with personal
+configuration.
 
 Peer trust records an inbound controller, an outbound host, or both directions.
 An invitation grants inbound controller access on the inviter and outbound host

@@ -738,6 +738,7 @@ CREATE TABLE IF NOT EXISTS configuration_follow_records (
  user TEXT NOT NULL REFERENCES users(id),
  category TEXT NOT NULL,
  id TEXT NOT NULL,
+ local_id TEXT NOT NULL DEFAULT '',
  source BLOB NOT NULL CHECK(length(source)=32),
  revision INTEGER NOT NULL,
  digest TEXT NOT NULL,

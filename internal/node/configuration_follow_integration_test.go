@@ -44,8 +44,8 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 	if err := target.Link().SetName("Target server"); err != nil {
 		t.Fatal(err)
 	}
-	// A public host already has an administrator. Its next paired user must not
-	// receive the source's static credentials until that host is opted in.
+	// A shared host already has an administrator. The next controller's personal
+	// API key still mirrors into its own authenticated nonadministrator namespace.
 	if err := target.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		_, err := store.CreateUser(ctx, db, "Existing administrator")
 		return err
@@ -98,7 +98,7 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 			t.Fatal("provider list has an invalid payload")
 		}
 		for _, value := range values {
-			if value.ID == provider.ID {
+			if value.ID == provider.ID || value.Source != nil && value.Source.Node == source.ID() {
 				return value
 			}
 		}
@@ -107,7 +107,7 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 	var copied protocol.ConversationProvider
 	wait("initial worker copy", func() bool {
 		copied = readCopy(remote)
-		return copied.Source != nil
+		return copied.Source != nil && copied.Credential != nil
 	})
 	if err := source.SyncIdentity(ctx); err != nil {
 		t.Fatal(err)
@@ -131,8 +131,8 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receiving.User == nil || receiving.User.Administrator || receiving.Source == nil || *receiving.Source != source.ID() || copied.Source.Node != source.ID() || copied.Credential != nil {
-		t.Fatalf("public host initial follow policy or copy is invalid: %#v %#v", receiving, copied)
+	if receiving.User == nil || receiving.User.Administrator || receiving.Source == nil || *receiving.Source != source.ID() || copied.Source.Node != source.ID() || copied.Credential == nil {
+		t.Fatalf("personal configuration mirror is invalid: %#v %#v", receiving, copied)
 	}
 	denied := func(command protocol.Command) {
 		t.Helper()
@@ -158,17 +158,9 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		}
 		return false
 	})
-	if !policy.Configuration || policy.Secrets {
-		t.Fatalf("public host target defaults = %#v", policy)
+	if !policy.Configuration || !policy.Secrets {
+		t.Fatalf("personal configuration defaults = %#v", policy)
 	}
-	policy.Secrets = true
-	if _, err := local.ConfigurationFollow(ctx, protocol.ConfigurationFollowCommand{Action: "set_target", Target: &policy, ExpectedRevision: policy.Revision}); err != nil {
-		t.Fatal(err)
-	}
-	wait("static credential opt-in", func() bool {
-		copied = readCopy(remote)
-		return copied.Credential != nil
-	})
 	if copied.Credential.Node != target.ID() || copied.Credential.ID == provider.Credential.ID {
 		t.Fatalf("copied credential was not scoped to target: %#v", copied.Credential)
 	}
@@ -176,7 +168,7 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		t.Helper()
 		var body []byte
 		if err := target.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			return db.QueryRowContext(ctx, "SELECT body FROM providers WHERE id=?1 AND user=?2", provider.ID.String(), receiving.User.ID.String()).Scan(&body)
+			return db.QueryRowContext(ctx, "SELECT body FROM providers WHERE id=?1 AND user=?2", copied.ID.String(), receiving.User.ID.String()).Scan(&body)
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -208,35 +200,28 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paused, err := remote.ConfigurationFollow(ctx, protocol.ConfigurationFollowCommand{Action: "set_source", ExpectedRevision: receiving.Revision})
+	_, err = remote.ConfigurationFollow(ctx, protocol.ConfigurationFollowCommand{Action: "set_source", ExpectedRevision: receiving.Revision})
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider = readCopy(local)
-	provider.Name = "Source changed while following was paused"
-	if _, err := local.Do(ctx, protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: provider.Revision}}); err != nil {
-		t.Fatal(err)
-	}
-	wait("paused target rejects delivery", func() bool {
-		status, err := local.ReadConfigurationFollow(ctx)
+	beforeResume := copied
+	wait("target observer restores automatic source without an edit", func() bool {
+		status, err := remote.ReadConfigurationFollow(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, value := range status.Targets {
-			if value.Host == target.ID() && value.Error != nil && value.Error.Code == protocol.ErrorCodePermissionDenied {
-				return true
-			}
-		}
-		return false
+		return status.Source != nil && *status.Source == source.ID()
 	})
-	if value := readCopy(remote); value.Name != copied.Name || value.Revision != copied.Revision {
-		t.Fatal("disabled following changed the retained copy")
+	copied = readCopy(remote)
+	if copied.Revision != beforeResume.Revision || copied.Credential == nil || *copied.Credential != *beforeResume.Credential {
+		t.Fatal("metadata-only source restoration changed the provider or credential")
 	}
-	if _, err := remote.ConfigurationFollow(ctx, protocol.ConfigurationFollowCommand{Action: "set_source", Source: pointerNode(source.ID()), ExpectedRevision: paused.Revision}); err != nil {
+	provider = readCopy(local)
+	provider.Name = "Source changed after automatic follow resumed"
+	if _, err := local.Do(ctx, protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: provider.Revision}}); err != nil {
 		t.Fatal(err)
 	}
-	// No source edit or explicit sync follows the target policy change.
-	wait("target observer resumes same-source delivery", func() bool {
+	wait("target observer automatically resumes controller delivery", func() bool {
 		copied = readCopy(remote)
 		return copied.Name == provider.Name && copied.Credential != nil
 	})

@@ -8,42 +8,24 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-type ConfigurationSourceChoice struct {
-	ID, Name string
-	LabelKey string
-}
-type ConfigurationTargetChoice struct {
-	ID, Name               string
-	Revision               uint64
-	Configuration, Secrets bool
-	Failure                string
+type ConfigurationTargetStatus struct {
+	ID, Name, Failure string
 }
 type ConfigurationFollowIssue struct {
-	Category, ID, State, Message string
-	Authorize                    bool
-}
-type ConfigurationMCPLocal struct {
-	Plugin, Server string
-	Local          bool
+	Category, ID, State, Message, MessageKey string
+	Authorize                                bool
 }
 type ConfigurationFollowEditor struct {
-	Device                                          viewmodel.Device
-	Revision                                        uint64
-	Source                                          int
-	Sources                                         []ConfigurationSourceChoice
-	Targets                                         []ConfigurationTargetChoice
-	Issues                                          []ConfigurationFollowIssue
-	MCP                                             []ConfigurationMCPLocal
-	Loading, Pending, Locked, Disabled, Unavailable bool
+	Device                                           viewmodel.Device
+	Source                                           string
+	Targets                                          []ConfigurationTargetStatus
+	Issues                                           []ConfigurationFollowIssue
+	Local, Loading, Pending, ReadFailed, Unavailable bool
 }
 type ConfigurationFollowActions struct {
 	Open      func(viewmodel.Device)
 	Refresh   func(*ConfigurationFollowEditor)
-	Source    func(*ConfigurationFollowEditor)
-	Target    func(*ConfigurationFollowEditor, int)
-	MCPLocal  func(*ConfigurationFollowEditor, int)
 	Authorize func(*ConfigurationFollowEditor, ConfigurationFollowIssue)
-	Detach    func(*ConfigurationFollowEditor)
 }
 
 func configurationFollowDialog(c *ui.Context, m *Model) {
@@ -59,50 +41,30 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 		ui.Text(c, deviceName(c, e.Device)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 		ui.Scroll(c.Key("body")).MaxHeight(500).Gap(16).Children(func() {
 			if e.Loading {
-				kit.Shimmer(c, t("host_runtime_loading"), 14, theme.Of(c).MutedForeground)
+				kit.Shimmer(c, t("configuration_follow_loading"), 14, theme.Of(c).MutedForeground)
 				return
 			}
-			names := make([]string, len(e.Sources))
-			for i, choice := range e.Sources {
-				names[i] = choice.Name
-				if choice.LabelKey != "" {
-					names[i] = t(choice.LabelKey)
-				}
-			}
 			kit.Card(c, func() {
-				kit.Row(c, "source", t("configuration_follow_source"), t("configuration_follow_source_description"), func() {
-					if pick(c, "source", t("configuration_follow_source"), &e.Source, names, e.Pending || e.Locked || e.Unavailable).Changed() && m.FollowActions != nil && m.FollowActions.Source != nil {
-						m.FollowActions.Source(e)
-					}
-				})
+				if e.ReadFailed {
+					ui.Text(c, t("configuration_follow_unavailable")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+				} else if e.Local {
+					kit.Row(c, "local", t("configuration_follow_this_device"), t("configuration_follow_local_description"), nil)
+				} else if e.Source != "" {
+					kit.Row(c, "controller", t("configuration_follow_controller"), e.Source, nil)
+					ui.Text(c, t("configuration_follow_description")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+				} else {
+					kit.Row(c, "waiting", t("configuration_follow_waiting"), t("configuration_follow_description"), nil)
+				}
 			})
 			if len(e.Targets) > 0 {
 				kit.Group(c, "targets", t("configuration_follow_targets"), "", nil, func() {
-					for i := range e.Targets {
-						target := &e.Targets[i]
-						kit.Card(c.Key(target.ID), func() {
-							ui.Text(c, target.Name).FontSize(14).FontWeight(600)
-							if settingSwitch(c, "configuration", t("configuration_follow_configuration"), "", &target.Configuration, e.Pending || e.Locked || e.Unavailable) && m.FollowActions != nil && m.FollowActions.Target != nil {
-								m.FollowActions.Target(e, i)
-							}
-							if settingSwitch(c, "secrets", t("configuration_follow_secrets"), t("configuration_follow_secrets_description"), &target.Secrets, e.Pending || e.Locked || e.Unavailable) && m.FollowActions != nil && m.FollowActions.Target != nil {
-								m.FollowActions.Target(e, i)
-							}
-							if target.Failure != "" {
-								ui.Text(c, target.Failure).FontSize(14).TextColor(theme.Of(c).MutedForeground)
-							}
-						})
-					}
-				})
-			}
-			if len(e.MCP) > 0 {
-				kit.Group(c, "mcp", t("configuration_follow_mcp"), t("configuration_follow_mcp_description"), nil, func() {
 					kit.Card(c, func() {
-						for i := range e.MCP {
-							server := &e.MCP[i]
-							if settingSwitch(c, server.Plugin+"/"+server.Server, server.Plugin+" / "+server.Server, "", &server.Local, e.Pending || e.Locked || e.Unavailable) && m.FollowActions != nil && m.FollowActions.MCPLocal != nil {
-								m.FollowActions.MCPLocal(e, i)
+						for _, target := range e.Targets {
+							status := target.Failure
+							if status == "" {
+								status = t("configuration_follow_automatic")
 							}
+							kit.Row(c, target.ID, target.Name, status, nil)
 						}
 					})
 				})
@@ -111,9 +73,13 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 				kit.Group(c, "issues", t("configuration_follow_issues"), "", nil, func() {
 					kit.Card(c, func() {
 						for _, issue := range e.Issues {
-							kit.Row(c, issue.Category+"/"+issue.ID, issue.Category+" / "+issue.ID, issue.Message, func() {
+							message := issue.Message
+							if issue.MessageKey != "" {
+								message = t(issue.MessageKey)
+							}
+							kit.Row(c, issue.Category+"/"+issue.ID, issue.Category+" / "+issue.ID, message, func() {
 								if issue.Authorize {
-									kit.Secondary(c, t("configuration_follow_authorize")).Disabled(e.Pending).OnClick(func() {
+									kit.Secondary(c, t("configuration_follow_authorize")).Disabled(e.Pending || e.Unavailable).OnClick(func() {
 										if m.FollowActions != nil && m.FollowActions.Authorize != nil {
 											m.FollowActions.Authorize(e, issue)
 										}
@@ -126,19 +92,12 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 			}
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-			if e.Disabled {
-				kit.Secondary(c.Key("detach"), t("configuration_follow_detach")).Disabled(e.Pending || e.Locked || e.Unavailable).OnClick(func() {
-					if m.FollowActions != nil && m.FollowActions.Detach != nil {
-						m.FollowActions.Detach(e)
-					}
-				})
-			}
 			kit.Secondary(c.Key("refresh"), t("settings_retry")).Disabled(e.Pending || e.Loading).OnClick(func() {
 				if m.FollowActions != nil && m.FollowActions.Refresh != nil {
 					m.FollowActions.Refresh(e)
 				}
 			})
-			kit.Secondary(c.Key("close"), t("settings_cancel")).Disabled(e.Pending).OnClick(func() { m.FollowEditor = nil })
+			kit.Secondary(c.Key("close"), t("close")).Disabled(e.Pending).OnClick(func() { m.FollowEditor = nil })
 		})
 	}).Width(min(560, width(c)-48)).Gap(16).Label(title)
 	if !open && !e.Pending {
