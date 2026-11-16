@@ -162,14 +162,16 @@ CREATE TABLE users (
     administrator INTEGER NOT NULL CHECK(administrator IN (0,1)),
     local INTEGER NOT NULL DEFAULT 0 CHECK(local IN (0,1)),
     state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','merged')),
-    merged_into TEXT REFERENCES users(id)
+    merged_into TEXT REFERENCES users(id),
+    controller BLOB CHECK(controller IS NULL OR length(controller)=32)
 );
 CREATE UNIQUE INDEX users_local ON users(local) WHERE local=1;
 CREATE TABLE IF NOT EXISTS link_peers (
     identity BLOB PRIMARY KEY CHECK(length(identity)=32),
     direction TEXT NOT NULL DEFAULT 'both' CHECK(direction IN ('controller','host','both')),
     legacy INTEGER NOT NULL DEFAULT 1 CHECK(legacy IN (0,1)),
-    user TEXT REFERENCES users(id)
+    user TEXT REFERENCES users(id),
+    has_node INTEGER CHECK(has_node IS NULL OR has_node IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS link_addresses (
     identity BLOB PRIMARY KEY REFERENCES link_peers(identity) ON DELETE CASCADE,
@@ -774,4 +776,27 @@ CREATE TABLE IF NOT EXISTS configuration_follow_packages (
  name TEXT NOT NULL,
  body BLOB NOT NULL,
  mcp BLOB NOT NULL
+);
+
+CREATE TABLE configuration_cache_history (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ id TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>0),
+ digest TEXT NOT NULL,
+ body BLOB NOT NULL,
+ secret TEXT,
+ expires_at_ms INTEGER,
+ PRIMARY KEY(user,category,id,revision)
+);
+CREATE TABLE configuration_cache (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ id TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>0),
+ digest TEXT NOT NULL,
+ body BLOB NOT NULL,
+ secret TEXT,
+ expires_at_ms INTEGER,
+ PRIMARY KEY(user,category,id)
 );

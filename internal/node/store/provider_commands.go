@@ -454,9 +454,6 @@ func validateProviderKey(secret protocol.Secret) error {
 	return nil
 }
 func resolveProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID, reference protocol.CredentialRef, provider protocol.ProviderID) (*protocol.Secret, error) {
-	if reference.Node != node {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
-	}
 	saved, err := readProviderConfiguration(ctx, db, provider)
 	if err != nil {
 		return nil, err
@@ -464,9 +461,22 @@ func resolveProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 	if saved == nil {
 		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
 	}
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return nil, err
+	} else if cached && saved.Provider != nil {
+		return ReadRuntimeProviderCredential(ctx, db, node, *saved.Provider, reference)
+	}
+	if reference.Node != node {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
+	}
 	return providerConfigurationKey(saved, reference)
 }
 func resolveCapturedProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID, reference protocol.CredentialRef, provider protocol.ConversationProvider) (*protocol.Secret, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return nil, err
+	} else if cached {
+		return ReadRuntimeProviderCredential(ctx, db, node, provider, reference)
+	}
 	if reference.Node != node {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
 	}

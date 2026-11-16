@@ -135,7 +135,11 @@ func exportPluginFollowRecords(ctx context.Context, db *sql.Conn, category strin
 			if includeSecrets && len(settings.Secrets) > 0 {
 				secret = pluginFollowSecrets{Slots: settings.Secrets}
 			}
-			if err := add(info.Summary.Name, info.Summary.Revision, value, secret); err != nil {
+			revision, err := nextRevision(info.Summary.SettingsRevision)
+			if err != nil {
+				return nil, err
+			}
+			if err := add(info.Summary.Name, revision, value, secret); err != nil {
 				return nil, err
 			}
 		case "connections":

@@ -22,6 +22,8 @@ var configurationFollowers sync.Map
 type configurationFollowPeer struct {
 	cancel context.CancelFunc
 	wake   chan struct{}
+	client *client.Client
+	remote *link.Remote
 }
 type configurationFollowRuntime struct {
 	wake  chan struct{}
@@ -129,12 +131,12 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 			continue
 		}
 		scoped, cancel := context.WithCancel(ctx)
-		peer := &configurationFollowPeer{cancel: cancel, wake: make(chan struct{}, 1)}
+		remote := node.network.Remote(address)
+		peer := &configurationFollowPeer{cancel: cancel, wake: make(chan struct{}, 1), remote: remote, client: client.New(remote)}
 		runtime.peers[address.ID] = peer
 		address := address
 		if err := node.tasks.Submit(func(owner context.Context) {
-			remote := node.network.Remote(address)
-			observer := client.New(remote)
+			remote, observer := peer.remote, peer.client
 			defer observer.Close()
 			cancelWatch := observer.OnChange(func() {
 				select {
@@ -182,6 +184,23 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 			delete(runtime.peers, id)
 		}
 	}
+}
+
+// controllerClients reuses the authenticated direct-host observers owned by
+// the controller's reconciliation lifecycle. Callers must not close them.
+func (node *Node) controllerClients() map[protocol.NodeID]*client.Client {
+	result := map[protocol.NodeID]*client.Client{}
+	value, ok := configurationFollowers.Load(node)
+	if !ok {
+		return result
+	}
+	runtime := value.(*configurationFollowRuntime)
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	for id, peer := range runtime.peers {
+		result[id] = peer.client
+	}
+	return result
 }
 
 func configurationRemote(ctx context.Context, transport link.Transport, request protocol.Request) (protocol.Output, error) {

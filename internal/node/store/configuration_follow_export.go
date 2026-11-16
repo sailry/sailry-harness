@@ -66,20 +66,14 @@ func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host p
 			provider := *saved.Provider
 			provider.Owner, provider.Shared, provider.Source = nil, false, nil
 			provider.Consent = nil
-			var key *protocol.Secret
-			var expiry *uint64
-			if secrets && provider.Credential != nil && transferable(provider.Authentication) == nil {
-				auth, ok := saved.Authorizations[provider.Credential.ID]
-				if ok {
-					key, expiry = auth.Key, auth.ExpiresAtMs
-				}
-			}
-			if key == nil {
-				provider.Credential = nil
-			}
-			if err := add(provider.ID.String(), provider.Revision, provider, key, expiry); err != nil {
+			if err := add(provider.ID.String(), provider.Revision, provider, nil, nil); err != nil {
 				return value, err
 			}
+		}
+	case "runtime_credentials":
+		value.Records, err = ExportRuntimeCredentials(ctx, db, node)
+		if err != nil {
+			return value, err
 		}
 	case "roles":
 		values, err := ReadRoles(ctx, db)

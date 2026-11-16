@@ -11,7 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-var ConfigurationCategories = []string{"plugins", "providers", "roles", "teams", "ssh_profiles", "database_profiles", "defaults", "team_settings", "plugin_settings", "connections"}
+var ConfigurationCategories = []string{"plugins", "providers", "roles", "teams", "ssh_profiles", "database_profiles", "defaults", "team_settings", "plugin_settings", "connections", "runtime_credentials"}
 
 type configurationApplyKey struct{}
 
@@ -27,6 +27,17 @@ func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string)
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
+	}
+	if user.Controller != nil && !user.Local {
+		var revision uint64
+		err := db.QueryRowContext(ctx, "SELECT revision FROM configuration_cache WHERE user=?1 AND category=?2 AND id=?3", user.ID.String(), category, id).Scan(&revision)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &protocol.ConfigurationOrigin{Node: *user.Controller, Revision: revision}, nil
 	}
 	var source []byte
 	var revision uint64
@@ -57,6 +68,11 @@ func checkConfigurationCopySource(ctx context.Context, db *sql.Conn, origin *pro
 func CheckConfigurationEditable(ctx context.Context, db *sql.Conn, category, id string) error {
 	if configurationApplying(ctx) {
 		return nil
+	}
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return err
+	} else if cached {
+		return fault(protocol.ErrorCodePermissionDenied, "configuration is managed by its controller")
 	}
 	source, err := configurationOrigin(ctx, db, category, id)
 	if err != nil {
@@ -310,7 +326,14 @@ func ReadConfigurationManifest(ctx context.Context, db *sql.Conn, source protoco
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT id,revision,digest FROM configuration_follow_records WHERE user=?1 AND source=?2 AND category=?3 AND state IN ('applied','authorization') ORDER BY id", user.ID.String(), source[:], category)
+	query := "SELECT id,revision,digest FROM configuration_follow_records WHERE user=?1 AND source=?2 AND category=?3 AND state IN ('applied','authorization') ORDER BY id"
+	if user.Controller != nil && !user.Local {
+		if *user.Controller != source {
+			return value, fault(protocol.ErrorCodePermissionDenied, "configuration belongs to another controller")
+		}
+		query = "SELECT id,revision,digest FROM configuration_cache WHERE user=?1 AND ?2 IS NOT NULL AND category=?3 ORDER BY id"
+	}
+	rows, err := db.QueryContext(ctx, query, user.ID.String(), source[:], category)
 	if err != nil {
 		return value, err
 	}

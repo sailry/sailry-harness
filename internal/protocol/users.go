@@ -9,6 +9,7 @@ type User struct {
 	Local         bool    `json:"local"`
 	State         string  `json:"state"`
 	MergedInto    *UserID `json:"merged_into,omitempty"`
+	Controller    *NodeID `json:"controller,omitempty"`
 }
 
 func (value *User) UnmarshalJSON(data []byte) error { return Decode(data, value) }

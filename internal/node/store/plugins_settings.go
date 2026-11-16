@@ -366,7 +366,17 @@ func ResolvePluginSettings(ctx context.Context, db *sql.Conn, reference protocol
 	if err != nil {
 		return ResolvedPluginSettings{}, err
 	}
+	_, cached, err := configurationCacheUser(ctx, db)
+	if err != nil {
+		return ResolvedPluginSettings{}, err
+	}
 	for name, secret := range stored.Slots {
+		if cached {
+			if secret != nil && sameSettingsBinding(stored, info.Settings, name, stored.McpTargets) {
+				result.Secrets[name] = *secret
+			}
+			continue
+		}
 		if secret == nil || current == nil || settingsBinding(current.Settings, name) == nil {
 			continue
 		}

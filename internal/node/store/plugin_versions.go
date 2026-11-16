@@ -16,7 +16,17 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		return protocol.PluginInfo{}, err
 	}
 	if info == nil {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is unavailable on this Node")
+		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+			return protocol.PluginInfo{}, err
+		} else if cached {
+			value, _, err := followedPackage(ctx, db, reference)
+			if err != nil {
+				return protocol.PluginInfo{}, err
+			}
+			info = &value
+		} else {
+			return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "plugin version is unavailable on this Node")
+		}
 	}
 	if info.Summary.Name != reference.Name || info.Summary.Digest != reference.Digest {
 		return protocol.PluginInfo{}, invalid("stored plugin version identity differs from its capture")
@@ -28,6 +38,15 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		return protocol.PluginInfo{}, invalid("invalid plugin configuration revision")
 	}
 	if reference.SettingsRevision != 0 {
+		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+			return protocol.PluginInfo{}, err
+		} else if cached {
+			if _, err := cachedPluginSettings(ctx, db, reference.Name, reference.SettingsRevision); err != nil {
+				return protocol.PluginInfo{}, err
+			}
+			info.Summary.SettingsRevision = reference.SettingsRevision
+			return *info, nil
+		}
 		user, err := pluginUserID(ctx, db)
 		if err != nil {
 			return protocol.PluginInfo{}, err

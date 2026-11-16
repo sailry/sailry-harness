@@ -12,6 +12,11 @@ import (
 // readProviderConfiguration admits only the current user's configuration.
 // The legacy shared flag never grants access to another user's provider.
 func readProviderConfiguration(ctx context.Context, db *sql.Conn, id protocol.ProviderID) (*providerConfiguration, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return nil, err
+	} else if cached {
+		return cachedProviderConfiguration(ctx, db, id)
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
@@ -42,6 +47,25 @@ func scanProviderConfiguration(row interface{ Scan(...any) error }) (*providerCo
 }
 
 func providerConfigurations(ctx context.Context, db *sql.Conn) ([]providerConfiguration, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return nil, err
+	} else if cached {
+		values, err := listCachedConfiguration[protocol.ConversationProvider](ctx, db, "providers")
+		if err != nil {
+			return nil, err
+		}
+		result := make([]providerConfiguration, 0, len(values))
+		for _, value := range values {
+			saved, err := cachedProviderConfiguration(ctx, db, value.ID)
+			if err != nil {
+				return nil, err
+			}
+			if saved != nil {
+				result = append(result, *saved)
+			}
+		}
+		return result, nil
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err

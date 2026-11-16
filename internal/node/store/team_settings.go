@@ -8,6 +8,15 @@ import (
 )
 
 func ReadTeamSettings(ctx context.Context, db *sql.Conn) (protocol.TeamSettings, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return protocol.TeamSettings{}, err
+	} else if cached {
+		value, err := readCachedConfiguration[protocol.TeamSettings](ctx, db, "team_settings", "default")
+		if err != nil || value == nil {
+			return protocol.DefaultTeamSettings(), err
+		}
+		return *value, nil
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return protocol.TeamSettings{}, err

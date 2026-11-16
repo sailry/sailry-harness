@@ -29,6 +29,9 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 	if user.Local {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "host-local configuration is not a controller replica")
 	}
+	if user.Controller != nil {
+		return applyConfigurationCache(ctx, db, node, caller, manifest)
+	}
 	status, err := ReadConfigurationFollow(ctx, db)
 	if err != nil {
 		return nil, err

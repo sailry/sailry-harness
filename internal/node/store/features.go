@@ -78,9 +78,6 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 		return invalid("model identifier is required and must be bounded")
 	}
 	if ref := config.Credential; ref != nil {
-		if ref.Node != node {
-			return fault(protocol.ErrorCodePermissionDenied, "credential references must belong to the execution Node")
-		}
 		stored, err := readProviderConfiguration(ctx, db, config.Provider)
 		if err != nil {
 			return err
@@ -88,15 +85,8 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 		if stored == nil {
 			return fault(protocol.ErrorCodeNotFound, "credential not found on the execution Node")
 		}
-		saved, exists := stored.Authorizations[ref.ID]
-		if !exists {
-			return fault(protocol.ErrorCodeNotFound, "credential not found on the execution Node")
-		}
-		if stored.ID != config.Provider || saved.Key == nil {
-			return fault(protocol.ErrorCodePermissionDenied, "credential is revoked or belongs to another provider")
-		}
-		if saved.ExpiresAtMs != nil && *saved.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
-			return fault(protocol.ErrorCodePermissionDenied, "credential expired; authenticate again")
+		if _, err := resolveProviderKey(ctx, db, node, *ref, config.Provider); err != nil {
+			return err
 		}
 	}
 	stored, err := readProviderConfiguration(ctx, db, config.Provider)
@@ -166,6 +156,22 @@ type providerAuthorization struct {
 }
 
 func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) {
+	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+		return protocol.Defaults{}, err
+	} else if cached {
+		value, err := readCachedConfiguration[protocol.Defaults](ctx, db, "defaults", "default")
+		if err != nil || value == nil {
+			return protocol.DefaultDefaults(), err
+		}
+		if value.Config != nil {
+			if saved, err := cachedProviderConfiguration(ctx, db, value.Config.Provider); err != nil {
+				return protocol.Defaults{}, err
+			} else if saved != nil && saved.Provider != nil {
+				value.Config.Credential = saved.Provider.Credential
+			}
+		}
+		return *value, nil
+	}
 	var value protocol.Defaults
 	var body []byte
 	user, err := CurrentUser(ctx, db)
