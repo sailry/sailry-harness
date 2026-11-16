@@ -198,6 +198,13 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 			return err
 		}
 	}
+	if definition.state == schemaUpdate && definition.plan.added[schemaObject{"projects", "visibility"}] {
+		// Rust projects predate the visibility field and were shared. Preserve
+		// existing explicit choices when a later schema already has the column.
+		if _, err := connection.ExecContext(ctx, "UPDATE projects SET visibility='shared'"); err != nil {
+			return err
+		}
+	}
 	if definition.state != schemaCurrent {
 		if err := initializeDefaults(ctx, connection); err != nil {
 			return err

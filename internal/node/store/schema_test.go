@@ -398,6 +398,44 @@ func TestStartupPreservesLegacyCredentialRequests(t *testing.T) {
 	}
 }
 
+func TestProjectVisibilityMigrationPreservesExplicitChoices(t *testing.T) {
+	t.Parallel()
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing_visibility=%t", legacy), func(t *testing.T) {
+			t.Parallel()
+			profile, node, original := schemaFixture(t)
+			project := protocol.NewProjectID()
+			appearance, err := json.Marshal(protocol.DefaultProjectsAppearance())
+			if err != nil {
+				t.Fatal(err)
+			}
+			schemaExecute(t, original.Node, "INSERT INTO projects(id,name,path,appearance,visibility) VALUES(?1,'Original project',?2,?3,'private')", project.String(), filepath.Join(profile, "project"), appearance)
+			if legacy {
+				schemaExecute(t, original.Node, "ALTER TABLE projects DROP COLUMN visibility")
+			}
+			if err := original.Close(); err != nil {
+				t.Fatal(err)
+			}
+			expected := "private"
+			if legacy {
+				expected = "shared"
+			}
+			for range 2 {
+				current := reopenSchemaFixture(t, profile, node)
+				var visibility string
+				if err := current.Node.Read(t.Context(), func(db *sql.Conn) error {
+					return db.QueryRowContext(t.Context(), "SELECT visibility FROM projects WHERE id=?1", project.String()).Scan(&visibility)
+				}); err != nil || visibility != expected {
+					t.Fatalf("project visibility = %q, want %q: %v", visibility, expected, err)
+				}
+				if err := current.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestUpdateBackupBeforeApply(t *testing.T) {
 	t.Parallel()
 	for _, invalid := range []bool{false, true} {
