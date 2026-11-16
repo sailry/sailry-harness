@@ -8,3 +8,5 @@ export const HoverSwap:{new(id:string,props:{group:string}):import('gpui-kit').E
 export const ThinkingIcon:{new(id:string,props:{phase:string}):import('gpui-kit').Element};
 /** An elliptical outline filling its parent; running rings carry a travelling highlight. */
 export const StatusRing:{new(id:string,props:{color:string;opacity?:number;line?:number;running?:boolean}):import('gpui-kit').Element};
+/** Open an accessible session on its recorded execution Node through this controller entry. */
+export function openSession(session: string, node?: import("./api").NodeID | null): void;

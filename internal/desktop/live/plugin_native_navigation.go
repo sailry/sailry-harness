@@ -42,7 +42,14 @@ func (state *pluginNativeState) navigationOperations() {
 		if err != nil {
 			return nil, err
 		}
-		return state.effect(func(*ui.Context) { state.openSession(id) })
+		var node *protocol.NodeID
+		if len(arguments) > 1 {
+			node, err = pluginNativeArgument[*protocol.NodeID](arguments, 1)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return state.effect(func(*ui.Context) { state.openSession(id, node) })
 	}
 	operations["sailry/ui.openActivityTarget"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
 		kind, err := pluginNativeArgument[string](arguments, 0)
@@ -194,17 +201,25 @@ func (state *pluginNativeState) navigationOperations() {
 	}
 }
 
-func (state *pluginNativeState) openSession(id protocol.SessionID) {
+func (state *pluginNativeState) openSession(id protocol.SessionID, node ...*protocol.NodeID) {
 	if _, available := state.packageInfo(); !available {
 		return
 	}
-	if _, exists := state.runtime.session(id.String()); !exists {
+	owner := state.runtime
+	if len(node) != 0 && node[0] != nil {
+		owner = state.runtime.runtimeFor(node[0].String())
+		if owner == nil {
+			return
+		}
+	}
+	if _, exists := owner.session(id.String()); !exists {
 		return
 	}
-	state.runtime.project()
-	conversation := state.runtime.App.Data.Find(id.String())
-	if conversation != nil && conversation.Node == state.runtime.controller.Target().String() {
-		state.runtime.OpenSession(id.String())
+	owner.project()
+	root := owner.localRuntime()
+	conversation := root.App.Data.Find(id.String())
+	if conversation != nil && conversation.Node == owner.controller.Target().String() {
+		root.OpenSession(id.String())
 	}
 }
 
