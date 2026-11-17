@@ -30,6 +30,9 @@ func configurationPageCount(size uint64) uint64 {
 
 func validateConfigurationSnapshot(page protocol.ConfigurationSnapshotPage) error {
 	_, category := configurationKind(page.Category)
+	if page.Category == protocol.PersonalKVAcknowledgementCategory {
+		category = page.Bytes <= MaxPersonalKVTransferBytes
+	}
 	digest, err := hex.DecodeString(page.Digest)
 	if page.Root == (protocol.RequestID{}) || !category || page.Revision == 0 || page.Revision > math.MaxInt64 ||
 		page.Bytes == 0 || page.Bytes > protocol.MaxConfigurationSnapshotBytes || err != nil || len(digest) != 32 {
@@ -170,11 +173,19 @@ VALUES(?1,?2,?3,?4,?5)`, user.ID.String(), page.Root.String(), page.Index, diges
 	progress.NextIndex++
 	var changes []protocol.Event
 	if progress.NextIndex == count {
-		manifest, err := assembleConfigurationSnapshot(ctx, db, user.ID, page)
-		if err != nil {
-			return progress, nil, err
+		if page.Category == protocol.PersonalKVAcknowledgementCategory {
+			var receipt protocol.PersonalKVReceipt
+			receipt, err = assemblePersonalKVAcknowledgement(ctx, db, user.ID, page)
+			if err == nil {
+				changes, err = AcknowledgePersonalKV(ctx, db, node, caller, receipt)
+			}
+		} else {
+			var manifest protocol.ConfigurationManifest
+			manifest, err = assembleConfigurationSnapshot(ctx, db, user.ID, page)
+			if err == nil {
+				changes, err = ApplyConfigurationManifest(ctx, db, node, caller, manifest)
+			}
 		}
-		changes, err = ApplyConfigurationManifest(ctx, db, node, caller, manifest)
 		if err != nil {
 			return progress, nil, err
 		}

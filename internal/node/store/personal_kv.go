@@ -16,6 +16,11 @@ import (
 
 const personalKVOutboxLimit = 128 * 1024 * 1024
 
+// Every legal group and receipt fits this derived encoding bound: 64 writes,
+// base64 values, bounded indexes and escaped keys, plus the fixed header. It
+// imposes no smaller transaction quota than the existing storage contract.
+const MaxPersonalKVTransferBytes = 64*(4*((plugins.MaxValueBytes+2)/3)+maxPluginIndexBytes+2048) + 4096
+
 type personalKVTransactionKey struct{}
 type personalKVTransaction struct {
 	user   protocol.User
@@ -144,7 +149,7 @@ func personalKVPendingGroups(ctx context.Context, db *sql.Conn, user protocol.Us
 	return readBodies[protocol.PersonalKVGroup](ctx, db, "SELECT body FROM personal_kv_outbox WHERE user=?1 ORDER BY sequence", user.String())
 }
 
-func ReadPersonalKVPending(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID) (protocol.PersonalKVPending, error) {
+func ReadPersonalKVPending(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, continuation *protocol.PersonalKVRead) (protocol.PersonalKVPending, error) {
 	var result protocol.PersonalKVPending
 	user, cached, err := configurationCacheUser(ctx, db)
 	if err != nil {
@@ -153,8 +158,44 @@ func ReadPersonalKVPending(ctx context.Context, db *sql.Conn, node, caller proto
 	if !cached || user.Controller == nil || *user.Controller != caller || caller == node {
 		return result, fault(protocol.ErrorCodePermissionDenied, "personal data does not belong to this controller")
 	}
-	result.Group, err = readBody[protocol.PersonalKVGroup](ctx, db, "SELECT body FROM personal_kv_outbox WHERE user=?1 ORDER BY sequence LIMIT 1", user.ID.String())
-	if err == nil {
+	var request any
+	var offset uint64
+	if continuation != nil {
+		if continuation.Request == (protocol.RequestID{}) || continuation.Offset >= MaxPersonalKVTransferBytes {
+			return result, invalid("personal data continuation is invalid")
+		}
+		request, offset = continuation.Request.String(), continuation.Offset
+	}
+	page := protocol.PersonalKVPage{Offset: offset}
+	var id string
+	err = db.QueryRowContext(ctx, `SELECT request,sequence,digest,length(body),substr(body,?3+1,?4)
+FROM personal_kv_outbox WHERE user=?1 AND (?2 IS NULL OR request=?2) ORDER BY sequence LIMIT 1`,
+		user.ID.String(), request, offset, protocol.ConfigurationPageBytes).Scan(&id, &page.Sequence, &page.Digest, &page.Bytes, &page.Data)
+	if errors.Is(err, sql.ErrNoRows) {
+		if continuation != nil {
+			return result, fault(protocol.ErrorCodeNotFound, "personal data transaction is unavailable")
+		}
+		return result, nil
+	}
+	if err != nil {
+		return result, err
+	}
+	page.Request, err = protocol.ParseRequestID(id)
+	if err != nil {
+		return result, err
+	}
+	if page.Bytes == 0 || page.Bytes > MaxPersonalKVTransferBytes || offset >= page.Bytes {
+		return result, invalid("personal data page is outside its transaction")
+	}
+	if continuation == nil && page.Bytes <= protocol.ConfigurationPageBytes {
+		result.Group = new(protocol.PersonalKVGroup)
+		if err := json.Unmarshal(page.Data, result.Group); err != nil {
+			return result, err
+		}
+	} else {
+		result.Page = &page
+	}
+	if continuation == nil {
 		err = db.QueryRowContext(ctx, "SELECT coalesce(max(sequence),0) FROM personal_kv_outbox WHERE user=?1", user.ID.String()).Scan(&result.Through)
 	}
 	return result, err

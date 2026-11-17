@@ -187,7 +187,7 @@ func TestPersonalKVRejectsWholeConflictingTransaction(t *testing.T) {
 		if _, _, err := ExecutePluginStorageCommand(replica.ctx, db, replica.node, "", source.node, request); err != nil {
 			return err
 		}
-		value, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node)
+		value, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node, nil)
 		if err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func TestPersonalKVSnapshotPreservesPendingOverlay(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		pending, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node)
+		pending, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node, nil)
 		if err == nil && (pending.Group == nil || pending.Group.Request != group.Request) {
 			return errors.New("snapshot discarded a pending transaction")
 		}
@@ -410,7 +410,7 @@ func TestPersonalKVPendingQuotaIsPerPluginAndSurvivesRemoval(t *testing.T) {
 		if _, err := db.ExecContext(replica.ctx, "DELETE FROM configuration_cache WHERE user=?1 AND category IN ('plugins','plugin_settings')", user.ID.String()); err != nil {
 			return err
 		}
-		pending, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node)
+		pending, err := ReadPersonalKVPending(replica.ctx, db, replica.node, source.node, nil)
 		if err == nil && (pending.Group == nil || pending.Group.Request != group.Request) {
 			return errors.New("removing a package discarded its pending data")
 		}

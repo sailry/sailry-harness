@@ -439,7 +439,7 @@ func (node *Node) ReadConfigurationFollow(ctx context.Context, caller protocol.N
 			output = protocol.Output{Kind: "configuration_manifest", Data: value}
 			return err
 		case "kv_pending":
-			value, err := store.ReadPersonalKVPending(ctx, db, node.ID(), caller)
+			value, err := store.ReadPersonalKVPending(ctx, db, node.ID(), caller, input.KVRead)
 			output = protocol.Output{Kind: "personal_kv_pending", Data: value}
 			return err
 		case "snapshot_state":

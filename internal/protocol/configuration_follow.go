@@ -74,6 +74,7 @@ type ConfigurationFollowCommand struct {
 	Package          *PluginReference           `json:"package,omitempty"`
 	KVReceipt        *PersonalKVReceipt         `json:"kv_receipt,omitempty"`
 	KVSnapshot       *PersonalKVSnapshot        `json:"kv_snapshot,omitempty"`
+	KVRead           *PersonalKVRead            `json:"kv_read,omitempty"`
 }
 
 func (value *ConfigurationFollowCommand) UnmarshalJSON(data []byte) error { return Decode(data, value) }

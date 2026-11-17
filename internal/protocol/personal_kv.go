@@ -2,6 +2,10 @@ package protocol
 
 import "encoding/json"
 
+// PersonalKVAcknowledgementCategory uses the configuration page transport and
+// its durable completion receipt without entering the business-effect ledger.
+const PersonalKVAcknowledgementCategory = "personal_kv_ack"
+
 // PersonalKVWrite is the normalized final write of one key in an admitted
 // transaction. A predecessor binds successive offline writes to their receipt.
 type PersonalKVWrite struct {
@@ -83,7 +87,24 @@ type PersonalKVSnapshot struct {
 
 type PersonalKVPending struct {
 	Group   *PersonalKVGroup `json:"group,omitempty"`
+	Page    *PersonalKVPage  `json:"page,omitempty"`
 	Through uint64           `json:"through,omitempty"`
+}
+
+// PersonalKVRead continues the immutable outbox group selected by the first
+// read. It cannot advance to another group while a transfer is incomplete.
+type PersonalKVRead struct {
+	Request RequestID `json:"request"`
+	Offset  uint64    `json:"offset"`
+}
+
+type PersonalKVPage struct {
+	Request  RequestID `json:"request"`
+	Sequence uint64    `json:"sequence"`
+	Digest   string    `json:"digest"`
+	Bytes    uint64    `json:"bytes"`
+	Offset   uint64    `json:"offset"`
+	Data     []byte    `json:"data"`
 }
 
 func init() {

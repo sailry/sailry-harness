@@ -54,7 +54,7 @@ func writeConfigurationSnapshot(writer io.Writer, manifest protocol.Configuratio
 
 func (node *Node) deliverConfigurationSnapshot(ctx context.Context, remote link.Transport, request protocol.Request) error {
 	input, valid := dispatchPayload[protocol.ConfigurationFollowCommand](request.Command.Data)
-	if !valid || input.Manifest == nil || request.Target != remote.Target() {
+	if !valid || (input.Manifest == nil) == (input.KVReceipt == nil) || request.Target != remote.Target() {
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration delivery is invalid"}
 	}
 	directory := filepath.Join(node.profile.Ownership.Path, "tmp")
@@ -68,7 +68,18 @@ func (node *Node) deliverConfigurationSnapshot(ctx context.Context, remote link.
 	defer os.Remove(file.Name())
 	defer file.Close()
 	digest := blake3.New(32, nil)
-	if err := writeConfigurationSnapshot(io.MultiWriter(file, digest), *input.Manifest); err != nil {
+	writer := io.MultiWriter(file, digest)
+	var source protocol.NodeID
+	var category string
+	var revision uint64
+	if input.Manifest != nil {
+		source, category, revision = input.Manifest.Source, input.Manifest.Category, input.Manifest.Revision
+		err = writeConfigurationSnapshot(writer, *input.Manifest)
+	} else {
+		source, category, revision = node.ID(), protocol.PersonalKVAcknowledgementCategory, input.KVReceipt.Sequence
+		err = json.NewEncoder(writer).Encode(input.KVReceipt)
+	}
+	if err != nil {
 		return err
 	}
 	size, err := file.Seek(0, io.SeekCurrent)
@@ -79,8 +90,8 @@ func (node *Node) deliverConfigurationSnapshot(ctx context.Context, remote link.
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "configuration snapshot exceeds its limit"}
 	}
 	page := protocol.ConfigurationSnapshotPage{
-		Root: request.ID, Source: input.Manifest.Source, Category: input.Manifest.Category,
-		Revision: input.Manifest.Revision, Bytes: uint64(size), Digest: hex.EncodeToString(digest.Sum(nil)),
+		Root: request.ID, Source: source, Category: category,
+		Revision: revision, Bytes: uint64(size), Digest: hex.EncodeToString(digest.Sum(nil)),
 	}
 	output, err := configurationRemote(ctx, remote, protocol.NewRequest(request.Target, protocol.Command{
 		Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "snapshot_state", Page: &page},

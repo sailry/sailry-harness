@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/protocol/wire"
 	"lukechampine.com/blake3"
 )
 
@@ -34,6 +35,9 @@ type configurationSnapshotTransport struct {
 func (transport *configurationSnapshotTransport) Target() protocol.NodeID { return transport.target }
 
 func (transport *configurationSnapshotTransport) Dispatch(_ context.Context, request protocol.Request) (link.Admission, error) {
+	if err := wire.Write(io.Discard, wire.Envelope{Call: wire.Call{Kind: wire.CallCommand, Request: &request}}, true); err != nil {
+		return link.Admission{}, err
+	}
 	input := request.Command.Data.(*protocol.ConfigurationFollowCommand)
 	if input.Page == nil {
 		return link.Admission{}, errors.New("missing fixture page")
