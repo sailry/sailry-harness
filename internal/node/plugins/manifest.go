@@ -17,14 +17,15 @@ const ManifestSchema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.js
 const MaxManifestBytes = 256 * 1024
 
 type Manifest struct {
-	Name        string
-	Version     *string
-	Description *string
-	Homepage    *string
-	Repository  *string
-	License     *string
-	Extension   *protocol.PluginExtension
-	Issues      []protocol.PluginIssue
+	Name         string
+	Version      *string
+	Description  *string
+	Homepage     *string
+	Repository   *string
+	License      *string
+	Requirements *protocol.PluginRequirements
+	Extension    *protocol.PluginExtension
+	Issues       []protocol.PluginIssue
 }
 
 func packageFault(message string) error {
@@ -124,17 +125,23 @@ func ValidateManifest(data []byte) (Manifest, error) {
 		var extensions map[string]json.RawMessage
 		issuePath := "plugin.json.extensions"
 		if json.Unmarshal(raw, &extensions) != nil || extensions == nil {
+			result.Requirements = &protocol.PluginRequirements{Invalid: true}
 			result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
 		} else if raw, exists := extensions["dev.sailry.platform"]; exists {
 			issuePath += ".dev.sailry.platform"
+			result.Requirements = readRequirements(raw)
 			// A manifest is authored input: decoding it refuses every member,
 			// enum value and variant this build does not declare.
 			var extension protocol.PluginExtension
-			if json.Unmarshal(raw, &extension) != nil {
+			if result.Requirements.Invalid {
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
-			} else if extension.ApiVersion != "v1" {
+			} else if result.Requirements.APIVersion != "v1" {
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindUnsupportedExtension})
+			} else if json.Unmarshal(raw, &extension) != nil {
+				result.Requirements.Invalid = true
+				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
 			} else if validateExtension(extension) != nil {
+				result.Requirements.Invalid = true
 				result.Issues = append(result.Issues, protocol.PluginIssue{Path: issuePath, Kind: protocol.PluginIssueKindInvalidExtensions})
 			} else {
 				result.Extension = &extension
@@ -143,6 +150,32 @@ func ValidateManifest(data []byte) (Manifest, error) {
 	}
 	slices.SortFunc(result.Issues, func(left, right protocol.PluginIssue) int { return strings.Compare(left.Path, right.Path) })
 	return result, nil
+}
+
+// Requirements survive an unsupported declaration so it cannot become an
+// apparently compatible skills-only package when its functionality is omitted.
+func readRequirements(data []byte) *protocol.PluginRequirements {
+	result := &protocol.PluginRequirements{}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil || fields == nil {
+		result.Invalid = true
+		return result
+	}
+	if raw, exists := fields["api_version"]; !exists || json.Unmarshal(raw, &result.APIVersion) != nil || result.APIVersion == "" {
+		result.Invalid = true
+	}
+	if raw, exists := fields["min_sailry_version"]; exists {
+		var minimum string
+		if string(raw) == "null" || json.Unmarshal(raw, &minimum) != nil {
+			result.Invalid = true
+		} else {
+			result.MinSailryVersion = &minimum
+			if !validPackageVersion(minimum) {
+				result.Invalid = true
+			}
+		}
+	}
+	return result
 }
 
 // validConnectorCLI bounds a connector's command line. The search path and
@@ -359,15 +392,58 @@ func Compatibility(required *string) protocol.PluginCompatibility {
 	}
 	minimum, minimumErr := semver.StrictNewVersion(*required)
 	current, currentErr := semver.StrictNewVersion(link.ProductVersion)
-	if minimumErr != nil || currentErr != nil || current.Compare(minimum) < 0 {
+	if minimumErr != nil {
+		return unsupportedCompatibility("invalid minimum Sailry version")
+	}
+	if currentErr != nil {
+		return unsupportedCompatibility("Sailry Node version is invalid")
+	}
+	if current.Compare(minimum) < 0 {
 		return protocol.PluginCompatibility{Kind: "requires_newer", Data: protocol.PluginCompatibilityRequiresNewerPayload{Required: *required}}
 	}
 	return result
 }
 
+func unsupportedCompatibility(reason string) protocol.PluginCompatibility {
+	return protocol.PluginCompatibility{Kind: "unsupported", Data: protocol.PluginCompatibilityUnsupportedPayload{Reason: reason}}
+}
+
+func requirementsCompatibility(requirements *protocol.PluginRequirements) protocol.PluginCompatibility {
+	if requirements == nil {
+		return protocol.PluginCompatibility{Kind: "compatible"}
+	}
+	if requirements.Invalid {
+		return unsupportedCompatibility("invalid Sailry platform declaration")
+	}
+	if requirements.APIVersion != "v1" {
+		return unsupportedCompatibility("unsupported Sailry platform API version")
+	}
+	return Compatibility(requirements.MinSailryVersion)
+}
+
+// InfoCompatibility also reads older stored records whose requirements had not
+// yet been separated from their parsed functionality.
+func InfoCompatibility(info protocol.PluginInfo) protocol.PluginCompatibility {
+	if info.Requirements != nil {
+		return requirementsCompatibility(info.Requirements)
+	}
+	if extension := info.Extension; extension != nil {
+		return requirementsCompatibility(&protocol.PluginRequirements{APIVersion: extension.ApiVersion, MinSailryVersion: extension.MinSailryVersion})
+	}
+	for _, issue := range info.Issues {
+		if issue.Kind == protocol.PluginIssueKindUnsupportedExtension || issue.Kind == protocol.PluginIssueKindInvalidExtensions {
+			return unsupportedCompatibility("invalid or unsupported Sailry platform declaration")
+		}
+	}
+	return protocol.PluginCompatibility{Kind: "compatible"}
+}
+
 func EnsureCompatible(compatibility protocol.PluginCompatibility) error {
 	if compatibility.Kind == "compatible" {
 		return nil
+	}
+	if compatibility.Kind != "requires_newer" {
+		return packageFault("plugin declares an invalid or unsupported Sailry platform extension")
 	}
 	var requirement protocol.PluginCompatibilityRequiresNewerPayload
 	data, err := json.Marshal(compatibility.Data)

@@ -165,8 +165,11 @@ func (manager *Manager) InstallRepositorySkill(ctx context.Context, source proto
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	info, err := manager.publish(ctx, entries, nil, name, protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: source, Path: directory}})
+	immutable := source
+	immutable.GitRef = immutable.Commit
+	info, err := manager.publish(ctx, entries, nil, name, protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: immutable, Path: directory}})
 	if err == nil {
+		setRepositoryOrigins(&info, source, directory)
 		info.Skill = &protocol.PluginSkillsProvenance{Kind: "Git", Data: protocol.PluginSkillsGitProvenance{Source: source, Path: directory}}
 	}
 	return info, err
@@ -230,7 +233,7 @@ func (manager *Manager) inspectRepositorySkill(ctx context.Context, source proto
 	}
 	info, err := describePackage(entries, nil, name)
 	if err == nil {
-		info.Origin = &protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: resolved, Path: selected.Path}}
+		setRepositoryOrigins(&info, resolved, selected.Path)
 		info.Skill = &protocol.PluginSkillsProvenance{Kind: "Git", Data: protocol.PluginSkillsGitProvenance{Source: resolved, Path: selected.Path}}
 	}
 	return info, err

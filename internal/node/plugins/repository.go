@@ -357,7 +357,7 @@ func (manager *Manager) InspectRepository(ctx context.Context, source protocol.P
 	if err != nil {
 		return protocol.PluginCatalogSelection{}, err
 	}
-	info.Origin = &protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: resolved, Path: selected.Path}}
+	setRepositoryOrigins(&info, resolved, selected.Path)
 	// Only the newest inspection is kept for its installation; an older selection is acquired again.
 	manager.repositoryMu.Lock()
 	clear(manager.repositories)
@@ -387,12 +387,32 @@ func (manager *Manager) InstallRepository(ctx context.Context, selection protoco
 	if digestPackage(entries) != selection.Info.Summary.Digest {
 		return protocol.PluginInfo{}, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "plugin repository selection changed"}
 	}
-	origin := protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: selection.Source, Path: selection.Path}}
+	immutable := selection.Source
+	immutable.GitRef = immutable.Commit
+	origin := protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: immutable, Path: selection.Path}}
 	info, err := manager.publish(ctx, entries, issues, selection.Info.Summary.Name, origin)
 	if err == nil && !sameOptionalString(info.Summary.Version, selection.Info.Summary.Version) {
 		return protocol.PluginInfo{}, packageFault("plugin repository version differs from its selection")
 	}
+	if err == nil {
+		upstream := selection.Source
+		if selection.Info.UpdateSource != nil && selection.Info.UpdateSource.Kind == "online" {
+			var update protocol.PluginOriginOnlinePayload
+			if decodePackageData(selection.Info.UpdateSource.Data, &update) == nil && update.Source.Repository == upstream.Repository && update.Source.Commit == upstream.Commit && update.Path == selection.Path {
+				if _, sourceErr := ParseRepositorySource(protocol.PluginSkillsSource{Repository: update.Source.Repository, GitRef: &update.Source.GitRef, Path: &update.Path}); sourceErr == nil {
+					upstream = update.Source
+				}
+			}
+		}
+		setRepositoryOrigins(&info, upstream, selection.Path)
+	}
 	return info, err
+}
+
+func setRepositoryOrigins(info *protocol.PluginInfo, source protocol.PluginSkillsResolved, directory string) {
+	info.UpdateSource = &protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: source, Path: directory}}
+	source.GitRef = source.Commit
+	info.Origin = &protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: source, Path: directory}}
 }
 
 func sameOptionalString(left, right *string) bool {

@@ -44,8 +44,8 @@ func manifestCatalogEntry(manifest Manifest) protocol.PluginCatalogEntry {
 	entry := protocol.DefaultPluginCatalogEntry()
 	entry.ID, entry.Name, entry.Version, entry.Description = manifest.Name, manifest.Name, manifest.Version, manifest.Description
 	entry.Repository = manifest.Repository
+	entry.Compatibility = requirementsCompatibility(manifest.Requirements)
 	if extension := manifest.Extension; extension != nil {
-		entry.Compatibility = Compatibility(extension.MinSailryVersion)
 		entry.Category, entry.Tint, entry.Display, entry.Icon = extension.Category, extension.Tint, extension.Display, extension.Icon
 		entry.Permissions = extension.Actions
 		entry.ProvidesModels = len(extension.ModelProviders) != 0
@@ -84,6 +84,8 @@ func BundledEntries(ctx context.Context) ([]protocol.PluginCatalogEntry, error) 
 			}
 		}
 		entry.Bundled = true
+		entry.Versions = []protocol.PluginCatalogVersion{manifestVersion(manifest, "", nil)}
+		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil)
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -157,21 +159,33 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		if err != nil || item.ID != manifest.Name || seen[item.ID] {
 			continue
 		}
-		validVersions := true
-		for _, version := range item.Versions {
-			if !commitHash(version.Commit) {
-				validVersions = false
+		entry := manifestCatalogEntry(manifest)
+		repository, commit := manager.officialRepositoryURL(), feed.Commit
+		entry.Repository, entry.Commit, entry.ReleaseNotes, entry.Versions = &repository, &commit, item.ReleaseNotes, item.Versions
+		latest := -1
+		for index := range entry.Versions {
+			version := &entry.Versions[index]
+			if manifest.Version != nil && version.Version == *manifest.Version {
+				latest = index
+				version.APIVersion, version.MinSailryVersion = nil, nil
+				if requirements := manifest.Requirements; requirements != nil {
+					version.APIVersion, version.MinSailryVersion = &requirements.APIVersion, requirements.MinSailryVersion
+				}
+				if version.ReleaseNotes == nil {
+					version.ReleaseNotes = item.ReleaseNotes
+				}
+			}
+			version.Compatibility = CatalogVersionCompatibility(*version)
+			if manifest.Version != nil && version.Version == *manifest.Version && !version.Withdrawn && entry.Compatibility.Kind != "compatible" {
+				version.Compatibility = entry.Compatibility
 			}
 		}
-		if !validVersions {
-			continue
+		if latest < 0 && manifest.Version != nil {
+			entry.Versions = append(entry.Versions, manifestVersion(manifest, feed.Commit, item.ReleaseNotes))
+		} else if latest >= 0 {
+			entry.Commit = &entry.Versions[latest].Commit
 		}
-		entry := manifestCatalogEntry(manifest)
-		repository, commit := OfficialRepository+".git", feed.Commit
-		entry.Repository, entry.Commit, entry.ReleaseNotes, entry.Versions = &repository, &commit, item.ReleaseNotes, item.Versions
-		for index := range entry.Versions {
-			entry.Versions[index].Compatibility = Compatibility(entry.Versions[index].MinSailryVersion)
-		}
+		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil)
 		seen[item.ID] = true
 		entries = append(entries, entry)
 	}
@@ -179,8 +193,6 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		index := slices.IndexFunc(entries, func(entry protocol.PluginCatalogEntry) bool { return entry.ID == candidate.ID })
 		if index < 0 {
 			entries = append(entries, candidate)
-		} else if IsNewer(entries[index].Version, candidate.Version) {
-			entries[index] = candidate
 		}
 	}
 	return entries, nil
@@ -274,10 +286,14 @@ func (manager *Manager) CatalogSource(ctx context.Context, source protocol.Plugi
 		}
 		for _, entry := range entries {
 			if entry.ID == id {
-				if entry.Commit == nil {
+				selected := SelectCompatibleVersion(entry, nil)
+				if selected == nil {
+					return protocol.PluginSkillsSource{}, packageFault("no compatible official plugin version is available")
+				}
+				if !commitHash(selected.Commit) {
 					return protocol.PluginSkillsSource{}, packageFault("official plugin has no captured online revision")
 				}
-				return protocol.PluginSkillsSource{Repository: OfficialRepository + ".git", GitRef: entry.Commit, Path: &id}, nil
+				return protocol.PluginSkillsSource{Repository: manager.officialRepositoryURL(), GitRef: &selected.Commit, Path: &id}, nil
 			}
 		}
 		return protocol.PluginSkillsSource{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "official plugin is unavailable"}

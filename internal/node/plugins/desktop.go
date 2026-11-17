@@ -12,6 +12,10 @@ import (
 func (manager *Manager) ReadDesktop(ctx context.Context, info protocol.PluginInfo, surface protocol.PluginDesktopSurface) (protocol.PluginDesktopBundle, error) {
 	bundle := protocol.DefaultPluginDesktopBundle()
 	bundle.Package = PackageReference(info)
+	bundle.Requirements = info.Requirements
+	if bundle.Requirements == nil && info.Extension != nil {
+		bundle.Requirements = &protocol.PluginRequirements{APIVersion: info.Extension.ApiVersion, MinSailryVersion: info.Extension.MinSailryVersion}
+	}
 	if info.Extension == nil || info.Extension.Desktop == nil {
 		return bundle, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin has no desktop view"}
 	}

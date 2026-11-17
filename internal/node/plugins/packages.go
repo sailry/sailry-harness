@@ -35,6 +35,7 @@ type Manager struct {
 	ThirdPartyURL      string
 	RegistryURL        string
 	SkillsDirectoryURL string
+	officialRepository string
 	repositoryMu       sync.Mutex
 	repositories       map[string][]packageEntry
 	skillPages         map[string]cachedSkillCatalog
@@ -239,6 +240,7 @@ func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expe
 	info.Summary.Name, info.Summary.Version, info.Summary.Description = manifest.Name, manifest.Version, manifest.Description
 	info.Summary.Digest = digestPackage(entries)
 	info.Extension = manifest.Extension
+	info.Requirements = manifest.Requirements
 	info.Issues = append(manifest.Issues, issues...)
 	info.Skills, issues = DiscoverSkills(files)
 	info.Issues = append(info.Issues, issues...)
@@ -246,7 +248,6 @@ func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expe
 	info.Mcp, servers, issues = ReadMCP(files["mcp.json"])
 	info.Issues = append(info.Issues, issues...)
 	if extension := info.Extension; extension != nil {
-		info.Summary.Compatibility = Compatibility(extension.MinSailryVersion)
 		if extension.Icon != nil {
 			info.Icon = packageIcon(files[*extension.Icon])
 			if info.Icon == nil {
@@ -258,6 +259,7 @@ func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expe
 			if err != nil {
 				info.Issues = append(info.Issues, protocol.PluginIssue{Path: *extension.SettingsSchema, Kind: protocol.PluginIssueKindInvalidExtensions})
 				info.Extension = nil
+				info.Requirements.Invalid = true
 			} else {
 				info.Settings = &settings
 			}
@@ -275,6 +277,7 @@ func describePackage(entries []packageEntry, issues []protocol.PluginIssue, expe
 			}
 		}
 	}
+	info.Summary.Compatibility = InfoCompatibility(info)
 	info.ReleaseNotes = releaseNotes(files, manifest.Version)
 	return info, nil
 }
@@ -337,6 +340,8 @@ func (manager *Manager) InspectBundled(ctx context.Context, name string) (protoc
 	}
 	info, err := describePackage(entries, issues, name)
 	info.Origin = &protocol.PluginOrigin{Kind: "bundled"}
+	info.UpdateSource = &protocol.PluginOrigin{Kind: "official"}
+	info.Versions = []protocol.PluginCatalogVersion{manifestVersion(Manifest{Version: info.Summary.Version, Requirements: info.Requirements}, "", info.ReleaseNotes)}
 	return info, err
 }
 
@@ -354,6 +359,10 @@ func (manager *Manager) publish(ctx context.Context, entries []packageEntry, iss
 		return info, err
 	}
 	info.Origin = &origin
+	if origin.Kind == "bundled" {
+		info.UpdateSource = &protocol.PluginOrigin{Kind: "official"}
+		info.Versions = []protocol.PluginCatalogVersion{manifestVersion(Manifest{Version: info.Summary.Version, Requirements: info.Requirements}, "", info.ReleaseNotes)}
+	}
 	for _, issue := range info.Issues {
 		if issue.Kind == protocol.PluginIssueKindInvalidSkills || issue.Kind == protocol.PluginIssueKindInvalidSkill {
 			return info, packageFault("plugin skills must be valid before installation")
