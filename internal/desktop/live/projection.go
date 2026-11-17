@@ -18,7 +18,7 @@ import (
 // Sidebar projects the Client snapshot without fixture data or mutable authority.
 func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data {
 	owner := hex.EncodeToString(snapshot.Node[:])
-	d := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{{ID: owner, Name: "local_host_name", Local: true}}}}
+	d := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{{ID: owner, Name: "local_host_name", Platform: hostOS(runtime.GOOS), Local: true}}}}
 	projects := map[protocol.ProjectID]*viewmodel.Project{}
 	var pinOrders []uint64
 	if prefs.Pins != nil {

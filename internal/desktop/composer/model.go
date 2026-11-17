@@ -184,8 +184,8 @@ type Queued struct {
 
 // Host is an execution choice for a projectless draft.
 type Host struct {
-	ID, Name string
-	Offline  bool
+	ID, Name, Platform string
+	Offline            bool
 }
 
 // Project is a location choice: a project and its worktrees.

@@ -94,10 +94,11 @@ func (r *Runtime) composerHosts(c *ui.Context) []composer.Host {
 	hosts := []composer.Host{{ID: root.controller.Target().String(), Name: i18n.T(c, "composer_host_local")}}
 	for _, host := range root.App.Data.Hosts {
 		if host.Local || host.ID == hosts[0].ID {
+			hosts[0].Platform = host.Platform
 			continue
 		}
 		owner := root.runtimeFor(host.ID)
-		hosts = append(hosts, composer.Host{ID: host.ID, Name: host.Name, Offline: owner == nil || !owner.controller.Connected()})
+		hosts = append(hosts, composer.Host{ID: host.ID, Name: host.Name, Platform: host.Platform, Offline: owner == nil || !owner.controller.Connected()})
 	}
 	return hosts
 }

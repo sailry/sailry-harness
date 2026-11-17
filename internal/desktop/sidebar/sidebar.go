@@ -290,7 +290,7 @@ func (s *State) host(c *ui.Context, host viewmodel.Host) {
 		b.AccessSelected(true)
 	}
 	b.TextColor(color).Children(func() {
-		ui.Icon(c, icons.Cpu).FontSize(14).TextColor(color)
+		ui.Icon(c, icons.Platform(host.Platform)).FontSize(14).TextColor(color)
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
 	}).OnClick(func() {
 		if s.Actions != nil && s.Actions.OpenHost != nil {

@@ -324,21 +324,21 @@ func (s *State) hostButton(c *ui.Context, ctx *Context, form controlForm) {
 	if s.Project != "" || len(ctx.Hosts) < 2 {
 		return
 	}
-	label := ctx.Hosts[0].Name
+	label, platform := ctx.Hosts[0].Name, ctx.Hosts[0].Platform
 	for _, host := range ctx.Hosts {
 		if host.ID == s.Host {
-			label = host.Name
+			label, platform = host.Name, host.Platform
 			break
 		}
 	}
 	locked := ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0
 	kit.MenuButton(c.Key("host"), s.menuID("host"), func(b ui.Element) {
-		button := contextButton(c, b.Disabled(locked), icons.Monitor, label, form)
+		button := contextButton(c, b.Disabled(locked), icons.Platform(platform), label, form)
 		kit.Tooltip(c, button, i18n.T(c, "composer_execution_host"))
 	}, func(m *kit.Menu) {
 		for i, host := range ctx.Hosts {
 			selected := host.ID == s.Host || s.Host == "" && i == 0
-			if m.Item(host.Name).Icon(icons.Monitor).Checked(selected).Disabled(host.Offline).Chosen() {
+			if m.Item(host.Name).Icon(icons.Platform(host.Platform)).Checked(selected).Disabled(host.Offline).Chosen() {
 				s.chooseLocation(ctx, host.ID, "", "")
 			}
 		}

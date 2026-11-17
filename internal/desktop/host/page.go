@@ -82,19 +82,6 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	}
 }
 
-// Platform is the platform's logo, the processor for one not known.
-func Platform(os string) *ui.SVG {
-	switch os {
-	case "macos":
-		return icons.Apple
-	case "windows":
-		return icons.Windows
-	case "linux":
-		return icons.Linux
-	}
-	return icons.Cpu
-}
-
 // label is a name of the host's as it shows. The preview's host names itself
 // and its processes by i18n keys, and a live host is local_host_name until its
 // Node names it. Any other name of a live host (its own and its processes')
@@ -141,7 +128,7 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 	ui.Row(c.Key("header")).Wrap().GapX(16).GapY(12).AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("identity")).Grow(1).Shrink(1).Basis(300).MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
 			ui.Row(c.Key("logo")).Size(44, 44).Shrink(0).Radius(22).Center().Background(p.Secondary).Children(func() {
-				ui.Icon(c, Platform(h.OS)).FontSize(20).TextColor(p.SecondaryForeground)
+				ui.Icon(c, icons.Platform(h.OS)).FontSize(20).TextColor(p.SecondaryForeground)
 			})
 			ui.Column(c.Key("name")).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {

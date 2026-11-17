@@ -339,20 +339,11 @@ func deviceStatus(d viewmodel.Device) string {
 }
 
 func platformIcon(d viewmodel.Device) *ui.SVG {
-	switch d.Platform {
-	case "android":
-		return icons.Android
-	case "ios", "macos":
-		return icons.Apple
-	case "windows":
-		return icons.Windows
-	case "linux":
-		return icons.Linux
+	icon := icons.Platform(d.Platform)
+	if icon == icons.Device && !d.Execution {
+		return icons.Smartphone
 	}
-	if d.Execution {
-		return icons.Device
-	}
-	return icons.Smartphone
+	return icon
 }
 
 // relayFields are relay::controls: the server, and its address when

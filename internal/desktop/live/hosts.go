@@ -180,7 +180,7 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		state := r.hosts[id]
 		r.projectHost(state, d)
 		present[id] = state.view
-		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: state.view.Name, Local: state.view.Local, Update: state.view.Update != nil && hostUpdateAvailable(state.view.Runtime.Version)})
+		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: state.view.Name, Platform: state.view.OS, Local: state.view.Local, Update: state.view.Update != nil && hostUpdateAvailable(state.view.Runtime.Version)})
 	}
 	for id, state := range r.hosts {
 		if present[id] == nil && (state.install == nil || !state.install.active) {
@@ -224,10 +224,8 @@ func hostOS(value string) string {
 	switch strings.ToLower(value) {
 	case "darwin", "macos", "mac os", "mac os x":
 		return "macos"
-	case "windows":
-		return "windows"
-	case "linux":
-		return "linux"
+	case "windows", "linux", "android", "ios":
+		return strings.ToLower(value)
 	}
 	return ""
 }

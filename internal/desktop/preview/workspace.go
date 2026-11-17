@@ -106,8 +106,8 @@ func change(path, status string, hunks ...Hunk) FileChange {
 func workspace() *Workspace {
 	w := &Workspace{
 		Hosts: []Host{
-			{ID: "local", Name: "local_host_name", Local: true},
-			{ID: "remote", Name: "remote_host_name", Update: true},
+			{ID: "local", Name: "local_host_name", Platform: "macos", Local: true},
+			{ID: "remote", Name: "remote_host_name", Platform: "linux", Update: true},
 		},
 		Files: files(),
 	}
