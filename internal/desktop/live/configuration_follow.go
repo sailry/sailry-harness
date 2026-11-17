@@ -128,12 +128,6 @@ func (r *Runtime) projectConfigurationFollow(view *settings.ConfigurationFollowE
 		}
 		view.Targets = append(view.Targets, value)
 	}
-	view.Issues = nil
-	for _, issue := range status.Issues {
-		view.Issues = append(view.Issues, settings.ConfigurationFollowIssue{
-			Category: issue.Category, ID: issue.ID, State: issue.State, Message: issue.Message,
-		})
-	}
 }
 func (r *Runtime) configurationHostName(id string) string {
 	for _, device := range r.App.Settings.Devices {

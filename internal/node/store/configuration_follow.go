@@ -52,17 +52,6 @@ func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string)
 	return &protocol.ConfigurationOrigin{Node: protocol.NodeID(source), Revision: revision}, nil
 }
 
-func checkConfigurationCopySource(ctx context.Context, db *sql.Conn, origin *protocol.ConfigurationOrigin) error {
-	status, err := ReadConfigurationFollow(ctx, db)
-	if err != nil {
-		return err
-	}
-	if status.Source == nil || *status.Source != origin.Node {
-		return fault(protocol.ErrorCodeConflict, "configuration copy belongs to a different source")
-	}
-	return nil
-}
-
 func CheckConfigurationEditable(ctx context.Context, db *sql.Conn, category, id string) error {
 	if configurationApplying(ctx) {
 		return nil
@@ -166,85 +155,6 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 	return status, rows.Err()
 }
 
-func SetConfigurationSource(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, source *protocol.NodeID, expected uint64) error {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	current, err := ReadConfigurationFollow(ctx, db)
-	if err != nil {
-		return err
-	}
-	if err := checkRevision(current.Revision, expected); err != nil {
-		return err
-	}
-	if source == nil {
-		revision, err := nextRevision(current.Revision)
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_sources(user,source,revision) VALUES(?1,NULL,?2) ON CONFLICT(user) DO UPDATE SET source=NULL,revision=excluded.revision", user.ID.String(), revision)
-		return err
-	}
-	if *source == node && !user.Local {
-		return fault(protocol.ErrorCodePermissionDenied, "only the local user can publish from this Node")
-	}
-	if *source != node {
-		member, err := CallerUser(ctx, db, node, *source)
-		if err != nil || member.ID != user.ID {
-			return fault(protocol.ErrorCodePermissionDenied, "source host must belong to this user")
-		}
-	}
-	if current.Source == nil || *current.Source != *source {
-		var copied bool
-		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_records WHERE user=?1 AND materialized=1 AND source!=?2)", user.ID.String(), source[:]).Scan(&copied); err != nil {
-			return err
-		}
-		if copied {
-			return fault(protocol.ErrorCodeConflict, "detach existing configuration copies before changing source")
-		}
-	}
-	revision, err := nextRevision(current.Revision)
-	if err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_sources(user,source,revision) VALUES(?1,?2,?3) ON CONFLICT(user) DO UPDATE SET source=excluded.source,revision=excluded.revision", user.ID.String(), source[:], revision)
-	return err
-}
-
-func SaveConfigurationTarget(ctx context.Context, db *sql.Conn, target protocol.ConfigurationFollowTarget, expected uint64) error {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	if !user.Local {
-		return fault(protocol.ErrorCodePermissionDenied, "only this Node's local user can publish configuration")
-	}
-	var outbound bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM link_peers p LEFT JOIN identity_peer_origins o ON o.peer=p.identity WHERE p.identity=?1 AND p.direction IN ('host','both') AND coalesce(o.direct,1)=1 AND coalesce(nullif(o.direct_direction,''),p.direction) IN ('host','both') AND coalesce(o.removed,0)=0)", target.Host[:]).Scan(&outbound); err != nil {
-		return err
-	}
-	if !outbound {
-		return fault(protocol.ErrorCodePermissionDenied, "configuration target is not a paired outbound host")
-	}
-	var revision uint64
-	err = db.QueryRowContext(ctx, "SELECT revision FROM configuration_follow_targets WHERE user=?1 AND host=?2", user.ID.String(), target.Host[:]).Scan(&revision)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if err := checkRevision(revision, expected); err != nil {
-		return err
-	}
-	target.Revision, err = nextRevision(revision)
-	if err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_targets(user,host,revision,configuration,secrets) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(user,host) DO UPDATE SET revision=excluded.revision,configuration=excluded.configuration,secrets=excluded.secrets,failure=NULL", user.ID.String(), target.Host[:], target.Revision, target.Configuration, target.Secrets)
-	return err
-}
-
-// EnsureConfigurationTarget is called only after a trusted direct host resolves
-// the authenticated caller's separate personal configuration namespace.
 func EnsureConfigurationTarget(ctx context.Context, db *sql.Conn, host protocol.NodeID) error {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
@@ -275,27 +185,11 @@ func RecordConfigurationTargetFailure(ctx context.Context, db *sql.Conn, host pr
 }
 
 func ConfigurationFollowDelivery(ctx context.Context, db *sql.Conn, host protocol.NodeID, manifest protocol.ConfigurationManifest) (protocol.Request, error) {
-	user, err := CurrentUser(ctx, db)
+	request, err := ConfigurationCommandDelivery(ctx, db, host, manifest.Category, &protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &manifest})
 	if err != nil {
 		return protocol.Request{}, err
 	}
-	var raw []byte
-	err = db.QueryRowContext(ctx, "SELECT request FROM configuration_follow_deliveries WHERE user=?1 AND host=?2 AND category=?3", user.ID.String(), host[:], manifest.Category).Scan(&raw)
-	if err == nil {
-		var request protocol.Request
-		err = json.Unmarshal(raw, &request)
-		return request, err
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return protocol.Request{}, err
-	}
-	request := protocol.NewRequest(host, protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &manifest}})
-	raw, err = encode(request)
-	if err != nil {
-		return request, err
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_deliveries(user,host,category,request) VALUES(?1,?2,?3,?4)", user.ID.String(), host[:], manifest.Category, raw)
-	return request, err
+	return *request, nil
 }
 
 func CompleteConfigurationFollowDelivery(ctx context.Context, db *sql.Conn, host protocol.NodeID, category string, request protocol.RequestID) error {
@@ -386,33 +280,4 @@ func ConfigurationMCPServerLocal(ctx context.Context, db *sql.Conn, plugin, serv
 	var local bool
 	err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_mcp_overrides WHERE user=?1 AND plugin=?2 AND server=?3)", user.ID.String(), plugin, server).Scan(&local)
 	return local, err
-}
-func SetConfigurationMCPServerLocal(ctx context.Context, db *sql.Conn, plugin, server string, local bool) error {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	info, err := ReadPlugin(ctx, db, plugin)
-	if err != nil {
-		return err
-	}
-	if info == nil {
-		return fault(protocol.ErrorCodeNotFound, "plugin is not installed")
-	}
-	declared := false
-	for _, entry := range info.Mcp {
-		declared = declared || entry.Name == server
-	}
-	if !declared {
-		return invalid("MCP server is not declared by this package")
-	}
-	if local {
-		_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_mcp_overrides(user,plugin,server) VALUES(?1,?2,?3) ON CONFLICT(user,plugin,server) DO NOTHING", user.ID.String(), plugin, server)
-	} else {
-		_, err = db.ExecContext(ctx, "DELETE FROM configuration_follow_mcp_overrides WHERE user=?1 AND plugin=?2 AND server=?3", user.ID.String(), plugin, server)
-		if err == nil {
-			_, err = db.ExecContext(ctx, "UPDATE configuration_follow_records SET digest='' WHERE user=?1 AND category='plugin_settings' AND id=?2", user.ID.String(), plugin)
-		}
-	}
-	return err
 }

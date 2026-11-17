@@ -42,32 +42,8 @@ func TestConfigurationFollowProjectionKeepsControllerAndHostStatus(t *testing.T)
 		t.Fatalf("controller namespace or host error was lost: %+v", view)
 	}
 	r.projectConfigurationFollow(view, protocol.ConfigurationFollowStatus{User: &protocol.User{Local: true}})
-	if !view.Local || view.Source != "" || len(view.Targets) != 0 || len(view.Issues) != 0 {
+	if !view.Local || view.Source != "" || len(view.Targets) != 0 {
 		t.Fatalf("a previous host's status leaked into local configuration: %+v", view)
-	}
-}
-
-func TestConfigurationFollowProjectionPreservesFailureReasons(t *testing.T) {
-	r := &Runtime{App: &shell.App{Settings: settings.NewLive()}}
-	view := &settings.ConfigurationFollowEditor{}
-	account, key := protocol.ProviderID{1}, protocol.ProviderID{2}
-	status := protocol.ConfigurationFollowStatus{Issues: []protocol.ConfigurationFollowIssue{
-		{Category: "providers", ID: account.String(), State: "authorization", Message: "Sign in on the controller"},
-		{Category: "providers", ID: key.String(), State: "authorization", Message: "API key is missing on the controller"},
-		{Category: "providers", ID: account.String(), State: "conflict", Message: "Package is unavailable"},
-		{Category: "connections", ID: "connection", State: "authorization", Message: "Connection is machine-bound"},
-		{Category: "plugin_settings", ID: "fixture", State: "authorization", Message: "Setting is unavailable"},
-		{Category: "roles", ID: "role", State: "pending", Message: "Configuration has not arrived"},
-	}}
-	r.projectConfigurationFollow(view, status)
-	if len(view.Issues) != len(status.Issues) {
-		t.Fatalf("failure reasons were omitted: %+v", view.Issues)
-	}
-	for i, want := range status.Issues {
-		got := view.Issues[i]
-		if got.Category != want.Category || got.ID != want.ID || got.State != want.State || got.Message != want.Message {
-			t.Fatalf("issue %d lost its identity or failure reason: %+v", i, got)
-		}
 	}
 }
 

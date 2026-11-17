@@ -919,9 +919,6 @@ model_library_selected
 model_library_source
 pairing_connect
 pairing_local_code
-pairing_invitation_kind
-pairing_my_device
-pairing_other_user
 pairing_pin_hint
 pairing_preview_disabled
 pairing_relay_address
@@ -2380,7 +2377,6 @@ configuration_follow_waiting
 configuration_follow_unavailable
 configuration_follow_targets
 configuration_follow_automatic
-configuration_follow_issues
 configuration_follow_from_source
 configuration_follow_requested
 configuration_follow_failed

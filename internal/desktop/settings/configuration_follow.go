@@ -11,14 +11,10 @@ import (
 type ConfigurationTargetStatus struct {
 	ID, Name, Failure string
 }
-type ConfigurationFollowIssue struct {
-	Category, ID, State, Message string
-}
 type ConfigurationFollowEditor struct {
 	Device                              viewmodel.Device
 	Source                              string
 	Targets                             []ConfigurationTargetStatus
-	Issues                              []ConfigurationFollowIssue
 	Local, Loading, Pending, ReadFailed bool
 }
 type ConfigurationFollowActions struct {
@@ -63,15 +59,6 @@ func configurationFollowDialog(c *ui.Context, m *Model) {
 								status = t("configuration_follow_automatic")
 							}
 							kit.Row(c, target.ID, target.Name, status, nil)
-						}
-					})
-				})
-			}
-			if len(e.Issues) > 0 {
-				kit.Group(c, "issues", t("configuration_follow_issues"), "", nil, func() {
-					kit.Card(c, func() {
-						for _, issue := range e.Issues {
-							kit.Row(c, issue.Category+"/"+issue.ID, issue.Category+" / "+issue.ID, issue.Message, nil)
 						}
 					})
 				})

@@ -2,7 +2,6 @@ package hostctl
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,14 +13,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const FollowUsage = "Usage: sailry-host follow status|sync [--data-dir <profile>]\n       sailry-host follow source <NodeID|local|none> [--data-dir <profile>]\n       sailry-host follow target <NodeID> [--configuration on|off] [--secrets on|off] [--data-dir <profile>]\n       sailry-host follow mcp-local <plugin> <server> on|off [--data-dir <profile>]\n       sailry-host follow detach [category] [--data-dir <profile>]\nDisable following before detaching copies. Writes JSON; unknown outcomes retain the original request ID."
+const FollowUsage = "Usage: sailry-host follow status|sync [--data-dir <profile>]\nWrites JSON; unknown outcomes retain the original request ID."
 
 type FollowOptions struct {
-	Profile       string
-	Action        string
-	Arguments     []string
-	Configuration *bool
-	Secrets       *bool
+	Profile string
+	Action  string
 }
 
 func ParseFollow(args []string) (FollowOptions, bool, error) {
@@ -33,50 +29,25 @@ func ParseFollow(args []string) (FollowOptions, bool, error) {
 		switch arg {
 		case "--help", "-h":
 			return options, true, nil
-		case "--data-dir", "--configuration", "--secrets":
+		case "--data-dir":
 			if seen[arg] || index+1 == len(args) {
 				return options, false, errors.New(FollowUsage)
 			}
 			seen[arg] = true
 			index++
 			value := args[index]
-			if arg == "--data-dir" {
-				if !filepath.IsAbs(value) {
-					return options, false, errors.New("--data-dir must be absolute")
-				}
-				options.Profile = value
-				continue
+			if !filepath.IsAbs(value) {
+				return options, false, errors.New("--data-dir must be absolute")
 			}
-			if value != "on" && value != "off" {
-				return options, false, errors.New(FollowUsage)
-			}
-			enabled := value == "on"
-			if arg == "--configuration" {
-				options.Configuration = &enabled
-			} else {
-				options.Secrets = &enabled
-			}
+			options.Profile = value
 		default:
 			positional = append(positional, arg)
 		}
 	}
 	if len(positional) > 0 {
 		options.Action = positional[0]
-		options.Arguments = positional[1:]
 	}
-	count := len(options.Arguments)
-	valid := false
-	switch options.Action {
-	case "status", "sync":
-		valid = count == 0
-	case "source", "target":
-		valid = count == 1
-	case "detach":
-		valid = count <= 1
-	case "mcp-local":
-		valid = count == 3 && (options.Arguments[2] == "on" || options.Arguments[2] == "off")
-	}
-	if !valid || options.Action != "target" && (options.Configuration != nil || options.Secrets != nil) {
+	if len(positional) > 1 || options.Action != "status" && options.Action != "sync" {
 		return options, false, errors.New(FollowUsage)
 	}
 	if options.Profile == "" {
@@ -110,53 +81,7 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 	if options.Action == "status" {
 		return json.NewEncoder(stdout).Encode(status)
 	}
-	command := protocol.ConfigurationFollowCommand{ExpectedRevision: status.Revision}
-	switch options.Action {
-	case "source":
-		command.Action = "set_source"
-		value := options.Arguments[0]
-		if value != "none" {
-			id := transport.Target()
-			if value != "local" {
-				id, err = parseFollowNodeID(value)
-				if err != nil {
-					return err
-				}
-			}
-			command.Source = &id
-		}
-	case "target":
-		command.Action = "set_target"
-		id, err := parseFollowNodeID(options.Arguments[0])
-		if err != nil {
-			return err
-		}
-		target := protocol.ConfigurationFollowTarget{Host: id, Configuration: true}
-		for _, saved := range status.Targets {
-			if saved.Host == id {
-				target = saved
-				break
-			}
-		}
-		if options.Configuration != nil {
-			target.Configuration = *options.Configuration
-		}
-		if options.Secrets != nil {
-			target.Secrets = *options.Secrets
-		}
-		command.Target = &target
-		command.ExpectedRevision = target.Revision
-	case "mcp-local":
-		command.Action = "mcp_local"
-		command.Plugin, command.Server, command.Local = options.Arguments[0], options.Arguments[1], options.Arguments[2] == "on"
-	case "detach":
-		command.Action = "detach"
-		if len(options.Arguments) > 0 {
-			command.Category = options.Arguments[0]
-		}
-	case "sync":
-		command.Action = "sync"
-	}
+	command := protocol.ConfigurationFollowCommand{Action: "sync"}
 	request := controller.Prepare(protocol.Command{Kind: "configuration_follow", Data: &command})
 	output, err := controller.Execute(ctx, request)
 	if err != nil {
@@ -170,12 +95,4 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(stdout).Encode(output.Data)
-}
-
-func parseFollowNodeID(value string) (protocol.NodeID, error) {
-	raw, err := hex.DecodeString(value)
-	if err != nil || len(raw) != 32 {
-		return protocol.NodeID{}, errors.New("Node identity must contain 64 hexadecimal characters")
-	}
-	return protocol.NodeID(raw), nil
 }

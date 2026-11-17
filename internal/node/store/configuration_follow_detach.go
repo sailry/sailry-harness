@@ -8,64 +8,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// DetachConfigurationCopies retains the last usable records as local editable
-// configuration. Disabling first prevents an in-flight source from reclaiming
-// them; a subsequent source sees ordinary ID/key conflicts instead of data loss.
-func DetachConfigurationCopies(ctx context.Context, db *sql.Conn, category string) error {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	status, err := ReadConfigurationFollow(ctx, db)
-	if err != nil {
-		return err
-	}
-	if status.Source != nil {
-		return fault(protocol.ErrorCodeConflict, "disable configuration following before detaching copies")
-	}
-	categories := ConfigurationCategories
-	if category != "" {
-		valid := false
-		for _, item := range categories {
-			valid = valid || item == category
-		}
-		if !valid {
-			return invalid("unsupported configuration category")
-		}
-		categories = []string{category}
-	}
-	for _, category := range categories {
-		switch category {
-		case "providers":
-			_, err = db.ExecContext(ctx, "UPDATE providers SET body=json_remove(body,'$.provider.source') WHERE user=?1 AND id IN (SELECT CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
-		case "roles", "teams", "ssh_profiles", "database_profiles":
-			_, err = db.ExecContext(ctx, "UPDATE "+category+" SET body=json_remove(body,'$.source') WHERE user=?1 AND id IN (SELECT CASE WHEN local_id='' THEN id ELSE local_id END FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
-		case "plugins":
-			_, err = db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=json_remove(body,'$.summary.source') WHERE user=?1 AND name IN (SELECT id FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category)
-		case "team_settings":
-			var copied bool
-			err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_records WHERE user=?1 AND category=?2 AND materialized=1)", user.ID.String(), category).Scan(&copied)
-			if err == nil && copied {
-				if user.Local {
-					_, err = db.ExecContext(ctx, "UPDATE team_settings SET body=json_remove(body,'$.source') WHERE singleton=1")
-				} else {
-					_, err = db.ExecContext(ctx, "UPDATE user_team_settings SET body=json_remove(body,'$.source') WHERE user=?1", user.ID.String())
-				}
-			}
-		}
-		if err != nil {
-			return err
-		}
-		if _, err = db.ExecContext(ctx, "DELETE FROM configuration_follow_records WHERE user=?1 AND category=?2", user.ID.String(), category); err != nil {
-			return err
-		}
-		if _, err = db.ExecContext(ctx, "DELETE FROM configuration_follow_versions WHERE user=?1 AND category=?2", user.ID.String(), category); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // RefreshConfigurationAuthorization removes stale pending-authorization notices
 // after the target independently signs in, without changing source identity.
 func RefreshConfigurationAuthorization(ctx context.Context, db *sql.Conn) error {

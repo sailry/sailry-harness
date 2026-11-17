@@ -14,7 +14,6 @@ func TestConfigurationFollowDialogShowsStatusAndRecovery(t *testing.T) {
 		Device:  viewmodel.Device{Name: "Execution host"},
 		Source:  "Controller",
 		Targets: []ConfigurationTargetStatus{{ID: "target", Name: "Another host", Failure: "Host is offline"}},
-		Issues:  []ConfigurationFollowIssue{{Category: "providers", ID: "account", State: "authorization", Message: "Sign in on the controller"}},
 	}
 	m := &Model{FollowEditor: view}
 	var retries int
@@ -31,7 +30,7 @@ func TestConfigurationFollowDialogShowsStatusAndRecovery(t *testing.T) {
 	tester.Frame()
 	tester.Advance(time.Second)
 	tester.Frame()
-	for _, text := range []string{"Controller", "Execution host", "Host is offline", "Sign in on the controller"} {
+	for _, text := range []string{"Controller", "Execution host", "Host is offline"} {
 		if !tester.HasText(text) {
 			t.Fatalf("missing sync status %q: %q", text, tester.Texts())
 		}
