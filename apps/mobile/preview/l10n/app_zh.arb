@@ -72,7 +72,6 @@
   "thoughtLive": "先查看登录页和表单组件，确认需要调整的间距和焦点样式",
   "changedFiles": "3 个文件变更",
   "approvalBody": "在 Studio 的 sailry-web 工作树运行测试",
-  "voiceNote": "此预览不访问麦克风",
   "select": "选择",
   "sessionActions": "会话操作",
   "archive": "归档会话",

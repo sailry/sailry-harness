@@ -72,7 +72,6 @@
   "thoughtLive": "First inspect the login page and form components to identify spacing and focus changes",
   "changedFiles": "3 files changed",
   "approvalBody": "Run tests in the sailry-web worktree on Studio",
-  "voiceNote": "This preview does not access the microphone",
   "select": "Select",
   "sessionActions": "Chat actions",
   "archive": "Archive chat",

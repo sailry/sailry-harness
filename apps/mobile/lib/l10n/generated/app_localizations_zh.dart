@@ -251,33 +251,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationDownloadFailed => '附件加载失败';
 
   @override
-  String get conversationMicrophoneDenied => '无法访问麦克风';
-
-  @override
-  String get conversationRecordingFailed => '语音识别失败';
-
-  @override
-  String get conversationSpeechDisabled => '语音输入已关闭';
-
-  @override
-  String get conversationSpeechMissing => '请先在设置中下载语音模型';
-
-  @override
-  String get conversationRecording => '正在录音';
-
-  @override
-  String get conversationTranscribing => '正在识别';
-
-  @override
-  String get conversationRecordReady => '准备录音';
-
-  @override
-  String get conversationStartRecording => '开始录音';
-
-  @override
-  String get conversationFinishRecording => '完成录音';
-
-  @override
   String get conversationSources => '来源';
 
   @override
@@ -1138,9 +1111,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get attach => '添加附件';
 
   @override
-  String get voice => '语音输入';
-
-  @override
   String get attachment => '附件';
 
   @override
@@ -1473,13 +1443,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get speechInput => '语音输入';
-
-  @override
   String get providers => '模型与渠道';
-
-  @override
-  String get speech => '语音';
 
   @override
   String get about => '关于 Sailry';
@@ -1673,27 +1637,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get failureGeneric => '操作失败';
-
-  @override
-  String get settingsSpeechLanguage => '语言';
-
-  @override
-  String get settingsSpeechAuto => '自动识别';
-
-  @override
-  String get settingsSpeechChinese => '中文';
-
-  @override
-  String get settingsSpeechEnglish => '英语';
-
-  @override
-  String get settingsSpeechReady => '语音模型已就绪';
-
-  @override
-  String get settingsSpeechDownload => '下载语音模型';
-
-  @override
-  String get settingsSpeechFailed => '语音模型未就绪，请重试';
 
   @override
   String get settingsLoadFailed => '读取失败';
@@ -2549,33 +2492,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationDownloadFailed => '附件載入失敗';
-
-  @override
-  String get conversationMicrophoneDenied => '無法訪問麥克風';
-
-  @override
-  String get conversationRecordingFailed => '語音識別失敗';
-
-  @override
-  String get conversationSpeechDisabled => '語音輸入已關閉';
-
-  @override
-  String get conversationSpeechMissing => '請先在設定中下載語音模型';
-
-  @override
-  String get conversationRecording => '正在錄音';
-
-  @override
-  String get conversationTranscribing => '正在識別';
-
-  @override
-  String get conversationRecordReady => '準備錄音';
-
-  @override
-  String get conversationStartRecording => '開始錄音';
-
-  @override
-  String get conversationFinishRecording => '完成錄音';
 
   @override
   String get conversationSources => '來源';
@@ -3438,9 +3354,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get attach => '新增附件';
 
   @override
-  String get voice => '語音輸入';
-
-  @override
   String get attachment => '附件';
 
   @override
@@ -3773,13 +3686,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   }
 
   @override
-  String get speechInput => '語音輸入';
-
-  @override
   String get providers => '模型與供應商';
-
-  @override
-  String get speech => '語音';
 
   @override
   String get about => '關於 Sailry';
@@ -3973,27 +3880,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get failureGeneric => '操作失敗';
-
-  @override
-  String get settingsSpeechLanguage => '語言';
-
-  @override
-  String get settingsSpeechAuto => '自動識別';
-
-  @override
-  String get settingsSpeechChinese => '中文';
-
-  @override
-  String get settingsSpeechEnglish => '英語';
-
-  @override
-  String get settingsSpeechReady => '語音模型已就緒';
-
-  @override
-  String get settingsSpeechDownload => '下載語音模型';
-
-  @override
-  String get settingsSpeechFailed => '語音模型未就緒，請重試';
 
   @override
   String get settingsLoadFailed => '讀取失敗';

@@ -265,35 +265,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationDownloadFailed => 'Anhang konnte nicht geladen werden';
 
   @override
-  String get conversationMicrophoneDenied =>
-      'Kann nicht auf das Mikrofon zugreifen';
-
-  @override
-  String get conversationRecordingFailed => 'Spracherkennung fehlgeschlagen';
-
-  @override
-  String get conversationSpeechDisabled => 'Spracheingabe ist deaktiviert';
-
-  @override
-  String get conversationSpeechMissing =>
-      'Laden Sie das Sprachmodell zuerst in den Einstellungen herunter';
-
-  @override
-  String get conversationRecording => 'Aufnahme läuft';
-
-  @override
-  String get conversationTranscribing => 'Transkription';
-
-  @override
-  String get conversationRecordReady => 'Bereit zum Aufnehmen';
-
-  @override
-  String get conversationStartRecording => 'Aufnahme starten';
-
-  @override
-  String get conversationFinishRecording => 'Aufnahme beenden';
-
-  @override
   String get conversationSources => 'Quellen';
 
   @override
@@ -1170,9 +1141,6 @@ class AppLocalizationsDe extends AppLocalizations {
   String get attach => 'Anhängen';
 
   @override
-  String get voice => 'Spracheingabe';
-
-  @override
   String get attachment => 'Anhang';
 
   @override
@@ -1505,13 +1473,7 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
-  String get speechInput => 'Spracheingabe';
-
-  @override
   String get providers => 'Modelle und Anbieter';
-
-  @override
-  String get speech => 'Spracheingabe';
 
   @override
   String get about => 'Über Sailry';
@@ -1710,28 +1672,6 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get failureGeneric => 'Operation ist fehlgeschlagen';
-
-  @override
-  String get settingsSpeechLanguage => 'Sprache';
-
-  @override
-  String get settingsSpeechAuto => 'Automatisch erkennen';
-
-  @override
-  String get settingsSpeechChinese => 'Chinesisch';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => 'Sprachmodell bereit';
-
-  @override
-  String get settingsSpeechDownload => 'Sprachmodell herunterladen';
-
-  @override
-  String get settingsSpeechFailed =>
-      'Sprachmodell nicht bereit; versuchen Sie es erneut';
 
   @override
   String get settingsLoadFailed => 'Konnte nicht geladen werden';

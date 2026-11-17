@@ -72,7 +72,6 @@
   "thoughtLive": "Primeiro, inspecione a página de login e os componentes do formulário para identificar alterações de espaçamento e foco",
   "changedFiles": "3 arquivos alterados",
   "approvalBody": "Execute testes na árvore de trabalho sailry-web no Studio",
-  "voiceNote": "Esta visualização não acessa o microfone",
   "select": "Selecionar",
   "sessionActions": "Ações de chat",
   "archive": "Arquivo de chat",

@@ -20,7 +20,6 @@ import 'package:sailry_mobile/features/terminal/session.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/json.dart';
 import 'package:sailry_mobile/runtime/session.dart';
-import 'package:sailry_mobile/runtime/speech.dart';
 
 import 'support/updates.dart' as update_fixture;
 
@@ -32,12 +31,6 @@ class _Preferences extends Fake implements SharedPreferencesAsync {
   Future<void> setBool(String key, bool value) async {
     values[key] = value;
   }
-}
-
-class _Speech extends SpeechController {
-  _Speech(super.directory) : super(preferences: _Preferences());
-  @override
-  Future<void> check() async {}
 }
 
 class _GenuineConnection extends Fake implements Connection {
@@ -183,7 +176,6 @@ void main() {
           initialized++;
         },
         openController: (_, _) async => owner,
-        createSpeech: _Speech.new,
       );
       await session.start(path: '/isolated/controller');
       expect(initialized, 0);
@@ -215,7 +207,6 @@ void main() {
         initialized++;
       },
       openController: (_, _) async => owner,
-      createSpeech: _Speech.new,
     );
     await session.start(path: '/isolated/controller');
     expect(initialized, 0);

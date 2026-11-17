@@ -9,7 +9,6 @@ import '../../runtime/session.dart';
 import '../updates/presentation.dart';
 import '../updates/service.dart';
 import 'live.dart';
-import 'speech_sheet.dart';
 import 'providers/provider_list.dart';
 import 'usage_page.dart';
 
@@ -122,17 +121,6 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
-  }
-
-  void _speech() {
-    final speech = AppSession.maybeOf(context)?.speech;
-    if (speech != null) {
-      showAppSheet(
-        context,
-        context.tr('speech'),
-        child: SpeechSheet(speech: speech),
-      );
-    }
   }
 
   void _language() {
@@ -276,13 +264,6 @@ class _SettingsPageState extends State<SettingsPage> {
             label: host?.label ?? '',
             child: _group([
               _row('spark', 'providers', connected ? _providers : null),
-              _row(
-                'mic',
-                'speech',
-                session?.speech == null || host?.isDemo == true
-                    ? null
-                    : _speech,
-              ),
             ]),
           ),
           const SizedBox(height: 16),

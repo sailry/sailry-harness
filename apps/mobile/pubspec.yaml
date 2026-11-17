@@ -32,7 +32,6 @@ dependencies:
   pub_semver: 2.2.1
   shared_preferences: 2.5.5
   file_picker: 13.1.0
-  record: 7.1.1
   url_launcher: 6.3.2
   webview_flutter: 4.14.1
   uuid: 4.6.0

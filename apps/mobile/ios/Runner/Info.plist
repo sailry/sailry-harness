@@ -42,8 +42,6 @@
 				</dict>
 			</dict>
 		</dict>
-		<key>NSMicrophoneUsageDescription</key>
-		<string>Record speech for your message</string>
 		<key>NSLocalNetworkUsageDescription</key>
 		<string>Connect to your Sailry hosts</string>
 		<key>UIApplicationSceneManifest</key>

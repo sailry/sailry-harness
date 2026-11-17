@@ -263,34 +263,6 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo cargar el archivo adjunto';
 
   @override
-  String get conversationMicrophoneDenied => 'No se puede acceder al micrófono';
-
-  @override
-  String get conversationRecordingFailed => 'Falló el reconocimiento de voz';
-
-  @override
-  String get conversationSpeechDisabled => 'La entrada de voz está desactivada';
-
-  @override
-  String get conversationSpeechMissing =>
-      'Descarga primero el modelo de voz en Configuración';
-
-  @override
-  String get conversationRecording => 'Grabación';
-
-  @override
-  String get conversationTranscribing => 'Transcripción';
-
-  @override
-  String get conversationRecordReady => 'Listo para grabar';
-
-  @override
-  String get conversationStartRecording => 'Iniciar la grabación';
-
-  @override
-  String get conversationFinishRecording => 'Finalizar la grabación';
-
-  @override
   String get conversationSources => 'Fuentes';
 
   @override
@@ -1166,9 +1138,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get attach => 'Adjuntar';
 
   @override
-  String get voice => 'Entrada de voz';
-
-  @override
   String get attachment => 'Adjunto';
 
   @override
@@ -1502,13 +1471,7 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get speechInput => 'Entrada de voz';
-
-  @override
   String get providers => 'Modelos y proveedores';
-
-  @override
-  String get speech => 'Discurso';
 
   @override
   String get about => 'Acerca de Sailry';
@@ -1708,28 +1671,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get failureGeneric => 'La operación falló';
-
-  @override
-  String get settingsSpeechLanguage => 'Idioma';
-
-  @override
-  String get settingsSpeechAuto => 'Detectar automáticamente';
-
-  @override
-  String get settingsSpeechChinese => 'Chino';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => 'Modelo de discurso listo';
-
-  @override
-  String get settingsSpeechDownload => 'Descargar modelo de discurso';
-
-  @override
-  String get settingsSpeechFailed =>
-      'El modelo de voz no está listo; vuelva a intentarlo';
 
   @override
   String get settingsLoadFailed => 'No se pudo cargar';

@@ -21,7 +21,7 @@ func TestMobileInvokeOps(t *testing.T) {
 		ok     bool
 	}{
 		{"new", `{"kind":"digest"}`, true},
-		{"new", `{"kind":"speech_input"}`, true},
+		{"new", `{"kind":"speech_input"}`, false},
 		{"missing", `{}`, false},
 		{"new", `{`, false},
 	} {

@@ -72,7 +72,6 @@
   "thoughtLive": "Überprüfen Sie zuerst die Anmeldeseite und die Formularkomponenten, um Änderungen an Abstand und Fokus zu identifizieren",
   "changedFiles": "3 Dateien geändert",
   "approvalBody": "Führen Sie Tests in der sailry-web-Arbeitsstruktur in Studio aus",
-  "voiceNote": "Diese Vorschau greift nicht auf das Mikrofon zu",
   "select": "Auswählen",
   "sessionActions": "Chat-Aktionen",
   "archive": "Archiv-Chat",

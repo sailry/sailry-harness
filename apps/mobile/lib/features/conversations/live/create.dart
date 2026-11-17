@@ -14,7 +14,6 @@ import 'creation_draft.dart';
 import 'draft_settings.dart';
 import 'page.dart';
 import 'presentation.dart' show failureLabel;
-import 'voice.dart';
 import 'team.dart';
 
 /// A local draft becomes a Node session only when the first message is sent.
@@ -225,9 +224,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
                 !widget.host.isDemo &&
                 widget.host.connected &&
                 _creation.worktree != null,
-            voiceEnabled: !widget.host.isDemo,
             onAttachment: (_) => _attach(),
-            onVoice: () => dictate(context, _draft),
             onStop: () {},
             onSend: _send,
           ),

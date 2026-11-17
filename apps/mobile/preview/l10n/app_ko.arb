@@ -72,7 +72,6 @@
   "thoughtLive": "먼저 로그인 페이지와 양식 구성 요소를 검사하여 간격 및 포커스 변경 사항을 식별합니다",
   "changedFiles": "3 파일 변경됨",
   "approvalBody": "Studio에서 sailry-web worktree에서 테스트 실행",
-  "voiceNote": "이 미리 보기는 마이크에 접근하지 않습니다",
   "select": "선택",
   "sessionActions": "채팅 동작",
   "archive": "채팅 보관",

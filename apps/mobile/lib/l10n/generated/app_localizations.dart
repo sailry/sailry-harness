@@ -582,60 +582,6 @@ abstract class AppLocalizations {
   /// **'Could not load attachment'**
   String get conversationDownloadFailed;
 
-  /// No description provided for @conversationMicrophoneDenied.
-  ///
-  /// In en, this message translates to:
-  /// **'Cannot access microphone'**
-  String get conversationMicrophoneDenied;
-
-  /// No description provided for @conversationRecordingFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Speech recognition failed'**
-  String get conversationRecordingFailed;
-
-  /// No description provided for @conversationSpeechDisabled.
-  ///
-  /// In en, this message translates to:
-  /// **'Voice input is off'**
-  String get conversationSpeechDisabled;
-
-  /// No description provided for @conversationSpeechMissing.
-  ///
-  /// In en, this message translates to:
-  /// **'Download the speech model in Settings first'**
-  String get conversationSpeechMissing;
-
-  /// No description provided for @conversationRecording.
-  ///
-  /// In en, this message translates to:
-  /// **'Recording'**
-  String get conversationRecording;
-
-  /// No description provided for @conversationTranscribing.
-  ///
-  /// In en, this message translates to:
-  /// **'Transcribing'**
-  String get conversationTranscribing;
-
-  /// No description provided for @conversationRecordReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Ready to record'**
-  String get conversationRecordReady;
-
-  /// No description provided for @conversationStartRecording.
-  ///
-  /// In en, this message translates to:
-  /// **'Start recording'**
-  String get conversationStartRecording;
-
-  /// No description provided for @conversationFinishRecording.
-  ///
-  /// In en, this message translates to:
-  /// **'Finish recording'**
-  String get conversationFinishRecording;
-
   /// No description provided for @conversationSources.
   ///
   /// In en, this message translates to:
@@ -2328,12 +2274,6 @@ abstract class AppLocalizations {
   /// **'Attach'**
   String get attach;
 
-  /// No description provided for @voice.
-  ///
-  /// In en, this message translates to:
-  /// **'Voice input'**
-  String get voice;
-
   /// No description provided for @attachment.
   ///
   /// In en, this message translates to:
@@ -2970,23 +2910,11 @@ abstract class AppLocalizations {
   /// **'Delete “{name}”?'**
   String configDelete(String name);
 
-  /// No description provided for @speechInput.
-  ///
-  /// In en, this message translates to:
-  /// **'Voice input'**
-  String get speechInput;
-
   /// No description provided for @providers.
   ///
   /// In en, this message translates to:
   /// **'Models and providers'**
   String get providers;
-
-  /// No description provided for @speech.
-  ///
-  /// In en, this message translates to:
-  /// **'Speech'**
-  String get speech;
 
   /// No description provided for @about.
   ///
@@ -3365,48 +3293,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Operation failed'**
   String get failureGeneric;
-
-  /// No description provided for @settingsSpeechLanguage.
-  ///
-  /// In en, this message translates to:
-  /// **'Language'**
-  String get settingsSpeechLanguage;
-
-  /// No description provided for @settingsSpeechAuto.
-  ///
-  /// In en, this message translates to:
-  /// **'Auto-detect'**
-  String get settingsSpeechAuto;
-
-  /// No description provided for @settingsSpeechChinese.
-  ///
-  /// In en, this message translates to:
-  /// **'Chinese'**
-  String get settingsSpeechChinese;
-
-  /// No description provided for @settingsSpeechEnglish.
-  ///
-  /// In en, this message translates to:
-  /// **'English'**
-  String get settingsSpeechEnglish;
-
-  /// No description provided for @settingsSpeechReady.
-  ///
-  /// In en, this message translates to:
-  /// **'Speech model ready'**
-  String get settingsSpeechReady;
-
-  /// No description provided for @settingsSpeechDownload.
-  ///
-  /// In en, this message translates to:
-  /// **'Download speech model'**
-  String get settingsSpeechDownload;
-
-  /// No description provided for @settingsSpeechFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Speech model not ready; retry'**
-  String get settingsSpeechFailed;
 
   /// No description provided for @settingsLoadFailed.
   ///

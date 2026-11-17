@@ -72,7 +72,6 @@
   "thoughtLive": "まずログインページとフォームコンポーネントを調べ、間隔とフォーカスの変更を確認します",
   "changedFiles": "3 ファイルが変更されました",
   "approvalBody": "Studio で sailry-web ワークトリーでテストを実行",
-  "voiceNote": "このプレビューはマイクにアクセスしません",
   "select": "選択",
   "sessionActions": "チャットアクション",
   "archive": "アーカイブチャット",

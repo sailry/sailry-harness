@@ -254,33 +254,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationDownloadFailed => '添付ファイルを読み込めません';
 
   @override
-  String get conversationMicrophoneDenied => 'マイクにアクセスできません';
-
-  @override
-  String get conversationRecordingFailed => '音声認識に失敗しました';
-
-  @override
-  String get conversationSpeechDisabled => '音声入力がオフ';
-
-  @override
-  String get conversationSpeechMissing => 'まず設定で音声モデルをダウンロード';
-
-  @override
-  String get conversationRecording => 'レコーディング';
-
-  @override
-  String get conversationTranscribing => '転写';
-
-  @override
-  String get conversationRecordReady => 'レコーディング準備完了';
-
-  @override
-  String get conversationStartRecording => '録音を開始';
-
-  @override
-  String get conversationFinishRecording => '録音を終了';
-
-  @override
   String get conversationSources => '出典';
 
   @override
@@ -1141,9 +1114,6 @@ class AppLocalizationsJa extends AppLocalizations {
   String get attach => '添付';
 
   @override
-  String get voice => '音声入力';
-
-  @override
   String get attachment => '添付ファイル';
 
   @override
@@ -1476,13 +1446,7 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
-  String get speechInput => '音声入力';
-
-  @override
   String get providers => 'モデルとプロバイダ';
-
-  @override
-  String get speech => 'スピーチ';
 
   @override
   String get about => 'Sailryについて';
@@ -1676,27 +1640,6 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get failureGeneric => '操作に失敗しました';
-
-  @override
-  String get settingsSpeechLanguage => '言語';
-
-  @override
-  String get settingsSpeechAuto => '自動検出';
-
-  @override
-  String get settingsSpeechChinese => '中国語';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => '音声モデル準備完了';
-
-  @override
-  String get settingsSpeechDownload => '音声モデルをダウンロード';
-
-  @override
-  String get settingsSpeechFailed => '音声モデルが準備ができていません。やり直します';
 
   @override
   String get settingsLoadFailed => '読み込めませんでした';

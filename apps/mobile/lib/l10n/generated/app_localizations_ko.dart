@@ -254,33 +254,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationDownloadFailed => '첨부 파일을 불러올 수 없음';
 
   @override
-  String get conversationMicrophoneDenied => '마이크에 접근할 수 없음';
-
-  @override
-  String get conversationRecordingFailed => '음성 인식 실패Name';
-
-  @override
-  String get conversationSpeechDisabled => '음성 입력이 꺼져 있습니다';
-
-  @override
-  String get conversationSpeechMissing => '먼저 설정에서 음성 모델 다운로드하기';
-
-  @override
-  String get conversationRecording => '녹음 중';
-
-  @override
-  String get conversationTranscribing => '번역 중';
-
-  @override
-  String get conversationRecordReady => '녹음 준비됨';
-
-  @override
-  String get conversationStartRecording => '녹음 시작';
-
-  @override
-  String get conversationFinishRecording => '녹음 끝내기';
-
-  @override
   String get conversationSources => '소스';
 
   @override
@@ -1142,9 +1115,6 @@ class AppLocalizationsKo extends AppLocalizations {
   String get attach => '첨부';
 
   @override
-  String get voice => '음성 입력';
-
-  @override
   String get attachment => '첨부 파일';
 
   @override
@@ -1477,13 +1447,7 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get speechInput => '음성 입력';
-
-  @override
   String get providers => '모델과 공급자';
-
-  @override
-  String get speech => '음성';
 
   @override
   String get about => 'Sailry에 대하여';
@@ -1677,27 +1641,6 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get failureGeneric => '작업 실패';
-
-  @override
-  String get settingsSpeechLanguage => '언어';
-
-  @override
-  String get settingsSpeechAuto => '자동 감지';
-
-  @override
-  String get settingsSpeechChinese => '중국어';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => '음성 모델 준비됨';
-
-  @override
-  String get settingsSpeechDownload => '음성 모델 다운로드';
-
-  @override
-  String get settingsSpeechFailed => '음성 모델이 준비되지 않았습니다. 다시 시도하십시오';
 
   @override
   String get settingsLoadFailed => '불러올 수 없음';

@@ -72,7 +72,6 @@
   "thoughtLive": "Inspectez d'abord la page de connexion et les composants du formulaire pour identifier les changements d'espacement et de mise au point",
   "changedFiles": "3 fichiers modifiés",
   "approvalBody": "Exécuter des tests dans l’arborescence sailry-web sur Studio",
-  "voiceNote": "Cet aperçu n'accède pas au microphone",
   "select": "Sélectionner",
   "sessionActions": "Actions de chat",
   "archive": "Archiver le chat",

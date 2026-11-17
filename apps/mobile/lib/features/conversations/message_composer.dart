@@ -10,7 +10,6 @@ class MessageComposer extends StatelessWidget {
     required this.attached,
     required this.busy,
     required this.onAttachment,
-    required this.onVoice,
     required this.onStop,
     required this.onSend,
     this.focusNode,
@@ -20,7 +19,6 @@ class MessageComposer extends StatelessWidget {
     this.enabled = true,
     this.sendEnabled = true,
     this.attachmentsEnabled = true,
-    this.voiceEnabled = true,
   });
 
   final TextEditingController controller;
@@ -28,7 +26,6 @@ class MessageComposer extends StatelessWidget {
   final bool attached;
   final bool busy;
   final ValueChanged<bool> onAttachment;
-  final VoidCallback onVoice;
   final VoidCallback onStop;
   final VoidCallback onSend;
   final Widget? priority;
@@ -37,7 +34,6 @@ class MessageComposer extends StatelessWidget {
   final bool enabled;
   final bool sendEnabled;
   final bool attachmentsEnabled;
-  final bool voiceEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -113,11 +109,6 @@ class MessageComposer extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ),
-                    icon(
-                      'mic',
-                      'voice',
-                      enabled && voiceEnabled ? onVoice : null,
                     ),
                     // Empty input keeps Stop available during execution.
                     SizedBox.square(

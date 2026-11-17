@@ -261,34 +261,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationDownloadFailed => 'Could not load attachment';
 
   @override
-  String get conversationMicrophoneDenied => 'Cannot access microphone';
-
-  @override
-  String get conversationRecordingFailed => 'Speech recognition failed';
-
-  @override
-  String get conversationSpeechDisabled => 'Voice input is off';
-
-  @override
-  String get conversationSpeechMissing =>
-      'Download the speech model in Settings first';
-
-  @override
-  String get conversationRecording => 'Recording';
-
-  @override
-  String get conversationTranscribing => 'Transcribing';
-
-  @override
-  String get conversationRecordReady => 'Ready to record';
-
-  @override
-  String get conversationStartRecording => 'Start recording';
-
-  @override
-  String get conversationFinishRecording => 'Finish recording';
-
-  @override
   String get conversationSources => 'Sources';
 
   @override
@@ -1159,9 +1131,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get attach => 'Attach';
 
   @override
-  String get voice => 'Voice input';
-
-  @override
   String get attachment => 'Attachment';
 
   @override
@@ -1494,13 +1463,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get speechInput => 'Voice input';
-
-  @override
   String get providers => 'Models and providers';
-
-  @override
-  String get speech => 'Speech';
 
   @override
   String get about => 'About Sailry';
@@ -1696,27 +1659,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get failureGeneric => 'Operation failed';
-
-  @override
-  String get settingsSpeechLanguage => 'Language';
-
-  @override
-  String get settingsSpeechAuto => 'Auto-detect';
-
-  @override
-  String get settingsSpeechChinese => 'Chinese';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => 'Speech model ready';
-
-  @override
-  String get settingsSpeechDownload => 'Download speech model';
-
-  @override
-  String get settingsSpeechFailed => 'Speech model not ready; retry';
 
   @override
   String get settingsLoadFailed => 'Could not load';

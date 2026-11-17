@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/strings.dart';
 import 'package:sailry_mobile/ui/kit.dart';
-import 'package:sailry_mobile/ui/toast.dart';
 import '../resources/git_page.dart';
 import '../resources/resources_page.dart';
 import '../terminal/terminal_page.dart';
@@ -80,8 +79,6 @@ class _ConversationPageState extends State<ConversationPage> {
     _scroll.dispose();
     super.dispose();
   }
-
-  void _notify(String key) => showToast(context, context.tr(key));
 
   void _play() {
     _timer?.cancel();
@@ -725,7 +722,6 @@ class _ConversationPageState extends State<ConversationPage> {
         busy: _busy,
         priority: _priority(context),
         onAttachment: (value) => setState(() => _attached = value),
-        onVoice: () => _notify('voiceNote'),
         onStop: () {
           _pause();
           setState(() => _stopped = true);

@@ -266,35 +266,6 @@ class AppLocalizationsFr extends AppLocalizations {
       'Impossible de charger la pièce jointe';
 
   @override
-  String get conversationMicrophoneDenied =>
-      'Impossible d\'accéder au microphone';
-
-  @override
-  String get conversationRecordingFailed => 'La reconnaissance vocale a échoué';
-
-  @override
-  String get conversationSpeechDisabled => 'L\'entrée vocale est désactivée';
-
-  @override
-  String get conversationSpeechMissing =>
-      'Téléchargez d\'abord le modèle de discours dans Paramètres';
-
-  @override
-  String get conversationRecording => 'Enregistrement';
-
-  @override
-  String get conversationTranscribing => 'Transcription';
-
-  @override
-  String get conversationRecordReady => 'Prêt à enregistrer';
-
-  @override
-  String get conversationStartRecording => 'Commencer l\'enregistrement';
-
-  @override
-  String get conversationFinishRecording => 'Terminer l\'enregistrement';
-
-  @override
   String get conversationSources => 'Sources';
 
   @override
@@ -1174,9 +1145,6 @@ class AppLocalizationsFr extends AppLocalizations {
   String get attach => 'Joindre';
 
   @override
-  String get voice => 'Entrée de voix';
-
-  @override
   String get attachment => 'Pièce jointe';
 
   @override
@@ -1510,13 +1478,7 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
-  String get speechInput => 'Entrée de voix';
-
-  @override
   String get providers => 'Modèles et fournisseurs';
-
-  @override
-  String get speech => 'Discours';
 
   @override
   String get about => 'À propos de Sailry';
@@ -1713,27 +1675,6 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get failureGeneric => 'L\'opération a échoué';
-
-  @override
-  String get settingsSpeechLanguage => 'Langue';
-
-  @override
-  String get settingsSpeechAuto => 'Détecter automatiquement';
-
-  @override
-  String get settingsSpeechChinese => 'Chinois';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => 'Modèle de discours prêt';
-
-  @override
-  String get settingsSpeechDownload => 'Télécharger le modèle de discours';
-
-  @override
-  String get settingsSpeechFailed => 'Modèle de discours non prêt; réessayez';
 
   @override
   String get settingsLoadFailed => 'Impossible de charger';

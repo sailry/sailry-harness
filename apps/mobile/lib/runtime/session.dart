@@ -14,7 +14,6 @@ import '../demo/connection.dart';
 import '../l10n/strings.dart';
 import 'json.dart';
 import 'background.dart';
-import 'speech.dart';
 import 'ports.dart';
 
 typedef CommandHandler =
@@ -34,7 +33,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   AppSession()
     : _initialize = initializeBridge,
       _openController = _open,
-      _createSpeech = SpeechController.new,
       _savedPeers = _hasSavedPeers,
       _demoPreferences = SharedPreferencesAsync();
 
@@ -45,12 +43,10 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     this.ready = true,
     Future<void> Function()? initialize,
     Future<Controller> Function(String, bool)? openController,
-    SpeechController Function(String)? createSpeech,
     Future<bool> Function(String)? savedPeers,
     SharedPreferencesAsync? preferences,
   }) : _initialize = initialize ?? initializeBridge,
        _openController = openController ?? _open,
-       _createSpeech = createSpeech ?? SpeechController.new,
        _savedPeers = savedPeers ?? ((_) async => true),
        _demoPreferences = preferences {
     _hosts.addAll(hosts);
@@ -62,7 +58,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
 
   final Future<void> Function() _initialize;
   final Future<Controller> Function(String, bool) _openController;
-  final SpeechController Function(String) _createSpeech;
   final Future<bool> Function(String) _savedPeers;
   final SharedPreferencesAsync? _demoPreferences;
   static const _demoEnabledKey = 'hosts.demo.enabled';
@@ -122,7 +117,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Controller? controller;
-  SpeechController? speech;
   String profilePath = '';
   bool ready = false;
   bool loading = false;
@@ -224,8 +218,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       }
       controller = opened;
       registered = true;
-      speech = _createSpeech(profilePath);
-      unawaited(speech!.check());
       // Saved direct hosts are available without waiting for their networks.
       // Resource routes arrive through the normal background directory refresh.
       final addresses = await opened.savedPeers();
@@ -642,8 +634,6 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     for (final host in hosts) {
       host.removeListener(_changed);
     }
-    speech?.dispose();
-    speech = null;
     final opened = controller;
     controller = null;
     await Future.wait([

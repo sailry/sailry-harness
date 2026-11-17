@@ -84,8 +84,6 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 		switch values.Kind {
 		case "digest":
 			return runtime.add(0, "digest", newDigest(), lifetime, cancel)
-		case "speech_input":
-			return runtime.add(0, "speech_input", &speech{}, lifetime, cancel)
 		default:
 			cancel()
 		}

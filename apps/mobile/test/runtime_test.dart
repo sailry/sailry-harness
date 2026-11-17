@@ -5,81 +5,8 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
-import 'package:sailry_bridge/api/speech.dart';
 import 'package:sailry_bridge/bridge.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sailry_mobile/runtime/session.dart';
-import 'package:sailry_mobile/runtime/speech.dart';
-
-class Preferences extends Fake implements SharedPreferencesAsync {
-  final _values = <String, Object?>{};
-  bool? get enabled => _values['enabled'] as bool?;
-  set enabled(bool? value) => _values['enabled'] = value;
-  String? get language => _values['language'] as String?;
-  set language(String? value) => _values['language'] = value;
-  Future<bool?>? get pendingEnabled => _values['pending'] as Future<bool?>?;
-  set pendingEnabled(Future<bool?>? value) => _values['pending'] = value;
-  @override
-  Future<bool?> getBool(String key) async => pendingEnabled ?? enabled;
-  @override
-  Future<String?> getString(String key) async => language;
-  @override
-  Future<void> setBool(String key, bool value) async {
-    enabled = value;
-  }
-
-  @override
-  Future<void> setString(String key, String value) async {
-    language = value;
-  }
-}
-
-class Speech extends Fake implements SpeechInput {
-  int cancels = 0;
-  int disposals = 0;
-  int downloads = 0;
-  int progressReads = 0;
-  bool available = false;
-  final finished = Completer<void>();
-  Completer<int>? pendingProgress;
-  Future<bool>? pendingReady;
-  @override
-  Future<bool> ready() async => pendingReady ?? available;
-  @override
-  Future<void> download() {
-    downloads++;
-    return finished.future;
-  }
-
-  @override
-  Future<int> downloadProgress() {
-    progressReads++;
-    return pendingProgress?.future ?? Future.value(20);
-  }
-
-  @override
-  Future<void> cancel() async {
-    cancels++;
-    if (!finished.isCompleted) finished.complete();
-  }
-
-  @override
-  void dispose() {
-    disposals++;
-  }
-}
-
-class QuietSpeech extends SpeechController {
-  QuietSpeech(super.directory) : super(preferences: Preferences());
-  bool disposed = false;
-  @override
-  Future<void> check() async {}
-  @override
-  void dispose() {
-    disposed = true;
-    super.dispose();
-  }
-}
 
 class Subscription extends Fake implements Updates {
   int closes = 0;
@@ -177,6 +104,7 @@ class Owner extends Fake implements Controller {
   Future<List<String>>? pendingSavedPeers;
   Future<List<String>>? pendingPeers;
   final peersStarted = Completer<void>();
+  final savedPeersStarted = Completer<void>();
   Future<Connection> Function(String)? connecting;
   String ticket = '';
   String? pin;
@@ -188,7 +116,10 @@ class Owner extends Fake implements Controller {
   Future<void>? pendingForget;
   final forgetStarted = Completer<void>();
   @override
-  Future<List<String>> savedPeers() async => pendingSavedPeers ?? addresses;
+  Future<List<String>> savedPeers() async {
+    if (!savedPeersStarted.isCompleted) savedPeersStarted.complete();
+    return pendingSavedPeers ?? addresses;
+  }
 
   @override
   Future<List<String>> peers() async {
@@ -792,7 +723,6 @@ void main() {
         ready: false,
         initialize: () async {},
         openController: (_, _) async => owner,
-        createSpeech: QuietSpeech.new,
       );
       var started = false;
       unawaited(
@@ -857,7 +787,6 @@ void main() {
         ready: false,
         initialize: () async {},
         openController: (_, _) async => owner,
-        createSpeech: QuietSpeech.new,
       );
       unawaited(session.start(path: '/isolated/controller'));
       clock.flushMicrotasks();
@@ -892,7 +821,6 @@ void main() {
           ready: false,
           initialize: () async {},
           openController: (_, _) async => owner,
-          createSpeech: QuietSpeech.new,
         );
         unawaited(session.start(path: '/isolated/controller'));
         clock.flushMicrotasks();
@@ -923,7 +851,7 @@ void main() {
   test("releases failed and late startup handles", () async {
     for (final (caseName, run) in <(String, Future<void> Function(String))>[
       (
-        "startup failure releases hosts and speech",
+        "startup failure releases hosts and controller",
         (caseName) async {
           final old = Channel();
           final fresh = Channel();
@@ -936,18 +864,12 @@ void main() {
           final successful = Owner()
             ..addresses.add(address('first'))
             ..connecting = (_) async => fresh;
-          final speech = <QuietSpeech>[];
           var attempts = 0;
           final session = AppSession.test(
             ready: false,
             initialize: () async {},
             openController: (_, _) async =>
                 attempts++ == 0 ? failed : successful,
-            createSpeech: (path) {
-              final value = QuietSpeech(path);
-              speech.add(value);
-              return value;
-            },
           );
           await session.start(path: '/isolated/controller');
           expect(session.ready, isFalse, reason: caseName);
@@ -958,7 +880,6 @@ void main() {
           expect(old.disposals, 1, reason: caseName);
           expect(failed.closes, 1, reason: caseName);
           expect(failed.disposals, 1, reason: caseName);
-          expect(speech.single.disposed, isTrue, reason: caseName);
           await session.start(path: '/isolated/controller');
           expect(session.ready, isTrue, reason: caseName);
           expect(session.error, isNull, reason: caseName);
@@ -972,7 +893,6 @@ void main() {
           expect(fresh.closes, 1, reason: caseName);
           expect(fresh.disposals, 1, reason: caseName);
           expect(successful.closes, 1, reason: caseName);
-          expect(speech.last.disposed, isTrue, reason: caseName);
         },
       ),
       (
@@ -1006,18 +926,13 @@ void main() {
         (caseName) async {
           final peers = Completer<List<String>>();
           final owner = Owner()..pendingSavedPeers = peers.future;
-          final entered = Completer<void>();
           final session = AppSession.test(
             ready: false,
             initialize: () async {},
             openController: (_, _) async => owner,
-            createSpeech: (path) {
-              entered.complete();
-              return QuietSpeech(path);
-            },
           );
           final starting = session.start(path: '/isolated/controller');
-          await entered.future;
+          await owner.savedPeersStarted.future;
           await session.close();
           peers.complete([]);
           await starting;
@@ -1282,119 +1197,6 @@ void main() {
     ]) {
       await run(caseName);
     }
-  });
-
-  test(
-    "coordinates speech initialization cancellation and preferences",
-    () async {
-      for (final (caseName, run) in <(String, Future<void> Function(String))>[
-        (
-          "shared speech initialization and late disposal",
-          (caseName) async {
-            final opening = Completer<SpeechInput>();
-            final entered = Completer<void>();
-            final input = Speech();
-            var opens = 0;
-            final speech = SpeechController(
-              '/isolated/speech',
-              preferences: Preferences(),
-              open: (_) {
-                opens++;
-                if (!entered.isCompleted) entered.complete();
-                return opening.future;
-              },
-            );
-            final checking = speech.check();
-            final downloading = speech.download();
-            await entered.future;
-            speech.dispose();
-            opening.complete(input);
-            await Future.wait([checking, downloading]);
-            expect(opens, 1, reason: caseName);
-            expect(input.cancels, 1, reason: caseName);
-            expect(input.disposals, 1, reason: caseName);
-            expect(input.downloads, 0, reason: caseName);
-          },
-        ),
-        (
-          "early speech cancellation prevents download",
-          (caseName) async {
-            final opening = Completer<SpeechInput>();
-            final input = Speech();
-            final speech = SpeechController(
-              '/isolated/speech',
-              preferences: Preferences(),
-              open: (_) => opening.future,
-            );
-            final downloading = speech.download();
-            await speech.cancel();
-            opening.complete(input);
-            await downloading;
-            expect(input.downloads, 0, reason: caseName);
-            expect(speech.downloading, isFalse, reason: caseName);
-            speech.dispose();
-            await Future<void>.value();
-          },
-        ),
-        (
-          "speech preferences resist stale reads",
-          (caseName) async {
-            final loading = Completer<bool?>();
-            final preferences = Preferences()..pendingEnabled = loading.future;
-            final speech = SpeechController(
-              '/isolated/speech',
-              preferences: preferences,
-              open: (_) async => Speech(),
-            );
-            final checking = speech.check();
-            await speech.setEnabled(false);
-            loading.complete(true);
-            await checking;
-            expect(speech.enabled, isFalse, reason: caseName);
-            expect(preferences.enabled, isFalse, reason: caseName);
-            speech.dispose();
-            await Future<void>.value();
-          },
-        ),
-      ]) {
-        await run(caseName);
-      }
-    },
-  );
-
-  test('bounded speech failures stop on disposal', () {
-    fakeAsync((clock) {
-      final input = Speech()..pendingProgress = Completer<int>();
-      final speech = SpeechController(
-        '/isolated/speech',
-        preferences: Preferences(),
-        open: (_) async => input,
-      );
-      var notifications = 0;
-      var finished = false;
-      speech.addListener(() => notifications++);
-      speech.download().then((_) => finished = true);
-      clock.flushMicrotasks();
-      clock.elapse(const Duration(milliseconds: 250));
-      expect(input.progressReads, 1);
-      clock.elapse(const Duration(milliseconds: 500));
-      expect(input.progressReads, 1);
-      input.pendingProgress!.completeError(StateError('progress unavailable'));
-      clock.flushMicrotasks();
-      expect(speech.error, isNotNull);
-      input.pendingProgress = Completer<int>();
-      clock.elapse(const Duration(milliseconds: 250));
-      speech.dispose();
-      final count = notifications;
-      input.pendingProgress!.complete(90);
-      clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 1));
-      expect(finished, isTrue);
-      expect(notifications, count);
-      expect(input.cancels, 1);
-      expect(input.disposals, 1);
-      expect(input.progressReads, 2);
-    });
   });
 
   test("pairs trusted peers and recovers subscription failures", () async {

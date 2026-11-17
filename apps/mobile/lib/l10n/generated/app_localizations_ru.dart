@@ -261,35 +261,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationDownloadFailed => 'Не удалось загрузить вложение';
 
   @override
-  String get conversationMicrophoneDenied =>
-      'Не удается получить доступ к микрофону';
-
-  @override
-  String get conversationRecordingFailed => 'Распознавание речи не удалось';
-
-  @override
-  String get conversationSpeechDisabled => 'Голосовой вход отключен';
-
-  @override
-  String get conversationSpeechMissing =>
-      'Сначала загрузите модель речи в Настройки';
-
-  @override
-  String get conversationRecording => 'Запись';
-
-  @override
-  String get conversationTranscribing => 'Транскрипция';
-
-  @override
-  String get conversationRecordReady => 'Готов к записи';
-
-  @override
-  String get conversationStartRecording => 'Начать запись';
-
-  @override
-  String get conversationFinishRecording => 'Завершить запись';
-
-  @override
   String get conversationSources => 'Источники';
 
   @override
@@ -1164,9 +1135,6 @@ class AppLocalizationsRu extends AppLocalizations {
   String get attach => 'Прикрепить';
 
   @override
-  String get voice => 'Голосовой ввод';
-
-  @override
   String get attachment => 'Вложение';
 
   @override
@@ -1499,13 +1467,7 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
-  String get speechInput => 'Голосовой ввод';
-
-  @override
   String get providers => 'Модели и поставщики';
-
-  @override
-  String get speech => 'Речь';
 
   @override
   String get about => 'О Sailry';
@@ -1704,27 +1666,6 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get failureGeneric => 'Операция не удалась';
-
-  @override
-  String get settingsSpeechLanguage => 'Язык';
-
-  @override
-  String get settingsSpeechAuto => 'Определять автоматически';
-
-  @override
-  String get settingsSpeechChinese => 'Китайский язык';
-
-  @override
-  String get settingsSpeechEnglish => 'English';
-
-  @override
-  String get settingsSpeechReady => 'Готова модель речи';
-
-  @override
-  String get settingsSpeechDownload => 'Загрузить модель речи';
-
-  @override
-  String get settingsSpeechFailed => 'Модель речи не готова; повторите попытку';
 
   @override
   String get settingsLoadFailed => 'Не удалось загрузить';

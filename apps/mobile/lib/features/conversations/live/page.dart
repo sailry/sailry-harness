@@ -28,7 +28,6 @@ import 'presentation.dart';
 import 'tool_output.dart';
 import 'timeline.dart';
 import 'statistics.dart';
-import 'voice.dart';
 import 'message_data.dart';
 import 'message_editor.dart';
 import 'search.dart';
@@ -449,8 +448,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     }
   }
 
-  Future<void> _voice() => dictate(context, _draft);
-
   void _openChild(Map<String, dynamic> reference) {
     final session = childSession(widget.host, reference);
     if (session == null) {
@@ -844,7 +841,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                           ),
                     attached: false,
                     attachmentsEnabled: !widget.host.isDemo,
-                    voiceEnabled: !widget.host.isDemo,
                     busy: _active.isNotEmpty,
                     enabled:
                         connected &&
@@ -854,7 +850,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                         _pendingSend == null &&
                         _session['archived'] != true,
                     onAttachment: (_) => _attach(),
-                    onVoice: _voice,
                     onStop: _stop,
                     onSend: _send,
                     priority: queue == null
