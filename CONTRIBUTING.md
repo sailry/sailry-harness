@@ -283,8 +283,9 @@ except `publish`:
   and all six test lanes; Flutter checks are reused only if that run completed
   them. The five native artifacts are reused only if their builds succeeded
   and their artifacts remain available. Missing evidence falls back to the
-  corresponding checks or builds. Final signed Mobile packages replace the
-  duplicate unsigned builds.
+  corresponding checks or builds. Reused macOS native inputs are also retained
+  in the release run for later packaging repairs. Final signed Mobile packages
+  replace the duplicate unsigned builds.
 - `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
   macOS Host archive, signed with the Developer ID certificate.
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the

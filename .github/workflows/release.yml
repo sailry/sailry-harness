@@ -170,6 +170,16 @@ jobs:
           path: ${{ runner.temp }}/native
           run-id: ${{ needs.version.outputs.reuse_run || needs.version.outputs.native_run || github.run_id }}
           github-token: ${{ github.token }}
+      # A later packaging repair reads this release run's native inputs even
+      # when they originally came from the verified CI run.
+      - name: Retain reused macOS native inputs
+        if: needs.version.outputs.native_run != '' || needs.version.outputs.reuse_run != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native/
+          if-no-files-found: error
+          compression-level: 0
       # A temporary keychain holds the Developer ID certificate; the App Store
       # Connect key stays a file outside the checkout.
       - name: Signing credentials
