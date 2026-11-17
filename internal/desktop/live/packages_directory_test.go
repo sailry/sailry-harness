@@ -66,7 +66,7 @@ func TestDirectoryUpdateUsesNodeVerdict(t *testing.T) {
 			node := &directoryUpdateTestNode{stream: protocol.StreamID{3}}
 			controller := client.New(link.NewLocal(protocol.NodeID{1}, protocol.NodeID{1}, node))
 			t.Cleanup(func() { _ = controller.Close() })
-			r := &Runtime{ctx: t.Context(), controller: controller, Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))}
+			r := &Runtime{ctx: t.Context(), controller: controller, Preferences: preferences.Open(filepath.Join(t.TempDir(), "config", "preferences.json"))}
 			directory := t.TempDir()
 			manifest := []byte(`{"name":"notes","version":"1.1.0"}`)
 			if err := os.WriteFile(filepath.Join(directory, "plugin.json"), manifest, 0o600); err != nil {
