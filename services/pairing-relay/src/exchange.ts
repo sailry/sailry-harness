@@ -98,7 +98,9 @@ export class Exchange {
   private async cancel(body: Cancellation, now: number): Promise<Result> {
     const found = await this.find(body.code, now);
     if (!found) return { status: 204 };
-    if (found.entry.cancel !== body.cancel_token) return failure(403, "invalid_cancel_token");
+    // A wrong token answers like an unknown code, so cancel cannot be used to
+    // probe which codes are live outside the redeem budget.
+    if (found.entry.cancel !== body.cancel_token) return { status: 204 };
     await this.store.create(`${found.prefix}cancel/${body.code}`, { expires: found.entry.expires, value: "cancelled" });
     return { status: 204 };
   }

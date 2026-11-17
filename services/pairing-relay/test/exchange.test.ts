@@ -129,7 +129,7 @@ describe.each(["SQLite", "Blob contract"])("shared exchange: %s", backend => {
     const { value } = await publish(exchange);
     const claim = { code: value.code, request_id: requestId(NOW) };
     expect((await exchange.execute("redeem", claim, "client", NOW)).status).toBe(200);
-    expect((await exchange.execute("cancel", { code: value.code, cancel_token: randomToken() }, "host", NOW)).status).toBe(403);
+    expect((await exchange.execute("cancel", { code: value.code, cancel_token: randomToken() }, "host", NOW)).status).toBe(204);
     expect((await exchange.execute("cancel", { code: value.code, cancel_token: value.cancel_token }, "host", NOW)).status).toBe(204);
     expect((await exchange.execute("redeem", claim, "client", NOW)).status).toBe(404);
   });
