@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Portweiterleitung
 port_mappings: Port-Mappings
 port_add: Neuer Stürmer
+port_edit: Weiterleitung bearbeiten
 port_create: Erstellen
 port_remote: Host-Port
 port_local: Lokaler Port (0 für automatisch)

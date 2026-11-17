@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: 埠轉發
 port_mappings: 埠對映
 port_add: 新建轉發
+port_edit: 編輯轉發
 port_create: 建立
 port_remote: 主機埠
 port_local: 本地埠（0 為自動分配）

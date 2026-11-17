@@ -26,15 +26,16 @@ type Actions struct {
 	OpenPort    func(Port)
 	ClosePort   func(Port)
 	CreatePort  func(remote, local string, completed func(bool))
+	ReplacePort func(previous Port, remote, local string, completed func(bool))
 	Dialogs     func(*ui.Context)
 }
 
 // State is the page's UI state: its dialogs and their drafts, and the
 // monitor's choices.
 type State struct {
-	updating bool       // the update dialog
-	revoking bool       // the Remove pairing confirmation
-	ports    portPicker // the port picker and the new forward dialog
+	updating bool     // the update dialog
+	revoking bool     // the Remove pairing confirmation
+	ports    portForm // the new or edited forward dialog
 	// disk is the volume the disk card follows, "" for the root; gpu the
 	// accelerator the GPU card follows, "" for the first; query, sort and
 	// processes are the processes' search, order and table.

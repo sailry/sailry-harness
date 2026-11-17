@@ -145,9 +145,9 @@ type Command struct {
 
 // activity is the State's part for the strip: which popovers are open.
 type activity struct {
-	changes, progress, commands, services, children bool
-	badges                                          map[string]*bool
-	command                                         string // the command row open
+	changes, progress, commands, children bool
+	badges                                map[string]*bool
+	command                               string // the command row open
 }
 
 // activity builds the strip: min_h_7, px_4, gap_2.
@@ -404,8 +404,8 @@ type service struct {
 }
 
 // services is the capsule of the ports the running commands listen on and
-// its popover: a row a port, with its mapping and the command that serves
-// it. A click on a row opens the service; the capsule only lists them.
+// its menu, as the host's forwards list theirs: a row a port, the command
+// that serves it below; choosing one opens the service.
 func (s *State) services(c *ui.Context, running []Command, connected bool, actions Actions) {
 	var list []service
 	seen := map[int]bool{}
@@ -418,43 +418,34 @@ func (s *State) services(c *ui.Context, running []Command, connected bool, actio
 		}
 	}
 	if len(list) == 0 {
-		s.act.services = false
 		return
 	}
 	label := strconv.Itoa(list[0].port)
 	if len(list) > 1 {
 		label = i18n.T(c, "port_count", "count", len(list))
 	}
-	trigger := chip(c.Key("services"), i18n.T(c, "port_mappings")+": "+label, s.act.services, func() {
-		ui.Icon(c, icons.Globe).FontSize(chipIcon)
-		chipText(c, label)
-	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.services = !s.act.services })
-	placeStart(kit.Popover(c, trigger, &s.act.services, func() {
-		p := theme.Of(c)
-		ui.Scroll(c.Key("service-rows")).MaxHeight(6 * 28).Gap(2).Children(func() {
-			for _, item := range list {
-				name, busy := strconv.Itoa(item.port), false
-				if s.ActivityCallbacks != nil {
-					if s.ActivityCallbacks.ServiceLabel != nil {
-						name = s.ActivityCallbacks.ServiceLabel(item.port)
-					}
-					if s.ActivityCallbacks.ServiceBusy != nil {
-						busy = s.ActivityCallbacks.ServiceBusy(item.port)
-					}
-				}
-				row := kit.Ghost(c.Key(item.port), name, false).FillWidth().Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
-					Disabled(!connected || busy).Children(func() {
-					ui.Icon(c, icons.Globe).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
-					ui.Text(c, name).Font("monospace").FontSize(13).SingleLine().Shrink(0)
-					ui.Text(c, item.command).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
-				}).OnClick(func() {
-					s.act.services = false
-					actions.OpenService(item.port)
-				})
-				kit.Tooltip(c, row, i18n.T(c, "port_open_service"))
-			}
+	name := i18n.T(c, "port_mappings") + ": " + label
+	kit.MenuButton(c, s.menuID("services"), func(b ui.Element) {
+		chipLook(c, b.Label(name), false, func() {
+			ui.Icon(c, icons.Globe).FontSize(chipIcon)
+			chipText(c, label)
 		})
-	}), trigger, 320, 8, 0)
+	}, func(m *kit.Menu) {
+		for _, item := range list {
+			port, busy := strconv.Itoa(item.port), false
+			if s.ActivityCallbacks != nil {
+				if s.ActivityCallbacks.ServiceLabel != nil {
+					port = s.ActivityCallbacks.ServiceLabel(item.port)
+				}
+				if s.ActivityCallbacks.ServiceBusy != nil {
+					busy = s.ActivityCallbacks.ServiceBusy(item.port)
+				}
+			}
+			if m.Item(port).Icon(icons.Globe).Description(item.command).Disabled(!connected || busy).Chosen() {
+				actions.OpenService(item.port)
+			}
+		}
+	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart, MaxHeight: 320})
 }
 
 // commandRow is the status icon, the command (a click shows its output), the

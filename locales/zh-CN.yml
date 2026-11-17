@@ -2179,6 +2179,7 @@ git_initialize_sample: 确认初始化示例“%{name}”
 
 port_mappings: 端口映射
 port_add: 新建转发
+port_edit: 编辑转发
 
 location_project: 选择项目
 location_create: 新建工作树并继续

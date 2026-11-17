@@ -1600,6 +1600,7 @@ metrics_gpu
 port_title
 port_mappings
 port_add
+port_edit
 port_create
 port_remote
 port_local

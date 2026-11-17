@@ -39,28 +39,35 @@ func (source ServiceSource) present(items []protocol.ProcessInfo) bool {
 }
 
 type Forwarder struct {
-	node      protocol.NodeID
-	remote    uint16
-	local     uint16
-	ctx       context.Context
-	cancel    context.CancelFunc
-	listener  net.Listener
-	done      chan struct{}
-	release   func()
-	mu        sync.Mutex
-	next      chan struct{}
-	state     ForwardState
-	version   uint64
-	observed  uint64
-	wake      chan struct{}
-	callbacks map[uint64]func()
-	callback  uint64
-	close     sync.Once
+	client        *Client
+	node          protocol.NodeID
+	remote        uint16
+	local         uint16
+	ctx           context.Context
+	cancel        context.CancelFunc
+	listener      net.Listener
+	done          chan struct{}
+	release       func()
+	mu            sync.Mutex
+	next          chan struct{}
+	state         ForwardState
+	version       uint64
+	observed      uint64
+	wake          chan struct{}
+	callbacks     map[uint64]func()
+	callback      uint64
+	close         sync.Once
+	replace       sync.Mutex
+	serviceCancel context.CancelFunc
 }
 
 func (forwarder *Forwarder) Node() protocol.NodeID { return forwarder.node }
-func (forwarder *Forwarder) RemotePort() uint16    { return forwarder.remote }
-func (forwarder *Forwarder) LocalPort() uint16     { return forwarder.local }
+func (forwarder *Forwarder) RemotePort() uint16 {
+	forwarder.mu.Lock()
+	defer forwarder.mu.Unlock()
+	return forwarder.remote
+}
+func (forwarder *Forwarder) LocalPort() uint16 { return forwarder.local }
 func (forwarder *Forwarder) State() ForwardState {
 	forwarder.mu.Lock()
 	defer forwarder.mu.Unlock()
@@ -123,6 +130,12 @@ func (forwarder *Forwarder) setState(state ForwardState) {
 	forwarder.mu.Lock()
 	forwarder.state = state
 	forwarder.version++
+	forwarder.mu.Unlock()
+	forwarder.notify()
+}
+
+func (forwarder *Forwarder) notify() {
+	forwarder.mu.Lock()
 	callbacks := make([]func(), 0, len(forwarder.callbacks))
 	for _, callback := range forwarder.callbacks {
 		callbacks = append(callbacks, callback)
@@ -204,7 +217,8 @@ func (client *Client) ForwardPort(ctx context.Context, remotePort, localPort uin
 	}
 	owner, cancel := context.WithCancel(parent)
 	forwarder := &Forwarder{
-		node: client.Target(), remote: remotePort, local: uint16(listener.Addr().(*net.TCPAddr).Port),
+		client: client,
+		node:   client.Target(), remote: remotePort, local: uint16(listener.Addr().(*net.TCPAddr).Port),
 		ctx: owner, cancel: cancel, listener: listener, done: make(chan struct{}),
 		next: make(chan struct{}, 1), state: ForwardState{Kind: "listening"}, version: 1,
 		wake: make(chan struct{}, 1), callbacks: map[uint64]func(){},
@@ -222,6 +236,49 @@ func (client *Client) ForwardPort(ctx context.Context, remotePort, localPort uin
 		client.forwardMu.Unlock()
 	}
 	go forwarder.run(client, subscription)
+	return forwarder, nil
+}
+
+// ReplaceForwardPort prepares the new route before retiring the old mapping.
+// Keeping the local port reuses its listener and existing streams retain their
+// captured remote port. Moving the listener binds the new port first, so a
+// failed route or bind leaves the previous forward available.
+func (client *Client) ReplaceForwardPort(ctx context.Context, previous *Forwarder, remotePort, localPort uint16) (*Forwarder, error) {
+	if previous == nil || previous.client != client || remotePort == 0 {
+		return nil, fault(protocol.ErrorCodeInvalidRequest, "port forward does not belong to this Client")
+	}
+	previous.replace.Lock()
+	defer previous.replace.Unlock()
+	if localPort == previous.local && previous.State().Kind == "listening" {
+		stream, err := client.portStream(ctx, remotePort)
+		if err != nil {
+			return nil, err
+		}
+		_ = stream.Close()
+		previous.mu.Lock()
+		if ctx.Err() != nil || previous.ctx.Err() != nil || previous.state.Kind != "listening" {
+			previous.mu.Unlock()
+			return nil, fault(protocol.ErrorCodeUnavailable, "port forward is no longer listening")
+		}
+		previous.remote = remotePort
+		if previous.serviceCancel != nil {
+			previous.serviceCancel()
+			previous.serviceCancel = nil
+		}
+		previous.version++
+		previous.mu.Unlock()
+		previous.notify()
+		return previous, nil
+	}
+	forwarder, err := client.ForwardPort(ctx, remotePort, localPort)
+	if err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		_ = forwarder.Close()
+		return nil, fault(protocol.ErrorCodeCancelled, "port replacement was cancelled")
+	}
+	_ = previous.Close()
 	return forwarder, nil
 }
 
@@ -262,11 +319,12 @@ func (forwarder *Forwarder) run(client *Client, subscription link.Subscription) 
 			break
 		}
 		pending.Add(1)
+		remote := forwarder.RemotePort()
 		go func() {
 			defer pending.Done()
 			defer func() { <-connections }()
 			defer connection.Close()
-			stream, err := client.portStream(forwarder.ctx, forwarder.remote)
+			stream, err := client.portStream(forwarder.ctx, remote)
 			if err != nil {
 				return
 			}
@@ -339,9 +397,15 @@ func (client *Client) ForwardService(ctx context.Context, encoded json.RawMessag
 	if err != nil {
 		return nil, err
 	}
-	release, err := client.ObserveCommands(forwarder.ctx, source.Session, func() {
+	serviceContext, stopService := context.WithCancel(forwarder.ctx)
+	forwarder.mu.Lock()
+	forwarder.serviceCancel = stopService
+	forwarder.mu.Unlock()
+	_, err = client.ObserveCommands(serviceContext, source.Session, func() {
 		state, ready := client.Commands(source.Session)
-		if ready && state.Connected && !source.present(state.Items) {
+		forwarder.mu.Lock()
+		defer forwarder.mu.Unlock()
+		if serviceContext.Err() == nil && ready && state.Connected && !source.present(state.Items) {
 			forwarder.cancel()
 		}
 	})
@@ -349,7 +413,6 @@ func (client *Client) ForwardService(ctx context.Context, encoded json.RawMessag
 		_ = forwarder.Close()
 		return nil, err
 	}
-	context.AfterFunc(forwarder.ctx, release)
 	return forwarder, nil
 }
 

@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Port forwarding
 port_mappings: Port mappings
 port_add: New forward
+port_edit: Edit forward
 port_create: Create
 port_remote: Host port
 port_local: Local port (0 for automatic)

@@ -150,19 +150,7 @@ func (a *App) hostMenu(c *ui.Context, m *kit.Menu) {
 		a.Sidebar.OpenEditorAtHost(a.Host)
 	}
 	m.Separator()
-	m.Submenu(i18n.T(c, "port_mappings"), func(sub *kit.Menu) {
-		for _, port := range h.Ports {
-			if sub.Item(port.Route()).Disabled(!port.Listening).Chosen() {
-				host.OpenPort(c, port, actions)
-			}
-		}
-		if len(h.Ports) > 0 {
-			sub.Separator()
-		}
-		if sub.Item(i18n.T(c, "port_title")).Chosen() {
-			st.OpenPorts()
-		}
-	})
+	m.Submenu(i18n.T(c, "port_mappings"), func(sub *kit.Menu) { st.PortMenu(c, sub, h, actions) })
 	if h.Update != nil && m.Item(i18n.T(c, "host_update")).Chosen() {
 		st.OpenUpdate(h)
 	}

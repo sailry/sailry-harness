@@ -10,9 +10,6 @@ import (
 // the host page's More menu lists the forwards too.
 func OpenPort(c *ui.Context, port Port, act Actions) { openPort(c, port, act) }
 
-// OpenPorts opens the page's port picker.
-func (s *State) OpenPorts() { s.ports = portPicker{open: true} }
-
 // AskRevoke opens the confirmation that removes the host's pairing. The page
 // builds it only for a host that can be revoked (Actions.Revoke).
 func (s *State) AskRevoke() { s.revoking = true }

@@ -179,21 +179,103 @@ func (r *Runtime) portActions(node string) host.Actions {
 		},
 		ClosePort: func(port host.Port) { root.closeForward(node, uint16(port.Remote)) },
 		CreatePort: func(remote, local string, completed func(bool)) {
-			remotePort, remoteErr := strconv.ParseUint(strings.TrimSpace(remote), 10, 16)
-			localPort := uint64(0)
-			var localErr error
-			if strings.TrimSpace(local) != "" {
-				localPort, localErr = strconv.ParseUint(strings.TrimSpace(local), 10, 16)
-			}
-			if remoteErr != nil || localErr != nil || remotePort == 0 {
+			remotePort, localPort, valid := forwardPorts(remote, local)
+			if !valid {
 				root.enqueue(func(c *ui.Context) {
 					kit.Toast(c, kit.Failed, i18n.T(c, "port_invalid"))
 					completed(false)
 				})
 				return
 			}
-			root.startForward(node, uint16(remotePort), uint16(localPort), nil, false, completed)
+			root.startForward(node, remotePort, localPort, nil, false, completed)
 		},
+		ReplacePort: func(previous host.Port, remote, local string, completed func(bool)) {
+			remotePort, localPort, valid := forwardPorts(remote, local)
+			if !valid {
+				root.enqueue(func(c *ui.Context) {
+					kit.Toast(c, kit.Failed, i18n.T(c, "port_invalid"))
+					completed(false)
+				})
+				return
+			}
+			root.replaceForward(node, previous, remotePort, localPort, completed)
+		},
+	}
+}
+
+func forwardPorts(remote, local string) (uint16, uint16, bool) {
+	remotePort, err := strconv.ParseUint(strings.TrimSpace(remote), 10, 16)
+	if err != nil || remotePort == 0 {
+		return 0, 0, false
+	}
+	localPort := uint64(0)
+	if strings.TrimSpace(local) != "" {
+		localPort, err = strconv.ParseUint(strings.TrimSpace(local), 10, 16)
+	}
+	return uint16(remotePort), uint16(localPort), err == nil
+}
+
+func (r *Runtime) replaceForward(node string, previous host.Port, remote, local uint16, completed func(bool)) {
+	state := r.ports
+	oldKey, newKey := portKey{node: node, port: uint16(previous.Remote)}, portKey{node: node, port: remote}
+	state.mu.Lock()
+	item, found := state.forwards[oldKey]
+	occupied := newKey != oldKey && state.forwards[newKey].forward != nil
+	if state.closed || state.busy[oldKey] || state.busy[newKey] || !found || item.forward.LocalPort() != uint16(previous.Local) || occupied {
+		state.mu.Unlock()
+		r.enqueue(func(c *ui.Context) {
+			key := "port_failed"
+			if occupied {
+				key = "port_exists"
+			}
+			kit.Toast(c, kit.Failed, i18n.T(c, key))
+			completed(false)
+		})
+		return
+	}
+	state.busy[oldKey], state.busy[newKey] = true, true
+	state.mu.Unlock()
+	owner := r.runtimeFor(node)
+	if owner == nil || node != "" && owner.controller.Target().String() != node {
+		state.mu.Lock()
+		delete(state.busy, oldKey)
+		delete(state.busy, newKey)
+		state.mu.Unlock()
+		r.enqueue(func(c *ui.Context) {
+			kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+			completed(false)
+		})
+		return
+	}
+	if !r.async(func() {
+		forward, err := owner.controller.ReplaceForwardPort(r.ctx, item.forward, remote, local)
+		state.mu.Lock()
+		delete(state.busy, oldKey)
+		delete(state.busy, newKey)
+		current, found := state.forwards[oldKey]
+		saved := err == nil && !state.closed && found && current.forward == item.forward
+		if saved {
+			current.release()
+			delete(state.forwards, oldKey)
+			state.forwards[newKey] = desktopForward{forward: forward, release: forward.OnChange(r.changed)}
+		}
+		state.mu.Unlock()
+		if !saved && forward != nil {
+			_ = forward.Close()
+		}
+		r.enqueue(func(c *ui.Context) {
+			if !saved {
+				kit.Toast(c, kit.Failed, i18n.T(c, "port_failed"))
+			}
+			completed(saved)
+			r.changed()
+		})
+	}) {
+		state.mu.Lock()
+		delete(state.busy, oldKey)
+		delete(state.busy, newKey)
+		state.mu.Unlock()
+		completed(false)
 	}
 }
 

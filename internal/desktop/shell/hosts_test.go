@@ -268,13 +268,14 @@ func testHostMenu(t *testing.T) {
 	}
 	clickItem(t, tt, en("port_mappings"))
 	settle(tt)
-	if info, ok := tt.AccessByRole(ui.RoleMenuItem, "8080 → 127.0.0.1:18080"); !ok || !info.Disabled {
-		t.Fatal("inactive port forward is not disabled")
+	// A closed forward still lists, so it can be edited or deleted.
+	if info, ok := tt.AccessByRole(ui.RoleMenuItem, "8080 → 127.0.0.1:18080"); !ok || info.Disabled {
+		t.Fatal("the closed port forward is not listed")
 	}
-	clickItem(t, tt, en("port_title"))
+	clickItem(t, tt, en("port_add"))
 	settle(tt)
-	if !tt.HasText(en("port_add")) {
-		t.Fatal("port picker did not open")
+	if !tt.HasText(en("port_remote")) {
+		t.Fatal("New forward did not open its dialog")
 	}
 	tt.Key(0, ui.KeyEscape)
 	settle(tt)

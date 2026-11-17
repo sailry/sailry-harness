@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Reenvío de puertos
 port_mappings: Asignaciones de puertos
 port_add: Nuevo delantero
+port_edit: Editar reenvío
 port_create: Crear
 port_remote: Puerto de host
 port_local: Puerto local (0 para automático)

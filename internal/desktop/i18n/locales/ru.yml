@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Перенаправление портов
 port_mappings: Сопоставления портов
 port_add: Новый форвард
+port_edit: Изменить переадресацию
 port_create: Создать
 port_remote: Хост-порт
 port_local: Локальный порт (0 для автоматического)

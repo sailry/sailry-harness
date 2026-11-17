@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Redirection de port
 port_mappings: Mappings de ports
 port_add: Nouveau tunnel
+port_edit: Modifier la redirection
 port_create: Créer
 port_remote: Port hôte
 port_local: Port local (0 pour automatique)

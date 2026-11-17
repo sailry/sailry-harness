@@ -38,7 +38,15 @@ func TestActivityStrip(t *testing.T) {
 		tt.Key(0, ui.KeyEscape)
 		tt.Advance(time.Second)
 		tt.Frame()
-		clickButton(t, tt, name)
+		trigger, ok := tt.AccessByRole(ui.RoleButton, name)
+		if !ok {
+			// The ports' capsule opens a menu.
+			trigger, ok = tt.AccessByRole(ui.RoleMenuButton, name)
+		}
+		if !ok {
+			t.Fatalf("no capsule %q: %q", name, tt.Texts())
+		}
+		tt.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
 		tt.Advance(time.Second) // the popover's entrance
 		tt.Frame()
 		if !tt.HasText(shows) {
@@ -74,16 +82,16 @@ func TestActivityStrip(t *testing.T) {
 	open(i18n.In("en", "composer_subagent_one")+running, "Measure scroll frames", "composer-activity-subagents")
 	open(i18n.In("en", "task_progress"), "Run the benchmarks", "composer-activity-progress")
 
-	// The ports are one capsule that lists them: a press on it opens no
-	// service, a press on a port's row does.
+	// The ports are one capsule whose menu lists them, as the host's
+	// forwards: a press on it opens no service, choosing a port does.
 	ports := i18n.In("en", "port_mappings") + ": 5173"
 	open(ports, "npx vite --port 5173", "composer-activity-services")
-	if capsule, ok := tt.AccessByRole(ui.RoleButton, ports); !ok || !capsule.Expanded {
-		t.Fatalf("the ports capsule is not open: %+v", capsule)
+	if _, ok := tt.AccessByRole(ui.RoleMenuItem, "5173"); !ok {
+		t.Fatalf("the ports menu is not open: %q", tt.Texts())
 	}
-	clickButton(t, tt, "5173")
+	clickItem(t, tt, "5173")
 	tt.Frame()
-	if capsule, _ := tt.AccessByRole(ui.RoleButton, ports); capsule.Expanded {
+	if _, ok := tt.AccessByRole(ui.RoleMenuItem, "5173"); ok {
 		t.Errorf("opening a service leaves the ports open")
 	}
 

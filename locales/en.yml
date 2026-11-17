@@ -145,6 +145,7 @@ project_records_no_results: No matching results
 
 port_create: Create
 port_add: New forward
+port_edit: Edit forward
 port_search: Search ports
 port_copy: Copy address
 

@@ -252,10 +252,14 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 // chip is a small round outlined button, muted, named label, holding
 // children; the strip's capsules are all chips.
 func chip(c *ui.Context, label string, open bool, children func()) ui.Element {
+	return chipLook(c, ui.ButtonBase(c).Label(label), open, children).Expanded(open)
+}
+
+// chipLook gives b, a ghost button or a menu's trigger, a chip's look.
+func chipLook(c *ui.Context, b ui.Element, open bool, children func()) ui.Element {
 	p := theme.Of(c)
-	b := kit.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
-		TextColor(p.MutedForeground).Shrink(0)
-	return b.Expanded(open).Children(children)
+	return kit.GhostLook(c, b, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
+		TextColor(p.MutedForeground).Shrink(0).Children(children)
 }
 
 // chipText is a chip's text, 14 DIPs on one line, level with the chip's

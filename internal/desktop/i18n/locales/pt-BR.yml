@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: Encaminhamento de porta
 port_mappings: Mapeamentos de portas
 port_add: Novo avançado
+port_edit: Editar encaminhamento
 port_create: Criar
 port_remote: Porta do host
 port_local: Porta local (0 para automático)

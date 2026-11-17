@@ -1588,6 +1588,7 @@ metrics_gpu: GPU
 port_title: 포트 전달
 port_mappings: 포트 매핑
 port_add: 새 전달
+port_edit: 포워딩 편집
 port_create: 만들기
 port_remote: 호스트 포트
 port_local: 로컬 포트 (0은 자동)
