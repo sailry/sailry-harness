@@ -235,7 +235,7 @@ does not prove live or cross-platform acceptance.
 The checkout contains five workflows:
 
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
-pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls it:
+pull requests, on `main`, manually, and when `release.yml` calls it:
 
 - `lint`: Go formatting and `go vet -tags integration ./...` for Linux,
   Windows and macOS. The tag adds the integration files to the default ones,
@@ -252,12 +252,14 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
   or matching no test fails the lane. The three-platform vet still checks the
   full test source. The routing fixture runs in `lint` with a fake Go:
   `bash .github/scripts/test_test.sh`.
-- Go setup and cache handling share local actions. Each test job prepares its
-  own target's checksum-verified Turso runtime from the pinned native cache,
-  without waiting for other platforms. One writer per operating system saves
+- Go setup and cache handling share local actions. Each test job restores its
+  own target's Turso runtime from a cache keyed by `native/turso`, or builds
+  it, without waiting for other platforms; the checksum recorded with that
+  build detects a damaged cache entry. One writer per operating system saves
   the test compiler cache even after a test failure; cancelled runs and pull
   requests do not save it. Mobile jobs install the Flutter version named in
-  `apps/mobile/.flutter-version` through a local action.
+  `apps/mobile/.flutter-version` and the Android toolchain through local
+  actions.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
@@ -316,7 +318,8 @@ Reused artifacts retain their original source revision; the repaired macOS
 packages record the new revision.
 
 `pairing-relay.yml` tests `services/pairing-relay` when it changes; a manual
-run tests and then deploys to the chosen EdgeOne environment. `website.yml`
+run tests and then deploys to the chosen EdgeOne environment; production
+deploys only from the default branch. `website.yml`
 asks the website repository to rebuild when the documents it reads change on
 main.
 

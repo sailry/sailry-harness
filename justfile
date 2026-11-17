@@ -111,7 +111,7 @@ test-integration +packages:
 
 # Run the named packages under the race detector, once per phase for Node, Client and Link changes.
 test-race +packages:
-    CGO_ENABLED=1 go test -race {{ packages }}
+    CGO_ENABLED=1 go test -race -p 1 -parallel 2 {{ packages }}
 
 # Run the transcript frame benchmarks.
 bench:

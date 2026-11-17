@@ -1,0 +1,26 @@
+name: Android toolchain
+description: Install the JDK, Android SDK and NDK, and the Rust target of the Mobile adapter build
+inputs:
+  ndk:
+    description: Android NDK version that Gradle and cmd/sailry-mobile/build.sh use
+    default: 28.2.13676358
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+      with:
+        cmdline-tools-version: '15859902'
+        packages: platform-tools platforms;android-36 build-tools;36.0.0 ndk;${{ inputs.ndk }}
+    - name: Native prerequisites
+      shell: bash
+      working-directory: ${{ github.workspace }}/native/iroh
+      env:
+        NDK: ${{ inputs.ndk }}
+      run: |
+        printf 'ANDROID_NDK_HOME=%s/ndk/%s\n' "$ANDROID_HOME" "$NDK" >> "$GITHUB_ENV"
+        rustup toolchain install
+        rustup target add aarch64-linux-android

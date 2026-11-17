@@ -5,7 +5,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, sailry-go]
+    branches: [main]
   workflow_dispatch:
     inputs:
       integration:
@@ -312,24 +312,9 @@ jobs:
       - uses: ./.github/actions/go-cache
         id: go-cache
         if: ${{ !inputs.skip_mobile_builds }}
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
-        if: ${{ !inputs.skip_mobile_builds }}
-        with:
-          distribution: temurin
-          java-version: '17'
       - uses: ./.github/actions/flutter
-      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
+      - uses: ./.github/actions/android
         if: ${{ !inputs.skip_mobile_builds }}
-        with:
-          cmdline-tools-version: '15859902'
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
-      - name: Native prerequisites
-        if: ${{ !inputs.skip_mobile_builds }}
-        working-directory: native/iroh
-        run: |
-          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
-          rustup toolchain install
-          rustup target add aarch64-linux-android
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze
       - run: flutter test
