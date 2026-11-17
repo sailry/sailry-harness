@@ -25,12 +25,7 @@ func CatalogVersionCompatibility(version protocol.PluginCatalogVersion) protocol
 // installed Node's candidate. Prereleases enter automatic selection only when
 // the installed package already follows a prerelease channel.
 func SelectCompatibleVersion(entry protocol.PluginCatalogEntry, installed *string) *protocol.PluginCatalogVersion {
-	allowPrerelease := false
-	if installed != nil {
-		if parsed, err := semver.StrictNewVersion(*installed); err == nil {
-			allowPrerelease = parsed.Prerelease() != ""
-		}
-	}
+	allowPrerelease := packagePrerelease(installed)
 	var selected *protocol.PluginCatalogVersion
 	var highest *semver.Version
 	for _, candidate := range entry.Versions {
@@ -49,6 +44,14 @@ func SelectCompatibleVersion(entry protocol.PluginCatalogEntry, installed *strin
 		}
 	}
 	return selected
+}
+
+func packagePrerelease(version *string) bool {
+	if version == nil {
+		return false
+	}
+	parsed, err := semver.StrictNewVersion(*version)
+	return err == nil && parsed.Prerelease() != ""
 }
 
 func manifestVersion(manifest Manifest, commit string, notes *protocol.PluginCatalogReleaseNotes) protocol.PluginCatalogVersion {

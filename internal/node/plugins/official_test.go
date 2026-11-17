@@ -235,6 +235,60 @@ func TestBundledOfficialSelection(t *testing.T) {
 	}
 }
 
+func TestBundledOfficialSelectionRevalidatesCatalog(t *testing.T) {
+	t.Parallel()
+	for _, current := range []struct {
+		name      string
+		withdrawn bool
+		code      protocol.ErrorCode
+	}{
+		{"withdrawn after inspection", true, protocol.ErrorCodeInvalidRequest},
+		{"online revision after inspection", false, protocol.ErrorCodeRevisionConflict},
+	} {
+		t.Run(current.name, func(t *testing.T) {
+			t.Parallel()
+			var body atomic.Value
+			body.Store([]byte(nil))
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				data := body.Load().([]byte)
+				if data == nil {
+					writer.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				_, _ = writer.Write(data)
+			}))
+			defer server.Close()
+			manager := NewManager(t.TempDir())
+			manager.OfficialURL = server.URL
+			selection, err := manager.InspectOfficial(t.Context(), "memory", nil, false)
+			if err != nil || selection.Info.Origin == nil || selection.Info.Origin.Kind != "bundled" {
+				t.Fatalf("offline inspection: %+v %v", selection, err)
+			}
+			version := *selection.Info.Summary.Version
+			commit := strings.Repeat("a", 40)
+			encoded, err := json.Marshal(map[string]any{
+				"version": 1, "source_commit": commit,
+				"packages": []any{map[string]any{
+					"id":       "memory",
+					"manifest": map[string]any{"$schema": ManifestSchema, "name": "memory", "version": version},
+					"versions": []any{map[string]any{"version": version, "commit": commit, "withdrawn": current.withdrawn}},
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body.Store(encoded)
+			var fault *protocol.Fault
+			if _, err := manager.InstallOfficial(t.Context(), selection); !errors.As(err, &fault) || fault.Code != current.code {
+				t.Fatalf("stale bundled selection: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(manager.profile, "plugins/packages", selection.Info.Summary.Digest)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("stale bundled content was published: %v", err)
+			}
+		})
+	}
+}
+
 func TestOnlineCatalogKeepsFullHistoryWithNewerBundle(t *testing.T) {
 	t.Parallel()
 	commit := strings.Repeat("a", 40)
@@ -281,5 +335,25 @@ func TestRepositoryUpdatesRetainSelectedRef(t *testing.T) {
 	report, err := manager.CheckUpdate(t.Context(), installed, nil, true)
 	if err != nil || report.Available == nil || report.Available.Kind != "package" {
 		t.Fatalf("selected ref stopped following updates: %+v %v", report, err)
+	}
+	commit("1.2.0-beta.2", `{"api_version":"v1"}`)
+	for _, current := range []struct {
+		version   string
+		available bool
+	}{
+		{"1.0.0", false}, {"1.2.0-beta.1", true},
+	} {
+		info := installed
+		info.Summary.Version = &current.version
+		report, err := manager.CheckUpdate(t.Context(), info, nil, true)
+		if err != nil || report.Blocked != nil || (report.Available != nil) != current.available {
+			t.Fatalf("ordinary prerelease update from %s: %+v %v", current.version, report, err)
+		}
+	}
+	commit("1.2.0", `{"api_version":"v1"}`)
+	prerelease := installed
+	prerelease.Summary.Version = versionText("1.2.0-beta.2")
+	if report, err := manager.CheckUpdate(t.Context(), prerelease, nil, true); err != nil || report.Available == nil {
+		t.Fatalf("prerelease did not advance to stable: %+v %v", report, err)
 	}
 }

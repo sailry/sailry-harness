@@ -115,6 +115,17 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 		if selection.Source != (protocol.PluginSkillsResolved{}) || selection.Path != "" {
 			return protocol.PluginInfo{}, packageFault("invalid bundled plugin selection")
 		}
+		entry, err := manager.officialEntry(ctx, name, false)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		selected, err := officialVersion(entry, version)
+		if err != nil {
+			return protocol.PluginInfo{}, err
+		}
+		if selected.Commit != "" {
+			return protocol.PluginInfo{}, officialSelectionChanged()
+		}
 		entries, issues, err := bundledCapture(ctx, name)
 		if err != nil {
 			return protocol.PluginInfo{}, err
@@ -126,7 +137,11 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 		if !sameOptionalString(inspected.Summary.Version, version) || inspected.Summary.Digest != selection.Info.Summary.Digest {
 			return protocol.PluginInfo{}, officialSelectionChanged()
 		}
-		return manager.publish(ctx, entries, issues, name, protocol.PluginOrigin{Kind: "bundled"})
+		info, err := manager.publish(ctx, entries, issues, name, protocol.PluginOrigin{Kind: "bundled"})
+		if err == nil {
+			applyOfficialMetadata(&info, entry, *selected)
+		}
+		return info, err
 	}
 	if selection.Info.Origin.Kind != "online" || selection.Source.Repository != manager.officialRepositoryURL() || selection.Source.GitRef != selection.Source.Commit || !commitHash(selection.Source.Commit) || selection.Path != name {
 		return protocol.PluginInfo{}, packageFault("invalid official plugin repository selection")

@@ -126,6 +126,9 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 	if current.Skill == nil && !IsNewer(current.Summary.Version, candidate.Summary.Version) || current.Skill != nil && candidate.Summary.Digest == current.Summary.Digest {
 		return report, nil
 	}
+	if current.Skill == nil && !packagePrerelease(current.Summary.Version) && packagePrerelease(candidate.Summary.Version) {
+		return report, nil
+	}
 	if InfoCompatibility(candidate).Kind == "compatible" {
 		report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: candidate}
 	}
