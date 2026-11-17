@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -462,6 +463,7 @@ type providerEditor struct {
 	keyShown            bool
 	apiVersion          string    // Azure OpenAI's, asked for where the route is that API
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
+	headers             string    // an API-key channel's request headers, "Name: value" per line
 	advanced            bool
 	models              []modelDraft
 	removed             int // models taken out, part of a model row's identity (mcpEditor.removed)
@@ -504,6 +506,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
+	e.headers = formatHeaders(ch.Headers)
 	if m.Live && !ch.ConfigurationReadOnly && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
@@ -709,6 +712,11 @@ func (e *providerEditor) Check() string {
 	if e.azure() && strings.TrimSpace(e.apiVersion) == "" {
 		return "provider_cloud_required"
 	}
+	if !e.login() {
+		if _, ok := parseHeaders(e.headers); !ok {
+			return "provider_headers_invalid"
+		}
+	}
 	if len(e.models) == 0 && !e.login() {
 		return "provider_model_required"
 	}
@@ -736,6 +744,37 @@ func (e *providerEditor) Check() string {
 		}
 	}
 	return ""
+}
+
+// parseHeaders reads one "Name: value" header per line; blank lines are
+// skipped. ok is false when a line has no name. The Node checks the names
+// and values it accepts.
+func parseHeaders(text string) (headers map[string]string, ok bool) {
+	for line := range strings.Lines(text) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, value, found := strings.Cut(line, ":")
+		name = strings.TrimSpace(name)
+		if !found || name == "" {
+			return nil, false
+		}
+		if headers == nil {
+			headers = map[string]string{}
+		}
+		headers[name] = strings.TrimSpace(value)
+	}
+	return headers, true
+}
+
+// formatHeaders writes headers one per line in name order.
+func formatHeaders(headers map[string]string) string {
+	lines := make([]string, 0, len(headers))
+	for _, name := range slices.Sorted(maps.Keys(headers)) {
+		lines = append(lines, name+": "+headers[name])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // save writes the channel; the editor stays open with its draft when
@@ -784,6 +823,9 @@ func (e *providerEditor) save(m *Model) string {
 		if e.azure() {
 			channel.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
+		if !e.login() {
+			channel.Headers, _ = parseHeaders(e.headers)
+		}
 		generation := e.generation
 		signIn := e.login() && e.editing == ""
 		id := e.id
@@ -807,6 +849,9 @@ func (e *providerEditor) save(m *Model) string {
 		ch.Method, ch.API = route.ID, route.API
 		if e.azure() {
 			ch.APIVersion = strings.TrimSpace(e.apiVersion)
+		}
+		if !e.login() {
+			ch.Headers, _ = parseHeaders(e.headers)
 		}
 		ch.KeySet = ch.KeySet || e.key != ""
 		return ""
@@ -1093,7 +1138,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			})
 			b.Children(func() { ui.Text(c, t("provider_get_key")).FontSize(12).TextColor(p.Link) })
 		}
-		if e.method.OAuth != ([4]string{}) {
+		if e.method.OAuth != ([4]string{}) || !e.login() {
 			// A disclosure: the chevron turns down while the settings show.
 			label, chevron := t("provider_oauth_advanced"), icons.ChevronRight
 			if e.advanced {
@@ -1110,6 +1155,13 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 					if e.method.OAuth[i] != "" {
 						input(k, t(k), "", &e.oauth[i], false)
 					}
+				}
+				// An API-key channel's own request headers; sign-ins keep their client identity.
+				if !e.login() {
+					kit.Field(c, "headers", t("provider_headers"), "", func() {
+						ui.TextArea(c.Key("input"), &e.headers).Label(t("provider_headers")).Placeholder(t("provider_headers_hint")).
+							FillWidth().Height(96).Font("monospace").Disabled(e.probing)
+					})
 				}
 			}
 		}

@@ -1144,6 +1144,9 @@ provider_oauth_catalog_version: Versión del catálogo
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: Versión del editor
 provider_oauth_editor_plugin_version: Versión del plugin del editor
+provider_headers: Encabezados de solicitud personalizados
+provider_headers_hint: 'Uno por línea: Nombre: valor'
+provider_headers_invalid: Cada línea de encabezado necesita un nombre y dos puntos
 provider_models: Modelos
 provider_discover: Actualizar los modelos
 provider_querying: Consultando

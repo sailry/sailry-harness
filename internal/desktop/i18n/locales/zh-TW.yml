@@ -1144,6 +1144,9 @@ provider_oauth_catalog_version: 模型目錄相容版本
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: 編輯器版本
 provider_oauth_editor_plugin_version: 編輯器外掛版本
+provider_headers: 自訂請求標頭
+provider_headers_hint: '每行一個，格式為 名稱: 值'
+provider_headers_invalid: 每行請求標頭都需要名稱和冒號
 provider_models: 模型
 provider_discover: 更新模型
 provider_querying: 查詢中

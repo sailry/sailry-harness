@@ -3,6 +3,7 @@ package live
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -382,6 +383,7 @@ func (r *Runtime) projectProviderSnapshot() {
 			}
 		}
 		ch.APIVersion = azureVersion(p)
+		ch.Headers = maps.Clone(p.Headers)
 		for _, quota := range snapshot.ProviderQuotas {
 			if quota.Provider == p.ID && p.Credential != nil && quota.Credential == *p.Credential {
 				value := &viewmodel.Quota{FiveHour: -1, SevenDay: -1}
@@ -571,6 +573,11 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			options.Data = protocol.ConversationOauthOptionsCopilotPayload{UserAgent: userAgent, EditorVersion: editor, EditorPluginVersion: plugin}
 		}
 		p.Oauth = &options
+	}
+	// Only API-key providers carry their own request headers.
+	p.Headers = nil
+	if p.Authentication == protocol.AuthenticationApiKey {
+		p.Headers = maps.Clone(d.Channel.Headers)
 	}
 	old := p.Models
 	p.Models = nil

@@ -40,7 +40,10 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 		}
 	}
 	enabled := reasoning == nil || *reasoning
-	if provider.Authentication == protocol.AuthenticationApiKey && (provider.Api == protocol.ConversationModelApiResponses || provider.Api == protocol.ConversationModelApiChatCompletions) {
+	// Requests without a session share no conversation, so they get no cache key.
+	cacheKey := provider.Authentication == protocol.AuthenticationApiKey && binding.Session != (protocol.SessionID{}) &&
+		(provider.Api == protocol.ConversationModelApiResponses || provider.Api == protocol.ConversationModelApiChatCompletions)
+	if cacheKey {
 		params.Body["prompt_cache_key"] = binding.Session.String()
 	}
 	var policies []protocol.ConversationPresetsRequestPolicy
@@ -279,7 +282,7 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 			appendOrder("budget_tokens")
 		}
 	}
-	if provider.Authentication == protocol.AuthenticationApiKey && (provider.Api == protocol.ConversationModelApiResponses || provider.Api == protocol.ConversationModelApiChatCompletions) {
+	if cacheKey {
 		appendOrder("prompt_cache_key")
 	}
 	// Captured Go policy maps have canonical member order in their stored JSON.

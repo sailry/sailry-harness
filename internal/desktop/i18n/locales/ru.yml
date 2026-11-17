@@ -1144,6 +1144,9 @@ provider_oauth_catalog_version: Версия каталога
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: Версия редактора
 provider_oauth_editor_plugin_version: Версия плагина редактора
+provider_headers: Пользовательские заголовки запроса
+provider_headers_hint: 'По одному в строке: Имя: значение'
+provider_headers_invalid: В каждой строке заголовка нужны имя и двоеточие
 provider_models: Модели
 provider_discover: Обновление моделей
 provider_querying: Запрос

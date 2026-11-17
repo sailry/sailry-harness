@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -118,7 +119,7 @@ func contextFixture(t *testing.T) {
 				if len(seen) != row.requests {
 					t.Fatalf("requests = %d, want %d", len(seen), row.requests)
 				}
-				if row.requests == 1 && (seen[0].Method != http.MethodGet || seen[0].URL.Path != "/v1/models" || seen[0].Header.Get("Authorization") != "Bearer context-secret" || seen[0].Header.Get("User-Agent") != "Sailry/0.1.0") {
+				if row.requests == 1 && (seen[0].Method != http.MethodGet || seen[0].URL.Path != "/v1/models" || seen[0].Header.Get("Authorization") != "Bearer context-secret" || seen[0].Header.Get("User-Agent") != "Sailry/"+link.ProductVersion) {
 					t.Fatalf("request = %s %s %v", seen[0].Method, seen[0].URL.Path, seen[0].Header)
 				}
 			})

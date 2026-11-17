@@ -124,3 +124,51 @@ func TestFollowedProviderEditorDoesNotReadCopiedKey(t *testing.T) {
 	m.ProviderActions.ReadKey = func(string, func(string)) { t.Fatal("readonly copy attempted key read") }
 	m.provider.edit(m, &preview.Channel{ID: "copy", Auth: preview.AuthKey, ConfigurationReadOnly: true, Shared: true})
 }
+
+func TestProviderEditorCustomHeaders(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", Access: "provider_access_endpoint", Keyed: true,
+		Routes: []preview.Route{{ID: "compatible/0", API: "anthropic", Custom: true}},
+	}}}}
+	m.Channels = []preview.Channel{{ID: "saved", Revision: 3, Name: "Saved", Brand: "fixture", Method: "compatible/0", API: "anthropic",
+		Endpoint: "https://gateway.example", Auth: preview.AuthKey, KeySet: true, Headers: map[string]string{"x-b": "2", "User-Agent": "claude-cli/9"},
+		Models: []preview.ChannelModel{{ID: "model", Name: "model", Context: 128000, DefaultEffort: "default"}}}}
+	var saved []ProviderDraft
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) { saved = append(saved, draft); done(false) }
+	e := &m.provider
+	e.edit(m, &m.Channels[0])
+	if e.headers != "User-Agent: claude-cli/9\nx-b: 2" {
+		t.Fatalf("headers draft = %q", e.headers)
+	}
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		providerEditorDialog(c, m)
+	}, 1100, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	advanced, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "provider_oauth_advanced"))
+	if !ok {
+		t.Fatal("an API-key channel has no advanced settings")
+	}
+	tt.ClickAt(advanced.Bounds.X+advanced.Bounds.W/2, advanced.Bounds.Y+advanced.Bounds.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if _, ok := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_headers")); !ok {
+		t.Fatal("advanced settings do not show the request headers")
+	}
+	e.headers = "\n  X-Trace :  on \nuser-agent: claude-cli/10\n"
+	if problem := e.save(m); problem != "" || !reflect.DeepEqual(saved[len(saved)-1].Channel.Headers, map[string]string{"X-Trace": "on", "user-agent": "claude-cli/10"}) {
+		t.Fatalf("saved headers = %v (%s)", saved[len(saved)-1].Channel.Headers, problem)
+	}
+	e.headers = ""
+	if problem := e.save(m); problem != "" || saved[len(saved)-1].Channel.Headers != nil {
+		t.Fatal("clearing the headers did not save an empty set")
+	}
+	for _, text := range []string{"no colon", ": value"} {
+		e.headers = text
+		if problem := e.save(m); problem != "provider_headers_invalid" {
+			t.Errorf("%q was accepted: %q", text, problem)
+		}
+	}
+}

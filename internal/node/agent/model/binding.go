@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/compact"
 	"github.com/sailry/sailry-harness/internal/node/providers"
@@ -230,7 +231,8 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	if err != nil {
 		return transportConfig{}, err
 	}
-	config := transportConfig{Model: binding.Config.Model, Endpoint: u.String(), Headers: map[string]string{"User-Agent": "Sailry/0.1.0"}, Query: map[string]string{}, JSON: map[string]any{}, Remove: []string{"tool_choice"}, RemoveHeaders: []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key"}}
+	// Account authentication replaces this User-Agent with its own client identity.
+	config := transportConfig{Model: binding.Config.Model, Endpoint: u.String(), Headers: map[string]string{"User-Agent": "Sailry/" + link.ProductVersion}, Query: map[string]string{}, JSON: map[string]any{}, Remove: []string{"tool_choice"}, RemoveHeaders: []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key", "Api-Key"}}
 	if binding.Secret != nil {
 		config.Key = binding.Secret.Expose()
 	}
@@ -346,6 +348,13 @@ func transportBinding(binding Binding) (transportConfig, error) {
 		config.RemoveHeaders = remove
 		return config, nil
 	}
+	if binding.Session != (protocol.SessionID{}) {
+		// Gateways that pool upstream accounts use these conventional headers to
+		// keep one conversation on one account, preserving its prompt cache.
+		session := binding.Session.String()
+		config.Headers["x-session-affinity"] = session
+		config.Headers["X-Session-Id"] = session
+	}
 	header, value := "authorization", "Bearer "+key
 	switch provider.Api {
 	case protocol.ConversationModelApiAnthropic:
@@ -373,11 +382,29 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	if provider.Api == protocol.ConversationModelApiAnthropic || provider.Api == protocol.ConversationModelApiAzureAi {
 		config.Headers["anthropic-version"] = "2023-06-01"
 	}
+	// The provider's own headers replace defaults of any letter case; the
+	// credential header stays the one this binding chose.
+	for name, configured := range provider.Headers {
+		if !customHeaderAllowed(name, header) {
+			continue
+		}
+		for existing := range config.Headers {
+			if strings.EqualFold(existing, name) {
+				delete(config.Headers, existing)
+			}
+		}
+		config.Headers[name] = configured
+	}
 	if config.Kind == "google" && (!strings.EqualFold(header, "x-goog-api-key") || value != key) {
 		return config, &Failure{Kind: NotConfigured, Message: "Gemini requires API key authentication"}
 	}
 	return config, nil
 }
+
+func customHeaderAllowed(name, credentialHeader string) bool {
+	return !strings.EqualFold(name, credentialHeader) && !providers.ReservedHeader(name)
+}
+
 func safeSegment(value string) bool {
 	if value == "" || len(value) > 128 || value == "." || value == ".." {
 		return false

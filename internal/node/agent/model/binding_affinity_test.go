@@ -4,10 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -90,9 +93,17 @@ func TestAnthropicAPIKeyAffinity(t *testing.T) {
 			} else if !reflect.DeepEqual(firstMetadata, first["metadata"]) {
 				t.Error("changing only the Anthropic model changed the affinity metadata")
 			}
-			for _, request := range requests {
+			for index, request := range requests {
 				if request.Path != "/v1/messages" || request.Body["model"] != modelID || request.Headers.Get("x-api-key") != secret.Expose() {
 					t.Errorf("affinity changed the request route, model or API-key authentication: path=%q model=%v", request.Path, request.Body["model"])
+				}
+				want := session.String()
+				if index == 2 {
+					want = binding.Session.String()
+				}
+				if request.Headers.Get("x-session-affinity") != want || request.Headers.Get("X-Session-Id") != want ||
+					request.Headers.Get("User-Agent") != "Sailry/"+link.ProductVersion {
+					t.Errorf("API-key request %d identity headers = %v", index, request.Headers)
 				}
 			}
 			checkValue(t, first, "messages.2.content.0.cache_control", map[string]any{"type": "ephemeral"})
@@ -161,6 +172,45 @@ func TestAnthropicOAuthAffinityPreservesIdentity(t *testing.T) {
 		identity["session_id"] != session.String() || identity["account_uuid"] != account {
 		t.Errorf("OAuth identity or authorization changed: %#v", identity)
 	}
+	for _, name := range []string{"x-session-affinity", "X-Session-Id"} {
+		if _, exists := transport.Headers[name]; exists {
+			t.Errorf("OAuth request received API-key affinity header %s", name)
+		}
+	}
+}
+
+func TestAPIKeyAffinityHeadersAcrossProtocols(t *testing.T) {
+	for _, api := range []protocol.ConversationModelApi{
+		protocol.ConversationModelApiAnthropic,
+		protocol.ConversationModelApiChatCompletions,
+		protocol.ConversationModelApiResponses,
+		protocol.ConversationModelApiGemini,
+	} {
+		t.Run(string(api), func(t *testing.T) {
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Api = protocol.NewProviderID(), api
+			provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "https://fixture.invalid/v1"
+			selection := protocol.DefaultSessionConfig()
+			selection.Model = "fixture-model"
+			secret := protocol.NewSecret("fixture-api-key")
+			session := protocol.NewSessionID()
+			transport, err := transportBinding(Binding{Provider: provider, Config: selection, Secret: &secret, Session: session})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if transport.Headers["x-session-affinity"] != session.String() || transport.Headers["X-Session-Id"] != session.String() ||
+				transport.Headers["User-Agent"] != "Sailry/"+link.ProductVersion {
+				t.Errorf("headers = %v", transport.Headers)
+			}
+			transport, err = transportBinding(Binding{Provider: provider, Config: selection, Secret: &secret})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := transport.Headers["x-session-affinity"]; exists {
+				t.Error("a binding without a session received an affinity header")
+			}
+		})
+	}
 }
 
 func readAffinityIdentity(t *testing.T, body map[string]any) map[string]string {
@@ -174,4 +224,95 @@ func readAffinityIdentity(t *testing.T, body map[string]any) map[string]string {
 		t.Fatalf("Anthropic identity is not a JSON string: %v", err)
 	}
 	return identity
+}
+
+func TestAPIKeyIdentityHeadersOnTheWire(t *testing.T) {
+	for _, row := range []struct {
+		api      protocol.ConversationModelApi
+		kind     string
+		response string
+		suffix   string
+		key      string
+	}{
+		{protocol.ConversationModelApiAnthropic, "anthropic", "anthropic-text.sse", "", "x-api-key"},
+		{protocol.ConversationModelApiChatCompletions, "chat", "chat-text.sse", "/v1", "Authorization"},
+		{protocol.ConversationModelApiResponses, "responses", "responses-text.sse", "/v1", "Authorization"},
+		{protocol.ConversationModelApiGemini, "google", "google-text.sse", "", "x-goog-api-key"},
+	} {
+		t.Run(row.kind, func(t *testing.T) {
+			server := serverFixture(t, string(fixture(t, row.response)))
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Enabled = protocol.NewProviderID(), true
+			provider.Api, provider.Authentication = row.api, protocol.AuthenticationApiKey
+			provider.Endpoint = server.URL + row.suffix
+			selection := protocol.DefaultSessionConfig()
+			selection.Provider, selection.Model = provider.ID, "fixture-model"
+			secret := protocol.NewSecret("fixture-api-key")
+			session := protocol.NewSessionID()
+			transport, err := transportBinding(Binding{Provider: provider, Config: selection, Secret: &secret, Session: session})
+			if err != nil {
+				t.Fatal(err)
+			}
+			language, err := newSDK(t.Context(), transport)
+			if err != nil {
+				t.Fatal(err)
+			}
+			collect(t, language, requestCall(t, row.kind))
+			requests := server.captured()
+			if len(requests) != 1 {
+				t.Fatalf("requests = %d, want 1", len(requests))
+			}
+			headers := requests[0].Headers
+			if headers.Get("User-Agent") != "Sailry/"+link.ProductVersion || headers.Get("x-session-affinity") != session.String() ||
+				headers.Get("X-Session-Id") != session.String() || !strings.Contains(headers.Get(row.key), secret.Expose()) {
+				t.Errorf("received headers = %v", headers)
+			}
+		})
+	}
+}
+
+func TestPromptCacheKeyRequiresSession(t *testing.T) {
+	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiResponses, protocol.ConversationModelApiChatCompletions} {
+		t.Run(string(api), func(t *testing.T) {
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Api = protocol.NewProviderID(), api
+			provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "https://fixture.invalid/v1"
+			selection := protocol.DefaultSessionConfig()
+			selection.Model = "fixture-model"
+			session := protocol.NewSessionID()
+			call := requestCall(t, "chat")
+			if params := requestParameters(Binding{Provider: provider, Config: selection, Session: session}, &call); params.Body["prompt_cache_key"] != session.String() {
+				t.Errorf("session cache key = %v", params.Body["prompt_cache_key"])
+			}
+			if params := requestParameters(Binding{Provider: provider, Config: selection}, &call); params.Body["prompt_cache_key"] != nil || slices.Contains(params.Order, "prompt_cache_key") && api == protocol.ConversationModelApiChatCompletions {
+				t.Errorf("request without a session received cache key %v", params.Body["prompt_cache_key"])
+			}
+		})
+	}
+}
+
+func TestAPIKeyCustomHeaders(t *testing.T) {
+	server := serverFixture(t, string(fixture(t, "anthropic-text.sse")))
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Enabled = protocol.NewProviderID(), true
+	provider.Api, provider.Authentication, provider.Endpoint = protocol.ConversationModelApiAnthropic, protocol.AuthenticationApiKey, server.URL
+	// Stored providers are validated; the transport still keeps the credential its own.
+	provider.Headers = map[string]string{"user-agent": "claude-cli/9", "anthropic-beta": "fixture-beta", "X-Session-Id": "pinned", "x-api-key": "other"}
+	selection := protocol.DefaultSessionConfig()
+	selection.Provider, selection.Model = provider.ID, "fixture-model"
+	secret := protocol.NewSecret("fixture-api-key")
+	transport, err := transportBinding(Binding{Provider: provider, Config: selection, Secret: &secret, Session: protocol.NewSessionID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	language, err := newSDK(t.Context(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, language, requestCall(t, "anthropic"))
+	headers := server.captured()[0].Headers
+	if headers.Get("User-Agent") != "claude-cli/9" || headers.Get("anthropic-beta") != "fixture-beta" || headers.Get("X-Session-Id") != "pinned" ||
+		headers.Get("x-api-key") != secret.Expose() || len(headers.Values("User-Agent")) != 1 {
+		t.Errorf("received headers = %v", headers)
+	}
 }

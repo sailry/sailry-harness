@@ -60,6 +60,9 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 	if _, err := OAuthFields(provider); err != nil {
 		return err
 	}
+	if err := validateHeaders(provider); err != nil {
+		return err
+	}
 	if provider.Api == protocol.ConversationModelApiPlugin && (provider.Binding == nil || *provider.Binding == nil || (**provider.Binding).Adapter == nil) {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin model requires its captured translation"}
 	}

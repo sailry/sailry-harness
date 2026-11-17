@@ -1163,6 +1163,9 @@ provider_oauth_catalog_version
 provider_oauth_user_agent
 provider_oauth_editor_version
 provider_oauth_editor_plugin_version
+provider_headers
+provider_headers_hint
+provider_headers_invalid
 provider_models
 provider_discover
 provider_querying

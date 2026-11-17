@@ -825,6 +825,9 @@ provider_oauth_editor_plugin_version: 编辑器插件版本
 provider_azure_openai_hint: https://resource.openai.azure.com
 provider_azure_ai_hint: https://resource.services.ai.azure.com/models
 provider_cloud_required: 请填写云渠道配置
+provider_headers: "自定义请求头"
+provider_headers_hint: "每行一个，格式为 名称: 值"
+provider_headers_invalid: "每行请求头都需要名称和冒号"
 provider_metadata_fill: 补全信息
 provider_deployment_id: 部署名
 provider_xai: xAI

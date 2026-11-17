@@ -172,6 +172,8 @@ func (value *ConversationModelApi) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
+// ConversationProvider is a model connection. Headers are request headers an
+// API-key provider adds to model calls, replacing defaults of the same name.
 type ConversationProvider struct {
 	Source            *ConfigurationOrigin           `json:"source,omitempty"`
 	Owner             *UserID                        `json:"owner,omitempty"`
@@ -187,6 +189,7 @@ type ConversationProvider struct {
 	Endpoint          string                         `json:"endpoint"`
 	Options           *ConversationConnectionOptions `json:"options,omitempty"`
 	Oauth             *ConversationOauthOptions      `json:"oauth,omitempty"`
+	Headers           map[string]string              `json:"headers,omitempty"`
 	Enabled           bool                           `json:"enabled"`
 	Models            []ConversationModel            `json:"models"`
 	DefaultModel      string                         `json:"default_model"`
@@ -208,6 +211,7 @@ func DefaultConversationProvider() ConversationProvider {
 		Endpoint:          "",
 		Options:           nil,
 		Oauth:             nil,
+		Headers:           nil,
 		Enabled:           false,
 		Models:            []ConversationModel{},
 		DefaultModel:      "",

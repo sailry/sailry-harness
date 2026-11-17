@@ -13,6 +13,7 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/google"
+	"github.com/sailry/sailry-harness/internal/link"
 )
 
 const rawRustRevision = "eaad1b7f18e448c8c4e9e9286e19560c8a351ae1"
@@ -257,7 +258,7 @@ func rawRustCases(t *testing.T) []rawRustCase {
 func rawRustConfig(row rawRustCase, server string) transportConfig {
 	config := transportConfig{
 		Kind: row.kind, Model: row.model, Endpoint: server + row.suffix, Key: "fixed-access",
-		Headers: map[string]string{"user-agent": "Sailry/0.1.0"},
+		Headers: map[string]string{"user-agent": "Sailry/" + link.ProductVersion},
 		JSON:    row.extra, Order: row.order, Remove: []string{"tool_choice"},
 	}
 	if row.kind == "google" {
@@ -325,6 +326,9 @@ func rawRustReplay(t *testing.T, call *fantasy.Call, parts []fantasy.StreamPart)
 	t.Fatal("source signed Gemini fixture emitted no complete tool call")
 }
 
+// recordedProductUserAgent is the API-key identity stored in the request captures.
+const recordedProductUserAgent = "Sailry/0.1.0"
+
 func checkRawRustCapture(t *testing.T, golden rawRustCapture, actual capturedRequest) {
 	t.Helper()
 	stem := fmt.Sprintf("%s/request-%d", golden.Case, golden.Request)
@@ -358,7 +362,12 @@ func checkRawRustCapture(t *testing.T, golden rawRustCapture, actual capturedReq
 		names = append(names, "accept", "content-type", "connection", "accept-encoding", "x-stainless-lang", "x-stainless-package-version", "x-stainless-retry-count", "x-stainless-runtime", "x-stainless-runtime-version", "x-stainless-timeout")
 	}
 	for _, name := range names {
-		if received, want := actual.Headers.Get(name), metadata.Headers[name]; received != want {
+		want := metadata.Headers[name]
+		if name == "user-agent" && want == recordedProductUserAgent {
+			// The capture records the product identity of its release, not request shape.
+			want = "Sailry/" + link.ProductVersion
+		}
+		if received := actual.Headers.Get(name); received != want {
 			t.Errorf("request %s header %s = %q; Rust received %q", stem, name, received, want)
 		}
 	}

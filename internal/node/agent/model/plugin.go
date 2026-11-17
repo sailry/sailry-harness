@@ -85,6 +85,19 @@ func NewPlugin(_ context.Context, binding Binding, capture PluginCapture) (fanta
 			return nil, &Failure{Kind: InvalidRequest, Message: "invalid model credential header"}
 		}
 		capture.Headers.Set(header, strings.ReplaceAll(template, "{key}", key.Expose()))
+		if binding.Provider.Authentication == protocol.AuthenticationApiKey {
+			for name, value := range binding.Provider.Headers {
+				if !customHeaderAllowed(name, header) {
+					continue
+				}
+				for existing := range capture.Headers {
+					if strings.EqualFold(existing, name) {
+						delete(capture.Headers, existing)
+					}
+				}
+				capture.Headers.Set(name, value)
+			}
+		}
 	}
 	client := capture.Client
 	if client == nil {

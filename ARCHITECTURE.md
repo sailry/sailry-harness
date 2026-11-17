@@ -407,6 +407,13 @@ private reasoning is replayed only to its producing provider and model. Reviewed
 capability lookup corrections recognize supported model aliases without renaming
 the provider's requested model or changing stored records.
 
+API-key model requests identify as `Sailry/<product version>` and carry the
+session ID in `x-session-affinity` and `X-Session-Id`; Responses and Chat
+Completions also send it as `prompt_cache_key`. A request without a session sends neither.
+An API-key provider's custom headers, set in its advanced settings, replace these
+defaults of any letter case. Credential and framing headers stay the
+transport's. Account sign-ins keep their own client identity.
+
 Anthropic API-key requests carry an opaque, stable session identity so compatible
 account pools do not infer a new route when cache breakpoints move. Replies with
 context-bound thinking retain a digest of the projected request that produced

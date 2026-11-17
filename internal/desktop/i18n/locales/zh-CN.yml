@@ -1144,6 +1144,9 @@ provider_oauth_catalog_version: 模型目录兼容版本
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: 编辑器版本
 provider_oauth_editor_plugin_version: 编辑器插件版本
+provider_headers: 自定义请求头
+provider_headers_hint: '每行一个，格式为 名称: 值'
+provider_headers_invalid: 每行请求头都需要名称和冒号
 provider_models: 模型
 provider_discover: 更新模型
 provider_querying: 查询中

@@ -705,9 +705,13 @@ func TestProviderEditor(t *testing.T) {
 		if e.oauth != ([4]string{}) {
 			t.Errorf("an API key method kept settings %q", e.oauth)
 		}
+		e.advanced = true
 		tester.Frame()
-		if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "provider_oauth_advanced")); ok {
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_oauth_user_agent")); ok {
 			t.Error("an API key method offers advanced sign-in settings")
+		}
+		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_headers")); !ok {
+			t.Error("an API key method does not offer its request headers")
 		}
 		// A saved channel: its own user agent, and the catalog version in
 		// use where it saved none.

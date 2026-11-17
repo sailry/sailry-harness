@@ -1144,6 +1144,9 @@ provider_oauth_catalog_version: Die Katalogversion
 provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: Editor-Version
 provider_oauth_editor_plugin_version: Editor-Pluginversion
+provider_headers: Eigene Request-Header
+provider_headers_hint: 'Einer pro Zeile: Name: Wert'
+provider_headers_invalid: Jede Header-Zeile braucht einen Namen und einen Doppelpunkt
 provider_models: Modelle
 provider_discover: Modelle aktualisieren
 provider_querying: Abfrage läuft
