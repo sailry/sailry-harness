@@ -83,7 +83,9 @@ else
 fi
 if test "$task_update" = 0; then test ! -e "$task_unit"; fi
 umask 077
-mkdir -p "$task_parent" "$(dirname "$task_command")"
+# Shared parents such as /usr/local/libexec stay usable by other software;
+# the program directory itself is published from the private stage.
+(umask 022 && mkdir -p "$task_parent" "$(dirname "$task_command")")
 task_stage="$(mktemp -d "$task_parent/.sailry-install-XXXXXX")"
 task_backup="$task_parent/.sailry-previous"
 task_changing=0

@@ -57,7 +57,9 @@ else
     install_had_backup=1
   fi
 fi
-mkdir -p "$install_parent" "$(dirname "$install_command")"
+# Shared parents stay usable by other software; the program directory is
+# published from the private stage.
+(umask 022 && mkdir -p "$install_parent" "$(dirname "$install_command")")
 install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
 install_changed=0
 install_complete=0
