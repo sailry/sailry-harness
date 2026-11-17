@@ -24,7 +24,7 @@ func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 			return err
 		}
 		other.Administrator = false
-		if err := SetUserAdministrator(ctx, db, other.ID, false); err != nil {
+		if err := setAdministrator(ctx, db, other.ID, false); err != nil {
 			return err
 		}
 		admin, err := CreateUser(ctx, db, "Administrator")
@@ -32,7 +32,7 @@ func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 			return err
 		}
 		admin.Administrator = true
-		if err := SetUserAdministrator(ctx, db, admin.ID, true); err != nil {
+		if err := setAdministrator(ctx, db, admin.ID, true); err != nil {
 			return err
 		}
 		ownCtx, otherCtx, adminCtx := WithUser(ctx, owner), WithUser(ctx, other), WithUser(ctx, admin)
@@ -190,7 +190,7 @@ func TestProviderCommandsCannotEnableSharing(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := SetUserAdministrator(ctx, db, user.ID, false); err != nil {
+		if err := setAdministrator(ctx, db, user.ID, false); err != nil {
 			return err
 		}
 		user.Administrator = false
@@ -378,4 +378,10 @@ func TestLegacyConfigurationUsersRemainLocal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// setAdministrator changes a fixture user's role directly; no command does.
+func setAdministrator(ctx context.Context, db *sql.Conn, id protocol.UserID, administrator bool) error {
+	_, err := db.ExecContext(ctx, "UPDATE users SET administrator=?2 WHERE id=?1", id.String(), administrator)
+	return err
 }

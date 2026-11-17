@@ -61,19 +61,3 @@ func writePersonalSetting(ctx context.Context, db *sql.Conn, kind string, body [
 	_, err = db.ExecContext(ctx, "INSERT INTO user_personal_settings(user,kind,body) VALUES(?1,?2,?3) ON CONFLICT(user,kind) DO UPDATE SET body=excluded.body", user.ID.String(), kind, body)
 	return err
 }
-
-// Legacy singleton ownership is fixed to the original local user. Snapshot it
-// before merging so a new local administrator keeps its own target settings
-// and the source's final values remain readable in the merge archive.
-func materializeLegacyPersonalSettings(ctx context.Context, db *sql.Conn) error {
-	legacy, err := LegacyStorageUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	for _, kind := range []string{"media", "compaction", "search", "terminal"} {
-		if _, err := db.ExecContext(ctx, "INSERT INTO user_personal_settings(user,kind,body) SELECT ?1,?2,body FROM "+kind+"_settings WHERE singleton=1 ON CONFLICT(user,kind) DO UPDATE SET body=excluded.body", legacy.String(), kind); err != nil {
-			return err
-		}
-	}
-	return nil
-}

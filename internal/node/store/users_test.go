@@ -89,9 +89,6 @@ func TestUsersAndDirectionalMembership(t *testing.T) {
 		if len(users) != 3 {
 			return errors.New("revocation deleted user data")
 		}
-		if err := SetUserAdministrator(ctx, db, local.ID, false); err == nil {
-			return errors.New("local administrator was removed")
-		}
 		return nil
 	})
 	if err != nil {

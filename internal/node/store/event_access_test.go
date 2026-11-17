@@ -93,13 +93,6 @@ func TestEventAudiencesRetainCursorsAndRecheckProjectAccess(t *testing.T) {
 		if err != nil || filtered.Event.Kind != "cursor" {
 			return fmt.Errorf("private deletion leaked: %+v: %v", filtered, err)
 		}
-		if _, err = MergeIdentityUsers(ctx, db, owner.ID, other.ID); err != nil {
-			return err
-		}
-		retained, err := RefreshEventAccess(recipient, db, page[1])
-		if err != nil || retained.Event.Kind != "plugin_values_changed" {
-			return fmt.Errorf("merged owner lost historical project audience: %+v: %v", retained, err)
-		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

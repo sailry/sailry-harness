@@ -1,43 +1,13 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"sort"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
-
-func SaveIdentityDirectory(ctx context.Context, db *sql.Conn, hosts []protocol.DirectoryHost) error {
-	local, err := LocalUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	sort.Slice(hosts, func(i, j int) bool { return hosts[i].Node.String() < hosts[j].Node.String() })
-	body, err := json.Marshal(hosts)
-	if err != nil {
-		return err
-	}
-	var previous []byte
-	var revision uint64
-	err = db.QueryRowContext(ctx, "SELECT revision,hosts FROM identity_directory WHERE user=?1", local.ID.String()).Scan(&revision, &previous)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if bytes.Equal(previous, body) {
-		return nil
-	}
-	revision, err = nextRevision(revision)
-	if err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, `INSERT INTO identity_directory(user,revision,hosts) VALUES(?1,?2,?3)
-ON CONFLICT(user) DO UPDATE SET revision=excluded.revision,hosts=excluded.hosts`, local.ID.String(), revision, body)
-	return err
-}
 
 func ReadIdentityDirectory(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID) (protocol.HostDirectory, error) {
 	result := protocol.HostDirectory{Source: node, Hosts: []protocol.DirectoryHost{}}

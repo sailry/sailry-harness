@@ -316,34 +316,5 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 		}
 	}
 	waitPersonal(second, 2)
-	before := waitPersonal(first, 1)
-	// Construct a retained pre-v2 merge directly. New identity-merge commands
-	// are retired, while its captured storage and derived indexes remain valid.
-	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		_, err := store.MergeIdentityUsers(store.WithUser(ctx, first), db, second.ID, first.ID)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	node.knowledge.Invalidate()
-	merged := personalCollection(first)
-	if merged.Collection.ID != before.Collection.ID || merged.Collection.Progress.Generation <= before.Collection.Progress.Generation {
-		t.Fatalf("merge retained a stale target generation: before=%+v, after=%+v", before.Collection, merged.Collection)
-	}
-	waitPersonal(first, 2)
-	knowledgeHit(first, "imported")
-	knowledgeHit(first, "alpha")
-	mergedValues := search(first, false, "alpha personal source")
-	foundTarget := false
-	for _, entry := range mergedValues.Entries {
-		if entry.Key == "entry/record" {
-			foundTarget = true
-			if string(entry.Value) != `{"text":"alpha personal source"}` {
-				t.Fatalf("merge replaced the target storage value: %s", entry.Value)
-			}
-		}
-	}
-	if !foundTarget {
-		t.Fatal("merge lost the target storage value")
-	}
+	waitPersonal(first, 1)
 }

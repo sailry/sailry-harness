@@ -93,13 +93,7 @@ func TestOutcomeRecoveryUsesCurrentAccessAndSecretFreeScope(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err = check(store.WithUser(ctx, target), false); err != nil {
-			return err
-		}
-		if _, err = store.MergeIdentityUsers(ctx, db, user.ID, target.ID); err != nil {
-			return err
-		}
-		return check(store.WithUser(ctx, target), true)
+		return check(store.WithUser(ctx, target), false)
 	}); err != nil {
 		t.Fatal(err)
 	}

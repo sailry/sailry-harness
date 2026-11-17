@@ -132,18 +132,6 @@ func CreateUser(ctx context.Context, db *sql.Conn, name string) (protocol.User, 
 	return value, err
 }
 
-func SetUserAdministrator(ctx context.Context, db *sql.Conn, id protocol.UserID, administrator bool) error {
-	result, err := db.ExecContext(ctx, "UPDATE users SET administrator=?2 WHERE id=?1 AND state='active' AND (local=0 OR ?2=1)", id.String(), administrator)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err == nil && count == 0 {
-		return fault(protocol.ErrorCodeNotFound, "user is unavailable")
-	}
-	return err
-}
-
 func validateUsers(ctx context.Context, db *sql.Conn) error {
 	users, err := ListUsers(ctx, db)
 	if err != nil {

@@ -150,11 +150,6 @@ func CheckNotificationAccess(ctx context.Context, db *sql.Conn, id protocol.Noti
 	return accessResult(ctx, db, nil, owner.String == user.ID.String())
 }
 
-// TurnUser reads the admitted principal even after the submitting device leaves.
-func TurnUser(ctx context.Context, db *sql.Conn, id protocol.TurnID) (protocol.User, error) {
-	return readUser(ctx, db, `SELECT u.id,u.name,u.administrator,u.local,u.state,u.merged_into FROM turns t JOIN users u ON u.id=coalesce(t.user,(SELECT id FROM users WHERE local=1)) WHERE t.id=?1`, id.String())
-}
-
 func captureWorktreeUser(ctx context.Context, db *sql.Conn, id protocol.WorktreeID, user protocol.UserID) error {
 	_, err := db.ExecContext(ctx, "UPDATE worktrees SET owner=?2 WHERE id=?1 AND owner IS NULL", id.String(), user.String())
 	return err
