@@ -83,6 +83,8 @@ check_plugin_updates
 dismiss_installation
 read_installations
 install_plugin_source
+install_catalog_plugin
+set_plugin_pinned
 install_bundled_plugin
 read_skill_document
 discover_skills

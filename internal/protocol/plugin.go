@@ -448,6 +448,7 @@ func (value PluginCompatibilityRequiresNewerPayload) MarshalJSON() ([]byte, erro
 }
 
 var pluginCompatibilityVariants = variantFactories{"compatible": nil,
+	"unsupported":    func() any { return new(PluginCompatibilityUnsupportedPayload) },
 	"requires_newer": func() any { return new(PluginCompatibilityRequiresNewerPayload) }}
 
 func (value PluginCompatibility) MarshalJSON() ([]byte, error) {
@@ -463,6 +464,7 @@ func (value *PluginCompatibility) UnmarshalJSON(data []byte) error {
 }
 
 type PluginSummary struct {
+	Pinned           bool                 `json:"pinned,omitempty"`
 	Source           *ConfigurationOrigin `json:"source,omitempty"`
 	Compatibility    PluginCompatibility  `json:"compatibility"`
 	Name             string               `json:"name"`
@@ -516,6 +518,8 @@ func (value PluginSummary) MarshalJSON() ([]byte, error) {
 }
 
 type PluginInfo struct {
+	Requirements *PluginRequirements        `json:"requirements,omitempty"`
+	UpdateSource *PluginOrigin              `json:"update_source,omitempty"`
 	Versions     []PluginCatalogVersion     `json:"versions,omitempty"`
 	ReleaseNotes *PluginCatalogReleaseNotes `json:"release_notes,omitempty"`
 	Summary      PluginSummary              `json:"summary"`
@@ -689,6 +693,7 @@ func (value PluginOriginWorktreePayload) MarshalJSON() ([]byte, error) {
 }
 
 var pluginOriginVariants = variantFactories{"bundled": nil,
+	"official":  nil,
 	"directory": nil,
 	"archive":   nil,
 	"online":    func() any { return new(PluginOriginOnlinePayload) },

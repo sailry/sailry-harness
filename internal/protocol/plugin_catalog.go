@@ -221,6 +221,7 @@ func (value PluginCatalogExternal) MarshalJSON() ([]byte, error) {
 }
 
 type PluginCatalogEntry struct {
+	CompatibleVersion  *PluginCatalogVersion      `json:"compatible_version,omitempty"`
 	Compatibility      PluginCompatibility        `json:"compatibility"`
 	Commit             *string                    `json:"commit,omitempty"`
 	Versions           []PluginCatalogVersion     `json:"versions,omitempty"`
@@ -359,6 +360,8 @@ func (value PluginCatalogReleaseNotes) MarshalJSON() ([]byte, error) {
 }
 
 type PluginCatalogVersion struct {
+	APIVersion       *string                    `json:"api_version,omitempty"`
+	Withdrawn        bool                       `json:"withdrawn,omitempty"`
 	Version          string                     `json:"version"`
 	Commit           string                     `json:"commit"`
 	MinSailryVersion *string                    `json:"min_sailry_version,omitempty"`
