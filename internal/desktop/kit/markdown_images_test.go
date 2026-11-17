@@ -4,7 +4,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/markdown/parser"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 func TestDocumentParagraphImages(t *testing.T) {
@@ -41,6 +44,51 @@ func TestDocumentParagraphImages(t *testing.T) {
 			}
 			if tc.name == "reference destinations" && (!strings.Contains(runs[0].markdown, "**Before**") || !strings.Contains(runs[2].markdown, "https://example.test/guide")) {
 				t.Fatalf("surrounding formatting or resolved link lost: %+v", runs)
+			}
+		})
+	}
+}
+
+func TestDocumentImageTextLinksReachOuterAnchor(t *testing.T) {
+	for _, prefix := range []string{
+		"[Install](#install) ![Logo](logo.svg) [Web](https://example.test)",
+		`<p><a href="#install">Install</a> <img src="logo.svg" alt="Logo"> <a href="https://example.test">Web</a></p>`,
+	} {
+		t.Run(prefix, func(t *testing.T) {
+			var scroll ui.ScrollState
+			logo := ui.MustParseSVG([]byte(`<svg viewBox="0 0 80 2"><path d="M0 0h80v2H0z"/></svg>`))
+			options := markdown.Options{LoadImage: func(string) (ui.ImageSource, error) { return logo, nil }}
+			source := prefix + "\n\n" + strings.Repeat("Paragraph before the target.\n\n", 24) + "# Install\n\nTarget."
+			tester := ui.NewTester(func(c *ui.Context) {
+				c.DisableAnimations()
+				theme.Apply(c, "", theme.Light)
+				ui.Scroll(c).Fill().TrackScroll(&scroll).Children(func() {
+					Markdown(c, source, MarkdownProps{Options: &options})
+				})
+			}, 400, 180)
+			click := func(name string) {
+				t.Helper()
+				link, ok := tester.AccessByRole(ui.RoleLink, name)
+				if !ok {
+					t.Fatalf("document link %q is missing", name)
+				}
+				tester.ClickAt(link.Bounds.X+link.Bounds.W/2, link.Bounds.Y+link.Bounds.H/2)
+				tester.Frame()
+			}
+			click("Web")
+			if urls := tester.OpenedURLs(); len(urls) != 1 || urls[0] != "https://example.test" {
+				t.Fatalf("ordinary link lost its default behavior: %v", urls)
+			}
+			click("Install")
+			if options.Anchor != "#install" || scroll.Y <= 0 {
+				t.Fatalf("nested anchor did not reach the outer document: anchor=%q scroll=%g", options.Anchor, scroll.Y)
+			}
+			scroll.Y = 0
+			tester.Frame()
+			version := options.AnchorVersion
+			click("Install")
+			if scroll.Y <= 0 || options.AnchorVersion <= version {
+				t.Fatal("repeated nested anchor did not reveal the target")
 			}
 		})
 	}

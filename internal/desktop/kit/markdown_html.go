@@ -35,7 +35,7 @@ func htmlBlock(o *markdown.Options) func(c *ui.Context, source string) {
 	inner := &markdown.Options{}
 	inner.Block = documentImageBlock(inner)
 	return func(c *ui.Context, source string) {
-		copyNestedOptions(inner, o)
+		copyNestedOptions(c, inner, o)
 		ui.Column(c).FillWidth().Children(func() {
 			for i, chunk := range chunksOf(source) {
 				view := markdown.View(c.Key(i), chunk.markdown, inner)
@@ -48,14 +48,16 @@ func htmlBlock(o *markdown.Options) func(c *ui.Context, source string) {
 }
 
 // copyNestedOptions supplies the views within o's document with its look
-// and links, sharing its selection. They take no HTML of their own, so a
-// tag the conversion leaves shows as text.
-func copyNestedOptions(inner, o *markdown.Options) {
+// and links, sharing its selection. Links forward through the outer document
+// so its headings remain the fragment targets. They take no HTML of their own,
+// so a tag the conversion leaves shows as text.
+func copyNestedOptions(c *ui.Context, inner, o *markdown.Options) {
 	inner.Theme, inner.Extensions, inner.CodeBlock = o.Theme, o.Extensions, o.CodeBlock
-	inner.LinkMenu, inner.OnLink, inner.Preview, inner.LoadImage = o.LinkMenu, o.OnLink, o.Preview, o.LoadImage
+	inner.LinkMenu, inner.Preview, inner.LoadImage = o.LinkMenu, o.Preview, o.LoadImage
 	inner.LinkIcon, inner.Resolve = o.LinkIcon, o.Resolve
 	inner.Code, inner.WrapCode, inner.Math, inner.InlineMath = o.Code, o.WrapCode, o.Math, o.InlineMath
 	inner.Reveal, inner.ShareSelection = o.Reveal, true
+	inner.OnLink = func(dest string) { openDocumentLink(c, o, dest) }
 }
 
 // chunksOf splits an HTML block into runs of its top-level nodes, centred

@@ -315,6 +315,9 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 	})
 }
 func (p *workspaceProject) refresh() {
+	if p.runtime.controller.Connected() {
+		p.closeDocumentImages()
+	}
 	p.turnView = nil
 	p.reviewTarget = nil
 	p.reviewTurns = map[string]protocol.TurnID{}

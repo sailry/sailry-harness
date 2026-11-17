@@ -41,31 +41,16 @@ func documentImageBlock(o *markdown.Options) func(*ui.Context, *parser.Document,
 		if len(runs) == 0 {
 			return false
 		}
-		copyNestedOptions(inner, o)
+		copyNestedOptions(c, inner, o)
 		ui.Column(c).Gap(8).Children(func() {
 			for k, run := range runs {
 				if run.link == "" {
 					markdown.View(c.Key(k), run.markdown, inner)
 					continue
 				}
-				dest := run.link
-				anchor := strings.HasPrefix(dest, "#")
-				if o.OnLink != nil || anchor {
-					dest = ""
-				} else if !ui.SafeToOpen(dest) {
-					u, err := url.Parse(dest)
-					if c.Router() == nil || err != nil || u.IsAbs() || u.Host != "" || strings.ContainsAny(dest, "\\\x00") || strings.HasPrefix(dest, "//") {
-						dest = ""
-					}
-				}
-				link := ui.Link(c.Key(k), "", dest).Tooltip(run.link)
+				link := ui.Link(c.Key(k), "", "").Tooltip(run.link)
 				if link.Clicked() {
-					if o.OnLink != nil {
-						o.OnLink(run.link)
-					} else if anchor {
-						o.Anchor = run.link
-						o.AnchorVersion++
-					}
+					openDocumentLink(c, o, run.link)
 				}
 				if o.LinkMenu != nil {
 					link.ContextMenu(func(m *ui.Menu) { o.LinkMenu(m, run.link) })
@@ -79,6 +64,30 @@ func documentImageBlock(o *markdown.Options) func(*ui.Context, *parser.Document,
 			}
 		})
 		return true
+	}
+}
+
+// Nested runs have no document headings of their own. Route their links through
+// the captured outer options so fragment jumps reach the complete document.
+func openDocumentLink(c *ui.Context, outer *markdown.Options, dest string) {
+	if outer.OnLink != nil {
+		outer.OnLink(dest)
+		return
+	}
+	if strings.HasPrefix(dest, "#") {
+		outer.Anchor = dest
+		outer.AnchorVersion++
+		return
+	}
+	if ui.SafeToOpen(dest) {
+		c.OpenURL(dest)
+		return
+	}
+	if router := c.Router(); router != nil {
+		u, err := url.Parse(dest)
+		if err == nil && !u.IsAbs() && u.Host == "" && !strings.ContainsAny(dest, "\\\x00") && !strings.HasPrefix(dest, "//") {
+			router.Push(dest)
+		}
 	}
 }
 
