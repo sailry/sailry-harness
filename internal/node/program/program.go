@@ -170,6 +170,9 @@ func Start(spec Spec) (*Process, error) {
 			process.tail = line
 			process.mu.Unlock()
 		}
+		// A line over the scanner's limit ends the scan. The rest is still
+		// read, so the program never blocks on a full pipe.
+		_, _ = io.Copy(io.Discard, stderr)
 	}()
 	go func() {
 		<-drained

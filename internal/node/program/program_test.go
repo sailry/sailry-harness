@@ -23,6 +23,10 @@ func TestMain(suite *testing.M) {
 		if mode == "exit" {
 			os.Exit(3)
 		}
+		if mode == "flood" {
+			// One diagnostic line longer than the reader keeps.
+			fmt.Fprintln(os.Stderr, strings.Repeat("x", 3<<20))
+		}
 		lines := bufio.NewScanner(os.Stdin)
 		for lines.Scan() {
 			fmt.Fprintln(os.Stdout, "echo "+lines.Text())
@@ -104,6 +108,30 @@ func TestStart(t *testing.T) {
 		gone(t, pid)
 		if process.Diagnostic() != "fixture diagnostic" {
 			t.Fatalf("diagnostic = %q", process.Diagnostic())
+		}
+	})
+	t.Run("keeps reading diagnostics after an oversized line", func(t *testing.T) {
+		process, err := Start(fixtureSpec(t, "flood"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer process.Kill()
+		_, reader, _ := started(t, process)
+		if _, err := process.Stdin.Write([]byte("ping\n")); err != nil {
+			t.Fatal(err)
+		}
+		echoed := make(chan string, 1)
+		go func() {
+			line, _ := reader.ReadString('\n')
+			echoed <- line
+		}()
+		select {
+		case line := <-echoed:
+			if line != "echo ping\n" {
+				t.Fatalf("echo = %q", line)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the program blocked on its diagnostics")
 		}
 	})
 	t.Run("reports a program that exits", func(t *testing.T) {
