@@ -238,7 +238,9 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		return
 	}
 	ctx = store.WithUser(ctx, local)
+	failed := false
 	fail := func(cause error) {
+		failed = true
 		var failure *protocol.Fault
 		if !errors.As(cause, &failure) {
 			var wrapped *link.FaultError
@@ -251,6 +253,17 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		}
 		_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecordConfigurationTargetFailure(ctx, db, address.ID, failure) })
 	}
+	defer func() {
+		// Personal data has its own durable requests and must converge even
+		// when an unrelated configuration category cannot be published.
+		if err := node.reconcilePersonalKV(ctx, remote); err != nil {
+			fail(err)
+			return
+		}
+		if !failed {
+			_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecordConfigurationTargetFailure(ctx, db, address.ID, nil) })
+		}
+	}()
 	bindSource := false
 	if discover {
 		output, err := configurationRemote(ctx, remote, protocol.NewRequest(address.ID, protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "read"}}))
@@ -394,11 +407,6 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 			return
 		}
 	}
-	if err := node.reconcilePersonalKV(ctx, remote); err != nil {
-		fail(err)
-		return
-	}
-	_ = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.RecordConfigurationTargetFailure(ctx, db, address.ID, nil) })
 }
 
 func pointerNode(value protocol.NodeID) *protocol.NodeID { return &value }
