@@ -265,6 +265,13 @@ func (r *Runtime) readInstalledPackageDetails(info protocol.PluginInfo, done fun
 		r.enqueue(func(c *ui.Context) {
 			if err == nil && packageVersion(r.packages.infos[info.Summary.Name].Summary) == version {
 				captured.Summary, captured.Origin, captured.UpdateSource, captured.Skill = info.Summary, info.Origin, info.UpdateSource, info.Skill
+				// Immutable package files do not carry the installed catalog metadata.
+				if captured.ReleaseNotes == nil {
+					captured.ReleaseNotes = info.ReleaseNotes
+				}
+				if len(captured.Versions) == 0 {
+					captured.Versions = info.Versions
+				}
 				r.packages.infos[info.Summary.Name] = captured
 				if entry != nil {
 					r.packages.catalog[entry.ID], r.packages.catalogSources[entry.ID] = *entry, source

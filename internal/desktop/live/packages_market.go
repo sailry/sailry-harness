@@ -334,10 +334,11 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 		command = protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: name, ExpectedRevision: report.Current.Revision}}
 	case "online":
 		if origin, ok := detail[protocol.PluginOriginOnlinePayload](candidate.Origin.Data); ok {
+			source := packageRepositoryUpdateSource(candidate, origin)
 			if candidate.Skill != nil {
-				command = protocol.Command{Kind: "install_skill", Data: protocol.CommandInstallSkillPayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
+				command = protocol.Command{Kind: "install_skill", Data: protocol.CommandInstallSkillPayload{Source: source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
 			} else {
-				command = protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
+				command = protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: source, Path: origin.Path, Name: name, ExpectedRevision: report.Current.Revision}}
 			}
 		}
 	case "registry":
@@ -360,6 +361,16 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 			delete(r.packages.updates, name)
 		}
 	})
+}
+
+func packageRepositoryUpdateSource(info protocol.PluginInfo, origin protocol.PluginOriginOnlinePayload) protocol.PluginSkillsResolved {
+	source := origin.Source
+	if info.UpdateSource != nil && info.UpdateSource.Kind == "online" {
+		if update, valid := detail[protocol.PluginOriginOnlinePayload](info.UpdateSource.Data); valid && update.Source.Repository == source.Repository && update.Source.Commit == source.Commit && update.Path == origin.Path {
+			source.GitRef = update.Source.GitRef
+		}
+	}
+	return source
 }
 
 func (r *Runtime) installMarketPlugin(id string) {

@@ -73,7 +73,8 @@ func (r *Runtime) reimportSkill(id string) {
 	case "online":
 		if origin, valid := detail[protocol.PluginOriginOnlinePayload](info.Origin.Data); valid {
 			finish := r.packageWork(id)
-			r.installSkillSource(settings.SkillSourceDraft{Repository: origin.Source.Repository, Revision: origin.Source.GitRef, Path: origin.Path}, func(bool) { finish() })
+			source := packageRepositoryUpdateSource(info, origin)
+			r.installSkillSource(settings.SkillSourceDraft{Repository: source.Repository, Revision: source.GitRef, Path: origin.Path}, func(bool) { finish() })
 		}
 	case "registry":
 		if origin, valid := detail[protocol.PluginOriginRegistryPayload](info.Origin.Data); valid {

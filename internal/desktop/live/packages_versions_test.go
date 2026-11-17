@@ -187,3 +187,146 @@ func TestOfficialPluginVersionCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestOnlinePluginUpdateKeepsMatchingUpstream(t *testing.T) {
+	for _, test := range []struct {
+		name, mismatch  string
+		skill, reimport bool
+	}{
+		{name: "plugin branch"},
+		{name: "skill branch", skill: true},
+		{name: "skill reimport branch", skill: true, reimport: true},
+		{name: "different repository", mismatch: "repository"},
+		{name: "different commit", mismatch: "commit"},
+		{name: "different path", mismatch: "path"},
+		{name: "missing update source", mismatch: "missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r, transport := terminalTabsFixture(t)
+				current := protocol.PluginInfo{Summary: protocol.PluginSummary{Name: "notes", Digest: "current", Version: new("1.0.0"), Revision: 7, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}}
+				origin := protocol.PluginOriginOnlinePayload{Source: protocol.PluginSkillsResolved{Repository: "https://github.com/example/plugins", GitRef: "selected-commit", Commit: "selected-commit"}, Path: "notes"}
+				candidate := current
+				candidate.Summary.Version = new("1.1.0")
+				candidate.Origin = &protocol.PluginOrigin{Kind: "online", Data: origin}
+				upstream := origin
+				upstream.Source.GitRef = "release"
+				switch test.mismatch {
+				case "repository":
+					upstream.Source.Repository = "https://github.com/other/plugins"
+				case "commit":
+					upstream.Source.Commit = "different-commit"
+				case "path":
+					upstream.Path = "other"
+				}
+				if test.mismatch != "missing" {
+					candidate.UpdateSource = &protocol.PluginOrigin{Kind: "online", Data: upstream}
+				}
+				if test.skill {
+					candidate.Skill = &protocol.PluginSkillsProvenance{Kind: "Git", Data: protocol.PluginSkillsGitProvenance{Source: origin.Source, Path: origin.Path}}
+				}
+				if test.reimport {
+					r.packages.infos["notes"] = candidate
+				} else {
+					r.packages.infos["notes"] = current
+				}
+				r.packages.updates["notes"] = protocol.PluginUpdatesReport{Current: current.Summary, Available: &protocol.PluginUpdatesCandidate{Kind: "package", Data: candidate}}
+				transport.respond = func(request protocol.Request) link.Response {
+					if request.Command.Kind == "discover_skills" {
+						return link.Response{Output: protocol.Output{Kind: "skill_discovery", Data: protocol.PluginSkillsDiscovery{Source: origin.Source}}}
+					}
+					return link.Response{Output: protocol.Output{Kind: "plugin", Data: current}}
+				}
+				if test.reimport {
+					r.reimportSkill("notes")
+				} else {
+					r.updatePackage("notes", func() {})
+				}
+				synctest.Wait()
+				if test.reimport {
+					commands := transport.sent("discover_skills")
+					if len(commands) != 1 {
+						t.Fatalf("skill reimport commands: %+v", commands)
+					}
+					input, _ := detail[protocol.CommandDiscoverSkillsPayload](commands[0].Data)
+					if input.Source.Repository != origin.Source.Repository || stringValue(input.Source.GitRef) != upstream.Source.GitRef || stringValue(input.Source.Path) != origin.Path {
+						t.Fatalf("reimport lost its original upstream: %+v", input.Source)
+					}
+					return
+				}
+				kind := "install_plugin_source"
+				if test.skill {
+					kind = "install_skill"
+				}
+				commands := transport.sent(kind)
+				if len(commands) != 1 {
+					t.Fatalf("online update commands: %+v", commands)
+				}
+				var source protocol.PluginSkillsResolved
+				var path string
+				var revision uint64
+				if test.skill {
+					input, _ := detail[protocol.CommandInstallSkillPayload](commands[0].Data)
+					source, path, revision = input.Source, input.Path, input.ExpectedRevision
+				} else {
+					input, _ := detail[protocol.CommandInstallPluginSourcePayload](commands[0].Data)
+					source, path, revision = input.Source, input.Path, input.ExpectedRevision
+				}
+				expected := origin.Source
+				if test.mismatch == "" {
+					expected.GitRef = upstream.Source.GitRef
+				}
+				if source != expected || path != origin.Path || revision != current.Summary.Revision {
+					t.Fatalf("update changed its inspected identity or lost its matching branch: source %+v, path %q, revision %d", source, path, revision)
+				}
+			})
+		})
+	}
+}
+
+func TestInstalledPluginDetailsKeepReleaseMetadata(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source := terminalTabsFixture(t)
+		notes := &protocol.PluginCatalogReleaseNotes{Text: "Installed release notes", Locales: map[string]string{"zh-CN": "已安装版本说明"}}
+		info := protocol.PluginInfo{Summary: protocol.PluginSummary{Name: "notes", Digest: "installed", Version: new("1.0.0"), Revision: 7, Pinned: true, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}},
+			Origin: &protocol.PluginOrigin{Kind: "bundled"}, UpdateSource: &protocol.PluginOrigin{Kind: "official"}, ReleaseNotes: notes,
+			Versions: []protocol.PluginCatalogVersion{{Version: "1.0.0", ReleaseNotes: notes, Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}}}
+		r.packages.infos[info.Summary.Name] = info
+		latest := protocol.PluginCatalogVersion{Version: "2.0.0", Compatibility: protocol.PluginCompatibility{Kind: "compatible"}}
+		source.respond = func(request protocol.Request) link.Response {
+			switch request.Command.Kind {
+			case "read_plugin_version":
+				captured := info
+				captured.Summary.Revision, captured.Summary.Pinned = 0, false
+				captured.ReleaseNotes, captured.Versions = nil, nil
+				captured.Skills = []protocol.PluginSkill{{Name: "packaged-skill"}}
+				return link.Response{Output: protocol.Output{Kind: "plugin", Data: captured}}
+			case "search_plugin_catalog":
+				return link.Response{Output: protocol.Output{Kind: "plugin_catalog", Data: protocol.PluginCatalogPage{Page: 1, Pages: 1,
+					Entries: []protocol.PluginCatalogEntry{{ID: info.Summary.Name, Version: &latest.Version, CompatibleVersion: &latest, Compatibility: latest.Compatibility, Versions: []protocol.PluginCatalogVersion{latest}}}}}}
+			default:
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "unexpected fixture command"}}
+			}
+		}
+		done := false
+		r.readInstalledPackageDetails(info, func() { done = true })
+		synctest.Wait()
+		r.mu.Lock()
+		queue := r.queue
+		r.queue = nil
+		r.mu.Unlock()
+		for _, run := range queue {
+			run(nil)
+		}
+		loaded := r.packages.infos[info.Summary.Name]
+		if !done || !loaded.Summary.Pinned || loaded.Summary.Revision != info.Summary.Revision || loaded.ReleaseNotes == nil || loaded.ReleaseNotes.Text != notes.Text || len(loaded.Versions) != 1 || len(loaded.Skills) != 1 {
+			t.Fatalf("immutable details lost installed metadata or package content: %+v", loaded)
+		}
+		view := packageView(loaded, "zh-CN")
+		applyPackageCatalog(&view, r.packages.catalog[info.Summary.Name], "zh-CN")
+		last := view.Versions[len(view.Versions)-1]
+		if last.Version != "1.0.0" || last.Notes != "已安装版本说明" {
+			t.Fatalf("current version disappeared with its catalog entry: %+v", view.Versions)
+		}
+	})
+}
