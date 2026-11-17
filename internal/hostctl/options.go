@@ -125,8 +125,9 @@ func validateOrigin(origin string) error {
 		return nil
 	}
 	if parsed.Scheme == "http" {
-		ip := net.ParseIP(parsed.Hostname())
-		if parsed.Hostname() == "localhost" || ip != nil && ip.IsLoopback() {
+		// Link accepts plain HTTP only for a loopback address literal, which
+		// needs no name resolution.
+		if ip := net.ParseIP(parsed.Hostname()); ip != nil && ip.IsLoopback() {
 			return nil
 		}
 	}

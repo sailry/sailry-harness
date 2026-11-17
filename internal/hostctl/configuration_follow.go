@@ -85,8 +85,9 @@ func RunFollow(ctx context.Context, args []string, stdout io.Writer) error {
 	request := controller.Prepare(protocol.Command{Kind: "configuration_follow", Data: &command})
 	output, err := controller.Execute(ctx, request)
 	if err != nil {
-		var reported *protocol.Fault
-		if errors.As(err, &reported) && reported.Code == protocol.ErrorCodeOutcomeUnknown {
+		// The client reports faults as values and as link errors; asFault
+		// reads every form.
+		if reported := asFault(err); reported.Code == protocol.ErrorCodeOutcomeUnknown {
 			_ = json.NewEncoder(stdout).Encode(struct {
 				Request protocol.RequestID `json:"request"`
 				Fault   *protocol.Fault    `json:"fault"`
