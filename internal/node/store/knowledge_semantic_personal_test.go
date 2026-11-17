@@ -17,6 +17,7 @@ func TestPersonalKVAcceptedGroupsRefreshSemanticCollections(t *testing.T) {
 	if err := source.store.Node.Write(ctx, func(db *sql.Conn) error {
 		info := pluginTestInfo("personal-indexed", 'f')
 		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
 		extension.Actions = []protocol.PluginAction{protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage}
 		prefix := "entry/"
 		extension.Storage = &protocol.PluginStorageDeclaration{Collections: []protocol.PluginStorageCollection{{

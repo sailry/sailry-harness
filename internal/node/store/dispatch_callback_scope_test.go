@@ -220,6 +220,7 @@ func newDispatchScopeFixture(t *testing.T) dispatchScopeFixture {
 		project: protocol.NewProjectID(), otherProject: protocol.NewProjectID(), worktree: base.Worktree, other: protocol.NewWorktreeID()}
 	f.info.Summary.Revision, f.info.Summary.Enabled = 1, true
 	f.info.Extension = new(protocol.DefaultPluginExtension())
+	f.info.Extension.ApiVersion = "v1"
 	f.info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionDispatch, protocol.PluginActionStartSessions}
 	f.scope = protocol.DefaultPluginContext()
 	f.scope.Package, f.scope.Worktree = dispatchReference(f.info.Summary), &f.worktree

@@ -21,6 +21,7 @@ func testPluginActivityReads(t *testing.T) {
 		info := pluginTestInfo("activity-fixture", 'a')
 		info.Summary.Enabled = true
 		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.ApiVersion = "v1"
 		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionReadActivity}
 		scope := protocol.DefaultPluginContext()
 		scope.Package = plugins.PackageReference(info)

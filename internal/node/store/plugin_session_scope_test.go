@@ -150,6 +150,7 @@ func TestPluginPackageActionsKeepPlanRestrictions(t *testing.T) {
 		info := pluginTestInfo("plan-package-fixture", 'c')
 		info.Summary.Enabled = true
 		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.ApiVersion = "v1"
 		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage}
 		body, err := encode(info)
 		if err != nil {

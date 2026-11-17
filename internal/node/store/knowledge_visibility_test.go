@@ -181,7 +181,7 @@ func TestKnowledgeTrustedPackageDoesNotResolveForeignTurn(t *testing.T) {
 	t.Parallel()
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
-	info := protocol.PluginInfo{Summary: protocol.PluginSummary{Name: "remote-reader", Digest: "captured", SettingsRevision: 7}, Extension: &protocol.PluginExtension{Actions: []protocol.PluginAction{protocol.PluginActionReadKnowledge}}}
+	info := protocol.PluginInfo{Summary: protocol.PluginSummary{Name: "remote-reader", Digest: "captured", SettingsRevision: 7}, Extension: &protocol.PluginExtension{ApiVersion: "v1", Actions: []protocol.PluginAction{protocol.PluginActionReadKnowledge}}}
 	turn, session, worktree := protocol.NewTurnID(), protocol.NewSessionID(), protocol.NewWorktreeID()
 	origin := protocol.PluginContext{Package: protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}, Turn: &turn, Session: &session, Worktree: &worktree}
 	trusted, err := WithKnowledgeScope(ctx, &protocol.ResourceScope{Plugin: &info, Origin: &origin})

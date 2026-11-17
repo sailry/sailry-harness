@@ -104,6 +104,7 @@ func TestPluginDispatchTriggersCannotBorrowSavedPermissions(t *testing.T) {
 					info := pluginTestInfo("trigger-fixture", 'e')
 					info.Summary.Enabled = true
 					info.Extension = new(protocol.DefaultPluginExtension())
+					info.Extension.ApiVersion = "v1"
 					info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionDispatch, protocol.PluginActionStartSessions}
 					scope := protocol.DefaultPluginContext()
 					scope.Package = dispatchReference(info.Summary)

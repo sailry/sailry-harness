@@ -35,6 +35,7 @@ func TestScheduledRuns(t *testing.T) {
 		item := &task{storage: storage, node: node, base: base, now: now, info: pluginTestInfo("scheduled-tasks", 'b')}
 		item.info.Summary.Revision, item.info.Summary.Enabled = 1, true
 		item.info.Extension = new(protocol.DefaultPluginExtension())
+		item.info.Extension.ApiVersion = "v1"
 		item.info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionDispatch, protocol.PluginActionStartSessions}
 		item.draft = protocol.DefaultConversationStart()
 		item.draft.Config, item.draft.Title = &base.Config, "Daily report"

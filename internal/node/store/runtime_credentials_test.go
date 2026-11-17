@@ -65,6 +65,7 @@ func TestRuntimeMCPExportOmitsOAuthClientAndNestedToken(t *testing.T) {
 	err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
 		info := pluginTestInfo("runtime-connector", 'd')
 		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
 		origin, header, server := "https://mcp.example.test", "Authorization", "server"
 		declaration := protocol.PluginConnectorDeclaration{
 			ID: "account", Accounts: protocol.PluginConnectorAccountsSingle,

@@ -17,6 +17,7 @@ func testPluginControllerAuthority(t *testing.T) {
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		info := pluginTestInfo("controller-fixture", 'a')
 		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.ApiVersion = "v1"
 		info.Extension.Actions = []protocol.PluginAction{
 			protocol.PluginActionReadModels, protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage,
 			protocol.PluginActionReadActivity, protocol.PluginActionReadUsage, protocol.PluginActionReadSearchSettings,
@@ -236,6 +237,7 @@ func testPluginSessionAuthority(t *testing.T) {
 		info := pluginTestInfo("session-fixture", 'a')
 		info.Summary.Enabled = true
 		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.ApiVersion = "v1"
 		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionStartSessions, protocol.PluginActionReadConversation, protocol.PluginActionControlConversation,
 			protocol.PluginActionReadRoles, protocol.PluginActionReadProjects, protocol.PluginActionDispatch, protocol.PluginActionNotify,
 			protocol.PluginActionReadGit, protocol.PluginActionWriteWorktrees}

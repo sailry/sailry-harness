@@ -38,6 +38,7 @@ func newPersonalKVFixture(t *testing.T, controller protocol.NodeID) personalKVFi
 	if err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
 		info := pluginTestInfo("personal-fixture", 'e')
 		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
 		extension.Actions = []protocol.PluginAction{protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage}
 		info.Extension = &extension
 		if controller != (protocol.NodeID{}) {
