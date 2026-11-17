@@ -35,7 +35,7 @@ func (node *Node) discoverProviderLoginModels(ctx context.Context, caller protoc
 		return err
 	})
 	if err == nil {
-		node.pluginCommitted(changes, ctx)
+		node.pluginCommitted(changes, ctx, false)
 	}
 	return err
 }

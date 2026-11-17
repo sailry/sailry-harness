@@ -173,7 +173,7 @@ func (node *Node) applyConfigurationSnapshotPage(ctx context.Context, caller pro
 	}
 	publication()
 	if err == nil && len(changes) != 0 {
-		node.pluginCommitted(changes, ctx)
+		node.pluginCommitted(changes, ctx, false)
 		node.refreshKnowledgeStorage(request.Command, changes)
 	}
 	return protocol.Output{Kind: "configuration_snapshot", Data: progress}, err

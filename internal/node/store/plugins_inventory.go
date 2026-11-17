@@ -70,11 +70,10 @@ func ReadPlugin(ctx context.Context, db *sql.Conn, name string) (*protocol.Plugi
 }
 
 func refreshPluginCompatibility(info *protocol.PluginInfo) {
-	var minimum *string
-	if info.Extension != nil {
-		minimum = info.Extension.MinSailryVersion
+	info.Summary.Compatibility = plugins.InfoCompatibility(*info)
+	for index := range info.Versions {
+		info.Versions[index].Compatibility = plugins.CatalogVersionCompatibility(info.Versions[index])
 	}
-	info.Summary.Compatibility = plugins.Compatibility(minimum)
 }
 
 func PluginRecorded(ctx context.Context, db *sql.Conn, name string) (bool, error) {
@@ -116,6 +115,19 @@ ON CONFLICT(user,name) DO UPDATE SET revision=excluded.revision,settings_revisio
 }
 
 func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, expectedRevision uint64, enabled bool) (protocol.PluginInfo, error) {
+	return installPlugin(ctx, db, info, expectedRevision, enabled, "", protocol.PluginMcpConfiguration{})
+}
+
+func InstallCatalogPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, expectedRevision uint64, mode protocol.PluginInstallMode, declared protocol.PluginMcpConfiguration) (protocol.PluginInfo, error) {
+	switch mode {
+	case protocol.PluginInstallModeInstall, protocol.PluginInstallModeUpdate, protocol.PluginInstallModeSwitch:
+		return installPlugin(ctx, db, info, expectedRevision, true, mode, declared)
+	default:
+		return protocol.PluginInfo{}, invalid("invalid catalog installation mode")
+	}
+}
+
+func installPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, expectedRevision uint64, enabled bool, mode protocol.PluginInstallMode, declared protocol.PluginMcpConfiguration) (protocol.PluginInfo, error) {
 	if err := CheckConfigurationEditable(ctx, db, "plugins", info.Summary.Name); err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -143,6 +155,12 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	}
 	if current != nil {
 		enabled = current.Summary.Enabled
+		info.Summary.Pinned = current.Summary.Pinned
+	}
+	if mode != "" {
+		if err := validateCatalogReplacement(ctx, db, current, &info, mode, declared); err != nil {
+			return protocol.PluginInfo{}, err
+		}
 	}
 	user, err := pluginUserID(ctx, db)
 	if err != nil {
@@ -179,11 +197,11 @@ func InstallPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 	if err := savePluginInventory(ctx, db, info, true); err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	return info, stopPluginContinuations(ctx, db, info.Summary.Name)
+	return info, nil
 }
 
 // stopPluginContinuations stops the running automatic turns a package admitted
-// once the package is replaced, disabled or removed. A queued one needs no
+// once the package is disabled or removed. A queued one needs no
 // stop: claiming it checks its package again and cancels it.
 func stopPluginContinuations(ctx context.Context, db *sql.Conn, name string) error {
 	user, err := pluginUserID(ctx, db)
@@ -217,6 +235,11 @@ func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRe
 	}
 	if err := checkRevision(info.Summary.Revision, expectedRevision); err != nil {
 		return protocol.PluginInfo{}, err
+	}
+	if enabled {
+		if err := plugins.EnsureCompatible(info.Summary.Compatibility); err != nil {
+			return protocol.PluginInfo{}, err
+		}
 	}
 	if info.Summary.Enabled == enabled {
 		return *info, nil

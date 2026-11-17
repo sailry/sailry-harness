@@ -85,7 +85,7 @@ func (node *Node) refreshKnowledgeStorage(command protocol.Command, changes []pr
 			node.knowledge.Invalidate()
 		}
 		return
-	case "install_plugin", "install_plugin_source", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
+	case "install_plugin", "install_plugin_source", "install_catalog_plugin", "install_plugin_upload", "set_plugin_enabled", "save_plugin_settings":
 	case "remove_plugin", "remove_project", "remove_session", "remove_sessions":
 		// The pass removes the collections these owned.
 	default:

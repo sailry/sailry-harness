@@ -414,11 +414,7 @@ func (node *Node) beginPluginExecution(ctx context.Context, request protocol.Req
 	return operation, func() { stop(); stopOwner(); cancel(); finish() }, nil
 }
 
-func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.Context) {
-	ctx := node.ctx
-	if len(contexts) != 0 {
-		ctx = contexts[0]
-	}
+func (node *Node) pluginCommitted(changes []protocol.Event, ctx context.Context, codeReplacement bool) {
 	user, err := node.pluginRuntimeUser(ctx)
 	if err != nil {
 		return
@@ -429,8 +425,12 @@ func (node *Node) pluginCommitted(changes []protocol.Event, contexts ...context.
 			packagesChanged = true
 			if summary, ok := dispatchPayload[protocol.PluginSummary](change.Data); ok {
 				_ = node.plugins.mcp.Observe(summary, user.String())
-				// A disabled, updated or reconfigured package starts its programs anew.
-				node.plugins.programs.Invalidate(pluginProgramOwner(user, summary.Name))
+				// Captured launch identities already separate old and new code.
+				// A replacement must not kill a program serving an admitted turn;
+				// its existing lease and idle expiry still bound its lifetime.
+				if !codeReplacement || !summary.Enabled || summary.Compatibility.Kind != "compatible" {
+					node.plugins.programs.Invalidate(pluginProgramOwner(user, summary.Name))
+				}
 				node.retainComputerOverlay(summary.Name, ctx)
 			}
 		}

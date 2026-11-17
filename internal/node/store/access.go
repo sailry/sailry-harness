@@ -49,13 +49,15 @@ func CheckProjectAccess(ctx context.Context, db *sql.Conn, id protocol.ProjectID
 	return accessResult(ctx, db, err, allowed)
 }
 
+const sessionAccessPredicate = `CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END`
+
 func CheckSessionAccess(ctx context.Context, db *sql.Conn, id protocol.SessionID) error {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err
 	}
 	var allowed bool
-	err = db.QueryRowContext(ctx, `SELECT CASE WHEN s.project IS NULL THEN coalesce(s.owner,(SELECT id FROM users WHERE local=1))=?2 ELSE p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2 END FROM sessions s LEFT JOIN projects p ON p.id=s.project WHERE s.id=?1`, id.String(), user.ID.String()).Scan(&allowed)
+	err = db.QueryRowContext(ctx, `SELECT `+sessionAccessPredicate+` FROM sessions s LEFT JOIN projects p ON p.id=s.project WHERE s.id=?1`, id.String(), user.ID.String()).Scan(&allowed)
 	return accessResult(ctx, db, err, allowed)
 }
 

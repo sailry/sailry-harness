@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Masterminds/semver/v3"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -25,7 +25,7 @@ func featurePlugin(info protocol.PluginInfo) error {
 }
 
 func pluginManagerSummary(info protocol.PluginInfo) map[string]any {
-	return map[string]any{"summary": info.Summary, "origin": info.Origin, "skills": info.Skills, "mcp": info.Mcp, "issues": info.Issues}
+	return map[string]any{"summary": info.Summary, "origin": info.Origin, "update_source": info.UpdateSource, "skills": info.Skills, "mcp": info.Mcp, "issues": info.Issues}
 }
 
 type pluginManagerAction struct {
@@ -85,22 +85,36 @@ func (node *Node) pluginManager(inv *store.AgentInvocation) agentTool {
 		if err := featurePlugin(info); err != nil {
 			return protocol.Command{}, err
 		}
-		newer := false
-		if info.Summary.Version != nil && current.Summary.Version != nil {
-			previous, previousErr := semver.StrictNewVersion(*current.Summary.Version)
-			next, nextErr := semver.StrictNewVersion(*info.Summary.Version)
-			newer = previousErr == nil && nextErr == nil && next.Compare(previous) > 0
-		}
+		newer := plugins.IsNewer(current.Summary.Version, info.Summary.Version)
 		if info.Summary.Name != current.Summary.Name || !newer {
 			return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "plugin update requires a newer version of the same package")
 		}
 		name, expected := current.Summary.Name, current.Summary.Revision
+		if current.Summary.Pinned {
+			return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "plugin version is pinned")
+		}
+		if info.UpdateSource != nil && info.UpdateSource.Kind == "official" {
+			selection := protocol.PluginCatalogSelection{Info: info}
+			if info.Origin != nil && info.Origin.Kind == "online" {
+				origin, valid := dispatchPayload[protocol.PluginOriginOnlinePayload](info.Origin.Data)
+				if !valid {
+					return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "invalid official plugin selection")
+				}
+				selection.Source, selection.Path = origin.Source, origin.Path
+			}
+			return protocol.Command{Kind: "install_catalog_plugin", Data: &protocol.CommandInstallCatalogPluginPayload{Selection: selection, ExpectedRevision: expected, Mode: protocol.PluginInstallModeUpdate}}, nil
+		}
 		if info.Origin != nil {
 			switch info.Origin.Kind {
 			case "bundled":
 				return protocol.Command{Kind: "install_bundled_plugin", Data: &protocol.CommandInstallBundledPluginPayload{Name: name, ExpectedRevision: expected}}, nil
 			case "online":
 				if origin, valid := dispatchPayload[protocol.PluginOriginOnlinePayload](info.Origin.Data); valid {
+					if info.UpdateSource != nil && info.UpdateSource.Kind == "online" {
+						if update, valid := dispatchPayload[protocol.PluginOriginOnlinePayload](info.UpdateSource.Data); valid && update.Source.Repository == origin.Source.Repository && update.Source.Commit == origin.Source.Commit && update.Path == origin.Path {
+							origin.Source.GitRef = update.Source.GitRef
+						}
+					}
 					return protocol.Command{Kind: "install_plugin_source", Data: &protocol.CommandInstallPluginSourcePayload{Source: origin.Source, Path: origin.Path, Name: name, ExpectedRevision: expected}}, nil
 				}
 			case "worktree":
@@ -216,7 +230,10 @@ func (node *Node) pluginManager(inv *store.AgentInvocation) agentTool {
 			if !official {
 				return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "expected an official plugin selection")
 			}
-			output, err = node.agentCommand(ctx, inv, protocol.Command{Kind: "read_catalog_plugin_info", Data: &protocol.CommandReadCatalogPluginInfoPayload{Source: protocol.PluginCatalogSourceOfficial, ID: entry.ID}}, pluginInventoryLost)
+			if entry.CompatibleVersion == nil {
+				return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "official plugin update has no compatible candidate")
+			}
+			output, err = node.agentCommand(ctx, inv, protocol.Command{Kind: "read_catalog_plugin_info", Data: &protocol.CommandReadCatalogPluginInfoPayload{Source: protocol.PluginCatalogSourceOfficial, ID: entry.ID, Version: &entry.CompatibleVersion.Version}}, pluginInventoryLost)
 			if err != nil {
 				return protocol.Command{}, err
 			}
@@ -225,7 +242,7 @@ func (node *Node) pluginManager(inv *store.AgentInvocation) agentTool {
 			if !detailed || details.Kind != "plugin" || !selected {
 				return protocol.Command{}, connectionFault(protocol.ErrorCodeInvalidRequest, "expected an official plugin selection")
 			}
-			if (info.Summary.Version == nil) != (entry.Version == nil) || info.Summary.Version != nil && *info.Summary.Version != *entry.Version {
+			if info.Summary.Version == nil || *info.Summary.Version != entry.CompatibleVersion.Version {
 				return protocol.Command{}, connectionFault(protocol.ErrorCodeRevisionConflict, "plugin catalog changed during inspection")
 			}
 			return candidate(info, current)

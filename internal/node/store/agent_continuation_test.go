@@ -128,6 +128,16 @@ func TestPluginContinuationAdmission(t *testing.T) {
 					if err := stopped(); err != nil {
 						return err
 					}
+					if scenario == "replaced while running" {
+						if run, err = ReadAgentRun(ctx, db, queued.ID); err != nil || run.Status != protocol.ConversationStatusRunning || run.Continuation == nil || run.Continuation.Package != scope.Package {
+							return fmt.Errorf("replacement changed admitted automatic input: %v", err)
+						}
+						captured, err := ReadPluginVersion(ctx, db, scope.Package)
+						if err != nil || captured.Summary.Digest != scope.Package.Digest {
+							return fmt.Errorf("replacement lost captured package: %v", err)
+						}
+						return nil
+					}
 					if run, err = ReadAgentRun(ctx, db, queued.ID); err != nil || run.Status != protocol.ConversationStatusStopping {
 						return fmt.Errorf("a running automatic turn outlived its package: %s %v", run.Status, err)
 					}

@@ -954,7 +954,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			}
 		}
 		if operationErr == nil && SupportsConfigurationFollow(job.request.Command.Kind) {
-			node.pluginCommitted(changes, ctx)
+			node.pluginCommitted(changes, ctx, false)
 		}
 		if operationErr == nil {
 			node.refreshKnowledgeStorage(job.request.Command, changes)

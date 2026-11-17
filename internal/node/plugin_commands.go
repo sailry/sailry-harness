@@ -20,7 +20,7 @@ import (
 func pluginCommand(kind string) bool {
 	switch kind {
 	case "list_plugins", "read_plugin", "read_plugin_version", "read_plugin_settings", "read_plugin_secret", "save_plugin_settings", "set_plugin_enabled", "remove_plugin",
-		"install_plugin", "install_plugin_source", "install_bundled_plugin", "install_plugin_upload", "upload_plugin", "inspect_plugin_upload",
+		"install_plugin", "install_plugin_source", "install_catalog_plugin", "set_plugin_pinned", "install_bundled_plugin", "install_plugin_upload", "upload_plugin", "inspect_plugin_upload",
 		"search_plugin_catalog", "search_skill_catalog", "read_catalog_plugin", "read_catalog_plugin_info", "inspect_plugin_source", "check_plugin_update", "check_plugin_updates",
 		"discover_skills", "discover_registry_skill", "install_registry_skill", "install_skill", "read_skill_document", "discover_skill_upload", "discover_local_skills", "install_skill_upload",
 		"read_plugin_value", "write_plugin_value", "write_indexed_plugin_value", "remove_plugin_value", "list_plugin_keys", "search_plugin_values",
@@ -46,6 +46,8 @@ func installationResource(command protocol.Command) (protocol.InstallationResour
 		name = value.Name
 	case *protocol.CommandInstallPluginSourcePayload:
 		name = value.Name
+	case *protocol.CommandInstallCatalogPluginPayload:
+		name = value.Selection.Info.Summary.Name
 	case *protocol.CommandInstallPluginUploadPayload:
 		name = value.Name
 	case *protocol.CommandInstallSkillPayload:
@@ -173,6 +175,11 @@ func (node *Node) preparePluginCommand(ctx context.Context, caller protocol.Node
 		return prepared, err
 	case *protocol.CommandInstallBundledPluginPayload:
 		info, err = manager.InstallBundled(ctx, input.Name)
+	case *protocol.CommandInstallCatalogPluginPayload:
+		info, err = node.prepareCatalogPlugin(ctx, *input)
+		if err == nil && len(info.Mcp) != 0 {
+			prepared.mcp, err = node.declaredPluginMCP(ctx, plugins.PackageReference(info))
+		}
 	case *protocol.CommandInstallPluginPayload:
 		var root string
 		root, err = node.workspaceRoot(ctx, input.Worktree, false)
@@ -191,6 +198,7 @@ func (node *Node) preparePluginCommand(ctx context.Context, caller protocol.Node
 		}
 		if err == nil {
 			selection.Source = input.Source
+			selection.Info.UpdateSource = &protocol.PluginOrigin{Kind: "online", Data: protocol.PluginOriginOnlinePayload{Source: input.Source, Path: input.Path}}
 			if selection.Info.Summary.Name != input.Name {
 				err = &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin package name differs from the selected package"}
 			} else {
@@ -311,7 +319,13 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	node.authCommitted(caller, request, operationErr)
-	node.pluginCommitted(changes, ctx)
+	if request.Command.Kind == "set_plugin_pinned" {
+		// Update preferences do not restart package programs or authentication.
+		node.NotifyConfigurationFollow(changes)
+		node.publish()
+	} else {
+		node.pluginCommitted(changes, ctx, prepared.info != nil)
+	}
 	if operationErr == nil {
 		node.refreshKnowledgeStorage(request.Command, changes)
 	}
@@ -351,13 +365,22 @@ func (node *Node) mutatePluginCommand(ctx context.Context, db *sql.Conn, caller 
 		case *protocol.CommandInstallMcpPayload:
 			expected = input.ExpectedRevision
 		}
-		info, err := store.InstallPlugin(ctx, db, *prepared.info, expected, true)
+		var info protocol.PluginInfo
+		var err error
+		if input, catalog := command.Data.(*protocol.CommandInstallCatalogPluginPayload); catalog {
+			info, err = store.InstallCatalogPlugin(ctx, db, *prepared.info, input.ExpectedRevision, input.Mode, prepared.mcp)
+		} else {
+			info, err = store.InstallPlugin(ctx, db, *prepared.info, expected, true)
+		}
 		if input, ok := command.Data.(*protocol.CommandInstallMcpPayload); ok && err == nil {
 			info, err = store.SaveStandaloneMCPSettings(ctx, db, info, input.Secrets, prepared.mcp)
 		}
 		return protocol.Output{Kind: "plugin", Data: info}, []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}}, err
 	}
 	switch input := command.Data.(type) {
+	case *protocol.CommandSetPluginPinnedPayload:
+		info, err := store.SetPluginPinned(ctx, db, input.Name, input.ExpectedRevision, input.Pinned)
+		return protocol.Output{Kind: "plugin", Data: info}, []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}}, err
 	case *protocol.CommandSavePluginMcpPayload:
 		info, err := store.SavePluginMCP(ctx, db, *input, prepared.mcp)
 		return protocol.Output{Kind: "plugin", Data: info}, []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}}, err
@@ -487,7 +510,12 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 	case *protocol.CommandReadCatalogPluginInfoPayload:
 		var info protocol.PluginInfo
 		var err error
-		if input.Bundled {
+		if input.Source == protocol.PluginCatalogSourceOfficial {
+			selection, inspectErr := node.plugins.manager.InspectOfficial(ctx, input.ID, input.Version, false)
+			info, err = selection.Info, inspectErr
+		} else if input.Version != nil {
+			err = &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "version history is available only for official plugins"}
+		} else if input.Bundled {
 			info, err = node.plugins.manager.InspectBundled(ctx, input.ID)
 		} else {
 			source, sourceErr := node.plugins.manager.CatalogSource(ctx, input.Source, input.ID)
