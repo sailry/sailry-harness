@@ -338,7 +338,7 @@ func dispatchList[Value any](ctx context.Context, db *sql.Conn, table, packageNa
 	if err != nil || len(values) == 0 {
 		return values, err
 	}
-	node, err := dispatchNode(ctx, db)
+	node, err := storageNode(ctx, db)
 	if err != nil {
 		return nil, err
 	}

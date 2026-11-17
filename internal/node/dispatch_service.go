@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
+	"time"
 
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -17,6 +19,13 @@ import (
 type dispatchControls struct {
 	clock clockwork.Clock
 	wake  chan struct{}
+	// Only the serial runner tick reads and changes per-user recovery state.
+	users map[protocol.UserID]dispatchUserState
+}
+
+type dispatchUserState struct {
+	recovered bool
+	retryMs   int64
 }
 
 func (node *Node) initDispatch(clock clockwork.Clock) {
@@ -53,38 +62,68 @@ func (node *Node) CheckSchedules() { node.wakeDispatch() }
 
 func (node *Node) dispatchTick(ctx context.Context, recovering bool) (dispatcher.Batch, error) {
 	batch := dispatcher.Batch{Work: []dispatcher.Work{}}
-	changed := false
-	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		users, err := store.ListUsers(ctx, db)
-		if err != nil {
-			return err
+	var users []protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		users, err = store.ListUsers(ctx, db)
+		return err
+	}); err != nil {
+		return batch, err
+	}
+	if node.dispatch.users == nil {
+		node.dispatch.users = map[protocol.UserID]dispatchUserState{}
+	}
+	now := node.dispatch.clock.Now().UnixMilli()
+	next := func(timestamp int64) {
+		if batch.NextMs == nil || timestamp < *batch.NextMs {
+			batch.NextMs = &timestamp
 		}
-		for _, user := range users {
-			if user.State != "active" {
-				continue
-			}
-			owner := store.WithUser(ctx, user)
-			current, events, err := store.DispatchTick(owner, db, node.ID(), node.dispatch.clock.Now().UnixMilli(), recovering)
+	}
+	changed := false
+	for _, user := range users {
+		if user.State != "active" {
+			continue
+		}
+		state := node.dispatch.users[user.ID]
+		if state.retryMs > now {
+			next(state.retryMs)
+			continue
+		}
+		owner := store.WithUser(ctx, user)
+		var current dispatcher.Batch
+		var events []protocol.Event
+		err := node.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
+			var err error
+			current, events, err = store.DispatchTick(owner, db, node.ID(), now, recovering || !state.recovered)
 			if err != nil {
 				return err
 			}
-			if _, err := store.RecordEvents(owner, db, node.ID(), events); err != nil {
-				return err
+			_, err = store.RecordEvents(owner, db, node.ID(), events)
+			return err
+		})
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Warn("Dispatch user check failed", "user", user.ID.String(), "error", err)
 			}
-			changed = changed || len(events) != 0
-			batch.Work = append(batch.Work, current.Work...)
-			batch.Pending = batch.Pending || current.Pending
-			if current.NextMs != nil && (batch.NextMs == nil || *current.NextMs < *batch.NextMs) {
-				next := *current.NextMs
-				batch.NextMs = &next
-			}
+			// Match the runner's error retry cadence without withholding work
+			// already committed for other users or spinning on a damaged record.
+			state.retryMs = now + time.Second.Milliseconds()
+			node.dispatch.users[user.ID] = state
+			next(state.retryMs)
+			continue
 		}
-		return nil
-	})
-	if err == nil && changed {
+		node.dispatch.users[user.ID] = dispatchUserState{recovered: true}
+		changed = changed || len(events) != 0
+		batch.Work = append(batch.Work, current.Work...)
+		batch.Pending = batch.Pending || current.Pending
+		if current.NextMs != nil {
+			next(*current.NextMs)
+		}
+	}
+	if changed {
 		node.publish()
 	}
-	return batch, err
+	return batch, nil
 }
 
 func (node *Node) finishDispatch(ctx context.Context, job protocol.JobID, result error) error {

@@ -20,7 +20,7 @@ func listDispatchJobs(ctx context.Context, db *sql.Conn, packageName string, bef
 	if before != nil {
 		cursor = *before
 	}
-	node, err := dispatchNode(ctx, db)
+	node, err := storageNode(ctx, db)
 	if err != nil {
 		return protocol.DispatchPage{}, err
 	}
