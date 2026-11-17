@@ -68,6 +68,31 @@ func TestKnowledgePrefixRetainsUnconsumedSourceCursor(t *testing.T) {
 	}
 }
 
+func TestKnowledgePrefixRejectsInvalidCursorBeforeReturning(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		hits int
+		next uint32
+	}{
+		{"enough hits with a stationary cursor", 100, 0},
+		{"empty page with a next cursor", 0, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := protocol.DefaultKnowledgeQuery()
+			query.Query, query.Limit = "reference", 5
+			request := protocol.NewRequest(protocol.NodeID{4}, protocol.Command{Kind: "query_knowledge", Data: &query})
+			calls := 0
+			output, err := resourceKnowledgePrefix(t.Context(), protocol.ResourceCall{Request: request}, &query, func(protocol.ResourceCall) (protocol.Output, error) {
+				calls++
+				return protocol.Output{Kind: "knowledge_search", Data: protocol.KnowledgePage{Hits: make([]protocol.KnowledgeHit, test.hits), NextOffset: &test.next}}, nil
+			})
+			if err == nil || resourceFault(err).Code != protocol.ErrorCodeUnavailable || output.Kind != "" || calls != 1 {
+				t.Fatalf("invalid source cursor escaped: output=%+v calls=%d err=%v", output, calls, err)
+			}
+		})
+	}
+}
+
 func TestResourceProjectionRetainsOnlyUnavailableContent(t *testing.T) {
 	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy, protocol.ErrorCodeCancelled, protocol.ErrorCodeOutcomeUnknown} {
 		if !resourceCacheAllowed(&protocol.Fault{Code: code}) {

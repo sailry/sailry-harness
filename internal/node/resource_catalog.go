@@ -275,16 +275,16 @@ func resourceKnowledgePrefix(ctx context.Context, call protocol.ResourceCall, qu
 		if !valid || output.Kind != "knowledge_search" {
 			return protocol.Output{}, resourceUnavailable()
 		}
+		input := *call.Request.Command.Data.(*protocol.KnowledgeQuery)
+		if part.NextOffset != nil && (*part.NextOffset <= input.Offset || len(part.Hits) == 0) {
+			return protocol.Output{}, resourceUnavailable()
+		}
 		page.Hits = append(page.Hits, part.Hits...)
 		page.Mode, page.Model = part.Mode, part.Model
 		page.Indexing, page.Untrusted = page.Indexing || part.Indexing, true
 		page.NextOffset = part.NextOffset
 		if part.NextOffset == nil || uint64(len(page.Hits)) >= wanted {
 			return protocol.Output{Kind: "knowledge_search", Data: page}, nil
-		}
-		input := *call.Request.Command.Data.(*protocol.KnowledgeQuery)
-		if *part.NextOffset <= input.Offset || len(part.Hits) == 0 {
-			return protocol.Output{}, resourceUnavailable()
 		}
 		input.Offset = *part.NextOffset
 		plugin := call.Request.Plugin
