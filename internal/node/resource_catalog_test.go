@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -16,6 +18,90 @@ type resourceCatalogTransport struct {
 	target protocol.NodeID
 	calls  []protocol.ResourceCall
 	read   func(protocol.ResourceCall) (protocol.Output, error)
+}
+
+func TestKnowledgePrefixFollowsSourcePages(t *testing.T) {
+	query := protocol.DefaultKnowledgeQuery()
+	query.Query, query.Limit, query.Offset = "reference", 10, 195
+	leaf := query
+	leaf.Offset, leaf.Limit = 0, 100
+	plugin := &protocol.PluginContext{Package: protocol.PluginReference{Name: "fixture"}}
+	request := protocol.NewRequest(protocol.NodeID{4}, protocol.Command{Kind: "query_knowledge", Data: &leaf})
+	request.Plugin = plugin
+	var offsets []uint32
+	output, err := resourceKnowledgePrefix(t.Context(), protocol.ResourceCall{Local: true, Request: request}, &query, func(call protocol.ResourceCall) (protocol.Output, error) {
+		input := call.Request.Command.Data.(*protocol.KnowledgeQuery)
+		offsets = append(offsets, input.Offset)
+		if call.Request.Plugin != plugin || call.Request.Target != request.Target || !call.Local {
+			t.Fatal("source paging lost the captured caller or target")
+		}
+		page := protocol.DefaultKnowledgePage()
+		end := min(input.Offset+uint32(input.Limit), 230)
+		for index := input.Offset; index < end; index++ {
+			page.Hits = append(page.Hits, protocol.KnowledgeHit{Title: fmt.Sprint(index)})
+		}
+		if end < 230 {
+			page.NextOffset = &end
+		}
+		return protocol.Output{Kind: "knowledge_search", Data: page}, nil
+	})
+	page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
+	if err != nil || !valid || !reflect.DeepEqual(offsets, []uint32{0, 100, 200}) || len(page.Hits) != 230 || page.NextOffset != nil {
+		t.Fatalf("source paging was truncated: offsets=%v page=%+v err=%v", offsets, page, err)
+	}
+	if page.Hits[195].Title != "195" || page.Hits[204].Title != "204" {
+		t.Fatal("source pages were reordered")
+	}
+}
+
+func TestKnowledgePrefixRetainsUnconsumedSourceCursor(t *testing.T) {
+	query := protocol.DefaultKnowledgeQuery()
+	query.Query, query.Limit = "reference", 5
+	request := protocol.NewRequest(protocol.NodeID{4}, protocol.Command{Kind: "query_knowledge", Data: &query})
+	next := uint32(100)
+	output, err := resourceKnowledgePrefix(t.Context(), protocol.ResourceCall{Request: request}, &query, func(protocol.ResourceCall) (protocol.Output, error) {
+		return protocol.Output{Kind: "knowledge_search", Data: protocol.KnowledgePage{Hits: make([]protocol.KnowledgeHit, 100), NextOffset: &next}}, nil
+	})
+	page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
+	if err != nil || !valid || page.NextOffset == nil || *page.NextOffset != next {
+		t.Fatalf("unconsumed source cursor was discarded: %+v: %v", page, err)
+	}
+}
+
+func TestResourceProjectionRetainsOnlyUnavailableContent(t *testing.T) {
+	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy, protocol.ErrorCodeCancelled, protocol.ErrorCodeOutcomeUnknown} {
+		if !resourceCacheAllowed(&protocol.Fault{Code: code}) {
+			t.Fatalf("unavailable source %s discarded its projection", code)
+		}
+	}
+	for _, code := range []protocol.ErrorCode{protocol.ErrorCodePermissionDenied, protocol.ErrorCodeNotFound, protocol.ErrorCodeExpired} {
+		if resourceCacheAllowed(&protocol.Fault{Code: code}) {
+			t.Fatalf("revoked source %s retained private content", code)
+		}
+	}
+}
+
+func TestStorageControllerCatalogDoesNotCallBackToController(t *testing.T) {
+	node := nodeFixture(t)
+	controller := protocol.NodeID{46}
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		if err := store.PairLinkPeer(t.Context(), db, controller, link.DirectionController); err != nil {
+			return err
+		}
+		user, err := store.CallerUser(t.Context(), db, node.ID(), controller)
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(t.Context(), "UPDATE users SET controller=?1 WHERE id=?2", controller[:], user.ID.String())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "list_knowledge_collections"})
+	response := dispatchFixture(t, node, controller, request)
+	if response.Fault != nil || response.Output.Kind != "knowledge_collections" {
+		t.Fatalf("storage read was sent back to its controller: %+v", response)
+	}
 }
 
 func (transport *resourceCatalogTransport) Target() protocol.NodeID { return transport.target }

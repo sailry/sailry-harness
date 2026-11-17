@@ -64,7 +64,7 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 				cached.mu.Unlock()
 			}
 			if !peer.Connected() {
-				source.Fault = resourceUnavailable()
+				source.Fault = resourceDisconnected(peer)
 			} else {
 				snapshot := peer.Snapshot()
 				source.Projects, source.Worktrees = snapshot.Projects, snapshot.Worktrees
@@ -77,6 +77,10 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 				} else {
 					source.Fault = resourceUnavailable()
 				}
+			}
+			if !resourceCacheAllowed(source.Fault) {
+				source.Projects, source.Worktrees, source.Knowledge = nil, nil, nil
+				resourceProjections.Delete(resourceProjectionKey{node, id})
 			}
 			if source.Fault == nil {
 				state, _ := resourceProjections.LoadOrStore(resourceProjectionKey{node, id}, &resourceProjection{})
@@ -157,7 +161,9 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 	}
 	if searchNode(node.ID()) {
 		workers.Go(func() {
-			output, err := node.readKnowledge(ctx, leaf(node.ID()).Request)
+			output, err := resourceKnowledgePrefix(ctx, leaf(node.ID()), query, func(call protocol.ResourceCall) (protocol.Output, error) {
+				return node.readKnowledge(ctx, call.Request)
+			})
 			results <- result{node.ID(), output, err}
 		})
 	}
@@ -170,7 +176,9 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 				results <- result{node: id, err: resourceUnavailable()}
 				return
 			}
-			output, err := resourceResult(ctx, peer.Resource, leaf(id))
+			output, err := resourceKnowledgePrefix(ctx, leaf(id), query, func(call protocol.ResourceCall) (protocol.Output, error) {
+				return resourceResult(ctx, peer.Resource, call)
+			})
 			results <- result{id, output, err}
 		})
 	}
@@ -202,6 +210,7 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 				page.Sources[len(page.Sources)-1].Fault = resourceUnavailable()
 				continue
 			}
+			page.Sources[len(page.Sources)-1].NextOffset = part.NextOffset
 			for position, hit := range part.Hits {
 				key := hit.Citation.Node.String() + "/" + hit.Citation.Collection.String() + "/" + hit.Citation.Chunk
 				ranks[key] = 1 / float64(60+position+1)
@@ -241,12 +250,60 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 	})
 	start := min(uint64(query.Offset), uint64(len(page.Hits)))
 	end := min(start+uint64(min(query.Limit, knowledge.PageLimit)), uint64(len(page.Hits)))
-	if end < uint64(len(page.Hits)) {
+	if end < uint64(len(page.Hits)) || slices.ContainsFunc(page.Sources, func(source protocol.ResourceSourceStatus) bool { return source.NextOffset != nil }) {
 		next := uint32(end)
 		page.NextOffset = &next
 	}
 	page.Hits = page.Hits[start:end]
 	return protocol.Output{Kind: "knowledge_search", Data: page}, nil
+}
+
+// resourceKnowledgePrefix reads enough of each source's ranking to preserve
+// global offset paging. A source's own cursor must not be mistaken for EOF.
+func resourceKnowledgePrefix(ctx context.Context, call protocol.ResourceCall, query *protocol.KnowledgeQuery, read func(protocol.ResourceCall) (protocol.Output, error)) (protocol.Output, error) {
+	if query == nil {
+		return read(call)
+	}
+	wanted := uint64(query.Offset) + uint64(min(query.Limit, knowledge.PageLimit)) + 1
+	page := protocol.DefaultKnowledgePage()
+	for {
+		output, err := read(call)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		part, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
+		if !valid || output.Kind != "knowledge_search" {
+			return protocol.Output{}, resourceUnavailable()
+		}
+		page.Hits = append(page.Hits, part.Hits...)
+		page.Mode, page.Model = part.Mode, part.Model
+		page.Indexing, page.Untrusted = page.Indexing || part.Indexing, true
+		page.NextOffset = part.NextOffset
+		if part.NextOffset == nil || uint64(len(page.Hits)) >= wanted {
+			return protocol.Output{Kind: "knowledge_search", Data: page}, nil
+		}
+		input := *call.Request.Command.Data.(*protocol.KnowledgeQuery)
+		if *part.NextOffset <= input.Offset || len(part.Hits) == 0 {
+			return protocol.Output{}, resourceUnavailable()
+		}
+		input.Offset = *part.NextOffset
+		plugin := call.Request.Plugin
+		call.Request = protocol.NewRequest(call.Request.Target, protocol.Command{Kind: "query_knowledge", Data: &input})
+		call.Request.Plugin = plugin
+	}
+}
+
+// An unavailable transport can retain a projection. An authorization failure
+// invalidates its contents immediately, including when Client closed its stream.
+func resourceCacheAllowed(fault *protocol.Fault) bool {
+	return fault == nil || fault.Code == protocol.ErrorCodeUnavailable || fault.Code == protocol.ErrorCodeBusy || fault.Code == protocol.ErrorCodeCancelled || fault.Code == protocol.ErrorCodeOutcomeUnknown
+}
+
+func resourceDisconnected(remote *client.Client) *protocol.Fault {
+	if err := remote.Err(); err != nil {
+		return resourceFault(err)
+	}
+	return resourceUnavailable()
 }
 
 // resourceProjections retains direct-source projections and coalesces changes
@@ -303,7 +360,7 @@ func (node *Node) notifyResourceCatalog(source protocol.NodeID, remote *client.C
 			projected.Node, projected.Route = source, protocol.RouteKey{Entry: node.ID(), Target: source}
 			projected.Fault = nil
 			if !remote.Connected() {
-				projected.Fault = resourceUnavailable()
+				projected.Fault = resourceDisconnected(remote)
 			} else {
 				snapshot := remote.Snapshot()
 				projected.Projects, projected.Worktrees = snapshot.Projects, snapshot.Worktrees
@@ -313,6 +370,9 @@ func (node *Node) notifyResourceCatalog(source protocol.NodeID, remote *client.C
 				} else {
 					projected.Fault = resourceFault(err)
 				}
+			}
+			if !resourceCacheAllowed(projected.Fault) {
+				projected.Projects, projected.Worktrees, projected.Knowledge = nil, nil, nil
 			}
 			encoded, err := json.Marshal(projected)
 			if err != nil {

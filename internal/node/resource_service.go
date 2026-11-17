@@ -63,10 +63,10 @@ func (node *Node) admitResourceCommand(ctx context.Context, caller protocol.Node
 	if query, ok := request.Command.Data.(*protocol.KnowledgeQuery); ok && protocol.KnowledgeQueryLocal(*query, node.ID()) {
 		localResource = true
 	}
-	if (caller == node.ID() || caller == controller) && controller != node.ID() && !localResource && selected != node.ID() {
+	if caller == node.ID() && controller != node.ID() && !localResource && selected != node.ID() {
 		return node.sendResource(verified, controller, protocol.ResourceCall{Request: request, Scope: scope}, false)
 	}
-	aggregate := request.Command.Kind == "list_knowledge_collections" || request.Command.Kind == "query_knowledge"
+	aggregate := controller == node.ID() && (request.Command.Kind == "list_knowledge_collections" || request.Command.Kind == "query_knowledge")
 	return node.routeKnowledge(verified, caller, protocol.ResourceCall{Request: request, Scope: scope}, aggregate)
 }
 

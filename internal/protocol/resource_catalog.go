@@ -5,8 +5,9 @@ import "encoding/json"
 // ResourceSourceStatus reports one actual storage Node, including sources that
 // could not answer. Availability is never inferred from an empty result set.
 type ResourceSourceStatus struct {
-	Node  NodeID `json:"node"`
-	Fault *Fault `json:"fault,omitempty"`
+	Node       NodeID  `json:"node"`
+	Fault      *Fault  `json:"fault,omitempty"`
+	NextOffset *uint32 `json:"next_offset,omitempty"`
 }
 
 // ResourceSource retains routing identity separately from the resources' Node.
