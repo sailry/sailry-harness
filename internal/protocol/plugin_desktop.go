@@ -349,10 +349,11 @@ func (value *PluginDesktopSurface) UnmarshalJSON(data []byte) error {
 }
 
 type PluginDesktopBundle struct {
-	Package PluginReference   `json:"package"`
-	Entry   string            `json:"entry"`
-	Files   map[string]string `json:"files"`
-	Images  map[string]string `json:"images"`
+	Requirements *PluginRequirements `json:"requirements,omitempty"`
+	Package      PluginReference     `json:"package"`
+	Entry        string              `json:"entry"`
+	Files        map[string]string   `json:"files"`
+	Images       map[string]string   `json:"images"`
 }
 
 func DefaultPluginDesktopBundle() PluginDesktopBundle {
