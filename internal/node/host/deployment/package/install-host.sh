@@ -63,7 +63,7 @@ if test -e "$task_command" || test -L "$task_command"; then
   task_had_command=1
 fi
 if test "$task_update" = 0; then
-  if test -e "$task_root" || test -e "$task_data"; then
+  if test -e "$task_root" || test -L "$task_root" || test -e "$task_data" || test -L "$task_data"; then
     echo 'Host files or data already exist; inspect the existing installation' >&2
     exit 1
   fi
@@ -81,7 +81,10 @@ else
   launchctl print "gui/$(id -u)" >/dev/null
   task_unit="$HOME/Library/LaunchAgents/ai.sailry.host.plist"
 fi
-if test "$task_update" = 0; then test ! -e "$task_unit"; fi
+if test "$task_update" = 0; then
+  test ! -e "$task_unit"
+  test ! -L "$task_unit"
+fi
 umask 077
 # Shared parents such as /usr/local/libexec stay usable by other software;
 # the program directory itself is published from the private stage.
@@ -92,6 +95,11 @@ task_changing=0
 task_starting=0
 task_complete=0
 task_active=0
+task_published=0
+task_created_data=0
+task_created_command=0
+install_unit_created=0
+install_activating=0
 task_stop() {
   local task_output task_status=0
   task_output="$("$1/sailry" stop 2>&1)" || task_status=$?
@@ -101,6 +109,34 @@ task_stop() {
   return "$task_status"
 }
 task_rollback() {
+  if test "$task_update" = 0; then
+    if test "$install_unit_created" = 1; then
+      if test "$install_activating" = 1; then
+        if test "$(uname -s)" = Linux; then
+          if test "$(id -u)" = 0; then systemctl disable --now "$(basename "$task_unit")" || return
+          else systemctl --user disable --now "$(basename "$task_unit")" || return; fi
+        else
+          local task_status=0
+          launchctl bootout "gui/$(id -u)/ai.sailry.host" || task_status=$?
+          if test "$task_status" != 0 && test "$task_status" != 3; then return "$task_status"; fi
+        fi
+      fi
+      rm -- "$task_unit" || return
+      if test "$(uname -s)" = Linux && test "$install_activating" = 1; then
+        if test "$(id -u)" = 0; then systemctl daemon-reload || return
+        else systemctl --user daemon-reload || return; fi
+      fi
+    fi
+    if test "$task_created_command" = 1; then
+      test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/sailry" || return
+      rm -- "$task_command" || return
+    fi
+    if test "$task_published" = 1; then mv "$task_root" "$task_stage/failed" || return; fi
+    if test "$task_created_data" = 1 && ! rmdir -- "$task_data" 2>/dev/null; then
+      printf 'Host data remains at %s; inspect it before retrying the installation\n' "$task_data" >&2
+    fi
+    return 0
+  fi
   if test "$task_starting" = 1; then
     task_stop "$task_backup" || return
   fi
@@ -132,7 +168,11 @@ task_cleanup() {
       printf 'Recovery files remain at %s\n' "$task_stage" >&2
       exit 73
     fi
-    echo 'Host update failed; the previous installation was restored' >&2
+    if test "$task_update" = 1; then
+      echo 'Host update failed; the previous installation was restored' >&2
+    else
+      echo 'Host installation failed; its program and service files were removed' >&2
+    fi
   fi
   if test "$task_complete" = 0 && test -d "$task_stage/previous-backup"; then
     if test -e "$task_backup" || test -L "$task_backup" \
@@ -203,7 +243,9 @@ if test "$task_update" = 1; then
   task_stop "$task_existing"
   mv "$task_existing" "$task_backup"
 fi
+task_changing=1
 mv "$task_stage/package" "$task_root"
+task_published=1
 if test "$(uname -s)" = Linux && test "$(id -u)" = 0 && command -v restorecon >/dev/null; then
   restorecon -RF "$task_root"
 fi
@@ -211,17 +253,26 @@ if test "$task_migrate" = 1; then
   cat "$task_stage/service" > "$task_unit"
   systemctl daemon-reload
 fi
-ln -sfn "$task_root/sailry" "$task_command"
 if test "$task_update" = 1; then
+  ln -sfn "$task_root/sailry" "$task_command"
   task_starting=1
   "$task_root/sailry" start
   task_complete=1
   printf 'Host updated; previous files: %s\n' "$task_backup"
 else
-  if test -n "$task_network_mode"; then
-    bash "$task_root/service.sh" "${task_network[@]}"
-  else
-    bash "$task_root/service.sh"
+  mkdir "$task_data"
+  task_created_data=1
+  if test "$task_had_command" = 0; then
+    ln -s "$task_root/sailry" "$task_command"
+    task_created_command=1
   fi
+  # The installer owns rollback; sourcing reports which service mutations
+  # succeeded even when a later registration step fails.
+  if test -n "$task_network_mode"; then
+    . "$task_root/service.sh" "${task_network[@]}"
+  else
+    . "$task_root/service.sh"
+  fi
+  task_complete=1
   printf 'Host installed; run %s share to pair\n' "$task_command"
 fi

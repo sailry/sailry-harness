@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,11 +22,16 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 	for _, test := range []struct {
 		name, corrupt string
 		serviceFails  bool
+		fresh         bool
+		cleanupFails  bool
 	}{
 		{name: "publish all runtime files"},
 		{name: "service failure restores old runtime", serviceFails: true},
 		{name: "damaged Turso is refused", corrupt: "libturso_sync_sdk_kit.so"},
 		{name: "damaged seal is refused", corrupt: shipped.SealName},
+		{name: "publish new runtime", fresh: true},
+		{name: "new service failure removes owned files", fresh: true, serviceFails: true},
+		{name: "new service cleanup failure retains recovery files", fresh: true, serviceFails: true, cleanupFails: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
@@ -47,12 +53,14 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 				shipped.SealName:           []byte("old seal"),
 				"managed-go-host":          []byte("1\n"),
 			}
-			for name, body := range current {
-				write(filepath.Join(root, name), body, 0o700)
-			}
-			write(paths.ServicePath, []byte("fixture service"), 0o600)
-			if err := os.Symlink(filepath.Join(root, "sailry-host"), paths.CommandPath); err != nil {
-				t.Fatal(err)
+			if !test.fresh {
+				for name, body := range current {
+					write(filepath.Join(root, name), body, 0o700)
+				}
+				write(paths.ServicePath, []byte("fixture service"), 0o600)
+				if err := os.Symlink(filepath.Join(root, "sailry-host"), paths.CommandPath); err != nil {
+					t.Fatal(err)
+				}
 			}
 			// Deployment owns program files only. Existing canonical storage and
 			// its journal must survive both publication and service rollback.
@@ -61,8 +69,10 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 				"storage/node.sqlite-wal": []byte("existing canonical journal"),
 				"identity":                []byte("existing identity"),
 			}
-			for name, body := range stored {
-				write(filepath.Join(profile, name), body, 0o600)
+			if !test.fresh {
+				for name, body := range stored {
+					write(filepath.Join(profile, name), body, 0o600)
+				}
 			}
 			next := map[string][]byte{
 				"sailry-host":              []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
@@ -86,9 +96,16 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service := "#!/bin/sh\nexit 0\n"
+			service := "true\n"
 			if test.serviceFails {
-				service = "#!/bin/sh\nexit 1\n"
+				service = "false\n"
+			}
+			if test.fresh {
+				body, err := os.ReadFile("deployment/service.sh")
+				if err != nil {
+					t.Fatal(err)
+				}
+				service = string(body)
 			}
 			write(filepath.Join(stage, "service.sh"), []byte(service), 0o700)
 			artifacts := map[string]*artifact{}
@@ -96,7 +113,7 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 				digest := sha256.Sum256(body)
 				artifacts[name] = &artifact{name: name, digest: hex.EncodeToString(digest[:])}
 			}
-			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, true, nil)
+			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, !test.fresh, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,9 +123,15 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			// Keep all service operations inside the fixture on every POSIX host.
 			tools := filepath.Join(directory, "bin")
 			for name, body := range map[string]string{
-				"uname":     "#!/bin/sh\nprintf 'Linux\\n'\n",
-				"id":        "#!/bin/sh\nprintf '0\\n'\n",
-				"systemctl": "#!/bin/sh\nexit 0\n",
+				"uname": "#!/bin/sh\nprintf 'Linux\\n'\n",
+				"id":    "#!/bin/sh\nprintf '0\\n'\n",
+				"systemctl": `#!/bin/sh
+case "$*" in
+  *"disable --now"*) test "$SAILRY_FIXTURE_CLEANUP_FAILS" != true;;
+  *"is-active"*) test "$SAILRY_FIXTURE_SERVICE_FAILS" != true;;
+  *) exit 0;;
+esac
+`,
 			} {
 				write(filepath.Join(tools, name), []byte(body), 0o700)
 			}
@@ -117,18 +140,40 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			}
 			command := exec.CommandContext(t.Context(), "/bin/sh", "-s")
 			command.Dir = directory
-			command.Env = []string{"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH")}
+			command.Env = []string{
+				"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH"),
+				fmt.Sprintf("SAILRY_FIXTURE_SERVICE_FAILS=%t", test.serviceFails),
+				fmt.Sprintf("SAILRY_FIXTURE_CLEANUP_FAILS=%t", test.cleanupFails),
+			}
 			command.Stdin = strings.NewReader(script)
 			output, err := command.CombinedOutput()
 			want := next
 			if test.serviceFails || test.corrupt != "" {
 				want = current
 				var exit *exec.ExitError
-				if !errors.As(err, &exit) || test.serviceFails && exit.ExitCode() != 73 {
+				if !errors.As(err, &exit) || test.serviceFails && (!test.fresh || test.cleanupFails) && exit.ExitCode() != 73 {
 					t.Fatalf("failed update returned %v: %s", err, output)
 				}
 			} else if err != nil {
 				t.Fatalf("publication: %v: %s", err, output)
+			}
+			if test.fresh && test.serviceFails {
+				for _, path := range []string{root, profile, paths.ServicePath, paths.CommandPath} {
+					_, err := os.Lstat(path)
+					if test.cleanupFails {
+						if err != nil {
+							t.Fatalf("uncertain cleanup removed %s: %v", path, err)
+						}
+					} else if !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("failed new installation left %s: %v", path, err)
+					}
+				}
+				if test.cleanupFails {
+					if _, err := os.Stat(stage); err != nil {
+						t.Fatalf("uncertain cleanup removed the recovery stage: %v", err)
+					}
+				}
+				return
 			}
 			for name, body := range want {
 				actual, err := os.ReadFile(filepath.Join(root, name))
@@ -136,10 +181,12 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 					t.Fatalf("published runtime %s = %q, %v", name, actual, err)
 				}
 			}
-			for name, body := range stored {
-				actual, err := os.ReadFile(filepath.Join(profile, name))
-				if err != nil || !bytes.Equal(actual, body) {
-					t.Fatalf("existing profile %s changed: %q, %v", name, actual, err)
+			if !test.fresh {
+				for name, body := range stored {
+					actual, err := os.ReadFile(filepath.Join(profile, name))
+					if err != nil || !bytes.Equal(actual, body) {
+						t.Fatalf("existing profile %s changed: %q, %v", name, actual, err)
+					}
 				}
 			}
 		})

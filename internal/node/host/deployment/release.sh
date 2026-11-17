@@ -63,10 +63,44 @@ fi
 install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
 install_changed=0
 install_complete=0
+install_published=0
+install_data_created=0
+install_command_created=0
+install_unit_created=0
+install_activating=0
 install_cleanup() {
   install_status=$?
   trap - EXIT HUP INT TERM
   if test "$install_complete" = 0 && test "$install_changed" = 1; then
+    if test "$install_update" = 0; then
+      if test "$install_unit_created" = 1; then
+        if test "$install_activating" = 1; then
+          if test "$(uname -s)" = Linux; then
+            if test "$(id -u)" = 0; then systemctl disable --now "$(basename "$install_unit")" || exit 73
+            else systemctl --user disable --now "$(basename "$install_unit")" || exit 73; fi
+          else
+            install_stop_status=0
+            launchctl bootout "gui/$(id -u)/ai.sailry.host" || install_stop_status=$?
+            if test "$install_stop_status" != 0 && test "$install_stop_status" != 3; then exit 73; fi
+          fi
+        fi
+        rm -- "$install_unit" || exit 73
+        if test "$(uname -s)" = Linux && test "$install_activating" = 1; then
+          if test "$(id -u)" = 0; then systemctl daemon-reload || exit 73
+          else systemctl --user daemon-reload || exit 73; fi
+        fi
+      fi
+      if test "$install_command_created" = 1; then
+        test -L "$install_command" && test "$(readlink "$install_command")" = "$install_root/sailry-host" || exit 73
+        rm -- "$install_command" || exit 73
+      fi
+      if test "$install_published" = 1; then rm -rf -- "$install_root" || exit 73; fi
+      if test "$install_data_created" = 1 && ! rmdir -- "$install_data" 2>/dev/null; then
+        printf 'Host data remains at %s; inspect it before retrying the installation\n' "$install_data" >&2
+      fi
+      if test -d "$install_publish"; then rm -rf -- "$install_publish"; fi
+      exit "$install_status"
+    fi
     if test "$install_update" = 1 && test -d "$install_backup"; then
       if test -d "$install_root"; then mv "$install_root" "$install_publish/failed" || exit 73; fi
       mv "$install_backup" "$install_root" || exit 73
@@ -116,7 +150,15 @@ if test "$install_update" = 1; then
 fi
 install_changed=1
 mv "$install_publish" "$install_root"
+install_published=1
 install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
-if test "$install_update" = 0; then ln -s "$install_root/sailry-host" "$install_command"; fi
-sh "$install_stage/service.sh" "$@" || exit 73
+if test "$install_update" = 0; then
+  mkdir "$install_data"
+  install_data_created=1
+  ln -s "$install_root/sailry-host" "$install_command"
+  install_command_created=1
+fi
+# Keep service publication in this transaction so a failed registration still
+# reports which unit and activation steps need to be rolled back.
+. "$install_stage/service.sh"
 install_complete=1

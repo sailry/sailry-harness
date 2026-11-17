@@ -1,11 +1,17 @@
 set -eu
 umask 077
+install_unit_created=0
+install_activating=0
 install_root="$HOME/.local/lib/sailry"
 if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
   install_root=/usr/local/libexec/sailry
 fi
 install_data="$HOME/.sailry-host"
 mkdir -p "$install_root" "$install_data"
+install_claim_unit() {
+  (set -C; : > "$install_unit")
+  install_unit_created=1
+}
 install_network=--internet
 if test "$#" -gt 0; then
   # systemd expands dollar signs and specifiers even inside quoted arguments.
@@ -23,6 +29,7 @@ if test "$(uname -s)" = Linux; then
   if test "$(id -u)" = 0; then
     install_unit=/etc/systemd/system/sailry-host.service
     test ! -e "$install_unit"
+    install_claim_unit
     cat > "$install_unit" <<UNIT
 [Unit]
 Description=Sailry Host
@@ -37,6 +44,7 @@ UMask=0077
 WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
+    install_activating=1
     systemctl enable --now sailry-host.service
     systemctl is-active --quiet sailry-host.service
   else
@@ -45,6 +53,7 @@ UNIT
     loginctl --no-ask-password enable-linger "$(id -un)"
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
     mkdir -p "$(dirname "$install_unit")"
+    install_claim_unit
     cat > "$install_unit" <<UNIT
 [Unit]
 Description=Sailry Host
@@ -58,6 +67,7 @@ UMask=0077
 WantedBy=default.target
 UNIT
     systemctl --user daemon-reload
+    install_activating=1
     systemctl --user enable --now sailry-host.service
     systemctl --user is-active --quiet sailry-host.service
   fi
@@ -67,6 +77,7 @@ else
   install_unit="$HOME/Library/LaunchAgents/ai.sailry.host.plist"
   test ! -e "$install_unit"
   mkdir -p "$(dirname "$install_unit")"
+  install_claim_unit
   /usr/libexec/PlistBuddy -c 'Clear dict' "$install_unit"
   /usr/libexec/PlistBuddy -c 'Add :Label string ai.sailry.host' "$install_unit"
   /usr/libexec/PlistBuddy -c 'Add :ProgramArguments array' "$install_unit"
@@ -92,5 +103,6 @@ PY
   /usr/libexec/PlistBuddy -c 'Add :Umask integer 63' "$install_unit"
   /usr/libexec/PlistBuddy -c "Add :StandardOutPath string $install_data/host.stdout.log" "$install_unit"
   /usr/libexec/PlistBuddy -c "Add :StandardErrorPath string $install_data/host.stderr.log" "$install_unit"
+  install_activating=1
   launchctl bootstrap "gui/$install_uid" "$install_unit"
 fi

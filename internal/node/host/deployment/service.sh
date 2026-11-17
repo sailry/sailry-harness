@@ -2,6 +2,8 @@ set -eu
 umask 077
 install_unit="$install_service_path"
 install_unit_name="$(basename "$install_unit")"
+install_unit_created=0
+install_activating=0
 if test "$install_update" = 1; then
   if test "$(uname -s)" = Linux; then
     if test "$(id -u)" = 0; then
@@ -15,12 +17,16 @@ if test "$install_update" = 1; then
   else
     launchctl kickstart -k "gui/$(id -u)/ai.sailry.host"
   fi
-  exit 0
+  return 0
 fi
 test ! -e "$install_unit"
 test ! -L "$install_unit"
 mkdir -p "$install_data" "$(dirname "$install_unit")"
 chmod 700 "$install_data"
+install_claim_unit() {
+  (set -C; : > "$install_unit")
+  install_unit_created=1
+}
 if test "$#" -eq 0; then set -- --internet; fi
 if test "$(uname -s)" = Linux; then
   command -v systemctl >/dev/null
@@ -47,7 +53,8 @@ PY
     loginctl --no-ask-password enable-linger "$(id -un)"
     export XDG_RUNTIME_DIR="/run/user/$(id -u)"
   fi
-  (set -C; cat > "$install_unit" <<UNIT
+  install_claim_unit
+  cat > "$install_unit" <<UNIT
 [Unit]
 Description=Sailry Host
 After=network-online.target
@@ -60,19 +67,21 @@ UMask=0077
 [Install]
 WantedBy=$install_target
 UNIT
-  )
   if test "$(id -u)" = 0; then
     systemctl daemon-reload
+    install_activating=1
     systemctl enable --now "$install_unit"
     systemctl is-active --quiet "$install_unit_name"
   else
     systemctl --user daemon-reload
+    install_activating=1
     systemctl --user enable --now "$install_unit"
     systemctl --user is-active --quiet "$install_unit_name"
   fi
 else
   install_uid="$(id -u)"
   launchctl print "gui/$install_uid" >/dev/null
+  install_claim_unit
   python3 -I - "$install_unit" "$install_root/sailry-host" "$install_data" "$@" <<'PY'
 import os
 import plistlib
@@ -87,8 +96,9 @@ value = {
     'StandardOutPath': os.path.join(profile, 'host.stdout.log'),
     'StandardErrorPath': os.path.join(profile, 'host.stderr.log'),
 }
-with open(path, 'xb') as output:
+with open(path, 'wb') as output:
     output.write(plistlib.dumps(value))
 PY
+  install_activating=1
   launchctl bootstrap "gui/$install_uid" "$install_unit"
 fi
