@@ -20,8 +20,6 @@ live=$module/internal/desktop/live
 shell=$module/internal/desktop/shell
 printf '%s\n' "$module" > "$fixture/module"
 printf '%s\n' "$backend" "$i18n" "$live" "$shell" > "$fixture/packages"
-printf '%s.test %s\n' "$backend" "$backend" "$i18n" "$i18n" > "$fixture/deps"
-printf '%s.test %s %s\n' "$live" "$live" "$backend" "$shell" "$shell" "$backend" >> "$fixture/deps"
 printf '%s\n' TestLiveOne TestLiveTwo ExampleLive FuzzLive TestLiveThree TestLiveFour TestLiveFive > "$fixture/live.names"
 printf '%s\n' ExampleShell TestShellOne FuzzShell TestShellTwo TestShellThree > "$fixture/shell.names"
 for package in live shell; do
@@ -35,16 +33,14 @@ set -euo pipefail
 case "$1 ${2:-}" in
   'list ./...') cat "$SAILRY_CI_FIXTURE/packages" ;;
   'list -m') cat "$SAILRY_CI_FIXTURE/module" ;;
-  'list -test') cat "$SAILRY_CI_FIXTURE/deps" ;;
   'env GOOS') printf '%s\n' "$SAILRY_CI_PLATFORM" ;;
   'build ./...')
     test "${SAILRY_CI_FAILURE:-}" != build || exit 43
     printf '%s\n' "$SAILRY_CI_PLATFORM" >> "$SAILRY_CI_FIXTURE/builds"
     ;;
   'list -f')
-    for package in "${@:4}"; do
-      awk -F '\t' -v package="$package" '$1 == package' "$SAILRY_CI_FIXTURE/$SAILRY_CI_PLATFORM.metadata"
-    done
+    test "$#" -eq 4 && test "$4" = ./...
+    cat "$SAILRY_CI_FIXTURE/$SAILRY_CI_PLATFORM.metadata"
     ;;
   'test -list')
     test "$#" -eq 4 && test "$3" = .
@@ -66,27 +62,20 @@ case "$1 ${2:-}" in
   *) echo "Unexpected Go command: $*" >&2; exit 1 ;;
 esac
 GO
-cat > "$fixture/bin/git" <<'GIT'
-#!/usr/bin/env bash
-set -euo pipefail
-test "$*" = 'diff --name-only HEAD^1 HEAD'
-cat "$SAILRY_CI_FIXTURE/changed"
-GIT
-chmod +x "$fixture/bin/go" "$fixture/bin/git"
+chmod +x "$fixture/bin/go"
 
 check_case() {
-  local name=$1 event=$2 changed=$3 directory package lane lanes
-  shift 3
+  local name=$1 directory package lane lanes
+  shift
   directory=$fixture/$name
   mkdir "$directory"
-  printf '%s\n' "$changed" > "$fixture/changed"
   : > "$fixture/calls"
   : > "$fixture/builds"
   lanes=(linux-0 linux-1 linux-2 linux-3)
   [ -z "${SAILRY_CI_PLATFORM:-}" ] || lanes=(platform)
   for lane in "${lanes[@]}"; do
     mkdir "$directory/$lane"
-    if ! (cd "$fixture/source" && RUNNER_TEMP=$directory/$lane GITHUB_EVENT_NAME=$event SAILRY_CI_LANE=$lane bash "$script" "$lane") > "$directory/$lane/output" 2>&1; then
+    if ! (cd "$fixture/source" && RUNNER_TEMP=$directory/$lane SAILRY_CI_LANE=$lane bash "$script" "$lane") > "$directory/$lane/output" 2>&1; then
       cat "$directory/$lane/output" >&2
       exit 1
     fi
@@ -126,13 +115,7 @@ check_case() {
   fi
 }
 
-check_case full push '' "$backend" "$i18n" "$live" "$shell"
-check_case live-only pull_request internal/desktop/live/testdata/input.json "$live"
-check_case shell-only pull_request internal/desktop/shell/header.go "$i18n" "$shell"
-check_case dependency pull_request internal/client/commands.go "$backend" "$i18n" "$live" "$shell"
-check_case workflow pull_request .github/scripts/test.sh "$backend" "$i18n" "$live" "$shell"
-check_case action pull_request .github/actions/go-cache/action.yml "$backend" "$i18n" "$live" "$shell"
-check_case unrelated pull_request README.md
+check_case full "$backend" "$i18n" "$live" "$shell"
 
 # Duration placement must balance cost rather than an equal number of names.
 # All other fixture parents use the 1s default, so the optimum is 12/12/11/11.
@@ -142,7 +125,7 @@ internal/desktop/i18n	*	8
 internal/desktop/live	TestLiveOne	10
 internal/desktop/shell	TestShellOne	6
 COSTS
-check_case balanced push '' "$backend" "$i18n" "$live" "$shell"
+check_case balanced "$backend" "$i18n" "$live" "$shell"
 routing_plan() {
   awk -F '\t' '
     $3 == "all" { print $2 "\t*\t" $1; next }
@@ -179,40 +162,40 @@ awk -F '\t' -v module="$module" '
 sort -r "$fixture/packages" -o "$fixture/packages"
 sort -r "$fixture/live.list" -o "$fixture/live.list"
 sort -r "$fixture/shell.list" -o "$fixture/shell.list"
-check_case reordered push '' "$backend" "$i18n" "$live" "$shell"
+check_case reordered "$backend" "$i18n" "$live" "$shell"
 routing_plan "$fixture/reordered/calls" > "$fixture/reordered/plan"
 diff -u "$fixture/balanced/plan" "$fixture/reordered/plan"
 
 # Package and parent discovery is open: no duration hint is needed to run new units.
 new_package=$module/internal/new-package
 printf '%s\n' "$new_package" >> "$fixture/packages"
-printf '%s.test %s\n' "$new_package" "$new_package" >> "$fixture/deps"
 printf '%s\n' TestNewParent ExampleNewParent FuzzNewParent >> "$fixture/live.names"
 cp "$fixture/live.names" "$fixture/live.list"
-check_case new-units push '' "$backend" "$i18n" "$live" "$shell" "$new_package"
-check_case new-package-pr pull_request internal/new-package/value.go "$i18n" "$new_package"
+check_case new-units "$backend" "$i18n" "$live" "$shell" "$new_package"
 
 # Fewer parents than lanes leave a lane empty, without an unfiltered test run.
 printf '%s\n' TestOnlyParent > "$fixture/live.names"
 cp "$fixture/live.names" "$fixture/live.list"
-check_case sparse pull_request internal/desktop/live/testdata/input.json "$live"
+check_case sparse "$backend" "$i18n" "$live" "$shell" "$new_package"
 
 for failure in list test; do
   directory=$fixture/failure-$failure
   mkdir "$directory"
   status=0
-  RUNNER_TEMP=$directory GITHUB_EVENT_NAME=push SAILRY_CI_LANE=linux-0 SAILRY_CI_FAILURE=$failure bash "$script" linux-0 > "$directory/output" 2>&1 || status=$?
+  RUNNER_TEMP=$directory SAILRY_CI_LANE=linux-0 SAILRY_CI_FAILURE=$failure bash "$script" linux-0 > "$directory/output" 2>&1 || status=$?
   case "$failure" in list) expected=31 ;; test) expected=37 ;; esac
   test "$status" -eq "$expected" || { cat "$directory/output" >&2; echo "$failure failure returned $status, expected $expected" >&2; exit 1; }
 done
 
 # Native lanes build all production packages, then run only the platform suite
-# and new OS-file tests from the affected package graph. Source files stay here.
+# and new OS-file tests. Source files stay here.
 core=$module/internal/core
 engine=$module/internal/node/agent/engine
 node=$module/internal/node
 printf '%s\n' "$core" "$engine" "$node" >> "$fixture/packages"
-printf '%s.test %s\n' "$core" "$core" "$engine" "$engine" "$node" "$node" >> "$fixture/deps"
+# Every curated suite package exists; only those with metadata have tests here.
+awk -F '\t' -v module="$module" '!/^#/ && NF { print module "/" $1 }' "$fixture/scripts/platform-tests.tsv" >> "$fixture/packages"
+sort -u "$fixture/packages" -o "$fixture/packages"
 for package in "$backend" "$i18n" "$live" "$shell" "$core" "$engine" "$node"; do
   mkdir -p "$fixture/source/${package#"$module"/}"
   printf 'package fixture\n' > "$fixture/source/${package#"$module"/}/shared_test.go"
@@ -250,16 +233,14 @@ SOURCE
   printf '%s\n' TestConstrainedProfile > "$fixture/node.$platform.expected"
   printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestUpdatePendingNativeInput TestSSHWindowsPairingGuidance > "$fixture/live.$platform.expected"
   printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu > "$fixture/shell.$platform.expected"
-  SAILRY_CI_PLATFORM=$platform check_case "$platform-full" push '' "$core" "$engine" "$node" "$backend" "$live" "$shell"
-  SAILRY_CI_PLATFORM=$platform check_case "$platform-pr" pull_request internal/client/commands.go "$backend" "$live" "$shell"
-  SAILRY_CI_PLATFORM=$platform check_case "$platform-unrelated" pull_request README.md
+  SAILRY_CI_PLATFORM=$platform check_case "$platform-full" "$core" "$engine" "$node" "$backend" "$live" "$shell"
 done
 
 for failure in build list test; do
   directory=$fixture/platform-failure-$failure
   mkdir "$directory"
   status=0
-  (cd "$fixture/source" && RUNNER_TEMP=$directory GITHUB_EVENT_NAME=push SAILRY_CI_PLATFORM=windows SAILRY_CI_LANE=platform SAILRY_CI_FAILURE=$failure bash "$script" platform) > "$directory/output" 2>&1 || status=$?
+  (cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=windows SAILRY_CI_LANE=platform SAILRY_CI_FAILURE=$failure bash "$script" platform) > "$directory/output" 2>&1 || status=$?
   case "$failure" in build) expected=43 ;; list) expected=31 ;; test) expected=37 ;; esac
   test "$status" -eq "$expected" || { cat "$directory/output" >&2; echo "$failure failure returned $status, expected $expected" >&2; exit 1; }
 done
@@ -269,7 +250,15 @@ printf '%s\n' TestSharedEngineShouldNotRun > "$fixture/engine.list"
 directory=$fixture/empty-selector
 mkdir "$directory"
 status=0
-(cd "$fixture/source" && RUNNER_TEMP=$directory GITHUB_EVENT_NAME=push SAILRY_CI_PLATFORM=windows SAILRY_CI_LANE=platform bash "$script" platform) > "$directory/output" 2>&1 || status=$?
+(cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=windows SAILRY_CI_LANE=platform bash "$script" platform) > "$directory/output" 2>&1 || status=$?
 test "$status" -eq 1 && grep -q 'Platform selector matches no tests:' "$directory/output"
+
+# A suite entry whose package no longer exists is an error too.
+printf 'internal/removed\tall\n' >> "$fixture/scripts/platform-tests.tsv"
+directory=$fixture/missing-package
+mkdir "$directory"
+status=0
+(cd "$fixture/source" && RUNNER_TEMP=$directory SAILRY_CI_PLATFORM=windows SAILRY_CI_LANE=platform bash "$script" platform) > "$directory/output" 2>&1 || status=$?
+test "$status" -eq 1 && grep -q 'Platform suite names a missing package: internal/removed' "$directory/output"
 
 echo 'Test lane routing fixtures passed'

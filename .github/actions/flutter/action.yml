@@ -1,0 +1,16 @@
+name: Flutter
+description: Install the Flutter version pinned in apps/mobile/.flutter-version
+runs:
+  using: composite
+  steps:
+    - name: Pinned version
+      id: version
+      shell: bash
+      run: |
+        version=$(tr -d '[:space:]' < "$GITHUB_WORKSPACE/apps/mobile/.flutter-version")
+        case "$version" in '' | *[!0-9.]*) echo 'apps/mobile/.flutter-version names no version' >&2; exit 1 ;; esac
+        printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+    - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+      with:
+        flutter-version: ${{ steps.version.outputs.version }}
+        channel: stable

@@ -110,13 +110,20 @@ jobs:
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: Format
-        run: test -z "$(gofmt -l .)"
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then
+            printf 'gofmt differs:\n%s\n' "$files" >&2
+            exit 1
+          fi
+      # The integration tag adds files and removes none, so one pass also
+      # compiles the integration tests that no routine job runs.
       - name: Vet
         run: |
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
           for goos in linux windows darwin; do
-            GOOS=$goos go vet ./...
+            GOOS=$goos go vet -tags integration ./...
           done
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
@@ -150,7 +157,6 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           submodules: recursive
-          fetch-depth: 2
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: UI fonts
@@ -287,10 +293,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
+      - uses: ./.github/actions/flutter
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
         if: ${{ !inputs.skip_mobile_builds }}
         with:
@@ -332,10 +335,7 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - uses: ./.github/actions/go-cache
         id: go-cache
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
+      - uses: ./.github/actions/flutter
       - name: Native prerequisites
         working-directory: native/iroh
         run: |

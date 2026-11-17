@@ -237,9 +237,10 @@ The checkout contains five workflows:
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
 pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls it:
 
-- `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
-- `test`: Linux runs the complete Go suite with cgo disabled. Pull requests
-  select affected packages; branch pushes and release runs select everything.
+- `lint`: Go formatting and `go vet -tags integration ./...` for Linux,
+  Windows and macOS. The tag adds the integration files to the default ones,
+  so integration tests that no routine job runs are still compiled.
+- `test`: Linux runs the complete Go suite with cgo disabled on every event.
   Four lanes, `linux-0` through `linux-3`, balance complete packages and the
   top-level tests, examples and fuzz seeds of `desktop/live` and `desktop/shell`,
   retaining each parent's subtests. Measured duration hints affect placement
@@ -247,13 +248,16 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
   lane: `go build ./...` followed by selected native-boundary package suites and
   focused shared-package regressions in `.github/scripts/platform-tests.tsv`.
   Tests in OS-suffixed or build-constrained files compiled for that OS join
-  automatically, including new cases. The three-platform vet still checks the
-  full test source. The routing fixture runs in `lint` with fake Go and Git:
+  automatically, including new cases. A suite entry naming a missing package
+  or matching no test fails the lane. The three-platform vet still checks the
+  full test source. The routing fixture runs in `lint` with a fake Go:
   `bash .github/scripts/test_test.sh`.
 - Go setup and cache handling share local actions. Each test job prepares its
   own target's checksum-verified Turso runtime from the pinned native cache,
   without waiting for other platforms. One writer per operating system saves
-  the test compiler cache even after a test failure; cancelled runs do not save it.
+  the test compiler cache even after a test failure; cancelled runs and pull
+  requests do not save it. Mobile jobs install the Flutter version named in
+  `apps/mobile/.flutter-version` through a local action.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two

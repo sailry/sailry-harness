@@ -9,66 +9,29 @@ case "$lane" in
   *) echo "Unknown test lane: $lane" >&2; exit 1 ;;
 esac
 
+# Every event tests every package. Tests also read schemas, lock files and
+# source trees that the import graph does not record.
 go list ./... > "$RUNNER_TEMP/packages.txt"
-cp "$RUNNER_TEMP/packages.txt" "$RUNNER_TEMP/affected.txt"
-if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-  changed=$(git diff --name-only HEAD^1 HEAD)
-  if ! grep -Eq '^(go\.(mod|sum)$|\.github/(workflows/ci\.yml$|scripts/|actions/))' <<< "$changed"; then
-    module=$(go list -m)
-    go list -test -f '{{.ImportPath}}{{range .Deps}} {{.}}{{end}}' ./... > "$RUNNER_TEMP/deps.txt"
-    # Embedded resources and testdata belong to their nearest Go package.
-    # The root package owns its Go files and the pinned package submodules.
-    printf '%s\n' "$changed" | while IFS= read -r file; do
-      [ -n "$file" ] || continue
-      directory=$(dirname "$file")
-      while [ "$directory" != . ] && ! grep -Fxq "$module/$directory" "$RUNNER_TEMP/packages.txt"; do
-        directory=$(dirname "$directory")
-      done
-      if [ "$directory" != . ]; then
-        printf '%s\n' "$module/$directory"
-        continue
-      fi
-      case "$file" in
-        plugins|plugins/*|themes|themes/*) printf '%s\n' "$module" ;;
-        */*) ;;
-        *.go) printf '%s\n' "$module" ;;
-      esac
-    done | sort -u > "$RUNNER_TEMP/changed.txt"
-    awk '
-      FILENAME == ARGV[1] { changed[$0] = 1; next }
-      $1 ~ /\.test$/ {
-        name = substr($1, 1, length($1) - 5)
-        for (i = 2; i <= NF; i++) {
-          if ($i in changed) { print name; next }
-        }
-      }
-    ' "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/deps.txt" > "$RUNNER_TEMP/affected.txt"
-    # SourceKeys reads these source trees without importing their packages.
-    # Select that guard itself, without treating every i18n consumer as changed.
-    if grep -Eq '^(internal|cmd)/.*\.go$' <<< "$changed"; then
-      printf '%s/internal/desktop/i18n\n' "$module" >> "$RUNNER_TEMP/affected.txt"
-    fi
-    sort -u "$RUNNER_TEMP/affected.txt" -o "$RUNNER_TEMP/affected.txt"
-  fi
-fi
 
 if [ "$lane" = platform ]; then
   platform=$(go env GOOS)
   case "$platform" in darwin|windows) ;; *) echo "No platform suite for $platform" >&2; exit 1 ;; esac
   go build ./...
   module=$(go list -m)
-  selected=()
-  while IFS= read -r package; do
-    [ -z "$package" ] || selected+=("$package")
-  done < "$RUNNER_TEMP/affected.txt"
-  if [ "${#selected[@]}" -eq 0 ]; then
-    echo 'No affected platform tests'
-    exit 0
-  fi
   # Go supplies only the files compiled for this OS, excluding integration
   # files. New OS-specific tests join the suite without a hand-maintained name.
-  go list -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' "${selected[@]}" > "$RUNNER_TEMP/platform-files.txt"
+  go list -f '{{.ImportPath}}{{range .TestGoFiles}}{{"\t"}}{{.}}{{end}}{{range .XTestGoFiles}}{{"\t"}}{{.}}{{end}}' ./... > "$RUNNER_TEMP/platform-files.txt"
   suite=$(cd "$(dirname "$0")" && pwd)/platform-tests.tsv
+  # A renamed or removed package must not silently leave the curated suite.
+  while IFS=$'\t' read -r directory _; do
+    case "$directory" in ''|'#'*) continue ;; esac
+    package=$module/$directory
+    [ "$directory" != . ] || package=$module
+    if ! grep -Fxq "$package" "$RUNNER_TEMP/packages.txt"; then
+      echo "Platform suite names a missing package: $directory" >&2
+      exit 1
+    fi
+  done < "$suite"
   while IFS=$'\t' read -r -a files; do
     package=${files[0]}
     directory=${package#"$module"/}
@@ -122,7 +85,7 @@ while IFS= read -r package; do
       ;;
     *) printf '%s\t*\n' "$package" >> "$units" ;;
   esac
-done < "$RUNNER_TEMP/affected.txt"
+done < "$RUNNER_TEMP/packages.txt"
 
 # Duration hints affect placement, never discovery. Whole packages remain
 # indivisible; UI parents carry all their subtests. New units use defaults.

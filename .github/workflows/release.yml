@@ -348,10 +348,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
+      - uses: ./.github/actions/flutter
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
         with:
           cmdline-tools-version: '15859902'
@@ -433,10 +430,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version-file: go.mod
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
+      - uses: ./.github/actions/flutter
       - name: Native prerequisites
         working-directory: native/iroh
         run: |
