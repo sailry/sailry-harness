@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 type entry struct {
@@ -217,16 +218,30 @@ func TestDecisionUnavailable(t *testing.T) {
 			manifest(t, directory, map[string]any{"version": 1, "target": identity, "build": Build, "files": files})
 			return directory
 		}
-		// Outside macOS the manifest must repeat the locked size and digest.
+		// Outside a sealed application bundle the manifest must repeat the
+		// locked size and digest on every platform, macOS included.
+		for name, change := range map[string]func(int, *pinned){
+			"name":   func(index int, file *pinned) { file.Name += ".other" },
+			"size":   func(index int, file *pinned) { file.Size++ },
+			"digest": func(index int, file *pinned) { file.SHA256 = strings.Repeat("0", 64) },
+			"staged": func(int, *pinned) {},
+		} {
+			err := attempt(stage(t, change), new(cache[artifact]))
+			if kind(err) != Unavailable || err.Error() != "decision runtime is unavailable: native runtime provenance is invalid" {
+				t.Fatalf("%s = %v", name, err)
+			}
+		}
+		// Inside the bundle signing rewrote the images, and the manifest the
+		// code signature covers is their record.
+		original := sealedPackage
+		sealedPackage = func(string) (*shipped.Seal, error) { return &shipped.Seal{}, nil }
+		t.Cleanup(func() { sealedPackage = original })
 		for name, change := range map[string]func(int, *pinned){
 			"native runtime provenance is invalid":    func(index int, file *pinned) { file.Name += ".other" },
 			"native runtime file size does not match": func(index int, file *pinned) { file.Size++ },
 			"native runtime checksum does not match":  func(index int, file *pinned) { file.SHA256 = strings.Repeat("0", 64) },
 		} {
 			err := attempt(stage(t, change), new(cache[artifact]))
-			if runtime.GOOS != "darwin" {
-				name = "native runtime provenance is invalid"
-			}
 			if kind(err) != Unavailable || err.Error() != "decision runtime is unavailable: "+name {
 				t.Fatalf("%s = %v", name, err)
 			}
@@ -238,7 +253,7 @@ func TestDecisionUnavailable(t *testing.T) {
 		}
 		if err := os.Symlink(path+".source", path); err == nil {
 			if err := attempt(linked, new(cache[artifact])); kind(err) != Unavailable ||
-				runtime.GOOS == "darwin" && !strings.HasSuffix(err.Error(), "native runtime must contain ordinary files") {
+				!strings.HasSuffix(err.Error(), "native runtime must contain ordinary files") {
 				t.Fatalf("linked file = %v", err)
 			}
 		}

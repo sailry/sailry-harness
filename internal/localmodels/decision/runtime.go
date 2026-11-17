@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/ebitengine/purego"
+
+	"github.com/sailry/sailry-harness/internal/shipped"
 )
 
 // lockSource pins every packaged llama.cpp file per target. It is the lock
@@ -221,6 +223,10 @@ func manifestPath(directory string) string {
 	return filepath.Join(directory, "llama-runtime.json")
 }
 
+// sealedPackage returns the seal of the running application bundle that holds
+// directory, or nil elsewhere. Tests replace it to stand in for a bundle.
+var sealedPackage = shipped.Sealed
+
 // verify checks the packaged manifest and every file against the lock
 // before any image is opened.
 func verify(directory string) (*artifact, error) {
@@ -264,12 +270,17 @@ func verify(directory string) (*artifact, error) {
 		*installed.Build != lock.Build || len(files) != len(asset.Files) {
 		return nil, unavailable("native runtime does not match its lock")
 	}
+	// Signing rewrites the images of a macOS application bundle, whose code
+	// signature covers the staged manifest. Everywhere else, including the
+	// macOS Host archive and source builds, the files keep their locked bytes.
+	seal, err := sealedPackage(directory)
+	if err != nil {
+		return nil, unavailable("native runtime package seal is invalid")
+	}
 	variants := []string{}
 	for index, file := range files {
 		locked := asset.Files[index]
-		// Signing rewrites macOS images, so there the staged manifest is the
-		// record of size and digest.
-		if file.Name != locked.Name || runtime.GOOS != "darwin" && (file.Size != locked.Size || file.SHA256 != locked.SHA256) {
+		if file.Name != locked.Name || seal == nil && (file.Size != locked.Size || file.SHA256 != locked.SHA256) {
 			return nil, unavailable("native runtime provenance is invalid")
 		}
 		if err := checksum(filepath.Join(directory, locked.Name), file); err != nil {
