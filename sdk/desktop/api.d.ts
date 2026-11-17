@@ -124,7 +124,7 @@ export type KnowledgePosition =
 export type KnowledgeCitation = {
   node: NodeID; collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition; link: string;
 };
-export type KnowledgeSourceStatus = {node: NodeID; fault?: {code: string; message: string; details?: Json}};
+export type KnowledgeSourceStatus = {node: NodeID; next_offset?: number; fault?: {code: string; message: string; details?: Json}};
 export type KnowledgePage = {
   hits: {title: string; text: string; score: number; stale: boolean; citation: KnowledgeCitation}[];
   sources?: KnowledgeSourceStatus[];

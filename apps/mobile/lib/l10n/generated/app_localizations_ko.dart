@@ -2289,6 +2289,5 @@ class AppLocalizationsKo extends AppLocalizations {
       'Last login: Sun Nov 15 09:00:00 on ttys001';
 
   @override
-  String get personalKvConflict =>
-      'Personal data conflict: controller values kept';
+  String get personalKvConflict => '개인 데이터 충돌: 컨트롤러의 값을 유지했습니다';
 }

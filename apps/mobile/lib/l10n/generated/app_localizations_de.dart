@@ -2336,5 +2336,5 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get personalKvConflict =>
-      'Personal data conflict: controller values kept';
+      'Konflikt bei persönlichen Daten: Werte des Controllers beibehalten';
 }

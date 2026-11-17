@@ -900,9 +900,6 @@ model_library_selected: Selecionado
 model_library_source: Fonte
 pairing_connect: Conecte o dispositivo
 pairing_local_code: Código de emparelhamento local
-pairing_invitation_kind: Invite
-pairing_my_device: My device
-pairing_other_user: Other user
 pairing_pin_hint: Introduza o código de emparelhamento de 6 dígitos
 pairing_preview_disabled: A visualização da IU não conecta dispositivos reais; comece com --data-dir para emparelhar
 pairing_relay_address: Endereço de iroh
@@ -1176,6 +1173,7 @@ knowledge_default_model: Modelo vetorial
 knowledge_keyword_only: Somente palavras-chave
 knowledge_collections: Collections
 knowledge_collection_pending: Waiting to index
+knowledge_collection_unavailable: Storage Node unavailable
 knowledge_collection_indexing: Indexing · %{count} items
 knowledge_collection_ready: Up to date · %{count} items
 knowledge_collection_paused: Paused
@@ -2365,7 +2363,6 @@ configuration_follow_waiting: Waiting for controller configuration
 configuration_follow_unavailable: Could not read sync status
 configuration_follow_targets: Hosts
 configuration_follow_automatic: Automatic sync
-configuration_follow_issues: Needs attention
 configuration_follow_from_source: From controller
 configuration_follow_requested: Sync requested
 configuration_follow_failed: Configuration sync failed

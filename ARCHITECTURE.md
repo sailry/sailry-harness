@@ -185,7 +185,9 @@ dependent settings. Providers, roles, teams, connection definitions and personal
 settings resolve through this cache without becoming host-local authoritative
 rows. A single configuration registry owns category export, validation, events
 and invalidation. Cached records are never published onward as another
-controller's source.
+controller's source. Composite exports, including package settings references,
+retain their own monotonic export revision rather than reusing a connection's
+business revision for changing content. This leaves connection edit CAS intact.
 
 Remote session creation forwards frozen provider and role metadata under the
 original request identity. The executor resolves their controller cache and
@@ -222,7 +224,11 @@ Renewable grants with a known issue time are due at
 earliest refresh time. Renewal does not shorten the recorded expiry. Legacy
 grants without an issue time retain their existing refresh rule; no lifetime is
 invented. Refreshes are serialized by credential identity, and an uncertain
-rotation is not replayed. Hosts continue using valid cached inputs while the
+rotation is not replayed. Controller timers retry failures that sent no renewal
+request, including legacy grants using their existing expiry rule. An early
+refresh failure does not invalidate an access token before its real expiry;
+uncertain rotations block further refresh attempts while allowing a still-valid
+access token to run. Hosts continue using valid cached inputs while the
 controller is offline. If a captured model credential expires, the current turn
 waits at its next model step with `controller_login` state. A replacement for that
 same credential resumes the same turn; revocation, rejection or an unresolved
@@ -254,9 +260,17 @@ The controller later retrieves each outbox group with its original request ID,
 digest, sequence and source revisions. It compares every key against the
 authoritative source revision and applies the complete personal write set or
 records a conflict. Predecessor receipts connect successive offline writes to
-the same keys. Acknowledgements update the executor's base without erasing later
-pending writes; complete source snapshots converge the other hosts. This
-reconciliation never replays dispatch, notifications, project mutations or
+the same keys. Values retain their exact JSON bytes through durable groups,
+receipts and snapshot pages. Large groups are read in bounded pages under their
+original request identity. Acknowledgements reuse durable configuration paging;
+the complete receipt and overlay adjustment commit together. A worker settles
+an interrupted source snapshot before acknowledging newer writes so an old page
+cannot replace their confirmed base. Acknowledgements update that base without erasing
+later pending writes; complete source snapshots refresh the base under undecided
+local writes. Each pass drains a fixed pending sequence boundary so continuous
+local writes cannot starve source snapshots. Conflict decisions and one notice
+commit with their deduplicated receipt. Reconciliation never replays dispatch,
+notifications, project mutations or
 conversation commands, and never resolves a conflict by last-writer wins.
 Project KV stays in the project's Node namespace and conversation KV in its
 session namespace.
@@ -686,8 +700,11 @@ relationships. Each host has one serial reconciliation worker, so an offline
 host does not block another host. Machine settings, project data, knowledge
 source files, sessions and dispatch queues remain with their owning Node.
 Knowledge lists and queries aggregate accessible sources through the controller,
-retaining each source's Node and any failure. Cached directory entries can remain
-visible while offline; they are not evidence that a read or mutation succeeded.
+retaining each source's Node, continuation and any failure. Aggregate paging
+reads enough of each source's ranking to continue beyond its first page. Cached
+directory entries can remain visible while offline, with operations unavailable;
+authentication and access failures clear that source's cached private entries.
+Cached entries are not evidence that a read or mutation succeeded.
 The source Node rechecks visibility and revision before returning a citation.
 
 Peer trust records an inbound controller, an outbound host, or both directions.

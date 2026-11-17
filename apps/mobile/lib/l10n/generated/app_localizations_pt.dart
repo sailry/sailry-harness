@@ -2326,7 +2326,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get personalKvConflict =>
-      'Personal data conflict: controller values kept';
+      'Conflito de dados pessoais: valores do controlador mantidos';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).

@@ -23,7 +23,9 @@ func personalKVBatch(t *testing.T, fixture personalKVFixture, value string, revi
 		}}
 	}
 	request := protocol.NewRequest(fixture.node, protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: operations}})
-	request.Plugin = &protocol.PluginContext{Package: fixture.reference}
+	scope := protocol.DefaultPluginContext()
+	scope.Package = fixture.reference
+	request.Plugin = &scope
 	if err := wire.Write(io.Discard, wire.Envelope{Call: wire.Call{Kind: wire.CallCommand, Request: &request}}, true); err != nil {
 		t.Fatalf("legal 64-operation input did not fit the Link frame: %v", err)
 	}

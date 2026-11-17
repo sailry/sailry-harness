@@ -4563,4 +4563,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get demoTerminalWelcome =>
       'Last login: Sun Nov 15 09:00:00 on ttys001';
+
+  @override
+  String get personalKvConflict => '個人資料衝突，已保留主控目前的值';
 }

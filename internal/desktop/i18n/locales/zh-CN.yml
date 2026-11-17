@@ -900,9 +900,6 @@ model_library_selected: 已选择
 model_library_source: 来源
 pairing_connect: 连接设备
 pairing_local_code: 本机配对码
-pairing_invitation_kind: 邀请类型
-pairing_my_device: 我的设备
-pairing_other_user: 其他用户
 pairing_pin_hint: 输入 6 位配对码
 pairing_preview_disabled: UI 预览不连接真实设备。使用 --data-dir 启动服务模式后可配对。
 pairing_relay_address: iroh 地址
@@ -1176,6 +1173,7 @@ knowledge_default_model: 向量模型
 knowledge_keyword_only: 仅关键词
 knowledge_collections: 集合
 knowledge_collection_pending: 等待索引
+knowledge_collection_unavailable: 存储主机不可用
 knowledge_collection_indexing: 索引中 · %{count} 项
 knowledge_collection_ready: 已是最新 · %{count} 项
 knowledge_collection_paused: 已暂停
@@ -2365,7 +2363,6 @@ configuration_follow_waiting: 等待控制端配置
 configuration_follow_unavailable: 无法读取同步状态
 configuration_follow_targets: 执行主机
 configuration_follow_automatic: 自动同步
-configuration_follow_issues: 待处理
 configuration_follow_from_source: 来自控制端
 configuration_follow_requested: 已请求同步
 configuration_follow_failed: 配置同步失败

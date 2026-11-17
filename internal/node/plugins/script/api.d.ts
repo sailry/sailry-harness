@@ -131,7 +131,20 @@ export function getValue(key: string, scope?: ValueScope): Promise<Entry>;
 export function getConversationValue(key: string): Promise<ConversationEntry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number, scope?: ValueScope): Promise<{ keys: string[]; after: string | null }>;
 export function setValue(key: string, value: Json, expectedRevision: string, scope?: ValueScope): string;
+export type ValueIndex = {
+  fields: [string, string]; tags: string[]; order: number;
+  /** Raw string in this package's Node storage, selected by an RFC 6901 JSON pointer. */
+  source?: { key: string; pointer: string };
+};
+/** Semantic recall requires storage collection index.semantic=true and an explicit raw source. */
+export function indexedValue(key: string, value: Json, index: ValueIndex, expectedRevision: string, scope?: ValueScope): string;
+export type SearchMode = "keyword" | "semantic" | "hybrid";
+/** Preserve the original query for semantic recall. Nonempty query defaults to hybrid; terms alone to keyword.
+ * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
+export function searchValues(query: { scope?: ValueScope; terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
 export function deleteValue(key: string, expectedRevision: string, scope?: ValueScope): string;
+export function setConversationValue(key: string, value: Json, expectedRevision: string): string;
+export function deleteConversationValue(key: string, expectedRevision: string): string;
 /** A Node identity encoded as exactly 32 unsigned bytes. */
 export type NodeID = number[];
 export type KnowledgeRef = {node: NodeID; id: string};
@@ -165,7 +178,7 @@ export type KnowledgePosition =
 export type KnowledgeCitation = {
   node: NodeID; collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition; link: string;
 };
-export type KnowledgeSourceStatus = {node: NodeID; fault?: {code: string; message: string; details?: Json}};
+export type KnowledgeSourceStatus = {node: NodeID; next_offset?: number; fault?: {code: string; message: string; details?: Json}};
 export type KnowledgePage = {
   hits: {title: string; text: string; score: number; stale: boolean; citation: KnowledgeCitation}[];
   sources?: KnowledgeSourceStatus[];
