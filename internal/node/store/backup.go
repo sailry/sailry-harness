@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sailry/sailry-harness/internal/core"
@@ -144,11 +145,41 @@ func saveBeforeUpgrade(path string) (string, error) {
 		return "", err
 	}
 	defer preview.close()
-	target := filepath.Join(backups, "node-before-upgrade-"+uuid.NewString())
+	name := beforeUpgradePrefix + uuid.NewString()
+	target := filepath.Join(backups, name)
 	if err := os.Rename(filepath.Dir(preview.path), target); err != nil {
 		return "", err
 	}
+	dropEarlierUpgradeCopies(backups, name)
 	return filepath.Join(target, filepath.Base(path)), nil
+}
+
+const beforeUpgradePrefix = "node-before-upgrade-"
+
+// dropEarlierUpgradeCopies keeps only the copy named kept. Each copy is a
+// whole database, so one per update would grow without bound; the state
+// before the latest update is the one a failed update returns to. A copy that
+// cannot be removed stays for the next update to remove.
+func dropEarlierUpgradeCopies(backups, kept string) {
+	root, err := os.OpenRoot(backups)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	directory, err := root.Open(".")
+	if err != nil {
+		return
+	}
+	entries, err := directory.ReadDir(-1)
+	_ = directory.Close()
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != kept && strings.HasPrefix(entry.Name(), beforeUpgradePrefix) {
+			_ = root.RemoveAll(entry.Name())
+		}
+	}
 }
 
 func snapshotUnavailable() error {
