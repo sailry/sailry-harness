@@ -69,7 +69,11 @@ func TestProjectMenu(t *testing.T) {
 		tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 		tt.SetLocale("en")
 		tt.SetDark(true)
-		tt.SetScale(2)
+		// Review snapshots are saved at twice the scale. The menu checks
+		// read the access tree, so they do not rasterize four times the pixels.
+		if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+			tt.SetScale(2)
+		}
 		tt.Frame()
 		settle(tt)
 		return a, tt
@@ -156,6 +160,8 @@ func TestProjectMenu(t *testing.T) {
 	// state inside the card.
 	t.Run("Records", func(t *testing.T) {
 		a, tt := demo(t)
+		// The hairline and fill probes below read device pixels at twice the scale.
+		tt.SetScale(2)
 		choose(t, tt, name, en("workspace_project"))
 		pr := a.overviewProject()
 		archived := pr.Conversations[len(pr.Conversations)-1]

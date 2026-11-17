@@ -2,6 +2,7 @@
 # Package times: Linux CI run 44089080790, 2026-11-17; Node uses the same
 # day's passing macOS run because the Linux failure included cleanup delays.
 # UI parents: that macOS run, scaled to Linux lane totals (live 1.6, shell 3.35).
+# TestProjectMenu: that estimate scaled by its local time without 2x frames (64.8s to 23.5s).
 # Missing package/parent entries use 2s/1s so new units always participate.
 internal/node	*	174
 internal/desktop/composer	*	91
@@ -20,7 +21,7 @@ internal/desktop/fileview	*	5
 internal/desktop/live	TestDemoMode	171
 internal/desktop/live	TestComposerSendRouting	69
 internal/desktop/live	TestPanelProjection	41
-internal/desktop/shell	TestProjectMenu	196
+internal/desktop/shell	TestProjectMenu	71
 internal/desktop/shell	TestComposerGuidesRunningTurn	160
 internal/desktop/shell	TestDemoActions	105
 internal/desktop/shell	TestClosePrompt	84
