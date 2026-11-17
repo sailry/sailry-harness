@@ -28,7 +28,7 @@ func (owner *Host) prepareAt(ctx context.Context, target protocol.NodeID, comman
 		return nil, hostUnavailable("plugin Client is unavailable")
 	}
 	request := owner.prepareHostCommand(command)
-	if request.Target == (protocol.NodeID{}) {
+	if command.Kind == "create_knowledge_collection" && request.Target == (protocol.NodeID{}) {
 		return nil, hostInvalid("knowledge creation requires a storage Node")
 	}
 	if command.Kind == "call_host_handler" {
