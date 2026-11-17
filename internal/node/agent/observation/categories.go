@@ -25,7 +25,7 @@ var (
 	kinds         = [...]protocol.ConversationObservationCategoryKind{systemKind, toolsKind, userKind, skillsKind, injected, assistantKind, resultsKind}
 )
 
-type count struct{ items, characters uint64 }
+type count struct{ items, characters, opaqueBytes uint64 }
 
 type measurement struct {
 	counts    map[protocol.ConversationObservationCategoryKind]count
@@ -135,6 +135,7 @@ func estimate(body any, sources []Source, inventory bool, contexts []Context) []
 				method = "identified_source_characters_quarter"
 			}
 			row.Items, row.Tokens, row.Method = &value.items, &tokens, &method
+			row.Characters, row.OpaqueBytes = &value.characters, &value.opaqueBytes
 		}
 		rows = append(rows, row)
 	}
@@ -194,6 +195,7 @@ func (measured *measurement) measure(kind protocol.ConversationObservationCatego
 	switch value := value.(type) {
 	case string:
 		if strings.HasPrefix(value, "data:") {
+			measured.opaque(kind, value)
 			return
 		}
 		if kind == userKind {
@@ -256,9 +258,29 @@ func (measured *measurement) measure(kind protocol.ConversationObservationCatego
 		for key, value := range value {
 			switch key {
 			case "data", "image_url", "file_data", "signature", "thoughtSignature", "encrypted_content":
+				measured.opaque(kind, value)
 				continue
 			}
 			measured.measure(kind, value, fieldPath(path, key), sources)
+		}
+	}
+}
+
+// Opaque content contributes its decoded string byte size, never a token estimate
+// or retained payload. The complete serialized body size is measured separately.
+func (measured *measurement) opaque(kind protocol.ConversationObservationCategoryKind, value any) {
+	switch value := value.(type) {
+	case string:
+		count := measured.counts[kind]
+		count.opaqueBytes += uint64(len(value))
+		measured.counts[kind] = count
+	case []any:
+		for _, value := range value {
+			measured.opaque(kind, value)
+		}
+	case map[string]any:
+		for _, value := range value {
+			measured.opaque(kind, value)
 		}
 	}
 }

@@ -65,30 +65,36 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 		languageModel = x.renewedModel
 	}
-	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil),
-		fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)}
-	parts = append(parts, r.delegationContext(x, state), x.skillContext, r.deferredContext(x, state), childBudgetContext(x, state))
+	parts := []prompt.Part{
+		{Key: "workflow", Text: prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)},
+		{Key: "execution_identity", Text: fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)},
+		{Key: "delegation", Text: r.delegationContext(x, state)},
+		{Key: "skills", Text: x.skillContext},
+		{Key: "deferred_tools", Text: r.deferredContext(x, state)},
+		{Key: "child_budget", Text: childBudgetContext(x, state)},
+	}
 	if state.Context.Environment != nil {
-		parts = append(parts, *state.Context.Environment)
+		parts = append(parts, prompt.Part{Key: "environment", Text: *state.Context.Environment})
 	}
 	if title := prompt.TitleInstruction(state.Context.Title, capturedModel(binding).Tools, x.inv.Session.Delegation != nil); title != nil {
-		parts = append(parts, *title)
+		parts = append(parts, prompt.Part{Key: "title", Text: *title})
 	}
+	var instructions []string
 	for _, instruction := range x.inv.Instructions {
 		if len(instruction.AnyTools) == 0 {
-			parts = append(parts, instruction.Text)
+			instructions = append(instructions, instruction.Text)
 		}
 	}
+	parts = append(parts, prompt.Part{Key: "instructions", Text: strings.Join(instructions, "\n\n")})
 	ownedParts := []string{}
 	for _, tool := range x.tools {
 		for _, part := range tool.ContextParts {
 			if !slices.Contains(ownedParts, part) {
 				ownedParts = append(ownedParts, part)
-				parts = append(parts, part)
 			}
 		}
 	}
-	parts = prompt.Pending(state.Records, ownedParts, parts)
+	parts, ownedParts = prompt.Pending(state.Records, parts, ownedParts)
 	if contextRecord := prompt.ContextMessage(x.inv.Run.Turn, parts, ownedParts, r.clock.Now()); contextRecord != nil {
 		if err := r.save(x.ctx, x.inv.Session.ID, *contextRecord); err != nil {
 			return err
@@ -415,6 +421,7 @@ func (r *Runtime) observationRecord(x *execution, binding model.Binding, purpose
 	observed.Index = attempt.Index + 1
 	observed.Transport = "http"
 	observed.HeadersUs, observed.ResponseUs = attempt.ResponseUs, attempt.ResponseUs
+	observed.RequestBytes, observed.DispatchUs, observed.RequestSentUs = attempt.RequestBytes, attempt.DispatchUs, attempt.RequestSentUs
 	observed.Categories, observed.CompleteContext = attempt.Categories, attempt.CompleteContext
 	observed.ReasoningStreamed = attempt.ReasoningStreamed
 	observed.ElapsedUs = &elapsed

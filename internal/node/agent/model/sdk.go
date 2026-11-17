@@ -149,11 +149,12 @@ func (transport responseTransport) RoundTrip(request *http.Request) (*http.Respo
 		if err != nil {
 			return nil, err
 		}
-		capturePrepared(request.Context(), raw)
+		capturePrepared(request.Context(), raw, true)
 	}
 	owner, cancel := context.WithCancel(request.Context())
 	stalled := &atomic.Bool{}
 	timer := time.AfterFunc(transport.stall, func() { stalled.Store(true); cancel() })
+	captureDispatch(owner)
 	response, err := transport.base.RoundTrip(request.WithContext(owner))
 	if response == nil {
 		timer.Stop()

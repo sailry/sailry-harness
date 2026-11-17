@@ -73,30 +73,30 @@ func NewPlugin(_ context.Context, binding Binding, capture PluginCapture) (fanta
 	if capture.Key == nil && binding.Provider.Authentication == protocol.AuthenticationApiKey {
 		capture.Key = binding.Secret
 	}
+	header, template := "authorization", "Bearer {key}"
+	if injection := (**binding.Provider.Binding).KeyInjection; injection != nil {
+		header, template = injection.Header, injection.Template
+	}
 	if capture.Key != nil {
 		key := protocol.NewSecret(capture.Key.Expose())
 		capture.Key = &key
 		capture.Secrets = append(capture.Secrets, key)
-		header, template := "authorization", "Bearer {key}"
-		if injection := (**binding.Provider.Binding).KeyInjection; injection != nil {
-			header, template = injection.Header, injection.Template
-		}
 		if !validPluginHeader(header, template) {
 			return nil, &Failure{Kind: InvalidRequest, Message: "invalid model credential header"}
 		}
 		capture.Headers.Set(header, strings.ReplaceAll(template, "{key}", key.Expose()))
-		if binding.Provider.Authentication == protocol.AuthenticationApiKey {
-			for name, value := range binding.Provider.Headers {
-				if !customHeaderAllowed(name, header) {
-					continue
-				}
-				for existing := range capture.Headers {
-					if strings.EqualFold(existing, name) {
-						delete(capture.Headers, existing)
-					}
-				}
-				capture.Headers.Set(name, value)
+	}
+	if binding.Provider.Authentication == protocol.AuthenticationApiKey {
+		for name, value := range binding.Provider.Headers {
+			if !customHeaderAllowed(name, header) {
+				continue
 			}
+			for existing := range capture.Headers {
+				if strings.EqualFold(existing, name) {
+					delete(capture.Headers, existing)
+				}
+			}
+			capture.Headers.Set(name, value)
 		}
 	}
 	client := capture.Client
@@ -163,7 +163,7 @@ func (model *pluginModel) stream(ctx context.Context, input protocol.PluginModel
 		framing = *prepared.Framing
 	}
 	if prepared.Body != nil {
-		capturePrepared(ctx, []byte(*prepared.Body))
+		capturePrepared(ctx, []byte(*prepared.Body), true)
 	}
 	response, err := model.send(ctx, prepared, pluginRequestBytes)
 	if err != nil {

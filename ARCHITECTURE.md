@@ -434,7 +434,10 @@ login recovery can record a different effective credential for a waiting run
 without rewriting that admission capture. Other updates affect subsequent
 admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
-context. Automatic compaction
+context. Named context sections append only changed values, with execution IDs
+separate from stable instructions. Each delta records only its emitted sections;
+compaction or visibility changes restore sections no longer present in model-visible
+history. Existing context records remain unchanged. Automatic compaction
 uses the captured model and defaults to 80% of its context window. Summaries do not
 delete original records or raw tool output. Context-length failures allow up to two
 reactive compactions.

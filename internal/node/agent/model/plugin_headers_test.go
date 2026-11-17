@@ -10,13 +10,26 @@ import (
 )
 
 func TestPluginCustomHeadersOverrideDefaultsWithinConfiguredOrigin(t *testing.T) {
-	for _, credentialHeader := range []string{"Authorization", "X-Model-Key"} {
-		t.Run(credentialHeader, func(t *testing.T) {
+	for _, row := range []struct {
+		name, credentialHeader string
+		key                    bool
+	}{
+		{"default credential", "Authorization", true},
+		{"custom credential", "X-Model-Key", true},
+		{"no credential", "Authorization", false},
+		{"no custom credential", "X-Model-Key", false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			credentialHeader := row.credentialHeader
+			credential := ""
+			if row.key {
+				credential = "Bearer private-token"
+			}
 			requests := 0
 			_, binding, capture := pluginFixture(t, "", func(request *http.Request) (*http.Response, error) {
 				requests++
 				if request.URL.Host == "example.test" {
-					if request.Header.Get(credentialHeader) != "Bearer private-token" || request.Header.Get("X-Tenant-Id") != "tenant-a" || request.Header.Get("User-Agent") != "configured-client" || request.Header.Get("Content-Type") != "application/json" {
+					if request.Header.Get(credentialHeader) != credential || request.Header.Get("X-Tenant-Id") != "tenant-a" || request.Header.Get("User-Agent") != "configured-client" || request.Header.Get("Content-Type") != "application/json" {
 						t.Fatal("plugin HTTP lost configured headers or replaced its credential or framing")
 					}
 					count := 0
@@ -33,6 +46,9 @@ func TestPluginCustomHeadersOverrideDefaultsWithinConfiguredOrigin(t *testing.T)
 				}
 				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}, nil
 			})
+			if !row.key {
+				binding.Secret, capture.Key = nil, nil
+			}
 			(**binding.Provider.Binding).KeyInjection = &protocol.PluginModelAuthInjection{Header: credentialHeader, Template: "Bearer {key}"}
 			binding.Provider.Headers = map[string]string{
 				"X-Tenant-ID": "tenant-a", "user-agent": "configured-client", strings.ToLower(credentialHeader): "untrusted", "Content-Type": "untrusted",

@@ -125,8 +125,9 @@ type OperationNotes struct {
 	Context            *PromptContext `json:"context,omitempty"`
 }
 type PromptContext struct {
-	State    string   `json:"state"`
-	Retained []string `json:"retained,omitempty"`
+	State    string            `json:"state"`
+	Parts    map[string]string `json:"parts,omitempty"`
+	Retained []string          `json:"retained,omitempty"`
 }
 type Inference struct {
 	Provider        string  `json:"provider"`

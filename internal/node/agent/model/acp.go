@@ -581,7 +581,9 @@ func (model *acpModel) stream(ctx context.Context, request protocol.PluginModelA
 	for _, image := range images {
 		blocks = append(blocks, map[string]any{"type": "image", "mimeType": image.MediaType, "data": image.Data})
 	}
-	capturePrepared(ctx, []byte(text))
+	// The prompt text omits the JSON-RPC envelope and attachments, so it does
+	// not establish the serialized request size.
+	capturePrepared(ctx, []byte(text), false)
 
 	// From here the session's content is uncertain until the reply is whole.
 	agent.seen, agent.prefixed = nil, true

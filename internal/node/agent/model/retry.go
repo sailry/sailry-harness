@@ -34,6 +34,9 @@ type Attempt struct {
 	RetryDelay        *time.Duration
 	Status            *uint16
 	ResponseUs        *uint64
+	RequestBytes      *uint64
+	DispatchUs        *uint64
+	RequestSentUs     *uint64
 	Categories        []protocol.ConversationObservationCategory
 	CompleteContext   bool
 	ReasoningStreamed bool

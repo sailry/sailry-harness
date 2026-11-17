@@ -122,6 +122,10 @@ func TestRequestComposition(t *testing.T) {
 		unknown(t, estimate(decode(t, `{"unknown":"private"}`), nil, false, nil), kinds[:]...)
 		clean := estimate(decode(t, `{"input":[{"role":"user","content":[{"text":"ok","data":"PRIVATE","image_url":"PRIVATE","file_data":"PRIVATE","signature":"PRIVATE","thoughtSignature":"PRIVATE","encrypted_content":"PRIVATE","url":"data:PRIVATE"}]}]}`), nil, false, nil)
 		assertTokens(t, clean, userKind, 1)
+		value := row(t, clean, userKind)
+		if value.Characters == nil || *value.Characters != 2 || value.OpaqueBytes == nil || *value.OpaqueBytes != 54 {
+			t.Fatalf("opaque input must retain sizes without entering text estimates: %+v", value)
+		}
 		for _, raw := range []string{
 			`{"contents":[{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"output":"done"}}}]}]}`,
 			`{"input":[{"type":"function_call_output","output":"done"}]}`,

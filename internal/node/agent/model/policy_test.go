@@ -8,6 +8,7 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -45,6 +46,7 @@ func (model *policyModel) Stream(context.Context, fantasy.Call) (fantasy.StreamR
 }
 
 type policyClock struct {
+	mu          sync.Mutex
 	now         time.Time
 	delays      []time.Duration
 	cancel      context.CancelFunc
@@ -52,6 +54,8 @@ type policyClock struct {
 }
 
 func (clock *policyClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
 	clock.now = clock.now.Add(time.Millisecond)
 	return clock.now
 }
@@ -60,7 +64,9 @@ func (clock *policyClock) Sleep(ctx context.Context, duration time.Duration) err
 		clock.beforeSleep()
 	}
 	clock.delays = append(clock.delays, duration)
+	clock.mu.Lock()
 	clock.now = clock.now.Add(duration)
+	clock.mu.Unlock()
 	if clock.cancel != nil {
 		clock.cancel()
 	}

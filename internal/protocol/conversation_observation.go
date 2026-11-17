@@ -138,9 +138,15 @@ func (value ConversationObservationRequest) MarshalJSON() ([]byte, error) {
 }
 
 type ConversationObservationAttempt struct {
-	Index             uint64                            `json:"index"`
-	Transport         string                            `json:"transport"`
-	Reused            *bool                             `json:"reused"`
+	Index     uint64 `json:"index"`
+	Transport string `json:"transport"`
+	Reused    *bool  `json:"reused"`
+	// RequestBytes counts the final serialized body. Timing offsets are from
+	// attempt start: DispatchUs precedes HTTP I/O; RequestSentUs follows a
+	// successful request write. Missing transport facts remain nil.
+	RequestBytes      *uint64                           `json:"request_bytes,omitempty"`
+	DispatchUs        *uint64                           `json:"dispatch_us,omitempty"`
+	RequestSentUs     *uint64                           `json:"request_sent_us,omitempty"`
 	HeadersUs         *uint64                           `json:"headers_us"`
 	ResponseUs        *uint64                           `json:"response_us"`
 	FirstTokenUs      *uint64                           `json:"first_token_us"`
@@ -233,6 +239,10 @@ type ConversationObservationCategory struct {
 	Items  *uint64                             `json:"items"`
 	Tokens *uint64                             `json:"tokens"`
 	Method *string                             `json:"method"`
+	// Characters counts estimated text; OpaqueBytes counts excluded string
+	// payloads such as signatures and media, without estimating their tokens.
+	Characters  *uint64 `json:"characters,omitempty"`
+	OpaqueBytes *uint64 `json:"opaque_bytes,omitempty"`
 }
 
 func DefaultConversationObservationCategory() ConversationObservationCategory {

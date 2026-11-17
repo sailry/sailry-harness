@@ -136,6 +136,7 @@ func (model *pluginModel) send(ctx context.Context, prepared protocol.PluginMode
 		return nil, &Failure{Kind: InvalidRequest, Message: "model request is invalid"}
 	}
 	request.Header = headers
+	captureDispatch(request.Context())
 	response, err := model.client.Do(request)
 	if err != nil {
 		timer.Stop()

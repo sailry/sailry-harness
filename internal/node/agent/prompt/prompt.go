@@ -86,20 +86,29 @@ func SystemParts(instruction string, context canonical.Context) []string {
 	return parts
 }
 
-func Capture(parts, owned []string) canonical.PromptContext {
+// Part is one replaceable section of the current execution context.
+type Part struct {
+	Key  string
+	Text string
+}
+
+func Capture(parts []Part, owned []string) canonical.PromptContext {
 	state := blake3.New(32, nil)
-	retained := []string{}
+	values := map[string]string{}
 	for _, part := range parts {
-		if slices.Contains(owned, part) {
-			retained = append(retained, digest(part))
-		} else {
+		values[part.Key] = digest(part.Text)
+		for _, value := range []string{part.Key, part.Text} {
 			var size [8]byte
-			binary.LittleEndian.PutUint64(size[:], uint64(len(part)))
+			binary.LittleEndian.PutUint64(size[:], uint64(len(value)))
 			state.Write(size[:])
-			state.Write([]byte(part))
+			state.Write([]byte(value))
 		}
 	}
-	return canonical.PromptContext{State: fmt.Sprintf("%x", state.Sum(nil)), Retained: retained}
+	retained := make([]string, 0, len(owned))
+	for _, part := range owned {
+		retained = append(retained, digest(part))
+	}
+	return canonical.PromptContext{State: fmt.Sprintf("%x", state.Sum(nil)), Parts: values, Retained: retained}
 }
 func digest(value string) string {
 	sum := blake3.Sum256([]byte(value))
@@ -113,9 +122,10 @@ func contextIdentity(record canonical.Record) *canonical.PromptContext {
 	return runtime.Notes.Context
 }
 
-// Pending repeats ordinary state once per task or when changed. Retained owner
-// parts repeat only after their earlier context is no longer model-visible.
-func Pending(records []canonical.Record, owned, parts []string) []string {
+// Pending appends only changed named sections and unseen owner content. State
+// comes from emitted sections still in the model-visible history, not a full
+// snapshot on a later delta whose original instructions may have been compacted.
+func Pending(records []canonical.Record, parts []Part, owned []string) ([]Part, []string) {
 	start := 0
 	summary := -1
 	boundary := ""
@@ -179,70 +189,63 @@ func Pending(records []canonical.Record, owned, parts []string) []string {
 	}
 	records = current
 	retained := map[string]bool{}
-	kickoff := -1
-	fallback := -1
-	for i, record := range records {
+	latest := map[string]string{}
+	for _, record := range records {
 		if identity := contextIdentity(record); identity != nil {
+			for key, value := range identity.Parts {
+				latest[key] = value
+			}
 			for _, id := range identity.Retained {
 				retained[id] = true
 			}
 		}
-		message := record.Message()
-		if message == nil || message.Role != canonical.User {
-			continue
-		}
-		tool := false
-		for _, block := range message.Content {
-			if block.Kind == "tool_response" {
-				tool = true
-				break
-			}
-		}
-		if tool {
-			continue
-		}
-		fallback = i
-		if record.Metadata.Runtime == nil || record.Metadata.Runtime.UserVisible {
-			kickoff = i
-		}
 	}
-	if kickoff < 0 {
-		kickoff = fallback
-	}
-	var last *canonical.PromptContext
-	if kickoff >= 0 {
-		for _, record := range records[kickoff:] {
-			if identity := contextIdentity(record); identity != nil {
-				last = identity
-			}
-		}
-	}
-	pending := make([]string, 0, len(parts))
+	pending := make([]Part, 0, len(parts))
 	for _, part := range parts {
-		if slices.Contains(owned, part) {
-			id := digest(part)
-			if retained[id] {
-				continue
-			}
+		previous, present := latest[part.Key]
+		delete(latest, part.Key)
+		if previous != digest(part.Text) && (present || part.Text != "") {
+			pending = append(pending, part)
+		}
+	}
+	var removed []string
+	for key, value := range latest {
+		if value != digest("") {
+			removed = append(removed, key)
+		}
+	}
+	slices.Sort(removed)
+	for _, key := range removed {
+		pending = append(pending, Part{Key: key})
+	}
+	var additions []string
+	for _, part := range owned {
+		id := digest(part)
+		if !retained[id] {
+			additions = append(additions, part)
 			retained[id] = true
 		}
-		pending = append(pending, part)
 	}
-	if len(pending) == 0 {
-		return pending
-	}
-	identity := Capture(pending, owned)
-	if last != nil && last.State == identity.State && len(identity.Retained) == 0 {
-		return nil
-	}
-	return pending
+	return pending, additions
 }
 
-func ContextMessage(turn protocol.TurnID, parts, owned []string, now time.Time) *canonical.Record {
-	if len(parts) == 0 {
+func ContextMessage(turn protocol.TurnID, parts []Part, owned []string, now time.Time) *canonical.Record {
+	if len(parts) == 0 && len(owned) == 0 {
 		return nil
 	}
-	message := canonical.NewMessage(canonical.User, canonical.Text(0, "<turn-context>\n"+strings.Join(parts, "\n\n")+"\n</turn-context>"))
+	var sections []string
+	if len(parts) != 0 {
+		sections = append(sections, "Context updates replace earlier sections with the same name. Unchanged sections remain in effect.")
+	}
+	for _, part := range parts {
+		value := part.Text
+		if value == "" {
+			value = "Cleared; earlier content for this section no longer applies."
+		}
+		sections = append(sections, fmt.Sprintf("<context-section name=%q>\n%s\n</context-section>", part.Key, value))
+	}
+	sections = append(sections, owned...)
+	message := canonical.NewMessage(canonical.User, canonical.Text(0, "<turn-context>\n"+strings.Join(sections, "\n\n")+"\n</turn-context>"))
 	record := canonical.NewRecord(turn, "message", message, now)
 	record.ID = "msg_" + protocol.NewRequestID().String()
 	record.Provenance.Author = "assistant"
