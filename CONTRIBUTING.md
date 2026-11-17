@@ -232,24 +232,28 @@ does not prove live or cross-platform acceptance.
 
 ## Continuous integration
 
-The checkout contains four workflows:
+The checkout contains five workflows:
 
 `ci.yml` runs Go, native and Mobile checks without packaging or publishing. It runs on
 pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls it:
 
 - `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
-- `test`: Linux runs the complete Go suite with cgo disabled, using only Go
-  module/build caches. Pull requests select affected packages; branch pushes
-  and release runs select everything. The `packages` lane runs all selected
-  packages except `desktop/live` and `desktop/shell`; `shell-0` through
-  `shell-2` partition both UI packages' top-level tests, examples and fuzz seeds,
-  retaining each parent's subtests. macOS and Windows each have one `platform`
+- `test`: Linux runs the complete Go suite with cgo disabled. Pull requests
+  select affected packages; branch pushes and release runs select everything.
+  Four lanes, `linux-0` through `linux-3`, balance complete packages and the
+  top-level tests, examples and fuzz seeds of `desktop/live` and `desktop/shell`,
+  retaining each parent's subtests. Measured duration hints affect placement
+  only; new packages and tests join automatically. macOS and Windows each have one `platform`
   lane: `go build ./...` followed by selected native-boundary package suites and
   focused shared-package regressions in `.github/scripts/platform-tests.tsv`.
   Tests in OS-suffixed or build-constrained files compiled for that OS join
   automatically, including new cases. The three-platform vet still checks the
   full test source. The routing fixture runs in `lint` with fake Go and Git:
   `bash .github/scripts/test_test.sh`.
+- Go setup and cache handling share local actions. Each test job prepares its
+  own target's checksum-verified Turso runtime from the pinned native cache,
+  without waiting for other platforms. One writer per operating system saves
+  the test compiler cache even after a test failure; cancelled runs do not save it.
 - `native`: build `native/iroh` and `native/capture` with their `build.sh` for
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
@@ -266,12 +270,17 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
   no downloaded model and no external service. Each leg first verifies that
   run's native artifact and loads its iroh library.
 
+New commits cancel obsolete pull-request and branch-push CI runs. Manual
+integration checks and tag releases keep their own runs.
+
 `release.yml` runs on a `v*` tag. Every job has read-only repository access
 except `publish`:
 
 - `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
   and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
-- `checks`: all of `ci.yml`, with the integration tests.
+- `checks`: `ci.yml` with integration tests and Flutter analysis/tests. It
+  skips the unsigned Mobile builds because the required `android` and `ios`
+  jobs build and verify the final signed packages.
 - `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
   macOS Host archive, signed with the Developer ID certificate.
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the
@@ -298,6 +307,9 @@ packages record the new revision.
 run tests and then deploys to the chosen EdgeOne environment. `website.yml`
 asks the website repository to rebuild when the documents it reads change on
 main.
+
+`model-catalog.yml` refreshes the bundled model metadata every six hours and
+commits validated content changes on the default branch.
 
 Actions are pinned by commit. Do not add nightly fuzzing, coverage gates,
 per-test matrices or retry-on-flake wrappers.

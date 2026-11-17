@@ -80,7 +80,9 @@ jobs:
           jq -e '
             [.[] | select(.name | startswith("checks / "))] as $checks |
             [.[] | select(.name | startswith("host-linux ("))] as $hosts |
-            ($checks | length) > 0 and all($checks[]; .conclusion == "success") and
+            ($checks | length) > 0 and all($checks[];
+              .conclusion == "success" or
+              (.name == "checks / apps/mobile (iOS)" and .conclusion == "skipped")) and
             ($hosts | length) == 2 and all($hosts[]; .conclusion == "success")
           ' "$jobs" >/dev/null
           for name in version windows android ios; do
@@ -105,6 +107,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       integration: true
+      skip_mobile_builds: true
 
   # The signed, sealed and notarized Desktop and the signed Host archive of
   # one macOS architecture.
