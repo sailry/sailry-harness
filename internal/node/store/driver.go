@@ -141,6 +141,13 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	if !strings.EqualFold(mode, "mvcc") && !strings.EqualFold(mode, "wal") {
 		return nil, errors.New("Node database is not in MVCC or WAL mode")
 	}
+	if strings.EqualFold(mode, "mvcc") {
+		// MVCC checkpoints run inside COMMIT. Keep batches near 512 KiB
+		// without relaxing FULL durability.
+		if _, err := connection.ExecContext(ctx, "PRAGMA mvcc_checkpoint_threshold=527360"); err != nil {
+			return nil, err
+		}
+	}
 	reader, err := turso.Connector(path, true)
 	if err != nil {
 		return nil, err
