@@ -22,6 +22,7 @@ class ModelPage extends StatefulWidget {
 class _ModelPageState extends State<ModelPage> {
   /// Follows a renamed model.
   late String _id = widget.id;
+  String? _imageRoute;
 
   ProviderController get _controller => widget.controller;
 
@@ -36,9 +37,16 @@ class _ModelPageState extends State<ModelPage> {
     return saved;
   }
 
+  /// An Azure OpenAI model is named by its deployment, as on Desktop.
+  String get _idLabel => context.tr(
+    _controller.provider['api'] == 'azure_open_ai'
+        ? 'providerDeploymentId'
+        : 'providerModelId',
+  );
+
   Future<void> _editId(Json model) => editText(
     context,
-    title: context.tr('providerModelId'),
+    title: _idLabel,
     initial: _id,
     check: (id) => id != _id && findModel(_controller.provider, id) != null
         ? 'providerModelExists'
@@ -46,36 +54,37 @@ class _ModelPageState extends State<ModelPage> {
     onSave: (id) async => id == _id || await _save(renameModel(model, id)),
   );
 
-  Future<void> _editName(Json model) => editText(
-    context,
-    title: context.tr('providerDisplayName'),
-    initial: text(model['display_name']),
-    optional: true,
-    onSave: (name) async =>
-        name == text(model['display_name']) ||
-        await _save(
-          name.isEmpty
-              ? ({...model}..remove('display_name'))
-              : {...model, 'display_name': name},
-        ),
-  );
-
-  Future<void> _editTokens(Json model, String field, String label) async {
-    final current = model[field];
+  Future<void> _editContext(Json model) async {
+    final current = model['context'];
     await editText(
       context,
-      title: context.tr(label),
+      title: context.tr('providerContextLength'),
       initial: current is num ? '${current.toInt()}' : '',
       numeric: true,
-      optional: field == 'compaction_tokens',
-      hint: field == 'compaction_tokens' ? context.tr('providerDefault') : null,
       check: (value) =>
           parseTokens(value) == null ? 'providerNumberInvalid' : null,
       onSave: (value) async {
         final tokens = parseTokens(value);
-        return tokens == current || await _save({...model, field: tokens});
+        return tokens == current ||
+            tokens != null && await _save(setContextLimit(model, tokens));
       },
     );
+  }
+
+  Future<bool> _setGeneration(Json model, String kind, bool enabled) async {
+    final originalRoute = imageGeneration(model);
+    final edited = setGeneration(
+      model,
+      kind,
+      enabled,
+      _controller.provider,
+      imageRoute: _imageRoute,
+    );
+    final saved = await _save(edited);
+    if (saved && kind == 'image') {
+      _imageRoute = imageGeneration(edited) ?? originalRoute ?? _imageRoute;
+    }
+    return saved;
   }
 
   Future<void> _remove(Json model) async {
@@ -99,6 +108,17 @@ class _ModelPageState extends State<ModelPage> {
       if (model == null) return PageFrame(title: _id, child: const SizedBox());
       final idle = !_controller.busy;
       final isDefault = provider['default_model'] == _id;
+      Widget capability(String name) => SwitchRow(
+        icon: capabilityIcon(name),
+        label: context.tr(capabilityLabel(name)),
+        value: model[name] == true,
+        onChanged: idle
+            ? (value) => attempt(
+                context,
+                () => _save(setCapability(model, name, value)),
+              )
+            : null,
+      );
       return PageFrame(
         title: modelLabel(model),
         loading: _controller.busy,
@@ -112,49 +132,44 @@ class _ModelPageState extends State<ModelPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           spacing: 16,
           children: [
+            // Desktop's model fields: the ID, the context limit, then the
+            // capabilities in its three groups. The display name, the output
+            // limit and the compaction threshold come from the catalog. A
+            // smaller context bounds the hidden output limit when saved.
             SectionCard(
               title: context.tr('providerBasic'),
               children: [
                 FieldRow(
-                  label: context.tr('providerModelId'),
+                  label: _idLabel,
                   value: _id,
                   mono: true,
                   onTap: idle ? () => _editId(model) : null,
                 ),
                 FieldRow(
-                  label: context.tr('providerDisplayName'),
-                  value: text(model['display_name']),
-                  onTap: idle ? () => _editName(model) : null,
+                  label: context.tr('providerContextLength'),
+                  value: _tokens(model['context']),
+                  onTap: idle ? () => _editContext(model) : null,
                 ),
-              ],
-            ),
-            SectionCard(
-              title: context.tr('providerContextTitle'),
-              children: [
-                for (final (field, label) in [
-                  ('context', 'providerContextLength'),
-                  ('output', 'providerMaxOutput'),
-                  ('compaction_tokens', 'providerCompaction'),
-                ])
-                  FieldRow(
-                    label: context.tr(label),
-                    value: _tokens(model[field]),
-                    onTap: idle ? () => _editTokens(model, field, label) : null,
-                  ),
               ],
             ),
             SectionCard(
               title: context.tr('providerCapabilities'),
               children: [
-                for (final name in capabilityNames)
+                _GroupLabel(context.tr('providerCapUnderstands')),
+                capability('vision'),
+                _GroupLabel(context.tr('providerCapCan')),
+                capability('tools'),
+                capability('reasoning'),
+                _GroupLabel(context.tr('providerCapGenerates')),
+                for (final kind in generationKinds)
                   SwitchRow(
-                    icon: capabilityIcon(name),
-                    label: context.tr(capabilityLabel(name)),
-                    value: model[name] == true,
+                    icon: generationIcon(kind),
+                    label: context.tr(generationLabel(kind)),
+                    value: generates(model, kind),
                     onChanged: idle
                         ? (value) => attempt(
                             context,
-                            () => _save(setCapability(model, name, value)),
+                            () => _setGeneration(model, kind, value),
                           )
                         : null,
                   ),
@@ -188,5 +203,17 @@ class _ModelPageState extends State<ModelPage> {
         ),
       );
     },
+  );
+}
+
+/// A capability group's dim heading inside the capabilities card.
+class _GroupLabel extends StatelessWidget {
+  const _GroupLabel(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 12, bottom: 4),
+    child: Text(label, style: dimText(context, 12)),
   );
 }

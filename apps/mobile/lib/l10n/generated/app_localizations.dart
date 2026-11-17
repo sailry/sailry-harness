@@ -3630,12 +3630,6 @@ abstract class AppLocalizations {
   /// **'Model already added'**
   String get providerModelExists;
 
-  /// No description provided for @providerDisplayName.
-  ///
-  /// In en, this message translates to:
-  /// **'Display name'**
-  String get providerDisplayName;
-
   /// No description provided for @providerDefault.
   ///
   /// In en, this message translates to:
@@ -3648,29 +3642,11 @@ abstract class AppLocalizations {
   /// **'Basic'**
   String get providerBasic;
 
-  /// No description provided for @providerContextTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Context'**
-  String get providerContextTitle;
-
   /// No description provided for @providerContextLength.
   ///
   /// In en, this message translates to:
   /// **'Context length'**
   String get providerContextLength;
-
-  /// No description provided for @providerMaxOutput.
-  ///
-  /// In en, this message translates to:
-  /// **'Max output'**
-  String get providerMaxOutput;
-
-  /// No description provided for @providerCompaction.
-  ///
-  /// In en, this message translates to:
-  /// **'Auto-compaction'**
-  String get providerCompaction;
 
   /// No description provided for @providerCapabilities.
   ///
@@ -3681,13 +3657,13 @@ abstract class AppLocalizations {
   /// No description provided for @providerVision.
   ///
   /// In en, this message translates to:
-  /// **'Image input'**
+  /// **'Image'**
   String get providerVision;
 
   /// No description provided for @providerTools.
   ///
   /// In en, this message translates to:
-  /// **'Tool calls'**
+  /// **'Tools'**
   String get providerTools;
 
   /// No description provided for @providerReasoning.
@@ -3695,6 +3671,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reasoning'**
   String get providerReasoning;
+
+  /// No description provided for @providerCapUnderstands.
+  ///
+  /// In en, this message translates to:
+  /// **'Understands'**
+  String get providerCapUnderstands;
+
+  /// No description provided for @providerCapCan.
+  ///
+  /// In en, this message translates to:
+  /// **'Can'**
+  String get providerCapCan;
+
+  /// No description provided for @providerCapGenerates.
+  ///
+  /// In en, this message translates to:
+  /// **'Generates'**
+  String get providerCapGenerates;
+
+  /// No description provided for @providerGenerateImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Image'**
+  String get providerGenerateImage;
+
+  /// No description provided for @providerGenerateVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video'**
+  String get providerGenerateVideo;
+
+  /// No description provided for @providerGenerateSpeech.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech'**
+  String get providerGenerateSpeech;
+
+  /// No description provided for @providerDeploymentId.
+  ///
+  /// In en, this message translates to:
+  /// **'Deployment name'**
+  String get providerDeploymentId;
 
   /// No description provided for @providerEfforts.
   ///

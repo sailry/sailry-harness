@@ -1815,37 +1815,46 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerModelExists => '模型已存在';
 
   @override
-  String get providerDisplayName => '显示名称';
-
-  @override
   String get providerDefault => '默认';
 
   @override
   String get providerBasic => '基本';
 
   @override
-  String get providerContextTitle => '上下文';
-
-  @override
   String get providerContextLength => '上下文长度';
-
-  @override
-  String get providerMaxOutput => '最大输出';
-
-  @override
-  String get providerCompaction => '自动压缩';
 
   @override
   String get providerCapabilities => '能力';
 
   @override
-  String get providerVision => '图片输入';
+  String get providerVision => '图片';
 
   @override
-  String get providerTools => '工具调用';
+  String get providerTools => '工具';
 
   @override
-  String get providerReasoning => '思考';
+  String get providerReasoning => '推理';
+
+  @override
+  String get providerCapUnderstands => '理解';
+
+  @override
+  String get providerCapCan => '支持';
+
+  @override
+  String get providerCapGenerates => '生成';
+
+  @override
+  String get providerGenerateImage => '图片';
+
+  @override
+  String get providerGenerateVideo => '视频';
+
+  @override
+  String get providerGenerateSpeech => '语音';
+
+  @override
+  String get providerDeploymentId => '部署名';
 
   @override
   String get providerEfforts => '思考强度';
@@ -4097,37 +4106,46 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerModelExists => '模型已存在';
 
   @override
-  String get providerDisplayName => '顯示名稱';
-
-  @override
   String get providerDefault => '預設';
 
   @override
   String get providerBasic => '基本';
 
   @override
-  String get providerContextTitle => '上下文';
-
-  @override
   String get providerContextLength => '上下文長度';
-
-  @override
-  String get providerMaxOutput => '最大輸出';
-
-  @override
-  String get providerCompaction => '自動壓縮';
 
   @override
   String get providerCapabilities => '能力';
 
   @override
-  String get providerVision => '圖片輸入';
+  String get providerVision => '圖片';
 
   @override
-  String get providerTools => '工具呼叫';
+  String get providerTools => '工具';
 
   @override
-  String get providerReasoning => '思考';
+  String get providerReasoning => '推理';
+
+  @override
+  String get providerCapUnderstands => '理解';
+
+  @override
+  String get providerCapCan => '支援';
+
+  @override
+  String get providerCapGenerates => '生成';
+
+  @override
+  String get providerGenerateImage => '圖片';
+
+  @override
+  String get providerGenerateVideo => '影片';
+
+  @override
+  String get providerGenerateSpeech => '語音';
+
+  @override
+  String get providerDeploymentId => '部署名稱';
 
   @override
   String get providerEfforts => '思考強度';

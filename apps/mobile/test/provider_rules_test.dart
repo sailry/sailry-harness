@@ -216,6 +216,94 @@ void main() {
       );
       expect(edited['vision'], isTrue);
       expect(edited['capabilities'], {'tools': true, 'vision': true});
+      expect(edited['custom_capabilities'], isTrue);
+    });
+
+    test('image generation follows the route Desktop chooses', () {
+      final plain = setGeneration(model('a'), 'image', true, {
+        'api': 'chat_completions',
+      });
+      expect(plain['generates'], ['image']);
+      expect(plain['custom_capabilities'], isTrue);
+      final hosted = setGeneration(
+        {...model('a'), 'tools': true},
+        'image',
+        true,
+        {'api': 'responses'},
+      );
+      expect(hosted['generates'], ['image_tool']);
+      expect(generates(hosted, 'image'), isTrue);
+      final off = setGeneration(
+        {
+          ...hosted,
+          'generates': ['image_tool', 'video'],
+        },
+        'image',
+        false,
+        {'api': 'responses'},
+      );
+      expect(off['generates'], ['video']);
+      expect(
+        setGeneration(off, 'speech', true, {'api': 'responses'})['generates'],
+        ['video', 'speech'],
+      );
+    });
+
+    test('smaller contexts bound the hidden output limit', () {
+      final original = {...model('a'), 'future_field': 'kept'};
+      final smaller = setContextLimit(original, 8192);
+      expect(smaller['context'], 8192);
+      expect(smaller['output'], 8192);
+      expect(smaller['future_field'], 'kept');
+      expect(limitsProblem(smaller), isNull);
+      expect(original['output'], 16384);
+      expect(setContextLimit(smaller, 32768)['output'], 8192);
+      expect(
+        setContextLimit({...original, 'output': 4096}, 8192)['output'],
+        4096,
+      );
+    });
+
+    test('image toggles preserve the route after tools are disabled', () {
+      final oauth = {'api': 'responses', 'authentication': 'chat_gpt_oauth'};
+      final hosted = {
+        ...model('a'),
+        'generates': ['image_tool', 'video'],
+      };
+      final withoutTools = setCapability(hosted, 'tools', false);
+      final off = setGeneration(withoutTools, 'image', false, oauth);
+      expect(off['generates'], ['video']);
+      final on = setGeneration(off, 'image', true, oauth);
+      expect(on['generates'], ['video', 'image_tool']);
+      expect(withoutTools['generates'], ['image_tool', 'video']);
+
+      final key = {'api': 'responses', 'authentication': 'api_key'};
+      expect(
+        setGeneration(
+          off,
+          'image',
+          true,
+          key,
+          imageRoute: 'image_tool',
+        )['generates'],
+        ['video', 'image_tool'],
+      );
+      expect(setGeneration(off, 'image', true, key)['generates'], [
+        'video',
+        'image',
+      ]);
+      expect(
+        setGeneration(
+          {
+            ...hosted,
+            'generates': ['image'],
+          },
+          'image',
+          true,
+          key,
+        )['generates'],
+        ['image'],
+      );
     });
 
     test('limits reject output above context', () {

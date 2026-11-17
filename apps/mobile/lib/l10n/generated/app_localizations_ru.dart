@@ -1849,37 +1849,46 @@ class AppLocalizationsRu extends AppLocalizations {
   String get providerModelExists => 'Модель уже добавлена';
 
   @override
-  String get providerDisplayName => 'Отображаемое имя';
-
-  @override
   String get providerDefault => 'По умолчанию';
 
   @override
   String get providerBasic => 'Основное';
 
   @override
-  String get providerContextTitle => 'Контекст';
-
-  @override
   String get providerContextLength => 'Длина контекста';
-
-  @override
-  String get providerMaxOutput => 'Макс. вывод';
-
-  @override
-  String get providerCompaction => 'Автосжатие';
 
   @override
   String get providerCapabilities => 'Возможности';
 
   @override
-  String get providerVision => 'Ввод изображений';
+  String get providerVision => 'Изображение';
 
   @override
-  String get providerTools => 'Вызов инструментов';
+  String get providerTools => 'Инструменты';
 
   @override
-  String get providerReasoning => 'Рассуждение';
+  String get providerReasoning => 'Обоснование';
+
+  @override
+  String get providerCapUnderstands => 'Понимает';
+
+  @override
+  String get providerCapCan => 'Умеет';
+
+  @override
+  String get providerCapGenerates => 'Создаёт';
+
+  @override
+  String get providerGenerateImage => 'Изображение';
+
+  @override
+  String get providerGenerateVideo => 'Видео';
+
+  @override
+  String get providerGenerateSpeech => 'Речь';
+
+  @override
+  String get providerDeploymentId => 'Имя развертывания';
 
   @override
   String get providerEfforts => 'Сила рассуждения';

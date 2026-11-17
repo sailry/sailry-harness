@@ -21,7 +21,8 @@ const namedEfforts = [
   'max',
 ];
 
-/// Capability flags editable on mobile, in display order.
+/// Capability flags in display order: vision is what the model understands,
+/// tools and reasoning what it can do.
 const capabilityNames = ['vision', 'tools', 'reasoning'];
 
 String modelLabel(Json model) {
@@ -51,6 +52,13 @@ int? parseTokens(String value) {
   final tokens = int.tryParse(value.trim());
   return tokens != null && tokens > 0 && tokens <= 0x7fffffff ? tokens : null;
 }
+
+/// A smaller context also bounds the output limit that Mobile keeps hidden.
+Json setContextLimit(Json model, int context) => {
+  ...model,
+  'context': context,
+  if (number(model['output']) > context) 'output': context,
+};
 
 /// Request body for `save_provider`, checked against the revision it edits.
 Json saveRequest(Json provider, {String? secret}) {
@@ -128,11 +136,56 @@ Json renameModel(Json model, String id) {
 
 /// Sets a capability and records it as explicit metadata, so Node catalog
 /// completion keeps the choice.
+/// A capability switch marks the model's capabilities as the user's
+/// (custom_capabilities), which catalog completion and discovery then keep,
+/// as Desktop's do.
 Json setCapability(Json model, String name, bool value) => {
   ...model,
   name: value,
   'capabilities': {...object(model['capabilities']), name: value},
+  'custom_capabilities': true,
 };
+
+/// Media kinds a model generates, in display order.
+const generationKinds = ['image', 'video', 'speech'];
+
+/// Whether the model generates [kind]; an image counts through the provider's
+/// images endpoint or a tool the model hosts.
+bool generates(Json model, String kind) {
+  final list = [...?model['generates'] as List?];
+  return kind == 'image'
+      ? list.contains('image') || list.contains('image_tool')
+      : list.contains(kind);
+}
+
+String? imageGeneration(Json model) {
+  final kinds = [...?model['generates'] as List?];
+  if (kinds.contains('image_tool')) return 'image_tool';
+  return kinds.contains('image') ? 'image' : null;
+}
+
+/// Keeps a known image route across toggles. Responses logins use the hosted
+/// tool because the standalone images endpoint requires an API key.
+Json setGeneration(
+  Json model,
+  String kind,
+  bool on,
+  Json provider, {
+  String? imageRoute,
+}) {
+  final list = [...?model['generates'] as List?];
+  final route =
+      imageGeneration(model) ??
+      imageRoute ??
+      (provider['api'] == 'responses' &&
+              (model['tools'] == true || !usesKey(provider))
+          ? 'image_tool'
+          : 'image');
+  final kinds = kind == 'image' ? ['image', 'image_tool'] : [kind];
+  list.removeWhere(kinds.contains);
+  if (on) list.add(kind == 'image' ? route : kind);
+  return {...model, 'generates': list, 'custom_capabilities': true};
+}
 
 /// Resolves discovered metadata against an optional catalog reference.
 /// Mirrors the protocol's discovery configuration; Node completes catalog

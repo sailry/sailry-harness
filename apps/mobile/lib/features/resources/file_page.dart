@@ -58,6 +58,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   String? _error;
   FileDraft? get _draft => widget.document.draft;
   String get _name => widget.path.split('/').last;
+  String get _directory => splitPath(widget.path).directory;
   String get _mime => mediaType(widget.path);
   bool get _markdown => _mime == 'text/markdown';
   bool get _isImage => _mime.startsWith('image/');

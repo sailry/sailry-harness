@@ -204,6 +204,18 @@ String capabilityIcon(String name) => switch (name) {
   _ => 'bulb',
 };
 
+String generationIcon(String kind) => switch (kind) {
+  'image' => 'image',
+  'speech' => 'mic',
+  _ => 'spark',
+};
+
+String generationLabel(String kind) => switch (kind) {
+  'image' => 'providerGenerateImage',
+  'video' => 'providerGenerateVideo',
+  _ => 'providerGenerateSpeech',
+};
+
 String capabilityLabel(String name) => switch (name) {
   'vision' => 'providerVision',
   'tools' => 'providerTools',

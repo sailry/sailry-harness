@@ -1858,37 +1858,46 @@ class AppLocalizationsFr extends AppLocalizations {
   String get providerModelExists => 'Modèle déjà ajouté';
 
   @override
-  String get providerDisplayName => 'Nom affiché';
-
-  @override
   String get providerDefault => 'Par défaut';
 
   @override
   String get providerBasic => 'Général';
 
   @override
-  String get providerContextTitle => 'Contexte';
-
-  @override
   String get providerContextLength => 'Longueur du contexte';
-
-  @override
-  String get providerMaxOutput => 'Sortie max.';
-
-  @override
-  String get providerCompaction => 'Compaction auto';
 
   @override
   String get providerCapabilities => 'Capacités';
 
   @override
-  String get providerVision => 'Entrée image';
+  String get providerVision => 'Image';
 
   @override
-  String get providerTools => 'Appels d’outils';
+  String get providerTools => 'Outils';
 
   @override
   String get providerReasoning => 'Raisonnement';
+
+  @override
+  String get providerCapUnderstands => 'Comprend';
+
+  @override
+  String get providerCapCan => 'Peut';
+
+  @override
+  String get providerCapGenerates => 'Génère';
+
+  @override
+  String get providerGenerateImage => 'Image';
+
+  @override
+  String get providerGenerateVideo => 'Vidéo';
+
+  @override
+  String get providerGenerateSpeech => 'Voix';
+
+  @override
+  String get providerDeploymentId => 'Nom du déploiement';
 
   @override
   String get providerEfforts => 'Effort de raisonnement';

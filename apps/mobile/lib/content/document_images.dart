@@ -152,6 +152,7 @@ class DocumentImages extends ChangeNotifier {
             );
           }
           final name = source?.resolve(uri) ?? uri.path;
+          final mime = mediaType(name);
           return KeyedSubtree(
             key: ValueKey((
               source?.identity,
@@ -161,8 +162,10 @@ class DocumentImages extends ChangeNotifier {
             )),
             child: imageBytes(
               content.bytes,
-              mediaType(name),
+              mime,
               name: title?.isNotEmpty == true ? title : name,
+              save: () =>
+                  saveContent(content.bytes, splitPath(name).name, mime),
             ),
           );
         },

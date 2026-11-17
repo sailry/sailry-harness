@@ -1838,37 +1838,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get providerModelExists => 'Model already added';
 
   @override
-  String get providerDisplayName => 'Display name';
-
-  @override
   String get providerDefault => 'Default';
 
   @override
   String get providerBasic => 'Basic';
 
   @override
-  String get providerContextTitle => 'Context';
-
-  @override
   String get providerContextLength => 'Context length';
-
-  @override
-  String get providerMaxOutput => 'Max output';
-
-  @override
-  String get providerCompaction => 'Auto-compaction';
 
   @override
   String get providerCapabilities => 'Capabilities';
 
   @override
-  String get providerVision => 'Image input';
+  String get providerVision => 'Image';
 
   @override
-  String get providerTools => 'Tool calls';
+  String get providerTools => 'Tools';
 
   @override
   String get providerReasoning => 'Reasoning';
+
+  @override
+  String get providerCapUnderstands => 'Understands';
+
+  @override
+  String get providerCapCan => 'Can';
+
+  @override
+  String get providerCapGenerates => 'Generates';
+
+  @override
+  String get providerGenerateImage => 'Image';
+
+  @override
+  String get providerGenerateVideo => 'Video';
+
+  @override
+  String get providerGenerateSpeech => 'Speech';
+
+  @override
+  String get providerDeploymentId => 'Deployment name';
 
   @override
   String get providerEfforts => 'Reasoning effort';

@@ -1849,37 +1849,46 @@ class AppLocalizationsPt extends AppLocalizations {
   String get providerModelExists => 'Modelo já adicionado';
 
   @override
-  String get providerDisplayName => 'Nome de exibição';
-
-  @override
   String get providerDefault => 'Padrão';
 
   @override
   String get providerBasic => 'Básico';
 
   @override
-  String get providerContextTitle => 'Contexto';
-
-  @override
   String get providerContextLength => 'Tamanho do contexto';
-
-  @override
-  String get providerMaxOutput => 'Saída máxima';
-
-  @override
-  String get providerCompaction => 'Compactação automática';
 
   @override
   String get providerCapabilities => 'Recursos';
 
   @override
-  String get providerVision => 'Entrada de imagem';
+  String get providerVision => 'Imagem';
 
   @override
-  String get providerTools => 'Chamadas de ferramentas';
+  String get providerTools => 'Ferramentas';
 
   @override
   String get providerReasoning => 'Raciocínio';
+
+  @override
+  String get providerCapUnderstands => 'Entende';
+
+  @override
+  String get providerCapCan => 'Pode';
+
+  @override
+  String get providerCapGenerates => 'Gera';
+
+  @override
+  String get providerGenerateImage => 'Imagem';
+
+  @override
+  String get providerGenerateVideo => 'Vídeo';
+
+  @override
+  String get providerGenerateSpeech => 'Voz';
+
+  @override
+  String get providerDeploymentId => 'Nome da implementação';
 
   @override
   String get providerEfforts => 'Esforço de raciocínio';

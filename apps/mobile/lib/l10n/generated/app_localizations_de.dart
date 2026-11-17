@@ -1856,37 +1856,46 @@ class AppLocalizationsDe extends AppLocalizations {
   String get providerModelExists => 'Modell bereits vorhanden';
 
   @override
-  String get providerDisplayName => 'Anzeigename';
-
-  @override
   String get providerDefault => 'Standard';
 
   @override
   String get providerBasic => 'Allgemein';
 
   @override
-  String get providerContextTitle => 'Kontext';
-
-  @override
   String get providerContextLength => 'Kontextlänge';
-
-  @override
-  String get providerMaxOutput => 'Max. Ausgabe';
-
-  @override
-  String get providerCompaction => 'Auto-Komprimierung';
 
   @override
   String get providerCapabilities => 'Fähigkeiten';
 
   @override
-  String get providerVision => 'Bildeingabe';
+  String get providerVision => 'Bild';
 
   @override
-  String get providerTools => 'Tool-Aufrufe';
+  String get providerTools => 'Werkzeuge';
 
   @override
-  String get providerReasoning => 'Denken';
+  String get providerReasoning => 'Denkaufwand';
+
+  @override
+  String get providerCapUnderstands => 'Versteht';
+
+  @override
+  String get providerCapCan => 'Kann';
+
+  @override
+  String get providerCapGenerates => 'Erzeugt';
+
+  @override
+  String get providerGenerateImage => 'Bild';
+
+  @override
+  String get providerGenerateVideo => 'Video';
+
+  @override
+  String get providerGenerateSpeech => 'Sprache';
+
+  @override
+  String get providerDeploymentId => 'Name der Bereitstellung';
 
   @override
   String get providerEfforts => 'Denkaufwand';

@@ -1819,37 +1819,46 @@ class AppLocalizationsKo extends AppLocalizations {
   String get providerModelExists => '이미 추가된 모델';
 
   @override
-  String get providerDisplayName => '표시 이름';
-
-  @override
   String get providerDefault => '기본';
 
   @override
   String get providerBasic => '기본 정보';
 
   @override
-  String get providerContextTitle => '컨텍스트';
-
-  @override
   String get providerContextLength => '컨텍스트 길이';
-
-  @override
-  String get providerMaxOutput => '최대 출력';
-
-  @override
-  String get providerCompaction => '자동 압축';
 
   @override
   String get providerCapabilities => '기능';
 
   @override
-  String get providerVision => '이미지 입력';
+  String get providerVision => '이미지';
 
   @override
-  String get providerTools => '도구 호출';
+  String get providerTools => '도구';
 
   @override
   String get providerReasoning => '추론';
+
+  @override
+  String get providerCapUnderstands => '이해';
+
+  @override
+  String get providerCapCan => '지원';
+
+  @override
+  String get providerCapGenerates => '생성';
+
+  @override
+  String get providerGenerateImage => '이미지';
+
+  @override
+  String get providerGenerateVideo => '동영상';
+
+  @override
+  String get providerGenerateSpeech => '음성';
+
+  @override
+  String get providerDeploymentId => '배포 이름';
 
   @override
   String get providerEfforts => '추론 강도';

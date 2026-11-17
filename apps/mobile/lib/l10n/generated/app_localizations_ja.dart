@@ -1818,37 +1818,46 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerModelExists => 'モデルは追加済みです';
 
   @override
-  String get providerDisplayName => '表示名';
-
-  @override
   String get providerDefault => 'デフォルト';
 
   @override
   String get providerBasic => '基本';
 
   @override
-  String get providerContextTitle => 'コンテキスト';
-
-  @override
   String get providerContextLength => 'コンテキスト長';
-
-  @override
-  String get providerMaxOutput => '最大出力';
-
-  @override
-  String get providerCompaction => '自動圧縮';
 
   @override
   String get providerCapabilities => '機能';
 
   @override
-  String get providerVision => '画像入力';
+  String get providerVision => '画像';
 
   @override
-  String get providerTools => 'ツール呼び出し';
+  String get providerTools => 'ツール';
 
   @override
   String get providerReasoning => '推論';
+
+  @override
+  String get providerCapUnderstands => '理解';
+
+  @override
+  String get providerCapCan => '対応';
+
+  @override
+  String get providerCapGenerates => '生成';
+
+  @override
+  String get providerGenerateImage => '画像';
+
+  @override
+  String get providerGenerateVideo => '動画';
+
+  @override
+  String get providerGenerateSpeech => '音声';
+
+  @override
+  String get providerDeploymentId => 'デプロイメント名';
 
   @override
   String get providerEfforts => '推論の強度';
