@@ -275,7 +275,7 @@ func (s *State) host(c *ui.Context, host viewmodel.Host) {
 	if title == "" {
 		title = host.ID
 	}
-	if s.Preview || host.Local {
+	if s.Preview || title == "local_host_name" {
 		title = i18n.T(c, title)
 	}
 	selected := host.ID == s.SelectedHost

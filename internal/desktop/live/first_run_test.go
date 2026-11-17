@@ -531,10 +531,13 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	translated := func(page string, known ...string) {
 		t.Helper()
 		for _, shown := range tester.Texts() {
+			if slices.Contains(known, shown) {
+				continue
+			}
 			if key, exists := english[shown]; exists {
 				t.Errorf("%s shows %q in English although %s is translated", page, shown, key)
 			}
-			if known == nil || strings.TrimSpace(shown) == "" || slices.Contains(known, shown) {
+			if known == nil || strings.TrimSpace(shown) == "" {
 				continue
 			}
 			if !strings.ContainsFunc(shown, func(r rune) bool { return r > unicode.MaxASCII }) && strings.ContainsFunc(shown, unicode.IsLetter) {
@@ -568,9 +571,15 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	if !strings.HasPrefix(draft, "draft/") {
 		t.Fatalf("New session did not open a draft: %q", draft)
 	}
-	// The plugins' own names stay as they are; everything else is Chinese.
+	// Device and package names retain their source language; UI copy is Chinese.
 	// The location control read Chats while packages were mounted in English.
-	translated("the first-run conversation", "Sailry", "SSH", "Git")
+	hostNames := []string{"Sailry", "SSH", "Git"}
+	for _, device := range r.App.Data.Hosts {
+		if device.Name != "" && device.Name != "local_host_name" {
+			hostNames = append(hostNames, device.Name)
+		}
+	}
+	translated("the first-run conversation", hostNames...)
 	if tester.HasText("Chats") || !tester.HasText(zh("composer_no_project")) {
 		t.Errorf("the context bar does not read %q: %q", zh("composer_no_project"), tester.Texts())
 	}

@@ -291,7 +291,7 @@ func testSidebarGroups(t *testing.T) {
 	if got := b.Sidebar.Collapsed(); !slices.Equal(got, []string{"notes"}) {
 		t.Errorf("the old UI state collapsed %q", got)
 	}
-	if got, want := sidebarGroups(bt, b), []string{i18n.In("en", "sidebar_pinned"), i18n.In("en", "sessions_unassigned"), i18n.In("en", "projects")}; !slices.Equal(got, want) {
+	if got, want := sidebarGroups(bt, b), []string{i18n.In("en", "hosts"), i18n.In("en", "sidebar_pinned"), i18n.In("en", "sessions_unassigned"), i18n.In("en", "projects")}; !slices.Equal(got, want) {
 		t.Errorf("the old UI state shows the groups %q, want %q", got, want)
 	}
 }
