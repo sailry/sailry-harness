@@ -15,6 +15,48 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// visibleSidebarRow scrolls a row into the sidebar's viewport before pointer
+// input: the access tree also contains the layout bounds of offscreen rows.
+func visibleSidebarRow(t *testing.T, tt *ui.Tester, label string) ui.AccessInfo {
+	t.Helper()
+	var viewport ui.Rect
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; info.Role == ui.RoleScroll && b.X >= RailWidth && b.X < RailWidth+NavWidth && b.W > 0 && b.H > 0 {
+			viewport = b
+			break
+		}
+	}
+	if viewport.H == 0 {
+		t.Fatal("no sidebar scroll viewport")
+	}
+	find := func() (ui.AccessInfo, bool) {
+		for _, info := range tt.AccessAll() {
+			if b := info.Bounds; info.Name == label && (info.Role == ui.RoleButton || info.Role == ui.RoleDisclosure) && b.X >= viewport.X && b.X < viewport.X+viewport.W {
+				return info, true
+			}
+		}
+		return ui.AccessInfo{}, false
+	}
+	visible := func(info ui.AccessInfo) bool {
+		b := info.Bounds
+		return !info.Offscreen && b.W > 0 && b.H > 0 && b.Y >= viewport.Y && b.Y+b.H <= viewport.Y+viewport.H
+	}
+	row, ok := find()
+	if !ok {
+		t.Fatalf("no sidebar row %q: %q", label, tt.Texts())
+	}
+	if !visible(row) {
+		x, y := viewport.X+viewport.W/2, viewport.Y+viewport.H/2
+		tt.Scroll(x, y, 0, row.Bounds.Y+row.Bounds.H/2-y)
+		tt.Frame()
+		row, ok = find()
+		if !ok || !visible(row) {
+			t.Fatalf("sidebar row %q is outside viewport %v after scrolling: %+v", label, viewport, row)
+		}
+	}
+	return row
+}
+
 // TestProjectMenu covers the sidebar's right-click menus over the demo: every
 // item does what it says on the demo's data, in memory, and none of them
 // tells a preview's notice or is left dead.
@@ -37,14 +79,9 @@ func TestProjectMenu(t *testing.T) {
 	// project and the session too.
 	menu := func(t *testing.T, tt *ui.Tester, row string) []string {
 		t.Helper()
-		for _, info := range tt.AccessAll() {
-			if info.Name == row && info.Bounds.X < 280 && info.Bounds.Y > HeaderHeight {
-				tt.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
-				return tt.Menu()
-			}
-		}
-		t.Fatalf("no sidebar row %q: %q", row, tt.Texts())
-		return nil
+		info := visibleSidebarRow(t, tt, row)
+		tt.RightClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		return tt.Menu()
 	}
 	choose := func(t *testing.T, tt *ui.Tester, row string, path ...string) {
 		t.Helper()

@@ -435,10 +435,7 @@ func TestPaneDrags(t *testing.T) {
 
 func testDragSessionSplits(t *testing.T) {
 	a, tt := newTester(t)
-	row, ok := tt.AccessByRole(ui.RoleButton, "Port the neutral theme tokens")
-	if !ok {
-		t.Fatal("no row")
-	}
+	row := visibleSidebarRow(t, tt, "Port the neutral theme tokens")
 	// Onto the right of the conversation shown alone.
 	dragTo(t, tt, row, 1150, 400, func() {
 		snapshot(t, tt, "panes-drag-right")
@@ -451,7 +448,7 @@ func testDragSessionSplits(t *testing.T) {
 		t.Fatalf("focus %q", a.Sidebar.Selected)
 	}
 	// Then another below the first pane, by its left half's lower part.
-	row, _ = tt.AccessByRole(ui.RoleButton, "Weeknight dinner ideas")
+	row = visibleSidebarRow(t, tt, "Weeknight dinner ideas")
 	dragTo(t, tt, row, 520, 700, nil)
 	if got := len(a.panes.Displayed().Targets()); got != 3 || a.panes.Displayed().Children[0].Axis != panes.Column {
 		t.Fatalf("%d panes: %+v", got, a.panes.Displayed().Children[0])
