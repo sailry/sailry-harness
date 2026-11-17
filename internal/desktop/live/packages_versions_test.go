@@ -119,7 +119,9 @@ func TestOfficialPluginVersionCommands(t *testing.T) {
 						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "unexpected fixture command"}}
 					}
 				}
-				tester := ui.NewTester(func(c *ui.Context) {
+				// Only queued command projections run here. Shared raster workers
+				// cannot join a synctest bubble, so keep this surface unrendered.
+				tester := ui.NewTesterWith(func(c *ui.Context) {
 					r.mu.Lock()
 					queue := r.queue
 					r.queue = nil
@@ -127,7 +129,7 @@ func TestOfficialPluginVersionCommands(t *testing.T) {
 					for _, run := range queue {
 						run(c)
 					}
-				}, 800, 600)
+				}, 1, 1, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 				if test.update {
 					r.updatePackages([]string{"notes"})
 				} else if test.version == nil {
