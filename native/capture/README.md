@@ -9,7 +9,9 @@ lock-free ring buffer, so the audio thread never enters Go.
 `miniaudio.h` is not committed. `build.sh` reuses
 `.runtime/native/src/miniaudio-0.11.26/miniaudio.h` when its SHA-256 equals
 the lock, and otherwise downloads the pinned release archive and verifies the
-archive and the header.
+archive and the header. Downloads retry twice after transfer errors, with a
+15-second connection limit and a 60-second limit per attempt. A checksum
+mismatch fails the build without retrying or compiling the downloaded content.
 
 ## Build
 

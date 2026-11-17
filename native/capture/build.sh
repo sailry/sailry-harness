@@ -41,7 +41,10 @@ header="$include/miniaudio.h"
 if [ ! -f "$header" ] || [ "$(digest "$header")" != "$header_sha256" ]; then
     mkdir -p "$include"
     download="$root/.runtime/native/src/miniaudio-$version.tar.gz"
-    curl --fail --location --silent --show-error --output "$download" "$archive"
+    # Hosted runners can briefly lose DNS or their connection to the archive.
+    curl --fail --location --silent --show-error \
+        --connect-timeout 15 --max-time 60 --retry 2 --retry-delay 2 --retry-all-errors \
+        --output "$download" "$archive"
     if [ "$(digest "$download")" != "$archive_sha256" ]; then
         printf '%s\n' 'miniaudio archive does not match miniaudio.lock.json' >&2
         exit 1
