@@ -18,8 +18,17 @@ func sandboxCommand(policy sandboxPolicy, program string, args []string, _ strin
 
 func sandboxArgsLinux(policy sandboxPolicy, program string) []string {
 	args := []string{"--die-with-parent", "--unshare-pid", "--unshare-net", "--new-session"}
+	protected := map[string]bool{}
+	boundaries := slices.Clone(policy.paths)
+	for _, path := range policy.protected {
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			protected[resolved] = true
+			boundaries = append(boundaries, allowedPath{resolved, false})
+		}
+	}
 	paths := slices.Clone(policy.paths)
-	for _, path := range pinnedPaths(policy.paths) {
+	// A protected child mount can otherwise move with a writable ancestor.
+	for _, path := range pinnedPaths(boundaries) {
 		if !slices.ContainsFunc(paths, func(entry allowedPath) bool { return entry.path == path }) {
 			paths = append(paths, allowedPath{path, true})
 		}
@@ -40,12 +49,6 @@ func sandboxArgsLinux(policy sandboxPolicy, program string) []string {
 	policy.linkAliases(program)
 	for _, path := range slices.Sorted(maps.Keys(policy.links)) {
 		args = append(args, "--symlink", policy.links[path], path)
-	}
-	protected := map[string]bool{}
-	for _, path := range policy.protected {
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
-			protected[resolved] = true
-		}
 	}
 	for _, path := range slices.Sorted(maps.Keys(protected)) {
 		args = append(args, "--ro-bind", path, path)

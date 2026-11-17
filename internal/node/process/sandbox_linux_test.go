@@ -75,3 +75,48 @@ func TestSandboxArgsLinux(t *testing.T) {
 		}
 	})
 }
+
+func TestSandboxProtectedParentsLinux(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protected := []string{
+		filepath.Join(root, "nested", "repository", ".git"),
+		filepath.Join(root, "nested", "worktree", ".git"),
+		filepath.Join(root, ".sailry", "worktrees"),
+	}
+	for _, path := range protected {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if filepath.Base(filepath.Dir(path)) == "worktree" {
+			if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.Mkdir(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := sandboxArgsLinux(sandboxPolicy{paths: []allowedPath{{root, true}}, protected: protected, links: map[string]string{}}, "/usr/bin/sh")
+	index := func(flag, path string) int {
+		for i := 0; i+2 < len(args); i++ {
+			if args[i] == flag && args[i+1] == path && args[i+2] == path {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, path := range protected {
+		child := index("--ro-bind", path)
+		if child < 0 {
+			t.Fatalf("protected path is not read-only: %s, %v", path, args)
+		}
+		for parent := filepath.Dir(path); within(root, parent); parent = filepath.Dir(parent) {
+			position := index("--bind", parent)
+			if position < 0 || position >= child {
+				t.Fatalf("protected parent is not pinned before its child: %s, %v", parent, args)
+			}
+		}
+	}
+}
