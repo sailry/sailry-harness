@@ -383,9 +383,12 @@ func (r *Runtime) readPackageUpdates(names []string) {
 					r.packages.catalog[id], r.packages.catalogSources[id] = entry, protocol.PluginCatalogSourceOfficial
 				}
 				for _, report := range batch.Reports {
-					r.packages.updates[report.Current.Name] = report
+					r.recordPackageUpdate(report, batch.Failures)
 				}
 				r.projectPackages()
+				if len(batch.Failures) != 0 {
+					err = &batch.Failures[0].Error
+				}
 			}
 			r.packageReport(c, err)
 		})

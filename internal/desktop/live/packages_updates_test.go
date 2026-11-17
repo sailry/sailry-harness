@@ -252,6 +252,99 @@ func TestPluginUpdateInspectionFailureStaysFailure(t *testing.T) {
 	}
 }
 
+func TestOfficialUpdateCanRetryTransientInspection(t *testing.T) {
+	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy, protocol.ErrorCodeNotFound} {
+		t.Run(string(code), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r, source := terminalTabsFixture(t)
+				current, reviewed, _ := officialUpdateFixture()
+				r.packages.infos[current.Summary.Name] = current
+				r.packages.updates[current.Summary.Name] = protocol.PluginUpdatesReport{Current: current.Summary,
+					Available: &protocol.PluginUpdatesCandidate{Kind: "package", Data: reviewed}}
+				available := false
+				source.respond = func(request protocol.Request) link.Response {
+					switch request.Command.Kind {
+					case "read_catalog_plugin_info":
+						if !available {
+							return link.Response{Fault: &protocol.Fault{Code: code, Message: "fixture inspection failed"}}
+						}
+						return link.Response{Output: protocol.Output{Kind: "catalog_details", Data: protocol.PluginCatalogDetails{Kind: "plugin", Data: reviewed}}}
+					case "install_catalog_plugin":
+						installed := reviewed
+						installed.Summary.Revision = current.Summary.Revision + 1
+						return link.Response{Output: protocol.Output{Kind: "plugin", Data: installed}}
+					default:
+						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "unexpected fixture command"}}
+					}
+				}
+				tester := pluginUpdateQueueTester(r)
+				r.updatePackages([]string{current.Summary.Name})
+				synctest.Wait()
+				tester.Frame()
+				retained := code != protocol.ErrorCodeNotFound
+				if packageUpdateAvailable(r.packages.updates[current.Summary.Name]) != retained ||
+					len(source.sent("install_catalog_plugin")) != 0 || r.App.Settings.Busy[settings.BusyPackage+current.Summary.Name] {
+					t.Fatalf("failed inspection lost the retryable selection or installed unverified bytes: report=%+v installed=%d busy=%v", r.packages.updates[current.Summary.Name], len(source.sent("install_catalog_plugin")), r.App.Settings.Busy[settings.BusyPackage+current.Summary.Name])
+				}
+				if retained {
+					available = true
+					r.updatePackages([]string{current.Summary.Name})
+					synctest.Wait()
+					tester.Frame()
+					synctest.Wait()
+					tester.Frame()
+					if len(source.sent("install_catalog_plugin")) != 1 || r.App.Settings.Busy[settings.BusyPackage+current.Summary.Name] {
+						t.Fatal("retry did not inspect and install exactly once")
+					}
+				}
+			})
+		})
+	}
+}
+
+func TestPassivePluginInspectionFailurePreservesReview(t *testing.T) {
+	for _, withdrawn := range []bool{false, true} {
+		t.Run(map[bool]string{false: "temporary failure", true: "known withdrawal"}[withdrawn], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				r, source := terminalTabsFixture(t)
+				current, reviewed, entry := officialUpdateFixture()
+				r.packages.infos[current.Summary.Name] = current
+				r.packages.updates[current.Summary.Name] = protocol.PluginUpdatesReport{Current: current.Summary,
+					Available: &protocol.PluginUpdatesCandidate{Kind: "package", Data: reviewed}}
+				entry.Versions = []protocol.PluginCatalogVersion{{Version: *reviewed.Summary.Version, Withdrawn: withdrawn}}
+				entry.CompatibleVersion.Version, entry.CompatibleVersion.Commit = "1.6.0", strings.Repeat("b", 40)
+				source.respond = func(request protocol.Request) link.Response {
+					switch request.Command.Kind {
+					case "check_plugin_updates":
+						return link.Response{Output: protocol.Output{Kind: "plugin_updates", Data: protocol.PluginUpdatesBatch{Reports: []protocol.PluginUpdatesReport{{
+							Current: current.Summary, Available: &protocol.PluginUpdatesCandidate{Kind: "official", Data: entry},
+						}}}}}
+					case "read_catalog_plugin_info":
+						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture inspection unavailable"}}
+					default:
+						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "unexpected fixture command"}}
+					}
+				}
+				tester := pluginUpdateQueueTester(r)
+				r.readPackageUpdates([]string{current.Summary.Name})
+				synctest.Wait()
+				tester.Frame()
+				if packageUpdateAvailable(r.packages.updates[current.Summary.Name]) == withdrawn {
+					t.Fatal("a failed inspection erased a reviewed update or retained a known withdrawn release")
+				}
+				if !tester.HasText("Plugin operation failed") {
+					t.Fatalf("inspection failure was presented as a successful no-update result: %q", tester.Texts())
+				}
+				r.readPackageUpdates([]string{current.Summary.Name})
+				synctest.Wait()
+				if len(source.sent("check_plugin_updates")) != 1 {
+					t.Fatal("passive failure triggered automatic retries")
+				}
+			})
+		})
+	}
+}
+
 func pluginUpdateQueueTester(r *Runtime) *ui.Tester {
 	return ui.NewTesterWith(func(c *ui.Context) {
 		r.mu.Lock()

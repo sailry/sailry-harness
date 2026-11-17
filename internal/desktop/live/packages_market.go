@@ -269,7 +269,9 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 				r.packages.catalog[id], r.packages.catalogSources[id] = entry, protocol.PluginCatalogSourceOfficial
 			}
 			for _, report := range batch.Reports {
-				r.packages.updates[report.Current.Name] = report
+				if !r.recordPackageUpdate(report, batch.Failures) {
+					continue
+				}
 				if delete(r.packages.directories, report.Current.Name); local[report.Current.Name] != nil {
 					r.packages.directories[report.Current.Name] = local[report.Current.Name]
 				}

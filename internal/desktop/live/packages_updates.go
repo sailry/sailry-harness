@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"errors"
 	"slices"
 
@@ -8,6 +9,39 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func temporaryPluginUpdateError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	switch faultCode(err) {
+	case protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy, protocol.ErrorCodeCancelled:
+		return true
+	}
+	return false
+}
+
+// Failed reads cannot revoke a reviewed candidate. A known withdrawal still
+// removes it, and every installation must inspect the immutable selection again.
+func (r *Runtime) recordPackageUpdate(report protocol.PluginUpdatesReport, failures []protocol.PluginUpdatesFailure) bool {
+	for _, failure := range failures {
+		if failure.Name != report.Current.Name || !temporaryPluginUpdateError(&failure.Error) {
+			continue
+		}
+		previous := r.packages.updates[report.Current.Name]
+		if previous.Available != nil {
+			info, valid := detail[protocol.PluginInfo](previous.Available.Data)
+			if valid && slices.ContainsFunc(r.packages.catalog[report.Current.Name].Versions, func(version protocol.PluginCatalogVersion) bool {
+				return version.Version == stringValue(info.Summary.Version) && version.Withdrawn
+			}) {
+				break
+			}
+		}
+		return false
+	}
+	r.packages.updates[report.Current.Name] = report
+	return true
+}
 
 // Node-only packages run on their execution Node. Desktop declarations also
 // need to load in this process before replacing its currently usable UI.
@@ -139,7 +173,7 @@ func (r *Runtime) updateOfficialPackage(report protocol.PluginUpdatesReport, rev
 		}
 		r.enqueue(func(c *ui.Context) {
 			if err != nil {
-				if samePackageVersion(report.Current, r.packages.infos[report.Current.Name].Summary) {
+				if !temporaryPluginUpdateError(err) && samePackageVersion(report.Current, r.packages.infos[report.Current.Name].Summary) {
 					report.Available = nil
 					if changed {
 						report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: selected.Info}
