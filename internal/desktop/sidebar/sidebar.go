@@ -232,6 +232,15 @@ func View(c *ui.Context, s *State) {
 		}).OnClick(s.NewChat)
 	})
 	ui.Scroll(c.Key("sessions")).Grow(1).Padding(8, 12).Gap(4).Children(func() {
+		if s.Data.Workspace != nil && len(s.Data.Workspace.Hosts) > 0 {
+			section(c, s, "hosts", i18n.T(c, "hosts"), nil, func() {
+				ui.Column(c).Gap(rowGap).Children(func() {
+					for _, host := range s.Data.Workspace.Hosts {
+						s.host(c, host)
+					}
+				})
+			})
+		}
 		if pinned := s.pinned(); len(pinned) > 0 {
 			section(c, s, "pinned", i18n.T(c, "sidebar_pinned"), nil, func() {
 				ui.Column(c).Gap(rowGap).Children(func() {
@@ -255,15 +264,6 @@ func View(c *ui.Context, s *State) {
 				}
 			})
 		})
-		if s.Data.Workspace != nil && len(s.Data.Workspace.Hosts) > 0 {
-			section(c, s, "hosts", i18n.T(c, "hosts"), nil, func() {
-				ui.Column(c).Gap(rowGap).Children(func() {
-					for _, host := range s.Data.Workspace.Hosts {
-						s.host(c, host)
-					}
-				})
-			})
-		}
 	})
 	metricsFooter(c, s.Metrics)
 	s.dialogs(c)
