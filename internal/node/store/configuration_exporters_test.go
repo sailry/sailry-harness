@@ -2,9 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -20,6 +22,11 @@ func TestCompositeConfigurationExportsKeepImmutableRevisions(t *testing.T) {
 	var previous map[string]protocol.ConfigurationFollowRecord
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		info := pluginTestInfo(name, 'a')
+		settings, err := plugins.ValidateSettings([]byte(`{"$schema":"` + plugins.SettingsSchema + `","type":"object","additionalProperties":false,"properties":{"choice":{"type":"string"}}}`))
+		if err != nil {
+			return err
+		}
+		info.Settings = &settings
 		if _, err := InstallPlugin(ctx, db, info, 0, true); err != nil {
 			return err
 		}
@@ -31,7 +38,13 @@ func TestCompositeConfigurationExportsKeepImmutableRevisions(t *testing.T) {
 		if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 			switch change {
 			case "settings":
-				if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET settings_revision=settings_revision+1 WHERE name=?1", name); err != nil {
+				info, err := ReadPlugin(ctx, db, name)
+				if err != nil {
+					return err
+				}
+				if _, err := SavePluginSettings(ctx, db, protocol.CommandSavePluginSettingsPayload{
+					Package: plugins.PackageReference(*info), Values: map[string]json.RawMessage{"choice": json.RawMessage(`"updated"`)},
+				}); err != nil {
 					return err
 				}
 			case "upgrade":

@@ -170,6 +170,7 @@ func TestForwardedSessionAdmitsExpiredSameAccountCapture(t *testing.T) {
 		bundle := protocol.DefaultSessionImport()
 		bundle.Source, bundle.Provider = controller, provider
 		bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = provider.ID, "fixture", &reference
+		bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 		bundle.Roles.Execution = protocol.ConversationExecutionModel
 		for _, fixture := range []struct {
 			name, state, generation string
