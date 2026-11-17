@@ -168,9 +168,6 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 			return nil, invalid("invalid stash mode")
 		}
 		return args, nil
-	case "apply_stash":
-		v := data[protocol.GitActionApplyStashPayload](action.Data)
-		return []string{"stash", "apply", v.Commit}, fullHash(v.Commit)
 	case "drop_stash":
 		if stashPosition < 0 {
 			return nil, invalid("stash does not exist")
