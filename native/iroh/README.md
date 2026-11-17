@@ -21,8 +21,9 @@ once after Go has copied them.
 Each endpoint, connection and stream direction has an opaque integer handle.
 Cancellation settles the original operation once. Closing an endpoint or
 connection cancels descendant operations, releases their resources and waits
-for their callbacks. `send_finish` half closes only the send direction;
-`send_stopped` independently observes acknowledgment or a peer stop code.
+for their callbacks. An unwinding panic while polling an operation is reported
+as an error and releases those waiters. `send_finish` half closes only the send
+direction; `send_stopped` independently observes acknowledgment or a peer stop code.
 The native layer uses cancellation safe `write` and `read` operations.
 
 `endpoint_online`, address and relay status watchers, relay insertion/removal

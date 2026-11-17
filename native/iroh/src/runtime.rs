@@ -1,12 +1,14 @@
 use std::{
     collections::HashMap,
     future::Future,
+    panic::AssertUnwindSafe,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
+use futures_util::FutureExt;
 use iroh::{
     Endpoint,
     endpoint::{Connection, RecvStream, SendStream},
@@ -123,13 +125,20 @@ pub fn spawn(owner: Owner, future: impl Future<Output = Result<Output>> + Send +
         },
     );
     state.runtime.spawn(async move {
-        let result = tokio::select! {
-            biased;
-            _ = stop.cancelled() => None,
-            result = future => Some(result),
-        };
+        let _done = done.drop_guard();
+        // A Tokio task panic must still settle its callback and release the
+        // descendant-operation waiters used when closing its owner.
+        let result = AssertUnwindSafe(async move {
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => None,
+                result = future => Some(result),
+            }
+        })
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| Some(Err("iroh operation panicked".into())));
         state.complete(operation, result);
-        done.cancel();
     });
     operation
 }
@@ -414,5 +423,98 @@ pub unsafe fn copy_input(pointer: *const u8, length: usize) -> Vec<u8> {
         Vec::new()
     } else {
         unsafe { std::slice::from_raw_parts(pointer, length) }.to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{sync::mpsc, time::Duration};
+
+    type Completion = (usize, usize, Vec<u8>);
+    static COMPLETIONS: OnceLock<mpsc::Sender<Completion>> = OnceLock::new();
+
+    extern "C" fn completed(operation: usize, status: usize, pointer: *const u8, length: usize) {
+        let bytes = if pointer.is_null() {
+            Vec::new()
+        } else {
+            // The callback owns the same buffer that the Go binding frees.
+            unsafe {
+                Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                    pointer as *mut u8,
+                    length,
+                ))
+                .into_vec()
+            }
+        };
+        if let Some(sender) = COMPLETIONS.get() {
+            let _ = sender.send((operation, status, bytes));
+        }
+    }
+
+    #[test]
+    fn operations_settle_once_after_success_failure_cancel_or_panic() {
+        let (sender, receiver) = mpsc::channel();
+        assert!(COMPLETIONS.set(sender).is_ok());
+        assert_eq!(init(completed), 0);
+        let state = state();
+
+        for (kind, status) in [("success", 0), ("failure", 1), ("cancel", 2), ("panic", 1)] {
+            let (release, ready) = tokio::sync::oneshot::channel();
+            let operation = spawn(Owner::default(), async move {
+                let _ = ready.await;
+                match kind {
+                    "failure" => Err("fixture failure".into()),
+                    "panic" => panic!("fixture operation panic"),
+                    _ => Ok(Output::Empty),
+                }
+            });
+            let done = state
+                .registry
+                .lock()
+                .unwrap()
+                .operations
+                .get(&operation)
+                .expect("the pending operation is registered")
+                .done
+                .clone();
+            if kind == "cancel" {
+                state.cancel(operation);
+            } else {
+                release.send(()).unwrap();
+            }
+            let (completed_operation, completed_status, bytes) = receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the operation delivered its callback");
+            assert_eq!(completed_operation, operation, "{kind}");
+            assert_eq!(completed_status, status, "{kind}");
+            match kind {
+                "success" => assert_eq!(bytes, b"null"),
+                "failure" => {
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&bytes).unwrap(),
+                        json!({"message": "fixture failure"})
+                    );
+                }
+                "cancel" => assert!(bytes.is_empty()),
+                "panic" => {
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&bytes).unwrap(),
+                        json!({"message": "iroh operation panicked"})
+                    );
+                }
+                _ => unreachable!(),
+            }
+            state.runtime.block_on(async {
+                tokio::time::timeout(Duration::from_secs(5), wait(vec![done]))
+                    .await
+                    .expect("closing the owner can finish");
+            });
+            assert_eq!(state.debug_count(4), 0, "{kind}");
+            assert!(matches!(
+                receiver.try_recv(),
+                Err(mpsc::TryRecvError::Empty)
+            ));
+        }
     }
 }
