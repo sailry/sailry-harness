@@ -20,6 +20,7 @@ func decodePackageData(input any, target any) error {
 func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.PluginInfo, worktreeRoot *string, force bool) (protocol.PluginUpdatesReport, error) {
 	report := protocol.DefaultPluginUpdatesReport()
 	report.Current = current.Summary
+	report.Current.Compatibility = InfoCompatibility(current)
 	if current.Summary.Pinned {
 		return report, nil
 	}
@@ -120,6 +121,22 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 	if err != nil {
 		return report, err
 	}
+	return AssessUpdate(current, candidate)
+}
+
+// AssessUpdate applies this Node's update policy to an already captured package,
+// including packages uploaded from a controller's local directory.
+func AssessUpdate(current, candidate protocol.PluginInfo) (protocol.PluginUpdatesReport, error) {
+	report := protocol.DefaultPluginUpdatesReport()
+	report.Current = current.Summary
+	report.Current.Compatibility = InfoCompatibility(current)
+	if current.Summary.Pinned {
+		return report, nil
+	}
+	if current.Skill == nil && (current.Summary.Version == nil || !validPackageVersion(*current.Summary.Version)) {
+		report.Manual = true
+		return report, nil
+	}
 	if candidate.Summary.Name != current.Summary.Name {
 		return report, packageFault("plugin update has a different identity")
 	}
@@ -129,7 +146,8 @@ func (manager *Manager) CheckUpdate(ctx context.Context, current protocol.Plugin
 	if current.Skill == nil && !packagePrerelease(current.Summary.Version) && packagePrerelease(candidate.Summary.Version) {
 		return report, nil
 	}
-	if InfoCompatibility(candidate).Kind == "compatible" {
+	candidate.Summary.Compatibility = InfoCompatibility(candidate)
+	if candidate.Summary.Compatibility.Kind == "compatible" {
 		report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: candidate}
 	}
 	return report, nil
