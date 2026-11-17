@@ -132,9 +132,33 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   final Map<HostConnection, Future<void>> _removals = {};
   Future<void> _hostChanges = Future.value();
   String? _selected;
+  String? _project;
+  String? _worktree;
 
   List<HostConnection> get hosts => List.unmodifiable(_hosts);
   HostConnection? get selectedHost => host(_selected);
+  // null selects all projects on the current host; the empty string selects
+  // unassigned conversations. Explicit detail routes retain their own owner.
+  String? get selectedProjectId => _project;
+  String? get selectedWorktreeId {
+    if (_project == null || _project!.isEmpty) return null;
+    final trees = objects(
+      selectedHost?.snapshot['worktrees'],
+    ).where((tree) => tree['project'] == _project);
+    final tree =
+        trees.where((tree) => tree['id'] == _worktree).firstOrNull ??
+        trees.where((tree) => tree['main'] == true).firstOrNull ??
+        trees.firstOrNull;
+    return tree?['id'] as String?;
+  }
+
+  bool isRemovingHost(HostConnection target) => _removals.containsKey(target);
+  // The saved demo stays selectable without entering the live resource catalog.
+  List<HostConnection> get resourceHosts {
+    final demo = selectedHost?.isDemo == true;
+    return List.unmodifiable(_hosts.where((host) => host.isDemo == demo));
+  }
+
   HostConnection? host(String? id) =>
       _hosts.where((value) => value.id == id).firstOrNull;
 
@@ -206,7 +230,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
         throw StateError('controller is closed');
       }
       for (final address in addresses) {
-        await _connect(address, opened);
+        await _connect(address, opened, select: false);
       }
       if (_closed || controller != opened) {
         throw StateError('controller is closed');
@@ -306,28 +330,43 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final owner = controller;
     if (_closed || !ready || owner == null) return Future.value();
     return _peerRefresh ??=
-        _change(owner, () async {
+        (() async {
+              // Remote directory reads must not hold up local removal. The
+              // queue identity also invalidates reads spanning a pairing change.
+              final barrier = _hostChanges;
+              await barrier;
+              if (_closed ||
+                  controller != owner ||
+                  !identical(_hostChanges, barrier)) {
+                return;
+              }
               final addresses = await owner.peers();
-              if (_closed || controller != owner) return;
-              final ids = <String>{};
-              for (final address in addresses) {
-                final id = _addressRouteKey(object(jsonDecode(address)));
-                if (id.isEmpty) {
-                  throw const FormatException('endpoint has no identity');
+              if (_closed ||
+                  controller != owner ||
+                  !identical(_hostChanges, barrier)) {
+                return;
+              }
+              await _change(owner, () async {
+                final ids = <String>{};
+                for (final address in addresses) {
+                  final id = _addressRouteKey(object(jsonDecode(address)));
+                  if (id.isEmpty) {
+                    throw const FormatException('endpoint has no identity');
+                  }
+                  ids.add(id);
                 }
-                ids.add(id);
-              }
-              for (final target in List.of(_hosts)) {
-                if (!target.isDemo && !ids.contains(target.id)) {
-                  await _remove(target, owner, forget: false);
+                for (final target in List.of(_hosts)) {
+                  if (!target.isDemo && !ids.contains(target.id)) {
+                    await _remove(target, owner, forget: false);
+                  }
                 }
-              }
-              for (final address in addresses) {
-                if (_closed || controller != owner) return;
-                final target = await _connect(address, owner, select: false);
-                if (!target.connected) unawaited(target.refresh());
-              }
-            })
+                for (final address in addresses) {
+                  if (_closed || controller != owner) return;
+                  final target = await _connect(address, owner, select: false);
+                  if (!target.connected) unawaited(target.refresh());
+                }
+              });
+            })()
             .catchError((Object failure) {
               if (!_closed && controller == owner) {
                 debugPrint('Host directory unavailable: $failure');
@@ -384,26 +423,83 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       .._applyPeerMetadata(decoded);
     connected.addListener(_changed);
     _hosts.add(connected);
-    _selected ??= id;
-    _changed();
     unawaited(connected.watch());
+    if (select || _selected == null) {
+      selectHost(id);
+    } else {
+      _changed();
+    }
     return connected;
   }
 
   void selectHost(String id) {
     final target = host(id);
-    if (target == null) return;
-    if (target._connection != null) unawaited(target.watch());
-    if (_selected == id) return;
-    _selected = id;
-    unawaited(
-      _demoPreferences
-          ?.setBool(_demoSelectedKey, target.isDemo)
-          .catchError(
-            (Object failure) =>
-                debugPrint('Host selection preference failed: $failure'),
-          ),
+    if (target == null || isRemovingHost(target)) return;
+    if (_selected == id) {
+      if (target._connection != null) unawaited(target.watch());
+      return;
+    }
+    _selectContext(target, null, null);
+  }
+
+  void selectProject(String hostId, String? projectId) {
+    final target = host(hostId);
+    if (target == null || isRemovingHost(target)) return;
+    if (projectId != null &&
+        projectId.isNotEmpty &&
+        !objects(
+          target.snapshot['projects'],
+        ).any((project) => project['id'] == projectId)) {
+      return;
+    }
+    _selectContext(
+      target,
+      projectId,
+      _selected == hostId && _project == projectId ? _worktree : null,
     );
+  }
+
+  void selectWorkspace(String hostId, String worktreeId) {
+    final target = host(hostId);
+    if (target == null || isRemovingHost(target)) return;
+    final tree = objects(
+      target.snapshot['worktrees'],
+    ).where((tree) => tree['id'] == worktreeId).firstOrNull;
+    final project = tree?['project'];
+    if (project is! String ||
+        !objects(
+          target.snapshot['projects'],
+        ).any((item) => item['id'] == project)) {
+      return;
+    }
+    _selectContext(target, project, worktreeId);
+  }
+
+  void _selectContext(
+    HostConnection target,
+    String? project,
+    String? worktree,
+  ) {
+    if (target._connection != null) unawaited(target.watch());
+    if (_selected == target.id &&
+        _project == project &&
+        _worktree == worktree) {
+      return;
+    }
+    final changedHost = _selected != target.id;
+    _selected = target.id;
+    _project = project;
+    _worktree = worktree;
+    if (changedHost) {
+      unawaited(
+        _demoPreferences
+            ?.setBool(_demoSelectedKey, target.isDemo)
+            .catchError(
+              (Object failure) =>
+                  debugPrint('Host selection preference failed: $failure'),
+            ),
+      );
+    }
     _changed();
   }
 
@@ -415,12 +511,15 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     if (_closed || !ready || owner == null && !target.isDemo) {
       return Future.error(StateError('controller is not ready'));
     }
-    return _removals.putIfAbsent(
+    final removal = _removals.putIfAbsent(
       target,
       () => _change(owner, () => _remove(target, owner)).whenComplete(() {
         _removals.remove(target);
+        _changed();
       }),
     );
+    _changed();
+    return removal;
   }
 
   Future<void> _remove(
@@ -447,7 +546,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     _hosts.remove(target);
     if (_selected == target.id) {
       _selected = null;
-      final next = _hosts.firstOrNull;
+      final next = _hosts.where((host) => !isRemovingHost(host)).firstOrNull;
       if (next != null) selectHost(next.id);
     }
     _changed();
@@ -504,6 +603,15 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _changed() {
+    if (selectedHost == null ||
+        _project != null &&
+            _project!.isNotEmpty &&
+            !objects(
+              selectedHost?.snapshot['projects'],
+            ).any((project) => project['id'] == _project)) {
+      _project = null;
+      _worktree = null;
+    }
     background.update(
       hasHosts: !_closed && ready && _hosts.any((host) => !host.isDemo),
     );
@@ -898,6 +1006,7 @@ class HostConnection extends ChangeNotifier {
     _closed = true;
     connected = false;
     transport = {};
+    notifyListeners();
     _settle();
     final updates = _updates;
     _updates = null;

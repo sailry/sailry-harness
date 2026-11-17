@@ -11,6 +11,7 @@ import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/demo/connection.dart';
 import 'package:sailry_mobile/features/conversations/live/modes.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
+import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/resources/pair_form.dart';
 import 'package:sailry_mobile/features/resources/git/model.dart' as git;
 import 'package:sailry_mobile/features/terminal/emulator.dart';
@@ -57,9 +58,11 @@ class _GenuineConnection extends Fake implements Connection {
 }
 
 class _Owner extends Fake implements Controller {
+  _Owner({Translator translate = tr})
+    : channel = DemoConnection(translate: translate);
   final addresses = <String>[];
   final forgotten = <String>[];
-  final channel = DemoConnection(translate: tr);
+  final DemoConnection channel;
   String? pin;
   @override
   Future<List<String>> peers() async => addresses;
@@ -205,6 +208,66 @@ void main() {
     expect(host.isDemo, isFalse);
     expect(owner.pin, '123456');
     expect(initialized, 1);
+    await session.close();
+    session.dispose();
+    await owner.channel.close();
+  });
+
+  testWidgets('pairing a real host replaces the visible demo catalog', (
+    tester,
+  ) async {
+    final owner = _Owner(
+      translate: (key) =>
+          key == 'demoConversationTitle' ? 'Paired host conversation' : tr(key),
+    );
+    // The non-demo adapter starts with an empty Node snapshot.
+    (owner.channel.snapshot['sessions'] as List).clear();
+    final preferences = _Preferences();
+    final session = AppSession.test(
+      controller: owner,
+      preferences: preferences,
+    );
+    final demo = await session.pairPin('888888');
+    await tester.pumpWidget(SailryApp(session: session));
+    await tester.pump();
+    expect(find.text(tr('demoConversationTitle')), findsOneWidget);
+
+    final live = await session.pairPin('123456');
+    await tester.pump();
+    expect(session.selectedHost, same(live));
+    expect(session.hosts, [demo, live]);
+    expect(session.resourceHosts, [live]);
+    expect(preferences.values['hosts.demo.enabled'], isTrue);
+    expect(preferences.values['hosts.demo.selected'], isFalse);
+    expect(find.byType(ConversationTask), findsNothing);
+
+    final created = await live.command('create_session', {
+      'config': <String, dynamic>{},
+    });
+    await tester.pump();
+    expect(find.byType(ConversationTask), findsOneWidget);
+    expect(find.text('Paired host conversation'), findsOneWidget);
+    expect(
+      tester
+          .widget<ConversationTask>(find.byType(ConversationTask))
+          .session['id'],
+      object(created['data'])['id'],
+    );
+
+    session.selectHost(demo.id);
+    await tester.pump();
+    expect(session.resourceHosts, [demo]);
+    expect(find.text(tr('demoConversationTitle')), findsOneWidget);
+    expect(find.text('Paired host conversation'), findsNothing);
+    expect(find.byType(ConversationTask), findsNWidgets(2));
+    session.selectHost(live.id);
+    await tester.pump();
+    expect(find.text(tr('demoConversationTitle')), findsNothing);
+    expect(find.text('Paired host conversation'), findsOneWidget);
+    expect(find.byType(ConversationTask), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pumpWidget(const SizedBox.shrink());
     await session.close();
     session.dispose();
     await owner.channel.close();

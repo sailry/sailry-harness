@@ -19,13 +19,29 @@ String messagePreview(
 }) {
   for (final entry in entries.reversed) {
     final parts = objects(entry['parts']);
-    final content = parts
-        .where((part) => part['kind'] == 'text')
-        .map((part) => text(part['data']))
-        .join('')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    if (content.isNotEmpty) return content;
+    final content = StringBuffer();
+    var length = 0;
+    var space = false;
+    // A list row needs only a short prefix, even when a reply contains a large
+    // document. Preserve part boundaries and Unicode without joining the reply.
+    for (final part in parts) {
+      if (part['kind'] != 'text') continue;
+      for (final rune in text(part['data']).runes) {
+        if (_previewWhitespace.hasMatch(String.fromCharCode(rune))) {
+          space = length > 0;
+          continue;
+        }
+        if (space) {
+          content.write(' ');
+          length++;
+          space = false;
+        }
+        if (length >= 512) return content.toString().trimRight();
+        content.writeCharCode(rune);
+        if (++length == 512) return content.toString();
+      }
+    }
+    if (content.isNotEmpty) return content.toString();
     for (final part in parts) {
       if (part['kind'] == 'attachment') {
         return text(
@@ -38,6 +54,8 @@ String messagePreview(
   return '';
 }
 
+final _previewWhitespace = RegExp(r'\s');
+
 class ConversationTask extends StatefulWidget {
   const ConversationTask({
     super.key,
@@ -46,6 +64,7 @@ class ConversationTask extends StatefulWidget {
     required this.project,
     required this.now,
     this.divider = true,
+    this.previewActive,
   });
   final HostConnection host;
   final Map<String, dynamic> session;
@@ -54,6 +73,9 @@ class ConversationTask extends StatefulWidget {
   /// Shared page clock so row times and list sections agree.
   final DateTime now;
   final bool divider;
+
+  /// A covered task list keeps its rows without continuing background reads.
+  final bool Function()? previewActive;
 
   @override
   State<ConversationTask> createState() => _ConversationTaskState();
@@ -83,11 +105,20 @@ class _ConversationTaskState extends State<ConversationTask> {
   }
 
   void _refresh() {
-    // Unrelated host metrics and theme updates must not reread every conversation.
+    if (widget.previewActive?.call() == false) return;
+    // Read markers, titles and configuration revisions do not change history.
+    // Run transitions and queue/wait changes still refresh the committed preview.
+    final activity = object(widget.session['activity']);
+    final run = object(activity['run']);
     final stamp = jsonEncode([
       widget.host.connected,
-      widget.session['revision'],
-      widget.session['activity'],
+      run['turn'],
+      run['sequence'],
+      run['revision'],
+      run['status'],
+      run['finished_ms'],
+      activity['waiting'],
+      activity['queued'],
     ]);
     if (stamp == _stamp) return;
     _stamp = stamp;
@@ -119,6 +150,10 @@ class _ConversationTaskState extends State<ConversationTask> {
             .where((entry) => entry['turn'] == turn)
             .firstOrNull?['sequence'];
         while (mounted && request == _request) {
+          if (widget.previewActive?.call() == false) {
+            _stamp = null;
+            return;
+          }
           final result = await host.command('read_turn', {
             'session': session,
             'turn': turn,
@@ -141,11 +176,15 @@ class _ConversationTaskState extends State<ConversationTask> {
         }
       }
       if (mounted && request == _request) {
-        setState(() => _preview = preview);
+        _preview = preview;
+        if (widget.previewActive?.call() != false) setState(() {});
       }
     } catch (error) {
       debugPrint('Conversation preview unavailable: $error');
-      if (mounted && request == _request) setState(() => _failed = true);
+      if (mounted && request == _request) {
+        _failed = true;
+        if (widget.previewActive?.call() != false) setState(() {});
+      }
     }
   }
 

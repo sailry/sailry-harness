@@ -64,8 +64,11 @@ class _HostList extends StatefulWidget {
 class _HostListState extends State<_HostList> {
   final _removing = <String>{};
 
+  bool _busy(HostConnection target) =>
+      _removing.contains(target.id) || widget.session.isRemovingHost(target);
+
   Future<void> _remove(HostConnection target) async {
-    if (_removing.contains(target.id)) return;
+    if (_busy(target)) return;
     final session = widget.session;
     setState(() => _removing.add(target.id));
     try {
@@ -125,18 +128,27 @@ class _HostListState extends State<_HostList> {
           if (index > 0) const Divider(),
           HostRow(
             host: host,
-            onTap: () {
-              Navigator.pop(context);
-              widget.session.selectHost(host.id);
-            },
+            onTap: _busy(host)
+                ? null
+                : () {
+                    Navigator.pop(context);
+                    widget.session.selectHost(host.id);
+                  },
             trailing: host.routed
                 ? null
                 : IconButton(
+                    key: ValueKey('remove-host-${host.id}'),
                     tooltip: context.tr('hostRemove'),
-                    onPressed: _removing.contains(host.id)
-                        ? null
-                        : () => _remove(host),
-                    icon: const AppIcon('trash', size: 18),
+                    onPressed: _busy(host) ? null : () => _remove(host),
+                    icon: _busy(host)
+                        ? SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator.adaptive(
+                              strokeWidth: 2,
+                              semanticsLabel: context.tr('loading'),
+                            ),
+                          )
+                        : const AppIcon('trash', size: 18),
                   ),
           ),
         ],
@@ -170,7 +182,7 @@ class HostRow extends StatelessWidget {
     this.selected = false,
   });
   final HostConnection host;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final Widget? trailing;
   final bool selected;
 

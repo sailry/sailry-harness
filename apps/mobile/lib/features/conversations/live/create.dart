@@ -23,9 +23,11 @@ class NewConversationPage extends StatefulWidget {
     super.key,
     required this.host,
     this.initialProject,
+    this.initialWorktree,
   });
   final HostConnection host;
   final String? initialProject;
+  final String? initialWorktree;
 
   @override
   State<NewConversationPage> createState() => _NewConversationPageState();
@@ -38,6 +40,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
   late final _creation = CreationDraft(
     widget.host,
     initialProject: widget.initialProject,
+    initialWorktree: widget.initialWorktree,
   );
 
   List<PickedAttachment> get _files =>

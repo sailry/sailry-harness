@@ -175,6 +175,7 @@ class Owner extends Fake implements Controller {
   int disposals = 0;
   final addresses = <String>[];
   Future<List<String>>? pendingPeers;
+  final peersStarted = Completer<void>();
   Future<Connection> Function(String)? connecting;
   String ticket = '';
   String? pin;
@@ -186,7 +187,11 @@ class Owner extends Fake implements Controller {
   Future<void>? pendingForget;
   final forgetStarted = Completer<void>();
   @override
-  Future<List<String>> peers() async => pendingPeers ?? addresses;
+  Future<List<String>> peers() async {
+    if (!peersStarted.isCompleted) peersStarted.complete();
+    return pendingPeers ?? addresses;
+  }
+
   @override
   Future<Connection> connect({required String address}) => connecting!(address);
   @override
@@ -377,6 +382,116 @@ void main() {
       await session.close();
     },
   );
+  test(
+    'explicit pairing selects a newly added host for both entry points',
+    () async {
+      for (final byPin in [false, true]) {
+        final previous = HostConnection.test(id: 'previous', label: 'Previous');
+        final channel = Channel();
+        final owner = Owner()..connecting = (_) async => channel;
+        final session = AppSession.test(hosts: [previous], controller: owner);
+        final paired = byPin
+            ? await session.pairPin('123456')
+            : await session.pair('ticket');
+        expect(session.selectedHost, same(paired));
+        expect(session.resourceHosts, [previous, paired]);
+        expect(channel.watches, 1);
+        await session.close();
+        session.dispose();
+      }
+    },
+  );
+  test(
+    'pending directory reads do not delay removal or restore its old peer',
+    () {
+      fakeAsync((clock) {
+        final pending = Completer<List<String>>();
+        final channel = Channel();
+        var connections = 0;
+        final owner = Owner()
+          ..pendingPeers = pending.future
+          ..connecting = (_) async {
+            connections++;
+            return Channel();
+          };
+        final host = HostConnection.test(
+          id: 'host',
+          label: 'Host',
+          address: address('host'),
+          connection: channel,
+        );
+        final session = AppSession.test(hosts: [host], controller: owner);
+        var refreshed = false;
+        unawaited(session.refreshHosts().then((_) => refreshed = true));
+        clock.flushMicrotasks();
+        expect(owner.peersStarted.isCompleted, isTrue);
+        var removed = false;
+        unawaited(session.removeHost(host).then((_) => removed = true));
+        clock.flushMicrotasks();
+        expect(removed, isTrue);
+        expect(refreshed, isFalse);
+        expect(pending.isCompleted, isFalse);
+        expect(owner.forgotten, [address('host')]);
+        expect(session.hosts, isEmpty);
+        expect(channel.closes, 1);
+
+        pending.complete([address('host')]);
+        clock.flushMicrotasks();
+        expect(refreshed, isTrue);
+        expect(session.hosts, isEmpty);
+        expect(connections, 0);
+        unawaited(session.close());
+        clock.flushMicrotasks();
+        session.dispose();
+      });
+    },
+  );
+  test('an old directory cannot remove a newly re-paired instance', () {
+    fakeAsync((clock) {
+      final pending = Completer<List<String>>();
+      final previous = Channel();
+      final replacement = Channel();
+      final owner = Owner()
+        ..pendingPeers = pending.future
+        ..connecting = (_) async => replacement;
+      final host = HostConnection.test(
+        id: 'paired',
+        label: 'Host',
+        address: address('paired'),
+        connection: previous,
+      );
+      final session = AppSession.test(hosts: [host], controller: owner);
+      var refreshed = false;
+      unawaited(session.refreshHosts().then((_) => refreshed = true));
+      clock.flushMicrotasks();
+      expect(owner.peersStarted.isCompleted, isTrue);
+      var removed = false;
+      unawaited(session.removeHost(host).then((_) => removed = true));
+      clock.flushMicrotasks();
+      expect(removed, isTrue);
+      HostConnection? paired;
+      unawaited(session.pairPin('123456').then((value) => paired = value));
+      clock.flushMicrotasks();
+      expect(paired, isNotNull);
+      expect(paired, isNot(same(host)));
+      expect(session.hosts, [paired]);
+      expect(paired!.connection, same(replacement));
+      expect(refreshed, isFalse);
+
+      pending.complete([]);
+      clock.flushMicrotasks();
+      expect(refreshed, isTrue);
+      expect(session.hosts, [paired]);
+      expect(session.selectedHost, same(paired));
+      expect(previous.closes, 1);
+      expect(replacement.closes, 0);
+      expect(replacement.watches, 1);
+      expect(owner.forgotten, [address('paired')]);
+      unawaited(session.close());
+      clock.flushMicrotasks();
+      session.dispose();
+    });
+  });
   group('host removal', () {
     test("removes hosts without losing selection or subscriptions", () async {
       for (final (caseName, run) in <(String, Future<void> Function(String))>[

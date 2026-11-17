@@ -13,6 +13,7 @@ import 'git_page.dart';
 import 'host/host_sheet.dart';
 import 'overview_cards.dart';
 import 'ports_page.dart';
+import 'project_form.dart';
 import 'workspace.dart';
 
 class ResourcesPage extends StatefulWidget {
@@ -24,18 +25,8 @@ class ResourcesPage extends StatefulWidget {
 }
 
 class _ResourcesPageState extends State<ResourcesPage> {
-  late String? _hostId = widget.hostId;
-  late String? _worktreeId = widget.worktreeId;
-  String? _scope;
+  bool get _fixedScope => widget.hostId != null || widget.worktreeId != null;
   final _git = GitSummary();
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final id = _hostId ?? AppSession.of(context).selectedHost?.id;
-    if (_scope != null && _scope != id) _worktreeId = null;
-    _scope = id;
-  }
 
   @override
   void dispose() {
@@ -45,7 +36,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
 
   Future<void> _host() async {
     final session = AppSession.of(context);
-    final current = _hostId ?? session.selectedHost?.id;
+    final current = session.selectedHost?.id;
     final id = await showAppSheet<String>(
       context,
       context.tr('selectHost'),
@@ -65,10 +56,6 @@ class _ResourcesPageState extends State<ResourcesPage> {
     );
     if (id != null && mounted) {
       session.selectHost(id);
-      setState(() {
-        if (widget.hostId != null) _hostId = id;
-        _worktreeId = null;
-      });
     }
   }
 
@@ -77,8 +64,23 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final id = await showLiveWorkspacePicker(
       context,
       host,
-      _worktreeId,
+      session.selectedWorktreeId,
       actions: [
+        if (host.connected)
+          Builder(
+            builder: (context) => ListTile(
+              leading: const AppIcon('plus'),
+              title: Text(context.tr('hostRegisterProject')),
+              onTap: () {
+                Navigator.pop(context);
+                showAppSheet(
+                  this.context,
+                  this.context.tr('hostRegisterProject'),
+                  child: ProjectForm(host: host),
+                );
+              },
+            ),
+          ),
         if (session.hosts.length > 1)
           Builder(
             builder: (context) => ListTile(
@@ -94,7 +96,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
           ),
       ],
     );
-    if (mounted && id != null) setState(() => _worktreeId = id);
+    if (mounted && id != null) session.selectWorkspace(host.id, id);
   }
 
   /// Returning from a resource page refreshes the Git summary it may change.
@@ -106,16 +108,20 @@ class _ResourcesPageState extends State<ResourcesPage> {
   @override
   Widget build(BuildContext context) {
     final session = AppSession.of(context);
-    final host = _hostId == null
+    final host = widget.hostId == null
         ? session.selectedHost
-        : session.host(_hostId!);
-    final target = resourceTarget(context, _hostId, _worktreeId);
+        : session.host(widget.hostId!);
+    final target = resourceTarget(context, widget.hostId, widget.worktreeId);
     final ready = host != null && host.connected && target != null;
     final worktree = ready ? text(target.worktree['id']) : null;
     _git.track(ready ? host : null, worktree);
-    final pushed = ModalRoute.canPopOf(context) == true;
     return PageFrame(
       title: context.tr('resources'),
+      onRefresh: host == null
+          ? null
+          : () async {
+              await Future.wait([session.refreshHosts(), host.refresh()]);
+            },
       failure: host?.connected != true
           ? HostState(added: host != null, failure: host?.error)
           : null,
@@ -132,8 +138,8 @@ class _ResourcesPageState extends State<ResourcesPage> {
               TerminalPage(hostId: host.id, worktreeId: worktree),
             ),
           ),
-        // Without a workspace bar the host choice stays in the header.
-        if (!ready && !pushed && session.hosts.isNotEmpty)
+        // Keep host choice available while no workspace is usable.
+        if (!ready && !_fixedScope && session.hosts.isNotEmpty)
           RoundButton(
             icon: 'server',
             tooltip: context.tr('selectHost'),
@@ -144,6 +150,13 @@ class _ResourcesPageState extends State<ResourcesPage> {
           ? ListenableBuilder(
               listenable: Listenable.merge([_git, host.ports]),
               builder: (context, _) => _overview(host, target),
+            )
+          : host != null && host.connected && !_fixedScope
+          ? ProjectBar(
+              project: null,
+              title: context.tr('selectWorkspace'),
+              detail: host.label,
+              onTap: () => _workspace(host),
             )
           : const SizedBox.shrink(),
     );
@@ -172,9 +185,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ProjectBar(
           project: {...?project, 'name': name},
           detail: branch,
-          onTap: ModalRoute.canPopOf(context) == true
-              ? null
-              : () => _workspace(host),
+          onTap: _fixedScope ? null : () => _workspace(host),
         ),
         GitOverviewCard(
           summary: _git,

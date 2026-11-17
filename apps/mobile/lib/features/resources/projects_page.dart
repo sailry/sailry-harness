@@ -8,6 +8,7 @@ import '../../ui/kit.dart';
 import '../../ui/project_icon.dart';
 import 'project_form.dart';
 import 'resources_page.dart';
+import 'workspace.dart';
 
 class ProjectsPage extends StatelessWidget {
   const ProjectsPage({super.key, required this.host});
@@ -19,7 +20,8 @@ class ProjectsPage extends StatelessWidget {
     return ListenableBuilder(
       listenable: session ?? host,
       builder: (context, _) {
-        final hosts = session?.hosts ?? [host];
+        final current = session == null ? host : session.selectedHost;
+        final hosts = [?current];
         final projects = hostRecords(hosts, 'projects');
         final connected = hosts.any((source) => source.connected);
         return PageFrame(
@@ -28,17 +30,17 @@ class ProjectsPage extends StatelessWidget {
             await Future.wait([for (final source in hosts) source.refresh()]);
           },
           failure: !connected && projects.isEmpty
-              ? HostState(added: true, failure: host.error)
+              ? HostState(added: current != null, failure: current?.error)
               : null,
           actions: [
-            if (host.connected)
+            if (current != null && current.connected)
               RoundButton(
                 icon: 'plus',
                 tooltip: context.tr('hostRegisterProject'),
                 onPressed: () => showAppSheet(
                   context,
                   context.tr('hostRegisterProject'),
-                  child: ProjectForm(host: host),
+                  child: ProjectForm(host: current),
                 ),
               ),
           ],
@@ -64,10 +66,21 @@ class ProjectsPage extends StatelessWidget {
                   onTap: !source.connected
                       ? null
                       : () {
-                          final tree = objects(source.snapshot['worktrees'])
-                              .where((tree) => tree['project'] == project['id'])
-                              .firstOrNull;
+                          final projectId = text(project['id']);
+                          final trees = projectWorktrees(
+                            source,
+                            project: projectId,
+                          );
+                          final tree =
+                              trees
+                                  .where((tree) => tree['main'] == true)
+                                  .firstOrNull ??
+                              trees.firstOrNull;
                           if (tree != null) {
+                            session?.selectWorkspace(
+                              source.id,
+                              text(tree['id']),
+                            );
                             pushPage(
                               context,
                               ResourcesPage(
@@ -75,6 +88,8 @@ class ProjectsPage extends StatelessWidget {
                                 worktreeId: text(tree['id']),
                               ),
                             );
+                          } else {
+                            session?.selectProject(source.id, projectId);
                           }
                         },
                 ),

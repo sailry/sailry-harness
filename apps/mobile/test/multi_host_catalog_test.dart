@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
+import 'package:sailry_mobile/features/conversations/live/create.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
 import 'package:sailry_mobile/features/conversations/live/task_filters.dart';
 import 'package:sailry_mobile/features/conversations/live/tasks.dart';
@@ -9,6 +10,7 @@ import 'package:sailry_mobile/features/conversations/live/terminal_tasks.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
 import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
+import 'package:sailry_mobile/features/terminal/terminal_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/catalog.dart';
 import 'package:sailry_mobile/runtime/session.dart';
@@ -219,89 +221,96 @@ void main() {
     await release(tester, session);
   });
 
-  testWidgets('tasks aggregate hosts and route row actions to their owner', (
-    tester,
-  ) async {
-    final firstCalls = <String>[];
-    final secondCalls = <String>[];
-    final first = source(
-      'first',
-      connected: false,
-      command: (kind, _) async {
-        firstCalls.add(kind);
-        return {'data': <String, dynamic>{}};
-      },
-    );
-    final second = source(
-      'second',
-      command: (kind, _) async {
-        secondCalls.add(kind);
-        return {'data': <String, dynamic>{}};
-      },
-    );
-    final session = AppSession.test(hosts: [first, second]);
-    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
-    await tester.pump();
-    expect(find.text('first-conversation'), findsOneWidget);
-    expect(find.text('second-conversation'), findsOneWidget);
-    expect(firstCalls, isEmpty);
-    expect(secondCalls, ['read_conversation']);
-    expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
-    final row = tester.widget<Slidable>(slidable(('second', 'same-session')));
-    final archive = row.endActionPane!.children.first as SwipeAction;
-    archive.onPressed!(tester.element(find.byType(LiveTasksPage)));
-    await tester.pump();
-    expect(secondCalls.last, 'set_session_archived');
-    expect(firstCalls, isEmpty);
-    expect(session.selectedHost, same(first));
-    final offline = tester.widget<Slidable>(
-      slidable(('first', 'same-session')),
-    );
-    expect(
-      (offline.endActionPane!.children.first as SwipeAction).onPressed,
-      isNull,
-    );
-    await release(tester, session);
-  });
-
   testWidgets(
-    'project filters include host identity and select action context',
+    'tasks follow the selected host and route actions to their owner',
     (tester) async {
-      final first = source('first');
-      final second = source('second');
+      final firstCalls = <String>[];
+      final secondCalls = <String>[];
+      final first = source(
+        'first',
+        connected: false,
+        command: (kind, _) async {
+          firstCalls.add(kind);
+          return {'data': <String, dynamic>{}};
+        },
+      );
+      final second = source(
+        'second',
+        command: (kind, _) async {
+          secondCalls.add(kind);
+          return {'data': <String, dynamic>{}};
+        },
+      );
       final session = AppSession.test(hosts: [first, second]);
       await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
       await tester.pump();
-      await tester.tap(find.byType(ProjectBar));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('second-project'));
-      await tester.pumpAndSettle();
+      expect(find.text('first-conversation'), findsOneWidget);
+      expect(find.text('second-conversation'), findsNothing);
+      expect(firstCalls, isEmpty);
+      expect(secondCalls, isEmpty);
+      expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
+      final offline = tester.widget<Slidable>(
+        slidable(('first', 'same-session')),
+      );
+      expect(
+        (offline.endActionPane!.children.first as SwipeAction).onPressed,
+        isNull,
+      );
+      session.selectHost(second.id);
+      await tester.pump();
       expect(find.text('first-conversation'), findsNothing);
       expect(find.text('second-conversation'), findsOneWidget);
-      expect(
-        tester
-            .widget<ConversationTask>(find.byType(ConversationTask))
-            .project['name'],
-        'second-project',
-      );
-      expect(session.selectedHost, same(first));
-      await tester.tap(find.byType(ProjectBar));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.text(
-          tester.element(find.byType(LiveTasksPage)).tr('hostRegisterProject'),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<ProjectForm>(find.byType(ProjectForm)).host,
-        same(second),
-      );
+      expect(secondCalls, ['read_conversation']);
+      final row = tester.widget<Slidable>(slidable(('second', 'same-session')));
+      final archive = row.endActionPane!.children.first as SwipeAction;
+      archive.onPressed!(tester.element(find.byType(LiveTasksPage)));
+      await tester.pump();
+      expect(secondCalls.last, 'set_session_archived');
+      expect(firstCalls, isEmpty);
+      expect(session.selectedHost, same(second));
       await release(tester, session);
     },
   );
 
-  testWidgets('offline cached tasks stay visible and counts aggregate', (
+  testWidgets('project selection changes global host and project together', (
+    tester,
+  ) async {
+    final first = source('first');
+    final second = source('second');
+    final session = AppSession.test(hosts: [first, second]);
+    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
+    await tester.pump();
+    await tester.tap(find.byType(ProjectBar));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('second-project'));
+    await tester.pumpAndSettle();
+    expect(find.text('first-conversation'), findsNothing);
+    expect(find.text('second-conversation'), findsOneWidget);
+    expect(
+      tester
+          .widget<ConversationTask>(find.byType(ConversationTask))
+          .project['name'],
+      'second-project',
+    );
+    expect(session.selectedHost, same(second));
+    expect(session.selectedProjectId, 'shared-id');
+    expect(session.selectedWorktreeId, 'second-tree');
+    await tester.tap(find.byType(ProjectBar));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.text(
+        tester.element(find.byType(LiveTasksPage)).tr('hostRegisterProject'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ProjectForm>(find.byType(ProjectForm)).host,
+      same(second),
+    );
+    await release(tester, session);
+  });
+
+  testWidgets('offline cached tasks and counts follow the selected host', (
     tester,
   ) async {
     final first = source('first', connected: false);
@@ -314,12 +323,98 @@ void main() {
     await tester.pump();
     expect(find.text('first-conversation'), findsOneWidget);
     expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
+    expect(tester.widget<TaskFilters>(find.byType(TaskFilters)).archived, 0);
+    session.selectHost(second.id);
+    await tester.pump();
+    expect(find.text('first-conversation'), findsNothing);
     final filters = tester.widget<TaskFilters>(find.byType(TaskFilters));
     expect(filters.archived, 1);
     filters.onArchive();
     await tester.pump();
     expect(find.text('second-conversation'), findsOneWidget);
     expect(find.text('first-conversation'), findsNothing);
+    await release(tester, session);
+  });
+
+  testWidgets('all-project and unassigned filters stay on the current host', (
+    tester,
+  ) async {
+    final first = source('first');
+    final second = source('second');
+    second.snapshot['sessions'] = [
+      conversation('second-project-chat'),
+      {...conversation('second-unassigned', project: null), 'id': 'unassigned'},
+    ];
+    final session = AppSession.test(hosts: [first, second]);
+    session.selectProject(second.id, 'shared-id');
+    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
+    await tester.pump();
+    expect(find.text('second-project-chat'), findsOneWidget);
+    expect(find.text('second-unassigned'), findsNothing);
+
+    await tester.tap(find.byType(ProjectBar));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(
+        ListTile,
+        tester.element(find.byType(LiveTasksPage)).tr('unassignedChats'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(session.selectedHost, same(second));
+    expect(session.selectedProjectId, '');
+    expect(session.selectedWorktreeId, isNull);
+    expect(find.text('second-project-chat'), findsNothing);
+    expect(find.text('second-unassigned'), findsOneWidget);
+    expect(find.text('first-conversation'), findsNothing);
+
+    await tester.tap(find.byType(ProjectBar));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(
+        ListTile,
+        tester.element(find.byType(LiveTasksPage)).tr('allProjects'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(session.selectedHost, same(second));
+    expect(session.selectedProjectId, isNull);
+    expect(find.text('second-project-chat'), findsOneWidget);
+    expect(find.text('second-unassigned'), findsOneWidget);
+    expect(find.text('first-conversation'), findsNothing);
+    await release(tester, session);
+  });
+
+  testWidgets('new conversation captures the globally selected workspace', (
+    tester,
+  ) async {
+    final first = source('first');
+    final second = source('second');
+    second.snapshot['worktrees'] = [
+      {
+        'id': 'second-tree',
+        'project': 'shared-id',
+        'path': '/second',
+        'main': true,
+      },
+      {'id': 'second-linked', 'project': 'shared-id', 'path': '/second-linked'},
+    ];
+    final session = AppSession.test(hosts: [first, second]);
+    session.selectWorkspace(second.id, 'second-linked');
+    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
+    await tester.pump();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget is RoundButton && widget.icon == 'plus',
+      ),
+    );
+    await tester.pumpAndSettle();
+    final creation = tester.widget<NewConversationPage>(
+      find.byType(NewConversationPage),
+    );
+    expect(creation.host, same(second));
+    expect(creation.initialProject, 'shared-id');
+    expect(creation.initialWorktree, 'second-linked');
     await release(tester, session);
   });
 
@@ -355,9 +450,16 @@ void main() {
     final rows = tester
         .widgetList<TerminalTask>(find.byType(TerminalTask))
         .toList();
-    expect(rows.length, 2);
+    expect(rows.length, 1);
     expect(rows[0].host, same(first));
-    expect(rows[1].host, same(second));
+    expect(find.text('second-terminal'), findsNothing);
+    session.selectHost(second.id);
+    await tester.pump();
+    expect(
+      tester.widget<TerminalTask>(find.byType(TerminalTask)).host,
+      same(second),
+    );
+    expect(find.text('first-terminal'), findsNothing);
     final terminal = tester.widget<Slidable>(
       slidable(('terminal', 'second', 'same-terminal')),
     );
@@ -368,7 +470,50 @@ void main() {
     await release(tester, session);
   });
 
-  testWidgets('projects aggregate and open the owning host workspace', (
+  testWidgets('terminal workspace choice follows and updates global context', (
+    tester,
+  ) async {
+    final first = source('first');
+    final second = source('second');
+    second.snapshot['worktrees'] = [
+      {
+        'id': 'second-tree',
+        'project': 'shared-id',
+        'path': '/second',
+        'main': true,
+      },
+      {'id': 'second-linked', 'project': 'shared-id', 'path': '/second-linked'},
+    ];
+    final session = AppSession.test(hosts: [first, second]);
+    session.selectWorkspace(second.id, 'second-linked');
+    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
+    await tester.pump();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget is RoundButton && widget.icon == 'terminal',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ListTile>(find.widgetWithText(ListTile, 'second-linked'))
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.widgetWithText(ListTile, 'second-project'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(session.selectedHost, same(second));
+    expect(session.selectedProjectId, 'shared-id');
+    expect(session.selectedWorktreeId, 'second-tree');
+    final terminal = tester.widget<TerminalPage>(find.byType(TerminalPage));
+    expect(terminal.hostId, second.id);
+    expect(terminal.worktreeId, 'second-tree');
+    expect(terminal.createNew, isTrue);
+    await release(tester, session);
+  });
+
+  testWidgets('projects follow the host and select their owning workspace', (
     tester,
   ) async {
     final first = source('first', connected: false);
@@ -377,7 +522,7 @@ void main() {
     await tester.pumpWidget(screen(session, ProjectsPage(host: first)));
     await tester.pump();
     expect(find.text('first-project'), findsOneWidget);
-    expect(find.text('second-project'), findsOneWidget);
+    expect(find.text('second-project'), findsNothing);
     final offline = tester.widget<ListTile>(
       find.ancestor(
         of: find.text('first-project'),
@@ -388,12 +533,18 @@ void main() {
     expect(offline.onTap, isNull);
     expect(find.text('Offline'), findsOneWidget);
     expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
+    session.selectHost(second.id);
+    await tester.pump();
+    expect(find.text('first-project'), findsNothing);
+    expect(find.text('second-project'), findsOneWidget);
     await tester.tap(find.text('second-project'));
     await tester.pumpAndSettle();
     final resource = tester.widget<ResourcesPage>(find.byType(ResourcesPage));
     expect(resource.hostId, second.id);
     expect(resource.worktreeId, 'second-tree');
-    expect(session.selectedHost, same(first));
+    expect(session.selectedHost, same(second));
+    expect(session.selectedProjectId, 'shared-id');
+    expect(session.selectedWorktreeId, 'second-tree');
     await release(tester, session);
   });
 }

@@ -103,6 +103,48 @@ void main() {
     expect(requested!['worktree'], 'tree-a');
   });
 
+  test('creation retains the selected workspace within its project', () async {
+    Map<String, dynamic>? requested;
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: snapshot('a')
+        ..['worktrees'] = [
+          {'id': 'tree-a', 'project': 'project-a'},
+          {'id': 'tree-linked', 'project': 'project-a'},
+          {'id': 'tree-foreign', 'project': 'project-b'},
+        ],
+      command: (kind, data) async {
+        expect(kind, 'create_session');
+        requested = data;
+        return {'data': admitted(data!)};
+      },
+    );
+    final draft = CreationDraft(
+      host,
+      initialProject: 'project-a',
+      initialWorktree: 'tree-linked',
+    );
+    final foreign = CreationDraft(
+      host,
+      initialProject: 'project-a',
+      initialWorktree: 'tree-foreign',
+    );
+    final unassigned = CreationDraft(host, initialWorktree: 'tree-linked');
+    addTearDown(host.dispose);
+    addTearDown(draft.dispose);
+    addTearDown(foreign.dispose);
+    addTearDown(unassigned.dispose);
+    expect(draft.worktree?['id'], 'tree-linked');
+    expect(foreign.worktree?['id'], 'tree-a');
+    expect(unassigned.worktree, isNull);
+    host.notifyListeners();
+    expect(draft.worktree?['id'], 'tree-linked');
+    await draft.send(hasInput: true);
+    expect(requested!['project'], 'project-a');
+    expect(requested!['worktree'], 'tree-linked');
+  });
+
   test('Chats selection survives host refresh and clears worktree', () {
     final host = HostConnection.test(
       id: 'host',

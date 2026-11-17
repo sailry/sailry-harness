@@ -8,8 +8,11 @@ enum _Stage { create, team, config, ready }
 
 /// Captures a new session's resources until Node admission is resolved.
 class CreationDraft extends ChangeNotifier {
-  CreationDraft(this.host, {String? initialProject})
+  CreationDraft(this.host, {String? initialProject, String? initialWorktree})
     : _projectId = initialProject == '' ? null : initialProject {
+    worktree = worktrees
+        .where((tree) => tree['id'] == initialWorktree)
+        .firstOrNull;
     _sync();
     host.addListener(_changed);
   }

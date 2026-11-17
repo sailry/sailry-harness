@@ -687,7 +687,18 @@ Simulated conversations, file edits, Git actions and terminal input reset when t
 app closes. Fresh controllers defer native transport until ordinary pairing; a
 saved demo selection also defers it. Removing the demo restores existing genuine
 peers through the normal Client and Link path without changing their trust
-records.
+records. The demo remains selectable but never joins the live conversation or
+project catalog. Mobile keeps one host, project and worktree selection for its
+top-level pages. Changing hosts clears the project scope; choosing a project on
+another host changes both together. Open conversation, file and terminal routes
+retain their captured owner. General resource pickers list registered project
+worktrees; explicit conversation routes retain access to their own scratch
+directories. A missing workspace does not hide the project selection entry.
+Mobile preserves the covered task catalog during navigation, resumes preview
+reads after the return transition, and bounds list previews without changing
+canonical history.
+Mobile directory reads run outside the pairing-change queue, and reads spanning
+a pairing change cannot replace the current directory or close newer Clients.
 
 ## Pairing and operations
 
@@ -745,11 +756,13 @@ the recorded user and the collection's current visibility. Historical sponsorshi
 and identity-merge records remain readable but are not replayed or used to grant
 new access.
 
-Removing an outbound host first attempts remote self-revocation, then removes
-local trust even when the host is unavailable. The controller peer store or
-Node store retains the exact remote request and its known or uncertain outcome
-after local removal. This is diagnostic history without a retry worker; another
-explicit pairing starts a new attempt and preserves earlier records.
+Removing an outbound host removes local trust immediately. If an authenticated
+connection is already live, Link retains it only for one background
+self-revocation with a ten-second total budget; offline hosts are not dialed.
+The controller peer store or Node store retains the exact remote request and its
+known or uncertain outcome after local removal. This is diagnostic history
+without a retry worker. Explicit re-pairing cancels an outstanding notification
+before starting a new relationship and preserves earlier records.
 
 Configuration caches and personal KV reconciliation follow the same direct host
 relationships. Each host has one serial reconciliation worker, so an offline

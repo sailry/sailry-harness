@@ -139,7 +139,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _submission.addListener(_rebuild);
-    widget.host.addListener(_acknowledge);
+    widget.host.addListener(_hostChanged);
     unawaited(_watch());
   }
 
@@ -192,6 +192,11 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   }
 
   void _acknowledge() => unawaited(_attention.observe());
+
+  void _hostChanged() {
+    _acknowledge();
+    if (!_closed && mounted) setState(() {});
+  }
 
   Future<void> _watch() async {
     if (_closed || _watching) return;
@@ -314,7 +319,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void dispose() {
     _closed = true;
     WidgetsBinding.instance.removeObserver(this);
-    widget.host.removeListener(_acknowledge);
+    widget.host.removeListener(_hostChanged);
     _attention.dispose();
     _entrance?.removeStatusListener(_entered);
     final updates = _updates;
@@ -492,7 +497,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
 
   @override
   Widget build(BuildContext context) {
-    AppSession.maybeOf(context);
     return ValueListenableBuilder(
       valueListenable: _view,
       builder: (context, view, _) {

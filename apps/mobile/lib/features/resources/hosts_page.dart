@@ -7,6 +7,7 @@ import '../../runtime/session.dart';
 import '../../ui/kit.dart';
 import 'resources_page.dart';
 import 'projects_page.dart';
+import 'workspace.dart';
 import 'ports_page.dart';
 import '../conversations/tasks_page.dart';
 import 'host/host_info_card.dart';
@@ -140,13 +141,19 @@ class _HostsPageState extends State<HostsPage> {
   }
 
   void _openProject(HostConnection host, Map<String, dynamic> project) {
-    final tree = objects(
-      host.snapshot['worktrees'],
-    ).where((tree) => tree['project'] == project['id']).firstOrNull;
-    pushPage(
-      context,
-      ResourcesPage(hostId: host.id, worktreeId: text(tree?['id'])),
-    );
+    final session = AppSession.of(context);
+    final projectId = text(project['id']);
+    final trees = projectWorktrees(host, project: projectId);
+    final tree =
+        trees.where((tree) => tree['main'] == true).firstOrNull ??
+        trees.firstOrNull;
+    if (tree == null) {
+      session.selectProject(host.id, projectId);
+      return;
+    }
+    final worktreeId = text(tree['id']);
+    session.selectWorkspace(host.id, worktreeId);
+    pushPage(context, ResourcesPage(hostId: host.id, worktreeId: worktreeId));
   }
 
   /// Keeps the host switcher above a state so another host stays reachable.
