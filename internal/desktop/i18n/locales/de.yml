@@ -1093,6 +1093,8 @@ provider_login_callback_required: Autorisierungscode oder Browser-Weiterleitungs
 provider_delete_title: Anbieter löschen
 provider_remove_effect: Sitzungen müssen einen anderen Anbieter auswählen
 provider_catalog_never: Nicht aktualisiert
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: Aktualisiert
 provider_catalog: Modelldaten 2016
 provider_catalog_update: Aktualisieren

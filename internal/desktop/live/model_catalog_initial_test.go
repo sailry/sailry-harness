@@ -14,17 +14,20 @@ import (
 
 func TestModelCatalogInitialPageFetch(t *testing.T) {
 	for _, test := range []struct {
-		name             string
-		metadata, scores bool
+		name                      string
+		metadata, scores, bundled bool
 	}{
-		{"empty catalog", false, false},
-		{"metadata already available", true, false},
-		{"scores already available", false, true},
-		{"catalog already available", true, true},
+		{"empty catalog", false, false, false},
+		{"metadata already available", true, false, false},
+		{"scores already available", false, true, false},
+		{"catalog already available", true, true, false},
+		{"bundled metadata", false, false, true},
+		{"bundled metadata with scores", false, true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node = protocol.NodeID{1}
+			snapshot.ModelCatalog.Bundled = test.bundled
 			updated := uint64(1)
 			if test.metadata {
 				snapshot.ModelCatalog.UpdatedAtMs = &updated
@@ -78,8 +81,11 @@ func TestModelCatalogInitialPageFetch(t *testing.T) {
 			r.App.Settings.Open(settings.Providers)
 			settle()
 			expected := 0
-			if !test.metadata && !test.scores {
+			if !test.metadata || !test.scores {
 				expected = 1
+			}
+			if catalog := r.App.Settings.Catalog; catalog.Bundled != test.bundled || !test.metadata && catalog.Last != "" {
+				t.Fatalf("catalog projection invented network freshness or lost its source: %+v", catalog)
 			}
 			if count() != expected || r.App.Settings.Busy[settings.BusyCatalog] {
 				t.Fatalf("initial catalog fetches=%d, expected=%d, busy=%v", count(), expected, r.App.Settings.Busy[settings.BusyCatalog])

@@ -74,7 +74,11 @@ func providers(c *ui.Context, s *State) {
 			}
 			kit.Toolbar(c, i18n.T(c, "provider_channels"), len(m.Channels), &s.Query, i18n.T(c, "provider_list_search"), func() {
 				families(c, m)
-				iconButton(c, "add", icons.Plus, i18n.T(c, "settings_add"), true, false).OnClick(func() { m.provider.add(m) })
+				iconButton(c, "add", icons.Plus, i18n.T(c, "settings_add"), true, false).OnClick(func() {
+					if requireProviderCatalog(c, m) {
+						m.provider.add(m)
+					}
+				})
 			})
 			if len(shown) == 0 {
 				kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "provider_empty_live"), Card: true})
@@ -108,11 +112,13 @@ func providers(c *ui.Context, s *State) {
 // Update, and the compaction threshold.
 func catalog(c *ui.Context, m *Model) {
 	p := theme.Of(c)
-	state := func(ok bool) func() {
+	state := func(updated, bundled bool) func() {
 		return func() {
 			key, col := "provider_catalog_never", p.MutedForeground
-			if ok {
+			if updated {
 				key, col = "provider_catalog_updated", p.Success
+			} else if bundled {
+				key = "provider_catalog_bundled"
 			}
 			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(col)
 		}
@@ -127,8 +133,8 @@ func catalog(c *ui.Context, m *Model) {
 		})
 	}, func() {
 		kit.Card(c, func() {
-			kit.Row(c, "status", i18n.T(c, "provider_catalog_status"), "", state(m.Catalog.Updated))
-			kit.Row(c, "scores", i18n.T(c, "provider_scores"), "", state(m.Catalog.Scores))
+			kit.Row(c, "status", i18n.T(c, "provider_catalog_status"), "", state(m.Catalog.Updated, m.Catalog.Bundled))
+			kit.Row(c, "scores", i18n.T(c, "provider_scores"), "", state(m.Catalog.Scores, false))
 			last := m.Catalog.Last
 			if last == "" {
 				last = i18n.T(c, "provider_catalog_never")
@@ -154,6 +160,14 @@ func catalog(c *ui.Context, m *Model) {
 			})
 		})
 	})
+}
+
+func requireProviderCatalog(c *ui.Context, m *Model) bool {
+	if !m.Live || m.Catalog.Updated || m.Catalog.Bundled {
+		return true
+	}
+	kit.Toast(c, kit.Failed, i18n.T(c, "provider_catalog_required"))
+	return false
 }
 
 // capabilityMarks are the small icons of what a model understands and
@@ -948,6 +962,9 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 				kit.Toast(c, kit.Failed, i18n.T(c, "onboarding_host_unavailable"))
 				return
 			}
+			if !requireProviderCatalog(c, m) {
+				return
+			}
 			if before != nil {
 				before()
 			}
@@ -1200,6 +1217,9 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				label = t("provider_querying")
 			}
 			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
+				if !requireProviderCatalog(c, m) {
+					return
+				}
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
 					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), ExpectedRevision: e.revision}
@@ -1227,6 +1247,9 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				kit.Toast(c, kit.Done, t("provider_discovered_preview"))
 			})
 			kit.Secondary(c.Key("add-model"), t("provider_add_model")).Disabled(e.probing).OnClick(func() {
+				if !requireProviderCatalog(c, m) {
+					return
+				}
 				// A model typed in starts with the tags a save gives it.
 				e.models = append(e.models, modelDraft{open: true, model: preview.ChannelModel{Vision: true, Tools: true}})
 			})

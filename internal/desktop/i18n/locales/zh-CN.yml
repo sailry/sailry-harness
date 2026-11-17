@@ -1093,6 +1093,8 @@ provider_login_callback_required: 输入浏览器返回的授权码或回调地�
 provider_delete_title: 删除渠道
 provider_remove_effect: 移除后，会话需重新选择供应商
 provider_catalog_never: 未更新
+provider_catalog_bundled: 内置数据
+provider_catalog_required: 请先更新模型数据
 provider_catalog_updated: 已更新
 provider_catalog: 模型数据
 provider_catalog_update: 更新
@@ -1724,7 +1726,7 @@ approval_closed: 该审批已结束
 chat_search_failed: 搜索失败
 compaction_settings_load_failed: 无法读取压缩设置
 provider_catalog_failed: 目录更新失败，请重试
-provider_catalog_read_failed: 模型已更新，参考目录读取失败
+provider_catalog_read_failed: 读取模型数据失败
 provider_key_failed: 无法读取密钥
 provider_query_failed: 查询失败，请重试
 provider_revision_changed: 配置已变化，请重新打开编辑

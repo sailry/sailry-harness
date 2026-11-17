@@ -56,6 +56,20 @@ go generate ./internal/desktop/i18n
 Each key is defined in one source file per language. Edit its existing definition
 when changing copy; the generator rejects duplicate keys.
 
+The model metadata snapshot is maintained by `.github/workflows/model-catalog.yml`
+every six hours and can also be refreshed manually:
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+go run ./cmd/update-model-catalog
+```
+
+Only validated content changes are committed by the workflow. Releases embed
+the snapshot in their source commit rather than downloading mutable data while
+packaging. This does not update the reviewed request-policy catalog in
+`internal/node/agent/model/data`.
+
 The desktop entry point is:
 
 ```sh

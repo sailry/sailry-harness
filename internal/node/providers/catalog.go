@@ -12,7 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const catalogURL = "https://models.dev/api.json"
+const CatalogURL = "https://models.dev/api.json"
 
 type CatalogEntry struct {
 	Provider string
@@ -27,7 +27,7 @@ type CatalogDownload struct {
 }
 
 func downloadCatalog(ctx context.Context) (*CatalogDownload, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, catalogURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, CatalogURL, nil)
 	if err != nil {
 		return nil, unavailable("model catalog HTTP client failed")
 	}
@@ -72,6 +72,9 @@ func ParseCatalog(raw []byte) (*CatalogDownload, error) {
 			}
 			download.Entries = append(download.Entries, CatalogEntry{Provider: provider, ID: model.ID, Body: append(json.RawMessage(nil), body...)})
 		}
+	}
+	if len(download.Entries) == 0 {
+		return nil, unavailable("model catalog has no models")
 	}
 	sort.Slice(download.Entries, func(i, j int) bool {
 		a, b := download.Entries[i], download.Entries[j]

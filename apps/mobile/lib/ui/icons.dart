@@ -16,6 +16,10 @@ void registerIconLicense() {
       'third_party_licenses/kenney-monsters.md',
     );
     yield LicenseEntryWithLineBreaks(['Kenney Monster Builder'], monsters);
+    final modelCatalog = await rootBundle.loadString(
+      'third_party_licenses/models.dev.md',
+    );
+    yield LicenseEntryWithLineBreaks(['models.dev'], modelCatalog);
   });
 }
 

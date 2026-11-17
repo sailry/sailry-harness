@@ -1093,6 +1093,8 @@ provider_login_callback_required: Enter the authorization code or browser redire
 provider_delete_title: Delete provider
 provider_remove_effect: Sessions will need to select another provider
 provider_catalog_never: Not updated
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: Updated
 provider_catalog: Model data
 provider_catalog_update: Update
@@ -1724,7 +1726,7 @@ approval_closed: Approval closed
 chat_search_failed: Search failed
 compaction_settings_load_failed: Could not load compaction settings
 provider_catalog_failed: Catalog update failed; try again
-provider_catalog_read_failed: Models updated; reference catalog could not be read
+provider_catalog_read_failed: Could not read model data
 provider_key_failed: Could not read key
 provider_query_failed: Query failed; try again
 provider_revision_changed: Configuration changed; reopen the editor

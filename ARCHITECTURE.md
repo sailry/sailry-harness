@@ -430,6 +430,17 @@ read API keys and omits unchanged keys from saves. Image capability editing
 distinguishes standalone image models from Responses hosted image tools, so a
 conversation model is not sent to the image-model endpoint.
 
+Each Node embeds a models.dev metadata snapshot for offline capability and
+reasoning-effort lookup. Its successfully downloaded catalog takes precedence;
+failed downloads retain the last usable data. The bundled source has no network
+update timestamp. Desktop displays the Node's source and attempts one refresh on
+entering model settings when metadata or scores have never been downloaded.
+Missing metadata blocks adding channels or discovering models with a prompt to
+update model data; it does not block deletion. The repository refreshes the
+snapshot every six hours when its content changes, and releases embed their
+committed snapshot. This reference data is separate from the reviewed model
+request policies under `internal/node/agent/model/data`.
+
 Admission freezes the worktree, permission, configuration, model or team,
 reasoning effort, credential identity and package revisions. Renewed runtime
 tokens replace an expired token for that captured identity. Explicit same-account

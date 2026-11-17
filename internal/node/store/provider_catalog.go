@@ -23,6 +23,17 @@ func ReadProviderCatalogStatus(ctx context.Context, db *sql.Conn) (protocol.Conv
 	if saved != nil {
 		status = *saved
 	}
+	status.Bundled = status.Revision == 0
+	if status.Bundled {
+		catalog, err := providers.BundledCatalog()
+		if err != nil {
+			return status, err
+		}
+		status.UpdatedAtMs = nil
+		status.Providers = catalog.Providers
+		status.Models = uint32(len(catalog.Entries))
+		status.Bytes = catalog.Bytes
+	}
 	scores, err := providerScoreState(ctx, db)
 	status.Scores = scores.Status
 	return status, err
@@ -37,6 +48,7 @@ func writeProviderCatalogStatus(ctx context.Context, db *sql.Conn, status protoc
 		return err
 	}
 	delete(body, "scores")
+	delete(body, "bundled")
 	raw, err = encode(body)
 	if err != nil {
 		return err
@@ -63,6 +75,7 @@ func applyProviderCatalog(ctx context.Context, db *sql.Conn, prepared *providers
 		}
 		now := uint64(time.Now().UnixMilli())
 		status.UpdatedAtMs = &now
+		status.Bundled = false
 		status.Providers = download.Providers
 		status.Models = uint32(len(download.Entries))
 		status.Bytes = download.Bytes
@@ -141,82 +154,34 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 	if err != nil {
 		return result, err
 	}
-	if status.Revision == 0 {
-		return result, fault(protocol.ErrorCodeNotConfigured, "model catalog has not been refreshed")
-	}
 	if query.Revision != nil && *query.Revision != status.Revision {
 		return result, fault(protocol.ErrorCodeRevisionConflict, "model catalog revision changed")
 	}
 	result.Revision = status.Revision
+	entries, err := providerCatalogEntries(ctx, db, query, status.Bundled)
+	if err != nil {
+		return result, err
+	}
+	// Both sources use the same conservative merge and page boundaries. An
+	// unknown proxy endpoint must not gain capabilities from provider ordering.
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].ID != entries[j].ID {
+			return entries[i].ID < entries[j].ID
+		}
+		return entries[i].Provider < entries[j].Provider
+	})
 	var models []protocol.ConversationCatalogModel
-	if len(query.IDs) == 0 {
-		after := ""
-		if query.After != nil {
-			after = *query.After
-		}
-		rows, err := db.QueryContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id>?2 ORDER BY id LIMIT ?3", *query.Provider, after, int(query.Limit)+1)
+	presence := [3]bool{}
+	for _, entry := range entries {
+		model, err := providers.CatalogModel(entry.Body)
 		if err != nil {
 			return result, err
 		}
-		for rows.Next() {
-			var body []byte
-			if err := rows.Scan(&body); err != nil {
-				rows.Close()
-				return result, err
-			}
-			model, err := providers.CatalogModel(body)
-			if err != nil {
-				rows.Close()
-				return result, err
-			}
+		if len(models) == 0 || models[len(models)-1].ID != model.ID {
 			models = append(models, model)
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return result, err
-		}
-	} else {
-		ids := append([]string(nil), query.IDs...)
-		sort.Strings(ids)
-		seen := map[string]bool{}
-		for _, id := range ids {
-			if seen[id] || query.After != nil && id <= *query.After {
-				continue
-			}
-			seen[id] = true
-			rows, err := db.QueryContext(ctx, "SELECT body FROM model_catalog WHERE id=?1 AND (?2 IS NULL OR provider=?2) ORDER BY provider", id, query.Provider)
-			if err != nil {
-				return result, err
-			}
-			var combined *protocol.ConversationCatalogModel
-			presence := [3]bool{}
-			for rows.Next() {
-				var body []byte
-				if err := rows.Scan(&body); err != nil {
-					rows.Close()
-					return result, err
-				}
-				model, err := providers.CatalogModel(body)
-				if err != nil {
-					rows.Close()
-					return result, err
-				}
-				if combined == nil {
-					combined = &model
-					presence = [3]bool{len(model.Inputs) > 0, len(model.Outputs) > 0, len(model.Options) > 0}
-				} else {
-					mergeCatalogModel(combined, model, &presence)
-				}
-			}
-			err = rows.Err()
-			rows.Close()
-			if err != nil {
-				return result, err
-			}
-			if combined != nil {
-				models = append(models, *combined)
-			}
+			presence = [3]bool{len(model.Inputs) > 0, len(model.Outputs) > 0, len(model.Options) > 0}
+		} else {
+			mergeCatalogModel(&models[len(models)-1], model, &presence)
 		}
 	}
 	bytes := 0
@@ -236,6 +201,67 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 		bytes += len(body) + 1
 	}
 	return result, nil
+}
+func providerCatalogEntries(ctx context.Context, db *sql.Conn, query protocol.ConversationCatalogQuery, bundled bool) ([]providers.CatalogEntry, error) {
+	entries := []providers.CatalogEntry{}
+	if bundled {
+		catalog, err := providers.BundledCatalog()
+		if err != nil {
+			return nil, err
+		}
+		ids := map[string]bool{}
+		for _, id := range query.IDs {
+			ids[id] = true
+		}
+		for _, entry := range catalog.Entries {
+			if query.Provider != nil && *query.Provider != entry.Provider || query.After != nil && entry.ID <= *query.After {
+				continue
+			}
+			if len(ids) > 0 && !ids[entry.ID] {
+				continue
+			}
+			entries = append(entries, entry)
+			if len(ids) == 0 && len(entries) > int(query.Limit) {
+				break
+			}
+		}
+		return entries, nil
+	}
+	read := func(rows *sql.Rows, err error) error {
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var entry providers.CatalogEntry
+			var body []byte
+			if err := rows.Scan(&entry.Provider, &entry.ID, &body); err != nil {
+				return err
+			}
+			entry.Body = body
+			entries = append(entries, entry)
+		}
+		return rows.Err()
+	}
+	if len(query.IDs) == 0 {
+		after := ""
+		if query.After != nil {
+			after = *query.After
+		}
+		err := read(db.QueryContext(ctx, "SELECT provider,id,body FROM model_catalog WHERE provider=?1 AND id>?2 ORDER BY id LIMIT ?3", *query.Provider, after, int(query.Limit)+1))
+		return entries, err
+	}
+	seen := map[string]bool{}
+	for _, id := range query.IDs {
+		if seen[id] || query.After != nil && id <= *query.After {
+			continue
+		}
+		seen[id] = true
+		if err := read(db.QueryContext(ctx, "SELECT provider,id,body FROM model_catalog WHERE id=?1 AND (?2 IS NULL OR provider=?2) ORDER BY provider", id, query.Provider)); err != nil {
+			return nil, err
+		}
+	}
+	return entries, nil
 }
 func boundedCatalogID(value string, limit int) bool {
 	if strings.TrimSpace(value) == "" || len(value) > limit {

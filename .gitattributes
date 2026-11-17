@@ -1,2 +1,3 @@
 internal/office/testdata/*.pdf binary
 *.sh text eol=lf
+internal/node/providers/data/model-catalog.json text eol=lf

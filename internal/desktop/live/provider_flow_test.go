@@ -41,6 +41,7 @@ func testProviderFlow(t *testing.T) {
 	}
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Node = protocol.NodeID{1}
+	snapshot.ModelCatalog.Bundled = true
 	snapshot.Providers = []protocol.ConversationProvider{
 		saved(1, "Work", "openai", protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey),
 		saved(2, "Subscription", "claude-oauth", protocol.ConversationModelApiAnthropic, protocol.AuthenticationClaudeOAuth),

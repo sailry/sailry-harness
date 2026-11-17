@@ -9,6 +9,7 @@ import (
 type ConversationCatalogStatus struct {
 	Revision    uint64                               `json:"revision"`
 	UpdatedAtMs *uint64                              `json:"updated_at_ms"`
+	Bundled     bool                                 `json:"bundled,omitempty"`
 	Providers   uint32                               `json:"providers"`
 	Models      uint32                               `json:"models"`
 	Bytes       uint64                               `json:"bytes"`

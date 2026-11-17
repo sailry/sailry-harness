@@ -17,8 +17,14 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discov
 		defer cancel()
 		metadata, err := r.readProviderCatalog(ctx, provider.Api, discovered)
 		r.enqueue(func(c *ui.Context) {
-			if err != nil && faultCode(err) != protocol.ErrorCodeNotConfigured {
-				r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
+			if err != nil {
+				key := "provider_catalog_read_failed"
+				if faultCode(err) == protocol.ErrorCodeNotConfigured {
+					key = "provider_catalog_required"
+				}
+				r.reportKeys(c, err, key, key, key)
+				done(nil)
+				return
 			}
 			var models []viewmodel.ChannelModel
 			for _, original := range discovered {

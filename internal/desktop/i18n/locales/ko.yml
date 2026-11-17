@@ -1093,6 +1093,8 @@ provider_login_callback_required: 브라우저에서 받은 인증 코드 또는
 provider_delete_title: 공급자 삭제
 provider_remove_effect: 세션은 다른 공급자를 선택해야 합니다
 provider_catalog_never: 업데이트되지 않음
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: 업데이트
 provider_catalog: 모델 데이터
 provider_catalog_update: 업데이트

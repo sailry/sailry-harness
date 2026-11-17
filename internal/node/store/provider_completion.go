@@ -11,10 +11,6 @@ import (
 )
 
 func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.ConversationProvider) error {
-	status, err := ReadProviderCatalogStatus(ctx, db)
-	if err != nil {
-		return err
-	}
 	var catalogProvider *string
 	switch strings.TrimRight(provider.Endpoint, "/") {
 	case "https://api.openai.com/v1":
@@ -32,15 +28,13 @@ func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.
 	}
 	for i := range provider.Models {
 		var reference *protocol.ConversationCatalogModel
-		if status.Revision != 0 {
-			query := protocol.ConversationCatalogQuery{Provider: catalogProvider, IDs: []string{provider.Models[i].ID}, Limit: 100}
-			page, err := readProviderCatalog(ctx, db, query)
-			if err != nil {
-				return err
-			}
-			if len(page.Models) > 0 {
-				reference = &page.Models[0]
-			}
+		query := protocol.ConversationCatalogQuery{Provider: catalogProvider, IDs: []string{provider.Models[i].ID}, Limit: 100}
+		page, err := readProviderCatalog(ctx, db, query)
+		if err != nil {
+			return err
+		}
+		if len(page.Models) > 0 {
+			reference = &page.Models[0]
 		}
 		provider.Models[i] = providers.CompleteModel(provider.Models[i], reference, provider.Api)
 		// OpenAI's own Responses channel hosts image generation as a tool of

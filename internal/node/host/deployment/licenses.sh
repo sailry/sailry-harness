@@ -84,6 +84,7 @@ done < <(jq -r '.[] | [.name,.version,.manifest_path,(.license_file // "")] | @t
 
 # Notices and locks of the prebuilt runtimes shipped beside the executable.
 mkdir "$task_output/source-notices"
+cp "$task_root/internal/node/providers/data/LICENSE.models.dev" "$task_output/source-notices/"
 cp "$task_root"/native/*-LICENSE "$task_root"/native/*.lock.json \
   "$task_root/internal/localmodels/decision/llama-runtime.lock.json" "$task_output/source-notices/"
 cp "$task_root/native/turso/LICENSE-Turso" "$task_output/source-notices/turso-LICENSE"

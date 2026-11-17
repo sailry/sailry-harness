@@ -1093,6 +1093,8 @@ provider_login_callback_required: 輸入瀏覽器傳回的授權碼或重新導�
 provider_delete_title: 刪除供應商
 provider_remove_effect: 移除後，會話需重新選擇供應商
 provider_catalog_never: 未更新
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: 已更新
 provider_catalog: 模型資料
 provider_catalog_update: 更新

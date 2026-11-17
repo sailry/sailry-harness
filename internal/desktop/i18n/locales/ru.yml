@@ -1093,6 +1093,8 @@ provider_login_callback_required: Введите код авторизации �
 provider_delete_title: Исключить поставщика
 provider_remove_effect: Для сеансов потребуется выбрать другого поставщика
 provider_catalog_never: Не обновлено
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: Обновленный
 provider_catalog: Данные модели
 provider_catalog_update: Обновить

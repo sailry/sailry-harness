@@ -1112,6 +1112,8 @@ provider_login_callback_required
 provider_delete_title
 provider_remove_effect
 provider_catalog_never
+provider_catalog_bundled
+provider_catalog_required
 provider_catalog_updated
 provider_catalog
 provider_catalog_update

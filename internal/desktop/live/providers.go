@@ -56,8 +56,8 @@ func (r *Runtime) refreshModelCatalog() {
 	})
 }
 
-// followModelCatalog fetches an empty catalog once on entering its page. A
-// failed fetch waits for another visit or the explicit Update action.
+// followModelCatalog refreshes missing network datasets once on entering the
+// page. A failed fetch waits for another visit or the explicit Update action.
 func (r *Runtime) followModelCatalog() {
 	root := r.localRuntime()
 	if root.App.Page != shell.SettingsPage || root.App.Settings.Section != settings.Providers {
@@ -70,7 +70,7 @@ func (r *Runtime) followModelCatalog() {
 	}
 	r.modelCatalogEntered = true
 	status := r.snapshot().ModelCatalog
-	if status.UpdatedAtMs == nil && status.Scores.UpdatedAtMs == nil {
+	if status.UpdatedAtMs == nil || status.Scores.UpdatedAtMs == nil {
 		r.refreshModelCatalog()
 	}
 }
@@ -429,7 +429,7 @@ func (r *Runtime) projectProviderSnapshot() {
 	r.App.Settings.Channels = channels
 	r.followMedia(snapshot)
 	status := snapshot.ModelCatalog
-	r.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Scores: status.Scores.UpdatedAtMs != nil}
+	r.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
 	if status.UpdatedAtMs != nil {
 		r.App.Settings.Catalog.Last = time.UnixMilli(int64(*status.UpdatedAtMs)).Local().Format("2006-01-02 15:04")
 	}

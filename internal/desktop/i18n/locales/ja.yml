@@ -1093,6 +1093,8 @@ provider_login_callback_required: ブラウザーから返された認証コー�
 provider_delete_title: プロバイダを削除
 provider_remove_effect: セッションは他のプロバイダを選択する必要があります
 provider_catalog_never: 更新されていません
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: 更新
 provider_catalog: モデルデータ
 provider_catalog_update: 更新

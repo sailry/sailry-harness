@@ -32,6 +32,7 @@ single owning package, and this index lists every location.
 | --- | --- |
 | Goose-derived agent operations, compaction and provider adaptations | `internal/node/agent/model/LICENSE.goose`, `internal/node/agent/output/LICENSE.goose` |
 | Rig request layouts | `internal/node/agent/model/LICENSE.rig` |
+| models.dev model metadata snapshot | `internal/node/providers/data/LICENSE.models.dev` |
 | Pi tool preview policy | `internal/node/agent/output/LICENSE.pi`, `internal/node/agent/output/NOTICE` |
 | oh-my-pi Claude wire behavior in model and provider code | `internal/node/agent/model/LICENSE.omp`, `internal/node/providers/LICENSE.omp` |
 | GPUI Kit color names | `internal/desktop/theme/LICENSE.gpui-kit` |

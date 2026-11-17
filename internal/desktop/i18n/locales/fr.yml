@@ -1093,6 +1093,8 @@ provider_login_callback_required: Saisissez le code d’autorisation ou l’URL 
 provider_delete_title: Supprimer le fournisseur
 provider_remove_effect: Les sessions devront sélectionner un autre fournisseur
 provider_catalog_never: Non mis à jour
+provider_catalog_bundled: Bundled data
+provider_catalog_required: Update model data first
 provider_catalog_updated: Mise à jour
 provider_catalog: Données du modèle
 provider_catalog_update: Mettre à jour

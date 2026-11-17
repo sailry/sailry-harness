@@ -868,12 +868,14 @@ model_score_overall: 综合分
 model_score_tested: 实测 %{effort} 档
 model_score_preview: 预览评分
 provider_catalog_status: 模型元数据
+provider_catalog_bundled: 内置数据
+provider_catalog_required: 请先更新模型数据
 provider_catalog_last_update: 上次更新
 provider_catalog_update: 更新
 provider_empty_live: 暂无渠道
 provider_catalog_failed: 目录更新失败，请重试
 provider_catalog_busy: 目录正在更新，请稍后重试
-provider_catalog_read_failed: 模型已更新，参考目录读取失败
+provider_catalog_read_failed: 读取模型数据失败
 provider_discovered_reference: 模型已更新，参考信息请核对后保存
 provider_discovered_reference_incomplete: 请核对参考信息，并填写缺失的容量
 provider_channels: 渠道

@@ -165,6 +165,7 @@ func testProviderPresetWarning(t *testing.T) {
 		entry("quiet", "Quiet agent", nil),
 	}
 	snapshot := protocol.DefaultSnapshot()
+	snapshot.ModelCatalog.Bundled = true
 	snapshot.Node = protocol.NodeID{1}
 	transport := &conversationTestTransport{snapshot: snapshot}
 	transport.handle = func(request protocol.Request) (link.Response, bool) {

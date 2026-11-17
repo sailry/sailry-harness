@@ -1,0 +1,50 @@
+name: Model metadata
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-catalog
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: go1.27.3
+  CGO_ENABLED: '0'
+
+jobs:
+  update:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version: '1.27.3'
+      - name: Refresh and validate the bundled catalog
+        run: |
+          set -euo pipefail
+          unset GOROOT
+          go run ./cmd/update-model-catalog
+          go test ./cmd/update-model-catalog ./internal/node/providers
+      - name: Commit changed metadata
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          path=internal/node/providers/data/model-catalog.json
+          if git diff --quiet -- "$path"; then
+            echo 'Bundled model catalog is unchanged'
+            exit 0
+          fi
+          git add -- "$path"
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'Refresh bundled model metadata'
+          git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"

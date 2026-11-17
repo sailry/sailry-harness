@@ -148,6 +148,6 @@ type Brand struct {
 	Methods  []Method
 }
 type Catalog struct {
-	Updated, Scores bool
-	Last            string
+	Updated, Bundled, Scores bool
+	Last                     string
 }
