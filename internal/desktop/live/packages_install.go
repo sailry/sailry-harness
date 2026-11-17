@@ -149,45 +149,41 @@ func (r *Runtime) installPackageUpload(local localPackage, done func(bool)) {
 	})
 }
 
-// directoryUpdate reads again the local directory a package was installed
-// from and puts a strictly newer version found there in the report, since
-// the Node cannot check such a package itself. A directory that is gone
-// leaves the report as the Node gave it.
+// directoryUpdate snapshots the remembered local directory and asks its Node
+// to assess the uploaded package. A missing directory leaves the report intact.
 func (r *Runtime) directoryUpdate(report *protocol.PluginUpdatesReport, directory string) (*localPackage, error) {
 	local, err := r.localPackage(directory, "")
+	retained := false
+	defer func() {
+		if !retained && local.stream != (protocol.StreamID{}) {
+			r.cancelAttachmentStream(local.stream)
+		}
+	}()
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if offered, err := offerLocalUpdate(report, local); !offered {
-		// The Node keeps no upload that nothing will install.
-		r.cancelAttachmentStream(local.stream)
+	if local.directory == "" || local.info.Summary.Name != report.Current.Name {
+		return nil, errors.New("plugin update has a different identity")
+	}
+	out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "check_plugin_update", Data: protocol.CommandCheckPluginUpdatePayload{
+		Name: report.Current.Name, ExpectedRevision: report.Current.Revision, Upload: &local.stream,
+	}})
+	if err != nil {
 		return nil, err
 	}
+	verdict, valid := detail[protocol.PluginUpdatesReport](out.Data)
+	if !valid || out.Kind != "plugin_update" || verdict.Current.Name != report.Current.Name || verdict.Current.Revision != report.Current.Revision {
+		return nil, errors.New("unexpected uploaded plugin update response")
+	}
+	*report = verdict
+	if !packageUpdateAvailable(verdict) {
+		return nil, nil
+	}
+	retained = true
 	return &local, nil
-}
-
-// offerLocalUpdate fills the report from the package read in its directory
-// and reports whether that package can be installed as the update.
-func offerLocalUpdate(report *protocol.PluginUpdatesReport, local localPackage) (bool, error) {
-	candidate := local.info.Summary
-	if local.directory == "" || candidate.Name != report.Current.Name {
-		return false, errors.New("plugin update has a different identity")
-	}
-	report.Manual = false
-	if !plugins.IsNewer(report.Current.Version, candidate.Version) {
-		return false, nil
-	}
-	if candidate.Compatibility.Kind != "compatible" {
-		if required, blocked := detail[protocol.PluginCompatibilityRequiresNewerPayload](candidate.Compatibility.Data); blocked && candidate.Compatibility.Kind == "requires_newer" {
-			report.Blocked = &protocol.PluginUpdatesBlocked{Version: *candidate.Version, Required: required.Required, ReleaseNotes: local.info.ReleaseNotes}
-		}
-		return false, nil
-	}
-	report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: local.info}
-	return true, nil
 }
 
 func (r *Runtime) chooseSkillSource(source int, done func(string)) {
