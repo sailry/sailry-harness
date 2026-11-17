@@ -185,7 +185,7 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 			f.Kind = ContextOverflow
 		case status == 401 || status == 403 || provider.AuthError || containsCode(code, "invalid_api_key", "authentication_error", "invalid_authentication", "unauthorized", "permission_denied"):
 			f.Kind = Authentication
-		case containsCode(code, "insufficient_quota", "credits_exhausted", "billing_not_active", "quota_exceeded", "billing_hard_limit_reached"):
+		case containsCode(code, "insufficient_quota", "credits_exhausted", "billing_not_active", "quota_exceeded", "billing_hard_limit_reached") || strings.Contains(lower, "all available accounts exhausted"):
 			f.Kind = Quota
 		case status == 429 || containsCode(code, "rate_limit_exceeded", "rate_limit_error", "too_many_requests"):
 			f.Kind = RateLimited

@@ -65,6 +65,16 @@ func TestFailureRetryHints(t *testing.T) {
 	}
 }
 
+func TestExhaustedProviderAccountPoolDoesNotRetry(t *testing.T) {
+	failure := Classify(&fantasy.ProviderError{
+		StatusCode:   502,
+		ResponseBody: []byte(`{"error":{"code":"server_error","message":"All available accounts exhausted"}}`),
+	})
+	if failure.Kind != Quota || failure.Retryable() {
+		t.Fatalf("exhausted provider pool classification: kind=%s retryable=%t", failure.Kind, failure.Retryable())
+	}
+}
+
 func TestFailureRetryHintsCopyAndPrivacy(t *testing.T) {
 	const privateAdvice = "private-retry-advice"
 	delay := uint64(9000)
