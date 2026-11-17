@@ -3,6 +3,57 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.0](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0) — 2026-11-17
+
+This is the first stable release of Sailry's Go runtime, shared Client and Link
+layers, and rebuilt Desktop and Mobile controllers.
+
+### Changes
+
+- Organize local and directly connected hosts through the initiating
+  controller's unified resource directory. Keep projects, files, history and
+  execution on their owning Node.
+- Persist remote project, worktree and knowledge directory summaries for offline
+  display and cold-start recovery. Preserve drafts and selection across reconnects;
+  clear restricted projections after access revocation or connection removal.
+- Keep credential renewal on the controller and share only execution credentials.
+  Add explicit same-account login recovery for waiting tasks without replaying
+  completed tools or restarting stopped work.
+- Synchronize personal configuration and plugin KV with exact source identities,
+  durable write groups and revision checks. Preserve captured credentials and
+  package versions for admitted tasks.
+- Select the highest compatible plugin release on the execution Node. Add
+  official version history, per-version release notes, compatible version
+  switching and version pinning. Exclude withdrawn and unsupported releases
+  from installation and ordinary update prompts.
+- Preserve official plugin update sources and immutable published version
+  mappings. Retain installed settings and enabled choices, and reject conflicting
+  replacements without overwriting concurrent work.
+- Load document images through their captured host and worktree file routes on
+  Desktop and Mobile, with confined relative paths, bitmap and SVG support,
+  offline caches and dependency refresh.
+- Support custom API-key channel headers. Bundle model metadata for offline
+  capability and reasoning controls, refresh missing datasets when opening model
+  settings, and maintain the bundled snapshot through scheduled repository updates.
+- Refine host navigation and platform icons, conversation tabs, split panes,
+  queued messages, provider editors and Mobile model controls.
+- Fix Windows startup compatibility checks and background Git console windows;
+  enlarge the Windows application icon without changing the macOS icon.
+
+### Compatibility and distribution
+
+Desktop, Host and Mobile use Link protocol 2; upgrade the communicating
+components together. Plugin manifests and the Sailry extension remain version 1.
+Existing Turso storage is validated in place; unsupported storage generations
+are rejected without replacing the database. Archived databases and preview
+`.sqlite` files are not automatically selected or converted.
+
+Desktop packages are available for macOS and Windows, Host archives for macOS
+and Linux, and Mobile builds for Android and iOS. iOS distribution uses
+TestFlight. Linux Desktop is not included. Signed in-app Desktop update
+installation is currently available on macOS; Windows provides installer and
+portable packages.
+
 ## [0.2.0-alpha.2](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.2) — 2026-11-17
 
 ### Changes

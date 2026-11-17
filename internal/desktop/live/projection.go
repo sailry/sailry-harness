@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -146,7 +147,7 @@ func Notices(list []client.Notice) []*viewmodel.Notice {
 					Session      *protocol.SessionID           `json:"session"`
 					Controller   map[string]string             `json:"controller"`
 					Details      *protocol.NotificationDetails `json:"details"`
-				}{1, technicalID(n.ID), n.TimestampMs, n.Session, map[string]string{"version": "0.1.0", "platform": runtime.GOOS + "-" + runtime.GOARCH}, n.Details}
+				}{1, technicalID(n.ID), n.TimestampMs, n.Session, map[string]string{"version": link.ProductVersion, "platform": runtime.GOOS + "-" + runtime.GOARCH}, n.Details}
 				if b, err := json.MarshalIndent(report, "", "  "); err == nil {
 					v.Report = string(b)
 				}
