@@ -4,7 +4,7 @@
   "identifier": "ai.sailry.desktop",
   "version": "0.2.0-alpha.2",
   "copyright": "Copyright © 2026 Sailry",
-  "icon": "../../assets/branding/sailry.png",
+  "icon": "../../assets/branding/sailry-windows.png",
   "main": ".",
   "out": "../../.runtime/package/out",
   "macos": {
