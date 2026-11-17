@@ -66,8 +66,10 @@ func queueLabel(c *ui.Context, q Queued) string {
 	return q.Text
 }
 
-// queueTray is 12 in from the surface's sides, padding 4, the top corners
-// rounded 2xl, in the secondary color: the header naming how many messages
+// queueTray is 8 in from the surface's sides, padding 4, the top corners
+// rounded 2xl, a step lighter than the surface in a light theme, its lower
+// edge tucked a corner's radius behind the surface so no gap shows beside
+// the surface's rounded corners: the header naming how many messages
 // wait, which folds the tray to that one row and unfolds it again, then a
 // hairline and the rows, scrolling past 132 DIPs, or the editor of one of
 // them. The tray is folded until the user unfolds it (State.queueOpen), and
@@ -86,12 +88,16 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 		r := p.Radius2xl()
 		// The tray tucks behind the composer; a child session has none, so
 		// its tray is closed below too.
-		below := float32(0)
+		below, tuck := float32(0), r
 		if ctx.Child {
-			below = r
+			below, tuck = r, 0
+		}
+		fill := p.Muted
+		if !p.Dark {
+			fill = fill.Alpha(0.5)
 		}
 		open := s.queueOpen || q.editing != ""
-		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Radius(r, r, below, below), p.Muted, kit.SurfaceTint).
+		kit.Frost(c, ui.Column(c.Key("queue")).Margin(0, 8, -tuck, 8).Padding(4, 4, 4+tuck, 4).Radius(r, r, below, below), fill, kit.SurfaceTint).
 			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
 			s.queueHeader(c, ctx, open)
 			if !open {

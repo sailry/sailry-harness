@@ -183,13 +183,16 @@ func foldTests(t *testing.T) {
 		scale := float32(img.Bounds().Dx()) / 760
 		ground := img.At(int((header.X+header.W/2)*scale), int((header.Y+header.H-2)*scale))
 		y := int((header.Y + header.H + 4.5) * scale)
-		// The frosted fills carry a level or two of dither, and the tray's
-		// differs that little from the composer's under it; the hairline is
-		// the border, tens of levels darker.
+		// The frosted fills carry a level or two of dither. The hairline is
+		// the border, tens of levels darker than the tray above it and than
+		// what lies 2 DIPs below it; the composer's edge, where a folded
+		// tray tucks behind it, differs from the tray but continues below.
 		gr, gg, gb, _ := ground.RGBA()
+		below := int((header.Y + header.H + 6.5) * scale)
 		for x := int((header.X + 16) * scale); x < int((header.X+header.W-16)*scale); x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
-			if max(diff(r, gr), diff(g, gg), diff(b, gb)) <= 4<<8 {
+			br, bg, bb, _ := img.At(x, below).RGBA()
+			if max(diff(r, gr), diff(g, gg), diff(b, gb)) <= 4<<8 || max(diff(r, br), diff(g, bg), diff(b, bb)) <= 4<<8 {
 				return false
 			}
 		}
