@@ -655,7 +655,7 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 					}
 					dim(e, cell)
 					cell.Children(func() {
-						tile(c, e, 36)
+						s.tile(c, e, 36, 48)
 						// Two lines within the cell keep a long name's start
 						// and its end, the extension; the tip has the rest.
 						kit.Tooltip(c, ui.Text(c, e.Name).FontSize(12).FillWidth().MinWidth(0).MaxLines(2).TruncateMiddle().TextAlign(ui.Center), e.Name)
@@ -687,7 +687,7 @@ func (s *State) entries(c *ui.Context, valid bool, width float32) {
 						cell := ui.Row(c).Gap(8).MinWidth(0).AlignItems(ui.Center)
 						dim(e, cell)
 						cell.Children(func() {
-							tile(c, e, 16)
+							s.tile(c, e, 16, 16)
 							ui.Text(c, e.Name).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
 						})
 					case "kind":

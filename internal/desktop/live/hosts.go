@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -220,15 +221,8 @@ func hostLinkError(err error) string {
 	return err.Error()
 }
 
-func hostOS(value string) string {
-	switch strings.ToLower(value) {
-	case "darwin", "macos", "mac os", "mac os x":
-		return "macos"
-	case "windows", "linux", "android", "ios":
-		return strings.ToLower(value)
-	}
-	return ""
-}
+// hostOS is a platform's family, the one every view marks a host by.
+func hostOS(value string) string { return icons.Family(value) }
 
 func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	view := state.view
@@ -245,8 +239,12 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 		if info.Name != nil && strings.TrimSpace(*info.Name) != "" {
 			view.Name = *info.Name
 		}
+		// The Node names its system (a Linux distribution's ID); an unknown
+		// one keeps the family its link reported.
 		if info.Os != nil {
-			view.OS = hostOS(*info.Os)
+			if family := hostOS(*info.Os); family != "" {
+				view.OS = family
+			}
 		}
 		var details []string
 		for _, part := range []*string{info.Os, info.OsVersion, info.Architecture} {

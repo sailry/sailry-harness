@@ -1,7 +1,11 @@
 package picker
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/png"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -1041,5 +1045,51 @@ func TestDirectoryOpensAtItsTop(t *testing.T) {
 	b.settle()
 	if first, _ := b.s.list.Visible(); b.s.listing.Path != "/Users/alex/big/sub" || first != 0 {
 		t.Fatalf("%q opens at row %d", b.s.listing.Path, first)
+	}
+}
+
+// The system's icons replace the glyphs: a local entry's by its path, a
+// remote folder's as a plain folder and a remote file's by its extension,
+// each read once; the preview keeps its glyphs.
+func TestSystemIcons(t *testing.T) {
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatal(err)
+	}
+	asked := map[string]int{}
+	icon := func(key string) ([]byte, error) { asked[key]++; return buffer.Bytes(), nil }
+	SystemIcons.File = func(path string, _ int) ([]byte, error) { return icon("file " + filepath.ToSlash(path)) }
+	SystemIcons.Type = func(ext string, _ int) ([]byte, error) { return icon("type " + ext) }
+	SystemIcons.Folder = func(int) ([]byte, error) { return icon("folder") }
+	t.Cleanup(func() {
+		SystemIcons.File, SystemIcons.Type, SystemIcons.Folder = nil, nil, nil
+		clear(systemIcons)
+	})
+	listing := Listing{Separator: "/", Path: "/work", Parent: "/", Entries: []Entry{
+		{Name: "docs", Kind: "directory"}, {Name: "notes.MD", Kind: "file"}, {Name: "readme.md", Kind: "file"}}}
+	source := Source{Browse: func(_ string, done func(Listing, string)) { done(listing, "") }}
+	for _, remote := range []bool{false, true} {
+		clear(systemIcons)
+		clear(asked)
+		b := newBench(t, Options{Source: source, Remote: remote, Host: "host"})
+		b.settle()
+		want := map[string]int{"folder": 1, "type md": 1}
+		if !remote {
+			want = map[string]int{"file /work/docs": 1, "file /work/notes.MD": 1, "file /work/readme.md": 1}
+		}
+		for key, n := range want {
+			if asked[key] != n {
+				t.Errorf("remote %v: %q read %d times, want %d: %v", remote, key, asked[key], n, asked)
+			}
+		}
+		if len(asked) != len(want) {
+			t.Errorf("remote %v: read %v", remote, asked)
+		}
+	}
+	clear(asked)
+	b := newBench(t, Options{Source: source, Preview: true})
+	b.settle()
+	if len(asked) != 0 {
+		t.Errorf("the preview read system icons: %v", asked)
 	}
 }

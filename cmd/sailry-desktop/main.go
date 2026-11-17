@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
+	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -55,6 +56,9 @@ func run() error {
 	if !options.Preview && options.DataDir == "" && !instanceLock(mygo.App.RequestSingleInstanceLock, successor, successorWait) {
 		// The Desktop that owns the default profile was told and raises its window.
 		return nil
+	}
+	if !options.Preview {
+		useSystemIcons()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -421,4 +425,13 @@ func preferenceLocale(language *string) string {
 		return i18n.MatchPreferred(mygo.App.PreferredLanguages()...)
 	}
 	return map[string]string{"english": "en", "chinese": "zh-CN", "traditional_chinese": "zh-TW", "japanese": "ja", "korean": "ko", "french": "fr", "german": "de", "spanish": "es", "portuguese_brazil": "pt-BR", "russian": "ru"}[*language]
+}
+
+// useSystemIcons gives the file picker the file manager's icons. A remote
+// folder shows a plain local folder's icon: the temporary directory is one
+// on every desktop system.
+func useSystemIcons() {
+	picker.SystemIcons.File = mygo.Shell.FileIcon
+	picker.SystemIcons.Type = mygo.Shell.TypeIcon
+	picker.SystemIcons.Folder = func(px int) ([]byte, error) { return mygo.Shell.FileIcon(os.TempDir(), px) }
 }
