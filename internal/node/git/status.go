@@ -85,6 +85,11 @@ func (s *Service) Status(ctx context.Context, root string) (protocol.GitStatus, 
 		slot.observers--
 		if slot.observers == 0 && slot.expires.IsZero() {
 			slot.cancel()
+			// A later caller starts its own read instead of joining this
+			// cancelled one while Git is still stopping.
+			if s.statuses[root] == slot {
+				delete(s.statuses, root)
+			}
 		}
 		s.mu.Unlock()
 	}()

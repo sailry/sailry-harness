@@ -564,7 +564,10 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		for name, value := range renewal.Grant.Record.Issued.Fields() {
 			fields[name] = value
 		}
-		status, document, operationErr := authorization.Response(ctx, &client, target.Declaration.Refresh.Request, fields, false)
+		// The shared client has no timeout of its own.
+		operation, cancel := context.WithTimeout(ctx, authorization.Deadline)
+		status, document, operationErr := authorization.Response(operation, &client, target.Declaration.Refresh.Request, fields, false)
+		cancel()
 		err = operationErr
 		if err == nil {
 			err = authorization.Granted(status, document)

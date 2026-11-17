@@ -477,7 +477,10 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	transport := &renewalTransport{base: source.node.auth.client.Transport}
 	client := *source.node.auth.client
 	client.Transport = transport
-	ctx := context.WithValue(source.ctx, oauth2.HTTPClient, &client)
+	// The shared client has no timeout of its own.
+	operation, cancel := context.WithTimeout(source.ctx, authorization.Deadline)
+	defer cancel()
+	ctx := context.WithValue(operation, oauth2.HTTPClient, &client)
 	// Config.TokenSource reuses a valid access token. Expire a copy to force
 	// the scheduled exchange without changing the retained token's real expiry.
 	refresh := source.value.Token
