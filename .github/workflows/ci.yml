@@ -105,6 +105,8 @@ jobs:
           submodules: recursive
       - name: Test lane routing
         run: bash .github/scripts/test_test.sh
+      - name: Test release CI reuse
+        run: bash .github/scripts/reuse-ci_test.sh
       - uses: ./.github/actions/go-cache
         id: go-cache
       - name: Format

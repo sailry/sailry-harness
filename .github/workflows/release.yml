@@ -1,7 +1,7 @@
 name: Release
 
-# A version tag runs every check, builds every package and gathers them in
-# the tag's draft GitHub release. Publishing the draft is a manual step.
+# A version tag reuses verified CI results for its exact commit, runs the
+# remaining checks and gathers packages in a draft release.
 # Secrets and variables keep the names of the existing release settings.
 on:
   push:
@@ -36,6 +36,9 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       build: ${{ steps.version.outputs.build }}
       reuse_run: ${{ steps.reuse.outputs.run }}
+      ci_run: ${{ steps.ci.outputs.ci_run }}
+      mobile_checked: ${{ steps.ci.outputs.mobile_checked }}
+      native_run: ${{ steps.ci.outputs.native_run }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Tag, product versions and changelog entry agree
@@ -56,6 +59,14 @@ jobs:
           case "$build" in '' | *[!0-9]*) echo 'pubspec.yaml has no build number' >&2; exit 1 ;; esac
           grep -Fq "## [$version](" CHANGELOG.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
           printf 'version=%s\nbuild=%s\n' "$version" "$build" >> "$GITHUB_OUTPUT"
+      - name: Find verified CI for this commit
+        id: ci
+        if: inputs.reuse_run == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: bash .github/scripts/reuse-ci.sh
       # A repair may reuse only a complete full run of this tag. Comparing the
       # source trees keeps application, dependency and native inputs unchanged.
       - name: Verify reusable release run
@@ -79,10 +90,16 @@ jobs:
           gh api --paginate "repos/$GH_REPO/actions/runs/$REUSE_RUN/jobs?filter=latest&per_page=100" --jq '.jobs[]' | jq -s . > "$jobs"
           jq -e '
             [.[] | select(.name | startswith("checks / "))] as $checks |
+            [.[] | select(.name | startswith("checks / integration ("))] as $integration |
             [.[] | select(.name | startswith("host-linux ("))] as $hosts |
             ($checks | length) > 0 and all($checks[];
               .conclusion == "success" or
-              (.name == "checks / apps/mobile (iOS)" and .conclusion == "skipped")) and
+              (.conclusion == "skipped" and
+                (.name == "checks / lint" or .name == "checks / test" or
+                 (.name | startswith("checks / test (")) or
+                 .name == "checks / native" or (.name | startswith("checks / native (")) or
+                 .name == "checks / apps/mobile (Android)" or .name == "checks / apps/mobile (iOS)"))) and
+            ($integration | length) == 3 and all($integration[]; .conclusion == "success") and
             ($hosts | length) == 2 and all($hosts[]; .conclusion == "success")
           ' "$jobs" >/dev/null
           for name in version windows android ios; do
@@ -104,10 +121,16 @@ jobs:
   checks:
     needs: version
     if: needs.version.outputs.reuse_run == ''
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci.yml
     with:
       integration: true
       skip_mobile_builds: true
+      reuse_go: ${{ needs.version.outputs.ci_run != '' }}
+      reuse_mobile: ${{ needs.version.outputs.mobile_checked == 'true' }}
+      native_run: ${{ needs.version.outputs.native_run }}
 
   # The signed, sealed and notarized Desktop and the signed Host archive of
   # one macOS architecture.
@@ -145,7 +168,7 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native
-          run-id: ${{ needs.version.outputs.reuse_run || github.run_id }}
+          run-id: ${{ needs.version.outputs.reuse_run || needs.version.outputs.native_run || github.run_id }}
           github-token: ${{ github.token }}
       # A temporary keychain holds the Developer ID certificate; the App Store
       # Connect key stays a file outside the checkout.
@@ -208,7 +231,10 @@ jobs:
   # The Windows x64 Desktop installer and portable archive, cross-compiled
   # around the libraries the Windows native leg built. Nothing is code signed.
   windows:
-    needs: checks
+    needs: [version, checks]
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-24.04
     env:
       SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
@@ -229,6 +255,8 @@ jobs:
         with:
           name: native-windows-amd64
           path: ${{ runner.temp }}/native
+          run-id: ${{ needs.version.outputs.native_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Desktop
         run: |
           bash cmd/sailry-desktop/windows/package.sh -artifacts "$RUNNER_TEMP/native"
@@ -246,7 +274,10 @@ jobs:
   # The Linux Host archive of each architecture, around the iroh library the
   # native leg linked against GNU libc 2.34.
   host-linux:
-    needs: checks
+    needs: [version, checks]
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -271,6 +302,8 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native
+          run-id: ${{ needs.version.outputs.native_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Host
         env:
           TRIPLE: ${{ matrix.triple }}

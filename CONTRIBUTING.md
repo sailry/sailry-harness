@@ -278,9 +278,13 @@ except `publish`:
 
 - `version`: the tag must equal `link.ProductVersion`, the `mygo.json` version
   and the `pubspec.yaml` version, and `CHANGELOG.md` must hold the entry.
-- `checks`: `ci.yml` with integration tests and Flutter analysis/tests. It
-  skips the unsigned Mobile builds because the required `android` and `ios`
-  jobs build and verify the final signed packages.
+- `checks`: reuse a successful default-branch CI run for the exact source
+  commit, then run integration tests. Go checks require a successful lint job
+  and all six test lanes; Flutter checks are reused only if that run completed
+  them. The five native artifacts are reused only if their builds succeeded
+  and their artifacts remain available. Missing evidence falls back to the
+  corresponding checks or builds. Final signed Mobile packages replace the
+  duplicate unsigned builds.
 - `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
   macOS Host archive, signed with the Developer ID certificate.
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the
