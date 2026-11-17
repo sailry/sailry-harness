@@ -232,12 +232,9 @@ func (s *Service) PrepareManaged(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir, err := gitDir(root, r)
+	dir, err := commonDir(r)
 	if err != nil {
 		return "", err
-	}
-	if data, e := os.ReadFile(filepath.Join(dir, "commondir")); e == nil {
-		dir = filepath.Clean(filepath.Join(dir, strings.TrimSpace(string(data))))
 	}
 	anchor, err := os.OpenRoot(dir)
 	if err != nil {

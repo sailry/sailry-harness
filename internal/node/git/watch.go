@@ -37,14 +37,15 @@ func WatchRoots(root string) ([]string, error) {
 		return nil, mapError(err)
 	}
 	result := []string{dir}
-	if data, e := os.ReadFile(filepath.Join(dir, "commondir")); e == nil {
-		common, err := filepath.EvalSymlinks(filepath.Join(dir, strings.TrimSpace(string(data))))
-		if err != nil {
-			return nil, mapError(err)
-		}
-		if common != dir {
-			result = append(result, common)
-		}
+	common, err := commonDir(r)
+	if err != nil {
+		return nil, err
+	}
+	if common, err = filepath.EvalSymlinks(common); err != nil {
+		return nil, mapError(err)
+	}
+	if common != dir {
+		result = append(result, common)
 	}
 	return result, nil
 }
