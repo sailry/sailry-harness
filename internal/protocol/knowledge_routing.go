@@ -105,6 +105,9 @@ func KnowledgeRequestTarget(command Command, execution, controller NodeID) NodeI
 		case *CommandCreateKnowledgeCollectionPayload:
 			source = &input.Definition.Source
 		}
+		if source != nil && source.Kind == "worktree" {
+			return execution
+		}
 		if source != nil && source.Kind == "storage" {
 			var scope PluginStorageScope
 			switch input := source.Data.(type) {
@@ -116,7 +119,9 @@ func KnowledgeRequestTarget(command Command, execution, controller NodeID) NodeI
 			if scope == PluginStorageScopeNode {
 				return controller
 			}
+			return execution
 		}
+		return NodeID{}
 	}
 	return execution
 }

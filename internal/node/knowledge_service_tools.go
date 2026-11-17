@@ -3,12 +3,15 @@ package node
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 
 	"charm.land/fantasy"
+	"lukechampine.com/blake3"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
@@ -159,6 +162,9 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 				controller = *inv.User.Controller
 			}
 			target := protocol.KnowledgeRequestTarget(command, node.ID(), controller)
+			if target == (protocol.NodeID{}) {
+				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "knowledge creation requires a storage Node"}
+			}
 			request := protocol.NewRequest(target, command)
 			request.Plugin = &scope
 			mu.Lock()
@@ -187,9 +193,20 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 			}
 			stopped := connectionFault(protocol.ErrorCodeCancelled, "plugin tool was cancelled")
 			if request.Command.Durable() {
-				stopped = connectionFault(protocol.ErrorCodeOutcomeUnknown, "knowledge collection change was cancelled; list the collections before retrying")
+				stopped = connectionFault(protocol.ErrorCodeOutcomeUnknown, "knowledge collection change was cancelled; inspect the original request before another change")
 			}
 			output, err := node.connectionDispatch(ctx, *request, stopped, connectionFault(protocol.ErrorCodeOutcomeUnknown, "knowledge operation outcome is unavailable"))
+			if err != nil && request.Command.Durable() && resourceFault(err).Code == protocol.ErrorCodeOutcomeUnknown {
+				if ctx.Err() == nil {
+					if recovered, known, recoveryErr := node.knowledgeToolOutcome(ctx, *request); known {
+						if recoveryErr != nil {
+							return workspaceToolFault(recoveryErr)
+						}
+						return engine.ToolResult{Value: recovered}
+					}
+				}
+				err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: fmt.Sprintf("knowledge change outcome is unknown; inspect request %s at Node %s before another change", request.ID, request.Target)}
+			}
 			if err != nil {
 				return workspaceToolFault(err)
 			}
@@ -198,4 +215,42 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 		tools = append(tools, tool)
 	}
 	return tools, nil
+}
+
+// knowledgeToolOutcome recovers the exact admitted operation through the same
+// execution scope and controller route. It never resubmits the mutation.
+func (node *Node) knowledgeToolOutcome(ctx context.Context, original protocol.Request) (protocol.Output, bool, error) {
+	body, err := json.Marshal(original)
+	if err != nil {
+		return protocol.Output{}, false, err
+	}
+	digest := blake3.Sum256(body)
+	inspection := protocol.NewRequest(original.Target, protocol.Command{Kind: "inspect_request", Data: &protocol.CommandInspectRequestPayload{ID: original.ID, Digest: hex.EncodeToString(digest[:])}})
+	accepted, err := node.ScopedKnowledge(ctx, node.ID(), protocol.ScopedKnowledgeCall{Request: inspection, Original: &original})
+	if err != nil {
+		return protocol.Output{}, false, err
+	}
+	select {
+	case response, open := <-accepted.Completion:
+		if !open || response.Fault != nil {
+			return protocol.Output{}, false, response.Fault
+		}
+		outcome, valid := dispatchPayload[protocol.OutputRequestOutcomePayload](response.Output.Data)
+		if !valid || response.Output.Kind != "request_outcome" || outcome.ID != original.ID || outcome.Outcome.Kind != "completed" {
+			return protocol.Output{}, false, nil
+		}
+		result, valid := dispatchPayload[protocol.Result[protocol.Output, protocol.Fault]](outcome.Outcome.Data)
+		if !valid {
+			return protocol.Output{}, false, nil
+		}
+		if result.Ok != nil {
+			return *result.Ok, true, nil
+		}
+		if result.Err != nil {
+			return protocol.Output{}, true, result.Err
+		}
+		return protocol.Output{}, false, nil
+	case <-ctx.Done():
+		return protocol.Output{}, false, ctx.Err()
+	}
 }

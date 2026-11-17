@@ -65,3 +65,22 @@ func TestKnowledgeRouteKeepsPreparedTargetAndIdentity(t *testing.T) {
 		t.Fatalf("knowledge route rewrote target or ID: %+v -> %+v", request, sent)
 	}
 }
+
+func TestKnowledgeCreateDoesNotDefaultToCurrentExecutionNode(t *testing.T) {
+	var sent protocol.Request
+	controller := New(knowledgeRouteTransport{clientTransport: &clientTransport{}, target: protocol.NodeID{11}, sent: &sent})
+	t.Cleanup(func() { _ = controller.Close() })
+	definition := protocol.DefaultKnowledgeDefinition()
+	definition.Name = "Notes"
+	definition.Source = protocol.KnowledgeSource{Kind: "file", Data: &protocol.KnowledgeSourceFilePayload{Path: "/notes.txt"}}
+	request := controller.PrepareKnowledge(protocol.KnowledgeRef{}, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}})
+	if request.Target != (protocol.NodeID{}) {
+		t.Fatalf("ambiguous creation silently selected %v", request.Target)
+	}
+	if _, err := controller.ExecuteKnowledge(t.Context(), request); faultCode(err) != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("ambiguous creation was sent: %v", err)
+	}
+	if sent.ID != (protocol.RequestID{}) {
+		t.Fatal("ambiguous creation reached a transport")
+	}
+}

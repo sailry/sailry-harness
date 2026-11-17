@@ -17,7 +17,7 @@ func (client *Client) PrepareKnowledge(ref protocol.KnowledgeRef, command protoc
 	if target == (protocol.NodeID{}) {
 		target = protocol.KnowledgeTarget(command)
 	}
-	if target == (protocol.NodeID{}) {
+	if target == (protocol.NodeID{}) && command.Kind != "create_knowledge_collection" {
 		target = client.Target()
 	}
 	return protocol.NewRequest(target, copyValue(command))
@@ -26,6 +26,9 @@ func (client *Client) PrepareKnowledge(ref protocol.KnowledgeRef, command protoc
 // ExecuteKnowledge uses the same entry identity as this Client while selecting
 // the collection's real Node. It never rewrites an already prepared request.
 func (client *Client) ExecuteKnowledge(ctx context.Context, request protocol.Request) (protocol.Output, error) {
+	if request.Target == (protocol.NodeID{}) {
+		return protocol.Output{}, fault(protocol.ErrorCodeInvalidRequest, "knowledge creation requires a storage Node")
+	}
 	if request.Target == client.Target() {
 		return client.Execute(ctx, request)
 	}
