@@ -28,9 +28,22 @@ on:
         description: Release jobs build the signed mobile packages separately
         type: boolean
         default: false
+      reuse_go:
+        description: The release caller verified successful Go checks for this exact commit
+        type: boolean
+        default: false
+      reuse_mobile:
+        description: The release caller verified successful mobile checks for this exact commit
+        type: boolean
+        default: false
+      native_run:
+        description: The release caller verified this run's native artifacts for this exact commit
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.ref_type == 'tag' && 'release' || github.event_name == 'workflow_dispatch' && (inputs.integration && 'manual-integration' || 'manual') || 'checks' }}
@@ -79,6 +92,7 @@ jobs:
           printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
 
   lint:
+    if: ${{ !inputs.reuse_go }}
     runs-on: ubuntu-24.04
     env:
       GO_CACHE_ROLE: lint
@@ -110,6 +124,7 @@ jobs:
           build-hit: ${{ steps.go-cache.outputs.build-hit }}
 
   test:
+    if: ${{ !inputs.reuse_go }}
     strategy:
       fail-fast: false
       matrix:
@@ -154,7 +169,7 @@ jobs:
 
   native:
     needs: scope
-    if: needs.scope.outputs.native == 'true'
+    if: ${{ needs.scope.outputs.native == 'true' && inputs.native_run == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -252,7 +267,7 @@ jobs:
   mobile:
     name: apps/mobile (Android)
     needs: scope
-    if: needs.scope.outputs.mobile == 'true'
+    if: ${{ needs.scope.outputs.mobile == 'true' && !inputs.reuse_mobile }}
     runs-on: ubuntu-24.04
     env:
       CGO_ENABLED: ''
@@ -339,7 +354,7 @@ jobs:
   # its packages; a release runs RELEASE_PACKAGES.
   integration:
     needs: native
-    if: inputs.integration
+    if: ${{ !cancelled() && inputs.integration && (needs.native.result == 'success' || inputs.native_run != '') }}
     strategy:
       fail-fast: false
       matrix:
@@ -421,6 +436,8 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: .runtime/native/${{ matrix.target }}
+          run-id: ${{ inputs.native_run || github.run_id }}
+          github-token: ${{ github.token }}
       # Loads this run's iroh library through the Go binding and opens and
       # closes a loopback endpoint: no relay and no external service.
       - name: Native libraries
