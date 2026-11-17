@@ -209,7 +209,7 @@ func marketPlugins(c *ui.Context, s *State) {
 			// The source is the filter above the cards, not repeated on each.
 			desc := x.Description
 			var install func()
-			if x.Requires == "" {
+			if inst == nil && x.Installable || inst != nil && Update(inst) {
 				install = func() {
 					if m.PackageActions != nil && m.PackageActions.MarketPlugin != nil {
 						m.PackageActions.MarketPlugin(x.ID)

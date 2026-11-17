@@ -1425,6 +1425,17 @@ plugins_up_to_date
 plugins_updates_found
 plugins_update_all
 plugins_review_updates
+plugins_version_compatible
+plugins_version_current
+plugins_version_pinned
+plugins_version_withdrawn
+plugins_version_unsupported
+plugins_switch_version
+plugins_pin_version
+plugins_resume_following
+plugins_version_updates
+plugins_fixed_version
+plugins_following_versions
 plugins_download
 plugins_empty
 plugins_remove_effect

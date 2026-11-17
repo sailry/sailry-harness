@@ -25,6 +25,8 @@ type PackageActions struct {
 	LoadDetails    func(DetailKind, string, func())
 	RetryMarket    func()
 	MarketPlugin   func(string)
+	PluginVersion  func(string, string)
+	PinPlugin      func(string, bool)
 	MarketSkill    func(string)
 	Theme          func(string)
 	ChooseSkill    func(int, func(string))

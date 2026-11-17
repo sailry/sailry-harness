@@ -1414,6 +1414,17 @@ plugins_up_to_date: 外掛已是最新
 plugins_updates_found: '%{count} 個外掛可更新'
 plugins_update_all: 全部更新
 plugins_review_updates: 查看更新
+plugins_version_compatible: 相容
+plugins_version_current: Current
+plugins_version_pinned: Pinned
+plugins_version_withdrawn: Withdrawn
+plugins_version_unsupported: 'Unsupported: %{reason}'
+plugins_switch_version: Switch
+plugins_pin_version: Pin current version
+plugins_resume_following: Resume following updates
+plugins_version_updates: Updates
+plugins_fixed_version: Fixed at %{version}
+plugins_following_versions: Following compatible releases
 plugins_download: 下載外掛
 plugins_empty: 暫無外掛
 plugins_remove_effect: 解除安裝“%{name}”？外掛資料會保留

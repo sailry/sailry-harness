@@ -1949,7 +1949,7 @@ func TestExtensions(t *testing.T) {
 			}
 			extension := manifest.Extensions["dev.sailry.platform"]
 			row := preview.Package{ID: manifest.Name, Name: extension.Display.Locales["zh-CN"], Description: extension.Description.Locales["zh-CN"], Version: manifest.Version, Latest: manifest.Version,
-				Tint: extension.Tint, Category: "market_category_" + extension.Category, Source: "market_details_source_official", Official: true, Versions: []string{manifest.Version}}
+				Tint: extension.Tint, Category: "market_category_" + extension.Category, Source: "market_details_source_official", Official: true, Installable: true, Versions: []preview.PackageVersion{{Version: manifest.Version, Compatible: true}}}
 			var own struct {
 				Svg string `json:"svg"`
 			}

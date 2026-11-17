@@ -261,6 +261,7 @@ type Setting = viewmodel.Setting
 
 // Package is an installed or catalog plugin (plugin::Summary and Info).
 type Package = viewmodel.Package
+type PackageVersion = viewmodel.PackageVersion
 
 // Skill is an installed skill.
 type Skill = viewmodel.Skill
@@ -283,7 +284,7 @@ type Extensions struct {
 // ExtensionsData builds the extensions' dataset, fresh each call.
 func ExtensionsData() *Extensions {
 	notes := "- Branch picker in the composer\n- Faster diffs for large files\n- Fixes a crash on empty repositories"
-	git := Package{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Latest: "0.3.3",
+	git := Package{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Latest: "0.3.3", MarketVersion: "0.3.3", UpdateAvailable: true,
 		Icon: "phosphor:git-branch", Tint: "amber", Category: "market_category_development", Source: "market_details_source_official", Official: true, Enabled: true, Installed: true,
 		Tools: []string{"git_status", "git_diff", "git_commit"}, Skills: []string{"commit-message"},
 		Permissions: []string{"market_permission_git_read", "market_permission_git_write", "market_permission_files_read"}, Notes: notes,
@@ -293,24 +294,24 @@ func ExtensionsData() *Extensions {
 			{Name: "model", Title: "Message model", Kind: "choice", Options: []string{"Follow model", "Claude Haiku 5.5", "GPT-5.2 mini"}, Value: "Follow model"},
 			{Name: "token", Title: "GitHub token", Kind: "secret", Set: true},
 		},
-		Versions: []string{"0.3.3", "0.3.2", "0.3.1", "0.2.0"}}
+		Installable: true, Versions: []PackageVersion{{Version: "0.3.3", Compatible: true, Notes: notes}, {Version: "0.3.2", Compatible: true, Notes: "- Improve worktree support"}, {Version: "0.3.1", Compatible: true}, {Version: "0.2.0", Compatible: true, Withdrawn: true}}}
 	return &Extensions{
 		Packages: []Package{
 			git,
 			{ID: "terminal", Name: "Terminal", Description: "Ghostty terminals beside the conversation", Version: "0.2.0", Latest: "0.2.0",
 				Icon: "phosphor:terminal-window", Tint: "teal", Category: "market_category_development", Source: "market_details_source_official", Official: true, Enabled: true, Installed: true,
-				Tools: []string{"terminal_run", "terminal_read"}, Permissions: []string{"market_permission_terminals_control"}, Versions: []string{"0.2.0"}},
-			{ID: "browser", Name: "Browser", Description: "Pages the agent reads and annotates", Version: "0.1.4", Latest: "0.2.0", Requires: "0.2.0",
+				Tools: []string{"terminal_run", "terminal_read"}, Permissions: []string{"market_permission_terminals_control"}, Installable: true, Versions: []PackageVersion{{Version: "0.2.0", Compatible: true}}},
+			{ID: "browser", Name: "Browser", Description: "Pages the agent reads and annotates", Version: "0.1.4", MarketVersion: "0.2.0",
 				Icon: "phosphor:browser", Tint: "blue", Category: "market_category_automation", Source: "market_details_source_official", Official: true, Installed: true,
 				Tools: []string{"browser_open", "browser_read"}, Permissions: []string{"market_permission_browser_control", "market_permission_http_request"},
-				Notes: "- Needs the new web view host", Versions: []string{"0.2.0", "0.1.4"}},
+				Installable: true, Versions: []PackageVersion{{Version: "0.2.0", Requires: "0.2.0", Notes: "- Needs the new web view host"}, {Version: "0.1.4", Compatible: true}}},
 			{ID: "figma", Name: "Figma", Description: "Frames and comments from design files", Version: "0.1.0", Latest: "0.1.0",
 				Icon: "ailogo:figma", Tint: "violet", Category: "market_category_documents", Source: "market_details_source_community", Installed: true,
-				MCP: []string{"figma"}, Permissions: []string{"market_permission_http_request"}, Versions: []string{"0.1.0"},
+				MCP: []string{"figma"}, Permissions: []string{"market_permission_http_request"}, Installable: true, Versions: []PackageVersion{{Version: "0.1.0", Compatible: true}},
 				Settings: []Setting{{Name: "team", Title: "Team ID", Kind: "text", Required: true}, {Name: "limit", Title: "Frame limit", Kind: "number", Value: "50"}}},
 			{ID: "linear", Name: "Linear", Description: "Issues linked to conversations", Version: "0.2.3", Latest: "0.2.3",
 				Category: "market_category_automation", Source: "market_details_source_local", Enabled: true, Installed: true,
-				Tools: []string{"linear_issue"}, Versions: []string{"0.2.3"}},
+				Tools: []string{"linear_issue"}, Installable: true, Versions: []PackageVersion{{Version: "0.2.3", Compatible: true}}},
 			{ID: "review-skills", Name: "Review skills", Description: "Skills for code review", Version: "1.0.0", Latest: "1.0.0", Kind: KindSkill,
 				Source: "market_details_source_official", Official: true, Enabled: true, Installed: true, Skills: []string{"review", "security-review"}},
 			{ID: "mcp-github", Name: "GitHub MCP", Description: "GitHub's MCP server", Version: "0.4.0", Latest: "0.4.0", Kind: KindMCP,
@@ -319,13 +320,13 @@ func ExtensionsData() *Extensions {
 		Catalog: []Package{
 			git,
 			{ID: "jira", Name: "Jira", Description: "Issues and sprints from Jira Cloud", Version: "0.2.1", Latest: "0.2.1", Icon: "ailogo:jira", Tint: "blue", Category: "market_category_automation",
-				Source: "market_details_source_official", Official: true, Tools: []string{"jira_issue"}, Permissions: []string{"market_permission_http_request"}, Versions: []string{"0.2.1"}},
+				Source: "market_details_source_official", Official: true, Tools: []string{"jira_issue"}, Permissions: []string{"market_permission_http_request"}, Installable: true, Versions: []PackageVersion{{Version: "0.2.1", Compatible: true}}},
 			{ID: "postgres", Name: "Postgres", Description: "Query databases from the conversation", Version: "0.3.0", Latest: "0.3.0", Icon: "phosphor:database", Tint: "teal", Category: "market_category_data",
-				Source: "market_details_source_official", Official: true, Tools: []string{"sql_query"}, Permissions: []string{"market_permission_databases_control"}, Versions: []string{"0.3.0"}},
+				Source: "market_details_source_official", Official: true, Tools: []string{"sql_query"}, Permissions: []string{"market_permission_databases_control"}, Installable: true, Versions: []PackageVersion{{Version: "0.3.0", Compatible: true}}},
 			{ID: "chess", Name: "Chess", Description: "Play a game while the agent works", Version: "0.1.2", Latest: "0.1.2", Icon: "phosphor:crown", Tint: "amber", Category: "market_category_entertainment",
-				Source: "market_details_source_community", Versions: []string{"0.1.2"}},
+				Source: "market_details_source_community", Installable: true, Versions: []PackageVersion{{Version: "0.1.2", Compatible: true}}},
 			{ID: "pdf", Name: "PDF tools", Description: "Split, merge and read PDF files", Version: "0.1.0", Latest: "0.1.0", Icon: "phosphor:file-pdf", Tint: "violet", Category: "market_category_documents",
-				Source: "market_details_source_community", Tools: []string{"pdf_read"}, Permissions: []string{"market_permission_files_read"}, Versions: []string{"0.1.0"}},
+				Source: "market_details_source_community", Tools: []string{"pdf_read"}, Permissions: []string{"market_permission_files_read"}, Installable: true, Versions: []PackageVersion{{Version: "0.1.0", Compatible: true}}},
 		},
 		Skills: []Skill{
 			{ID: "review", Name: "review", Description: "Review a diff for bugs", Package: "Review skills", Enabled: true},

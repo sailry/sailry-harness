@@ -27,25 +27,37 @@ type SettingsTab struct {
 	Enabled   string
 }
 
+type PackageVersion struct {
+	Version, Notes        string
+	Requires, Unsupported string
+	Compatible, Withdrawn bool
+}
+
 type Package struct {
 	ID, Name, Description string
 	Version, Latest       string
-	Requires              string
-	Kind                  PackageKind
-	Category              string
-	Source                string
-	Host                  string
-	InstallName           string
-	Official, Enabled     bool
-	Installed             bool
-	Tools, Skills, MCP    []string
-	Permissions           []string
+	// MarketVersion is the newest catalog release, including releases the
+	// Node cannot install. Latest is the Node's actionable update candidate.
+	MarketVersion       string
+	Requires            string
+	Unsupported         string
+	Kind                PackageKind
+	Category            string
+	Source              string
+	Host                string
+	InstallName         string
+	Official, Enabled   bool
+	Installed           bool
+	Installable, Pinned bool
+	UpdateAvailable     bool
+	Tools, Skills, MCP  []string
+	Permissions         []string
 	// AddedPermissions are the permissions the Latest version asks that
 	// the installed one does not have.
 	AddedPermissions []string
 	Notes            string
 	Settings         []Setting
-	Versions         []string
+	Versions         []PackageVersion
 	// Icon is the icon the package declares for itself: an icon name
 	// ("phosphor:<name>", "ailogo:<slug>", "reicon:<group>/<name>") or its
 	// own SVG markup. Tint is its declared tile color ("blue", "violet",

@@ -1414,6 +1414,17 @@ plugins_up_to_date: Плагины обновлены
 plugins_updates_found: 'Доступно обновлений плагинов: %{count}'
 plugins_update_all: Обновить все
 plugins_review_updates: Посмотреть обновления
+plugins_version_compatible: Совместимо
+plugins_version_current: Current
+plugins_version_pinned: Pinned
+plugins_version_withdrawn: Withdrawn
+plugins_version_unsupported: 'Unsupported: %{reason}'
+plugins_switch_version: Switch
+plugins_pin_version: Pin current version
+plugins_resume_following: Resume following updates
+plugins_version_updates: Updates
+plugins_fixed_version: Fixed at %{version}
+plugins_following_versions: Following compatible releases
 plugins_download: Загрузить плагин
 plugins_empty: Нет плагинов
 plugins_remove_effect: Удалить «%{name}»? Данные плагина будут сохранены

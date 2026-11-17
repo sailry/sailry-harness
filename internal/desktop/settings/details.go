@@ -182,7 +182,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	var action func()
 	switch {
-	case !pk.Installed && pk.Requires == "":
+	case !pk.Installed && pk.Installable:
 		action = func() {
 			kit.PrimaryBusy(c.Key("primary"), t("market_install"), false, s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
 				if s.PackageActions != nil && s.PackageActions.MarketPlugin != nil {
@@ -192,7 +192,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 				notice(c)
 			})
 		}
-	case Update(pk) && pk.Requires == "":
+	case Update(pk):
 		action = func() {
 			kit.PrimaryBusy(c.Key("primary"), t("market_update"), false, s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
 				if s.PackageActions != nil && s.PackageActions.Update != nil {
@@ -207,6 +207,9 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 	if msg := compatibility(c, pk); msg != "" {
 		ui.Row(c.Key("required")).Gap(8).Children(func() {
 			ui.Text(c, msg).FontSize(14).Grow(1).TextColor(p.MutedForeground)
+			if pk.Requires == "" {
+				return
+			}
 			kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() {
 				if s.PackageActions != nil && s.PackageActions.About != nil {
 					s.PackageActions.About()
@@ -232,7 +235,28 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 		if host == "" {
 			host = "composer_host_local"
 		}
-		facts(c, [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), t(host)}})
+		rows := [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), t(host)}}
+		if pk.Official && pk.Installed {
+			following := t("plugins_following_versions")
+			if pk.Pinned {
+				following = t("plugins_fixed_version", "version", pk.Version)
+			}
+			rows = append(rows, [2]string{t("plugins_version_updates"), following})
+		}
+		facts(c, rows)
+		if pk.Official && pk.Installed {
+			label := "plugins_pin_version"
+			if pk.Pinned {
+				label = "plugins_resume_following"
+			}
+			kit.SecondaryBusy(c.Key("pin"), t(label), s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
+				if s.PackageActions != nil && s.PackageActions.PinPlugin != nil {
+					s.PackageActions.PinPlugin(pk.ID, !pk.Pinned)
+					return
+				}
+				pk.Pinned = !pk.Pinned
+			})
+		}
 		includes := [][3]any{{"market_details_tools", icons.Settings2, len(pk.Tools)}, {"market_details_skills", icons.BookOpen, len(pk.Skills)}, {"market_details_mcp", icons.Network, len(pk.MCP)}}
 		ui.Column(c.Key("includes")).Gap(8).Children(func() {
 			ui.Text(c, t("market_details_includes")).FontSize(14).FontWeight(500)
@@ -276,26 +300,69 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 			})
 		}
 	case 3:
-		ui.Column(c.Key("versions")).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).Children(func() {
-			for i, v := range pk.Versions {
-				ui.Column(c.Key(v)).Children(func() {
-					ui.Row(c).Gap(8).Padding(10, 12).Children(func() {
-						ui.Text(c, v).FontSize(14).Font("monospace").Grow(1)
-						if i == 0 {
-							kit.Badge(c, t("market_details_latest"), kit.Info)
-						}
-						if pk.Installed && v == pk.Version {
-							kit.Badge(c, t("market_installed"), kit.Positive)
-						}
-					})
-					if i == 0 {
-						releaseNotes(c, pk.Notes)
-						if Update(pk) {
-							addedPermissions(c, pk)
+		pluginVersions(c, s, pk)
+	}
+}
+
+func pluginVersions(c *ui.Context, s *State, pk *preview.Package) {
+	p := theme.Of(c)
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	busy := s.Busy[BusyPackage+pk.ID]
+	ui.Column(c.Key("versions")).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).Children(func() {
+		for i, version := range pk.Versions {
+			ui.Column(c.Key(version.Version)).Children(func() {
+				current := pk.Installed && version.Version == pk.Version
+				ui.Row(c).Gap(8).Padding(10, 12).Children(func() {
+					ui.Text(c, version.Version).FontSize(14).Font("monospace").Grow(1)
+					if version.Version == pk.MarketVersion || !pk.Official && i == 0 {
+						kit.Badge(c, t("market_details_latest"), kit.Info)
+					}
+					if current {
+						kit.Badge(c, t("plugins_version_current"), kit.Positive)
+						if pk.Pinned {
+							kit.Badge(c, t("plugins_version_pinned"), kit.Neutral)
 						}
 					}
+					if pk.Official && !current {
+						label := "market_install"
+						if pk.Installed {
+							label = "plugins_switch_version"
+						}
+						kit.SecondaryBusy(c.Key("install"), t(label), busy).Label(t(label) + " " + version.Version).Height(28).Disabled(busy || !version.Compatible || version.Withdrawn).OnClick(func() {
+							if s.PackageActions != nil && s.PackageActions.PluginVersion != nil {
+								s.PackageActions.PluginVersion(pk.ID, version.Version)
+								return
+							}
+							notice(c)
+						})
+					}
 				})
-			}
-		})
-	}
+				if pk.Official {
+					ui.Row(c.Key("compatibility")).Padding(0, 12, 8, 12).Gap(8).Children(func() {
+						if version.Withdrawn {
+							kit.Badge(c, t("plugins_version_withdrawn"), kit.Caution)
+						}
+						status := t("market_details_unsupported")
+						switch {
+						case version.Compatible:
+							status = t("plugins_version_compatible")
+						case version.Requires != "":
+							status = t("plugins_requires_sailry", "version", version.Requires)
+						case version.Unsupported != "":
+							status = t("plugins_version_unsupported", "reason", version.Unsupported)
+						}
+						ui.Text(c, status).FontSize(12).Grow(1).Shrink(1).TextColor(p.MutedForeground)
+					})
+				}
+				notes := version.Notes
+				if !pk.Official && i == 0 && notes == "" {
+					notes = pk.Notes
+				}
+				releaseNotes(c, notes)
+				if Update(pk) && version.Version == pk.Latest {
+					addedPermissions(c, pk)
+				}
+			})
+		}
+	})
 }

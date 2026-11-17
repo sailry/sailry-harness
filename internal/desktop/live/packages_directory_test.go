@@ -46,6 +46,13 @@ func TestOfferLocalUpdate(t *testing.T) {
 			t.Fatalf("offered %v, %v, report %+v", offered, err, current)
 		}
 	})
+	t.Run("an unsupported API is not an actionable update", func(t *testing.T) {
+		current, local := report(), read("notes", "0.2.0")
+		local.info.Summary.Compatibility = protocol.PluginCompatibility{Kind: "unsupported", Data: protocol.PluginCompatibilityUnsupportedPayload{Reason: "Unsupported plugin API v2"}}
+		if offered, err := offerLocalUpdate(current, local); offered || err != nil || current.Available != nil {
+			t.Fatalf("offered %v, %v, report %+v", offered, err, current)
+		}
+	})
 	t.Run("another package or an archive is refused", func(t *testing.T) {
 		archive := read("notes", "0.1.1")
 		archive.directory = ""

@@ -1414,6 +1414,17 @@ plugins_up_to_date: 플러그인이 최신 상태입니다
 plugins_updates_found: 플러그인 업데이트 %{count}개 사용 가능
 plugins_update_all: 모두 업데이트
 plugins_review_updates: 업데이트 보기
+plugins_version_compatible: 호환
+plugins_version_current: Current
+plugins_version_pinned: Pinned
+plugins_version_withdrawn: Withdrawn
+plugins_version_unsupported: 'Unsupported: %{reason}'
+plugins_switch_version: Switch
+plugins_pin_version: Pin current version
+plugins_resume_following: Resume following updates
+plugins_version_updates: Updates
+plugins_fixed_version: Fixed at %{version}
+plugins_following_versions: Following compatible releases
 plugins_download: 플러그인 다운로드
 plugins_empty: 플러그인 없음
 plugins_remove_effect: “%{name}”을 제거하시겠습니까? 플러그인 데이터는 유지됩니다

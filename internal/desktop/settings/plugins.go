@@ -24,8 +24,8 @@ import (
 
 var pluginSettingsMessages = Messages{"plugins_settings_title", "plugins_failed", "plugins_settings_conflict", "plugins_unknown"}
 
-// Update reports whether a package has a newer version.
-func Update(p *preview.Package) bool { return p.Latest != "" && p.Latest != p.Version }
+// Update reports whether the Node offers an actionable package update.
+func Update(p *preview.Package) bool { return p.UpdateAvailable && !p.Pinned }
 
 // Classified are the installed packages of a kind.
 func Classified(ps []preview.Package, kind preview.PackageKind) []int {
@@ -90,8 +90,11 @@ func (m *Model) pkg(id string) *preview.Package {
 	return nil
 }
 
-// compatibility is the Sailry a version needs.
+// compatibility is the Node's reason this package cannot run.
 func compatibility(c *ui.Context, p *preview.Package) string {
+	if p.Unsupported != "" {
+		return i18n.T(c, "plugins_version_unsupported", "reason", p.Unsupported)
+	}
 	if p.Requires == "" {
 		return ""
 	}
@@ -151,18 +154,14 @@ func plugins(c *ui.Context, s *State) {
 	m := s.Model
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	shown := Classified(m.Packages, preview.KindPlugin)
-	updates, blocked := 0, 0
+	updates := 0
 	for _, i := range shown {
 		if p := &m.Packages[i]; Update(p) {
 			updates++
-			if p.Requires != "" {
-				blocked++
-			}
 		}
 	}
 	// The header: Check updates, Download and Install; after a check found
-	// updates, Update all, and Review updates for the ones a newer Sailry
-	// blocks.
+	// updates, Update all and Review updates for their changes.
 	kit.Group(c, "installed", t("plugins_installed"), "", func() {
 		kit.SecondaryBusy(c.Key("check"), t("plugins_check_updates"), m.Busy[BusyPluginUpdates]).Disabled(len(shown) == 0 || m.Busy[BusyPluginUpdates]).OnClick(func() {
 			if m.PackageActions != nil && m.PackageActions.CheckUpdates != nil {
@@ -177,7 +176,7 @@ func plugins(c *ui.Context, s *State) {
 				kit.Toast(c, kit.Done, t("plugins_updates_found", "count", updates))
 			}
 		})
-		if m.checked && updates > blocked {
+		if m.checked && updates > 0 {
 			updating := false
 			for _, index := range shown {
 				updating = updating || m.Busy[BusyPackage+m.Packages[index].ID]
@@ -186,7 +185,7 @@ func plugins(c *ui.Context, s *State) {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					var names []string
 					for _, index := range shown {
-						if p := m.Packages[index]; Update(&p) && p.Requires == "" {
+						if p := m.Packages[index]; Update(&p) {
 							names = append(names, p.ID)
 						}
 					}
@@ -196,7 +195,7 @@ func plugins(c *ui.Context, s *State) {
 				notice(c)
 			})
 		}
-		if m.checked && blocked > 0 {
+		if m.checked && updates > 0 {
 			kit.Secondary(c.Key("review"), t("plugins_review_updates")).OnClick(func() {
 				m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
 			})
@@ -260,7 +259,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 		if busy {
 			// Its update, switch or removal runs: the spinner, and no press.
 			kit.BusyAction(c.Key("busy"), p.Name)
-		} else if Update(p) && p.Requires == "" {
+		} else if Update(p) {
 			kit.Action(c.Key("update"), icons.Download, t("plugins_update_available"), false).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					m.PackageActions.Update([]string{p.ID})
@@ -280,6 +279,19 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 			}
 			if len(p.Settings) > 0 && menu.Item(t("plugins_configure")).Icon(icons.Settings2).Chosen() {
 				m.openConfig(p)
+			}
+			if p.Official && p.Installed {
+				label := "plugins_pin_version"
+				if p.Pinned {
+					label = "plugins_resume_following"
+				}
+				if menu.Item(t(label)).Disabled(busy).Chosen() {
+					if m.PackageActions != nil && m.PackageActions.PinPlugin != nil {
+						m.PackageActions.PinPlugin(p.ID, !p.Pinned)
+					} else {
+						p.Pinned = !p.Pinned
+					}
+				}
 			}
 			menu.Separator()
 			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Disabled(busy).Chosen() {
@@ -606,7 +618,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 				ui.Column(c.Key(p.ID)).Gap(6).Padding(12).Border(1, pal.Border).Radius(pal.RadiusLg).Children(func() {
 					ui.Row(c).Gap(12).Children(func() {
 						on := e.chosen[p.ID]
-						if ui.Checkbox(c.Key("check"), &on, "").Label(p.Name).Disabled(p.Requires != "").Changed() {
+						if ui.Checkbox(c.Key("check"), &on, "").Label(p.Name).Changed() {
 							e.chosen[p.ID] = on
 						}
 						iconTile(c, p.Name, p.Icon, p.Tint, icons.Puzzle, 28)
@@ -614,27 +626,15 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 							ui.Text(c, p.Name).FontSize(14).FontWeight(500)
 							ui.Text(c, t("plugins_update_version", "version", p.Latest)).FontSize(12).TextColor(pal.MutedForeground)
 						})
-						if p.Requires != "" {
-							kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() {
-								if m.PackageActions != nil && m.PackageActions.About != nil {
-									m.PackageActions.About()
-									return
-								}
-								notice(c)
-							})
-						}
 					})
-					if msg := compatibility(c, p); msg != "" {
-						ui.Text(c, msg).FontSize(12).TextColor(pal.Warning)
-					}
 					releaseNotes(c, p.Notes)
 					addedPermissions(c, p)
 				})
 			}
 		})
 		n := 0
-		for _, on := range e.chosen {
-			if on {
+		for i := range m.Packages {
+			if p := &m.Packages[i]; Update(p) && e.chosen[p.ID] {
 				n++
 			}
 		}
@@ -645,9 +645,9 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 				e.open = false
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
 					var names []string
-					for name, chosen := range e.chosen {
-						if chosen {
-							names = append(names, name)
+					for i := range m.Packages {
+						if p := &m.Packages[i]; Update(p) && e.chosen[p.ID] {
+							names = append(names, p.ID)
 						}
 					}
 					m.PackageActions.Update(names)

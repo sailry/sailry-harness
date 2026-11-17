@@ -36,7 +36,7 @@ type packageState struct {
 	catalogInfos       map[string]protocol.PluginInfo
 	catalogWaiters     map[string][]func()
 	skillCatalog       map[string]protocol.PluginSkillcatalogEntry
-	skillChecks        map[string]bool
+	updateChecks       map[string]string
 	documents          map[string]string
 	marketKey          string
 	marketGeneration   uint64
@@ -78,7 +78,7 @@ func newPackageState() *packageState {
 	return &packageState{
 		infos: map[string]protocol.PluginInfo{}, removed: map[string]uint64{}, reads: map[string]bool{}, failures: map[string]string{},
 		settings: map[string]protocol.PluginSettingsState{}, updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
-		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, skillChecks: map[string]bool{},
+		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
 		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
 	}
@@ -173,6 +173,16 @@ func (r *Runtime) initB8Packages() {
 		MarketPlugin: func(id string) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.installMarketPlugin(id)
+			}
+		},
+		PluginVersion: func(id, version string) {
+			if owner := r.packageOwner(); owner != nil {
+				owner.installPackageVersion(id, version)
+			}
+		},
+		PinPlugin: func(id string, pinned bool) {
+			if owner := r.packageOwner(); owner != nil {
+				owner.pinPackage(id, pinned)
 			}
 		},
 		MarketSkill: func(id string) {
@@ -302,42 +312,11 @@ func (r *Runtime) projectPackages() {
 		view.Host = r.packageHostLabel()
 		for id, entry := range state.catalog {
 			if id == summary.Name || state.catalogInfos[id].Summary.Name == summary.Name {
-				applyPackageCatalog(&view, r.catalogEntryMetadata(entry), r.packageLocale())
+				applyPackageCatalog(&view, entry, r.packageLocale())
 			}
 		}
 		if report, ok := state.updates[summary.Name]; ok {
-			if report.Blocked != nil {
-				view.Latest, view.Requires = report.Blocked.Version, report.Blocked.Required
-				view.Notes = packageReleaseNotes(report.Blocked.ReleaseNotes, r.packageLocale())
-			}
-			if report.Available != nil {
-				switch report.Available.Kind {
-				case "package":
-					if candidate, ok := detail[protocol.PluginInfo](report.Available.Data); ok {
-						view.Latest = stringValue(candidate.Summary.Version)
-						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
-						if candidate.Extension != nil {
-							view.AddedPermissions = addedPermissions(info.Extension, candidate.Extension.Actions)
-						}
-						if len(candidate.Versions) != 0 {
-							view.Versions = packageView(candidate, r.packageLocale()).Versions
-						}
-					}
-				case "official":
-					if candidate, ok := detail[protocol.PluginCatalogEntry](report.Available.Data); ok {
-						view.Latest = stringValue(candidate.Version)
-						view.Notes = packageReleaseNotes(candidate.ReleaseNotes, r.packageLocale())
-						view.AddedPermissions = addedPermissions(info.Extension, candidate.Permissions)
-						applyPackageCatalog(&view, candidate, r.packageLocale())
-					}
-				}
-			}
-		}
-		if view.Latest != "" && !slices.Contains(view.Versions, view.Latest) {
-			view.Versions = append([]string{view.Latest}, view.Versions...)
-		}
-		if view.Version != "" && !slices.Contains(view.Versions, view.Version) {
-			view.Versions = append(view.Versions, view.Version)
+			applyPackageUpdate(&view, info, report, r.packageLocale())
 		}
 		packages = append(packages, view)
 		for _, skill := range info.Skills {
@@ -363,8 +342,12 @@ func (r *Runtime) projectPackages() {
 	r.readInstalledCatalogCandidates(catalogEntries)
 	r.projectPluginMarket()
 	r.projectSkillMarket()
-	if r.App.Page == shell.MarketPage && r.App.Settings.MarketKind == 1 {
-		r.readMarketSkillUpdates()
+	if r.App.Page == shell.MarketPage {
+		if r.App.Settings.MarketKind == 1 {
+			r.readMarketSkillUpdates()
+		} else if r.App.Settings.MarketKind == 0 {
+			r.readMarketPluginUpdates()
+		}
 	}
 }
 
@@ -410,6 +393,9 @@ func localizedSkill(skill protocol.PluginSkill, locale string) string {
 }
 
 func packageOrigin(info protocol.PluginInfo) string {
+	if info.UpdateSource != nil && info.UpdateSource.Kind == "official" {
+		return "market_details_source_official"
+	}
 	if info.Origin != nil {
 		switch info.Origin.Kind {
 		case "bundled":
@@ -435,13 +421,10 @@ func addedPermissions(installed *protocol.PluginExtension, candidate []protocol.
 
 func packageView(info protocol.PluginInfo, locale string) viewmodel.Package {
 	summary := info.Summary
-	view := viewmodel.Package{ID: summary.Name, Name: summary.Name, Description: stringValue(summary.Description), Version: stringValue(summary.Version), Enabled: summary.Enabled, Installed: summary.Revision != 0, Source: packageOrigin(info)}
+	view := viewmodel.Package{ID: summary.Name, Name: summary.Name, Description: stringValue(summary.Description), Version: stringValue(summary.Version), Enabled: summary.Enabled,
+		Installed: summary.Revision != 0, Installable: summary.Compatibility.Kind == "compatible", Pinned: summary.Pinned, Source: packageOrigin(info)}
 	view.Official = view.Source == "market_details_source_official"
-	if summary.Compatibility.Kind == "requires_newer" {
-		if value, ok := detail[protocol.PluginCompatibilityRequiresNewerPayload](summary.Compatibility.Data); ok {
-			view.Requires = value.Required
-		}
-	}
+	view.Requires, view.Unsupported = packageCompatibility(summary.Compatibility)
 	if info.Skill != nil {
 		view.Kind = viewmodel.KindSkill
 	} else if info.McpSource != nil && info.Extension == nil {
@@ -477,15 +460,9 @@ func packageView(info protocol.PluginInfo, locale string) viewmodel.Package {
 		view.MCP = append(view.MCP, mcp.Name)
 	}
 	view.Settings = packageSettingsFields(info.Settings, protocol.PluginSettingsState{}, locale)
-	for _, version := range info.Versions {
-		view.Versions = append(view.Versions, version.Version)
-	}
-	if info.ReleaseNotes != nil {
-		view.Notes = info.ReleaseNotes.Text
-		if translated := info.ReleaseNotes.Locales[i18n.Match(locale)]; translated != "" {
-			view.Notes = translated
-		}
-	}
+	view.Versions = packageVersions(info.Versions, locale)
+	view.Notes = packageReleaseNotes(info.ReleaseNotes, locale)
+	includeInstalledPackageVersion(&view)
 	return view
 }
 
@@ -610,6 +587,13 @@ func (r *Runtime) packageCommandReport(command protocol.Command, failed string, 
 						// The directory of an earlier installation is not this one's.
 						r.forgetPackageDirectory(info.Summary.Name, info.Summary.Revision)
 					}
+					if command.Kind == "set_plugin_pinned" {
+						key := "plugins_following_versions"
+						if info.Summary.Pinned {
+							key = "plugins_version_pinned"
+						}
+						kit.Toast(c, kit.Done, i18n.T(c, key))
+					}
 				}
 				if command.Kind == "remove_plugin" {
 					kit.Toast(c, kit.Done, i18n.T(c, "plugins_uninstalled"))
@@ -654,6 +638,28 @@ func (r *Runtime) togglePackage(id string, enabled bool) {
 	}
 	release := r.packageWork(id)
 	r.packageCommand(protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: name, ExpectedRevision: info.Summary.Revision, Enabled: enabled}}, func(protocol.Output, bool) { release() })
+}
+
+func (r *Runtime) pinPackage(id string, pinned bool) {
+	if r.App.Settings.Busy[settings.BusyPackage+id] {
+		return
+	}
+	name := r.packageID(id)
+	info, exists := r.packages.infos[name]
+	if !exists || info.Summary.Pinned == pinned || !packageView(info, r.packageLocale()).Official {
+		return
+	}
+	release := r.packageWork(id)
+	r.packageCommand(protocol.Command{Kind: "set_plugin_pinned", Data: protocol.CommandSetPluginPinnedPayload{Name: name, ExpectedRevision: info.Summary.Revision, Pinned: pinned}}, func(_ protocol.Output, ok bool) {
+		release()
+		if ok {
+			delete(r.packages.updates, name)
+			r.projectPackages()
+			if !pinned {
+				r.readPackageUpdates([]string{name})
+			}
+		}
+	})
 }
 
 func (r *Runtime) uninstallPackage(id string, done func(bool)) {

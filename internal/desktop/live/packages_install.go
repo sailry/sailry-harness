@@ -180,8 +180,10 @@ func offerLocalUpdate(report *protocol.PluginUpdatesReport, local localPackage) 
 	if !plugins.IsNewer(report.Current.Version, candidate.Version) {
 		return false, nil
 	}
-	if required, blocked := detail[protocol.PluginCompatibilityRequiresNewerPayload](candidate.Compatibility.Data); blocked && candidate.Compatibility.Kind == "requires_newer" {
-		report.Blocked = &protocol.PluginUpdatesBlocked{Version: *candidate.Version, Required: required.Required, ReleaseNotes: local.info.ReleaseNotes}
+	if candidate.Compatibility.Kind != "compatible" {
+		if required, blocked := detail[protocol.PluginCompatibilityRequiresNewerPayload](candidate.Compatibility.Data); blocked && candidate.Compatibility.Kind == "requires_newer" {
+			report.Blocked = &protocol.PluginUpdatesBlocked{Version: *candidate.Version, Required: required.Required, ReleaseNotes: local.info.ReleaseNotes}
+		}
 		return false, nil
 	}
 	report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: local.info}

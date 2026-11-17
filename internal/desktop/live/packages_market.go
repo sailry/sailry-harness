@@ -9,7 +9,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -151,7 +150,9 @@ func catalogPackageView(entry protocol.PluginCatalogEntry, locale string, source
 	if source == 1 {
 		sourceKey = "market_details_source_community"
 	}
-	row := viewmodel.Package{ID: entry.ID, Name: entry.Name, Version: stringValue(entry.Version), Description: stringValue(entry.Description), Source: sourceKey, Official: source == 0}
+	row := viewmodel.Package{ID: entry.ID, Name: entry.Name, Version: stringValue(entry.Version), MarketVersion: stringValue(entry.Version),
+		Description: stringValue(entry.Description), Source: sourceKey, Official: source == 0,
+		Installable: source == 1 && entry.Compatibility.Kind == "compatible" || source == 0 && entry.CompatibleVersion != nil}
 	if entry.Display != nil {
 		row.Name = pluginNavigation(*entry.Display, locale)
 		row.Icon = pluginIconSource(entry.Display.Icon)
@@ -165,22 +166,19 @@ func catalogPackageView(entry protocol.PluginCatalogEntry, locale string, source
 	if entry.Category != nil {
 		row.Category = "market_category_" + string(*entry.Category)
 	}
-	if entry.Compatibility.Kind == "requires_newer" {
-		if requirement, ok := detail[protocol.PluginCompatibilityRequiresNewerPayload](entry.Compatibility.Data); ok {
-			row.Requires = requirement.Required
-		}
+	compatibility := entry.Compatibility
+	if source == 0 && entry.CompatibleVersion != nil {
+		row.Version = entry.CompatibleVersion.Version
+		compatibility = entry.CompatibleVersion.Compatibility
 	}
+	row.Requires, row.Unsupported = packageCompatibility(compatibility)
 	for _, permission := range entry.Permissions {
 		row.Permissions = append(row.Permissions, packagePermissionLabels[permission])
 	}
-	for _, version := range entry.Versions {
-		row.Versions = append(row.Versions, version.Version)
-	}
-	if entry.ReleaseNotes != nil {
-		row.Notes = entry.ReleaseNotes.Text
-		if text := entry.ReleaseNotes.Locales[i18n.Match(locale)]; text != "" {
-			row.Notes = text
-		}
+	row.Versions = packageVersions(entry.Versions, locale)
+	row.Notes = packageReleaseNotes(entry.ReleaseNotes, locale)
+	if source == 0 && entry.CompatibleVersion != nil {
+		row.Notes = packageReleaseNotes(entry.CompatibleVersion.ReleaseNotes, locale)
 	}
 	return row
 }
@@ -197,6 +195,7 @@ func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done f
 			name = info.Summary.Name
 		}
 		if info, installed := r.packages.infos[name]; installed {
+			r.readPackageUpdates([]string{name})
 			r.readInstalledPackageDetails(info, done)
 			return
 		}
@@ -262,7 +261,8 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 				if delete(r.packages.directories, report.Current.Name); local[report.Current.Name] != nil {
 					r.packages.directories[report.Current.Name] = local[report.Current.Name]
 				}
-				if report.Available != nil || report.Blocked != nil {
+				r.packages.updateChecks[report.Current.Name] = packageVersion(report.Current)
+				if packageUpdateAvailable(report) && samePackageVersion(report.Current, r.packages.infos[report.Current.Name].Summary) {
 					found++
 				}
 			}
@@ -293,19 +293,8 @@ func (r *Runtime) updatePackages(ids []string) {
 func (r *Runtime) updatePackage(id string, finish func()) {
 	name := r.packageID(id)
 	report, exists := r.packages.updates[name]
-	if !exists || report.Available == nil && report.Blocked == nil {
-		for catalogID, entry := range r.packages.catalog {
-			current, installed := r.packages.infos[name]
-			candidate := r.catalogEntryMetadata(entry)
-			if installed && (catalogID == name || r.packages.catalogInfos[catalogID].Summary.Name == name) && plugins.IsNewer(current.Summary.Version, candidate.Version) && candidate.Compatibility.Kind == "compatible" {
-				r.installCatalogEntry(entry, r.packages.catalogSources[catalogID], current.Summary.Revision, finish)
-				return
-			}
-		}
-		finish()
-		return
-	}
-	if report.Available == nil || report.Blocked != nil {
+	current, installed := r.packages.infos[name]
+	if !exists || !installed || current.Summary.Pinned || !samePackageVersion(current.Summary, report.Current) || !packageUpdateAvailable(report) {
 		finish()
 		return
 	}
@@ -319,8 +308,8 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 		return
 	}
 	if report.Available.Kind == "official" {
-		if entry, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid {
-			r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, report.Current.Revision, finish)
+		if entry, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid && entry.CompatibleVersion != nil {
+			r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, report.Current.Revision, protocol.PluginInstallModeUpdate, &entry.CompatibleVersion.Version, finish)
 		} else {
 			finish()
 		}
@@ -329,6 +318,14 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 	candidate, valid := detail[protocol.PluginInfo](report.Available.Data)
 	if !valid || candidate.Origin == nil {
 		finish()
+		return
+	}
+	if candidate.UpdateSource != nil && candidate.UpdateSource.Kind == "official" {
+		if selection, err := officialPackageSelection(candidate); err == nil {
+			r.installOfficialSelection(selection, report.Current.Revision, protocol.PluginInstallModeUpdate, finish)
+		} else {
+			finish()
+		}
 		return
 	}
 	var command protocol.Command
@@ -375,11 +372,7 @@ func (r *Runtime) installMarketPlugin(id string) {
 		name = info.Summary.Name
 	}
 	if current, exists := r.packages.infos[name]; exists && current.Summary.Revision != 0 {
-		if entry, known := r.packages.catalog[id]; known {
-			r.installCatalogEntry(entry, r.packages.catalogSources[id], current.Summary.Revision, finish)
-		} else {
-			r.updatePackage(name, finish)
-		}
+		r.updatePackage(name, finish)
 		return
 	}
 	entry, exists := r.packages.catalog[id]
@@ -387,19 +380,87 @@ func (r *Runtime) installMarketPlugin(id string) {
 		finish()
 		return
 	}
-	r.installCatalogEntry(entry, packageCatalogSource(r.App.Settings.MarketSource), 0, finish)
+	r.installCatalogEntry(entry, r.packages.catalogSources[id], 0, protocol.PluginInstallModeInstall, nil, finish)
+}
+
+func (r *Runtime) installPackageVersion(id, version string) {
+	if r.App.Settings.Busy[settings.BusyPackage+id] {
+		return
+	}
+	name := r.packageID(id)
+	mode, revision := protocol.PluginInstallModeInstall, uint64(0)
+	if current, installed := r.packages.infos[name]; installed {
+		if !packageView(current, r.packageLocale()).Official || stringValue(current.Summary.Version) == version {
+			return
+		}
+		mode, revision = protocol.PluginInstallModeSwitch, current.Summary.Revision
+	}
+	entry, known := r.packages.catalog[id]
+	if !known {
+		entry = protocol.PluginCatalogEntry{ID: name}
+	}
+	if known && r.packages.catalogSources[id] != protocol.PluginCatalogSourceOfficial {
+		return
+	}
+	r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, revision, mode, &version, r.packageWork(id))
+}
+
+func officialPackageSelection(info protocol.PluginInfo) (protocol.PluginCatalogSelection, error) {
+	selection := protocol.PluginCatalogSelection{Info: info}
+	if info.Origin == nil {
+		return selection, errors.New("official plugin has no immutable source")
+	}
+	switch info.Origin.Kind {
+	case "online":
+		if origin, valid := detail[protocol.PluginOriginOnlinePayload](info.Origin.Data); valid {
+			selection.Source, selection.Path = origin.Source, origin.Path
+			return selection, nil
+		}
+	case "bundled":
+		return selection, nil
+	}
+	return selection, errors.New("unexpected official plugin source")
+}
+
+func (r *Runtime) installOfficialSelection(selection protocol.PluginCatalogSelection, revision uint64, mode protocol.PluginInstallMode, finish func()) {
+	r.packageCommand(protocol.Command{Kind: "install_catalog_plugin", Data: protocol.CommandInstallCatalogPluginPayload{Selection: selection, ExpectedRevision: revision, Mode: mode}}, func(_ protocol.Output, ok bool) {
+		if ok {
+			delete(r.packages.updates, selection.Info.Summary.Name)
+		}
+		finish()
+	})
 }
 
 // installCatalogEntry installs the catalog's entry; finish runs once when the
 // installation ends or is not started.
-func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source protocol.PluginCatalogSource, revision uint64, finish func()) {
-	entry = r.catalogEntryMetadata(entry)
-	if entry.Compatibility.Kind == "requires_newer" {
-		finish()
+func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source protocol.PluginCatalogSource, revision uint64, mode protocol.PluginInstallMode, version *string, finish func()) {
+	if source == protocol.PluginCatalogSourceOfficial {
+		r.async(func() {
+			out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_catalog_plugin_info", Data: protocol.CommandReadCatalogPluginInfoPayload{
+				Source: source, ID: entry.ID, Bundled: entry.Bundled && entry.Commit == nil, Version: version,
+			}})
+			value, valid := detail[protocol.PluginCatalogDetails](out.Data)
+			info, validInfo := detail[protocol.PluginInfo](value.Data)
+			if err == nil && (!valid || out.Kind != "catalog_details" || value.Kind != "plugin" || !validInfo || info.Summary.Name != entry.ID) {
+				err = errors.New("unexpected official plugin details response")
+			}
+			var selection protocol.PluginCatalogSelection
+			if err == nil {
+				selection, err = officialPackageSelection(info)
+			}
+			r.enqueue(func(c *ui.Context) {
+				if err != nil {
+					finish()
+					r.packageReport(c, err)
+					return
+				}
+				r.installOfficialSelection(selection, revision, mode, finish)
+			})
+		})
 		return
 	}
-	if entry.Bundled && entry.Commit == nil {
-		r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: entry.ID, ExpectedRevision: revision}}, func(protocol.Output, bool) { finish() })
+	if entry.Compatibility.Kind != "compatible" {
+		finish()
 		return
 	}
 	r.async(func() {
@@ -415,7 +476,7 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 		if err == nil {
 			out, err = r.controller.Do(r.ctx, protocol.Command{Kind: "inspect_plugin_source", Data: protocol.CommandInspectPluginSourcePayload{Source: value}})
 			selection, valid = detail[protocol.PluginCatalogSelection](out.Data)
-			if err == nil && (!valid || out.Kind != "plugin_source" || source == protocol.PluginCatalogSourceOfficial && selection.Info.Summary.Name != entry.ID || entry.Commit != nil && selection.Source.Commit != *entry.Commit) {
+			if err == nil && (!valid || out.Kind != "plugin_source" || entry.Commit != nil && selection.Source.Commit != *entry.Commit) {
 				err = errors.New("plugin source does not match the selected catalog entry")
 			}
 		}
@@ -427,11 +488,9 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 			}
 			r.packages.catalogInfos[entry.ID] = selection.Info
 			r.projectPackages()
-			if current, installed := r.packages.infos[selection.Info.Summary.Name]; installed {
-				if !plugins.IsNewer(current.Summary.Version, selection.Info.Summary.Version) || revision == 0 {
-					finish()
-					return
-				}
+			if _, installed := r.packages.infos[selection.Info.Summary.Name]; installed && revision == 0 {
+				finish()
+				return
 			}
 			r.packageCommand(protocol.Command{Kind: "install_plugin_source", Data: protocol.CommandInstallPluginSourcePayload{Source: selection.Source, Path: selection.Path, Name: selection.Info.Summary.Name, ExpectedRevision: revision}}, func(protocol.Output, bool) { finish() })
 		})

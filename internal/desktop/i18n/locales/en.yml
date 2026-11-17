@@ -1414,6 +1414,17 @@ plugins_up_to_date: Plugins are up to date
 plugins_updates_found: '%{count} plugin updates available'
 plugins_update_all: Update all
 plugins_review_updates: Review updates
+plugins_version_compatible: Compatible
+plugins_version_current: Current
+plugins_version_pinned: Pinned
+plugins_version_withdrawn: Withdrawn
+plugins_version_unsupported: 'Unsupported: %{reason}'
+plugins_switch_version: Switch
+plugins_pin_version: Pin current version
+plugins_resume_following: Resume following updates
+plugins_version_updates: Updates
+plugins_fixed_version: Fixed at %{version}
+plugins_following_versions: Following compatible releases
 plugins_download: Download plugin
 plugins_empty: No plugins
 plugins_remove_effect: Uninstall “%{name}”? Plugin data will be kept
