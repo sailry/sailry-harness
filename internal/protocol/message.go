@@ -2283,9 +2283,10 @@ func (value CommandInspectPluginSourcePayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandCheckPluginUpdatePayload struct {
-	Name             string `json:"name"`
-	ExpectedRevision uint64 `json:"expected_revision"`
-	Force            bool   `json:"force"`
+	Upload           *StreamID `json:"upload,omitempty"`
+	Name             string    `json:"name"`
+	ExpectedRevision uint64    `json:"expected_revision"`
+	Force            bool      `json:"force"`
 }
 
 func DefaultCommandCheckPluginUpdatePayload() CommandCheckPluginUpdatePayload {
