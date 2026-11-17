@@ -237,6 +237,8 @@ type App struct {
 func New(d *preview.Data) *App {
 	a := newApp(d, preview.Big, settings.New())
 	a.Preview = true
+	a.Sidebar.Preview = true
+	a.Sidebar.Sample.OpenHost = a.OpenHost
 	// Sample connection rows and monitors refer to the same sample devices.
 	devices := a.Settings.Devices
 	a.Settings.Devices = nil
@@ -495,6 +497,11 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 	if f.nav <= 0.001 {
 		return
 	}
+	a.Sidebar.SelectedHost = ""
+	if a.Page == HostPage {
+		a.Sidebar.SelectedHost = a.Host
+	}
+	a.Sidebar.Preview = a.Preview || a.Demo()
 	p := theme.Of(c)
 	ui.Row(c.Key("nav")).Width(f.navWidth * f.nav).Shrink(0).ClipX().AlignItems(ui.Stretch).Children(func() {
 		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0), p.Sidebar.Alpha(float32(panel.A)/255), a.frosted, a.Surfaces.Blur*theme.PaneBlurMax).

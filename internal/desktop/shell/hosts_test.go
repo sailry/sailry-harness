@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -90,6 +91,41 @@ func TestHostPage(t *testing.T) {
 	t.Run("layout", testHostLayout)
 	t.Run("demo", testHostDemo)
 	t.Run("sample links", testSampleLinks)
+}
+
+func TestSidebarHostListOpensMonitor(t *testing.T) {
+	data := &viewmodel.Data{Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{
+		{ID: "local", Name: "local_host_name", Local: true},
+		{ID: "remote", Name: "Build node"},
+	}}}
+	a := NewLive(data)
+	a.Sidebar.Actions = &sidebar.Actions{OpenHost: a.OpenHost}
+	a.SetHosts(map[string]*host.Host{
+		"local":  {ID: "local", Name: "local_host_name", Local: true, Live: true, Runtime: host.Runtime{Uptime: -1, NodeUptime: -1}},
+		"remote": {ID: "remote", Name: "Build node", Live: true, Runtime: host.Runtime{Uptime: -1, NodeUptime: -1}},
+	})
+	tester := ui.NewTesterWith(a.View, 900, 700, opaque)
+	tester.SetLocale("en")
+	tester.Frame()
+	if !tester.HasText(i18n.In("en", "hosts")) || !tester.HasText("Build node") {
+		t.Fatalf("host list is missing: %q", tester.Texts())
+	}
+	selected := a.Sidebar.Selected
+	row, ok := tester.AccessByRole(ui.RoleButton, "Build node")
+	if !ok {
+		t.Fatal("remote host row is missing")
+	}
+	tester.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+	tester.Frame()
+	if a.Page != HostPage || a.Host != "remote" {
+		t.Fatalf("host click opened page %d for %q", a.Page, a.Host)
+	}
+	if a.Sidebar.Selected != selected {
+		t.Fatal("opening a host changed the selected conversation")
+	}
+	if row, ok := tester.AccessByRole(ui.RoleButton, "Build node"); !ok || !row.Checked {
+		t.Fatalf("host row is not selected: %+v", row)
+	}
 }
 
 // The host page is laid out as the reference's. The sessions' side column

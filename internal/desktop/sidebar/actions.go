@@ -33,6 +33,7 @@ type Actions struct {
 	ForkHere      func(*viewmodel.Conversation)
 	Export        func(*viewmodel.Conversation, conversation.ExportFormat)
 	OpenWorkspace func(*viewmodel.Project, *viewmodel.Conversation)
+	OpenHost      func(string)
 	Overview      func(*viewmodel.Project)
 	NewTerminal   func(*viewmodel.Project)
 	// ProjectMenu fills the project menu's project_menu slot, after New
@@ -41,10 +42,11 @@ type Actions struct {
 	ProjectMenu func(*ui.Context, *ui.Menu, *viewmodel.Project)
 }
 
-// Sample is what the window does for a sample dataset's menus, which have no
-// Actions: the demo's project page and terminal. Nothing reaches a Node.
+// Sample is what the window does for a sample dataset's navigation and menus.
+// Nothing reaches a Node.
 type Sample struct {
 	Overview    func(*viewmodel.Project)
+	OpenHost    func(string)
 	NewTerminal func(*viewmodel.Project)
 }
 

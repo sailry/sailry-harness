@@ -29,11 +29,13 @@ const (
 
 // State is the sidebar's part of the app state.
 type State struct {
-	Data     *viewmodel.Data
-	Actions  *Actions
-	Sample   Sample
-	Metrics  *Metrics
-	Selected string // conversation ID
+	Data         *viewmodel.Data
+	Actions      *Actions
+	Sample       Sample
+	Metrics      *Metrics
+	Selected     string // conversation ID
+	SelectedHost string
+	Preview      bool
 	// Sort is the order of the projects and of the conversations in the
 	// chats and in each project, as a Sort: the session order preference,
 	// which the sort menu sets. New gives the sidebar its own, SortUpdated;
@@ -253,9 +255,52 @@ func View(c *ui.Context, s *State) {
 				}
 			})
 		})
+		if s.Data.Workspace != nil && len(s.Data.Workspace.Hosts) > 0 {
+			section(c, s, "hosts", i18n.T(c, "hosts"), nil, func() {
+				ui.Column(c).Gap(rowGap).Children(func() {
+					for _, host := range s.Data.Workspace.Hosts {
+						s.host(c, host)
+					}
+				})
+			})
+		}
 	})
 	metricsFooter(c, s.Metrics)
 	s.dialogs(c)
+}
+
+func (s *State) host(c *ui.Context, host viewmodel.Host) {
+	p := theme.Of(c)
+	title := host.Name
+	if title == "" {
+		title = host.ID
+	}
+	if s.Preview || host.Local {
+		title = i18n.T(c, title)
+	}
+	selected := host.ID == s.SelectedHost
+	b := ui.ButtonBase(c.Key(host.ID)).Label(title).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius)
+	hovered := b.Hovered()
+	b.Background(p.SidebarItem(selected, hovered))
+	color := p.MutedForeground
+	if selected || hovered {
+		color = p.SidebarForeground
+	}
+	if selected {
+		b.AccessSelected(true)
+	}
+	b.TextColor(color).Children(func() {
+		ui.Icon(c, icons.Cpu).FontSize(14).TextColor(color)
+		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
+	}).OnClick(func() {
+		if s.Actions != nil && s.Actions.OpenHost != nil {
+			s.Actions.OpenHost(host.ID)
+			return
+		}
+		if s.Sample.OpenHost != nil {
+			s.Sample.OpenHost(host.ID)
+		}
+	})
 }
 
 // add is a group header's "+" button.

@@ -98,7 +98,7 @@ var crawlSections = []settings.Section{settings.General, settings.Appearance, se
 
 // crawlPluginPages are the settings pages the bundled plugins contribute, by
 // their label.
-var crawlPluginPages = []string{"Media models", "Memory", "Browser", "External Browser"}
+var crawlPluginPages = []string{"Media models", "Memory", "Browser"}
 
 type crawlTransport struct {
 	link.Transport

@@ -25,6 +25,14 @@ type pluginSettingsEntry struct {
 	scope   protocol.PluginContext
 }
 
+func hasPluginSettingsContent(info protocol.PluginInfo) bool {
+	if info.Extension == nil || info.Extension.SettingsPage == nil {
+		return false
+	}
+	page := info.Extension.SettingsPage
+	return page.Entry != nil || page.EnabledControl || info.Settings != nil
+}
+
 func unmountedPlugin(name string) bool {
 	return name == "files" || name == "git"
 }
@@ -83,7 +91,7 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	root.App.SetPluginFeatures(features)
 	var settingsEntries []pluginSettingsEntry
 	for _, info := range root.pluginViewCatalog(selected) {
-		if info.Extension == nil || info.Extension.SettingsPage == nil || info.Summary.Compatibility.Kind != "compatible" {
+		if !hasPluginSettingsContent(info) || info.Summary.Compatibility.Kind != "compatible" {
 			continue
 		}
 		scope := protocol.DefaultPluginContext()

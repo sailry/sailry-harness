@@ -168,7 +168,8 @@ func (a *App) enterDemo(locale string) {
 	a.demo = &demoMode{parked: own, locale: locale, usage: preview.DemoUsage(d, locale, time.Now)}
 	side := sidebar.New(d, preview.DemoStart)
 	side.Sort = own.sidebar.Sort
-	side.Sample = sidebar.Sample{Overview: a.demoProject, NewTerminal: a.demoTerminal}
+	side.Preview = true
+	side.Sample = sidebar.Sample{Overview: a.demoProject, OpenHost: a.OpenHost, NewTerminal: a.demoTerminal}
 	shown := panel.New(d.Workspace)
 	shown.Demo = true
 	a.demo.data = d

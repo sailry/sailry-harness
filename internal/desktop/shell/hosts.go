@@ -60,7 +60,7 @@ func (a *App) sample(c *ui.Context, h *host.Host) {
 	h.Metrics = x.metrics
 }
 
-// OpenHost opens the device monitor from Connections without changing a project.
+// OpenHost opens a device monitor without changing the selected conversation.
 func (a *App) OpenHost(id string) {
 	for _, device := range a.Data.Hosts {
 		if device.ID == id {
