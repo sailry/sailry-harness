@@ -710,7 +710,7 @@ func TestProviderEditor(t *testing.T) {
 		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_oauth_user_agent")); ok {
 			t.Error("an API key method offers advanced sign-in settings")
 		}
-		if _, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_headers")); !ok {
+		if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "mcp_add_header")); !ok {
 			t.Error("an API key method does not offer its request headers")
 		}
 		// A saved channel: its own user agent, and the catalog version in
@@ -2346,7 +2346,7 @@ func TestExtensions(t *testing.T) {
 		}
 		m.LibraryMore = false
 		tt.Frame()
-		if !tt.HasText(en("model_library_available")) || !tt.HasText("Embedder") {
+		if !tt.HasText("Embedder") || !tt.HasText("org/a · 1.0 MiB · mit") {
 			t.Fatalf("Available shows no hub models: %q", tt.Texts())
 		}
 		var details ui.AccessInfo
@@ -2948,5 +2948,20 @@ func TestPackageConfigurationTabs(t *testing.T) {
 	click(ui.RoleOption, "high")
 	if m.config.fields[2].Value != "m1" || m.config.fields[3].Value != "high" {
 		t.Fatalf("the picker chose %q at %q, want m1 at high", m.config.fields[2].Value, m.config.fields[3].Value)
+	}
+}
+
+// A model named by its repository shows the model over its owner, never the
+// repository twice; known facts follow.
+func TestModelText(t *testing.T) {
+	for _, c := range []struct{ name, repo, size, title, detail string }{
+		{"org/model-GGUF", "org/model-GGUF", "", "model-GGUF", "org"},
+		{"", "org/model", "2.0 GB", "model", "org · 2.0 GB"},
+		{"Whisper Small", "openai/whisper-small", "967 MB", "Whisper Small", "openai/whisper-small · 967 MB"},
+		{"local", "local", "", "local", ""},
+	} {
+		if title, detail := modelText(c.name, c.repo, c.size); title != c.title || detail != c.detail {
+			t.Errorf("modelText(%q, %q) = %q, %q", c.name, c.repo, title, detail)
+		}
 	}
 }

@@ -87,7 +87,7 @@ func (m *Model) searchLibrary(query string) {
 }
 
 // libraryBar is a model page's Installed and Available tabs; Available
-// adds the hub and the query, which filters the recommended models at once
+// adds the hub and the query at the end of the row, which filters the recommended models at once
 // and searches the hub once it rests or on Enter.
 func libraryBar(c *ui.Context, m *Model, kind, title string, tab *int, query *string) {
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
@@ -105,11 +105,12 @@ func libraryBar(c *ui.Context, m *Model, kind, title string, tab *int, query *st
 			}
 		}
 	}
-	ui.Row(c).Gap(12).Wrap().Children(func() {
+	ui.Row(c).Gap(12).Children(func() {
 		kit.Segmented(c, "tabs", tab, []string{t("knowledge_installed"), t("local_models_available")}, kit.SegmentedProps{}).Label(title)
 		if *tab != 1 {
 			return
 		}
+		ui.Spacer(c)
 		if pick(c, "hub", t("model_library_source"), &e.hub, labels(c, libraryHubs), false).Width(160).Changed() && !m.Live {
 			m.LibraryLoad.Start()
 		}
@@ -127,8 +128,8 @@ func recommendedModels(c *ui.Context, count int, rows func()) {
 	kit.Group(c, "recommended", i18n.T(c, "local_models_recommended"), "", nil, func() { kit.Card(c, rows) })
 }
 
-// hubModels are the hub's models of the library's kind under their heading,
-// but for those the page recommends (repos): placeholder rows before the
+// hubModels are the hub's models of the library's kind, after the
+// recommended ones without a heading of their own, but for those the page recommends (repos): placeholder rows before the
 // first page, a spinner over the rows during a later search, and the next
 // page as the page nears its end.
 func hubModels(c *ui.Context, m *Model, repos map[string]bool) {
@@ -158,7 +159,7 @@ func hubModels(c *ui.Context, m *Model, repos map[string]bool) {
 			shown = append(shown, x)
 		}
 	}
-	kit.Group(c, "hub", t("model_library_available"), "", nil, func() {
+	kit.Group(c, "hub", "", "", nil, func() {
 		if load.Loading && !load.Loaded {
 			librarySkeleton(c)
 			return
@@ -216,12 +217,10 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 	kit.Card(c, func() {
 		for _, x := range shown {
 			kit.Entry(c, x.ID, func() {
-				// The page names the kind.
-				detail := x.Repo
-				if x.Size != "" { // a hub's result has no size until it is resolved
-					detail += " · " + x.Size
-				}
-				kit.Record(c, x.Name, detail)
+				// The page names the kind; a hub's result has no size or
+				// license until it is resolved.
+				title, detail := modelText(x.Name, x.Repo, x.Size, x.License)
+				kit.Record(c, title, detail)
 			}, func() {
 				switch x.Status {
 				case preview.ModelDownloading:
@@ -354,4 +353,25 @@ func libraryDialogs(c *ui.Context, m *Model) {
 			e.removing = ""
 		}
 	}
+}
+
+// modelText is a model row's title and its line of what the title does not
+// say. A model named by its repository shows the model's part over the
+// owner rather than the repository twice; the known facts (size, license)
+// follow.
+func modelText(name, repo string, facts ...string) (string, string) {
+	detail := repo
+	if name == "" || name == repo {
+		name, detail = repo, ""
+		if owner, model, ok := strings.Cut(repo, "/"); ok && owner != "" && model != "" {
+			name, detail = model, owner
+		}
+	}
+	parts := make([]string, 0, len(facts)+1)
+	for _, part := range append([]string{detail}, facts...) {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return name, strings.Join(parts, " · ")
 }

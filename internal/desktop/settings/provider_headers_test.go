@@ -18,7 +18,7 @@ func TestProviderOAuthSaveIgnoresHiddenKeyHeaderDraft(t *testing.T) {
 	e.add(m)
 	keyed := preview.Method{ID: "keyed", Name: "Key channel", Keyed: true, Routes: []preview.Route{{ID: "keyed/0", API: "responses", Endpoint: "https://example.test/v1"}}}
 	e.configure(keyed)
-	e.key, e.headers = "fixture-key", "invalid header draft"
+	e.key, e.headers = "fixture-key", []header{{"", "invalid header draft"}}
 	if problem := e.Check(); problem != "provider_headers_invalid" {
 		t.Fatalf("visible API-key header was not checked: %q", problem)
 	}

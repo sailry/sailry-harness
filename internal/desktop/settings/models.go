@@ -183,7 +183,8 @@ func modelRow(c *ui.Context, m *Model, kind string, x *preview.LocalModel, name 
 	if key == "" {
 		key = "default"
 	}
-	kit.Entry(c, key, func() { kit.Record(c, name, x.Repo) }, nil, func() {
+	title, detail := modelText(name, x.Repo, x.Size)
+	kit.Entry(c, key, func() { kit.Record(c, title, detail) }, nil, func() {
 		kit.Action(c.Key("details"), icons.Settings2, i18n.T(c, "knowledge_model_details"), false).OnClick(show)
 		switch x.Status {
 		case preview.ModelMissing:

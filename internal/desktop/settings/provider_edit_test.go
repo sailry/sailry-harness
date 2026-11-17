@@ -138,7 +138,7 @@ func TestProviderEditorCustomHeaders(t *testing.T) {
 	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) { saved = append(saved, draft); done(false) }
 	e := &m.provider
 	e.edit(m, &m.Channels[0])
-	if e.headers != "User-Agent: claude-cli/9\nx-b: 2" {
+	if !reflect.DeepEqual(e.headers, []header{{"User-Agent", "claude-cli/9"}, {"x-b", "2"}}) {
 		t.Fatalf("headers draft = %q", e.headers)
 	}
 	tt := ui.NewTesterWith(func(c *ui.Context) {
@@ -154,21 +154,42 @@ func TestProviderEditorCustomHeaders(t *testing.T) {
 	tt.ClickAt(advanced.Bounds.X+advanced.Bounds.W/2, advanced.Bounds.Y+advanced.Bounds.H/2)
 	tt.Advance(time.Second)
 	tt.Frame()
-	if _, ok := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_headers")); !ok {
+	if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "mcp_add_header")); !ok {
 		t.Fatal("advanced settings do not show the request headers")
 	}
-	e.headers = "\n  X-Trace :  on \nuser-agent: claude-cli/10\n"
+	// The saved headers are a row each, and Add header adds an empty one.
+	if _, ok := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "provider_headers")+" "+i18n.In("en", "mcp_slot_name")); !ok {
+		t.Fatal("the saved headers show no rows")
+	}
+	add, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "mcp_add_header"))
+	tt.ClickAt(add.Bounds.X+add.Bounds.W/2, add.Bounds.Y+add.Bounds.H/2)
+	tt.Frame()
+	if len(e.headers) != 3 || e.headers[2] != (header{}) {
+		t.Fatalf("Add header made %q", e.headers)
+	}
+	e.headers = []header{{}, {" X-Trace ", "  on "}, {"user-agent", "claude-cli/10"}}
 	if problem := e.save(m); problem != "" || !reflect.DeepEqual(saved[len(saved)-1].Channel.Headers, map[string]string{"X-Trace": "on", "user-agent": "claude-cli/10"}) {
 		t.Fatalf("saved headers = %v (%s)", saved[len(saved)-1].Channel.Headers, problem)
 	}
-	e.headers = ""
+	e.headers = nil
 	if problem := e.save(m); problem != "" || saved[len(saved)-1].Channel.Headers != nil {
 		t.Fatal("clearing the headers did not save an empty set")
 	}
-	for _, text := range []string{"no colon", ": value"} {
-		e.headers = text
-		if problem := e.save(m); problem != "provider_headers_invalid" {
-			t.Errorf("%q was accepted: %q", text, problem)
-		}
+	e.headers = []header{{" ", "value"}}
+	if problem := e.save(m); problem != "provider_headers_invalid" {
+		t.Errorf("a value without a name was accepted: %q", problem)
+	}
+	// A channel without headers opens its advanced settings on one empty
+	// row, which saving skips.
+	e.headers, e.advanced = nil, false
+	tt.Frame()
+	advanced, _ = tt.AccessByRole(ui.RoleButton, i18n.In("en", "provider_oauth_advanced"))
+	tt.ClickAt(advanced.Bounds.X+advanced.Bounds.W/2, advanced.Bounds.Y+advanced.Bounds.H/2)
+	tt.Frame()
+	if !reflect.DeepEqual(e.headers, []header{{}}) {
+		t.Fatalf("opened with rows %q, want one empty row", e.headers)
+	}
+	if problem := e.save(m); problem != "" || saved[len(saved)-1].Channel.Headers != nil {
+		t.Fatalf("the empty row saved %v (%s)", saved[len(saved)-1].Channel.Headers, problem)
 	}
 }

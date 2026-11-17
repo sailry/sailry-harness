@@ -36,7 +36,7 @@ func (r *Runtime) applyPreferences() {
 	// Demo is a developer launch mode, not a persisted user preference.
 	m.DemoMode = false
 	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, int(sidebar.SortUpdated), updateChannel(d.UpdateChannel, link.ProductVersion)
-	m.TextSize = 15
+	m.TextSize = settings.DefaultTextSize
 	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
 	if d.Language != nil {
 		m.Language = max(0, slices.Index(preferences.Languages, *d.Language))
@@ -120,7 +120,7 @@ func (r *Runtime) savePreferences() {
 	// The sidebar orders its rows by the choice; a profile that never chose
 	// keeps none, which is updated.
 	setChoice(&d.SessionOrder, sidebar.Sort(m.SessionOrder).Preference(), sidebar.SortUpdated.Preference())
-	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(15))
+	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(settings.DefaultTextSize))
 	if language := preferences.DictationLanguages[min(max(m.SpeechLanguage, 0), 2)]; language != d.DictationLanguage() {
 		if d.Dictation == nil {
 			d.Dictation = &preferences.Dictation{}

@@ -463,7 +463,8 @@ type providerEditor struct {
 	keyShown            bool
 	apiVersion          string    // Azure OpenAI's, asked for where the route is that API
 	oauth               [4]string // catalog, user agent, editor, editor plugin versions
-	headers             string    // an API-key channel's request headers, "Name: value" per line
+	headers             []header  // an API-key channel's request headers, a row each
+	headersRemoved      int       // header rows taken out, part of a row's identity
 	advanced            bool
 	models              []modelDraft
 	removed             int // models taken out, part of a model row's identity (mcpEditor.removed)
@@ -506,7 +507,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
-	e.headers = formatHeaders(ch.Headers)
+	e.headers = headerRows(ch.Headers)
 	if m.Live && !ch.ConfigurationReadOnly && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
@@ -746,35 +747,36 @@ func (e *providerEditor) Check() string {
 	return ""
 }
 
-// parseHeaders reads one "Name: value" header per line; blank lines are
-// skipped. ok is false when a line has no name. The Node checks the names
-// and values it accepts.
-func parseHeaders(text string) (headers map[string]string, ok bool) {
-	for line := range strings.Lines(text) {
-		line = strings.TrimSpace(line)
-		if line == "" {
+// header is a request header's row as the editor shows it.
+type header struct{ Name, Value string }
+
+// parseHeaders reads the header rows; rows left empty are skipped. ok is
+// false when a row has a value but no name. The Node checks the names and
+// values it accepts.
+func parseHeaders(rows []header) (headers map[string]string, ok bool) {
+	for _, row := range rows {
+		name, value := strings.TrimSpace(row.Name), strings.TrimSpace(row.Value)
+		if name == "" {
+			if value != "" {
+				return nil, false
+			}
 			continue
-		}
-		name, value, found := strings.Cut(line, ":")
-		name = strings.TrimSpace(name)
-		if !found || name == "" {
-			return nil, false
 		}
 		if headers == nil {
 			headers = map[string]string{}
 		}
-		headers[name] = strings.TrimSpace(value)
+		headers[name] = value
 	}
 	return headers, true
 }
 
-// formatHeaders writes headers one per line in name order.
-func formatHeaders(headers map[string]string) string {
-	lines := make([]string, 0, len(headers))
+// headerRows are headers as rows in name order.
+func headerRows(headers map[string]string) []header {
+	rows := make([]header, 0, len(headers))
 	for _, name := range slices.Sorted(maps.Keys(headers)) {
-		lines = append(lines, name+": "+headers[name])
+		rows = append(rows, header{name, headers[name]})
 	}
-	return strings.Join(lines, "\n")
+	return rows
 }
 
 // save writes the channel; the editor stays open with its draft when
@@ -1148,7 +1150,14 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				Children(func() {
 					ui.Icon(c, chevron).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 					ui.Text(c, label).FontSize(14).SingleLine()
-				}).OnClick(func() { e.advanced = !e.advanced })
+				}).OnClick(func() {
+				e.advanced = !e.advanced
+				// Opening starts a channel without headers on an empty row;
+				// saving skips rows left empty.
+				if e.advanced && len(e.headers) == 0 {
+					e.headers = []header{{}}
+				}
+			})
 			if e.advanced {
 				for i, k := range []string{"provider_oauth_catalog_version", "provider_oauth_user_agent", "provider_oauth_editor_version", "provider_oauth_editor_plugin_version"} {
 					// Only the settings this sign-in has.
@@ -1158,9 +1167,28 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				}
 				// An API-key channel's own request headers; sign-ins keep their client identity.
 				if !e.login() {
-					kit.Field(c, "headers", t("provider_headers"), "", func() {
-						ui.TextArea(c.Key("input"), &e.headers).Label(t("provider_headers")).Placeholder(t("provider_headers_hint")).
-							FillWidth().Height(96).Font("monospace").Disabled(e.probing)
+					// A row a header, as the MCP editor's: its name, its value
+					// and its removal; Add header is the + beside the title.
+					ui.Column(c.Key("headers")).Gap(8).Children(func() {
+						ui.Row(c.Key("title")).Gap(4).AlignItems(ui.Center).Children(func() {
+							ui.Text(c, t("provider_headers")).FontSize(14).FontWeight(500).TextColor(theme.Of(c).PopoverForeground)
+							kit.Action(c.Key("add"), icons.Plus, t("mcp_add_header"), e.probing).Size(24, 24).
+								OnClick(func() { e.headers = append(e.headers, header{}) })
+						})
+						ui.Column(c.Key("rows")).Gap(6).Children(func() {
+							for i := range e.headers {
+								ui.Row(c.Key([2]int{e.headersRemoved, i})).Gap(4).Children(func() {
+									ui.TextInput(c.Key("name"), &e.headers[i].Name).Label(t("provider_headers") + " " + t("mcp_slot_name")).
+										Placeholder(t("mcp_slot_name")).Width(200).Font("monospace").Disabled(e.probing)
+									ui.TextInput(c.Key("value"), &e.headers[i].Value).Label(t("provider_headers") + " " + t("mcp_slot_value")).
+										Placeholder(t("mcp_slot_value")).Grow(1).Font("monospace").Disabled(e.probing)
+									kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), e.probing).OnClick(func() {
+										e.headers = slices.Delete(e.headers, i, i+1)
+										e.headersRemoved++
+									})
+								})
+							}
+						})
 					})
 				}
 			}

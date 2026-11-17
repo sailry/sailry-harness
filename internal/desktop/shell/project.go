@@ -92,36 +92,23 @@ func (a *App) projectView(c *ui.Context) {
 					}
 				}
 			})
+			repository := ProjectRepository{Known: project.Branch != "", Branch: project.Branch}
+			if state.actions.Repository != nil {
+				repository = state.actions.Repository()
+			}
 			ui.Column(c.Key("location")).FillWidth().Gap(4).Children(func() {
-				ui.Text(c, project.Path).FontSize(14).SingleLine().TextColor(palette.MutedForeground)
-				repository := ProjectRepository{Known: project.Branch != "", Branch: project.Branch}
-				if state.actions.Repository != nil {
-					repository = state.actions.Repository()
-				}
-				ui.Row(c.Key("repository")).Gap(8).Children(func() {
-					if repository.Known && repository.Directory {
-						label := i18n.T(c, "git_initialize")
-						kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
-							Disabled(project.Offline || state.pending || state.actions.Initialize == nil).Children(func() {
-							if state.pending && state.opening == "" && !state.initialize {
-								kit.Busy(c)
-							} else {
-								ui.Icon(c, icons.Network).FontSize(16)
-							}
-							ui.Text(c, label).FontSize(14)
-						}).OnClick(func() {
-							if len(repository.Repositories) > 0 {
-								state.repositories = append([]string(nil), repository.Repositories...)
-								state.initialize = true
-							} else {
-								state.initializeGit()
-							}
-						})
-					} else if repository.Branch != "" {
-						ui.Icon(c, icons.Network).FontSize(16).TextColor(palette.MutedForeground)
-						ui.Text(c, repository.Branch).FontSize(14).TextColor(palette.MutedForeground)
-					}
+				// The path and the branch each lead with a 16 DIP icon, their
+				// text level with each other's.
+				ui.Row(c.Key("path")).Gap(8).AlignItems(ui.Center).MinWidth(0).Children(func() {
+					ui.Icon(c, icons.Folder).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
+					ui.Text(c, project.Path).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(palette.MutedForeground)
 				})
+				if repository.Branch != "" && !(repository.Known && repository.Directory) {
+					ui.Row(c.Key("repository")).Gap(8).AlignItems(ui.Center).Children(func() {
+						ui.Icon(c, icons.GitBranch).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
+						ui.Text(c, repository.Branch).FontSize(14).TextColor(palette.MutedForeground)
+					})
+				}
 			})
 			ui.Row(c.Key("actions")).Gap(8).Wrap().Children(func() {
 				label := i18n.T(c, "workspace_new_session")
@@ -138,6 +125,27 @@ func (a *App) projectView(c *ui.Context) {
 					button.OnClick(func() { state.actions.NewTerminal(project) })
 				} else {
 					kit.Tooltip(c, button, i18n.T(c, "unavailable"))
+				}
+				// A plain directory offers Git beside the project's other
+				// actions; a repository shows its branch above them instead.
+				if repository.Known && repository.Directory {
+					label := i18n.T(c, "git_initialize")
+					kit.SecondaryLook(c, ui.ButtonBase(c.Key("initialize")).Label(label)).
+						Disabled(project.Offline || state.pending || state.actions.Initialize == nil).Children(func() {
+						if state.pending && state.opening == "" && !state.initialize {
+							kit.Busy(c)
+						} else {
+							ui.Icon(c, icons.GitBranch).FontSize(16)
+						}
+						ui.Text(c, label).FontSize(14)
+					}).OnClick(func() {
+						if len(repository.Repositories) > 0 {
+							state.repositories = append([]string(nil), repository.Repositories...)
+							state.initialize = true
+						} else {
+							state.initializeGit()
+						}
+					})
 				}
 				if state.actions.Controls != nil {
 					state.actions.Controls(c)

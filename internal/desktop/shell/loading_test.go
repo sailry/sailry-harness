@@ -140,6 +140,10 @@ func testLoadingMarks(t *testing.T) {
 		for i, chip := range []string{i18n.In("zh-CN", "background_count", "count", 2) + ": " + i18n.In("zh-CN", "chat_running"), i18n.In("zh-CN", "port_mappings") + ": 8080"} {
 			b, ok := tt.AccessByRole(ui.RoleButton, chip)
 			if !ok {
+				// The ports' capsule opens a menu.
+				b, ok = tt.AccessByRole(ui.RoleMenuButton, chip)
+			}
+			if !ok {
 				t.Fatalf("%s: no capsule %q: %q", name, chip, tt.Texts())
 			}
 			// Inside the capsule's border.

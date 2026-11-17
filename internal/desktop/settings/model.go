@@ -152,6 +152,10 @@ type BackupLast struct {
 }
 
 // Model is the settings pages' view model.
+// DefaultTextSize is a conversation's text size until the user chooses one,
+// as Kit draws it without a preference.
+const DefaultTextSize = 14
+
 type Model struct {
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
 	Live                bool
@@ -194,7 +198,7 @@ type Model struct {
 	CodeIndex      Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
-	TextSize       float64 // 12..18, a pixel a step
+	TextSize       float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
 
 	// Shortcuts.
 	Keys Keys
@@ -395,7 +399,7 @@ func NewModel(d *preview.Settings) *Model {
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
-		Sandbox:   stored(d.Sandbox), CodeIndex: stored(true), TextSize: 15, SessionOrder: 1,
+		Sandbox:   stored(d.Sandbox), CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),
