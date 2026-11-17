@@ -324,7 +324,11 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 		node.NotifyConfigurationFollow(changes)
 		node.publish()
 	} else {
-		node.pluginCommitted(changes, ctx, prepared.info != nil)
+		var preservePrograms map[string]bool
+		if prepared.info != nil {
+			preservePrograms = map[string]bool{prepared.info.Summary.Name: true}
+		}
+		node.pluginCommitted(changes, ctx, preservePrograms)
 	}
 	if operationErr == nil {
 		node.refreshKnowledgeStorage(request.Command, changes)

@@ -862,6 +862,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	var output protocol.Output
 	var operationErr error
 	var changes []protocol.Event
+	var previousPlugins []protocol.PluginSummary
 	var reviewChanges []store.AgentReviewChange
 	var previous *link.Response
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
@@ -890,7 +891,12 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 					changes = append(changes, protocol.Event{Kind: "projection_invalidated"})
 				}
 			case SupportsConfigurationFollow(job.request.Command.Kind):
-				output, changes, operationErr = ExecuteConfigurationFollow(ctx, db, node.ID(), job.caller, job.request.Command)
+				if input, ok := dispatchPayload[protocol.ConfigurationFollowCommand](job.request.Command.Data); ok && input.Manifest != nil && input.Manifest.Category == "plugins" {
+					previousPlugins, operationErr = store.ReadPlugins(ctx, db)
+				}
+				if operationErr == nil {
+					output, changes, operationErr = ExecuteConfigurationFollow(ctx, db, node.ID(), job.caller, job.request.Command)
+				}
 			case store.SupportsTeamCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteTeamCommand(ctx, db, job.request.Command)
 			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
@@ -954,7 +960,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			}
 		}
 		if operationErr == nil && SupportsConfigurationFollow(job.request.Command.Kind) {
-			node.pluginCommitted(changes, ctx, false)
+			node.pluginCommitted(changes, ctx, preserveFollowedPrograms(previousPlugins, changes))
 		}
 		if operationErr == nil {
 			node.refreshKnowledgeStorage(job.request.Command, changes)

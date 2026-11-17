@@ -137,6 +137,9 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 		if err != nil {
 			return err
 		}
+		if plugins.IsWithdrawn(inspected) {
+			continue
+		}
 		if current != nil && !plugins.IsNewer(current.Summary.Version, inspected.Summary.Version) {
 			continue
 		}
@@ -417,7 +420,7 @@ func (node *Node) beginPluginExecution(ctx context.Context, request protocol.Req
 	return operation, func() { stop(); stopOwner(); cancel(); finish() }, nil
 }
 
-func (node *Node) pluginCommitted(changes []protocol.Event, ctx context.Context, codeReplacement bool) {
+func (node *Node) pluginCommitted(changes []protocol.Event, ctx context.Context, preservePrograms map[string]bool) {
 	user, err := node.pluginRuntimeUser(ctx)
 	if err != nil {
 		return
@@ -431,7 +434,7 @@ func (node *Node) pluginCommitted(changes []protocol.Event, ctx context.Context,
 				// Captured launch identities already separate old and new code.
 				// A replacement must not kill a program serving an admitted turn;
 				// its existing lease and idle expiry still bound its lifetime.
-				if !codeReplacement || !summary.Enabled || summary.Compatibility.Kind != "compatible" {
+				if !preservePrograms[summary.Name] || !summary.Enabled || summary.Compatibility.Kind != "compatible" {
 					node.plugins.programs.Invalidate(pluginProgramOwner(user, summary.Name))
 				}
 				node.retainComputerOverlay(summary.Name, ctx)

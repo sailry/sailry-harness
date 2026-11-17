@@ -215,7 +215,7 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 				_ = node.setProviderLogin(entry, state)
 				return
 			}
-			node.pluginCommitted(changes, ctx, false)
+			node.pluginCommitted(changes, ctx, nil)
 			for _, change := range changes {
 				if change.Kind == "credential_changed" {
 					if changed, ok := dispatchPayload[protocol.EventCredentialChangedPayload](change.Data); ok {
@@ -622,7 +622,7 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 		return err
 	})
 	if err == nil {
-		node.pluginCommitted(changes, ctx, false)
+		node.pluginCommitted(changes, ctx, nil)
 		node.authChanged()
 		err = failure
 	}

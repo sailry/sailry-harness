@@ -36,6 +36,7 @@ type Manager struct {
 	RegistryURL        string
 	SkillsDirectoryURL string
 	officialRepository string
+	bundled            fs.FS
 	repositoryMu       sync.Mutex
 	repositories       map[string][]packageEntry
 	skillPages         map[string]cachedSkillCatalog
@@ -319,10 +320,21 @@ func (manager *Manager) Install(ctx context.Context, directory, workingDirectory
 }
 
 func bundledCapture(ctx context.Context, name string) ([]packageEntry, []protocol.PluginIssue, error) {
+	return captureBundled(ctx, sailry.Plugins, name)
+}
+
+func (manager *Manager) bundledFiles() fs.FS {
+	if manager.bundled != nil {
+		return manager.bundled
+	}
+	return sailry.Plugins
+}
+
+func captureBundled(ctx context.Context, files fs.FS, name string) ([]packageEntry, []protocol.PluginIssue, error) {
 	if !ValidateName(name) {
 		return nil, nil, packageFault("invalid bundled package name")
 	}
-	tree, err := fs.Sub(sailry.Plugins, "plugins/"+name)
+	tree, err := fs.Sub(files, "plugins/"+name)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -334,19 +346,43 @@ func bundledCapture(ctx context.Context, name string) ([]packageEntry, []protoco
 }
 
 func (manager *Manager) InspectBundled(ctx context.Context, name string) (protocol.PluginInfo, error) {
-	entries, issues, err := bundledCapture(ctx, name)
+	entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
 	info, err := describePackage(entries, issues, name)
+	if err != nil {
+		return info, err
+	}
 	info.Origin = &protocol.PluginOrigin{Kind: "bundled"}
-	info.UpdateSource = &protocol.PluginOrigin{Kind: "official"}
-	info.Versions = []protocol.PluginCatalogVersion{manifestVersion(Manifest{Version: info.Summary.Version, Requirements: info.Requirements}, "", info.ReleaseNotes)}
+	err = manager.bundledMetadata(&info)
 	return info, err
 }
 
+func (manager *Manager) bundledMetadata(info *protocol.PluginInfo) error {
+	withdrawals, err := bundledWithdrawals(manager.bundled)
+	if err != nil {
+		return err
+	}
+	info.UpdateSource = &protocol.PluginOrigin{Kind: "official"}
+	info.Versions = []protocol.PluginCatalogVersion{manifestVersion(Manifest{Version: info.Summary.Version, Requirements: info.Requirements}, "", info.ReleaseNotes)}
+	if info.Summary.Version != nil && slices.Contains(withdrawals[info.Summary.Name], *info.Summary.Version) {
+		info.Versions[0].Withdrawn = true
+		info.Versions[0].Compatibility = CatalogVersionCompatibility(info.Versions[0])
+	}
+	return nil
+}
+
+// IsWithdrawn checks installation eligibility without disabling captured or
+// already installed content when a release is withdrawn from the catalog.
+func IsWithdrawn(info protocol.PluginInfo) bool {
+	return info.Summary.Version != nil && slices.ContainsFunc(info.Versions, func(version protocol.PluginCatalogVersion) bool {
+		return version.Version == *info.Summary.Version && version.Withdrawn
+	})
+}
+
 func (manager *Manager) InstallBundled(ctx context.Context, name string) (protocol.PluginInfo, error) {
-	entries, issues, err := bundledCapture(ctx, name)
+	entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
@@ -360,8 +396,12 @@ func (manager *Manager) publish(ctx context.Context, entries []packageEntry, iss
 	}
 	info.Origin = &origin
 	if origin.Kind == "bundled" {
-		info.UpdateSource = &protocol.PluginOrigin{Kind: "official"}
-		info.Versions = []protocol.PluginCatalogVersion{manifestVersion(Manifest{Version: info.Summary.Version, Requirements: info.Requirements}, "", info.ReleaseNotes)}
+		if err := manager.bundledMetadata(&info); err != nil {
+			return info, err
+		}
+		if IsWithdrawn(info) {
+			return info, packageFault("bundled plugin version is withdrawn")
+		}
 	}
 	for _, issue := range info.Issues {
 		if issue.Kind == protocol.PluginIssueKindInvalidSkills || issue.Kind == protocol.PluginIssueKindInvalidSkill {

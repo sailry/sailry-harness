@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -57,7 +58,60 @@ func manifestCatalogEntry(manifest Manifest) protocol.PluginCatalogEntry {
 }
 
 func BundledEntries(ctx context.Context) ([]protocol.PluginCatalogEntry, error) {
-	names, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
+	return bundledEntries(ctx, nil)
+}
+
+var embeddedWithdrawals = sync.OnceValues(func() (map[string][]string, error) {
+	return readBundledWithdrawals(sailry.Plugins)
+})
+
+func bundledWithdrawals(files fs.FS) (map[string][]string, error) {
+	// Embedded assets cannot change during this process. Startup inspects each
+	// default package, so decode their shared release index only once.
+	if files == nil {
+		return embeddedWithdrawals()
+	}
+	return readBundledWithdrawals(files)
+}
+
+func readBundledWithdrawals(files fs.FS) (map[string][]string, error) {
+	data, err := fs.ReadFile(files, "plugins/catalog.json")
+	if err != nil {
+		return nil, err
+	}
+	var catalog struct {
+		Version  uint32 `json:"version"`
+		Packages []struct {
+			ID       string `json:"id"`
+			Versions []struct {
+				Version   string `json:"version"`
+				Withdrawn bool   `json:"withdrawn"`
+			} `json:"versions"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal(data, &catalog) != nil || catalog.Version != 1 {
+		return nil, packageFault("invalid bundled plugin catalog")
+	}
+	withdrawals := map[string][]string{}
+	for _, entry := range catalog.Packages {
+		for _, version := range entry.Versions {
+			if version.Withdrawn {
+				withdrawals[entry.ID] = append(withdrawals[entry.ID], version.Version)
+			}
+		}
+	}
+	return withdrawals, nil
+}
+
+func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogEntry, error) {
+	withdrawals, err := bundledWithdrawals(files)
+	if err != nil {
+		return nil, err
+	}
+	if files == nil {
+		files = sailry.Plugins
+	}
+	names, err := fs.Glob(files, "plugins/*/plugin.json")
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +120,7 @@ func BundledEntries(ctx context.Context) ([]protocol.PluginCatalogEntry, error) 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		data, err := fs.ReadFile(sailry.Plugins, name)
+		data, err := fs.ReadFile(files, name)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +130,7 @@ func BundledEntries(ctx context.Context) ([]protocol.PluginCatalogEntry, error) 
 		}
 		entry := manifestCatalogEntry(manifest)
 		if manifest.Extension != nil && manifest.Extension.Icon != nil {
-			data, err := fs.ReadFile(sailry.Plugins, path.Join(path.Dir(name), *manifest.Extension.Icon))
+			data, err := fs.ReadFile(files, path.Join(path.Dir(name), *manifest.Extension.Icon))
 			if err == nil {
 				entry.Icon = packageIcon(data)
 			} else {
@@ -85,6 +139,10 @@ func BundledEntries(ctx context.Context) ([]protocol.PluginCatalogEntry, error) 
 		}
 		entry.Bundled = true
 		entry.Versions = []protocol.PluginCatalogVersion{manifestVersion(manifest, "", nil)}
+		if manifest.Version != nil && slices.Contains(withdrawals[manifest.Name], *manifest.Version) {
+			entry.Versions[0].Withdrawn = true
+			entry.Versions[0].Compatibility = CatalogVersionCompatibility(entry.Versions[0])
+		}
 		entry.CompatibleVersion = SelectCompatibleVersion(entry, nil)
 		entries = append(entries, entry)
 	}
@@ -139,7 +197,7 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 		endpoint = OfficialCatalogURL
 	}
 	err := manager.catalogJSON(ctx, endpoint, &feed)
-	bundled, bundledErr := BundledEntries(ctx)
+	bundled, bundledErr := bundledEntries(ctx, manager.bundled)
 	if bundledErr != nil {
 		return nil, bundledErr
 	}

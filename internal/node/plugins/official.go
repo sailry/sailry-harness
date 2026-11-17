@@ -126,7 +126,7 @@ func (manager *Manager) InstallOfficial(ctx context.Context, selection protocol.
 		if selected.Commit != "" {
 			return protocol.PluginInfo{}, officialSelectionChanged()
 		}
-		entries, issues, err := bundledCapture(ctx, name)
+		entries, issues, err := captureBundled(ctx, manager.bundledFiles(), name)
 		if err != nil {
 			return protocol.PluginInfo{}, err
 		}

@@ -150,12 +150,19 @@ func (node *Node) applyConfigurationSnapshotPage(ctx context.Context, caller pro
 	}
 	var progress protocol.ConfigurationSnapshotProgress
 	var changes []protocol.Event
+	var previousPlugins []protocol.PluginSummary
 	publication := node.agent.LockPublication()
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		if err := node.authorizeCommandDB(ctx, db, caller, request); err != nil {
 			return err
 		}
 		var err error
+		if page.Category == "plugins" {
+			previousPlugins, err = store.ReadPlugins(ctx, db)
+			if err != nil {
+				return err
+			}
+		}
 		progress, changes, err = store.StageConfigurationSnapshot(ctx, db, node.ID(), caller, request.ID, *page)
 		if err != nil || len(changes) == 0 {
 			return err
@@ -173,7 +180,7 @@ func (node *Node) applyConfigurationSnapshotPage(ctx context.Context, caller pro
 	}
 	publication()
 	if err == nil && len(changes) != 0 {
-		node.pluginCommitted(changes, ctx, false)
+		node.pluginCommitted(changes, ctx, preserveFollowedPrograms(previousPlugins, changes))
 		node.refreshKnowledgeStorage(request.Command, changes)
 	}
 	return protocol.Output{Kind: "configuration_snapshot", Data: progress}, err

@@ -141,12 +141,16 @@ func applyConfigurationCache(ctx context.Context, db *sql.Conn, node, caller pro
 		return nil, fault(protocol.ErrorCodeRevisionConflict, "configuration manifest revision changed")
 	}
 	seen := map[string]bool{}
+	var changedPlugins []protocol.ConfigurationFollowRecord
 	for _, record := range manifest.Records {
-		if len(record.Body) == 0 {
-			previous, err := readConfigurationCacheRecord(ctx, db, manifest.Category, record.ID, 0)
+		var previous *protocol.ConfigurationFollowRecord
+		if len(record.Body) == 0 || manifest.Category == "plugins" {
+			previous, err = readConfigurationCacheRecord(ctx, db, manifest.Category, record.ID, 0)
 			if err != nil {
 				return nil, err
 			}
+		}
+		if len(record.Body) == 0 {
 			if previous == nil || previous.Digest != record.Digest || previous.Revision != record.Revision {
 				return nil, fault(protocol.ErrorCodeRevisionConflict, "configuration record content is missing")
 			}
@@ -154,6 +158,9 @@ func applyConfigurationCache(ctx context.Context, db *sql.Conn, node, caller pro
 		}
 		if err := cacheConfigurationRecord(ctx, db, user, manifest.Category, record); err != nil {
 			return nil, err
+		}
+		if manifest.Category == "plugins" && (previous == nil || previous.Digest != record.Digest || previous.Revision != record.Revision) {
+			changedPlugins = append(changedPlugins, record)
 		}
 		seen[record.ID] = true
 	}
@@ -202,6 +209,11 @@ ON CONFLICT(user) DO UPDATE SET source=excluded.source,revision=revision+1 WHERE
 	status, err := ReadConfigurationFollow(ctx, db)
 	if err != nil {
 		return nil, err
+	}
+	if manifest.Category == "plugins" {
+		// A complete inventory is not a change to every installed package.
+		// Publish only replacements so unrelated programs and views stay live.
+		manifest.Records = changedPlugins
 	}
 	changes, err := configurationCacheEvents(ctx, db, manifest, removed)
 	if err != nil {

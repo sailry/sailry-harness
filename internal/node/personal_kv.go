@@ -60,7 +60,7 @@ func (node *Node) reconcilePersonalKVPending(ctx context.Context, remote link.Tr
 			return err
 		}
 		if len(changes) > 0 {
-			node.pluginCommitted(changes, ctx, false)
+			node.pluginCommitted(changes, ctx, nil)
 			node.refreshKnowledgeStorage(protocol.Command{}, changes)
 		}
 		command := protocol.ConfigurationFollowCommand{Action: "kv_ack", KVReceipt: &receipt}
