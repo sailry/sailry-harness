@@ -262,7 +262,10 @@ pull requests, on `main` and `sailry-go`, manually, and when `release.yml` calls
   Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
   when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
   libraries and their `SHA256SUMS`, the directory `native/fetch -artifacts`
-  reads. Release and manual runs always build them. The Linux legs set
+  reads. Release and manual runs always produce them. A cache keyed by the
+  two source trees and the build tool versions supplies unchanged libraries
+  without compiling; the Turso runtime, the Windows C++ runtime and the
+  checks below still run on every leg. The Linux legs set
   `SAILRY_GLIBC=2.34`, so `native/iroh/build.sh` links the iroh library against
   that GNU libc through cargo-zigbuild, then check that the library needs
   nothing newer and that `internal/node/wsl/preflight.sh` names the same
@@ -285,11 +288,11 @@ except `publish`:
 - `checks`: reuse a successful default-branch CI run for the exact source
   commit, then run integration tests. Go checks require a successful lint job
   and all six test lanes; Flutter checks are reused only if that run completed
-  them. The five native artifacts are reused only if their builds succeeded
-  and their artifacts remain available. Missing evidence falls back to the
-  corresponding checks or builds. Reused macOS native inputs are also retained
-  in the release run for later packaging repairs. Final signed Mobile packages
-  replace the duplicate unsigned builds.
+  them. Missing evidence falls back to the corresponding checks. The native
+  job always runs in the release, from its content cache when the sources are
+  unchanged, so every release run holds its own native artifacts for packaging
+  and later repairs. Final signed Mobile packages replace the duplicate
+  unsigned builds.
 - `macos` (arm64 and Intel): `cmd/sailry-desktop/macos/package.sh` and the
   macOS Host archive, signed with the Developer ID certificate.
 - `windows`: `cmd/sailry-desktop/windows/package.sh` on Linux, around the

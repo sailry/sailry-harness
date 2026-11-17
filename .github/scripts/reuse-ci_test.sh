@@ -24,15 +24,8 @@ jq -n '{jobs:([
   "test (ubuntu-24.04, linux-3)",
   "test (windows-2025, platform, windows-amd64)",
   "test (macos-15, platform, darwin-arm64)",
-  "apps/mobile (Android)",
-  "native (ubuntu-24.04, linux-amd64, x86_64-unknown-linux-gnu)",
-  "native (ubuntu-24.04-arm, linux-arm64, aarch64-unknown-linux-gnu)",
-  "native (macos-15, darwin-arm64, aarch64-apple-darwin)",
-  "native (macos-15-intel, darwin-amd64, x86_64-apple-darwin)",
-  "native (windows-2025, windows-amd64, x86_64-pc-windows-msvc)"
+  "apps/mobile (Android)"
 ] | map({name:.,status:"completed",conclusion:"success"}))}' > "$fixture/base/jobs.json"
-jq -n '{artifacts:(["linux-amd64","linux-arm64","darwin-arm64","darwin-amd64","windows-amd64"] |
-  map({name:("native-" + .),expired:false,size_in_bytes:100}))}' > "$fixture/base/artifacts.json"
 
 cat > "$fixture/bin/gh" <<'GH'
 #!/usr/bin/env bash
@@ -54,7 +47,6 @@ case "$path" in
     part=runs
     ;;
   repos/example/sailry/actions/runs/*/jobs\?*) test "$query" = '.jobs[]'; part=jobs ;;
-  repos/example/sailry/actions/runs/*/artifacts\?*) test "$query" = '.artifacts[]'; part=artifacts ;;
   repos/example/sailry/actions/runs/*)
     test "${path##*/}" = "$(jq -r .id "$SAILRY_REUSE_FIXTURE/data/run.json")"
     part=run
@@ -85,7 +77,7 @@ change() {
   mv "$current/data/changed.json" "$current/data/$file.json"
 }
 check() {
-  local ci=$1 mobile=$2 native=$3
+  local ci=$1 mobile=$2
   : > "$current/output"
   SAILRY_REUSE_FIXTURE=$current GH_REPO=$repo GITHUB_SHA=$sha DEFAULT_BRANCH=main \
     GITHUB_OUTPUT=$current/output RUNNER_TEMP=$current/tmp bash "$script" > "$current/log" 2>&1 || {
@@ -93,18 +85,18 @@ check() {
       echo "Reuse discovery failed: $current" >&2
       exit 1
     }
-  printf 'ci_run=%s\nmobile_checked=%s\nnative_run=%s\n' "$ci" "$mobile" "$native" > "$current/expected"
+  printf 'ci_run=%s\nmobile_checked=%s\n' "$ci" "$mobile" > "$current/expected"
   diff -u "$current/expected" "$current/output"
   if [ -z "$ci" ]; then grep -q '::notice::' "$current/log"; fi
-  test "$(wc -l < "$current/calls")" -le 5
+  test "$(wc -l < "$current/calls")" -le 4
 }
 
 prepare complete
-check 101 true 101
+check 101 true
 
 prepare no-runs
 change runs '.workflow_runs=[]'
-check '' false ''
+check '' false
 
 # Every source identity field must match, not just the successful conclusion.
 for mismatch in sha branch repo event manual workflow path status conclusion; do
@@ -122,79 +114,57 @@ for mismatch in sha branch repo event manual workflow path status conclusion; do
   esac
   change run "$expression"
   jq '{workflow_runs:[.]}' "$current/data/run.json" > "$current/data/runs.json"
-  check '' false ''
+  check '' false
 done
 
 prepare wrong-official-workflow
 change workflow '.path=".github/workflows/release.yml"'
-check '' false ''
+check '' false
 
 prepare selected-run-changed
 change run '.head_sha="2222222222222222222222222222222222222222"'
-check '' false ''
+check '' false
 
 # Discovery chooses the latest matching success, ignoring newer foreign runs.
 prepare latest-matching
 change run '.id=202'
 jq '{workflow_runs:[(. + {id:101}),.,(. + {id:203,event:"pull_request"}),(. + {id:204,conclusion:"failure"})]}' \
   "$current/data/run.json" > "$current/data/runs.json"
-check 202 true 202
+check 202 true
 
 prepare missing-linux-job
 change jobs '.jobs |= map(select(.name != "test (ubuntu-24.04, linux-3)"))'
-check '' false ''
+check '' false
 
 prepare missing-platform-job
 change jobs '.jobs |= map(select(.name != "test (windows-2025, platform, windows-amd64)"))'
-check '' false ''
+check '' false
 
 prepare failed-lint
 change jobs '.jobs |= map(if .name == "lint" then .conclusion="failure" else . end)'
-check '' false ''
+check '' false
 
 prepare skipped-test
 change jobs '.jobs |= map(if .name == "test (ubuntu-24.04, linux-1)" then .conclusion="skipped" else . end)'
-check '' false ''
+check '' false
 
 prepare duplicate-test-job
 change jobs '.jobs += [.jobs[1]]'
-check '' false ''
+check '' false
 
 prepare skipped-mobile
 change jobs '.jobs |= map(if .name == "apps/mobile (Android)" then .conclusion="skipped" else . end)'
-check 101 false 101
+check 101 false
 
-prepare skipped-native
-change jobs '.jobs |= map(if (.name | startswith("native (")) then .conclusion="skipped" else . end)'
-check 101 true ''
-! grep -q artifacts "$current/calls"
-
-prepare missing-native-job
-change jobs '.jobs |= map(select(.name != "native (windows-2025, windows-amd64, x86_64-pc-windows-msvc)"))'
-check 101 true ''
-
-for invalid in missing expired empty negative duplicate; do
-  prepare "artifact-$invalid"
-  case "$invalid" in
-    missing) expression='.artifacts |= .[1:]' ;;
-    expired) expression='.artifacts[0].expired=true' ;;
-    empty) expression='.artifacts[0].size_in_bytes=0' ;;
-    negative) expression='.artifacts[0].size_in_bytes=-1' ;;
-    duplicate) expression='.artifacts += [.artifacts[0]]' ;;
-  esac
-  change artifacts "$expression"
-  check 101 true ''
-done
-
-for part in workflow runs run jobs artifacts; do
+for part in workflow runs run jobs; do
   prepare "api-failure-$part"
-  SAILRY_REUSE_FAILURE=$part check '' false ''
+  SAILRY_REUSE_FAILURE=$part check '' false
 done
 
-for part in workflow runs run jobs artifacts; do
+for part in workflow runs run jobs; do
   prepare "invalid-json-$part"
   printf '{invalid' > "$current/data/$part.json"
-  check '' false ''
+  check '' false
 done
 
 echo 'Exact-source CI reuse fixtures passed'

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Discover checks and native artifacts already verified for this exact commit.
+# Discover checks already verified for this exact commit.
 set -euo pipefail
 
 : "${GH_REPO:?A repository is required}"
@@ -8,10 +8,9 @@ set -euo pipefail
 : "${RUNNER_TEMP:?A temporary directory is required}"
 branch=${DEFAULT_BRANCH:-main}
 ci_run=
-native_run=
 mobile_checked=false
 outputs() {
-  printf 'ci_run=%s\nmobile_checked=%s\nnative_run=%s\n' "$ci_run" "$mobile_checked" "$native_run" >> "$GITHUB_OUTPUT"
+  printf 'ci_run=%s\nmobile_checked=%s\n' "$ci_run" "$mobile_checked" >> "$GITHUB_OUTPUT"
 }
 trap outputs EXIT
 fallback() {
@@ -73,36 +72,6 @@ if jq -e --argjson required '["apps/mobile (Android)"]' "$complete" "$jobs" >/de
   checked_mobile=true
 fi
 
-checked_native=
-required_native='[
-  "native (ubuntu-24.04, linux-amd64, x86_64-unknown-linux-gnu)",
-  "native (ubuntu-24.04-arm, linux-arm64, aarch64-unknown-linux-gnu)",
-  "native (macos-15, darwin-arm64, aarch64-apple-darwin)",
-  "native (macos-15-intel, darwin-amd64, x86_64-apple-darwin)",
-  "native (windows-2025, windows-amd64, x86_64-pc-windows-msvc)"
-]'
-if jq -e --argjson required "$required_native" "$complete" "$jobs" >/dev/null; then
-  artifacts=$RUNNER_TEMP/prior-ci-artifacts.json
-  if ! gh api --paginate "repos/$GH_REPO/actions/runs/$candidate/artifacts?per_page=100" --jq '.artifacts[]' > "$artifacts.lines"; then
-    fallback 'Unable to read prior native artifacts'
-  fi
-  jq -s . "$artifacts.lines" > "$artifacts" || fallback 'Unable to verify prior native artifacts'
-  if jq -e '
-    . as $artifacts |
-    all(["linux-amd64", "linux-arm64", "darwin-arm64", "darwin-amd64", "windows-amd64"][];
-      . as $target | [$artifacts[] | select(.name == "native-" + $target)] as $matched |
-      ($matched | length) == 1 and $matched[0].expired == false and
-      ($matched[0].size_in_bytes | type) == "number" and $matched[0].size_in_bytes > 0)
-  ' "$artifacts" >/dev/null; then
-    checked_native=$candidate
-  else
-    echo '::notice::Prior native artifacts are missing, duplicated or expired; rebuilding native targets.'
-  fi
-else
-  echo '::notice::Prior native jobs were not all successful; rebuilding native targets.'
-fi
-
 ci_run=$candidate
 mobile_checked=$checked_mobile
-native_run=$checked_native
 printf 'Reusing verified CI run %s for %s.\n' "$ci_run" "$GITHUB_SHA"

@@ -38,7 +38,6 @@ jobs:
       reuse_run: ${{ steps.reuse.outputs.run }}
       ci_run: ${{ steps.ci.outputs.ci_run }}
       mobile_checked: ${{ steps.ci.outputs.mobile_checked }}
-      native_run: ${{ steps.ci.outputs.native_run }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
       - name: Tag, product versions and changelog entry agree
@@ -97,7 +96,6 @@ jobs:
               (.conclusion == "skipped" and
                 (.name == "checks / lint" or .name == "checks / test" or
                  (.name | startswith("checks / test (")) or
-                 .name == "checks / native" or (.name | startswith("checks / native (")) or
                  .name == "checks / apps/mobile (Android)" or .name == "checks / apps/mobile (iOS)"))) and
             ($integration | length) == 3 and all($integration[]; .conclusion == "success") and
             ($hosts | length) == 2 and all($hosts[]; .conclusion == "success")
@@ -121,16 +119,12 @@ jobs:
   checks:
     needs: version
     if: needs.version.outputs.reuse_run == ''
-    permissions:
-      contents: read
-      actions: read
     uses: ./.github/workflows/ci.yml
     with:
       integration: true
       skip_mobile_builds: true
       reuse_go: ${{ needs.version.outputs.ci_run != '' }}
       reuse_mobile: ${{ needs.version.outputs.mobile_checked == 'true' }}
-      native_run: ${{ needs.version.outputs.native_run }}
 
   # The signed, sealed and notarized Desktop and the signed Host archive of
   # one macOS architecture.
@@ -168,18 +162,8 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native
-          run-id: ${{ needs.version.outputs.reuse_run || needs.version.outputs.native_run || github.run_id }}
+          run-id: ${{ needs.version.outputs.reuse_run || github.run_id }}
           github-token: ${{ github.token }}
-      # A later packaging repair reads this release run's native inputs even
-      # when they originally came from the verified CI run.
-      - name: Retain reused macOS native inputs
-        if: needs.version.outputs.native_run != '' || needs.version.outputs.reuse_run != ''
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: native-${{ matrix.target }}
-          path: ${{ runner.temp }}/native/
-          if-no-files-found: error
-          compression-level: 0
       # A temporary keychain holds the Developer ID certificate; the App Store
       # Connect key stays a file outside the checkout.
       - name: Signing credentials
@@ -241,10 +225,7 @@ jobs:
   # The Windows x64 Desktop installer and portable archive, cross-compiled
   # around the libraries the Windows native leg built. Nothing is code signed.
   windows:
-    needs: [version, checks]
-    permissions:
-      contents: read
-      actions: read
+    needs: checks
     runs-on: ubuntu-24.04
     env:
       SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
@@ -265,8 +246,6 @@ jobs:
         with:
           name: native-windows-amd64
           path: ${{ runner.temp }}/native
-          run-id: ${{ needs.version.outputs.native_run || github.run_id }}
-          github-token: ${{ github.token }}
       - name: Desktop
         run: |
           bash cmd/sailry-desktop/windows/package.sh -artifacts "$RUNNER_TEMP/native"
@@ -284,10 +263,7 @@ jobs:
   # The Linux Host archive of each architecture, around the iroh library the
   # native leg linked against GNU libc 2.34.
   host-linux:
-    needs: [version, checks]
-    permissions:
-      contents: read
-      actions: read
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -312,8 +288,6 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: ${{ runner.temp }}/native
-          run-id: ${{ needs.version.outputs.native_run || github.run_id }}
-          github-token: ${{ github.token }}
       - name: Host
         env:
           TRIPLE: ${{ matrix.triple }}

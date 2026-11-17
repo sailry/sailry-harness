@@ -36,14 +36,9 @@ on:
         description: The release caller verified successful mobile checks for this exact commit
         type: boolean
         default: false
-      native_run:
-        description: The release caller verified this run's native artifacts for this exact commit
-        type: string
-        default: ''
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ci-${{ github.ref }}-${{ github.ref_type == 'tag' && 'release' || github.event_name == 'workflow_dispatch' && (inputs.integration && 'manual-integration' || 'manual') || 'checks' }}
@@ -177,7 +172,7 @@ jobs:
 
   native:
     needs: scope
-    if: ${{ needs.scope.outputs.native == 'true' && inputs.native_run == '' }}
+    if: needs.scope.outputs.native == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -189,6 +184,13 @@ jobs:
           # Windows is built for x64 only, like the Rust repository's releases.
           - { os: windows-2025, target: windows-amd64, triple: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
+    env:
+      # The Linux iroh library ships in the Host archive, whose installer
+      # preflight admits GNU libc 2.34: it is linked against that version
+      # instead of the runner's. The build scripts read it on Linux only.
+      SAILRY_GLIBC: '2.34'
+      ZIG_VERSION: 0.16.0
+      ZIGBUILD_VERSION: 0.23.4
     defaults:
       run:
         shell: bash
@@ -197,27 +199,38 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      # The iroh and capture libraries depend only on their pinned sources and
+      # these tool versions. Unchanged inputs reuse the built bytes, in CI and
+      # in a release alike; the checks below run on every restored library.
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        id: libraries
+        with:
+          path: |
+            .runtime/native/${{ matrix.target }}/libsailry_iroh.so
+            .runtime/native/${{ matrix.target }}/libsailry_iroh.dylib
+            .runtime/native/${{ matrix.target }}/sailry_iroh.dll
+            .runtime/native/${{ matrix.target }}/libsailry-capture.so
+            .runtime/native/${{ matrix.target }}/libsailry-capture.dylib
+            .runtime/native/${{ matrix.target }}/sailry-capture.dll
+          key: native-libraries-v1-${{ matrix.target }}-glibc${{ env.SAILRY_GLIBC }}-zig${{ env.ZIG_VERSION }}-zigbuild${{ env.ZIGBUILD_VERSION }}-${{ hashFiles('native/iroh/**', 'native/capture/**') }}
       - name: Pinned Rust toolchain
+        if: steps.libraries.outputs.cache-hit != 'true'
         working-directory: native/iroh
         run: |
           rustup toolchain install
           test "$(rustc -vV | awk '/^host: / {print $2}')" = '${{ matrix.triple }}'
-      # The Linux iroh library ships in the Host archive, whose installer
-      # preflight admits GNU libc 2.34: it is linked against that version
-      # instead of the runner's.
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.libraries.outputs.cache-hit != 'true'
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
           use-cache: false
       - name: cargo-zigbuild
-        if: runner.os == 'Linux'
-        run: |
-          cargo install cargo-zigbuild --version 0.23.4 --locked
-          echo 'SAILRY_GLIBC=2.34' >> "$GITHUB_ENV"
+        if: runner.os == 'Linux' && steps.libraries.outputs.cache-hit != 'true'
+        run: cargo install cargo-zigbuild --version "$ZIGBUILD_VERSION" --locked
       # Windows runs the same scripts in Git Bash: cargo builds sailry_iroh.dll
       # for the MSVC target and cl builds sailry-capture.dll.
       - name: Build
+        if: steps.libraries.outputs.cache-hit != 'true'
         run: |
           sh native/iroh/build.sh
           sh native/capture/build.sh
@@ -231,14 +244,25 @@ jobs:
         run: |
           set -euo pipefail
           # The build and the preflight must name the same version, and the
-          # library must need nothing newer.
+          # library must need nothing newer. The Turso action has already
+          # checked its own library.
           grep -q "requires GNU libc $SAILRY_GLIBC or later" internal/node/wsl/preflight.sh
-          for library in libsailry_iroh.so libturso_sync_sdk_kit.so; do
-            needed=$(objdump -T ".runtime/native/${{ matrix.target }}/$library" |
-              grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
-            echo "$library needs GNU libc $needed"
-            test "$(printf '%s\n%s\n' "$needed" "$SAILRY_GLIBC" | sort -V | tail -n 1)" = "$SAILRY_GLIBC"
-          done
+          needed=$(objdump -T ".runtime/native/${{ matrix.target }}/libsailry_iroh.so" |
+            grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          echo "libsailry_iroh.so needs GNU libc $needed"
+          test "$(printf '%s\n%s\n' "$needed" "$SAILRY_GLIBC" | sort -V | tail -n 1)" = "$SAILRY_GLIBC"
+      # Saved only after the floor check, so a library that fails it is rebuilt.
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: steps.libraries.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .runtime/native/${{ matrix.target }}/libsailry_iroh.so
+            .runtime/native/${{ matrix.target }}/libsailry_iroh.dylib
+            .runtime/native/${{ matrix.target }}/sailry_iroh.dll
+            .runtime/native/${{ matrix.target }}/libsailry-capture.so
+            .runtime/native/${{ matrix.target }}/libsailry-capture.dylib
+            .runtime/native/${{ matrix.target }}/sailry-capture.dll
+          key: ${{ steps.libraries.outputs.cache-primary-key }}
       # The artifact is the directory `go run ./native/fetch -artifacts` reads:
       # the built libraries and their SHA256SUMS at its root.
       - name: Checksums
@@ -356,7 +380,7 @@ jobs:
   # its packages; a release runs RELEASE_PACKAGES.
   integration:
     needs: native
-    if: ${{ !cancelled() && inputs.integration && (needs.native.result == 'success' || inputs.native_run != '') }}
+    if: inputs.integration
     strategy:
       fail-fast: false
       matrix:
@@ -438,8 +462,6 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: .runtime/native/${{ matrix.target }}
-          run-id: ${{ inputs.native_run || github.run_id }}
-          github-token: ${{ github.token }}
       # Loads this run's iroh library through the Go binding and opens and
       # closes a loopback endpoint: no relay and no external service.
       - name: Native libraries
