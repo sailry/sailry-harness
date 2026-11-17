@@ -63,10 +63,16 @@ func providerAuthDeclaration(ctx context.Context, db *sql.Conn, provider protoco
 		if current != nil && !current.Summary.Enabled {
 			return info, protocol.PluginModelAuthDeclaration{}, protocol.NewConfigurationFault(protocol.ConfigurationPluginDisabled, "channel authentication package is unavailable")
 		}
-		if current == nil || !reflect.DeepEqual(plugins.PackageReference(*current), *binding.Package) {
+		if current == nil {
 			return info, protocol.PluginModelAuthDeclaration{}, protocol.NewConfigurationFault(protocol.ConfigurationPluginUnavailable, "channel authentication package is unavailable")
 		}
-		info, flow = *current, binding.Auth.Flow
+		// Installation grants live access; the channel capture selects the
+		// immutable declaration and settings used by its existing account.
+		info, err = ReadPluginVersion(ctx, db, *binding.Package)
+		if err != nil {
+			return info, protocol.PluginModelAuthDeclaration{}, err
+		}
+		flow = binding.Auth.Flow
 	} else {
 		infos, err := ReadPluginInfos(ctx, db)
 		if err != nil {
