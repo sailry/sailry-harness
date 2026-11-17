@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"unsafe"
 
@@ -87,29 +86,18 @@ func TestWindowsProfileSecurity(t *testing.T) {
 			t.Fatalf("owner refusal created a lock: %v", err)
 		}
 	})
-	for _, target := range []string{"directory", "administrators directory", "identity", "lock", "database", "node.turso-wal", "node.db-log", "node.turso-tshm"} {
-		t.Run("restrict shared "+target, func(t *testing.T) {
-			user, err := windows.GetCurrentProcessToken().GetTokenUser()
-			if err != nil {
-				t.Fatal(err)
-			}
-			sid := user.User.Sid.String()
+	for _, target := range []string{"directory", "identity", "lock", "database", "node.turso-wal", "node.db-log", "node.turso-tshm"} {
+		t.Run("reject shared "+target, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "profile")
-			switch target {
-			case "directory":
-				createWindowsProfileFixture(t, path, "O:"+sid+"D:P(A;OICI;FA;;;WD)")
-			case "administrators directory":
-				// Explorer's "convert inherited permissions" keeps the user profile's
-				// Administrators and System entries as explicit protected entries.
-				createWindowsProfileFixture(t, path, "O:"+sid+"D:P(A;OICI;FA;;;"+sid+")(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)")
-			default:
-				if err := PrivateDirectory(path); err != nil {
-					t.Fatal(err)
-				}
+			if target == "directory" {
+				createWindowsProfileFixture(t, path, "D:P(A;OICI;FA;;;WD)")
+			} else if err := PrivateDirectory(path); err != nil {
+				t.Fatal(err)
 			}
 			fixture := path
 			database := filepath.Join(path, "node.turso")
-			operation := func() error {
+			var operation func() error
+			operation = func() error {
 				profile, err := AcquireProfile(path)
 				if err == nil {
 					_ = profile.Close()
@@ -132,29 +120,33 @@ func TestWindowsProfileSecurity(t *testing.T) {
 				operation = func() error { return PrepareDatabase(database) }
 			}
 			marker := fixture
-			directory := target == "directory" || target == "administrators directory"
-			if directory {
+			if target == "directory" {
 				marker = filepath.Join(path, "existing.bin")
 			}
 			const contents = "preserved fixture data"
 			if err := os.WriteFile(marker, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if !directory {
+			if target != "directory" {
 				shareWindowsProfileFixture(t, fixture)
 			}
-			if err := operation(); err != nil {
-				t.Fatalf("owned shared profile storage was not restricted: %v", err)
+			before := windowsProfileDescriptor(t, fixture)
+			if err := operation(); err == nil {
+				t.Fatal("shared profile storage accepted")
 			}
-			if err := validateWindowsStorage(fixture, directory); err != nil {
-				t.Fatalf("restricted storage is not private: %v", err)
-			}
-			if descriptor := windowsProfileDescriptor(t, fixture); strings.Contains(descriptor, ";WD)") || strings.Contains(descriptor, ";BA)") {
-				t.Fatalf("restriction kept another principal: %s", descriptor)
+			if after := windowsProfileDescriptor(t, fixture); after != before {
+				t.Fatal("refusal changed the access list")
 			}
 			data, err := os.ReadFile(marker)
 			if err != nil || !bytes.Equal(data, []byte(contents)) {
-				t.Fatalf("restriction changed fixture data: %v", err)
+				t.Fatalf("refusal changed fixture data: %v", err)
+			}
+			if target != "lock" && target != "database" {
+				for _, absent := range []string{filepath.Join(path, "node.lock"), database} {
+					if _, err := os.Stat(absent); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("refusal created %s: %v", absent, err)
+					}
+				}
 			}
 		})
 	}
@@ -175,20 +167,12 @@ func TestWindowsProfileSecurity(t *testing.T) {
 			t.Fatal("hard-linked database accepted")
 		}
 	})
-	t.Run("restrict null access list", func(t *testing.T) {
-		user, err := windows.GetCurrentProcessToken().GetTokenUser()
-		if err != nil {
-			t.Fatal(err)
-		}
+	t.Run("reject null access list", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "unrestricted")
-		createWindowsProfileFixture(t, path, "O:"+user.User.Sid.String()+"D:NO_ACCESS_CONTROL")
-		profile, err := AcquireProfile(path)
-		if err != nil {
-			t.Fatalf("owned unrestricted profile was not restricted: %v", err)
-		}
-		_ = profile.Close()
-		if err := validateWindowsStorage(path, true); err != nil {
-			t.Fatalf("restricted profile is not private: %v", err)
+		createWindowsProfileFixture(t, path, "D:NO_ACCESS_CONTROL")
+		if profile, err := AcquireProfile(path); err == nil {
+			_ = profile.Close()
+			t.Fatal("unrestricted profile accepted")
 		}
 	})
 }
