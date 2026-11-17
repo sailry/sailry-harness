@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
+import 'package:sailry_bridge/bridge.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
 import '../../ui/form.dart';
@@ -37,7 +38,7 @@ class _PairFormState extends State<PairForm> {
       debugPrint('Pairing failed: $error');
       if (mounted) {
         setState(
-          () => _failure = error.toString().contains('NotFound:')
+          () => _failure = error is BridgeFailure && error.code == 'not_found'
               ? 'pairExpired'
               : 'pairFailed',
         );
