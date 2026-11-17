@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Kind is where an update stands.
@@ -46,7 +47,7 @@ type Options struct {
 	Version   string         // the running application version
 	Directory string         // the updater's cache, beside the preferences
 	Profile   string         // the local Node's data profile
-	Channel   func() Channel // the saved channel
+	Channel   func() Channel // the saved channel, or InitialChannel when nil
 	Stop      func() error   // stops the local Node before replacement
 	Quit      func()         // ends the application after a handoff
 	Changed   func()         // wakes the interface from background work
@@ -69,7 +70,10 @@ type Service struct {
 	operation   uint64
 	receiptRead bool
 	notices     []Notice
-	work        sync.WaitGroup
+	work        sync.WaitGroup // admitted finite operations, including receipt handling
+	watching    sync.WaitGroup // the periodic watch, joined separately on Close
+	closed      bool
+	done        chan struct{}
 
 	// Replaced by tests.
 	release   func(channel Channel, version string) (Config, error)
@@ -85,7 +89,11 @@ type restart struct {
 
 // New creates an idle service.
 func New(options Options) *Service {
-	return &Service{options: options, stop: func() {}, release: ReleaseConfig, installed: installedBundle, relaunch: relaunch, client: newClient}
+	if options.Channel == nil {
+		channel := InitialChannel(options.Version)
+		options.Channel = func() Channel { return channel }
+	}
+	return &Service{options: options, stop: func() {}, done: make(chan struct{}), release: ReleaseConfig, installed: installedBundle, relaunch: relaunch, client: newClient}
 }
 
 // Snapshot is the current state and the last failure.
@@ -107,9 +115,14 @@ func (s *Service) Notices() []Notice {
 // Close cancels background work, waits for it and drops a staged download.
 func (s *Service) Close() {
 	s.mu.Lock()
+	if !s.closed {
+		s.closed = true
+		close(s.done)
+	}
 	s.stop()
 	s.operation++
 	s.mu.Unlock()
+	s.watching.Wait()
 	s.work.Wait()
 	s.mu.Lock()
 	s.dropStaged()
@@ -148,16 +161,26 @@ func (s *Service) resting() State {
 	return State{}
 }
 
-// Startup acknowledges the previous installation's receipt once.
+// The background check runs a while after launch, leaving startup its
+// network, then at a steady interval.
+const (
+	watchDelay = 30 * time.Second
+	watchEvery = 6 * time.Hour
+)
+
+// Startup acknowledges the previous installation's receipt once and starts
+// the background check.
 func (s *Service) Startup() {
 	s.mu.Lock()
-	if s.receiptRead {
+	if s.receiptRead || s.closed {
 		s.mu.Unlock()
 		return
 	}
 	s.receiptRead = true
 	s.work.Add(1)
+	s.watching.Add(1)
 	s.mu.Unlock()
+	go s.watch()
 	go func() {
 		defer s.work.Done()
 		installed, _ := s.installed()
@@ -173,22 +196,43 @@ func (s *Service) Startup() {
 	}()
 }
 
+// watch checks quietly until Close: an update it finds shows as Available,
+// and it reports nothing else.
+func (s *Service) watch() {
+	defer s.watching.Done()
+	timer := time.NewTimer(watchDelay)
+	defer timer.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-timer.C:
+			s.check("", true)
+			timer.Reset(watchEvery)
+		}
+	}
+}
+
 // Check looks for a newer release on the saved channel.
-func (s *Service) Check() { s.check("") }
+func (s *Service) Check() { s.check("", false) }
 
 // CheckVersion looks for the exact version a newer Host asks for.
-func (s *Service) CheckVersion(version string) { s.check(version) }
+func (s *Service) CheckVersion(version string) { s.check(version, false) }
 
-func (s *Service) check(required string) {
+// check looks for a release. A quiet check keeps the shown failure and
+// only logs its own, and does not report that Sailry is current.
+func (s *Service) check(required string, quiet bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind != Idle && s.state.Kind != Available && !(required != "" && s.state.Kind == Ready) {
+	if s.closed || s.state.Kind != Idle && s.state.Kind != Available && !(required != "" && s.state.Kind == Ready) {
 		return
 	}
 	s.stop()
 	ctx, stop := context.WithCancel(context.Background())
 	s.stop = stop
-	s.failure = nil
+	if !quiet {
+		s.failure = nil
+	}
 	if required != "" {
 		s.selection, s.config = nil, nil
 		s.dropStaged()
@@ -214,13 +258,16 @@ func (s *Service) check(required string) {
 		if operation == s.operation {
 			if err != nil {
 				s.state = s.resting()
-				if asFailure(err).Key != "updates_cancelled" {
+				if f := asFailure(err); f.Key == "updates_cancelled" {
+				} else if quiet {
+					log.Printf("desktop update check: %s: %s", f.Key, f.Detail)
+				} else {
 					s.failed(err)
 				}
 			} else {
-				s.config, s.selection = &config, selection
+				s.config, s.selection, s.failure = &config, selection, nil
 				s.state = s.resting()
-				if selection == nil {
+				if selection == nil && !quiet {
 					s.notice("updates_current", false)
 				}
 			}
@@ -234,7 +281,7 @@ func (s *Service) check(required string) {
 func (s *Service) Download() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind != Available || s.config == nil || s.selection == nil {
+	if s.closed || s.state.Kind != Available || s.config == nil || s.selection == nil {
 		return
 	}
 	if s.options.Directory == "" {
@@ -287,7 +334,7 @@ func (s *Service) Download() {
 func (s *Service) Cancel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind == Checking || s.state.Kind == Downloading {
+	if !s.closed && (s.state.Kind == Checking || s.state.Kind == Downloading) {
 		s.stop()
 	}
 }
@@ -297,7 +344,7 @@ func (s *Service) Cancel() {
 func (s *Service) ChannelChanged() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind == Installing || s.state.Kind == Restarting || s.state.Kind == Stopped {
+	if s.closed || s.state.Kind == Installing || s.state.Kind == Restarting || s.state.Kind == Stopped {
 		return false
 	}
 	recheck := s.config != nil || s.state.Kind != Idle
@@ -313,7 +360,7 @@ func (s *Service) ChannelChanged() bool {
 func (s *Service) Install() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind != Ready {
+	if s.closed || s.state.Kind != Ready {
 		return
 	}
 	if err := s.beginInstall(); err != nil {
@@ -409,7 +456,7 @@ func (s *Service) install(update *staged, config *Config, installed, root string
 func (s *Service) Restart() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.state.Kind != Stopped {
+	if s.closed || s.state.Kind != Stopped {
 		return
 	}
 	target := s.restart

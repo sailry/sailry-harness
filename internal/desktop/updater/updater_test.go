@@ -194,3 +194,28 @@ func (e expectation) without() expectation {
 	e.notice = ""
 	return e
 }
+
+// TestUpdaterQuietCheck keeps the background check's failure and current
+// outcome out of the interface, as a requested check reports both.
+func TestUpdaterQuietCheck(t *testing.T) {
+	s := New(Options{Version: "1.0.0", Channel: func() Channel { return Stable }})
+	s.release = func(Channel, string) (Config, error) {
+		return Config{}, failure("updates_source_unready", "no feed")
+	}
+	s.check("", true)
+	s.work.Wait()
+	if state, f := s.Snapshot(); state.Kind != Idle || f != nil || len(s.Notices()) != 0 {
+		t.Fatalf("quiet check reported %v %v", state, f)
+	}
+	s.Check()
+	s.work.Wait()
+	if _, f := s.Snapshot(); f == nil || f.Key != "updates_source_unready" || len(s.Notices()) != 1 {
+		t.Fatalf("requested check reported %v", f)
+	}
+	s.check("", true)
+	s.work.Wait()
+	if _, f := s.Snapshot(); f == nil || len(s.Notices()) != 0 {
+		t.Fatalf("quiet check replaced the shown failure: %v", f)
+	}
+	s.Close()
+}

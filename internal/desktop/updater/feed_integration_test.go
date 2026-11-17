@@ -116,6 +116,7 @@ func TestUpdaterLocalFeed(t *testing.T) {
 		// The next start of the new version acknowledges the receipt once
 		// and removes the retained original.
 		next := New(Options{Version: "1.1.0", Directory: root})
+		t.Cleanup(next.Close)
 		next.installed = func() (string, error) { return installed, nil }
 		next.Startup()
 		if _, failure, notices := settle(next); failure != nil || len(notices) != 1 || notices[0].Key != "updates_completed" || notices[0].Error {
@@ -139,6 +140,7 @@ func TestUpdaterLocalFeed(t *testing.T) {
 		service.Install()
 		settle(service)
 		next := New(Options{Version: "1.0.0", Directory: root})
+		t.Cleanup(next.Close)
 		next.installed = func() (string, error) { return installed, nil }
 		next.Startup()
 		if _, failure, notices := settle(next); failure == nil || failure.Key != "updates_restart_failed" || len(notices) != 1 || !notices[0].Error {
