@@ -358,6 +358,10 @@ or is cancelled. Password-encrypted age
 archives support local folders, WebDAV and S3. Restore validates into an empty
 profile, retains Node identity and does not start it. Automatic backups use the
 Node's dispatch service. A restored identity must not run beside its original.
+Workspace archives preserve relative, absolute and dangling symbolic links.
+Validation rejects any archived entry beneath a link. Restore copies verified
+regular files first and creates links last, so archive extraction never writes
+through a restored link.
 
 ## Command admission and recovery
 
@@ -560,7 +564,12 @@ terminal remains available to other controllers.
 
 Agent file operations exclude managed-checkout descendants and protected Git
 metadata. Authenticated manual workflows can access registered managed worktrees
-through the scoped resource services. User-created terminals use their login-shell
+through the scoped resource services. Linux fixes the ancestor mounts of discovered
+protected paths so a command cannot bypass them by renaming their parent.
+This does not confine native Git filters: native Git reads currently execute
+outside the command sandbox, including filters from newly created repositories
+or scripts and configuration included from writable workspace files.
+User-created terminals use their login-shell
 environment. Zsh starts from the Node account's home unless its launch specifies
 a startup directory; parent terminal hooks cannot replace that directory, and
 the user's `.zshenv` can select a custom one. Configured HTTP proxies are trusted
@@ -729,8 +738,10 @@ Session HTML uses a sandboxed MyGo WebView with no privileged bridge. The host
 inlines available document images as data URLs; the page receives neither a file
 base URL nor network access.
 
-Voice capture, speech recognition, voice reading and global selection shortcuts
-are controller-local. `--preview` opens no profile and starts no Node. Explicit
+Desktop voice capture, speech recognition, voice reading and global selection
+shortcuts are controller-local. Mobile has no voice-input controls, recording
+dependency or microphone permission; audio and video attachments remain supported.
+`--preview` opens no profile and starts no Node. Explicit
 acceptance and replay run in isolated processes; their limits and commands are in
 [CONTRIBUTING.md](CONTRIBUTING.md#manual-acceptance).
 
@@ -869,6 +880,10 @@ Linux Host into WSL2. The installed `sailry` command offers an interactive menu;
 an alias using the current network. Host's `link`, `share`, `submit`, `wait`,
 `users` and `devices` management commands use the running owner's private Unix
 socket and never create another storage owner.
+Both published-package and local-artifact installers roll back the program,
+command link and service they created when a fresh installation fails. Only an
+empty newly created profile is removed; written data remains for inspection.
+Uncertain service cleanup retains recovery files and reports an unknown outcome.
 
 Host metrics use one Node sampler for local and remote reads. macOS disk rates map
 APFS volumes to physical device counters; volumes sharing a physical device share
