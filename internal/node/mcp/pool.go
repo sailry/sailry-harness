@@ -80,13 +80,6 @@ type statusKey struct{ User, Package, Server string }
 // Change identifies one user installation whose runtime changed.
 type Change struct{ User, Package string }
 
-func userArgument(users []string) string {
-	if len(users) != 0 {
-		return users[0]
-	}
-	return ""
-}
-
 // statusRecord is what a server of the current package version last reported.
 // It outlives the connection, so a server closed for being idle is still the
 // one that connected. An interrupted attempt returns to the settled runtime.
@@ -184,8 +177,7 @@ func keyFor(config Configuration) (connectionKey, error) {
 	}, nil
 }
 
-func (pool *Pool) Observe(summary protocol.PluginSummary, users ...string) error {
-	user := userArgument(users)
+func (pool *Pool) Observe(summary protocol.PluginSummary, user string) error {
 	identity := packageKey{user, summary.Name}
 	pool.mu.Lock()
 	previous, exists := pool.current[identity]
@@ -212,9 +204,9 @@ func (pool *Pool) Observe(summary protocol.PluginSummary, users ...string) error
 	return closeConnections(retired)
 }
 
-func (pool *Pool) FinishInventory(users ...string) {
+func (pool *Pool) FinishInventory(user string) {
 	pool.mu.Lock()
-	pool.known[userArgument(users)] = true
+	pool.known[user] = true
 	pool.mu.Unlock()
 }
 
@@ -608,8 +600,7 @@ func (lease *Lease) Close() error {
 	return lease.closeErr
 }
 
-func (pool *Pool) Invalidate(packageName string, users ...string) error {
-	user := userArgument(users)
+func (pool *Pool) Invalidate(packageName, user string) error {
 	identity := packageKey{user, packageName}
 	pool.mu.Lock()
 	var retired []*connection
@@ -645,10 +636,10 @@ func (pool *Pool) Expire() error {
 	return closeConnections(retired)
 }
 
-func (pool *Pool) Status(reference protocol.PluginReference, server string, users ...string) *protocol.PluginMcpRuntime {
+func (pool *Pool) Status(reference protocol.PluginReference, server, user string) *protocol.PluginMcpRuntime {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	record := pool.status[statusKey{userArgument(users), reference.Name, server}]
+	record := pool.status[statusKey{user, reference.Name, server}]
 	if record == nil || record.reference != reference || record.runtime == nil {
 		return nil
 	}

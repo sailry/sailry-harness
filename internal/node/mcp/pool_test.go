@@ -384,7 +384,7 @@ func TestMCPLifecycle(t *testing.T) {
 		return errors.Join(err, lease.Close())
 	}
 	state := func(pool *Pool) string {
-		runtime := pool.Status(reference, "echo")
+		runtime := pool.Status(reference, "echo", "")
 		if runtime == nil {
 			return "none"
 		}
@@ -405,7 +405,7 @@ func TestMCPLifecycle(t *testing.T) {
 			fixture := &lifecycleFixture{}
 			pool := New(t.Context(), Options{Clock: clock, Open: fixture.open(t)})
 			defer pool.Close()
-			if err := pool.Observe(summary); err != nil {
+			if err := pool.Observe(summary, ""); err != nil {
 				t.Fatal(err)
 			}
 			if err := list(t, pool, t.Context()); err != nil {
@@ -447,7 +447,7 @@ func TestMCPLifecycle(t *testing.T) {
 			fixture := &lifecycleFixture{}
 			pool := New(t.Context(), Options{Open: fixture.open(t)})
 			defer pool.Close()
-			if err := pool.Observe(summary); err != nil {
+			if err := pool.Observe(summary, ""); err != nil {
 				t.Fatal(err)
 			}
 			if state(pool) != "none" || changed(pool) {
@@ -498,7 +498,7 @@ func TestMCPLifecycle(t *testing.T) {
 			if err := list(t, pool, t.Context()); err == nil {
 				t.Fatal("an unavailable server opened")
 			}
-			runtime := pool.Status(reference, "echo")
+			runtime := pool.Status(reference, "echo", "")
 			if runtime == nil || runtime.State != protocol.PluginMcpRuntimeStateFailed || runtime.Fault == nil || runtime.Fault.Code != protocol.ErrorCodeUnavailable {
 				t.Fatalf("failed server reports %+v", runtime)
 			}
@@ -518,7 +518,7 @@ func TestMCPLifecycle(t *testing.T) {
 			}
 			next := summary
 			next.Digest, next.Revision = "capture-two", 2
-			if err := pool.Observe(next); err != nil {
+			if err := pool.Observe(next, ""); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := old.List(t.Context()); err != nil {
@@ -528,7 +528,7 @@ func TestMCPLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			current := protocol.PluginReference{Name: next.Name, Digest: next.Digest, SettingsRevision: next.SettingsRevision}
-			if pool.Status(current, "echo") != nil || pool.Status(reference, "echo") != nil || changed(pool) {
+			if pool.Status(current, "echo", "") != nil || pool.Status(reference, "echo", "") != nil || changed(pool) {
 				t.Fatal("a replaced package version kept or reported a runtime")
 			}
 		})
@@ -538,7 +538,7 @@ func TestMCPLifecycle(t *testing.T) {
 			fixture := &lifecycleFixture{hold: make(chan struct{})}
 			pool := New(t.Context(), Options{Open: fixture.open(t)})
 			defer pool.Close()
-			if err := pool.Observe(summary); err != nil {
+			if err := pool.Observe(summary, ""); err != nil {
 				t.Fatal(err)
 			}
 			// A server that is not shared is closed with its only caller; a
@@ -574,7 +574,7 @@ func TestMCPLifecycle(t *testing.T) {
 			fixture := &lifecycleFixture{hold: make(chan struct{})}
 			pool := New(t.Context(), Options{Open: fixture.open(t)})
 			defer pool.Close()
-			if err := pool.Observe(summary); err != nil {
+			if err := pool.Observe(summary, ""); err != nil {
 				t.Fatal(err)
 			}
 			started := time.Now()
