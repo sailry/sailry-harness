@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math"
 	"slices"
 
@@ -153,7 +154,7 @@ func (index Index) ranks(ctx context.Context, db *sql.Conn, stamps map[string]st
 			keyword = append(keyword, key)
 			scores[key] = float32(score)
 		}
-		if err := rows.Close(); err != nil {
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return nil, "", err
 		}
 	}

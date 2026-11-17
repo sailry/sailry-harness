@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"runtime"
 	"slices"
 	"sync"
@@ -345,7 +346,7 @@ func load(ctx context.Context, db *sql.Conn, id string, dimension int, at stamp,
 		}
 		entry.sources[source] = runs
 	}
-	if err := rows.Close(); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, err
 	}
 	if entry.size = entry.block.size() + int64(len(entry.sources))*64; entry.size > budget {
@@ -388,7 +389,7 @@ func (index Index) nearest(ctx context.Context, db *sql.Conn, before map[string]
 		}
 		admitted[id] = append(admitted[id], source)
 	}
-	if err := rows.Close(); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, err
 	}
 	var query knowledge.Direction
@@ -468,7 +469,7 @@ func (index Index) nearest(ctx context.Context, db *sql.Conn, before map[string]
 				held.reset()
 			}
 		}
-		if err := rows.Close(); err != nil {
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return nil, err
 		}
 		if err := search([]span{{held, 0, len(held.keys)}}); err != nil {
