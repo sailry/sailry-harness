@@ -14,7 +14,9 @@ import (
 var nativeJobs sync.Map
 
 func prepareNative(cmd *exec.Cmd) (func(), error) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_NEW_PROCESS_GROUP}
+	// Git reads and mutations use pipes, without a console that Windows could
+	// delegate to a terminal window for every background repository read.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
