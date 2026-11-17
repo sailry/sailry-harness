@@ -20,9 +20,9 @@ func transferable(authentication protocol.Authentication) error {
 	case protocol.AuthenticationApiKey, protocol.AuthenticationCopilot:
 		return nil
 	case protocol.AuthenticationClaudeOAuth:
-		return fault(protocol.ErrorCodeNotConfigured, "Claude sign-in is required on the execution Node")
+		return protocol.NewConfigurationFault(protocol.ConfigurationLoginRequired, "Claude sign-in is required on the execution Node")
 	default:
-		return fault(protocol.ErrorCodeNotConfigured, "ChatGPT sign-in is required on the execution Node")
+		return protocol.NewConfigurationFault(protocol.ConfigurationLoginRequired, "ChatGPT sign-in is required on the execution Node")
 	}
 }
 
@@ -131,7 +131,7 @@ func cachedForwardProvider(ctx context.Context, db *sql.Conn, node protocol.Node
 		return protocol.ConversationProvider{}, err
 	}
 	if record == nil {
-		return protocol.ConversationProvider{}, fault(protocol.ErrorCodeNotConfigured, "captured controller provider is unavailable on the execution Node")
+		return protocol.ConversationProvider{}, protocol.NewConfigurationFault(protocol.ConfigurationProviderCaptureMissing, "captured controller provider is unavailable on the execution Node")
 	}
 	var provider protocol.ConversationProvider
 	if err := json.Unmarshal(record.Body, &provider); err != nil {
@@ -175,7 +175,7 @@ func cachedForwardRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 			return snapshot, err
 		}
 		if record == nil {
-			return snapshot, fault(protocol.ErrorCodeNotConfigured, "captured controller role is unavailable on the execution Node")
+			return snapshot, protocol.NewConfigurationFault(protocol.ConfigurationRoleCaptureMissing, "captured controller role is unavailable on the execution Node")
 		}
 		var cached protocol.RoleProfile
 		if err := json.Unmarshal(record.Body, &cached); err != nil {
@@ -192,7 +192,7 @@ func cachedForwardRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 			return snapshot, err
 		}
 		if record == nil {
-			return snapshot, fault(protocol.ErrorCodeNotConfigured, "captured controller team is unavailable on the execution Node")
+			return snapshot, protocol.NewConfigurationFault(protocol.ConfigurationTeamCaptureMissing, "captured controller team is unavailable on the execution Node")
 		}
 		var team protocol.TeamProfile
 		if err := json.Unmarshal(record.Body, &team); err != nil {

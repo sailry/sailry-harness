@@ -392,6 +392,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			t.Fatalf("diagnostics = %s", server.bodies[0])
 		}
 		public := map[string]bool{"level": true, "timestamp": true, "area": true, "phase": true, "operation": true, "code": true, "duration_us": true}
+		stages := map[string]bool{}
 		records := 0
 		for _, entry := range lines[4:] {
 			if len(entry) == 0 {
@@ -402,11 +403,28 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			if err := json.Unmarshal(entry, &record); err != nil {
 				t.Fatalf("attachment line %q: %v", entry, err)
 			}
-			for key := range record {
-				if !public[key] {
-					t.Errorf("attachment carries %q: %s", key, entry)
+			for key, value := range record {
+				switch key {
+				case "command_stage":
+					stage, _ := value.(string)
+					if stage != "admission" && stage != "completion" {
+						t.Errorf("attachment carries unlisted command stage: %v", value)
+					}
+					stages[stage] = true
+				case "configuration_reason":
+					reason, _ := value.(string)
+					if !protocol.ConfigurationReason(reason).Known() {
+						t.Errorf("attachment carries unlisted configuration reason: %v", value)
+					}
+				default:
+					if !public[key] {
+						t.Errorf("attachment carries %q: %s", key, entry)
+					}
 				}
 			}
+		}
+		if !stages["admission"] || !stages["completion"] {
+			t.Errorf("command failure stages were lost: %v", stages)
 		}
 		if records < 4 {
 			t.Fatalf("attachment has %d records: %s", records, server.bodies[0])

@@ -38,7 +38,7 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 				return protocol.Output{}, nil, err
 			}
 			if saved == nil || saved.Provider == nil {
-				return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "provider is unavailable")
+				return protocol.Output{}, nil, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "provider is unavailable")
 			}
 			if err = checkRevision(saved.Provider.Revision, v.ProviderRevision); err != nil {
 				return protocol.Output{}, nil, err

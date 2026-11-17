@@ -48,6 +48,17 @@ func TestLogPrivacyFilter(t *testing.T) {
 			}
 		}
 	})
+	t.Run("configuration diagnostics are closed", func(t *testing.T) {
+		got := Remote(Fields{"configuration_reason": "credential_missing", "command_stage": "admission"})
+		if !reflect.DeepEqual(got, Fields{"configuration_reason": "credential_missing", "command_stage": "admission"}) {
+			t.Fatalf("configuration diagnostics lost: %v", got)
+		}
+		for _, value := range []any{"private_account_name", "sk-secret", "/Users/private", "", true, uint64(2)} {
+			if got := Remote(Fields{"configuration_reason": value, "command_stage": value}); len(got) != 0 {
+				t.Errorf("unlisted diagnostic value escaped: %v", got)
+			}
+		}
+	})
 	t.Run("first install creates private storage", func(t *testing.T) {
 		root, err := filepath.EvalSymlinks(t.TempDir())
 		if err != nil {

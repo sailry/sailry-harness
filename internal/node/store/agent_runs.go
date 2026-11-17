@@ -173,12 +173,18 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		if err != nil {
 			return value, err
 		}
-		if config != nil && config.Listed {
+		if config != nil && config.Provider != nil {
+			if !config.Listed {
+				return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "model provider is unavailable")
+			}
 			selectedProvider = config.Provider
 		}
 	}
-	if selectedProvider == nil || !selectedProvider.Enabled {
-		return value, fault(protocol.ErrorCodeNotConfigured, "model provider is unavailable")
+	if selectedProvider == nil {
+		return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model provider is unavailable")
+	}
+	if !selectedProvider.Enabled {
+		return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderDisabled, "model provider is unavailable")
 	}
 	var selected bool
 	for _, model := range selectedProvider.Models {

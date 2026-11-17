@@ -330,6 +330,7 @@ func (value FaultDetailsContinuationPayload) MarshalJSON() ([]byte, error) {
 }
 
 var faultDetailsVariants = variantFactories{"plugin_requires_newer": func() any { return new(FaultDetailsPluginRequiresNewerPayload) },
+	"configuration":           func() any { return new(FaultDetailsConfigurationPayload) },
 	"controller_login":        func() any { return new(FaultDetailsControllerLoginPayload) },
 	"backup_partial":          func() any { return new(FaultDetailsBackupPartialPayload) },
 	"continuation":            func() any { return new(FaultDetailsContinuationPayload) },

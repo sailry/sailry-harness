@@ -329,7 +329,7 @@ func (node *Node) renewProvider(ctx context.Context, provider protocol.ProviderI
 		return err
 	}
 	if captured.Credential == nil {
-		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
+		return protocol.NewConfigurationFault(protocol.ConfigurationLoginRequired, "provider sign-in is required")
 	}
 	_, err = node.providerAuthorization(ctx, captured, *captured.Credential)
 	return err
@@ -344,7 +344,7 @@ func (node *Node) authorizeTurnProvider(ctx context.Context, invocation *store.A
 		reference = invocation.Provider.Credential
 	}
 	if reference == nil {
-		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
+		return protocol.NewConfigurationFault(protocol.ConfigurationLoginRequired, "provider sign-in is required")
 	}
 	secret, effective, err := node.awaitProviderAuthorization(ctx, *invocation.Provider, func() (protocol.CredentialRef, error) {
 		effective := *reference

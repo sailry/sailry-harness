@@ -111,7 +111,7 @@ func bindPackageProvider(ctx context.Context, db *sql.Conn, provider *protocol.C
 		if previous != nil && reflect.DeepEqual(previous.Preset, provider.Preset) && reflect.DeepEqual(previous.Binding, provider.Binding) {
 			return nil
 		}
-		return fault(protocol.ErrorCodeNotConfigured, "channel package is unavailable")
+		return protocol.NewConfigurationFault(protocol.ConfigurationPluginUnavailable, "channel package is unavailable")
 	}
 	var preset *protocol.ConversationPresetsPreset
 	for index := range info.Extension.ModelProviders {
@@ -120,7 +120,7 @@ func bindPackageProvider(ctx context.Context, db *sql.Conn, provider *protocol.C
 		}
 	}
 	if preset == nil {
-		return fault(protocol.ErrorCodeNotConfigured, "channel package preset is unavailable")
+		return protocol.NewConfigurationFault(protocol.ConfigurationPluginDeclarationMissing, "channel package preset is unavailable")
 	}
 	matched := false
 	for _, route := range preset.Routes {
@@ -181,7 +181,7 @@ func bindPackageProvider(ctx context.Context, db *sql.Conn, provider *protocol.C
 			}
 		}
 		if binding.Adapter == nil {
-			return fault(protocol.ErrorCodeNotConfigured, "channel package adapter is unavailable")
+			return protocol.NewConfigurationFault(protocol.ConfigurationPluginDeclarationMissing, "channel package adapter is unavailable")
 		}
 	}
 	pointer := &binding

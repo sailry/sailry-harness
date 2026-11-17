@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // File, remote and diagnostic records share this single field policy. Local
@@ -33,6 +34,7 @@ var fields = []struct {
 	{"package", local}, {"digest", local}, {"settings_revision", local}, {"handler", local}, {"invocation", local},
 	{"call", local}, {"artifact_id", local}, {"attachment_id", local}, {"revision", local}, {"command", local},
 	{"operation", public}, {"stage", local}, {"detail", local}, {"source_kind", local}, {"reason", local},
+	{"command_stage", local}, {"configuration_reason", local},
 	{"cause_code", public}, {"cause_component", local}, {"cause_category", local}, {"upstream_status", local},
 	{"websocket_close_code", local}, {"attempt", local}, {"limit", local}, {"request_mode", local}, {"transport", local},
 	{"connection_reused", local}, {"communication_outcome", local}, {"execution_outcome", local},
@@ -162,7 +164,8 @@ func token(value string) bool {
 
 // Remote is the part of a record that may leave the process: public tokens
 // and counters, a valid application version, and a package only as
-// "third_party". Identifiers, names, details and paths never pass.
+// "third_party". Configuration reasons and command stages use closed lists.
+// Identifiers, names, details and paths never pass.
 func Remote(values Fields) Fields {
 	safe := Fields{}
 	for _, field := range fields {
@@ -187,6 +190,12 @@ func Remote(values Fields) Fields {
 	}
 	if name, _ := values["package"].(string); name != "" {
 		safe["package"] = "third_party"
+	}
+	if reason, _ := values["configuration_reason"].(string); protocol.ConfigurationReason(reason).Known() {
+		safe["configuration_reason"] = reason
+	}
+	if stage, _ := values["command_stage"].(string); stage == "admission" || stage == "completion" {
+		safe["command_stage"] = stage
 	}
 	return safe
 }

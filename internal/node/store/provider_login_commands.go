@@ -17,7 +17,7 @@ func StartSessionProvider(ctx context.Context, db *sql.Conn, draft protocol.Conv
 		config = defaults.Config
 	}
 	if config == nil {
-		return protocol.ProviderID{}, fault(protocol.ErrorCodeNotConfigured, "Node model defaults are not configured")
+		return protocol.ProviderID{}, protocol.NewConfigurationFault(protocol.ConfigurationDefaultsMissing, "Node model defaults are not configured")
 	}
 	effective := *config
 	if draft.Execution == protocol.ConversationExecutionTeam {

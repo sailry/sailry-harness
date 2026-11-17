@@ -819,7 +819,13 @@ The helper requires a graphical login; its absence does not prevent Node startup
 Shutdown rejects new work, closes subscriptions, joins admitted operations,
 closes storage and releases the profile lock. Recovery reads durable facts without
 silently rerunning uncertain effects. Notifications have one Node-owned store.
-Telemetry is inactive while its switch is off.
+Telemetry is inactive while its switch is off. Configuration refusals carry a
+bounded reason through command admission and completion. Explicit setup states
+(such as missing defaults, sign-in required or a disabled provider) are warnings
+kept as breadcrumbs, not standalone Sentry errors. Missing captured configuration,
+missing retained credentials and unclassified failures remain errors. Remote
+reports include only allowlisted configuration reasons and command stages, never
+the fault message, credentials or conversation contents.
 
 ## Security and repository resources
 

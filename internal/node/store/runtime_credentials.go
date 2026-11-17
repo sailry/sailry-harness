@@ -198,7 +198,7 @@ func readRuntimeCredential(ctx context.Context, db *sql.Conn, node protocol.Node
 		return value, err
 	}
 	if !exists {
-		return value, fault(protocol.ErrorCodeNotConfigured, "controller runtime credential is unavailable")
+		return value, protocol.NewConfigurationFault(protocol.ConfigurationRuntimeCredentialMissing, "controller runtime credential is unavailable")
 	}
 	if err := json.Unmarshal(body, &value); err != nil {
 		return value, err
@@ -221,11 +221,11 @@ func runtimeCredentialReady(value protocol.RuntimeCredential) error {
 	case "rejected":
 		return controllerLoginFault("renewal_rejected", protocol.ErrorCodePermissionDenied, "controller credential renewal was rejected; sign in again")
 	case "revoked":
-		return fault(protocol.ErrorCodeNotConfigured, "controller credential was revoked")
+		return protocol.NewConfigurationFault(protocol.ConfigurationCredentialRevoked, "controller credential was revoked")
 	case "machine_bound":
-		return fault(protocol.ErrorCodeNotConfigured, "authentication is bound to the controller machine")
+		return protocol.NewConfigurationFault(protocol.ConfigurationMachineBound, "authentication is bound to the controller machine")
 	default:
-		return fault(protocol.ErrorCodeNotConfigured, "controller runtime credential is unavailable")
+		return protocol.NewConfigurationFault(protocol.ConfigurationRuntimeCredentialMissing, "controller runtime credential is unavailable")
 	}
 	if value.ExpiresAtMs != nil && *value.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
 		return fault(protocol.ErrorCodeExpired, "controller runtime credential expired; waiting for the same account")

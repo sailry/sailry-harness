@@ -270,7 +270,7 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			}
 			authorization, ok := saved.Authorizations[provider.Credential.ID]
 			if !ok || authorization.Key == nil {
-				return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
+				return protocol.Output{}, nil, protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "provider credential is unavailable")
 			}
 			if authorization.ExpiresAtMs != nil && *authorization.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
 				return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "credential expired; authenticate again")
@@ -459,7 +459,7 @@ func resolveProviderKey(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 		return nil, err
 	}
 	if saved == nil {
-		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
+		return nil, protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "provider credential is unavailable")
 	}
 	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
 		return nil, err
@@ -485,14 +485,14 @@ func resolveCapturedProviderKey(ctx context.Context, db *sql.Conn, node protocol
 		return nil, err
 	}
 	if saved == nil {
-		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
+		return nil, protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "provider credential is unavailable")
 	}
 	return providerConfigurationKey(saved, reference)
 }
 func providerConfigurationKey(saved *providerConfiguration, reference protocol.CredentialRef) (*protocol.Secret, error) {
 	authorization, ok := saved.Authorizations[reference.ID]
 	if !ok || authorization.Key == nil {
-		return nil, fault(protocol.ErrorCodeNotConfigured, "provider credential is unavailable")
+		return nil, protocol.NewConfigurationFault(protocol.ConfigurationCredentialMissing, "provider credential is unavailable")
 	}
 	if authorization.ExpiresAtMs != nil && *authorization.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential expired; authenticate again")

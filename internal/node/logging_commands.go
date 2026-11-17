@@ -225,6 +225,18 @@ func rejectCommand(span *logging.Span, fault *protocol.Fault, abandoned bool) {
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
+	if reason := fault.ConfigurationReason(); reason.Known() {
+		span.Set(slog.String("configuration_reason", string(reason)))
+		if fault.Code == protocol.ErrorCodeNotConfigured {
+			switch reason {
+			case protocol.ConfigurationDefaultsMissing, protocol.ConfigurationProviderDisabled, protocol.ConfigurationProviderRemoved,
+				protocol.ConfigurationLoginRequired, protocol.ConfigurationAuthenticationChanged, protocol.ConfigurationAuthorizationExpired,
+				protocol.ConfigurationRenewalDeferred, protocol.ConfigurationCredentialRevoked, protocol.ConfigurationMachineBound,
+				protocol.ConfigurationPluginDisabled:
+				expected = true
+			}
+		}
+	}
 	span.Finish(logging.Failed, string(fault.Code), expected && !diagnostic)
 }
 
@@ -253,6 +265,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		if !errors.As(err, &fault) {
 			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
 		}
+		span.Set(slog.String("command_stage", "admission"))
 		rejectCommand(span, fault, !request.Command.Durable() && ctx.Err() != nil)
 		return accepted, err
 	}
@@ -268,6 +281,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			span.Finish(logging.Interrupted, string(protocol.ErrorCodeOutcomeUnknown), false)
 			return
 		case result.Fault != nil:
+			span.Set(slog.String("command_stage", "completion"))
 			rejectCommand(span, result.Fault, !accepted.Receipt.Durable && ctx.Err() != nil)
 		default:
 			observeOutput(span, request, result.Output)

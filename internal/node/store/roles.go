@@ -115,7 +115,7 @@ func ValidateRole(role protocol.RoleProfile) error {
 }
 func validateRoleModel(provider protocol.ConversationProvider, selection protocol.RoleModel) error {
 	if !provider.Enabled {
-		return fault(protocol.ErrorCodeNotConfigured, "role provider is unavailable")
+		return protocol.NewConfigurationFault(protocol.ConfigurationProviderDisabled, "role provider is unavailable")
 	}
 	index := slices.IndexFunc(provider.Models, func(model protocol.ConversationModel) bool { return model.ID == selection.Model })
 	if index < 0 {
@@ -140,8 +140,11 @@ func listedRoleProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderI
 	if err != nil {
 		return protocol.ConversationProvider{}, err
 	}
-	if stored == nil || !stored.Listed || stored.Provider == nil {
-		return protocol.ConversationProvider{}, fault(protocol.ErrorCodeNotConfigured, "role provider is unavailable")
+	if stored == nil || stored.Provider == nil {
+		return protocol.ConversationProvider{}, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "role provider is unavailable")
+	}
+	if !stored.Listed {
+		return protocol.ConversationProvider{}, protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "role provider is unavailable")
 	}
 	return *stored.Provider, nil
 }

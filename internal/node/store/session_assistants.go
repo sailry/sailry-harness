@@ -20,7 +20,7 @@ func assistantDeclaration(binding protocol.PluginConversationBinding, owner prot
 			}
 		}
 	}
-	return protocol.PluginConversationDeclaration{}, fault(protocol.ErrorCodeNotConfigured, "plugin assistant declaration is unavailable")
+	return protocol.PluginConversationDeclaration{}, protocol.NewConfigurationFault(protocol.ConfigurationPluginDeclarationMissing, "plugin assistant declaration is unavailable")
 }
 
 // ReadAssistantDeclaration returns the declaration in an exact package capture.
@@ -60,7 +60,7 @@ func bindTurnAssistant(turn *protocol.QueuedTurn) error {
 			return nil
 		}
 	}
-	return fault(protocol.ErrorCodeNotConfigured, "assistant plugin is outside the captured turn")
+	return protocol.NewConfigurationFault(protocol.ConfigurationAssistantCaptureMissing, "assistant plugin is outside the captured turn")
 }
 
 // validateAssistant admits an assistant capture only for the current package
@@ -74,8 +74,11 @@ func validateAssistant(ctx context.Context, db *sql.Conn, project *protocol.Proj
 	if err != nil {
 		return err
 	}
-	if current == nil || !current.Summary.Enabled || current.Summary.Compatibility.Kind != "compatible" {
-		return fault(protocol.ErrorCodeNotConfigured, "assistant plugin is unavailable")
+	if current != nil && !current.Summary.Enabled {
+		return protocol.NewConfigurationFault(protocol.ConfigurationPluginDisabled, "assistant plugin is unavailable")
+	}
+	if current == nil || current.Summary.Compatibility.Kind != "compatible" {
+		return protocol.NewConfigurationFault(protocol.ConfigurationPluginUnavailable, "assistant plugin is unavailable")
 	}
 	if plugins.PackageReference(*current) != binding.Package {
 		return fault(protocol.ErrorCodeRevisionConflict, "plugin assistant version changed")
@@ -143,8 +146,11 @@ func assistantPackage(ctx context.Context, db *sql.Conn, binding protocol.Plugin
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}
-	if current == nil || !current.Summary.Enabled || current.Summary.Compatibility.Kind != "compatible" {
-		return protocol.PluginInfo{}, fault(protocol.ErrorCodeNotConfigured, "assistant plugin is disabled or removed")
+	if current != nil && !current.Summary.Enabled {
+		return protocol.PluginInfo{}, protocol.NewConfigurationFault(protocol.ConfigurationPluginDisabled, "assistant plugin is disabled or removed")
+	}
+	if current == nil || current.Summary.Compatibility.Kind != "compatible" {
+		return protocol.PluginInfo{}, protocol.NewConfigurationFault(protocol.ConfigurationPluginUnavailable, "assistant plugin is disabled or removed")
 	}
 	if _, err := assistantDeclaration(binding, *current); err != nil {
 		return protocol.PluginInfo{}, err

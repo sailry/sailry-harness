@@ -20,7 +20,7 @@ func startSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 		config = defaults.Config
 	}
 	if config == nil {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "Node model defaults are not configured")
+		return protocol.Output{}, nil, protocol.NewConfigurationFault(protocol.ConfigurationDefaultsMissing, "Node model defaults are not configured")
 	}
 	if draft.Association != nil {
 		if err := validateSessionAssociation(*draft.Association); err != nil {

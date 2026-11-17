@@ -144,13 +144,16 @@ func (c *Control) eventLocked(kind string, fields logging.Fields, trace *sentry.
 	message, level := "runtime.diagnostics:requested", sentry.LevelInfo
 	if kind != "diagnostic" {
 		message, level = text("area", "runtime")+"."+text("operation", "operation")+":"+text("code", "internal"), sentry.LevelError
+		if reason := text("configuration_reason", ""); reason != "" {
+			message += ":" + reason
+		}
 	}
 	if kind == "crash" {
 		level = sentry.LevelFatal
 	}
 	hash := blake3.New(32, nil)
 	hash.Write([]byte(kind))
-	for _, key := range []string{"area", "code", "operation", "stage", "reason", "cause_code", "package", "plugin_version"} {
+	for _, key := range []string{"area", "code", "operation", "stage", "reason", "command_stage", "configuration_reason", "cause_code", "package", "plugin_version"} {
 		if value, found := fields[key]; found {
 			encoded, _ := json.Marshal(value)
 			hash.Write([]byte(key))
