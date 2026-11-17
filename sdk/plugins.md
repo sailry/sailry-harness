@@ -345,12 +345,17 @@ set the minimum to the first Sailry version containing that capability. Publish 
 dependent package version only after that Sailry version is released; earlier
 applications do not enforce this field.
 
-The Node rejects incompatible installation and enabling with structured
+Compatibility requirements are read before decoding the platform's functionality.
+A declared but invalid or unsupported platform extension is incompatible; it is
+not treated as a package without an extension. Ordinary skill and MCP packages
+without a Sailry extension remain supported. The Node rejects incompatible
+installation and enabling; an unmet minimum uses structured
 `PluginRequiresNewer {required}` fault details. An incompatible installed package
 retains its files, configuration and saved enable choice, while its contributions
-remain unavailable. Update inspection keeps compatible candidates separate from
-newer releases requiring Sailry updates. Desktop's application update entry applies
-to its local execution Node; a remote requirement identifies the affected Node.
+remain unavailable. The execution Node evaluates package compatibility against
+its own application and platform API versions. A Desktop loader also checks its
+own requirements before evaluating a remote package's UI code. A newer remote
+Node does not make an older Desktop API compatible.
 
 ## Icons
 
@@ -423,14 +428,48 @@ generator select the section matching each inspected package version.
 `Info.release_notes` and catalog entries expose `{text, locales}` as plain text,
 without HTML execution or an arbitrary per-language display cutoff. The requested
 locale falls back to English when its matching section is absent. Official catalog
-entries include descending `versions` with each version's final package-content
-`commit`, optional `min_sailry_version`, exact-version notes and Node-evaluated
-compatibility. The Node selects the highest compatible candidate and acquires its
-fixed commit. Details retain installed-version notes separately from catalog
-history. Bundled, directory and other Git packages expose current-version notes;
-only official catalog packages have catalog history. History is read-only and does
-not add version selection or rollback. Existing package, response and resource
-budgets still apply. `Mcp.host` contains only the endpoint hostname, never headers, credentials or the full URL. `Action.access()`
+entries retain descending `versions` with each version's immutable package-content
+`commit`, optional platform `api_version` and `min_sailry_version`, exact-version
+notes and withdrawal status. The source index contract is
+[catalog.schema.json](../schemas/plugins/v1/catalog.schema.json). The Node adds
+per-version compatibility and a `compatible_version` candidate without replacing
+the entry's market-latest version or discarding its history. Automatic selection
+uses the highest compatible SemVer precedence, excludes withdrawn records, and
+stays on stable releases unless the installed package already follows prereleases.
+Only strictly higher precedence offers an update; build metadata is not an update.
+
+Installed `Info.origin` identifies the exact acquired content. `Info.update_source`
+separately retains the official catalog identity or the original Git branch/ref;
+an installation commit never becomes the ongoing update channel. `Summary.pinned`
+keeps the current version out of ordinary checks, update counts and batch updates.
+Restoring follow mode re-enables those checks. Pinned packages retain their history.
+
+A controller-local directory is first snapshotted and uploaded through the
+existing package channel. `check_plugin_update` accepts that caller-owned
+`upload` stream and returns the execution Node's ordinary update report. Desktop
+does not apply its own version, compatibility or channel policy to those bytes.
+
+Controllers inspect an official version with `read_catalog_plugin_info` and an
+optional exact `version`, then use `install_catalog_plugin` with that inspected
+selection, `expected_revision`, and `mode`: `install`, `update` or `switch`.
+`update` requires a higher compatible candidate and refuses pinned installations.
+`switch` permits an explicitly selected compatible historical version; a downgrade
+pins the result. `set_plugin_pinned` also requires the current installation revision.
+These mutations use the existing durable request ledger. Installation rechecks
+the package name, version, commit, digest, compatibility and withdrawal state;
+revision conflicts or failures leave the installed package unchanged.
+
+Switching changes code, not saved configuration or business data. It preserves
+the enabled choice and settings revision, rejects a target that cannot accept
+saved configuration, and validates existing scoped data against an older target's
+declared storage constraints. It does not restore historical settings or migrate
+data. Admitted turns keep their captured package; the existing references and GC
+retain only content that is still needed. Only official catalog packages expose
+complete selectable history. Directory and other Git sources keep their existing
+installation workflows and do not synthesize historical releases. Existing
+package, response and resource budgets still apply.
+
+`Mcp.host` contains only the endpoint hostname, never headers, credentials or the full URL. `Action.access()`
 groups permissions for display; `read_only()` and execution checks are unchanged.
 
 `SearchSkillCatalog {source, query, page, force}` is a read-only execution-Node
@@ -446,9 +485,9 @@ registry skills retain namespace, version and signature verification.
 Official plugin and skill listings share one cache. Online refresh resolves `main`
 once and binds the index and online skill sources to that commit. An older catalog
 without skills falls back to actual bundled skills, whose public source is resolved
-by normal discovery. Plugin listings select the whole newer bundled entry when its
-SemVer precedence exceeds the online version; they never attach newer metadata to
-an older online source.
+by normal discovery. A valid online plugin entry retains its complete history;
+bundled entries fill missing packages or provide an offline fallback. A newer
+bundled manifest never replaces or relabels an online release history.
 
 The external directories use their public browsing APIs, with Node-owned page
 caching and short failure caching. Skills.sh browsing has real next-page information;

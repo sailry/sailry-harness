@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sailry.dev/schemas/plugins/v1/catalog.schema.json",
+  "title": "Official Sailry plugin catalog",
+  "type": "object",
+  "required": ["version", "packages"],
+  "properties": {
+    "version": { "const": 1 },
+    "source_commit": { "$ref": "#/$defs/commit" },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "manifest", "versions"],
+        "properties": {
+          "id": { "type": "string" },
+          "manifest": { "type": "object" },
+          "provides_models": { "type": "boolean" },
+          "permissions": { "type": "array", "items": { "type": "string" } },
+          "release_notes": { "$ref": "#/$defs/notes" },
+          "versions": { "type": "array", "items": { "$ref": "#/$defs/release" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "skills": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "notes": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string" },
+        "locales": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "release": {
+      "type": "object",
+      "required": ["version", "commit"],
+      "properties": {
+        "version": { "type": "string", "minLength": 1 },
+        "commit": { "$ref": "#/$defs/commit" },
+        "api_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present for a Sailry platform extension, including APIs unsupported by this reader."
+        },
+        "min_sailry_version": { "type": "string", "minLength": 1 },
+        "release_notes": { "$ref": "#/$defs/notes" },
+        "withdrawn": {
+          "type": "boolean",
+          "description": "Preserves the immutable record while refusing new installation and recommendation."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

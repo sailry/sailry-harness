@@ -567,6 +567,24 @@ SemVer precedence; same-version changes and build metadata do not offer an updat
 Online packages are acquired from captured immutable commits. Failed updates keep
 the installed package and its configuration.
 
+The execution Node selects the highest compatible official release from the
+complete catalog history. It excludes withdrawn records, respects the installed
+package's stable or prerelease channel, and offers only strictly higher SemVer
+precedence. Catalog presentation retains the market latest independently from
+that candidate. Compatibility requirements survive unsupported or invalid
+platform extension decoding; an ordinary package without that extension remains
+distinct. Desktop checks the local loader's requirements again for remote UI code.
+
+Installations keep exact content provenance separately from their ongoing update
+source and pinned preference. Official updates continue following the official
+catalog after every install. Desktop displays Node recommendations and does not
+compute another market update policy. Explicit history switching uses the normal
+inspection, immutable acquisition and revision-fenced installation transaction;
+downgrades pin the result. Unsupported configuration or declared data constraints
+refuse a switch without resetting values. Running admitted turns keep captured
+code; disabling and removal retain their existing cancellation rules. Package
+retention and collection still follow actual references, not the history list.
+
 Plugins own their feature UI, state, workflows, prompts and orchestration. Core
 exposes shared scoped services through Protocol, Client and the SDK. Desktop
 navigation and settings pages resolve from declarations. Workspace content,
