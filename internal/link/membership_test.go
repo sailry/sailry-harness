@@ -33,7 +33,7 @@ func TestMyDeviceProofComesFromCapturedOfferAndAuthenticatedAcknowledgment(t *te
 	offer := &pairingOffer{scope: InvitationScope{Kind: protocol.InvitationMyDevice, User: &user}, token: pairingToken{9}, deadline: link.now().Add(invitationLifetime), stop: make(chan struct{}), paired: make(chan struct{})}
 	link.offer = offer
 	device := protocol.NodeID{2}
-	acknowledged, err := link.acceptPairingScope(t.Context(), offer.token, device, EndpointAddress{ID: device})
+	acknowledged, err := link.acceptPairingIdentity(t.Context(), offer.token, device, EndpointAddress{ID: device}, nil)
 	if err != nil || acknowledged.Kind != protocol.InvitationMyDevice || store.scope.User == nil || *store.scope.User != user {
 		t.Fatalf("captured scope lost: %#v %v", acknowledged, err)
 	}

@@ -649,14 +649,14 @@ func TestDispatchContracts(test *testing.T) {
 				return errors.New("retained callback was not claimed")
 			}
 			original := work[0].Request
-			info, err := DispatchPackage(ctx, db, fixture.node, fixture.node, original)
+			info, _, err := dispatchPackage(ctx, db, fixture.node, fixture.node, original)
 			if err != nil {
 				return err
 			}
 			if info == nil || dispatchReference(info.Summary) != old {
 				return errors.New("claimed callback lost its frozen package authority")
 			}
-			info, err = DispatchPackage(ctx, db, fixture.node, protocol.NodeID{92}, original)
+			info, _, err = dispatchPackage(ctx, db, fixture.node, protocol.NodeID{92}, original)
 			if err != nil {
 				return err
 			}
@@ -673,7 +673,7 @@ func TestDispatchContracts(test *testing.T) {
 				} else {
 					forged.Command = protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: "run", Input: json.RawMessage(`{"key":"forged"}`)}}
 				}
-				_, err := DispatchPackage(ctx, db, fixture.node, fixture.node, forged)
+				_, _, err := dispatchPackage(ctx, db, fixture.node, fixture.node, forged)
 				var failure *protocol.Fault
 				if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
 					return fmt.Errorf("forged claimed request was accepted: %v", err)
@@ -687,7 +687,7 @@ func TestDispatchContracts(test *testing.T) {
 			if _, err := db.ExecContext(ctx, "UPDATE plugin_user_installations SET body=?1 WHERE name=?2", body, old.Name); err != nil {
 				return err
 			}
-			_, err = DispatchPackage(ctx, db, fixture.node, fixture.node, original)
+			_, _, err = dispatchPackage(ctx, db, fixture.node, fixture.node, original)
 			var failure *protocol.Fault
 			if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeNotConfigured {
 				return fmt.Errorf("disabled package retained callback authority: %v", err)
@@ -695,7 +695,7 @@ func TestDispatchContracts(test *testing.T) {
 			if _, err := FinishDispatch(ctx, db, job.ID, nil, 3); err != nil {
 				return err
 			}
-			info, err = DispatchPackage(ctx, db, fixture.node, fixture.node, original)
+			info, _, err = dispatchPackage(ctx, db, fixture.node, fixture.node, original)
 			if err == nil && info != nil {
 				return errors.New("finished callback retained claimed authority")
 			}

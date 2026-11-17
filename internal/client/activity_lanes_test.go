@@ -54,7 +54,7 @@ func testActivityLanes(t *testing.T) {
 			if scenario.wait {
 				session.Activity.Waiting = new(protocol.ActivityWaitingApproval)
 			}
-			if actual := SessionLane(session); actual != scenario.lane || session.Activity.Queued != 2 {
+			if actual := activityLane(LaneOf(session)); actual != scenario.lane || session.Activity.Queued != 2 {
 				t.Fatalf("status %s, unread %v, waiting %v: %s", scenario.status, scenario.unread, scenario.wait, actual)
 			}
 		}
@@ -88,7 +88,7 @@ func testActivityLanes(t *testing.T) {
 		intermediate := activityChild(2, parent, protocol.ConversationStatusCompleted)
 		child := activityChild(3, intermediate, protocol.ConversationStatusRunning)
 		graph := []protocol.Session{parent, intermediate, child}
-		if AggregateLane(parent, graph) != LaneRunning || SessionLane(parent) != ActivityCompleted {
+		if AggregateLane(parent, graph) != LaneRunning || activityLane(LaneOf(parent)) != ActivityCompleted {
 			t.Fatal("nested child changed the parent's canonical result or lost its activity")
 		}
 		child.Activity.Waiting = new(protocol.ActivityWaitingInput)

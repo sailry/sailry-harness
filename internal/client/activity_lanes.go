@@ -28,10 +28,6 @@ type ActivityProjection struct {
 	ActivityOrder []string                `json:"activity_order"`
 }
 
-func SessionLane(session protocol.Session) ActivityLane {
-	return activityLane(LaneOf(session))
-}
-
 func activityLane(lane Lane) ActivityLane {
 	switch lane {
 	case LaneRunning:

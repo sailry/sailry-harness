@@ -245,11 +245,6 @@ func dispatchPackageVersion(ctx context.Context, db *sql.Conn, reference protoco
 	return ReadPluginVersion(ctx, db, reference)
 }
 
-func DispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, submitted protocol.Request) (*protocol.PluginInfo, error) {
-	info, _, err := dispatchPackage(ctx, db, node, caller, submitted)
-	return info, err
-}
-
 func dispatchPackage(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, submitted protocol.Request) (*protocol.PluginInfo, bool, error) {
 	if caller != node {
 		return nil, false, nil

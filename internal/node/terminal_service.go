@@ -33,8 +33,6 @@ func (node *Node) initTerminals(ctx context.Context) error {
 	return nil
 }
 
-func (node *Node) terminalChanged(info protocol.TerminalInfo) { node.terminalChangedBy(node.ctx, info) }
-
 func (node *Node) terminalChangedBy(ctx context.Context, info protocol.TerminalInfo) {
 	if err := node.begin(); err != nil {
 		return

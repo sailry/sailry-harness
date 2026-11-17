@@ -185,7 +185,7 @@ func TestTerminalInventory(t *testing.T) {
 			if ssh {
 				running.Worktree, running.Access, running.Directory, running.Ssh = nil, nil, nil, &profile
 			}
-			node.terminalChanged(running)
+			node.terminalChangedBy(node.ctx, running)
 			if info := changed(running.ID); info.Status.Kind != "running" || info.Owner == nil {
 				t.Fatalf("running event = %#v", info)
 			}
@@ -194,7 +194,7 @@ func TestTerminalInventory(t *testing.T) {
 			}
 			ended := running
 			ended.Status, ended.Owner, ended.Revision = final, nil, 2
-			node.terminalChanged(ended)
+			node.terminalChangedBy(node.ctx, ended)
 			if info := changed(running.ID); info.Status.Kind != final.Kind || info.Owner != nil || info.Revision != 2 {
 				t.Fatalf("final event = %#v", info)
 			}

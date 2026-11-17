@@ -83,7 +83,7 @@ func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 		}
 		seen[name] = true
 		for _, event := range kind.Events {
-			if !ConfigurationChanged(event) || !slices.Contains(ConfigurationDirtyKinds(event), name) {
+			if !ConfigurationChanged(event) || !slices.Contains(configurationRegistry.events[event], name) {
 				t.Fatalf("category %s event %s has no dirty routing", name, event)
 			}
 		}

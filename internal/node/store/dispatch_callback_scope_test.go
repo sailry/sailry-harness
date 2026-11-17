@@ -135,7 +135,7 @@ func TestDispatchCallbackScope(t *testing.T) {
 				if !reflect.DeepEqual(request.Plugin.Worktree, f.scope.Worktree) || request.Plugin.Session != nil {
 					return errors.New("claimed callback lost its saved scope")
 				}
-				info, err := DispatchPackage(ctx, db, f.node, f.node, request)
+				info, _, err := dispatchPackage(ctx, db, f.node, f.node, request)
 				if err != nil || info == nil {
 					return fmt.Errorf("saved callback package was not recovered: %v", err)
 				}
@@ -143,7 +143,7 @@ func TestDispatchCallbackScope(t *testing.T) {
 					forged := request
 					forged.Plugin = new(*request.Plugin)
 					forged.Plugin.Worktree = nil
-					if _, err := DispatchPackage(ctx, db, f.node, f.node, forged); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+					if _, _, err := dispatchPackage(ctx, db, f.node, f.node, forged); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
 						return fmt.Errorf("claimed scope could be removed: %v", err)
 					}
 				}

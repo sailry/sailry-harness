@@ -69,12 +69,6 @@ func ConfigurationChanged(event string) bool {
 	return len(configurationRegistry.events[event]) != 0
 }
 
-func ConfigurationDirtyKinds(event string) []string {
-	configurationRegistry.RLock()
-	defer configurationRegistry.RUnlock()
-	return append([]string(nil), configurationRegistry.events[event]...)
-}
-
 func RuntimeCredentialEvent(event string) bool {
 	configurationRegistry.RLock()
 	defer configurationRegistry.RUnlock()

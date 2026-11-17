@@ -407,15 +407,6 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 	cancel()
 }
 
-func (link *Link) acceptPairing(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress) error {
-	_, err := link.acceptPairingScope(ctx, token, peer, address)
-	return err
-}
-
-func (link *Link) acceptPairingScope(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress) (InvitationScope, error) {
-	return link.acceptPairingIdentity(ctx, token, peer, address, nil)
-}
-
 func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress, hasNode *bool) (InvitationScope, error) {
 	link.offerMu.Lock()
 	offer := link.offer

@@ -126,7 +126,7 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 	for _, peer := range []protocol.NodeID{first, second} {
 		go func() {
 			<-start
-			finished <- result{peer, link.acceptPairing(t.Context(), offer.token, peer, EndpointAddress{ID: peer})}
+			finished <- result{peer, acceptLegacyPairing(t, link, offer.token, peer)}
 		}()
 	}
 	close(start)
@@ -146,7 +146,7 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 	if err != nil || len(peers) != 1 || peers[0].ID != winner {
 		t.Fatalf("persisted pairing: %#v, %v", peers, err)
 	}
-	if err := link.acceptPairing(t.Context(), offer.token, winner, EndpointAddress{ID: winner}); err != nil {
+	if err := acceptLegacyPairing(t, link, offer.token, winner); err != nil {
 		t.Fatalf("certified winner could not retry its valid ticket: %v", err)
 	}
 	if link.Direction(winner) != DirectionController {
@@ -155,7 +155,7 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 	if err := link.SetTrust(t.Context(), winner, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := link.acceptPairing(t.Context(), offer.token, winner, EndpointAddress{ID: winner}); err == nil {
+	if err := acceptLegacyPairing(t, link, offer.token, winner); err == nil {
 		t.Fatal("revoked peer reused its completed invitation")
 	}
 	t.Run("connections_need_an_open_invitation_with_a_free_place", func(t *testing.T) {
@@ -201,19 +201,19 @@ func TestPairingHasOneCertifiedClaimant(t *testing.T) {
 		link.offer = offer
 		failed, uncertain, other := protocol.NodeID{3}, protocol.NodeID{4}, protocol.NodeID{5}
 		store.trustOutcome = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture directory is unavailable"}
-		if err := link.acceptPairing(t.Context(), offer.token, failed, EndpointAddress{ID: failed}); err == nil || offer.peer != nil || channelClosed(offer.paired) || link.isTrusted(failed) {
+		if err := acceptLegacyPairing(t, link, offer.token, failed); err == nil || offer.peer != nil || channelClosed(offer.paired) || link.isTrusted(failed) {
 			t.Fatalf("a claimant that gained no trust kept the invitation: %v", err)
 		}
 		// A commit of unknown outcome is reconciled to trust, so its claim stays.
 		store.trustOutcome = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "fixture directory sync is uncertain"}
-		if err := link.acceptPairing(t.Context(), offer.token, uncertain, EndpointAddress{ID: uncertain}); err == nil || offer.peer == nil || *offer.peer != uncertain || !link.isTrusted(uncertain) {
+		if err := acceptLegacyPairing(t, link, offer.token, uncertain); err == nil || offer.peer == nil || *offer.peer != uncertain || !link.isTrusted(uncertain) {
 			t.Fatalf("a trusted claimant lost its invitation: %v", err)
 		}
 		store.trustOutcome = nil
-		if err := link.acceptPairing(t.Context(), offer.token, other, EndpointAddress{ID: other}); err == nil || link.isTrusted(other) {
+		if err := acceptLegacyPairing(t, link, offer.token, other); err == nil || link.isTrusted(other) {
 			t.Fatal("a second device claimed an invitation that already trusted one")
 		}
-		if err := link.acceptPairing(t.Context(), offer.token, uncertain, EndpointAddress{ID: uncertain}); err != nil || !channelClosed(offer.paired) {
+		if err := acceptLegacyPairing(t, link, offer.token, uncertain); err != nil || !channelClosed(offer.paired) {
 			t.Fatalf("the trusted claimant could not finish its pairing: %v", err)
 		}
 	})
@@ -267,4 +267,12 @@ func TestPairingResultRetainsRustUnit(t *testing.T) {
 			t.Fatalf("invalid pairing result was accepted: %s", value)
 		}
 	}
+}
+
+// acceptLegacyPairing accepts a claim that does not say whether the claimant
+// has a Node, as claimants before protocol version 2 sent it.
+func acceptLegacyPairing(t *testing.T, link *Link, token pairingToken, peer protocol.NodeID) error {
+	t.Helper()
+	_, err := link.acceptPairingIdentity(t.Context(), token, peer, EndpointAddress{ID: peer}, nil)
+	return err
 }
