@@ -573,7 +573,13 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 		})
 		return protocol.Output{Kind: "plugin", Data: info}, err
 	case *protocol.CommandCheckPluginUpdatePayload:
-		report, err := node.checkPluginUpdate(ctx, input.Name, input.ExpectedRevision, input.Force)
+		var report protocol.PluginUpdatesReport
+		var err error
+		if input.Upload != nil {
+			report, err = node.checkUploadedPluginUpdate(ctx, caller, *input)
+		} else {
+			report, err = node.checkPluginUpdate(ctx, input.Name, input.ExpectedRevision, input.Force)
+		}
 		return protocol.Output{Kind: "plugin_update", Data: report}, err
 	case *protocol.CommandCheckPluginUpdatesPayload:
 		value := protocol.PluginUpdatesBatch{Reports: []protocol.PluginUpdatesReport{}, Failures: []protocol.PluginUpdatesFailure{}}
@@ -661,20 +667,9 @@ func (node *Node) readPluginSecret(ctx context.Context, request protocol.Request
 }
 
 func (node *Node) checkPluginUpdate(ctx context.Context, name string, expected uint64, force bool) (protocol.PluginUpdatesReport, error) {
-	var info *protocol.PluginInfo
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		info, err = store.ReadPlugin(ctx, db, name)
-		return err
-	})
+	info, err := node.pluginUpdateCurrent(ctx, name, expected)
 	if err != nil {
 		return protocol.PluginUpdatesReport{}, err
-	}
-	if info == nil {
-		return protocol.PluginUpdatesReport{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "plugin is not installed"}
-	}
-	if info.Summary.Revision != expected {
-		return protocol.PluginUpdatesReport{}, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "plugin changed before update check"}
 	}
 	var root *string
 	if info.Origin != nil && info.Origin.Kind == "worktree" {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,82 @@ func TestOfficialVersionOperationsUseRequestLedger(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUploadedPluginUpdateUsesExecutingNode(t *testing.T) {
+	node := nodeFixture(t)
+	current := protocol.DefaultPluginInfo()
+	version := "1.0.0"
+	current.Summary.Name, current.Summary.Version, current.Summary.Digest = "uploaded-version-fixture", &version, strings.Repeat("a", 64)
+	current.Origin = &protocol.PluginOrigin{Kind: "directory"}
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		var err error
+		current, err = store.InstallPlugin(t.Context(), db, current, 0, true)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		name, version, api, minimum string
+		invalid, available, fault   bool
+	}{
+		{name: "compatible ordinary package", version: "1.1.0", available: true},
+		{name: "compatible platform", version: "1.1.0", api: "v1", minimum: "0.0.1", available: true},
+		{name: "same precedence", version: "1.0.0+build.2"},
+		{name: "older", version: "0.9.0"},
+		{name: "prerelease", version: "1.1.0-rc.1", api: "v1"},
+		{name: "unsupported API", version: "1.1.0", api: "v999"},
+		{name: "newer Node required", version: "1.1.0", api: "v1", minimum: "999.0.0"},
+		{name: "invalid declaration", version: "1.1.0", api: "v1", invalid: true},
+		{name: "different identity", version: "1.1.0", fault: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			manifest := map[string]any{"$schema": plugins.ManifestSchema, "name": current.Summary.Name, "version": scenario.version}
+			if scenario.fault {
+				manifest["name"] = "another-fixture"
+			}
+			if scenario.api != "" {
+				extension := map[string]any{"api_version": scenario.api}
+				if scenario.minimum != "" {
+					extension["min_sailry_version"] = scenario.minimum
+				}
+				if scenario.invalid {
+					extension["host"] = false
+				}
+				manifest["extensions"] = map[string]any{"dev.sailry.platform": extension}
+			}
+			data, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := t.TempDir()
+			if err := os.WriteFile(filepath.Join(directory, "plugin.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			data, _, _, err = plugins.NewManager(t.TempDir()).SnapshotSkills(t.Context(), directory, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			upload, err := node.transfers.StagePluginUpload(t.Context(), node.ID(), data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "check_plugin_update", Data: protocol.CommandCheckPluginUpdatePayload{
+				Name: current.Summary.Name, ExpectedRevision: current.Summary.Revision, Upload: &upload.Stream,
+			}})
+			result := dispatchFixture(t, node, node.ID(), request)
+			if scenario.fault {
+				if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeInvalidRequest {
+					t.Fatalf("different uploaded identity was accepted: %+v", result)
+				}
+				return
+			}
+			report, valid := dispatchPayload[protocol.PluginUpdatesReport](result.Output.Data)
+			if result.Fault != nil || !valid || (report.Available != nil) != scenario.available || report.Blocked != nil {
+				t.Fatalf("incorrect executing-Node assessment: %+v", result)
+			}
+		})
 	}
 }
 
