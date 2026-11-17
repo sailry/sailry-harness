@@ -14,14 +14,26 @@ import (
 // Personal data shares the controller's single per-host reconciliation worker.
 // Persisted executor groups and controller receipts survive every network hop.
 func (node *Node) reconcilePersonalKV(ctx context.Context, remote *link.Remote) error {
-	for _, category := range []string{"kv_ack", "kv_snapshot"} {
-		if err := node.deliverPersonalKV(ctx, remote, category, nil); err != nil {
-			var fault *protocol.Fault
-			if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
-				return err
-			}
+	// Settle an older source page before acknowledging newer executor writes.
+	// Otherwise its first delivery could overwrite their acknowledged base.
+	if err := node.deliverPersonalKV(ctx, remote, "kv_snapshot", nil); err != nil {
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
+			return err
 		}
 	}
+	pendingErr := node.reconcilePersonalKVPending(ctx, remote)
+	return errors.Join(pendingErr, node.publishPersonalKVSnapshot(ctx, remote))
+}
+
+func (node *Node) reconcilePersonalKVPending(ctx context.Context, remote *link.Remote) error {
+	if err := node.deliverPersonalKV(ctx, remote, "kv_ack", nil); err != nil {
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
+			return err
+		}
+	}
+	var through uint64
 	for {
 		output, err := configurationRemote(ctx, remote, protocol.NewRequest(remote.Target(), protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "kv_pending"}}))
 		if err != nil {
@@ -32,7 +44,10 @@ func (node *Node) reconcilePersonalKV(ctx context.Context, remote *link.Remote) 
 			return err
 		}
 		if pending.Group == nil {
-			break
+			return nil
+		}
+		if through == 0 {
+			through = max(pending.Through, pending.Group.Sequence)
 		}
 		var receipt protocol.PersonalKVReceipt
 		var changes []protocol.Event
@@ -56,7 +71,15 @@ func (node *Node) reconcilePersonalKV(ctx context.Context, remote *link.Remote) 
 		if err := node.deliverPersonalKV(ctx, remote, "kv_ack", &command); err != nil {
 			return err
 		}
+		// New local writes wait for the next pass so a busy executor still
+		// receives source updates while its pending overlay stays visible.
+		if receipt.Sequence >= through {
+			return nil
+		}
 	}
+}
+
+func (node *Node) publishPersonalKVSnapshot(ctx context.Context, remote *link.Remote) error {
 	var generation *uint64
 	var after *protocol.PersonalKVCursor
 	for {
@@ -84,7 +107,7 @@ func (node *Node) deliverPersonalKV(ctx context.Context, remote *link.Remote, ca
 	var request *protocol.Request
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
-		request, err = store.PersonalKVDelivery(ctx, db, remote.Target(), category, command)
+		request, err = store.ConfigurationCommandDelivery(ctx, db, remote.Target(), category, command)
 		return err
 	}); err != nil || request == nil {
 		return err

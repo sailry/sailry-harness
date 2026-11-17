@@ -1,4 +1,6 @@
 notification_center: "Notification center"
+personal_kv_conflict: "Personal data conflict"
+personal_kv_conflict_description: "The controller kept its current values. Local schedules and completed actions were preserved."
 notification_all: "All"
 notification_unread: "Unread"
 notification_delete_read: "Delete read"

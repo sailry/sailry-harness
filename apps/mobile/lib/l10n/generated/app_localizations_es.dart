@@ -2327,4 +2327,8 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get demoTerminalWelcome =>
       'Last login: Sun Nov 15 09:00:00 on ttys001';
+
+  @override
+  String get personalKvConflict =>
+      'Personal data conflict: controller values kept';
 }

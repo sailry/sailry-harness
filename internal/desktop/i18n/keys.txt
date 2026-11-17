@@ -2386,3 +2386,6 @@ configuration_follow_requested
 configuration_follow_failed
 configuration_follow_conflict
 configuration_follow_unknown
+
+personal_kv_conflict
+personal_kv_conflict_description

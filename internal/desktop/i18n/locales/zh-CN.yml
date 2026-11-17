@@ -2371,3 +2371,5 @@ configuration_follow_requested: 已请求同步
 configuration_follow_failed: 配置同步失败
 configuration_follow_conflict: 配置已更改，请重试同步
 configuration_follow_unknown: 同步请求尚未确认，请重试以检查状态
+personal_kv_conflict: 个人数据冲突
+personal_kv_conflict_description: 已保留主控当前值。本机调度和已完成的操作仍保留。

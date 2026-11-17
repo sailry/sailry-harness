@@ -751,5 +751,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'demoNotesPrompt' => strings.demoNotesPrompt,
   'demoSimulatedReply' => strings.demoSimulatedReply,
   'demoTerminalWelcome' => strings.demoTerminalWelcome,
+  'personalKvConflict' => strings.personalKvConflict,
   _ => null,
 };

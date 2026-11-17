@@ -8,30 +8,13 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 const personalKVOutboxLimit = 128 * 1024 * 1024
-
-func PersonalKVDelivery(ctx context.Context, db *sql.Conn, host protocol.NodeID, category string, command *protocol.ConfigurationFollowCommand) (*protocol.Request, error) {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	previous, err := readBody[protocol.Request](ctx, db, "SELECT request FROM configuration_follow_deliveries WHERE user=?1 AND host=?2 AND category=?3", user.ID.String(), host[:], category)
-	if err != nil || previous != nil || command == nil {
-		return previous, err
-	}
-	request := protocol.NewRequest(host, protocol.Command{Kind: "configuration_follow", Data: command})
-	body, err := encode(request)
-	if err != nil {
-		return nil, err
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_deliveries(user,host,category,request) VALUES(?1,?2,?3,?4)", user.ID.String(), host[:], category, body)
-	return &request, err
-}
 
 type personalKVTransactionKey struct{}
 type personalKVTransaction struct {
@@ -107,9 +90,9 @@ ON CONFLICT(user) DO UPDATE SET revision=revision+1`, user.ID.String())
 		}
 	}
 	write.Present, write.Index = entry.Present, index
-	write.Value = nil
+	write.Value, write.ValueBytes = nil, nil
 	if entry.Present {
-		write.Value = bytes.Clone(entry.Value)
+		write.ValueBytes = bytes.Clone(entry.Value)
 	}
 	tx.writes[entry.Key] = write
 	return nil
@@ -139,15 +122,22 @@ ON CONFLICT(user) DO UPDATE SET sequence=sequence+1`, tx.user.ID.String()); err 
 	if err != nil {
 		return err
 	}
-	var pending int64
-	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(length(body)),0) FROM personal_kv_outbox WHERE user=?1", tx.user.ID.String()).Scan(&pending); err != nil {
+	if err := personalKVOutboxCapacity(ctx, db, tx.user.ID, tx.group.Package.Name, int64(len(body))); err != nil {
 		return err
-	}
-	if len(body) > 8*1024*1024 || pending+int64(len(body)) > personalKVOutboxLimit {
-		return fault(protocol.ErrorCodeBusy, "personal data pending writes are full")
 	}
 	_, err = db.ExecContext(ctx, "INSERT INTO personal_kv_outbox(user,request,sequence,digest,body) VALUES(?1,?2,?3,?4,?5)", tx.user.ID.String(), tx.group.Request.String(), tx.group.Sequence, tx.group.Digest, body)
 	return err
+}
+
+func personalKVOutboxCapacity(ctx context.Context, db *sql.Conn, user protocol.UserID, plugin string, additional int64) error {
+	var pending int64
+	if err := db.QueryRowContext(ctx, "SELECT coalesce(sum(length(body)),0) FROM personal_kv_outbox WHERE user=?1 AND json_extract(body,'$.package.name')=?2", user.String(), plugin).Scan(&pending); err != nil {
+		return err
+	}
+	if additional > personalKVOutboxLimit-pending {
+		return fault(protocol.ErrorCodeBusy, "personal data pending writes are full")
+	}
+	return nil
 }
 
 func personalKVPendingGroups(ctx context.Context, db *sql.Conn, user protocol.UserID) ([]protocol.PersonalKVGroup, error) {
@@ -164,6 +154,9 @@ func ReadPersonalKVPending(ctx context.Context, db *sql.Conn, node, caller proto
 		return result, fault(protocol.ErrorCodePermissionDenied, "personal data does not belong to this controller")
 	}
 	result.Group, err = readBody[protocol.PersonalKVGroup](ctx, db, "SELECT body FROM personal_kv_outbox WHERE user=?1 ORDER BY sequence LIMIT 1", user.ID.String())
+	if err == nil {
+		err = db.QueryRowContext(ctx, "SELECT coalesce(max(sequence),0) FROM personal_kv_outbox WHERE user=?1", user.ID.String()).Scan(&result.Through)
+	}
 	return result, err
 }
 
@@ -179,7 +172,7 @@ func personalKVRecord(ctx context.Context, db *sql.Conn, space, plugin, key stri
 	}
 	record.Present = value != nil
 	if record.Present {
-		record.Value = value
+		record.ValueBytes = value
 	}
 	if index != nil {
 		record.Index = new(protocol.PluginStorageIndex)
@@ -189,15 +182,18 @@ func personalKVRecord(ctx context.Context, db *sql.Conn, space, plugin, key stri
 }
 
 func validatePersonalKVRecord(record protocol.PersonalKVRecord) error {
-	if !plugins.ValidateName(record.Plugin) || pluginKey(record.Key, false) != nil || record.Present && (!json.Valid(record.Value) || len(record.Value) > 256*1024) {
+	if !plugins.ValidateName(record.Plugin) || pluginKey(record.Key, false) != nil || record.Present && (!json.Valid(record.ValueJSON()) || len(record.ValueJSON()) > plugins.MaxValueBytes) {
 		return invalid("invalid personal data record")
 	}
-	if !record.Present && (len(record.Value) != 0 || record.Index != nil) {
+	if len(record.Value) != 0 && record.ValueBytes != nil {
+		return invalid("personal data record has conflicting value encodings")
+	}
+	if !record.Present && (len(record.ValueJSON()) != 0 || record.Index != nil) {
 		return invalid("deleted personal data has content")
 	}
 	if record.Index != nil {
 		body, err := json.Marshal(record.Index)
-		if err != nil || len(body) > 64*1024 {
+		if err != nil || len(body) > maxPluginIndexBytes {
 			return invalid("personal data index exceeds its limit")
 		}
 		return plugins.ValidateStorageIndex(*record.Index)
@@ -211,7 +207,7 @@ func savePersonalKVRecord(ctx context.Context, db *sql.Conn, space string, recor
 	}
 	var value, index any
 	if record.Present {
-		value = []byte(record.Value)
+		value = []byte(record.ValueJSON())
 	}
 	if record.Index != nil {
 		body, err := json.Marshal(record.Index)
@@ -277,7 +273,7 @@ func ApplyPersonalKVGroup(ctx context.Context, db *sql.Conn, node, executor prot
 			return receipt, nil, invalid("personal data transaction repeats a key")
 		}
 		seen[write.Key] = true
-		record := protocol.PersonalKVRecord{Plugin: group.Package.Name, Key: write.Key, Present: write.Present, Value: write.Value, Index: write.Index}
+		record := protocol.PersonalKVRecord{Plugin: group.Package.Name, Key: write.Key, Present: write.Present, Value: write.Value, ValueBytes: write.ValueBytes, Index: write.Index}
 		if err := validatePersonalKVRecord(record); err != nil {
 			return receipt, nil, err
 		}
@@ -320,7 +316,7 @@ func ApplyPersonalKVGroup(ctx context.Context, db *sql.Conn, node, executor prot
 			if before.Present {
 				count--
 				size, _ := json.Marshal(before.Index)
-				total -= int64(len(before.Value))
+				total -= int64(len(before.ValueJSON()))
 				if before.Index != nil {
 					total -= int64(len(size))
 				}
@@ -328,13 +324,13 @@ func ApplyPersonalKVGroup(ctx context.Context, db *sql.Conn, node, executor prot
 			if write.Present {
 				count++
 				size, _ := json.Marshal(write.Index)
-				total += int64(len(write.Value))
+				total += int64(len(write.ValueJSON()))
 				if write.Index != nil {
 					total += int64(len(size))
 				}
 			}
 		}
-		if count > 4096 || total > 128*1024*1024 {
+		if count > maxPluginKeys || total > personalKVOutboxLimit {
 			receipt.Applied, receipt.Reason = false, "source_capacity"
 		}
 	}
@@ -345,7 +341,7 @@ func ApplyPersonalKVGroup(ctx context.Context, db *sql.Conn, node, executor prot
 			if err != nil {
 				return receipt, nil, err
 			}
-			record.Value, record.Index, record.Present = write.Value, write.Index, write.Present
+			record.Value, record.ValueBytes, record.Index, record.Present = write.Value, write.ValueBytes, write.Index, write.Present
 			if err := savePersonalKVRecord(ctx, db, space, *record, record.Revision); err != nil {
 				return receipt, nil, err
 			}
@@ -372,6 +368,15 @@ ON CONFLICT(user) DO UPDATE SET revision=revision+1`, user.ID.String()); err != 
 		if changed {
 			events = append(events, protocol.Event{Kind: "knowledge_collections_changed"})
 		}
+	} else {
+		notice, err := insertNotice(ctx, db, group.Package.Name, protocol.NotificationDraft{
+			Title: group.Package.Name, Message: group.Package.Name, Kind: protocol.NotificationKindWarning,
+			Details: &protocol.NotificationDetails{Kind: "personal_kv_conflict", Data: &protocol.PersonalKVConflict{Package: group.Package.Name, Request: group.Request, Reason: receipt.Reason}},
+		}, time.Now().UnixMilli())
+		if err != nil {
+			return receipt, nil, err
+		}
+		events = append(events, protocol.Event{Kind: "notification_changed", Data: notice})
 	}
 	return receipt, events, nil
 }
@@ -382,7 +387,7 @@ func savePersonalKVBase(ctx context.Context, db *sql.Conn, user protocol.UserID,
 	}
 	var value, index any
 	if record.Present {
-		value = []byte(record.Value)
+		value = []byte(record.ValueJSON())
 	}
 	if record.Index != nil {
 		raw, err := encode(record.Index)
@@ -405,7 +410,7 @@ func materializePersonalKV(ctx context.Context, db *sql.Conn, user protocol.User
 	}
 	record.Present = value != nil
 	if record.Present {
-		record.Value = value
+		record.ValueBytes = value
 	}
 	if index != nil {
 		record.Index = new(protocol.PluginStorageIndex)
@@ -419,7 +424,7 @@ func materializePersonalKV(ctx context.Context, db *sql.Conn, user protocol.User
 		}
 		for _, write := range group.Writes {
 			if write.Key == key {
-				record.Value, record.Index, record.Present = write.Value, write.Index, write.Present
+				record.Value, record.ValueBytes, record.Index, record.Present = write.Value, write.ValueBytes, write.Index, write.Present
 			}
 		}
 	}
@@ -430,7 +435,7 @@ func materializePersonalKV(ctx context.Context, db *sql.Conn, user protocol.User
 	}
 	before, _ := json.Marshal(current.Index)
 	after, _ := json.Marshal(record.Index)
-	if (current.Revision > 0 || record.Revision == 0) && current.Present == record.Present && bytes.Equal(current.Value, record.Value) && bytes.Equal(before, after) {
+	if (current.Revision > 0 || record.Revision == 0) && current.Present == record.Present && bytes.Equal(current.ValueJSON(), record.ValueJSON()) && bytes.Equal(before, after) {
 		return false, nil
 	}
 	revision, err := nextRevision(current.Revision)
@@ -541,7 +546,7 @@ WHERE space=?1 AND (name>?2 OR name=?2 AND key>?3) ORDER BY name,key LIMIT 65`, 
 		}
 		record.Present = value != nil
 		if record.Present {
-			record.Value = value
+			record.ValueBytes = value
 		}
 		if index != nil {
 			record.Index = new(protocol.PluginStorageIndex)
@@ -574,15 +579,6 @@ func StagePersonalKVSnapshot(ctx context.Context, db *sql.Conn, node, caller pro
 	}
 	if !cached || user.Controller == nil || *user.Controller != caller || caller == node || len(page.Records) > 64 {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "personal data snapshot has another controller")
-	}
-	var pending bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM personal_kv_outbox WHERE user=?1)", user.ID.String()).Scan(&pending); err != nil {
-		return nil, err
-	}
-	// A local write racing with a source page is retained. The controller first
-	// drains these writes on the next reconciliation, then starts a fresh page.
-	if pending {
-		return nil, fault(protocol.ErrorCodeRevisionConflict, "personal data has pending transactions")
 	}
 	if page.After == nil {
 		if _, err := db.ExecContext(ctx, "DELETE FROM personal_kv_snapshot_records WHERE user=?1", user.ID.String()); err != nil {
@@ -654,6 +650,10 @@ ON CONFLICT(user) DO UPDATE SET generation=excluded.generation,cursor=NULL`, use
 	if err != nil {
 		return nil, err
 	}
+	groups, err := personalKVPendingGroups(ctx, db, user.ID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := db.ExecContext(ctx, "DELETE FROM personal_kv_base WHERE user=?1", user.ID.String()); err != nil {
 		return nil, err
 	}
@@ -665,7 +665,7 @@ ON CONFLICT(user) DO UPDATE SET generation=excluded.generation,cursor=NULL`, use
 	}
 	changed := map[string]bool{}
 	for key := range keys {
-		materialized, err := materializePersonalKV(ctx, db, user.ID, key.Plugin, key.Key, nil)
+		materialized, err := materializePersonalKV(ctx, db, user.ID, key.Plugin, key.Key, groups)
 		if err != nil {
 			return nil, err
 		}

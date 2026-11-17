@@ -212,6 +212,9 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 			}
 		}
 		if n.Details != nil {
+			if n.Details.Kind == "personal_kv_conflict" {
+				ui.Text(c, i18n.T(c, "personal_kv_conflict_description")).FontSize(14).Selectable()
+			}
 			switch value := n.Details.Data.(type) {
 			case *protocol.NotificationDetailsTask:
 				if result := i18n.T(c, statusKey(value.Status)); result != i18n.T(c, kind) {

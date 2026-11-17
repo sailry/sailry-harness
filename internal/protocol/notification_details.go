@@ -59,11 +59,12 @@ func (value NotificationDetailsPowerPayload) MarshalJSON() ([]byte, error) {
 }
 
 var notificationDetailsVariants = variantFactories{"diagnostic": func() any { return new(NotificationDetailsDiagnostic) },
-	"system":   func() any { return new(NotificationSystemSystemDiagnostic) },
-	"task":     func() any { return new(NotificationDetailsTask) },
-	"terminal": func() any { return new(NotificationDetailsTerminal) },
-	"text":     func() any { return new(NotificationDetailsTextPayload) },
-	"power":    func() any { return new(NotificationDetailsPowerPayload) }}
+	"personal_kv_conflict": func() any { return new(PersonalKVConflict) },
+	"system":               func() any { return new(NotificationSystemSystemDiagnostic) },
+	"task":                 func() any { return new(NotificationDetailsTask) },
+	"terminal":             func() any { return new(NotificationDetailsTerminal) },
+	"text":                 func() any { return new(NotificationDetailsTextPayload) },
+	"power":                func() any { return new(NotificationDetailsPowerPayload) }}
 
 func (value NotificationDetails) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("type", "data", value.Kind, value.Data, notificationDetailsVariants)

@@ -783,13 +783,17 @@ claim that another host has already received its personal data.
 
 The controller retrieves the original personal write group and compares its
 source revisions before applying all its keys. It retains the request ID, digest,
-sequence and predecessor receipts for offline writes. A source conflict preserves
+sequence and predecessor receipts for offline writes. A source conflict produces one deduplicated notification and preserves
 the controller's current values; it does not choose a last writer or repeat the
 original handler. Acknowledgements settle the executor's overlay, and snapshots
 update the other hosts. Dispatch, notifications, project mutations and session
 operations are never replayed during this reconciliation. Retain a resource's
 `execution_node` and use the host-call method above when its next operation must
-run where it was created.
+run where it was created. Pending write payloads have a separate 128 MiB
+limit per controller and plugin on each executor. Exceeding that limit returns
+`busy` and rolls back the entire local transaction; existing pending writes remain
+available for reconciliation. Source snapshots preserve all undecided local
+writes while refreshing the base underneath them.
 
 A package may declare a collection with `"project"` scope and supply `"project"`
 as the optional final argument of `getValue`, `listKeys`, `setValue`, `indexedValue`

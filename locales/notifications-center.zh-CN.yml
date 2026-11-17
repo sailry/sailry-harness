@@ -1,4 +1,6 @@
 notification_center: "通知中心"
+personal_kv_conflict: "个人数据冲突"
+personal_kv_conflict_description: "已保留主控当前值。本机调度和已完成的操作仍保留。"
 notification_all: "全部"
 notification_unread: "未读"
 notification_delete_read: "删除已读"

@@ -198,6 +198,8 @@ func technicalID(id client.NoticeID) reportID {
 func headingKey(n client.Notice) string {
 	if n.Details != nil {
 		switch n.Details.Kind {
+		case "personal_kv_conflict":
+			return "personal_kv_conflict"
 		case "power":
 			return "power_request_failed"
 		case "diagnostic":

@@ -887,5 +887,6 @@
   "demoReviewNotes": "# 发布评审\n\n| 范围 | 检查内容 |\n| --- | --- |\n| 输入字段 | 检查标签与必填提示 |\n| 键盘导航 | 检查 Tab 顺序与可见焦点 |\n| 点击区域 | 登录按钮高度至少为 44 px |\n| 页面布局 | 检查窄屏与宽屏显示 |\n| 代码变更 | 发布前检查登录页与样式 |\n",
   "demoNotesPrompt": "为登录页面整理一份简短的发布评审清单。",
   "demoSimulatedReply": "我会围绕登录页面继续完善，并保留现有布局。\n\n1. 检查字段间距与键盘焦点。\n2. 保持点击区域至少为 44 px。\n3. 对照检查 `src/pages/Login.tsx` 与 `src/styles/login.css`。\n\n发布评审清单位于 `docs/review.md`。",
-  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001"
+  "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
+  "personalKvConflict": "个人数据冲突，已保留主控当前值"
 }

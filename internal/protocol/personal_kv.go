@@ -9,6 +9,7 @@ type PersonalKVWrite struct {
 	BaseRevision uint64              `json:"base_revision"`
 	Predecessor  *RequestID          `json:"predecessor,omitempty"`
 	Value        json.RawMessage     `json:"value,omitempty"`
+	ValueBytes   []byte              `json:"value_bytes,omitempty"`
 	Index        *PluginStorageIndex `json:"index,omitempty"`
 	Present      bool                `json:"present"`
 }
@@ -24,12 +25,30 @@ type PersonalKVGroup struct {
 }
 
 type PersonalKVRecord struct {
-	Plugin   string              `json:"plugin"`
-	Key      string              `json:"key"`
-	Revision uint64              `json:"revision"`
-	Value    json.RawMessage     `json:"value,omitempty"`
-	Index    *PluginStorageIndex `json:"index,omitempty"`
-	Present  bool                `json:"present"`
+	Plugin     string              `json:"plugin"`
+	Key        string              `json:"key"`
+	Revision   uint64              `json:"revision"`
+	Value      json.RawMessage     `json:"value,omitempty"`
+	ValueBytes []byte              `json:"value_bytes,omitempty"`
+	Index      *PluginStorageIndex `json:"index,omitempty"`
+	Present    bool                `json:"present"`
+}
+
+// Values travel as bytes so JSON encoding cannot change whitespace or escaping.
+// The legacy value member remains readable for persisted outbox groups and their
+// original digests; new records populate only value_bytes.
+func (value PersonalKVWrite) ValueJSON() json.RawMessage {
+	if value.ValueBytes != nil {
+		return value.ValueBytes
+	}
+	return value.Value
+}
+
+func (value PersonalKVRecord) ValueJSON() json.RawMessage {
+	if value.ValueBytes != nil {
+		return value.ValueBytes
+	}
+	return value.Value
 }
 
 type PersonalKVReceipt struct {
@@ -40,6 +59,12 @@ type PersonalKVReceipt struct {
 	Applied  bool               `json:"applied"`
 	Records  []PersonalKVRecord `json:"records"`
 	Reason   string             `json:"reason,omitempty"`
+}
+
+type PersonalKVConflict struct {
+	Package string    `json:"package"`
+	Request RequestID `json:"request"`
+	Reason  string    `json:"reason"`
 }
 
 type PersonalKVCursor struct {
@@ -57,7 +82,8 @@ type PersonalKVSnapshot struct {
 }
 
 type PersonalKVPending struct {
-	Group *PersonalKVGroup `json:"group,omitempty"`
+	Group   *PersonalKVGroup `json:"group,omitempty"`
+	Through uint64           `json:"through,omitempty"`
 }
 
 func init() {

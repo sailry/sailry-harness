@@ -2371,3 +2371,5 @@ configuration_follow_requested: Sync requested
 configuration_follow_failed: Configuration sync failed
 configuration_follow_conflict: Configuration changed; retry sync
 configuration_follow_unknown: Sync request is unconfirmed; retry to check its status
+personal_kv_conflict: Personal data conflict
+personal_kv_conflict_description: The controller kept its current values. Local schedules and completed actions were preserved.

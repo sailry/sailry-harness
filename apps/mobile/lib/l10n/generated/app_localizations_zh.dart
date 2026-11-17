@@ -2281,6 +2281,9 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get demoTerminalWelcome =>
       'Last login: Sun Nov 15 09:00:00 on ttys001';
+
+  @override
+  String get personalKvConflict => '个人数据冲突，已保留主控当前值';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).

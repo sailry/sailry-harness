@@ -4487,6 +4487,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Last login: Sun Nov 15 09:00:00 on ttys001'**
   String get demoTerminalWelcome;
+
+  /// No description provided for @personalKvConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Personal data conflict: controller values kept'**
+  String get personalKvConflict;
 }
 
 class _AppLocalizationsDelegate
