@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/sync/semaphore"
 	"lukechampine.com/blake3"
 )
 
@@ -27,6 +28,7 @@ const (
 	maxToolBytes   = 256 * 1024
 	maxMessage     = 8 * 1024 * 1024
 	expiryInterval = time.Minute
+	maxCalls       = 8
 )
 
 type Configuration struct {
@@ -90,7 +92,7 @@ type statusRecord struct {
 }
 
 type serviceLock struct {
-	lock chan struct{}
+	lock *semaphore.Weighted
 	refs int
 }
 
@@ -107,9 +109,8 @@ type connection struct {
 	used        time.Time
 	reuse       bool
 	exclusive   *serviceLock
-	serial      chan struct{}
+	calls       *semaphore.Weighted
 	mu          sync.Mutex
-	active      *activeCall
 	poisoned    bool
 	closing     bool
 	closeOnce   sync.Once
@@ -296,14 +297,14 @@ func (pool *Pool) Acquire(ctx context.Context, config Configuration) (result *Le
 		serviceID := config.User + "\x00" + config.Package.Name + "\x00" + config.Server
 		service := pool.services[serviceID]
 		if service == nil {
-			service = &serviceLock{lock: make(chan struct{}, 1)}
+			service = &serviceLock{lock: semaphore.NewWeighted(1)}
 			pool.services[serviceID] = service
 		}
 		service.refs++
 		opening, cancel := context.WithCancel(pool.ctx)
 		current = &connection{
 			pool: pool, key: key, reference: config.Package, ready: make(chan struct{}), closeDone: make(chan struct{}), cancel: cancel,
-			used: pool.clock.Now(), reuse: reuse, exclusive: service, serial: make(chan struct{}, 1),
+			used: pool.clock.Now(), reuse: reuse, exclusive: service, calls: semaphore.NewWeighted(maxCalls),
 			release: config.Release,
 		}
 		pool.report(current, protocol.PluginMcpRuntimeStateConnecting, 0, nil)
@@ -508,10 +509,10 @@ func (lease *Lease) List(ctx context.Context) ([]*sdk.Tool, error) {
 
 func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 	connection := lease.connection
-	if err := connection.lock(ctx, connection.serial); err != nil {
+	if err := connection.lock(ctx, connection.calls, maxCalls); err != nil {
 		return nil, err
 	}
-	defer func() { <-connection.serial }()
+	defer connection.calls.Release(maxCalls)
 	listing, cancel := context.WithCancel(ctx)
 	defer cancel()
 	timer := lease.pool.clock.NewTimer(10 * time.Second)
@@ -536,7 +537,8 @@ func (lease *Lease) list(ctx context.Context) ([]*sdk.Tool, error) {
 			// A transport failure, unlike a rejection or a cancelled listing,
 			// ends the connection.
 			var remote *jsonrpc.Error
-			if !errors.As(err, &remote) && listing.Err() == nil {
+			var responseFailure *responseReadError
+			if listing.Err() == nil && (!errors.As(err, &remote) || errors.As(err, &responseFailure)) {
 				connection.mu.Lock()
 				connection.poisoned = true
 				connection.mu.Unlock()

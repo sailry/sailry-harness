@@ -1,8 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -103,22 +106,53 @@ type headerTransport struct {
 	origin  *url.URL
 }
 
+// responseReadError distinguishes an incomplete response from a request the
+// server rejected. The SDK wraps RoundTripper errors as rejections, but this
+// response has already arrived and the operation's result remains unknown.
+type responseReadError struct{ err error }
+
+func (failure *responseReadError) Error() string { return failure.err.Error() }
+func (failure *responseReadError) Unwrap() error { return failure.err }
+
 func (transport headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	copy := request.Clone(request.Context())
 	copy.Header = request.Header.Clone()
-	if transport.origin == nil || !strings.EqualFold(copy.URL.Scheme, transport.origin.Scheme) || !strings.EqualFold(copy.URL.Host, transport.origin.Host) {
-		return transport.base.RoundTrip(copy)
-	}
-	for name, value := range transport.headers {
-		switch strings.ToLower(name) {
-		case "host", "content-length", "transfer-encoding", "content-type", "accept", "mcp-session-id", "mcp-protocol-version", "last-event-id":
-			continue
+	if transport.origin != nil && strings.EqualFold(copy.URL.Scheme, transport.origin.Scheme) && strings.EqualFold(copy.URL.Host, transport.origin.Host) {
+		for name, value := range transport.headers {
+			switch strings.ToLower(name) {
+			case "host", "content-length", "transfer-encoding", "content-type", "accept", "mcp-session-id", "mcp-protocol-version", "last-event-id":
+				continue
+			}
+			if copy.Header.Get(name) == "" {
+				copy.Header.Set(name, value)
+			}
 		}
-		if copy.Header.Get(name) == "" {
-			copy.Header.Set(name, value)
-		}
 	}
-	return transport.base.RoundTrip(copy)
+	response, err := transport.base.RoundTrip(copy)
+	if err != nil {
+		return response, err
+	}
+	if response == nil || response.Body == nil {
+		return response, nil
+	}
+	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if response.StatusCode < 200 || response.StatusCode >= 300 || mediaType != "application/json" {
+		return response, nil
+	}
+	// SDK v1.8.0 treats a JSON body read failure as a failure of the entire
+	// MCP connection, even when only that request was cancelled. Finish its
+	// bounded body read here so cancellation stays on the per-request error
+	// path. SSE remains streamed, and HTTP errors remain available to OAuth.
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxMessage+1))
+	response.Body.Close()
+	if err != nil {
+		return nil, &responseReadError{err: err}
+	}
+	if len(body) > maxMessage {
+		return nil, &responseReadError{err: fmt.Errorf("MCP response exceeds %d bytes", maxMessage)}
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	return response, nil
 }
 
 func ServerOptions(server protocol.PluginMcpServer) protocol.PluginMcpOptions {

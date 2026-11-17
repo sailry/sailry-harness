@@ -621,7 +621,14 @@ Core owns the common picker and credentials; the package owns protocol
 translation and its declared account flows.
 
 The Node-owned MCP pool keys connections by user, package digest, settings revision,
-server, authorization and launch parameters. Failed or uncertain cleanup reports
+server, authorization and launch parameters. The SDK owns protocol version
+negotiation. Each connection admits up to eight
+read-only calls; writes and catalog reads hold that connection exclusively. The
+configured service-level write exclusion also spans its connections. Each call
+owns its input-wait timer and cancellation. MCP input uses the SDK's originating
+tool-call context; unassociated reverse input requests are rejected rather than
+assigned to another session. Cancelling a read preserves the shared connection;
+uncertain writes retire it without replay. Failed or uncertain cleanup reports
 `OutcomeUnknown`. Skills resolve `SKILL.md` and confined resources from captured
 packages and grant no additional permission. Detailed declarations and examples
 belong in [sdk/plugins.md](sdk/plugins.md).
