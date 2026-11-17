@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -125,7 +126,7 @@ func (t *Transfers) StageInputs(ctx context.Context, attachments []protocol.Atta
 					return err
 				}
 			}
-			if size != attachment.Spec.Size || fmtRevision(digest.Sum(nil)) != attachment.Spec.Revision {
+			if size != attachment.Spec.Size || hex.EncodeToString(digest.Sum(nil)) != attachment.Spec.Revision {
 				return conflict("attachment content changed")
 			}
 			if err := target.Sync(); err != nil {

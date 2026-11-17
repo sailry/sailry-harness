@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -214,16 +215,7 @@ func indexRevision(root string, r *gogit.Repository) (string, error) {
 		return "", mapError(err)
 	}
 	sum := blake3.Sum256(data)
-	return fmtHash(sum[:]), nil
-}
-func fmtHash(value []byte) string {
-	const digits = "0123456789abcdef"
-	b := make([]byte, len(value)*2)
-	for i, v := range value {
-		b[i*2] = digits[v>>4]
-		b[i*2+1] = digits[v&15]
-	}
-	return string(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 func bounded(text string, limit int) (string, bool) {
 	if len(text) <= limit {

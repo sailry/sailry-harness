@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"math"
@@ -331,16 +332,7 @@ func hashOpenFile(ctx context.Context, file *os.File, size uint64) (string, erro
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
-	return fmtRevision(hash.Sum(nil)), nil
-}
-func fmtRevision(data []byte) string {
-	const digits = "0123456789abcdef"
-	out := make([]byte, len(data)*2)
-	for i, b := range data {
-		out[2*i] = digits[b>>4]
-		out[2*i+1] = digits[b&15]
-	}
-	return string(out)
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 func (t *Transfers) DownloadAttachment(ctx context.Context, caller protocol.NodeID, root string, attachment protocol.Attachment) (protocol.AttachmentDownload, error) {
 	out := protocol.AttachmentDownload{Attachment: attachment}
@@ -479,7 +471,7 @@ func (t *Transfers) run(ctx context.Context, id protocol.StreamID, e *transferEn
 		_ = t.transferStep(ctx, e.service, e.service.CloseWrite)
 		return
 	}
-	if fmtRevision(hash.Sum(nil)) != e.revision {
+	if hex.EncodeToString(hash.Sum(nil)) != e.revision {
 		return
 	}
 	if err := t.transferStep(ctx, e.service, e.file.Sync); err != nil {

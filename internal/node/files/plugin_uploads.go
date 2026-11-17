@@ -2,6 +2,7 @@ package files
 
 import (
 	"context"
+	"encoding/hex"
 	"io"
 	"strings"
 
@@ -36,7 +37,7 @@ func (transfers *Transfers) UploadPlugin(ctx context.Context, caller protocol.No
 
 func (transfers *Transfers) StagePluginUpload(ctx context.Context, caller protocol.NodeID, data []byte) (protocol.PluginUpload, error) {
 	digest := blake3.Sum256(data)
-	spec := protocol.PluginUploadSpec{Size: uint64(len(data)), Revision: fmtRevision(digest[:])}
+	spec := protocol.PluginUploadSpec{Size: uint64(len(data)), Revision: hex.EncodeToString(digest[:])}
 	output, err := transfers.UploadPlugin(ctx, caller, spec)
 	if err != nil {
 		return output, err

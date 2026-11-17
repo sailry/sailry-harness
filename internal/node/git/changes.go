@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -45,7 +46,7 @@ type changeCapture struct {
 func digest(value any) string {
 	body, _ := json.Marshal(value)
 	sum := blake3.Sum256(body)
-	return fmtHash(sum[:])
+	return hex.EncodeToString(sum[:])
 }
 func (s *Service) changeCapture(ctx context.Context, root string, state protocol.GitChangeState) (*changeCapture, error) {
 	r, err := open(root)
@@ -561,7 +562,7 @@ func (s *Service) changeBytes(ctx context.Context, root string, snapshot protoco
 			skip = "non_utf8"
 		}
 	}
-	return *selected, a, b, fmtHash(hash.Sum(nil)), skip, nil
+	return *selected, a, b, hex.EncodeToString(hash.Sum(nil)), skip, nil
 }
 func diffLines(a, b []byte) []protocol.GitChangeLine {
 	all := []protocol.GitChangeLine{}

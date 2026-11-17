@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -257,7 +258,7 @@ func TestStoredContentIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		source, patch := blake3.Sum256([]byte(working)), blake3.Sum256([]byte(value.Text))
-		hunk := protocol.CommandApplyGitHunkPayload{Worktree: protocol.NewWorktreeID(), Path: "file.txt", Scope: protocol.GitDiffScopeUnstaged, Operation: protocol.GitHunkReject, DiffRevision: fmtHash(patch[:]), ExpectedRevision: fmtHash(source[:]), ExpectedIndex: index, ExpectedHead: current.Head, ExpectedBranch: current.Branch}
+		hunk := protocol.CommandApplyGitHunkPayload{Worktree: protocol.NewWorktreeID(), Path: "file.txt", Scope: protocol.GitDiffScopeUnstaged, Operation: protocol.GitHunkReject, DiffRevision: hex.EncodeToString(patch[:]), ExpectedRevision: hex.EncodeToString(source[:]), ExpectedIndex: index, ExpectedHead: current.Head, ExpectedBranch: current.Branch}
 		if _, err := s.ApplyHunk(ctx, root, hunk); err != nil {
 			t.Fatal(err)
 		}

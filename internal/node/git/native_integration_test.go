@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -336,7 +337,7 @@ func TestNativeGitIntegration(t *testing.T) {
 		working := "one\r\nchanged\r\nthree\r\n"
 		write("file.txt", working)
 		sum := blake3.Sum256([]byte(working))
-		if _, err := s.EditIndex(ctx, root, "file.txt", revision(), &commit, fmtHash(sum[:]), func(text string) (string, error) {
+		if _, err := s.EditIndex(ctx, root, "file.txt", revision(), &commit, hex.EncodeToString(sum[:]), func(text string) (string, error) {
 			return strings.Replace(text, "two\n", "changed\r\n", 1), nil
 		}); err != nil {
 			t.Fatal(err)
@@ -348,7 +349,7 @@ func TestNativeGitIntegration(t *testing.T) {
 		write("stored.dat", "abc\ndef\n")
 		sum = blake3.Sum256([]byte("abc\ndef\n"))
 		before := revision()
-		_, err = s.EditIndex(ctx, root, "stored.dat", before, &commit, fmtHash(sum[:]), func(text string) (string, error) {
+		_, err = s.EditIndex(ctx, root, "stored.dat", before, &commit, hex.EncodeToString(sum[:]), func(text string) (string, error) {
 			t.Fatal("a filtered path ran the transform")
 			return text, nil
 		})

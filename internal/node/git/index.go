@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"os"
 	"strings"
@@ -171,7 +172,7 @@ func (s *Service) publishIndex(ctx context.Context, root, expected string, expec
 	}
 	s.Invalidate(root)
 	sum := blake3.Sum256(candidate.Bytes())
-	return protocol.GitIndex{Revision: fmtHash(sum[:])}, nil
+	return protocol.GitIndex{Revision: hex.EncodeToString(sum[:])}, nil
 }
 func sameString(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
 

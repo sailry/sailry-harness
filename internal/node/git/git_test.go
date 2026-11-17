@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -515,7 +516,7 @@ func TestGitMutationMapping(t *testing.T) {
 			t.Fatal(err)
 		}
 		sum := blake3.Sum256([]byte("one\ntwo\nthree\n"))
-		result, err := s.EditIndex(ctx, root, "file.txt", index, &commit, fmtHash(sum[:]), func(text string) (string, error) { return strings.Replace(text, "two", "staged", 1), nil })
+		result, err := s.EditIndex(ctx, root, "file.txt", index, &commit, hex.EncodeToString(sum[:]), func(text string) (string, error) { return strings.Replace(text, "two", "staged", 1), nil })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -530,7 +531,7 @@ func TestGitMutationMapping(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("external edit\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.EditIndex(ctx, root, "file.txt", result.Revision, &commit, fmtHash(sum[:]), func(text string) (string, error) { t.Fatal("stale source ran transform"); return text, nil })
+		_, err = s.EditIndex(ctx, root, "file.txt", result.Revision, &commit, hex.EncodeToString(sum[:]), func(text string) (string, error) { t.Fatal("stale source ran transform"); return text, nil })
 		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
 	})
 	t.Run("transfers_with_a_remote_run_outside_the_root_lock", func(t *testing.T) {
