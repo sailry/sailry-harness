@@ -435,6 +435,13 @@ func (s *Service) install(update *staged, config *Config, installed, root string
 	if _, err := os.Lstat(path); err == nil {
 		return false, failure("updates_receipt_unread", "an earlier update receipt has not been acknowledged")
 	}
+	// The backup is created beside the bundle. Find an unwritable location
+	// before stopping the Node, while running work can still continue.
+	probe, err := os.MkdirTemp(filepath.Dir(installed), ".sailry-update-probe-")
+	if err != nil {
+		return false, ioFailure(err)
+	}
+	_ = os.Remove(probe)
 	if err := s.options.Stop(); err != nil {
 		return true, failure("updates_shutdown_failed", err.Error())
 	}

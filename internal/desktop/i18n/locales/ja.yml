@@ -1370,6 +1370,8 @@ market_details_version: バージョン
 market_details_host: ホスト
 market_details_skills: スキル
 market_details_mcp: MCP サーバー
+market_details_unsupported: 未対応
+notebook_more: セルをもっと表示
 market_details_includes: 含まれる内容
 connector_tools_empty: ツールなし
 plugins_no_skills: スキルなし

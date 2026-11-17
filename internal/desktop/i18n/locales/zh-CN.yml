@@ -1370,6 +1370,8 @@ market_details_version: 版本
 market_details_host: 主机
 market_details_skills: 技能
 market_details_mcp: MCP 服务
+market_details_unsupported: 暂不支持
+notebook_more: 更多单元格
 market_details_includes: 包含
 connector_tools_empty: 无工具
 plugins_no_skills: 暂无技能

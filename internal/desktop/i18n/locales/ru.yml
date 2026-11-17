@@ -1370,6 +1370,8 @@ market_details_version: Версия
 market_details_host: Хост
 market_details_skills: Навыки
 market_details_mcp: Серверы MCP
+market_details_unsupported: Не поддерживается
+notebook_more: Ещё ячейки
 market_details_includes: Включает
 connector_tools_empty: Нет инструментов
 plugins_no_skills: Без навыков

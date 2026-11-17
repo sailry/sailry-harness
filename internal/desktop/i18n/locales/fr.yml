@@ -1370,6 +1370,8 @@ market_details_version: Version
 market_details_host: Hôte
 market_details_skills: Skills
 market_details_mcp: Serveurs MCP
+market_details_unsupported: Non pris en charge
+notebook_more: Plus de cellules
 market_details_includes: Contenu
 connector_tools_empty: Aucun outil
 plugins_no_skills: Pas de compétences

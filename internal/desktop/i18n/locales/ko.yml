@@ -1370,6 +1370,8 @@ market_details_version: 버전
 market_details_host: 호스트
 market_details_skills: 스킬
 market_details_mcp: MCP 서버
+market_details_unsupported: 지원되지 않음
+notebook_more: 셀 더 보기
 market_details_includes: 포함 항목
 connector_tools_empty: 도구 없음
 plugins_no_skills: 스킬 없음

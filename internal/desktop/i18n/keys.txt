@@ -1381,6 +1381,8 @@ market_details_version
 market_details_host
 market_details_skills
 market_details_mcp
+market_details_unsupported
+notebook_more
 market_details_includes
 connector_tools_empty
 plugins_no_skills
