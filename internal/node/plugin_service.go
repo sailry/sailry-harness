@@ -127,6 +127,9 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 		if !editable {
 			continue
 		}
+		if current != nil && current.Summary.Pinned {
+			continue
+		}
 		if recorded && current == nil || current != nil && (current.Origin == nil || current.Origin.Kind != "bundled") {
 			continue
 		}
