@@ -1880,6 +1880,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get providerDeploymentId => 'Deployment name';
 
   @override
+  String get providerHeaders => 'Custom request headers';
+
+  @override
+  String get providerHeadersHint => 'One per line: Name: value';
+
+  @override
+  String get providerHeadersInvalid =>
+      'Each request header line needs a name and a colon';
+
+  @override
   String get providerEfforts => 'Reasoning effort';
 
   @override

@@ -546,7 +546,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get resourceNoWorkspace =>
-      'Auswählen eines Arbeitsbaums auf einem verbundenen Host';
+      'Worktree auf einem verbundenen Host auswählen';
 
   @override
   String get resourceRoot => 'Wurzel';
@@ -569,7 +569,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Den Entwurf verwerfen und den neuesten Inhalt laden?';
 
   @override
-  String get resourceWorktreeCreate => 'Neuer Arbeitsbaum';
+  String get resourceWorktreeCreate => 'Neuer Worktree';
 
   @override
   String get resourceSessionServices => 'Chat-Services';
@@ -805,10 +805,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get tool_ssh_transfer => 'Datei SSH übertragen';
 
   @override
-  String get tool_list_worktrees => 'Liste der Arbeitsbäume';
+  String get tool_list_worktrees => 'Worktrees auflisten';
 
   @override
-  String get tool_create_worktree => 'Neuer Arbeitsbaum';
+  String get tool_create_worktree => 'Worktree erstellen';
 
   @override
   String get tool_register_worktree => 'Worktree hinzufügen';
@@ -859,7 +859,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get tool_computer_observe => 'Bildschirm beobachten';
 
   @override
-  String get tool_computer_input => 'Steuerrechner';
+  String get tool_computer_input => 'Computer steuern';
 
   @override
   String get tool_computer_focus => 'Die Switch-App';
@@ -904,7 +904,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get unassignedChats => 'Chats';
 
   @override
-  String get allWorktrees => 'Alle Arbeitsbäume anzeigen';
+  String get allWorktrees => 'Alle Worktrees';
 
   @override
   String get tasksActive => 'Laufend';
@@ -1212,7 +1212,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get queueEmpty => 'Keine in der Warteschlange stehenden Nachrichten';
 
   @override
-  String get fork => 'Unterhaltung abzweigen';
+  String get fork => 'Unterhaltung forken';
 
   @override
   String get stop => 'Aufgabe stoppen';
@@ -1345,28 +1345,28 @@ class AppLocalizationsDe extends AppLocalizations {
   String get gitPush => 'Push';
 
   @override
-  String get gitCurrent => 'Aktueller Zweig';
+  String get gitCurrent => 'Aktueller Branch';
 
   @override
-  String get gitCreateBranch => 'Neue Niederlassung';
+  String get gitCreateBranch => 'Neuer Branch';
 
   @override
-  String get gitBranchName => 'Name der Niederlassung';
+  String get gitBranchName => 'Branch-Name';
 
   @override
   String get gitSwitch => 'Branch wechseln';
 
   @override
-  String get gitMerge => 'Zweig zusammenführen';
+  String get gitMerge => 'Branch zusammenführen';
 
   @override
-  String get gitDeleteBranch => 'Zweig löschen';
+  String get gitDeleteBranch => 'Branch löschen';
 
   @override
   String get review => 'Prüfen';
 
   @override
-  String get selectWorkspace => 'Projekt- und Arbeitsbaum';
+  String get selectWorkspace => 'Projekt und Worktree';
 
   @override
   String get searchFiles => 'Dateien durchsuchen';
@@ -1411,7 +1411,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get closePort => 'Schließen Sie nach vorne';
 
   @override
-  String get workingTree => 'Arbeitsbaum';
+  String get workingTree => 'Arbeitsverzeichnis';
 
   @override
   String get staged => 'Vorgemerkt';
@@ -1426,10 +1426,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get commit => 'Commit';
 
   @override
-  String get commitMessage => 'Commit-Meldung';
+  String get commitMessage => 'Commit-Nachricht';
 
   @override
-  String get noChanges => 'Keine Änderungen zum Commit';
+  String get noChanges => 'Keine Änderungen zum Committen';
 
   @override
   String get terminalKeyboard => 'Tastatur';
@@ -1788,13 +1788,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get apiAzureAi => 'Azure AI';
 
   @override
-  String get apiPlugin => 'Plug-in';
+  String get apiPlugin => 'Plugin';
 
   @override
-  String get providerNew => 'Neuer Dienst';
+  String get providerNew => 'Neuer Anbieter';
 
   @override
-  String get providerEmpty => 'Keine Dienste';
+  String get providerEmpty => 'Keine Anbieter';
 
   @override
   String get providerDesktopHint => 'OAuth-Modelle am Desktop verwalten';
@@ -1898,6 +1898,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get providerDeploymentId => 'Name der Bereitstellung';
 
   @override
+  String get providerHeaders => 'Eigene Request-Header';
+
+  @override
+  String get providerHeadersHint => 'Einer pro Zeile: Name: Wert';
+
+  @override
+  String get providerHeadersInvalid =>
+      'Jede Header-Zeile braucht einen Namen und einen Doppelpunkt';
+
+  @override
   String get providerEfforts => 'Denkaufwand';
 
   @override
@@ -1923,7 +1933,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get providerDeleteModel => 'Modell löschen';
 
   @override
-  String get providerDelete => 'Dienst löschen';
+  String get providerDelete => 'Anbieter löschen';
 
   @override
   String get providerNumberInvalid => 'Positive ganze Zahl eingeben';

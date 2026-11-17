@@ -272,26 +272,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ).toLowerCase().contains(_search.toLowerCase()))
           (host, terminal),
     ];
-    // Tab counts ignore search so they stay stable while typing.
-    final counts = <String, int>{};
-    var archived = 0;
-    for (final (_, session) in sessions) {
-      if (!ordinarySession(session) || !_includes(session['project'])) {
-        continue;
-      }
-      if (session['archived'] == true) {
-        archived++;
-      } else {
-        counts.update(status(session), (n) => n + 1, ifAbsent: () => 1);
-      }
-    }
-    for (final (host, terminal) in allTerminals) {
-      if (!activeTerminal(terminal) ||
-          !_includes(terminalProject(host, terminal))) {
-        continue;
-      }
-      counts.update(terminalStatus(terminal), (n) => n + 1, ifAbsent: () => 1);
-    }
     final hasRecords = tasks.isNotEmpty || terminals.isNotEmpty;
     final hasCatalog =
         projects.any((entry) => entry.$1.id == selected?.id) ||
@@ -464,8 +444,6 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             if (taskFilters.contains(_filter))
               TaskFilters(
                 selected: _filter,
-                counts: counts,
-                archived: archived,
                 onSelected: (filter) => setState(() => _filter = filter),
                 onArchive: () => setState(() => _filter = 'archived'),
               )

@@ -89,7 +89,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationEmpty => 'Descreva sua tarefa';
 
   @override
-  String get conversationLoading => 'A carregar chat';
+  String get conversationLoading => 'Carregando chat';
 
   @override
   String get conversationReconnecting => 'Reconectando';
@@ -811,7 +811,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get tool_register_worktree => 'Adicionar árvore de trabalho';
 
   @override
-  String get tool_remove_worktree => 'Remover worktree';
+  String get tool_remove_worktree => 'Remover árvore de trabalho';
 
   @override
   String get tool_google_search => 'Pesquisar na web';
@@ -1099,7 +1099,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get phaseEditing => 'Edição de arquivos';
 
   @override
-  String get phaseApproval => 'A aguardar aprovação';
+  String get phaseApproval => 'Aguardando aprovação';
 
   @override
   String get phaseTesting => 'Execução de testes';
@@ -1319,7 +1319,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get gitSkipHooks => 'Ignorar hooks';
 
   @override
-  String get gitPushAfterCommit => 'Enviar após o commit';
+  String get gitPushAfterCommit => 'Push após o commit';
 
   @override
   String get fileShare => 'Compartilhar';
@@ -1328,34 +1328,34 @@ class AppLocalizationsPt extends AppLocalizations {
   String get fileTrash => 'Mover para a lixeira';
 
   @override
-  String get gitActions => 'Git ações';
+  String get gitActions => 'Ações do Git';
 
   @override
   String get gitFetch => 'Obter';
 
   @override
-  String get gitPull => 'Puxar';
+  String get gitPull => 'Pull';
 
   @override
-  String get gitPush => 'Empurrar';
+  String get gitPush => 'Push';
 
   @override
-  String get gitCurrent => 'Ramo atual';
+  String get gitCurrent => 'Branch atual';
 
   @override
-  String get gitCreateBranch => 'Novo ramo de negócios';
+  String get gitCreateBranch => 'Novo branch';
 
   @override
-  String get gitBranchName => 'Nome da filial';
+  String get gitBranchName => 'Nome do branch';
 
   @override
-  String get gitSwitch => 'Mudar de ramo';
+  String get gitSwitch => 'Mudar de branch';
 
   @override
-  String get gitMerge => 'Merge branch';
+  String get gitMerge => 'Mesclar branch';
 
   @override
-  String get gitDeleteBranch => 'Excluir ramo';
+  String get gitDeleteBranch => 'Excluir branch';
 
   @override
   String get review => 'Revisar';
@@ -1409,22 +1409,22 @@ class AppLocalizationsPt extends AppLocalizations {
   String get workingTree => 'Árvore de trabalho';
 
   @override
-  String get staged => 'Estágio';
+  String get staged => 'Preparadas';
 
   @override
-  String get stage => 'Fase de todos';
+  String get stage => 'Preparar tudo';
 
   @override
-  String get unstage => 'Desfazer';
+  String get unstage => 'Remover da preparação';
 
   @override
   String get commit => 'Commit';
 
   @override
-  String get commitMessage => 'Enviar mensagem';
+  String get commitMessage => 'Mensagem de commit';
 
   @override
-  String get noChanges => 'Nenhumas alterações para confirmar';
+  String get noChanges => 'Nenhuma alteração para fazer commit';
 
   @override
   String get terminalKeyboard => 'Teclado';
@@ -1503,7 +1503,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get speechInput => 'Entrada de voz';
 
   @override
-  String get providers => 'Modelos e fornecedores';
+  String get providers => 'Modelos e provedores';
 
   @override
   String get speech => 'Discurso';
@@ -1784,10 +1784,10 @@ class AppLocalizationsPt extends AppLocalizations {
   String get apiPlugin => 'Plugin';
 
   @override
-  String get providerNew => 'Novo serviço';
+  String get providerNew => 'Novo provedor';
 
   @override
-  String get providerEmpty => 'Nenhum serviço';
+  String get providerEmpty => 'Nenhum provedor';
 
   @override
   String get providerDesktopHint => 'Gerencie modelos OAuth no Desktop';
@@ -1891,6 +1891,16 @@ class AppLocalizationsPt extends AppLocalizations {
   String get providerDeploymentId => 'Nome da implementação';
 
   @override
+  String get providerHeaders => 'Cabeçalhos de requisição personalizados';
+
+  @override
+  String get providerHeadersHint => 'Um por linha: Nome: valor';
+
+  @override
+  String get providerHeadersInvalid =>
+      'Cada linha de cabeçalho precisa de um nome e dois-pontos';
+
+  @override
   String get providerEfforts => 'Esforço de raciocínio';
 
   @override
@@ -1916,7 +1926,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get providerDeleteModel => 'Excluir modelo';
 
   @override
-  String get providerDelete => 'Excluir serviço';
+  String get providerDelete => 'Excluir provedor';
 
   @override
   String get providerNumberInvalid => 'Insira um número inteiro positivo';
@@ -1985,7 +1995,7 @@ class AppLocalizationsPt extends AppLocalizations {
   String get usageBreakdown => 'Distribuição';
 
   @override
-  String get usageProvider => 'Fornecedor';
+  String get usageProvider => 'Provedor';
 
   @override
   String get usageShowAll => 'Mostrar tudo';

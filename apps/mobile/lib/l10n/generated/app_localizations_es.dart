@@ -802,7 +802,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get tool_ssh_transfer => 'Transferir archivo SSH';
 
   @override
-  String get tool_list_worktrees => 'Lista de worktrees';
+  String get tool_list_worktrees => 'Listar árboles de trabajo';
 
   @override
   String get tool_create_worktree => 'Nuevo árbol de trabajo';
@@ -1295,7 +1295,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String gitCommitCount(String count) {
-    return 'Confirmar $count';
+    return 'Hacer commit de $count';
   }
 
   @override
@@ -1315,13 +1315,13 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get gitCommitOptions => 'Opciones de confirmación';
+  String get gitCommitOptions => 'Opciones de commit';
 
   @override
   String get gitSkipHooks => 'Omitir hooks';
 
   @override
-  String get gitPushAfterCommit => 'Enviar tras confirmar';
+  String get gitPushAfterCommit => 'Push tras el commit';
 
   @override
   String get fileShare => 'Compartir';
@@ -1330,7 +1330,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get fileTrash => 'Mover a la papelera';
 
   @override
-  String get gitActions => 'Git acciones';
+  String get gitActions => 'Acciones de Git';
 
   @override
   String get gitFetch => 'Obtener';
@@ -1342,19 +1342,19 @@ class AppLocalizationsEs extends AppLocalizations {
   String get gitPush => 'Push';
 
   @override
-  String get gitCurrent => 'Sucursal actual';
+  String get gitCurrent => 'Rama actual';
 
   @override
-  String get gitCreateBranch => 'Nueva sucursal';
+  String get gitCreateBranch => 'Nueva rama';
 
   @override
-  String get gitBranchName => 'Nombre de la sucursal';
+  String get gitBranchName => 'Nombre de la rama';
 
   @override
   String get gitSwitch => 'Cambiar de rama';
 
   @override
-  String get gitMerge => 'Ramificación de fusión';
+  String get gitMerge => 'Fusionar rama';
 
   @override
   String get gitDeleteBranch => 'Eliminar rama';
@@ -1414,19 +1414,19 @@ class AppLocalizationsEs extends AppLocalizations {
   String get staged => 'Preparados';
 
   @override
-  String get stage => 'Todas las etapas';
+  String get stage => 'Preparar todo';
 
   @override
-  String get unstage => 'Unstage';
+  String get unstage => 'Quitar de preparados';
 
   @override
   String get commit => 'Commit';
 
   @override
-  String get commitMessage => 'Mensaje de confirmación';
+  String get commitMessage => 'Mensaje de commit';
 
   @override
-  String get noChanges => 'No hay cambios que confirmar';
+  String get noChanges => 'No hay cambios para hacer commit';
 
   @override
   String get terminalKeyboard => 'Teclado';
@@ -1785,13 +1785,13 @@ class AppLocalizationsEs extends AppLocalizations {
   String get apiAzureAi => 'Azure AI';
 
   @override
-  String get apiPlugin => 'Complemento';
+  String get apiPlugin => 'Plugin';
 
   @override
-  String get providerNew => 'Nuevo servicio';
+  String get providerNew => 'Nuevo proveedor';
 
   @override
-  String get providerEmpty => 'Sin servicios';
+  String get providerEmpty => 'Sin proveedores';
 
   @override
   String get providerDesktopHint => 'Gestiona los modelos OAuth en Desktop';
@@ -1895,6 +1895,16 @@ class AppLocalizationsEs extends AppLocalizations {
   String get providerDeploymentId => 'Nombre de implementación';
 
   @override
+  String get providerHeaders => 'Encabezados de solicitud personalizados';
+
+  @override
+  String get providerHeadersHint => 'Uno por línea: Nombre: valor';
+
+  @override
+  String get providerHeadersInvalid =>
+      'Cada línea de encabezado necesita un nombre y dos puntos';
+
+  @override
   String get providerEfforts => 'Esfuerzo de razonamiento';
 
   @override
@@ -1920,7 +1930,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get providerDeleteModel => 'Eliminar modelo';
 
   @override
-  String get providerDelete => 'Eliminar servicio';
+  String get providerDelete => 'Eliminar proveedor';
 
   @override
   String get providerNumberInvalid => 'Introduce un número entero positivo';

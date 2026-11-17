@@ -310,7 +310,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationStatsOverview => 'Aperçu général';
 
   @override
-  String get conversationStatsTokenGroup => 'Utilisation des jetons';
+  String get conversationStatsTokenGroup => 'Utilisation des tokens';
 
   @override
   String get conversationStatsCostGroup => 'Coût';
@@ -550,7 +550,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get resourceNoWorkspace =>
-      'Choisir une arborescence de travail sur un hôte connecté';
+      'Choisir un arbre de travail sur un hôte connecté';
 
   @override
   String get resourceRoot => 'Racine';
@@ -1303,7 +1303,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String gitCommitCount(String count) {
-    return 'Valider $count';
+    return 'Commiter $count';
   }
 
   @override
@@ -1323,13 +1323,13 @@ class AppLocalizationsFr extends AppLocalizations {
   }
 
   @override
-  String get gitCommitOptions => 'Options de validation';
+  String get gitCommitOptions => 'Options du commit';
 
   @override
   String get gitSkipHooks => 'Ignorer les hooks';
 
   @override
-  String get gitPushAfterCommit => 'Pousser après validation';
+  String get gitPushAfterCommit => 'Push après le commit';
 
   @override
   String get fileShare => 'Partager';
@@ -1362,7 +1362,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get gitSwitch => 'Changer de branche';
 
   @override
-  String get gitMerge => 'Branche de fusion';
+  String get gitMerge => 'Fusionner la branche';
 
   @override
   String get gitDeleteBranch => 'Supprimer la branche';
@@ -1434,7 +1434,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get commitMessage => 'Message de commit';
 
   @override
-  String get noChanges => 'Aucun changement à valider';
+  String get noChanges => 'Aucune modification à commiter';
 
   @override
   String get terminalKeyboard => 'Clavier';
@@ -1706,7 +1706,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get failureDenied => 'Permission refusée';
 
   @override
-  String get failureUnavailable => 'Hébergeur non connecté';
+  String get failureUnavailable => 'Hôte non connecté';
 
   @override
   String get failureBusy => 'Service occupé; réessayez plus tard';
@@ -1790,13 +1790,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get apiAzureAi => 'Azure AI';
 
   @override
-  String get apiPlugin => 'Plug-in';
+  String get apiPlugin => 'Plugin';
 
   @override
-  String get providerNew => 'Nouveau service';
+  String get providerNew => 'Nouveau fournisseur';
 
   @override
-  String get providerEmpty => 'Aucun service';
+  String get providerEmpty => 'Aucun fournisseur';
 
   @override
   String get providerDesktopHint => 'Gérez les modèles OAuth sur Desktop';
@@ -1900,6 +1900,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get providerDeploymentId => 'Nom du déploiement';
 
   @override
+  String get providerHeaders => 'En-têtes de requête personnalisés';
+
+  @override
+  String get providerHeadersHint => 'Un par ligne : Nom: valeur';
+
+  @override
+  String get providerHeadersInvalid =>
+      'Chaque ligne d\'en-tête doit avoir un nom et deux-points';
+
+  @override
   String get providerEfforts => 'Effort de raisonnement';
 
   @override
@@ -1925,7 +1935,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get providerDeleteModel => 'Supprimer le modèle';
 
   @override
-  String get providerDelete => 'Supprimer le service';
+  String get providerDelete => 'Supprimer le fournisseur';
 
   @override
   String get providerNumberInvalid => 'Saisissez un entier positif';

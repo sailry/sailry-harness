@@ -306,6 +306,19 @@ void main() {
       );
     });
 
+    test('headers read and write as Desktop edits them', () {
+      expect(parseHeaders('X-B: 2\n\n  X-A :1 \n'), {'X-B': '2', 'X-A': '1'});
+      expect(parseHeaders('no colon'), isNull);
+      expect(parseHeaders(': value'), isNull);
+      expect(formatHeaders({'X-B': '2', 'X-A': '1'}), 'X-A: 1\nX-B: 2');
+      expect(
+        setHeaders({
+          'headers': {'X': '1'},
+        }, {}),
+        isEmpty,
+      );
+    });
+
     test('limits reject output above context', () {
       expect(limitsProblem(model('a')), isNull);
       expect(

@@ -17,6 +17,7 @@ Future<void> editText(
   bool optional = false,
   bool secret = false,
   bool numeric = false,
+  bool multiline = false,
   String? hint,
 }) => showAppSheet<void>(
   context,
@@ -29,6 +30,7 @@ Future<void> editText(
     optional: optional,
     secret: secret,
     numeric: numeric,
+    multiline: multiline,
     hint: hint,
   ),
 );
@@ -42,6 +44,7 @@ class _TextEditor extends StatefulWidget {
     required this.optional,
     required this.secret,
     required this.numeric,
+    required this.multiline,
     required this.hint,
   });
   final String title;
@@ -51,6 +54,7 @@ class _TextEditor extends StatefulWidget {
   final bool optional;
   final bool secret;
   final bool numeric;
+  final bool multiline;
   final String? hint;
 
   @override
@@ -98,11 +102,20 @@ class _TextEditorState extends State<_TextEditor> {
           obscureText: _hidden,
           autocorrect: !widget.secret,
           enableSuggestions: !widget.secret,
-          keyboardType: widget.numeric ? TextInputType.number : null,
+          keyboardType: widget.numeric
+              ? TextInputType.number
+              : widget.multiline
+              ? TextInputType.multiline
+              : null,
+          minLines: widget.multiline ? 3 : null,
+          maxLines: widget.multiline ? 6 : 1,
+          style: widget.multiline
+              ? const TextStyle(fontFamily: 'monospace')
+              : null,
           inputFormatters: widget.numeric
               ? [FilteringTextInputFormatter.digitsOnly]
               : null,
-          onSubmitted: (_) => _save(),
+          onSubmitted: widget.multiline ? null : (_) => _save(),
           decoration: InputDecoration(
             labelText: widget.title,
             hintText: widget.hint,

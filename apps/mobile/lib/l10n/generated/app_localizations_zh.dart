@@ -182,7 +182,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationCompacting => '正在压缩上下文';
 
   @override
-  String get conversationWaitingController => '等待主控更新登录';
+  String get conversationWaitingController => '等待控制端更新登录';
 
   @override
   String get conversationCompacted => '上下文已压缩';
@@ -895,7 +895,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get filterProjects => '筛选项目';
 
   @override
-  String get archiveShort => '存档';
+  String get archiveShort => '归档';
 
   @override
   String get archiveTab => '归档';
@@ -916,7 +916,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get restore => '恢复';
 
   @override
-  String get archiveEmpty => '暂无存档';
+  String get archiveEmpty => '暂无归档';
 
   @override
   String get brand => 'Sailry';
@@ -1857,6 +1857,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get providerDeploymentId => '部署名';
 
   @override
+  String get providerHeaders => '自定义请求头';
+
+  @override
+  String get providerHeadersHint => '每行一个，格式为 名称: 值';
+
+  @override
+  String get providerHeadersInvalid => '每行请求头都需要名称和冒号';
+
+  @override
   String get providerEfforts => '思考强度';
 
   @override
@@ -2000,7 +2009,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get connectionRouteP2p => 'P2P';
 
   @override
-  String get connectionRouteRelay => 'Relay';
+  String get connectionRouteRelay => '中继';
 
   @override
   String get connectionRouteUnknown => '—';
@@ -2292,7 +2301,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'Last login: Sun Nov 15 09:00:00 on ttys001';
 
   @override
-  String get personalKvConflict => '个人数据冲突，已保留主控当前值';
+  String get personalKvConflict => '个人数据冲突，已保留控制端当前值';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -2473,7 +2482,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationCompacting => '正在壓縮上下文';
 
   @override
-  String get conversationWaitingController => '等待主控更新登入';
+  String get conversationWaitingController => '等待控制端更新登入';
 
   @override
   String get conversationCompacted => '上下文已壓縮';
@@ -2768,7 +2777,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String fileTrashConfirm(String name) {
-    return '將“$name”移到主機回收站？未儲存的修改也會丟棄';
+    return '將“$name”移到主機垃圾桶？未儲存的修改也會丟棄';
   }
 
   @override
@@ -2883,7 +2892,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get resourceTerminalPaste => '貼上';
 
   @override
-  String get resourceGitNotRepository => '此目錄不是 Git 倉庫';
+  String get resourceGitNotRepository => '此目錄不是 Git 儲存庫';
 
   @override
   String get resourceInvalidPort => '請輸入 1–65535 的埠';
@@ -3186,7 +3195,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get filterProjects => '篩選專案';
 
   @override
-  String get archiveShort => '存檔';
+  String get archiveShort => '歸檔';
 
   @override
   String get archiveTab => '歸檔';
@@ -3207,13 +3216,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get restore => '恢復';
 
   @override
-  String get archiveEmpty => '暫無存檔';
+  String get archiveEmpty => '尚無已歸檔對話';
 
   @override
   String get brand => 'Sailry';
 
   @override
-  String get mobile => '移動工作臺';
+  String get mobile => '行動工作區';
 
   @override
   String get preview => '預覽';
@@ -3522,7 +3531,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get pairInvalid => '請輸入 6 位數字';
 
   @override
-  String get workspace => '工作空間';
+  String get workspace => '工作區';
 
   @override
   String get selectHost => '選擇主機';
@@ -3573,14 +3582,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String gitTrashConfirm(String name) {
-    return '將「$name」移到主機資源回收筒？';
+    return '將「$name」移到主機垃圾桶？';
   }
 
   @override
   String get gitCommitOptions => '提交選項';
 
   @override
-  String get gitSkipHooks => '略過掛鉤';
+  String get gitSkipHooks => '跳過 Hook';
 
   @override
   String get gitPushAfterCommit => '提交後推送';
@@ -3589,7 +3598,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get fileShare => '分享';
 
   @override
-  String get fileTrash => '移到資源回收筒';
+  String get fileTrash => '移到垃圾桶';
 
   @override
   String get gitActions => 'Git 操作';
@@ -3767,7 +3776,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get speechInput => '語音輸入';
 
   @override
-  String get providers => '模型與渠道';
+  String get providers => '模型與供應商';
 
   @override
   String get speech => '語音';
@@ -3954,7 +3963,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get failureUnknown => '結果未確認，請先檢查主機上的狀態';
 
   @override
-  String get failureDenied => '沒有操作許可權';
+  String get failureDenied => '沒有操作權限';
 
   @override
   String get failureUnavailable => '主機未連線';
@@ -4041,10 +4050,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get apiPlugin => '外掛';
 
   @override
-  String get providerNew => '新增服務';
+  String get providerNew => '新增供應商';
 
   @override
-  String get providerEmpty => '尚無模型服務';
+  String get providerEmpty => '尚無供應商';
 
   @override
   String get providerDesktopHint => 'OAuth 模型使用桌面端操作';
@@ -4148,13 +4157,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerDeploymentId => '部署名稱';
 
   @override
+  String get providerHeaders => '自訂請求標頭';
+
+  @override
+  String get providerHeadersHint => '每行一個，格式為 名稱: 值';
+
+  @override
+  String get providerHeadersInvalid => '每行請求標頭都需要名稱和冒號';
+
+  @override
   String get providerEfforts => '思考強度';
 
   @override
   String get providerEffortPlaceholder => '強度或 Token 預算';
 
   @override
-  String get providerEffortInvalid => '思考強度無效，請檢查名稱、重複項和介面支援';
+  String get providerEffortInvalid => '思考強度無效，請檢查名稱、重複項和 API 支援';
 
   @override
   String get providerEffortDefault => '預設強度';
@@ -4172,7 +4190,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get providerDeleteModel => '刪除模型';
 
   @override
-  String get providerDelete => '刪除服務';
+  String get providerDelete => '刪除供應商';
 
   @override
   String get providerNumberInvalid => '請輸入正整數';
@@ -4291,7 +4309,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get connectionRouteP2p => 'P2P';
 
   @override
-  String get connectionRouteRelay => 'Relay';
+  String get connectionRouteRelay => '中繼';
 
   @override
   String get connectionRouteUnknown => '—';
@@ -4405,7 +4423,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get hostTrendWindow => '最近 1 分鐘';
 
   @override
-  String get hostChartStart => '60 秒前';
+  String get hostChartStart => '60s 前';
 
   @override
   String get hostChartNow => '現在';
@@ -4583,5 +4601,5 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
       'Last login: Sun Nov 15 09:00:00 on ttys001';
 
   @override
-  String get personalKvConflict => '個人資料衝突，已保留主控目前的值';
+  String get personalKvConflict => '個人資料衝突，已保留控制端目前的值';
 }

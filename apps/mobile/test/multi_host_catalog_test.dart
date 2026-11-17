@@ -310,7 +310,7 @@ void main() {
     await release(tester, session);
   });
 
-  testWidgets('offline cached tasks and counts follow the selected host', (
+  testWidgets('offline cached tasks and archive follow the selected host', (
     tester,
   ) async {
     final first = source('first', connected: false);
@@ -323,13 +323,15 @@ void main() {
     await tester.pump();
     expect(find.text('first-conversation'), findsOneWidget);
     expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
-    expect(tester.widget<TaskFilters>(find.byType(TaskFilters)).archived, 0);
+    tester.widget<TaskFilters>(find.byType(TaskFilters)).onArchive();
+    await tester.pump();
+    expect(find.text('second-conversation'), findsNothing);
+    await tester.tap(find.text('Back'));
+    await tester.pump();
     session.selectHost(second.id);
     await tester.pump();
     expect(find.text('first-conversation'), findsNothing);
-    final filters = tester.widget<TaskFilters>(find.byType(TaskFilters));
-    expect(filters.archived, 1);
-    filters.onArchive();
+    tester.widget<TaskFilters>(find.byType(TaskFilters)).onArchive();
     await tester.pump();
     expect(find.text('second-conversation'), findsOneWidget);
     expect(find.text('first-conversation'), findsNothing);

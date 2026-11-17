@@ -139,13 +139,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationNew => 'Новый чат';
 
   @override
-  String get conversationNoHost => 'Сначала подключите узел';
+  String get conversationNoHost => 'Сначала подключите хост';
 
   @override
-  String get conversationNoProject => 'Сначала добавьте проект на узле';
+  String get conversationNoProject => 'Сначала добавьте проект на хосте';
 
   @override
-  String get conversationNoModel => 'Сначала настройте модель на узле';
+  String get conversationNoModel => 'Сначала настройте модель на хосте';
 
   @override
   String get conversationNoTasks => 'Еще нет чатов';
@@ -189,8 +189,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationCompacting => 'Сжатие контекста';
 
   @override
-  String get conversationWaitingController =>
-      'Ожидание входа на управляющем устройстве';
+  String get conversationWaitingController => 'Ожидание входа на контроллере';
 
   @override
   String get conversationCompacted => 'Контекст уплотнён';
@@ -306,7 +305,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationStatsOverview => 'Общий обзор';
 
   @override
-  String get conversationStatsTokenGroup => 'Использование токенов';
+  String get conversationStatsTokenGroup => 'Использование Token';
 
   @override
   String get conversationStatsCostGroup => 'Стоимость';
@@ -543,7 +542,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get resourceNoWorkspace =>
-      'Выбор рабочего дерева на подключенном узле';
+      'Выберите рабочее дерево на подключенном хосте';
 
   @override
   String get resourceRoot => 'Корень';
@@ -618,7 +617,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get resourceGitNotRepository =>
-      'Этот каталог не является хранилищем Git';
+      'Этот каталог не является репозиторием Git';
 
   @override
   String get resourceInvalidPort => 'Введите порт из 1–65535';
@@ -1216,7 +1215,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get stoppedStatus => 'Остановлено';
 
   @override
-  String get pair => 'Подключить узел';
+  String get pair => 'Подключить хост';
 
   @override
   String get online => 'В сети';
@@ -1249,7 +1248,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get retry => 'Повторить';
 
   @override
-  String get pairTitle => 'Подключение узла';
+  String get pairTitle => 'Подключение хоста';
 
   @override
   String get pairCode => 'Парный код';
@@ -1316,7 +1315,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitCommitOptions => 'Параметры коммита';
 
   @override
-  String get gitSkipHooks => 'Пропустить хуки';
+  String get gitSkipHooks => 'Пропустить Hooks';
 
   @override
   String get gitPushAfterCommit => 'Отправить после коммита';
@@ -1352,10 +1351,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get gitSwitch => 'Коммутаторная ветка';
 
   @override
-  String get gitMerge => 'Слияние ответвлений';
+  String get gitMerge => 'Слить ветку';
 
   @override
-  String get gitDeleteBranch => 'Исключить ветвь';
+  String get gitDeleteBranch => 'Удалить ветку';
 
   @override
   String get review => 'Проверка';
@@ -1421,10 +1420,10 @@ class AppLocalizationsRu extends AppLocalizations {
   String get commit => 'Коммит';
 
   @override
-  String get commitMessage => 'Сообщение фиксации';
+  String get commitMessage => 'Сообщение коммита';
 
   @override
-  String get noChanges => 'Нет изменений для фиксации';
+  String get noChanges => 'Нет изменений для коммита';
 
   @override
   String get terminalKeyboard => 'Клавиатура';
@@ -1539,13 +1538,13 @@ class AppLocalizationsRu extends AppLocalizations {
   String get required => 'Опишете сначала свою задачу';
 
   @override
-  String get hostConnectPrompt => 'Подключение узла';
+  String get hostConnectPrompt => 'Подключение хоста';
 
   @override
   String get hostDisconnected => 'Хост не в сети';
 
   @override
-  String get hostUpdateRequired => 'Обновите узел для подключения';
+  String get hostUpdateRequired => 'Обновите хост для подключения';
 
   @override
   String get appUpdateRequired => 'Обновите приложение для подключения';
@@ -1591,7 +1590,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get backgroundConnectionActive =>
-      'Обеспечение активных подключений узлов';
+      'Поддержание активных подключений к хостам';
 
   @override
   String get backgroundConnectionFailed =>
@@ -1645,7 +1644,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostRemoveFailed => 'Не удалось удалить хост';
 
   @override
-  String get hostMetricsFailed => 'Не удается прочитать состояние узла';
+  String get hostMetricsFailed => 'Не удается прочитать состояние хоста';
 
   @override
   String get hostProcessesEmpty => 'Отсутствие процессов';
@@ -1672,7 +1671,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostProjectName => 'Название проекта';
 
   @override
-  String get hostProjectPath => 'Путь проекта на узле';
+  String get hostProjectPath => 'Путь проекта на хосте';
 
   @override
   String get hostRefresh => 'Обновить';
@@ -1692,13 +1691,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get failureUnknown =>
-      'Результат не подтвержден; сначала проверьте состояние узла';
+      'Результат не подтвержден; сначала проверьте состояние хоста';
 
   @override
   String get failureDenied => 'Разрешение отказано';
 
   @override
-  String get failureUnavailable => 'Узел не подключен';
+  String get failureUnavailable => 'Хост не подключен';
 
   @override
   String get failureBusy => 'Служба занята; повторите попытку позже';
@@ -1891,10 +1890,20 @@ class AppLocalizationsRu extends AppLocalizations {
   String get providerDeploymentId => 'Имя развертывания';
 
   @override
+  String get providerHeaders => 'Пользовательские заголовки запроса';
+
+  @override
+  String get providerHeadersHint => 'По одному в строке: Имя: значение';
+
+  @override
+  String get providerHeadersInvalid =>
+      'В каждой строке заголовка нужны имя и двоеточие';
+
+  @override
   String get providerEfforts => 'Сила рассуждения';
 
   @override
-  String get providerEffortPlaceholder => 'Сила или бюджет токенов';
+  String get providerEffortPlaceholder => 'Сила или бюджет Token';
 
   @override
   String get providerEffortInvalid =>
@@ -1971,7 +1980,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get usageCostPartial => 'Частично';
 
   @override
-  String get usageTrend => 'Динамика токенов';
+  String get usageTrend => 'Динамика Token';
 
   @override
   String get usageLocalTime => 'Местное время';
@@ -1985,7 +1994,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get usageBreakdown => 'Распределение';
 
   @override
-  String get usageProvider => 'Провайдер';
+  String get usageProvider => 'Поставщик';
 
   @override
   String get usageShowAll => 'Показать все';
@@ -2150,7 +2159,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostTrendWindow => 'Последняя минута';
 
   @override
-  String get hostChartStart => '60 с назад';
+  String get hostChartStart => '60s назад';
 
   @override
   String get hostChartNow => 'Сейчас';

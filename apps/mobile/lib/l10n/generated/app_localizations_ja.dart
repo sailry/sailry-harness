@@ -296,7 +296,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationStatsOverview => '概要';
 
   @override
-  String get conversationStatsTokenGroup => 'トークン使用';
+  String get conversationStatsTokenGroup => 'Token 使用量';
 
   @override
   String get conversationStatsCostGroup => 'コスト';
@@ -544,7 +544,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get resourceReloadConfirm => 'ドラフトを削除して最新のコンテンツを読み込みますか？';
 
   @override
-  String get resourceWorktreeCreate => '新しいワークトリー';
+  String get resourceWorktreeCreate => '新しいワークツリー';
 
   @override
   String get resourceSessionServices => 'チャットサービス';
@@ -778,16 +778,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tool_ssh_transfer => '転送 SSH ファイル';
 
   @override
-  String get tool_list_worktrees => 'ワークトリーのリスト';
+  String get tool_list_worktrees => 'ワークツリーのリスト';
 
   @override
-  String get tool_create_worktree => '新しいワークトリー';
+  String get tool_create_worktree => '新しいワークツリー';
 
   @override
-  String get tool_register_worktree => 'ワークトリーを追加';
+  String get tool_register_worktree => 'ワークツリーを追加';
 
   @override
-  String get tool_remove_worktree => 'ワークトリーを削除';
+  String get tool_remove_worktree => 'ワークツリーを削除';
 
   @override
   String get tool_google_search => 'ウェブ検索';
@@ -877,7 +877,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get unassignedChats => 'チャット';
 
   @override
-  String get allWorktrees => 'すべてのワークトリー';
+  String get allWorktrees => 'すべてのワークツリー';
 
   @override
   String get tasksActive => '進行中';
@@ -898,7 +898,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get filterProjects => 'フィルタプロジェクト';
 
   @override
-  String get archiveShort => 'ファイル';
+  String get archiveShort => 'アーカイブ';
 
   @override
   String get archiveTab => 'アーカイブ';
@@ -1285,14 +1285,14 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String gitTrashConfirm(String name) {
-    return '「$name」をホストのゴミ箱に移動しますか？';
+    return '「$name」をホストのごみ箱に移動しますか？';
   }
 
   @override
   String get gitCommitOptions => 'コミットオプション';
 
   @override
-  String get gitSkipHooks => 'フックをスキップ';
+  String get gitSkipHooks => 'Hook をスキップ';
 
   @override
   String get gitPushAfterCommit => 'コミット後にプッシュ';
@@ -1301,7 +1301,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get fileShare => '共有';
 
   @override
-  String get fileTrash => 'ゴミ箱に移動';
+  String get fileTrash => 'ごみ箱に移動';
 
   @override
   String get gitActions => 'Git アクション';
@@ -1316,19 +1316,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get gitPush => 'プッシュ';
 
   @override
-  String get gitCurrent => '現在の支部';
+  String get gitCurrent => '現在のブランチ';
 
   @override
   String get gitCreateBranch => '新しいブランチ';
 
   @override
-  String get gitBranchName => '支部名';
+  String get gitBranchName => 'ブランチ名';
 
   @override
-  String get gitSwitch => 'スイッチブランチ';
+  String get gitSwitch => 'ブランチを切り替え';
 
   @override
-  String get gitMerge => 'マージブランチ';
+  String get gitMerge => 'ブランチをマージ';
 
   @override
   String get gitDeleteBranch => 'ブランチを削除';
@@ -1337,7 +1337,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get review => 'レビュー';
 
   @override
-  String get selectWorkspace => 'プロジェクトとワークトリー';
+  String get selectWorkspace => 'プロジェクトとワークツリー';
 
   @override
   String get searchFiles => 'ファイルを検索';
@@ -1753,10 +1753,10 @@ class AppLocalizationsJa extends AppLocalizations {
   String get apiPlugin => 'プラグイン';
 
   @override
-  String get providerNew => '新しいサービス';
+  String get providerNew => '新しいプロバイダ';
 
   @override
-  String get providerEmpty => 'モデルサービスはありません';
+  String get providerEmpty => 'プロバイダなし';
 
   @override
   String get providerDesktopHint => 'OAuth モデルはデスクトップで操作します';
@@ -1860,10 +1860,19 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerDeploymentId => 'デプロイメント名';
 
   @override
+  String get providerHeaders => 'カスタムリクエストヘッダー';
+
+  @override
+  String get providerHeadersHint => '1 行に 1 つ、名前: 値';
+
+  @override
+  String get providerHeadersInvalid => '各ヘッダー行には名前とコロンが必要です';
+
+  @override
   String get providerEfforts => '推論の強度';
 
   @override
-  String get providerEffortPlaceholder => '強度またはトークン予算';
+  String get providerEffortPlaceholder => '強度または Token 予算';
 
   @override
   String get providerEffortInvalid => '推論の強度が無効です。名前、重複、API の対応を確認してください';
@@ -1884,7 +1893,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get providerDeleteModel => 'モデルを削除';
 
   @override
-  String get providerDelete => 'サービスを削除';
+  String get providerDelete => 'プロバイダを削除';
 
   @override
   String get providerNumberInvalid => '正の整数を入力してください';
@@ -1938,7 +1947,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get usageCostPartial => '一部';
 
   @override
-  String get usageTrend => 'トークン推移';
+  String get usageTrend => 'Token 推移';
 
   @override
   String get usageLocalTime => '現地時間';
@@ -1952,7 +1961,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get usageBreakdown => '内訳';
 
   @override
-  String get usageProvider => 'プロバイダー';
+  String get usageProvider => 'プロバイダ';
 
   @override
   String get usageShowAll => 'すべて表示';
@@ -2117,7 +2126,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostTrendWindow => '直近 1 分';
 
   @override
-  String get hostChartStart => '60 秒前';
+  String get hostChartStart => '60s 前';
 
   @override
   String get hostChartNow => '現在';

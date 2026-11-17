@@ -89,6 +89,34 @@ Json newProvider({
   'credential': null,
 };
 
+/// Request headers as Desktop edits them: one "Name: value" per line, blank
+/// lines skipped. Null when a line has no name; the Node checks the names and
+/// values it accepts.
+Map<String, String>? parseHeaders(String text) {
+  final headers = <String, String>{};
+  for (final raw in text.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final colon = line.indexOf(':');
+    final name = colon < 0 ? '' : line.substring(0, colon).trim();
+    if (name.isEmpty) return null;
+    headers[name] = line.substring(colon + 1).trim();
+  }
+  return headers;
+}
+
+/// Headers one per line in name order.
+String formatHeaders(Object? headers) {
+  final map = object(headers);
+  final names = map.keys.toList()..sort();
+  return [for (final name in names) '$name: ${map[name]}'].join('\n');
+}
+
+/// The provider with [headers]; none removes the field.
+Json setHeaders(Json provider, Map<String, String> headers) => headers.isEmpty
+    ? ({...provider}..remove('headers'))
+    : {...provider, 'headers': headers};
+
 bool usesKey(Json provider) {
   final authentication = text(provider['authentication']);
   return authentication.isEmpty || authentication == 'api_key';

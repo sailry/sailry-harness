@@ -296,7 +296,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationStatsOverview => '개요';
 
   @override
-  String get conversationStatsTokenGroup => '토큰 사용';
+  String get conversationStatsTokenGroup => 'Token 사용';
 
   @override
   String get conversationStatsCostGroup => '비용';
@@ -596,7 +596,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get resourceTerminalPaste => '붙여넣기';
 
   @override
-  String get resourceGitNotRepository => '이 디렉토리는 Git 저장소가 아닙니다';
+  String get resourceGitNotRepository => '이 디렉터리는 Git 저장소가 아닙니다';
 
   @override
   String get resourceInvalidPort => '1–65535 사이의 포트를 입력합니다';
@@ -821,10 +821,10 @@ class AppLocalizationsKo extends AppLocalizations {
   String get tool_stop_command => '중지 명령';
 
   @override
-  String get tool_load_skill => '기술 로드';
+  String get tool_load_skill => '스킬 로드';
 
   @override
-  String get tool_read_skill_resource => '읽기 기술 자원';
+  String get tool_read_skill_resource => '스킬 자원 읽기';
 
   @override
   String get tool_computer_desktop => '데스크톱 보기';
@@ -926,7 +926,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get brand => 'Sailry';
 
   @override
-  String get mobile => '모바일 워크스페이스';
+  String get mobile => '모바일 작업 공간';
 
   @override
   String get preview => '미리 보기';
@@ -1293,7 +1293,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitCommitOptions => '커밋 옵션';
 
   @override
-  String get gitSkipHooks => '훅 건너뛰기';
+  String get gitSkipHooks => 'Hook 건너뛰기';
 
   @override
   String get gitPushAfterCommit => '커밋 후 푸시';
@@ -1323,7 +1323,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitCreateBranch => '새 브랜치';
 
   @override
-  String get gitBranchName => '분기 이름';
+  String get gitBranchName => '브랜치 이름';
 
   @override
   String get gitSwitch => '브랜치 바꾸기';
@@ -1332,7 +1332,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get gitMerge => '브랜치 병합';
 
   @override
-  String get gitDeleteBranch => '분기 삭제';
+  String get gitDeleteBranch => '브랜치 삭제';
 
   @override
   String get review => '검토';
@@ -1480,7 +1480,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get speechInput => '음성 입력';
 
   @override
-  String get providers => '모델과 제공자';
+  String get providers => '모델과 공급자';
 
   @override
   String get speech => '음성';
@@ -1861,10 +1861,19 @@ class AppLocalizationsKo extends AppLocalizations {
   String get providerDeploymentId => '배포 이름';
 
   @override
+  String get providerHeaders => '사용자 지정 요청 헤더';
+
+  @override
+  String get providerHeadersHint => '한 줄에 하나씩, 이름: 값';
+
+  @override
+  String get providerHeadersInvalid => '각 요청 헤더 줄에는 이름과 콜론이 필요합니다';
+
+  @override
   String get providerEfforts => '추론 강도';
 
   @override
-  String get providerEffortPlaceholder => '강도 또는 토큰 예산';
+  String get providerEffortPlaceholder => '강도 또는 Token 예산';
 
   @override
   String get providerEffortInvalid => '추론 강도가 잘못되었습니다. 이름, 중복 및 API 지원을 확인하세요';
@@ -1939,7 +1948,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get usageCostPartial => '일부';
 
   @override
-  String get usageTrend => '토큰 추이';
+  String get usageTrend => 'Token 추이';
 
   @override
   String get usageLocalTime => '현지 시간';
@@ -1953,7 +1962,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get usageBreakdown => '분포';
 
   @override
-  String get usageProvider => '제공자';
+  String get usageProvider => '공급자';
 
   @override
   String get usageShowAll => '모두 보기';
@@ -2118,7 +2127,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostTrendWindow => '최근 1분';
 
   @override
-  String get hostChartStart => '60초 전';
+  String get hostChartStart => '60s 전';
 
   @override
   String get hostChartNow => '지금';

@@ -109,6 +109,22 @@ class _ConnectionCardState extends State<ConnectionCard> {
         await _save({..._provider, 'endpoint': endpoint}),
   );
 
+  Future<void> _editHeaders() => editText(
+    context,
+    title: context.tr('providerHeaders'),
+    initial: formatHeaders(_provider['headers']),
+    optional: true,
+    multiline: true,
+    hint: context.tr('providerHeadersHint'),
+    check: (value) =>
+        parseHeaders(value) == null ? 'providerHeadersInvalid' : null,
+    onSave: (value) async {
+      final headers = parseHeaders(value)!;
+      return formatHeaders(headers) == formatHeaders(_provider['headers']) ||
+          await _save(setHeaders(_provider, headers));
+    },
+  );
+
   Future<void> _editKey() async {
     final current = _key ?? await _readKey();
     if (current == null || !mounted) return;
@@ -175,6 +191,18 @@ class _ConnectionCardState extends State<ConnectionCard> {
                     icon: const AppIcon('eye', size: 18),
                   )
                 : null,
+          ),
+        // An API-key provider's own request headers; sign-ins keep their
+        // client identity, as on Desktop.
+        if (usesKey(provider))
+          FieldRow(
+            label: context.tr('providerHeaders'),
+            value: object(provider['headers']).isEmpty
+                ? context.tr('providerKeyUnset')
+                : (object(
+                    provider['headers'],
+                  ).keys.toList()..sort()).join(', '),
+            onTap: idle ? _editHeaders : null,
           ),
         SwitchRow(
           label: context.tr('settingsEnabled'),

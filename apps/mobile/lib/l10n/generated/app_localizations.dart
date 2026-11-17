@@ -3714,6 +3714,24 @@ abstract class AppLocalizations {
   /// **'Deployment name'**
   String get providerDeploymentId;
 
+  /// No description provided for @providerHeaders.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom request headers'**
+  String get providerHeaders;
+
+  /// No description provided for @providerHeadersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'One per line: Name: value'**
+  String get providerHeadersHint;
+
+  /// No description provided for @providerHeadersInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Each request header line needs a name and a colon'**
+  String get providerHeadersInvalid;
+
   /// No description provided for @providerEfforts.
   ///
   /// In en, this message translates to:
