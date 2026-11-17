@@ -142,6 +142,13 @@ func prepareDatabaseTest(ctx context.Context, db *sql.Conn, operation DatabaseOp
 	if err != nil {
 		return operation, err
 	}
+	if path := databasePath(input.Profile.Connection); path != "" && input.Profile.Location == nil {
+		if previous == nil || databasePath(previous.Connection) != path || previous.Location == nil {
+			return operation, fault(protocol.ErrorCodeNotConfigured, "database file location requires an owning Node")
+		}
+		location := *previous.Location
+		input.Profile.Location = &location
+	}
 	if err := bindDatabasePath(&input.Profile, node); err != nil {
 		return operation, err
 	}

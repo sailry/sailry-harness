@@ -153,7 +153,18 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if err := bindSshAuthentication(&profile, input.Credential, node); err != nil {
+		credential := input.Credential
+		if credential == nil && previous != nil && previous.Authentication == profile.Authentication {
+			stored, secret, err := readSshRecord(ctx, db, previous.ID, previous.Revision)
+			if err != nil {
+				return protocol.Output{}, nil, err
+			}
+			credential = &secret
+			if profile.AuthenticationNode == nil {
+				profile.AuthenticationNode = stored.AuthenticationNode
+			}
+		}
+		if err := bindSshAuthentication(&profile, credential, node); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		profile.Name = strings.TrimSpace(profile.Name)
@@ -238,7 +249,7 @@ func ExecuteSshCommand(ctx context.Context, db *sql.Conn, command protocol.Comma
 		if err := CheckConfigurationEditable(ctx, db, "ssh_profiles", input.Profile.String()); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		if _, _, err := ReadSsh(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
+		if _, _, err := readSshRecord(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		if _, err := db.ExecContext(ctx, "DELETE FROM ssh_profiles WHERE id=?1", input.Profile.String()); err != nil {
