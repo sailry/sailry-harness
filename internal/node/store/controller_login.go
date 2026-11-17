@@ -157,6 +157,20 @@ func resumeControllerLogin(ctx context.Context, db *sql.Conn, node, caller proto
 	if provider.ID != run.Waiting.Provider || provider.Authentication == protocol.AuthenticationApiKey {
 		return protocol.Output{}, nil, controllerLoginFault("target_changed", protocol.ErrorCodePermissionDenied, "the task's captured authentication target changed")
 	}
+	if run.Waiting.AccountIdentity == "" || run.Waiting.AuthenticationTarget == "" {
+		// A configuration push can enrich the original credential and deliver its
+		// replacement before the waiting step has refreshed its projection.
+		identity, target, err := ProviderRecoveryIdentity(ctx, db, node, provider, input.Previous)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if run.Waiting.AccountIdentity == "" {
+			run.Waiting.AccountIdentity = identity
+		}
+		if run.Waiting.AuthenticationTarget == "" {
+			run.Waiting.AuthenticationTarget = target
+		}
+	}
 	identity, target, err := ProviderRecoveryIdentity(ctx, db, node, provider, input.Replacement)
 	if err != nil {
 		return protocol.Output{}, nil, err

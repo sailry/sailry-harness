@@ -20,10 +20,11 @@ import (
 var configurationFollowers sync.Map
 
 type configurationFollowPeer struct {
-	cancel context.CancelFunc
-	wake   chan struct{}
-	client *client.Client
-	remote *link.Remote
+	cancel         context.CancelFunc
+	wake           chan struct{}
+	reauthenticate chan struct{}
+	client         *client.Client
+	remote         *link.Remote
 }
 type configurationFollowRuntime struct {
 	wake  chan struct{}
@@ -104,6 +105,30 @@ func (node *Node) NotifyConfigurationFollow(changes []protocol.Event) {
 	default:
 	}
 }
+
+// Only an accepted invitation restores authority after a permanent observation
+// failure. Ordinary peer metadata and connection changes do not grant it.
+func (node *Node) reauthenticateConfigurationHost(host protocol.NodeID) {
+	value, ok := configurationFollowers.Load(node)
+	if !ok {
+		return
+	}
+	runtime := value.(*configurationFollowRuntime)
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if peer := runtime.peers[host]; peer != nil {
+		select {
+		case peer.reauthenticate <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func configurationObservationTransient(err error) bool {
+	fault := resourceFault(err)
+	return fault != nil && (fault.Code == protocol.ErrorCodeUnavailable || fault.Code == protocol.ErrorCodeBusy)
+}
+
 func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *configurationFollowRuntime) {
 	peers, err := node.network.Peers(ctx)
 	if err != nil {
@@ -165,7 +190,7 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 		}
 		scoped, cancel := context.WithCancel(ctx)
 		remote := node.network.Remote(address)
-		peer := &configurationFollowPeer{cancel: cancel, wake: make(chan struct{}, 1), remote: remote, client: client.New(remote)}
+		peer := &configurationFollowPeer{cancel: cancel, wake: make(chan struct{}, 1), reauthenticate: make(chan struct{}, 1), remote: remote, client: client.New(remote)}
 		runtime.peers[address.ID] = peer
 		address := address
 		if err := node.tasks.Submit(func(owner context.Context) {
@@ -181,9 +206,13 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 			defer cancelWatch()
 			// Reconnects and explicit retries wake reconciliation without waiting
 			// for another controller edit.
-			if err := observer.Start(scoped); err != nil && scoped.Err() != nil {
+			err := observer.Start(scoped)
+			if scoped.Err() != nil {
 				return
 			}
+			// Start retains an observation owner only after success or a
+			// transient failure. Refresh can also restart a terminated owner.
+			started := err == nil || configurationObservationTransient(err)
 			if err := node.tasks.Submit(func(owner context.Context) {
 				connected := false
 				_ = remote.WatchConnection(scoped, func(info link.ConnectionInfo) {
@@ -203,9 +232,16 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 				select {
 				case <-scoped.Done():
 					return
+				case <-peer.reauthenticate:
+					if started {
+						_ = observer.Refresh(scoped)
+					} else {
+						err = observer.Start(scoped)
+						started = err == nil || configurationObservationTransient(err)
+					}
 				case <-peer.wake:
-					node.reconcileConfigurationHost(scoped, address, true)
 				}
+				node.reconcileConfigurationHost(scoped, address, true)
 			}
 		}); err != nil {
 			cancel()

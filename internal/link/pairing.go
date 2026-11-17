@@ -306,6 +306,9 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if err := link.remember(ctx, ticket.Address); err != nil {
 		return EndpointAddress{}, err
 	}
+	if link.paired != nil {
+		link.paired(ticket.Address.ID)
+	}
 	return ticket.Address, nil
 }
 

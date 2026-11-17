@@ -38,12 +38,13 @@ func (client *Client) Start(ctx context.Context) error {
 	scoped, release := client.interruptible(ctx)
 	watch, err := client.openObservation(scoped)
 	release()
-	if err != nil && transient(err) && ctx.Err() == nil && client.closing.Err() == nil {
+	if err != nil {
 		client.mu.Lock()
 		client.connected, client.err = false, err
 		client.mu.Unlock()
-		watchContext, cancel := context.WithCancel(client.context)
-		watch = &observation{context: watchContext, cancel: cancel, done: make(chan struct{})}
+	}
+	if err != nil && transient(err) && ctx.Err() == nil && client.closing.Err() == nil {
+		watch = client.retryObservation()
 	}
 	if watch == nil {
 		client.stop()
@@ -72,7 +73,30 @@ func (client *Client) Refresh(ctx context.Context) error {
 	defer release()
 	subscription, err := client.transport.Subscribe(scoped, protocol.Topic{Kind: "node"})
 	if err != nil {
+		stopped := client.watch == nil
+		if !stopped {
+			select {
+			case <-client.watch.done:
+				stopped = true
+			default:
+			}
+		}
+		// Explicit recovery must survive a temporary connection failure even
+		// when the previous owner ended on a permanent authorization fault.
+		// A live owner keeps its subscription and its own recovery policy.
+		retrying := stopped && transient(err) && ctx.Err() == nil && client.closing.Err() == nil
+		if retrying {
+			client.stopObservation()
+			client.mu.Lock()
+			client.connected, client.err = false, err
+			client.mu.Unlock()
+			client.watch = client.retryObservation()
+			go client.observe(client.watch)
+		}
 		client.lifecycle.Unlock()
+		if retrying {
+			client.changed()
+		}
 		return err
 	}
 	client.stopObservation()
@@ -84,8 +108,7 @@ func (client *Client) Refresh(ctx context.Context) error {
 		if transient(err) || ctx.Err() != nil {
 			// The old owner has joined, so a new one retries as after any
 			// transient loss; only a permanent failure ends observation.
-			watchContext, cancel := context.WithCancel(client.context)
-			watch = &observation{context: watchContext, cancel: cancel, done: make(chan struct{})}
+			watch = client.retryObservation()
 		}
 	}
 	if watch != nil {
@@ -95,6 +118,12 @@ func (client *Client) Refresh(ctx context.Context) error {
 	client.lifecycle.Unlock()
 	client.changed()
 	return err
+}
+
+// retryObservation reuses the single owner's reconnect loop. lifecycle is held.
+func (client *Client) retryObservation() *observation {
+	watchContext, cancel := context.WithCancel(client.context)
+	return &observation{context: watchContext, cancel: cancel, done: make(chan struct{})}
 }
 
 // interruptible bounds I/O performed under lifecycle by Close as well as by its

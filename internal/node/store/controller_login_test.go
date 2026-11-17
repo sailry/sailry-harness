@@ -301,6 +301,93 @@ func TestControllerLoginWaitEnrichesLegacyIdentityWithoutChangingAttempt(t *test
 	}
 }
 
+func TestControllerLoginRecoveryEnrichesWaitBeforeScheduledRefresh(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"both missing", "account missing", "target missing", "preserve account", "preserve target", "identity unavailable"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newControllerLoginFixture(t)
+			identity, target := f.old.AccountIdentity, f.old.AuthenticationTarget
+			var waiting protocol.ConversationRunWaiting
+			err := f.storage.Node.Write(f.ctx, func(db *sql.Conn) error {
+				run, err := ReadAgentRun(f.ctx, db, f.turn)
+				if err != nil {
+					return err
+				}
+				switch name {
+				case "account missing", "preserve target":
+					run.Waiting.AccountIdentity = ""
+				case "target missing", "preserve account":
+					run.Waiting.AuthenticationTarget = ""
+				default:
+					run.Waiting.AccountIdentity, run.Waiting.AuthenticationTarget = "", ""
+				}
+				waiting = *run.Waiting
+				if err := putAgentRun(f.ctx, db, run); err != nil {
+					return err
+				}
+				f.old.AccountIdentity, f.old.AuthenticationTarget = "", ""
+				f.old.Revision++
+				return f.publish(t, db, false)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.old.AccountIdentity, f.old.AuthenticationTarget = identity, target
+			f.old.Revision++
+			expected := ""
+			switch name {
+			case "preserve account":
+				f.old.AccountIdentity, f.next.AccountIdentity = "another-account", "another-account"
+				expected = "account_mismatch"
+			case "preserve target":
+				f.old.AuthenticationTarget, f.next.AuthenticationTarget = "another-target", "another-target"
+				expected = "target_changed"
+			case "identity unavailable":
+				f.old.AccountIdentity = ""
+				expected = "identity_unavailable"
+			}
+			// Both credentials arrive together; recovery wins the race against
+			// the scheduled SetRunCredentialWait projection refresh.
+			err = f.storage.Node.Write(f.ctx, func(db *sql.Conn) error {
+				return f.publish(t, db, true)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = f.storage.Node.Write(f.ctx, func(db *sql.Conn) error {
+				_, _, err := ExecuteAgentCommand(f.ctx, db, f.node, f.storage.Profile, f.controller, f.request(), time.Now())
+				if expected == "" && err != nil || controllerLoginReason(err) != expected {
+					return fmt.Errorf("recovery returned %v, expected %q", err, expected)
+				}
+				run, err := ReadAgentRun(f.ctx, db, f.turn)
+				if err != nil {
+					return err
+				}
+				want := f.replacement
+				if expected == "" {
+					if run.Waiting != nil || run.Status != protocol.ConversationStatusRunning {
+						return fmt.Errorf("enriched recovery did not resume the running task")
+					}
+				} else {
+					want = f.previous
+					if !reflect.DeepEqual(run.Waiting, &waiting) {
+						return fmt.Errorf("rejected recovery changed the captured waiting identity")
+					}
+				}
+				effective, err := EffectiveTurnCredential(f.ctx, db, f.turn, f.previous)
+				if err != nil || effective != want {
+					return fmt.Errorf("effective credential after recovery = %v, want %v: %v", effective, want, err)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t *testing.T) {
 	t.Parallel()
 	_, node, storage := schemaFixture(t)

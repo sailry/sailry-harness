@@ -175,6 +175,7 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 		Identity: node.profile.Identity,
 		Scope:    scope, Handler: node,
 		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID(), owner: node}, Name: name,
+		Paired: node.reauthenticateConfigurationHost,
 	})
 	if err == nil {
 		err = node.StartConfigurationFollow()

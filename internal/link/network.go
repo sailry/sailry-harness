@@ -37,6 +37,8 @@ type EndpointOptions struct {
 	Peers           PeerStore
 	SoftwareVersion string
 	Name            string
+	// Paired runs after an outbound invitation has been accepted and saved.
+	Paired func(protocol.NodeID)
 }
 
 type PeerInfo struct {
@@ -76,6 +78,7 @@ type Link struct {
 	selection       *protocol.NetworkSelection
 	relayURLs       []string
 	peerChanged     chan struct{}
+	paired          func(protocol.NodeID)
 	offerMu         sync.Mutex
 	offer           *pairingOffer
 	work            chan func()
@@ -153,7 +156,7 @@ func bindConfigured(ctx context.Context, options EndpointOptions, config iroh.Co
 	lifetime, cancel := context.WithCancel(ctx)
 	link := &Link{
 		nodeID: options.Identity.ID(), endpoint: endpoint, ctx: lifetime, cancel: cancel, handler: options.Handler,
-		store: options.Peers, softwareVersion: options.SoftwareVersion,
+		store: options.Peers, softwareVersion: options.SoftwareVersion, paired: options.Paired,
 		trusted: map[protocol.NodeID]bool{}, directions: map[protocol.NodeID]PeerDirection{}, addresses: map[protocol.NodeID]EndpointAddress{},
 		outgoing: map[protocol.NodeID]*outgoingSlot{}, incoming: map[*iroh.Connection]protocol.NodeID{},
 		work: make(chan func(), maxTasks), now: time.Now, timeout: context.WithTimeout,

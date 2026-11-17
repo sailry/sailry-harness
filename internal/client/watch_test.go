@@ -18,10 +18,11 @@ import (
 )
 
 type clientSubscription struct {
-	updates chan protocol.Update
-	closed  chan struct{}
-	once    sync.Once
-	failure error
+	updates  chan protocol.Update
+	failures chan error
+	closed   chan struct{}
+	once     sync.Once
+	failure  error
 }
 
 func testSubscription(initial protocol.Snapshot) *clientSubscription {
@@ -37,6 +38,8 @@ func (subscription *clientSubscription) Next(ctx context.Context) (protocol.Upda
 	select {
 	case update := <-subscription.updates:
 		return update, nil
+	case err := <-subscription.failures:
+		return protocol.Update{}, err
 	case <-ctx.Done():
 		return protocol.Update{}, ctx.Err()
 	case <-subscription.closed:
@@ -296,8 +299,14 @@ func TestRecoverAfterReset(t *testing.T) {
 			}
 			time.Sleep(time.Minute)
 			synctest.Wait()
-			if controller.Connected() || controller.Snapshot().Cursor != 0 {
+			if controller.Connected() || controller.Snapshot().Cursor != 0 || faultCode(controller.Err()) != protocol.ErrorCodePermissionDenied {
 				t.Fatal("permanent first failure was retried")
+			}
+			if err := controller.Start(t.Context()); err != nil || !controller.Connected() || controller.Err() != nil || controller.Snapshot().Cursor != 2 {
+				t.Fatalf("explicit start after restored access = %v, connected %v, error %v", err, controller.Connected(), controller.Err())
+			}
+			if err := controller.Close(); err != nil {
+				t.Fatal(err)
 			}
 			// Closing during the wait between attempts ends the retry.
 			transport = &clientTransport{}
@@ -531,4 +540,61 @@ func (transport *clientTransport) Open(ctx context.Context, id protocol.StreamID
 		return transport.open(ctx, id)
 	}
 	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
+}
+
+func TestRefreshRetriesAfterObservationEnded(t *testing.T) {
+	for _, failedRefresh := range []bool{false, true} {
+		name := "ended_stream"
+		if failedRefresh {
+			name = "rejected_refresh"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				first := testSubscription(projectionSnapshot(1))
+				first.failures = make(chan error, 1)
+				transport := &clientTransport{subscriptions: []*clientSubscription{first}}
+				controller := New(transport)
+				defer controller.Close()
+				if err := controller.Start(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				denied := fault(protocol.ErrorCodePermissionDenied, "peer revoked access")
+				if failedRefresh {
+					transport.mu.Lock()
+					transport.subscriptions = []*clientSubscription{{closed: make(chan struct{}), failure: denied}}
+					transport.mu.Unlock()
+					if err := controller.Refresh(t.Context()); faultCode(err) != protocol.ErrorCodePermissionDenied {
+						t.Fatal(err)
+					}
+				} else {
+					first.failures <- denied
+				}
+				synctest.Wait()
+				if controller.Connected() || faultCode(controller.Err()) != protocol.ErrorCodePermissionDenied {
+					t.Fatalf("observation did not terminate on revocation: %v", controller.Err())
+				}
+				// Authorization was restored, but this explicit recovery cannot
+				// open a stream yet. No connection event or caller retry follows.
+				if err := controller.Refresh(t.Context()); faultCode(err) != protocol.ErrorCodeUnavailable {
+					t.Fatalf("offline recovery = %v", err)
+				}
+				transport.mu.Lock()
+				transport.subscriptions = []*clientSubscription{testSubscription(projectionSnapshot(2)), testSubscription(projectionSnapshot(9))}
+				transport.mu.Unlock()
+				time.Sleep(250 * time.Millisecond)
+				synctest.Wait()
+				if !controller.Connected() || controller.Err() != nil || controller.Snapshot().Cursor != 2 {
+					t.Fatalf("explicit recovery was lost: connected %v, error %v, cursor %d", controller.Connected(), controller.Err(), controller.Snapshot().Cursor)
+				}
+				time.Sleep(time.Minute)
+				synctest.Wait()
+				transport.mu.Lock()
+				unused := len(transport.subscriptions)
+				transport.mu.Unlock()
+				if unused != 1 {
+					t.Fatalf("recovery created more than one observation owner: %d subscriptions left", unused)
+				}
+			})
+		})
+	}
 }
