@@ -208,7 +208,10 @@ Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy
 provider-sharing metadata remains readable but grants no cross-user access.
 Already admitted tasks retain their provider, credential identity and package
-capture when the source changes.
+capture when the source changes. Execution resolves that captured credential
+even after the channel selects a newer key. Plugin-backed authentication checks
+the current installation's availability while loading its captured package and
+settings; changing a package does not replace an existing account's binding.
 
 Sign-in and renewal run on the controller. Execution hosts receive static keys
 and the current runtime credentials needed for their captured operations, with
@@ -714,8 +717,10 @@ directories. A missing workspace does not hide the project selection entry.
 Mobile preserves the covered task catalog during navigation, resumes preview
 reads after the return transition, and bounds list previews without changing
 canonical history.
-Mobile directory reads run outside the pairing-change queue, and reads spanning
-a pairing change cannot replace the current directory or close newer Clients.
+Mobile registers saved direct hosts from local pairing metadata before completing
+startup, then refreshes remote directories in the background. Directory reads
+run outside the pairing-change queue, and reads spanning a pairing change cannot
+replace the current directory or close newer Clients.
 
 ## Pairing and operations
 

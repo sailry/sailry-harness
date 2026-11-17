@@ -3,7 +3,7 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## 0.2.0-alpha.2 — Unreleased
+## [0.2.0-alpha.2](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.2) — 2026-11-17
 
 ### Changes
 
@@ -31,13 +31,19 @@ released only after its entry is here.
 - Classify paired mobile shells and controller Nodes from authenticated peer
   metadata, preserving stored history and direct trust while retiring identity
   merge, sponsorship and imported-directory access paths.
+- Load saved Mobile hosts before refreshing remote directories, so an offline
+  host does not block startup or access to other hosts.
+- Preserve captured API keys for remote conversations after a channel changes
+  its current key, while continuing to enforce revocation and expiry.
+- Keep captured model authentication available after a plugin update or an
+  unrelated settings change without bypassing disabled or removed packages.
 
 ### Compatibility
 
 Desktop, Host and Mobile use Link protocol 2 and must be upgraded together.
 The plugin manifest and extension remain version 1; packages using the new
-multi-host methods require Sailry `0.2.0-alpha.2`. Existing Node storage and history
-stay in place.
+multi-host methods require Sailry `0.2.0-alpha.2`. Data migration from
+`0.2.0-alpha.1` is not supported.
 
 ## [0.2.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0-alpha.1) — 2026-11-16
 
