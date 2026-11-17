@@ -173,7 +173,9 @@ func DecodeAccount(secret *protocol.Secret, authentication protocol.Authenticati
 		return grant, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
 	}
 	if grant.RenewalPending || grant.RenewalUncertain {
-		return grant, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "authorization refresh did not complete; sign in again"}
+		if expiry := grant.Expiry(); expiry == nil || *expiry <= uint64(time.Now().UnixMilli()) {
+			return grant, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "authorization refresh did not complete; sign in again"}
+		}
 	}
 	if grant.RenewalRejected {
 		return grant, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "authorization refresh was rejected; sign in again"}

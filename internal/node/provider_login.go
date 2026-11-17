@@ -411,6 +411,9 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 			return nil, ctx.Err()
 		case <-previous.done:
 			if previous.err != nil {
+				if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
+					return secret, nil
+				}
 				return nil, previous.err
 			}
 		}
@@ -446,6 +449,9 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 		return nil, ctx.Err()
 	case <-renewal.done:
 		if renewal.err != nil {
+			if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
+				return secret, nil
+			}
 			return nil, renewal.err
 		}
 	}
@@ -535,13 +541,13 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 	if err != nil {
 		var fault *protocol.Fault
 		copilot := renewal.Grant.Kind == protocol.AuthenticationCopilot
-		plugin := (renewal.Grant.Kind == protocol.AuthenticationPlugin || copilot) && errors.As(err, &fault)
+		rejected := errors.As(err, &fault) && fault.Code == protocol.ErrorCodePermissionDenied
 		switch {
-		case plugin && fault.Code == protocol.ErrorCodeUnavailable && !transport.sent.Load():
+		case !transport.sent.Load():
 			// No request left this Node, so the grant was not consumed. It returns
 			// without its uncertain marker and a later use renews it again.
 			grant, failure = renewal.Grant, err
-		case plugin && fault.Code == protocol.ErrorCodePermissionDenied && transport.sent.Load():
+		case rejected:
 			// The provider refused the grant. It stays stored and marked, so later
 			// uses ask for a new sign-in instead of renewing again.
 			grant, failure = renewal.Grant, err

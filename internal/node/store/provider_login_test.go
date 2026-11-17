@@ -80,6 +80,23 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		if err != nil || storedGrant.RenewalAt() == nil {
 			return fmt.Errorf("login did not preserve its issue and refresh times: %v", err)
 		}
+		// A legacy account must renew even when no local model use drives it.
+		storedGrant.IssuedAtMs = nil
+		body, err := json.Marshal(storedGrant)
+		if err != nil {
+			return err
+		}
+		secret := protocol.NewSecret(string(body))
+		entry := current.Authorizations[current.Provider.Credential.ID]
+		entry.Key = &secret
+		current.Authorizations[current.Provider.Credential.ID] = entry
+		if err := saveProviderConfiguration(ctx, db, *current); err != nil {
+			return err
+		}
+		candidates, err := ReadCredentialRenewals(ctx, db, node)
+		if err != nil || len(candidates) != 1 || candidates[0].DueMs != *storedGrant.RenewalAt() {
+			return fmt.Errorf("legacy account disappeared from controller renewals: %+v, %v", candidates, err)
+		}
 		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
 		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
 		if err != nil || renewal == nil {
@@ -87,6 +104,23 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		}
 		if _, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt); err == nil {
 			return fmt.Errorf("pending rotating renewal was replayed")
+		}
+		changes, err = CompleteProviderRenewal(ctx, db, node, *renewal, renewal.Grant)
+		if err != nil || len(changes) != 0 {
+			return fmt.Errorf("undelivered renewal changed its public version: %v", err)
+		}
+		restored, err := currentProvider(ctx, db, provider.ID, nil)
+		if err != nil {
+			return err
+		}
+		restoredEntry := restored.Authorizations[current.Provider.Credential.ID]
+		restoredGrant, err := providers.DecodeAccount(restoredEntry.Key, authentication)
+		if err != nil || restoredEntry.Revision != entry.Revision || restoredGrant.IssuedAtMs != nil {
+			return fmt.Errorf("failed renewal invented an issue time or revision: %v", err)
+		}
+		renewal, err = BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
+		if err != nil || renewal == nil {
+			return fmt.Errorf("undelivered renewal could not be retried: %v", err)
 		}
 		grant.Access, grant.Refresh, grant.ExpiresAtMs = "rotated-access", "rotated-refresh", uint64(time.Now().Add(time.Hour).UnixMilli())
 		changes, err = CompleteProviderRenewal(ctx, db, node, *renewal, grant)

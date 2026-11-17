@@ -439,17 +439,27 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	if !current.Enabled || current.Login != nil || current.AuthRevision != source.record.AuthRevision || current.Grant == nil {
 		return nil, connectorUnavailable()
 	}
-	if current.Grant.Extra["renewal_pending"] == "true" {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"}
-	}
 	if current.GrantRevision != source.record.GrantRevision {
 		if err := json.Unmarshal([]byte(current.Grant.Extra["mcp_oauth"]), &source.value); err != nil {
 			return nil, connectorUnavailable()
 		}
 	}
 	source.record = current
+	if current.Grant.Extra["renewal_rejected"] == "true" {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
+	}
+	if current.Grant.Extra["renewal_pending"] == "true" || current.Grant.Extra["renewal_uncertain"] == "true" {
+		_, err := connectorRetainedAccess(current.Grant, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"})
+		if err == nil {
+			return &source.value.Token, nil
+		}
+		return nil, err
+	}
 	if due := store.ConnectorRenewalAt(source.record); source.value.Token.Valid() && (due == nil || *due > uint64(time.Now().UnixMilli())) {
 		return &source.value.Token, nil
+	}
+	if source.value.Token.RefreshToken == "" {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization cannot be refreshed"}
 	}
 	previous := *source.record.Grant
 	pending := previous
@@ -468,7 +478,11 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	client := *source.node.auth.client
 	client.Transport = transport
 	ctx := context.WithValue(source.ctx, oauth2.HTTPClient, &client)
-	token, err := source.value.Config.TokenSource(ctx, &source.value.Token).Token()
+	// Config.TokenSource reuses a valid access token. Expire a copy to force
+	// the scheduled exchange without changing the retained token's real expiry.
+	refresh := source.value.Token
+	refresh.Expiry = time.Unix(1, 0)
+	token, err := source.value.Config.TokenSource(ctx, &refresh).Token()
 	if err != nil {
 		// The service's own refusal of the renewal credential is definite.
 		var refusal *oauth2.RetrieveError
@@ -480,6 +494,10 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 			err = authorization.Granted(refusal.Response.StatusCode, document)
 		}
 		source.record, err = source.node.connectorRenewalFailed(source.record, previous, transport.sent.Load(), err, source.ctx)
+		source.node.connectorCredentialCommitted(source.ctx, source.record)
+		if _, retained := connectorRetainedAccess(source.record.Grant, err); retained == nil {
+			return &source.value.Token, nil
+		}
 		return nil, err
 	}
 	issued := connectorOAuthIssued(&source.value.Config, token)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -211,6 +212,11 @@ func runtimeCredentialReady(value protocol.RuntimeCredential) error {
 		return fault(protocol.ErrorCodeExpired, "controller runtime credential expired; waiting for the same account")
 	}
 	return nil
+}
+
+func expiredRuntimeCredential(err error) bool {
+	var failure *protocol.Fault
+	return errors.As(err, &failure) && failure.Code == protocol.ErrorCodeExpired
 }
 
 func ReadRuntimeProviderCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {

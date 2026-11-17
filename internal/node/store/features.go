@@ -85,7 +85,11 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 			return fault(protocol.ErrorCodeNotFound, "credential not found on the execution Node")
 		}
 		if _, err := resolveProviderKey(ctx, db, node, *ref, config.Provider); err != nil {
-			return err
+			// A captured runtime account can wait at its next unsent model
+			// step; expiry does not invalidate the selected configuration.
+			if stored.Provider == nil || stored.Provider.Authentication == protocol.AuthenticationApiKey || !expiredRuntimeCredential(err) {
+				return err
+			}
 		}
 	}
 	stored, err := readProviderConfiguration(ctx, db, config.Provider)

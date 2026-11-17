@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/node/authorization"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -24,7 +25,7 @@ import (
 // endpoint that cannot be reached, refuses, answers nothing definite, and
 // finally issues a new grant.
 func TestConnectorRenewal(t *testing.T) {
-	node := nodeFixture(t)
+	node := systemNodeFixture(t, Options{DispatchClock: clockwork.NewFakeClockAt(time.Unix(0, 0)), MCP: fixtureMCPOptions()})
 	ctx := t.Context()
 	source := t.TempDir()
 	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(`{"$schema":"`+plugins.ManifestSchema+`","name":"renewal-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":[],"connectors":[{"id":"account","display":{"label":"Fixture account"},"accounts":"single","origins":["https://fixture.test"],"auth":[{"kind":"oauth2","flow":"pkce","authorize":"https://fixture.test/authorize","token":"https://fixture.test/token","client":{"fields":{"client_id":"client_id"}},"scopes":["read"],"refresh":true}],"fields":[{"name":"client_id","title":"Client ID","secret":false}],"inject":[{"origin":"https://fixture.test","header":"Authorization","prefix":"Bearer "}]}]}}}`), 0o600); err != nil {
@@ -108,6 +109,17 @@ func TestConnectorRenewal(t *testing.T) {
 	}
 
 	t.Run("an unreachable service can be tried again", func(t *testing.T) {
+		events := func() int {
+			t.Helper()
+			var count int
+			if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				return db.QueryRowContext(ctx, "SELECT count(*) FROM events WHERE json_extract(body,'$.kind')='connections_changed'").Scan(&count)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			return count
+		}
+		before := events()
 		answer = func(*http.Request) (*http.Response, error) {
 			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("no route to host")}
 		}
@@ -115,6 +127,9 @@ func TestConnectorRenewal(t *testing.T) {
 		renew(t, protocol.ErrorCodeUnavailable, false)
 		if requests != 2 {
 			t.Fatalf("an unreachable service was asked %d times in two uses", requests)
+		}
+		if count := events() - before; count != 2 {
+			t.Fatalf("two failed renewals published %d connection changes", count)
 		}
 	})
 	t.Run("a cancelled waiter does not wait for the renewal owner", func(t *testing.T) {
@@ -162,8 +177,21 @@ func TestConnectorRenewal(t *testing.T) {
 	t.Run("a refusal asks for a new sign-in without the uncertain marker", func(t *testing.T) {
 		answer = respond(http.StatusBadRequest, `{"error":"invalid_grant"}`)
 		renew(t, protocol.ErrorCodeExpired, false)
+		before := requests
+		renew(t, protocol.ErrorCodeExpired, false)
+		if requests != before {
+			t.Fatal("a refused renewal was retried without another sign-in")
+		}
 	})
 	t.Run("a renewed grant replaces the expired one", func(t *testing.T) {
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			_, err := store.SaveConnectorGrant(ctx, db, stored(t), authorization.Issued{
+				Access: "access-one", Refresh: &refresh, ExpiresAtMs: &expired, Extra: map[string]string{},
+			})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
 		answer = respond(http.StatusOK, `{"access_token":"access-two","refresh_token":"refresh-two","expires_in":3600}`)
 		if token := renew(t, "", false); token == nil || token.Expose() != "access-two" {
 			t.Fatalf("renewed token: %v", token)
@@ -230,6 +258,80 @@ func TestConnectorRenewal(t *testing.T) {
 					t.Fatalf("renewed token: %+v", token)
 				}
 			})
+		}
+	})
+	t.Run("MCP renews at the scheduled point while access is still valid", func(t *testing.T) {
+		endpoint, credential = "https://fixture.test/mcp-token", "refresh_token=refresh-mcp"
+		config := oauth2.Config{ClientID: "fixture-client", Endpoint: oauth2.Endpoint{TokenURL: endpoint, AuthStyle: oauth2.AuthStyleInParams}}
+		var saved store.ConnectorRecord
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			issued := connectorOAuthIssued(&config, &oauth2.Token{AccessToken: "access-before-due", RefreshToken: "refresh-mcp", Expiry: time.Now().Add(time.Hour)})
+			past := uint64(time.Now().Add(-time.Hour).UnixMilli())
+			issued.IssuedAtMs = &past
+			var err error
+			saved, err = store.SaveConnectorGrant(ctx, db, stored(t), issued)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		source, err := node.connectorMCPSource(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := requests
+		answer = func(*http.Request) (*http.Response, error) {
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("offline")}
+		}
+		token, err := source.Token()
+		if err != nil || token == nil || token.AccessToken != "access-before-due" || requests != before+1 {
+			t.Fatalf("early failure discarded valid access or skipped refresh: %v", err)
+		}
+		if current := stored(t); current.Grant.IssuedAtMs == nil || *current.Grant.IssuedAtMs != *saved.Grant.IssuedAtMs || *current.Grant.ExpiresAtMs != *saved.Grant.ExpiresAtMs {
+			t.Fatal("failed renewal changed the issued lifetime")
+		}
+		answer = respond(http.StatusOK, `{"access_token":"access-renewed-early","token_type":"Bearer","refresh_token":"refresh-next","expires_in":3600}`)
+		token, err = source.Token()
+		if err != nil || token == nil || token.AccessToken != "access-renewed-early" || requests != before+2 {
+			t.Fatalf("proactive MCP exchange did not reach the service: %v", err)
+		}
+		if _, err := source.Token(); err != nil || requests != before+2 {
+			t.Fatalf("fresh MCP token was exchanged again: %v", err)
+		}
+	})
+	t.Run("the controller retries a legacy grant without executor traffic", func(t *testing.T) {
+		endpoint, credential = "https://fixture.test/token", "refresh_token=refresh-one"
+		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+			_, err := store.SaveConnectorGrant(ctx, db, stored(t), authorization.Issued{
+				Access: "legacy-expired", Refresh: &refresh, ExpiresAtMs: &expired, Extra: map[string]string{},
+			})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		attempts := make(chan struct{}, 4)
+		answer = func(request *http.Request) (*http.Response, error) {
+			attempts <- struct{}{}
+			return nil, &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("offline")}
+		}
+		clock := clockwork.NewFakeClockAt(time.Now())
+		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		finished := make(chan struct{})
+		go func() {
+			defer close(finished)
+			node.serveCredentialRenewals(bounded, clock)
+		}()
+		defer func() { cancel(); <-finished }()
+		for range 2 {
+			select {
+			case <-attempts:
+			case <-bounded.Done():
+				t.Fatal("controller never retried its unchanged legacy credential")
+			}
+			if err := clock.BlockUntilContext(bounded, 1); err != nil {
+				t.Fatal(err)
+			}
+			clock.Advance(time.Minute)
 		}
 	})
 }

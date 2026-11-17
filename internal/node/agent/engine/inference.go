@@ -29,8 +29,9 @@ type streamOutput struct {
 	limited  bool
 }
 
-// credential resolves an account credential for one model call, as the source
-// does per request. The Node renews it only near expiry; an API key is fixed.
+// credential resolves the captured account before each model call. The
+// controller owns renewal; an executor waits for its same-account replacement
+// after expiry without repeating completed tools. An API key is fixed.
 func (r *Runtime) credential(x *execution, binding model.Binding) (model.Binding, error) {
 	if r.authorizeProvider == nil || binding.Provider.Authentication == protocol.AuthenticationApiKey {
 		return binding, nil

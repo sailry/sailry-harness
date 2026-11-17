@@ -152,7 +152,11 @@ func cachedForwardProvider(ctx context.Context, db *sql.Conn, node protocol.Node
 	}
 	if provider.Credential != nil {
 		if _, err := ReadRuntimeProviderCredential(ctx, db, node, provider, *provider.Credential); err != nil {
-			return provider, err
+			// Expiry is recoverable at the next unsent model step. Identity,
+			// revocation and missing-cache faults still reject the capture.
+			if provider.Authentication == protocol.AuthenticationApiKey || !expiredRuntimeCredential(err) {
+				return provider, err
+			}
 		}
 	}
 	return provider, nil

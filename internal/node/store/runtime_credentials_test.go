@@ -144,3 +144,70 @@ func TestRuntimeCredentialStatesAndConnectorRefreshTime(t *testing.T) {
 		t.Fatal("nonrenewable connector was scheduled")
 	}
 }
+
+func TestForwardedSessionAdmitsExpiredSameAccountCapture(t *testing.T) {
+	t.Parallel()
+	storage, node, controller, ctx := controllerCacheFixture(t)
+	profile := t.TempDir()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		provider := providerFixture()
+		provider.Revision, provider.Authentication = 1, protocol.AuthenticationClaudeOAuth
+		provider.Api, provider.Endpoint = protocol.ConversationModelApiAnthropic, "https://api.anthropic.com"
+		reference := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
+		provider.Credential = &reference
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "providers", Revision: 1,
+			Records: []protocol.ConfigurationFollowRecord{followRecord(t, provider.ID.String(), provider.Revision, provider, nil)},
+		}); err != nil {
+			return err
+		}
+		expired := uint64(1)
+		runtime := protocol.RuntimeCredential{
+			Controller: controller, Kind: "provider", ID: reference.ID.String(), Generation: reference.ID.String(),
+			Revision: 1, State: "ready", Provider: &provider.ID, Authentication: provider.Authentication,
+			Endpoint: provider.Endpoint, Access: protocol.NewSecret("expired-runtime"), ExpiresAtMs: &expired,
+		}
+		bundle := protocol.DefaultSessionImport()
+		bundle.Source, bundle.Provider = controller, provider
+		bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = provider.ID, "fixture", &reference
+		bundle.Roles.Execution = protocol.ConversationExecutionModel
+		for _, fixture := range []struct {
+			name, state, generation string
+			code                    protocol.ErrorCode
+		}{
+			{"expired same account", "ready", reference.ID.String(), ""},
+			{"revoked account", "revoked", reference.ID.String(), protocol.ErrorCodeNotConfigured},
+			{"changed account", "ready", protocol.NewCredentialID().String(), protocol.ErrorCodePermissionDenied},
+		} {
+			runtime.State, runtime.Generation = fixture.state, fixture.generation
+			if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+				Source: controller, Category: "runtime_credentials", Revision: runtime.Revision,
+				Records: []protocol.ConfigurationFollowRecord{followRecord(t, runtime.CacheID(), runtime.Revision, runtime, nil)},
+			}); err != nil {
+				return err
+			}
+			output, _, err := importSession(ctx, db, node, controller, profile, bundle)
+			if fixture.code != "" {
+				if !providerFixtureFault(err, fixture.code) {
+					return fmt.Errorf("%s admission: %v", fixture.name, err)
+				}
+			} else {
+				if err != nil {
+					return fmt.Errorf("same-account expiry rejected session admission: %w", err)
+				}
+				session, ok := output.Data.(protocol.Session)
+				if !ok || session.Config.Credential == nil || *session.Config.Credential != reference {
+					return fmt.Errorf("admission replaced the captured account")
+				}
+				if _, err := ReadRuntimeProviderCredential(ctx, db, node, provider, reference); !providerFixtureFault(err, protocol.ErrorCodeExpired) {
+					return fmt.Errorf("admission made expired access usable: %v", err)
+				}
+			}
+			runtime.Revision++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

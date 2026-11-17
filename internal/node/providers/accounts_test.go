@@ -12,6 +12,31 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestUncertainRenewalPreservesIssuedAccessUntilExpiry(t *testing.T) {
+	t.Parallel()
+	for _, pending := range []bool{false, true} {
+		grant := AccountGrant{Kind: protocol.AuthenticationClaudeOAuth, Access: "still-valid", RenewalPending: pending, RenewalUncertain: !pending,
+			ExpiresAtMs: uint64(time.Now().Add(time.Hour).UnixMilli())}
+		decode := func() error {
+			body, err := json.Marshal(grant)
+			if err != nil {
+				return err
+			}
+			secret := protocol.NewSecret(string(body))
+			_, err = DecodeAccount(&secret, grant.Kind)
+			return err
+		}
+		if err := decode(); err != nil {
+			t.Fatalf("early renewal invalidated existing access: %v", err)
+		}
+		grant.ExpiresAtMs = 1
+		var failure *protocol.Fault
+		if err := decode(); !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("unsettled expired renewal was accepted: %v", err)
+		}
+	}
+}
+
 func TestAccountCatalogAndAuthorization(t *testing.T) {
 	t.Parallel()
 	t.Run("request identities and destination confinement", func(t *testing.T) {

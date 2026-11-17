@@ -23,9 +23,14 @@ func (node *Node) startCredentialRenewals() {
 }
 
 func (node *Node) serveCredentialRenewals(ctx context.Context, clock clockwork.Clock) {
-	// A failed proactive attempt is retried by normal use or a newer persisted
-	// grant. A due timestamp alone must not consume a rotating token again.
-	attempted := map[string]uint64{}
+	// Persisted pending, uncertain and rejected grants are excluded by the
+	// store. Other due grants can retry after a connection failure, even when
+	// no local model request arrives to drive renewal.
+	type attempt struct {
+		due   uint64
+		after time.Time
+	}
+	attempted := map[string]attempt{}
 	for ctx.Err() == nil {
 		node.auth.mu.Lock()
 		changed, closed := node.auth.changed, node.auth.closed
@@ -41,29 +46,32 @@ func (node *Node) serveCredentialRenewals(ctx context.Context, clock clockwork.C
 		})
 		var next *time.Time
 		pending := false
-		if err == nil {
+		if err != nil {
+			retry := clock.Now().Add(time.Minute)
+			next = &retry
+		} else {
 			for _, candidate := range candidates {
 				key := candidate.User.ID.String() + ":provider:" + candidate.Credential.ID.String()
 				if candidate.Connection != nil {
 					key = candidate.User.ID.String() + ":connector:" + candidate.Connection.ID.String() + ":" + strconv.FormatUint(candidate.Connection.AuthRevision, 10)
 				}
-				if due, ok := attempted[key]; ok && due == candidate.DueMs {
-					continue
-				}
 				due := time.UnixMilli(int64(candidate.DueMs))
+				if previous, ok := attempted[key]; ok && previous.due == candidate.DueMs && previous.after.After(due) {
+					due = previous.after
+				}
 				if due.After(clock.Now()) {
 					if next == nil || due.Before(*next) {
 						next = &due
 					}
 					continue
 				}
-				attempted[key] = candidate.DueMs
 				owner := store.WithUser(ctx, candidate.User)
 				if candidate.Provider != nil {
 					_, _ = node.providerAuthorization(owner, *candidate.Provider, candidate.Credential)
 				} else if candidate.Connection != nil {
 					_, _ = node.connectorAccess(owner, *candidate.Connection, candidate.Declaration)
 				}
+				attempted[key] = attempt{due: candidate.DueMs, after: clock.Now().Add(time.Minute)}
 				pending = true
 			}
 		}

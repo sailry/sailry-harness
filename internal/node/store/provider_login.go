@@ -332,6 +332,9 @@ func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeI
 	if err != nil {
 		return nil, err
 	}
+	if grant.RenewalPending || grant.RenewalUncertain {
+		return nil, fault(protocol.ErrorCodeOutcomeUnknown, "provider renewal is unresolved; sign in again after expiry")
+	}
 	capture, err := captureProviderLogin(ctx, db, provider, protocol.NewRequestID())
 	if err != nil {
 		return nil, err
@@ -392,24 +395,32 @@ func CompleteProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.No
 		return nil, fault(protocol.ErrorCodeRevisionConflict, "provider authorization changed during renewal")
 	}
 	grant.RenewalPending = false
+	changed := !reflect.DeepEqual(grant, renewal.Grant)
 	if grant.Record == nil && (grant.Access != renewal.Grant.Access || grant.ExpiresAtMs != renewal.Grant.ExpiresAtMs) {
 		issued := uint64(time.Now().UnixMilli())
 		grant.IssuedAtMs = &issued
 	}
-	stampProviderGrant(&grant, uint64(time.Now().UnixMilli()))
+	if changed && !grant.RenewalRejected {
+		stampProviderGrant(&grant, uint64(time.Now().UnixMilli()))
+	}
 	body, err := json.Marshal(grant)
 	if err != nil {
 		return nil, err
 	}
 	secret := protocol.NewSecret(string(body))
 	current.Key, current.ExpiresAtMs = &secret, grant.Expiry()
-	current.Revision, err = nextRevision(current.Revision)
-	if err != nil {
-		return nil, err
+	if changed {
+		current.Revision, err = nextRevision(current.Revision)
+		if err != nil {
+			return nil, err
+		}
 	}
 	saved.Authorizations[renewal.Credential] = current
 	if err := saveProviderConfiguration(ctx, db, *saved); err != nil {
 		return nil, err
+	}
+	if !changed {
+		return nil, nil
 	}
 	events := []protocol.Event{{Kind: "credential_changed", Data: protocol.EventCredentialChangedPayload{Credential: protocol.CredentialRef{Node: node, ID: renewal.Credential}, Revision: current.Revision}}}
 	quotaChanges, err := ReconcileProviderQuotas(ctx, db, node)

@@ -106,8 +106,11 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	if record.Grant == nil {
 		return nil, connectorUnavailable()
 	}
-	if record.Grant.Extra["renewal_pending"] == "true" {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"}
+	if record.Grant.Extra["renewal_pending"] == "true" || record.Grant.Extra["renewal_uncertain"] == "true" {
+		return connectorRetainedAccess(record.Grant, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal is uncertain; connect again"})
+	}
+	if record.Grant.Extra["renewal_rejected"] == "true" {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
 	}
 	due := store.ConnectorRenewalAt(record)
 	if due == nil && record.Grant.ExpiresAtMs != nil && *record.Grant.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
@@ -126,6 +129,10 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		// No exchange is sent, so the grant keeps no uncertain marker.
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization cannot be refreshed"}
 	}
+	lifetime, err := node.pluginOwnerContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	previous := record
 	pending := *record.Grant
 	pending.Extra = maps.Clone(pending.Extra)
@@ -143,10 +150,6 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		return nil, err
 	}
 	defer func() { node.connectorCredentialCommitted(owner, record) }()
-	lifetime, err := node.pluginOwnerContext(ctx)
-	if err != nil {
-		return nil, err
-	}
 	operation, cancel := context.WithTimeout(lifetime, authorization.Deadline)
 	defer cancel()
 	transport := &renewalTransport{base: node.auth.client.Transport}
@@ -165,8 +168,8 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 			issued, err = authorization.ParseIssued(document, declarationAuth.Refresh.Token, uint64(time.Now().UnixMilli()), previous.Grant)
 		}
 		if err != nil {
-			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
-			return nil, err
+			record, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
+			return connectorRetainedAccess(record.Grant, err)
 		}
 	} else {
 		result, err := authorization.Run(operation, authorization.Input{Declaration: declarationAuth, Fields: fields, Client: &client})
@@ -174,8 +177,8 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 			err = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "connector authorization returned no grant"}
 		}
 		if err != nil {
-			_, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
-			return nil, err
+			record, err = node.connectorRenewalFailed(record, *previous.Grant, transport.sent.Load(), err, ctx)
+			return connectorRetainedAccess(record.Grant, err)
 		}
 		issued = *result.Issued
 	}
@@ -191,6 +194,18 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 	node.authChanged()
 	token := protocol.NewSecret(issued.Access)
 	return &token, nil
+}
+
+// A failed early renewal does not shorten a previously issued access token.
+// Definite refusal remains an error, and an unknown expiry proves no validity.
+func connectorRetainedAccess(grant *authorization.Issued, cause error) (*protocol.Secret, error) {
+	var failure *protocol.Fault
+	if grant != nil && grant.ExpiresAtMs != nil && *grant.ExpiresAtMs > uint64(time.Now().UnixMilli()) &&
+		errors.As(cause, &failure) && (failure.Code == protocol.ErrorCodeUnavailable || failure.Code == protocol.ErrorCodeOutcomeUnknown) {
+		token := protocol.NewSecret(grant.Access)
+		return &token, nil
+	}
+	return nil, cause
 }
 
 // connectorRenewalFailed settles a renewal that issued nothing. The grant
@@ -216,7 +231,6 @@ func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous 
 				record, err = store.SaveConnectorGrant(context.WithoutCancel(ctx), db, record, uncertain)
 				return err
 			})
-			node.connectorCredentialCommitted(ctx, record)
 		}
 		return record, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "connector renewal did not complete; connect again"}
 	}
@@ -238,7 +252,6 @@ func (node *Node) connectorRenewalFailed(record store.ConnectorRecord, previous 
 		return record, err
 	}
 	record = restored
-	node.connectorCredentialCommitted(ctx, record)
 	if refused {
 		return record, &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "connector authorization was refused; connect again"}
 	}
