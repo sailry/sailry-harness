@@ -2,12 +2,15 @@
 # Exercise the real lane script with synthetic package graphs and Go test lists.
 set -euo pipefail
 
-script=$(cd "$(dirname "$0")" && pwd)/test.sh
+source=$(cd "$(dirname "$0")" && pwd)
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/sailry-ci-lanes-XXXXXX")
 trap 'rm -rf -- "$fixture"' EXIT
 export SAILRY_CI_FIXTURE=$fixture
 mkdir "$fixture/bin"
 mkdir "$fixture/source"
+mkdir "$fixture/scripts"
+cp "$source/test.sh" "$source/test-costs.tsv" "$source/platform-tests.tsv" "$fixture/scripts/"
+script=$fixture/scripts/test.sh
 export PATH="$fixture/bin:$PATH"
 
 module=example.test/sailry
@@ -79,7 +82,7 @@ check_case() {
   printf '%s\n' "$changed" > "$fixture/changed"
   : > "$fixture/calls"
   : > "$fixture/builds"
-  lanes=(packages shell-0 shell-1 shell-2)
+  lanes=(linux-0 linux-1 linux-2 linux-3)
   [ -z "${SAILRY_CI_PLATFORM:-}" ] || lanes=(platform)
   for lane in "${lanes[@]}"; do
     mkdir "$directory/$lane"
@@ -92,25 +95,13 @@ check_case() {
   # Comparing multisets proves every expected parent runs exactly once.
   awk -F '\t' '
     $3 == "all" {
-      if ($1 != "packages" && $1 != "platform") exit 1
+      if ($1 !~ /^linux-[0123]$/ && $1 != "platform") exit 1
       print $2 "\tall"; next
     }
     {
-      if (($1 !~ /^shell-[012]$/ && $1 != "platform") || substr($3, 1, 2) != "^(" || substr($3, length($3)-1) != ")$") exit 1
+      if (($1 !~ /^linux-[0123]$/ && $1 != "platform") || substr($3, 1, 2) != "^(" || substr($3, length($3)-1) != ")$") exit 1
       count = split(substr($3, 3, length($3)-4), names, /\|/)
-      if ($1 != "platform") { packages[$2] = 1; counts[$2, $1] += count }
       for (i = 1; i <= count; i++) print $2 "\t" names[i]
-    }
-    END {
-      for (package in packages) {
-        low = high = counts[package, "shell-0"]
-        for (i = 1; i < 3; i++) {
-          n = counts[package, "shell-" i]
-          if (n < low) low = n
-          if (n > high) high = n
-        }
-        if (high - low > 1) exit 1
-      }
     }
   ' "$fixture/calls" | sort > "$directory/actual"
   : > "$directory/expected"
@@ -127,6 +118,7 @@ check_case() {
     esac
   done | sort > "$directory/expected"
   diff -u "$directory/expected" "$directory/actual"
+  cp "$fixture/calls" "$directory/calls"
   if [ -n "${SAILRY_CI_PLATFORM:-}" ]; then
     test "$(cat "$fixture/builds")" = "$SAILRY_CI_PLATFORM"
   else
@@ -139,7 +131,66 @@ check_case live-only pull_request internal/desktop/live/testdata/input.json "$li
 check_case shell-only pull_request internal/desktop/shell/header.go "$i18n" "$shell"
 check_case dependency pull_request internal/client/commands.go "$backend" "$i18n" "$live" "$shell"
 check_case workflow pull_request .github/scripts/test.sh "$backend" "$i18n" "$live" "$shell"
+check_case action pull_request .github/actions/go-cache/action.yml "$backend" "$i18n" "$live" "$shell"
 check_case unrelated pull_request README.md
+
+# Duration placement must balance cost rather than an equal number of names.
+# All other fixture parents use the 1s default, so the optimum is 12/12/11/11.
+cat > "$fixture/scripts/test-costs.tsv" <<'COSTS'
+internal/client	*	12
+internal/desktop/i18n	*	8
+internal/desktop/live	TestLiveOne	10
+internal/desktop/shell	TestShellOne	6
+COSTS
+check_case balanced push '' "$backend" "$i18n" "$live" "$shell"
+routing_plan() {
+  awk -F '\t' '
+    $3 == "all" { print $2 "\t*\t" $1; next }
+    {
+      count = split(substr($3, 3, length($3)-4), names, /\|/)
+      for (i = 1; i <= count; i++) print $2 "\t" names[i] "\t" $1
+    }
+  ' "$1" | sort
+}
+routing_plan "$fixture/balanced/calls" > "$fixture/balanced/plan"
+awk -F '\t' -v module="$module" '
+  FILENAME == ARGV[1] { costs[$1, $2] = $3; next }
+  {
+    package = substr($1, length(module) + 2)
+    key = package SUBSEP $2
+    cost = key in costs ? costs[key] : ($2 == "*" ? 2 : 1)
+    loads[$3] += cost; counts[$3]++
+  }
+  END {
+    low = high = loads["linux-0"]
+    fewest = most = counts["linux-0"]
+    for (i = 1; i < 4; i++) {
+      lane = "linux-" i
+      if (loads[lane] < low) low = loads[lane]
+      if (loads[lane] > high) high = loads[lane]
+      if (counts[lane] < fewest) fewest = counts[lane]
+      if (counts[lane] > most) most = counts[lane]
+    }
+    if (low != 11 || high != 12 || most - fewest < 2) exit 1
+  }
+' "$fixture/scripts/test-costs.tsv" "$fixture/balanced/plan"
+
+# Enumeration order must not change any unit's runner, including equal weights.
+sort -r "$fixture/packages" -o "$fixture/packages"
+sort -r "$fixture/live.list" -o "$fixture/live.list"
+sort -r "$fixture/shell.list" -o "$fixture/shell.list"
+check_case reordered push '' "$backend" "$i18n" "$live" "$shell"
+routing_plan "$fixture/reordered/calls" > "$fixture/reordered/plan"
+diff -u "$fixture/balanced/plan" "$fixture/reordered/plan"
+
+# Package and parent discovery is open: no duration hint is needed to run new units.
+new_package=$module/internal/new-package
+printf '%s\n' "$new_package" >> "$fixture/packages"
+printf '%s.test %s\n' "$new_package" "$new_package" >> "$fixture/deps"
+printf '%s\n' TestNewParent ExampleNewParent FuzzNewParent >> "$fixture/live.names"
+cp "$fixture/live.names" "$fixture/live.list"
+check_case new-units push '' "$backend" "$i18n" "$live" "$shell" "$new_package"
+check_case new-package-pr pull_request internal/new-package/value.go "$i18n" "$new_package"
 
 # Fewer parents than lanes leave a lane empty, without an unfiltered test run.
 printf '%s\n' TestOnlyParent > "$fixture/live.names"
@@ -150,7 +201,7 @@ for failure in list test; do
   directory=$fixture/failure-$failure
   mkdir "$directory"
   status=0
-  RUNNER_TEMP=$directory GITHUB_EVENT_NAME=push SAILRY_CI_FAILURE=$failure bash "$script" shell-0 > "$directory/output" 2>&1 || status=$?
+  RUNNER_TEMP=$directory GITHUB_EVENT_NAME=push SAILRY_CI_LANE=linux-0 SAILRY_CI_FAILURE=$failure bash "$script" linux-0 > "$directory/output" 2>&1 || status=$?
   case "$failure" in list) expected=31 ;; test) expected=37 ;; esac
   test "$status" -eq "$expected" || { cat "$directory/output" >&2; echo "$failure failure returned $status, expected $expected" >&2; exit 1; }
 done

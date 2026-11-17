@@ -5,7 +5,7 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 
 lane=${1:?A test lane is required}
 case "$lane" in
-  packages|shell-0|shell-1|shell-2|platform) ;;
+  linux-0|linux-1|linux-2|linux-3|platform) ;;
   *) echo "Unknown test lane: $lane" >&2; exit 1 ;;
 esac
 
@@ -13,7 +13,7 @@ go list ./... > "$RUNNER_TEMP/packages.txt"
 cp "$RUNNER_TEMP/packages.txt" "$RUNNER_TEMP/affected.txt"
 if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
   changed=$(git diff --name-only HEAD^1 HEAD)
-  if ! grep -Eq '^(go\.(mod|sum)$|\.github/(workflows/ci\.yml$|scripts/))' <<< "$changed"; then
+  if ! grep -Eq '^(go\.(mod|sum)$|\.github/(workflows/ci\.yml$|scripts/|actions/))' <<< "$changed"; then
     module=$(go list -m)
     go list -test -f '{{.ImportPath}}{{range .Deps}} {{.}}{{end}}' ./... > "$RUNNER_TEMP/deps.txt"
     # Embedded resources and testdata belong to their nearest Go package.
@@ -107,38 +107,73 @@ if [ "$lane" = platform ]; then
   exit 0
 fi
 
-packages=()
+module=$(go list -m)
+units=$RUNNER_TEMP/test-units.tsv
+: > "$units"
 ui_packages=()
 while IFS= read -r package; do
   [ -n "$package" ] || continue
   case "$package" in
-    */internal/desktop/live|*/internal/desktop/shell) ui_packages+=("$package") ;;
-    *) packages+=("$package") ;;
+    */internal/desktop/live|*/internal/desktop/shell)
+      ui_packages+=("$package")
+      list="$RUNNER_TEMP/${package##*/}-tests.txt"
+      go test -list . "$package" > "$list"
+      awk -v package="$package" '/^(Test|Example|Fuzz)[^[:space:]]*$/ { print package "\t" $0 }' "$list" >> "$units"
+      ;;
+    *) printf '%s\t*\n' "$package" >> "$units" ;;
   esac
 done < "$RUNNER_TEMP/affected.txt"
 
-# Rasterizers already use each runner's CPUs. Independent lanes provide
-# parallelism without making package binaries compete on one small runner.
-if [ "$lane" = packages ]; then
-  if [ "${#packages[@]}" -gt 0 ]; then
-    go test -p 1 -timeout 20m "${packages[@]}"
-  else
-    echo 'No affected Go packages in this lane'
-  fi
-elif [ "${#ui_packages[@]}" -gt 0 ]; then
+# Duration hints affect placement, never discovery. Whole packages remain
+# indivisible; UI parents carry all their subtests. New units use defaults.
+costs=$(cd "$(dirname "$0")" && pwd)/test-costs.tsv
+awk -F '\t' -v module="$module" '
+  FILENAME == ARGV[1] {
+    if ($0 !~ /^#/ && NF == 3) costs[$1, $2] = $3
+    next
+  }
+  {
+    path = $1 == module ? "." : substr($1, length(module) + 2)
+    key = path SUBSEP $2
+    cost = key in costs ? costs[key] : ($2 == "*" ? 2 : 1)
+    print cost "\t" $1 "\t" $2
+  }
+' "$costs" "$units" | LC_ALL=C sort -t $'\t' -k1,1nr -k2,2 -k3,3 > "$RUNNER_TEMP/weighted-tests.tsv"
+
+# Stable longest-first placement keeps a slow package from sharing a runner
+# with the slowest UI parents. Equal loads choose the lowest lane number.
+awk -F '\t' '
+  {
+    lane = 0
+    for (i = 1; i < 4; i++) if (load[i] + 0 < load[lane] + 0) lane = i
+    print lane "\t" $2 "\t" $3 "\t" $1
+    load[lane] += $1
+  }
+' "$RUNNER_TEMP/weighted-tests.tsv" > "$RUNNER_TEMP/test-plan.tsv"
+
+batch=${lane#linux-}
+awk -F '\t' -v lane="$batch" '
+  $1 == lane { count++; cost += $4 }
+  END { printf "Linux lane %d: %d units, estimated %.1fs\n", lane, count, cost }
+' "$RUNNER_TEMP/test-plan.tsv"
+packages=()
+while IFS= read -r package; do
+  [ -z "$package" ] || packages+=("$package")
+done < <(awk -F '\t' -v lane="$batch" '$1 == lane && $3 == "*" { print $2 }' "$RUNNER_TEMP/test-plan.tsv")
+
+# Rasterizers already use each runner's CPUs. Lanes provide parallelism
+# without making package binaries compete on one small runner.
+if [ "${#packages[@]}" -gt 0 ]; then
+  go test -p 1 -timeout 20m "${packages[@]}"
+fi
+if [ "${#ui_packages[@]}" -gt 0 ]; then
   for package in "${ui_packages[@]}"; do
-    list="$RUNNER_TEMP/${package##*/}-tests.txt"
-    go test -list . "$package" > "$list"
-    pattern=$(awk -v batch="${lane#shell-}" '
-      /^(Test|Example|Fuzz)/ {
-        if (count++ % 3 == batch) { printf "%s%s", separator, $0; separator = "|" }
-      }
+    pattern=$(awk -F '\t' -v lane="$batch" -v package="$package" '
+      $1 == lane && $2 == package { printf "%s%s", separator, $3; separator = "|" }
       END { print "" }
-    ' "$list")
+    ' "$RUNNER_TEMP/test-plan.tsv")
     if [ -n "$pattern" ]; then
       go test -p 1 -timeout 20m "$package" -run "^($pattern)$"
     fi
   done
-else
-  echo 'No affected UI tests'
 fi

@@ -1,0 +1,33 @@
+# Advisory wall-second estimates, not a test allowlist.
+# Package times: Linux CI run 44089080790, 2026-11-17; Node uses the same
+# day's passing macOS run because the Linux failure included cleanup delays.
+# UI parents: that macOS run, scaled to Linux lane totals (live 1.6, shell 3.35).
+# Missing package/parent entries use 2s/1s so new units always participate.
+internal/node	*	174
+internal/desktop/composer	*	91
+internal/desktop/kit	*	74
+internal/node/store	*	72
+internal/node/knowledge/service	*	54
+internal/node/agent/engine	*	46
+internal/desktop/conversation	*	44
+internal/desktop/settings	*	27
+internal/desktop/plugins	*	27
+internal/desktop/picker	*	18
+internal/desktop/kit/crychic	*	16
+internal/desktop/acceptance	*	10
+internal/node/backup	*	6
+internal/desktop/fileview	*	5
+internal/desktop/live	TestDemoMode	171
+internal/desktop/live	TestComposerSendRouting	69
+internal/desktop/live	TestPanelProjection	41
+internal/desktop/shell	TestProjectMenu	196
+internal/desktop/shell	TestComposerGuidesRunningTurn	160
+internal/desktop/shell	TestDemoActions	105
+internal/desktop/shell	TestClosePrompt	84
+internal/desktop/shell	TestModelPickerAndEffort	81
+internal/desktop/shell	TestPaneDrags	73
+internal/desktop/shell	TestProjectEditorAndRemoval	63
+internal/desktop/shell	TestTooltips	55
+internal/desktop/shell	TestActivityStrip	53
+internal/desktop/shell	TestSidebarSessions	47
+internal/desktop/shell	TestHeaderClearsTrafficLights	41
