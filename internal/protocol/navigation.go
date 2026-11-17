@@ -14,7 +14,8 @@ import (
 //go:embed icon_names.txt
 var iconNames string
 
-var navigationIcons = strings.Split(strings.TrimSpace(iconNames), "\n")
+// Git can check embedded text catalogs out with CRLF on Windows.
+var navigationIcons = strings.Fields(iconNames)
 
 // phosphorIconNames are the names of the Phosphor fill icons the desktop
 // embeds (internal/desktop/icons/phosphor): one name a line, sorted.
@@ -22,7 +23,7 @@ var navigationIcons = strings.Split(strings.TrimSpace(iconNames), "\n")
 //go:embed phosphor_icon_names.txt
 var phosphorIconNames string
 
-var phosphorIcons = strings.Split(strings.TrimSpace(phosphorIconNames), "\n")
+var phosphorIcons = strings.Fields(phosphorIconNames)
 
 func (navigation PluginDesktopNavigation) Valid() bool {
 	label := func(value string) bool {

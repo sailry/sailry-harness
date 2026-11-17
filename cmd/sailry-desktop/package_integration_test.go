@@ -5,22 +5,47 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/localmodels/decision"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
+	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/computer"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/speech"
 	"github.com/sailry/sailry-harness/internal/speech/capture"
 	"github.com/sailry/sailry-harness/internal/turso"
 )
+
+func TestPackagedColdStartup(t *testing.T) {
+	if os.Getenv("SAILRY_PACKAGE_PROBE") != "1" {
+		t.Skip("set SAILRY_PACKAGE_PROBE=1 and run beside the packaged executable")
+	}
+	profile := filepath.Join(t.TempDir(), "profile")
+	options := node.Options{MCP: &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+		return nil, errors.New("fixture MCP servers are unavailable")
+	}}}
+	for _, phase := range []string{"first launch", "reopen"} {
+		t.Run(phase, func(t *testing.T) {
+			owner, err := node.StartWithOptions(t.Context(), profile, options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := owner.Stop(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 // TestPackagedNativeLayout runs the production loaders from inside a
 // packaged application: compile this test with `go test -c -tags

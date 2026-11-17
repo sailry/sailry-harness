@@ -1,9 +1,34 @@
 package protocol
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestEmbeddedNavigationIconCatalogs(t *testing.T) {
+	t.Parallel()
+	for _, catalog := range []struct {
+		prefix string
+		names  []string
+	}{
+		{"reicon:", navigationIcons},
+		{"phosphor:", phosphorIcons},
+	} {
+		if len(catalog.names) == 0 || !slices.IsSorted(catalog.names) {
+			t.Fatalf("invalid embedded icon catalog: %s", catalog.prefix)
+		}
+		for _, name := range catalog.names {
+			if strings.ContainsAny(name, " \t\r\n") {
+				t.Fatalf("icon catalog retained line whitespace: %q", name)
+			}
+			icon := PluginDesktopIcon{Kind: "Name", Data: catalog.prefix + name}
+			if !icon.Valid() {
+				t.Fatalf("embedded icon was rejected: %s%s", catalog.prefix, name)
+			}
+		}
+	}
+}
 
 func TestNavigationValidation(t *testing.T) {
 	t.Parallel()
