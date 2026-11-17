@@ -26,6 +26,9 @@ func (r *Runtime) installGitPlugin(repository, revision, selectedPath string, do
 		if err == nil && (!valid || out.Kind != "plugin_source") {
 			err = errors.New("unexpected plugin source response")
 		}
+		if err == nil {
+			err = ensureDesktopPackage(selection.Info)
+		}
 		r.enqueue(func(c *ui.Context) {
 			if err == nil {
 				err = ctx.Err()
@@ -76,7 +79,25 @@ func (r *Runtime) uploadPackage(ctx context.Context, data []byte) (protocol.Plug
 func (r *Runtime) installLocalPlugin(selectedPath, workingDirectory string, done func(bool)) {
 	if !filepath.IsAbs(selectedPath) && workingDirectory == "" {
 		if entry, exists := r.packages.catalog[selectedPath]; exists && entry.Bundled {
-			r.packageCommand(protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: selectedPath, ExpectedRevision: r.packages.infos[selectedPath].Summary.Revision}}, func(_ protocol.Output, ok bool) { done(ok) })
+			revision := r.packages.infos[selectedPath].Summary.Revision
+			r.async(func() {
+				selection, err := r.inspectOfficialPackage(entry.ID, entry.Version)
+				if err == nil {
+					err = ensureDesktopPackage(selection.Info)
+				}
+				r.enqueue(func(c *ui.Context) {
+					if err != nil {
+						r.packageReport(c, err)
+						done(false)
+						return
+					}
+					mode := protocol.PluginInstallModeInstall
+					if revision != 0 {
+						mode = protocol.PluginInstallModeSwitch
+					}
+					r.packageCommand(protocol.Command{Kind: "install_catalog_plugin", Data: protocol.CommandInstallCatalogPluginPayload{Selection: selection, ExpectedRevision: revision, Mode: mode}}, func(_ protocol.Output, ok bool) { done(ok) })
+				})
+			})
 			return
 		}
 	}
@@ -138,6 +159,14 @@ func (r *Runtime) localPackage(selectedPath, workingDirectory string) (localPack
 // installPackageUpload installs an uploaded package and remembers the local
 // directory it came from, which a later update check reads again.
 func (r *Runtime) installPackageUpload(local localPackage, done func(bool)) {
+	if err := ensureDesktopPackage(local.info); err != nil {
+		r.async(func() { r.cancelAttachmentStream(local.stream) })
+		r.enqueue(func(c *ui.Context) {
+			r.packageReport(c, err)
+			done(false)
+		})
+		return
+	}
 	name := local.info.Summary.Name
 	r.packageCommand(protocol.Command{Kind: "install_plugin_upload", Data: protocol.CommandInstallPluginUploadPayload{Stream: local.stream, Source: local.source, Name: name, ExpectedRevision: r.packages.infos[name].Summary.Revision}}, func(out protocol.Output, ok bool) {
 		if installed, valid := detail[protocol.PluginInfo](out.Data); ok && valid && local.directory != "" {

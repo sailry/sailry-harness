@@ -71,7 +71,7 @@ func includeInstalledPackageVersion(row *viewmodel.Package) {
 }
 
 func packageUpdateAvailable(report protocol.PluginUpdatesReport) bool {
-	return report.Available != nil && report.Blocked == nil && !report.Current.Pinned
+	return report.Available != nil && report.Available.Kind == "package" && report.Blocked == nil && !report.Current.Pinned
 }
 
 func applyPackageUpdate(row *viewmodel.Package, info protocol.PluginInfo, report protocol.PluginUpdatesReport, locale string) {
@@ -94,14 +94,6 @@ func applyPackageUpdate(row *viewmodel.Package, info protocol.PluginInfo, report
 				required, unsupported := packageCompatibility(candidate.Summary.Compatibility)
 				row.Versions = append([]viewmodel.PackageVersion{{Version: row.Latest, Notes: row.Notes, Compatible: candidate.Summary.Compatibility.Kind == "compatible", Requires: required, Unsupported: unsupported}}, row.Versions...)
 			}
-		}
-	case "official":
-		if candidate, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid && candidate.CompatibleVersion != nil {
-			row.Latest = candidate.CompatibleVersion.Version
-			row.Notes = packageReleaseNotes(candidate.CompatibleVersion.ReleaseNotes, locale)
-			row.UpdateAvailable = true
-			row.AddedPermissions = addedPermissions(info.Extension, candidate.Permissions)
-			applyPackageCatalog(row, candidate, locale)
 		}
 	}
 	includeInstalledPackageVersion(row)
@@ -374,14 +366,22 @@ func (r *Runtime) readPackageUpdates(names []string) {
 	if len(requests) == 0 {
 		return
 	}
+	cache := r.packageUpdateCache()
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "check_plugin_updates", Data: protocol.CommandCheckPluginUpdatesPayload{Packages: requests}})
 		batch, valid := detail[protocol.PluginUpdatesBatch](out.Data)
 		if err == nil && (!valid || out.Kind != "plugin_updates") {
 			err = errors.New("unexpected plugin updates response")
 		}
+		var catalogs map[string]protocol.PluginCatalogEntry
+		if err == nil {
+			catalogs = r.resolvePackageUpdates(&batch, cache)
+		}
 		r.enqueue(func(c *ui.Context) {
 			if err == nil {
+				for id, entry := range catalogs {
+					r.packages.catalog[id], r.packages.catalogSources[id] = entry, protocol.PluginCatalogSourceOfficial
+				}
 				for _, report := range batch.Reports {
 					r.packages.updates[report.Current.Name] = report
 				}

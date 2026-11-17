@@ -38,6 +38,14 @@ func TestPluginVersionProjection(t *testing.T) {
 	}
 	report := protocol.PluginUpdatesReport{Current: info.Summary, Available: &protocol.PluginUpdatesCandidate{Kind: "official", Data: entry}}
 	applyPackageUpdate(&row, info, report, "en")
+	if settings.Update(&row) {
+		t.Fatal("an uninspected official recommendation became actionable")
+	}
+	selected := info
+	selected.Summary.Version = &compatible.Version
+	selected.ReleaseNotes, selected.Versions = compatible.ReleaseNotes, entry.Versions
+	report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: selected}
+	applyPackageUpdate(&row, info, report, "en")
 	if !settings.Update(&row) || row.Latest != compatible.Version || row.Notes != "Compatible notes" || row.Unsupported != "" {
 		t.Fatalf("Node's compatible update is %+v", row)
 	}
@@ -105,7 +113,7 @@ func TestOfficialPluginVersionCommands(t *testing.T) {
 						current.Summary.Version = new("1.0.0-rc.1")
 					}
 					r.packages.infos["notes"] = current
-					r.packages.updates["notes"] = protocol.PluginUpdatesReport{Current: current.Summary, Available: &protocol.PluginUpdatesCandidate{Kind: "official", Data: r.packages.catalog["notes"]}}
+					r.packages.updates["notes"] = protocol.PluginUpdatesReport{Current: current.Summary, Available: &protocol.PluginUpdatesCandidate{Kind: "package", Data: selected}}
 				}
 				source.respond = func(request protocol.Request) link.Response {
 					switch request.Command.Kind {

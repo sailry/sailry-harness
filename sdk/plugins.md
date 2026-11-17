@@ -353,9 +353,11 @@ installation and enabling; an unmet minimum uses structured
 `PluginRequiresNewer {required}` fault details. An incompatible installed package
 retains its files, configuration and saved enable choice, while its contributions
 remain unavailable. The execution Node evaluates package compatibility against
-its own application and platform API versions. A Desktop loader also checks its
-own requirements before evaluating a remote package's UI code. A newer remote
-Node does not make an older Desktop API compatible.
+its own application and platform API versions. Desktop checks its local
+requirements before offering an update or installing a package with Desktop
+contributions, and the loader checks again before evaluating remote UI code.
+Pure Node packages do not inherit the controller's version requirements. A newer
+remote Node does not make an older Desktop API compatible.
 
 ## Icons
 
@@ -437,6 +439,9 @@ the entry's market-latest version or discarding its history. Automatic selection
 uses the highest compatible SemVer precedence, excludes withdrawn records, and
 stays on stable releases unless the installed package already follows prereleases.
 Only strictly higher precedence offers an update; build metadata is not an update.
+The embedded catalog's withdrawals also apply to bundled installation and
+offline recommendations. Default initialization skips withdrawn bundled versions
+without removing an existing installation.
 
 Installed `Info.origin` identifies the exact acquired content. `Info.update_source`
 separately retains the official catalog identity or the original Git branch/ref;
@@ -447,7 +452,8 @@ Restoring follow mode re-enables those checks. Pinned packages retain their hist
 A controller-local directory is first snapshotted and uploaded through the
 existing package channel. `check_plugin_update` accepts that caller-owned
 `upload` stream and returns the execution Node's ordinary update report. Desktop
-does not apply its own version, compatibility or channel policy to those bytes.
+does not select a different Node version or update channel for those bytes;
+packages with Desktop contributions must also satisfy the local UI requirements.
 
 Controllers inspect an official version with `read_catalog_plugin_info` and an
 optional exact `version`, then use `install_catalog_plugin` with that inspected
@@ -457,14 +463,18 @@ selection, `expected_revision`, and `mode`: `install`, `update` or `switch`.
 pins the result. `set_plugin_pinned` also requires the current installation revision.
 These mutations use the existing durable request ledger. Installation rechecks
 the package name, version, commit, digest, compatibility and withdrawal state;
-revision conflicts or failures leave the installed package unchanged.
+revision conflicts or failures leave the installed package unchanged. Desktop
+reviews permissions from the inspected candidate, not the catalog's market-latest
+manifest, and rejects an update whose content differs from that review.
 
 Switching changes code, not saved configuration or business data. It preserves
 the enabled choice and settings revision, rejects a target that cannot accept
 saved configuration, and validates existing scoped data against an older target's
 declared storage constraints. It does not restore historical settings or migrate
-data. Admitted turns keep their captured package; the existing references and GC
-retain only content that is still needed. Only official catalog packages expose
+data. Admitted turns keep their captured package. Following a pin preference or
+code replacement does not stop their active programs; settings changes, disabling
+and removal retain their existing cancellation behavior. The existing references
+and GC retain only content that is still needed. Only official catalog packages expose
 complete selectable history. Directory and other Git sources keep their existing
 installation workflows and do not synthesize historical releases. Existing
 package, response and resource budgets still apply.

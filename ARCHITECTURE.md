@@ -573,7 +573,11 @@ package's stable or prerelease channel, and offers only strictly higher SemVer
 precedence. Catalog presentation retains the market latest independently from
 that candidate. Compatibility requirements survive unsupported or invalid
 platform extension decoding; an ordinary package without that extension remains
-distinct. Desktop checks the local loader's requirements again for remote UI code.
+distinct. Desktop inspects the exact recommended release before presenting its
+permissions or offering an update, and checks local requirements for packages
+with Desktop contributions. The loader checks those requirements again for
+remote UI code. Bundled installation also honors withdrawals in the embedded
+catalog, including offline fallback and default initialization.
 
 Installations keep exact content provenance separately from their ongoing update
 source and pinned preference. Official updates continue following the official
@@ -582,8 +586,10 @@ compute another market update policy. Explicit history switching uses the normal
 inspection, immutable acquisition and revision-fenced installation transaction;
 downgrades pin the result. Unsupported configuration or declared data constraints
 refuse a switch without resetting values. Running admitted turns keep captured
-code; disabling and removal retain their existing cancellation rules. Package
-retention and collection still follow actual references, not the history list.
+code. Configuration following preserves active programs for unchanged packages,
+pin preferences and code replacements; actual settings changes, disabling and
+removal retain their existing cancellation rules. Package retention and collection
+still follow actual references, not the history list.
 
 Plugins own their feature UI, state, workflows, prompts and orchestration. Core
 exposes shared scoped services through Protocol, Client and the SDK. Desktop

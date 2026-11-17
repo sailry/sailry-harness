@@ -230,6 +230,7 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 		return
 	}
 	r.App.Settings.SetBusy(busy, true)
+	cache := r.packageUpdateCache()
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "check_plugin_updates", Data: protocol.CommandCheckPluginUpdatesPayload{Packages: requests, Force: true}})
 		batch, valid := detail[protocol.PluginUpdatesBatch](out.Data)
@@ -237,6 +238,7 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 			err = errors.New("unexpected plugin updates response")
 		}
 		local := map[string]*localPackage{}
+		var catalogs map[string]protocol.PluginCatalogEntry
 		if err == nil {
 			for index := range batch.Reports {
 				report := &batch.Reports[index]
@@ -248,6 +250,13 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 					}
 				}
 			}
+			catalogs = r.resolvePackageUpdates(&batch, cache)
+			for _, report := range batch.Reports {
+				if upload := local[report.Current.Name]; upload != nil && !packageUpdateAvailable(report) {
+					r.cancelAttachmentStream(upload.stream)
+					delete(local, report.Current.Name)
+				}
+			}
 		}
 		r.enqueue(func(c *ui.Context) {
 			r.App.Settings.SetBusy(busy, false)
@@ -256,6 +265,9 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 				return
 			}
 			found := 0
+			for id, entry := range catalogs {
+				r.packages.catalog[id], r.packages.catalogSources[id] = entry, protocol.PluginCatalogSourceOfficial
+			}
 			for _, report := range batch.Reports {
 				r.packages.updates[report.Current.Name] = report
 				if delete(r.packages.directories, report.Current.Name); local[report.Current.Name] != nil {
@@ -307,25 +319,13 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 		})
 		return
 	}
-	if report.Available.Kind == "official" {
-		if entry, valid := detail[protocol.PluginCatalogEntry](report.Available.Data); valid && entry.CompatibleVersion != nil {
-			r.installCatalogEntry(entry, protocol.PluginCatalogSourceOfficial, report.Current.Revision, protocol.PluginInstallModeUpdate, &entry.CompatibleVersion.Version, finish)
-		} else {
-			finish()
-		}
-		return
-	}
 	candidate, valid := detail[protocol.PluginInfo](report.Available.Data)
-	if !valid || candidate.Origin == nil {
+	if !valid || candidate.Origin == nil || ensureDesktopPackage(candidate) != nil {
 		finish()
 		return
 	}
 	if candidate.UpdateSource != nil && candidate.UpdateSource.Kind == "official" {
-		if selection, err := officialPackageSelection(candidate); err == nil {
-			r.installOfficialSelection(selection, report.Current.Revision, protocol.PluginInstallModeUpdate, finish)
-		} else {
-			finish()
-		}
+		r.updateOfficialPackage(report, candidate, finish)
 		return
 	}
 	var command protocol.Command
@@ -447,17 +447,9 @@ func (r *Runtime) installOfficialSelection(selection protocol.PluginCatalogSelec
 func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source protocol.PluginCatalogSource, revision uint64, mode protocol.PluginInstallMode, version *string, finish func()) {
 	if source == protocol.PluginCatalogSourceOfficial {
 		r.async(func() {
-			out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_catalog_plugin_info", Data: protocol.CommandReadCatalogPluginInfoPayload{
-				Source: source, ID: entry.ID, Bundled: entry.Bundled && entry.Commit == nil, Version: version,
-			}})
-			value, valid := detail[protocol.PluginCatalogDetails](out.Data)
-			info, validInfo := detail[protocol.PluginInfo](value.Data)
-			if err == nil && (!valid || out.Kind != "catalog_details" || value.Kind != "plugin" || !validInfo || info.Summary.Name != entry.ID) {
-				err = errors.New("unexpected official plugin details response")
-			}
-			var selection protocol.PluginCatalogSelection
+			selection, err := r.inspectOfficialPackage(entry.ID, version)
 			if err == nil {
-				selection, err = officialPackageSelection(info)
+				err = ensureDesktopPackage(selection.Info)
 			}
 			r.enqueue(func(c *ui.Context) {
 				if err != nil {
@@ -489,6 +481,9 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 			selection, valid = detail[protocol.PluginCatalogSelection](out.Data)
 			if err == nil && (!valid || out.Kind != "plugin_source" || entry.Commit != nil && selection.Source.Commit != *entry.Commit) {
 				err = errors.New("plugin source does not match the selected catalog entry")
+			}
+			if err == nil {
+				err = ensureDesktopPackage(selection.Info)
 			}
 		}
 		r.enqueue(func(c *ui.Context) {
