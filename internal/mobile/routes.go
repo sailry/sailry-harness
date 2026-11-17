@@ -34,7 +34,34 @@ func decodePeerRoute(encoded string) (peerRoute, error) {
 	return peerRoute{Entry: entry, Target: target}, nil
 }
 
+func (owner *controller) beginTopologyChange() {
+	owner.mu.Lock()
+	owner.topology++
+	owner.changing++
+	owner.mu.Unlock()
+}
+
+func (owner *controller) endTopologyChange() {
+	owner.mu.Lock()
+	owner.topology++
+	owner.changing--
+	owner.mu.Unlock()
+}
+
+type peerCatalog struct {
+	entry    protocol.NodeID
+	direct   string
+	children []string
+	failure  *protocol.Fault
+}
+
 func (owner *controller) peers(ctx context.Context) ([]string, error) {
+	owner.mu.Lock()
+	generation, changing := owner.topology, owner.changing
+	owner.mu.Unlock()
+	if changing != 0 {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "controller relationships are changing"}
+	}
 	peers, err := owner.endpoint.Peers(ctx)
 	if err != nil {
 		return nil, err
@@ -48,9 +75,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		metadata[value.ID] = value
 	}
 	entries := []link.EndpointAddress{}
-	directRoutes := map[protocol.NodeID]string{}
-	routes := []string{}
-	active := map[protocol.NodeID]bool{}
+	catalogs := []peerCatalog{}
 	for _, entry := range peers {
 		relationship := metadata[entry.ID]
 		if !relationship.Direct || relationship.Removed || !relationship.DirectDirection.AllowsOutbound() {
@@ -60,14 +85,12 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		active[entry.ID] = true
 		entries = append(entries, entry)
-		directRoutes[entry.ID] = encoded
+		catalogs = append(catalogs, peerCatalog{entry: entry.ID, direct: encoded})
 	}
 	var wait sync.WaitGroup
-	var results sync.Mutex
 	places := make(chan struct{}, 4)
-	for _, entry := range entries {
+	for index, entry := range entries {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
@@ -78,38 +101,55 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 				return
 			}
 			children, err := owner.resourceRoutes(ctx, entry)
+			catalogs[index].children = children
 			if err != nil {
-				owner.mu.Lock()
-				children = append([]string{}, owner.directories[entry.ID]...)
-				owner.mu.Unlock()
-				failure := result(nil, err).Error
-				if failure != nil && (failure.Code == protocol.ErrorCodePermissionDenied || failure.Code == protocol.ErrorCodeNotFound || failure.Code == protocol.ErrorCodeExpired) {
-					owner.closeEntry(entry.ID)
-					results.Lock()
-					delete(active, entry.ID)
-					results.Unlock()
-					return
-				} else {
-					children = unavailablePeerRoutes(children)
-				}
-			} else {
-				owner.mu.Lock()
-				if owner.directories == nil {
-					owner.directories = map[protocol.NodeID][]string{}
-				}
-				owner.directories[entry.ID] = append([]string{}, children...)
-				owner.mu.Unlock()
+				catalogs[index].failure = result(nil, err).Error
 			}
-			results.Lock()
-			routes = append(routes, directRoutes[entry.ID])
-			routes = append(routes, children...)
-			results.Unlock()
 		}()
 	}
 	wait.Wait()
-	owner.closeMissingEntries(active)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return owner.commitPeerCatalogs(generation, catalogs)
+}
+
+// Network reads cannot mutate the handle graph until their captured topology
+// still matches. Detach old Clients while holding the same lock as that check;
+// closing them later must not look up a newly paired replacement by route.
+func (owner *controller) commitPeerCatalogs(generation uint64, catalogs []peerCatalog) ([]string, error) {
+	owner.mu.Lock()
+	if owner.topology != generation || owner.changing != 0 {
+		owner.mu.Unlock()
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "controller relationships changed during directory refresh"}
+	}
+	if owner.directories == nil {
+		owner.directories = map[protocol.NodeID][]string{}
+	}
+	routes := []string{}
+	active := map[protocol.NodeID]bool{}
+	for _, catalog := range catalogs {
+		children := catalog.children
+		if failure := catalog.failure; failure != nil {
+			if failure.Code == protocol.ErrorCodePermissionDenied || failure.Code == protocol.ErrorCodeNotFound || failure.Code == protocol.ErrorCodeExpired {
+				continue
+			}
+			children = unavailablePeerRoutes(owner.directories[catalog.entry])
+		} else {
+			owner.directories[catalog.entry] = append([]string{}, children...)
+		}
+		active[catalog.entry] = true
+		routes = append(routes, catalog.direct)
+		routes = append(routes, children...)
+	}
+	clients := owner.detachMissingEntries(active)
+	owner.topology++
+	owner.mu.Unlock()
+	for _, shared := range clients {
+		_ = shared.Close()
+	}
 	slices.Sort(routes)
-	return routes, ctx.Err()
+	return routes, nil
 }
 
 // resourceRoutes reads one controller's view. Directory members remain routes
@@ -170,8 +210,8 @@ func unavailablePeerRoutes(routes []string) []string {
 	return result
 }
 
-func (owner *controller) closeMissingEntries(active map[protocol.NodeID]bool) {
-	owner.mu.Lock()
+// detachMissingEntries and detachEntry require owner.mu.
+func (owner *controller) detachMissingEntries(active map[protocol.NodeID]bool) []*client.Client {
 	removed := []protocol.NodeID{}
 	for entry := range owner.directories {
 		if !active[entry] {
@@ -188,14 +228,24 @@ func (owner *controller) closeMissingEntries(active map[protocol.NodeID]bool) {
 			removed = append(removed, route.Entry)
 		}
 	}
-	owner.mu.Unlock()
+	var clients []*client.Client
 	for _, entry := range removed {
-		owner.closeEntry(entry)
+		clients = append(clients, owner.detachEntry(entry)...)
 	}
+	return clients
 }
 
 func (owner *controller) closeEntry(entry protocol.NodeID) {
 	owner.mu.Lock()
+	clients := owner.detachEntry(entry)
+	owner.topology++
+	owner.mu.Unlock()
+	for _, shared := range clients {
+		_ = shared.Close()
+	}
+}
+
+func (owner *controller) detachEntry(entry protocol.NodeID) []*client.Client {
 	var clients []*client.Client
 	for route, shared := range owner.clients {
 		if route.Entry == entry {
@@ -209,10 +259,7 @@ func (owner *controller) closeEntry(entry protocol.NodeID) {
 		}
 	}
 	delete(owner.directories, entry)
-	owner.mu.Unlock()
-	for _, shared := range clients {
-		_ = shared.Close()
-	}
+	return clients
 }
 
 func (owner *controller) inbox(route protocol.RouteKey) *client.Inbox {

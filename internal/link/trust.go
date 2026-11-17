@@ -82,6 +82,7 @@ func (link *Link) SetDirection(ctx context.Context, peer protocol.NodeID, direct
 
 func (link *Link) pairPeer(ctx context.Context, peer protocol.NodeID, direction PeerDirection) error {
 	return link.updateTrust(ctx, peer, func() error {
+		link.cancelHostRemoval(peer)
 		return link.store.PairPeer(ctx, peer, direction)
 	})
 }

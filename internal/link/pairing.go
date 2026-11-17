@@ -255,6 +255,7 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 			return EndpointAddress{}, err
 		}
 	}
+	link.cancelHostRemoval(ticket.Address.ID)
 	if err := link.insertAddressRelays(ctx, ticket.Address); err != nil {
 		return EndpointAddress{}, err
 	}

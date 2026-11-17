@@ -91,6 +91,7 @@ func (link *Link) rememberPeerName(ctx context.Context, peer protocol.NodeID, na
 
 func (link *Link) pairMember(ctx context.Context, peer protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
 	return link.updateTrust(ctx, peer, func() error {
+		link.cancelHostRemoval(peer)
 		if store, ok := link.store.(MembershipStore); ok {
 			return store.PairMember(ctx, peer, direction, scope)
 		}

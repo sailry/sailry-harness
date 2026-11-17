@@ -72,6 +72,7 @@ type Link struct {
 	peerKinds       sync.Map // NodeID -> bool, learned through authenticated exchange
 	addresses       map[protocol.NodeID]EndpointAddress
 	outgoing        map[protocol.NodeID]*outgoingSlot
+	removalNotices  map[protocol.NodeID]*HostRemovalNotice
 	incoming        map[*iroh.Connection]protocol.NodeID
 	trustUpdate     sync.Mutex
 	relayUpdate     chan struct{}
@@ -338,7 +339,7 @@ func (link *Link) applyTrust(peer protocol.NodeID, direction PeerDirection) {
 			telemetry.close()
 			<-telemetry.done
 		}
-		if connection != nil {
+		if connection != nil && !link.retainRemovalConnection(peer, connection) {
 			_ = connection.Close(1, "peer revoked")
 		}
 	}
@@ -421,6 +422,15 @@ func (link *Link) Close() error {
 		}
 		link.mu.RUnlock()
 		link.trustUpdate.Unlock()
+		link.mu.RLock()
+		var notices []*HostRemovalNotice
+		for _, notice := range link.removalNotices {
+			notices = append(notices, notice)
+		}
+		link.mu.RUnlock()
+		for _, notice := range notices {
+			notice.Close()
+		}
 		for _, state := range telemetry {
 			state.close()
 		}

@@ -3,6 +3,7 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -13,6 +14,84 @@ import (
 type routedNoticeTransport struct {
 	noticeTransport
 	entry protocol.NodeID
+}
+
+var errCatalogLifecycleProbe = errors.New("catalog lifecycle probe reached the transport")
+
+type catalogLifecycleTransport struct{ noticeTransport }
+
+func (catalogLifecycleTransport) Subscribe(context.Context, protocol.Topic) (link.Subscription, error) {
+	return nil, errCatalogLifecycleProbe
+}
+
+func TestMobileStaleCatalogCannotChangeRepairedEntry(t *testing.T) {
+	for _, outcome := range []string{"success", "denied", "missing"} {
+		t.Run(outcome, func(t *testing.T) {
+			entry := protocol.NodeID{1}
+			shared := client.New(catalogLifecycleTransport{noticeTransport{node: entry}})
+			t.Cleanup(func() { _ = shared.Close() })
+			owner := &controller{clients: map[protocol.RouteKey]*client.Client{shared.Route(): shared}, directories: map[protocol.NodeID][]string{entry: {"new catalog"}}}
+			inbox := owner.inbox(shared.Route())
+			captured := owner.topology
+			owner.beginTopologyChange()
+			owner.endTopologyChange()
+			catalogs := []peerCatalog{{entry: entry, direct: "old direct", children: []string{"old catalog"}}}
+			if outcome == "denied" {
+				catalogs[0].failure = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied}
+			} else if outcome == "missing" {
+				catalogs = nil
+			}
+			_, err := owner.commitPeerCatalogs(captured, catalogs)
+			var failure *protocol.Fault
+			if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeConflict {
+				t.Fatalf("stale catalog was accepted: %v", err)
+			}
+			if owner.clients[shared.Route()] != shared || owner.inboxes[shared.Route()] != inbox || owner.directories[entry][0] != "new catalog" {
+				t.Fatal("stale result modified the new entry")
+			}
+			if err := shared.Start(t.Context()); !errors.Is(err, errCatalogLifecycleProbe) {
+				t.Fatalf("stale result closed the new Client: %v", err)
+			}
+		})
+	}
+}
+
+func TestMobileCatalogRejectsOverlappingTopologyChange(t *testing.T) {
+	owner := &controller{}
+	owner.beginTopologyChange()
+	owner.beginTopologyChange()
+	owner.endTopologyChange()
+	if _, err := owner.commitPeerCatalogs(owner.topology, nil); err == nil {
+		t.Fatal("catalog committed while a relationship operation was still active")
+	}
+	owner.endTopologyChange()
+	if _, err := owner.commitPeerCatalogs(owner.topology, nil); err != nil {
+		t.Fatalf("settled topology rejected its current catalog: %v", err)
+	}
+}
+
+func TestMobileDetachedEntryCannotCloseReplacement(t *testing.T) {
+	entry := protocol.NodeID{1}
+	transport := catalogLifecycleTransport{noticeTransport{node: entry}}
+	previous, replacement := client.New(transport), client.New(transport)
+	t.Cleanup(func() { _ = previous.Close(); _ = replacement.Close() })
+	owner := &controller{clients: map[protocol.RouteKey]*client.Client{previous.Route(): previous}}
+	owner.mu.Lock()
+	detached := owner.detachMissingEntries(map[protocol.NodeID]bool{})
+	owner.clients[replacement.Route()] = replacement
+	owner.mu.Unlock()
+	for _, shared := range detached {
+		_ = shared.Close()
+	}
+	if owner.clients[replacement.Route()] != replacement {
+		t.Fatal("closing old handles removed the replacement")
+	}
+	if err := replacement.Start(t.Context()); !errors.Is(err, errCatalogLifecycleProbe) {
+		t.Fatalf("closing old handles closed the replacement: %v", err)
+	}
+	if err := previous.Start(t.Context()); err == nil || errors.Is(err, errCatalogLifecycleProbe) {
+		t.Fatal("detached Client was not closed")
+	}
 }
 
 func (transport routedNoticeTransport) Route() protocol.RouteKey {
@@ -96,7 +175,9 @@ func TestMobileRemovedEntryClosesBeforeItsFirstCatalog(t *testing.T) {
 	t.Cleanup(func() { _ = shared.Close() })
 	owner := &controller{clients: map[protocol.RouteKey]*client.Client{shared.Route(): shared}}
 	owner.inbox(shared.Route())
-	owner.closeMissingEntries(map[protocol.NodeID]bool{})
+	if _, err := owner.commitPeerCatalogs(owner.topology, nil); err != nil {
+		t.Fatal(err)
+	}
 	if len(owner.clients) != 0 || len(owner.inboxes) != 0 {
 		t.Fatal("entry with no successful directory read retained its client or inbox")
 	}

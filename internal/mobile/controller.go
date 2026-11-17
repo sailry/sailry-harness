@@ -19,6 +19,8 @@ type controller struct {
 	clients     map[protocol.RouteKey]*client.Client
 	inboxes     map[protocol.RouteKey]*client.Inbox
 	directories map[protocol.NodeID][]string
+	topology    uint64
+	changing    uint64
 }
 
 type input struct {
@@ -106,12 +108,16 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 	case "set_name":
 		return nil, owner.endpoint.SetName(values.Name)
 	case "pair":
+		owner.beginTopologyChange()
+		defer owner.endTopologyChange()
 		address, err := owner.endpoint.Pair(ctx, values.Ticket)
 		if err != nil {
 			return nil, err
 		}
 		return encode(address)
 	case "pair_pin":
+		owner.beginTopologyChange()
+		defer owner.endTopologyChange()
 		address, err := owner.endpoint.PairPIN(ctx, values.Origin, values.PIN, &owner.claim)
 		if err != nil {
 			return nil, err
@@ -127,6 +133,8 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		if route.Target.ID != route.Entry.ID {
 			return nil, invalid("remove the entry Node to close its resource routes")
 		}
+		owner.beginTopologyChange()
+		defer owner.endTopologyChange()
 		_, err = client.RemoveHost(ctx, owner.endpoint, route.Entry, func(local context.Context) error { return owner.endpoint.SetTrust(local, route.Entry.ID, false) })
 		if err == nil {
 			owner.closeEntry(route.Entry.ID)
@@ -150,6 +158,7 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 			owner.clients = map[protocol.RouteKey]*client.Client{}
 		}
 		owner.clients[shared.Route()] = shared
+		owner.topology++
 		owner.mu.Unlock()
 		return runtime.add(handle, "connection", connection, lifetime, cancel)
 	case "notifications":
@@ -212,6 +221,7 @@ func routedPeerMetadata(entry, target link.EndpointAddress, relationship link.Pe
 
 func (owner *controller) close() error {
 	owner.mu.Lock()
+	owner.topology++
 	clients := make([]*client.Client, 0, len(owner.clients))
 	for _, shared := range owner.clients {
 		clients = append(clients, shared)

@@ -19,6 +19,7 @@ type peerIdentityPairStore interface {
 func (link *Link) pairIdentity(ctx context.Context, peer protocol.NodeID, direction PeerDirection, hasNode bool) error {
 	if store, ok := link.store.(peerIdentityPairStore); ok {
 		if err := link.updateTrust(ctx, peer, func() error {
+			link.cancelHostRemoval(peer)
 			return store.PairIdentity(ctx, peer, direction, hasNode)
 		}); err != nil {
 			return err
