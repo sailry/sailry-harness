@@ -447,8 +447,13 @@ func (a *App) trail(c *ui.Context) {
 		})
 		return
 	}
-	if len(a.headerTabs(c)) > 0 {
+	tabs := a.headerTabs(c)
+	if len(tabs) > 1 {
 		// The band's tabs name what shows; a split's panes have their own titles.
+		return
+	}
+	if len(tabs) == 1 && tabs[0].group != nil && tabs[0].shown {
+		ui.Text(c, tabs[0].title).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
 		return
 	}
 	if a.panes.Active.Kind == panes.Terminal {

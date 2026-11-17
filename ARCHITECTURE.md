@@ -467,6 +467,12 @@ inform context budgeting without inventing billed usage. After a checkpoint,
 context estimates count the summary and retained tail until a new main-model
 measurement is available.
 
+Request observations retain the final serialized body size, attributed text
+character counts and excluded opaque payload sizes, never request bodies.
+Text estimates remain separate from provider-reported tokens. Attempt-relative
+timings distinguish HTTP dispatch after preparation, successful request write,
+response headers and first model content; unavailable transport facts stay absent.
+
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;
 rate limits and overload use five seconds to one minute, with jitter. Provider
@@ -636,8 +642,9 @@ translated into place, preserving its measured row heights. Direct window and
 divider resizing follows the current width without an additional layout animation.
 
 Project-created terminals are independent main-workspace surfaces and may share
-split groups with conversations. Header number buttons switch those groups and
-restore each group's focused pane. Terminal tabs opened in the right panel stay
+split groups with conversations. The header shows a title for one workspace entry
+and tabs for multiple entries; selecting a split-group tab restores its focused
+pane. Terminal tabs opened in the right panel stay
 with that conversation and do not join splits. A terminal ID has one surface at a
 time; moving it keeps its Node attachment. Closing a main surface releases its
 observation while the Node process continues, available through terminal activity.

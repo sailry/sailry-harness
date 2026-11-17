@@ -9,6 +9,9 @@ import (
 // StripTabHeight is the height of a strip's tab.
 const StripTabHeight = 28
 
+// StripTabTextPadding keeps italic glyphs clear of the title's clipping edge.
+const StripTabTextPadding = 4
+
 // StripTab is the button of a tab in a strip of closable tabs, the right
 // panel's and a package page's alike: 28 DIPs high and at most width wide,
 // the active one in tab_active and a hovered one in accent. Its padding is
@@ -54,7 +57,7 @@ func StripTabBodyWith(c *ui.Context, b ui.Element, lead func(), label string, ac
 		}
 		// At rest a long title ends in an ellipsis; under the button it is
 		// clipped instead.
-		title := ui.Row(c.Key("title")).Shrink(1).MinWidth(0).ClipX().Children(func() {
+		title := ui.Row(c.Key("title")).Shrink(1).MinWidth(0).PaddingEnd(StripTabTextPadding).ClipX().Children(func() {
 			text := ui.Text(c, label).FontSize(14).SingleLine().MinWidth(0)
 			if close != nil && hovered {
 				text.Shrink(0)

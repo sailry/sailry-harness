@@ -46,6 +46,65 @@ func pressWorkspaceGroup(t *testing.T, tt *ui.Tester, number int) {
 	tt.Frame()
 }
 
+func TestSingleWorkspaceTitleAndTabTransitions(t *testing.T) {
+	first := &viewmodel.Conversation{ID: "a", Title: "工具测试与问候"}
+	second := &viewmodel.Conversation{ID: "b", Title: "Another conversation"}
+	a := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{first, second}})
+	a.focusPane(session(first.ID))
+	a.Composer(first.ID).Draft = "Preserved draft"
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+	tt.SetLocale("zh-CN")
+	tt.SetDark(true)
+	frame := func() { tt.Frame(); tt.Frame() }
+	plainTitle := func(title string) {
+		t.Helper()
+		if _, ok := headerButton(tt, title); ok {
+			t.Fatalf("a single entry still has a tab: %q", title)
+		}
+		if bounds, ok := tt.Find(title); !ok || bounds.Y+bounds.H > HeaderHeight {
+			t.Fatalf("single entry has no header title: %q at %+v", title, bounds)
+		}
+	}
+	frame()
+	plainTitle(first.Title)
+	snapshot(t, tt, "workspace-single-title")
+	a.panes.Keep(session(first.ID))
+	frame()
+	plainTitle(first.Title)
+	a.Sidebar.Selected = second.ID
+	frame()
+	for _, title := range []string{first.Title, second.Title} {
+		if _, ok := headerButton(tt, title); !ok {
+			t.Fatalf("multiple entries lost the tab %q", title)
+		}
+	}
+	snapshot(t, tt, "workspace-multiple-tabs")
+	button, _ := headerButton(tt, second.Title)
+	tt.ClickAt(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyW)
+	frame()
+	plainTitle(first.Title)
+	if a.Sidebar.Selected != first.ID || a.Composer(first.ID).Draft != "Preserved draft" || !slices.Equal(a.panes.Kept, []panes.Target{session(first.ID)}) {
+		t.Fatal("returning to the single title changed the selection, draft or kept tab")
+	}
+	// A project conversation uses its existing breadcrumb title.
+	a.Data.Unassigned = []*viewmodel.Conversation{second}
+	a.Data.Projects = []*viewmodel.Project{{ID: "project", Name: "Project", Conversations: []*viewmodel.Conversation{first}}}
+	frame()
+	for _, title := range []string{"Project", first.Title} {
+		if bounds, ok := tt.Find(title); !ok || bounds.Y+bounds.H > HeaderHeight {
+			t.Fatalf("single project conversation lost its breadcrumb: %q", title)
+		}
+	}
+	snapshot(t, tt, "workspace-single-project-title")
+	a.panes.Release(session(first.ID))
+	a.OpenWorkspaceTerminal("terminal", "Standalone terminal")
+	frame()
+	plainTitle("Standalone terminal")
+	snapshot(t, tt, "workspace-single-terminal-title")
+}
+
 // Group tabs, named by their panes' titles, switch groups without rebuilding their trees or losing the
 // last focused pane. They also remain reachable from a standalone conversation.
 func TestWorkspaceGroupButtons(t *testing.T) {
@@ -144,10 +203,12 @@ func TestWorkspaceGroupReturnAndRemovedFocus(t *testing.T) {
 	if a.panes.Active != session("b") {
 		t.Fatalf("one saved group returned to %v", a.panes.Active)
 	}
-	// A shown split keeps its tab, which tells it from a conversation
-	// shown alone.
-	if b, ok := headerButton(tt, i18n.In("en", "pane_group", "number", 1)); !ok || !b.Checked {
-		t.Fatalf("one shown split lost its tab: %+v", b)
+	// With only the shown split left, its combined title replaces the tab.
+	if _, ok := headerButton(tt, i18n.In("en", "pane_group", "number", 1)); ok {
+		t.Fatal("one shown split still has a tab")
+	}
+	if title, ok := tt.Find("Conversation a · Conversation b"); !ok || title.Y+title.H > HeaderHeight {
+		t.Fatalf("one shown split lost its title: %+v", title)
 	}
 	// A focus remembered before membership changed cannot focus a removed pane.
 	a.panes.Drop(session("a"), session("c"), panes.Bottom)

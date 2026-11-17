@@ -145,12 +145,11 @@ func (a *App) orderTabs(tabs []headerTab) {
 
 // workspaceGroupWidth is the tabs' width in the room the strip leaves, each
 // tab as wide as its title up to groupTabMax. More remain reachable
-// by horizontal scrolling rather than covering page actions. A shown split
-// keeps its own tab: the tab, with its split mark, is what tells a split
-// from a conversation shown alone.
+// by horizontal scrolling rather than covering page actions. A single entry
+// uses the page title instead of a tab strip.
 func (a *App) workspaceGroupWidth(c *ui.Context, room float32) float32 {
 	tabs := a.headerTabs(c)
-	if len(tabs) == 0 {
+	if len(tabs) < 2 {
 		return 0
 	}
 	width := float32(len(tabs)-1) * (2*kit.StripGap + 1)
@@ -166,7 +165,7 @@ func (a *App) workspaceGroupWidth(c *ui.Context, room float32) float32 {
 // it, a status mark's 12 counted as an icon's 14.
 const (
 	groupTabMax = 220
-	tabChrome   = 8 + 8 + 14 + 6
+	tabChrome   = 8 + 8 + 14 + 6 + kit.StripTabTextPadding
 )
 
 // groupTitle names a split group by its panes' titles, in order.
