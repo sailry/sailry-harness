@@ -2,6 +2,8 @@ import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:html/dom.dart' as html;
+import 'package:html/parser.dart' as html_parser;
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -46,9 +48,10 @@ class MarkdownContent extends StatelessWidget {
         'sailry-math-inline': MathBuilder(),
         'sailry-math-block': MathBuilder(block: true),
       },
-      blockSyntaxes: const [MathBlockSyntax()],
+      blockSyntaxes: const [MathBlockSyntax(), _HtmlImageBlockSyntax()],
       inlineSyntaxes: [
         MathInlineSyntax(),
+        _HtmlImageSyntax(),
         ContentLinks(images: imageBuilder != null),
       ],
       imageBuilder: (uri, title, alt) => SizedBox(
@@ -210,7 +213,7 @@ class ContentLinks extends md.LinkSyntax {
     }
     if (images &&
         RegExp(
-          r'\.(png|jpe?g|gif|webp|bmp)$',
+          r'\.(png|jpe?g|gif|webp|bmp|svg)$',
           caseSensitive: false,
         ).hasMatch(uri.path)) {
       return md.Element.empty('img')
@@ -222,6 +225,94 @@ class ContentLinks extends md.LinkSyntax {
     }
     // Other file links stay inline like ordinary links; taps open them.
     return link;
+  }
+}
+
+/// The Markdown renderer does not decode raw HTML into image nodes. Only image
+/// attributes enter its existing loader; no HTML is executed in this adapter.
+class _HtmlImageSyntax extends md.InlineSyntax {
+  _HtmlImageSyntax()
+    : super(r'''<img\b(?:[^>"']|"[^"]*"|'[^']*')*>''', caseSensitive: false);
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final image = html_parser.parseFragment(match[0]!).querySelector('img');
+    if (image == null || image.attributes['src']?.isNotEmpty != true) {
+      return false;
+    }
+    parser.addNode(_htmlImage(image));
+    return true;
+  }
+}
+
+md.Element _htmlImage(html.Element image) =>
+    md.Element.empty('img')
+      ..attributes.addAll({
+        // Uri.parse normalizes literal backslashes before the image builder
+        // sees them. Reject them while the original HTML attribute is intact.
+        'src': (image.attributes['src'] ?? '').contains('\\')
+            ? 'sailry-invalid:'
+            : image.attributes['src'] ?? '',
+        'alt': image.attributes['alt'] ?? '',
+        'title': ?image.attributes['title'],
+      });
+
+/// Raw HTML blocks otherwise bypass inline syntax, including a wrapped <img>.
+/// Keep their visible text and common formatting, with the same image loader.
+class _HtmlImageBlockSyntax extends md.HtmlBlockSyntax {
+  const _HtmlImageBlockSyntax();
+
+  @override
+  md.Node parse(md.BlockParser parser) {
+    final original = super.parse(parser);
+    final source = original.textContent;
+    final fragment = html_parser.parseFragment(source);
+    if (fragment.querySelector('img') == null) return original;
+    return md.Element('section', fragment.nodes.expand(_htmlNodes).toList());
+  }
+}
+
+Iterable<md.Node> _htmlNodes(html.Node node) sync* {
+  if (node is html.Text) {
+    yield md.Text(node.data);
+    return;
+  }
+  if (node is! html.Element) return;
+  final tag = node.localName;
+  if (tag == 'img') {
+    yield _htmlImage(node);
+    return;
+  }
+  if (tag == 'script' || tag == 'style') return;
+  if (tag == 'pre' || tag == 'code') {
+    yield md.Element.text('code', node.text);
+    return;
+  }
+  final children = node.nodes.expand(_htmlNodes).toList();
+  if (const {
+    'p',
+    'div',
+    'br',
+    'strong',
+    'em',
+    'del',
+    'blockquote',
+    'ul',
+    'ol',
+    'li',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+  }.contains(tag)) {
+    yield md.Element(tag == 'div' ? 'section' : tag!, children);
+  } else if (tag == 'a') {
+    yield md.Element('a', children)
+      ..attributes['href'] = node.attributes['href'] ?? '';
+  } else {
+    yield* children;
   }
 }
 

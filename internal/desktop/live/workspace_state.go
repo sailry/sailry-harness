@@ -84,6 +84,7 @@ type workspaceProject struct {
 	checkpoints              map[string]protocol.ConversationCheckpointFile
 	checkpointOrder          map[string][]protocol.ConversationCheckpointFile
 	documents                map[string]uint32
+	documentImages           map[string]*documentImages
 	artifacts                map[string]protocol.ArtifactSummary
 	hunks                    map[string]protocol.ConversationCheckpointHunkReview
 	cancel                   context.CancelFunc
@@ -126,6 +127,9 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	r.bindArtifactCallbacks()
 	if r.workspace == nil {
 		r.initWorkspace()
+	}
+	for _, project := range r.workspace.projects {
+		project.pruneDocumentImages()
 	}
 	r.projectWorkspaceLocations()
 	session, ok := r.session(r.App.Sidebar.Selected)
@@ -246,6 +250,7 @@ func (r *Runtime) closeWorkspace() {
 	}
 	r.closeWorkspaceUploads()
 	for _, project := range r.workspace.projects {
+		project.closeDocumentImages()
 		project.stopGitRefreshTimer()
 		project.panel.ResetFileSearch()
 		if project.cancel != nil {
@@ -260,7 +265,8 @@ func (p *workspaceProject) actions() *panel.Actions {
 	return &panel.Actions{
 		ReadDirectory: func(path string) { p.readDirectory(path, false) }, NextDirectory: p.nextDirectory, RefreshDirectory: func(path string) { p.readDirectory(path, true) },
 		ReadFile: p.readFile, OpenFile: p.openFileKind, ReadNotebook: p.readEditorNotebook, SaveFile: p.saveFile, File: p.fileAction, Git: p.gitAction, ReadDiff: p.readDiff, ReadCommit: p.openGitCommit, ReadDocument: p.readDocument, Hunk: p.hunk, Restore: p.restore, Refresh: p.refresh,
-		Search: p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
+		DocumentMarkdown: p.documentMarkdown,
+		Search:           p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
 		GitHistory: p.gitHistoryMore,
 		PendingGit: p.pendingGitOperations,
 		Loading:    p.resourcesLoading,
@@ -476,6 +482,7 @@ func (p *workspaceProject) fileLoaded(relative string, value protocol.FileConten
 			return
 		}
 	}
+	p.checkDocumentImagesRevision(relative, value.Revision)
 	p.files[relative] = value
 	p.clearChanged(relative)
 	p.ensureFile(relative)

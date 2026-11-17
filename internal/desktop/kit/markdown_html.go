@@ -16,8 +16,7 @@ import (
 // A document's blocks, as a README's centred badges and links, show here
 // as the Markdown they convert to, in a view sharing the document's look,
 // links and selection. A block aligned to the centre (align="center", or
-// <center>) shows centred. Images show as their descriptions, as the
-// document's own do while no LoadImage is given.
+// <center>) shows centred. Images use the document's captured image loader.
 
 // htmlChunk is a part of an HTML block: its Markdown, and whether it is
 // centred.
@@ -29,14 +28,14 @@ type htmlChunk struct {
 var (
 	htmlChunksMu sync.Mutex
 	htmlChunks   = map[string][]htmlChunk{} // by the block's HTML
-	nestedMu     sync.Mutex
-	nested       = map[*markdown.Options]*markdown.Options{}
 )
 
 // htmlBlock builds an HTML block of the document o shows.
 func htmlBlock(o *markdown.Options) func(c *ui.Context, source string) {
+	inner := &markdown.Options{}
+	inner.Block = documentImageBlock(inner)
 	return func(c *ui.Context, source string) {
-		inner := nestedOptions(o)
+		copyNestedOptions(inner, o)
 		ui.Column(c).FillWidth().Children(func() {
 			for i, chunk := range chunksOf(source) {
 				view := markdown.View(c.Key(i), chunk.markdown, inner)
@@ -48,21 +47,15 @@ func htmlBlock(o *markdown.Options) func(c *ui.Context, source string) {
 	}
 }
 
-// nestedOptions are the Options of the views within o's document: its look
+// copyNestedOptions supplies the views within o's document with its look
 // and links, sharing its selection. They take no HTML of their own, so a
 // tag the conversion leaves shows as text.
-func nestedOptions(o *markdown.Options) *markdown.Options {
-	nestedMu.Lock()
-	defer nestedMu.Unlock()
-	inner := nested[o]
-	if inner == nil {
-		inner = &markdown.Options{}
-		nested[o] = inner
-	}
+func copyNestedOptions(inner, o *markdown.Options) {
 	inner.Theme, inner.Extensions, inner.CodeBlock = o.Theme, o.Extensions, o.CodeBlock
 	inner.LinkMenu, inner.OnLink, inner.Preview, inner.LoadImage = o.LinkMenu, o.OnLink, o.Preview, o.LoadImage
+	inner.LinkIcon, inner.Resolve = o.LinkIcon, o.Resolve
+	inner.Code, inner.WrapCode, inner.Math, inner.InlineMath = o.Code, o.WrapCode, o.Math, o.InlineMath
 	inner.Reveal, inner.ShareSelection = o.Reveal, true
-	return inner
 }
 
 // chunksOf splits an HTML block into runs of its top-level nodes, centred

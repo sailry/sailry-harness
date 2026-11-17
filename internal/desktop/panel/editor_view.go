@@ -58,7 +58,11 @@ func (pr *Project) liveFileEditor(c *ui.Context, path string, own bool) {
 			}
 		})
 	case markdown && item.source == 0:
-		ui.Scroll(c.Key("document")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 16).Children(func() { kit.Markdown(c, item.draft+item.suffix, kit.MarkdownProps{}) })
+		props := kit.MarkdownProps{}
+		if pr.Actions != nil && pr.Actions.DocumentMarkdown != nil {
+			props.Options = pr.Actions.DocumentMarkdown(path)
+		}
+		ui.Scroll(c.Key("document")).Bind(state.focusFor(own)).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 16).Children(func() { kit.Markdown(c, item.draft+item.suffix, props) })
 	default:
 		ui.Scroll(c.Key("text")).Bind(state.focusFor(own)).Disabled(!own || pr.documentsLocked()).TrackScroll(scroll(&item.text, own)).Grow(1).MinHeight(0).Padding(12, 0).Children(func() {
 			kit.Code(c, ui.Column(c.Key(path)), item.draft, kit.CodeOptions{Language: editor.LanguageFor(path), Numbers: true, Editable: own && pr.fileWritable(item), Changed: func(text string) {

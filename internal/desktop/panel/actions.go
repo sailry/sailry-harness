@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -25,6 +26,7 @@ type Actions struct {
 	ReadCommit       func(string)
 	GitHistory       func() // reads the commits after the ones listed
 	ReadDocument     func(string)
+	DocumentMarkdown func(path string) *markdown.Options
 	Hunk             func(*ui.Context, string, int, string)
 	Restore          func(*ui.Context, string)
 	Refresh          func()

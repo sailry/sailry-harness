@@ -62,6 +62,7 @@ func (r *Runtime) pruneResourceViews() {
 		}
 		if restricted {
 			owner.invalidateFilePreview(nil)
+			owner.invalidateDocumentPreviews(nil)
 		}
 		if owner.workspace == nil {
 			continue
@@ -80,6 +81,7 @@ func (r *Runtime) pruneResourceViews() {
 				continue
 			}
 			project.stopGitRefreshTimer()
+			project.closeDocumentImages()
 			project.panel.ResetFileSearch()
 			if project.cancel != nil {
 				project.cancel()
@@ -88,6 +90,7 @@ func (r *Runtime) pruneResourceViews() {
 				project.release()
 			}
 			owner.invalidateFilePreview(&worktree)
+			owner.invalidateDocumentPreviews(&worktree)
 			delete(owner.workspace.projects, worktree)
 			delete(owner.workspace.admitted, worktree)
 			if owner.workspace.selected == worktree {

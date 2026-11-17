@@ -30,6 +30,7 @@ func (location *pluginNativeLocation) releasePresentation(tree protocol.Worktree
 				project.release = nil
 			}
 			if !retained {
+				project.closeDocumentImages()
 				delete(workspace.projects, tree)
 			}
 		}

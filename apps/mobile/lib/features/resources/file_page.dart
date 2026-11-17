@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../content/code.dart';
+import '../../content/document_images.dart';
 import '../../content/external_file.dart';
 import '../../content/image_preview.dart';
-import '../../content/images.dart';
 import '../../content/paths.dart';
 import '../../content/markdown.dart';
 import '../../content/transfers.dart';
@@ -50,12 +50,14 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   bool _busy = false;
   bool _mutating = false;
   bool _editing = false;
+  late final DocumentImageSource _imageSource;
+  late DocumentImages _images;
+  final _downloads = DownloadCancellation();
 
   /// Load failure while nothing is shown; other failures use toasts.
   String? _error;
   FileDraft? get _draft => widget.document.draft;
   String get _name => widget.path.split('/').last;
-  String get _directory => splitPath(widget.path).directory;
   String get _mime => mediaType(widget.path);
   bool get _markdown => _mime == 'text/markdown';
   bool get _isImage => _mime.startsWith('image/');
@@ -69,11 +71,20 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   @override
   void initState() {
     super.initState();
+    _imageSource = DocumentImageSource(
+      host: widget.host,
+      worktree: widget.worktree,
+      path: widget.path,
+      version: _draft?.revision,
+    );
+    _images = DocumentImages(_imageSource);
     _load();
   }
 
   @override
   void dispose() {
+    _downloads.cancel();
+    _images.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -117,6 +128,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         widget.host,
         widget.worktree,
         widget.path,
+        cancellation: _downloads,
       );
       if (mounted) _image = bytes;
     } else if (_mime != 'application/pdf') {
@@ -133,11 +145,18 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         }
       }
       if (mounted) {
+        _updateImages();
         _controller.text = _draft!.text;
         _editing = _draft!.dirty || _draft!.pending != null;
       }
     }
   }, load: true);
+
+  void _updateImages() {
+    if (_images.source?.version == _draft?.revision) return;
+    _images.dispose();
+    _images = DocumentImages(_imageSource.atVersion(_draft?.revision));
+  }
 
   Future<void> _openLink(Uri uri) async {
     final tree = objects(
@@ -183,7 +202,10 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
   Future<void> _save() => _run(() async {
     try {
       await _draft!.save(widget.host, widget.worktree, widget.path);
-      if (mounted) _editing = false;
+      if (mounted) {
+        _updateImages();
+        _editing = false;
+      }
     } catch (error) {
       if (mounted) {
         showToast(
@@ -423,7 +445,10 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
     if (_isImage) {
       return _image == null
           ? const SizedBox()
-          : ImageViewer(image: MemoryImage(_image!));
+          : ImageViewer(
+              image: _mime == 'image/svg+xml' ? null : MemoryImage(_image!),
+              svg: _mime == 'image/svg+xml' ? _image : null,
+            );
     }
     if (!_isText) {
       return Center(
@@ -463,12 +488,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
         child: MarkdownContent(
           _draft!.text,
           onOpenFile: _openLink,
-          imageBuilder: (uri, _, _) => contentImage(
-            widget.host,
-            widget.worktree,
-            uri,
-            directory: _directory,
-          ),
+          imageBuilder: _images.image,
         ),
       );
     }

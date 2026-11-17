@@ -563,6 +563,7 @@ func (r *Runtime) finishFrame() {
 	r.pluginControlsAfterFrame()
 	r.pluginCardsAfterFrame()
 	r.pruneAttachmentImages()
+	r.pruneDocumentPreviews()
 	r.pruneCommands()
 	for id, release := range r.conversationWatches {
 		if !r.conversationSeen[id] {

@@ -7,6 +7,7 @@ package fileview
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -23,6 +24,7 @@ const Limit = 2 << 20
 type Callbacks struct {
 	OpenExternal func()
 	Image        func(kit.ImageAction, conversation.Image)
+	Markdown     *markdown.Options
 	// Render draws a preview the owner draws itself (a published artifact's
 	// document), reporting whether it did.
 	Render func(*ui.Context, conversation.File) bool
@@ -138,7 +140,7 @@ func Content(c *ui.Context, v *View, key string, f conversation.File, cb Callbac
 	ui.Scroll(c.Key("artifact-" + key)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.MarkdownFile:
-			ui.Column(c).Padding(16, 20).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
+			ui.Column(c).Padding(16, 20).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{Options: cb.Markdown}) })
 		case conversation.ImageFile:
 			ui.Box(c).FillWidth().Padding(16).Center().Children(func() {
 				if f.Image == nil || f.Image.Source == nil {

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -16,6 +17,7 @@ type ArtifactCallbacks struct {
 	OpenExternal func(conversation.File)
 	Image        func(kit.ImageAction, conversation.Image)
 	Render       func(*ui.Context, conversation.File) bool
+	Markdown     func(conversation.File) *markdown.Options
 }
 
 func (s *State) SetArtifactCallbacks(callbacks ArtifactCallbacks) { s.artifactCallbacks = callbacks }
@@ -52,6 +54,9 @@ func (s *State) artifact(c *ui.Context, id string) {
 			notice(c)
 		}
 	}}
+	if s.artifactCallbacks.Markdown != nil {
+		cb.Markdown = s.artifactCallbacks.Markdown(f)
+	}
 	// The demo's files are on no disk for another app to open.
 	if !s.Demo {
 		cb.OpenExternal = func() {
@@ -69,6 +74,12 @@ func (s *State) artifact(c *ui.Context, id string) {
 				Radius(8).Children(func() { fileview.Tools(c, f, cb) })
 		}
 	})
+}
+
+// ForgetArtifact removes a closed or revoked file projection and its content.
+func (s *State) ForgetArtifact(id string) {
+	s.Tabs, s.Active = Closed(s.Tabs, Tab{Artifact, id}, s.Active)
+	delete(s.artifacts, id)
 }
 
 // Subagent is a tab holding a subagent's session.

@@ -8,6 +8,7 @@ import '../runtime/json.dart';
 import '../runtime/session.dart';
 import '../ui/kit.dart';
 import '../ui/toast.dart';
+import 'document_images.dart';
 import 'image_preview.dart';
 import 'markdown.dart';
 import 'transfers.dart';
@@ -19,27 +20,35 @@ class AttachmentView extends StatefulWidget {
     required this.attachment,
     this.image,
     this.session,
+    this.documentSource,
   }) : worktree = null,
-       path = null;
+       path = null,
+       version = null;
 
   const AttachmentView.file({
     super.key,
     required this.host,
     required this.worktree,
     required this.path,
+    this.version,
   }) : attachment = null,
        image = null,
-       session = null;
+       session = null,
+       documentSource = null;
   final HostConnection host;
   final Map<String, dynamic>? attachment;
   final Map<String, dynamic>? image;
   final String? session;
   final String? worktree;
   final String? path;
+  final Object? version;
+  final DocumentImageSource? documentSource;
   Object get _source => (
     host,
     worktree,
     path,
+    version,
+    documentSource?.identity,
     session,
     attachment?['id'],
     object(attachment?['spec'])['revision'],
@@ -58,6 +67,7 @@ class _AttachmentViewState extends State<AttachmentView> {
   String? _error;
   int _generation = 0;
   late bool _connected;
+  var _cancellation = DownloadCancellation();
 
   Map<String, dynamic> get _spec => widget.path == null
       ? object(widget.attachment!['spec'])
@@ -94,6 +104,8 @@ class _AttachmentViewState extends State<AttachmentView> {
       _connected = widget.host.connected;
     }
     if (oldWidget._source != widget._source) {
+      _cancellation.cancel();
+      _cancellation = DownloadCancellation();
       _generation++;
       _bytes = null;
       _error = null;
@@ -104,6 +116,7 @@ class _AttachmentViewState extends State<AttachmentView> {
 
   @override
   void dispose() {
+    _cancellation.cancel();
     widget.host.removeListener(_hostChanged);
     super.dispose();
   }
@@ -117,12 +130,18 @@ class _AttachmentViewState extends State<AttachmentView> {
     });
     try {
       final bytes = widget.path != null
-          ? await downloadFile(widget.host, widget.worktree!, widget.path!)
+          ? await downloadFile(
+              widget.host,
+              widget.worktree!,
+              widget.path!,
+              cancellation: _cancellation,
+            )
           : await downloadAttachment(
               widget.host,
               widget.attachment!,
               image: widget.image,
               session: widget.session,
+              cancellation: _cancellation,
             );
       if (!mounted || generation != _generation) return;
       setState(() => _bytes = bytes);
@@ -147,7 +166,8 @@ class _AttachmentViewState extends State<AttachmentView> {
     if (_isImage) {
       await showImagePreview(
         context,
-        MemoryImage(bytes),
+        mime == 'image/svg+xml' ? null : MemoryImage(bytes),
+        svg: mime == 'image/svg+xml' ? bytes : null,
         name: name,
         save: () => saveContent(bytes, name, mime),
       );
@@ -156,29 +176,11 @@ class _AttachmentViewState extends State<AttachmentView> {
     await showAppSheet(
       context,
       name,
-      child: Builder(
-        builder: (context) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (mime.startsWith('text/') || mime == 'application/json')
-              mime == 'text/markdown'
-                  ? MarkdownContent(utf8.decode(bytes, allowMalformed: true))
-                  : SelectableText(utf8.decode(bytes, allowMalformed: true)),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () async {
-                try {
-                  await saveContent(bytes, name, mime);
-                } catch (_) {
-                  if (context.mounted) {
-                    showToast(context, context.tr('fileSaveFailed'));
-                  }
-                }
-              },
-              child: Text(context.tr('save')),
-            ),
-          ],
-        ),
+      child: _AttachmentDocument(
+        bytes: bytes,
+        name: name,
+        mime: mime,
+        source: widget.documentSource,
       ),
     );
   }
@@ -196,7 +198,9 @@ class _AttachmentViewState extends State<AttachmentView> {
         children: [
           if (!_isImage || (_bytes == null && !_busy && _error == null))
             OutlinedButton(
-              onPressed: _busy || !widget.host.connected ? null : _open,
+              onPressed: _busy || !widget.host.connected && _bytes == null
+                  ? null
+                  : _open,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -209,8 +213,9 @@ class _AttachmentViewState extends State<AttachmentView> {
           if (_isImage && _busy)
             const SizedBox(height: 96, width: double.infinity),
           if (bytes != null && _isImage)
-            ImageThumbnail(
-              image: MemoryImage(bytes),
+            imageBytes(
+              bytes,
+              spec['media_type'] as String? ?? '',
               name: name,
               save: () =>
                   saveContent(bytes, name, spec['media_type'] as String? ?? ''),
@@ -237,4 +242,57 @@ class _AttachmentViewState extends State<AttachmentView> {
       ),
     );
   }
+}
+
+class _AttachmentDocument extends StatefulWidget {
+  const _AttachmentDocument({
+    required this.bytes,
+    required this.name,
+    required this.mime,
+    required this.source,
+  });
+  final Uint8List bytes;
+  final String name;
+  final String mime;
+  final DocumentImageSource? source;
+
+  @override
+  State<_AttachmentDocument> createState() => _AttachmentDocumentState();
+}
+
+class _AttachmentDocumentState extends State<_AttachmentDocument> {
+  late final _images = DocumentImages(widget.source);
+
+  @override
+  void dispose() {
+    _images.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (widget.mime.startsWith('text/') || widget.mime == 'application/json')
+        widget.mime == 'text/markdown'
+            ? MarkdownContent(
+                utf8.decode(widget.bytes, allowMalformed: true),
+                imageBuilder: _images.image,
+              )
+            : SelectableText(utf8.decode(widget.bytes, allowMalformed: true)),
+      const SizedBox(height: 12),
+      FilledButton(
+        onPressed: () async {
+          try {
+            await saveContent(widget.bytes, widget.name, widget.mime);
+          } catch (_) {
+            if (context.mounted) {
+              showToast(context, context.tr('fileSaveFailed'));
+            }
+          }
+        },
+        child: Text(context.tr('save')),
+      ),
+    ],
+  );
 }

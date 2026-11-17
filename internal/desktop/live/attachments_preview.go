@@ -8,11 +8,14 @@ import (
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 const attachmentPreviewMaximum = 2 << 20
@@ -37,15 +40,36 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 	file.State = conversation.PreviewLoading
 	ctx := r.attachments.ctx
 	var preview *filePreview
+	var document *documentImages
 	if file.Kind == conversation.ImageFile {
 		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: r.localRuntime().ArtifactImageAction})
 		preview.worktree = descriptor.worktree
 	} else {
+		if old := r.attachments.previewDocuments[file.ID]; old != nil {
+			old.cancel()
+		}
+		if r.attachments.previewDocuments == nil {
+			r.attachments.previewDocuments = map[string]*documentImages{}
+		}
+		version := fmt.Sprint(generation)
+		if descriptor.revision != nil {
+			version = *descriptor.revision
+		} else if descriptor.artifact != nil {
+			version = fmt.Sprint(descriptor.artifact.Revision)
+		} else if descriptor.attachment != nil {
+			version = descriptor.attachment.Spec.Revision
+		}
+		document = newDocumentImages(ctx, r, descriptor, version)
+		r.attachments.previewDocuments[file.ID] = document
+		ctx = document.ctx
 		r.App.Panel.ShowArtifact(file)
 		r.App.PanelOpen = true
 	}
 	r.async(func() {
 		loaded, content, err := r.readAttachmentPreview(ctx, descriptor, file)
+		if content != nil && err == nil && document != nil {
+			content.Html = document.inlineHTML(content.Html)
+		}
 		r.enqueue(func(c *ui.Context) {
 			if r.attachments.previewGeneration[file.ID] != generation || ctx.Err() != nil {
 				return
@@ -62,6 +86,10 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 			} else if content != nil {
 				r.attachments.previewHTML[file.ID] = content.Html
 			}
+			if document := r.attachments.previewDocuments[file.ID]; document != nil && err == nil && content == nil {
+				version := fmt.Sprintf("%x", blake3.Sum256([]byte(loaded.Text)))
+				document.version, document.origin.version = version, version
+			}
 			if preview != nil {
 				preview.file = loaded
 			} else {
@@ -69,6 +97,59 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 			}
 		})
 	})
+}
+
+func (r *Runtime) artifactMarkdown(file conversation.File) *markdown.Options {
+	owner := r.artifactRuntime(file.ID)
+	if owner == nil || owner.attachments == nil {
+		return nil
+	}
+	if document := owner.attachments.previewDocuments[file.ID]; document != nil {
+		return document.options()
+	}
+	return nil
+}
+
+func (r *Runtime) pruneDocumentPreviews() {
+	if r.attachments == nil || len(r.attachments.previewDocuments) == 0 {
+		return
+	}
+	open := map[string]bool{}
+	root := r.localRuntime()
+	for _, tab := range root.App.AllPanelTabs() {
+		if tab.Kind == panel.Artifact {
+			open[tab.ID] = true
+		}
+	}
+	for id := range r.attachments.previewDocuments {
+		if !open[id] {
+			r.forgetDocumentPreview(id)
+		}
+	}
+}
+
+func (r *Runtime) forgetDocumentPreview(id string) {
+	if document := r.attachments.previewDocuments[id]; document != nil {
+		document.cancel()
+	}
+	delete(r.attachments.previewDocuments, id)
+	delete(r.attachments.previewHTML, id)
+	delete(r.attachments.previews, id)
+	r.attachments.previewGeneration[id]++
+	app := r.localRuntime().App
+	app.DropPanelTab(panel.Tab{Kind: panel.Artifact, ID: id})
+	app.Panel.ForgetArtifact(id)
+}
+
+func (r *Runtime) invalidateDocumentPreviews(worktree *protocol.WorktreeID) {
+	if r.attachments == nil {
+		return
+	}
+	for id := range r.attachments.previewDocuments {
+		if worktree == nil || r.attachments.previews[id].worktree == *worktree {
+			r.forgetDocumentPreview(id)
+		}
+	}
 }
 func (r *Runtime) readAttachmentPreview(ctx context.Context, descriptor attachmentDescriptor, file conversation.File) (conversation.File, *protocol.ArtifactContent, error) {
 	file.State = conversation.PreviewReady

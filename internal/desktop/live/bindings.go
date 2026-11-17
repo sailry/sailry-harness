@@ -238,7 +238,7 @@ func (r *Runtime) workspaceRuntime(worktree protocol.WorktreeID) *Runtime {
 
 func (r *Runtime) bindArtifactCallbacks() {
 	root := r.localRuntime()
-	root.App.Panel.SetArtifactCallbacks(panel.ArtifactCallbacks{OpenExternal: root.OpenArtifactExternal, Image: root.ArtifactImageAction, Render: root.renderArtifactPreview})
+	root.App.Panel.SetArtifactCallbacks(panel.ArtifactCallbacks{OpenExternal: root.OpenArtifactExternal, Image: root.ArtifactImageAction, Render: root.renderArtifactPreview, Markdown: root.artifactMarkdown})
 }
 
 func (r *Runtime) SetPickKeyFile(pick func(func(string))) {

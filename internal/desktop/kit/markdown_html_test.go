@@ -6,7 +6,7 @@ import (
 )
 
 // An HTML block splits into runs, centred or not, each as Markdown: links
-// stay links and images their descriptions.
+// stay links and images retain their sources and descriptions.
 func TestHTMLChunks(t *testing.T) {
 	chunks := splitHTML(`<p align="center">
   <a href="docs/hosts.md">Hosts</a> ·

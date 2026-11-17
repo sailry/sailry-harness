@@ -99,6 +99,9 @@ func Markdown(c *ui.Context, src string, p MarkdownProps) ui.Element {
 	if p.Variant == Document && o.HTML == nil {
 		o.HTML = htmlBlock(o)
 	}
+	if p.Variant == Document && o.LoadImage != nil && o.Block == nil {
+		o.Block = documentImageBlock(o)
+	}
 	if p.Animated {
 		return markdown.Stream(c, src, o)
 	}

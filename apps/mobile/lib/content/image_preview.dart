@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../l10n/strings.dart';
 import '../ui/icons.dart';
@@ -36,37 +39,81 @@ class ImageThumbnail extends StatelessWidget {
 Widget uriImage(Uri uri) {
   try {
     if (uri.scheme == 'http' || uri.scheme == 'https') {
+      if (uri.path.toLowerCase().endsWith('.svg')) {
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: SvgPicture.network(
+            uri.toString(),
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => _imageFailure(),
+          ),
+        );
+      }
       return ImageThumbnail(image: NetworkImage(uri.toString()));
     }
     if (uri.scheme == 'data') {
       final data = uri.data;
       if (data != null && data.mimeType.startsWith('image/')) {
-        return ImageThumbnail(image: MemoryImage(data.contentAsBytes()));
+        return imageBytes(data.contentAsBytes(), data.mimeType);
       }
     }
   } on FormatException {
     // Invalid image data should not prevent rendering the rest of the document.
   }
+  return _imageFailure();
+}
+
+Widget _imageFailure() =>
+    Builder(builder: (context) => Text(context.tr('conversationImageFailed')));
+
+/// SVG uses the same preview controls as raster images without a raster decode.
+Widget imageBytes(
+  Uint8List bytes,
+  String mime, {
+  String? name,
+  Future<void> Function()? save,
+}) {
+  if (mime != 'image/svg+xml') {
+    return ImageThumbnail(image: MemoryImage(bytes), name: name, save: save);
+  }
   return Builder(
-    builder: (context) => Text(context.tr('conversationImageFailed')),
+    builder: (context) => Semantics(
+      button: true,
+      label: name ?? context.tr('imagePreview'),
+      child: InkWell(
+        onTap: () =>
+            showImagePreview(context, null, svg: bytes, name: name, save: save),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 240),
+          child: SvgPicture.memory(
+            bytes,
+            semanticsLabel: name,
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => _imageFailure(),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
 Future<void> showImagePreview(
   BuildContext context,
-  ImageProvider image, {
+  ImageProvider? image, {
+  Uint8List? svg,
   String? name,
   Future<void> Function()? save,
 }) => showDialog<void>(
   context: context,
   useSafeArea: false,
   barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: .95),
-  builder: (_) => _ImagePreview(image: image, name: name, save: save),
+  builder: (_) => _ImagePreview(image: image, svg: svg, name: name, save: save),
 );
 
 class _ImagePreview extends StatefulWidget {
-  const _ImagePreview({required this.image, this.name, this.save});
-  final ImageProvider image;
+  const _ImagePreview({required this.image, this.svg, this.name, this.save});
+  final ImageProvider? image;
+  final Uint8List? svg;
   final String? name;
   final Future<void> Function()? save;
 
@@ -136,7 +183,7 @@ class _ImagePreviewState extends State<_ImagePreview> {
               Expanded(
                 child: LoadingOverlay(
                   loading: _saving,
-                  child: ImageViewer(image: widget.image),
+                  child: ImageViewer(image: widget.image, svg: widget.svg),
                 ),
               ),
             ],
@@ -149,8 +196,10 @@ class _ImagePreviewState extends State<_ImagePreview> {
 
 /// Shared zoom and pan interaction for file pages and conversation lightboxes.
 class ImageViewer extends StatefulWidget {
-  const ImageViewer({super.key, required this.image});
-  final ImageProvider image;
+  const ImageViewer({super.key, this.image, this.svg})
+    : assert((image == null) != (svg == null));
+  final ImageProvider? image;
+  final Uint8List? svg;
 
   @override
   State<ImageViewer> createState() => _ImageViewerState();
@@ -181,12 +230,18 @@ class _ImageViewerState extends State<ImageViewer> {
       minScale: 1,
       maxScale: 8,
       child: SizedBox.expand(
-        child: Image(
-          image: widget.image,
-          fit: BoxFit.contain,
-          errorBuilder: (_, _, _) =>
-              Center(child: Text(context.tr('conversationImageFailed'))),
-        ),
+        child: widget.svg != null
+            ? SvgPicture.memory(
+                widget.svg!,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) => _imageFailure(),
+              )
+            : Image(
+                image: widget.image!,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) =>
+                    Center(child: Text(context.tr('conversationImageFailed'))),
+              ),
       ),
     ),
   );
