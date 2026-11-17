@@ -583,21 +583,22 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 
 	// The empty conversation keeps its navigation and right-column toggles;
 	// the statistics package's context control waits for the first turn.
-	// The draft shows as the band's passing tab, in the title's place.
+	// A single draft shows its title without a workspace tab.
 	var header []ui.AccessInfo
-	tab := false
+	title := false
 	for _, info := range tester.AccessAll() {
-		if info.Role != ui.RoleButton || info.Bounds.Y+info.Bounds.H > shell.HeaderHeight {
+		if info.Bounds.Y+info.Bounds.H > shell.HeaderHeight {
 			continue
 		}
-		if info.Name == zh("conversation") {
-			tab = true
-			continue
+		if info.Role == ui.RoleText && info.Name == zh("conversation") {
+			title = true
 		}
-		header = append(header, info)
+		if info.Role == ui.RoleButton {
+			header = append(header, info)
+		}
 	}
-	if !tab {
-		t.Errorf("the draft has no tab in the header")
+	if !title {
+		t.Errorf("the draft has no title in the header")
 	}
 	names := func() (all []string) {
 		for _, info := range header {
@@ -627,7 +628,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	if tester.Focused(zh("composer")) {
 		t.Fatal("the editor kept the focus when the details opened")
 	}
-	// The sidebar's New session, not the draft's tab of the same name.
+	// The sidebar's New session restores the draft's editor focus.
 	var again ui.AccessInfo
 	for _, info := range tester.AccessAll() {
 		if info.Role == ui.RoleButton && info.Name == zh("conversation") && info.Bounds.Y >= shell.HeaderHeight {
