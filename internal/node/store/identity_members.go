@@ -172,6 +172,10 @@ func scanSponsorship(row identityScanner) (protocol.DeviceSponsorship, error) {
 	return result, err
 }
 
+// SponsorIdentityDevice and ConfirmIdentitySponsorship are retired from the
+// identity command, which rejects both. They stay for the same reason as
+// MergeIdentityUsers: tests build the sponsored memberships that earlier
+// versions stored, which revocation still has to handle.
 func SponsorIdentityDevice(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.RequestID, input protocol.SponsorDevice) (protocol.DeviceSponsorship, error) {
 	result := protocol.DeviceSponsorship{Sponsor: caller, Request: request, Device: input.Device}
 	actor, err := CallerUser(ctx, db, node, caller)
@@ -362,9 +366,6 @@ func removeIdentityInbound(ctx context.Context, db *sql.Conn, device protocol.No
 	if !outbound {
 		return removeIdentityPeer(ctx, db, device, false)
 	}
-	if err := queueIdentityRevocations(ctx, db, device); err != nil {
-		return err
-	}
 	if _, err := db.ExecContext(ctx, "UPDATE identity_memberships SET active=0 WHERE device=?1", device[:]); err != nil {
 		return err
 	}
@@ -394,16 +395,7 @@ func removeIdentityInbound(ctx context.Context, db *sql.Conn, device protocol.No
 	return nil
 }
 
-// RemoveIdentityPeer runs at an already authenticated revocation boundary. The
-// durable negative deliveries survive an offline target and keep their IDs.
-func RemoveIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeID) error {
-	return removeIdentityPeer(ctx, db, device, true)
-}
-
 func removeIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeID, localRemoval bool) error {
-	if err := queueIdentityRevocations(ctx, db, device); err != nil {
-		return err
-	}
 	if _, err := db.ExecContext(ctx, "UPDATE identity_memberships SET active=0 WHERE device=?1", device[:]); err != nil {
 		return err
 	}
@@ -414,37 +406,4 @@ func removeIdentityPeer(ctx context.Context, db *sql.Conn, device protocol.NodeI
 		return err
 	}
 	return SetLinkTrust(ctx, db, device, false)
-}
-
-func SetIdentityAdministrator(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, input protocol.UserAdministrator) (protocol.User, error) {
-	actor, err := CallerUser(ctx, db, node, caller)
-	if err != nil {
-		return protocol.User{}, err
-	}
-	if !actor.Administrator {
-		return protocol.User{}, fault(protocol.ErrorCodePermissionDenied, "administrator access is required")
-	}
-	if err := SetUserAdministrator(ctx, db, input.User, input.Administrator); err != nil {
-		return protocol.User{}, err
-	}
-	return ResolveUser(ctx, db, input.User)
-}
-
-func AssignIdentityOrphan(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, input protocol.AssignOrphanUser) (protocol.User, error) {
-	actor, err := CallerUser(ctx, db, node, caller)
-	if err != nil {
-		return protocol.User{}, err
-	}
-	if !actor.Administrator {
-		return protocol.User{}, fault(protocol.ErrorCodePermissionDenied, "administrator access is required")
-	}
-	var orphan bool
-	err = db.QueryRowContext(ctx, `SELECT local=0 AND state='active' AND NOT EXISTS(SELECT 1 FROM link_peers WHERE user=users.id AND direction IN ('controller','both')) FROM users WHERE id=?1`, input.Source.String()).Scan(&orphan)
-	if err != nil {
-		return protocol.User{}, err
-	}
-	if !orphan {
-		return protocol.User{}, invalid("only an orphaned user can be assigned without device confirmation")
-	}
-	return MergeIdentityUsers(ctx, db, input.Source, input.Target)
 }

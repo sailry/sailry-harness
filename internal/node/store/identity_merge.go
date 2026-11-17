@@ -7,9 +7,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// MergeIdentityUsers runs inside the identity command transaction. All devices
-// and owned resources move together; conflicting personal records remain under
-// the merged source, which public principal resolution can no longer select.
+// MergeIdentityUsers moves all devices and owned resources together;
+// conflicting personal records remain under the merged source, which public
+// principal resolution can no longer select. No command reaches it any more:
+// identity merges are retired. It stays because profiles merged by earlier
+// versions keep that state, and tests construct it to check that current code
+// still reads it.
 func MergeIdentityUsers(ctx context.Context, db *sql.Conn, sourceID, targetID protocol.UserID) (protocol.User, error) {
 	source, err := ResolveUser(ctx, db, sourceID)
 	if err != nil {

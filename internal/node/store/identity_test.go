@@ -236,103 +236,6 @@ func TestIdentityRevocationEpochsRejectDelayedEffects(t *testing.T) {
 	}
 }
 
-func TestIdentityOfflineQueueKeepsRequestsAcrossReopen(t *testing.T) {
-	t.Parallel()
-	profile, node, storage := schemaFixture(t)
-	ctx := t.Context()
-	device, host := protocol.NodeID{2}, link.EndpointAddress{ID: protocol.NodeID{3}, Addrs: []json.RawMessage{}}
-	var original protocol.Request
-	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		if err := PairIdentityPeer(ctx, db, node, host.ID, link.DirectionHost, link.InvitationScope{Kind: protocol.InvitationOtherUser}); err != nil {
-			return err
-		}
-		if err := RememberLinkPeer(ctx, db, host); err != nil {
-			return err
-		}
-		if err := PairIdentityPeer(ctx, db, node, device, link.DirectionController, link.InvitationScope{Kind: protocol.InvitationMyDevice}); err != nil {
-			return err
-		}
-		var address link.EndpointAddress
-		if err := json.Unmarshal([]byte(identityTestAddress(device)), &address); err != nil {
-			return err
-		}
-		if err := RememberLinkPeer(ctx, db, address); err != nil {
-			return err
-		}
-		if err := QueueIdentitySponsors(ctx, db, node, []link.EndpointAddress{host}); err != nil {
-			return err
-		}
-		values, err := IdentityDeliveries(ctx, db)
-		if err != nil || len(values) != 1 {
-			return fmt.Errorf("queued sponsor: %d %v", len(values), err)
-		}
-		original = values[0].Request
-		_, err = MarkIdentityDelivery(ctx, db, original.ID, "unknown", nil)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Close(); err != nil {
-		t.Fatal(err)
-	}
-	storage = reopenSchemaFixture(t, profile, node)
-	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		if err := QueueIdentitySponsors(ctx, db, node, []link.EndpointAddress{host}); err != nil {
-			return err
-		}
-		values, err := IdentityDeliveries(ctx, db)
-		if err != nil || len(values) != 1 {
-			return fmt.Errorf("queue duplicated after reopen: %d %v", len(values), err)
-		}
-		before, _ := json.Marshal(original)
-		after, _ := json.Marshal(values[0].Request)
-		if string(before) != string(after) || values[0].State != "unknown" {
-			return errors.New("offline recovery changed the original request")
-		}
-		if err := RevokeIdentityDevice(ctx, db, node, node, protocol.RevokeDevice{Device: device}); err != nil {
-			return err
-		}
-		values, err = IdentityDeliveries(ctx, db)
-		if err != nil || len(values) != 1 {
-			return fmt.Errorf("negative queue: %d %v", len(values), err)
-		}
-		if values[0].Request.ID == original.ID {
-			return errors.New("revocation reused the grant's request identity")
-		}
-		if err := PairIdentityPeer(ctx, db, node, device, link.DirectionController, link.InvitationScope{Kind: protocol.InvitationMyDevice}); err != nil {
-			return err
-		}
-		var address link.EndpointAddress
-		if err := json.Unmarshal([]byte(identityTestAddress(device)), &address); err != nil {
-			return err
-		}
-		if err := RememberLinkPeer(ctx, db, address); err != nil {
-			return err
-		}
-		if err := QueueIdentitySponsors(ctx, db, node, []link.EndpointAddress{host}); err != nil {
-			return err
-		}
-		values, err = IdentityDeliveries(ctx, db)
-		if err != nil || len(values) != 2 {
-			return fmt.Errorf("new generation queue: %d %v", len(values), err)
-		}
-		action, err := identityAction(values[1].Request.Command)
-		if err != nil {
-			return err
-		}
-		grant, err := identityPayload[protocol.SponsorDevice](action.Data)
-		if err != nil || grant.Generation != 2 {
-			return errors.New("explicit repaired membership did not advance its generation")
-		}
-		if changed, err := MarkIdentityDelivery(ctx, db, original.ID, "completed", nil); err != nil || changed {
-			return errors.New("late completion resurrected cancelled grant")
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestIdentityDirectoryIsPrivateAndPreservesNodeDirectPairs(t *testing.T) {
 	t.Parallel()
 	_, node, storage := schemaFixture(t)
@@ -363,13 +266,13 @@ func TestIdentityDirectoryIsPrivateAndPreservesNodeDirectPairs(t *testing.T) {
 		if err := ApplyIdentityDirectory(ctx, db, source, 1, addresses); err != nil {
 			return err
 		}
-		if err := RemoveIdentityPeer(ctx, db, imported); err != nil {
+		if err := removeIdentityPeer(ctx, db, imported, true); err != nil {
 			return err
 		}
 		if err := ApplyIdentityDirectory(ctx, db, source, 2, addresses); err != nil {
 			return err
 		}
-		if err := RemoveIdentityPeer(ctx, db, source); err != nil {
+		if err := removeIdentityPeer(ctx, db, source, true); err != nil {
 			return err
 		}
 		peers, err := LinkPeers(ctx, db)
