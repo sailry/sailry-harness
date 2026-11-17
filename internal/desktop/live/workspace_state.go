@@ -189,6 +189,9 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	r.App.Panel.Data = project.data
 	r.App.Panel.Actions = project.panel.Actions
 	r.App.Panel.HasProject = session.Project != nil
+	if !r.controller.Connected() {
+		return
+	}
 	if project.release == nil {
 		project.watch()
 	}

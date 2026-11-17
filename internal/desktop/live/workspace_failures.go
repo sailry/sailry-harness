@@ -37,6 +37,9 @@ const (
 // distinguish keeps the operation's general copy.
 func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 	code, message := faultCode(err), faultMessage(err)
+	if code == protocol.ErrorCodeUnavailable && message == "resource host is offline" {
+		return kit.Failed, "resource_offline_action"
+	}
 	outcome := kit.Failed
 	switch code {
 	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:

@@ -43,6 +43,10 @@ func (r *Runtime) credential(x *execution, binding model.Binding) (model.Binding
 		secret := protocol.NewSecret(x.inv.Secret.Expose())
 		binding.Secret = &secret
 	}
+	if x.inv.EffectiveCredential != nil {
+		reference := *x.inv.EffectiveCredential
+		binding.Config.Credential = &reference
+	}
 	return binding, nil
 }
 

@@ -29,6 +29,7 @@ type AgentInvocation struct {
 	Message              protocol.ConversationInput
 	Provider             *protocol.ConversationProvider
 	Secret               *protocol.Secret
+	EffectiveCredential  *protocol.CredentialRef
 	AuthorizationFailure *protocol.Fault
 	Instructions         []AgentInstruction
 	CompactionPercent    uint8

@@ -14,7 +14,7 @@ import (
 // its main worktree or the one at path, and the Node that owns the project.
 func (r *Runtime) projectPluginRegistry(project *viewmodel.Project, path string) (*Runtime, *desktopplugins.Registry) {
 	owner := r.projectOverviewRuntime(project)
-	if owner == nil {
+	if owner == nil || !owner.controller.Connected() {
 		return nil, nil
 	}
 	worktree, exists := owner.projectWorktree(project, path)

@@ -19,13 +19,25 @@ import (
 // a full account grant or connector OAuth configuration must never be copied.
 func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller protocol.NodeID) ([]protocol.ConfigurationFollowRecord, error) {
 	result := []protocol.ConfigurationFollowRecord{}
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	add := func(value protocol.RuntimeCredential) error {
 		value.Controller = controller
+		// Runtime projections include account metadata and package declarations
+		// whose content can change independently of the credential's own CAS.
+		record, err := compositeConfigurationRecord(ctx, db, user, "runtime_credentials", value.CacheID(), value.Revision, value)
+		if err != nil {
+			return err
+		}
+		value.Revision = record.Revision
 		body, err := json.Marshal(value)
 		if err != nil {
 			return err
 		}
-		record := protocol.ConfigurationFollowRecord{ID: value.CacheID(), Revision: value.Revision, Body: body, ExpiresAtMs: value.ExpiresAtMs}
+		record.Body, record.Digest = body, ""
+		record.ExpiresAtMs = value.ExpiresAtMs
 		record.Digest, err = configurationDigest(record)
 		if err == nil {
 			result = append(result, record)
@@ -54,8 +66,6 @@ func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller prot
 					var grant providers.AccountGrant
 					if json.Unmarshal([]byte(credential.Key.Expose()), &grant) != nil {
 						value.State = "unavailable"
-					} else if grant.RenewalRejected {
-						value.State = "rejected"
 					} else {
 						exported, exportErr := providers.RuntimeAccount(*saved.Provider, grant)
 						if exportErr != nil {
@@ -63,9 +73,18 @@ func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller prot
 						} else {
 							exported.Kind, exported.ID, exported.Generation = value.Kind, value.ID, value.Generation
 							exported.Revision, exported.State = value.Revision, "ready"
-							if grant.RenewalUncertain {
+							if grant.RenewalPending || grant.RenewalUncertain {
 								exported.State = "uncertain"
 							}
+							if grant.RenewalRejected {
+								exported.State = "rejected"
+							}
+							exported.AccountIdentity = providers.RecoveryAccountIdentity(grant)
+							target := credential.Auth
+							if grant.Record != nil {
+								target = &grant.Record.Target
+							}
+							exported.AuthenticationTarget = providers.RecoveryAuthenticationTarget(*saved.Provider, target, grant)
 							value = exported
 						}
 					}
@@ -197,10 +216,10 @@ func runtimeCredentialReady(value protocol.RuntimeCredential) error {
 		// An in-flight refresh does not invalidate the access token already
 		// issued. Once expired, its unresolved outcome requires fresh login.
 		if value.ExpiresAtMs == nil || *value.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
-			return fault(protocol.ErrorCodeOutcomeUnknown, "controller credential renewal is unresolved; sign in again")
+			return controllerLoginFault("renewal_uncertain", protocol.ErrorCodeOutcomeUnknown, "controller credential renewal is unresolved; sign in again")
 		}
 	case "rejected":
-		return fault(protocol.ErrorCodePermissionDenied, "controller credential renewal was rejected; sign in again")
+		return controllerLoginFault("renewal_rejected", protocol.ErrorCodePermissionDenied, "controller credential renewal was rejected; sign in again")
 	case "revoked":
 		return fault(protocol.ErrorCodeNotConfigured, "controller credential was revoked")
 	case "machine_bound":

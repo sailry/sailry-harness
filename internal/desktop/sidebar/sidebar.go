@@ -351,13 +351,21 @@ func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation,
 // right-click menu is the system's.
 func (s *State) project(c *ui.Context, pr *preview.Project) {
 	p := theme.Of(c)
-	ui.Column(c.Key(pr.ID)).Gap(rowGap).Children(func() {
+	ui.Column(c.Key(pr.Host + "/" + pr.ID)).Gap(rowGap).Children(func() {
 		parts := ui.CollapsibleBase(c, s.opened("project/"+pr.ID))
 		hovered := parts.Trigger.Hovered()
 		parts.Trigger.Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground).
 			Cursor(ui.CursorPointer).ContextMenu(func(m *ui.Menu) { s.projectMenu(c, m, pr) }).Children(func() {
 			kit.ProjectGlyph(c, pr.Icon, pr.Color, 14).Label(i18n.T(c, "project_icon_"+appearanceIcon(pr.Icon)))
 			kit.Level(c, ui.Text(c, pr.Name).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, pr.Name)
+			if pr.Offline {
+				badge := ui.Text(c, i18n.T(c, "resource_offline")).FontSize(12).TextColor(p.MutedForeground)
+				label := i18n.T(c, "resource_offline_action")
+				if !pr.LastSyncedAt.IsZero() {
+					label = i18n.T(c, "resource_last_synced", "time", pr.LastSyncedAt.Format(time.RFC3339))
+				}
+				kit.Tooltip(c, badge, label)
+			}
 			label := i18n.T(c, "workspace_collapse")
 			if !*s.opened("project/" + pr.ID) {
 				label = i18n.T(c, "workspace_expand")
@@ -430,7 +438,12 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		return
 	}
 	b.TextColor(text).Children(func() {
-		status(c, cv.Status, text)
+		if cv.Offline {
+			ui.Icon(c, icons.Network).FontSize(12).Label(i18n.T(c, "resource_offline")).TextColor(p.MutedForeground).
+				Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).PassThrough()
+		} else {
+			status(c, cv.Status, text)
+		}
 		kit.Level(c, ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1), 14, title)
 		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)

@@ -68,6 +68,13 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 	root := r.localRuntime()
 	actions := shell.ProjectActions{
 		NewSession: func(current *viewmodel.Project) {
+			if current.Offline {
+				root.newDraft(current)
+				if selectedPath != "" {
+					root.App.Composer(root.App.Sidebar.Selected).Worktree = selectedPath
+				}
+				return
+			}
 			owner := root.projectOverviewRuntime(current)
 			if owner == nil {
 				root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
@@ -97,47 +104,62 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		NewTerminal: func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) },
 		Controls:    func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
 	}
-	if owner := root.projectOverviewRuntime(project); owner != nil {
-		if worktree, ok := owner.projectWorktree(project, selectedPath); ok {
-			selectedPath = worktree.Path
-			workspace := owner.workspaceFor(worktree)
+	var enteredWorkspace *workspaceProject
+	currentWorkspace := func() (*Runtime, *workspaceProject, bool) {
+		owner := root.projectOverviewRuntime(project)
+		if owner == nil || !owner.controller.Connected() {
+			return nil, nil, false
+		}
+		worktree, ok := owner.projectWorktree(project, selectedPath)
+		if !ok {
+			return nil, nil, false
+		}
+		selectedPath = worktree.Path
+		workspace := owner.workspaceFor(worktree)
+		// Each entry refreshes an unobserved repository once. Subsequent
+		// frames reuse it; a new Client's workspace needs its own first read.
+		if enteredWorkspace != workspace {
+			enteredWorkspace = workspace
 			workspace.readGit()
-			actions.Repository = func() shell.ProjectRepository {
-				if root.projectOverviewRuntime(project) != owner {
-					return shell.ProjectRepository{}
-				}
-				branch := workspaceString(workspace.status.Branch)
-				if branch == "" {
-					head := workspaceString(workspace.status.Head)
-					branch = head[:min(7, len(head))]
-				}
-				return shell.ProjectRepository{
-					Known: workspace.statusKnown, Directory: workspace.status.Kind == protocol.RepositoryKindDirectory,
-					Branch: branch, Repositories: append([]string(nil), workspace.status.Repositories...),
-				}
-			}
-			actions.Initialize = func(done func(bool)) {
-				if root.projectOverviewRuntime(project) != owner || !workspace.statusKnown ||
-					workspace.status.Kind != protocol.RepositoryKindDirectory {
-					root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Conflict, i18n.T(c, "workspace_changed")); done(false) })
-					return
-				}
-				status := workspace.status
-				command := protocol.Command{Kind: "run_git_action", Data: protocol.CommandRunGitActionPayload{
-					Worktree: worktree.ID, Action: protocol.GitAction{Kind: "initialize"},
-					ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch,
-				}}
-				workspace.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
-					ok := out.Kind != ""
-					if ok {
-						workspace.readGit()
-						kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
-					}
-					done(ok)
-				})
-			}
+		}
+		return owner, workspace, true
+	}
+	actions.Repository = func() shell.ProjectRepository {
+		_, workspace, ok := currentWorkspace()
+		if !ok {
+			return shell.ProjectRepository{}
+		}
+		branch := workspaceString(workspace.status.Branch)
+		if branch == "" {
+			head := workspaceString(workspace.status.Head)
+			branch = head[:min(7, len(head))]
+		}
+		return shell.ProjectRepository{
+			Known: workspace.statusKnown, Directory: workspace.status.Kind == protocol.RepositoryKindDirectory,
+			Branch: branch, Repositories: append([]string(nil), workspace.status.Repositories...),
 		}
 	}
+	actions.Initialize = func(done func(bool)) {
+		_, workspace, ok := currentWorkspace()
+		if !ok || !workspace.statusKnown || workspace.status.Kind != protocol.RepositoryKindDirectory {
+			root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Conflict, i18n.T(c, "workspace_changed")); done(false) })
+			return
+		}
+		status := workspace.status
+		command := protocol.Command{Kind: "run_git_action", Data: protocol.CommandRunGitActionPayload{
+			Worktree: workspace.owner.ID, Action: protocol.GitAction{Kind: "initialize"},
+			ExpectedIndex: workspaceIndex(status), ExpectedHead: status.Head, ExpectedBranch: status.Branch,
+		}}
+		workspace.mutateNamed(workspaceAction, command, func(c *ui.Context, out protocol.Output) {
+			ok := out.Kind != ""
+			if ok {
+				workspace.readGit()
+				kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
+			}
+			done(ok)
+		})
+	}
+	currentWorkspace()
 	root.App.OpenProject(project, actions)
 }
 

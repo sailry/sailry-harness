@@ -10,6 +10,8 @@ import (
 
 func SupportsAgentCommand(kind string) bool {
 	switch kind {
+	case "resume_controller_login":
+		return true
 	case "start_session", "submit_task", "set_session_roles", "set_session_team", "set_session_member_model", "create_session_at", "set_session_config", "submit_turn", "queue_turn", "guide_turn", "stop_turn", "start_queued_turn", "compact_context", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn", "read_turn_capture", "read_tool_detail", "read_tool_output", "list_conversation_assets", "read_usage", "search_conversation", "fork_conversation", "fork_conversation_at", "move_conversation", "rewind_conversation", "replace_turn", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_compaction_settings", "save_compaction_settings":
 		return true
 	}
@@ -17,6 +19,8 @@ func SupportsAgentCommand(kind string) bool {
 }
 func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request, now time.Time) (protocol.Output, []protocol.Event, error) {
 	switch request.Command.Kind {
+	case "resume_controller_login":
+		return resumeControllerLogin(ctx, db, node, caller, request, now)
 	case "start_session":
 		return startSession(ctx, db, node, profile, caller, request)
 	case "submit_task":

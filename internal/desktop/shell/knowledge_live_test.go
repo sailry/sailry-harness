@@ -60,6 +60,13 @@ func testLiveKnowledge(t *testing.T) {
 	if previous, next := state(); previous || !next {
 		t.Fatalf("first page: previous %v, next %v", previous, next)
 	}
+	page.Unavailable = true
+	tt.Frame()
+	if previous, next := state(); previous || next || !tt.HasText("first page") || !tt.HasText(i18n.In("en", "knowledge_citation_unavailable")) {
+		t.Fatal("an offline source lost its cached text or allowed page reads")
+	}
+	page.Unavailable = false
+	tt.Frame()
 	click(t, tt, i18n.In("en", "knowledge_next"))
 	tt.Frame()
 	page.Pending = true

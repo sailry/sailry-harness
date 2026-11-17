@@ -163,7 +163,12 @@ func resourceCatalogFixture(t *testing.T, node *Node, peers map[protocol.NodeID]
 	configurationFollowers.Store(node, followers)
 	t.Cleanup(func() { configurationFollowers.Delete(node) })
 	var user protocol.User
-	if err := node.profile.Store.Node.Read(t.Context(), func(db *sql.Conn) error {
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		for id := range peers {
+			if err := store.PairLinkPeer(t.Context(), db, id, link.DirectionHost); err != nil {
+				return err
+			}
+		}
 		var err error
 		user, err = store.LocalUser(t.Context(), db)
 		return err
@@ -180,8 +185,14 @@ func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
 	t.Cleanup(func() { _ = remote.Close() })
 	ctx := resourceCatalogFixture(t, node, map[protocol.NodeID]*client.Client{remoteID: remote})
 	previous := protocol.Project{ID: protocol.NewProjectID(), Name: "Offline project"}
-	resourceProjections.Store(resourceProjectionKey{node, remoteID}, &resourceProjection{source: protocol.ResourceSource{Projects: []protocol.Project{previous}}})
-	t.Cleanup(func() { resourceProjections.Delete(resourceProjectionKey{node, remoteID}) })
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		return store.SaveResourceCatalogSource(ctx, db, node.ID(), protocol.ResourceSource{
+			Node: remoteID, Route: protocol.RouteKey{Entry: node.ID(), Target: remoteID}, Projects: []protocol.Project{previous},
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { node.invalidateResourceProjection(remoteID) })
 	catalog, err := node.resourceCatalog(ctx)
 	if err != nil || len(catalog.Sources) != 2 || catalog.Entry != node.ID() {
 		t.Fatalf("catalog: %+v: %v", catalog, err)

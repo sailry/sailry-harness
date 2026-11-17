@@ -1,6 +1,12 @@
 package settings
 
-import "github.com/sailry/sailry-harness/internal/desktop/preview"
+import (
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/preview"
+)
+
+// ProviderLoginDialog presents the existing sign-in flow from a waiting task.
+func ProviderLoginDialog(c *ui.Context, m *Model) { providerAuthorizationDialog(c, m) }
 
 func (m *Model) BeginProviderAuthorization(id, title string, callback bool) {
 	m.loginFor = id

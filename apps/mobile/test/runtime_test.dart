@@ -1153,30 +1153,43 @@ void main() {
         },
       ),
       (
-        "pairing restarts an ended subscription",
+        "pairing replaces an ended native connection",
         (caseName) async {
           final opening = Completer<Updates>();
           final channel = Channel()..pendingWatch = opening.future;
           final owner = Owner()..connecting = (_) async => channel;
           final session = AppSession.test(controller: owner);
           final host = await session.pair('invitation');
-          opening.completeError(StateError('subscription ended'));
+          opening.completeError(
+            const BridgeFailure(
+              code: 'cancelled',
+              message: 'native Client observation ended',
+            ),
+          );
           await Future<void>.value();
           expect(host.connected, isFalse, reason: caseName);
           expect(host.error, isNotNull, reason: caseName);
           expect(channel.watches, 1, reason: caseName);
-          channel.pendingWatch = null;
-          channel.subscription.initial = jsonEncode({
+          final replacement = Channel();
+          owner.connecting = (_) async => replacement;
+          replacement.subscription.initial = jsonEncode({
             'connected': true,
             'snapshot': {'sessions': []},
           });
-          expect(await session.pairPin('123456'), same(host), reason: caseName);
-          await Future<void>.value();
-          expect(channel.watches, 2, reason: caseName);
-          expect(host.connected, isTrue, reason: caseName);
-          expect(host.error, isNull, reason: caseName);
-          expect(await session.pairPin('123456'), same(host), reason: caseName);
-          expect(channel.watches, 2, reason: caseName);
+          final restored = await session.pairPin('123456');
+          expect(restored, isNot(same(host)), reason: caseName);
+          await Future<void>.delayed(Duration.zero);
+          expect(channel.closes, 1, reason: caseName);
+          expect(channel.watches, 1, reason: caseName);
+          expect(replacement.watches, 1, reason: caseName);
+          expect(restored.connected, isTrue, reason: caseName);
+          expect(restored.error, isNull, reason: caseName);
+          expect(
+            await session.pairPin('123456'),
+            same(restored),
+            reason: caseName,
+          );
+          expect(replacement.watches, 1, reason: caseName);
           await session.close();
           session.dispose();
         },

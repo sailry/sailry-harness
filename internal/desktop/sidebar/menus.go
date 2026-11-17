@@ -183,19 +183,19 @@ func (s *State) confirmDelete(c *ui.Context, cv *preview.Conversation) {
 func (s *State) ProjectActions(c *ui.Context, m *kit.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
 	worktrees := func(action string) { s.worktrees(c, pr, action, "") }
-	if m.Item(t("project_edit")).Icon(icons.Settings2).Chosen() {
+	if m.Item(t("project_edit")).Icon(icons.Settings2).Disabled(pr.Offline).Chosen() {
 		s.OpenEditor(pr)
 	}
-	if m.Item(t("worktree_create")).Icon(icons.Plus).Chosen() {
+	if m.Item(t("worktree_create")).Icon(icons.Plus).Disabled(pr.Offline).Chosen() {
 		worktrees("create")
 	}
 	if m.Item(t("workspace_copy_path")).Icon(icons.Copy).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}
-	if m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(len(pr.Worktrees) < 2).Chosen() {
+	if m.Item(t("worktree_remove")).Icon(icons.CircleX).Disabled(pr.Offline || len(pr.Worktrees) < 2).Chosen() {
 		worktrees("remove")
 	}
-	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Chosen() {
+	if m.Item(t("project_remove")).Icon(icons.Trash).Danger().Disabled(pr.Offline).Chosen() {
 		s.AskRemove(c, pr)
 	}
 }
@@ -213,7 +213,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	if m.Item(t("workspace_project")).Chosen() {
 		s.OpenOverview(c, pr)
 	}
-	if m.Item(t("project_edit")).Chosen() {
+	if m.Item(t("project_edit")).Disabled(pr.Offline).Chosen() {
 		s.OpenEditor(pr)
 	}
 	m.Separator()
@@ -231,7 +231,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 		c.WriteClipboard(pr.Path)
 	}
 	m.Separator()
-	if m.Item(t("project_remove")).Chosen() {
+	if m.Item(t("project_remove")).Disabled(pr.Offline).Chosen() {
 		s.AskRemove(c, pr)
 	}
 }
@@ -253,7 +253,7 @@ func (s *State) OpenOverview(c *ui.Context, pr *preview.Project) {
 // entry in the project_menu slot, which the application draws itself as it
 // owns the terminals.
 func (s *State) TerminalItem(c *ui.Context, m *ui.Menu, pr *preview.Project) {
-	if !m.Item(i18n.T(c, "workspace_new_terminal")).Chosen() {
+	if !m.Item(i18n.T(c, "workspace_new_terminal")).Disabled(pr.Offline).Chosen() {
 		return
 	}
 	switch {

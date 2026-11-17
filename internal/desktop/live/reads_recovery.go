@@ -15,6 +15,17 @@ func (r *Runtime) retryFailedReads() {
 	if !r.controller.Connected() || r.ctx.Err() != nil {
 		return
 	}
+	if r.workspace != nil {
+		node, projectID, overview := r.localRuntime().App.ProjectOwner()
+		for _, project := range r.workspace.projects {
+			clear(project.failedReads)
+			project.pendingFiles, project.pendingGit = true, true
+			if overview && node == r.controller.Target().String() && project.owner.Project != nil && project.owner.Project.String() == projectID {
+				project.pendingGit = false
+				project.readGit()
+			}
+		}
+	}
 	if r.attachments != nil {
 		for _, cache := range r.attachments.imageSessions {
 			clear(cache.failed)

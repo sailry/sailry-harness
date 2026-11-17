@@ -24,6 +24,9 @@ func (r *Runtime) reportKeysRetry(c *ui.Context, err error, failed, conflict, un
 	case protocol.ErrorCodeOutcomeUnknown:
 		outcome, key = kit.Uncertain, unknown
 	}
+	if faultMessage(err) == "resource host is offline" {
+		key = "resource_offline_action"
+	}
 	kit.Recover(c, outcome, i18n.T(c, key), again)
 }
 

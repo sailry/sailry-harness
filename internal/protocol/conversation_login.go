@@ -37,6 +37,7 @@ type ConversationLoginUpdate struct {
 	Revision   uint64                   `json:"revision"`
 	State      ConversationLoginState   `json:"state"`
 	ModelError *Fault                   `json:"model_error,omitempty"`
+	Credential *CredentialRef           `json:"credential,omitempty"`
 }
 
 func DefaultConversationLoginUpdate() ConversationLoginUpdate {

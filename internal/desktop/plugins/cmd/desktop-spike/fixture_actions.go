@@ -17,11 +17,12 @@ func (actions *fixtureConversationActions) reject() {
 	actions.failure = errors.New("conversation interaction requires the real Node acceptance fixture")
 }
 
-func (actions *fixtureConversationActions) OpenChild(string) { actions.reject() }
-func (actions *fixtureConversationActions) Retry(string)     { actions.reject() }
-func (actions *fixtureConversationActions) Fork(string)      { actions.reject() }
-func (actions *fixtureConversationActions) Rewind(string)    { actions.reject() }
-func (actions *fixtureConversationActions) Worktree(string)  { actions.reject() }
+func (actions *fixtureConversationActions) OpenChild(string)   { actions.reject() }
+func (actions *fixtureConversationActions) Retry(string)       { actions.reject() }
+func (actions *fixtureConversationActions) ResumeLogin(string) { actions.reject() }
+func (actions *fixtureConversationActions) Fork(string)        { actions.reject() }
+func (actions *fixtureConversationActions) Rewind(string)      { actions.reject() }
+func (actions *fixtureConversationActions) Worktree(string)    { actions.reject() }
 func (actions *fixtureConversationActions) Export(string, conversation.ExportFormat) {
 	actions.reject()
 }

@@ -49,13 +49,24 @@ type reading struct {
 // Reading is one page of a citation read from its Node. The controller owns
 // it: it replaces the page and the ends as Previous and Next load.
 type Reading struct {
+	Node, Collection                  string
 	Title, Host, Path, Position, Text string
 	First, Last, Pending              bool
+	Unavailable                       bool
 	Turn                              func(forward bool)
 }
 
 // ShowKnowledge opens the viewer on a page read from a Node.
 func (a *App) ShowKnowledge(r *Reading) { a.reading = &reading{open: true, live: r} }
+
+// CloseKnowledge releases a restricted projection, including text held by a
+// callback that still refers to the old page.
+func (a *App) CloseKnowledge() {
+	if a.reading != nil && a.reading.live != nil {
+		*a.reading.live = Reading{}
+	}
+	a.reading = nil
+}
 
 // Reading is the live page the viewer shows, nil once it is closed.
 func (a *App) Reading() *Reading {
@@ -112,7 +123,7 @@ func (a *App) knowledge(c *ui.Context) {
 	lines := ""
 	if live := r.live; live != nil {
 		ct.Title, name, path, lines, text = live.Title, live.Host, live.Path, live.Position, live.Text
-		first, last = live.Pending || live.First, live.Pending || live.Last
+		first, last = live.Unavailable || live.Pending || live.First, live.Unavailable || live.Pending || live.Last
 		previous, next = func() { live.Turn(false) }, func() { live.Turn(true) }
 	} else {
 		lines = i18n.T(c, "knowledge_lines", "start", ct.Start, "end", ct.End)
@@ -123,6 +134,9 @@ func (a *App) knowledge(c *ui.Context) {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Text(c, ct.Title).FontSize(14).FontWeight(500)
 		ui.Text(c, name+" · "+path+" · "+lines).FontSize(12).TextColor(p.MutedForeground)
+		if r.live != nil && r.live.Unavailable {
+			ui.Text(c, i18n.T(c, "knowledge_citation_unavailable")).FontSize(12).TextColor(p.MutedForeground)
+		}
 		ui.Scroll(c.Key("text")).MaxHeight(max(160, h-260)).Padding(12).Radius(p.Radius).Background(p.Muted).Children(func() {
 			ui.Text(c, text).FontSize(12).Font("monospace").PreserveSpaces().Selectable()
 		})

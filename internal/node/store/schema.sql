@@ -337,6 +337,13 @@ CREATE TABLE IF NOT EXISTS agent_events (
     body BLOB NOT NULL,
     UNIQUE(session,id)
 );
+CREATE TABLE IF NOT EXISTS agent_credential_recoveries (
+    sequence INTEGER PRIMARY KEY,
+    turn TEXT NOT NULL REFERENCES turns(id),
+    request TEXT NOT NULL,
+    body BLOB NOT NULL,
+    UNIQUE(turn,request)
+);
 CREATE TABLE IF NOT EXISTS agent_blobs (
     digest TEXT PRIMARY KEY CHECK(length(digest)=64),
     bytes BLOB NOT NULL
@@ -729,6 +736,13 @@ CREATE TABLE identity_host_removals (
     active INTEGER NOT NULL CHECK(active IN (0,1))
 );
 CREATE UNIQUE INDEX identity_host_removals_active ON identity_host_removals(host) WHERE active=1;
+-- Directory metadata only; projects and their contents remain on their Node.
+CREATE TABLE resource_catalog_sources (
+    user TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source BLOB NOT NULL REFERENCES link_peers(identity) ON DELETE CASCADE CHECK(length(source)=32),
+    body BLOB NOT NULL,
+    PRIMARY KEY(user,source)
+);
 CREATE TABLE IF NOT EXISTS configuration_follow_sources (
  user TEXT PRIMARY KEY REFERENCES users(id),
  source BLOB CHECK(source IS NULL OR length(source)=32),

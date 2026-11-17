@@ -250,7 +250,12 @@ their personal record. `context().execution_node` is the immutable Node ID of
 the current callback, encoded as 32 unsigned bytes. Desktop packages can read
 `readResourceCatalog()` to offer the controller's available execution Nodes and
 their projects. Each source retains `route: {entry, target}` and its availability
-fault; the target is its actual resource Node. Mobile through the same entry
+fault; the target is its actual resource Node. Directory summaries survive the
+controller's restart, are isolated by its authenticated access identity, and
+include the last confirmed source `revision` and `last_synced_at_ms`. An offline
+entry is historical directory information, not permission to execute or a copy
+of its files, conversations or knowledge index. Explicit removal or revoked
+access clears that entry. Mobile through the same entry
 sees that directory without pairing separately to every target. Existing
 resources keep their recorded Node; selecting another Node applies to a new
 resource.
@@ -563,6 +568,17 @@ Credential rotations are serialized and an uncertain rotation is not replayed.
 An expired model execution credential puts the current model step into
 `controller_login` waiting state. Refreshing the same account on its controller
 resumes that turn without replaying completed tools.
+
+Manual sign-in creates a new credential ID and does not automatically change
+existing tasks. A waiting task can explicitly restore sign-in through its
+controller's existing login flow. The executor accepts the replacement only
+for that task's exact waiting state and the original provider, authentication
+target, account and workspace. It uses service-issued stable identities rather
+than email or display names; a flow without such an identity cannot restore an
+old task. The original capture remains unchanged, and the accepted effective
+reference is recorded separately. Recovery uses the original request identity
+and continues only an unsent model step. It neither restarts ended tasks nor
+replays plugin, MCP or connector callbacks.
 
 The public login presentation selects the existing common controller interaction.
 An optional `exchange` pure transformation may normalize

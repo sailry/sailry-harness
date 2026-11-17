@@ -126,6 +126,71 @@ void main() {
     second.dispose();
   });
 
+  test(
+    'cold offline source uses only its controller directory summary',
+    () async {
+      final host = HostConnection.test(
+        id: 'entry/storage',
+        label: 'Storage',
+        metadata: {
+          'source_fault': {'code': 'unavailable', 'message': 'offline'},
+          'resource_source': {
+            'revision': 17,
+            'projects': [project('Recovered directory')],
+            'worktrees': [
+              {'id': 'tree', 'project': 'shared-id', 'path': '/recovered'},
+            ],
+          },
+        },
+      );
+      expect(host.connected, isFalse);
+      expect(
+        (host.snapshot['projects'] as List).single['name'],
+        'Recovered directory',
+      );
+      expect(host.snapshot['sessions'], isNull);
+      await expectLater(
+        host.command('register_project'),
+        throwsA(isA<CommandFailure>()),
+      );
+      await host.close();
+      host.dispose();
+    },
+  );
+
+  test('offline directory cannot replace a newer complete snapshot', () async {
+    final host = HostConnection.test(
+      id: 'entry/storage',
+      label: 'Storage',
+      snapshot: {
+        'cursor': 18,
+        'projects': [project('Latest project')],
+        'worktrees': [
+          {'id': 'new-tree', 'project': 'shared-id', 'path': '/latest'},
+        ],
+      },
+      metadata: {
+        'source_fault': {'code': 'unavailable', 'message': 'offline'},
+        'resource_source': {
+          'revision': 17,
+          'projects': [project('Older directory')],
+          'worktrees': [
+            {'id': 'old-tree', 'project': 'shared-id', 'path': '/older'},
+          ],
+        },
+      },
+    );
+    expect(host.connected, isFalse);
+    expect(
+      (host.snapshot['projects'] as List).single['name'],
+      'Latest project',
+    );
+    expect((host.snapshot['worktrees'] as List).single['id'], 'new-tree');
+    expect(host.snapshot['cursor'], 18);
+    await host.close();
+    host.dispose();
+  });
+
   testWidgets('new projects explicitly share on their owning host', (
     tester,
   ) async {
@@ -307,12 +372,21 @@ void main() {
     tester,
   ) async {
     final first = source('first', connected: false);
-    final second = source('second', connected: false);
+    final second = source('second');
     final session = AppSession.test(hosts: [first, second]);
     await tester.pumpWidget(screen(session, ProjectsPage(host: first)));
     await tester.pump();
     expect(find.text('first-project'), findsOneWidget);
     expect(find.text('second-project'), findsOneWidget);
+    final offline = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('first-project'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(offline.enabled, isFalse);
+    expect(offline.onTap, isNull);
+    expect(find.text('Offline'), findsOneWidget);
     expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
     await tester.tap(find.text('second-project'));
     await tester.pumpAndSettle();

@@ -2386,3 +2386,18 @@ configuration_follow_unknown
 
 personal_kv_conflict
 personal_kv_conflict_description
+
+# Remote directory and task sign-in recovery
+resource_offline
+resource_offline_action
+resource_last_synced
+controller_login_restore
+controller_login_restored
+controller_login_restore_failed
+controller_login_restore_unknown
+controller_login_state_changed
+controller_login_account_mismatch
+controller_login_identity_unavailable
+controller_login_target_changed
+controller_login_original_controller
+controller_login_provider_missing

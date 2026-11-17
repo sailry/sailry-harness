@@ -15,6 +15,7 @@ type noActions struct{}
 
 func (noActions) OpenChild(string)                                      {}
 func (noActions) Retry(string)                                          {}
+func (noActions) ResumeLogin(string)                                    {}
 func (noActions) Fork(string)                                           {}
 func (noActions) Rewind(string)                                         {}
 func (noActions) Worktree(string)                                       {}

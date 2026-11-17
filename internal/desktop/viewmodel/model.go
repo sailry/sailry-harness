@@ -22,6 +22,8 @@ const (
 
 type Conversation struct {
 	Node              string
+	Offline           bool
+	LastSyncedAt      time.Time
 	Revision          uint64
 	AttentionRevision uint64
 	ID                string
@@ -54,6 +56,8 @@ type Conversation struct {
 }
 
 type Project struct {
+	Offline       bool
+	LastSyncedAt  time.Time
 	Icon, Color   string
 	ID            string
 	Name          string

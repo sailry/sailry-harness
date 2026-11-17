@@ -39,6 +39,7 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 	var preview *filePreview
 	if file.Kind == conversation.ImageFile {
 		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: r.localRuntime().ArtifactImageAction})
+		preview.worktree = descriptor.worktree
 	} else {
 		r.App.Panel.ShowArtifact(file)
 		r.App.PanelOpen = true

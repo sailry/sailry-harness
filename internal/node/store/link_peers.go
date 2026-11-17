@@ -181,6 +181,9 @@ func SetLinkDirection(ctx context.Context, db *sql.Conn, peer protocol.NodeID, d
 		user = sql.NullString{String: value.ID.String(), Valid: true}
 	}
 	_, err := db.ExecContext(ctx, "UPDATE link_peers SET direction=?2,legacy=0,user=?3 WHERE identity=?1", peer[:], string(direction), user)
+	if err == nil && !direction.AllowsOutbound() {
+		_, err = db.ExecContext(ctx, "DELETE FROM resource_catalog_sources WHERE source=?1", peer[:])
+	}
 	return err
 }
 

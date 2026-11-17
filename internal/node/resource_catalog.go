@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"time"
 
 	"lukechampine.com/blake3"
 
@@ -29,13 +30,23 @@ func (node *Node) resourceClients(ctx context.Context) map[protocol.NodeID]*clie
 
 func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog, error) {
 	catalog := protocol.ResourceCatalog{Entry: node.ID(), Sources: []protocol.ResourceSource{}}
+	var user protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		user, err = store.CurrentUser(ctx, db)
+		return err
+	}); err != nil {
+		return catalog, err
+	}
+	ctx = store.WithUser(ctx, user)
 	local := protocol.ResourceSource{Node: node.ID(), Route: protocol.RouteKey{Entry: node.ID(), Target: node.ID()}, Platform: runtime.GOOS}
 	local.Name, _ = os.Hostname()
 	snapshot, err := node.Snapshot(ctx)
 	if err != nil {
 		return catalog, err
 	}
-	local.Projects, local.Worktrees = snapshot.Projects, snapshot.Worktrees
+	local.Projects, local.Worktrees, local.Revision = snapshot.Projects, snapshot.Worktrees, snapshot.Cursor
+	local.Worktrees = resourceDirectoryWorktrees(local.Projects, local.Worktrees)
 	output, err := node.readKnowledge(ctx, protocol.NewRequest(node.ID(), protocol.Command{Kind: "list_knowledge_collections"}))
 	if err != nil {
 		local.Fault = resourceFault(err)
@@ -43,58 +54,86 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 		local.Knowledge = values
 	}
 	catalog.Sources = append(catalog.Sources, local)
+	if !user.Local {
+		return catalog, nil
+	}
+	cached, err := node.cachedResourceSources(ctx)
+	if err != nil {
+		return catalog, err
+	}
 	peers := node.resourceClients(ctx)
 	names := map[protocol.NodeID]string{}
+	allowed := map[protocol.NodeID]bool{}
+	checkRelationships := false
 	if node.network != nil {
 		if relationships, err := node.network.Relationships(ctx); err == nil {
+			checkRelationships = true
 			for _, relationship := range relationships {
-				names[relationship.ID] = relationship.Name
+				if relationship.Direct && relationship.DirectDirection.AllowsOutbound() && !relationship.Removed {
+					allowed[relationship.ID], names[relationship.ID] = true, relationship.Name
+				}
 			}
 		}
 	}
-	var mu sync.Mutex
-	var workers sync.WaitGroup
-	for id, peer := range peers {
-		workers.Go(func() {
-			source := protocol.ResourceSource{Node: id, Route: protocol.RouteKey{Entry: node.ID(), Target: id}, Name: names[id]}
-			if state, exists := resourceProjections.Load(resourceProjectionKey{node, id}); exists {
-				cached := state.(*resourceProjection)
-				cached.mu.Lock()
-				source.Projects, source.Worktrees, source.Knowledge = cached.source.Projects, cached.source.Worktrees, cached.source.Knowledge
-				cached.mu.Unlock()
+	for id := range peers {
+		if _, exists := cached[id]; !exists {
+			cached[id] = protocol.ResourceSource{Node: id, Route: protocol.RouteKey{Entry: node.ID(), Target: id}}
+		}
+	}
+	// A persisted source can precede its Client during startup. Relationship
+	// removal is authoritative; transport startup or failure is not deletion.
+	for id, source := range cached {
+		if checkRelationships && !allowed[id] {
+			if err := node.forgetResourceCatalog(ctx, id); err != nil {
+				return catalog, err
 			}
-			if !peer.Connected() {
-				source.Fault = resourceDisconnected(peer)
-			} else {
-				snapshot := peer.Snapshot()
-				source.Projects, source.Worktrees = snapshot.Projects, snapshot.Worktrees
-				request := protocol.NewRequest(id, protocol.Command{Kind: "list_knowledge_collections"})
-				output, err := resourceResult(ctx, peer.Resource, protocol.ResourceCall{Request: request, Local: true})
-				if err != nil {
-					source.Fault = resourceFault(err)
-				} else if values, valid := dispatchPayload[[]protocol.KnowledgeCollection](output.Data); valid {
-					source.Knowledge = values
-				} else {
-					source.Fault = resourceUnavailable()
+			continue
+		}
+		if remote := peers[id]; remote != nil {
+			if !node.resourceSourceCurrent(ctx, id, remote) {
+				continue
+			}
+			// The shared observer is the single source writer. Catalog reads
+			// consume its projection without starting another remote snapshot
+			// that could finish later and overwrite a newer version.
+			confirmed := false
+			if value, exists := resourceProjections.Load(resourceProjectionKey{node, id, user.ID}); exists {
+				state := value.(*resourceProjection)
+				state.mu.Lock()
+				if state.known && !state.removed {
+					source = state.source
+					confirmed = true
 				}
+				state.mu.Unlock()
+			}
+			denied := false
+			if !remote.Connected() {
+				source.Fault = resourceDisconnected(remote)
+				denied = !resourceCacheAllowed(source.Fault)
+			} else if !confirmed {
+				// A connected Client confirms its project snapshot, not the full
+				// knowledge definitions. Disk summaries remain read-only until
+				// this process's observer has confirmed the source metadata.
+				source.Fault = resourceUnavailable()
 			}
 			if !resourceCacheAllowed(source.Fault) {
 				source.Projects, source.Worktrees, source.Knowledge = nil, nil, nil
-				resourceProjections.Delete(resourceProjectionKey{node, id})
+				source.Revision, source.LastSyncedAtMs = 0, nil
+				if denied {
+					if err := node.revokeResourceCatalog(ctx, user.ID, id, source.Fault); err != nil {
+						return catalog, err
+					}
+				}
 			}
-			if source.Fault == nil {
-				state, _ := resourceProjections.LoadOrStore(resourceProjectionKey{node, id}, &resourceProjection{})
-				cached := state.(*resourceProjection)
-				cached.mu.Lock()
-				cached.source = source
-				cached.mu.Unlock()
-			}
-			mu.Lock()
-			catalog.Sources = append(catalog.Sources, source)
-			mu.Unlock()
-		})
+			node.notifyResourceCatalog(id, remote)
+		} else {
+			source.Fault = resourceUnavailable()
+		}
+		if name := names[id]; name != "" {
+			source.Name = name
+		}
+		catalog.Sources = append(catalog.Sources, source)
 	}
-	workers.Wait()
 	slices.SortStableFunc(catalog.Sources, func(a, b protocol.ResourceSource) int {
 		if a.Node == b.Node {
 			return 0
@@ -108,6 +147,57 @@ func (node *Node) resourceCatalog(ctx context.Context) (protocol.ResourceCatalog
 		return cmp.Compare(a.Node.String(), b.Node.String())
 	})
 	return catalog, nil
+}
+
+func (node *Node) cachedResourceSources(ctx context.Context) (map[protocol.NodeID]protocol.ResourceSource, error) {
+	values := map[protocol.NodeID]protocol.ResourceSource{}
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		stored, err := store.ReadResourceCatalogSources(ctx, db, node.ID())
+		for _, source := range stored {
+			values[source.Node] = source
+		}
+		return err
+	})
+	return values, err
+}
+
+func (node *Node) captureResourceSource(ctx context.Context, source protocol.NodeID, remote *client.Client, previous protocol.ResourceSource) (protocol.ResourceSource, bool) {
+	previous.Node, previous.Route = source, protocol.RouteKey{Entry: node.ID(), Target: source}
+	previous.Fault = nil
+	complete := false
+	if !remote.Connected() {
+		previous.Fault = resourceDisconnected(remote)
+	} else {
+		// Client publishes a replacement only after every snapshot page has
+		// validated. Never persist an in-progress snapshot as an empty source.
+		snapshot := remote.Snapshot()
+		previous.Projects, previous.Worktrees, previous.Revision = snapshot.Projects, snapshot.Worktrees, snapshot.Cursor
+		previous.Worktrees = resourceDirectoryWorktrees(previous.Projects, previous.Worktrees)
+		now := uint64(time.Now().UnixMilli())
+		previous.LastSyncedAtMs, complete = &now, true
+		request := protocol.NewRequest(source, protocol.Command{Kind: "list_knowledge_collections"})
+		output, err := resourceResult(ctx, remote.Resource, protocol.ResourceCall{Request: request, Local: true})
+		if err != nil {
+			previous.Fault = resourceFault(err)
+		} else if collections, valid := dispatchPayload[[]protocol.KnowledgeCollection](output.Data); valid && output.Kind == "knowledge_collections" {
+			previous.Knowledge = collections
+		} else {
+			previous.Fault = resourceUnavailable()
+		}
+	}
+	if !resourceCacheAllowed(previous.Fault) {
+		previous.Projects, previous.Worktrees, previous.Knowledge = nil, nil, nil
+		previous.Revision, previous.LastSyncedAtMs, complete = 0, nil, false
+	}
+	return previous, complete
+}
+
+func resourceDirectoryWorktrees(projects []protocol.Project, worktrees []protocol.Worktree) []protocol.Worktree {
+	// Canonical history can retain a removed project's worktrees for admitted
+	// tasks. A directory must remove those descendants with the project.
+	return slices.DeleteFunc(worktrees, func(worktree protocol.Worktree) bool {
+		return worktree.Project != nil && !slices.ContainsFunc(projects, func(project protocol.Project) bool { return project.ID == *worktree.Project })
+	})
 }
 
 func resourceResult(ctx context.Context, send func(context.Context, protocol.ResourceCall) (link.Admission, error), call protocol.ResourceCall) (protocol.Output, error) {
@@ -143,10 +233,32 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 		err    error
 	}
 	peers := node.resourceClients(ctx)
-	results := make(chan result, len(peers)+1)
+	known := map[protocol.NodeID]bool{node.ID(): true}
+	for id := range peers {
+		known[id] = true
+	}
+	missing := []protocol.NodeID{}
+	if user, present := store.UserFromContext(ctx); present && user.Local {
+		cached, err := node.cachedResourceSources(ctx)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		for id := range cached {
+			if !known[id] {
+				known[id] = true
+				missing = append(missing, id)
+			}
+		}
+	}
+	results := make(chan result, len(peers)+len(missing)+1)
 	var workers sync.WaitGroup
 	searchNode := func(id protocol.NodeID) bool {
 		return !searching || len(query.Refs) == 0 || slices.ContainsFunc(query.Refs, func(reference protocol.KnowledgeRef) bool { return reference.Node == id })
+	}
+	for _, id := range missing {
+		if searchNode(id) {
+			results <- result{node: id, err: resourceUnavailable()}
+		}
 	}
 	leaf := func(id protocol.NodeID) protocol.ResourceCall {
 		command := request.Command
@@ -193,7 +305,7 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 	}
 	if searching {
 		for _, ref := range query.Refs {
-			if ref.Node != node.ID() && peers[ref.Node] == nil && !slices.ContainsFunc(page.Sources, func(source protocol.ResourceSourceStatus) bool { return source.Node == ref.Node }) {
+			if !known[ref.Node] && !slices.ContainsFunc(page.Sources, func(source protocol.ResourceSourceStatus) bool { return source.Node == ref.Node }) {
 				page.Sources = append(page.Sources, protocol.ResourceSourceStatus{Node: ref.Node, Fault: resourceUnavailable()})
 			}
 		}
@@ -229,15 +341,27 @@ func (node *Node) aggregateKnowledge(ctx context.Context, caller protocol.NodeID
 			}
 		} else if part, valid := dispatchPayload[[]protocol.KnowledgeCollection](result.output.Data); valid && result.output.Kind == "knowledge_collections" {
 			collections = append(collections, part...)
+		} else {
+			page.Sources[len(page.Sources)-1].Fault = resourceUnavailable()
 		}
 	}
+	slices.SortFunc(page.Sources, func(a, b protocol.ResourceSourceStatus) int { return cmp.Compare(a.Node.String(), b.Node.String()) })
 	if !searching {
+		// This legacy list has no source-status field. A partial directory must
+		// fail explicitly; ResourceCatalog is the projection that can represent
+		// cached entries alongside an unavailable source.
+		for _, source := range page.Sources {
+			if source.Fault != nil {
+				fault := *source.Fault
+				fault.Message = "knowledge directory source " + source.Node.String() + ": " + fault.Message
+				return protocol.Output{}, &fault
+			}
+		}
 		slices.SortFunc(collections, func(a, b protocol.KnowledgeCollection) int {
 			return cmp.Or(cmp.Compare(a.Definition.Name, b.Definition.Name), cmp.Compare(a.Node.String(), b.Node.String()), cmp.Compare(a.ID.String(), b.ID.String()))
 		})
 		return protocol.Output{Kind: "knowledge_collections", Data: collections}, nil
 	}
-	slices.SortFunc(page.Sources, func(a, b protocol.ResourceSourceStatus) int { return cmp.Compare(a.Node.String(), b.Node.String()) })
 	for index := range page.Hits {
 		hit := &page.Hits[index]
 		key := hit.Citation.Node.String() + "/" + hit.Citation.Collection.String() + "/" + hit.Citation.Chunk
@@ -296,7 +420,7 @@ func resourceKnowledgePrefix(ctx context.Context, call protocol.ResourceCall, qu
 // An unavailable transport can retain a projection. An authorization failure
 // invalidates its contents immediately, including when Client closed its stream.
 func resourceCacheAllowed(fault *protocol.Fault) bool {
-	return fault == nil || fault.Code == protocol.ErrorCodeUnavailable || fault.Code == protocol.ErrorCodeBusy || fault.Code == protocol.ErrorCodeCancelled || fault.Code == protocol.ErrorCodeOutcomeUnknown
+	return fault == nil || fault.Code != protocol.ErrorCodePermissionDenied && fault.Code != protocol.ErrorCodeNotFound && fault.Code != protocol.ErrorCodeExpired
 }
 
 func resourceDisconnected(remote *client.Client) *protocol.Fault {
@@ -306,91 +430,218 @@ func resourceDisconnected(remote *client.Client) *protocol.Fault {
 	return resourceUnavailable()
 }
 
-// resourceProjections retains direct-source projections and coalesces changes
-// into one reader per source. Derived invalidations cannot circulate because
-// only a changed local resource projection publishes another notification.
+// resourceProjections coalesces the existing direct-host observer's changes.
+// Directory contents survive here only as a view of the per-user Store cache.
 var resourceProjections sync.Map
 
 type resourceProjectionKey struct {
 	owner  *Node
 	source protocol.NodeID
+	user   protocol.UserID
 }
 
 type resourceProjection struct {
-	mu      sync.Mutex
-	running bool
-	dirty   bool
-	known   bool
-	digest  [32]byte
-	source  protocol.ResourceSource
+	mu         sync.Mutex
+	running    bool
+	dirty      bool
+	removed    bool
+	known      bool
+	generation uint64
+	digest     [32]byte
+	source     protocol.ResourceSource
+}
+
+func (node *Node) saveResourceProjection(ctx context.Context, state *resourceProjection, source protocol.ResourceSource, complete bool, generation uint64) error {
+	// Invalidation and commit use the same lifecycle lock. A metadata answer
+	// captured before access was revoked cannot recreate the cleared cache.
+	state.mu.Lock()
+	if state.removed || state.generation != generation {
+		state.mu.Unlock()
+		return nil
+	}
+	changed, err := node.commitResourceProjection(ctx, state, source, complete)
+	state.mu.Unlock()
+	if err == nil && changed {
+		node.publish()
+	}
+	return err
+}
+
+func (node *Node) revokeResourceCatalog(ctx context.Context, user protocol.UserID, source protocol.NodeID, fault *protocol.Fault) error {
+	key := resourceProjectionKey{node, source, user}
+	value, _ := resourceProjections.LoadOrStore(key, &resourceProjection{})
+	state := value.(*resourceProjection)
+	state.mu.Lock()
+	if state.removed {
+		state.mu.Unlock()
+		return nil
+	}
+	state.generation++
+	cleared := protocol.ResourceSource{Node: source, Route: protocol.RouteKey{Entry: node.ID(), Target: source}, Fault: fault}
+	// Even a failed disk write cannot leave private details in the live view.
+	// Keep the old digest until commit so a later successful clear still emits
+	// its invalidation event.
+	state.source = cleared
+	changed, err := node.commitResourceProjection(ctx, state, cleared, false)
+	state.mu.Unlock()
+	if err == nil && changed {
+		node.publish()
+	}
+	return err
+}
+
+// commitResourceProjection holds state.mu across the durable write and memory
+// publication. The caller establishes the capture's current access generation.
+func (node *Node) commitResourceProjection(ctx context.Context, state *resourceProjection, source protocol.ResourceSource, complete bool) (bool, error) {
+	content := source
+	// Source events can advance its cursor without changing any directory
+	// content. Publishing those metadata changes would circulate invalidations
+	// between directly connected Nodes indefinitely.
+	content.Revision, content.LastSyncedAtMs = 0, nil
+	body, err := json.Marshal(content)
+	if err != nil {
+		return false, err
+	}
+	digest := blake3.Sum256(body)
+	changed := !state.known || state.digest != digest
+	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if complete {
+			// Snapshot availability and knowledge metadata are independent. A
+			// failed knowledge read retains its previous directory, while this
+			// complete project snapshot can still confirm creation or deletion.
+			cached := source
+			cached.Fault = nil
+			if err := store.SaveResourceCatalogSource(ctx, db, node.ID(), cached); err != nil {
+				return err
+			}
+		} else if !resourceCacheAllowed(source.Fault) {
+			if err := store.RemoveResourceCatalogSource(ctx, db, source.Node); err != nil {
+				return err
+			}
+		}
+		if changed {
+			_, err := store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
+			return err
+		}
+		return nil
+	})
+	if err == nil {
+		state.known, state.digest, state.source = true, digest, source
+	}
+	return changed, err
+}
+
+func (node *Node) forgetResourceCatalog(ctx context.Context, source protocol.NodeID) error {
+	node.invalidateResourceProjection(source)
+	return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		return store.RemoveResourceCatalogSource(ctx, db, source)
+	})
+}
+
+func (node *Node) invalidateResourceProjection(source protocol.NodeID) {
+	resourceProjections.Range(func(key, value any) bool {
+		identity := key.(resourceProjectionKey)
+		if identity.owner != node || identity.source != source {
+			return true
+		}
+		state := value.(*resourceProjection)
+		state.mu.Lock()
+		state.removed = true
+		state.source = protocol.ResourceSource{}
+		state.mu.Unlock()
+		resourceProjections.Delete(key)
+		return true
+	})
+}
+
+func (node *Node) resourceSourceCurrent(ctx context.Context, source protocol.NodeID, remote *client.Client) bool {
+	if node.controllerClients()[source] != remote {
+		return false
+	}
+	if node.network == nil {
+		return true
+	}
+	relationships, err := node.network.Relationships(ctx)
+	if err != nil {
+		// A failed local relationship read is not an explicit removal. The
+		// cache write rechecks its direct outbound relationship transactionally.
+		return true
+	}
+	return slices.ContainsFunc(relationships, func(peer link.PeerRelationship) bool {
+		return peer.ID == source && peer.Direct && peer.DirectDirection.AllowsOutbound() && !peer.Removed
+	})
 }
 
 func (node *Node) notifyResourceCatalog(source protocol.NodeID, remote *client.Client) {
-	key := resourceProjectionKey{node, source}
+	var user protocol.User
+	if err := node.profile.Store.Node.Read(node.ctx, func(db *sql.Conn) error {
+		var err error
+		user, err = store.LocalUser(node.ctx, db)
+		return err
+	}); err != nil {
+		return
+	}
+	owner := store.WithUser(node.ctx, user)
+	if !remote.Connected() {
+		if fault := resourceDisconnected(remote); !resourceCacheAllowed(fault) {
+			if err := node.revokeResourceCatalog(owner, user.ID, source, fault); err != nil {
+				return
+			}
+		}
+	}
+	key := resourceProjectionKey{node, source, user.ID}
 	value, _ := resourceProjections.LoadOrStore(key, &resourceProjection{})
 	state := value.(*resourceProjection)
 	state.mu.Lock()
 	state.dirty = true
-	if state.running {
+	if state.running || state.removed {
 		state.mu.Unlock()
 		return
 	}
 	state.running = true
 	state.mu.Unlock()
 	err := node.tasks.Submit(func(ctx context.Context) {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(store.WithUser(ctx, user))
 		defer cancel()
 		defer context.AfterFunc(node.ctx, cancel)()
 		for {
-			if ctx.Err() != nil {
-				state.mu.Lock()
-				state.running = false
-				state.mu.Unlock()
-				return
-			}
 			state.mu.Lock()
-			if !state.dirty {
+			if ctx.Err() != nil || state.removed || !state.dirty {
 				state.running = false
 				state.mu.Unlock()
 				return
 			}
 			state.dirty = false
-			projected := state.source
+			projected, known, generation := state.source, state.known, state.generation
 			state.mu.Unlock()
-			projected.Node, projected.Route = source, protocol.RouteKey{Entry: node.ID(), Target: source}
-			projected.Fault = nil
-			if !remote.Connected() {
-				projected.Fault = resourceDisconnected(remote)
-			} else {
-				snapshot := remote.Snapshot()
-				projected.Projects, projected.Worktrees = snapshot.Projects, snapshot.Worktrees
-				request := protocol.NewRequest(source, protocol.Command{Kind: "list_knowledge_collections"})
-				if output, err := resourceResult(ctx, remote.Resource, protocol.ResourceCall{Request: request, Local: true}); err == nil {
-					projected.Knowledge, _ = dispatchPayload[[]protocol.KnowledgeCollection](output.Data)
-				} else {
-					projected.Fault = resourceFault(err)
+			if !known {
+				stored, err := node.cachedResourceSources(ctx)
+				if err != nil {
+					state.mu.Lock()
+					state.running = false
+					state.mu.Unlock()
+					return
 				}
+				projected = stored[source]
 			}
-			if !resourceCacheAllowed(projected.Fault) {
-				projected.Projects, projected.Worktrees, projected.Knowledge = nil, nil, nil
+			if !node.resourceSourceCurrent(ctx, source, remote) {
+				state.mu.Lock()
+				state.running = false
+				state.mu.Unlock()
+				return
 			}
-			encoded, err := json.Marshal(projected)
-			if err != nil {
-				continue
+			projected, complete := node.captureResourceSource(ctx, source, remote, projected)
+			if !node.resourceSourceCurrent(ctx, source, remote) {
+				state.mu.Lock()
+				state.running = false
+				state.mu.Unlock()
+				return
 			}
-			digest := blake3.Sum256(encoded)
-			state.mu.Lock()
-			changed := !state.known || state.digest != digest
-			state.known, state.digest, state.source = true, digest, projected
-			state.mu.Unlock()
-			if !changed {
-				continue
-			}
-			if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-				_, err := store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
-				return err
-			}); err == nil {
-				node.publish()
+			if err := node.saveResourceProjection(ctx, state, projected, complete, generation); err != nil {
+				state.mu.Lock()
+				state.running = false
+				state.mu.Unlock()
+				return
 			}
 		}
 	})

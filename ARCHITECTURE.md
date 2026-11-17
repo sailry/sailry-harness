@@ -231,8 +231,23 @@ uncertain rotations block further refresh attempts while allowing a still-valid
 access token to run. Hosts continue using valid cached inputs while the
 controller is offline. If a captured model credential expires, the current turn
 waits at its next model step with `controller_login` state. A replacement for that
-same credential resumes the same turn; revocation, rejection or an unresolved
-rotation remain explicit faults. Completed tools are not rerun to resume it.
+same credential resumes the same turn. An unresolved or rejected renewal keeps
+the model step waiting with its reason; it does not replay the rotation.
+Completed tools are not rerun to resume it.
+
+Manual sign-in creates a new credential identity. A waiting task exposes an
+explicit Restore sign-in action using the existing controller login dialog.
+Its durable recovery request binds the session, turn, exact waiting-state token,
+old credential and replacement credential. The executor verifies the original
+controller and user, captured provider and authentication target, and matching
+service-issued account and workspace fingerprints. Email and display names are
+not account identities; credentials without a trustworthy stable identity cannot
+be substituted. The executor records the accepted reference and recovery receipt
+separately from the immutable admission capture, then continues the unsent model
+step. A stopped, completed or changed task rejects a stale recovery. Repeated or
+unconfirmed requests use their original request identity. Ordinary sign-in,
+account switching and logout never replace credentials across existing tasks.
+Plugin, MCP and connector callbacks retain their deadlines and effect recovery.
 
 Desktop controller preferences live at
 `<profile>/desktop/preferences.json`; UI layout state lives beside MyGo's
@@ -407,8 +422,10 @@ conversation model is not sent to the image-model endpoint.
 
 Admission freezes the worktree, permission, configuration, model or team,
 reasoning effort, credential identity and package revisions. Renewed runtime
-tokens may replace an expired token only for that captured identity. Other updates
-affect subsequent admission. Policy, instructions, guides and selected
+tokens replace an expired token for that captured identity. Explicit same-account
+login recovery can record a different effective credential for a waiting run
+without rewriting that admission capture. Other updates affect subsequent
+admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
 context. Automatic compaction
 uses the captured model and defaults to 80% of its context window. Summaries do not
@@ -670,6 +687,28 @@ recovery. A directory member never creates another trusted peer or a recursive
 directory import. Commands, subscriptions and byte streams traverse the entry
 with the original request identity and actual resource target; each hop negotiates
 its own compression and retains frame boundaries and stream half-closes.
+
+The controller Node durably stores directory summaries per authenticated access
+user and direct source Node. Each summary retains its entry and actual resource
+owner, project and worktree identifiers and paths, knowledge directory metadata,
+visibility, confirmed source cursor and last successful synchronization time.
+It contains no provider keys, file bodies, session history or knowledge indexes.
+Startup reads these summaries before remote Clients connect. Existing shared
+Client observations update them even when no resource page is open; only a
+complete successful snapshot can remove absent entries. A temporary disconnect
+retains the last summary as offline. Explicit connection removal or access
+revocation invalidates disk summaries, in-memory state and open projections,
+without deleting resources on their owning Node.
+
+Desktop observes the unified directory and merges by source Node and resource
+ID, including sources with no connected Client yet. Offline project rows retain
+their layout, expansion, selection and local drafts, show their availability,
+and block remote operations. Cached running state is historical rather than a
+claim of current execution. Reconnection updates the same resources and restores
+operations. Mobile through the controller consumes the same summaries and
+availability. A knowledge directory is not a queryable copy: executor-local
+collections remain local, while collections that depend on an offline controller
+return a source fault and multi-source searches retain partial failure status.
 
 Execution Nodes use the limited resource channel to reach their captured
 controller's knowledge view or the calling package's declared host handler. The

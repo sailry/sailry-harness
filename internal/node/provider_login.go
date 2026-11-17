@@ -217,6 +217,15 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 			}
 			node.pluginCommitted(changes, ctx)
 			for _, change := range changes {
+				if change.Kind == "credential_changed" {
+					if changed, ok := dispatchPayload[protocol.EventCredentialChangedPayload](change.Data); ok {
+						node.auth.mu.Lock()
+						entry.provider.Credential = &changed.Credential
+						node.auth.mu.Unlock()
+					}
+				}
+			}
+			for _, change := range changes {
 				if change.Kind != "provider_changed" {
 					continue
 				}
@@ -337,24 +346,50 @@ func (node *Node) authorizeTurnProvider(ctx context.Context, invocation *store.A
 	if reference == nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
 	}
-	secret, err := node.awaitProviderAuthorization(ctx, *invocation.Provider, *reference, func(waiting bool) error {
+	secret, effective, err := node.awaitProviderAuthorization(ctx, *invocation.Provider, func() (protocol.CredentialRef, error) {
+		effective := *reference
+		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			effective, err = store.EffectiveTurnCredential(ctx, db, invocation.Run.Turn, *reference)
+			return err
+		})
+		return effective, err
+	}, func(effective protocol.CredentialRef, waiting bool) error {
 		var state *protocol.ConversationRunWaiting
 		if waiting {
-			state = &protocol.ConversationRunWaiting{Kind: "controller_login", Credential: *reference}
+			state = &protocol.ConversationRunWaiting{Kind: "controller_login", Credential: effective, Provider: invocation.Provider.ID}
 		}
 		return node.setCredentialWait(context.WithoutCancel(ctx), invocation.Run.Turn, state)
 	})
 	if err == nil {
 		invocation.Secret, invocation.AuthorizationFailure = secret, nil
+		invocation.EffectiveCredential = &effective
 	}
 	return err
 }
 
-func (node *Node) awaitProviderAuthorization(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef, project func(bool) error) (*protocol.Secret, error) {
+func controllerLoginWaitable(err error) bool {
+	var failure *protocol.Fault
+	if !errors.As(err, &failure) {
+		return false
+	}
+	if failure.Code == protocol.ErrorCodeExpired {
+		return true
+	}
+	if failure.Details != nil && failure.Details.Kind == "controller_login" {
+		if detail, ok := dispatchPayload[protocol.FaultDetailsControllerLoginPayload](failure.Details.Data); ok {
+			return detail.Reason == "renewal_uncertain" || detail.Reason == "renewal_rejected"
+		}
+	}
+	return false
+}
+
+func (node *Node) awaitProviderAuthorization(ctx context.Context, provider protocol.ConversationProvider, resolve func() (protocol.CredentialRef, error), project func(protocol.CredentialRef, bool) error) (*protocol.Secret, protocol.CredentialRef, error) {
 	waiting := false
+	var reference, waitingReference protocol.CredentialRef
 	defer func() {
 		if waiting {
-			_ = project(false)
+			_ = project(waitingReference, false)
 		}
 	}()
 	for {
@@ -364,25 +399,29 @@ func (node *Node) awaitProviderAuthorization(ctx context.Context, provider proto
 		changed, closed := node.auth.changed, node.auth.closed
 		node.auth.mu.Unlock()
 		if closed {
-			return nil, context.Canceled
+			return nil, reference, context.Canceled
+		}
+		var err error
+		reference, err = resolve()
+		if err != nil {
+			return nil, reference, err
 		}
 		secret, err := node.providerAuthorization(ctx, provider, reference)
 		if err == nil {
-			return secret, nil
+			return secret, reference, nil
 		}
-		var failure *protocol.Fault
-		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeExpired {
-			return nil, err
+		if !controllerLoginWaitable(err) {
+			return nil, reference, err
 		}
-		if !waiting {
-			if err := project(true); err != nil {
-				return nil, err
-			}
-			waiting = true
+		// A newer projection of this same credential may add the trusted
+		// identity an older executor cache lacked when the wait began.
+		if err := project(reference, true); err != nil {
+			return nil, reference, err
 		}
+		waiting, waitingReference = true, reference
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, reference, ctx.Err()
 		case <-changed:
 		}
 	}
@@ -413,6 +452,8 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 			if previous.err != nil {
 				if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
 					return secret, nil
+				} else if controllerLoginWaitable(err) {
+					return nil, err
 				}
 				return nil, previous.err
 			}
@@ -451,6 +492,8 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 		if renewal.err != nil {
 			if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
 				return secret, nil
+			} else if controllerLoginWaitable(err) {
+				return nil, err
 			}
 			return nil, renewal.err
 		}
@@ -462,7 +505,7 @@ func (node *Node) setCredentialWait(ctx context.Context, turn protocol.TurnID, w
 	var changes []protocol.Event
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
-		changes, err = store.SetRunCredentialWait(ctx, db, turn, waiting)
+		changes, err = store.SetRunCredentialWait(ctx, db, node.ID(), turn, waiting)
 		if err == nil && len(changes) != 0 {
 			_, err = store.RecordEvents(ctx, db, node.ID(), changes)
 		}
@@ -470,6 +513,10 @@ func (node *Node) setCredentialWait(ctx context.Context, turn protocol.TurnID, w
 	})
 	if err == nil && len(changes) != 0 {
 		node.publish()
+		// Recovery preflight also waits on this signal. A normal renewal
+		// can clear the login wait after the credential's own wake has
+		// already been consumed, so publish the state transition as well.
+		node.authChanged()
 	}
 	return err
 }

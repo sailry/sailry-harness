@@ -219,8 +219,8 @@ func (r *Runtime) showWorkspaceTerminal(id string) {
 func (r *Runtime) newProjectTerminal(project *viewmodel.Project, relative string) {
 	root := r.localRuntime()
 	owner := root.projectOverviewRuntime(project)
-	if owner == nil {
-		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
+	if owner == nil || !owner.controller.Connected() {
+		root.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "resource_offline_action")) })
 		return
 	}
 	worktree, exists := owner.projectWorktree(project, relative)

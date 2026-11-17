@@ -61,6 +61,9 @@ func (node *Node) initAuth(ctx context.Context) error {
 		if err == nil {
 			err = store.RecoverConnectorLogins(ctx, db)
 		}
+		if err == nil {
+			err = store.RecoverCredentialRenewals(ctx, db, node.ID())
+		}
 		return err
 	}); err != nil {
 		return err

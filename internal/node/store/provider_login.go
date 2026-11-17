@@ -289,6 +289,12 @@ func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.
 	}
 	grant, err := providers.DecodeAccount(value.Key, provider.Authentication)
 	if err != nil {
+		if grant.RenewalPending || grant.RenewalUncertain {
+			return nil, controllerLoginFault("renewal_uncertain", protocol.ErrorCodeOutcomeUnknown, "authorization refresh did not complete; sign in again")
+		}
+		if grant.RenewalRejected {
+			return nil, controllerLoginFault("renewal_rejected", protocol.ErrorCodePermissionDenied, "authorization refresh was rejected; sign in again")
+		}
 		return nil, err
 	}
 	capture, err := captureProviderLogin(ctx, db, provider, protocol.NewRequestID())

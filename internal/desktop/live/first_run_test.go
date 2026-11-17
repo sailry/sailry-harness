@@ -43,6 +43,10 @@ type firstRunTransport struct {
 	// flying, when set, counts the commands the Node has not answered yet. A
 	// held command is not one: it waits for the test, not for the Node.
 	flying *atomic.Int64
+	// resourceClients declares the headless fixture's paired sources. Their
+	// commands still run on real Nodes; the fixture supplies Link's catalog
+	// membership without starting native network listeners.
+	resourceClients *sync.Map
 }
 
 func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
@@ -87,6 +91,23 @@ func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Reques
 	go func() {
 		response, ok := <-answer
 		if ok {
+			if name == "read_resource_catalog" && t.resourceClients != nil && response.Fault == nil {
+				if catalog, valid := detail[protocol.ResourceCatalog](response.Output.Data); valid {
+					t.resourceClients.Range(func(_, value any) bool {
+						remote := value.(*client.Client)
+						snapshot := remote.Snapshot()
+						synced := uint64(time.Now().UnixMilli())
+						source := protocol.ResourceSource{Node: remote.Target(), Route: protocol.RouteKey{Entry: catalog.Entry, Target: remote.Target()},
+							Projects: snapshot.Projects, Worktrees: snapshot.Worktrees, Revision: snapshot.Cursor, LastSyncedAtMs: &synced}
+						if !remote.Connected() {
+							source.Fault = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture source is offline"}
+						}
+						catalog.Sources = append(catalog.Sources, source)
+						return true
+					})
+					response.Output.Data = catalog
+				}
+			}
 			completion <- response
 		} else {
 			close(completion)
@@ -215,8 +236,9 @@ func firstRun(t *testing.T) {
 	var refresh atomic.Pointer[chan struct{}]
 	var gate atomic.Pointer[chan struct{}]
 	var flying atomic.Int64
+	var resourceClients sync.Map
 	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds,
-		hold: map[string]*atomic.Pointer[chan struct{}]{"refresh_model_catalog": &refresh}, gate: &gate, flying: &flying})
+		hold: map[string]*atomic.Pointer[chan struct{}]{"refresh_model_catalog": &refresh}, gate: &gate, flying: &flying, resourceClients: &resourceClients})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +429,7 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
-	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate, &flying)
+	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate, &flying, &resourceClients)
 	if count("refresh_model_catalog") != 1 {
 		t.Fatalf("the first visit sent %d automatic catalog refreshes", count("refresh_model_catalog"))
 	}
@@ -466,7 +488,7 @@ func firstRun(t *testing.T) {
 // ring, the header's buttons, New session's refocus, a plugin page entered
 // once, and no English where the catalog has Chinese. It is a step of
 // firstRun; SAILRY_UI_SHOTS names a directory that receives its frames.
-func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}], flying *atomic.Int64) {
+func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
 	// shots saves the frame in the light and the dark theme.
 	shots := func(name string) {
 		dir := os.Getenv("SAILRY_UI_SHOTS")
@@ -654,7 +676,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 820)
 	firstRunConnectors(t, r, tester, settle, sent, shots)
 	firstRunLocation(t, r, tester, settle, shots)
-	firstRunProjects(t, r, tester, settle, sent, shots, hold, flying)
+	firstRunProjects(t, r, tester, settle, sent, shots, hold, flying, resourceClients)
 }
 
 // firstRunProjects adds, edits and removes a project through the editor
@@ -662,7 +684,7 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 // in-app picker lists a real directory tree through browse_files, Save is
 // pending while the Node works, and a second real Node bound as a remote
 // Host is browsed through its own controller. It is a step of firstRun.
-func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}], flying *atomic.Int64) {
+func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}], flying *atomic.Int64, resourceClients *sync.Map) {
 	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
 	count := func(kind string) (n int) {
 		for _, name := range sent() {
@@ -961,7 +983,19 @@ func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func()
 	bound := r.newBinding(remote)
 	defer bound.Close()
 	r.bindings[host] = bound
-	defer delete(r.bindings, host)
+	resourceClients.Store(remote.Target(), remote)
+	defer func() {
+		delete(r.bindings, host)
+		resourceClients.Delete(remote.Target())
+		if catalog, err := r.controller.ReadResourceCatalog(r.ctx); err == nil {
+			r.resourceCatalog = &catalog
+		}
+	}()
+	catalog, err := r.controller.ReadResourceCatalog(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.resourceCatalog = &catalog
 	settle()
 	local := count("browse_files")
 	r.App.Sidebar.OpenEditorAtHost(host)

@@ -48,11 +48,13 @@ export function prepareRequest(command: Json): string;
 /** Calls a declared handler of this package on its actual execution Node.
  * Read-only calls require host.read_only. The original target and request ID survive recovery. */
 export function prepareHostCall(node: NodeID, handler: string, input: Json, readOnly?: boolean): string;
-/** The controller's directly connected Nodes, including unavailable sources. */
+/** The controller's durable directory of directly connected Nodes.
+ * An unavailable source retains its last confirmed summary, not resource contents. */
 export function readResourceCatalog(): Promise<{
   entry: NodeID;
   sources: {node: NodeID; route: {entry: NodeID; target: NodeID}; name: string; platform: string;
     projects: {id: string; name: string}[]; worktrees: Json[]; knowledge: KnowledgeCollection[];
+    revision?: number; last_synced_at_ms?: number;
     fault?: {code: string; message: string}}[];
 }>;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */

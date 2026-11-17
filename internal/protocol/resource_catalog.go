@@ -21,6 +21,10 @@ type ResourceSource struct {
 	Worktrees []Worktree            `json:"worktrees"`
 	Knowledge []KnowledgeCollection `json:"knowledge"`
 	Fault     *Fault                `json:"fault,omitempty"`
+	// Revision is the last complete source snapshot's cursor. Cached status is
+	// historical whenever Fault reports that the source is unavailable.
+	Revision       uint64  `json:"revision,omitempty"`
+	LastSyncedAtMs *uint64 `json:"last_synced_at_ms,omitempty"`
 }
 
 func (value *ResourceSource) UnmarshalJSON(data []byte) error {

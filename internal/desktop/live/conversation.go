@@ -72,6 +72,7 @@ func (r *Runtime) projectConversations() {
 			} else {
 				owner.projectOutgoing(cv, protocol.ConversationPage{})
 			}
+			markOfflineConversation(cv)
 		}
 	}
 	project(r.App.Data.Unassigned)
@@ -293,6 +294,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if r.controller.Err() == nil || faultCode(r.controller.Err()) == protocol.ErrorCodeUnavailable || faultCode(r.controller.Err()) == protocol.ErrorCodeBusy {
 			cv.Session.Connection = conversation.Reconnecting
 		}
+		cv.Offline = true
+		markOfflineConversation(cv)
 	}
 	ctx.Models = r.offeredModels(cv.ID, ctx.Models)
 	r.nameModelSources(c, cv.ID, ctx.Models)

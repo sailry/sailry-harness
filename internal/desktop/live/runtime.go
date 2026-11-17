@@ -43,6 +43,7 @@ type Runtime struct {
 	parent                   *Runtime
 	network                  *Network
 	bindings                 map[string]*Runtime
+	resourceCatalog          *protocol.ResourceCatalog
 	unsubscribeNetwork       func()
 	nodeModels               []composer.Model
 	hosts                    map[string]*liveHost
@@ -315,6 +316,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	// A Client event may arrive between the first snapshot and subscription.
 	// Project its latest state on the first frame even if no later event arrives.
 	r.changed()
+	r.observeResourceCatalog()
 	return r, nil
 }
 
@@ -375,6 +377,7 @@ func (r *Runtime) Close() error {
 	r.closePluginMemory()
 	r.closeCommands()
 	r.closeAttachments()
+	r.invalidateFilePreview(nil)
 	r.closeWorkspace()
 	r.cancel()
 	r.workers.Wait()
@@ -584,14 +587,10 @@ func (r *Runtime) project() {
 	r.projectAdmission(&snapshot)
 	d := Sidebar(snapshot, r.Preferences.Data)
 	d.Notices = Notices(r.controller.Notices())
+	r.appendResourceDirectory(d)
 	for _, bound := range r.bindings {
 		peerSnapshot := bound.snapshot()
-		bound.projectAdmission(&peerSnapshot)
-		peerData := Sidebar(peerSnapshot, r.Preferences.Data)
-		peerData.Notices = Notices(bound.controller.Notices())
-		d.Projects = append(d.Projects, peerData.Projects...)
-		d.Unassigned = append(d.Unassigned, peerData.Unassigned...)
-		d.Notices = append(d.Notices, peerData.Notices...)
+		d.Notices = append(d.Notices, Notices(bound.controller.Notices())...)
 		bound.projectModels()
 		bound.prunePins(peerSnapshot)
 		bound.pruneSessions(peerSnapshot)
@@ -749,6 +748,12 @@ func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, p
 }
 
 func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) protocol.RequestID {
+	if r.parent != nil && !r.controller.Connected() {
+		r.enqueue(func(c *ui.Context) {
+			finished(c, protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource host is offline"})
+		})
+		return protocol.RequestID{}
+	}
 	b, err := json.Marshal(command)
 	if err != nil {
 		r.enqueue(func(c *ui.Context) { finished(c, protocol.Output{}, err) })
@@ -828,6 +833,9 @@ func (r *Runtime) report(c *ui.Context, err error, conflict string) {
 		o, key = kit.Conflict, conflict
 	case protocol.ErrorCodeOutcomeUnknown:
 		o, key = kit.Uncertain, "chat_action_unknown"
+	}
+	if faultMessage(err) == "resource host is offline" {
+		key = "resource_offline_action"
 	}
 	kit.Toast(c, o, i18n.T(c, key))
 }

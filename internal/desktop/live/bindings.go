@@ -176,7 +176,14 @@ func (r *Runtime) syncNetwork() {
 	present := map[string]bool{}
 	for _, peer := range r.network.snapshot() {
 		id := peer.address.ID.String()
+		if peer.controller == nil || !r.resourceVisible(id) {
+			continue
+		}
 		present[id] = true
+		if old := r.bindings[id]; old != nil && old.controller != peer.controller {
+			_ = old.Close()
+			delete(r.bindings, id)
+		}
 		if peer.controller != nil && r.bindings[id] == nil {
 			r.bindings[id] = r.newBinding(peer.controller)
 		}

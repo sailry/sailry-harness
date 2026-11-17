@@ -160,3 +160,28 @@ func TestMobileCatalogCreatesRoutesWithoutPairingMembers(t *testing.T) {
 		t.Fatalf("catalog route lost its authority: %#v %v", route, err)
 	}
 }
+
+func TestMobileRouteIncludesDurableDirectorySummary(t *testing.T) {
+	entry, target := protocol.NodeID{1}, protocol.NodeID{2}
+	project := protocol.ProjectID{3}
+	synced := uint64(1234)
+	catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{{
+		Node: target, Route: protocol.RouteKey{Entry: entry, Target: target}, Revision: 8, LastSyncedAtMs: &synced,
+		Projects: []protocol.Project{{ID: project, Name: "Cached project", Path: "/remote/project"}},
+		Fault:    &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "offline"},
+	}}}
+	routes, err := catalogPeerRoutes(link.EndpointAddress{ID: entry}, catalog)
+	if err != nil || len(routes) != 1 {
+		t.Fatalf("cached routes = %v: %v", routes, err)
+	}
+	var metadata struct {
+		Source protocol.ResourceSource `json:"resource_source"`
+	}
+	if err := json.Unmarshal([]byte(routes[0]), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Source.Node != target || metadata.Source.Route.Entry != entry || len(metadata.Source.Projects) != 1 ||
+		metadata.Source.Projects[0].ID != project || metadata.Source.LastSyncedAtMs == nil || *metadata.Source.LastSyncedAtMs != synced {
+		t.Fatalf("mobile cold directory lost identity or summary: %#v", metadata.Source)
+	}
+}

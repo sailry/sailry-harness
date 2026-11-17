@@ -78,7 +78,7 @@ func TestExecutorWaitResumesOnlyUnsentSameAccountStep(t *testing.T) {
 		t.Fatal("ordinary plugin authorization waited or accepted an expired token")
 	}
 	transitions := []bool{}
-	secret, err := node.awaitProviderAuthorization(ctx, provider, reference, func(waiting bool) error {
+	secret, _, err := node.awaitProviderAuthorization(ctx, provider, func() (protocol.CredentialRef, error) { return reference, nil }, func(_ protocol.CredentialRef, waiting bool) error {
 		transitions = append(transitions, waiting)
 		if waiting {
 			// Commit while the wait projection is being published. The wake
@@ -111,7 +111,7 @@ func TestExecutorCredentialWaitCancelsAndRejectsChangedAccount(t *testing.T) {
 			}
 			write(value)
 			cleared := false
-			_, err := node.awaitProviderAuthorization(ctx, provider, reference, func(waiting bool) error {
+			_, _, err := node.awaitProviderAuthorization(ctx, provider, func() (protocol.CredentialRef, error) { return reference, nil }, func(_ protocol.CredentialRef, waiting bool) error {
 				if !waiting {
 					cleared = true
 					return nil

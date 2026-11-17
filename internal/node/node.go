@@ -462,6 +462,19 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 			return accepted, err
 		}
 	}
+	if input, ok := request.Command.Data.(*protocol.CommandResumeControllerLoginPayload); ok {
+		if request.Plugin != nil {
+			return link.Admission{}, permissionDenied()
+		}
+		if err := node.awaitControllerLoginReplacement(ctx, caller, *input); err != nil {
+			// A concurrent delivery of this same request may have completed
+			// between the first ledger lookup and the wait-state check.
+			if accepted, handled, replayErr := node.replayAdmission(ctx, caller, request, encoded); handled || replayErr != nil {
+				return accepted, replayErr
+			}
+			return link.Admission{}, nodeFault(err)
+		}
+	}
 	if request.Plugin != nil {
 		if err := node.validatePluginRequest(ctx, caller, request); err != nil {
 			return link.Admission{}, nodeFault(err)
@@ -927,6 +940,9 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	publication()
 	if err == nil {
 		node.NotifyConfigurationFollow(changes)
+		if operationErr == nil && (job.request.Command.Kind == "resume_controller_login" || job.request.Command.Kind == "stop_turn") {
+			node.RuntimeCredentialsChanged()
+		}
 		for _, change := range changes {
 			if store.RuntimeCredentialEvent(change.Kind) {
 				node.RuntimeCredentialsChanged()

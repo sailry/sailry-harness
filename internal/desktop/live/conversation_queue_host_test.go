@@ -34,6 +34,9 @@ func TestQueuedMessageEditRetainsExecutionHost(t *testing.T) {
 	localClient, remoteClient := client.New(localSource), client.New(remoteSource)
 	defer localClient.Close()
 	defer remoteClient.Close()
+	if err := remoteClient.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	root := &Runtime{ctx: t.Context(), controller: localClient, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
 	remote := &Runtime{ctx: t.Context(), controller: remoteClient, App: root.App, parent: root, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
 	root.bindings = map[string]*Runtime{remoteSnapshot.Node.String(): remote}

@@ -15,6 +15,8 @@ import (
 // filePreview is the window's file or image preview, read by the captured
 // source owner. A newer preview replaces it and cancels its pending read.
 type filePreview struct {
+	owner     *Runtime
+	worktree  protocol.WorktreeID
 	open      bool
 	file      conversation.File
 	view      fileview.View
@@ -28,9 +30,24 @@ func (r *Runtime) beginFilePreview(file conversation.File, callbacks fileview.Ca
 		previous.cancel()
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
-	preview := &filePreview{open: true, file: file, callbacks: callbacks, cancel: cancel}
+	preview := &filePreview{owner: r, open: true, file: file, callbacks: callbacks, cancel: cancel}
 	root.filePreview = preview
 	return preview, ctx
+}
+
+func (r *Runtime) invalidateFilePreview(worktree *protocol.WorktreeID) {
+	root := r.localRuntime()
+	preview := root.filePreview
+	if preview == nil || r.parent != nil && preview.owner != r || worktree != nil && preview.worktree != *worktree {
+		return
+	}
+	if preview.cancel != nil {
+		preview.cancel()
+	}
+	preview.open = false
+	preview.file = conversation.File{}
+	preview.callbacks = fileview.Callbacks{}
+	root.filePreview = nil
 }
 
 // errPreviewLarge is a read refused at fileview.Limit.

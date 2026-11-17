@@ -60,7 +60,7 @@ func (node *Node) StartConfigurationFollow() error {
 			defer runtime.mu.Unlock()
 			for id, peer := range runtime.peers {
 				peer.cancel()
-				resourceProjections.Delete(resourceProjectionKey{node, id})
+				node.invalidateResourceProjection(id)
 			}
 		}()
 		for {
@@ -116,6 +116,41 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 	direct := map[protocol.NodeID]bool{}
 	for _, peer := range relationships {
 		direct[peer.ID] = peer.Direct && peer.DirectDirection.AllowsOutbound() && !peer.Removed
+	}
+	// Restore projections independently of Client startup, and drop entries for
+	// connections explicitly removed while this Node was stopped.
+	var local protocol.User
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		local, err = store.LocalUser(ctx, db)
+		return err
+	}); err != nil {
+		return
+	}
+	owner := store.WithUser(ctx, local)
+	allowed := []protocol.NodeID{}
+	for id, available := range direct {
+		if available {
+			allowed = append(allowed, id)
+		}
+	}
+	var removed []protocol.NodeID
+	if err := node.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
+		var err error
+		removed, err = store.PruneResourceCatalogSources(owner, db, node.ID(), allowed)
+		if err != nil || len(removed) == 0 {
+			return err
+		}
+		_, err = store.RecordEvents(owner, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
+		return err
+	}); err != nil {
+		return
+	}
+	for _, id := range removed {
+		node.invalidateResourceProjection(id)
+	}
+	if len(removed) != 0 {
+		node.publish()
 	}
 	seen := map[protocol.NodeID]bool{}
 	runtime.mu.Lock()
@@ -180,7 +215,7 @@ func (node *Node) refreshConfigurationFollowPeers(ctx context.Context, runtime *
 	for id, peer := range runtime.peers {
 		if !seen[id] {
 			peer.cancel()
-			resourceProjections.Delete(resourceProjectionKey{node, id})
+			node.invalidateResourceProjection(id)
 			delete(runtime.peers, id)
 		}
 	}

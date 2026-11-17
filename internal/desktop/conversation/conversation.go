@@ -636,7 +636,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 			s.changes(c, t.ID, r.Changes, actions)
 		}
 		if live && showPhase(r, blocks) {
-			phaseRow(c, r)
+			phaseRow(c, r, t.ID, actions)
 		}
 		if end < len(blocks) {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
@@ -704,6 +704,9 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 // row shows only before the first content, while the model thinks or
 // writes, and while the context compacts.
 func showPhase(r *Reply, blocks []Block) bool {
+	if r.Phase == WaitingController {
+		return true
+	}
 	if n := len(blocks); n > 0 && r.Phase != Compacting && r.Status != Queued {
 		switch blocks[n-1].Kind {
 		case ToolsBlock, ChildrenBlock, RetryBlock:
@@ -730,7 +733,7 @@ func showPhase(r *Reply, blocks []Block) bool {
 
 // phaseRow is the active run's last row: the phase's mark (kit.Indicator)
 // and what the run does.
-func phaseRow(c *ui.Context, r *Reply) {
+func phaseRow(c *ui.Context, r *Reply, turn string, actions Actions) {
 	p := theme.Of(c)
 	var label string
 	switch r.Phase {
@@ -768,6 +771,10 @@ func phaseRow(c *ui.Context, r *Reply) {
 		// Laid out as the sweep draws it (kit.Sweep.Text): a RichText.
 		span := ui.Span{Text: label, Size: size, Color: p.MutedForeground}
 		sw.Text(c, levelSpan(c, ui.RichText(c, span).SingleLine(), span, size, false), span)
+		if r.Phase == WaitingController && r.LoginRecovery {
+			kit.Secondary(c.Key("resume-login"), i18n.T(c, "controller_login_restore")).
+				OnClick(func() { actions.ResumeLogin(turn) })
+		}
 	})
 	sw.Frame(row)
 }

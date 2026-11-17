@@ -1118,6 +1118,8 @@ func (x *actions) Retry(turn string) {
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
+func (x *actions) ResumeLogin(string) { x.notice() }
+
 // Fork in the demo copies the conversation up to the turn, in memory, and
 // shows the copy; Worktree puts the copy in a new worktree of its project.
 func (x *actions) Fork(turn string) { x.fork(turn, false) }

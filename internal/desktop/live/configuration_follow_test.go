@@ -70,6 +70,9 @@ func TestConfigurationFollowStatusAndRetryUseSelectedHost(t *testing.T) {
 	localClient, remoteClient := client.New(localTransport), client.New(remoteTransport)
 	defer localClient.Close()
 	defer remoteClient.Close()
+	if err := remoteClient.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	app := &shell.App{Settings: settings.NewLive()}
 	root := &Runtime{ctx: t.Context(), controller: localClient, App: app}
 	remote := &Runtime{ctx: t.Context(), controller: remoteClient, App: app, parent: root, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}

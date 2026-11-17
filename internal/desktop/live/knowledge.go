@@ -2,6 +2,8 @@ package live
 
 import (
 	"encoding/hex"
+	"strings"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -20,6 +22,7 @@ type knowledgeViewer struct {
 	page    protocol.KnowledgeCitationPage
 	history []uint32
 	view    *shell.Reading
+	close   func()
 }
 
 // knowledgeRequest is the first page a link asks for. The shell already
@@ -102,7 +105,7 @@ func (v *knowledgeViewer) show(c *ui.Context, input protocol.KnowledgeCitationRe
 
 // turn loads the adjacent page; the viewer keeps its page when that fails.
 func (v *knowledgeViewer) turn(forward bool) {
-	if v.view.Pending {
+	if v.view.Pending || v.view.Unavailable {
 		return
 	}
 	input := v.input
@@ -122,6 +125,9 @@ func (v *knowledgeViewer) turn(forward bool) {
 		}
 		page, failure := knowledgePage(output, err, input)
 		if failure != "" {
+			if restrictedResourceSource(protocol.ResourceSource{Fault: &protocol.Fault{Code: faultCode(err)}}) && v.close != nil {
+				v.close()
+			}
 			kit.Toast(c, kit.Failed, i18n.T(c, failure))
 			return
 		}
@@ -168,10 +174,16 @@ func (r *Runtime) openKnowledge(c *ui.Context, node string, source shell.Source)
 // readKnowledge reads a link's first page and opens the viewer on it. The
 // viewer is the last link's: the answer of an earlier one is dropped.
 func (r *Runtime) readKnowledge(node string, input protocol.KnowledgeCitationRequest, read func(protocol.KnowledgeCitationRequest, func(*ui.Context, protocol.Output, error)), host func(*ui.Context) string) {
+	root := r.localRuntime()
+	if input.Node != (protocol.NodeID{}) {
+		node = input.Node.String()
+	} else if node == "" && root.controller != nil {
+		node = root.controller.Target().String()
+	}
 	wanted := node + "\x00" + input.Collection.String() + "\x00" + input.Chunk + "\x00" + input.Revision
-	r.knowledgeWanted = wanted
+	root.knowledgeWanted = wanted
 	read(input, func(c *ui.Context, output protocol.Output, err error) {
-		if r.knowledgeWanted != wanted {
+		if root.knowledgeWanted != wanted {
 			return
 		}
 		page, failure := knowledgePage(output, err, input)
@@ -179,12 +191,59 @@ func (r *Runtime) readKnowledge(node string, input protocol.KnowledgeCitationReq
 			kit.Toast(c, kit.Failed, i18n.T(c, failure))
 			return
 		}
-		viewer := &knowledgeViewer{read: read, shown: r.App.Reading, view: &shell.Reading{}}
+		viewer := &knowledgeViewer{read: read, shown: root.App.Reading, close: root.App.CloseKnowledge, view: &shell.Reading{Node: node, Collection: input.Collection.String()}}
 		viewer.view.Turn = viewer.turn
 		viewer.view.Host = host(c)
 		viewer.show(c, input, page)
-		r.App.ShowKnowledge(viewer.view)
+		if root.resourceCatalog != nil {
+			for _, source := range root.resourceCatalog.Sources {
+				if source.Node.String() == node && source.Fault != nil && !restrictedResourceSource(source) {
+					viewer.view.Unavailable = true
+				}
+			}
+		}
+		root.App.ShowKnowledge(viewer.view)
 	})
+}
+
+func (r *Runtime) pruneKnowledgeView() {
+	root := r.localRuntime()
+	if root.resourceCatalog == nil || root.App == nil {
+		return
+	}
+	state := func(node, collection string) (restricted, unavailable bool) {
+		for _, source := range root.resourceCatalog.Sources {
+			if source.Node.String() != node {
+				continue
+			}
+			if restrictedResourceSource(source) {
+				return true, false
+			}
+			if source.Fault != nil {
+				return false, true
+			}
+			for _, value := range source.Knowledge {
+				if value.ID.String() == collection {
+					return false, false
+				}
+			}
+			return true, false
+		}
+		return true, false
+	}
+	if wanted := strings.SplitN(root.knowledgeWanted, "\x00", 4); len(wanted) == 4 {
+		if restricted, _ := state(wanted[0], wanted[1]); restricted {
+			root.knowledgeWanted = ""
+		}
+	}
+	if view := root.App.Reading(); view != nil {
+		restricted, unavailable := state(view.Node, view.Collection)
+		if restricted {
+			root.App.CloseKnowledge()
+		} else {
+			view.Unavailable = unavailable
+		}
+	}
 }
 
 // knowledgeLink reports whether text is one citation link a Node can read.

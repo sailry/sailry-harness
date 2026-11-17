@@ -48,6 +48,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		metadata[value.ID] = value
 	}
 	entries := []link.EndpointAddress{}
+	directRoutes := map[protocol.NodeID]string{}
 	routes := []string{}
 	active := map[protocol.NodeID]bool{}
 	for _, entry := range peers {
@@ -61,7 +62,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		}
 		active[entry.ID] = true
 		entries = append(entries, entry)
-		routes = append(routes, encoded)
+		directRoutes[entry.ID] = encoded
 	}
 	var wait sync.WaitGroup
 	var results sync.Mutex
@@ -84,7 +85,10 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 				failure := result(nil, err).Error
 				if failure != nil && (failure.Code == protocol.ErrorCodePermissionDenied || failure.Code == protocol.ErrorCodeNotFound || failure.Code == protocol.ErrorCodeExpired) {
 					owner.closeEntry(entry.ID)
-					children = nil
+					results.Lock()
+					delete(active, entry.ID)
+					results.Unlock()
+					return
 				} else {
 					children = unavailablePeerRoutes(children)
 				}
@@ -97,6 +101,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 				owner.mu.Unlock()
 			}
 			results.Lock()
+			routes = append(routes, directRoutes[entry.ID])
 			routes = append(routes, children...)
 			results.Unlock()
 		}()
@@ -133,6 +138,15 @@ func catalogPeerRoutes(entry link.EndpointAddress, catalog protocol.ResourceCata
 		encoded, err := routedPeerMetadata(entry, link.EndpointAddress{ID: source.Node, Addrs: []json.RawMessage{}}, link.PeerRelationship{
 			ID: source.Node, Name: source.Name, Sources: []protocol.NodeID{entry.ID},
 		}, source.Fault)
+		if err != nil {
+			return nil, err
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal([]byte(encoded), &metadata); err != nil {
+			return nil, err
+		}
+		metadata["resource_source"] = source
+		encoded, err = encode(metadata)
 		if err != nil {
 			return nil, err
 		}

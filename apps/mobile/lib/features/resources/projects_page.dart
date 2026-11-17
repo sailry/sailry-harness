@@ -57,21 +57,26 @@ class ProjectsPage extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: const AppIcon('chevron'),
-                  onTap: () {
-                    final tree = objects(source.snapshot['worktrees'])
-                        .where((tree) => tree['project'] == project['id'])
-                        .firstOrNull;
-                    if (tree != null) {
-                      pushPage(
-                        context,
-                        ResourcesPage(
-                          hostId: source.id,
-                          worktreeId: text(tree['id']),
-                        ),
-                      );
-                    }
-                  },
+                  trailing: source.connected
+                      ? const AppIcon('chevron')
+                      : Text(context.tr('offline')),
+                  enabled: source.connected,
+                  onTap: !source.connected
+                      ? null
+                      : () {
+                          final tree = objects(source.snapshot['worktrees'])
+                              .where((tree) => tree['project'] == project['id'])
+                              .firstOrNull;
+                          if (tree != null) {
+                            pushPage(
+                              context,
+                              ResourcesPage(
+                                hostId: source.id,
+                                worktreeId: text(tree['id']),
+                              ),
+                            );
+                          }
+                        },
                 ),
             ],
           ),

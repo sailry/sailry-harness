@@ -81,6 +81,10 @@ func (a *App) projectView(c *ui.Context) {
 		ui.Column(c.Key("content")).FillWidth().MaxWidth(theme.ContentWidth).Margin(16, ui.Auto).Gap(16).Children(func() {
 			ui.Row(c.Key("heading")).Gap(12).Children(func() {
 				ui.Text(c, project.Name).FontSize(20).FontWeight(600).SingleLine().Shrink(1).MinWidth(0)
+				if project.Offline {
+					badge := ui.Text(c, i18n.T(c, "resource_offline")).FontSize(14).TextColor(palette.MutedForeground)
+					kit.Tooltip(c, badge, i18n.T(c, "resource_offline_action"))
+				}
 				for _, host := range a.Data.Hosts {
 					if host.ID == project.Host {
 						ui.Text(c, a.hostName(c, host.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(palette.MutedForeground)
@@ -98,7 +102,7 @@ func (a *App) projectView(c *ui.Context) {
 					if repository.Known && repository.Directory {
 						label := i18n.T(c, "git_initialize")
 						kit.Ghost(c.Key("initialize"), label, false).Height(28).PaddingX(8).Gap(6).
-							Disabled(state.pending || state.actions.Initialize == nil).Children(func() {
+							Disabled(project.Offline || state.pending || state.actions.Initialize == nil).Children(func() {
 							if state.pending && state.opening == "" && !state.initialize {
 								kit.Busy(c)
 							} else {
@@ -126,7 +130,7 @@ func (a *App) projectView(c *ui.Context) {
 					ui.Text(c, label).FontSize(14)
 				}).OnClick(func() { state.actions.NewSession(project) })
 				terminal := i18n.T(c, "workspace_new_terminal")
-				button := kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(state.actions.NewTerminal == nil).Children(func() {
+				button := kit.SecondaryLook(c, ui.ButtonBase(c.Key("workspace_new_terminal")).Label(terminal)).Disabled(project.Offline || state.actions.NewTerminal == nil).Children(func() {
 					ui.Icon(c, icons.Terminal).FontSize(16)
 					ui.Text(c, terminal).FontSize(14)
 				})

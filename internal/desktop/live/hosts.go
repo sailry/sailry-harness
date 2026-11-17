@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -153,6 +154,23 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 				state.view.Runtime.ProtocolMin, state.view.Runtime.ProtocolMax = int(*peer.info.Protocol), int(*peer.info.Protocol)
 			}
 			state.linkError = hostLinkError(peer.err)
+			order = append(order, id)
+		}
+	}
+	if r.resourceCatalog != nil {
+		for _, source := range r.resourceCatalog.Sources {
+			id := source.Node.String()
+			if slices.Contains(order, id) || restrictedResourceSource(source) {
+				continue
+			}
+			state := r.ensureHost(id, r.bindings[id], false)
+			state.node = source.Node
+			if source.Name != "" {
+				state.view.Name = source.Name
+			}
+			if source.Platform != "" {
+				state.view.OS = hostOS(source.Platform)
+			}
 			order = append(order, id)
 		}
 	}

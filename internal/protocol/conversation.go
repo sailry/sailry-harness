@@ -406,6 +406,12 @@ type ConversationRun struct {
 type ConversationRunWaiting struct {
 	Kind       string        `json:"kind"`
 	Credential CredentialRef `json:"credential"`
+	Provider   ProviderID    `json:"provider,omitempty"`
+	Attempt    RequestID     `json:"attempt,omitempty"`
+	// These opaque fingerprints preserve the account and authentication target
+	// observed before sign-in can replace the controller's current account.
+	AccountIdentity      string `json:"account_identity,omitempty"`
+	AuthenticationTarget string `json:"authentication_target,omitempty"`
 }
 
 func DefaultConversationRun() ConversationRun {

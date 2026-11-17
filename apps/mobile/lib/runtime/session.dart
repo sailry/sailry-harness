@@ -237,7 +237,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final owner = await _ensureController();
     return _change(owner, () async {
       final address = await owner.pair(ticket: ticket.trim());
-      return _connect(address, owner);
+      return _connect(address, owner, replaceDisconnected: true);
     });
   }
 
@@ -266,7 +266,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final owner = await _ensureController();
     return _change(owner, () async {
       final address = await owner.pairPin(origin: '', pin: pin.trim());
-      return _connect(address, owner);
+      return _connect(address, owner, replaceDisconnected: true);
     });
   }
 
@@ -340,6 +340,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     String address,
     Controller owner, {
     bool select = true,
+    bool replaceDisconnected = false,
   }) async {
     if (_closed || controller != owner) {
       throw StateError('controller is closed');
@@ -347,7 +348,13 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     final decoded = object(jsonDecode(address));
     final id = _addressRouteKey(decoded);
     if (id.isEmpty) throw const FormatException('endpoint has no identity');
-    final existing = host(id);
+    var existing = host(id);
+    // Pairing can restore trust after the native directory released a
+    // revoked Client. A new native connection must not reuse that handle.
+    if (existing != null && replaceDisconnected && existing._nativeInvalid) {
+      await _remove(existing, owner, forget: false);
+      existing = null;
+    }
     if (existing != null) {
       existing._applyPeerMetadata(decoded);
       if (select) selectHost(id);
@@ -602,6 +609,9 @@ class HostConnection extends ChangeNotifier {
   String _directoryName = '';
   bool _sourceUnavailable = false;
   String _sourceFaultCode = '';
+  bool _nativeInvalid = false;
+  Map<String, dynamic> _directorySnapshot = {};
+  num _directoryRevision = 0;
   bool direct = true;
   List<String> sources = const [];
   String get label =>
@@ -619,8 +629,21 @@ class HostConnection extends ChangeNotifier {
         : sources;
     final name = text(relationship['name'], _directoryName);
     final sourceFault = object(address['source_fault']);
+    final directory = object(address['resource_source']);
+    final directoryChanged =
+        directory.isNotEmpty &&
+        (_directorySnapshot.isEmpty ||
+            _directoryRevision != number(directory['revision']));
+    if (directory.isNotEmpty) {
+      _directorySnapshot = {
+        'projects': objects(directory['projects']),
+        'worktrees': objects(directory['worktrees']),
+      };
+      _directoryRevision = number(directory['revision']);
+    }
     final unavailable = sourceFault.isNotEmpty;
     final changed =
+        directoryChanged ||
         direct != nextDirect ||
         sources.join('\u0000') != nextSources.join('\u0000') ||
         _directoryName != name ||
@@ -636,6 +659,8 @@ class HostConnection extends ChangeNotifier {
         'not_found',
         'expired',
       }.contains(_sourceFaultCode)) {
+        _nativeInvalid = true;
+        _directorySnapshot = {};
         snapshot = {};
         notifications = [];
         childTargets = {};
@@ -644,7 +669,15 @@ class HostConnection extends ChangeNotifier {
     direct = nextDirect;
     sources = List.unmodifiable(nextSources);
     _directoryName = name;
+    _applyDirectorySnapshot();
     if (changed && !_closed) notifyListeners();
+  }
+
+  void _applyDirectorySnapshot() {
+    if (_directorySnapshot.isNotEmpty &&
+        number(snapshot['cursor']) <= _directoryRevision) {
+      snapshot = {...snapshot, ..._directorySnapshot};
+    }
   }
 
   String originDescription(
@@ -727,14 +760,19 @@ class HostConnection extends ChangeNotifier {
         error = fault;
         notifications = objects(view['notifications']);
         childTargets = object(view['child_targets']);
+        final code = text(object(fault)['code'], _sourceFaultCode);
         if (const {
           'permission_denied',
           'not_found',
           'expired',
-        }.contains(_sourceFaultCode)) {
+        }.contains(code)) {
+          _nativeInvalid = true;
+          _directorySnapshot = {};
           snapshot = {};
           notifications = [];
           childTargets = {};
+        } else {
+          _applyDirectorySnapshot();
         }
         notifyListeners();
         _settle();
@@ -742,6 +780,15 @@ class HostConnection extends ChangeNotifier {
       }
     } catch (failure) {
       if (!_closed && !_restarting) {
+        if (failure is BridgeFailure &&
+            const {
+              'cancelled',
+              'permission_denied',
+              'not_found',
+              'expired',
+            }.contains(failure.code)) {
+          _nativeInvalid = true;
+        }
         connected = false;
         transport = {};
         error = failure.toString() == 'channel closed' && observedError != null
@@ -791,6 +838,9 @@ class HostConnection extends ChangeNotifier {
     Map<String, dynamic>? data,
   ]) async {
     if (_closed) throw StateError('connection is closed');
+    if (!connected && kind != 'inspect_host') {
+      throw CommandFailure('unavailable');
+    }
     if (_handler != null) return _handler!(kind, data);
     final request = await connection.prepare(
       command: jsonEncode({'kind': kind, 'data': ?data}),

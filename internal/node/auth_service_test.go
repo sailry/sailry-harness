@@ -511,11 +511,13 @@ func TestCopilotSignIn(t *testing.T) {
 	config := protocol.DefaultSessionConfig()
 	config.Provider, config.Credential = provider.ID, provider.Credential
 	authorize := func() (providers.AccountGrant, error) {
-		invocation := &store.AgentInvocation{Provider: &provider, Turn: protocol.QueuedTurn{Config: config}}
-		if err := node.authorizeTurnProvider(ctx, invocation); err != nil {
+		// Account-service checks do not create a running task. Live turns now
+		// project a login wait on rejection and are covered by recovery tests.
+		secret, err := node.providerAuthorization(ctx, provider, *config.Credential)
+		if err != nil {
 			return providers.AccountGrant{}, err
 		}
-		return providers.DecodeAccount(invocation.Secret, provider.Authentication)
+		return providers.DecodeAccount(secret, provider.Authentication)
 	}
 	advanceGrant := func() {
 		t.Helper()

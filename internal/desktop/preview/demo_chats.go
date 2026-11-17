@@ -111,6 +111,7 @@ func (b *demo) staging() *Conversation {
 	health.Controls = cv.Controls{NoExport: true, NoWorktree: true}
 	tail.Controls = cv.Controls{NoExport: true, NoWorktree: true, NoEdit: true, NoFork: true, NoRewind: true}
 	c := b.conv(id, "staging.title", Waiting, 7*time.Minute, cv.Usage{Tokens: 9200, Speed: 55.0, Cost: 0.0058, Cached: 6100, Context: 0.05}, health, tail, compact)
+	c.Offline, c.LastSyncedAt = true, Now.Add(-7*time.Minute)
 	c.Waiting.Question = &composer.Ask{ID: tail.ID + "/ask", Prompt: b.t("staging.ask.prompt"),
 		Options: strings.Split(b.t("staging.ask.options"), "\n"), Disabled: true}
 	c.Session.Older, c.Session.OlderFailed = 12, true
@@ -151,6 +152,6 @@ func (b *demo) waitingForController() *Conversation {
 	completed.Reply = done(cv.Completed, 16)
 	completed.Reply.Blocks = []cv.Block{text(b.t("controller_login.0.partial"))}
 	turn := b.user(id+"/1", "controller_login.1.user")
-	turn.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(92), Phase: cv.WaitingController}
+	turn.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(92), Phase: cv.WaitingController, LoginRecovery: true}
 	return b.conv(id, "controller_login.title", Running, 3*time.Minute, cv.Usage{Tokens: 4300, Speed: 78, Cost: 0.003, Cached: 2100, Context: 0.02}, completed, turn)
 }

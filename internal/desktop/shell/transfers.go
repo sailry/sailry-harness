@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 )
 
@@ -21,6 +22,9 @@ func (a *App) startDownload(name string) {
 // downloadDialog plays the transfer and shows its dialog; as it finishes, a
 // toast tells the outcome: canceled, or that the preview saved nothing.
 func (a *App) downloadDialog(c *ui.Context) {
+	if a.Page != SettingsPage || a.Settings.Section != settings.Providers {
+		settings.ProviderLoginDialog(c, a.Settings.Model)
+	}
 	if !a.Preview {
 		if a.Hooks.DownloadDialog != nil {
 			a.Hooks.DownloadDialog(c)

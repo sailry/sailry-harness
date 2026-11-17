@@ -118,6 +118,8 @@ type Reply struct {
 	Elapsed time.Duration
 	Phase   Phase
 	Waiting int // children waited for, with WaitingChildren
+	// LoginRecovery is an explicit sign-in action for this waiting task.
+	LoginRecovery bool
 	// PhaseElapsed is how long the Compacting phase has run; 0 shows none.
 	PhaseElapsed time.Duration
 	Blocks       []Block
@@ -524,6 +526,8 @@ type Actions interface {
 	OpenChild(id string)
 	// Retry runs a failed turn again.
 	Retry(turn string)
+	// ResumeLogin restores only this task's waiting model step after sign-in.
+	ResumeLogin(turn string)
 	// Fork starts a session from the conversation up to turn.
 	Fork(turn string)
 	// Rewind keeps turn and removes the later ones, once confirmed.

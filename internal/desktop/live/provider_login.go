@@ -38,6 +38,7 @@ type authorizationState struct {
 	mcpChecking                    map[string]bool // package and server of each check in flight
 	mcpFailed                      map[string]mcpFailure
 	connectorBusy                  map[string]bool // services with a command under way
+	loginRecoveries                map[string]*controllerLoginRecovery
 }
 
 type liveAuthorization struct {
@@ -49,6 +50,7 @@ type liveAuthorization struct {
 	view       *settings.Authorization
 	generation uint64
 	ctx        context.Context
+	recovery   *controllerLoginRecovery
 }
 
 func (r *Runtime) authorizationView(attempt *liveAuthorization, provider bool) *settings.Authorization {
@@ -161,15 +163,19 @@ func (r *Runtime) loginProvider(id string) (protocol.ConversationProvider, bool)
 // warning for it is asked about first: nothing is sent until the user
 // continues, once for each attempt.
 func (r *Runtime) beginProviderLogin(id string) {
+	r.beginProviderLoginFor(id, nil)
+}
+
+func (r *Runtime) beginProviderLoginFor(id string, recovery *controllerLoginRecovery) {
 	provider, ok := r.loginProvider(id)
 	if !ok {
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLogin(id) })
+		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLoginFor(id, recovery) })
 		return
 	}
-	r.startProviderLogin(id)
+	r.startProviderLoginFor(id, recovery)
 }
 
 // loginWarning is an entry's warning in the package locale, "" for none.
@@ -184,6 +190,10 @@ func (r *Runtime) loginWarning(entry protocol.ConversationPresetsEntry) string {
 }
 
 func (r *Runtime) startProviderLogin(id string) {
+	r.startProviderLoginFor(id, nil)
+}
+
+func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginRecovery) {
 	provider, ok := r.loginProvider(id)
 	if !ok {
 		return
@@ -205,7 +215,7 @@ func (r *Runtime) startProviderLogin(id string) {
 		})
 		return
 	}
-	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name}
+	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name, recovery: recovery}
 	r.authorizations.provider = attempt
 	model := r.App.Settings.Model
 	model.BeginProviderAuthorization(id, provider.Name, manual)
@@ -324,6 +334,9 @@ func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, 
 		kit.Toast(c, kit.Done, i18n.T(c, "authorization_connected"))
 		r.authorizations.credentialKey = ""
 		r.readProviders()
+		if attempt.recovery != nil {
+			r.completeControllerLogin(c, attempt, value.Credential)
+		}
 		if value.ModelError != nil {
 			r.reportKeys(c, value.ModelError, "provider_query_failed", "provider_revision_changed", "provider_login_unknown")
 		}
