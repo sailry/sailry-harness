@@ -16,6 +16,7 @@ import (
 	"github.com/MoeForge/moejs"
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
+	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -153,6 +154,10 @@ func (runtime *Runtime) SetClock(clock clockwork.Clock) error {
 func (runtime *Runtime) Mount(bundle Bundle, pluginContext PluginContext) (_ *Mounted, result error) {
 	if runtime.closed {
 		return nil, errors.New("plugin runtime is closed")
+	}
+	// A remote Node may support a newer package than this UI process can load.
+	if err := nodeplugins.EnsureCompatible(nodeplugins.InfoCompatibility(protocol.PluginInfo{Requirements: bundle.Requirements})); err != nil {
+		return nil, err
 	}
 	if err := protocol.ValidatePluginDesktopBundle(bundle); err != nil {
 		return nil, err
