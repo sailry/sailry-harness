@@ -33,11 +33,12 @@ type LocalModel struct {
 type KnowledgeState int
 
 const (
-	KnowledgePending  KnowledgeState = iota // waiting for its indexing pass
-	KnowledgeIndexing                       // being read
-	KnowledgeReady                          // indexed
-	KnowledgePaused                         // paused by the user
-	KnowledgeFailed                         // could not be indexed as a whole
+	KnowledgePending     KnowledgeState = iota // waiting for its indexing pass
+	KnowledgeIndexing                          // being read
+	KnowledgeReady                             // indexed
+	KnowledgePaused                            // paused by the user
+	KnowledgeFailed                            // could not be indexed as a whole
+	KnowledgeUnavailable                       // storage Node cannot currently answer
 )
 
 // KnowledgeCollection is a host's knowledge collection: its state, the

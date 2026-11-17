@@ -22,7 +22,7 @@ func (transport routedNoticeTransport) Route() protocol.RouteKey {
 func TestMobileRouteMetadataKeepsEntryAndTargetSeparate(t *testing.T) {
 	entry := link.EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{json.RawMessage(`{"Ip":"127.0.0.1:4321"}`)}}
 	target := link.EndpointAddress{ID: protocol.NodeID{2}, Addrs: []json.RawMessage{}}
-	encoded, err := routedPeerMetadata(entry, target, link.PeerRelationship{ID: target.ID, Sources: []protocol.NodeID{entry.ID}})
+	encoded, err := routedPeerMetadata(entry, target, link.PeerRelationship{ID: target.ID, Sources: []protocol.NodeID{entry.ID}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,51 @@ func TestMobileClosingEntryPreservesIndependentRoute(t *testing.T) {
 	via := client.New(routedNoticeTransport{noticeTransport: noticeTransport{node: target}, entry: entry})
 	t.Cleanup(func() { _ = direct.Close(); _ = via.Close() })
 	owner := &controller{clients: map[protocol.RouteKey]*client.Client{direct.Route(): direct, via.Route(): via}}
+	owner.inbox(direct.Route())
+	owner.inbox(via.Route())
 	owner.closeEntry(entry)
 	if owner.clients[direct.Route()] != direct || owner.clients[via.Route()] != nil {
 		t.Fatal("closing one entry changed an independent route to the same Node")
+	}
+	if owner.inboxes[direct.Route()] == nil || owner.inboxes[via.Route()] != nil {
+		t.Fatal("closing one entry retained its notification inbox or removed another entry")
+	}
+}
+
+func TestMobileRemovedEntryClosesBeforeItsFirstCatalog(t *testing.T) {
+	entry, target := protocol.NodeID{1}, protocol.NodeID{2}
+	shared := client.New(routedNoticeTransport{noticeTransport: noticeTransport{node: target}, entry: entry})
+	t.Cleanup(func() { _ = shared.Close() })
+	owner := &controller{clients: map[protocol.RouteKey]*client.Client{shared.Route(): shared}}
+	owner.inbox(shared.Route())
+	owner.closeMissingEntries(map[protocol.NodeID]bool{})
+	if len(owner.clients) != 0 || len(owner.inboxes) != 0 {
+		t.Fatal("entry with no successful directory read retained its client or inbox")
+	}
+	if err := shared.Start(t.Context()); err == nil {
+		t.Fatal("removed entry's Client was not closed")
+	}
+}
+
+func TestMobileSourceFaultSurvivesCatalogAndEntryOutage(t *testing.T) {
+	entry, target := protocol.NodeID{1}, protocol.NodeID{2}
+	address := link.EndpointAddress{ID: entry, Addrs: []json.RawMessage{}}
+	catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{{Node: target, Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "offline"}}}}
+	routes, err := catalogPeerRoutes(address, catalog)
+	if err != nil || len(routes) != 1 {
+		t.Fatalf("source route: %v: %v", routes, err)
+	}
+	for _, encoded := range []string{routes[0], unavailablePeerRoutes(routes)[0]} {
+		var metadata struct {
+			Fault *protocol.Fault `json:"source_fault"`
+		}
+		if err := json.Unmarshal([]byte(encoded), &metadata); err != nil || metadata.Fault == nil || metadata.Fault.Code != protocol.ErrorCodeUnavailable {
+			t.Fatalf("source outage was discarded: %s: %v", encoded, err)
+		}
+		route, err := decodePeerRoute(encoded)
+		if err != nil || route.Entry.ID != entry || route.Target.ID != target {
+			t.Fatalf("offline metadata changed the route: %+v: %v", route, err)
+		}
 	}
 }
 

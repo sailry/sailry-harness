@@ -580,7 +580,10 @@ class HostConnection extends ChangeNotifier {
     CommandHandler? command,
     this._connection,
     this.address = '',
-  }) : _handler = command;
+    Map<String, dynamic> metadata = const {},
+  }) : _handler = command {
+    _applyPeerMetadata(metadata);
+  }
 
   PortMappings? _ports;
   PortMappings get ports => _ports ??= PortMappings(() => connection);
@@ -597,6 +600,8 @@ class HostConnection extends ChangeNotifier {
       _connection ?? (throw StateError('test connection has no native handle'));
   String? _label;
   String _directoryName = '';
+  bool _sourceUnavailable = false;
+  String _sourceFaultCode = '';
   bool direct = true;
   List<String> sources = const [];
   String get label =>
@@ -613,10 +618,29 @@ class HostConnection extends ChangeNotifier {
         ? (rawSources.whereType<String>().toList()..sort())
         : sources;
     final name = text(relationship['name'], _directoryName);
+    final sourceFault = object(address['source_fault']);
+    final unavailable = sourceFault.isNotEmpty;
     final changed =
         direct != nextDirect ||
         sources.join('\u0000') != nextSources.join('\u0000') ||
-        _directoryName != name;
+        _directoryName != name ||
+        _sourceUnavailable != unavailable ||
+        _sourceFaultCode != text(sourceFault['code']);
+    _sourceUnavailable = unavailable;
+    _sourceFaultCode = text(sourceFault['code']);
+    if (unavailable) {
+      connected = false;
+      error = sourceFault;
+      if (const {
+        'permission_denied',
+        'not_found',
+        'expired',
+      }.contains(_sourceFaultCode)) {
+        snapshot = {};
+        notifications = [];
+        childTargets = {};
+      }
+    }
     direct = nextDirect;
     sources = List.unmodifiable(nextSources);
     _directoryName = name;
@@ -696,13 +720,22 @@ class HostConnection extends ChangeNotifier {
         final view = object(jsonDecode(await updates.next()));
         if (_closed) break;
         snapshot = object(view['snapshot']);
-        connected = view['connected'] == true;
+        connected = view['connected'] == true && !_sourceUnavailable;
         transport = connected ? object(view['connection']) : {};
         final fault = view['error'];
         observedError = fault is Map ? fault : null;
         error = fault;
         notifications = objects(view['notifications']);
         childTargets = object(view['child_targets']);
+        if (const {
+          'permission_denied',
+          'not_found',
+          'expired',
+        }.contains(_sourceFaultCode)) {
+          snapshot = {};
+          notifications = [];
+          childTargets = {};
+        }
         notifyListeners();
         _settle();
         if (connected && info.isEmpty) unawaited(inspect());

@@ -73,6 +73,40 @@ Finder slidable(Object identity) => find.byWidgetPredicate(
 );
 
 void main() {
+  test(
+    'directory fault disables cached source and revocation clears it',
+    () async {
+      final offline = HostConnection.test(
+        id: 'entry/offline',
+        label: 'Offline',
+        snapshot: {
+          'projects': [project('Cached')],
+        },
+        metadata: {
+          'source_fault': {'code': 'unavailable', 'message': 'offline'},
+        },
+      );
+      final revoked = HostConnection.test(
+        id: 'entry/revoked',
+        label: 'Revoked',
+        snapshot: {
+          'projects': [project('Private')],
+        },
+        metadata: {
+          'source_fault': {'code': 'permission_denied', 'message': 'revoked'},
+        },
+      );
+      expect(offline.connected, isFalse);
+      expect((offline.snapshot['projects'] as List).single['name'], 'Cached');
+      expect(revoked.connected, isFalse);
+      expect(revoked.snapshot, isEmpty);
+      await offline.close();
+      await revoked.close();
+      offline.dispose();
+      revoked.dispose();
+    },
+  );
+
   test('catalog identity includes host and retains offline records', () async {
     final first = source('first', connected: false);
     final second = source('second');

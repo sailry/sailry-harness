@@ -185,10 +185,10 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 
 // Metadata preserves the actual resource identity and the authenticated entry.
 func peerAddressMetadata(address link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
-	return routedPeerMetadata(address, address, relationship)
+	return routedPeerMetadata(address, address, relationship, nil)
 }
 
-func routedPeerMetadata(entry, target link.EndpointAddress, relationship link.PeerRelationship) (string, error) {
+func routedPeerMetadata(entry, target link.EndpointAddress, relationship link.PeerRelationship, fault *protocol.Fault) (string, error) {
 	body, err := json.Marshal(target)
 	if err != nil {
 		return "", err
@@ -202,6 +202,9 @@ func routedPeerMetadata(entry, target link.EndpointAddress, relationship link.Pe
 		sources = append(sources, source.String())
 	}
 	value["relationship"] = map[string]any{"direct": relationship.Direct, "sources": sources, "name": relationship.Name}
+	if fault != nil {
+		value["source_fault"] = fault
+	}
 	value["entry_address"] = entry
 	value["route"] = map[string]string{"entry": entry.ID.String(), "target": target.ID.String()}
 	return encode(value)

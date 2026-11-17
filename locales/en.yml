@@ -349,6 +349,7 @@ queue_halt_unsent: Message not sent; kept in the queue
 chat_output_limit: Reply cut at the output limit
 knowledge_collections: Collections
 knowledge_collection_pending: Waiting to index
+knowledge_collection_unavailable: Storage Node unavailable
 knowledge_collection_indexing: "Indexing · %{count} items"
 knowledge_collection_ready: "Up to date · %{count} items"
 knowledge_collection_paused: Paused

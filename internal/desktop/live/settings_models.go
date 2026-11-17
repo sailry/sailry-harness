@@ -299,7 +299,7 @@ func (r *Runtime) watchLocalModels() {
 					if changed, valid := detail[protocol.EventLocalModelsChangedPayload](envelope.Event.Data); valid {
 						r.enqueue(func(*ui.Context) { s.registryChanged(changed.Models) })
 					}
-				case "knowledge_collections_changed":
+				case "knowledge_collections_changed", "resource_catalog_changed":
 					// The event names no collection: the page reads them again.
 					r.enqueue(func(*ui.Context) { r.knowledge.stale = true })
 				case "local_model_settings_changed":

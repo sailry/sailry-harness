@@ -48,7 +48,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		metadata[value.ID] = value
 	}
 	entries := []link.EndpointAddress{}
-	result := []string{}
+	routes := []string{}
 	active := map[protocol.NodeID]bool{}
 	for _, entry := range peers {
 		relationship := metadata[entry.ID]
@@ -61,7 +61,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		}
 		active[entry.ID] = true
 		entries = append(entries, entry)
-		result = append(result, encoded)
+		routes = append(routes, encoded)
 	}
 	var wait sync.WaitGroup
 	var results sync.Mutex
@@ -81,6 +81,13 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 				owner.mu.Lock()
 				children = append([]string{}, owner.directories[entry.ID]...)
 				owner.mu.Unlock()
+				failure := result(nil, err).Error
+				if failure != nil && (failure.Code == protocol.ErrorCodePermissionDenied || failure.Code == protocol.ErrorCodeNotFound || failure.Code == protocol.ErrorCodeExpired) {
+					owner.closeEntry(entry.ID)
+					children = nil
+				} else {
+					children = unavailablePeerRoutes(children)
+				}
 			} else {
 				owner.mu.Lock()
 				if owner.directories == nil {
@@ -90,24 +97,14 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 				owner.mu.Unlock()
 			}
 			results.Lock()
-			result = append(result, children...)
+			routes = append(routes, children...)
 			results.Unlock()
 		}()
 	}
 	wait.Wait()
-	owner.mu.Lock()
-	removed := []protocol.NodeID{}
-	for entry := range owner.directories {
-		if !active[entry] {
-			removed = append(removed, entry)
-		}
-	}
-	owner.mu.Unlock()
-	for _, entry := range removed {
-		owner.closeEntry(entry)
-	}
-	slices.Sort(result)
-	return result, ctx.Err()
+	owner.closeMissingEntries(active)
+	slices.Sort(routes)
+	return routes, ctx.Err()
 }
 
 // resourceRoutes reads one controller's view. Directory members remain routes
@@ -135,13 +132,52 @@ func catalogPeerRoutes(entry link.EndpointAddress, catalog protocol.ResourceCata
 		seen[source.Node] = true
 		encoded, err := routedPeerMetadata(entry, link.EndpointAddress{ID: source.Node, Addrs: []json.RawMessage{}}, link.PeerRelationship{
 			ID: source.Node, Name: source.Name, Sources: []protocol.NodeID{entry.ID},
-		})
+		}, source.Fault)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, encoded)
 	}
 	return result, nil
+}
+
+func unavailablePeerRoutes(routes []string) []string {
+	result := make([]string, 0, len(routes))
+	for _, route := range routes {
+		var metadata map[string]any
+		if json.Unmarshal([]byte(route), &metadata) != nil {
+			continue
+		}
+		metadata["source_fault"] = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource entry Node is unavailable"}
+		if encoded, err := encode(metadata); err == nil {
+			result = append(result, encoded)
+		}
+	}
+	return result
+}
+
+func (owner *controller) closeMissingEntries(active map[protocol.NodeID]bool) {
+	owner.mu.Lock()
+	removed := []protocol.NodeID{}
+	for entry := range owner.directories {
+		if !active[entry] {
+			removed = append(removed, entry)
+		}
+	}
+	for route := range owner.clients {
+		if !active[route.Entry] && !slices.Contains(removed, route.Entry) {
+			removed = append(removed, route.Entry)
+		}
+	}
+	for route := range owner.inboxes {
+		if !active[route.Entry] && !slices.Contains(removed, route.Entry) {
+			removed = append(removed, route.Entry)
+		}
+	}
+	owner.mu.Unlock()
+	for _, entry := range removed {
+		owner.closeEntry(entry)
+	}
 }
 
 func (owner *controller) closeEntry(entry protocol.NodeID) {
@@ -151,6 +187,11 @@ func (owner *controller) closeEntry(entry protocol.NodeID) {
 		if route.Entry == entry {
 			clients = append(clients, shared)
 			delete(owner.clients, route)
+		}
+	}
+	for route := range owner.inboxes {
+		if route.Entry == entry {
+			delete(owner.inboxes, route)
 		}
 	}
 	delete(owner.directories, entry)

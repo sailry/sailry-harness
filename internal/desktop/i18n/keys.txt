@@ -1192,6 +1192,7 @@ knowledge_default_model
 knowledge_keyword_only
 knowledge_collections
 knowledge_collection_pending
+knowledge_collection_unavailable
 knowledge_collection_indexing
 knowledge_collection_ready
 knowledge_collection_paused

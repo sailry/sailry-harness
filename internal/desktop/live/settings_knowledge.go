@@ -2,7 +2,6 @@ package live
 
 import (
 	"cmp"
-	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -20,8 +19,9 @@ import (
 // knowledgeState is a Node's collections as the page shows them. acting
 // are the collections with a pause or an update under way.
 type knowledgeState struct {
+	unavailable map[protocol.NodeID]bool
 	collections []protocol.KnowledgeCollection
-	acting      map[protocol.KnowledgeID]bool
+	acting      map[string]bool
 	known       bool
 	reading     bool
 	stale       bool
@@ -39,7 +39,7 @@ func (r *Runtime) knowledgeFrame(m *settings.Model, entered bool) {
 	if !s.reading && (!s.known || s.stale) && !s.failed {
 		r.readCollections()
 	}
-	m.Collections = knowledgeViews(s.collections, s.acting)
+	m.Collections = knowledgeViews(s.collections, s.acting, s.unavailable)
 }
 
 func (r *Runtime) readCollections() {
@@ -49,10 +49,12 @@ func (r *Runtime) readCollections() {
 	}
 	s.reading, s.stale = true, false
 	s.reading = r.async(func() {
-		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_knowledge_collections"})
-		collections, ok := detail[[]protocol.KnowledgeCollection](output.Data)
-		if err == nil && (output.Kind != "knowledge_collections" || !ok) {
-			err = fmt.Errorf("unexpected knowledge collections response")
+		catalog, err := r.controller.ReadResourceCatalog(r.ctx)
+		collections := []protocol.KnowledgeCollection{}
+		unavailable := map[protocol.NodeID]bool{}
+		for _, source := range catalog.Sources {
+			collections = append(collections, source.Knowledge...)
+			unavailable[source.Node] = source.Fault != nil
 		}
 		r.enqueue(func(c *ui.Context) {
 			s.reading = false
@@ -61,7 +63,7 @@ func (r *Runtime) readCollections() {
 				settings.Report(c, kit.Failed, settings.CollectionMessages)
 				return
 			}
-			s.collections, s.known = collections, true
+			s.collections, s.known, s.unavailable = collections, true, unavailable
 		})
 	})
 }
@@ -91,24 +93,25 @@ func (r *Runtime) updateCollection(id string) {
 func (r *Runtime) changeCollection(id string, command func(protocol.KnowledgeCollection) protocol.Command) {
 	s := &r.knowledge
 	index := slices.IndexFunc(s.collections, func(x protocol.KnowledgeCollection) bool { return knowledgeCollectionKey(x) == id })
-	if index < 0 || s.acting[s.collections[index].ID] {
+	if index < 0 || s.acting[knowledgeCollectionKey(s.collections[index])] {
 		return
 	}
 	x := s.collections[index]
 	if s.acting == nil {
-		s.acting = map[protocol.KnowledgeID]bool{}
+		s.acting = map[string]bool{}
 	}
-	s.acting[x.ID] = true
+	s.acting[knowledgeCollectionKey(x)] = true
 	owner := r
 	if x.Node != (protocol.NodeID{}) && x.Node != r.controller.Target() {
 		owner = r.localRuntime().runtimeFor(x.Node.String())
 		if owner == nil {
-			delete(s.acting, x.ID)
+			delete(s.acting, knowledgeCollectionKey(x))
+			r.enqueue(func(c *ui.Context) { settings.Report(c, kit.Failed, settings.CollectionMessages) })
 			return
 		}
 	}
 	owner.saveSetting(command(x), settings.CollectionMessages, func(output protocol.Output, ok bool) {
-		delete(s.acting, x.ID)
+		delete(s.acting, knowledgeCollectionKey(x))
 		s.stale = true
 		if changed, valid := detail[protocol.KnowledgeCollection](output.Data); ok && valid && output.Kind == "knowledge_collection" {
 			s.accept(changed)
@@ -127,10 +130,10 @@ func (s *knowledgeState) accept(changed protocol.KnowledgeCollection) {
 }
 
 // knowledgeViews are the collections as the page's rows, by name.
-func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[protocol.KnowledgeID]bool) []viewmodel.KnowledgeCollection {
+func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[string]bool, unavailable map[protocol.NodeID]bool) []viewmodel.KnowledgeCollection {
 	views := make([]viewmodel.KnowledgeCollection, 0, len(collections))
 	for _, x := range collections {
-		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, Busy: acting[x.ID],
+		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, Busy: acting[knowledgeCollectionKey(x)],
 			Sources: x.Progress.Sources, Failed: x.Progress.Failed}
 		if len(x.Progress.Failures) > 0 {
 			first := x.Progress.Failures[0]
@@ -140,6 +143,8 @@ func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[proto
 			}
 		}
 		switch {
+		case unavailable[x.Node]:
+			view.State, view.Busy = viewmodel.KnowledgeUnavailable, true
 		case x.Paused:
 			view.State = viewmodel.KnowledgePaused
 		case x.Progress.Status == protocol.KnowledgeStatusPaused:

@@ -40,6 +40,8 @@ func collections(c *ui.Context, m *Model) {
 // doing with the sources indexed, or what could not be indexed and why.
 func collectionState(c *ui.Context, x viewmodel.KnowledgeCollection) string {
 	switch x.State {
+	case viewmodel.KnowledgeUnavailable:
+		return i18n.T(c, "knowledge_collection_unavailable")
 	case viewmodel.KnowledgePaused:
 		return i18n.T(c, "knowledge_collection_paused")
 	case viewmodel.KnowledgeFailed:

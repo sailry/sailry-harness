@@ -2796,6 +2796,7 @@ queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
 knowledge_collections: 集合
 knowledge_collection_pending: 等待索引
+knowledge_collection_unavailable: 存储主机不可用
 knowledge_collection_indexing: "索引中 · %{count} 项"
 knowledge_collection_ready: "已是最新 · %{count} 项"
 knowledge_collection_paused: 已暂停
