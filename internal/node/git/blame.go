@@ -13,6 +13,27 @@ import (
 )
 
 func fmtLine(line uint64) string { return strconv.FormatUint(line, 10) + ": " }
+
+// blameSlot admits one blame per root. gogit.Blame takes no context, so it
+// runs to completion after Read's deadline returned to the caller; without the
+// slot every retry would start another walk of the same history. A caller
+// that cannot enter before its context ends gets the read deadline fault.
+func (s *Service) blameSlot(ctx context.Context, root string) (func(), error) {
+	s.mu.Lock()
+	slot := s.blames[root]
+	if slot == nil {
+		slot = make(chan struct{}, 1)
+		s.blames[root] = slot
+	}
+	s.mu.Unlock()
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, nil
+	case <-ctx.Done():
+		return nil, mapError(ctx.Err())
+	}
+}
+
 func (s *Service) Blame(ctx context.Context, root string, input protocol.CommandReadGitBlamePayload) (protocol.GitBlame, error) {
 	result := protocol.GitBlame{Path: input.Path, Offset: input.Offset, Entries: []protocol.GitBlameLine{}}
 	if input.Limit == 0 {
@@ -42,7 +63,12 @@ func (s *Service) Blame(ctx context.Context, root string, input protocol.Command
 	if err != nil {
 		return result, mapError(err)
 	}
+	release, err := s.blameSlot(ctx, root)
+	if err != nil {
+		return result, err
+	}
 	blame, err := gogit.Blame(commit, input.Path)
+	release()
 	if err != nil {
 		return result, mapError(err)
 	}

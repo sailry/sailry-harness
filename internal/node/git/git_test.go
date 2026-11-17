@@ -183,6 +183,30 @@ func TestGitReadMapping(t *testing.T) {
 			t.Fatal(blame, err)
 		}
 	})
+	// A blame still walking history holds its root's slot: a second read of
+	// that root reports the deadline without starting another walk, and other
+	// roots are unaffected.
+	t.Run("blame_waits_for_running_blame", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		other, _, _ := fixture(t)
+		s := fixtureService()
+		input := protocol.CommandReadGitBlamePayload{Path: "file.txt", Limit: 2}
+		release, err := s.blameSlot(ctx, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expired, cancel := context.WithTimeout(ctx, 10*time.Millisecond)
+		_, err = s.Blame(expired, root, input)
+		cancel()
+		requireFault(t, err, protocol.ErrorCodeBusy)
+		if blame, err := s.Blame(ctx, other, input); err != nil || len(blame.Entries) != 2 {
+			t.Fatal(blame, err)
+		}
+		release()
+		if blame, err := s.Blame(ctx, root, input); err != nil || len(blame.Entries) != 2 {
+			t.Fatal(blame, err)
+		}
+	})
 	// A history graph needs each commit's parents and the names at it: a
 	// merge lists both, the root an empty list, and HEAD is named at the
 	// commit checked out.

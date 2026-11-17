@@ -66,6 +66,7 @@ type Service struct {
 	statuses map[string]*statusSlot
 	journal  map[string]string
 	fetches  map[string]*fetchSlot
+	blames   map[string]chan struct{}
 	changes  []*changeCapture
 	idle     time.Duration // silence limit of a network operation
 	stats    time.Duration // line statistics share of a status
@@ -73,7 +74,7 @@ type Service struct {
 }
 
 func New(options Options) *Service {
-	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, fetches: map[string]*fetchSlot{}, idle: networkIdle, stats: statBudget}
+	s := &Service{run: options.Run, now: options.Now, statuses: map[string]*statusSlot{}, journal: map[string]string{}, fetches: map[string]*fetchSlot{}, blames: map[string]chan struct{}{}, idle: networkIdle, stats: statBudget}
 	if s.now == nil {
 		s.now = time.Now
 	}
