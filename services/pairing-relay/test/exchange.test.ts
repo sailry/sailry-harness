@@ -4,7 +4,7 @@ import { BlobObjects } from "../src/blob";
 import { cleanup } from "../src/cleanup";
 import { generation, randomToken, requestId, TTL_MS } from "../src/contract";
 import { serve } from "../src/edgeone";
-import { Exchange, limits } from "../src/exchange";
+import { Exchange, limits, sourceKey } from "../src/exchange";
 import { SqliteObjects } from "../src/sqlite-objects";
 import { SqliteStorage } from "./storage";
 import type { ManagedObjects, RecordValue } from "../src/objects";
@@ -172,6 +172,40 @@ describe.each(["SQLite", "Blob contract"])("shared exchange: %s", backend => {
     const body = { request_id: requestId(NOW), code: "999999" };
     for (let index = 0; index < 5; index++) expect((await exchange.execute("redeem", body, "client", NOW)).status).toBe(404);
     expect((await new Exchange(store, limits, undefined, () => 0).execute("redeem", body, "client", NOW)).status).toBe(429);
+  });
+
+  it("IPv6 sources share one allowance per /64", async () => {
+    const { exchange } = setup();
+    const body = { request_id: requestId(NOW), code: "999999" };
+    for (let index = 0; index < 5; index++)
+      expect((await exchange.execute("redeem", body, `2001:db8:1:2::${index + 1}`, NOW)).status).toBe(404);
+    expect((await exchange.execute("redeem", body, "2001:0DB8:0001:0002:ffff:ffff:ffff:ffff", NOW)).status).toBe(429);
+    expect((await exchange.execute("redeem", body, "[2001:db8:1:2::9%eth0]", NOW)).status).toBe(429);
+    expect((await exchange.execute("redeem", body, "2001:db8:1:3::1", NOW)).status).toBe(404);
+  });
+
+  it("an IPv4-mapped source shares the IPv4 allowance", async () => {
+    const { exchange } = setup();
+    const body = { request_id: requestId(NOW), code: "999999" };
+    for (let index = 0; index < 5; index++) expect((await exchange.execute("redeem", body, "192.0.2.1", NOW)).status).toBe(404);
+    expect((await exchange.execute("redeem", body, "::ffff:192.0.2.1", NOW)).status).toBe(429);
+    expect((await exchange.execute("redeem", body, "::ffff:c000:201", NOW)).status).toBe(429);
+    expect((await exchange.execute("redeem", body, "192.0.2.2", NOW)).status).toBe(404);
+  });
+
+  it("source keys keep IPv4 and non-address strings", () => {
+    expect(sourceKey("192.0.2.1")).toBe("192.0.2.1");
+    expect(sourceKey("unknown")).toBe("unknown");
+    expect(sourceKey("not:an:address")).toBe("not:an:address");
+    expect(sourceKey("1::2::3")).toBe("1::2::3");
+    expect(sourceKey("1:2:3:4:5:6:7:8:9")).toBe("1:2:3:4:5:6:7:8:9");
+    expect(sourceKey("::ffff:999.0.2.1")).toBe("::ffff:999.0.2.1");
+    expect(sourceKey("::1")).toBe("0:0:0:0::/64");
+    expect(sourceKey("2001:db8::")).toBe("2001:db8:0:0::/64");
+    expect(sourceKey("fe80::1%en0")).toBe("fe80:0:0:0::/64");
+    expect(sourceKey("[2001:DB8:0:1:2:3:4:5]")).toBe("2001:db8:0:1::/64");
+    expect(sourceKey("0:0:0:0:0:ffff:192.0.2.1")).toBe("192.0.2.1");
+    expect(sourceKey("64:ff9b::192.0.2.1")).toBe("64:ff9b:0:0::/64");
   });
 
   it("a spent source does not drain the global budget", async () => {

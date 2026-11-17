@@ -28,7 +28,7 @@ export class Exchange {
       if (time + TTL_MS <= now) return failure(kind === "publish" ? 410 : 404, "code_unavailable");
     }
     const prefix = generation(now);
-    const origin = `${prefix}rate/${kind}/${await digest(source)}/`;
+    const origin = `${prefix}rate/${kind}/${await digest(sourceKey(source))}/`;
     const allowance = kind === "publish" ? this.budget.publish : this.budget.redeem;
     const shared = `${prefix}rate/${kind}/global/`;
     // Slots fill in order, so an occupied last slot means the budget is spent.
@@ -130,4 +130,54 @@ export class Exchange {
 async function digest(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The rate-limit identity of a client address. One IPv6 host commonly holds a
+ * whole /64, so IPv6 addresses key on that prefix; an IPv4-mapped address keys
+ * on its IPv4 address. IPv4 addresses and other strings are kept as given.
+ */
+export function sourceKey(source: string): string {
+  let text = source;
+  if (text.startsWith("[") && text.endsWith("]")) text = text.slice(1, -1);
+  const zone = text.indexOf("%");
+  if (zone >= 0) text = text.slice(0, zone);
+  const groups = ipv6Groups(text);
+  if (!groups) return source;
+  if (groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff)
+    return `${groups[6] >> 8}.${groups[6] & 0xff}.${groups[7] >> 8}.${groups[7] & 0xff}`;
+  return `${groups.slice(0, 4).map(group => group.toString(16)).join(":")}::/64`;
+}
+
+function ipv6Groups(text: string): number[] | null {
+  if (!text.includes(":")) return null;
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const groups: number[] = [];
+    const fields = part.split(":");
+    for (const [index, field] of fields.entries()) {
+      if (index === fields.length - 1 && field.includes(".")) {
+        const octets = field.split(".");
+        if (octets.length !== 4 || !octets.every(octet => /^(0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255)) return null;
+        const [first, second, third, fourth] = octets.map(Number);
+        groups.push(first * 256 + second, third * 256 + fourth);
+      } else if (/^[0-9a-fA-F]{1,4}$/.test(field)) {
+        groups.push(parseInt(field, 16));
+      } else {
+        return null;
+      }
+    }
+    return groups;
+  };
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  if (!head || !tail) return null;
+  // An IPv4 tail is valid only at the very end of the address.
+  if (halves.length === 2 && halves[0].includes(".")) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const missing = 8 - head.length - tail.length;
+  if (missing < 1) return null;
+  return [...head, ...new Array<number>(missing).fill(0), ...tail];
 }
