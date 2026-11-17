@@ -421,27 +421,19 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 		ref = inv.Provider.Credential
 	}
 	if ref != nil {
-		var stored *providerConfiguration
-		var e error
+		node, err := storageNode(ctx, db)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Resolve the admitted credential itself: a controller may select a
+		// newer key while the executor still retains this captured generation.
 		if inv.Provider != nil {
-			stored, e = capturedProviderConfiguration(ctx, db, *inv.Provider)
+			inv.Secret, err = resolveCapturedProviderKey(ctx, db, node, *ref, *inv.Provider)
 		} else {
-			stored, e = readProviderConfiguration(ctx, db, session.Config.Provider)
+			inv.Secret, err = resolveProviderKey(ctx, db, node, *ref, session.Config.Provider)
 		}
-		if e != nil {
-			return nil, nil, e
-		}
-		if stored == nil {
-			inv.AuthorizationFailure = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization is unavailable"}
-		} else {
-			saved, exists := stored.Authorizations[ref.ID]
-			if !exists || saved.Key == nil {
-				inv.AuthorizationFailure = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization is revoked"}
-			} else if saved.ExpiresAtMs != nil && *saved.ExpiresAtMs <= uint64(now.UnixMilli()) {
-				inv.AuthorizationFailure = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "provider authorization expired"}
-			} else {
-				inv.Secret = saved.Key
-			}
+		if err != nil && !errors.As(err, &inv.AuthorizationFailure) {
+			return nil, nil, err
 		}
 	}
 	run.Status = protocol.ConversationStatusRunning
