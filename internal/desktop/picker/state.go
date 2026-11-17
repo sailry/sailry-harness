@@ -64,6 +64,17 @@ type notice struct {
 	path    string // what the text's %{path} names
 }
 
+// arrangement is every input of the rows shown: the listing, the filter, the
+// hidden-files toggle, the order, and the language the kinds are sorted in.
+type arrangement struct {
+	built    bool
+	revision int
+	filter   string
+	hidden   bool
+	sort     ui.SortOrder
+	locale   string
+}
+
 // State is the one picker of a window. Grid and Hidden are the view
 // preferences, kept across uses; Changed reports that the user set one.
 type State struct {
@@ -98,6 +109,12 @@ type State struct {
 	chosen ui.Selection[string]
 	row    int
 	rows   []int
+	// arranged is what rows were last built from. The view arranges the
+	// entries before each part that reads them, and rebuilds rows only when
+	// one of these changed; lower are the listing's names lower-cased.
+	arranged arrangement
+	revision int // counts the listings shown
+	lower    []string
 	// refused is the frame in which a click or a key landed on an entry
 	// the mode cannot choose.
 	refused time.Time
@@ -214,6 +231,8 @@ func (s *State) arrive(l Listing, how visit, cursor int) {
 	}
 	changed := !s.loaded || s.listing.Path != l.Path
 	s.listing, s.loaded, s.target, s.problem = l, true, l.Path, ""
+	s.lower = lowerNames(l.Entries)
+	s.revision++
 	s.address, s.editing, s.refocus = l.Path, false, true
 	s.crumbs.X = math.MaxFloat32
 	if changed {

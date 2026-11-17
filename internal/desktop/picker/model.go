@@ -78,10 +78,25 @@ type Source struct {
 // Visible returns the indexes of the entries the hidden toggle and the filter
 // keep, in the directory's order.
 func Visible(entries []Entry, hidden bool, filter string) []int {
+	return visible(entries, lowerNames(entries), hidden, filter)
+}
+
+// lowerNames are the entries' names lower-cased, as the filter and the order
+// compare them.
+func lowerNames(entries []Entry) []string {
+	lower := make([]string, len(entries))
+	for i, e := range entries {
+		lower[i] = strings.ToLower(e.Name)
+	}
+	return lower
+}
+
+// visible is Visible over names lower-cased once for the listing.
+func visible(entries []Entry, lower []string, hidden bool, filter string) []int {
 	filter = strings.ToLower(filter)
 	var out []int
 	for i, e := range entries {
-		if (hidden || !strings.HasPrefix(e.Name, ".")) && strings.Contains(strings.ToLower(e.Name), filter) {
+		if (hidden || !strings.HasPrefix(e.Name, ".")) && strings.Contains(lower[i], filter) {
 			out = append(out, i)
 		}
 	}
@@ -93,6 +108,19 @@ func Visible(entries []Entry, hidden bool, filter string) []int {
 // files and the directories among themselves. An entry without a modified
 // time is older than any with one.
 func Order(entries []Entry, visible []int, column string, descending bool, kind func(Entry) string) {
+	order(entries, lowerNames(entries), visible, column, descending, kind)
+}
+
+// order is Order over names lower-cased once for the listing. Sorting by
+// kind labels each visible entry once, not once a comparison.
+func order(entries []Entry, lower []string, visible []int, column string, descending bool, kind func(Entry) string) {
+	var kinds []string
+	if column == "kind" {
+		kinds = make([]string, len(entries))
+		for _, i := range visible {
+			kinds[i] = kind(entries[i])
+		}
+	}
 	slices.SortStableFunc(visible, func(a, b int) int {
 		x, y := entries[a], entries[b]
 		if x.Dir() != y.Dir() {
@@ -104,14 +132,14 @@ func Order(entries []Entry, visible []int, column string, descending bool, kind 
 		order := 0
 		switch column {
 		case "kind":
-			order = strings.Compare(kind(x), kind(y))
+			order = strings.Compare(kinds[a], kinds[b])
 		case "size":
 			order = cmp.Compare(x.Size, y.Size)
 		case "modified":
 			order = x.Modified.Compare(y.Modified)
 		}
 		if order == 0 {
-			order = strings.Compare(strings.ToLower(x.Name), strings.ToLower(y.Name))
+			order = strings.Compare(lower[a], lower[b])
 		}
 		if order == 0 {
 			order = strings.Compare(x.Name, y.Name)

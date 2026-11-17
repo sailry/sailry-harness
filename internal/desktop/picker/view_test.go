@@ -313,6 +313,51 @@ func views(t *testing.T) {
 			t.Fatalf("after the sort %q is chosen at row %d of %d and %q shows %v", b.s.current, b.s.row, last, chosen, whole(chosen))
 		}
 	})
+	// The view arranges the entries before each part that reads them. The
+	// rows are built again only for another listing, filter, hidden toggle,
+	// order or language.
+	t.Run("rows are rebuilt only for a change", func(t *testing.T) {
+		b := newBench(t, Options{Mode: File, Source: NewCatalog(false).Source()})
+		same := func(rows []int) bool { return len(rows) > 0 && len(b.s.rows) > 0 && &rows[0] == &b.s.rows[0] }
+		rows := b.s.rows
+		b.tt.Frame()
+		if !same(rows) {
+			t.Fatal("a frame without a change rebuilt the rows")
+		}
+		name := b.s.listing.Entries[rows[len(rows)-1]].Name
+		b.s.filter = strings.ToUpper(name)
+		b.tt.Frame()
+		if same(rows) || len(b.s.rows) == 0 || len(b.s.rows) >= len(rows) {
+			t.Fatalf("the filter %q left %d of %d rows", b.s.filter, len(b.s.rows), len(rows))
+		}
+		for _, i := range b.s.rows {
+			if !strings.Contains(strings.ToLower(b.s.listing.Entries[i].Name), strings.ToLower(name)) {
+				t.Fatalf("the filter %q shows %q", b.s.filter, b.s.listing.Entries[i].Name)
+			}
+		}
+		b.s.filter = ""
+		b.tt.Frame()
+		if rows = b.s.rows; len(rows) == 0 {
+			t.Fatal("clearing the filter showed nothing")
+		}
+		b.s.Hidden = !b.s.Hidden
+		b.tt.Frame()
+		if same(rows) {
+			t.Fatal("the hidden toggle kept the rows")
+		}
+		rows = b.s.rows
+		b.s.reload()
+		b.settle()
+		if same(rows) {
+			t.Fatal("a directory read again kept the rows")
+		}
+		rows = b.s.rows
+		b.tt.SetLocale("zh-CN")
+		b.tt.Frame()
+		if same(rows) {
+			t.Fatal("another language kept the rows")
+		}
+	})
 	t.Run("places", func(t *testing.T) {
 		b := newBench(t, Options{Mode: Directory, Source: NewCatalog(false).Source(), Preview: true, Projects: projects})
 		marked := func() (out []string) {

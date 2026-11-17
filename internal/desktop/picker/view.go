@@ -282,8 +282,13 @@ func kind(c *ui.Context, e Entry) string {
 // selected one. The files chosen in Files mode stay chosen only while they
 // show.
 func (s *State) arrange(c *ui.Context) {
-	s.rows = Visible(s.listing.Entries, s.Hidden, s.filter)
-	Order(s.listing.Entries, s.rows, s.sort.Column, s.sort.Descending, func(e Entry) string { return kind(c, e) })
+	inputs := arrangement{built: true, revision: s.revision, filter: s.filter, hidden: s.Hidden, sort: s.sort, locale: c.Locale()}
+	rebuilt := inputs != s.arranged
+	if rebuilt {
+		s.arranged = inputs
+		s.rows = visible(s.listing.Entries, s.lower, s.Hidden, s.filter)
+		order(s.listing.Entries, s.lower, s.rows, s.sort.Column, s.sort.Descending, func(e Entry) string { return kind(c, e) })
+	}
 	s.row = slices.IndexFunc(s.rows, func(i int) bool { return s.listing.Entries[i].Name == s.current })
 	if s.row < 0 {
 		s.current = ""
@@ -299,7 +304,9 @@ func (s *State) arrange(c *ui.Context) {
 			s.list.ScrollTo(0, ui.Start)
 		}
 	}
-	if s.chosen.Len() > 0 {
+	// Only entries that show can be chosen, so the chosen ones are checked
+	// when the rows change.
+	if rebuilt && s.chosen.Len() > 0 {
 		shown := make(map[string]bool, len(s.rows))
 		for _, i := range s.rows {
 			shown[s.listing.Entries[i].Name] = true
