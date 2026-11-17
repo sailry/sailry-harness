@@ -127,8 +127,10 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 	if connection, exists := r.authorizations.connections[draft.Service]; exists {
 		payload.Connection, payload.ExpectedRevision = &connection.ID, &draft.ExpectedRevision
 	}
-	r.execute(protocol.Command{Kind: "start_connector_login", Data: payload}, func(c *ui.Context, output protocol.Output, err error) {
+	var started protocol.RequestID
+	started = r.loginRequest(protocol.Command{Kind: "start_connector_login", Data: payload}, func(c *ui.Context, output protocol.Output, err error) {
 		if r.authorizations.connector != attempt {
+			r.abandonLogin("cancel_connector_login", protocol.CommandCancelConnectorLoginPayload{Attempt: started}, err)
 			return
 		}
 		if done != nil {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -39,6 +40,7 @@ type authorizationState struct {
 	mcpFailed                      map[string]mcpFailure
 	connectorBusy                  map[string]bool // services with a command under way
 	loginRecoveries                map[string]*controllerLoginRecovery
+	loginStarts                    uint64 // sign-in starts sent, one scope each
 }
 
 type liveAuthorization struct {
@@ -131,6 +133,31 @@ func localAuthorization(ctx context.Context, presentation *protocol.PluginModelA
 	return &redirect, returned, false, nil
 }
 
+// loginRequest sends a command that starts or abandons a sign-in attempt
+// under a scope of its own. A sign-in closed and started again while its
+// first start is in flight sends the same command, which execute would drop
+// as already under way, leaving the new dialog on "starting" for good. The
+// scope is never reused, so no request is kept for it.
+func (r *Runtime) loginRequest(command protocol.Command, finished func(*ui.Context, protocol.Output, error)) protocol.RequestID {
+	r.authorizations.loginStarts++
+	scope := "login/" + strconv.FormatUint(r.authorizations.loginStarts, 10)
+	return r.executeScoped(scope, command, func(c *ui.Context, output protocol.Output, err error) {
+		r.forgetScoped(scope, command)
+		finished(c, output, err)
+	})
+}
+
+// abandonLogin cancels the Node's attempt of a start that was superseded
+// before it answered: nothing here follows that attempt. An attempt carries
+// its start request's identifier, so it is named even when the start's
+// outcome is unknown. A start the Node refused began nothing.
+func (r *Runtime) abandonLogin(kind string, data any, err error) {
+	if err != nil && !client.Retained(err) {
+		return
+	}
+	r.loginRequest(protocol.Command{Kind: kind, Data: data}, func(*ui.Context, protocol.Output, error) {})
+}
+
 func (r *Runtime) initAuthorization() {
 	r.authorizations = &authorizationState{
 		credentials: map[protocol.CredentialID]protocol.Credential{}, savedProviders: map[string]protocol.ConversationProvider{},
@@ -218,8 +245,10 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 	view := model.ProviderAuthorization()
 	attempt.view = view
 	view.OpenURL = func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }
-	r.execute(protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision, Redirect: redirect}}, func(c *ui.Context, output protocol.Output, err error) {
+	var started protocol.RequestID
+	started = r.loginRequest(protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision, Redirect: redirect}}, func(c *ui.Context, output protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
+			r.abandonLogin("cancel_provider_login", protocol.CommandCancelProviderLoginPayload{Attempt: started}, err)
 			return
 		}
 		if err != nil {
