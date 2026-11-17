@@ -343,6 +343,27 @@ func TestRemoteAdmissionAndUncertainty(t *testing.T) {
 			}
 		})
 	}
+	t.Run("full_task_capacity_sends_nothing", func(t *testing.T) {
+		link := newFixtureLink(t)
+		hold := make(chan struct{})
+		t.Cleanup(func() { close(hold) })
+		// Every worker and every queued place is taken by a task that stays.
+		for accepted := 0; accepted < 2*maxTasks; {
+			if link.spawn(func() { <-hold }) == nil {
+				accepted++
+			} else {
+				runtime.Gosched()
+			}
+		}
+		stream := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyReceipt, Receipt: &receipt}))
+		_, err := link.Remote(EndpointAddress{ID: target}).dispatchStream(t.Context(), request, stream, false)
+		if fault := faultValue(err); fault.Code != protocol.ErrorCodeBusy {
+			t.Fatalf("dispatch at capacity: %v", err)
+		}
+		if sent := stream.written(); len(sent) != 0 {
+			t.Fatalf("dispatch at capacity sent %d bytes", len(sent))
+		}
+	})
 	t.Run("wrong_target_does_not_connect", func(t *testing.T) {
 		link := newFixtureLink(t)
 		_, err := link.Remote(EndpointAddress{ID: protocol.NodeID{2}}).Dispatch(t.Context(), request)

@@ -99,28 +99,16 @@ func (remote *Remote) dispatchCall(ctx context.Context, request protocol.Request
 			_ = stream.Close()
 		}
 	}()
-	if err := remote.writeCall(ctx, stream, call, compressed); err != nil {
-		var fault *protocol.Fault
-		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeInvalidRequest {
-			return Admission{}, err
-		}
-		return Admission{}, uncertainReceipt()
-	}
-	if err := stream.CloseWrite(); err != nil {
-		return Admission{}, uncertainReceipt()
-	}
-	var reply wire.Reply
-	if err := remote.link.readFrame(ctx, stream, &reply, compressed); err != nil {
-		return Admission{}, uncertainReceipt()
-	}
-	if reply.Kind == wire.ReplyRejected && reply.Rejected != nil {
-		return Admission{}, reply.Rejected
-	}
-	if reply.Kind != wire.ReplyReceipt || reply.Receipt == nil || reply.Receipt.ID != request.ID {
-		return Admission{}, uncertainReceipt()
-	}
+	// The observer takes its task slot before anything is sent, so a Link at
+	// capacity refuses the command instead of losing sight of one the remote
+	// Node admitted. The slot waits for the receipt and is released by every
+	// return that does not start observing.
 	completed := make(chan Response, 1)
+	admitted := make(chan bool, 1)
 	if err := remote.link.spawn(func() {
+		if !<-admitted {
+			return
+		}
 		defer stream.Close()
 		defer close(completed)
 		reader := wire.NewReader(compressed)
@@ -148,7 +136,28 @@ func (remote *Remote) dispatchCall(ctx context.Context, request protocol.Request
 		}
 		completed <- response
 	}); err != nil {
-		return Admission{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request admitted but completion observation could not start"}
+		return Admission{}, err
+	}
+	defer func() { admitted <- observing }()
+	if err := remote.writeCall(ctx, stream, call, compressed); err != nil {
+		var fault *protocol.Fault
+		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeInvalidRequest {
+			return Admission{}, err
+		}
+		return Admission{}, uncertainReceipt()
+	}
+	if err := stream.CloseWrite(); err != nil {
+		return Admission{}, uncertainReceipt()
+	}
+	var reply wire.Reply
+	if err := remote.link.readFrame(ctx, stream, &reply, compressed); err != nil {
+		return Admission{}, uncertainReceipt()
+	}
+	if reply.Kind == wire.ReplyRejected && reply.Rejected != nil {
+		return Admission{}, reply.Rejected
+	}
+	if reply.Kind != wire.ReplyReceipt || reply.Receipt == nil || reply.Receipt.ID != request.ID {
+		return Admission{}, uncertainReceipt()
 	}
 	observing = true
 	return Admission{Receipt: *reply.Receipt, Completion: completed}, nil
