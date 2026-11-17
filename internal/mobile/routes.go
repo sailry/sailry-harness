@@ -50,18 +50,28 @@ func (owner *controller) endTopologyChange() {
 
 type peerCatalog struct {
 	entry    protocol.NodeID
+	address  link.EndpointAddress
 	direct   string
 	children []string
 	failure  *protocol.Fault
 }
 
-func (owner *controller) peers(ctx context.Context) ([]string, error) {
-	owner.mu.Lock()
-	generation, changing := owner.topology, owner.changing
-	owner.mu.Unlock()
-	if changing != 0 {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "controller relationships are changing"}
+// savedPeers reads only local pairing metadata. Startup can register these
+// Clients before any remote resource directory responds.
+func (owner *controller) savedPeers(ctx context.Context) ([]string, error) {
+	catalogs, err := owner.savedPeerCatalogs(ctx)
+	if err != nil {
+		return nil, err
 	}
+	routes := make([]string, 0, len(catalogs))
+	for _, catalog := range catalogs {
+		routes = append(routes, catalog.direct)
+	}
+	slices.Sort(routes)
+	return routes, nil
+}
+
+func (owner *controller) savedPeerCatalogs(ctx context.Context) ([]peerCatalog, error) {
 	peers, err := owner.endpoint.Peers(ctx)
 	if err != nil {
 		return nil, err
@@ -70,11 +80,14 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return directPeerCatalogs(peers, relationships)
+}
+
+func directPeerCatalogs(peers []link.EndpointAddress, relationships []link.PeerRelationship) ([]peerCatalog, error) {
 	metadata := map[protocol.NodeID]link.PeerRelationship{}
 	for _, value := range relationships {
 		metadata[value.ID] = value
 	}
-	entries := []link.EndpointAddress{}
 	catalogs := []peerCatalog{}
 	for _, entry := range peers {
 		relationship := metadata[entry.ID]
@@ -85,12 +98,25 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, entry)
-		catalogs = append(catalogs, peerCatalog{entry: entry.ID, direct: encoded})
+		catalogs = append(catalogs, peerCatalog{entry: entry.ID, address: entry, direct: encoded})
+	}
+	return catalogs, nil
+}
+
+func (owner *controller) peers(ctx context.Context) ([]string, error) {
+	owner.mu.Lock()
+	generation, changing := owner.topology, owner.changing
+	owner.mu.Unlock()
+	if changing != 0 {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "controller relationships are changing"}
+	}
+	catalogs, err := owner.savedPeerCatalogs(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var wait sync.WaitGroup
 	places := make(chan struct{}, 4)
-	for index, entry := range entries {
+	for index, catalog := range catalogs {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
@@ -100,7 +126,7 @@ func (owner *controller) peers(ctx context.Context) ([]string, error) {
 			case <-ctx.Done():
 				return
 			}
-			children, err := owner.resourceRoutes(ctx, entry)
+			children, err := owner.resourceRoutes(ctx, catalog.address)
 			catalogs[index].children = children
 			if err != nil {
 				catalogs[index].failure = result(nil, err).Error

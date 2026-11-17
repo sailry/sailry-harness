@@ -24,6 +24,55 @@ func (catalogLifecycleTransport) Subscribe(context.Context, protocol.Topic) (lin
 	return nil, errCatalogLifecycleProbe
 }
 
+func TestMobileSavedPeerCatalogsRetainOnlyDirectHosts(t *testing.T) {
+	host, both, inbound, imported, removed := protocol.NodeID{1}, protocol.NodeID{2}, protocol.NodeID{3}, protocol.NodeID{4}, protocol.NodeID{5}
+	peers := []link.EndpointAddress{}
+	for _, id := range []protocol.NodeID{host, both, inbound, imported, removed} {
+		// An offline host with no current address hints remains selectable.
+		peers = append(peers, link.EndpointAddress{ID: id, Addrs: []json.RawMessage{}})
+	}
+	catalogs, err := directPeerCatalogs(peers, []link.PeerRelationship{
+		{ID: host, Name: "Saved host", Direct: true, DirectDirection: link.DirectionHost},
+		{ID: both, Direct: true, DirectDirection: link.DirectionBoth},
+		{ID: inbound, Direct: true, DirectDirection: link.DirectionController},
+		{ID: imported, Sources: []protocol.NodeID{host}},
+		{ID: removed, Direct: true, DirectDirection: link.DirectionHost, Removed: true},
+	})
+	if err != nil || len(catalogs) != 2 {
+		t.Fatalf("saved direct hosts = %+v: %v", catalogs, err)
+	}
+	for index, want := range []protocol.NodeID{host, both} {
+		catalog := catalogs[index]
+		route, err := decodePeerRoute(catalog.direct)
+		if err != nil || route.Entry.ID != want || route.Target.ID != want || catalog.address.ID != want {
+			t.Fatalf("saved host lost its direct route: %+v: %v", catalog, err)
+		}
+	}
+	var metadata struct {
+		Relationship link.PeerRelationship `json:"relationship"`
+	}
+	if err := json.Unmarshal([]byte(catalogs[0].direct), &metadata); err != nil || metadata.Relationship.Name != "Saved host" || !metadata.Relationship.Direct {
+		t.Fatalf("saved host lost its local metadata: %+v: %v", metadata, err)
+	}
+}
+
+func TestMobileLateStartupCatalogCannotRestoreRemovedEntry(t *testing.T) {
+	entry := protocol.NodeID{1}
+	shared := client.New(catalogLifecycleTransport{noticeTransport{node: entry}})
+	t.Cleanup(func() { _ = shared.Close() })
+	owner := &controller{clients: map[protocol.RouteKey]*client.Client{shared.Route(): shared}}
+	captured := owner.topology
+	owner.closeEntry(entry)
+	_, err := owner.commitPeerCatalogs(captured, []peerCatalog{{entry: entry, direct: "old entry", children: []string{"late child"}}})
+	var failure *protocol.Fault
+	if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeConflict {
+		t.Fatalf("late startup catalog was accepted: %v", err)
+	}
+	if len(owner.clients) != 0 || len(owner.directories) != 0 {
+		t.Fatal("late startup catalog restored a removed entry")
+	}
+}
+
 func TestMobileStaleCatalogCannotChangeRepairedEntry(t *testing.T) {
 	for _, outcome := range []string{"success", "denied", "missing"} {
 		t.Run(outcome, func(t *testing.T) {

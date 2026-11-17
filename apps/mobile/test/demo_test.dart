@@ -63,9 +63,17 @@ class _Owner extends Fake implements Controller {
   final addresses = <String>[];
   final forgotten = <String>[];
   final DemoConnection channel;
+  Future<List<String>>? pendingPeers;
+  final peersStarted = Completer<void>();
   String? pin;
   @override
-  Future<List<String>> peers() async => addresses;
+  Future<List<String>> savedPeers() async => addresses;
+  @override
+  Future<List<String>> peers() async {
+    if (!peersStarted.isCompleted) peersStarted.complete();
+    return pendingPeers ?? addresses;
+  }
+
   @override
   Future<Connection> connect({required String address}) async =>
       _GenuineConnection(channel);
@@ -162,7 +170,10 @@ void main() {
           'hosts.demo.enabled': true,
           'hosts.demo.selected': true,
         });
-      final owner = _Owner()..addresses.add(jsonEncode({'id': 'trusted-host'}));
+      final directory = Completer<List<String>>();
+      final owner = _Owner()
+        ..addresses.add(jsonEncode({'id': 'trusted-host'}))
+        ..pendingPeers = directory.future;
       var initialized = 0;
       final session = AppSession.test(
         ready: false,
@@ -183,6 +194,11 @@ void main() {
       expect(owner.pin, isNull);
       expect(owner.forgotten, isEmpty);
       expect(owner.addresses, hasLength(1));
+      await owner.peersStarted.future;
+      expect(directory.isCompleted, isFalse);
+      directory.complete(owner.addresses);
+      await session.refreshHosts();
+      expect(session.selectedHost!.id, 'trusted-host');
       await session.close();
       session.dispose();
       await owner.channel.close();

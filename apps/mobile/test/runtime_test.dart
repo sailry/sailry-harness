@@ -174,6 +174,7 @@ class Owner extends Fake implements Controller {
   int closes = 0;
   int disposals = 0;
   final addresses = <String>[];
+  Future<List<String>>? pendingSavedPeers;
   Future<List<String>>? pendingPeers;
   final peersStarted = Completer<void>();
   Future<Connection> Function(String)? connecting;
@@ -186,6 +187,9 @@ class Owner extends Fake implements Controller {
   final forgotten = <String>[];
   Future<void>? pendingForget;
   final forgetStarted = Completer<void>();
+  @override
+  Future<List<String>> savedPeers() async => pendingSavedPeers ?? addresses;
+
   @override
   Future<List<String>> peers() async {
     if (!peersStarted.isCompleted) peersStarted.complete();
@@ -762,6 +766,160 @@ void main() {
     });
   });
 
+  test('startup uses saved hosts while remote directories are pending', () {
+    fakeAsync((clock) {
+      final directory = Completer<List<String>>();
+      final online = Channel()
+        ..subscription.initial = jsonEncode({
+          'connected': true,
+          'snapshot': <String, dynamic>{},
+        });
+      final offline = Channel()..subscription.failure = StateError('offline');
+      final child = Channel()..subscription.failure = StateError('offline');
+      final connections = <String>[];
+      final owner = Owner()
+        ..addresses.addAll([address('online'), address('offline')])
+        ..pendingPeers = directory.future
+        ..connecting = (value) async {
+          connections.add(value);
+          return switch ((jsonDecode(value) as Map)['id']) {
+            'online' => online,
+            'offline' => offline,
+            _ => child,
+          };
+        };
+      final session = AppSession.test(
+        ready: false,
+        initialize: () async {},
+        openController: (_, _) async => owner,
+        createSpeech: QuietSpeech.new,
+      );
+      var started = false;
+      unawaited(
+        session.start(path: '/isolated/controller').then((_) => started = true),
+      );
+      clock.flushMicrotasks();
+      expect(started, isTrue);
+      expect(session.ready, isTrue);
+      expect(session.loading, isFalse);
+      expect(owner.peersStarted.isCompleted, isTrue);
+      expect(directory.isCompleted, isFalse);
+      expect(session.hosts.map((host) => host.id), ['online', 'offline']);
+      expect(session.host('online')!.connected, isTrue);
+      expect(session.host('offline')!.connected, isFalse);
+      final selected = session.selectedHost;
+
+      directory.complete([
+        ...owner.addresses,
+        jsonEncode({
+          'id': 'child',
+          'entry_address': {'id': 'online'},
+          'route': {'entry': 'online', 'target': 'child'},
+          'relationship': {
+            'direct': false,
+            'sources': ['online'],
+            'name': 'Cached host',
+          },
+          'source_fault': {'code': 'unavailable'},
+          'resource_source': {
+            'revision': 4,
+            'projects': [
+              {'id': 'project', 'name': 'Cached project'},
+            ],
+            'worktrees': <Object>[],
+          },
+        }),
+      ]);
+      clock.flushMicrotasks();
+      expect(session.host('online/child')!.snapshot['projects'], [
+        {'id': 'project', 'name': 'Cached project'},
+      ]);
+      expect(session.host('online/child')!.connected, isFalse);
+      expect(session.selectedHost, same(selected));
+      expect(connections, hasLength(3));
+      expect(online.watches, 1);
+      expect(offline.watches, 1);
+      unawaited(session.close());
+      clock.flushMicrotasks();
+      session.dispose();
+    });
+  });
+
+  test('startup directory failure retains saved hosts and readiness', () {
+    fakeAsync((clock) {
+      final directory = Completer<List<String>>();
+      final channel = Channel()..subscription.failure = StateError('offline');
+      final owner = Owner()
+        ..addresses.add(address('host'))
+        ..pendingPeers = directory.future
+        ..connecting = (_) async => channel;
+      final session = AppSession.test(
+        ready: false,
+        initialize: () async {},
+        openController: (_, _) async => owner,
+        createSpeech: QuietSpeech.new,
+      );
+      unawaited(session.start(path: '/isolated/controller'));
+      clock.flushMicrotasks();
+      expect(session.ready, isTrue);
+      final host = session.host('host');
+      directory.completeError(StateError('directory unavailable'));
+      clock.flushMicrotasks();
+      expect(session.ready, isTrue);
+      expect(session.error, isNull);
+      expect(session.hosts, [host]);
+      expect(channel.closes, 0);
+      unawaited(session.close());
+      clock.flushMicrotasks();
+      session.dispose();
+    });
+  });
+
+  test('late startup directories cannot restore closed or removed hosts', () {
+    for (final close in [false, true]) {
+      fakeAsync((clock) {
+        final directory = Completer<List<String>>();
+        final channel = Channel();
+        var connections = 0;
+        final owner = Owner()
+          ..addresses.add(address('host'))
+          ..pendingPeers = directory.future
+          ..connecting = (_) async {
+            connections++;
+            return channel;
+          };
+        final session = AppSession.test(
+          ready: false,
+          initialize: () async {},
+          openController: (_, _) async => owner,
+          createSpeech: QuietSpeech.new,
+        );
+        unawaited(session.start(path: '/isolated/controller'));
+        clock.flushMicrotasks();
+        expect(session.ready, isTrue);
+        expect(owner.peersStarted.isCompleted, isTrue);
+        var removed = false;
+        unawaited(
+          (close ? session.close() : session.removeHost(session.host('host')!))
+              .then((_) => removed = true),
+        );
+        clock.flushMicrotasks();
+        expect(removed, isTrue);
+        expect(directory.isCompleted, isFalse);
+        expect(session.hosts, isEmpty);
+        directory.complete([address('host')]);
+        clock.flushMicrotasks();
+        expect(session.hosts, isEmpty);
+        expect(connections, 1);
+        expect(channel.closes, 1);
+        expect(channel.disposals, 1);
+        if (!close) unawaited(session.close());
+        clock.flushMicrotasks();
+        session.dispose();
+      });
+    }
+  });
+
   test("releases failed and late startup handles", () async {
     for (final (caseName, run) in <(String, Future<void> Function(String))>[
       (
@@ -847,7 +1005,7 @@ void main() {
         "close during peer loading prevents readiness",
         (caseName) async {
           final peers = Completer<List<String>>();
-          final owner = Owner()..pendingPeers = peers.future;
+          final owner = Owner()..pendingSavedPeers = peers.future;
           final entered = Completer<void>();
           final session = AppSession.test(
             ready: false,

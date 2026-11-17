@@ -125,6 +125,8 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return encode(address)
 	case "peers":
 		return owner.peers(ctx)
+	case "saved_peers":
+		return owner.savedPeers(ctx)
 	case "forget":
 		route, err := decodePeerRoute(values.Address)
 		if err != nil {

@@ -37,6 +37,9 @@ class Controller extends NativeHandle {
   Future<List<String>> peers() async =>
       (await invoke('peers') as List<dynamic>).cast<String>();
 
+  Future<List<String>> savedPeers() async =>
+      (await invoke('saved_peers') as List<dynamic>).cast<String>();
+
   Future<void> forget({required String address}) async {
     await invoke('forget', {'address': address});
   }

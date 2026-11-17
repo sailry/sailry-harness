@@ -194,6 +194,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       _selected ??= _hosts.firstOrNull?.id;
       WidgetsBinding.instance.addObserver(this);
       ready = true;
+      unawaited(refreshHosts(refreshConnections: false));
     } catch (failure) {
       if (!_closed) error = failure;
       await _release();
@@ -225,7 +226,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       registered = true;
       speech = _createSpeech(profilePath);
       unawaited(speech!.check());
-      final addresses = await opened.peers();
+      // Saved direct hosts are available without waiting for their networks.
+      // Resource routes arrive through the normal background directory refresh.
+      final addresses = await opened.savedPeers();
       if (_closed || controller != opened) {
         throw StateError('controller is closed');
       }
@@ -239,6 +242,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       _peerPoll = Timer.periodic(const Duration(seconds: 10), (_) {
         unawaited(refreshHosts());
       });
+      if (ready) unawaited(refreshHosts(refreshConnections: false));
       return opened;
     } catch (_) {
       if (controller == opened) {
@@ -326,7 +330,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Reconciles Link's authenticated directory without changing the selected
   /// host or forgetting source-only peers under a new local removal intent.
-  Future<void> refreshHosts() {
+  Future<void> refreshHosts({bool refreshConnections = true}) {
     final owner = controller;
     if (_closed || !ready || owner == null) return Future.value();
     return _peerRefresh ??=
@@ -363,7 +367,9 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
                 for (final address in addresses) {
                   if (_closed || controller != owner) return;
                   final target = await _connect(address, owner, select: false);
-                  if (!target.connected) unawaited(target.refresh());
+                  if (refreshConnections && !target.connected) {
+                    unawaited(target.refresh());
+                  }
                 }
               });
             })()
