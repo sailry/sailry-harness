@@ -140,10 +140,6 @@ func (peers nodePeerStore) RememberPeerName(ctx context.Context, peer protocol.N
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.RememberIdentityPeerName(ctx, db, peer, name) }))
 }
 
-func StartWithNetwork(ctx context.Context, path string, scope link.NetworkScope) (*Node, error) {
-	return StartWithOptions(ctx, path, Options{Network: &scope})
-}
-
 func (node *Node) Link() *link.Link { return node.network }
 
 func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) error {

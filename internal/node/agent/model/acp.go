@@ -40,9 +40,6 @@ type ACPCapture struct {
 	stall time.Duration
 }
 
-// ACPBound reports whether the adapter uses an agent program.
-func ACPBound(declaration protocol.PluginModelAdapterDeclaration) bool { return declaration.Acp != nil }
-
 type acpModel struct {
 	binding Binding
 	capture ACPCapture

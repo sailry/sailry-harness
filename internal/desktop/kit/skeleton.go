@@ -124,41 +124,6 @@ func Skeleton(c *ui.Context, p SkeletonProps) ui.Element {
 	})
 }
 
-// SkeletonTextProps are a SkeletonText's.
-type SkeletonTextProps struct {
-	// Rows is how many lines show: one when zero. The last of several is 66% wide.
-	Rows int
-	// FontSize sizes the lines as text of that size: 14 when zero.
-	FontSize float32
-	// Animation pulses, sweeps or keeps the lines still, as Skeleton's does.
-	Animation SkeletonAnimation
-}
-
-// SkeletonText holds the place of a paragraph that is loading: lines as tall as its text.
-func SkeletonText(c *ui.Context, p SkeletonTextProps) ui.Element {
-	font := p.FontSize
-	if font == 0 {
-		font = 14
-	}
-	rows := max(p.Rows, 1)
-	margin := float32(int(font*0.15 + 0.5))
-	col := ui.Column(c).FillWidth()
-	col.Children(func() {
-		for i := range rows {
-			line := ui.Column(c.Key(i)).PaddingY(margin)
-			if rows > 1 && i == rows-1 {
-				line.WidthPercent(66)
-			} else {
-				line.FillWidth()
-			}
-			line.Children(func() {
-				Skeleton(c, SkeletonProps{Height: float32(int(font*1.3 + 0.5)), Animation: p.Animation})
-			})
-		}
-	})
-	return col
-}
-
 // SkeletonAvatar holds the place of an avatar: 40 DIPs when size is zero,
 // round when circle, else a square of radius size/6.
 func SkeletonAvatar(c *ui.Context, size float32, circle bool, a SkeletonAnimation) ui.Element {

@@ -1,7 +1,8 @@
 // Package acceptance drives opt-in conversation checks with MyGo's in-memory
-// Tester, not a native window. Run uses fixtures only; RunLive reaches an already
-// started Node through Client. Only the desktop acceptance subprocess imports
-// this package, keeping test drivers out of production UI and live actions.
+// Tester, not a native window. Run uses fixtures only; RunLiveWithOptions
+// reaches an already started Node through Client. Only the desktop acceptance
+// subprocess imports this package, keeping test drivers out of production UI
+// and live actions.
 package acceptance
 
 import (

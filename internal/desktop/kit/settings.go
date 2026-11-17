@@ -121,18 +121,6 @@ func SwitchRow(c *ui.Context, key any, title, description string, on *bool) bool
 	return changed
 }
 
-// SelectRow is a choice among options, shown as labels; *chosen is the
-// option chosen.
-func SelectRow(c *ui.Context, key any, title, description string, chosen *string, options []string) bool {
-	changed := false
-	Row(c, key, title, description, func() {
-		var b ui.Element
-		b, changed = Select(c.Key("select"), "setting-"+title, title, chosen, options, false)
-		b.MinWidth(160)
-	})
-	return changed
-}
-
 // SegmentedRow is a choice among a few labels, side by side.
 func SegmentedRow(c *ui.Context, key any, title, description string, chosen *int, labels ...string) bool {
 	changed := false
@@ -140,56 +128,6 @@ func SegmentedRow(c *ui.Context, key any, title, description string, chosen *int
 		changed = Segmented(c, "segments", chosen, labels, SegmentedProps{}).Label(title).Changed()
 	})
 	return changed
-}
-
-// TextRow is a line of text; placeholder may be "".
-func TextRow(c *ui.Context, key any, title, description, placeholder string, value *string) ui.Element {
-	var input ui.Element
-	Row(c, key, title, description, func() {
-		input = ui.TextInput(c.Key("input"), value).Label(title).Placeholder(placeholder).Width(240)
-	})
-	return input
-}
-
-// SecretRow is a line of text hidden as it is typed, as an API key.
-func SecretRow(c *ui.Context, key any, title, description, placeholder string, value *string) ui.Element {
-	var input ui.Element
-	Row(c, key, title, description, func() {
-		input = ui.TextInput(c.Key("secret"), value).Password().Label(title).Placeholder(placeholder).Width(240)
-	})
-	return input
-}
-
-// NumberRow is a number between lo and hi.
-func NumberRow(c *ui.Context, key any, title, description string, value *float64, lo, hi, step float64) bool {
-	changed := false
-	Row(c, key, title, description, func() {
-		changed = ui.NumberInput(c.Key("number"), value, lo, hi, step).Label(title).Width(120).Changed()
-	})
-	return changed
-}
-
-// SliderRow is a number on a slider, its value shown after it by label.
-func SliderRow(c *ui.Context, key any, title, description string, value *float64, lo, hi, step float64, label string) bool {
-	p := theme.Of(c)
-	changed := false
-	Row(c, key, title, description, func() {
-		changed = ui.StepSlider(c.Key("slider"), value, lo, hi, step).Label(title).Width(200).Changed()
-		ui.Text(c, label).FontSize(14).Width(48).TextAlign(ui.End).TextColor(p.MutedForeground)
-	})
-	return changed
-}
-
-// ButtonRow is a setting acted on with a button: Secondary, or Danger for
-// what removes something.
-func ButtonRow(c *ui.Context, key any, title, description, action string, danger bool, onClick func()) {
-	Row(c, key, title, description, func() {
-		b := Secondary(c.Key("action"), action)
-		if danger {
-			b = Danger(c.Key("action"), action)
-		}
-		b.OnClick(onClick)
-	})
 }
 
 // WideRow is a Row whose control takes 256 DIPs and wraps under the title

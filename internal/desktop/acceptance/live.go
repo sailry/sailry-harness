@@ -32,14 +32,6 @@ func (issue *liveIssue) Error() string { return issue.detail }
 
 func unavailable(detail string) error { return &liveIssue{"blocked", detail} }
 
-// RunLive exercises the real live adapter through headless UI input. The caller
-// owns Client and the existing Node; profile is a dedicated acceptance preference
-// directory, never the user's controller profile. Client commands only prepare,
-// inspect and clean up sessions: messages are always sent through the composer.
-func RunLive(ctx context.Context, controller *client.Client, config *protocol.SessionConfig, emit func(core.CaseResult), profile string) core.Report {
-	return RunLiveWithOptions(ctx, controller, core.Options{Config: config, ReportDirectory: profile}, emit, profile)
-}
-
 // RunLiveWithOptions records real Client snapshots and temporary session
 // ownership in ReportDirectory. Profile contains only isolated UI preferences.
 // Explicit case selections may also name backend or fixture cases; only

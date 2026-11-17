@@ -7,9 +7,7 @@ import (
 	"errors"
 	"math"
 	"reflect"
-	"time"
 
-	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -101,25 +99,6 @@ func PrepareSessionForward(ctx context.Context, db *sql.Conn, node, caller proto
 	}
 	_, err = db.ExecContext(ctx, "INSERT INTO session_forwards(caller,request,body) VALUES(?1,?2,?3)", caller[:], request.ID.String(), frozen)
 	return forwarded, err
-}
-
-// importedAuthorization validates one forwarded secret as a new credential.
-func importedAuthorization(authentication protocol.Authentication, secret protocol.Secret, expiry *uint64) (providerAuthorization, error) {
-	if err := transferable(authentication); err != nil {
-		return providerAuthorization{}, err
-	}
-	if err := validateProviderKey(secret); err != nil {
-		return providerAuthorization{}, err
-	}
-	if expiry != nil && (*expiry > math.MaxInt64 || *expiry <= uint64(time.Now().UnixMilli())) {
-		return providerAuthorization{}, invalid("credential expiry must be in the future")
-	}
-	if authentication != protocol.AuthenticationApiKey {
-		if _, err := providers.DecodeAccount(&secret, authentication); err != nil {
-			return providerAuthorization{}, err
-		}
-	}
-	return providerAuthorization{Authentication: authentication, Revision: 1, Key: &secret, ExpiresAtMs: expiry}, nil
 }
 
 // cachedForwardProvider resolves the retained controller revision and its current

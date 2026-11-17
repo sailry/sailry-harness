@@ -136,30 +136,6 @@ func (recorder *Recorder) Flush() error {
 	})
 }
 
-func AppendRecordingFrame(directory string, node protocol.NodeID, session protocol.SessionID, frame RecordingFrame) error {
-	if err := requireOwned(directory, node, []protocol.SessionID{session}); err != nil {
-		return err
-	}
-	recorder, err := NewRecorder(directory, node, session)
-	if err != nil {
-		return err
-	}
-	previous, err := ReadRecording(directory, session)
-	if err == nil {
-		recorder.recording = previous
-		for _, frame := range previous.Frames {
-			encoded, _ := json.Marshal(frame)
-			recorder.bytes += len(encoded) + 1
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := recorder.Append(frame); err != nil {
-		return err
-	}
-	return recorder.Flush()
-}
-
 func ReadRecording(directory string, session protocol.SessionID) (RecordingSession, error) {
 	var recording RecordingSession
 	err := withAcceptanceFiles(directory, func(absolute string) error {

@@ -189,10 +189,6 @@ func (r *Runtime) loginWarning(entry protocol.ConversationPresetsEntry) string {
 	return entry.LoginWarning.Text
 }
 
-func (r *Runtime) startProviderLogin(id string) {
-	r.startProviderLoginFor(id, nil)
-}
-
 func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginRecovery) {
 	provider, ok := r.loginProvider(id)
 	if !ok {

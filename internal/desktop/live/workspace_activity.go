@@ -426,12 +426,6 @@ func (r *Runtime) createComposerWorktree(x *conversationActions) {
 	}
 	r.openManagedConversation(x.cv, captured, false, func(tree protocol.Worktree) { x.comp.Worktree = tree.Path })
 }
-func (r *Runtime) chooseComposerWorktree(x *conversationActions, relative string) {
-	if _, exists := r.session(x.cv.ID); exists {
-		return
-	}
-	r.selectDraftWorktree(x.comp, relative)
-}
 func (r *Runtime) selectDraftWorktree(comp *composer.State, relative string) {
 	for _, tree := range r.snapshot().Worktrees {
 		if tree.Path == relative && tree.Project != nil && tree.Project.String() == comp.Project {

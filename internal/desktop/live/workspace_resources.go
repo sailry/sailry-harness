@@ -106,18 +106,6 @@ func (p *workspaceProject) projectDiff(relative string, hunks []viewmodel.Hunk) 
 		}
 	}
 }
-func (p *workspaceProject) showDocument(id, title, documentPath, text string) {
-	for i := range p.data.Documents {
-		if p.data.Documents[i].ID == id {
-			p.data.Documents[i] = viewmodel.Document{ID: id, Title: title, Path: documentPath, Text: text}
-			p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Documents, ID: id})
-			return
-		}
-	}
-	p.data.Documents = append(p.data.Documents, viewmodel.Document{ID: id, Title: title, Path: documentPath, Text: text})
-	p.runtime.App.PanelOpen = true
-	p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Documents, ID: id})
-}
 
 // readSessionResources reloads every session resource after a session change
 // or a refresh.

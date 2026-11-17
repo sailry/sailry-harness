@@ -1,7 +1,6 @@
 package plugins
 
 import (
-	"bytes"
 	"slices"
 	"strings"
 	"unicode"
@@ -186,19 +185,4 @@ func DiscoverSkills(files map[string][]byte) ([]protocol.PluginSkill, []protocol
 		skills = append(skills, skill)
 	}
 	return skills, issues
-}
-
-func SkillBody(data []byte) ([]byte, error) {
-	if _, err := ParseSkill(data, ""); err != nil {
-		return nil, err
-	}
-	data = bytes.TrimLeft(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), "\r\n \t")
-	lines := bytes.Split(data, []byte("\n"))
-	for index := 1; index < len(lines); index++ {
-		line := bytes.TrimSuffix(lines[index], []byte("\r"))
-		if bytes.Equal(line, []byte("---")) || bytes.Equal(line, []byte("...")) {
-			return bytes.TrimSpace(bytes.Join(lines[index+1:], []byte("\n"))), nil
-		}
-	}
-	return nil, packageFault("skill frontmatter is unterminated")
 }

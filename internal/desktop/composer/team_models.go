@@ -28,13 +28,6 @@ func (s *State) memberSelection() *MemberModel {
 	return s.MemberModels[s.member]
 }
 
-func (s *State) controlModelID() string {
-	if member := s.memberSelection(); member != nil {
-		return member.Model
-	}
-	return s.Model
-}
-
 // controlModels are the models the controls choose among: a member's own
 // list when the context has one, otherwise the lead's.
 func (s *State) controlModels(ctx *Context) []Model {

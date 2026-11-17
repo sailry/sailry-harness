@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -251,54 +250,6 @@ func checkConnection(ctx context.Context, db *sql.Conn, turn protocol.TurnID, ow
 		return nil
 	}
 	return fault(protocol.ErrorCodePermissionDenied, "connection is not available to this turn")
-}
-
-// ConnectionEntry names one package's reference to a connection.
-type ConnectionEntry struct {
-	Package protocol.PluginReference
-	Target  protocol.ConnectionResource
-}
-
-// ConnectionNames returns, per entry, the saved name of a connection the
-// entry's package created in this turn, and nil for every other entry.
-func ConnectionNames(ctx context.Context, db *sql.Conn, turn protocol.TurnID, entries []ConnectionEntry, captured []protocol.ConnectionResource) ([]*string, error) {
-	names := make([]*string, 0, len(entries))
-	for _, entry := range entries {
-		created, err := ConnectionCreated(ctx, db, turn, entry.Package, entry.Target)
-		if err != nil {
-			return nil, err
-		}
-		if !created {
-			names = append(names, nil)
-			continue
-		}
-		if err := checkConnection(ctx, db, turn, entry.Package, entry.Target, captured); err != nil {
-			return nil, err
-		}
-		var name *string
-		if id, valid := dispatchValue[protocol.DatabaseID](entry.Target.Data); valid && entry.Target.Kind == "database" {
-			profile, err := ReadDatabase(ctx, db, id)
-			if err != nil {
-				return nil, err
-			}
-			if profile != nil {
-				name = &profile.Name
-			}
-		} else if id, valid := dispatchValue[protocol.SshID](entry.Target.Data); valid && entry.Target.Kind == "ssh" {
-			profile, err := readUserConfiguration[protocol.SshProfile](ctx, db, "ssh_profiles", id.String())
-			if err != nil {
-				return nil, err
-			}
-			if profile != nil {
-				name = &profile.Name
-			}
-		}
-		if name != nil && strings.TrimSpace(*name) == "" {
-			name = nil
-		}
-		names = append(names, name)
-	}
-	return names, nil
 }
 
 // ConnectionStatus is one reachable target and whether its network database
