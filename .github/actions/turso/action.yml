@@ -1,0 +1,83 @@
+name: Turso runtime
+description: Restore or build the pinned runtime for this runner and verify its bytes and libc floor
+runs:
+  using: composite
+  steps:
+    - name: Runtime target
+      id: target
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux) platform=linux; library=libturso_sync_sdk_kit.so ;;
+          macOS) platform=darwin; library=libturso_sync_sdk_kit.dylib ;;
+          Windows) platform=windows; library=turso_sync_sdk_kit.dll ;;
+          *) echo 'Unsupported Turso platform' >&2; exit 1 ;;
+        esac
+        case "$RUNNER_ARCH" in
+          X64) architecture=amd64 ;;
+          ARM64) architecture=arm64 ;;
+          *) echo 'Unsupported Turso architecture' >&2; exit 1 ;;
+        esac
+        printf 'name=%s-%s\nlibrary=%s\n' "$platform" "$architecture" "$library" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      id: runtime
+      with:
+        path: |
+          .runtime/native/${{ steps.target.outputs.name }}/${{ steps.target.outputs.library }}
+          .runtime/native/${{ steps.target.outputs.name }}/SHA256SUMS
+        key: turso-native-v1-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/**') }}
+    - name: Pinned Rust toolchain
+      if: steps.runtime.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: native/turso
+      run: rustup toolchain install
+    - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+      if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
+      with:
+        version: 0.16.0
+        use-cache: false
+    - name: GNU libc target
+      if: runner.os == 'Linux' && steps.runtime.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        cargo install cargo-zigbuild --version 0.23.4 --locked
+        echo 'SAILRY_GLIBC=2.34' >> "$GITHUB_ENV"
+    - name: Build
+      if: steps.runtime.outputs.cache-hit != 'true'
+      shell: bash
+      run: sh native/turso/build.sh
+    - name: Checksum
+      if: steps.runtime.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: .runtime/native/${{ steps.target.outputs.name }}
+      env:
+        LIBRARY: ${{ steps.target.outputs.library }}
+      run: |
+        if command -v sha256sum >/dev/null; then
+          sha256sum "$LIBRARY" > SHA256SUMS
+        else
+          shasum -a 256 "$LIBRARY" > SHA256SUMS
+        fi
+    - name: Verify runtime
+      shell: bash
+      working-directory: .runtime/native/${{ steps.target.outputs.name }}
+      env:
+        LIBRARY: ${{ steps.target.outputs.library }}
+      run: |
+        if command -v sha256sum >/dev/null; then
+          sha256sum --check SHA256SUMS
+        else
+          shasum -a 256 --check SHA256SUMS
+        fi
+        if [ "$RUNNER_OS" = Linux ]; then
+          grep -q 'requires GNU libc 2.34 or later' "$GITHUB_WORKSPACE/internal/node/wsl/preflight.sh"
+          needed=$(objdump -T "$LIBRARY" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/^GLIBC_//' | sort -V | tail -n 1)
+          test "$(printf '%s\n%s\n' "$needed" 2.34 | sort -V | tail -n 1)" = 2.34
+        fi
+    - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      if: steps.runtime.outputs.cache-hit != 'true'
+      with:
+        path: |
+          .runtime/native/${{ steps.target.outputs.name }}/${{ steps.target.outputs.library }}
+          .runtime/native/${{ steps.target.outputs.name }}/SHA256SUMS
+        key: turso-native-v1-${{ steps.target.outputs.name }}-${{ hashFiles('native/turso/**') }}
