@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"maps"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -147,6 +148,10 @@ func exportTeamSettingsConfiguration(ctx context.Context, db *sql.Conn, _ Config
 }
 
 func exportPluginConfiguration(ctx context.Context, db *sql.Conn, _ ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	values, err := ReadPluginInfos(ctx, db)
 	if err != nil {
 		return nil, err
@@ -154,7 +159,7 @@ func exportPluginConfiguration(ctx context.Context, db *sql.Conn, _ Configuratio
 	result := []protocol.ConfigurationFollowRecord{}
 	for _, value := range values {
 		value.Summary.Source = nil
-		record, err := configurationRecord(value.Summary.Name, value.Summary.Revision, value, nil)
+		record, err := compositeConfigurationRecord(ctx, db, user, "plugins", value.Summary.Name, value.Summary.Revision, value)
 		if err != nil {
 			return nil, err
 		}
@@ -221,6 +226,10 @@ func exportPluginSettingsConfiguration(ctx context.Context, db *sql.Conn, option
 }
 
 func exportConnectionConfiguration(ctx context.Context, db *sql.Conn, _ ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
+	user, err := CurrentUser(ctx, db)
+	if err != nil {
+		return nil, err
+	}
 	records, err := connectorRecords(ctx, db)
 	if err != nil {
 		return nil, err
@@ -245,11 +254,40 @@ func exportConnectionConfiguration(ctx context.Context, db *sql.Conn, _ Configur
 				delete(value.Fields, name)
 			}
 		}
-		entry, err := configurationRecord(record.ID.String(), record.Revision, value, nil)
+		entry, err := compositeConfigurationRecord(ctx, db, user, "connections", record.ID.String(), record.Revision, value)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, entry)
 	}
 	return result, nil
+}
+
+// Package and connection exports include dependencies whose revisions are
+// independent of the record's business CAS. Persist a separate export revision
+// so every captured content version remains immutable on receiving hosts.
+func compositeConfigurationRecord(ctx context.Context, db *sql.Conn, user protocol.User, category, id string, sourceRevision uint64, value any) (protocol.ConfigurationFollowRecord, error) {
+	digest, err := configurationDigest(value)
+	if err != nil {
+		return protocol.ConfigurationFollowRecord{}, err
+	}
+	var revision uint64
+	var previous string
+	err = db.QueryRowContext(ctx, "SELECT revision,digest FROM configuration_export_revisions WHERE user=?1 AND category=?2 AND id=?3", user.ID.String(), category, id).Scan(&revision, &previous)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return protocol.ConfigurationFollowRecord{}, err
+	}
+	if previous != digest {
+		// The first composite revision supersedes every old revision produced
+		// directly from this record's business counter.
+		revision, err = nextRevision(max(revision, sourceRevision))
+		if err != nil {
+			return protocol.ConfigurationFollowRecord{}, err
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO configuration_export_revisions(user,category,id,revision,digest) VALUES(?1,?2,?3,?4,?5)
+ON CONFLICT(user,category,id) DO UPDATE SET revision=excluded.revision,digest=excluded.digest`, user.ID.String(), category, id, revision, digest); err != nil {
+			return protocol.ConfigurationFollowRecord{}, err
+		}
+	}
+	return configurationRecord(id, revision, value, nil)
 }

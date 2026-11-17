@@ -765,6 +765,14 @@ CREATE TABLE IF NOT EXISTS configuration_follow_versions (
  digest TEXT NOT NULL,
  PRIMARY KEY(user,category,source)
 );
+CREATE TABLE configuration_export_revisions (
+ user TEXT NOT NULL REFERENCES users(id),
+ category TEXT NOT NULL,
+ id TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>0),
+ digest TEXT NOT NULL,
+ PRIMARY KEY(user,category,id)
+);
 CREATE TABLE IF NOT EXISTS configuration_follow_deliveries (
  user TEXT NOT NULL REFERENCES users(id),
  host BLOB NOT NULL CHECK(length(host)=32),
