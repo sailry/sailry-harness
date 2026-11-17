@@ -1,0 +1,15 @@
+configuration_follow_title: 設定の同期
+configuration_follow_loading: 同期状態を読み込み中
+configuration_follow_controller: コントローラー
+configuration_follow_description: 設定はコントローラーで管理されています。コントローラーで編集してください。
+configuration_follow_this_device: このデバイスの設定
+configuration_follow_local_description: 設定は接続中のホストに自動で同期されます。
+configuration_follow_waiting: コントローラーの設定を待機中
+configuration_follow_unavailable: 同期状態を読み込めませんでした
+configuration_follow_targets: ホスト
+configuration_follow_automatic: 自動同期
+configuration_follow_from_source: コントローラーから
+configuration_follow_requested: 同期をリクエストしました
+configuration_follow_failed: 設定の同期に失敗しました
+configuration_follow_conflict: 設定が変更されました。同期を再試行してください
+configuration_follow_unknown: 同期リクエストは未確認です。再試行して状態を確認してください

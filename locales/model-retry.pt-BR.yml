@@ -10,3 +10,4 @@ chat_model_flex_unavailable: "Serviço Flex indisponível"
 chat_model_policy_rejected: "Solicitação rejeitada pela política do serviço"
 chat_model_request_unavailable: "Não foi possível preparar a solicitação do modelo"
 chat_model_server_overloaded: "Serviço do modelo sobrecarregado"
+chat_model_retry_wait_exhausted: Limite de espera para novas tentativas atingido

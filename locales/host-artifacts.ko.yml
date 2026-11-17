@@ -1,0 +1,20 @@
+host_update_local_artifacts: 로컬에서 빌드한 호스트 아티팩트를 사용하며 적용 시 검증합니다
+live_host_runtime_error: 호스트 런타임을 읽을 수 없음
+live_metrics_loading: 메트릭 불러오는 중
+live_metrics_error: 호스트 메트릭을 읽을 수 없음
+live_update_idle: 호스트 업데이트 확인
+live_update_checking: 업데이트 확인 중
+live_update_current: 호스트가 최신 버전입니다
+live_update_available: 호스트 업데이트 사용 가능
+live_update_downloading: 업데이트 준비 중
+live_update_verifying: 업데이트 검증 중
+live_update_staged: 적용 준비됨
+live_update_applying: 업데이트 적용 중
+live_update_restart: 호스트 재시작 중
+live_update_failed: 호스트 업데이트 실패
+live_update_loading: 업데이트 불러오는 중
+live_update_unavailable: 호스트 업데이트를 사용할 수 없음
+live_update_check: 확인
+live_update_download: 준비
+live_update_apply: 적용
+live_update_retry: 다시 시도

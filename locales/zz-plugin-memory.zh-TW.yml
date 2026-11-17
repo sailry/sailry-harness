@@ -1,0 +1,3 @@
+ram_plugins: 外掛（估計）
+ram_plugins_partial: '%{bytes} · 部分樣本'
+ram_plugins_error: 無法讀取外掛記憶體

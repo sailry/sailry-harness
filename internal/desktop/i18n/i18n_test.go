@@ -158,8 +158,9 @@ func TestPlaceholdersAndMatch(t *testing.T) {
 		if got := In(lang, "settings"); got != want {
 			t.Errorf("%s settings: %q, want %q", lang, got, want)
 		}
-		if got, want := In(lang, "appearance_blur"), In("en", "appearance_blur"); got != want {
-			t.Errorf("%s untranslated desktop key: %q, want English %q", lang, got, want)
+		// Desktop-only keys are translated too, not left to English.
+		if got := In(lang, "appearance_blur"); got == In("en", "appearance_blur") {
+			t.Errorf("%s desktop key is untranslated: %q", lang, got)
 		}
 	}
 }

@@ -19,3 +19,5 @@ notification_deleted_read: "Прочитанные уведомления уда
 notification_update_unknown: "Не удалось подтвердить обновление; повторите позже"
 notification_update_partial: "Не удалось обновить часть уведомлений; повторите попытку"
 notification_update_failed: "Не удалось обновить уведомления; повторите попытку"
+personal_kv_conflict: Конфликт личных данных
+personal_kv_conflict_description: Контроллер сохранил свои текущие значения. Локальные расписания и выполненные действия сохранены.

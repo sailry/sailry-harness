@@ -1,0 +1,20 @@
+host_update_local_artifacts: Используются локально собранные артефакты хоста; проверка при применении
+live_host_runtime_error: Не удалось прочитать среду выполнения хоста
+live_metrics_loading: Загрузка метрик
+live_metrics_error: Не удалось прочитать метрики хоста
+live_update_idle: Проверить обновления хоста
+live_update_checking: Проверка обновлений
+live_update_current: Хост обновлён
+live_update_available: Доступно обновление хоста
+live_update_downloading: Подготовка обновления
+live_update_verifying: Проверка обновления
+live_update_staged: Готово к применению
+live_update_applying: Применение обновления
+live_update_restart: Перезапуск хоста
+live_update_failed: Не удалось обновить хост
+live_update_loading: Загрузка обновления
+live_update_unavailable: Обновление хоста недоступно
+live_update_check: Проверить
+live_update_download: Подготовить
+live_update_apply: Применить
+live_update_retry: Повторить

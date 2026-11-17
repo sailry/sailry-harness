@@ -1,5 +1,5 @@
 settings_runtime: "Ambiente de execução"
-settings_runtime_description: "Configurar este nó"
+settings_runtime_description: "Configurar este Node"
 runtime_python: "Python"
 runtime_python_index: "Fonte de pacotes"
 runtime_ocr: "Reconhecimento de texto"

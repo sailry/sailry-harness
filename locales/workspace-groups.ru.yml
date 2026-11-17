@@ -1,0 +1,4 @@
+pane_group: Группа разделения %{number}
+workspace_tab_keep: Закрепить
+workspace_tab_release: Открепить
+workspace_tab_unsplit: Отменить разделение

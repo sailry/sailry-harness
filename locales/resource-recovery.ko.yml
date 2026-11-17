@@ -1,0 +1,13 @@
+resource_offline: 오프라인
+resource_offline_action: 이 호스트는 오프라인입니다.
+resource_last_synced: 마지막 동기화 %{time}
+controller_login_restore: 로그인 복원
+controller_login_restored: 작업 로그인이 복원됨
+controller_login_restore_failed: 이 작업의 로그인을 복원할 수 없음
+controller_login_restore_unknown: 복원이 확인되지 않았습니다. 원래 요청을 확인하세요.
+controller_login_state_changed: 이 작업은 더 이상 해당 로그인을 기다리지 않습니다
+controller_login_account_mismatch: 작업의 원래 계정과 작업 공간으로 로그인하세요
+controller_login_identity_unavailable: 이 로그인에는 복원에 필요한 확인된 계정 정보가 없습니다
+controller_login_target_changed: 작업의 원래 인증 대상이 변경되었습니다
+controller_login_original_controller: 작업의 원래 컨트롤러에서 로그인을 복원하세요
+controller_login_provider_missing: 작업의 원래 공급자를 사용할 수 없음

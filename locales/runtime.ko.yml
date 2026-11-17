@@ -1,5 +1,5 @@
 settings_runtime: "실행 환경"
-settings_runtime_description: "현재 노드 설정"
+settings_runtime_description: "현재 Node 설정"
 runtime_python: "Python"
 runtime_python_index: "패키지 소스"
 runtime_ocr: "문자 인식"

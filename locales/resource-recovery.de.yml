@@ -1,0 +1,13 @@
+resource_offline: Offline
+resource_offline_action: Dieser Host ist offline.
+resource_last_synced: Zuletzt synchronisiert %{time}
+controller_login_restore: Anmeldung wiederherstellen
+controller_login_restored: Anmeldung der Aufgabe wiederhergestellt
+controller_login_restore_failed: Anmeldung dieser Aufgabe konnte nicht wiederhergestellt werden
+controller_login_restore_unknown: Wiederherstellung nicht bestätigt. Ursprüngliche Anfrage prüfen.
+controller_login_state_changed: Diese Aufgabe wartet nicht mehr auf diese Anmeldung
+controller_login_account_mismatch: Mit dem ursprünglichen Konto und Arbeitsbereich der Aufgabe anmelden
+controller_login_identity_unavailable: Diese Anmeldung hat keine verifizierte Kontoidentität für die Wiederherstellung
+controller_login_target_changed: Das ursprüngliche Authentifizierungsziel der Aufgabe hat sich geändert
+controller_login_original_controller: Anmeldung auf dem ursprünglichen Controller der Aufgabe wiederherstellen
+controller_login_provider_missing: Der ursprüngliche Anbieter der Aufgabe ist nicht verfügbar

@@ -1,0 +1,13 @@
+directory_applications: Aplicaciones
+directory_modified: Modificado
+directory_modified_today: Hoy %{time}
+directory_modified_yesterday: Ayer %{time}
+directory_counts: '%{directories} carpetas, %{files} archivos'
+directory_counts_hidden: '%{directories} carpetas, %{files} archivos, %{hidden} ocultos'
+directory_selected_files: '%{count} archivos seleccionados'
+directory_nothing_selected: Ningún archivo seleccionado
+directory_failed: No se pudo leer la carpeta
+directory_host_unavailable: El host no está disponible
+directory_fallback: No se pudo abrir %{path}; se muestra la carpeta personal
+directory_trash: Mover a la papelera
+directory_trash_confirm: Mover “%{name}” a la papelera

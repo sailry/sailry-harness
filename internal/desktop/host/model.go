@@ -150,6 +150,16 @@ func (u *Update) Headline() string {
 	return string(u.Phase)
 }
 
+// Pending reports an update to follow: one found, under way, waiting for a
+// restart or failed.
+func (u *Update) Pending() bool {
+	switch u.Phase {
+	case Idle, Checking, Current:
+		return u.Error != ""
+	}
+	return true
+}
+
 // Primary is the dialog's button: its action and label's i18n key, ok false
 // for none.
 func (u *Update) Primary() (Action, string, bool) {

@@ -1,5 +1,5 @@
 provider_auth_oauth: "OAuth"
-provider_auth_key: "API Key"
+provider_auth_key: "API 密钥"
 provider_auth_plugin: "插件"
 provider_status_missing_key: "缺少密钥"
 provider_status_signed_out: "未登录"

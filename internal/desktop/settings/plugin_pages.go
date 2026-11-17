@@ -93,5 +93,9 @@ func settingsNavigation(view *ui.Context, state *State, section Section, label s
 	button.Children(func() {
 		ui.Icon(view, icon).FontSize(16)
 		ui.Text(view, label).FontSize(14).SingleLine()
+		if section == About && state.Updater.Attention() {
+			ui.Spacer(view)
+			ui.Box(view.Key("update")).Size(6, 6).Radius(3).Background(palette.Danger).Shrink(0)
+		}
 	}).OnClick(func() { state.Open(section) })
 }

@@ -1164,7 +1164,6 @@ provider_oauth_user_agent
 provider_oauth_editor_version
 provider_oauth_editor_plugin_version
 provider_headers
-provider_headers_hint
 provider_headers_invalid
 provider_models
 provider_discover
@@ -1391,7 +1390,6 @@ model_library_huggingface
 model_library_modelscope
 model_library_query
 model_library_no_results
-model_library_available
 knowledge_delete
 knowledge_model_size
 knowledge_delete_model_effect
@@ -1643,9 +1641,14 @@ updates_installing
 updates_restarting
 updates_restart_needed
 updates_verifying
-updates_install
 updates_restart
 updates_details
+updates_available
+updates_downloading
+updates_ready_now
+updates_restart_now
+updates_later
+updates_view
 updates_download
 updates_ready
 updates_restart_description

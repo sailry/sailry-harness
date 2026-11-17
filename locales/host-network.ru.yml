@@ -8,3 +8,6 @@ host_network_load_failed: "Не удалось загрузить настрой
 host_pairing_mode: "Код сопряжения"
 host_pairing_hint: "Подключить устройство с Sailry"
 host_setup_unconfirmed: "Настройка не подтверждена, сначала проверьте хост"
+host_ssh_mode: Установка через SSH
+host_install_hint: Установите Sailry на сервер и подключитесь
+host_ssh_agent_hint: Использовать ключи, загруженные в SSH-агент этого компьютера

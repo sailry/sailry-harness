@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -36,7 +37,8 @@ type Updater struct {
 	Verifying     bool
 	Failure       *UpdateFailure
 	since         time.Time // when the preview's step began
-	confirm       bool      // the install confirmation
+	deferred      string    // the ready version Later folded
+	seen          string    // the found version About has shown
 	details       bool      // the failure's details
 	shown         UpdateState
 	shownFailure  *UpdateFailure
@@ -45,8 +47,15 @@ type Updater struct {
 // UpdateActions are the real updater's actions. Its state arrives in Updater.
 type UpdateActions struct{ Check, Download, Cancel, Install, Restart func() }
 
-// Confirm opens the install confirmation, as the ready toast's action does.
-func (u *Updater) Confirm() { u.confirm = true }
+// Attention reports a found update About has not shown yet, which the
+// rail's Settings and About's entry mark.
+func (u *Updater) Attention() bool {
+	return (u.State == UpdateAvailable || u.State == UpdateReady) && u.Version != u.seen
+}
+
+// Review unfolds the ready row, as the ready toast's action does after it
+// opens About.
+func (u *Updater) Review() { u.deferred = "" }
 
 // ShowDetails opens the failure's details, as the failure toast's action does.
 func (u *Updater) ShowDetails() { u.details = true }
@@ -123,10 +132,10 @@ func (u *Updater) start(s UpdateState, now time.Time) {
 	u.Copied, u.Verifying = 0, false
 }
 
-// updates is the About page's Updates group: the state's action, Details
-// after a failure, Download when one is available, the channel and the
-// version or the progress; the ready version and failures toast, and Install
-// asks first.
+// updates is the About page's Updates group: the channel over one status
+// row that carries the state's actions. A download's progress spans the
+// row; a ready update states what a restart stops and restarts in place,
+// so installing needs no dialog. Later folds the ready row to its action.
 func updates(c *ui.Context, m *Model) {
 	u := &m.Updater
 	p := theme.Of(c)
@@ -138,6 +147,12 @@ func updates(c *ui.Context, m *Model) {
 		}
 		u.notify(c)
 	}
+	if u.State != UpdateReady || u.Version != u.deferred {
+		u.deferred = ""
+	}
+	if u.Attention() {
+		u.seen = u.Version
+	}
 	// run is an action: the real updater's, or the preview's step.
 	run := func(action func(*UpdateActions) func(), preview func()) func() {
 		return func() {
@@ -148,83 +163,112 @@ func updates(c *ui.Context, m *Model) {
 			}
 		}
 	}
-	kit.Group(c, "updates", i18n.T(c, "updates"), "", func() {
-		if u.Failure != nil {
-			kit.Secondary(c.Key("details"), i18n.T(c, "updates_details")).OnClick(func() { u.details = true })
-		}
-		if u.State == UpdateAvailable {
-			iconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).OnClick(run(func(a *UpdateActions) func() { return a.Download }, func() { u.start(UpdateDownloading, c.Now()) }))
-		}
-		switch u.State {
-		case UpdateIdle, UpdateAvailable:
-			kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(run(func(a *UpdateActions) func() { return a.Check }, func() { u.start(UpdateChecking, c.Now()) }))
-		case UpdateChecking, UpdateDownloading:
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(run(func(a *UpdateActions) func() { return a.Cancel }, func() { u.start(UpdateIdle, c.Now()) }))
-		case UpdateReady:
-			iconButton(c, "install", nil, i18n.T(c, "updates_install"), true, false).OnClick(func() { u.confirm = true })
-		case UpdateInstalling, UpdateRestarting:
-			kit.SecondaryBusy(c.Key("installing"), i18n.T(c, "updates_installing"), true)
-		case UpdateStopped:
-			// Relaunching leaves the preview.
-			kit.Secondary(c.Key("restart"), i18n.T(c, "updates_restart")).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))
-		}
-	}, func() {
+	check := run(func(a *UpdateActions) func() { return a.Check }, func() { u.start(UpdateChecking, c.Now()) })
+	cancel := func() {
+		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(run(func(a *UpdateActions) func() { return a.Cancel }, func() { u.start(UpdateIdle, c.Now()) }))
+	}
+	busy := func(label string) { kit.SecondaryBusy(c.Key("busy"), label, true) }
+	mark := func(icon *ui.SVG, color ui.Color) func() {
+		return func() { ui.Icon(c, icon).FontSize(16).TextColor(color) }
+	}
+	// row is the status: an optional mark, the title and a muted line, the
+	// actions, and what spans the row below it.
+	row := func(lead func(), title, description string, actions, below func()) {
+		ui.Column(c.Key("status")).Padding(kit.RowPad, 0).Gap(10).MinHeight(kit.RowMinHeight).Children(func() {
+			ui.Row(c).Gap(16).MinHeight(kit.RowMinHeight - 2*kit.RowPad).AlignItems(ui.Center).Children(func() {
+				ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(kit.RowIconGap).AlignItems(ui.Center).Children(func() {
+					if lead != nil {
+						ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(lead)
+					}
+					kit.RowText(c, title, description).Grow(1).Shrink(1)
+				})
+				if actions != nil {
+					ui.Row(c).Shrink(0).Gap(8).Children(actions)
+				}
+			})
+			if below != nil {
+				below()
+			}
+		})
+	}
+	kit.Group(c, "updates", i18n.T(c, "updates"), "", nil, func() {
 		kit.Card(c, func() {
 			kit.Row(c, "channel", i18n.T(c, "updates_channel"), "", func() {
 				pick(c, "channel", i18n.T(c, "updates_channel"), &m.Channel,
 					labels(c, []string{"updates_channel_stable", "updates_channel_experience"}), u.Locked()).Width(192)
 			})
-			kit.Row(c, "version", i18n.T(c, "updates_version"), "", func() {
-				status := func(s string) { ui.Text(c, s).FontSize(14).Selectable().TextColor(p.MutedForeground) }
-				switch u.State {
-				case UpdateIdle:
-					status(m.Version)
-				case UpdateChecking:
-					status(i18n.T(c, "updates_checking"))
-				case UpdateAvailable, UpdateReady:
-					status(u.Version)
-				case UpdateInstalling:
-					status(i18n.T(c, "updates_installing"))
-				case UpdateRestarting:
-					status(i18n.T(c, "updates_restarting"))
-				case UpdateStopped:
-					status(i18n.T(c, "updates_restart_needed"))
-				case UpdateDownloading:
-					ui.Column(c.Key("download")).Width(224).Gap(4).Children(func() {
-						v := u.Percent() / 100
-						if u.Verifying {
-							v = -1
-						}
-						ui.Progress(c.Key("bar"), v).FillWidth().Height(6).Label(i18n.T(c, "updates_download"))
-						label := fmt.Sprintf("%.0f%%", u.Percent())
-						if u.Verifying {
-							label = i18n.T(c, "updates_verifying")
-						}
-						ui.Text(c, label).FontSize(14).TextColor(p.MutedForeground)
-					})
+			version := u.Version
+			switch {
+			case u.Failure != nil && (u.State == UpdateIdle || u.State == UpdateAvailable):
+				row(mark(icons.TriangleAlert, p.Danger), i18n.T(c, u.Failure.Key), m.Version, func() {
+					kit.Secondary(c.Key("details"), i18n.T(c, "updates_details")).OnClick(func() { u.details = true })
+					kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(check)
+				}, nil)
+			case u.State == UpdateIdle:
+				row(nil, i18n.T(c, "updates_version"), m.Version, func() {
+					kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(check)
+				}, nil)
+			case u.State == UpdateChecking:
+				row(nil, i18n.T(c, "updates_checking"), m.Version, cancel, nil)
+			case u.State == UpdateAvailable:
+				row(mark(icons.Download, p.Info), i18n.T(c, "updates_available", "version", version), m.Version, func() {
+					iconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).
+						OnClick(run(func(a *UpdateActions) func() { return a.Download }, func() { u.start(UpdateDownloading, c.Now()) }))
+				}, nil)
+			case u.State == UpdateDownloading:
+				title, detail := i18n.T(c, "updates_downloading", "version", version), ""
+				if u.Verifying {
+					title = i18n.T(c, "updates_verifying")
+				} else if u.Total > 0 {
+					detail = fmt.Sprintf("%s / %s · %.0f%%", megabytes(u.Copied), megabytes(u.Total), u.Percent())
 				}
-			})
+				row(nil, title, detail, cancel, func() {
+					v := u.Percent() / 100
+					if u.Verifying {
+						v = -1
+					}
+					ui.Progress(c.Key("bar"), v).FillWidth().Height(6).Label(title)
+				})
+			case u.State == UpdateReady:
+				restart := func() {
+					iconButton(c, "install", nil, i18n.T(c, "updates_restart_now"), true, false).
+						OnClick(run(func(a *UpdateActions) func() { return a.Install }, func() { u.start(UpdateInstalling, c.Now()) }))
+				}
+				if u.deferred == version {
+					row(mark(icons.CircleCheck, p.Success), i18n.T(c, "updates_ready_now", "version", version), "", restart, nil)
+					break
+				}
+				row(mark(icons.CircleCheck, p.Success), i18n.T(c, "updates_ready_now", "version", version), i18n.T(c, "updates_restart_description"), func() {
+					kit.Secondary(c.Key("later"), i18n.T(c, "updates_later")).OnClick(func() { u.deferred = version })
+					restart()
+				}, nil)
+			case u.State == UpdateInstalling:
+				row(nil, i18n.T(c, "updates_installing"), version, func() { busy(i18n.T(c, "updates_installing")) }, nil)
+			case u.State == UpdateRestarting:
+				row(nil, i18n.T(c, "updates_restarting"), version, func() { busy(i18n.T(c, "updates_restarting")) }, nil)
+			case u.State == UpdateStopped:
+				// Relaunching leaves the preview.
+				row(mark(icons.CircleCheck, p.Success), i18n.T(c, "updates_restart_needed"), version, func() {
+					iconButton(c, "restart", nil, i18n.T(c, "updates_restart"), true, false).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))
+				}, nil)
+			}
 		})
 	})
-	if confirm(c, "install-confirm", &u.confirm, i18n.T(c, "updates_install"), i18n.T(c, "updates_restart_description"), i18n.T(c, "updates_install")) {
-		run(func(a *UpdateActions) func() { return a.Install }, func() { u.start(UpdateInstalling, c.Now()) })()
-	}
 	if u.Failure != nil {
 		kit.Details(c.Key("details"), &u.details, i18n.T(c, "updates_details"), "", u.Failure.Detail)
 	}
 }
+
+// megabytes is a byte count in MB with one decimal.
+func megabytes(n int64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
 
 // notify toasts what the updater reached, once: the ready version with
 // Install, a failure with Details.
 func (u *Updater) notify(c *ui.Context) {
 	if u.State == UpdateReady && u.shown != UpdateReady {
 		version := u.Version
-		c.AddToast(ui.Toast{Type: "success", Title: i18n.T(c, "updates_ready", "version", version), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_install"),
-			OnAction: func() {
-				if u.State == UpdateReady && u.Version == version {
-					u.confirm = true
-				}
-			}})
+		c.AddToast(ui.Toast{Type: "success", Title: i18n.T(c, "updates_ready", "version", version), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_view"),
+			OnAction: func() { u.Review() }})
 	}
 	if f := u.Failure; f != nil && f != u.shownFailure {
 		c.AddToast(ui.Toast{Type: "error", Title: i18n.T(c, f.Key), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_details"),

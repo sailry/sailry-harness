@@ -58,3 +58,7 @@ teams_settings_failed: "Não foi possível salvar a concorrência"
 teams_settings_unknown: "Resultado desconhecido; tente novamente para verificar"
 teams_settings_retry: "Tentar novamente"
 teams_settings_load_failed: "Não foi possível carregar a concorrência"
+role_avatar: Avatar
+role_avatar_seed: Avatar %{seed}
+role_avatar_shuffle: Outros
+role_avatar_none: Padrão

@@ -8,3 +8,6 @@ host_network_load_failed: "無法載入網路設定"
 host_pairing_mode: "配對碼"
 host_pairing_hint: "連線已安裝 Sailry 的裝置"
 host_setup_unconfirmed: "主機設定尚未確認，請先檢查主機"
+host_ssh_mode: 透過 SSH 安裝
+host_install_hint: 在伺服器上安裝 Sailry 並連線
+host_ssh_agent_hint: 使用此電腦 SSH Agent 中已載入的金鑰登入

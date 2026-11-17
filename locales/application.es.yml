@@ -185,7 +185,7 @@ project_branch: "Ramas"
 project_branch_placeholder: "Rama por defecto"
 project_destination: "Destino"
 project_clone_required: "Ingrese un nombre, repositorio y destino"
-project_clone_failed: "Clonar incompleto; comprobar el destino"
+project_clone_failed: "No se pudo clonar; comprueba la URL, la rama y la red"
 project_outcome_unknown: "Resultado no confirmado; comprueba el destino. Reintentar comprueba la solicitud original."
 project_appearance: "Apariencia del proyecto"
 project_name_placeholder: "Ingrese un nombre"
@@ -266,7 +266,7 @@ metrics_worker: "Trabajador de vista previa"
 metrics_indexer: "Indexador de vista previa"
 metrics_rate: "%{value}/s"
 tunnels_title: "Túneles portuarios"
-port_title: "Reenvío de puertos"
+port_title: "Puertos"
 port_remote: "Puerto de host"
 port_local: "Puerto local (0 para automático)"
 port_close: "Reenvío cercano"
@@ -281,7 +281,7 @@ tunnel_ports_value: "Puertos permitidos: %{ports}"
 tunnel_ports_label: "Puertos permitidos"
 tunnel_ports_placeholder: "3000, 5173, 8080"
 tunnel_edit: "Editar puertos permitidos"
-tunnel_policy_hint: "Separe los puertos con comas o espacios; déjelo en blanco para no permitir ninguno."
+tunnel_policy_hint: "Solo cambia la vista previa de este host. Separe los puertos con comas o espacios; déjelo en blanco para no permitir ninguno."
 tunnel_invalid_ports: "Ingrese los puertos del 1 al 65535, separados por comas o espacios"
 tunnel_policy_changed: "Configuración o acceso cambiado; vuelva a abrir el editor"
 tunnel_readonly: "La directiva de puerto remoto es de solo lectura; edítela en el host de destino"
@@ -289,7 +289,7 @@ tunnels_loading: "Túneles de lectura (vista previa)"
 tunnels_empty: "Sin asignaciones de túneles"
 tunnel_load_error: "No se pudo leer los túneles (vista previa)"
 tunnels_retry: "Vuelve a intentar vista previa"
-tunnel_route: "Local %{local} → Anfitrión %{remote}"
+tunnel_route: "Local %{local} → Host %{remote}"
 tunnel_open: "Dirección abierta (vista previa)"
 tunnel_open_hint: "Solo asignación de direcciones; no se inicia ninguna solicitud de navegador o red"
 tunnel_close: "Cerrar túnel de vista previa"
@@ -320,13 +320,13 @@ worktree_manage: "Gestionar los árboles de trabajo"
 worktree_actions: "Acciones del árbol de trabajo"
 workspace_open_worktree: "Abrir el árbol de trabajo"
 workspace_session_actions: "Acciones de sesión"
-worktree_load_failed: "No se pudo cargar worktrees"
+worktree_load_failed: "No se pudieron cargar los árboles de trabajo"
 worktree_revision_failed: "No se pudo resolver el punto de inicio"
 worktree_context_changed: "Proyecto cambiado, vuelva a abrir esta vista"
 worktree_outcome_unknown: "Resultado no confirmado, compruebe el árbol de trabajo"
 worktree_conflict: "Conflictos de propiedad de rama, directorio o proyecto"
 worktree_invalid: "Compruebe la rama y la ruta absoluta"
-worktree_not_found: "No se encontró el proyecto, directorio o confirmación inicial"
+worktree_not_found: "No se encontró el proyecto, directorio o commit inicial"
 worktree_request_failed: "La operación falló, compruebe los permisos y la conexión"
 worktree_unavailable: "Directorio no disponible"
 worktree_listing_partial: "Lista parcial del árbol de trabajo"
@@ -462,7 +462,7 @@ plugins_select_source: "Seleccione el árbol de trabajo"
 plugins_source_required: "Seleccione un árbol de trabajo"
 plugins_relative_path: "Directorio del paquete (relativo al árbol de trabajo)"
 plugins_no_source: "Agregar un proyecto de origen primero"
-plugins_remove_effect: "¿Desinstalar «%{name}»? Se conservarán los datos del complemento"
+plugins_remove_effect: "¿Desinstalar «%{name}»? Se conservarán los datos del plugin"
 plugins_conflict: "Plugin cambiado; reabrir"
 plugins_not_found: "No se encontró el plugin o el directorio de origen"
 plugins_invalid: "Paquete o ruta de plugin no válidos"
@@ -709,8 +709,7 @@ provider_azure_openai_hint: "https://resource.openai.azure.com"
 provider_azure_ai_hint: "https://resource.services.ai.azure.com/models"
 provider_cloud_required: "Ingrese la configuración del proveedor de la nube"
 provider_headers: "Encabezados de solicitud personalizados"
-provider_headers_hint: "Uno por línea: Nombre: valor"
-provider_headers_invalid: "Cada línea de encabezado necesita un nombre y dos puntos"
+provider_headers_invalid: "Cada encabezado con valor necesita un nombre"
 provider_metadata_fill: "Información completa"
 provider_deployment_id: "Nombre de implementación"
 provider_xai: "xAI"
@@ -857,7 +856,7 @@ chat_config_desktop: "Configuración de escritorio"
 chat_provider_source: "%{name} · %{source}"
 settings_save: "Guardar"
 chat_provider_session: "%{name} · Sesión en curso"
-chat_provider_node: "%{name}"
+chat_provider_node: "%{name} · Host"
 tool_waiting: "En ejecución"
 tool_interrupted: "Resultado no confirmado"
 tool_unavailable: "Herramienta no disponible"
@@ -999,7 +998,7 @@ settings: "Configuración"
 navigation: "Navegación"
 hosts: "Hosts"
 local_host: "Local · Vista previa"
-remote_host: "Diseño anfitrión · Vista previa"
+remote_host: "Host de diseño · Vista previa"
 local_host_name: "sailry-mac.local"
 local_host_detail: "macOS · aarch64 · Vista previa"
 remote_host_name: "design-node.local"
@@ -1123,7 +1122,7 @@ composer_mode_plan_description: "Planifica proyectos y soluciones sin ejecutar c
 composer_mode_flagship: "Colaboración"
 composer_mode_flagship_description: "Varios agentes trabajan con código y archivos, ideal para refactorizar y organizar"
 composer_context: "Contexto"
-composer_branch_none: "No hay sucursal"
+composer_branch_none: "Sin rama"
 composer_host_local: "Dispositivo local"
 composer_host_remote: "Remoto"
 composer_host_hint: "%{name} · Desconectado · Vista previa de la interfaz de usuario"
@@ -1155,7 +1154,7 @@ composer_cache: "Caché"
 composer_turns: "Turnos"
 composer_input_tokens: "Tokens de entrada"
 composer_output_tokens: "Tokens de salida"
-composer_reasoning_tokens: "Fichas de razonamiento"
+composer_reasoning_tokens: "Tokens de razonamiento"
 composer_cached_tokens: "Tokens en caché"
 composer_responses: "Responses"
 composer_metric_percent: "%{value}%"
@@ -1314,20 +1313,20 @@ files_changed_unavailable: "El archivo fue eliminado o no se puede leer"
 readonly: "Vista previa de solo lectura"
 resource_link_preview: "Solo vista previa del enlace; no se accede a URL externas ni a archivos reales"
 resource_link_title: "Vista previa de enlace"
-git_commit_message: "Mensaje de confirmación"
+git_commit_message: "Mensaje de commit"
 git_commit: "Commit"
 git_amend: "Modificar el último commit"
-git_commit_staged: "Confirmar cambios por etapas"
-git_amend_hint: "Enmendar reescribe el historial; confirma que la confirmación no ha sido compartida"
-git_committing: "Creando commit"
+git_commit_staged: "Hacer commit de los cambios preparados"
+git_amend_hint: "Modificar reescribe el historial; asegúrate de que el commit no se ha compartido"
+git_committing: "Haciendo commit"
 git_identity_missing: "Configurar un nombre y correo electrónico Git"
-git_commit_unavailable: "Confirmación incompleta, comprueba la salida Git; tu mensaje se conserva"
-git_commit_failed: "La confirmación falló, compruebe los conflictos, los cambios en espera y los bloqueos; su mensaje se conserva"
-git_commit_unknown: "El resultado de la confirmación no se ha confirmado; puede haberse completado. Compruebe el historial antes de continuar"
-git_stage_all: "Todas las etapas"
-git_actions_preview: "Git acciones"
+git_commit_unavailable: "Commit incompleto, comprueba la salida Git; tu mensaje se conserva"
+git_commit_failed: "El commit falló, compruebe los conflictos, los cambios preparados y los bloqueos; su mensaje se conserva"
+git_commit_unknown: "El resultado del commit no se ha confirmado; puede haberse completado. Compruebe el historial antes de continuar"
+git_stage_all: "Preparar todo"
+git_actions_preview: "Acciones de Git"
 git_preview_only: "Vista previa"
-git_diff_empty: "No hay diferencia"
+git_diff_empty: "No hay diferencias"
 file_intro: "# Sailry\n\nUn espacio de trabajo de agente de escritorio nativo.\n\n## Estructura de UI\n\n- Columnas de navegación, contenido principal y contexto\n- GPUI Kit componentes y temas semánticos\n- Encabezados de recursos compartidos para conversaciones, archivos y herramientas de desarrollo\n\nEste es un ejemplo agrupado; no se lee ningún proyecto real."
 file_design: "# Diseño de escritorio\n\nLa columna izquierda mantiene el árbol de host y proyecto, la del medio muestra los recursos y la derecha se abre según sea necesario.\n\nLas ventanas estrechas contraen la columna derecha primero; las opciones manuales se mantienen cuando el ancho regresa."
 diff_intro: "```diff\n- workspace: nested cards\n+ workspace: three flat panels\n\n- toolbar: global resource actions\n+ toolbar: current resource header\n```"
@@ -1346,7 +1345,7 @@ message_text_extra_large: "Muy grande"
 settings_appearance: "Apariencia"
 settings_terminal: "Terminal"
 settings_security: "Seguridad"
-settings_plugins: "Complementos"
+settings_plugins: "Plugins"
 settings_mcp: "MCP"
 settings_providers: "Modelos"
 settings_media: "Modelos de medios"
@@ -1401,7 +1400,7 @@ settings_add: "Añadir"
 settings_name: "Nombre"
 settings_editor_notice: "Vista previa del formulario; sin configuración, plugins, credenciales o conexiones remotas"
 settings_sample_plugin: "Conjunto de herramientas del proyecto"
-settings_plugin_detail: "Complemento de vista previa · Herramientas de archivos y proyectos · No cargado"
+settings_plugin_detail: "Plugin de vista previa · Herramientas de archivos y proyectos · No cargado"
 settings_sample_mcp: "Servidor de contexto de proyecto"
 settings_mcp_detail: "Vista previa MCP servidor · No iniciado"
 settings_sample_provider: "Proveedor de vista previa"
@@ -1528,7 +1527,7 @@ reference_files_description: "Vista previa de archivos en el árbol de trabajo a
 reference_agents: "Subagentes"
 reference_agents_description: "Referencia de subagentes configurados"
 reference_sessions: "Sesiones"
-reference_sessions_description: "Conversaciones disponibles"
+reference_sessions_description: "Sesiones disponibles"
 reference_context: "Contexto del espacio de trabajo"
 reference_context_description: "Host, proyecto y árbol de trabajo"
 reference_directory: "Referir este directorio"
@@ -1547,13 +1546,13 @@ worktree_remove: "Eliminar el árbol de trabajo"
 worktree_remove_preview: "Eliminar el árbol de trabajo"
 worktree_remove_description: "Cambia al árbol de trabajo principal después de la eliminación"
 worktree_remove_preview_hint: "Elimina solo el registro de vista previa"
-worktree_remove_missing: "Página no encontrada"
+worktree_remove_missing: "Árbol de trabajo no encontrado"
 worktree_remove_changed: "Árbol de trabajo o ruta de proyecto cambiada; cancelar y confirmar de nuevo"
 worktree_remove_main: "No se puede eliminar el árbol de trabajo principal"
 worktree_remove_locked: "El árbol de trabajo está bloqueado"
 worktree_remove_untrusted: "El proyecto no es de confianza; no se puede eliminar el árbol de trabajo"
-worktree_remove_dirty: "Worktree tiene cambios sin confirmar; no se puede eliminar"
-worktree_remove_busy: "Worktree está en uso"
+worktree_remove_dirty: "El árbol de trabajo tiene cambios sin commit; no se puede eliminar"
+worktree_remove_busy: "El árbol de trabajo está en uso"
 worktree_remove_detached: "No se pudo verificar la propiedad del árbol de trabajo"
 worktree_remove_sessions: "Las sesiones, incluidas las archivadas, todavía hacen referencia a este árbol de trabajo"
 worktree_remove_terminals: "Cierre primero los terminales de este árbol de trabajo"
@@ -1620,9 +1619,9 @@ git_initialize: "Inicializar el repositorio Git"
 git_initialize_preview: "Inicializar el repositorio de vista previa"
 git_initialize_description: "Inicializa la vista previa solamente"
 git_unborn_title: "No hay commits"
-git_unborn_changes: "Cambios antes de la primera confirmación"
+git_unborn_changes: "Cambios antes del primer commit"
 git_initialize_changed: "Ruta del proyecto cambiada; reabrir la inicialización"
-git_worktree_requires_commit: "El repositorio no tiene confirmaciones; no se puede crear un árbol de trabajo desde una referencia"
+git_worktree_requires_commit: "El repositorio no tiene commits; no se puede crear un árbol de trabajo desde una referencia"
 git_detached: "Detached HEAD"
 directory_title: "Seleccione el directorio"
 directory_scope: "%{host} · Directorios de vista previa; sin acceso al sistema de archivos"
@@ -1681,58 +1680,58 @@ files_loading: "Leyendo…"
 git_loading: "Cargando"
 git_read_failed: "No se pudo leer el estado Git"
 git_branches: "Ramas"
-git_manage_branches: "Gestionar las sucursales"
-git_new_branch: "Nueva sucursal"
+git_manage_branches: "Gestionar las ramas"
+git_new_branch: "Nueva rama"
 git_create_branch: "Crear una rama"
 git_rename_branch: "Cambiar nombre de rama"
-git_branch_source: "Subdivisión fuente"
+git_branch_source: "Rama de origen"
 git_branch_rename_failed: "No se pudo renombrar la rama"
 git_branch_rename_unknown: "Renombrar resultado no confirmado, comprobar ramas y seguimiento"
-git_branch_rename_conflict: "Ramificación cambiada, refrescar antes de renombrar"
+git_branch_rename_conflict: "La rama cambió; actualiza antes de renombrar"
 git_delete_branch: "Eliminar rama"
-git_merge_branch: "Ramificación de fusión"
+git_merge_branch: "Fusionar rama"
 git_merge_branch_confirm: "Fusionar esta rama en la rama actual"
-git_merging_branch: "Sucursal de fusión"
+git_merging_branch: "Fusionando rama"
 git_merge_failed: "La fusión falló, compruebe los conflictos y la conexión"
 git_merge_unknown: "Resultado de fusión no confirmado, compruebe el árbol de trabajo y el historial"
 git_merge_conflict: "La rama ha cambiado o tiene conflictos"
 git_delete_branch_confirm: "Eliminar esta rama local fusionada"
-git_deleting_branch: "Eliminar una rama"
+git_deleting_branch: "Eliminando rama"
 git_branch_delete_failed: "No se pudo eliminar la rama"
 git_branch_delete_unknown: "Resultado de la eliminación no confirmado, comprueba las ramas y el seguimiento"
 git_branch_delete_conflict: "La rama ha cambiado o está en uso"
 git_branch_base: "Punto de partida"
-git_branch_name: "Nombre de la sucursal"
-git_branch_name_required: "Introduzca un nombre de sucursal"
+git_branch_name: "Nombre de la rama"
+git_branch_name_required: "Introduzca un nombre de rama"
 git_branch_name_invalid: "Nombre de rama no válido"
-git_branch_exists: "La sucursal ya existe"
+git_branch_exists: "La rama ya existe"
 git_branch_create_denied: "No se pudo acceder al repositorio"
 git_branch_create_failed: "No se pudo crear la rama"
 git_branch_create_unknown: "Resultado de la creación no confirmado, comprueba la lista de ramas"
 git_branch_context_changed: "Proyecto cambiado, vuelva a abrir esta vista"
-git_local_branches: "Sucursales locales"
-git_remote_branches: "Sucursales remotas"
-git_no_branches: "No hay sucursales"
+git_local_branches: "Ramas locales"
+git_remote_branches: "Ramas remotas"
+git_no_branches: "No hay ramas"
 git_branches_partial: "Mostrando algunas ramas"
 git_branches_failed: "No se pudo cargar las ramas"
-git_switching_branch: "Sucursal de conmutación"
+git_switching_branch: "Cambiando de rama"
 git_branch_failed: "No se pudo cambiar de rama"
 git_branch_unknown: "Resultado del cambio no confirmado, comprueba la rama y los archivos"
-git_branch_conflict: "Ramificación o archivos cambiados"
+git_branch_conflict: "La rama o los archivos cambiaron"
 git_branch_busy: "El repositorio está ocupado"
 git_branch_revision: "Repositorio cambiado, refrescar"
 git_diff_partial: "Diferencia parcial"
 git_diff_binary: "No se puede mostrar el diff binario"
 git_no_changes: "No hay cambios"
 git_staged: "Preparados"
-git_unstaged: "No clasificado"
-git_history: "Historial de confirmaciones"
+git_unstaged: "Sin preparar"
+git_history: "Historial de commits"
 git_history_empty: "No hay commits"
-git_history_partial: "Historia parcial"
-git_stage_file: "Archivo de etapa"
-git_unstage_file: "Archivo de Unstage"
-git_updating_index: "Actualización de la preparación"
-git_index_conflict: "Git estado cambiado, actualizar"
+git_history_partial: "Historial parcial"
+git_stage_file: "Preparar archivo"
+git_unstage_file: "Quitar archivo de preparados"
+git_updating_index: "Actualizando la preparación"
+git_index_conflict: "El estado de Git cambió, actualiza"
 files_save: "Guardar"
 terminal_number: "Terminal %{number}"
 terminal_unavailable: "Terminal no disponible; compruebe la conexión del host"
@@ -1784,20 +1783,20 @@ tool_group_count: "%{count} artículos"
 git_layout_list: "Lista"
 git_layout_tree: "Árbol"
 git_all_changes: "Todos los cambios"
-git_select_all: "Seleccionar todo el contenido"
+git_select_all: "Seleccionar todo"
 git_stage_selected: "Preparar los archivos seleccionados"
-git_unstage_selected: "Eliminar archivos seleccionados"
-git_unstage_all: "Desactivar todo"
+git_unstage_selected: "Quitar de preparados los archivos seleccionados"
+git_unstage_all: "Quitar todo de preparados"
 git_refresh: "Actualizar"
 git_view_changes: "Cambios"
 git_create_from_branch: "Crear desde esta rama"
-git_copy_branch: "Copiar nombre de sucursal"
+git_copy_branch: "Copiar nombre de rama"
 git_branch_actions: "Acciones de la rama"
 git_switch_branch: "Cambiar de rama"
-git_open_source: "Código abierto"
+git_open_source: "Abrir origen"
 git_copy_path: "Copiar la ruta"
 git_view_history: "Historial"
-git_prepare_commit: "Confirmar los cambios"
+git_prepare_commit: "Hacer commit de los cambios"
 git_view_options: "Ver las opciones"
 git_view: "Ver"
 git_sort: "Ordenar"
@@ -1806,14 +1805,14 @@ git_sort_name: "Ordenar por nombre"
 git_group: "Grupo"
 git_group_none: "Sin agrupación"
 git_group_tracked: "Agrupar por seguimiento"
-git_group_staged: "Agrupar por etapa"
-git_tracked: "Seguimiento"
+git_group_staged: "Agrupar por preparación"
+git_tracked: "Con seguimiento"
 git_untracked: "Sin seguimiento"
 git_view_diff: "Ver diferencias"
 git_diff: "Diferencias"
-git_stage: "Etapa"
-git_unstage: "Unstage"
-git_search_branches: "Buscar sucursales"
+git_stage: "Preparar"
+git_unstage: "Quitar de preparados"
+git_search_branches: "Buscar ramas"
 git_discard_tracked: "Descartar los cambios de archivo rastreados"
 git_discard_confirm: "¿Descartar los cambios? Esto no se puede deshacer"
 git_fetch: "Obtener"
@@ -1821,90 +1820,90 @@ git_fetch_from: "Obtener desde remoto"
 git_pull: "Pull"
 git_pull_rebase: "Pull con rebase"
 git_push: "Push"
-git_push_to: "Empuje a"
+git_push_to: "Push a"
 git_publish: "Publicar la rama"
 git_force_push: "Forzar push"
-git_force_push_confirm: "¿Forzar el envío? Los commits remotos pueden ser sobrescritos"
-git_no_remotes: "No hay controles remotos configurados"
+git_force_push_confirm: "¿Forzar push? Los commits remotos pueden sobrescribirse"
+git_no_remotes: "No hay remotos configurados"
 git_continue: "Continuar"
-git_abort: "Aborto"
+git_abort: "Abortar"
 git_rebase: "Rebase"
-git_cherry_pick: "Cherry-pick commit"
+git_cherry_pick: "Cherry-pick del commit"
 git_track: "Configurar la rama ascendente"
 git_working: "En curso"
-git_action_failed: "Git operación fallida"
-git_action_unknown: "Git resultado no confirmado, actualice antes de continuar"
-git_commit_tracked: "Confirmar archivos rastreados"
-git_signoff: "Cierre de sesión"
-git_skip_hooks: "Ganchos de salto"
-git_expand_commit: "Expandir mensaje de confirmación"
-git_undo_commit: "Deshacer la última confirmación"
-git_undo_confirm: "¿Deshacer la última confirmación? Los cambios en el archivo se conservarán"
-git_stash_all: "Almacenar todo"
-git_stash_tracked: "Almacenamiento de archivos rastreados"
-git_stash_staged: "Almacenar cambios por etapas"
+git_action_failed: "La operación de Git falló"
+git_action_unknown: "Resultado de Git no confirmado, actualice antes de continuar"
+git_commit_tracked: "Hacer commit de archivos rastreados"
+git_signoff: "Firmar"
+git_skip_hooks: "Omitir hooks"
+git_expand_commit: "Expandir mensaje de commit"
+git_undo_commit: "Deshacer el último commit"
+git_undo_confirm: "¿Deshacer el último commit? Los cambios en el archivo se conservarán"
+git_stash_all: "Hacer stash de todo"
+git_stash_tracked: "Hacer stash de archivos rastreados"
+git_stash_staged: "Hacer stash de cambios preparados"
 git_view_stash: "Ver el stash"
-git_no_stash: "No hay escondites"
+git_no_stash: "No hay stashes"
 git_stash_apply: "Aplicar el stash"
-git_stash_pop: "Cofre de pop"
+git_stash_pop: "Aplicar y quitar stash"
 git_stash_drop: "Eliminar stash"
 git_stash_drop_confirm: "Eliminar este stash permanentemente"
-git_action_conflict: "Git estado cambiado, actualizar"
-git_auth_failed: "Git la autenticación falló"
+git_action_conflict: "El estado de Git cambió, actualiza"
+git_auth_failed: "La autenticación de Git falló"
 git_trash_untracked: "Mover archivos sin seguimiento a la papelera"
 git_trash_confirm: "Mover todos los archivos sin seguimiento a la papelera"
-git_add_remote: "Añadir a remoto"
-git_remote_name: "Nombre remoto"
+git_add_remote: "Añadir remoto"
+git_remote_name: "Nombre del remoto"
 git_remote_url: "URL remota"
-git_actions: "Git acciones"
+git_actions: "Acciones de Git"
 git_checkout: "Checkout"
 git_clone: "Clonar"
 git_changes_menu: "Cambios"
-git_pull_push: "Tire y empuje"
+git_pull_push: "Pull y push"
 git_remotes: "Remotes"
-git_stash_menu: "Almacenamiento"
+git_stash_menu: "Stashes"
 git_tags: "Etiquetas"
 git_worktrees: "Árboles de trabajo"
 git_output: "Salida"
 git_sort_status: "Ordenar por estado"
-git_commit_all: "Commit de todo"
-git_commit_amend: "Compromiso y enmienda"
-git_commit_staged_amend: "Commit staged y amend"
-git_commit_all_amend: "Compromiso de todos y enmienda"
-git_commit_signoff: "Comprometerse y firmar"
-git_commit_staged_signoff: "Confirmar en etapa y cerrar sesión"
-git_commit_all_signoff: "Confirme todo y cierre la sesión"
-git_commit_push: "Compromiso y empuje"
-git_commit_sync: "Confirmar y sincronizar"
-git_commit_scope: "Alcance del compromiso"
-git_commit_sync_failed: "Confirmado, pero la sincronización falló"
+git_commit_all: "Hacer commit de todo"
+git_commit_amend: "Hacer commit y modificar"
+git_commit_staged_amend: "Hacer commit de preparados y modificar"
+git_commit_all_amend: "Hacer commit de todo y modificar"
+git_commit_signoff: "Hacer commit y firmar"
+git_commit_staged_signoff: "Hacer commit de preparados y firmar"
+git_commit_all_signoff: "Hacer commit de todo y firmar"
+git_commit_push: "Hacer commit y push"
+git_commit_sync: "Hacer commit y sincronizar"
+git_commit_scope: "Alcance del commit"
+git_commit_sync_failed: "Commit hecho, pero la sincronización falló"
 git_discard_all: "Descartar todos los cambios"
 git_sync: "Sincronizar"
 git_sync_rebase: "Sincronizar con rebase"
-git_pull_from: "Tire de"
-git_fetch_prune: "Buscar y podar"
+git_pull_from: "Pull desde"
+git_fetch_prune: "Obtener y podar"
 git_fetch_all: "Obtener todo"
 git_branch_from: "Crear rama desde"
 git_delete_remote_branch: "Eliminar rama remota"
-git_remove_remote: "Quitar el control remoto"
-git_remove_remote_confirm: "¿Quitar este remoto? Los archivos locales y las confirmaciones se mantendrán"
+git_remove_remote: "Quitar remoto"
+git_remove_remote_confirm: "¿Quitar este remoto? Los archivos locales y los commits se mantendrán"
 git_stash_apply_latest: "Aplicar último stash"
-git_stash_pop_latest: "Pop último escondite"
-git_stash_drop_all: "Eliminar todos los escondites"
+git_stash_pop_latest: "Aplicar y quitar el último stash"
+git_stash_drop_all: "Eliminar todos los stashes"
 git_stash_view: "Ver el stash"
 git_tag_create: "Crear una etiqueta"
-git_tag_message: "Etiqueta de mensaje"
+git_tag_message: "Mensaje de la etiqueta"
 git_tag_delete: "Eliminar etiqueta"
 git_tag_delete_remote: "Eliminar etiqueta remota"
-git_tag_push: "Etiqueta de empuje"
+git_tag_push: "Push de etiqueta"
 git_worktree_open: "Abrir el árbol de trabajo"
 git_tracking_name: "Rama de seguimiento"
 git_no_matches: "No hay coincidencias"
 git_load_failed: "No se pudo cargar los datos Git"
 git_unborn: "No hay commits"
-git_delete_confirm: "Esto no se puede deshacer"
-git_stash_switch: "Almacenar y cambiar"
-git_discard_all_confirm: "¿Descartar todos los cambios? Esto no se puede deshacer"
+git_delete_confirm: "¿Eliminar? Esto no se puede deshacer"
+git_stash_switch: "Hacer stash y cambiar"
+git_discard_all_confirm: "¿Descartar todos los cambios, incluidos los preparados? Los archivos nuevos se moverán a la papelera"
 worktree_commit_first: "Crear un commit primero"
 turn_changes_undo_all: "Deshacer los cambios"
 turn_changes_undone: "Deshecho"
@@ -1965,12 +1964,12 @@ project_remove_sample: "Eliminar vista previa del proyecto “%{name}”"
 worktree_remove_named: "Eliminar el árbol de trabajo “%{name}”? La rama Git se mantendrá"
 worktree_remove_sample: "Eliminar el árbol de trabajo de muestra “%{name}”"
 git_initialize_sample: "Inicializar vista previa “%{name}”"
-port_mappings: "Asignaciones de puertos"
+port_mappings: "Puertos"
 location_project: "Proyecto"
 location_create: "Nuevo árbol de trabajo"
 location_fork: "Árbol de trabajo de horquilla"
 location_copy_changes: "Copiar los cambios"
-location_created_changed: "Creado worktree cambiado"
+location_created_changed: "El árbol de trabajo creado cambió"
 location_busy: "La sesión tiene tareas en ejecución o en cola"
 location_changed: "Cambió la sesión; vuelva a seleccionar la ubicación de trabajo"
 form_name_hint: "Nombre"
@@ -1992,9 +1991,9 @@ form_package_hint: "Nombre o ruta del paquete del plugin"
 form_directory_hint: "Directorio de trabajo (opcional)"
 form_remote_hint: "URL remota"
 form_filename_hint: "Nombre de archivo o carpeta"
-form_branch_hint: "Nombre de la sucursal"
+form_branch_hint: "Nombre de la rama"
 form_worktree_path_hint: "Ruta absoluta del árbol de trabajo"
-form_revision_hint: "Ramificar, etiquetar o confirmar"
+form_revision_hint: "Rama, etiqueta o commit"
 form_role_id_hint: "Por ejemplo, code-reviewer"
 form_turns_hint: "Dejar en blanco para no límite"
 form_role_instructions_hint: "Ingrese las instrucciones"
@@ -2289,7 +2288,6 @@ updates_channel_experience: "Experiencia"
 updates_version: "Versión"
 updates_check: "Buscar actualizaciones"
 updates_download: "Descargar"
-updates_install: "Instalar y reiniciar"
 updates_restart: "Reiniciar"
 updates_restart_description: "Los borradores se restaurarán después del reinicio; las tareas y terminales locales se detendrán"
 updates_checking: "Comprobando"
@@ -2322,6 +2320,12 @@ updates_restarting: "Reiniciando"
 updates_install_uncertain: "El resultado de la instalación no está confirmado; se conservó la aplicación original"
 updates_receipt_failed: "La actualización se instaló; no se pudo guardar los detalles de recuperación"
 updates_details: "Detalles"
+updates_available: "%{version} disponible"
+updates_downloading: "Descargando %{version}"
+updates_ready_now: "%{version} está lista"
+updates_restart_now: "Reiniciar ahora"
+updates_later: "Más tarde"
+updates_view: "Ver"
 updates_recovery_failed: "El borrador de recuperación no pudo completarse"
 updates_profile_inside: "El perfil de datos está dentro de Sailry; muévalo antes de actualizar"
 chat_assets_title: "Actividad"
@@ -2694,3 +2698,147 @@ compaction_settings_load_failed: "No se pudieron cargar los ajustes de compresi�
 compaction_settings_conflict: "Los ajustes de compresión cambiaron. Reintenta"
 compaction_settings_failed: "No se pudieron guardar los ajustes de compresión"
 compaction_settings_unknown: "Guardado sin confirmar. Reintenta"
+project_archived: Archivado
+session_delete_private_files: También se eliminan los archivos de su espacio de trabajo privado
+session_delete_private_named: Eliminar “%{name}”, sus subagentes y archivos del espacio de trabajo privado de forma permanente
+worktree_main: Principal
+worktree_open_busy: Esta sesión no puede cambiar de árbol de trabajo ahora
+worktree_created: Árbol de trabajo creado
+worktree_removed: Árbol de trabajo eliminado
+worktree_prune: Limpiar árbol de trabajo obsoleto
+worktree_prune_confirm: Quitar este registro obsoleto; no se eliminan archivos
+worktree_prune_exists: El directorio aún existe; no hay nada que limpiar
+worktree_path_exists: La ruta ya existe
+worktree_unused: Sin sesión
+git_branch_checked_out: La rama está activa en otro árbol de trabajo
+project_visibility: Visibilidad
+project_visibility_private: Privado
+project_visibility_shared: Compartido en el host
+git_cherry_pick_confirm: Aplicar este commit a la rama actual
+git_copy_commit_id: Copiar ID del commit
+background_running: En segundo plano
+background_exit: Código de salida %{code}
+background_result_waiting: Resultado no entregado
+chat_compact_failed_paused: La compactación falló; compactación automática en pausa
+composer_execution_host: Host de ejecución
+connections_bidirectional: Bidireccional
+connections_legacy_bidirectional: Bidireccional (heredado)
+connections_only_host: Solo host
+connections_only_controller: Solo controlador
+connections_direction_saved: Acceso del dispositivo actualizado
+session_order_recent: Actualizadas recientemente
+session_order_name: Nombre
+sidebar_sort: Ordenar
+provider_login_callback_placeholder: Si el inicio de sesión no vuelve automáticamente, pega el código o la URL de retorno
+knowledge_collections: Colecciones
+knowledge_collection_pending: Esperando indexación
+knowledge_collection_unavailable: Node de almacenamiento no disponible
+knowledge_collection_indexing: Indexando · %{count} elementos
+knowledge_collection_ready: Actualizado · %{count} elementos
+knowledge_collection_paused: En pausa
+knowledge_collection_failed: Error · %{reason}
+knowledge_collection_failures: '%{count} sin indexar · %{reason}'
+knowledge_pause: Pausar
+knowledge_resume: Reanudar
+knowledge_update: Actualizar
+mcp_show_secret: Mostrar credencial
+mcp_hide_secret: Ocultar credencial
+git_diff_side_by_side: En paralelo
+git_diff_inline: En línea
+git_diff_needs_width: La vista en paralelo necesita más ancho
+workspace_action_failed: La acción del espacio de trabajo falló
+workspace_changed: El espacio de trabajo cambió; recarga antes de reintentar
+workspace_action_unknown: Resultado incierto; revisa antes de reintentar
+workspace_saved: Guardado
+files_changed_on_disk: Cambiado en el disco
+files_conflict_description: Sobrescribir reemplaza el archivo del disco con tu borrador; Recargar descarta tu borrador
+files_keep_editing: Seguir editando
+files_reload: Recargar
+files_overwrite: Sobrescribir
+workspace_completed: Completado
+workspace_restore_confirm: Restaurar las versiones anteriores de los archivos de este turno
+subagent_stop: Detener subagente
+subagent_stop_failed: No se pudo detener; reintenta
+subagent_stop_unknown: Detención no confirmada; revisa el estado del subagente
+files_cancel_remaining: Cancelar restantes
+content_preview: Vista previa
+files_block: Texto
+files_block_bullet: Lista con viñetas
+files_block_callout: Destacado
+files_block_code: Bloque de código
+files_block_heading: Encabezado {level}
+files_block_ordered: Lista numerada
+files_block_paragraph: Párrafo
+files_block_quote: Cita
+files_block_task: Lista de tareas
+files_bold: Negrita
+files_inline_code: Código en línea
+files_insert: Insertar
+files_insert_chart: Gráfico
+files_insert_code: Bloque de código
+files_insert_diagrams: Diagramas
+files_insert_html: Bloque HTML
+files_insert_image: Imagen
+files_insert_math: Fórmula
+files_insert_mermaid: Mermaid
+files_insert_rule: Separador
+files_insert_table: Tabla
+files_italic: Cursiva
+files_link: Enlace
+files_more: Más
+files_replace: Buscar y reemplazar
+files_strike: Tachado
+files_wrap: Ajuste de línea
+refresh: Actualizar
+git_initialize_nested_confirm: El nuevo repositorio contendrá estos repositorios
+git_repositories: Contiene %{count} repositorios Git
+git_switch_confirm: Cambiar a %{branch}
+git_switch_confirm_action: Cambiar
+git_switch_confirm_detail: Las sesiones, terminales y archivos abiertos de este árbol de trabajo pasan a esta rama.
+reference_load_failed: No se pudieron cargar las referencias
+host_ssh_windows_pairing: En Windows, instala y abre Sailry Desktop y luego añade el host con su código de emparejamiento.
+provider_capabilities: Capacidades
+provider_cap_understands: Entiende
+provider_cap_can: Puede
+provider_cap_generates: Genera
+media_image: Imagen
+media_video: Vídeo
+media_speech: Voz
+media_follow: Seguir el modelo de la conversación
+media_load_failed: No se pudieron leer los modelos de medios
+panel_history_empty: Aún no hay historial
+panel_documents_empty: Aún no hay documentos
+connections_copy_id: Copiar ID
+host_check_status: Comprobar estado
+files_unsaved_description: ¿Guardar los cambios antes de cerrar?
+files_unsaved_discard: Descartar
+files_save_all: Guardar todo
+settings_experimental: Experimental
+settings_experimental_description: Ajustes de desarrollo y depuración
+settings_code_index: Índice de código
+settings_code_index_description: Indexar el código del proyecto para las herramientas de búsqueda de código
+code_index_settings_saved: Guardado
+code_index_settings_failed: No se pudieron cargar o guardar los ajustes del índice de código
+code_index_settings_conflict: Los ajustes del índice de código cambiaron; inténtalo de nuevo
+code_index_settings_unknown: No se pudo confirmar el guardado de los ajustes del índice de código
+queue_guidance_outlived: La respuesta terminó antes; en cola como mensaje nuevo
+queue_halt_interrupted: Respuesta interrumpida; se conservan los mensajes en cola
+queue_halt_unsent: Mensaje no enviado; se conserva en la cola
+chat_output_limit: Respuesta cortada por el límite de salida
+start_failed: Sailry no pudo iniciarse
+start_profile_in_use: Sailry ya se está ejecutando con esta carpeta de datos
+backup_keep: Copias a conservar
+backup_keep_all: Todas
+backup_keep_last: Últimas %{count}
+backup_keep_confirm: ¿Conservar solo las últimas %{count} copias de seguridad?
+backup_keep_consequence: Tras cada copia, se eliminan del almacenamiento las copias anteriores de este Node. No se puede deshacer
+backup_last: Última copia
+backup_last_done: Completada
+backup_last_skipped: '%{count} elementos omitidos'
+backup_restart_restored: Reiniciar con el perfil restaurado
+backup_restart_consequence: Sailry se reinicia con el perfil restaurado. La carpeta de datos actual se conserva junto a él con un nombre fechado
+backup_restart_invalid: El perfil restaurado no se puede usar; no se cambió nada
+backup_restart_failed: Sailry no pudo cambiar al perfil restaurado
+port_count: '%{count} puertos'
+queue_messages_one: 1 mensaje en cola
+queue_messages_count: '%{count} mensajes en cola'

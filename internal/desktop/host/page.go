@@ -156,8 +156,15 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			headerFact(c, i18n.T(c, "metrics_processes"), processes)
 			ui.Row(c.Key("actions")).Gap(8).Wrap().Justify(ui.End).Children(func() {
 				portsHeader(c, s, h, act)
-				if h.Update != nil {
-					small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() { s.updating = true })
+				// The header offers the update only once there is one to
+				// follow; More checks for one at any time.
+				if h.Update != nil && h.Update.Pending() {
+					p := theme.Of(c)
+					kit.IconButton(c.Key("update"), icons.ArrowUp, i18n.T(c, "host_update"), 28, false).
+						OnClick(func() { s.updating = true }).
+						DrawOver(func(pt *ui.Painter, r ui.Rect) {
+							pt.Fill(ui.Rect{X: r.X + r.W - 8, Y: r.Y + 3, W: 6, H: 6}, p.Danger, 3)
+						})
 				}
 			})
 		})

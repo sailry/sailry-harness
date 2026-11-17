@@ -1,0 +1,4 @@
+pane_group: Teilungsgruppe %{number}
+workspace_tab_keep: Geöffnet lassen
+workspace_tab_release: Nicht mehr geöffnet lassen
+workspace_tab_unsplit: Teilung aufheben

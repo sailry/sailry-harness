@@ -1,0 +1,4 @@
+pane_group: 分割群組 %{number}
+workspace_tab_keep: 固定
+workspace_tab_release: 取消固定
+workspace_tab_unsplit: 取消分割

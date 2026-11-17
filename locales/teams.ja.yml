@@ -58,3 +58,7 @@ teams_settings_failed: "同時実行数を保存できませんでした"
 teams_settings_unknown: "保存結果が不明です。再試行して確認してください"
 teams_settings_retry: "再試行"
 teams_settings_load_failed: "同時実行数を読み込めませんでした"
+role_avatar: アバター
+role_avatar_seed: アバター %{seed}
+role_avatar_shuffle: シャッフル
+role_avatar_none: デフォルト

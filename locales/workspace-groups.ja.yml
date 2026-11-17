@@ -1,0 +1,4 @@
+pane_group: 分割グループ %{number}
+workspace_tab_keep: 開いたままにする
+workspace_tab_release: 固定を解除
+workspace_tab_unsplit: 分割を解除

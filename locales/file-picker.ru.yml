@@ -1,0 +1,13 @@
+directory_applications: Приложения
+directory_modified: Изменено
+directory_modified_today: Сегодня %{time}
+directory_modified_yesterday: Вчера %{time}
+directory_counts: 'Папок: %{directories}, файлов: %{files}'
+directory_counts_hidden: 'Папок: %{directories}, файлов: %{files}, скрытых: %{hidden}'
+directory_selected_files: 'Выбрано файлов: %{count}'
+directory_nothing_selected: Файл не выбран
+directory_failed: Не удалось прочитать папку
+directory_host_unavailable: Хост недоступен
+directory_fallback: Не удалось открыть %{path}; показана домашняя папка
+directory_trash: Переместить в корзину
+directory_trash_confirm: Переместить «%{name}» в корзину

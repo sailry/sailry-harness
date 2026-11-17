@@ -30,8 +30,13 @@ func TestHostPage(t *testing.T) {
 		}
 	}
 	snapshot(t, tt, "host-remote")
-	clickButton(t, tt, i18n.In("en", "host_update"))
-	tt.Frame()
+	// The header offers no update until one is found; More checks.
+	if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "host_update")); ok {
+		t.Error("the header offers an update before one is found")
+	}
+	openHostMore(t, tt)
+	clickItem(t, tt, i18n.In("en", "host_update"))
+	settle(tt)
 	clickButton(t, tt, i18n.In("en", "update_check"))
 	tt.Frame()
 	if h, _ := a.hostPage(); h.Update.Phase != "update_available" || !tt.HasText(i18n.In("en", "update_download")) {
@@ -416,9 +421,11 @@ func testHostDemo(t *testing.T) {
 		tt.Advance(time.Second)
 		tt.Frame()
 	}
-	// The remote host's update dialog, through its phases.
-	clickButton(t, tt, i18n.In("en", "host_update"))
-	tt.Frame()
+	// The remote host's update dialog, through its phases, from More:
+	// the header offers it only once an update is found.
+	openHostMore(t, tt)
+	clickItem(t, tt, i18n.In("en", "host_update"))
+	settle(tt)
 	marked("the update dialog")
 	clickButton(t, tt, i18n.In("en", "live_update_check"))
 	tt.Frame()

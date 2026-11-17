@@ -1,0 +1,3 @@
+ram_plugins: Плагины (оценка)
+ram_plugins_partial: '%{bytes} · частично'
+ram_plugins_error: Не удалось прочитать память плагинов

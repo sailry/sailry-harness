@@ -15,7 +15,7 @@ compact_reason_persistence: "要約を保存または適用できませんでし
 compact_task_continued: "タスクは元のコンテキストで続行できます"
 compact_task_stopped: "この操作は停止し、タスクは続行されませんでした"
 compact_suggest_report: "タスク停止後に再試行し、再発する場合は報告してください"
-compact_suggest_context: "コンテキスト容量の大きいモデルを使うか、新しい会話を開始してください"
+compact_suggest_context: "コンテキスト容量の大きいモデルを使うか、新しいセッションを開始してください"
 compact_suggest_retry: "モデルへの接続を確認して再試行してください"
 compact_reason_timeout: "要約リクエストがタイムアウトしました"
 compact_reason_rate: "モデルサービスのレート制限に達しました"

@@ -1,0 +1,20 @@
+host_update_local_artifacts: Utilise des artefacts Host compilés localement ; vérifiés lors de l’application
+live_host_runtime_error: Impossible de lire l’environnement d’exécution de Host
+live_metrics_loading: Chargement des métriques
+live_metrics_error: Impossible de lire les métriques de Host
+live_update_idle: Rechercher des mises à jour de Host
+live_update_checking: Recherche de mises à jour
+live_update_current: Host est à jour
+live_update_available: Mise à jour de Host disponible
+live_update_downloading: Préparation de la mise à jour
+live_update_verifying: Vérification de la mise à jour
+live_update_staged: Prête à appliquer
+live_update_applying: Application de la mise à jour
+live_update_restart: Redémarrage de Host
+live_update_failed: Échec de la mise à jour de Host
+live_update_loading: Chargement de la mise à jour
+live_update_unavailable: Mise à jour de Host indisponible
+live_update_check: Vérifier
+live_update_download: Préparer
+live_update_apply: Appliquer
+live_update_retry: Réessayer

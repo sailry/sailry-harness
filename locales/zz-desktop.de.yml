@@ -1,0 +1,38 @@
+files_reveal_explorer: Im Explorer anzeigen
+files_reveal_finder: Im Finder anzeigen
+files_reveal_manager: Im Dateimanager anzeigen
+git_branch_from_open: Branch erstellen aus…
+git_checkout_open: "Checkout…"
+git_delete_remote_branch_open: Remote-Branch löschen…
+git_pull_from_open: Pull von…
+git_remove_remote_open: Remote entfernen…
+git_stash_drop_all_open: Alle Stashes löschen…
+git_stash_view_open: Stash anzeigen…
+git_tag_create_open: Tag erstellen…
+git_tag_delete_open: Tag löschen…
+git_tag_delete_remote_open: Remote-Tag löschen…
+git_tag_push_open: Tag pushen…
+composer_group_prompts: Prompts
+composer_group_modes: Modi
+composer_group_session: Sitzung
+reference_group_connections: Verbindungen
+reference_group_skills: Skills
+reference_group_plugins: Plugins
+reference_group_attach: Anhänge
+appearance_blur: Unschärfe
+session_archive_named: „%{name}“ archivieren und aus aktiven Unterhaltungen ausblenden
+appearance_icon: Symbol
+appearance_color: Farbe
+settings_ram: Speichernutzung
+ram_heap: Heap
+ram_objects: Aktive Objekte
+ram_fragmented: Fragmentiert
+ram_free: Frei
+ram_stacks: Stacks
+ram_goroutine_stacks: Goroutine-Stacks
+ram_system_stacks: System-Stacks
+ram_runtime: Laufzeit
+ram_allocator: Allokator
+ram_collector: Metadaten des Garbage Collectors
+ram_profiling: Profiling
+ram_other: Sonstiges

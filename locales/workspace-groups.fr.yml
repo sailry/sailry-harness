@@ -1,0 +1,4 @@
+pane_group: Groupe divisé %{number}
+workspace_tab_keep: Garder ouvert
+workspace_tab_release: Ne plus garder ouvert
+workspace_tab_unsplit: Annuler la division

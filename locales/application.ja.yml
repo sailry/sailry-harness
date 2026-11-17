@@ -185,7 +185,7 @@ project_branch: "ブランチ"
 project_branch_placeholder: "デフォルトのブランチ"
 project_destination: "宛先"
 project_clone_required: "名前、リポジトリ、目的地を入力"
-project_clone_failed: "クローンは完了していません。目的地をチェックしてください"
+project_clone_failed: "クローンに失敗しました。URL、ブランチ、ネットワークを確認してください"
 project_outcome_unknown: "結果が確認されていません。目的地をチェックしてください。再試行して元の要求をチェックします。"
 project_appearance: "プロジェクトの外観"
 project_name_placeholder: "名前を入力"
@@ -206,7 +206,7 @@ project_grant_title: "このプロジェクトを信頼"
 project_revoke_title: "プロジェクトの信頼を取り消す"
 project_grant: "信頼し続ける"
 project_revoke: "信頼を取り消す"
-project_grant_description: "プロジェクトの指示とツールはすべてのワークトリーでコードを実行できます"
+project_grant_description: "プロジェクトの指示とツールはすべてのワークツリーでコードを実行できます"
 project_revoke_description: "プロジェクトタスクを停止し、履歴と草稿を保持します"
 project_trust_preview: "プレビューのみを変更"
 workspace_new_session: "セッションを作成"
@@ -217,7 +217,7 @@ workspace_name: "名前"
 workspace_rename_hint: "名前は空でなければなりません。プレビューのみを変更しますが、ディスクファイルは変更しません。"
 workspace_pin: "ピンセッション"
 workspace_unpin: "固定を解除"
-workspace_archive: "アーカイブ"
+workspace_archive: "セッションをアーカイブ"
 session_delete: "セッションを削除"
 session_delete_confirm: "このセッションとサブエージェントのセッションを完全に削除"
 session_delete_busy: "削除する前にセッションを停止"
@@ -266,7 +266,7 @@ metrics_worker: "プレビューワーカー"
 metrics_indexer: "プレビューインデクサ"
 metrics_rate: "%{value}/s"
 tunnels_title: "港湾トンネル"
-port_title: "ポートフォワード"
+port_title: "ポート"
 port_remote: "ホストポート"
 port_local: "ローカルポート (0 は自動)"
 port_close: "クローズフォワード"
@@ -316,36 +316,36 @@ update_versions: "%{current} → %{target}"
 update_target_changed: "ホストが利用できません。エディタを再開します"
 host_activity_hint: "セッション活動のプレビューのみ;実際のエージェントや CLI プロセスは起動されません"
 workspace_worktrees: "ワークツリー"
-worktree_manage: "ワークトリーの管理"
-worktree_actions: "ワークトリーアクション"
-workspace_open_worktree: "オープンワークトリー"
+worktree_manage: "ワークツリーの管理"
+worktree_actions: "ワークツリーアクション"
+workspace_open_worktree: "ワークツリーを開く"
 workspace_session_actions: "セッションアクション"
-worktree_load_failed: "ワークトリーを読み込めませんでした"
+worktree_load_failed: "ワークツリーを読み込めませんでした"
 worktree_revision_failed: "開始点を解決できませんでした"
 worktree_context_changed: "プロジェクトが変更されました。このビューを再開してください"
-worktree_outcome_unknown: "結果は確認されていません。ワークトリーをチェックしてください"
+worktree_outcome_unknown: "結果は確認されていません。ワークツリーをチェックしてください"
 worktree_conflict: "ブランチ、ディレクトリ、プロジェクトの所有権の衝突"
 worktree_invalid: "ブランチと絶対パスをチェック"
 worktree_not_found: "プロジェクト、ディレクトリまたは開始コミットが見つかりません"
 worktree_request_failed: "操作に失敗しました。権限と接続を確認してください"
 worktree_unavailable: "ディレクトリが利用できません"
-worktree_listing_partial: "部分ワークトリーリスト"
+worktree_listing_partial: "部分ワークツリーリスト"
 worktree_retry: "再試行"
 worktree_no_repository: "このディレクトリは Git リポジトリではありません"
 worktree_locked: "ロック中"
-worktree_remove_confirm: "このワークトリーディレクトリを削除します。Git のブランチを保持します"
-worktree_remove_unsaved: "このワークトリーを削除する前に変更を保存"
-worktree_remove_conflict: "ワークトリーが変更されました。削除する前に更新してください"
-worktree_create: "新しいワークトリー"
-worktree_create_preview: "新しいワークトリー"
+worktree_remove_confirm: "このワークツリーディレクトリを削除します。Git のブランチを保持します"
+worktree_remove_unsaved: "このワークツリーを削除する前に変更を保存"
+worktree_remove_conflict: "ワークツリーが変更されました。削除する前に更新してください"
+worktree_create: "新しいワークツリー"
+worktree_create_preview: "新しいワークツリー"
 worktree_select_hint: "ワークツリーを選択"
 worktree_preview_hint: "プレビュー"
 worktree_base: "出発点"
 worktree_branch: "ブランチ"
 worktree_path: "パス"
 worktree_required: "スタート ref、ブランチ名、目的地パスを入力"
-worktree_duplicate_branch: "このプロジェクトには既にそのブランチを含むワークトリーがあります"
-worktree_duplicate_path: "このホストは既にそのパスにワークトリーを持っています"
+worktree_duplicate_branch: "このプロジェクトには既にそのブランチを含むワークツリーがあります"
+worktree_duplicate_path: "このホストは既にそのパスにワークツリーを持っています"
 worktree_missing_project: "プロジェクトを選択"
 workspace_sessions: "セッション"
 project_sessions_empty: "セッションなし"
@@ -355,10 +355,10 @@ workspace_runtime_preview: "ライブOS、ランタイムバージョンおよ�
 workspace_running: "ランニング・エージェント"
 workspace_no_running: "プレビューで開始されたエージェントタスクはありません"
 workspace_no_terminal: "このワークツリーにはターミナルがありません"
-workspace_terminal_preview: "プロジェクトとワークトリーの所有者を含むターミナル UI プレビュー; PTY やシェルは起動しません"
+workspace_terminal_preview: "プロジェクトとワークツリーの所有者を含むターミナル UI プレビュー; PTY や Shell は起動しません"
 cli_launch: "AI CLI を起動"
 cli_empty: "このプレビューホストで利用可能な No. CLI"
-cli_target_changed: "ワークトリーが変更されました。もう一度選択してください"
+cli_target_changed: "ワークツリーが変更されました。もう一度選択してください"
 cli_unavailable: "起動エントリが変更または利用できません。もう一度選択してください"
 cli_untrusted: "プロジェクトの信頼が取り消されました。確認してください"
 cli_codex: "Codex"
@@ -457,10 +457,10 @@ plugins_retry: "再試行"
 plugins_installing: "インストール中"
 plugins_name: "パッケージ名"
 plugins_name_required: "パッケージ名を入力"
-plugins_source: "ソースワークトリー"
+plugins_source: "ソースワークツリー"
 plugins_select_source: "ワークツリーを選択"
 plugins_source_required: "ワークツリーを選択"
-plugins_relative_path: "パッケージディレクトリ (ワークトリーに対して相対的)"
+plugins_relative_path: "パッケージディレクトリ (ワークツリーに対して相対的)"
 plugins_no_source: "まずソースプロジェクトを追加"
 plugins_remove_effect: "「%{name}」をアンインストールしますか？プラグインのデータは保持されます"
 plugins_conflict: "プラグインが変更されました。再開します"
@@ -598,7 +598,7 @@ skills_enabled: "有効"
 skills_manage_package: "プラグインの管理"
 skills_package_source: "プラグイン %{name} から"
 skills_remove_effect: "アンインストール %{name};実行中のタスクには影響しません"
-skills_revision: "分枝またはタグ"
+skills_revision: "ブランチまたはタグ"
 skills_revision_hint: "デフォルトのブランチ"
 skills_path: "スキルディレクトリ"
 skills_path_hint: "任意"
@@ -650,9 +650,9 @@ terminal_value: "値"
 terminal_variable_duplicate: "変数は既に存在します"
 terminal_variable_invalid: "不正な変数名、予約設定、コードロード変数"
 terminal_shell_group: "Shell"
-terminal_shell: "デフォルトのシェル"
+terminal_shell: "デフォルトの Shell"
 terminal_shell_default: "ホストデフォルト"
-terminal_shells_failed: "シェルを読み込めませんでした"
+terminal_shells_failed: "Shell を読み込めませんでした"
 terminal_input: "入力"
 terminal_connecting: "接続中"
 terminal_other_controller: "他のデバイスで制御"
@@ -709,8 +709,7 @@ provider_azure_openai_hint: "https://resource.openai.azure.com"
 provider_azure_ai_hint: "https://resource.services.ai.azure.com/models"
 provider_cloud_required: "クラウドプロバイダの設定を入力"
 provider_headers: "カスタムリクエストヘッダー"
-provider_headers_hint: "1 行に 1 つ、名前: 値"
-provider_headers_invalid: "各ヘッダー行には名前とコロンが必要です"
+provider_headers_invalid: "値のあるヘッダーには名前が必要です"
 provider_metadata_fill: "完全な情報"
 provider_deployment_id: "デプロイメント名"
 provider_xai: "xAI"
@@ -760,11 +759,11 @@ provider_catalog_busy: "カタログを更新しています。後でやり直�
 provider_catalog_read_failed: "モデルを更新しました。参照カタログを読めませんでした"
 provider_discovered_reference: "モデルを更新しました。保存する前に参照情報を確認してください"
 provider_discovered_reference_incomplete: "参照情報を確認し、欠けている限界を入力します"
-provider_channels: "チャンネル"
+provider_channels: "チャネル"
 provider_model_count: "%{count}のモデル"
 provider_plan: "プラン"
-provider_usage_5h: "5時間残り"
-provider_usage_7d: "7日残り"
+provider_usage_5h: "5h 残り"
+provider_usage_7d: "7d 残り"
 provider_window_5h: "5h"
 provider_window_7d: "7d"
 provider_usage_unknown: "—"
@@ -842,7 +841,7 @@ chat_new: "新しい会話"
 session_tab_close: "タブを閉じる"
 navigation_tabs: "タブを開く"
 chat_select_project: "プロジェクトを選択"
-chat_session: "第%{id}回"
+chat_session: "セッション %{id}"
 chat_stop: "停止"
 chat_enqueue: "キューに追加"
 chat_effort_max: "最大"
@@ -885,7 +884,7 @@ provider_credential_unavailable: "鍵がありません。もう一度入力し�
 provider_configuration_invalid: "チェックモデルと API 構成"
 provider_models: "モデル"
 provider_model_id: "モデルID"
-provider_context: "コンテキスト制限 (トークン)"
+provider_context: "コンテキスト制限 (Token)"
 provider_new_model: "新しいモデル"
 provider_default: "デフォルトモデル"
 provider_set_default: "デフォルトとして設定"
@@ -903,7 +902,7 @@ provider_cap_video: "ビデオ生成"
 provider_effort_invalid: "無効な推論努力;名前、重複、API サポートをチェック"
 provider_efforts: "推論努力"
 provider_effort_default: "デフォルトの努力"
-provider_effort_placeholder: "労力またはトークン予算"
+provider_effort_placeholder: "強度または Token 予算"
 provider_default_effort: "デフォルト推論労力"
 provider_name_hint: "プロバイダ名を入力"
 provider_name_required: "プロバイダ名を入力"
@@ -935,7 +934,7 @@ preferences_read_failed: "ローカルの設定を読み込めませんでした
 preferences_save_failed: "設定が保存されませんでした。もう一度試してください"
 preferences_retry: "保存を再試み"
 terminal_settings_conflict: "ターミナルの設定が変更されました。編集は保持されますName"
-terminal_settings_invalid: "シェルパスと環境変数をチェック"
+terminal_settings_invalid: "Shell パスと環境変数をチェック"
 terminal_settings_unknown: "結果を確認せずに保存します。再読み込みして確認してください"
 terminal_settings_failed: "ターミナルの設定を読み込みまたは保存できませんでした"
 terminal_settings_reload: "再読み込み"
@@ -953,7 +952,7 @@ usage_range: "時間範囲"
 usage_filters: "フィルタ"
 usage_range_days: "最後の%{days}日"
 usage_all_projects: "全プロジェクト"
-usage_all_worktrees: "すべてのワークトリー"
+usage_all_worktrees: "すべてのワークツリー"
 usage_all_providers: "すべてのプロバイダ"
 usage_all_models: "全モデル"
 usage_refresh: "更新"
@@ -965,13 +964,13 @@ usage_read_failed: "使用状況を読み込めませんでした。もう一度
 usage_empty: "まだ使用していません"
 usage_responses: "Responses"
 usage_speed: "発生速度"
-usage_speed_help: "最初のトークンまでの時間を含み、キューとツールを除く"
+usage_speed_help: "最初の Token までの時間を含み、キューとツールを除く"
 usage_speed_partial: "部分応答"
 usage_cost: "推定費用（米ドル）"
 usage_cost_help: "予算ではなく参考予算"
 usage_cost_incomplete: "部分費用"
-usage_activity: "トークン活動"
-usage_trend: "トークン使用"
+usage_activity: "Token アクティビティ"
+usage_trend: "Token 使用量"
 usage_model_ranking: "モデルランク"
 usage_daily: "デイリー"
 usage_weekly: "週間"
@@ -1123,7 +1122,7 @@ composer_mode_plan_description: "プロジェクトや方針を計画し、コ�
 composer_mode_flagship: "協働"
 composer_mode_flagship_description: "複数エージェントでコードやファイルを扱い、リファクタリングや整理に対応"
 composer_context: "文脈"
-composer_branch_none: "分枝なし"
+composer_branch_none: "ブランチなし"
 composer_host_local: "ローカルデバイス"
 composer_host_remote: "リモート"
 composer_host_hint: "%{name} · 接続切断 · UI プレビュー"
@@ -1137,7 +1136,7 @@ composer_permission_project_description: "プロジェクトファイルを自�
 composer_permission_full_description: "プロジェクトの外部を含むファイルを編集し、コマンドを自動的に実行します"
 composer_metric_unknown: "—"
 composer_tokens: "Tokens"
-composer_token_usage: "トークン使用"
+composer_token_usage: "Token 使用量"
 composer_cache_hit: "キャッシュヒット率"
 composer_uncached_input: "未キャッシュ入力"
 composer_cached_input: "キャッシュされた入力"
@@ -1153,10 +1152,10 @@ composer_cost_cache_write: "キャッシュ書き込みコスト"
 chat_response_timeout: "応答のタイムアウト"
 composer_cache: "キャッシュ"
 composer_turns: "ターン"
-composer_input_tokens: "入力トークン"
-composer_output_tokens: "出力トークン"
-composer_reasoning_tokens: "推論トークン"
-composer_cached_tokens: "キャッシュされたトークン"
+composer_input_tokens: "入力 Token"
+composer_output_tokens: "出力 Token"
+composer_reasoning_tokens: "推論 Token"
+composer_cached_tokens: "キャッシュされた Token"
 composer_responses: "Responses"
 composer_metric_percent: "%{value}%"
 composer_metric_thousand: "%{value}k"
@@ -1260,9 +1259,9 @@ files_upload_close: "閉じる"
 files_copy: "コピー"
 files_cut: "切り取り"
 files_paste: "貼り付け"
-files_paste_source: "ソースワークトリー"
+files_paste_source: "ソースワークツリー"
 files_paste_directory: "目的地フォルダ"
-files_worktree_root: "ワークトリールート"
+files_worktree_root: "ワークツリールート"
 files_load_more: "もっと読み込む"
 chat_history_failed: "履歴を読み込めませんでした"
 chat_search: "会話を検索"
@@ -1334,7 +1333,7 @@ diff_intro: "```diff\n- workspace: nested cards\n+ workspace: three flat panels\
 diff_design: "```diff\n- search: permanent search row\n+ search: command palette\n\n- theme: page-specific colors\n+ theme: GPUI Kit semantic theme\n```"
 branch: "メイン · 変更のプレビュー"
 unavailable: "利用できません"
-unavailable_description: "最初に三列シェルを確認します。既存の機能の位置は保持します"
+unavailable_description: "最初に三列 Shell を確認します。既存の機能の位置は保持します"
 settings_back: "ワークスペースに戻る"
 settings_general: "一般"
 settings_sidebar_metrics: "パフォーマンスインジケーター"
@@ -1360,7 +1359,7 @@ settings_general_description: "通知とデバイスペアリングサービス�
 settings_appearance_description: "テーマとウィンドウの外観を調整Name"
 settings_terminal_description: "ターミナル環境と表示"
 settings_security_description: "実行 Node コマンドと隔離アクセスを管理"
-settings_mcp_description: "会話用の MCP サーバを表示・設定"
+settings_mcp_description: "セッション用の MCP サーバを表示・設定"
 settings_providers_description: "セッションプロバイダ、認証、モデルの管理Name"
 settings_media_description: "画像、オーディオ、ビデオタスクのモデルを管理します"
 settings_agents_description: "サブエージェントモデルとプロンプトを設定Name"
@@ -1388,7 +1387,7 @@ settings_font_family: "フォント"
 settings_font_default: "デフォルト"
 settings_font_size: "フォントサイズ"
 settings_execution_permissions: "実行アクセス"
-settings_shell_commands: "シェルコマンド"
+settings_shell_commands: "Shell コマンド"
 settings_isolated_execution: "孤立実行"
 settings_requires_node: "実行 Node が接続されていません。変更は利用できません"
 settings_global_commands: "グローバルコマンド"
@@ -1422,7 +1421,7 @@ settings_paste_description: "複数行を貼り付ける前に確認する(M)"
 settings_seconds: "%{count}秒"
 interaction_preview_notice: "インタラクションのプレビュー · 選択のみを記録します。タスクは実行されません"
 interaction_preview_prompt: "予想問題と計画確認"
-interaction_preview_result: "プレビュー選択が記録されました。実行ノードやタスクはありません"
+interaction_preview_result: "プレビュー選択が記録されました。実行 Node やタスクはありません"
 interaction_menu_single: "単一選択プレビュー"
 interaction_menu_multiple: "複数選択式プレビュー"
 interaction_menu_text: "テキスト問題のプレビュー"
@@ -1530,7 +1529,7 @@ reference_agents_description: "参照設定サブエージェント"
 reference_sessions: "セッション"
 reference_sessions_description: "利用可能なセッション"
 reference_context: "ワークスペースコンテキスト"
-reference_context_description: "ホスト、プロジェクト、ワークトリー"
+reference_context_description: "ホスト、プロジェクト、ワークツリー"
 reference_directory: "このディレクトリを参照"
 reference_file: "プレビューファイル"
 reference_host: "ホスト"
@@ -1543,20 +1542,20 @@ reference_preview: "参照プレビュー · フィルタ、↑↓を選択、En
 reference_stale: "参照の所有者または設定が変更されました。削除して再選択してください"
 reference_unavailable: "参照を開けません"
 reference_one_agent: "メッセージごとにサブエージェントを一つだけ削除します。選択したサブエージェントを先に削除します"
-worktree_remove: "ワークトリーを削除"
-worktree_remove_preview: "ワークトリーを削除"
-worktree_remove_description: "削除後にメインワークトリーに切り替えます"
+worktree_remove: "ワークツリーを削除"
+worktree_remove_preview: "ワークツリーを削除"
+worktree_remove_description: "削除後にメインワークツリーに切り替えます"
 worktree_remove_preview_hint: "プレビューレコードのみを削除します"
-worktree_remove_missing: "ワークトリーが見つかりません"
-worktree_remove_changed: "ワークトリーまたはプロジェクトパスが変更されました。キャンセルして確認してください"
-worktree_remove_main: "メインワークトリーを削除できません"
-worktree_remove_locked: "ワークトリーがロックされています"
-worktree_remove_untrusted: "プロジェクトは信頼されていません。ワークトリーを削除できません"
-worktree_remove_dirty: "ワークトリーには未コミットの変更があり、削除できません"
-worktree_remove_busy: "ワークトリーが使用中"
-worktree_remove_detached: "ワークトリーの所有権を検証できませんでした"
+worktree_remove_missing: "ワークツリーが見つかりません"
+worktree_remove_changed: "ワークツリーまたはプロジェクトパスが変更されました。キャンセルして確認してください"
+worktree_remove_main: "メインワークツリーを削除できません"
+worktree_remove_locked: "ワークツリーがロックされています"
+worktree_remove_untrusted: "プロジェクトは信頼されていません。ワークツリーを削除できません"
+worktree_remove_dirty: "ワークツリーには未コミットの変更があり、削除できません"
+worktree_remove_busy: "ワークツリーが使用中"
+worktree_remove_detached: "ワークツリーの所有権を検証できませんでした"
 worktree_remove_sessions: "アーカイブされたものを含むセッションは、このワークツリーを参照します"
-worktree_remove_terminals: "このワークトリーのターミナルを先に閉じる"
+worktree_remove_terminals: "このワークツリーのターミナルを先に閉じる"
 project_remove: "プロジェクトを削除"
 project_remove_preview: "プレビューレコードを削除"
 project_remove_description: "ディスクのファイルは保持されます"
@@ -1608,7 +1607,7 @@ live_disconnected: "切断済み"
 live_sync_failed: "ホスト同期に失敗しました"
 live_project_editor: "アクセスできる絶対ディレクトリを使って実行 Node でプロジェクトを登録"
 live_project_register: "レジストリプロジェクト"
-live_request_failed: "要求が不完全です。ノードの接続とディレクトリを確認してください。 再試行は元の要求IDを保持します。"
+live_request_failed: "要求が不完全です。Node の接続とディレクトリを確認してください。 再試行は元の要求IDを保持します。"
 live_request_pending: "処理中の要求"
 live_preview_scope: "プレビュー"
 live_revoke: "ペアを削除"
@@ -1622,7 +1621,7 @@ git_initialize_description: "プレビューのみを初期化"
 git_unborn_title: "コミットなし"
 git_unborn_changes: "最初のコミット前の変更"
 git_initialize_changed: "プロジェクトのパスが変更されました。初期化を再開します"
-git_worktree_requires_commit: "リポジトリにはコミットがありません。ref からワークトリーを作成できません"
+git_worktree_requires_commit: "リポジトリにはコミットがありません。ref からワークツリーを作成できません"
 git_detached: "デタッチド・ヘッド"
 directory_title: "ディレクトリを選択"
 directory_scope: "%{host} · ディレクトリのプレビュー; ファイルシステムへのアクセスはありません"
@@ -1688,13 +1687,13 @@ git_rename_branch: "ブランチの名前を変更"
 git_branch_source: "ソースブランチ"
 git_branch_rename_failed: "ブランチの名前を変更できませんでした"
 git_branch_rename_unknown: "結果の名前変更は未確認、ブランチとトラッキングをチェック"
-git_branch_rename_conflict: "ブランチャーが変更されました。名前を変更する前に更新してください"
+git_branch_rename_conflict: "ブランチが変更されました。名前を変更する前に更新してください"
 git_delete_branch: "ブランチを削除"
-git_merge_branch: "マージブランチ"
+git_merge_branch: "ブランチをマージ"
 git_merge_branch_confirm: "このブランチを現在のブランチにマージ"
-git_merging_branch: "メーリングブランチ"
+git_merging_branch: "ブランチをマージ中"
 git_merge_failed: "マージに失敗しました。コンフリクトと接続を確認してください"
-git_merge_unknown: "マージ結果が確認されていません。ワークトリーと履歴をチェックしてください"
+git_merge_unknown: "マージ結果が確認されていません。ワークツリーと履歴をチェックしてください"
 git_merge_conflict: "ブランチが変更されましたか、または衝突がありますか"
 git_delete_branch_confirm: "ローカルブランチを削除"
 git_deleting_branch: "ブランチを削除"
@@ -1702,7 +1701,7 @@ git_branch_delete_failed: "ブランチを削除できませんでした"
 git_branch_delete_unknown: "削除結果が確認されていません。ブランチとトラッキングをチェックしてください"
 git_branch_delete_conflict: "ブランチが変更または使用中"
 git_branch_base: "出発点"
-git_branch_name: "支部名"
+git_branch_name: "ブランチ名"
 git_branch_name_required: "ブランチ名を入力"
 git_branch_name_invalid: "不正なブランチ名"
 git_branch_exists: "ブランチは既に存在します"
@@ -1710,12 +1709,12 @@ git_branch_create_denied: "リポジトリにアクセスできませんでし�
 git_branch_create_failed: "ブランチを作成できませんでした"
 git_branch_create_unknown: "作成結果が確認されていません。ブランチリストを確認してください"
 git_branch_context_changed: "プロジェクトが変更されました。このビューを再開してください"
-git_local_branches: "地方支部"
+git_local_branches: "ローカルブランチ"
 git_remote_branches: "リモートブランチ"
-git_no_branches: "枝を持たない"
+git_no_branches: "ブランチなし"
 git_branches_partial: "いくつかのブランチを表示"
 git_branches_failed: "ブランチを読み込めませんでした"
-git_switching_branch: "スイッチングブランチ"
+git_switching_branch: "ブランチを切り替え中"
 git_branch_failed: "ブランチを変更できませんでした"
 git_branch_unknown: "スイッチの結果が確認されていません。ブランチとファイルをチェックしてください"
 git_branch_conflict: "ブランチまたはファイルが変更されました"
@@ -1793,7 +1792,7 @@ git_view_changes: "変更"
 git_create_from_branch: "このブランチから作成"
 git_copy_branch: "ブランチ名をコピー"
 git_branch_actions: "ブランチアクション"
-git_switch_branch: "スイッチブランチ"
+git_switch_branch: "ブランチを切り替え"
 git_open_source: "オープンソース"
 git_copy_path: "パスをコピー"
 git_view_history: "履歴"
@@ -1836,19 +1835,19 @@ git_action_failed: "Git 操作に失敗しました"
 git_action_unknown: "Git 結果は確認されていません。続行する前に更新してください"
 git_commit_tracked: "トラックされたファイルをコミット"
 git_signoff: "サインアウト"
-git_skip_hooks: "スキップフック"
+git_skip_hooks: "Hook をスキップ"
 git_expand_commit: "コミットメッセージを展開"
 git_undo_commit: "最後のコミットを取り消す"
 git_undo_confirm: "最後のコミットを取り消しますか？ファイルの変更は保持されます"
-git_stash_all: "すべて隠す"
+git_stash_all: "すべてスタッシュ"
 git_stash_tracked: "追跡ファイルをスタッシュ"
 git_stash_staged: "ステージ化された変更をスタッシュ"
 git_view_stash: "スタッシュを表示"
-git_no_stash: "隠し場所なし"
+git_no_stash: "スタッシュなし"
 git_stash_apply: "スタッシュを適用"
-git_stash_pop: "ポップ・スタッシュ"
+git_stash_pop: "スタッシュをポップ"
 git_stash_drop: "スタッシュを削除"
-git_stash_drop_confirm: "このストックを永久に削除"
+git_stash_drop_confirm: "このスタッシュを完全に削除"
 git_action_conflict: "Git 状態が変更されました、更新します"
 git_auth_failed: "Git 認証に失敗しました"
 git_trash_untracked: "追跡されていないファイルをごみ箱に移動"
@@ -1862,7 +1861,7 @@ git_clone: "クローン"
 git_changes_menu: "変更"
 git_pull_push: "引っ張り押し"
 git_remotes: "リモート"
-git_stash_menu: "隠し物"
+git_stash_menu: "スタッシュ"
 git_tags: "タグ"
 git_worktrees: "ワークツリー"
 git_output: "出力"
@@ -1888,8 +1887,8 @@ git_branch_from: "ここからブランチを作成"
 git_delete_remote_branch: "リモートブランチを削除"
 git_remove_remote: "リモートを削除"
 git_remove_remote_confirm: "リモートを削除しますか？ローカルファイルとコミットは保持されます"
-git_stash_apply_latest: "最新のスタッフを適用"
-git_stash_pop_latest: "ポップ・ラスト・スタッシュ"
+git_stash_apply_latest: "最新のスタッシュを適用"
+git_stash_pop_latest: "最新のスタッシュをポップ"
 git_stash_drop_all: "すべてのスタッシュを削除"
 git_stash_view: "スタッシュを表示"
 git_tag_create: "タグを作成"
@@ -1897,14 +1896,14 @@ git_tag_message: "タグメッセージ"
 git_tag_delete: "タグを削除"
 git_tag_delete_remote: "リモートタグを削除"
 git_tag_push: "プッシュタグ"
-git_worktree_open: "オープンワークトリー"
+git_worktree_open: "ワークツリーを開く"
 git_tracking_name: "追跡ブランチ"
 git_no_matches: "マッチしません"
 git_load_failed: "Git データを読み込めませんでした"
 git_unborn: "コミットなし"
 git_delete_confirm: "削除しますか？これは元に戻せません"
-git_stash_switch: "スタッシュ・アンド・スイッチ"
-git_discard_all_confirm: "すべての変更を破棄しますか？これは元に戻せません"
+git_stash_switch: "スタッシュして切り替え"
+git_discard_all_confirm: "ステージ済みを含むすべての変更を破棄しますか？新しいファイルはごみ箱に移動します"
 worktree_commit_first: "コミットを作成"
 turn_changes_undo_all: "変更を無効にする"
 turn_changes_undone: "取り消し済み"
@@ -1962,15 +1961,15 @@ files_move: "移動"
 session_delete_named: "セッション “%{name}” とそのサブエージェントを永久に削除"
 project_remove_named: "プロジェクト「%{name}」を削除しますか？ターミナルは閉じられ、ファイルとセッションは保持されます"
 project_remove_sample: "プレビュープロジェクト “%{name}” を削除"
-worktree_remove_named: "ワークトリー “%{name}” を削除しますか？ Git のブランチは保持されます"
-worktree_remove_sample: "サンプルワークトリー “%{name}” を削除"
+worktree_remove_named: "ワークツリー “%{name}” を削除しますか？ Git のブランチは保持されます"
+worktree_remove_sample: "サンプルワークツリー “%{name}” を削除"
 git_initialize_sample: "プレビュー “%{name}” を開始"
-port_mappings: "ポートマッピング"
+port_mappings: "ポート"
 location_project: "プロジェクト"
-location_create: "新しいワークトリー"
-location_fork: "フォークワークトリー"
+location_create: "新しいワークツリー"
+location_fork: "フォークワークツリー"
 location_copy_changes: "変更をコピー"
-location_created_changed: "作成されたワークトリーが変更されました"
+location_created_changed: "作成されたワークツリーが変更されました"
 location_busy: "セッションには実行中またはキュー中のタスクがあります"
 location_changed: "セッションが変更されました。作業場所をもう一度選択してください"
 form_name_hint: "名前"
@@ -1987,13 +1986,13 @@ form_destination_path_hint: "リモートファイルパス"
 form_local_port_hint: "0 は自動"
 form_api_version_hint: "例えば 2024年10月21日"
 form_model_hint: "モデルID"
-form_tokens_hint: "トークン数"
+form_tokens_hint: "Token 数"
 form_package_hint: "プラグインパッケージ名またはパス"
 form_directory_hint: "作業ディレクトリ (オプション)"
 form_remote_hint: "リモート URL"
 form_filename_hint: "ファイルまたはフォルダ名"
-form_branch_hint: "支部名"
-form_worktree_path_hint: "絶対ワークトリーパス"
+form_branch_hint: "ブランチ名"
+form_worktree_path_hint: "絶対ワークツリーパス"
 form_revision_hint: "ブランチ、タグ、コミット"
 form_role_id_hint: "例えばコードレビュー者は"
 form_turns_hint: "制限なしの場合は空にしておく"
@@ -2020,7 +2019,7 @@ host_process_changed: "プロセスが変更されました。更新してやり
 host_process_protected: "システムプロセスや現在のホストサービスを停止できません"
 host_process_uncertain: "停止結果不明;プロセスの状態をチェック"
 host_process_stop_failed: "プロセスを停止できませんでした。終了したか、アクセスが拒否されたか、ホストがサポートしていないかもしれません"
-usage_column_provider: "プロバイダー"
+usage_column_provider: "プロバイダ"
 usage_column_project: "プロジェクト"
 usage_column_first_token: "TTFT"
 connections_hosts: "ホスト"
@@ -2028,7 +2027,7 @@ connections_mobile: "モバイル"
 connections_online: "オンライン"
 connections_offline: "オフライン"
 connections_device: "デバイス %{id}"
-connections_revoke_confirm: "ペアリングを削除するには再接続が必要です"
+connections_revoke_confirm: "このペアリングを削除しますか？ユーザーの最後のデバイスを削除すると、そのデータにはどのデバイスからもアクセスできなくなります。"
 db_catalog: "データベース"
 db_catalog_loading: "読み込み中"
 db_log: "SQLログ"
@@ -2283,13 +2282,12 @@ files_remote_directory: "リモートフォルダをローカルで開けませ�
 files_remote_path: "このパスはリモートワークスペースの外です"
 files_open_system: "開く"
 updates: "更新"
-updates_channel: "更新チャンネル"
+updates_channel: "更新チャネル"
 updates_channel_stable: "正式版"
 updates_channel_experience: "体験版"
 updates_version: "バージョン"
 updates_check: "更新をチェック"
 updates_download: "ダウンロード"
-updates_install: "インストールして再起動"
 updates_restart: "再起動"
 updates_restart_description: "再起動後に草稿を復元します。ローカルタスクとターミナルは停止します"
 updates_checking: "確認中"
@@ -2322,6 +2320,12 @@ updates_restarting: "再起動"
 updates_install_uncertain: "インストール結果は確認されていません。元のアプリケーションを保持しました"
 updates_receipt_failed: "更新はインストールされましたが、回復の詳細を保存できませんでした"
 updates_details: "詳細"
+updates_available: "%{version} を利用できます"
+updates_downloading: "%{version} をダウンロード中"
+updates_ready_now: "%{version} の準備ができました"
+updates_restart_now: "今すぐ再起動"
+updates_later: "後で"
+updates_view: "表示"
 updates_recovery_failed: "草案の回復を完了できませんでした"
 updates_profile_inside: "データプロファイルは Sailry の中にあります。更新する前に移動してください"
 chat_assets_title: "アクティビティ"
@@ -2518,10 +2522,10 @@ chat_compact: "コンパクト文脈"
 tool_inspect_image: "画像を検査"
 tool_generate_image: "イメージを生成"
 tool_generate_video: "ビデオを生成"
-tool_list_worktrees: "ワークトリーのリスト"
-tool_create_worktree: "ワークトリーを作成"
-tool_register_worktree: "ワークトリーを追加"
-tool_remove_worktree: "ワークトリーを削除"
+tool_list_worktrees: "ワークツリーのリスト"
+tool_create_worktree: "ワークツリーを作成"
+tool_register_worktree: "ワークツリーを追加"
+tool_remove_worktree: "ワークツリーを削除"
 tool_ssh_run: "SSH コマンドを実行"
 tool_ssh_transfer: "転送 SSH ファイル"
 tool_load_skill: "ロードスキル"
@@ -2539,7 +2543,7 @@ plugins_settings_input_hint: "%{field}を入力"
 session_title_required: "名前を入力"
 session_copy_id: "セッション ID をコピー"
 session_fork_here: "フォーク会話"
-session_fork_worktree: "新しいワークトリーでフォーク"
+session_fork_worktree: "新しいワークツリーでフォーク"
 session_fork: "フォーク"
 session_mark_read: "既読としてマーク"
 session_mark_unread: "未読としてマーク"
@@ -2577,7 +2581,7 @@ sidebar_host_update: "更新"
 activity_running: "実行中"
 activity_board_waiting: "承認待ち"
 worktree_prune_on_select: "利用できません。クリアするにはクリックしてください"
-worktree_pruned: "古いワークトリー登録を削除"
+worktree_pruned: "古いワークツリー登録を削除"
 worktree_prune_failed: "クリーンアップされていません: ディレクトリは存在します、ロックされています、または検証できませんでした"
 activity_board_running: "実行中"
 activity_board_empty: "アクティビティなし"
@@ -2694,3 +2698,147 @@ compaction_settings_load_failed: "圧縮設定を読み込めませんでした"
 compaction_settings_conflict: "圧縮設定が変更されました。再試行してください"
 compaction_settings_failed: "圧縮設定を保存できませんでした"
 compaction_settings_unknown: "保存結果を確認できません。再試行してください"
+project_archived: アーカイブ済み
+session_delete_private_files: プライベートワークスペースのファイルも削除されます
+session_delete_private_named: 「%{name}」、そのサブエージェントとプライベートワークスペースのファイルを完全に削除
+worktree_main: メインワークツリー
+worktree_open_busy: このセッションは現在ワークツリーを切り替えられません
+worktree_created: ワークツリーを作成しました
+worktree_removed: ワークツリーを削除しました
+worktree_prune: 無効なワークツリーをクリーンアップ
+worktree_prune_confirm: この無効な登録を削除します。ファイルは削除されません
+worktree_prune_exists: ディレクトリがまだ存在するため、クリーンアップは不要です
+worktree_path_exists: パスは既に存在します
+worktree_unused: セッションなし
+git_branch_checked_out: ブランチは別のワークツリーでチェックアウトされています
+project_visibility: 公開範囲
+project_visibility_private: プライベート
+project_visibility_shared: ホスト共有
+git_cherry_pick_confirm: このコミットを現在のブランチに適用
+git_copy_commit_id: コミット ID をコピー
+background_running: バックグラウンドで実行中
+background_exit: 終了コード %{code}
+background_result_waiting: 結果は未配信です
+chat_compact_failed_paused: 圧縮に失敗したため、自動圧縮を一時停止しました
+composer_execution_host: 実行ホスト
+connections_bidirectional: 双方向
+connections_legacy_bidirectional: 従来の双方向
+connections_only_host: ホストのみ
+connections_only_controller: コントローラーのみ
+connections_direction_saved: デバイスのアクセス方向を更新しました
+session_order_recent: 最近の更新
+session_order_name: 名前
+sidebar_sort: 並べ替え
+provider_login_callback_placeholder: サインインから自動で戻らない場合は、コードまたはコールバック URL を貼り付けてください
+knowledge_collections: コレクション
+knowledge_collection_pending: インデックス待ち
+knowledge_collection_unavailable: ストレージホストを利用できません
+knowledge_collection_indexing: インデックス作成中 · %{count} 件
+knowledge_collection_ready: 最新 · %{count} 件
+knowledge_collection_paused: 一時停止中
+knowledge_collection_failed: 失敗 · %{reason}
+knowledge_collection_failures: '%{count} 件未インデックス · %{reason}'
+knowledge_pause: 一時停止
+knowledge_resume: 再開
+knowledge_update: 更新
+mcp_show_secret: 認証情報を表示
+mcp_hide_secret: 認証情報を隠す
+git_diff_side_by_side: 左右に並べる
+git_diff_inline: インライン
+git_diff_needs_width: 左右表示には幅が足りません
+workspace_action_failed: ワークスペースの操作に失敗しました
+workspace_changed: ワークスペースが変更されました。再読み込みしてからやり直してください
+workspace_action_unknown: 結果が不明です。確認してからやり直してください
+workspace_saved: 保存しました
+files_changed_on_disk: ディスク上で変更されました
+files_conflict_description: 上書きするとディスク上のファイルが下書きで置き換えられます。再読み込みすると下書きは破棄されます
+files_keep_editing: 編集を続ける
+files_reload: 再読み込み
+files_overwrite: 上書き
+workspace_completed: 完了
+workspace_restore_confirm: このターンの前のファイルバージョンに戻します
+subagent_stop: サブエージェントを停止
+subagent_stop_failed: 停止に失敗しました。再試行してください
+subagent_stop_unknown: 停止が確認できません。サブエージェントの状態を確認してください
+files_cancel_remaining: 残りをキャンセル
+content_preview: プレビュー
+files_block: テキスト
+files_block_bullet: 箇条書きリスト
+files_block_callout: コールアウト
+files_block_code: コードブロック
+files_block_heading: 見出し {level}
+files_block_ordered: 番号付きリスト
+files_block_paragraph: 段落
+files_block_quote: 引用
+files_block_task: タスクリスト
+files_bold: 太字
+files_inline_code: インラインコード
+files_insert: 挿入
+files_insert_chart: グラフ
+files_insert_code: コードブロック
+files_insert_diagrams: ダイアグラム
+files_insert_html: HTML ブロック
+files_insert_image: 画像
+files_insert_math: 数式
+files_insert_mermaid: Mermaid
+files_insert_rule: 区切り線
+files_insert_table: 表
+files_italic: 斜体
+files_link: リンク
+files_more: その他
+files_replace: 検索と置換
+files_strike: 取り消し線
+files_wrap: ソフトラップ
+refresh: 更新
+git_initialize_nested_confirm: 新しいリポジトリには次のリポジトリが含まれます
+git_repositories: '%{count} 個の Git リポジトリを含む'
+git_switch_confirm: '%{branch} に切り替え'
+git_switch_confirm_action: 切り替え
+git_switch_confirm_detail: このワークツリーのセッション、ターミナル、開いているファイルはすべてこのブランチに移ります。
+reference_load_failed: 参照を読み込めませんでした
+host_ssh_windows_pairing: Windows では Sailry Desktop をインストールして開き、ペアリングコードでホストを追加してください。
+provider_capabilities: 機能
+provider_cap_understands: 理解
+provider_cap_can: 対応
+provider_cap_generates: 生成
+media_image: 画像
+media_video: 動画
+media_speech: 音声
+media_follow: 会話モデルに従う
+media_load_failed: メディアモデルを読み込めませんでした
+panel_history_empty: 履歴はまだありません
+panel_documents_empty: ドキュメントはまだありません
+connections_copy_id: ID をコピー
+host_check_status: 状態を確認
+files_unsaved_description: 閉じる前に変更を保存しますか？
+files_unsaved_discard: 破棄
+files_save_all: すべて保存
+settings_experimental: 実験的機能
+settings_experimental_description: 開発とデバッグの設定
+settings_code_index: コードインデックス
+settings_code_index_description: コード検索ツール用にプロジェクトのコードをインデックス化
+code_index_settings_saved: 保存しました
+code_index_settings_failed: コードインデックスの設定を読み込みまたは保存できませんでした
+code_index_settings_conflict: コードインデックスの設定が変更されました。再試行してください
+code_index_settings_unknown: コードインデックスの設定を保存できたか確認できません
+queue_guidance_outlived: 返信が先に終了したため、新しいメッセージとしてキューに追加しました
+queue_halt_interrupted: 返信が中断されました。キューのメッセージは保持されています
+queue_halt_unsent: メッセージは送信されず、キューに保持されています
+chat_output_limit: 出力上限で返信が途切れました
+start_failed: Sailry を起動できませんでした
+start_profile_in_use: Sailry はこのデータフォルダで既に実行中です
+backup_keep: 保持するバックアップ
+backup_keep_all: すべて
+backup_keep_last: 最新 %{count} 件
+backup_keep_confirm: 最新 %{count} 件のバックアップのみを保持しますか？
+backup_keep_consequence: バックアップのたびに、この Node の古いバックアップがストレージから削除されます。元に戻せません
+backup_last: 前回のバックアップ
+backup_last_done: 完了
+backup_last_skipped: '%{count} 件をスキップしました'
+backup_restart_restored: 復元したプロファイルで再起動
+backup_restart_consequence: Sailry は復元したプロファイルで再起動します。現在のデータフォルダは日付付きの名前で隣に保持されます
+backup_restart_invalid: 復元したプロファイルは使用できません。何も変更されていません
+backup_restart_failed: Sailry は復元したプロファイルに切り替えられませんでした
+port_count: '%{count} 個のポート'
+queue_messages_one: 1 件のメッセージがキューにあります
+queue_messages_count: '%{count} 件のメッセージがキューにあります'

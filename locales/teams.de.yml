@@ -58,3 +58,7 @@ teams_settings_failed: "Parallelität konnte nicht gespeichert werden"
 teams_settings_unknown: "Speicherergebnis unklar; zum Prüfen erneut versuchen"
 teams_settings_retry: "Erneut versuchen"
 teams_settings_load_failed: "Parallelität konnte nicht geladen werden"
+role_avatar: Avatar
+role_avatar_seed: Avatar %{seed}
+role_avatar_shuffle: Neu mischen
+role_avatar_none: Standard

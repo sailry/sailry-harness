@@ -162,8 +162,16 @@ func (a *App) rail(c *ui.Context) {
 		}
 		railChosen(c, kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open), a.search.open).
 			OnClick(func() { a.openSearch() })
-		railChosen(c, kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage), a.Page == SettingsPage).
+		settings := railChosen(c, kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), RailButton, a.Page == SettingsPage), a.Page == SettingsPage).
 			OnClick(a.ToggleSettings)
+		// A found update marks Settings, as unread notices mark the bell,
+		// until About shows it.
+		if a.Settings.Updater.Attention() {
+			p := theme.Of(c)
+			settings.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+				pt.Fill(ui.Rect{X: r.X + r.W - 12, Y: r.Y + 6, W: 6, H: 6}, p.Danger, 3)
+			})
+		}
 	})
 }
 

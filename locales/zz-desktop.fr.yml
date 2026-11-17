@@ -1,0 +1,38 @@
+files_reveal_explorer: Afficher dans l’Explorateur
+files_reveal_finder: Afficher dans le Finder
+files_reveal_manager: Afficher dans le gestionnaire de fichiers
+git_branch_from_open: Créer une branche depuis…
+git_checkout_open: "Checkout…"
+git_delete_remote_branch_open: Supprimer la branche distante…
+git_pull_from_open: "Pull depuis…"
+git_remove_remote_open: Supprimer le dépôt distant…
+git_stash_drop_all_open: "Supprimer tous les stashs…"
+git_stash_view_open: "Afficher le stash…"
+git_tag_create_open: "Créer un tag…"
+git_tag_delete_open: "Supprimer le tag…"
+git_tag_delete_remote_open: "Supprimer le tag distant…"
+git_tag_push_open: "Push du tag…"
+composer_group_prompts: Prompts
+composer_group_modes: Modes
+composer_group_session: Session
+reference_group_connections: Connexions
+reference_group_skills: Compétences
+reference_group_plugins: Plugins
+reference_group_attach: Pièces jointes
+appearance_blur: Flou
+session_archive_named: Archiver « %{name} » et le masquer des conversations actives
+appearance_icon: Icône
+appearance_color: Couleur
+settings_ram: Utilisation de la mémoire
+ram_heap: Tas
+ram_objects: Objets actifs
+ram_fragmented: Fragmenté
+ram_free: Libre
+ram_stacks: Piles
+ram_goroutine_stacks: Piles des goroutines
+ram_system_stacks: Piles système
+ram_runtime: Runtime
+ram_allocator: Allocateur
+ram_collector: Métadonnées du ramasse-miettes
+ram_profiling: Profilage
+ram_other: Autre

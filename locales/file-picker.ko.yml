@@ -1,0 +1,13 @@
+directory_applications: 응용 프로그램
+directory_modified: 수정한 날짜
+directory_modified_today: 오늘 %{time}
+directory_modified_yesterday: 어제 %{time}
+directory_counts: 폴더 %{directories}개, 파일 %{files}개
+directory_counts_hidden: 폴더 %{directories}개, 파일 %{files}개, 숨김 %{hidden}개
+directory_selected_files: 파일 %{count}개 선택됨
+directory_nothing_selected: 선택된 파일 없음
+directory_failed: 폴더를 읽을 수 없음
+directory_host_unavailable: 호스트를 사용할 수 없음
+directory_fallback: '%{path}을(를) 열 수 없어 홈 폴더를 표시합니다'
+directory_trash: 휴지통으로 이동
+directory_trash_confirm: “%{name}”을(를) 휴지통으로 이동

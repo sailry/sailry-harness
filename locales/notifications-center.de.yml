@@ -19,3 +19,5 @@ notification_deleted_read: "Gelesene Benachrichtigungen gelöscht"
 notification_update_unknown: "Aktualisierung nicht bestätigt; später erneut versuchen"
 notification_update_partial: "Einige Benachrichtigungen konnten nicht aktualisiert werden; erneut versuchen"
 notification_update_failed: "Benachrichtigungen konnten nicht aktualisiert werden; erneut versuchen"
+personal_kv_conflict: Konflikt bei persönlichen Daten
+personal_kv_conflict_description: Der Controller hat seine aktuellen Werte beibehalten. Lokale Zeitpläne und abgeschlossene Aktionen bleiben erhalten.

@@ -1,0 +1,15 @@
+configuration_follow_title: 設定同步
+configuration_follow_loading: 正在讀取同步狀態
+configuration_follow_controller: "控制端"
+configuration_follow_description: "設定由控制端統一管理，請在控制端編輯。"
+configuration_follow_this_device: 本裝置的設定
+configuration_follow_local_description: 設定會自動同步到已連線的主機。
+configuration_follow_waiting: "等待控制端設定"
+configuration_follow_unavailable: 無法讀取同步狀態
+configuration_follow_targets: 主機
+configuration_follow_automatic: 自動同步
+configuration_follow_from_source: "來自控制端"
+configuration_follow_requested: 已要求同步
+configuration_follow_failed: 設定同步失敗
+configuration_follow_conflict: 設定已變更，請重新同步
+configuration_follow_unknown: 同步要求尚未確認，請重試以檢查狀態

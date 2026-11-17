@@ -1,0 +1,38 @@
+files_reveal_explorer: Показать в Explorer
+files_reveal_finder: Показать в Finder
+files_reveal_manager: Показать в файловом менеджере
+git_branch_from_open: Создать ветку из…
+git_checkout_open: Переключиться на…
+git_delete_remote_branch_open: Удалить удалённую ветку…
+git_pull_from_open: Получить из…
+git_remove_remote_open: Удалить удалённый репозиторий…
+git_stash_drop_all_open: Удалить все stash…
+git_stash_view_open: Просмотреть stash…
+git_tag_create_open: Создать тег…
+git_tag_delete_open: Удалить тег…
+git_tag_delete_remote_open: Удалить удалённый тег…
+git_tag_push_open: Отправить тег…
+composer_group_prompts: Промпты
+composer_group_modes: Режимы
+composer_group_session: Сеанс
+reference_group_connections: Подключения
+reference_group_skills: Навыки
+reference_group_plugins: Плагины
+reference_group_attach: Вложения
+appearance_blur: Размытие
+session_archive_named: Архивировать «%{name}» и скрыть из активных разговоров
+appearance_icon: Значок
+appearance_color: Цвет
+settings_ram: Использование памяти
+ram_heap: Куча
+ram_objects: Живые объекты
+ram_fragmented: Фрагментировано
+ram_free: Свободно
+ram_stacks: Стеки
+ram_goroutine_stacks: Стеки горутин
+ram_system_stacks: Системные стеки
+ram_runtime: Среда выполнения
+ram_allocator: Аллокатор
+ram_collector: Метаданные сборщика
+ram_profiling: Профилирование
+ram_other: Прочее

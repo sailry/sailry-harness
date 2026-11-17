@@ -1,0 +1,3 @@
+ram_plugins: 플러그인(추정)
+ram_plugins_partial: '%{bytes} · 일부'
+ram_plugins_error: 플러그인 메모리를 읽을 수 없음

@@ -20,7 +20,7 @@ sessions_unassigned: Чаты
 workspace_new_session: Создать сеанс
 workspace_collapse: Свернуть проект
 workspace_expand: Развернуть проект
-workspace_pin: Сессия Pin
+workspace_pin: Закрепить сеанс
 workspace_unpin: Открепить
 sidebar_sessions_more: Показать больше
 sidebar_sessions_less: Свернуть
@@ -31,8 +31,8 @@ sidebar_age_days: '%{count}d'
 activity_running: Выполняется
 activity_waiting: Требует внимания
 notification_unread: Непрочитанные
-project_sessions_empty: Сессий не проводится
-project_archived: Archived
+project_sessions_empty: Нет сеансов
+project_archived: В архиве
 settings_group_app: Применение
 settings_group_ai: AI
 settings_group_tools: Инструменты и соединения
@@ -92,7 +92,7 @@ welcome_plan: Составьте план
 welcome_plan_detail: Уточнение целей и шагов
 welcome_plan_prompt: Помогите мне составить поэтапный план для предстоящей работы по разработке
 provider_channels: Каналы
-provider_list_search: Поиск провайдеров или моделей
+provider_list_search: Поиск поставщиков или моделей
 settings_add: Добавить
 settings_edit: Изменить
 settings_delete: Удалить
@@ -152,11 +152,11 @@ turn_generating: Реагирование
 turn_awaiting_response: Мысли
 turn_waiting_child: Ожидание субагента
 turn_waiting_children: 'Ожидание субагентов: %{count}'
-turn_waiting_controller: Ожидание входа на управляющем устройстве
+turn_waiting_controller: Ожидание входа на контроллере
 approval_rejected: Отклонено
 approval_reject: Отклонить
 approval_allow_once: Разрешить
-approval_allow_session: Разрешить для этой сессии
+approval_allow_session: Разрешить для этого сеанса
 approval_live_count: '%{count} ожидает утверждения'
 subagent_count: 'Субагенты: %{completed}/%{total}'
 chat_child: Субагент
@@ -181,9 +181,9 @@ interaction_continue: Продолжить
 interaction_start: Выполнить
 live_read_busy: Ожидание хоста
 tool_load_skill: Навыки нагрузки
-tool_list_sessions: Найти беседы
-tool_read_session: Читать беседу
-tool_search_session: Поиск в беседе
+tool_list_sessions: Найти сеансы
+tool_read_session: Прочитать сеанс
+tool_search_session: Поиск в сеансе
 tool_find_tools: Поиск инструментов
 tool_read_output: Читать вывод инструмента
 approval_allow_prefix: Разрешить префикс «%{prefix}»
@@ -194,7 +194,7 @@ close: Закрыть
 shell_sessions: Чаты
 notifications: Уведомления
 hosts: Хосты
-host_add: Добавить узел
+host_add: Добавить хост
 sidebar_host_update: Обновить
 local_host_name: sailry-mac.local
 remote_host_name: design-node.local
@@ -223,9 +223,9 @@ notifications_read_all: Отметить все как прочитанные
 notification_delete_read: Удалить прочитанные
 notifications_empty: Уведомлений нет
 notifications_time_now: Только что
-notifications_time_minutes: '%{count} мин. назад'
-notifications_time_hours: '%{count} ч назад'
-notifications_time_days: '%{count} дн. назад'
+notifications_time_minutes: '%{count} min назад'
+notifications_time_hours: '%{count} h назад'
+notifications_time_days: '%{count} d назад'
 knowledge_source: Источник
 knowledge_previous: Назад
 knowledge_next: Далее
@@ -238,25 +238,25 @@ knowledge_denied: Доступ к знаниям запрещён
 knowledge_page: Страница %{page}
 knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Слайд %{slide}
-workspace_archive: Архивная сессия
-session_delete: Исключить &quot; сессия &quot;
-session_delete_named: Исключить сессию “%{name}” и ее субагентов навсегда
-session_delete_private_files: Its private workspace files are deleted too
-session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
+workspace_archive: Архивировать сеанс
+session_delete: Удалить сеанс
+session_delete_named: Навсегда удалить сеанс “%{name}” и его субагентов
+session_delete_private_files: Файлы его личной рабочей области также будут удалены
+session_delete_private_named: Безвозвратно удалить «%{name}», его субагентов и файлы личной рабочей области
 workspace_rename: Переименовать
 session_title_required: Введите имя
 session_mark_read: Отметить как прочитанное
 session_mark_unread: Отметить как непрочитанное
 content_copy: Копировать
 workspace_copy_title: Копировать название
-session_copy_id: Копировать идентификатор сессии
+session_copy_id: Копировать идентификатор сеанса
 workspace_copy_path: Копировать путь
 conversation_export: Экспорт
 conversation_export_markdown: Markdown
 conversation_export_html: HTML
 conversation_export_image: Изображение
 session_fork: Вилка
-session_fork_here: Форк-разговор
+session_fork_here: Создать ветку разговора
 session_fork_worktree: Разветвление в новом рабочем дереве
 files_open: Открыть файл
 session_new_window: Открыть в новом окне
@@ -269,7 +269,7 @@ worktree_create: Новое рабочее дерево
 worktree_remove: Удалить рабочее дерево
 workspace_open_worktree: Открытое рабочее дерево
 worktree_actions: Действия рабочего дерева
-worktree_main: Main
+worktree_main: Основное
 worktree_locked: Заблокировано
 worktree_unavailable: Справочник недоступен
 worktree_prune_on_select: Недоступно · нажмите, чтобы очистить
@@ -278,72 +278,72 @@ worktree_base: Начальная точка
 worktree_path: Путь
 worktree_load_failed: Не удалось загрузить рабочие деревья
 worktree_missing_project: Выберите проект
-worktree_no_repository: Этот каталог не является хранилищем Git
+worktree_no_repository: Этот каталог не является репозиторием Git
 worktree_revision_failed: Не удалось определить начальную точку
 worktree_context_changed: Проект изменен, переоткройте этот вид
-worktree_open_busy: This session cannot switch worktrees now
-worktree_created: Worktree created
-worktree_removed: Worktree removed
-worktree_remove_confirm: Удалить этот каталог рабочего дерева; сохранить ответвление Git
-worktree_prune: Clean up stale worktree
-worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_open_busy: Этот сеанс сейчас не может сменить рабочее дерево
+worktree_created: Рабочее дерево создано
+worktree_removed: Рабочее дерево удалено
+worktree_remove_confirm: Удалить этот каталог рабочего дерева; ветка Git сохранится
+worktree_prune: Очистить устаревшее рабочее дерево
+worktree_prune_confirm: Удалить эту устаревшую запись; файлы не удаляются
 worktree_pruned: Удалена устаревшая регистрация рабочего дерева
 worktree_prune_failed: 'Не очищен: каталог существует, заблокирован или не может быть проверен'
-worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_prune_exists: Каталог всё ещё существует, очищать нечего
 worktree_outcome_unknown: Результат не подтвержден, проверьте рабочее дерево
 worktree_conflict: Конфликты владения ветками, каталогами или проектами
-worktree_invalid: Проверка ответвления и абсолютного пути
-worktree_not_found: Проект, каталог или начальная фиксация не найдены
+worktree_invalid: Проверьте ветку и абсолютный путь
+worktree_not_found: Проект, каталог или начальный коммит не найдены
 worktree_request_failed: Операция не удалась, проверьте разрешения и подключение
-worktree_path_exists: Path already exists
+worktree_path_exists: Путь уже существует
 worktree_remove_locked: Рабочее дерево заблокировано
 worktree_remove_busy: Рабочее дерево используется
-worktree_remove_dirty: Рабочее дерево содержит нефиксированные изменения; удалить нельзя
+worktree_remove_dirty: В рабочем дереве есть незакоммиченные изменения; удалить нельзя
 worktree_remove_conflict: Рабочее дерево изменено, обновить перед удалением
 worktree_remove_missing: Работа не найдена
-worktree_unused: No session
+worktree_unused: Нет сеанса
 git_branch_exists: Отделение уже существует
-git_branch_checked_out: Branch is checked out in another worktree
+git_branch_checked_out: Ветка извлечена в другом рабочем дереве
 git_index_failed: Не удалось обновить тестирование, попробуйте снова
 git_index_changed: Git состояние изменилось, выберите снова
 git_index_busy: Git занят или операция прервана, попробуйте снова в ближайшее время
 git_index_denied: Не удается получить доступ к файлу или индексу, проверьте разрешения
-git_index_missing: Файл или хранилище больше не существует, выберите снова
+git_index_missing: Файл или репозиторий больше не существует, выберите снова
 git_index_unknown: Результат стадии не подтвержден, обновить и пересмотреть
 git_index_conflict: Git состояние изменено, обновить
-git_branch_revision: Изменение хранилища, обновление
+git_branch_revision: Репозиторий изменился; обновите
 git_identity_missing: Настройка Git имени и электронной почты
 git_commit_unavailable: Завершение неполное, проверьте выход Git; ваше сообщение сохранено
-git_commit_failed: Завершение не удалось, проверка конфликтов, отложенных изменений и блокировок; ваше сообщение сохранено
-git_commit_unknown: Результат фиксации не подтвержден; он может быть завершён. Проверьте историю перед продолжением. Автоматическая повторная попытка отсутствует
-git_branch_busy: Хранилище занято
+git_commit_failed: Не удалось создать коммит; проверьте конфликты, индексированные изменения и блокировки; ваше сообщение сохранено
+git_commit_unknown: Результат коммита не подтвержден; возможно, он создан. Проверьте историю перед продолжением. Автоматического повтора нет
+git_branch_busy: Репозиторий занят
 git_branch_conflict: Изменение ветки или файлов
 git_branch_failed: Не удалось переключить ветку
-git_branch_unknown: Результат переключения не подтвержден, проверьте ответвление и файлы
+git_branch_unknown: Результат переключения не подтвержден; проверьте ветку и файлы
 git_merge_conflict: Ветка изменилась или имеет конфликты
 git_merge_failed: Слияние не удалось, проверить конфликты и соединение
 git_merge_unknown: Результат слияния не подтвержден, проверьте рабочее дерево и историю
 git_branch_delete_conflict: Отделение изменилось или используется
 git_branch_delete_failed: Не удалось удалить ветку
-git_branch_delete_unknown: Результат удаления не подтвержден, проверьте ответвления и отслеживание
+git_branch_delete_unknown: Результат удаления не подтвержден; проверьте ветки и отслеживание
 git_branch_rename_conflict: Ветка изменена, обновление перед переименованием
 git_branch_rename_failed: Не удалось переименовать ветку
-git_branch_rename_unknown: Результат переименования не подтвержден, проверить ответвления и отслеживание
-git_branch_create_failed: Не удалось создать ответвление
-git_branch_create_unknown: Результат создания не подтвержден, проверьте список ответвлений
+git_branch_rename_unknown: Результат переименования не подтвержден; проверьте ветки и отслеживание
+git_branch_create_failed: Не удалось создать ветку
+git_branch_create_unknown: Результат создания не подтвержден; проверьте список веток
 git_action_conflict: Git состояние изменено, обновить
 git_action_failed: Git операция не удалась
 git_action_unknown: Git результат не подтвержден, обновить перед продолжением
 git_auth_failed: Git ошибка проверки подлинности
 workspace_memory_only: Только предварительный просмотр изменений
 workspace_confirm: Подтвердить
-project_remove_named: Удалить проект «%{name}»? Его терминалы будут закрыты; файлы и сессии сохранятся
+project_remove_named: Удалить проект «%{name}»? Его терминалы будут закрыты; файлы и сеансы сохранятся
 project_remove_preview: Удалить запись предварительного просмотра
 project_name: Название проекта
 project_host: Хост
-project_visibility: Visibility
-project_visibility_private: Private
-project_visibility_shared: Host shared
+project_visibility: Видимость
+project_visibility_private: Личный
+project_visibility_shared: Общий на хосте
 project_path: Путь проекта
 project_destination: Назначение
 project_repository: Репозиторий
@@ -357,8 +357,8 @@ project_repository_placeholder: https://github.com/org/repository.git
 project_branch_placeholder: Ветка по умолчанию
 directory_title: Выберите каталог
 project_required: Введите имя проекта и путь
-project_duplicate_path: У этого узла уже есть проект в этом пути
-project_clone_required: Введите имя, хранилище и место назначения
+project_duplicate_path: У этого хоста уже есть проект по этому пути
+project_clone_required: Введите имя, репозиторий и место назначения
 settings_cancel: Отмена
 settings_save_preview: Сохранить просмотр
 connection_no_projects: Нет проектов
@@ -376,7 +376,7 @@ files_cursor_position: Лн {line}, Кол {column}
 files_copy_path: Копировать путь
 changes: Изменения файлов
 git_stage_all: Этап все
-git_commit_message: Сообщение фиксации
+git_commit_message: Сообщение коммита
 git_commit: Коммит
 git_diff_empty: Нет различий
 git_view_history: История
@@ -387,24 +387,24 @@ files_new_directory: Новая папка
 files_new_file: Новый файл
 files_paste: Вставить
 files_rename: Переименовать
-files_reveal_explorer: Show in Explorer
-files_reveal_finder: Show in Finder
-files_reveal_manager: Show in file manager
+files_reveal_explorer: Показать в Explorer
+files_reveal_finder: Показать в Finder
+files_reveal_manager: Показать в файловом менеджере
 files_trash: Удалить
 git_abort: Аборт
 git_actions: Git акции
 git_add_remote: Добавить удаленный
 git_all_changes: Все изменения
-git_amend: Изменить последнюю фиксацию
+git_amend: Изменить последний коммит
 git_branch_actions: Действия филиала
-git_branch_from: Создать ответвление из
-git_branch_from_open: Create branch from…
+git_branch_from: Создать ветку из
+git_branch_from_open: Создать ветку из…
 git_branches: Ветки
 git_changes_menu: Изменения
 git_checkout: Касса
-git_checkout_open: Checkout…
+git_checkout_open: Переключиться на…
 git_clone: Клон
-git_commit_all: Коммит всех изменений
+git_commit_all: Закоммитить все
 git_commit_all_amend: Закрепить все и внести поправки
 git_commit_all_signoff: Закрепить все и завершить
 git_commit_amend: Закрепить и внести поправки
@@ -415,34 +415,34 @@ git_commit_staged_amend: Завершение этапировано и изме
 git_commit_staged_signoff: Завершение на стадии и отключение
 git_commit_sync: Завершение и синхронизация
 git_cherry_pick: Cherry-pick
-git_cherry_pick_confirm: Apply this commit to the current branch
+git_cherry_pick_confirm: Применить этот коммит к текущей ветке
 git_copy_branch: Копировать имя ветки
-git_copy_commit_id: Copy commit ID
+git_copy_commit_id: Копировать ID коммита
 git_copy_path: Копировать путь
-git_delete_branch: Исключить ветвь
+git_delete_branch: Удалить ветку
 git_delete_confirm: Удалить? Это нельзя отменить
 git_delete_remote_branch: Удаление удаленного филиала
-git_delete_remote_branch_open: Delete remote branch…
+git_delete_remote_branch_open: Удалить удалённую ветку…
 git_discard_all: Отбросить все изменения
 git_discard_all_confirm: Отбросить все изменения? Это нельзя отменить
 git_discard_changes: Отбросить изменения
 git_discard_confirm: Отбросить изменения? Это нельзя отменить
-git_expand_commit: Развернуть сообщение фиксации
+git_expand_commit: Развернуть сообщение коммита
 git_fetch: Извлечение
 git_fetch_all: Получить все
 git_fetch_prune: Приносить и стричь
 git_force_push: Принудительный push
-git_force_push_confirm: Принудительная фиксация? Удаленные фиксации могут быть перезаписаны
+git_force_push_confirm: Принудительная отправка? Удаленные коммиты могут быть перезаписаны
 git_group_none: Без группировки
 git_group_staged: Группа по стадии
 git_group_tracked: Группировка по отслеживанию
-git_history_empty: Нет фиксаций
+git_history_empty: Нет коммитов
 git_ignore: Игнорировать (добавить в.gitignore)
 git_layout_list: Список
 git_layout_tree: Дерево
 git_local_branches: Местные отделения
 git_manage_branches: Управление филиалами
-git_merge_branch: Слияние ответвлений
+git_merge_branch: Слить ветку
 git_merge_branch_confirm: Слить эту ветку в текущую ветку
 git_new_branch: Новое отделение
 git_no_changes: Без изменений
@@ -450,7 +450,7 @@ git_open_source: Открытый код
 git_output: Вывод
 git_pull: Пулл
 git_pull_from: Вытянуть из
-git_pull_from_open: Pull from…
+git_pull_from_open: Получить из…
 git_pull_push: Тянуть и толкать
 git_pull_rebase: Пулл с перебазированием
 git_push: Пуш
@@ -460,44 +460,44 @@ git_refresh: Обновить
 git_remote_branches: Отдаленные филиалы
 git_remotes: Дистанционное управление
 git_remove_remote: Удалить удаленное
-git_remove_remote_confirm: Удалить это удаленное? Локальные файлы и фиксации будут сохранены
-git_remove_remote_open: Remove remote…
-git_rename_branch: Переименование ответвления
-git_search_branches: Поиск ветвей
+git_remove_remote_confirm: Удалить этот удаленный репозиторий? Локальные файлы и коммиты сохранятся
+git_remove_remote_open: Удалить удалённый репозиторий…
+git_rename_branch: Переименовать ветку
+git_search_branches: Поиск веток
 git_signoff: Выход
-git_skip_hooks: Скип-крылья
+git_skip_hooks: Пропустить Hooks
 git_sort_name: Сортировать по имени
 git_sort_path: Сортировать по пути
 git_sort_status: Сортировать по статусу
 git_stage: Этап
 git_staged: Сценарист
-git_stash_all: Скрыть все
-git_stash_apply: Применить запас
-git_stash_apply_latest: Применить последний запас
+git_stash_all: Поместить все в stash
+git_stash_apply: Применить stash
+git_stash_apply_latest: Применить последний stash
 git_stash_drop: Удалить stash
-git_stash_drop_all: Удалить все запасы
-git_stash_drop_all_open: Delete all stashes…
-git_stash_menu: Склад
-git_stash_pop: Поп-стэш
-git_stash_pop_latest: Поп последний клад
-git_stash_staged: Сохранение отложенных изменений
-git_stash_tracked: Скрыть отслеживаемые файлы
-git_stash_view: Посмотреть клад
-git_stash_view_open: View stash…
+git_stash_drop_all: Удалить все stash
+git_stash_drop_all_open: Удалить все stash…
+git_stash_menu: Stash
+git_stash_pop: Извлечь stash
+git_stash_pop_latest: Извлечь последний stash
+git_stash_staged: Поместить индексированные изменения в stash
+git_stash_tracked: Поместить отслеживаемые файлы в stash
+git_stash_view: Просмотреть stash
+git_stash_view_open: Просмотреть stash…
 git_sync: Синхронизировать
 git_sync_rebase: Синхронизация с перебазированием
 git_tag_create: Создать метку
-git_tag_create_open: Create tag…
+git_tag_create_open: Создать тег…
 git_tag_delete: Удалить метку
-git_tag_delete_open: Delete tag…
+git_tag_delete_open: Удалить тег…
 git_tag_delete_remote: Удалить удаленный тег
-git_tag_delete_remote_open: Delete remote tag…
+git_tag_delete_remote_open: Удалить удалённый тег…
 git_tag_push: Пуш-тег
-git_tag_push_open: Push tag…
+git_tag_push_open: Отправить тег…
 git_tags: Теги
 git_tracked: Отслеживаемые
-git_undo_commit: Отмена последней фиксации
-git_undo_confirm: Отменить последнюю фиксацию? Изменения в файле будут сохранены
+git_undo_commit: Отменить последний коммит
+git_undo_confirm: Отменить последний коммит? Изменения в файлах сохранятся
 git_unstage: Отступление
 git_unstage_all: Отменить все
 git_unstaged: Не смонтирован
@@ -577,12 +577,12 @@ background_outcome_stalled: Нет нового вывода
 background_outcome_stopped: Остановлено
 background_outcome_timed_out: Время истекло
 background_outcome_unknown: Результат неизвестен
-background_running: Running in background
-background_exit: Exit code %{code}
-background_result_waiting: Result not delivered
+background_running: Выполняется в фоне
+background_exit: Код выхода %{code}
+background_result_waiting: Результат не доставлен
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
-chat_compact_failed_paused: Compaction failed, automatic compaction paused
+chat_compact_failed_paused: Сжатие не удалось, автоматическое сжатие приостановлено
 chat_compact_queued: Ожидание уплотнения
 chat_compact_unneeded: Уплотнение не требуется
 chat_compacted: Контекст уплотнён
@@ -605,7 +605,7 @@ chat_model_reconnecting: Повтор запроса %{attempt}/%{limit}
 chat_model_reconnecting_continuously: Переподключение
 chat_model_retried: Тип запроса перепробован %{attempt}/%{limit}
 chat_model_retry_exhausted: Достигнут предел повторных попыток
-chat_model_retry_wait_exhausted: Retry wait limit reached
+chat_model_retry_wait_exhausted: Достигнут предел ожидания повтора
 chat_model_server_overloaded: Сервис модели перегружен
 chat_reconnecting: Повторное подключение
 chat_rewind: Перематывать до этого поворота
@@ -628,7 +628,7 @@ files_open_system: Открыть
 hunks_review: Проверить блоки
 message_edit: Изменить
 message_quote: Цитировать
-plugins_view_offline: Узел отключен
+plugins_view_offline: Хост отключен
 reader_read: Прочитать вслух
 reader_stop: Остановить чтение
 turn_changes_count: Отредактированные файлы %{count}
@@ -653,7 +653,7 @@ composer_permission_project_description: Редактировать файлы �
 composer_permission_full_description: Редактирование файлов и автоматическое выполнение команд, в том числе вне проекта
 composer_host_local: Локальное устройство
 composer_no_project: Чаты
-composer_execution_host: Execution host
+composer_execution_host: Хост выполнения
 composer_branch_none: Отделения нет
 composer_settings: Настройки сеанса
 composer_back: Назад
@@ -702,7 +702,7 @@ files_upload_publishing: Сохранение файла
 reference_title: Добавить ссылку
 reference_files: Файлы
 reference_agents: Субагенты
-reference_sessions: Сессии
+reference_sessions: Сеансы
 reference_context: Контекст рабочей области
 reference_databases: База данных
 reference_ssh: SSH соединения
@@ -732,7 +732,7 @@ directory_home: Главная
 directory_desktop: Настольный
 directory_documents: Документация
 directory_downloads: Загрузки
-directory_applications: Applications
+directory_applications: Приложения
 directory_locations: Расположения
 directory_count_files: '%{count} файлов'
 directory_name: Имя
@@ -751,15 +751,15 @@ provider_gemini: Gemini
 provider_other: Другое
 reference_files_description: Предварительный просмотр файлов в текущем рабочем дереве
 reference_agents_description: Справочные настроенные субагенты
-reference_sessions_description: Доступные беседы
-reference_context_description: Узел, проект и рабочее дерево
+reference_sessions_description: Доступные сеансы
+reference_context_description: Хост, проект и рабочее дерево
 appearance_import: Импорт темы
 appearance_main_transparency: Контейнер
 appearance_sidebar_transparency: Окно
 appearance_transparency: Непрозрачность фона
-backup_archive_all: Архивировать все сессии
+backup_archive_all: Архивировать все сеансы
 backup_archive_all_action: Архивировать все
-backup_archived_sessions: Архивные сессии
+backup_archived_sessions: Архивные сеансы
 backup_bucket: Контейнер
 backup_choose_directory: Выбрать папку
 backup_clear_credentials: Очистить учётные данные
@@ -767,16 +767,16 @@ backup_configure: Настроить
 backup_confirm_passphrase: Подтвердить пароль
 backup_conflict: Настройки или цель изменились; обновите для проверки
 backup_delete: Удалить
-backup_delete_all: Удалить все сессии
+backup_delete_all: Удалить все сеансы
 backup_delete_all_action: Удалить все
-backup_delete_all_consequence: Удалить все сессии, включая архивные. Отменить нельзя; файлы проекта и настройки аккаунта сохранятся
+backup_delete_all_consequence: Удалить все сеансы, включая архивные. Отменить нельзя; файлы проекта и настройки аккаунта сохранятся
 backup_destination: Хранилище резервных копий
 backup_endpoint: Адрес сервиса
 backup_export: Экспортировать
 backup_export_data: Экспорт данных
 backup_failed: Операция копирования не удалась
-backup_online_failed: Local backup saved; online backup failed
-backup_online_unknown: Local backup saved; online backup outcome is unknown
+backup_online_failed: Локальная резервная копия сохранена; онлайн-копирование не удалось
+backup_online_unknown: Локальная резервная копия сохранена; результат онлайн-копирования неизвестен
 backup_identity: Имя пользователя или ID ключа доступа
 backup_import: Восстановить из файла
 backup_invalid: Проверьте настройки копирования
@@ -784,7 +784,7 @@ backup_keep_secret: Сохранить текущее значение
 backup_local: Локально
 backup_local_directory: Папка копий Node
 backup_manage: Управление
-backup_no_archived: Нет архивных сессий
+backup_no_archived: Нет архивных сеансов
 backup_now: Создать копию
 backup_passphrase: Парольная фраза шифрования
 backup_passphrase_invalid: Используйте не менее 8 символов
@@ -799,38 +799,38 @@ backup_saved: Настройки сохранены
 backup_schedule_enabled: Автоматическое копирование
 backup_schedule_time: Ежедневное время
 backup_secret: Пароль или секретный ключ
-backup_session_token: Токен сеанса
+backup_session_token: Token сеанса
 backup_timezone: Часовой пояс
 backup_unarchive: Разархивировать
 backup_unknown: Результат неизвестен; повторите тот же запрос или проверьте удалённый список
 backup_webdav: WebDAV
-backup_archived: Сессии архивированы
-backup_delete_session_consequence: Удалить эту сессию и дочерние сессии. Отменить нельзя; файлы проекта и настройки аккаунта сохранятся
-backup_deleted: Сессии удалены
+backup_archived: Сеансы архивированы
+backup_delete_session_consequence: Удалить этот сеанс и дочерние сеансы. Отменить нельзя; файлы проекта и настройки аккаунта сохранятся
+backup_deleted: Сеансы удалены
 backup_denied: Доступ к копии запрещён
 backup_empty: Нет резервных копий
 backup_exported: Копия экспортирована
 backup_invalid_target: Введите новый абсолютный путь профиля
 backup_online_enabled: Онлайн-копия
 backup_partial: Могут быть доступны другие копии
-backup_restore_consequence: Восстановление в пустой каталог. Идентификатор узла сохраняется; запускайте только одну копию одновременно
+backup_restore_consequence: Восстановление в пустой каталог. Копия сохраняет идентификатор этого Node; запускайте только одну копию одновременно
 backup_restored: Профиль восстановлен
-backup_sessions_busy: Сначала остановите активные сессии
-backup_sessions_failed: Не удалось обновить сессии
-backup_sessions_unknown: Изменение сессий не подтверждено; повторите для проверки результата
+backup_sessions_busy: Сначала остановите активные сеансы
+backup_sessions_failed: Не удалось обновить сеансы
+backup_sessions_unknown: Изменение сеансов не подтверждено; повторите для проверки результата
 backup_target: Новый абсолютный путь профиля
-backup_unarchived: Сессия разархивирована
+backup_unarchived: Сеанс разархивирован
 files_upload_picker: Не удалось открыть инструмент выбора файлов
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Устройство %{id}
 connections_hosts: Хосты
 connections_mobile: Мобильный
-connections_bidirectional: Bidirectional
-connections_legacy_bidirectional: Legacy bidirectional
-connections_only_host: Host only
-connections_only_controller: Controller only
-connections_direction_saved: Device access updated
+connections_bidirectional: Двусторонний
+connections_legacy_bidirectional: Двусторонний (устаревший)
+connections_only_host: Только хост
+connections_only_controller: Только контроллер
+connections_direction_saved: Доступ устройства обновлён
 connections_offline: Не в сети
 connections_online: В сети
 connections_revoke_confirm: Удаление пары требует повторного подключения
@@ -851,35 +851,35 @@ form_passphrase_hint: Пароль для закрытого ключа (нео�
 form_private_key_hint: Вставить закрытый ключ
 form_value_hint: Введите значение
 form_variable_hint: например LANG
-hooks_add: Добавить хук
+hooks_add: Добавить Hook
 hooks_after_tool: После инструмента
 hooks_before_tool: До инструмента
 hooks_command: Команда
-hooks_configure: Настроить хук
-hooks_conflict: Хуки изменились; перезагрузите перед сохранением
+hooks_configure: Настроить Hook
+hooks_conflict: Hooks изменились; перезагрузите перед сохранением
 hooks_consent: Выполнять эти скрипты в будущих задачах этого рабочего дерева
-hooks_empty: Нет хуков
-hooks_enable: Включить хуки
+hooks_empty: Нет Hooks
+hooks_enable: Включить Hooks
 hooks_enabled: Включено
-hooks_failed: Не удалось сохранить хуки
+hooks_failed: Не удалось сохранить Hooks
 hooks_invalid: Неверная команда или тайм-аут
 hooks_name: Имя
 hooks_phase: Этап
-hooks_remove: Удалить хук
-hooks_saved: Хуки сохранены
+hooks_remove: Удалить Hook
+hooks_saved: Hooks сохранены
 hooks_scope_workspace: Скрипты могут изменять это рабочее дерево; доступ к сети заблокирован
 hooks_scripts: Скрипты
-hooks_settings: Хуки
+hooks_settings: Hooks
 hooks_settings_description: Настроить скрипты для этого рабочего дерева
-hooks_timeout: Тайм-аут (мс)
+hooks_timeout: Тайм-аут (ms)
 hooks_turn_end: Завершение хода
-hooks_unknown: Результат сохранения неизвестен; повторите исходный запрос
+hooks_unknown: Результат сохранения Hook неизвестен; повторите исходный запрос
 host_install: Установка и подключение
 host_pairing_hint: Подключить устройство с Sailry
 host_pairing_mode: Код сопряжения
-host_ssh_mode: Install via SSH
-host_install_hint: Install Sailry on a server and connect
-host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+host_ssh_mode: Установка через SSH
+host_install_hint: Установите Sailry на сервер и подключитесь
+host_ssh_agent_hint: Использовать ключи, загруженные в SSH-агент этого компьютера
 ssh_authentication: Аутентификация
 connection: Соединение
 knowledge_downloading: Загрузка
@@ -952,9 +952,9 @@ sandbox_settings_saved: Сохранено
 sandbox_settings_unknown: Не удалось подтвердить сохранение; перезагрузите для проверки
 session_order_created: Создание
 session_order_updated: Обновление
-session_order_recent: Recently updated
-session_order_name: Name
-sidebar_sort: Sort
+session_order_recent: Недавно обновлённые
+session_order_name: Имя
+sidebar_sort: Сортировка
 settings_about_description: Версия приложения и сведения о сборке
 settings_backup_description: Управление данными и резервными копиями
 settings_build: Тип постройки
@@ -962,7 +962,7 @@ settings_command_sandbox: Песочница команд
 settings_command_sandbox_description: Применяется к следующим командам во всех сеансах
 settings_connections_description: Управление сопряженными устройствами и удаленными подключениями Node
 settings_connectors_description: Управление подключениями к сервисам
-settings_conversation_description: Настройка отображения сообщений в чате
+settings_conversation_description: Настройка отображения сообщений в разговоре
 settings_decision: Решения
 settings_decision_description: Настройка локальных моделей принятия решений
 settings_dictation_description: Переписать локально в черновой текст сообщения
@@ -973,7 +973,7 @@ settings_font_family: Шрифт
 settings_font_size: Размер шрифта
 settings_general_description: Управление уведомлениями и службой парирования устройств
 settings_global_commands: Глобальные команды
-settings_knowledge_description: Знания на выбранном узле
+settings_knowledge_description: Знания на выбранном хосте
 settings_language: Язык
 settings_language_chinese: 简体中文
 settings_language_english: English
@@ -1002,7 +1002,7 @@ settings_paste_description: Подтвердить перед вставлени
 settings_paste_protection: Многолинейная защита пасты
 settings_permissions_description: Системный доступ Sailry
 settings_runtime: Среда выполнения
-settings_runtime_description: Настройка этого узла
+settings_runtime_description: Настройка этого Node
 settings_save: Сохранить
 settings_seconds: '%{count} секунд'
 settings_shortcuts_description: Просмотр глобальных команд и сочетаний клавиш
@@ -1050,8 +1050,8 @@ terminal_input: Ввод
 terminal_settings_conflict: Настройки терминала изменены; ваши изменения сохранены
 terminal_settings_failed: Не удалось прочитать или сохранить настройки терминала
 terminal_settings_unknown: Сохранение результата не подтверждено; перезагрузка и пересмотр
-terminal_shell: Оболочка по умолчанию
-terminal_shell_default: Узел по умолчанию
+terminal_shell: Shell по умолчанию
+terminal_shell_default: По умолчанию для хоста
 terminal_shell_group: Shell
 terminal_value: Стоимость
 terminal_variable: Имя переменной
@@ -1075,7 +1075,7 @@ authorization_waiting_time: Ожидание авторизации · %{time}
 authorization_link_expired: Срок действия ссылки истек
 authorization_code_expired: Срок действия кода истек
 provider_login_callback: Код авторизации или URL перенаправления из браузера
-provider_login_callback_placeholder: If sign-in doesn't return automatically, paste the code or callback URL
+provider_login_callback_placeholder: Если вход не завершился автоматически, вставьте код или URL обратного вызова
 provider_login_continue: Продолжить
 authorization_open: Открыть
 authorization_copy_link: Копировать ссылку
@@ -1091,7 +1091,7 @@ provider_tokens_k: '%{count}K'
 provider_empty_live: Нет поставщиков
 provider_login_callback_required: Введите код авторизации или URL перенаправления из браузера
 provider_delete_title: Исключить поставщика
-provider_remove_effect: Для сеансов потребуется выбрать другой провайдер
+provider_remove_effect: Для сеансов потребуется выбрать другого поставщика
 provider_catalog_never: Не обновлено
 provider_catalog_updated: Обновленный
 provider_catalog: Данные модели
@@ -1118,7 +1118,7 @@ provider_limits_invalid: Контекстное ограничение долж�
 provider_access_endpoint: Свой адрес API
 provider_add_title: Добавить поставщика
 provider_choose_method: Выбрать подключение
-provider_configure: Настроить провайдера
+provider_configure: Настроить поставщика
 provider_edit_title: Изменить поставщика
 provider_step_back: Назад
 provider_save: Сохранить
@@ -1145,8 +1145,7 @@ provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: Версия редактора
 provider_oauth_editor_plugin_version: Версия плагина редактора
 provider_headers: Пользовательские заголовки запроса
-provider_headers_hint: 'По одному в строке: Имя: значение'
-provider_headers_invalid: В каждой строке заголовка нужны имя и двоеточие
+provider_headers_invalid: Заголовку со значением нужно имя
 provider_models: Модели
 provider_discover: Обновление моделей
 provider_querying: Запрос
@@ -1162,11 +1161,11 @@ provider_api_version: API версия
 form_api_version_hint: например 2024-10-21
 provider_cloud_required: Введите конфигурацию облачного поставщика
 form_model_hint: Идентификация модели
-provider_context: Контекстное ограничение (токен)
-form_tokens_hint: Число токенов
+provider_context: Контекстное ограничение (Token)
+form_tokens_hint: Число Token
 provider_efforts: Усилия по размышлению
 provider_effort_default: Усилия по умолчанию
-provider_effort_placeholder: Усилия или символический бюджет
+provider_effort_placeholder: Усилия или бюджет Token
 provider_effort_invalid: Неправильное обоснование; проверить имена, дубликаты и поддержку API
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
@@ -1174,24 +1173,24 @@ search_driver_auto: Автоматически
 knowledge_settings: Настройки по умолчанию
 knowledge_default_model: Векторная модель
 knowledge_keyword_only: Только ключевые слова
-knowledge_collections: Collections
-knowledge_collection_pending: Waiting to index
-knowledge_collection_unavailable: Storage Node unavailable
-knowledge_collection_indexing: Indexing · %{count} items
-knowledge_collection_ready: Up to date · %{count} items
-knowledge_collection_paused: Paused
-knowledge_collection_failed: Failed · %{reason}
-knowledge_collection_failures: '%{count} not indexed · %{reason}'
-knowledge_pause: Pause
-knowledge_resume: Resume
-knowledge_update: Update
+knowledge_collections: Коллекции
+knowledge_collection_pending: Ожидает индексации
+knowledge_collection_unavailable: Node хранения недоступен
+knowledge_collection_indexing: Индексация · %{count} эл.
+knowledge_collection_ready: Актуально · %{count} эл.
+knowledge_collection_paused: Приостановлено
+knowledge_collection_failed: Ошибка · %{reason}
+knowledge_collection_failures: 'Не проиндексировано: %{count} · %{reason}'
+knowledge_pause: Приостановить
+knowledge_resume: Продолжить
+knowledge_update: Обновить
 runtime_decision: Решения
 runtime_decision_model: Модель
 runtime_decision_enable: Включить решения
 local_models_none: Нет
 connector_oauth: OAuth
 connector_application: Данные приложения
-connector_token: Токен
+connector_token: Token
 connector_cli: Локальная CLI
 connector_not_connected: Не подключено
 connector_expired: Истекло
@@ -1262,8 +1261,8 @@ mcp_keep_secret: Сохранить учетные данные
 mcp_clear_secret: Ясные полномочия
 mcp_secret_saved: Учетные данные сохранены; оставьте пустыми для сохранения
 mcp_secret_cleared: Учетные данные будут очищены при сохранении
-mcp_show_secret: Show credential
-mcp_hide_secret: Hide credential
+mcp_show_secret: Показать учётные данные
+mcp_hide_secret: Скрыть учётные данные
 connector_no_auth: Без аутентификации
 connector_authentication: Аутентификация
 connector_mcp_status: Статус
@@ -1307,7 +1306,7 @@ role_prompt_docs: |-
 team_role_one: 1 роль
 team_role_count: 'Ролей: %{count}'
 teams_concurrency: Параллельные субагенты
-teams_concurrency_description: Максимум одновременно работающих субагентов на диалог
+teams_concurrency_description: Максимум одновременно работающих субагентов на разговор
 teams_roles: Роли
 team_new: Новая команда
 role_new: Новая роль
@@ -1318,8 +1317,8 @@ teams_role_delete_prompt: Удалить роль «%{name}»? Она будет
 teams_role_deleted: Роль удалена
 team_builtin: Встроенная
 team_default: Команда по умолчанию
-team_default_description: Все роли, модель беседы
-team_follow_conversation: Как в беседе
+team_default_description: Все роли, модель разговора
+team_follow_conversation: Как в разговоре
 teams_roles_empty: Нет ролей
 role_inherit: Наследование модели сеанса
 teams_read_only: Только чтение
@@ -1345,10 +1344,10 @@ teams_model: Модель
 role_instructions: Инструкции
 role_save: Сохранить
 teams_role_saved: Роль сохранена
-role_avatar: Avatar
-role_avatar_seed: Avatar %{seed}
-role_avatar_shuffle: Shuffle
-role_avatar_none: Default
+role_avatar: Аватар
+role_avatar_seed: Аватар %{seed}
+role_avatar_shuffle: Другие
+role_avatar_none: По умолчанию
 market_plugin_details: Сведения о плагине
 market_skill_details: Сведения о навыке
 market_theme_details: Сведения о теме
@@ -1380,7 +1379,6 @@ model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Поиск моделей
 model_library_no_results: Модели не найдены
-model_library_available: Доступные модели
 knowledge_delete: Удалить
 knowledge_model_size: Размер
 knowledge_delete_model_effect: Удалить %{name}; связанные коллекции перейдут на поиск по ключевым словам
@@ -1438,14 +1436,14 @@ plugins_directory: Каталог плагинов предварительно�
 form_directory_hint: Рабочий каталог (необязательно)
 plugins_package_required: Введите путь к пакету предварительного просмотра
 skills_repository: Репозиторий Git
-skills_repository_hint: URL хранилища
+skills_repository_hint: URL репозитория
 skills_revision: Ветка или метка
 skills_revision_hint: Ветка по умолчанию
 plugins_path: Каталог плагинов
 plugins_path_hint: Корень хранилища по умолчанию
 plugins_preparing_package: Подготовка пакета
 plugins_installing: Установка
-skills_invalid: Введите URL хранилища HTTPS, действительную ссылку Git, пространство имен и имя
+skills_invalid: Введите URL репозитория HTTPS, действительную ссылку Git, пространство имен и имя
 plugins_updates_title: Обновления плагинов
 plugins_update_version: Обновление к %{version}
 plugins_updates_later: Позже
@@ -1459,7 +1457,7 @@ skill_source_archive: Архив
 skill_source_link_invalid: Введите URL страницы навыка
 skills_package_source: Из плагина %{name}
 skills_search: Навыки поиска
-skills_install: Умение установки
+skills_install: Установить навык
 skills_remove_effect: Удалить %{name}; выполняемые задачи не затронуты
 settings_update: Обновить
 skills_manage_package: Управление плагином
@@ -1476,9 +1474,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Выбрать папку
 skill_source_choose_archive: Выбрать архив
 git_diff: Различия
-git_diff_side_by_side: Side by side
-git_diff_inline: Inline
-git_diff_needs_width: Side by side needs more width
+git_diff_side_by_side: Рядом
+git_diff_inline: Встроенно
+git_diff_needs_width: Для режима «Рядом» недостаточно ширины
 market_permission_git_read: Чтение изменений Git
 market_permission_git_write: Изменение Git
 market_permission_files_read: Чтение файлов
@@ -1497,9 +1495,9 @@ onboarding_host_unavailable: Хост недоступен
 workspace_host_status: Отключено · Предварительный просмотр интерфейса
 local_host_detail: macOS · aarch64 · Предварительный просмотр
 remote_host_detail: Linux · x86_64 · Предварительный просмотр
-host_update: Узел обновления
+host_update: Обновить хост
 workspace_worktrees: Рабочие деревья
-workspace_sessions: Сессии
+workspace_sessions: Сеансы
 host_runtime_loading: Чтение времени выполнения (предварительный просмотр)
 host_version: Версия хоста
 host_uptime: Время работы
@@ -1519,7 +1517,7 @@ update_downloading: Загрузка (предварительный просм�
 update_verifying: Проверка (предварительный)
 update_staged: Пакет готов (предварительный просмотр)
 update_applying: Применение (просмотр)
-update_restart: Ожидание перезапуска узла (предварительный просмотр)
+update_restart: Ожидание перезапуска хоста (предварительный просмотр)
 update_failed: Обновление не удалось (предварительный просмотр)
 update_loading: Чтение состояния обновления (предварительный просмотр)
 update_check: Проверка предварительного просмотра
@@ -1530,7 +1528,7 @@ update_unavailable: Обновление недоступно (предвари�
 update_versions: '%{current} → %{target}'
 update_version: 'Текущая версия: %{current}'
 update_preview: Только предварительный просмотр интерфейса пользователя; без проверки сети, загрузки, установки или перезапуска хоста
-update_target_changed: Узел недоступен; переоткройте редактор
+update_target_changed: Хост недоступен; переоткройте редактор
 metrics_title: Метрики хоста
 metrics_preview: Предварительный просмотр пользовательского интерфейса; не собираются реальные показатели или процессы хоста
 metrics_cpu: CPU
@@ -1581,12 +1579,12 @@ host_process_force_confirm: Прекратите этот процесс сей�
 host_process_stop_sent: Отправлен запрос на остановку
 host_process_gone: Процесс завершен
 host_process_changed: Изменение процесса; обновление и повторная попытка
-host_process_protected: Не удается остановить системные процессы или службу текущего узла
+host_process_protected: Не удается остановить системные процессы или службу текущего хоста
 host_process_uncertain: Результат остановки неизвестен; проверить состояние процесса
-host_process_stop_failed: Не удалось остановить процесс; возможно, процесс завершился, доступ запрещен или этот узел не поддерживает процесс
+host_process_stop_failed: Не удалось остановить процесс; возможно, он завершился, доступ запрещен или этот хост не поддерживает эту операцию
 metrics_gpu: GPU
-port_title: Перенаправление портов
-port_mappings: Сопоставления портов
+port_title: Порты
+port_mappings: Порты
 port_add: Новый форвард
 port_edit: Изменить переадресацию
 port_create: Создать
@@ -1613,7 +1611,7 @@ installation_preparing: Подготовка зависимостей
 installation_validating: Проверка
 installation_speed: '%{value} MiB/s'
 installation_offline: '%{phase} · Отключено'
-installation_node: Узел
+installation_node: Node
 installation_controller: Это устройство
 installation_remove: Удалить
 installation_retry: Повторить
@@ -1631,9 +1629,14 @@ updates_installing: Установка
 updates_restarting: Перезагрузка
 updates_restart_needed: Требуется перезагрузка
 updates_verifying: Проверка
-updates_install: Установка и перезапуск
 updates_restart: Перезагрузка
 updates_details: Подробности
+updates_available: Доступна %{version}
+updates_downloading: Загрузка %{version}
+updates_ready_now: '%{version} готова'
+updates_restart_now: Перезапустить сейчас
+updates_later: Позже
+updates_view: Открыть
 updates_download: Скачать
 updates_ready: '%{version} готова к установке'
 updates_restart_description: Чернетки будут восстановлены после перезапуска; локальные задачи и терминалы будут остановлены
@@ -1644,15 +1647,15 @@ selection_empty: Текст не выделен
 terminal_search_placeholder: Терминал поиска
 workspace_no_terminal: В этом рабочем дереве нет терминалов
 workspace_close_terminal: Закрыть терминал
-workspace_terminal_preview: Предварительный просмотр интерфейса терминала с владением проектом и рабочим деревом; не запускается PTY или оболочка
+workspace_terminal_preview: Предварительный просмотр интерфейса терминала с владением проектом и рабочим деревом; PTY и Shell не запускаются
 pane_drag: Перетащите, чтобы разделить
-pane_group: Split group %{number}
-workspace_tab_keep: Keep open
-workspace_tab_release: Stop keeping open
-workspace_tab_unsplit: Unsplit
+pane_group: Группа разделения %{number}
+workspace_tab_keep: Закрепить
+workspace_tab_release: Открепить
+workspace_tab_unsplit: Отменить разделение
 terminal_take_control: Взять под контроль
 terminal_other_controller: Управляется другим устройством
-terminal_unavailable: Терминал недоступен; проверить подключение к узлу
+terminal_unavailable: Терминал недоступен; проверьте подключение к хосту
 updates_network_failed: Не удалось загрузить обновление; повторите попытку
 updates_completed: Sailry был обновлен
 port_exists: Порт уже добавлен
@@ -1660,15 +1663,15 @@ port_failed: Не удалось перенаправить; проверьте 
 selection_large: Выделение слишком длинное
 selection_permission: Разрешите доступ к универсальному доступу в настройках системы
 metrics_rate: '%{value}/s'
-composer_group_prompts: Prompts
-composer_group_modes: Modes
-composer_group_session: Session
+composer_group_prompts: Промпты
+composer_group_modes: Режимы
+composer_group_session: Сеанс
 reference_group_context: Контекст
-reference_group_connections: Connections
-reference_group_skills: Skills
-reference_group_plugins: Plugins
-reference_group_attach: Attachments
-appearance_blur: Blur
+reference_group_connections: Подключения
+reference_group_skills: Навыки
+reference_group_plugins: Плагины
+reference_group_attach: Вложения
+appearance_blur: Размытие
 composer_todo_count: 'Задачи: %{completed}/%{total}'
 composer_subagent_one: 1 субагент
 composer_subagent_count: 'Субагентов: %{count}'
@@ -1689,13 +1692,13 @@ notification_technical: Технические сведения
 notification_exit_code: Код завершения
 preferences_read_failed: Не удалось прочитать локальные настройки; проверьте конфигурацию и перезапустите
 preferences_save_failed: Настройки не сохранены; попробуйте снова
-session_changed: Сессия изменена; попробуйте снова
+session_changed: Сеанс изменен; попробуйте снова
 project_changed: Проект изменен; переоткройте редактор
 chat_action_failed: Операция не удалась; попробуйте еще раз
 chat_action_unknown: Результат не подтвержден; повторите первоначальный запрос
 chat_config_unavailable: Конфигурация сеанса недоступна; проверьте поставщика
 notification_update_failed: Не удалось обновить уведомления; повторите попытку
-session_archive_named: Archive “%{name}” and hide it from active conversations
+session_archive_named: Архивировать «%{name}» и скрыть из активных разговоров
 power_request_failed: Не удалось предотвратить сон
 plugin_response_timeout: Время ожидания ответа плагина истекло
 plugin_metadata_failed: Не удалось загрузить информацию о плагине
@@ -1720,7 +1723,7 @@ question_closed: Вопрос закрыт; проект сохранен
 files_upload_failed: Загрузка не удалась
 files_upload_cancelled: Загрузка отменена
 files_upload_changed: Источник изменился; выберите его снова
-files_upload_too_large: Размер файла превышает 64 МиБ
+files_upload_too_large: Размер файла превышает 64 MiB
 files_upload_name: Неверное имя файла
 files_upload_source: Не удалось прочитать выбранный файл
 files_download_failed: Загрузка не удалась
@@ -1728,26 +1731,26 @@ files_download_changed: Источник изменился; загрузить 
 files_download_destination: Не удалось сохранить загрузочный файл
 files_download_conflict: Место назначения изменилось; снова выберите место сохранения
 chat_attachment_remove_failed: Удаление не удалось
-workspace_action_failed: Workspace action failed
-workspace_changed: Workspace changed; reload before trying again
-workspace_action_unknown: Outcome uncertain; inspect before trying again
-workspace_saved: Saved
-files_changed_on_disk: Changed on disk
-files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
-files_keep_editing: Keep editing
-files_reload: Reload
-files_overwrite: Overwrite
-workspace_completed: Completed
-workspace_restore_confirm: Restore the previous file versions for this turn
+workspace_action_failed: Не удалось выполнить действие в рабочей области
+workspace_changed: Рабочая область изменилась; обновите и повторите
+workspace_action_unknown: Результат неизвестен; проверьте перед повтором
+workspace_saved: Сохранено
+files_changed_on_disk: Изменено на диске
+files_conflict_description: «Перезаписать» заменит файл на диске черновиком; «Перезагрузить» отбросит черновик
+files_keep_editing: Продолжить правку
+files_reload: Перезагрузить
+files_overwrite: Перезаписать
+workspace_completed: Завершено
+workspace_restore_confirm: Восстановить версии файлов до этого хода
 artifact_edit_prompt: 'Испрашиваемые изменения:'
 hooks_project_required: Выберите проект
 background_stop_failed: Остановка не удалась; повторите попытку
 background_stop_unknown: Остановка не подтверждена; проверить статус команды
-subagent_stop: Stop subagent
-subagent_stop_failed: Stop failed; retry
-subagent_stop_unknown: Stop unconfirmed; check subagent status
+subagent_stop: Остановить субагента
+subagent_stop_failed: Не удалось остановить; повторите
+subagent_stop_unknown: Остановка не подтверждена; проверьте состояние субагента
 background_unavailable: Не удалось прочитать фоновый терминал
-files_cancel_remaining: Cancel remaining
+files_cancel_remaining: Отменить оставшиеся
 files_check_result: Результат проверки
 files_move_recycle: После копирования переместить исходный файл в корзину
 files_paste_cancelled: Вставить отменено
@@ -1756,7 +1759,7 @@ files_paste_directory: Конечная папка
 files_paste_source: Рабочее дерево исходного кода
 files_upload_retry: Повторить
 files_worktree_root: Корень рабочего дерева
-content_preview: Preview
+content_preview: Предпросмотр
 file_search: Поиск файлов
 file_search_case: Матч
 file_search_empty: Нет соответствий
@@ -1767,42 +1770,42 @@ file_search_partial: Некоторое содержимое не было на�
 file_search_query: Поиск контента
 file_search_regex: Регулярное выражение
 file_search_running: Поиск
-files_block: Text
-files_block_bullet: Bulleted list
-files_block_callout: Callout
-files_block_code: Code block
-files_block_heading: Heading {level}
-files_block_ordered: Numbered list
-files_block_paragraph: Paragraph
-files_block_quote: Quote
-files_block_task: Task list
-files_bold: Bold
-files_content_partial: Показаны только первые 128 Кб этого большого файла
+files_block: Текст
+files_block_bullet: Маркированный список
+files_block_callout: Выноска
+files_block_code: Блок кода
+files_block_heading: Заголовок {level}
+files_block_ordered: Нумерованный список
+files_block_paragraph: Абзац
+files_block_quote: Цитата
+files_block_task: Список задач
+files_bold: Жирный
+files_content_partial: Показаны только первые 128 KiB этого большого файла
 files_create: Создать
 files_discard: Отбросить черновик
 files_discard_description: Отбросить несохраненные изменения? Сохраняемое содержимое может быть записано
 files_discard_title: Отбросить несохраненный черновик
-files_inline_code: Inline code
-files_insert: Insert
-files_insert_chart: Chart
-files_insert_code: Code block
-files_insert_diagrams: Diagrams
-files_insert_html: HTML block
-files_insert_image: Image
-files_insert_math: Math
+files_inline_code: Встроенный код
+files_insert: Вставить
+files_insert_chart: Диаграмма
+files_insert_code: Блок кода
+files_insert_diagrams: Схемы
+files_insert_html: Блок HTML
+files_insert_image: Изображение
+files_insert_math: Формула
 files_insert_mermaid: Mermaid
-files_insert_rule: Divider
-files_insert_table: Table
-files_italic: Italic
-files_link: Link
+files_insert_rule: Разделитель
+files_insert_table: Таблица
+files_italic: Курсив
+files_link: Ссылка
 files_listing_partial: Отображаются только некоторые записи, поскольку папка слишком большая или содержит неподдерживаемые имена
 files_load_more: Загрузить больше
-files_more: More
+files_more: Ещё
 files_move: Переместить
 files_operation_busy: Операция с файлом все еще выполняется
-files_replace: Find and replace
+files_replace: Найти и заменить
 files_saving: Сохранение…
-files_strike: Strikethrough
+files_strike: Зачёркнутый
 files_upload: Загрузить
 files_upload_conflict: Место назначения изменилось; загрузить снова
 files_upload_denied: Не удалось записать назначение
@@ -1810,25 +1813,25 @@ files_upload_done: Загрузка завершена
 files_upload_exists: Файл с этим именем существует; его замена перезапишет его содержимое
 files_upload_replace: Заменить
 files_upload_unknown: Результат загрузки неизвестен; проверьте результат
-files_wrap: Soft wrap
+files_wrap: Перенос строк
 location_copy_changes: Копирование изменений
 location_fork: Форк-дерево
-refresh: Refresh
+refresh: Обновить
 git_commit_scope: Сфера действия обязательства
 git_commit_tracked: Завершение отслеживаемых файлов
 git_continue: Продолжить
 git_directory_title: Нет репозитория Git
 git_history_partial: Частичная история
-git_initialize: Инициализация хранилища Git
-git_initialize_nested_confirm: The new repository will contain these repositories
+git_initialize: Инициализация репозитория Git
+git_initialize_nested_confirm: Новый репозиторий будет содержать эти репозитории
 git_publish: Отдел публикации
-git_repositories: Contains %{count} Git repositories
-git_stash_switch: Склад и переключатель
-git_switch_confirm: Switch to %{branch}
-git_switch_confirm_action: Switch
-git_switch_confirm_detail: Sessions, terminals and open files in this worktree all move to this branch.
+git_repositories: 'Содержит репозиториев Git: %{count}'
+git_stash_switch: Stash и переключение
+git_switch_confirm: Переключиться на %{branch}
+git_switch_confirm_action: Переключить
+git_switch_confirm_detail: Сеансы, терминалы и открытые файлы этого рабочего дерева перейдут на эту ветку.
 git_tracking_name: Отдел отслеживания
-git_unborn_title: Нет фиксаций
+git_unborn_title: Нет коммитов
 notebook_cell: Ячейка %{number}
 notebook_empty: Нет ячеек
 git_diff_binary: Не удается отобразить двоичное отличие
@@ -1840,18 +1843,18 @@ role_model_unavailable: Выбранная модель или поставщи�
 role_capacity: Выполнен предел субагента
 role_unknown: Результат не подтвержден; повторите первоначальный запрос
 role_failed: Операция не удалась; повторите попытку
-chat_child_unavailable: Подсессия недоступна; попробуйте еще раз
-reference_load_failed: Failed to load references
+chat_child_unavailable: Дочерний сеанс недоступен; попробуйте еще раз
+reference_load_failed: Не удалось загрузить ссылки
 composer_metric_unknown: —
 connection_connecting: Подключение
 host_added: Хост добавлен
-host_install_detecting: Проверка узла
-host_install_failed: Не удалось добавить узел
+host_install_detecting: Проверка хоста
+host_install_failed: Не удалось добавить хост
 host_install_installing: Установка хоста
 host_install_pairing: Сопряжение
 host_install_unknown: Результат установки не подтвержден; проверьте хост и повторите попытку
-host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
-host_step_connect: Подключение к узлу
+host_ssh_windows_pairing: В Windows установите и откройте Sailry Desktop, затем добавьте хост по его коду сопряжения.
+host_step_connect: Подключение к хосту
 host_step_pair: Сопряжение
 model_effort: Усилие
 host_network_conflict: Настройки сети изменились; повторите попытку
@@ -1861,7 +1864,7 @@ host_network_load_failed: Не удалось загрузить настрой�
 host_network_saved: Сеть изменена
 host_network_unavailable: Настройки сети недоступны
 host_network_unknown: Не удалось подтвердить изменение сети
-host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_local_artifacts: Используются локально собранные артефакты хоста; проверка при применении
 host_update_restart: Host перезапустится; выполняемые задачи остановятся
 host_updated: Host обновлён
 pairing_failed: Парирование не удалось; проверьте код или сеть и повторите попытку
@@ -1878,27 +1881,27 @@ pairing_success: Устройство сопряжено
 settings_retry: Повторить
 ssh_key_changed: Ключ хоста изменился, проверьте отпечаток пальца
 ssh_trust: Доверять
-ssh_trust_title: Доверять ключу узла
+ssh_trust_title: Доверять ключу хоста
 usage_duration_ms: '%{value} ms'
-live_host_runtime_error: Could not read Host runtime
-live_metrics_loading: Loading metrics
-live_metrics_error: Could not read Host metrics
-live_update_idle: Check for Host updates
-live_update_checking: Checking for updates
-live_update_current: Host is up to date
-live_update_available: Host update available
-live_update_downloading: Preparing update
-live_update_verifying: Verifying update
-live_update_staged: Ready to apply
-live_update_applying: Applying update
-live_update_restart: Restarting Host
-live_update_failed: Host update failed
-live_update_loading: Loading update
-live_update_unavailable: Host update unavailable
-live_update_check: Check
-live_update_download: Prepare
-live_update_apply: Apply
-live_update_retry: Retry
+live_host_runtime_error: Не удалось прочитать среду выполнения хоста
+live_metrics_loading: Загрузка метрик
+live_metrics_error: Не удалось прочитать метрики хоста
+live_update_idle: Проверить обновления хоста
+live_update_checking: Проверка обновлений
+live_update_current: Хост обновлён
+live_update_available: Доступно обновление хоста
+live_update_downloading: Подготовка обновления
+live_update_verifying: Проверка обновления
+live_update_staged: Готово к применению
+live_update_applying: Применение обновления
+live_update_restart: Перезапуск хоста
+live_update_failed: Не удалось обновить хост
+live_update_loading: Загрузка обновления
+live_update_unavailable: Обновление хоста недоступно
+live_update_check: Проверить
+live_update_download: Подготовить
+live_update_apply: Применить
+live_update_retry: Повторить
 provider_login_failed: Не удалось войти в систему; попробуйте еще раз
 provider_login_unknown: Результат входа не подтвержден; повторите попытку
 connector_conflict: Подключение изменено, откройте его заново
@@ -1971,10 +1974,10 @@ market_permission_process_read: Просмотр команд
 market_permission_process_control: Выполнение команд
 market_permission_process_run: Запуск объявленных программ на этом устройстве
 market_permission_terminals_read: Чтение терминалов
-market_permission_conversation_read: Чтение диалогов
-market_permission_conversation_control: Управление диалогами
+market_permission_conversation_read: Чтение разговоров
+market_permission_conversation_control: Управление разговорами
 market_permission_conversation_message_read: Чтение сообщений
-market_permission_sessions_start: Начало диалогов
+market_permission_sessions_start: Запуск сеансов
 market_permission_projects_read: Чтение проектов
 market_permission_web_read: Чтение веб-страниц
 market_permission_models_generate: Использование моделей
@@ -1982,8 +1985,8 @@ market_permission_storage_read: Чтение данных плагина
 market_permission_storage_write: Сохранение данных плагина
 market_permission_knowledge_read: Чтение базы знаний
 market_permission_knowledge_write: Изменение базы знаний
-appearance_icon: Icon
-appearance_color: Color
+appearance_icon: Значок
+appearance_color: Цвет
 project_icon_folder: Папка
 project_icon_code: Код
 project_icon_terminal: Терминал
@@ -2092,19 +2095,19 @@ media_model_unavailable: Модель отсутствует
 media_conflict: Настройки изменены; выберите снова
 media_unknown: Результат сохранения неизвестен; проверьте текущие настройки
 media_failed: Сохранение не удалось
-provider_capabilities: Capabilities
-provider_cap_understands: Understands
-provider_cap_can: Can
-provider_cap_generates: Generates
-media_image: Image
-media_video: Video
-media_speech: Speech
-media_follow: Follow conversation model
-media_load_failed: Could not read media models
-panel_history_empty: No history yet
-panel_documents_empty: No documents yet
-connections_copy_id: Copy ID
-host_check_status: Check status
+provider_capabilities: Возможности
+provider_cap_understands: Понимает
+provider_cap_can: Умеет
+provider_cap_generates: Создаёт
+media_image: Изображение
+media_video: Видео
+media_speech: Речь
+media_follow: Как в модели разговора
+media_load_failed: Не удалось прочитать медиамодели
+panel_history_empty: Истории пока нет
+panel_documents_empty: Документов пока нет
+connections_copy_id: Копировать ID
+host_check_status: Проверить состояние
 ssh_agent_short: Агент
 ssh_keep_credential: Оставьте пустым, чтобы сохранить сохраненные учетные данные
 ssh_busy: Другое соединение занято, попробуйте снова через несколько минут
@@ -2118,9 +2121,9 @@ host_wsl_requirement: Требуются WSL2, GNU Linux x64/arm64 и systemd
 host_wsl_empty: Нет установленных дистрибутивов WSL2
 host_wsl_load_failed: Не удалось загрузить дистрибутивы WSL
 files_unsaved: Несохранённые изменения
-files_unsaved_description: Save changes before closing?
-files_unsaved_discard: Discard
-files_save_all: Save all
+files_unsaved_description: Сохранить изменения перед закрытием?
+files_unsaved_discard: Отбросить
+files_save_all: Сохранить все
 app_exit: Выйти
 app_exit_confirm: Выйти из Sailry
 app_exit_description: Локальные запущенные задания и терминалы будут остановлены
@@ -2152,12 +2155,12 @@ directory_volume: Диск
 directory_yaml_kind: Файл YAML
 files_entry_name: Имя
 files_paste_conflict: Конечный объект существует или путь недоступен
-live_request_failed: Запрос неполный; проверьте Node подключение и каталог. Повторная попытка сохраняет исходный ID запроса.
+live_request_failed: Запрос не завершен; проверьте подключение к Node и каталог. Повторная попытка сохраняет исходный ID запроса.
 plugins_loading: Загрузка
 project_appearance: Внешний вид проекта
 project_clone_failed: Клонирование не завершено; проверьте место назначения
 project_outcome_unknown: Результат не подтвержден; проверьте назначение. Повторная попытка проверяет первоначальный запрос.
-project_path_in_use: Этот путь используется сессией или рабочим деревом
+project_path_in_use: Этот путь используется сеансом или рабочим деревом
 project_remove_busy: Проект занят; повторите попытку
 project_remove_changed_partial: Проект изменился; откройте его заново перед повторной попыткой. Некоторые терминалы уже могут быть закрыты
 project_remove_failed: Проект сохранён; некоторые терминалы уже могут быть закрыты
@@ -2197,7 +2200,7 @@ chat_subscription_unavailable: Совместное использование C
 files_remote_path: Этот путь находится за пределами удаленной рабочей области
 queue_draft_present: В поле ввода есть черновик
 tool_read_skill_resource: Навыки чтения
-tool_session_title: Установить название сессии
+tool_session_title: Задать название сеанса
 queue_read: Читать
 chat_assets_title: Активность
 chat_assets_activity: Субагенты
@@ -2222,49 +2225,49 @@ chat_connection_history: История сеансов
 chat_connection_history_empty: Нет истории сеансов
 chat_sidebar_empty: Начать сеанс
 chat_provider_source: '%{name} · %{source}'
-chat_provider_session: '%{name} · Сессия'
+chat_provider_session: '%{name} · Сеанс'
 chat_provider_node: '%{name} · Хозяин'
 chat_config_desktop: Конфигурация рабочего стола
-settings_experimental: Experimental
-settings_experimental_description: Development and debugging settings
+settings_experimental: Экспериментальное
+settings_experimental_description: Настройки разработки и отладки
 provider_deepseek: DeepSeek
-settings_code_index: Code index
-settings_code_index_description: Index project code for the code search tools
-code_index_settings_saved: Saved
-code_index_settings_failed: Could not load or save code index settings
-code_index_settings_conflict: Code index settings changed; try again
-code_index_settings_unknown: Saving code index settings could not be confirmed
-directory_modified: Modified
-directory_modified_today: Today %{time}
-directory_modified_yesterday: Yesterday %{time}
-directory_counts: '%{directories} folders, %{files} files'
-directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
-directory_selected_files: '%{count} files selected'
-directory_nothing_selected: No file selected
-directory_failed: Could not read the folder
-directory_host_unavailable: The host is unavailable
-directory_fallback: Could not open %{path}; showing the home folder
-directory_trash: Move to Trash
-directory_trash_confirm: Move “%{name}” to the Trash
-queue_guidance_outlived: Reply ended first; queued as a new message
-queue_halt_interrupted: Reply interrupted; queued messages kept
-queue_halt_unsent: Message not sent; kept in the queue
+settings_code_index: Индекс кода
+settings_code_index_description: Индексировать код проекта для инструментов поиска кода
+code_index_settings_saved: Сохранено
+code_index_settings_failed: Не удалось загрузить или сохранить настройки индекса кода
+code_index_settings_conflict: Настройки индекса кода изменились; повторите
+code_index_settings_unknown: Не удалось подтвердить сохранение настроек индекса кода
+directory_modified: Изменено
+directory_modified_today: Сегодня %{time}
+directory_modified_yesterday: Вчера %{time}
+directory_counts: 'Папок: %{directories}, файлов: %{files}'
+directory_counts_hidden: 'Папок: %{directories}, файлов: %{files}, скрытых: %{hidden}'
+directory_selected_files: 'Выбрано файлов: %{count}'
+directory_nothing_selected: Файл не выбран
+directory_failed: Не удалось прочитать папку
+directory_host_unavailable: Хост недоступен
+directory_fallback: Не удалось открыть %{path}; показана домашняя папка
+directory_trash: Переместить в корзину
+directory_trash_confirm: Переместить «%{name}» в корзину
+queue_guidance_outlived: Ответ завершился раньше; поставлено в очередь как новое сообщение
+queue_halt_interrupted: Ответ прерван; сообщения в очереди сохранены
+queue_halt_unsent: Сообщение не отправлено; оставлено в очереди
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
-chat_output_limit: Reply cut at the output limit
-start_failed: Sailry could not start
-start_profile_in_use: Sailry is already running with this data folder
-backup_keep: Backups to keep
-backup_keep_all: All
-backup_keep_last: Last %{count}
-backup_keep_confirm: Keep only the last %{count} backups?
-backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
-backup_last: Last backup
-backup_last_done: Completed
-backup_last_skipped: '%{count} items skipped'
-backup_restart_restored: Restart with restored profile
-backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
-backup_restart_invalid: The restored profile cannot be used; nothing was changed
-backup_restart_failed: Sailry could not switch to the restored profile
+chat_output_limit: Ответ обрезан по лимиту вывода
+start_failed: Не удалось запустить Sailry
+start_profile_in_use: Sailry уже запущен с этой папкой данных
+backup_keep: Хранить копий
+backup_keep_all: Все
+backup_keep_last: Последние %{count}
+backup_keep_confirm: Хранить только последние %{count} резервных копий?
+backup_keep_consequence: После каждого резервного копирования более старые копии этого Node удаляются из хранилища. Это необратимо
+backup_last: Последняя резервная копия
+backup_last_done: Завершено
+backup_last_skipped: 'Пропущено элементов: %{count}'
+backup_restart_restored: Перезапустить с восстановленным профилем
+backup_restart_consequence: Sailry перезапустится с восстановленным профилем. Текущая папка данных сохранится рядом под именем с датой
+backup_restart_invalid: Восстановленный профиль нельзя использовать; ничего не изменено
+backup_restart_failed: Sailry не удалось переключиться на восстановленный профиль
 host_version_older: Host устарел; обновите Host
 host_version_newer: Host новее; обновите Desktop
 host_version_unknown: Не удалось проверить версию Host; обновите Host
@@ -2277,26 +2280,26 @@ runtime_python_preparing: Подготовка
 python_creating: Подготовка зависимостей
 python_installing: Установка зависимостей
 python_validating: Проверка зависимостей
-port_count: '%{count} ports'
-queue_messages_one: 1 queued message
-queue_messages_count: '%{count} queued messages'
-settings_ram: Memory usage
-ram_heap: Heap
-ram_objects: Live objects
-ram_fragmented: Fragmented
-ram_free: Free
-ram_stacks: Stacks
-ram_goroutine_stacks: Goroutine stacks
-ram_system_stacks: System stacks
-ram_runtime: Runtime
-ram_allocator: Allocator
-ram_collector: Collector metadata
-ram_profiling: Profiling
-ram_other: Other
+port_count: 'Портов: %{count}'
+queue_messages_one: 1 сообщение в очереди
+queue_messages_count: 'Сообщений в очереди: %{count}'
+settings_ram: Использование памяти
+ram_heap: Куча
+ram_objects: Живые объекты
+ram_fragmented: Фрагментировано
+ram_free: Свободно
+ram_stacks: Стеки
+ram_goroutine_stacks: Стеки горутин
+ram_system_stacks: Системные стеки
+ram_runtime: Среда выполнения
+ram_allocator: Аллокатор
+ram_collector: Метаданные сборщика
+ram_profiling: Профилирование
+ram_other: Прочее
 plugins_settings_follow_model: Следуйте модели
-ram_plugins: Plugins (estimated)
-ram_plugins_partial: '%{bytes} · partial'
-ram_plugins_error: Could not read plugin memory
+ram_plugins: Плагины (оценка)
+ram_plugins_partial: '%{bytes} · частично'
+ram_plugins_error: Не удалось прочитать память плагинов
 meter_title: Контекст
 meter_session_usage: Использование сеанса
 meter_session_time: Активное время
@@ -2328,9 +2331,9 @@ meter_output_speed: Средняя скорость сеанса
 meter_cache_hit: Попадания в кэш
 meter_cache_read: Чтение кэша
 meter_input_note: Вход включает чтение кэша
-meter_output_note: Выход включает токены рассуждений
+meter_output_note: Выход включает Token рассуждений
 meter_headers_note: От начала запроса до ответа API, не сетевой RTT
-meter_first_note: От запроса до первого потокового токена
+meter_first_note: От запроса до первого потокового Token
 meter_minutes: '%{minutes}m %{seconds}s'
 meter_cost: Стоимость
 meter_threshold: Автоматическое сжатие
@@ -2353,37 +2356,37 @@ meter_state_filling: Заполняется
 meter_state_near: Скоро сжатие
 meter_state_unknown: Ещё не измерено
 meter_left: Осталось %{count}
-meter_tokens: Токены
+meter_tokens: Tokens
 meter_speed: Скорость
 meter_show_details: Показать подробности
 meter_hide_details: Свернуть
-configuration_follow_title: Configuration sync
-configuration_follow_loading: Reading sync status
-configuration_follow_controller: Controller
-configuration_follow_description: Configuration is managed by the controller. Edit it there.
-configuration_follow_this_device: This device's configuration
-configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
-configuration_follow_waiting: Waiting for controller configuration
-configuration_follow_unavailable: Could not read sync status
-configuration_follow_targets: Hosts
-configuration_follow_automatic: Automatic sync
-configuration_follow_from_source: From controller
-configuration_follow_requested: Sync requested
-configuration_follow_failed: Configuration sync failed
-configuration_follow_conflict: Configuration changed; retry sync
-configuration_follow_unknown: Sync request is unconfirmed; retry to check its status
-personal_kv_conflict: Personal data conflict
-personal_kv_conflict_description: The controller kept its current values. Local schedules and completed actions were preserved.
-resource_offline: Offline
-resource_offline_action: This host is offline.
-resource_last_synced: Last synced %{time}
-controller_login_restore: Restore sign-in
-controller_login_restored: Task sign-in restored
-controller_login_restore_failed: Could not restore this task's sign-in
-controller_login_restore_unknown: Recovery is unconfirmed. Check the original request.
-controller_login_state_changed: This task is no longer waiting for that sign-in
-controller_login_account_mismatch: Sign in with the task's original account and workspace
-controller_login_identity_unavailable: This sign-in has no verified account identity for recovery
-controller_login_target_changed: The task's original authentication target has changed
-controller_login_original_controller: Restore sign-in on the task's original controller
-controller_login_provider_missing: The task's original provider is unavailable
+configuration_follow_title: Синхронизация конфигурации
+configuration_follow_loading: Чтение состояния синхронизации
+configuration_follow_controller: Контроллер
+configuration_follow_description: Конфигурацией управляет контроллер. Редактируйте её там.
+configuration_follow_this_device: Конфигурация этого устройства
+configuration_follow_local_description: Ваша конфигурация автоматически синхронизируется с подключёнными хостами.
+configuration_follow_waiting: Ожидание конфигурации контроллера
+configuration_follow_unavailable: Не удалось прочитать состояние синхронизации
+configuration_follow_targets: Хосты
+configuration_follow_automatic: Автосинхронизация
+configuration_follow_from_source: С контроллера
+configuration_follow_requested: Синхронизация запрошена
+configuration_follow_failed: Не удалось синхронизировать конфигурацию
+configuration_follow_conflict: Конфигурация изменилась; повторите синхронизацию
+configuration_follow_unknown: Запрос синхронизации не подтверждён; повторите, чтобы проверить состояние
+personal_kv_conflict: Конфликт личных данных
+personal_kv_conflict_description: Контроллер сохранил свои текущие значения. Локальные расписания и выполненные действия сохранены.
+resource_offline: Не в сети
+resource_offline_action: Этот хост не в сети.
+resource_last_synced: Синхронизировано %{time}
+controller_login_restore: Восстановить вход
+controller_login_restored: Вход задачи восстановлен
+controller_login_restore_failed: Не удалось восстановить вход этой задачи
+controller_login_restore_unknown: Восстановление не подтверждено. Проверьте исходный запрос.
+controller_login_state_changed: Эта задача больше не ожидает этого входа
+controller_login_account_mismatch: Войдите с исходной учётной записью и рабочей областью задачи
+controller_login_identity_unavailable: У этого входа нет подтверждённой учётной записи для восстановления
+controller_login_target_changed: Исходная цель аутентификации задачи изменилась
+controller_login_original_controller: Восстановите вход на исходном контроллере задачи
+controller_login_provider_missing: Исходный поставщик задачи недоступен

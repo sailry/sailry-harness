@@ -1,0 +1,4 @@
+pane_group: 분할 그룹 %{number}
+workspace_tab_keep: 고정
+workspace_tab_release: 고정 해제
+workspace_tab_unsplit: 분할 해제

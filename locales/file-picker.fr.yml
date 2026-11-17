@@ -1,0 +1,13 @@
+directory_applications: Applications
+directory_modified: Modifié
+directory_modified_today: Aujourd’hui %{time}
+directory_modified_yesterday: Hier %{time}
+directory_counts: '%{directories} dossiers, %{files} fichiers'
+directory_counts_hidden: '%{directories} dossiers, %{files} fichiers, %{hidden} masqués'
+directory_selected_files: '%{count} fichiers sélectionnés'
+directory_nothing_selected: Aucun fichier sélectionné
+directory_failed: Impossible de lire le dossier
+directory_host_unavailable: L’hôte est indisponible
+directory_fallback: Impossible d’ouvrir %{path} ; affichage du dossier personnel
+directory_trash: Placer dans la corbeille
+directory_trash_confirm: Placer « %{name} » dans la corbeille

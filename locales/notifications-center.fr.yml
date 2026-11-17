@@ -19,3 +19,5 @@ notification_deleted_read: "Notifications lues supprimées"
 notification_update_unknown: "Mise à jour non confirmée ; réessayez plus tard"
 notification_update_partial: "Certaines notifications n’ont pas pu être mises à jour ; réessayez"
 notification_update_failed: "Impossible de mettre à jour les notifications ; réessayez"
+personal_kv_conflict: Conflit de données personnelles
+personal_kv_conflict_description: Le contrôleur a conservé ses valeurs actuelles. Les planifications locales et les actions terminées ont été préservées.

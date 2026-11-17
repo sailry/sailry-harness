@@ -1,0 +1,13 @@
+directory_applications: 應用程式
+directory_modified: 修改時間
+directory_modified_today: 今天 %{time}
+directory_modified_yesterday: 昨天 %{time}
+directory_counts: '%{directories} 個資料夾，%{files} 個檔案'
+directory_counts_hidden: '%{directories} 個資料夾，%{files} 個檔案，%{hidden} 個隱藏項目'
+directory_selected_files: 已選取 %{count} 個檔案
+directory_nothing_selected: 未選取檔案
+directory_failed: 無法讀取資料夾
+directory_host_unavailable: 主機無法使用
+directory_fallback: 無法開啟 %{path}，已顯示主資料夾
+directory_trash: 移到垃圾桶
+directory_trash_confirm: 將「%{name}」移到垃圾桶

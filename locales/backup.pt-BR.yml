@@ -35,7 +35,7 @@ backup_retry: "Tentar novamente"
 backup_reload: "Recarregar"
 backup_passphrase: "Frase de criptografia"
 backup_passphrase_required: "Digite a frase do backup"
-backup_restore_consequence: "Restaurar em uma pasta vazia. A cópia mantém a identidade do nó; execute apenas uma cópia por vez"
+backup_restore_consequence: "Restaurar em uma pasta vazia. A cópia mantém a identidade deste Node; execute apenas uma cópia por vez"
 backup_confirm_passphrase: "Confirmar senha"
 backup_passphrase_invalid: "Use pelo menos 8 caracteres"
 backup_passphrase_mismatch: "As senhas não coincidem"
@@ -70,3 +70,5 @@ backup_sessions_unknown: "Atualização de sessão não confirmada; tente novame
 backup_sessions_busy: "Pare as sessões ativas antes de continuar"
 backup_sessions_failed: "Falha ao atualizar as sessões"
 backup_export_data: "Exportar dados"
+backup_online_failed: Backup local salvo; o backup online falhou
+backup_online_unknown: Backup local salvo; resultado do backup online desconhecido

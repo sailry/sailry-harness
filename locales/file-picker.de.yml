@@ -1,0 +1,13 @@
+directory_applications: Programme
+directory_modified: Geändert
+directory_modified_today: Heute %{time}
+directory_modified_yesterday: Gestern %{time}
+directory_counts: '%{directories} Ordner, %{files} Dateien'
+directory_counts_hidden: '%{directories} Ordner, %{files} Dateien, %{hidden} ausgeblendet'
+directory_selected_files: '%{count} Dateien ausgewählt'
+directory_nothing_selected: Keine Datei ausgewählt
+directory_failed: Ordner konnte nicht gelesen werden
+directory_host_unavailable: Der Host ist nicht verfügbar
+directory_fallback: '%{path} konnte nicht geöffnet werden; Benutzerordner wird angezeigt'
+directory_trash: In den Papierkorb verschieben
+directory_trash_confirm: „%{name}“ in den Papierkorb verschieben

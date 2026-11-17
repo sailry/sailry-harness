@@ -8,3 +8,6 @@ host_network_load_failed: "Não foi possível carregar as configurações de red
 host_pairing_mode: "Código de pareamento"
 host_pairing_hint: "Conectar a um dispositivo Sailry existente"
 host_setup_unconfirmed: "Configuração não confirmada, verifique o host primeiro"
+host_ssh_mode: Instalar via SSH
+host_install_hint: Instale o Sailry em um servidor e conecte
+host_ssh_agent_hint: Usar as chaves carregadas no agente SSH deste computador

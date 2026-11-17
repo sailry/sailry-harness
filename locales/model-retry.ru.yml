@@ -10,3 +10,4 @@ chat_model_flex_unavailable: "Сервис Flex недоступен"
 chat_model_policy_rejected: "Запрос отклонён политикой сервиса"
 chat_model_request_unavailable: "Не удалось подготовить запрос к модели"
 chat_model_server_overloaded: "Сервис модели перегружен"
+chat_model_retry_wait_exhausted: Достигнут предел ожидания повтора

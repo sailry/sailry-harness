@@ -1,5 +1,5 @@
 settings_runtime: "Laufzeit"
-settings_runtime_description: "Diesen Knoten konfigurieren"
+settings_runtime_description: "Diesen Node konfigurieren"
 runtime_python: "Python"
 runtime_python_index: "Paketquelle"
 runtime_ocr: "Texterkennung"

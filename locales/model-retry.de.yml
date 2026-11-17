@@ -10,3 +10,4 @@ chat_model_flex_unavailable: "Flex-Dienst nicht verfügbar"
 chat_model_policy_rejected: "Anfrage durch Dienstrichtlinie abgelehnt"
 chat_model_request_unavailable: "Modellanfrage konnte nicht vorbereitet werden"
 chat_model_server_overloaded: "Modelldienst überlastet"
+chat_model_retry_wait_exhausted: Wartezeit für Wiederholungen ausgeschöpft

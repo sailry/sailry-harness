@@ -32,7 +32,7 @@ activity_running: Em execução
 activity_waiting: Precisa de atenção
 notification_unread: Não lidas
 project_sessions_empty: Não há sessões
-project_archived: Archived
+project_archived: Arquivado
 settings_group_app: Aplicação
 settings_group_ai: AI
 settings_group_tools: Ferramentas e conexões
@@ -215,7 +215,7 @@ connection_search_empty: Não há correspondências
 connection_search: Pesquisar
 activity_completed: Concluído
 activity_failed: Falhou
-activity_approval: A aguardar aprovação
+activity_approval: Aguardando aprovação
 activity_input: Aguardando uma resposta
 activity_no_project: Conversas
 notification_center: Central de notificações
@@ -241,8 +241,8 @@ knowledge_slide: Slide %{slide}
 workspace_archive: Arquivo de sessão
 session_delete: Excluir a sessão
 session_delete_named: Excluir sessão “%{name}” e seus sub-agentes permanentemente
-session_delete_private_files: Its private workspace files are deleted too
-session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
+session_delete_private_files: Os arquivos do espaço de trabalho privado também são excluídos
+session_delete_private_named: Excluir “%{name}”, seus subagentes e arquivos do espaço de trabalho privado permanentemente
 workspace_rename: Mudar o nome
 session_title_required: Digite um nome
 session_mark_read: Marcar como lido
@@ -266,84 +266,84 @@ project_remove: Remover o projeto
 workspace_new_terminal: Criar um terminal
 worktree_manage: Gerenciar árvores de trabalho
 worktree_create: Nova árvore de trabalho
-worktree_remove: Remover worktree
+worktree_remove: Remover árvore de trabalho
 workspace_open_worktree: Abrir a árvore de trabalho
 worktree_actions: Ações da árvore de trabalho
-worktree_main: Main
+worktree_main: Principal
 worktree_locked: Bloqueado
-worktree_unavailable: Página não disponível
+worktree_unavailable: Diretório indisponível
 worktree_prune_on_select: Indisponível · clique para limpar
 worktree_listing_partial: Lista parcial da árvore de trabalho
 worktree_base: Ponto de partida
 worktree_path: Caminho
-worktree_load_failed: Não foi possível carregar worktrees
+worktree_load_failed: Não foi possível carregar as árvores de trabalho
 worktree_missing_project: Selecione um projeto
 worktree_no_repository: Este diretório não é um repositório Git
 worktree_revision_failed: Não foi possível resolver o ponto de partida
 worktree_context_changed: Projeto alterado, reabrir esta vista
-worktree_open_busy: This session cannot switch worktrees now
-worktree_created: Worktree created
-worktree_removed: Worktree removed
-worktree_remove_confirm: Exclua este diretório de árvore de trabalho; mantenha o ramo Git
-worktree_prune: Clean up stale worktree
-worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_open_busy: Esta sessão não pode trocar de árvore de trabalho agora
+worktree_created: Árvore de trabalho criada
+worktree_removed: Árvore de trabalho removida
+worktree_remove_confirm: Exclua este diretório da árvore de trabalho; mantenha o branch Git
+worktree_prune: Limpar árvore de trabalho obsoleta
+worktree_prune_confirm: Remover este registro obsoleto; nenhum arquivo é excluído
 worktree_pruned: Registro obsoleto da árvore de trabalho removido
 worktree_prune_failed: 'Não limpo: o diretório existe, está bloqueado ou não pôde ser verificado'
-worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_prune_exists: O diretório ainda existe; nada a limpar
 worktree_outcome_unknown: Resultado não confirmado, verifique a árvore de trabalho
-worktree_conflict: Conflitos de propriedade de ramo, diretório ou projeto
-worktree_invalid: Verifique o ramo e o caminho absoluto
+worktree_conflict: Conflitos de propriedade de branch, diretório ou projeto
+worktree_invalid: Verifique o branch e o caminho absoluto
 worktree_not_found: Projeto, diretório ou commit inicial não encontrado
 worktree_request_failed: Operação falhou, verifique permissões e conexão
-worktree_path_exists: Path already exists
+worktree_path_exists: O caminho já existe
 worktree_remove_locked: A árvore de trabalho está bloqueada
-worktree_remove_busy: Worktree está em uso
-worktree_remove_dirty: Worktree tem alterações não confirmadas; não pode remover
+worktree_remove_busy: A árvore de trabalho está em uso
+worktree_remove_dirty: A árvore de trabalho tem alterações sem commit; não é possível remover
 worktree_remove_conflict: Árvore de trabalho alterada, atualize antes de remover
-worktree_remove_missing: Página não encontrada
-worktree_unused: No session
-git_branch_exists: Filial já existe
-git_branch_checked_out: Branch is checked out in another worktree
+worktree_remove_missing: Árvore de trabalho não encontrada
+worktree_unused: Sem sessão
+git_branch_exists: O branch já existe
+git_branch_checked_out: O branch está em uso em outra árvore de trabalho
 git_index_failed: Não foi possível atualizar a preparação, tente novamente
 git_index_changed: Git estado alterado, selecione novamente
 git_index_busy: Git está ocupado ou a operação expirou, tente novamente em breve
 git_index_denied: Não é possível acessar o arquivo ou índice, verifique as permissões
 git_index_missing: O arquivo ou repositório não existe mais, selecione novamente
 git_index_unknown: O resultado do estágio não está confirmado, atualize e revise
-git_index_conflict: Git estado alterado, atualizar
+git_index_conflict: Estado do Git alterado, atualize
 git_branch_revision: Repositório alterado, atualizar
-git_identity_missing: Configurar um Git nome e e-mail
+git_identity_missing: Configurar nome e e-mail do Git
 git_commit_unavailable: Commit incompleto, verifique a saída Git; sua mensagem é retida
-git_commit_failed: Commit falhou, verifique conflitos, alterações em estágio e bloqueios; sua mensagem é retida
+git_commit_failed: Commit falhou, verifique conflitos, alterações preparadas e bloqueios; sua mensagem é retida
 git_commit_unknown: O resultado do commit não foi confirmado; ele pode ter sido concluído. Verifique o histórico antes de continuar
 git_branch_busy: O repositório está ocupado
-git_branch_conflict: Ramificação ou arquivos alterados
-git_branch_failed: Não foi possível mudar de ramo
-git_branch_unknown: Resultado do switch não confirmado, verifique o branch e os arquivos
-git_merge_conflict: Branch mudou ou tem conflitos
-git_merge_failed: Mesclar falhou, verifique conflitos e conexão
+git_branch_conflict: Branch ou arquivos alterados
+git_branch_failed: Não foi possível mudar de branch
+git_branch_unknown: Resultado da troca não confirmado, verifique o branch e os arquivos
+git_merge_conflict: O branch mudou ou tem conflitos
+git_merge_failed: A mesclagem falhou, verifique conflitos e conexão
 git_merge_unknown: Resultado de mesclagem não confirmado, verifique a árvore de trabalho e o histórico
-git_branch_delete_conflict: Filial alterada ou em uso
-git_branch_delete_failed: Não foi possível excluir o ramo
-git_branch_delete_unknown: Resultado da exclusão não confirmado, verifique ramos e rastreamento
-git_branch_rename_conflict: Ramificação alterada, atualize antes de renomear
-git_branch_rename_failed: Não foi possível renomear o ramo
-git_branch_rename_unknown: Renomear resultado não confirmado, verificar ramos e rastreamento
-git_branch_create_failed: Não foi possível criar ramo
-git_branch_create_unknown: Resultado da criação não confirmado, verifique a lista de ramos
-git_action_conflict: Git estado alterado, atualizar
-git_action_failed: Git operação falhou
-git_action_unknown: Git resultado não confirmado, atualize antes de continuar
-git_auth_failed: Git falha na autenticação
+git_branch_delete_conflict: Branch alterado ou em uso
+git_branch_delete_failed: Não foi possível excluir o branch
+git_branch_delete_unknown: Resultado da exclusão não confirmado, verifique branches e rastreamento
+git_branch_rename_conflict: Branch alterado, atualize antes de renomear
+git_branch_rename_failed: Não foi possível renomear o branch
+git_branch_rename_unknown: Resultado da renomeação não confirmado, verifique branches e rastreamento
+git_branch_create_failed: Não foi possível criar o branch
+git_branch_create_unknown: Resultado da criação não confirmado, verifique a lista de branches
+git_action_conflict: Estado do Git alterado, atualize
+git_action_failed: A operação do Git falhou
+git_action_unknown: Resultado do Git não confirmado, atualize antes de continuar
+git_auth_failed: Falha na autenticação do Git
 workspace_memory_only: Apenas pré-visualização de alterações
 workspace_confirm: Confirmar
 project_remove_named: Remover o projeto “%{name}”? Seus terminais serão fechados; arquivos e sessões serão mantidos
 project_remove_preview: Remover registro de visualização
 project_name: Nome do projeto
 project_host: Host
-project_visibility: Visibility
-project_visibility_private: Private
-project_visibility_shared: Host shared
+project_visibility: Visibilidade
+project_visibility_private: Privado
+project_visibility_shared: Compartilhado no host
 project_path: Caminho do projeto
 project_destination: Destino
 project_repository: Repositório
@@ -354,13 +354,13 @@ project_editor_preview: Pré-visualização do projeto; nenhum arquivo é altera
 project_name_placeholder: Digite um nome
 project_path_placeholder: Selecione o diretório
 project_repository_placeholder: https://github.com/org/repository.git
-project_branch_placeholder: Ramificação padrão
+project_branch_placeholder: Branch padrão
 directory_title: Selecione o diretório
 project_required: Insira um nome e caminho de projeto
 project_duplicate_path: Este host já tem um projeto neste caminho
 project_clone_required: Insira um nome, repositório e destino
 settings_cancel: Cancelar
-settings_save_preview: Guardar pré-visualização
+settings_save_preview: Salvar pré-visualização
 connection_no_projects: Não há projetos
 workspace_project: Visão geral do projeto
 resource_browser: Navegador
@@ -375,8 +375,8 @@ files_find: Localizar
 files_cursor_position: Ln {line}, Col {column}
 files_copy_path: Copiar caminho
 changes: Alterações de arquivo
-git_stage_all: Fase de todos
-git_commit_message: Enviar mensagem
+git_stage_all: Preparar tudo
+git_commit_message: Mensagem de commit
 git_commit: Commit
 git_diff_empty: Sem diff
 git_view_history: Histórico
@@ -387,120 +387,120 @@ files_new_directory: Nova pasta
 files_new_file: Novo arquivo
 files_paste: Colar
 files_rename: Mudar o nome
-files_reveal_explorer: Show in Explorer
-files_reveal_finder: Show in Finder
-files_reveal_manager: Show in file manager
+files_reveal_explorer: Mostrar no Explorador
+files_reveal_finder: Mostrar no Finder
+files_reveal_manager: Mostrar no gerenciador de arquivos
 files_trash: Excluir
 git_abort: Abortar
-git_actions: Git ações
+git_actions: Ações do Git
 git_add_remote: Adicionar remoto
 git_all_changes: Todas as alterações
 git_amend: Alterar último commit
-git_branch_actions: Ações do ramo
-git_branch_from: Criar ramo a partir de
-git_branch_from_open: Create branch from…
+git_branch_actions: Ações do branch
+git_branch_from: Criar branch a partir de
+git_branch_from_open: Criar branch a partir de…
 git_branches: Branches
 git_changes_menu: Alterações
 git_checkout: Checkout
 git_checkout_open: Checkout…
 git_clone: Clonar
-git_commit_all: Commit de tudo
-git_commit_all_amend: Compromete-te a tudo e amenda
-git_commit_all_signoff: Confirme tudo e assine
-git_commit_amend: Compromisso e emenda
-git_commit_push: Comprometa-se e empurre
-git_commit_signoff: Compromete e assina
-git_commit_staged: Fazer commit de alterações em estágio
-git_commit_staged_amend: Commit staged e amend
-git_commit_staged_signoff: Commit staged e assinar fora
-git_commit_sync: Confirmar e sincronizar
+git_commit_all: Fazer commit de tudo
+git_commit_all_amend: Fazer commit de tudo e alterar
+git_commit_all_signoff: Fazer commit de tudo e assinar
+git_commit_amend: Fazer commit e alterar
+git_commit_push: Fazer commit e push
+git_commit_signoff: Fazer commit e assinar
+git_commit_staged: Fazer commit das alterações preparadas
+git_commit_staged_amend: Fazer commit das preparadas e alterar
+git_commit_staged_signoff: Fazer commit das preparadas e assinar
+git_commit_sync: Fazer commit e sincronizar
 git_cherry_pick: Cherry-pick commit
-git_cherry_pick_confirm: Apply this commit to the current branch
-git_copy_branch: Copiar nome da filial
-git_copy_commit_id: Copy commit ID
+git_cherry_pick_confirm: Aplicar este commit ao branch atual
+git_copy_branch: Copiar nome do branch
+git_copy_commit_id: Copiar ID do commit
 git_copy_path: Copiar caminho
-git_delete_branch: Excluir ramo
+git_delete_branch: Excluir branch
 git_delete_confirm: Excluir? Isso não pode ser desfeito
-git_delete_remote_branch: Excluir ramo remoto
-git_delete_remote_branch_open: Delete remote branch…
+git_delete_remote_branch: Excluir branch remoto
+git_delete_remote_branch_open: Excluir branch remoto…
 git_discard_all: Descartar todas as alterações
-git_discard_all_confirm: Descartar todas as alterações? Isso não pode ser desfeito
+git_discard_all_confirm: Descartar todas as alterações, incluindo as preparadas? Os arquivos novos vão para a lixeira
 git_discard_changes: Descartar as alterações
 git_discard_confirm: Descartar as alterações? Isso não pode ser desfeito
 git_expand_commit: Expandir mensagem de commit
 git_fetch: Obter
 git_fetch_all: Obter tudo
-git_fetch_prune: Pegar e podar
+git_fetch_prune: Obter e podar
 git_force_push: Forçar push
 git_force_push_confirm: Forçar push? Commits remotos podem ser sobrescritos
 git_group_none: Nenhum agrupamento
-git_group_staged: Grupo por encenação
-git_group_tracked: Grupo por rastreamento
+git_group_staged: Agrupar por preparação
+git_group_tracked: Agrupar por rastreamento
 git_history_empty: Sem commits
 git_ignore: Ignorar (adicionar a.gitignore)
 git_layout_list: Lista
 git_layout_tree: Árvore
-git_local_branches: Sucursais locais
-git_manage_branches: Gerenciar filiais
-git_merge_branch: Merge branch
-git_merge_branch_confirm: Merge este branch no branch atual
-git_new_branch: Novo ramo de negócios
+git_local_branches: Branches locais
+git_manage_branches: Gerenciar branches
+git_merge_branch: Mesclar branch
+git_merge_branch_confirm: Mesclar este branch no branch atual
+git_new_branch: Novo branch
 git_no_changes: Sem alterações
-git_open_source: Código aberto
+git_open_source: Abrir origem
 git_output: Saída
-git_pull: Puxar
-git_pull_from: Puxar a partir de
-git_pull_from_open: Pull from…
-git_pull_push: Puxar e empurrar
+git_pull: Pull
+git_pull_from: Pull de
+git_pull_from_open: Pull de…
+git_pull_push: Pull e push
 git_pull_rebase: Pull com rebase
-git_push: Empurrar
-git_push_to: Empurre para baixo
+git_push: Push
+git_push_to: Push para
 git_rebase: Rebase
 git_refresh: Atualizar
-git_remote_branches: Sucursais remotas
+git_remote_branches: Branches remotos
 git_remotes: Remotos
 git_remove_remote: Remover o remoto
 git_remove_remote_confirm: Remover este remoto? Arquivos locais e commits serão mantidos
-git_remove_remote_open: Remove remote…
-git_rename_branch: Renomear ramo
-git_search_branches: Pesquisar filiais
-git_signoff: Fazer o sign off
-git_skip_hooks: Saltar ganchos
+git_remove_remote_open: Remover remoto…
+git_rename_branch: Renomear branch
+git_search_branches: Pesquisar branches
+git_signoff: Assinar
+git_skip_hooks: Ignorar hooks
 git_sort_name: Ordenar por nome
 git_sort_path: Ordenar por caminho
 git_sort_status: Ordenar por status
-git_stage: Estágio
-git_staged: Estágio
-git_stash_all: Armazenar tudo
+git_stage: Preparar
+git_staged: Preparadas
+git_stash_all: Fazer stash de tudo
 git_stash_apply: Aplicar o stash
 git_stash_apply_latest: Aplicar último stash
 git_stash_drop: Excluir o stash
-git_stash_drop_all: Excluir todos os estoques
-git_stash_drop_all_open: Delete all stashes…
-git_stash_menu: Armazéns
-git_stash_pop: Pop stash (tradução)
-git_stash_pop_latest: Pop último stash
-git_stash_staged: Armazenamento de alterações em estágio
-git_stash_tracked: Armazenar arquivos rastreados
+git_stash_drop_all: Excluir todos os stashes
+git_stash_drop_all_open: Excluir todos os stashes…
+git_stash_menu: Stashes
+git_stash_pop: Aplicar e remover stash
+git_stash_pop_latest: Aplicar e remover o último stash
+git_stash_staged: Fazer stash das alterações preparadas
+git_stash_tracked: Fazer stash dos arquivos rastreados
 git_stash_view: Ver o stash
-git_stash_view_open: View stash…
+git_stash_view_open: Ver stash…
 git_sync: Sincronizar
 git_sync_rebase: Sincronização com rebase
 git_tag_create: Criar uma tag
-git_tag_create_open: Create tag…
+git_tag_create_open: Criar tag…
 git_tag_delete: Excluir tag
-git_tag_delete_open: Delete tag…
+git_tag_delete_open: Excluir tag…
 git_tag_delete_remote: Excluir tag remota
-git_tag_delete_remote_open: Delete remote tag…
-git_tag_push: Push tag
-git_tag_push_open: Push tag…
+git_tag_delete_remote_open: Excluir tag remota…
+git_tag_push: Push de tag
+git_tag_push_open: Push de tag…
 git_tags: Tags
-git_tracked: Acompanhado
+git_tracked: Rastreados
 git_undo_commit: Desfazer o último commit
 git_undo_confirm: Desfazer o último commit? As alterações no arquivo serão mantidas
-git_unstage: Desfazer
-git_unstage_all: Desfazer tudo
-git_unstaged: Não está em fase
+git_unstage: Remover da preparação
+git_unstage_all: Remover tudo da preparação
+git_unstaged: Não preparadas
 git_untracked: Não rastreado
 git_view_changes: Alterações
 git_view_diff: Ver diferenças
@@ -577,18 +577,18 @@ background_outcome_stalled: Sem saída recente
 background_outcome_stopped: Parado
 background_outcome_timed_out: Tempo esgotado
 background_outcome_unknown: Resultado incerto
-background_running: Running in background
-background_exit: Exit code %{code}
-background_result_waiting: Result not delivered
+background_running: Em segundo plano
+background_exit: Código de saída %{code}
+background_result_waiting: Resultado não entregue
 chat_compact_cancelled: Compactação cancelada
 chat_compact_failed: A compactação falhou
-chat_compact_failed_paused: Compaction failed, automatic compaction paused
+chat_compact_failed_paused: A compactação falhou; compactação automática pausada
 chat_compact_queued: Esperando para compactar
 chat_compact_unneeded: Compactação não necessária
 chat_compacted: Contexto compactado
 chat_compacting: Compactando o contexto
 chat_history_failed: O histórico falhou ao carregar
-chat_history_loading: A carregar conversa
+chat_history_loading: Carregando conversa
 chat_image_fit: Ajuste à janela
 chat_image_flip_horizontal: Inverter horizontalmente
 chat_image_flip_vertical: Inverter verticalmente
@@ -598,14 +598,14 @@ chat_image_previous: Imagem anterior Imagem seguinte
 chat_image_rotate: Girar
 chat_image_zoom_in: Zoom em cima
 chat_image_zoom_out: Reduzir o zoom
-chat_image_loading: A carregar imagem
+chat_image_loading: Carregando imagem
 chat_model_connection_retried: Reconexão tentada
 chat_model_rate_limited: Limite de solicitações do modelo atingido
 chat_model_reconnecting: Tentando novamente %{attempt}/%{limit}
 chat_model_reconnecting_continuously: Reconectando
 chat_model_retried: Pedido de modelo reiterado %{attempt}/%{limit}
 chat_model_retry_exhausted: Limite de tentativas atingido
-chat_model_retry_wait_exhausted: Retry wait limit reached
+chat_model_retry_wait_exhausted: Limite de espera para novas tentativas atingido
 chat_model_server_overloaded: Serviço do modelo sobrecarregado
 chat_reconnecting: Reconectando
 chat_rewind: Rebobine para esta volta
@@ -623,12 +623,12 @@ composer_speed: Velocidade
 composer_statistics: Estatísticas
 composer_tokens: Tokens
 composer_turns: Turnos
-files_download: Guardar como
+files_download: Salvar como
 files_open_system: Abrir
 hunks_review: Revisar blocos
 message_edit: Editar
 message_quote: Citar
-plugins_view_offline: Anfitrião desconectado
+plugins_view_offline: Host desconectado
 reader_read: Ler em voz alta
 reader_stop: Parar leitura
 turn_changes_count: Editou %{count} arquivos
@@ -653,8 +653,8 @@ composer_permission_project_description: Edite arquivos de projeto automaticamen
 composer_permission_full_description: Edite arquivos e execute comandos automaticamente, inclusive fora do projeto
 composer_host_local: Dispositivo local
 composer_no_project: Conversas
-composer_execution_host: Execution host
-composer_branch_none: Sem ramo
+composer_execution_host: Host de execução
+composer_branch_none: Sem branch
 composer_settings: Configurações da sessão
 composer_back: Voltar
 location_create: Nova árvore de trabalho
@@ -732,7 +732,7 @@ directory_home: Início
 directory_desktop: Desktop
 directory_documents: Documentação
 directory_downloads: Downloads
-directory_applications: Applications
+directory_applications: Aplicativos
 directory_locations: Locais
 directory_count_files: '%{count} arquivos'
 directory_name: Nome
@@ -751,7 +751,7 @@ provider_gemini: Gemini
 provider_other: Outro
 reference_files_description: Visualizar arquivos na árvore de trabalho atual
 reference_agents_description: Subagentes configurados de referência
-reference_sessions_description: Conversas disponíveis
+reference_sessions_description: Sessões disponíveis
 reference_context_description: Host, projeto e árvore de trabalho
 appearance_import: Importar tema
 appearance_main_transparency: Recipiente
@@ -775,8 +775,8 @@ backup_endpoint: Endpoint
 backup_export: Exportar
 backup_export_data: Exportar dados
 backup_failed: A operação de backup falhou
-backup_online_failed: Local backup saved; online backup failed
-backup_online_unknown: Local backup saved; online backup outcome is unknown
+backup_online_failed: Backup local salvo; o backup online falhou
+backup_online_unknown: Backup local salvo; resultado do backup online desconhecido
 backup_identity: Usuário ou ID da chave de acesso
 backup_import: Restaurar de arquivo
 backup_invalid: Verifique a configuração
@@ -813,7 +813,7 @@ backup_exported: Backup exportado
 backup_invalid_target: Insira um novo caminho absoluto de perfil
 backup_online_enabled: Backup online
 backup_partial: Mais backups podem estar disponíveis
-backup_restore_consequence: Restaurar em uma pasta vazia. A cópia mantém a identidade do nó; execute apenas uma cópia por vez
+backup_restore_consequence: Restaurar em uma pasta vazia. A cópia mantém a identidade deste Node; execute apenas uma cópia por vez
 backup_restored: Perfil restaurado
 backup_sessions_busy: Pare as sessões ativas antes de continuar
 backup_sessions_failed: Falha ao atualizar as sessões
@@ -826,11 +826,11 @@ connection_route_relay: Relay
 connections_device: Dispositivo %{id}
 connections_hosts: Hosts
 connections_mobile: Móvel
-connections_bidirectional: Bidirectional
-connections_legacy_bidirectional: Legacy bidirectional
-connections_only_host: Host only
-connections_only_controller: Controller only
-connections_direction_saved: Device access updated
+connections_bidirectional: Bidirecional
+connections_legacy_bidirectional: Bidirecional (legado)
+connections_only_host: Somente host
+connections_only_controller: Somente controlador
+connections_direction_saved: Acesso do dispositivo atualizado
 connections_offline: Off-line
 connections_online: On-line
 connections_revoke_confirm: A remoção do emparelhamento requer reconexão
@@ -873,13 +873,13 @@ hooks_settings: Hooks
 hooks_settings_description: Configurar scripts para esta árvore de trabalho
 hooks_timeout: Tempo limite (ms)
 hooks_turn_end: Fim do turno
-hooks_unknown: Salvamento incerto; tente novamente a solicitação original
+hooks_unknown: Salvamento do hook incerto; tente novamente a solicitação original
 host_install: Instalar e conectar
 host_pairing_hint: Conectar a um dispositivo Sailry existente
 host_pairing_mode: Código de pareamento
-host_ssh_mode: Install via SSH
-host_install_hint: Install Sailry on a server and connect
-host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+host_ssh_mode: Instalar via SSH
+host_install_hint: Instale o Sailry em um servidor e conecte
+host_ssh_agent_hint: Usar as chaves carregadas no agente SSH deste computador
 ssh_authentication: Autenticação
 connection: Conexão
 knowledge_downloading: Baixando
@@ -907,7 +907,7 @@ pairing_relay_address_hint: https://relay.example.com
 pairing_relay_custom: Personalizado
 pairing_relay_iroh: Rede pública
 pairing_relay_server: Servidor de conexão
-pairing_share: Partilhar este dispositivo
+pairing_share: Compartilhar este dispositivo
 pairing_share_hint: Digite este código em Conexões Remotas em outro dispositivo
 permission_check: Verificar
 permission_disk_help: Se Sailry estiver faltando, adicione-o com + ou arraste o aplicativo para a lista
@@ -952,9 +952,9 @@ sandbox_settings_saved: Salvo
 sandbox_settings_unknown: Não foi possível confirmar o salvamento; recarregue para verificar
 session_order_created: Criação
 session_order_updated: Atualização
-session_order_recent: Recently updated
-session_order_name: Name
-sidebar_sort: Sort
+session_order_recent: Atualizadas recentemente
+session_order_name: Nome
+sidebar_sort: Ordenar
 settings_about_description: Informações de versão e compilação do aplicativo
 settings_backup_description: Gerenciar dados e backups
 settings_build: Tipo de construção
@@ -1002,7 +1002,7 @@ settings_paste_description: Confirmar antes de colar várias linhas
 settings_paste_protection: Proteção de pasta multilinha
 settings_permissions_description: Acesso ao sistema de Sailry
 settings_runtime: Ambiente de execução
-settings_runtime_description: Configurar este nó
+settings_runtime_description: Configurar este Node
 settings_save: Salvar
 settings_seconds: '%{count} segundos'
 settings_shortcuts_description: Ver comandos globais e atalhos de teclado
@@ -1075,7 +1075,7 @@ authorization_waiting_time: Aguardando autorização · %{time}
 authorization_link_expired: Link expirado
 authorization_code_expired: Código expirado
 provider_login_callback: Código de autorização ou URL de redirecionamento do navegador
-provider_login_callback_placeholder: If sign-in doesn't return automatically, paste the code or callback URL
+provider_login_callback_placeholder: Se o login não retornar automaticamente, cole o código ou a URL de retorno
 provider_login_continue: Continuar
 authorization_open: Abrir
 authorization_copy_link: Copiar link
@@ -1088,7 +1088,7 @@ compaction_settings_conflict: As configurações de compactação mudaram. Tente
 compaction_settings_unknown: Salvamento não confirmado. Tente novamente
 provider_tokens_m: '%{count}M'
 provider_tokens_k: '%{count}K'
-provider_empty_live: Não há fornecedores
+provider_empty_live: Não há provedores
 provider_login_callback_required: Insira o código de autorização ou a URL de redirecionamento do navegador
 provider_delete_title: Excluir o provedor
 provider_remove_effect: As sessões precisarão selecionar outro provedor
@@ -1101,7 +1101,7 @@ provider_scores: Pontuações dos modelos
 provider_catalog_last_update: 'Última atualização:'
 provider_compaction_threshold: Limite de compactação
 provider_all: Todos os tipos
-provider_type: Tipo de fornecedor
+provider_type: Tipo de provedor
 provider_window_5h: 5h
 provider_window_7d: 7d
 provider_models_empty: Nenhum modelo configurado
@@ -1145,8 +1145,7 @@ provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: Versão do editor
 provider_oauth_editor_plugin_version: Versão do plugin Editor
 provider_headers: Cabeçalhos de requisição personalizados
-provider_headers_hint: 'Um por linha: Nome: valor'
-provider_headers_invalid: Cada linha de cabeçalho precisa de um nome e dois-pontos
+provider_headers_invalid: Cada cabeçalho com valor precisa de um nome
 provider_models: Modelos
 provider_discover: Atualizar os modelos
 provider_querying: Consultando
@@ -1174,17 +1173,17 @@ search_driver_auto: Automático
 knowledge_settings: Padrões
 knowledge_default_model: Modelo vetorial
 knowledge_keyword_only: Somente palavras-chave
-knowledge_collections: Collections
-knowledge_collection_pending: Waiting to index
-knowledge_collection_unavailable: Storage Node unavailable
-knowledge_collection_indexing: Indexing · %{count} items
-knowledge_collection_ready: Up to date · %{count} items
-knowledge_collection_paused: Paused
-knowledge_collection_failed: Failed · %{reason}
-knowledge_collection_failures: '%{count} not indexed · %{reason}'
-knowledge_pause: Pause
-knowledge_resume: Resume
-knowledge_update: Update
+knowledge_collections: Coleções
+knowledge_collection_pending: Aguardando indexação
+knowledge_collection_unavailable: Node de armazenamento indisponível
+knowledge_collection_indexing: Indexando · %{count} itens
+knowledge_collection_ready: Atualizado · %{count} itens
+knowledge_collection_paused: Pausado
+knowledge_collection_failed: Falha · %{reason}
+knowledge_collection_failures: '%{count} não indexados · %{reason}'
+knowledge_pause: Pausar
+knowledge_resume: Retomar
+knowledge_update: Atualizar
 runtime_decision: Decisões
 runtime_decision_model: Modelo
 runtime_decision_enable: Ativar decisões
@@ -1262,8 +1261,8 @@ mcp_keep_secret: Manter a credencial
 mcp_clear_secret: Limpar a credencial
 mcp_secret_saved: Credenciais salvas; deixe em branco para manter
 mcp_secret_cleared: As credenciais serão apagadas ao salvar
-mcp_show_secret: Show credential
-mcp_hide_secret: Hide credential
+mcp_show_secret: Mostrar credencial
+mcp_hide_secret: Ocultar credencial
 connector_no_auth: Sem autenticação
 connector_authentication: Autenticação
 connector_mcp_status: Status
@@ -1347,8 +1346,8 @@ role_save: Salvar
 teams_role_saved: Função salva
 role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
-role_avatar_shuffle: Shuffle
-role_avatar_none: Default
+role_avatar_shuffle: Outros
+role_avatar_none: Padrão
 market_plugin_details: Detalhes do plugin
 market_skill_details: Detalhes do skill
 market_theme_details: Detalhes do tema
@@ -1380,7 +1379,6 @@ model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: Buscar modelos
 model_library_no_results: Nenhum modelo encontrado
-model_library_available: Modelos disponíveis
 knowledge_delete: Excluir
 knowledge_model_size: Tamanho
 knowledge_delete_model_effect: Excluir %{name}; as coleções que o usam recorrerão à busca por palavras-chave
@@ -1423,7 +1421,7 @@ plugins_uninstalled: Plugin desinstalado
 plugins_update_available: Atualizar
 plugins_settings_secret_required: Digite uma chave de substituição
 plugins_settings_number: Digite um número válido
-plugins_settings_required: Seleccione os campos obrigatórios
+plugins_settings_required: Selecione os campos obrigatórios
 plugins_settings_description: Gerenciar as opções deste plugin
 plugins_settings_none: O plugin não tem campos de configuração válidos
 plugins_settings_keep: Manter
@@ -1439,8 +1437,8 @@ form_directory_hint: Diretório de trabalho (opcional)
 plugins_package_required: Insira um caminho de pacote de visualização
 skills_repository: Repositório Git
 skills_repository_hint: URL do repositório
-skills_revision: Ramo ou tag
-skills_revision_hint: Ramificação padrão
+skills_revision: Branch ou tag
+skills_revision_hint: Branch padrão
 plugins_path: Diretório de Plugins
 plugins_path_hint: Raiz do repositório por padrão
 plugins_preparing_package: Preparando o pacote
@@ -1476,9 +1474,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: Escolher pasta
 skill_source_choose_archive: Escolher arquivo
 git_diff: Diferenças
-git_diff_side_by_side: Side by side
-git_diff_inline: Inline
-git_diff_needs_width: Side by side needs more width
+git_diff_side_by_side: Lado a lado
+git_diff_inline: Em linha
+git_diff_needs_width: A visualização lado a lado precisa de mais largura
 market_permission_git_read: Ler alterações do Git
 market_permission_git_write: Alterar Git
 market_permission_files_read: Ler arquivos
@@ -1585,8 +1583,8 @@ host_process_protected: Não é possível parar os processos do sistema ou o ser
 host_process_uncertain: Resultado de parada desconhecido; verifique o status do processo
 host_process_stop_failed: Não foi possível parar o processo; ele pode ter saído, o acesso pode ter sido negado ou este host pode não suportá-lo
 metrics_gpu: GPU
-port_title: Encaminhamento de porta
-port_mappings: Mapeamentos de portas
+port_title: Portas
+port_mappings: Portas
 port_add: Novo avançado
 port_edit: Editar encaminhamento
 port_create: Criar
@@ -1631,9 +1629,14 @@ updates_installing: Instalando
 updates_restarting: Reiniciando
 updates_restart_needed: Reiniciar é necessário
 updates_verifying: Verificação
-updates_install: Instalar e reiniciar
 updates_restart: Reiniciar
 updates_details: Detalhes
+updates_available: '%{version} disponível'
+updates_downloading: Baixando %{version}
+updates_ready_now: '%{version} está pronta'
+updates_restart_now: Reiniciar agora
+updates_later: Mais tarde
+updates_view: Ver
 updates_download: Baixar
 updates_ready: '%{version} está pronto para instalar'
 updates_restart_description: Os rascunhos serão restaurados após a reinicialização; as tarefas locais e os terminais serão interrompidos
@@ -1646,10 +1649,10 @@ workspace_no_terminal: Nenhum terminal nesta árvore de trabalho
 workspace_close_terminal: Fechar o terminal
 workspace_terminal_preview: Visualização da interface do usuário do terminal com propriedade do projeto e da árvore de trabalho; nenhum PTY ou shell é iniciado
 pane_drag: Arrastar para dividir
-pane_group: Split group %{number}
-workspace_tab_keep: Keep open
-workspace_tab_release: Stop keeping open
-workspace_tab_unsplit: Unsplit
+pane_group: Grupo dividido %{number}
+workspace_tab_keep: Manter aberta
+workspace_tab_release: Não manter aberta
+workspace_tab_unsplit: Desfazer divisão
 terminal_take_control: Assuma o controle
 terminal_other_controller: Controlado por outro dispositivo
 terminal_unavailable: Terminal indisponível; verifique a conexão do host
@@ -1661,14 +1664,14 @@ selection_large: A seleção é muito longa
 selection_permission: Permita o acesso de acessibilidade nas configurações do sistema
 metrics_rate: '%{value}/s'
 composer_group_prompts: Prompts
-composer_group_modes: Modes
-composer_group_session: Session
+composer_group_modes: Modos
+composer_group_session: Sessão
 reference_group_context: Contexto
-reference_group_connections: Connections
-reference_group_skills: Skills
+reference_group_connections: Conexões
+reference_group_skills: Habilidades
 reference_group_plugins: Plugins
-reference_group_attach: Attachments
-appearance_blur: Blur
+reference_group_attach: Anexos
+appearance_blur: Desfoque
 composer_todo_count: '%{completed}/%{total} tarefas'
 composer_subagent_one: 1 subagente
 composer_subagent_count: '%{count} subagentes'
@@ -1695,7 +1698,7 @@ chat_action_failed: Operação falhou; tente novamente
 chat_action_unknown: Resultado não confirmado; tente novamente a solicitação original
 chat_config_unavailable: Configuração da sessão indisponível; verifique o provedor
 notification_update_failed: Não foi possível atualizar as notificações; tente novamente
-session_archive_named: Archive “%{name}” and hide it from active conversations
+session_archive_named: Arquivar “%{name}” e ocultá-la das conversas ativas
 power_request_failed: Não foi possível impedir a suspensão
 plugin_response_timeout: Tempo de resposta do plugin esgotado
 plugin_metadata_failed: Não foi possível carregar as informações do plugin
@@ -1728,26 +1731,26 @@ files_download_changed: A fonte mudou; faça o download novamente
 files_download_destination: Não foi possível salvar o download
 files_download_conflict: O destino mudou; escolha onde salvar novamente
 chat_attachment_remove_failed: A remoção falhou
-workspace_action_failed: Workspace action failed
-workspace_changed: Workspace changed; reload before trying again
-workspace_action_unknown: Outcome uncertain; inspect before trying again
-workspace_saved: Saved
-files_changed_on_disk: Changed on disk
-files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
-files_keep_editing: Keep editing
-files_reload: Reload
-files_overwrite: Overwrite
-workspace_completed: Completed
-workspace_restore_confirm: Restore the previous file versions for this turn
+workspace_action_failed: A ação do espaço de trabalho falhou
+workspace_changed: O espaço de trabalho mudou; recarregue antes de tentar novamente
+workspace_action_unknown: Resultado incerto; verifique antes de tentar novamente
+workspace_saved: Salvo
+files_changed_on_disk: Alterado no disco
+files_conflict_description: Substituir troca o arquivo no disco pelo seu rascunho; Recarregar descarta seu rascunho
+files_keep_editing: Continuar editando
+files_reload: Recarregar
+files_overwrite: Substituir
+workspace_completed: Concluído
+workspace_restore_confirm: Restaurar as versões anteriores dos arquivos deste turno
 artifact_edit_prompt: 'Alterações solicitadas:'
 hooks_project_required: Selecione um projeto
 background_stop_failed: Parar falhou; tente novamente
 background_stop_unknown: Parar não confirmado; verificar o status do comando
-subagent_stop: Stop subagent
-subagent_stop_failed: Stop failed; retry
-subagent_stop_unknown: Stop unconfirmed; check subagent status
+subagent_stop: Parar subagente
+subagent_stop_failed: Falha ao parar; tente novamente
+subagent_stop_unknown: Parada não confirmada; verifique o status do subagente
 background_unavailable: Não foi possível ler o terminal em segundo plano
-files_cancel_remaining: Cancel remaining
+files_cancel_remaining: Cancelar restantes
 files_check_result: Verifique o resultado
 files_move_recycle: Depois de copiar, mova a fonte para a Lixeira
 files_paste_cancelled: Paste cancelado
@@ -1756,7 +1759,7 @@ files_paste_directory: Pasta de destino
 files_paste_source: Árvore de trabalho de fonte
 files_upload_retry: Tentar novamente
 files_worktree_root: Raiz da árvore de trabalho
-content_preview: Preview
+content_preview: Visualizar
 file_search: Pesquisar arquivos
 file_search_case: Caso do fósforo
 file_search_empty: Não há correspondências
@@ -1767,42 +1770,42 @@ file_search_partial: Algum conteúdo não foi pesquisado ou mostrado
 file_search_query: Pesquisar o conteúdo
 file_search_regex: Expressão regular
 file_search_running: Pesquisar
-files_block: Text
-files_block_bullet: Bulleted list
-files_block_callout: Callout
-files_block_code: Code block
-files_block_heading: Heading {level}
-files_block_ordered: Numbered list
-files_block_paragraph: Paragraph
-files_block_quote: Quote
-files_block_task: Task list
-files_bold: Bold
+files_block: Texto
+files_block_bullet: Lista com marcadores
+files_block_callout: Destaque
+files_block_code: Bloco de código
+files_block_heading: Título {level}
+files_block_ordered: Lista numerada
+files_block_paragraph: Parágrafo
+files_block_quote: Citação
+files_block_task: Lista de tarefas
+files_bold: Negrito
 files_content_partial: Apenas os primeiros 128 KiB deste grande arquivo são mostrados
 files_create: Criar
 files_discard: Descartar o rascunho
 files_discard_description: Descartar alterações não salvas? Conteúdo sendo salvo ainda pode ser gravado
 files_discard_title: Descartar o rascunho não salvo
-files_inline_code: Inline code
-files_insert: Insert
-files_insert_chart: Chart
-files_insert_code: Code block
-files_insert_diagrams: Diagrams
-files_insert_html: HTML block
-files_insert_image: Image
-files_insert_math: Math
+files_inline_code: Código embutido
+files_insert: Inserir
+files_insert_chart: Gráfico
+files_insert_code: Bloco de código
+files_insert_diagrams: Diagramas
+files_insert_html: Bloco HTML
+files_insert_image: Imagem
+files_insert_math: Fórmula
 files_insert_mermaid: Mermaid
-files_insert_rule: Divider
-files_insert_table: Table
-files_italic: Italic
+files_insert_rule: Divisor
+files_insert_table: Tabela
+files_italic: Itálico
 files_link: Link
 files_listing_partial: Apenas algumas entradas são mostradas porque esta pasta é grande ou contém nomes não suportados
 files_load_more: Carregar mais
-files_more: More
+files_more: Mais
 files_move: Mover
 files_operation_busy: Uma operação de arquivo ainda está em execução
-files_replace: Find and replace
-files_saving: A salvar
-files_strike: Strikethrough
+files_replace: Localizar e substituir
+files_saving: Salvando…
+files_strike: Tachado
 files_upload: Enviar
 files_upload_conflict: O destino mudou; faça o upload novamente
 files_upload_denied: Não foi possível gravar o destino
@@ -1810,24 +1813,24 @@ files_upload_done: Carregamento completo
 files_upload_exists: Um arquivo com esse nome existe; substituí-lo sobrescreve seu conteúdo
 files_upload_replace: Substituir
 files_upload_unknown: O resultado do upload é desconhecido; verifique o resultado
-files_wrap: Soft wrap
+files_wrap: Quebra de linha
 location_copy_changes: Copiar as alterações
-location_fork: Fork worktree
-refresh: Refresh
+location_fork: Fork da árvore de trabalho
+refresh: Atualizar
 git_commit_scope: Escopo do commit
-git_commit_tracked: Confirmar arquivos rastreados
+git_commit_tracked: Fazer commit de arquivos rastreados
 git_continue: Continuar
 git_directory_title: Nenhum repositório Git
-git_history_partial: Uma história parcial
+git_history_partial: Histórico parcial
 git_initialize: Inicializar o repositório Git
-git_initialize_nested_confirm: The new repository will contain these repositories
-git_publish: Publicar ramo
-git_repositories: Contains %{count} Git repositories
-git_stash_switch: Armazenamento e troca
-git_switch_confirm: Switch to %{branch}
-git_switch_confirm_action: Switch
-git_switch_confirm_detail: Sessions, terminals and open files in this worktree all move to this branch.
-git_tracking_name: Ramo de rastreamento
+git_initialize_nested_confirm: O novo repositório conterá estes repositórios
+git_publish: Publicar branch
+git_repositories: Contém %{count} repositórios Git
+git_stash_switch: Fazer stash e trocar
+git_switch_confirm: Mudar para %{branch}
+git_switch_confirm_action: Mudar
+git_switch_confirm_detail: Sessões, terminais e arquivos abertos nesta árvore de trabalho passam para este branch.
+git_tracking_name: Branch de rastreamento
 git_unborn_title: Sem commits
 notebook_cell: Célula %{number}
 notebook_empty: Nenhuma célula
@@ -1836,12 +1839,12 @@ git_diff_partial: Diferença parcial
 hooks_scope_windows: Scripts usam a política atual de comandos do Windows
 teams_role_conflict: A função mudou; abra-a novamente
 team_conflict: A equipe mudou; abra-a novamente
-role_model_unavailable: O modelo ou fornecedor selecionado não está disponível
+role_model_unavailable: O modelo ou provedor selecionado não está disponível
 role_capacity: Limite de sub-agente atingido
 role_unknown: Resultado não confirmado; tente novamente a solicitação original
 role_failed: Operação falhou; tente novamente
 chat_child_unavailable: Subsessão indisponível; tente novamente
-reference_load_failed: Failed to load references
+reference_load_failed: Não foi possível carregar as referências
 composer_metric_unknown: —
 connection_connecting: Conectando
 host_added: Host adicionado
@@ -1850,7 +1853,7 @@ host_install_failed: Não foi possível adicionar host
 host_install_installing: Instalando Host
 host_install_pairing: Pareamento
 host_install_unknown: Resultado da instalação não confirmado; verifique o host e tente novamente
-host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
+host_ssh_windows_pairing: No Windows, instale e abra o Sailry Desktop e depois adicione o host com o código de emparelhamento.
 host_step_connect: Conectar ao host
 host_step_pair: Parear
 model_effort: Esforço
@@ -1861,7 +1864,7 @@ host_network_load_failed: Não foi possível carregar as configurações de rede
 host_network_saved: Rede alterada
 host_network_unavailable: As configurações de rede não estão disponíveis
 host_network_unknown: Não foi possível confirmar a alteração da rede
-host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_local_artifacts: Usa artefatos do host compilados localmente; verificados ao aplicar
 host_update_restart: O Host será reiniciado; as tarefas em execução serão interrompidas
 host_updated: Host atualizado
 pairing_failed: O emparelhamento falhou; verifique o código ou a rede e tente novamente
@@ -1880,25 +1883,25 @@ ssh_key_changed: Chave de host alterada, verifique a impressão digital
 ssh_trust: Confiar
 ssh_trust_title: Chave de host confiável
 usage_duration_ms: '%{value} ms'
-live_host_runtime_error: Could not read Host runtime
-live_metrics_loading: Loading metrics
-live_metrics_error: Could not read Host metrics
-live_update_idle: Check for Host updates
-live_update_checking: Checking for updates
-live_update_current: Host is up to date
-live_update_available: Host update available
-live_update_downloading: Preparing update
-live_update_verifying: Verifying update
-live_update_staged: Ready to apply
-live_update_applying: Applying update
-live_update_restart: Restarting Host
-live_update_failed: Host update failed
-live_update_loading: Loading update
-live_update_unavailable: Host update unavailable
-live_update_check: Check
-live_update_download: Prepare
-live_update_apply: Apply
-live_update_retry: Retry
+live_host_runtime_error: Não foi possível ler o tempo de execução do host
+live_metrics_loading: Carregando métricas
+live_metrics_error: Não foi possível ler as métricas do host
+live_update_idle: Verificar atualizações do host
+live_update_checking: Verificando atualizações
+live_update_current: O host está atualizado
+live_update_available: Atualização do host disponível
+live_update_downloading: Preparando atualização
+live_update_verifying: Verificando atualização
+live_update_staged: Pronta para aplicar
+live_update_applying: Aplicando atualização
+live_update_restart: Reiniciando o host
+live_update_failed: A atualização do host falhou
+live_update_loading: Carregando atualização
+live_update_unavailable: Atualização do host indisponível
+live_update_check: Verificar
+live_update_download: Preparar
+live_update_apply: Aplicar
+live_update_retry: Tentar novamente
 provider_login_failed: O login falhou; tente novamente
 provider_login_unknown: Resultado de login não confirmado; tente novamente
 connector_conflict: Conexão alterada, abra novamente
@@ -1974,7 +1977,7 @@ market_permission_terminals_read: Ler terminais
 market_permission_conversation_read: Ler conversas
 market_permission_conversation_control: Controlar conversas
 market_permission_conversation_message_read: Ler mensagens
-market_permission_sessions_start: Iniciar conversas
+market_permission_sessions_start: Iniciar sessões
 market_permission_projects_read: Ler projetos
 market_permission_web_read: Ler páginas da web
 market_permission_models_generate: Usar modelos
@@ -1982,8 +1985,8 @@ market_permission_storage_read: Ler dados do plugin
 market_permission_storage_write: Salvar dados do plugin
 market_permission_knowledge_read: Ler conhecimento
 market_permission_knowledge_write: Alterar conhecimento
-appearance_icon: Icon
-appearance_color: Color
+appearance_icon: Ícone
+appearance_color: Cor
 project_icon_folder: Pasta
 project_icon_code: Código
 project_icon_terminal: Terminal
@@ -2092,19 +2095,19 @@ media_model_unavailable: Modelo não disponível
 media_conflict: Configurações alteradas; selecione novamente
 media_unknown: O resultado da gravação é desconhecido; verifique as configurações atuais
 media_failed: Salvar falhou
-provider_capabilities: Capabilities
-provider_cap_understands: Understands
-provider_cap_can: Can
-provider_cap_generates: Generates
-media_image: Image
-media_video: Video
-media_speech: Speech
-media_follow: Follow conversation model
-media_load_failed: Could not read media models
-panel_history_empty: No history yet
-panel_documents_empty: No documents yet
-connections_copy_id: Copy ID
-host_check_status: Check status
+provider_capabilities: Recursos
+provider_cap_understands: Entende
+provider_cap_can: Pode
+provider_cap_generates: Gera
+media_image: Imagem
+media_video: Vídeo
+media_speech: Voz
+media_follow: Seguir o modelo da conversa
+media_load_failed: Não foi possível ler os modelos de mídia
+panel_history_empty: Ainda sem histórico
+panel_documents_empty: Ainda sem documentos
+connections_copy_id: Copiar ID
+host_check_status: Verificar status
 ssh_agent_short: Agente
 ssh_keep_credential: Deixe em branco para manter a credencial salva
 ssh_busy: Outra conexão está ocupada, tente novamente em breve
@@ -2118,9 +2121,9 @@ host_wsl_requirement: Requer WSL2, GNU Linux x64/arm64 e systemd
 host_wsl_empty: Nenhuma distribuição WSL2 instalada
 host_wsl_load_failed: Não foi possível carregar as distribuições WSL
 files_unsaved: Alterações não salvas
-files_unsaved_description: Save changes before closing?
-files_unsaved_discard: Discard
-files_save_all: Save all
+files_unsaved_description: Salvar as alterações antes de fechar?
+files_unsaved_discard: Descartar
+files_save_all: Salvar tudo
 app_exit: Sair
 app_exit_confirm: Sair do Sailry
 app_exit_description: Tarefas e terminais locais em execução serão interrompidos
@@ -2155,7 +2158,7 @@ files_paste_conflict: O destino existe ou o caminho está indisponível
 live_request_failed: Solicitação incompleta; verifique a conexão e o diretório Node. Repetir mantém o ID da solicitação original.
 plugins_loading: Carregando
 project_appearance: Aparência do projeto
-project_clone_failed: Clonar incompleto; verifique o destino
+project_clone_failed: Falha ao clonar; verifique a URL, o branch e a rede
 project_outcome_unknown: Resultado não confirmado; verifique o destino. Retentar verifica a solicitação original.
 project_path_in_use: Este caminho é usado por uma sessão ou árvore de trabalho
 project_remove_busy: O projeto está em uso; tente novamente
@@ -2223,48 +2226,48 @@ chat_connection_history_empty: Nenhum histórico de sessão
 chat_sidebar_empty: Iniciar uma sessão
 chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · Início de sessão'
-chat_provider_node: '%{name} · Anfitrião'
+chat_provider_node: '%{name} · Host'
 chat_config_desktop: Configuração do desktop
 settings_experimental: Experimental
-settings_experimental_description: Development and debugging settings
+settings_experimental_description: Configurações de desenvolvimento e depuração
 provider_deepseek: DeepSeek
-settings_code_index: Code index
-settings_code_index_description: Index project code for the code search tools
-code_index_settings_saved: Saved
-code_index_settings_failed: Could not load or save code index settings
-code_index_settings_conflict: Code index settings changed; try again
-code_index_settings_unknown: Saving code index settings could not be confirmed
-directory_modified: Modified
-directory_modified_today: Today %{time}
-directory_modified_yesterday: Yesterday %{time}
-directory_counts: '%{directories} folders, %{files} files'
-directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
-directory_selected_files: '%{count} files selected'
-directory_nothing_selected: No file selected
-directory_failed: Could not read the folder
-directory_host_unavailable: The host is unavailable
-directory_fallback: Could not open %{path}; showing the home folder
-directory_trash: Move to Trash
-directory_trash_confirm: Move “%{name}” to the Trash
-queue_guidance_outlived: Reply ended first; queued as a new message
-queue_halt_interrupted: Reply interrupted; queued messages kept
-queue_halt_unsent: Message not sent; kept in the queue
+settings_code_index: Índice de código
+settings_code_index_description: Indexar o código do projeto para as ferramentas de busca de código
+code_index_settings_saved: Salvo
+code_index_settings_failed: Não foi possível carregar ou salvar as configurações do índice de código
+code_index_settings_conflict: As configurações do índice de código mudaram; tente novamente
+code_index_settings_unknown: Não foi possível confirmar o salvamento das configurações do índice de código
+directory_modified: Modificado
+directory_modified_today: Hoje %{time}
+directory_modified_yesterday: Ontem %{time}
+directory_counts: '%{directories} pastas, %{files} arquivos'
+directory_counts_hidden: '%{directories} pastas, %{files} arquivos, %{hidden} ocultos'
+directory_selected_files: '%{count} arquivos selecionados'
+directory_nothing_selected: Nenhum arquivo selecionado
+directory_failed: Não foi possível ler a pasta
+directory_host_unavailable: O host está indisponível
+directory_fallback: Não foi possível abrir %{path}; mostrando a pasta pessoal
+directory_trash: Mover para a Lixeira
+directory_trash_confirm: Mover “%{name}” para a Lixeira
+queue_guidance_outlived: A resposta terminou antes; na fila como nova mensagem
+queue_halt_interrupted: Resposta interrompida; mensagens na fila mantidas
+queue_halt_unsent: Mensagem não enviada; mantida na fila
 usage_read_failed: Não foi possível carregar o uso, tente novamente
-chat_output_limit: Reply cut at the output limit
-start_failed: Sailry could not start
-start_profile_in_use: Sailry is already running with this data folder
-backup_keep: Backups to keep
-backup_keep_all: All
-backup_keep_last: Last %{count}
-backup_keep_confirm: Keep only the last %{count} backups?
-backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
-backup_last: Last backup
-backup_last_done: Completed
-backup_last_skipped: '%{count} items skipped'
-backup_restart_restored: Restart with restored profile
-backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
-backup_restart_invalid: The restored profile cannot be used; nothing was changed
-backup_restart_failed: Sailry could not switch to the restored profile
+chat_output_limit: Resposta cortada no limite de saída
+start_failed: Não foi possível iniciar o Sailry
+start_profile_in_use: O Sailry já está em execução com esta pasta de dados
+backup_keep: Backups a manter
+backup_keep_all: Todos
+backup_keep_last: Últimos %{count}
+backup_keep_confirm: Manter apenas os últimos %{count} backups?
+backup_keep_consequence: Após cada backup, os backups mais antigos deste Node são excluídos do armazenamento. Isso não pode ser desfeito
+backup_last: Último backup
+backup_last_done: Concluído
+backup_last_skipped: '%{count} itens ignorados'
+backup_restart_restored: Reiniciar com o perfil restaurado
+backup_restart_consequence: O Sailry reinicia com o perfil restaurado. A pasta de dados atual é mantida ao lado com um nome datado
+backup_restart_invalid: O perfil restaurado não pode ser usado; nada foi alterado
+backup_restart_failed: O Sailry não conseguiu mudar para o perfil restaurado
 host_version_older: Host é mais antigo; atualize o Host
 host_version_newer: Host é mais recente; atualize o Desktop
 host_version_unknown: Não foi possível verificar a versão do Host; atualize o Host
@@ -2277,26 +2280,26 @@ runtime_python_preparing: Preparando
 python_creating: Preparando dependências
 python_installing: Instalando dependências
 python_validating: Verificando dependências
-port_count: '%{count} ports'
-queue_messages_one: 1 queued message
-queue_messages_count: '%{count} queued messages'
-settings_ram: Memory usage
+port_count: '%{count} portas'
+queue_messages_one: 1 mensagem na fila
+queue_messages_count: '%{count} mensagens na fila'
+settings_ram: Uso de memória
 ram_heap: Heap
-ram_objects: Live objects
-ram_fragmented: Fragmented
-ram_free: Free
-ram_stacks: Stacks
-ram_goroutine_stacks: Goroutine stacks
-ram_system_stacks: System stacks
+ram_objects: Objetos vivos
+ram_fragmented: Fragmentada
+ram_free: Livre
+ram_stacks: Pilhas
+ram_goroutine_stacks: Pilhas de goroutines
+ram_system_stacks: Pilhas do sistema
 ram_runtime: Runtime
-ram_allocator: Allocator
-ram_collector: Collector metadata
+ram_allocator: Alocador
+ram_collector: Metadados do coletor
 ram_profiling: Profiling
-ram_other: Other
+ram_other: Outros
 plugins_settings_follow_model: Siga o modelo
-ram_plugins: Plugins (estimated)
-ram_plugins_partial: '%{bytes} · partial'
-ram_plugins_error: Could not read plugin memory
+ram_plugins: Plugins (estimado)
+ram_plugins_partial: '%{bytes} · parcial'
+ram_plugins_error: Não foi possível ler a memória dos plugins
 meter_title: Contexto
 meter_session_usage: Uso da sessão
 meter_session_time: Tempo ativo
@@ -2357,33 +2360,33 @@ meter_tokens: Tokens
 meter_speed: Velocidade
 meter_show_details: Mostrar detalhes
 meter_hide_details: Mostrar menos
-configuration_follow_title: Configuration sync
-configuration_follow_loading: Reading sync status
-configuration_follow_controller: Controller
-configuration_follow_description: Configuration is managed by the controller. Edit it there.
-configuration_follow_this_device: This device's configuration
-configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
-configuration_follow_waiting: Waiting for controller configuration
-configuration_follow_unavailable: Could not read sync status
+configuration_follow_title: Sincronização de configuração
+configuration_follow_loading: Lendo o status da sincronização
+configuration_follow_controller: Controlador
+configuration_follow_description: A configuração é gerenciada pelo controlador. Edite-a lá.
+configuration_follow_this_device: Configuração deste dispositivo
+configuration_follow_local_description: Sua configuração é sincronizada automaticamente com os hosts conectados.
+configuration_follow_waiting: Aguardando a configuração do controlador
+configuration_follow_unavailable: Não foi possível ler o status da sincronização
 configuration_follow_targets: Hosts
-configuration_follow_automatic: Automatic sync
-configuration_follow_from_source: From controller
-configuration_follow_requested: Sync requested
-configuration_follow_failed: Configuration sync failed
-configuration_follow_conflict: Configuration changed; retry sync
-configuration_follow_unknown: Sync request is unconfirmed; retry to check its status
-personal_kv_conflict: Personal data conflict
-personal_kv_conflict_description: The controller kept its current values. Local schedules and completed actions were preserved.
+configuration_follow_automatic: Sincronização automática
+configuration_follow_from_source: Do controlador
+configuration_follow_requested: Sincronização solicitada
+configuration_follow_failed: A sincronização de configuração falhou
+configuration_follow_conflict: A configuração mudou; tente sincronizar novamente
+configuration_follow_unknown: Solicitação de sincronização não confirmada; tente novamente para verificar o status
+personal_kv_conflict: Conflito de dados pessoais
+personal_kv_conflict_description: O controlador manteve seus valores atuais. Os agendamentos locais e as ações concluídas foram preservados.
 resource_offline: Offline
-resource_offline_action: This host is offline.
-resource_last_synced: Last synced %{time}
-controller_login_restore: Restore sign-in
-controller_login_restored: Task sign-in restored
-controller_login_restore_failed: Could not restore this task's sign-in
-controller_login_restore_unknown: Recovery is unconfirmed. Check the original request.
-controller_login_state_changed: This task is no longer waiting for that sign-in
-controller_login_account_mismatch: Sign in with the task's original account and workspace
-controller_login_identity_unavailable: This sign-in has no verified account identity for recovery
-controller_login_target_changed: The task's original authentication target has changed
-controller_login_original_controller: Restore sign-in on the task's original controller
-controller_login_provider_missing: The task's original provider is unavailable
+resource_offline_action: Este host está offline.
+resource_last_synced: Última sincronização %{time}
+controller_login_restore: Restaurar login
+controller_login_restored: Login da tarefa restaurado
+controller_login_restore_failed: Não foi possível restaurar o login desta tarefa
+controller_login_restore_unknown: Recuperação não confirmada. Verifique a solicitação original.
+controller_login_state_changed: Esta tarefa não aguarda mais esse login
+controller_login_account_mismatch: Faça login com a conta e o espaço de trabalho originais da tarefa
+controller_login_identity_unavailable: Este login não tem uma identidade de conta verificada para recuperação
+controller_login_target_changed: O destino de autenticação original da tarefa mudou
+controller_login_original_controller: Restaure o login no controlador original da tarefa
+controller_login_provider_missing: O provedor original da tarefa está indisponível

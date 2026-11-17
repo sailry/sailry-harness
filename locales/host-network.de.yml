@@ -8,3 +8,6 @@ host_network_load_failed: "Netzwerkeinstellungen konnten nicht geladen werden"
 host_pairing_mode: "Kopplungscode"
 host_pairing_hint: "Mit einem vorhandenen Sailry-Gerät verbinden"
 host_setup_unconfirmed: "Host-Einrichtung nicht bestätigt, prüfen Sie zuerst den Host"
+host_ssh_mode: Über SSH installieren
+host_install_hint: Sailry auf einem Server installieren und verbinden
+host_ssh_agent_hint: Im SSH-Agent dieses Computers geladene Schlüssel verwenden

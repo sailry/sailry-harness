@@ -1,0 +1,13 @@
+resource_offline: Hors ligne
+resource_offline_action: Cet hôte est hors ligne.
+resource_last_synced: Dernière synchronisation %{time}
+controller_login_restore: Restaurer la connexion
+controller_login_restored: Connexion de la tâche restaurée
+controller_login_restore_failed: Impossible de restaurer la connexion de cette tâche
+controller_login_restore_unknown: Restauration non confirmée. Vérifiez la requête d’origine.
+controller_login_state_changed: Cette tâche n’attend plus cette connexion
+controller_login_account_mismatch: Connectez-vous avec le compte et l’espace de travail d’origine de la tâche
+controller_login_identity_unavailable: Cette connexion n’a pas d’identité de compte vérifiée pour la restauration
+controller_login_target_changed: La cible d’authentification d’origine de la tâche a changé
+controller_login_original_controller: Restaurez la connexion sur le contrôleur d’origine de la tâche
+controller_login_provider_missing: Le fournisseur d’origine de la tâche est indisponible

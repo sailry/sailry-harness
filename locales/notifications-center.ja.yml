@@ -19,3 +19,5 @@ notification_deleted_read: "既読の通知を削除しました"
 notification_update_unknown: "通知の更新を確認できません。後で再試行してください"
 notification_update_partial: "一部の通知を更新できませんでした。再試行してください"
 notification_update_failed: "通知を更新できませんでした。再試行してください"
+personal_kv_conflict: 個人データの競合
+personal_kv_conflict_description: コントローラーは現在の値を保持しました。ローカルのスケジュールと完了した操作は保持されています。

@@ -1,0 +1,13 @@
+resource_offline: オフライン
+resource_offline_action: このホストはオフラインです。
+resource_last_synced: 最終同期 %{time}
+controller_login_restore: サインインを復元
+controller_login_restored: タスクのサインインを復元しました
+controller_login_restore_failed: このタスクのサインインを復元できませんでした
+controller_login_restore_unknown: 復元は未確認です。元のリクエストを確認してください。
+controller_login_state_changed: このタスクはそのサインインを待機していません
+controller_login_account_mismatch: タスク元のアカウントとワークスペースでサインインしてください
+controller_login_identity_unavailable: このサインインには復元に使える検証済みのアカウント ID がありません
+controller_login_target_changed: タスク元の認証先が変更されました
+controller_login_original_controller: タスク元のコントローラーでサインインを復元してください
+controller_login_provider_missing: タスク元のプロバイダを利用できません

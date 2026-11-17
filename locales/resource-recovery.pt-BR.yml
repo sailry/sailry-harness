@@ -1,0 +1,13 @@
+resource_offline: Offline
+resource_offline_action: Este host está offline.
+resource_last_synced: Última sincronização %{time}
+controller_login_restore: Restaurar login
+controller_login_restored: Login da tarefa restaurado
+controller_login_restore_failed: Não foi possível restaurar o login desta tarefa
+controller_login_restore_unknown: Recuperação não confirmada. Verifique a solicitação original.
+controller_login_state_changed: Esta tarefa não aguarda mais esse login
+controller_login_account_mismatch: Faça login com a conta e o espaço de trabalho originais da tarefa
+controller_login_identity_unavailable: Este login não tem uma identidade de conta verificada para recuperação
+controller_login_target_changed: O destino de autenticação original da tarefa mudou
+controller_login_original_controller: Restaure o login no controlador original da tarefa
+controller_login_provider_missing: O provedor original da tarefa está indisponível

@@ -19,3 +19,5 @@ notification_deleted_read: "Notificações lidas excluídas"
 notification_update_unknown: "Não foi possível confirmar a atualização; tente mais tarde"
 notification_update_partial: "Algumas notificações não puderam ser atualizadas; tente novamente"
 notification_update_failed: "Não foi possível atualizar as notificações; tente novamente"
+personal_kv_conflict: Conflito de dados pessoais
+personal_kv_conflict_description: O controlador manteve seus valores atuais. Os agendamentos locais e as ações concluídas foram preservados.

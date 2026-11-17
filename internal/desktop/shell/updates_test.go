@@ -9,8 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 )
 
-// About's updater checks, downloads, asks before installing and stops at
-// Restart; the experience channel's check fails with Details.
+// About's updater checks, downloads, shows the ready row inline, installs
+// from Restart now and stops at Restart; the experience channel's check fails with Details.
 func TestUpdater(t *testing.T) {
 	a, tt := newTester(t)
 	a.Do("app.about")
@@ -30,21 +30,23 @@ func TestUpdater(t *testing.T) {
 	if u.State != settings.UpdateAvailable || !tt.HasText("0.2.0-preview") {
 		t.Fatalf("check: %v %q", u.State, tt.Texts())
 	}
+	if u.Attention() {
+		t.Fatal("an update found on About marks it")
+	}
 	step("updates_download", 5*time.Second)
 	if u.State != settings.UpdateReady {
 		t.Fatalf("download: %v", u.State)
 	}
 	snapshot(t, tt, "updates-ready")
-	step("updates_install", time.Second)
-	if !tt.HasText(i18n.In("en", "updates_restart_description")) {
-		t.Fatalf("no confirmation: %q", tt.Texts())
+	// Ready states what a restart stops beside its actions; no dialog asks.
+	if !tt.HasText(i18n.In("en", "updates_restart_description")) || !tt.HasText(i18n.In("en", "updates_ready_now", "version", "0.2.0-preview")) {
+		t.Fatalf("ready row: %q", tt.Texts())
 	}
-	clickButton(t, tt, i18n.In("en", "updates_install"))
-	tt.Frame()
-	for range 4 {
-		tt.Advance(500 * time.Millisecond)
-		tt.Frame()
+	step("updates_later", 0)
+	if tt.HasText(i18n.In("en", "updates_restart_description")) || u.State != settings.UpdateReady {
+		t.Fatalf("Later did not fold the ready row: %q", tt.Texts())
 	}
+	step("updates_restart_now", 2*time.Second)
 	if u.State != settings.UpdateStopped || !tt.HasText(i18n.In("en", "updates_restart_needed")) {
 		t.Fatalf("install: %v", u.State)
 	}
@@ -89,10 +91,28 @@ func testLiveUpdater(t *testing.T) {
 		return found
 	}
 
+	// An update found away from About marks Settings until About shows it.
+	a.Do("app.settings")
+	a.Settings.Open(settings.General)
+	tt.Frame()
+	*u = settings.Updater{State: settings.UpdateAvailable, Version: "0.3.0"}
+	tt.Frame()
+	if !u.Attention() {
+		t.Fatal("no attention away from About")
+	}
+	snapshot(t, tt, "updates-attention")
+	a.Settings.Open(settings.About)
+	tt.Frame()
+	tt.Frame()
+	if u.Attention() {
+		t.Fatal("About did not clear the attention")
+	}
+
 	// Downloading: the bytes copied as a percentage, then Verifying; Cancel
 	// is the action and the channel is locked.
 	show(settings.Updater{State: settings.UpdateDownloading, Version: "0.3.0", Copied: 12 << 20, Total: 48 << 20})
-	if !tt.HasText("25%") || tt.HasText(i18n.In("en", "updates_verifying")) || !u.Locked() || has("updates_install") {
+	if !tt.HasText("12.0 MB / 48.0 MB · 25%") || !tt.HasText(i18n.In("en", "updates_downloading", "version", "0.3.0")) ||
+		tt.HasText(i18n.In("en", "updates_verifying")) || !u.Locked() || has("updates_restart_now") {
 		t.Fatalf("downloading: %q", tt.Texts())
 	}
 	show(settings.Updater{State: settings.UpdateDownloading, Version: "0.3.0", Copied: 48 << 20, Total: 48 << 20, Verifying: true})
@@ -105,33 +125,38 @@ func testLiveUpdater(t *testing.T) {
 		t.Fatalf("Cancel called %v", calls)
 	}
 
-	// Ready: Install asks first; only the confirmation installs, once.
+	// Ready: the row states the consequence and Restart now installs at
+	// once; Later folds the row and keeps the action.
 	show(settings.Updater{State: settings.UpdateReady, Version: "0.3.0"})
-	if !tt.HasText("0.3.0") {
+	if !tt.HasText(i18n.In("en", "updates_ready_now", "version", "0.3.0")) || !tt.HasText(i18n.In("en", "updates_restart_description")) || !has("updates_later") {
 		t.Fatalf("ready: %q", tt.Texts())
 	}
-	clickButton(t, tt, i18n.In("en", "updates_install"))
+	clickButton(t, tt, i18n.In("en", "updates_later"))
 	tt.Frame()
-	tt.Frame()
-	if !tt.HasText(i18n.In("en", "updates_restart_description")) || calls["install"] != 0 {
-		t.Fatalf("Install asked nothing or installed already: %v %q", calls, tt.Texts())
+	if tt.HasText(i18n.In("en", "updates_restart_description")) || has("updates_later") || calls["install"] != 0 {
+		t.Fatalf("Later: %v %q", calls, tt.Texts())
 	}
-	clickButton(t, tt, i18n.In("en", "updates_install"))
+	u.Review()
+	tt.Frame()
+	if !tt.HasText(i18n.In("en", "updates_restart_description")) {
+		t.Fatal("Review did not unfold the ready row")
+	}
+	clickButton(t, tt, i18n.In("en", "updates_restart_now"))
 	tt.Frame()
 	tt.Frame()
 	if calls["install"] != 1 || len(calls) != 2 {
-		t.Fatalf("the confirmation called %v", calls)
+		t.Fatalf("Restart now called %v", calls)
 	}
 
-	// Installing and restarting: a disabled Installing button, the state's
+	// Installing and restarting: a disabled busy button with the state's
 	// text, no other action and a locked channel.
 	for state, text := range map[settings.UpdateState]string{settings.UpdateInstalling: "updates_installing", settings.UpdateRestarting: "updates_restarting"} {
 		show(settings.Updater{State: state, Version: "0.3.0"})
-		if !disabled("updates_installing") || !tt.HasText(i18n.In("en", text)) || !u.Locked() ||
-			has("updates_check") || has("settings_cancel") || has("updates_install") || has("updates_restart") || has("updates_download") {
+		if !disabled(text) || !u.Locked() ||
+			has("updates_check") || has("settings_cancel") || has("updates_restart_now") || has("updates_restart") || has("updates_download") {
 			t.Fatalf("state %d: %q", state, tt.Texts())
 		}
-		clickButton(t, tt, i18n.In("en", "updates_installing"))
+		clickButton(t, tt, i18n.In("en", text))
 		tt.Frame()
 		if calls["install"] != 1 || len(calls) != 2 {
 			t.Fatalf("the disabled Installing button called %v", calls)
@@ -140,7 +165,7 @@ func testLiveUpdater(t *testing.T) {
 
 	// Stopped: Restart is the only action.
 	show(settings.Updater{State: settings.UpdateStopped, Version: "0.3.0"})
-	if !tt.HasText(i18n.In("en", "updates_restart_needed")) || has("updates_check") || has("updates_installing") {
+	if !tt.HasText(i18n.In("en", "updates_restart_needed")) || has("updates_check") || has("updates_installing") || has("updates_restart_now") {
 		t.Fatalf("stopped: %q", tt.Texts())
 	}
 	clickButton(t, tt, i18n.In("en", "updates_restart"))

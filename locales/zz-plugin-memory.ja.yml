@@ -1,0 +1,3 @@
+ram_plugins: プラグイン（推定）
+ram_plugins_partial: '%{bytes} · 一部'
+ram_plugins_error: プラグインのメモリを読み込めませんでした

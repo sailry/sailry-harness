@@ -1,0 +1,13 @@
+directory_applications: Aplicativos
+directory_modified: Modificado
+directory_modified_today: Hoje %{time}
+directory_modified_yesterday: Ontem %{time}
+directory_counts: '%{directories} pastas, %{files} arquivos'
+directory_counts_hidden: '%{directories} pastas, %{files} arquivos, %{hidden} ocultos'
+directory_selected_files: '%{count} arquivos selecionados'
+directory_nothing_selected: Nenhum arquivo selecionado
+directory_failed: Não foi possível ler a pasta
+directory_host_unavailable: O host está indisponível
+directory_fallback: Não foi possível abrir %{path}; mostrando a pasta pessoal
+directory_trash: Mover para a Lixeira
+directory_trash_confirm: Mover “%{name}” para a Lixeira

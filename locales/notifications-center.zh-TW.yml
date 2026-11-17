@@ -19,3 +19,5 @@ notification_deleted_read: "已刪除已讀通知"
 notification_update_unknown: "無法確認通知更新結果，請稍後重試"
 notification_update_partial: "部分通知更新失敗，請重試"
 notification_update_failed: "通知更新失敗，請重試"
+personal_kv_conflict: 個人資料衝突
+personal_kv_conflict_description: 控制端已保留其目前的值。本機排程和已完成的操作仍保留。

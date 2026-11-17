@@ -1,0 +1,13 @@
+resource_offline: 離線
+resource_offline_action: 此主機已離線。
+resource_last_synced: 上次同步 %{time}
+controller_login_restore: 恢復登入
+controller_login_restored: 任務登入已恢復
+controller_login_restore_failed: 無法恢復此任務的登入
+controller_login_restore_unknown: 恢復結果尚未確認，請檢查原請求。
+controller_login_state_changed: 此任務已不再等待這次登入
+controller_login_account_mismatch: 請使用任務原本的帳號和工作區登入
+controller_login_identity_unavailable: 此次登入缺少可驗證的帳號識別，無法恢復任務
+controller_login_target_changed: 任務原本的驗證目標已變更
+controller_login_original_controller: 請在任務原本的控制端上恢復登入
+controller_login_provider_missing: 任務原本的供應商無法使用

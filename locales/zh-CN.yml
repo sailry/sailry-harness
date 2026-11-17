@@ -6,7 +6,6 @@ updates_channel_experience: "体验版"
 updates_version: "版本"
 updates_check: "检查更新"
 updates_download: "下载"
-updates_install: "安装并重启"
 updates_restart: "重启"
 updates_restart_description: "重启后将恢复草稿；本机任务和终端将停止"
 updates_checking: "正在检查"
@@ -188,7 +187,7 @@ approval_interrupted: 审批已中断
 approval_closed: 该审批已结束
 approval_command: 运行命令
 command_cwd: "工作目录：%{path}"
-command_timeout: "超时：%{milliseconds} 毫秒"
+command_timeout: "超时：%{milliseconds} ms"
 command_exited: "退出码 %{code}"
 command_signal: "信号 %{signal} 终止"
 command_timed_out: 命令超时
@@ -360,7 +359,7 @@ metrics_worker: 示例工作进程
 metrics_indexer: 示例索引进程
 metrics_rate: "%{value}/s"
 tunnels_title: 端口隧道
-port_title: 端口转发
+port_title: 端口
 port_remote: 主机端口
 port_local: 本地端口（0 为自动分配）
 port_create: 创建
@@ -410,7 +409,7 @@ update_version: "当前版本：%{current}"
 update_versions: "%{current} → %{target}"
 update_target_changed: 目标主机已不可用，请关闭后重新打开
 host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
-workspace_worktrees: worktree
+workspace_worktrees: "工作树"
 worktree_manage: 管理 worktree
 worktree_actions: 工作树操作
 workspace_open_worktree: 打开 worktree
@@ -826,8 +825,7 @@ provider_azure_openai_hint: https://resource.openai.azure.com
 provider_azure_ai_hint: https://resource.services.ai.azure.com/models
 provider_cloud_required: 请填写云渠道配置
 provider_headers: "自定义请求头"
-provider_headers_hint: "每行一个，格式为 名称: 值"
-provider_headers_invalid: "每行请求头都需要名称和冒号"
+provider_headers_invalid: "有值的请求头需要填写名称"
 provider_metadata_fill: 补全信息
 provider_deployment_id: 部署名
 provider_xai: xAI
@@ -1195,7 +1193,7 @@ turn_tools_running: 正在执行
 turn_generating: 正在回复
 turn_compacting: 正在压缩
 turn_waiting_child: 等待 1 个子代理
-turn_waiting_controller: 等待主控更新登录
+turn_waiting_controller: 等待控制端更新登录
 turn_waiting_children: "等待 %{count} 个子代理"
 turn_reasoning: 思考过程
 chat_context_summary: 上下文摘要
@@ -1279,7 +1277,7 @@ composer_permission_ask_description: 修改文件和执行命令前询问
 composer_permission_project_description: 自动修改项目文件，执行命令前询问
 composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
 composer_metric_unknown: —
-composer_tokens: Token
+composer_tokens: "Token"
 composer_token_usage: Token
 composer_cache_hit: 命中率
 composer_uncached_input: 未缓存
@@ -1698,7 +1696,7 @@ reference_directory: 引用此目录
 reference_file: 示例文件
 reference_host: 主机
 reference_project: 项目
-reference_worktree: worktree
+reference_worktree: "工作树"
 reference_empty: 没有匹配的引用
 reference_connections_empty: 当前项目没有可用连接
 reference_back: 返回上一级
@@ -2042,8 +2040,8 @@ git_stash_drop_confirm: 删除此储藏，此操作无法撤销
 git_action_conflict: 操作存在冲突，请刷新并解决冲突后继续
 git_auth_failed: 远程认证失败，请检查执行主机的 Git 凭据
 
-git_trash_untracked: 将未跟踪文件移到废纸篓
-git_trash_confirm: 将所有未跟踪文件移到废纸篓
+git_trash_untracked: 将未跟踪文件移到回收站
+git_trash_confirm: 将所有未跟踪文件移到回收站
 
 git_add_remote: 添加远程仓库
 git_remote_name: 名称
@@ -2177,7 +2175,7 @@ worktree_remove_named: 确认删除 worktree“%{name}”？Git 分支会保留
 worktree_remove_sample: 确认移除示例 worktree“%{name}”
 git_initialize_sample: 确认初始化示例“%{name}”
 
-port_mappings: 端口映射
+port_mappings: 端口
 port_add: 新建转发
 port_edit: 编辑转发
 
@@ -2247,11 +2245,11 @@ usage_column_provider: 供应商
 usage_column_project: 归属
 usage_column_first_token: TTFT
 connections_hosts: 主机
-connections_mobile: 主控设备
+connections_mobile: 移动端
 connections_bidirectional: 双向
 connections_legacy_bidirectional: 旧版双向
 connections_only_host: 仅主机
-connections_only_controller: 仅主控
+connections_only_controller: 仅控制端
 connections_direction_saved: 已更新设备访问方向
 connections_online: 在线
 connections_offline: 离线
@@ -2669,6 +2667,12 @@ artifact_edit_prompt: "修改要求："
 reference_group_context: "上下文"
 updates_receipt_failed: "更新已安装，但无法保存恢复信息"
 updates_details: "详情"
+updates_available: "%{version} 可用"
+updates_downloading: "正在下载 %{version}"
+updates_ready_now: "%{version} 已就绪"
+updates_restart_now: "立即重启"
+updates_later: "稍后"
+updates_view: "查看"
 updates_recovery_failed: "草稿恢复未完成"
 updates_profile_inside: "数据目录位于 Sailry 应用内，请移出后再更新"
 approval_unrestricted: 完整文件系统和网络访问

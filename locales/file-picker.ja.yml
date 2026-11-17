@@ -1,0 +1,13 @@
+directory_applications: アプリケーション
+directory_modified: 変更日
+directory_modified_today: 今日 %{time}
+directory_modified_yesterday: 昨日 %{time}
+directory_counts: '%{directories} 個のフォルダ、%{files} 個のファイル'
+directory_counts_hidden: '%{directories} 個のフォルダ、%{files} 個のファイル、%{hidden} 個の非表示項目'
+directory_selected_files: '%{count} 個のファイルを選択中'
+directory_nothing_selected: ファイルが選択されていません
+directory_failed: フォルダを読み込めませんでした
+directory_host_unavailable: ホストを利用できません
+directory_fallback: '%{path} を開けませんでした。ホームフォルダを表示しています'
+directory_trash: "ごみ箱に入れる"
+directory_trash_confirm: "「%{name}」をごみ箱に入れる"

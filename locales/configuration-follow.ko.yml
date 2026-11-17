@@ -1,0 +1,15 @@
+configuration_follow_title: 구성 동기화
+configuration_follow_loading: 동기화 상태 읽는 중
+configuration_follow_controller: 컨트롤러
+configuration_follow_description: 구성은 컨트롤러에서 관리됩니다. 컨트롤러에서 편집하세요.
+configuration_follow_this_device: 이 기기의 구성
+configuration_follow_local_description: 구성이 연결된 호스트에 자동으로 동기화됩니다.
+configuration_follow_waiting: 컨트롤러 구성 대기 중
+configuration_follow_unavailable: 동기화 상태를 읽을 수 없음
+configuration_follow_targets: 호스트
+configuration_follow_automatic: 자동 동기화
+configuration_follow_from_source: 컨트롤러에서
+configuration_follow_requested: 동기화 요청됨
+configuration_follow_failed: 구성 동기화 실패
+configuration_follow_conflict: 구성이 변경되었습니다. 동기화를 다시 시도하세요
+configuration_follow_unknown: 동기화 요청이 확인되지 않았습니다. 다시 시도하여 상태를 확인하세요

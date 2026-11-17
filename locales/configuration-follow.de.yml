@@ -1,0 +1,15 @@
+configuration_follow_title: Konfigurationssynchronisierung
+configuration_follow_loading: Synchronisierungsstatus wird gelesen
+configuration_follow_controller: Controller
+configuration_follow_description: Die Konfiguration wird vom Controller verwaltet. Bearbeiten Sie sie dort.
+configuration_follow_this_device: Konfiguration dieses Geräts
+configuration_follow_local_description: Ihre Konfiguration wird automatisch mit verbundenen Hosts synchronisiert.
+configuration_follow_waiting: Warten auf Controller-Konfiguration
+configuration_follow_unavailable: Synchronisierungsstatus konnte nicht gelesen werden
+configuration_follow_targets: Hosts
+configuration_follow_automatic: Automatische Synchronisierung
+configuration_follow_from_source: Vom Controller
+configuration_follow_requested: Synchronisierung angefordert
+configuration_follow_failed: Konfigurationssynchronisierung fehlgeschlagen
+configuration_follow_conflict: Konfiguration geändert; Synchronisierung erneut versuchen
+configuration_follow_unknown: Synchronisierungsanfrage nicht bestätigt; erneut versuchen, um den Status zu prüfen

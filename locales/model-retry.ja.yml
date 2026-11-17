@@ -10,3 +10,4 @@ chat_model_flex_unavailable: "Flex サービスを利用できません"
 chat_model_policy_rejected: "サービスのポリシーによりリクエストが拒否されました"
 chat_model_request_unavailable: "モデルリクエストを準備できませんでした"
 chat_model_server_overloaded: "モデルサービスが混雑しています"
+chat_model_retry_wait_exhausted: 再試行の待機上限に達しました

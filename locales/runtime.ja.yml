@@ -1,5 +1,5 @@
 settings_runtime: "実行環境"
-settings_runtime_description: "このノードを設定"
+settings_runtime_description: "この Node を設定"
 runtime_python: "Python"
 runtime_python_index: "パッケージソース"
 runtime_ocr: "文字認識"

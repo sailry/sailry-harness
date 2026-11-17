@@ -32,7 +32,7 @@ activity_running: 실행 중
 activity_waiting: 주의가 필요합니다
 notification_unread: 읽지 않음
 project_sessions_empty: 세션 없음
-project_archived: Archived
+project_archived: 보관됨
 settings_group_app: 응용 프로그램
 settings_group_ai: AI
 settings_group_tools: 도구 및 연결
@@ -44,7 +44,7 @@ settings_conversation: 대화
 settings_shortcuts: 키보드 단축키
 settings_dictation: 음성 입력
 settings_providers: 모델
-settings_providers_description: 세션 제공자, 인증 및 모델 관리
+settings_providers_description: 세션 공급자, 인증 및 모델 관리
 settings_connectors: 커넥터
 settings_teams: 팀
 settings_plugins: 플러그인
@@ -180,7 +180,7 @@ plan_coding_message: 확인된 계획으로 코딩 시작
 interaction_continue: 계속
 interaction_start: 실행
 live_read_busy: 호스트 응답 대기 중
-tool_load_skill: 기술 로드
+tool_load_skill: 스킬 로드
 tool_list_sessions: 세션 찾기
 tool_read_session: 세션 읽기
 tool_search_session: 세션 검색
@@ -223,9 +223,9 @@ notifications_read_all: 읽지 않은 편지 선택( c)
 notification_delete_read: 읽은 알림 삭제
 notifications_empty: 알림 없음
 notifications_time_now: 방금
-notifications_time_minutes: '%{count}분 전'
-notifications_time_hours: '%{count}시간 전'
-notifications_time_days: '%{count}일 전'
+notifications_time_minutes: '%{count} min 전'
+notifications_time_hours: '%{count} h 전'
+notifications_time_days: '%{count} d 전'
 knowledge_source: 소스
 knowledge_previous: 이전
 knowledge_next: 다음
@@ -241,8 +241,8 @@ knowledge_slide: 슬라이드 %{slide}
 workspace_archive: 세션 보관
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
-session_delete_private_files: Its private workspace files are deleted too
-session_delete_private_named: Delete “%{name}”, its subagents and private workspace files permanently
+session_delete_private_files: 비공개 작업 공간 파일도 함께 삭제됩니다
+session_delete_private_named: “%{name}”, 하위 에이전트 및 비공개 작업 공간 파일을 영구 삭제
 workspace_rename: 이름 바꾸기
 session_title_required: 이름 입력
 session_mark_read: 읽은 것으로 표시
@@ -269,7 +269,7 @@ worktree_create: 새 작업 트리
 worktree_remove: 작업 트리 삭제
 workspace_open_worktree: 작업 트리 열기
 worktree_actions: 작업 트리 동작
-worktree_main: Main
+worktree_main: 기본 작업 트리
 worktree_locked: 잠김
 worktree_unavailable: 디렉터리를 사용할 수 없음
 worktree_prune_on_select: 정리하려면 클릭하세요
@@ -278,32 +278,32 @@ worktree_base: 시작 지점
 worktree_path: 경로
 worktree_load_failed: 작업 트리를 불러올 수 없음
 worktree_missing_project: 프로젝트 선택
-worktree_no_repository: 이 디렉토리는 Git 저장소가 아닙니다
+worktree_no_repository: 이 디렉터리는 Git 저장소가 아닙니다
 worktree_revision_failed: 시작 지점을 해결할 수 없음
 worktree_context_changed: 프로젝트가 변경되었습니다. 이 보기를 다시 엽니다
-worktree_open_busy: This session cannot switch worktrees now
-worktree_created: Worktree created
-worktree_removed: Worktree removed
+worktree_open_busy: 지금은 이 세션의 작업 트리를 전환할 수 없습니다
+worktree_created: 작업 트리가 생성됨
+worktree_removed: 작업 트리가 삭제됨
 worktree_remove_confirm: 이 작업 트리 디렉터리를 삭제하고 Git 브랜치를 유지
-worktree_prune: Clean up stale worktree
-worktree_prune_confirm: Remove this stale registration; no files are deleted
+worktree_prune: 만료된 작업 트리 정리
+worktree_prune_confirm: 만료된 등록을 제거하며 파일은 삭제되지 않습니다
 worktree_pruned: 오래된 작업 트리 등록 제거됨
 worktree_prune_failed: '정리되지 않음: 디렉터리가 존재하거나 잠겨 있거나 확인할 수 없음'
-worktree_prune_exists: Directory still exists, nothing to clean up
+worktree_prune_exists: 디렉터리가 아직 있어 정리할 항목이 없습니다
 worktree_outcome_unknown: 결과가 확인되지 않았습니다. 작업 트리를 확인하십시오
-worktree_conflict: 브랜치, 디렉토리 또는 프로젝트 소유권 충돌
+worktree_conflict: 브랜치, 디렉터리 또는 프로젝트 소유권 충돌
 worktree_invalid: 브랜치와 절대 경로 확인
 worktree_not_found: 프로젝트, 디렉터리 또는 시작 커밋을 찾을 수 없음
 worktree_request_failed: 작업 실패, 권한 및 연결 확인
-worktree_path_exists: Path already exists
+worktree_path_exists: 경로가 이미 있습니다
 worktree_remove_locked: 작업 트리가 잠겨 있습니다
 worktree_remove_busy: 작업 트리가 사용 중입니다
-worktree_remove_dirty: Worktree에 커밋되지 않은 변경 사항이 있으므로 제거할 수 없습니다
-worktree_remove_conflict: 워크트리 변경, 제거하기 전에 새로 고침
+worktree_remove_dirty: 작업 트리에 커밋되지 않은 변경 사항이 있으므로 제거할 수 없습니다
+worktree_remove_conflict: 작업 트리가 변경되었습니다. 제거하기 전에 새로 고치세요
 worktree_remove_missing: 찾을 수 없음
-worktree_unused: No session
+worktree_unused: 세션 없음
 git_branch_exists: 브랜치가 이미 존재함
-git_branch_checked_out: Branch is checked out in another worktree
+git_branch_checked_out: 다른 작업 트리에서 체크아웃된 브랜치입니다
 git_index_failed: 스테이징을 업데이트할 수 없습니다. 다시 시도하십시오
 git_index_changed: Git 상태 변경, 다시 선택
 git_index_busy: Git 바쁘거나 작업 시간이 초과되었습니다. 곧 다시 시도하십시오
@@ -341,9 +341,9 @@ project_remove_named: 프로젝트 “%{name}”을 제거할까요? 터미널�
 project_remove_preview: 미리보기 레코드 제거
 project_name: 프로젝트 이름
 project_host: 호스트
-project_visibility: Visibility
-project_visibility_private: Private
-project_visibility_shared: Host shared
+project_visibility: 공개 범위
+project_visibility_private: 비공개
+project_visibility_shared: 호스트 공유
 project_path: 프로젝트 경로
 project_destination: 대상
 project_repository: 저장소
@@ -354,7 +354,7 @@ project_editor_preview: 프로젝트 미리보기; 파일이 변경되지 않음
 project_name_placeholder: 이름 입력
 project_path_placeholder: 디렉터리 선택
 project_repository_placeholder: https://github.com/org/repository.git
-project_branch_placeholder: 기본 분기
+project_branch_placeholder: 기본 브랜치
 directory_title: 디렉터리 선택
 project_required: 프로젝트 이름과 경로 입력
 project_duplicate_path: 이 호스트에는 이 경로에 이미 프로젝트가 있습니다
@@ -387,9 +387,9 @@ files_new_directory: 새 폴더
 files_new_file: 새 파일
 files_paste: 붙여넣기
 files_rename: 이름 바꾸기
-files_reveal_explorer: Show in Explorer
-files_reveal_finder: Show in Finder
-files_reveal_manager: Show in file manager
+files_reveal_explorer: Explorer에서 보기
+files_reveal_finder: Finder에서 보기
+files_reveal_manager: 파일 관리자에서 보기
 files_trash: 삭제
 git_abort: 중단
 git_actions: Git 작업
@@ -398,11 +398,11 @@ git_all_changes: 모든 변경 사항
 git_amend: 마지막 커밋 수정
 git_branch_actions: 브랜치 작업
 git_branch_from: 다음에서 브랜치 만들기
-git_branch_from_open: Create branch from…
+git_branch_from_open: 다른 브랜치에서 생성…
 git_branches: 브랜치
 git_changes_menu: 변경 사항
 git_checkout: 체크아웃
-git_checkout_open: Checkout…
+git_checkout_open: 체크아웃…
 git_clone: 복제
 git_commit_all: 모두 커밋
 git_commit_all_amend: 모두 커밋하고 수정
@@ -415,14 +415,14 @@ git_commit_staged_amend: 스테이지된 커밋과 수정
 git_commit_staged_signoff: 스테이지된 커밋 및 종료
 git_commit_sync: 커밋 및 동기화
 git_cherry_pick: Cherry- pick 커밋
-git_cherry_pick_confirm: Apply this commit to the current branch
+git_cherry_pick_confirm: 이 커밋을 현재 브랜치에 적용
 git_copy_branch: 브랜치 이름 복사
-git_copy_commit_id: Copy commit ID
+git_copy_commit_id: 커밋 ID 복사
 git_copy_path: 경로 복사
-git_delete_branch: 분기 삭제
+git_delete_branch: 브랜치 삭제
 git_delete_confirm: 삭제하시겠습니까? 실행 취소할 수 없습니다
 git_delete_remote_branch: 원격 브랜치 삭제
-git_delete_remote_branch_open: Delete remote branch…
+git_delete_remote_branch_open: 원격 브랜치 삭제…
 git_discard_all: 모든 변경 사항 버리기
 git_discard_all_confirm: 모든 변경 사항을 버리시겠습니까? 실행 취소할 수 없습니다
 git_discard_changes: 변경 사항 버리기
@@ -450,50 +450,50 @@ git_open_source: 오픈 소스
 git_output: 출력
 git_pull: 끌어오기
 git_pull_from: 다음에서 가져오기
-git_pull_from_open: Pull from…
+git_pull_from_open: 다음에서 풀…
 git_pull_push: 당기고 밀어
 git_pull_rebase: 리베이스와 함께 끌어오기
 git_push: 밀어 넣기
 git_push_to: 다음으로 푸시
 git_rebase: 다시 시작
 git_refresh: 새로고침
-git_remote_branches: 원격 분기
+git_remote_branches: 원격 브랜치
 git_remotes: 원격
 git_remove_remote: 원격 제거
 git_remove_remote_confirm: 이 원격 디렉터리를 삭제하시겠습니까? 로컬 파일과 커밋은 보존됩니다
-git_remove_remote_open: Remove remote…
+git_remove_remote_open: 원격 저장소 제거…
 git_rename_branch: 브랜치 이름 바꾸기
 git_search_branches: 브랜치 검색
 git_signoff: 로그아웃
-git_skip_hooks: 훅 건너뛰기
+git_skip_hooks: Hook 건너뛰기
 git_sort_name: 이름으로 정렬
 git_sort_path: 경로별로 정렬
 git_sort_status: 상태별로 정렬
 git_stage: 단계
 git_staged: 스테이지
-git_stash_all: 모두 저장
-git_stash_apply: 캐시 적용
-git_stash_apply_latest: 최신 저장소 적용
-git_stash_drop: 스택 삭제
-git_stash_drop_all: 모든 스택 삭제
-git_stash_drop_all_open: Delete all stashes…
-git_stash_menu: 숨겨진 곳
-git_stash_pop: 팝 스태시
-git_stash_pop_latest: 팝 최신 숨겨진
-git_stash_staged: 스테이지 변경 사항 저장
-git_stash_tracked: 추적된 파일 저장
-git_stash_view: 숨겨진 파일 보기
-git_stash_view_open: View stash…
+git_stash_all: 모두 스태시
+git_stash_apply: 스태시 적용
+git_stash_apply_latest: 최신 스태시 적용
+git_stash_drop: 스태시 삭제
+git_stash_drop_all: 모든 스태시 삭제
+git_stash_drop_all_open: 모든 스태시 삭제…
+git_stash_menu: 스태시
+git_stash_pop: 스태시 꺼내기
+git_stash_pop_latest: 최신 스태시 꺼내기
+git_stash_staged: 스테이징된 변경 사항 스태시
+git_stash_tracked: 추적된 파일 스태시
+git_stash_view: 스태시 보기
+git_stash_view_open: 스태시 보기…
 git_sync: 동기화
 git_sync_rebase: 리베이스와 동기화
 git_tag_create: 태그 만들기
-git_tag_create_open: Create tag…
+git_tag_create_open: 태그 생성…
 git_tag_delete: 태그 삭제
-git_tag_delete_open: Delete tag…
+git_tag_delete_open: 태그 삭제…
 git_tag_delete_remote: 원격 태그 삭제
-git_tag_delete_remote_open: Delete remote tag…
+git_tag_delete_remote_open: 원격 태그 삭제…
 git_tag_push: 푸시 태그
-git_tag_push_open: Push tag…
+git_tag_push_open: 태그 푸시…
 git_tags: 태그
 git_tracked: 추적됨
 git_undo_commit: 마지막 커밋 취소
@@ -577,12 +577,12 @@ background_outcome_stalled: 최근 출력 없음
 background_outcome_stopped: 중지됨
 background_outcome_timed_out: 시간 초과
 background_outcome_unknown: 결과 불확실
-background_running: Running in background
-background_exit: Exit code %{code}
-background_result_waiting: Result not delivered
+background_running: 백그라운드에서 실행 중
+background_exit: 종료 코드 %{code}
+background_result_waiting: 결과가 전달되지 않음
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
-chat_compact_failed_paused: Compaction failed, automatic compaction paused
+chat_compact_failed_paused: 압축에 실패하여 자동 압축이 일시 중지됨
 chat_compact_queued: 압축을 기다리는 중
 chat_compact_unneeded: 압축이 필요하지 않음
 chat_compacted: 컨텍스트 압축됨
@@ -605,7 +605,7 @@ chat_model_reconnecting: 요청 재시도 %{attempt}/%{limit}
 chat_model_reconnecting_continuously: 다시 연결 중
 chat_model_retried: 모델 요청 재시도 %{attempt}/%{limit}
 chat_model_retry_exhausted: 재시도 횟수 한도에 도달함
-chat_model_retry_wait_exhausted: Retry wait limit reached
+chat_model_retry_wait_exhausted: 재시도 대기 한도에 도달함
 chat_model_server_overloaded: 모델 서비스 과부하
 chat_reconnecting: 다시 연결 중
 chat_rewind: 이번 턴으로 되감기
@@ -653,7 +653,7 @@ composer_permission_project_description: 프로젝트 파일 자동 편집; 명�
 composer_permission_full_description: 프로젝트 외부에서도 파일을 편집하고 명령을 자동으로 실행
 composer_host_local: 로컬 장치
 composer_no_project: 대화
-composer_execution_host: Execution host
+composer_execution_host: 실행 호스트
 composer_branch_none: 브랜치 없음
 composer_settings: 세션 설정
 composer_back: 뒤로
@@ -701,7 +701,7 @@ files_upload_sending: 업로드 중
 files_upload_publishing: 파일 저장 중
 reference_title: 참조 추가
 reference_files: 파일
-reference_agents: 서브에이전트
+reference_agents: 하위 에이전트
 reference_sessions: 세션
 reference_context: 작업 공간 컨텍스트
 reference_databases: 데이터베이스
@@ -710,7 +710,7 @@ reference_empty: 일치하는 참조가 없음
 reference_host: 호스트
 reference_project: 프로젝트
 reference_worktree: 작업 트리
-reference_one_agent: 메시지당 하나의 서브에이전트만; 선택한 서브에이전트를 먼저 제거
+reference_one_agent: 메시지당 하나의 하위 에이전트만; 선택한 하위 에이전트를 먼저 제거
 composer_commands: 지침
 composer_command_review: 변경 사항 검토
 composer_command_test: 테스트 실행
@@ -732,7 +732,7 @@ directory_home: 홈
 directory_desktop: 데스크톱
 directory_documents: 문서화
 directory_downloads: 다운로드
-directory_applications: Applications
+directory_applications: 응용 프로그램
 directory_locations: 위치
 directory_count_files: 파일 %{count}개
 directory_name: 이름
@@ -750,7 +750,7 @@ provider_anthropic: Anthropic
 provider_gemini: Gemini
 provider_other: 기타
 reference_files_description: 현재 작업 트리의 파일 미리보기
-reference_agents_description: 구성된 서브에이전트 참조
+reference_agents_description: 구성된 하위 에이전트 참조
 reference_sessions_description: 사용 가능한 세션
 reference_context_description: 호스트, 프로젝트 및 작업 트리
 appearance_import: 테마 가져오기
@@ -775,8 +775,8 @@ backup_endpoint: 엔드포인트
 backup_export: 내보내기
 backup_export_data: 데이터 내보내기
 backup_failed: 백업 작업 실패
-backup_online_failed: Local backup saved; online backup failed
-backup_online_unknown: Local backup saved; online backup outcome is unknown
+backup_online_failed: 로컬 백업은 저장되었지만 온라인 백업에 실패했습니다
+backup_online_unknown: 로컬 백업은 저장되었지만 온라인 백업 결과를 확인할 수 없습니다
 backup_identity: 사용자 이름 또는 액세스 키 ID
 backup_import: 파일에서 복원
 backup_invalid: 백업 설정을 확인하세요
@@ -799,7 +799,7 @@ backup_saved: 설정 저장됨
 backup_schedule_enabled: 자동 백업
 backup_schedule_time: 매일 시간
 backup_secret: 비밀번호 또는 비밀 키
-backup_session_token: 세션 토큰
+backup_session_token: 세션 Token
 backup_timezone: 시간대
 backup_unarchive: 보관 해제
 backup_unknown: 결과가 불확실합니다. 같은 요청을 재시도하거나 원격 목록을 확인하세요
@@ -813,7 +813,7 @@ backup_exported: 백업 내보냄
 backup_invalid_target: 새 프로필의 절대 경로를 입력하세요
 backup_online_enabled: 온라인 백업
 backup_partial: 다른 백업이 더 있을 수 있습니다
-backup_restore_consequence: 빈 디렉터리에 복원합니다. 노드 ID가 같으므로 한 번에 한 사본만 실행하세요
+backup_restore_consequence: 빈 디렉터리에 복원합니다. Node ID가 같으므로 한 번에 한 사본만 실행하세요
 backup_restored: 프로필 복원됨
 backup_sessions_busy: 계속하기 전에 실행 중인 세션을 중지하세요
 backup_sessions_failed: 세션 업데이트 실패
@@ -826,11 +826,11 @@ connection_route_relay: Relay
 connections_device: 장치 %{id}
 connections_hosts: 호스트
 connections_mobile: 모바일
-connections_bidirectional: Bidirectional
-connections_legacy_bidirectional: Legacy bidirectional
-connections_only_host: Host only
-connections_only_controller: Controller only
-connections_direction_saved: Device access updated
+connections_bidirectional: 양방향
+connections_legacy_bidirectional: 레거시 양방향
+connections_only_host: 호스트 전용
+connections_only_controller: 컨트롤러 전용
+connections_direction_saved: 기기 접근 방향이 업데이트됨
 connections_offline: 오프라인
 connections_online: 온라인
 connections_revoke_confirm: 페어링을 제거하려면 다시 연결해야 합니다
@@ -851,35 +851,35 @@ form_passphrase_hint: 개인 키 암호 (선택 사항)
 form_private_key_hint: 개인 키 붙여넣기
 form_value_hint: 값 입력
 form_variable_hint: 예를 들면 LANG
-hooks_add: 훅 추가
+hooks_add: Hook 추가
 hooks_after_tool: 도구 실행 후
 hooks_before_tool: 도구 실행 전
 hooks_command: 명령
-hooks_configure: 훅 설정
-hooks_conflict: 훅이 변경되었습니다. 다시 불러온 후 저장하세요
+hooks_configure: Hook 설정
+hooks_conflict: Hook이 변경되었습니다. 다시 불러온 후 저장하세요
 hooks_consent: 이 작업 트리의 이후 작업에서 이 스크립트를 실행합니다
-hooks_empty: 훅 없음
-hooks_enable: 훅 활성화
+hooks_empty: Hook 없음
+hooks_enable: Hook 활성화
 hooks_enabled: 활성화
-hooks_failed: 훅을 저장할 수 없습니다
+hooks_failed: Hook을 저장할 수 없습니다
 hooks_invalid: 명령 또는 제한 시간이 잘못되었습니다
 hooks_name: 이름
 hooks_phase: 단계
-hooks_remove: 훅 제거
-hooks_saved: 훅을 저장했습니다
+hooks_remove: Hook 제거
+hooks_saved: Hook을 저장했습니다
 hooks_scope_workspace: 스크립트가 이 작업 트리에 쓸 수 있으며 네트워크 접근은 차단됩니다
 hooks_scripts: 스크립트
-hooks_settings: 훅
+hooks_settings: Hook
 hooks_settings_description: 이 작업 트리의 스크립트 설정
 hooks_timeout: 제한 시간(ms)
 hooks_turn_end: 턴 종료
-hooks_unknown: 저장 결과가 불확실합니다. 원래 요청을 재시도하세요
+hooks_unknown: Hook 저장 결과가 불확실합니다. 원래 요청을 재시도하세요
 host_install: 설치 및 연결
 host_pairing_hint: Sailry가 설치된 기기에 연결
 host_pairing_mode: 페어링 코드
-host_ssh_mode: Install via SSH
-host_install_hint: Install Sailry on a server and connect
-host_ssh_agent_hint: Use keys loaded in this computer's SSH agent
+host_ssh_mode: SSH로 설치
+host_install_hint: 서버에 Sailry를 설치하고 연결
+host_ssh_agent_hint: 이 컴퓨터의 SSH 에이전트에 로드된 키 사용
 ssh_authentication: 인증
 connection: 연결
 knowledge_downloading: 다운로드 중
@@ -952,9 +952,9 @@ sandbox_settings_saved: 저장됨
 sandbox_settings_unknown: 명령 샌드박스 설정의 저장 여부를 확인할 수 없습니다. 새로고침하세요
 session_order_created: 생성 시간
 session_order_updated: 업데이트 시간
-session_order_recent: Recently updated
-session_order_name: Name
-sidebar_sort: Sort
+session_order_recent: 최근 업데이트
+session_order_name: 이름
+sidebar_sort: 정렬
 settings_about_description: 앱 버전 및 빌드 정보
 settings_backup_description: 데이터 및 백업 관리
 settings_build: 빌드 유형
@@ -1002,12 +1002,12 @@ settings_paste_description: 여러 줄을 붙여넣기 전에 확인하기
 settings_paste_protection: 멀티라인 페이스트 보호
 settings_permissions_description: Sailry님의 시스템 접속
 settings_runtime: 실행 환경
-settings_runtime_description: 현재 노드 설정
+settings_runtime_description: 현재 Node 설정
 settings_save: 저장
 settings_seconds: '%{count}초'
 settings_shortcuts_description: 전역 명령 및 키보드 단축키 보기
 settings_sidebar_metrics: 성능 표시기
-settings_skills_description: 세션에 사용 가능한 기술 관리
+settings_skills_description: 세션에 사용 가능한 스킬 관리
 settings_teams_description: 하위 에이전트의 역할과 팀
 settings_terminal_description: 터미널 환경 및 디스플레이
 settings_terminal_display: 디스플레이 및 입력
@@ -1050,7 +1050,7 @@ terminal_input: 입력
 terminal_settings_conflict: 터미널 설정이 변경되었습니다. 편집 내용은 유지됩니다Name
 terminal_settings_failed: 터미널 설정을 읽거나 저장할 수 없습니다
 terminal_settings_unknown: 확인되지 않은 결과 저장; 재로드 및 검토
-terminal_shell: 기본 셸
+terminal_shell: 기본 Shell
 terminal_shell_default: 호스트 기본값
 terminal_shell_group: Shell
 terminal_value: 값
@@ -1075,7 +1075,7 @@ authorization_waiting_time: 인증 대기 중 · %{time}
 authorization_link_expired: 링크가 만료됨
 authorization_code_expired: 코드가 만료됨
 provider_login_callback: 브라우저에서 받은 인증 코드 또는 리디렉션 URL
-provider_login_callback_placeholder: If sign-in doesn't return automatically, paste the code or callback URL
+provider_login_callback_placeholder: 로그인 후 자동으로 돌아오지 않으면 코드 또는 콜백 URL을 붙여넣으세요
 provider_login_continue: 계속
 authorization_open: 열기
 authorization_copy_link: 링크 복사
@@ -1109,7 +1109,7 @@ provider_connect: 계정 연결
 provider_reconnect: 로그인
 provider_access_key: API 키
 provider_access_cloud: 클라우드 자격 증명
-provider_name_required: 제공자 이름 입력
+provider_name_required: 공급자 이름 입력
 provider_endpoint_required: 유효한 API 엔드포인트 입력
 provider_key_required: 키 입력
 provider_model_required: 모델 추가 및 ID 입력
@@ -1119,7 +1119,7 @@ provider_access_endpoint: 사용자 지정 엔드포인트
 provider_add_title: 공급자 추가
 provider_choose_method: 연결 방식 선택
 provider_configure: 공급자 설정
-provider_edit_title: 제공자 편집
+provider_edit_title: 공급자 편집
 provider_step_back: 이전
 provider_save: 저장
 provider_save_login: 저장 후 로그인
@@ -1145,8 +1145,7 @@ provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: 편집기 버전
 provider_oauth_editor_plugin_version: 편집기 플러그인 버전
 provider_headers: 사용자 지정 요청 헤더
-provider_headers_hint: '한 줄에 하나씩, 이름: 값'
-provider_headers_invalid: 각 요청 헤더 줄에는 이름과 콜론이 필요합니다
+provider_headers_invalid: 값이 있는 요청 헤더에는 이름이 필요합니다
 provider_models: 모델
 provider_discover: 모델 업데이트
 provider_querying: 쿼리 중
@@ -1162,11 +1161,11 @@ provider_api_version: API 버전
 form_api_version_hint: 예를 들어 2024-10-21
 provider_cloud_required: 클라우드 공급자 구성 입력
 form_model_hint: 모델 ID
-provider_context: 컨텍스트 제한( 토큰)
-form_tokens_hint: 토큰 수
+provider_context: 컨텍스트 제한(Token)
+form_tokens_hint: Token 수
 provider_efforts: 추론 노력
 provider_effort_default: 기본 노력
-provider_effort_placeholder: 노력 또는 토큰 예산
+provider_effort_placeholder: 노력 또는 Token 예산
 provider_effort_invalid: 잘못된 추론 노력; 이름, 중복 및 API 지원 확인
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
@@ -1174,24 +1173,24 @@ search_driver_auto: 자동
 knowledge_settings: 기본 설정
 knowledge_default_model: 벡터 모델
 knowledge_keyword_only: 키워드만
-knowledge_collections: Collections
-knowledge_collection_pending: Waiting to index
-knowledge_collection_unavailable: Storage Node unavailable
-knowledge_collection_indexing: Indexing · %{count} items
-knowledge_collection_ready: Up to date · %{count} items
-knowledge_collection_paused: Paused
-knowledge_collection_failed: Failed · %{reason}
-knowledge_collection_failures: '%{count} not indexed · %{reason}'
-knowledge_pause: Pause
-knowledge_resume: Resume
-knowledge_update: Update
+knowledge_collections: 컬렉션
+knowledge_collection_pending: 색인 대기 중
+knowledge_collection_unavailable: 스토리지 Node를 사용할 수 없음
+knowledge_collection_indexing: 색인 중 · %{count}개 항목
+knowledge_collection_ready: 최신 상태 · %{count}개 항목
+knowledge_collection_paused: 일시 중지됨
+knowledge_collection_failed: 실패 · %{reason}
+knowledge_collection_failures: '%{count}개 색인 안 됨 · %{reason}'
+knowledge_pause: 일시 중지
+knowledge_resume: 재개
+knowledge_update: 업데이트
 runtime_decision: 판단
 runtime_decision_model: 모델
 runtime_decision_enable: 판단 사용
 local_models_none: 없음
 connector_oauth: OAuth
 connector_application: 앱 인증 정보
-connector_token: 토큰
+connector_token: Token
 connector_cli: 로컬 CLI
 connector_not_connected: 연결 안 됨
 connector_expired: 만료됨
@@ -1262,8 +1261,8 @@ mcp_keep_secret: 자격 증명 유지
 mcp_clear_secret: 자격 증명 지우기
 mcp_secret_saved: 자격 증명이 저장되었습니다. 유지하려면 비워두십시오
 mcp_secret_cleared: 저장할 때 자격 증명이 지워집니다
-mcp_show_secret: Show credential
-mcp_hide_secret: Hide credential
+mcp_show_secret: 자격 증명 표시
+mcp_hide_secret: 자격 증명 숨기기
 connector_no_auth: 인증 불필요
 connector_authentication: 인증
 connector_mcp_status: 상태
@@ -1345,10 +1344,10 @@ teams_model: 모델
 role_instructions: 지침
 role_save: 저장
 teams_role_saved: 역할을 저장했습니다
-role_avatar: Avatar
-role_avatar_seed: Avatar %{seed}
-role_avatar_shuffle: Shuffle
-role_avatar_none: Default
+role_avatar: 아바타
+role_avatar_seed: 아바타 %{seed}
+role_avatar_shuffle: 다른 아바타
+role_avatar_none: 기본 아바타
 market_plugin_details: 플러그인 세부 정보
 market_skill_details: 스킬 세부 정보
 market_theme_details: 테마 세부 정보
@@ -1371,7 +1370,7 @@ market_details_skills: 스킬
 market_details_mcp: MCP 서버
 market_details_includes: 포함 항목
 connector_tools_empty: 도구 없음
-plugins_no_skills: 기술 없음
+plugins_no_skills: 스킬 없음
 plugins_no_mcp: 아니 MCP 서버
 market_details_permission_none: 추가 권한이 필요하지 않음
 market_details_added_permissions: 새 권한
@@ -1380,7 +1379,6 @@ model_library_huggingface: Hugging Face
 model_library_modelscope: ModelScope
 model_library_query: 모델 검색
 model_library_no_results: 모델을 찾을 수 없습니다
-model_library_available: 사용 가능한 모델
 knowledge_delete: 삭제
 knowledge_model_size: 크기
 knowledge_delete_model_effect: '%{name} 삭제 시 이 모델을 사용하는 컬렉션은 키워드 검색을 사용합니다'
@@ -1403,7 +1401,7 @@ market_installed_only: 설치된 항목만
 market_theme_current: 사용 중
 market_details_source_official: 공식 카탈로그
 market_details_source_community: 커뮤니티
-skills_no_matches: 일치하는 기술이 없음
+skills_no_matches: 일치하는 스킬이 없음
 market_theme_apply: 적용
 market_no_themes: 일치하는 테마가 없습니다
 market_theme_builtin: 기본 제공
@@ -1440,7 +1438,7 @@ plugins_package_required: 미리보기 패키지 경로 입력
 skills_repository: Git 저장소
 skills_repository_hint: 저장소 URL
 skills_revision: 브랜치 또는 태그
-skills_revision_hint: 기본 분기
+skills_revision_hint: 기본 브랜치
 plugins_path: 플러그인 디렉터리
 plugins_path_hint: 기본 저장소 루트
 plugins_preparing_package: 패키지 준비 중
@@ -1458,8 +1456,8 @@ skill_source_directory: 디렉터리
 skill_source_archive: 압축 파일
 skill_source_link_invalid: 스킬 상세 페이지 URL을 입력하세요
 skills_package_source: 플러그인 %{name}에서
-skills_search: 검색 기술
-skills_install: 기술 설치
+skills_search: 스킬 검색
+skills_install: 스킬 설치
 skills_remove_effect: 제거 %{name}; 실행 중인 작업은 영향을 받지 않습니다
 settings_update: 업데이트
 skills_manage_package: 플러그인 관리
@@ -1476,9 +1474,9 @@ skill_source_hub_hint: https://skillhub.cn/skills/author/skill
 skill_source_choose_directory: 폴더 선택
 skill_source_choose_archive: 압축 파일 선택
 git_diff: 차이
-git_diff_side_by_side: Side by side
-git_diff_inline: Inline
-git_diff_needs_width: Side by side needs more width
+git_diff_side_by_side: 나란히
+git_diff_inline: 인라인
+git_diff_needs_width: 나란히 보기에는 너비가 부족합니다
 market_permission_git_read: Git 변경 사항 읽기
 market_permission_git_write: Git 변경
 market_permission_files_read: 파일 읽기
@@ -1585,8 +1583,8 @@ host_process_protected: 시스템 프로세스 또는 현재 호스트 서비스
 host_process_uncertain: 중지 결과 알 수 없음; 프로세스 상태 확인
 host_process_stop_failed: 프로세스를 중지할 수 없습니다. 프로세스가 종료되었거나, 접근이 거부되었거나, 이 호스트가 지원하지 않을 수 있습니다
 metrics_gpu: GPU
-port_title: 포트 전달
-port_mappings: 포트 매핑
+port_title: 포트
+port_mappings: 포트
 port_add: 새 전달
 port_edit: 포워딩 편집
 port_create: 만들기
@@ -1613,7 +1611,7 @@ installation_preparing: 종속성 준비 중
 installation_validating: 검증 중
 installation_speed: '%{value} MiB/s'
 installation_offline: '%{phase} · 연결 끊김'
-installation_node: 노드
+installation_node: Node
 installation_controller: 이 기기
 installation_remove: 제거
 installation_retry: 다시 시도
@@ -1631,9 +1629,14 @@ updates_installing: 설치 중
 updates_restarting: 다시 시작 중
 updates_restart_needed: 다시 시작 필요
 updates_verifying: 확인 중
-updates_install: 설치하고 다시 시작
 updates_restart: 다시 시작
 updates_details: 상세 정보
+updates_available: '%{version} 사용 가능'
+updates_downloading: '%{version} 다운로드 중'
+updates_ready_now: '%{version} 준비됨'
+updates_restart_now: 지금 다시 시작
+updates_later: 나중에
+updates_view: 보기
 updates_download: 다운로드
 updates_ready: '%{version} 설치 준비가 완료되었습니다'
 updates_restart_description: 다시 시작하면 초안이 복원되며, 로컬 작업과 터미널이 중지됩니다
@@ -1644,12 +1647,12 @@ selection_empty: 선택한 텍스트 없음
 terminal_search_placeholder: 검색 터미널
 workspace_no_terminal: 이 작업 트리에 터미널이 없습니다
 workspace_close_terminal: 터미널 닫기
-workspace_terminal_preview: 프로젝트와 워크트리 소유권이 있는 터미널 UI 미리보기; PTY나 셸이 시작되지 않음
+workspace_terminal_preview: 프로젝트와 작업 트리 소유권이 있는 터미널 UI 미리보기; PTY나 Shell이 시작되지 않음
 pane_drag: 분할하려면 드래그
-pane_group: Split group %{number}
-workspace_tab_keep: Keep open
-workspace_tab_release: Stop keeping open
-workspace_tab_unsplit: Unsplit
+pane_group: 분할 그룹 %{number}
+workspace_tab_keep: 고정
+workspace_tab_release: 고정 해제
+workspace_tab_unsplit: 분할 해제
 terminal_take_control: 제어하세요
 terminal_other_controller: 다른 장치에서 제어됨
 terminal_unavailable: 터미널을 사용할 수 없습니다. 호스트 연결 확인
@@ -1660,15 +1663,15 @@ port_failed: 전달할 수 없음; 포트와 연결 확인
 selection_large: 선택한 텍스트가 너무 깁니다
 selection_permission: 시스템 설정에서 손쉬운 사용 접근을 허용하세요
 metrics_rate: '%{value}/s'
-composer_group_prompts: Prompts
-composer_group_modes: Modes
-composer_group_session: Session
+composer_group_prompts: 프롬프트
+composer_group_modes: 모드
+composer_group_session: 세션
 reference_group_context: 컨텍스트
-reference_group_connections: Connections
-reference_group_skills: Skills
-reference_group_plugins: Plugins
-reference_group_attach: Attachments
-appearance_blur: Blur
+reference_group_connections: 연결
+reference_group_skills: 스킬
+reference_group_plugins: 플러그인
+reference_group_attach: 첨부 파일
+appearance_blur: 흐림
 composer_todo_count: 작업 %{completed}/%{total}
 composer_subagent_one: 하위 에이전트 1개
 composer_subagent_count: 하위 에이전트 %{count}개
@@ -1693,9 +1696,9 @@ session_changed: 세션이 변경되었습니다. 다시 시도하십시오
 project_changed: 프로젝트 변경; 편집기 다시 열기
 chat_action_failed: 작업 실패, 다시 시도하십시오
 chat_action_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십시오
-chat_config_unavailable: 세션 구성을 사용할 수 없습니다. 제공자 확인
+chat_config_unavailable: 세션 구성을 사용할 수 없습니다. 공급자 확인
 notification_update_failed: 알림을 업데이트하지 못했습니다. 다시 시도하세요
-session_archive_named: Archive “%{name}” and hide it from active conversations
+session_archive_named: “%{name}”을(를) 보관하고 활성 대화에서 숨기기
 power_request_failed: 절전 모드를 방지할 수 없습니다
 plugin_response_timeout: 플러그인 응답 시간 초과
 plugin_metadata_failed: 플러그인 정보를 불러올 수 없음
@@ -1728,26 +1731,26 @@ files_download_changed: 소스가 변경되었습니다. 다시 다운로드하�
 files_download_destination: 다운로드를 저장할 수 없음
 files_download_conflict: 대상이 변경되었습니다. 저장할 위치를 다시 선택하십시오
 chat_attachment_remove_failed: 제거 실패
-workspace_action_failed: Workspace action failed
-workspace_changed: Workspace changed; reload before trying again
-workspace_action_unknown: Outcome uncertain; inspect before trying again
-workspace_saved: Saved
-files_changed_on_disk: Changed on disk
-files_conflict_description: Overwrite replaces the file on disk with your draft; Reload discards your draft
-files_keep_editing: Keep editing
-files_reload: Reload
-files_overwrite: Overwrite
-workspace_completed: Completed
-workspace_restore_confirm: Restore the previous file versions for this turn
+workspace_action_failed: 작업 공간 작업 실패
+workspace_changed: 작업 공간이 변경되었습니다. 새로 고친 후 다시 시도하세요
+workspace_action_unknown: 결과가 확인되지 않았습니다. 확인 후 다시 시도하세요
+workspace_saved: 저장됨
+files_changed_on_disk: 디스크에서 변경됨
+files_conflict_description: 덮어쓰기는 디스크의 파일을 초안으로 바꾸고, 다시 불러오기는 초안을 삭제합니다
+files_keep_editing: 계속 편집
+files_reload: 다시 불러오기
+files_overwrite: 덮어쓰기
+workspace_completed: 완료됨
+workspace_restore_confirm: 이 턴 이전의 파일 버전으로 복원
 artifact_edit_prompt: '요청된 변경 사항:'
 hooks_project_required: 프로젝트 선택
 background_stop_failed: 중지 실패; 다시 시도
 background_stop_unknown: 명령 상태 확인
-subagent_stop: Stop subagent
-subagent_stop_failed: Stop failed; retry
-subagent_stop_unknown: Stop unconfirmed; check subagent status
+subagent_stop: 하위 에이전트 중지
+subagent_stop_failed: 중지 실패. 다시 시도하세요
+subagent_stop_unknown: 중지가 확인되지 않았습니다. 하위 에이전트 상태를 확인하세요
 background_unavailable: 배경 터미널을 읽을 수 없음
-files_cancel_remaining: Cancel remaining
+files_cancel_remaining: 남은 항목 취소
 files_check_result: 검사 결과
 files_move_recycle: 복사 후, 소스를 휴지통으로 이동
 files_paste_cancelled: 붙여넣기 취소됨
@@ -1756,7 +1759,7 @@ files_paste_directory: 대상 폴더
 files_paste_source: 소스 작업 트리
 files_upload_retry: 다시 시도
 files_worktree_root: 작업 트리 루트
-content_preview: Preview
+content_preview: 미리 보기
 file_search: 파일 검색
 file_search_case: 대소문자 일치
 file_search_empty: 일치하지 않음
@@ -1767,42 +1770,42 @@ file_search_partial: 일부 콘텐츠가 검색되거나 표시되지 않았습�
 file_search_query: 콘텐츠 검색
 file_search_regex: 정규식
 file_search_running: 검색 중
-files_block: Text
-files_block_bullet: Bulleted list
-files_block_callout: Callout
-files_block_code: Code block
-files_block_heading: Heading {level}
-files_block_ordered: Numbered list
-files_block_paragraph: Paragraph
-files_block_quote: Quote
-files_block_task: Task list
-files_bold: Bold
+files_block: 텍스트
+files_block_bullet: 글머리 기호 목록
+files_block_callout: 콜아웃
+files_block_code: 코드 블록
+files_block_heading: 제목 {level}
+files_block_ordered: 번호 매기기 목록
+files_block_paragraph: 본문
+files_block_quote: 인용
+files_block_task: 작업 목록
+files_bold: 굵게
 files_content_partial: 이 큰 파일의 처음 128 KiB만 표시됩니다
 files_create: 만들기
 files_discard: 초안 버리기
 files_discard_description: 저장되지 않은 변경 사항을 버리시겠습니까? 저장 중인 내용은 여전히 기록될 수 있습니다
 files_discard_title: 저장되지 않은 초안 버리기
-files_inline_code: Inline code
-files_insert: Insert
-files_insert_chart: Chart
-files_insert_code: Code block
-files_insert_diagrams: Diagrams
-files_insert_html: HTML block
-files_insert_image: Image
-files_insert_math: Math
+files_inline_code: 인라인 코드
+files_insert: 삽입
+files_insert_chart: 차트
+files_insert_code: 코드 블록
+files_insert_diagrams: 다이어그램
+files_insert_html: HTML 블록
+files_insert_image: 이미지
+files_insert_math: 수식
 files_insert_mermaid: Mermaid
-files_insert_rule: Divider
-files_insert_table: Table
-files_italic: Italic
-files_link: Link
+files_insert_rule: 구분선
+files_insert_table: 표
+files_italic: 기울임꼴
+files_link: 링크
 files_listing_partial: 이 폴더가 크거나 지원되지 않는 이름이 있기 때문에 일부 항목만 표시됩니다
 files_load_more: 더 많이 로드
-files_more: More
+files_more: 더 보기
 files_move: 이동
 files_operation_busy: 파일 작업이 아직 실행 중입니다Name
-files_replace: Find and replace
+files_replace: 찾기 및 바꾸기
 files_saving: 저장 중
-files_strike: Strikethrough
+files_strike: 취소선
 files_upload: 업로드
 files_upload_conflict: 대상이 변경됨; 다시 업로드
 files_upload_denied: 대상에 쓸 수 없음
@@ -1810,23 +1813,23 @@ files_upload_done: 업로드 완료
 files_upload_exists: 이 이름의 파일이 존재합니다. 바꾸면 내용을 덮어씁니다
 files_upload_replace: 대치
 files_upload_unknown: 업로드 결과가 알 수 없습니다. 결과를 확인하십시오
-files_wrap: Soft wrap
+files_wrap: 자동 줄 바꿈
 location_copy_changes: 변경 사항 복사
 location_fork: 포크 작업 트리
-refresh: Refresh
+refresh: 새로 고침
 git_commit_scope: 커밋 범위
 git_commit_tracked: 추적된 파일 커밋
 git_continue: 계속
 git_directory_title: Git 저장소 없음
 git_history_partial: 부분적인 역사
 git_initialize: Git 저장소 초기화
-git_initialize_nested_confirm: The new repository will contain these repositories
+git_initialize_nested_confirm: 새 저장소에 다음 저장소가 포함됩니다
 git_publish: 브랜치 게시
-git_repositories: Contains %{count} Git repositories
-git_stash_switch: 스태시 앤 스위치
-git_switch_confirm: Switch to %{branch}
-git_switch_confirm_action: Switch
-git_switch_confirm_detail: Sessions, terminals and open files in this worktree all move to this branch.
+git_repositories: Git 저장소 %{count}개 포함
+git_stash_switch: 스태시 후 전환
+git_switch_confirm: '%{branch}(으)로 전환'
+git_switch_confirm_action: 전환
+git_switch_confirm_detail: 이 작업 트리의 세션, 터미널 및 열린 파일이 모두 이 브랜치로 전환됩니다.
 git_tracking_name: 추적 브랜치
 git_unborn_title: 커밋 없음
 notebook_cell: 셀 %{number}
@@ -1837,11 +1840,11 @@ hooks_scope_windows: 스크립트는 현재 Windows 명령 정책을 사용합�
 teams_role_conflict: 역할이 변경되었습니다. 다시 여세요
 team_conflict: 팀이 변경되었습니다. 다시 여세요
 role_model_unavailable: 선택한 모델 또는 공급자를 사용할 수 없습니다
-role_capacity: 서브에이전트 제한에 도달함
+role_capacity: 하위 에이전트 제한에 도달함
 role_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십시오
 role_failed: 작업 실패; 다시 시도하기
 chat_child_unavailable: 하위 세션을 사용할 수 없습니다. 다시 시도하십시오
-reference_load_failed: Failed to load references
+reference_load_failed: 참조를 불러오지 못함
 composer_metric_unknown: —
 connection_connecting: 연결 중
 host_added: 호스트 추가됨
@@ -1850,7 +1853,7 @@ host_install_failed: 호스트를 추가할 수 없음
 host_install_installing: 호스트 설치 중
 host_install_pairing: 페어링
 host_install_unknown: 설치 결과 확인되지 않음; 호스트를 확인하고 다시 시도하십시오
-host_ssh_windows_pairing: On Windows, install and open Sailry Desktop, then add the host using its pairing code.
+host_ssh_windows_pairing: Windows에서는 Sailry 데스크톱을 설치하고 연 다음 페어링 코드로 호스트를 추가하세요.
 host_step_connect: 호스트에 연결
 host_step_pair: 페어링
 model_effort: 강도
@@ -1861,7 +1864,7 @@ host_network_load_failed: 네트워크 설정을 불러올 수 없습니다
 host_network_saved: 네트워크 변경됨
 host_network_unavailable: 네트워크 설정을 사용할 수 없습니다
 host_network_unknown: 네트워크 변경 여부를 확인할 수 없습니다
-host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_local_artifacts: 로컬에서 빌드한 호스트 아티팩트를 사용하며 적용 시 검증합니다
 host_update_restart: Host가 다시 시작되며 실행 중인 작업이 중지됩니다
 host_updated: Host가 업데이트되었습니다
 pairing_failed: 페어링 실패; 코드 또는 네트워크를 확인하고 다시 시도하십시오
@@ -1880,25 +1883,25 @@ ssh_key_changed: 호스트 키 변경, 지문 확인
 ssh_trust: 신뢰
 ssh_trust_title: 호스트 키 신뢰
 usage_duration_ms: '%{value} ms'
-live_host_runtime_error: Could not read Host runtime
-live_metrics_loading: Loading metrics
-live_metrics_error: Could not read Host metrics
-live_update_idle: Check for Host updates
-live_update_checking: Checking for updates
-live_update_current: Host is up to date
-live_update_available: Host update available
-live_update_downloading: Preparing update
-live_update_verifying: Verifying update
-live_update_staged: Ready to apply
-live_update_applying: Applying update
-live_update_restart: Restarting Host
-live_update_failed: Host update failed
-live_update_loading: Loading update
-live_update_unavailable: Host update unavailable
-live_update_check: Check
-live_update_download: Prepare
-live_update_apply: Apply
-live_update_retry: Retry
+live_host_runtime_error: 호스트 런타임을 읽을 수 없음
+live_metrics_loading: 메트릭 불러오는 중
+live_metrics_error: 호스트 메트릭을 읽을 수 없음
+live_update_idle: 호스트 업데이트 확인
+live_update_checking: 업데이트 확인 중
+live_update_current: 호스트가 최신 버전입니다
+live_update_available: 호스트 업데이트 사용 가능
+live_update_downloading: 업데이트 준비 중
+live_update_verifying: 업데이트 검증 중
+live_update_staged: 적용 준비됨
+live_update_applying: 업데이트 적용 중
+live_update_restart: 호스트 재시작 중
+live_update_failed: 호스트 업데이트 실패
+live_update_loading: 업데이트 불러오는 중
+live_update_unavailable: 호스트 업데이트를 사용할 수 없음
+live_update_check: 확인
+live_update_download: 준비
+live_update_apply: 적용
+live_update_retry: 다시 시도
 provider_login_failed: 로그인 실패; 다시 시도하십시오
 provider_login_unknown: 로그인 결과가 확인되지 않았습니다. 다시 시도하십시오
 connector_conflict: 연결이 변경되었습니다. 다시 여세요
@@ -1982,8 +1985,8 @@ market_permission_storage_read: 플러그인 데이터 읽기
 market_permission_storage_write: 플러그인 데이터 저장
 market_permission_knowledge_read: 지식 읽기
 market_permission_knowledge_write: 지식 변경
-appearance_icon: Icon
-appearance_color: Color
+appearance_icon: 아이콘
+appearance_color: 색상
 project_icon_folder: 폴더
 project_icon_code: 코드
 project_icon_terminal: 터미널
@@ -2092,19 +2095,19 @@ media_model_unavailable: 모델을 사용할 수 없음
 media_conflict: 설정 변경; 다시 선택
 media_unknown: 저장 결과가 알 수 없습니다. 현재 설정을 확인하십시오
 media_failed: 저장 실패
-provider_capabilities: Capabilities
-provider_cap_understands: Understands
-provider_cap_can: Can
-provider_cap_generates: Generates
-media_image: Image
-media_video: Video
-media_speech: Speech
-media_follow: Follow conversation model
-media_load_failed: Could not read media models
-panel_history_empty: No history yet
-panel_documents_empty: No documents yet
-connections_copy_id: Copy ID
-host_check_status: Check status
+provider_capabilities: 기능
+provider_cap_understands: 이해
+provider_cap_can: 지원
+provider_cap_generates: 생성
+media_image: 이미지
+media_video: 동영상
+media_speech: 음성
+media_follow: 대화 모델 따르기
+media_load_failed: 미디어 모델을 읽을 수 없음
+panel_history_empty: 아직 기록이 없습니다
+panel_documents_empty: 아직 문서가 없습니다
+connections_copy_id: ID 복사
+host_check_status: 상태 확인
 ssh_agent_short: 대리인
 ssh_keep_credential: 저장된 자격 증명을 유지하려면 비워 두십시오
 ssh_busy: 다른 연결이 바빠서 곧 다시 시도하십시오
@@ -2118,9 +2121,9 @@ host_wsl_requirement: WSL2, GNU Linux x64/arm64 및 systemd 필요
 host_wsl_empty: 설치된 WSL2 배포판 없음
 host_wsl_load_failed: WSL 배포판을 불러올 수 없음
 files_unsaved: 저장되지 않은 변경 사항
-files_unsaved_description: Save changes before closing?
-files_unsaved_discard: Discard
-files_save_all: Save all
+files_unsaved_description: 닫기 전에 변경 사항을 저장할까요?
+files_unsaved_discard: 버리기
+files_save_all: 모두 저장
 app_exit: 종료
 app_exit_confirm: Sailry 종료
 app_exit_description: 실행 중인 로컬 작업과 터미널이 중지됩니다
@@ -2152,7 +2155,7 @@ directory_volume: 디스크
 directory_yaml_kind: YAML 파일
 files_entry_name: 이름
 files_paste_conflict: 대상이 존재하거나 경로를 사용할 수 없습니다
-live_request_failed: 요청이 완료되지 않았습니다. Node 연결 및 디렉토리를 확인하십시오. 다시 시도하면 원래 요청 ID가 유지됩니다.
+live_request_failed: 요청이 완료되지 않았습니다. Node 연결 및 디렉터리를 확인하십시오. 다시 시도하면 원래 요청 ID가 유지됩니다.
 plugins_loading: 로딩 중
 project_appearance: 프로젝트 외관
 project_clone_failed: 복제가 불완전합니다. 대상을 확인하십시오
@@ -2196,7 +2199,7 @@ chat_subscription_limit: ChatGPT 공유 사용량 한도에 도달했습니다
 chat_subscription_unavailable: ChatGPT 공유 사용량을 사용할 수 없습니다
 files_remote_path: 이 경로는 원격 작업 공간 외부에 있습니다
 queue_draft_present: 입력창에 초안이 있습니다
-tool_read_skill_resource: 읽기 기술 자원
+tool_read_skill_resource: 스킬 자원 읽기
 tool_session_title: 세션 제목 설정
 queue_read: 보기
 chat_assets_title: 활동
@@ -2225,46 +2228,46 @@ chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · 세션'
 chat_provider_node: '%{name} · 호스트'
 chat_config_desktop: 데스크톱 설정
-settings_experimental: Experimental
-settings_experimental_description: Development and debugging settings
+settings_experimental: 실험적 기능
+settings_experimental_description: 개발 및 디버깅 설정
 provider_deepseek: DeepSeek
-settings_code_index: Code index
-settings_code_index_description: Index project code for the code search tools
-code_index_settings_saved: Saved
-code_index_settings_failed: Could not load or save code index settings
-code_index_settings_conflict: Code index settings changed; try again
-code_index_settings_unknown: Saving code index settings could not be confirmed
-directory_modified: Modified
-directory_modified_today: Today %{time}
-directory_modified_yesterday: Yesterday %{time}
-directory_counts: '%{directories} folders, %{files} files'
-directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
-directory_selected_files: '%{count} files selected'
-directory_nothing_selected: No file selected
-directory_failed: Could not read the folder
-directory_host_unavailable: The host is unavailable
-directory_fallback: Could not open %{path}; showing the home folder
-directory_trash: Move to Trash
-directory_trash_confirm: Move “%{name}” to the Trash
-queue_guidance_outlived: Reply ended first; queued as a new message
-queue_halt_interrupted: Reply interrupted; queued messages kept
-queue_halt_unsent: Message not sent; kept in the queue
+settings_code_index: 코드 색인
+settings_code_index_description: 코드 검색 도구를 위해 프로젝트 코드 색인
+code_index_settings_saved: 저장됨
+code_index_settings_failed: 코드 색인 설정을 불러오거나 저장할 수 없음
+code_index_settings_conflict: 코드 색인 설정이 변경되었습니다. 다시 시도하세요
+code_index_settings_unknown: 코드 색인 설정 저장 여부를 확인할 수 없음
+directory_modified: 수정한 날짜
+directory_modified_today: 오늘 %{time}
+directory_modified_yesterday: 어제 %{time}
+directory_counts: 폴더 %{directories}개, 파일 %{files}개
+directory_counts_hidden: 폴더 %{directories}개, 파일 %{files}개, 숨김 %{hidden}개
+directory_selected_files: 파일 %{count}개 선택됨
+directory_nothing_selected: 선택된 파일 없음
+directory_failed: 폴더를 읽을 수 없음
+directory_host_unavailable: 호스트를 사용할 수 없음
+directory_fallback: '%{path}을(를) 열 수 없어 홈 폴더를 표시합니다'
+directory_trash: 휴지통으로 이동
+directory_trash_confirm: “%{name}”을(를) 휴지통으로 이동
+queue_guidance_outlived: 응답이 먼저 끝나 새 메시지로 대기열에 추가됨
+queue_halt_interrupted: 응답이 중단됨. 대기 중인 메시지는 유지됨
+queue_halt_unsent: 메시지가 전송되지 않아 대기열에 유지됨
 usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
-chat_output_limit: Reply cut at the output limit
-start_failed: Sailry could not start
-start_profile_in_use: Sailry is already running with this data folder
-backup_keep: Backups to keep
-backup_keep_all: All
-backup_keep_last: Last %{count}
-backup_keep_confirm: Keep only the last %{count} backups?
-backup_keep_consequence: After each backup, older backups of this Node are deleted from storage. This cannot be undone
-backup_last: Last backup
-backup_last_done: Completed
-backup_last_skipped: '%{count} items skipped'
-backup_restart_restored: Restart with restored profile
-backup_restart_consequence: Sailry restarts on the restored profile. The current data folder is kept beside it under a dated name
-backup_restart_invalid: The restored profile cannot be used; nothing was changed
-backup_restart_failed: Sailry could not switch to the restored profile
+chat_output_limit: 출력 한도에 도달하여 응답이 잘림
+start_failed: Sailry를 시작할 수 없음
+start_profile_in_use: Sailry가 이미 이 데이터 폴더로 실행 중입니다
+backup_keep: 보관할 백업
+backup_keep_all: 전체
+backup_keep_last: 최근 %{count}개
+backup_keep_confirm: 최근 %{count}개 백업만 보관할까요?
+backup_keep_consequence: 백업할 때마다 이 Node의 이전 백업이 저장소에서 삭제됩니다. 이 작업은 되돌릴 수 없습니다
+backup_last: 마지막 백업
+backup_last_done: 완료됨
+backup_last_skipped: '%{count}개 항목 건너뜀'
+backup_restart_restored: 복원된 프로필로 재시작
+backup_restart_consequence: Sailry가 복원된 프로필로 재시작됩니다. 현재 데이터 폴더는 날짜가 붙은 이름으로 그 옆에 보존됩니다
+backup_restart_invalid: 복원된 프로필을 사용할 수 없으며 변경된 내용은 없습니다
+backup_restart_failed: Sailry가 복원된 프로필로 전환할 수 없음
 host_version_older: Host 버전이 이전 버전입니다. Host를 업데이트하세요
 host_version_newer: Host 버전이 더 최신입니다. 데스크톱을 업데이트하세요
 host_version_unknown: Host 버전을 확인할 수 없습니다. Host를 업데이트하세요
@@ -2277,26 +2280,26 @@ runtime_python_preparing: 준비 중
 python_creating: 의존성 준비 중
 python_installing: 의존성 설치 중
 python_validating: 의존성 확인 중
-port_count: '%{count} ports'
-queue_messages_one: 1 queued message
-queue_messages_count: '%{count} queued messages'
-settings_ram: Memory usage
-ram_heap: Heap
-ram_objects: Live objects
-ram_fragmented: Fragmented
-ram_free: Free
-ram_stacks: Stacks
-ram_goroutine_stacks: Goroutine stacks
-ram_system_stacks: System stacks
-ram_runtime: Runtime
-ram_allocator: Allocator
-ram_collector: Collector metadata
-ram_profiling: Profiling
-ram_other: Other
+port_count: 포트 %{count}개
+queue_messages_one: 대기 중인 메시지 1개
+queue_messages_count: 대기 중인 메시지 %{count}개
+settings_ram: 메모리 사용량
+ram_heap: 힙
+ram_objects: 활성 객체
+ram_fragmented: 단편화
+ram_free: 여유
+ram_stacks: 스택
+ram_goroutine_stacks: 고루틴 스택
+ram_system_stacks: 시스템 스택
+ram_runtime: 런타임
+ram_allocator: 할당자
+ram_collector: 수집기 메타데이터
+ram_profiling: 프로파일링
+ram_other: 기타
 plugins_settings_follow_model: 모델 따르기
-ram_plugins: Plugins (estimated)
-ram_plugins_partial: '%{bytes} · partial'
-ram_plugins_error: Could not read plugin memory
+ram_plugins: 플러그인(추정)
+ram_plugins_partial: '%{bytes} · 일부'
+ram_plugins_error: 플러그인 메모리를 읽을 수 없음
 meter_title: 컨텍스트
 meter_session_usage: 세션 사용량
 meter_session_time: 활성 시간
@@ -2328,9 +2331,9 @@ meter_output_speed: 세션 평균 속도
 meter_cache_hit: 캐시 적중
 meter_cache_read: 캐시 읽기
 meter_input_note: 입력에 캐시 읽기 포함
-meter_output_note: 출력에 추론 토큰 포함
+meter_output_note: 출력에 추론 Token 포함
 meter_headers_note: 요청 시작부터 API 응답까지이며 네트워크 RTT가 아닙니다
-meter_first_note: 요청부터 처음 스트리밍된 토큰까지
+meter_first_note: 요청부터 처음 스트리밍된 Token까지
 meter_minutes: '%{minutes}m %{seconds}s'
 meter_cost: 비용
 meter_threshold: 자동 압축 기준
@@ -2353,37 +2356,37 @@ meter_state_filling: 채워지는 중
 meter_state_near: 곧 압축
 meter_state_unknown: 아직 측정 전
 meter_left: '%{count} 남음'
-meter_tokens: 토큰
+meter_tokens: Token
 meter_speed: 속도
 meter_show_details: 자세히 보기
 meter_hide_details: 접기
-configuration_follow_title: Configuration sync
-configuration_follow_loading: Reading sync status
-configuration_follow_controller: Controller
-configuration_follow_description: Configuration is managed by the controller. Edit it there.
-configuration_follow_this_device: This device's configuration
-configuration_follow_local_description: Your configuration syncs automatically to connected hosts.
-configuration_follow_waiting: Waiting for controller configuration
-configuration_follow_unavailable: Could not read sync status
-configuration_follow_targets: Hosts
-configuration_follow_automatic: Automatic sync
-configuration_follow_from_source: From controller
-configuration_follow_requested: Sync requested
-configuration_follow_failed: Configuration sync failed
-configuration_follow_conflict: Configuration changed; retry sync
-configuration_follow_unknown: Sync request is unconfirmed; retry to check its status
-personal_kv_conflict: Personal data conflict
-personal_kv_conflict_description: The controller kept its current values. Local schedules and completed actions were preserved.
-resource_offline: Offline
-resource_offline_action: This host is offline.
-resource_last_synced: Last synced %{time}
-controller_login_restore: Restore sign-in
-controller_login_restored: Task sign-in restored
-controller_login_restore_failed: Could not restore this task's sign-in
-controller_login_restore_unknown: Recovery is unconfirmed. Check the original request.
-controller_login_state_changed: This task is no longer waiting for that sign-in
-controller_login_account_mismatch: Sign in with the task's original account and workspace
-controller_login_identity_unavailable: This sign-in has no verified account identity for recovery
-controller_login_target_changed: The task's original authentication target has changed
-controller_login_original_controller: Restore sign-in on the task's original controller
-controller_login_provider_missing: The task's original provider is unavailable
+configuration_follow_title: 구성 동기화
+configuration_follow_loading: 동기화 상태 읽는 중
+configuration_follow_controller: 컨트롤러
+configuration_follow_description: 구성은 컨트롤러에서 관리됩니다. 컨트롤러에서 편집하세요.
+configuration_follow_this_device: 이 기기의 구성
+configuration_follow_local_description: 구성이 연결된 호스트에 자동으로 동기화됩니다.
+configuration_follow_waiting: 컨트롤러 구성 대기 중
+configuration_follow_unavailable: 동기화 상태를 읽을 수 없음
+configuration_follow_targets: 호스트
+configuration_follow_automatic: 자동 동기화
+configuration_follow_from_source: 컨트롤러에서
+configuration_follow_requested: 동기화 요청됨
+configuration_follow_failed: 구성 동기화 실패
+configuration_follow_conflict: 구성이 변경되었습니다. 동기화를 다시 시도하세요
+configuration_follow_unknown: 동기화 요청이 확인되지 않았습니다. 다시 시도하여 상태를 확인하세요
+personal_kv_conflict: 개인 데이터 충돌
+personal_kv_conflict_description: 컨트롤러의 현재 값이 유지되었습니다. 로컬 일정과 완료된 작업은 보존되었습니다.
+resource_offline: 오프라인
+resource_offline_action: 이 호스트는 오프라인입니다.
+resource_last_synced: 마지막 동기화 %{time}
+controller_login_restore: 로그인 복원
+controller_login_restored: 작업 로그인이 복원됨
+controller_login_restore_failed: 이 작업의 로그인을 복원할 수 없음
+controller_login_restore_unknown: 복원이 확인되지 않았습니다. 원래 요청을 확인하세요.
+controller_login_state_changed: 이 작업은 더 이상 해당 로그인을 기다리지 않습니다
+controller_login_account_mismatch: 작업의 원래 계정과 작업 공간으로 로그인하세요
+controller_login_identity_unavailable: 이 로그인에는 복원에 필요한 확인된 계정 정보가 없습니다
+controller_login_target_changed: 작업의 원래 인증 대상이 변경되었습니다
+controller_login_original_controller: 작업의 원래 컨트롤러에서 로그인을 복원하세요
+controller_login_provider_missing: 작업의 원래 공급자를 사용할 수 없음

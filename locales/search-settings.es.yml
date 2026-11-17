@@ -1,5 +1,5 @@
 settings_search: "Búsqueda"
-settings_search_description: "Servicios de búsqueda del equipo seleccionado"
+settings_search_description: "Servicios de búsqueda del host seleccionado"
 search_settings: "Búsqueda"
 search_default_driver: "Servicio predeterminado"
 search_fallback: "Usar servicios alternativos"

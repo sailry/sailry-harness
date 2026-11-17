@@ -1,0 +1,13 @@
+resource_offline: Не в сети
+resource_offline_action: Этот хост не в сети.
+resource_last_synced: Синхронизировано %{time}
+controller_login_restore: Восстановить вход
+controller_login_restored: Вход задачи восстановлен
+controller_login_restore_failed: Не удалось восстановить вход этой задачи
+controller_login_restore_unknown: Восстановление не подтверждено. Проверьте исходный запрос.
+controller_login_state_changed: Эта задача больше не ожидает этого входа
+controller_login_account_mismatch: Войдите с исходной учётной записью и рабочей областью задачи
+controller_login_identity_unavailable: У этого входа нет подтверждённой учётной записи для восстановления
+controller_login_target_changed: Исходная цель аутентификации задачи изменилась
+controller_login_original_controller: Восстановите вход на исходном контроллере задачи
+controller_login_provider_missing: Исходный поставщик задачи недоступен

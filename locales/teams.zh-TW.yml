@@ -58,3 +58,7 @@ teams_settings_failed: "無法儲存並行數"
 teams_settings_unknown: "儲存結果未知，請重試確認"
 teams_settings_retry: "重試"
 teams_settings_load_failed: "無法載入並行數"
+role_avatar: 頭像
+role_avatar_seed: 頭像 %{seed}
+role_avatar_shuffle: 換一批
+role_avatar_none: 預設頭像

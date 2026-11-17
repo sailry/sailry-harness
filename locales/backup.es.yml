@@ -34,8 +34,8 @@ backup_target_changed: "El host seleccionado cambió"
 backup_retry: "Reintentar"
 backup_reload: "Recargar"
 backup_passphrase: "Frase de cifrado"
-backup_passphrase_required: "Introduce la frase del respaldo"
-backup_restore_consequence: "Restaurar en una carpeta vacía. La copia conserva la identidad del nodo; ejecuta solo una copia a la vez"
+backup_passphrase_required: "Introduce la frase de contraseña de la copia de seguridad"
+backup_restore_consequence: "Restaurar en una carpeta vacía. La copia conserva la identidad de este Node; ejecuta solo una copia a la vez"
 backup_confirm_passphrase: "Confirmar contraseña"
 backup_passphrase_invalid: "Usa al menos 8 caracteres"
 backup_passphrase_mismatch: "Las contraseñas no coinciden"
@@ -70,3 +70,5 @@ backup_sessions_unknown: "Actualización de sesión sin confirmar; reintenta par
 backup_sessions_busy: "Detén las sesiones activas antes de continuar"
 backup_sessions_failed: "Error al actualizar las sesiones"
 backup_export_data: "Exportar datos"
+backup_online_failed: Copia local guardada; la copia en línea falló
+backup_online_unknown: Copia local guardada; resultado de la copia en línea desconocido

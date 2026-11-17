@@ -101,7 +101,7 @@ provider_enabled: 启用渠道
 provider_status_missing_key: 缺少密钥
 provider_status_signed_out: 未登录
 provider_auth_oauth: OAuth
-provider_auth_key: API Key
+provider_auth_key: API 密钥
 provider_auth_plugin: 插件
 plugins_installed: 已安装插件
 plugins_enabled: 启用插件
@@ -152,7 +152,7 @@ turn_generating: 正在回复
 turn_awaiting_response: 正在思考
 turn_waiting_child: 等待 1 个子代理
 turn_waiting_children: 等待 %{count} 个子代理
-turn_waiting_controller: 等待主控更新登录
+turn_waiting_controller: 等待控制端更新登录
 approval_rejected: 已拒绝
 approval_reject: 拒绝
 approval_allow_once: 允许
@@ -223,9 +223,9 @@ notifications_read_all: 全部已读
 notification_delete_read: 删除已读
 notifications_empty: 暂无通知
 notifications_time_now: 刚刚
-notifications_time_minutes: '%{count} 分钟前'
-notifications_time_hours: '%{count} 小时前'
-notifications_time_days: '%{count} 天前'
+notifications_time_minutes: '%{count} min 前'
+notifications_time_hours: '%{count} h 前'
+notifications_time_days: '%{count} d 前'
 knowledge_source: 来源
 knowledge_previous: 上一页
 knowledge_next: 下一页
@@ -709,7 +709,7 @@ reference_ssh: SSH 连接
 reference_empty: 没有匹配的引用
 reference_host: 主机
 reference_project: 项目
-reference_worktree: worktree
+reference_worktree: 工作树
 reference_one_agent: 一条消息只能引用一个子代理，请先移除已选子代理
 composer_commands: 指令
 composer_command_review: 审查变更
@@ -799,7 +799,7 @@ backup_saved: 设置已保存
 backup_schedule_enabled: 自动备份
 backup_schedule_time: 每日时间
 backup_secret: 密码或访问密钥
-backup_session_token: 会话令牌
+backup_session_token: 会话 Token
 backup_timezone: 时区
 backup_unarchive: 取消归档
 backup_unknown: 备份结果尚不确定，请重试原请求或查看远端列表
@@ -825,11 +825,11 @@ connection_route_p2p: P2P
 connection_route_relay: 中继
 connections_device: 设备 %{id}
 connections_hosts: 主机
-connections_mobile: 主控设备
+connections_mobile: 移动端
 connections_bidirectional: 双向
 connections_legacy_bidirectional: 旧版双向
 connections_only_host: 仅主机
-connections_only_controller: 仅主控
+connections_only_controller: 仅控制端
 connections_direction_saved: 已更新设备访问方向
 connections_offline: 离线
 connections_online: 在线
@@ -871,7 +871,7 @@ hooks_scope_workspace: 脚本可写入此工作区，网络访问被阻止
 hooks_scripts: 脚本
 hooks_settings: 钩子
 hooks_settings_description: 配置此工作区的脚本
-hooks_timeout: 超时（毫秒）
+hooks_timeout: 超时（ms）
 hooks_turn_end: 回合结束
 hooks_unknown: 保存结果不确定，请重试原请求
 host_install: 安装并连接
@@ -1145,8 +1145,7 @@ provider_oauth_user_agent: User-Agent
 provider_oauth_editor_version: 编辑器版本
 provider_oauth_editor_plugin_version: 编辑器插件版本
 provider_headers: 自定义请求头
-provider_headers_hint: '每行一个，格式为 名称: 值'
-provider_headers_invalid: 每行请求头都需要名称和冒号
+provider_headers_invalid: 有值的请求头需要填写名称
 provider_models: 模型
 provider_discover: 更新模型
 provider_querying: 查询中
@@ -1191,7 +1190,7 @@ runtime_decision_enable: 启用决策
 local_models_none: 无
 connector_oauth: OAuth
 connector_application: 应用凭据
-connector_token: 令牌
+connector_token: Token
 connector_cli: 本地 CLI
 connector_not_connected: 未连接
 connector_expired: 已过期
@@ -1380,7 +1379,6 @@ model_library_huggingface: Hugging Face
 model_library_modelscope: 魔搭
 model_library_query: 搜索模型
 model_library_no_results: 没有找到模型
-model_library_available: 可用模型
 knowledge_delete: 删除
 knowledge_model_size: 大小
 knowledge_delete_model_effect: 删除 %{name}；使用此模型的集合将改用关键词搜索
@@ -1498,7 +1496,7 @@ workspace_host_status: 未连接 · UI 预览
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例
 host_update: 更新主机
-workspace_worktrees: worktree
+workspace_worktrees: 工作树
 workspace_sessions: 会话
 host_runtime_loading: 正在读取运行环境（示例）
 host_version: 主机版本
@@ -1585,8 +1583,8 @@ host_process_protected: 无法结束系统进程或当前主机服务
 host_process_uncertain: 结束结果未知，请检查进程状态
 host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
 metrics_gpu: GPU
-port_title: 端口转发
-port_mappings: 端口映射
+port_title: 端口
+port_mappings: 端口
 port_add: 新建转发
 port_edit: 编辑转发
 port_create: 创建
@@ -1631,9 +1629,14 @@ updates_installing: 正在安装
 updates_restarting: 正在重启
 updates_restart_needed: 需要重启
 updates_verifying: 正在验证
-updates_install: 安装并重启
 updates_restart: 重启
 updates_details: 详情
+updates_available: '%{version} 可用'
+updates_downloading: 正在下载 %{version}
+updates_ready_now: '%{version} 已就绪'
+updates_restart_now: 立即重启
+updates_later: 稍后
+updates_view: 查看
 updates_download: 下载
 updates_ready: '%{version} 已下载，可以安装'
 updates_restart_description: 重启后将恢复草稿；本机任务和终端将停止
@@ -2244,8 +2247,8 @@ directory_nothing_selected: 未选择文件
 directory_failed: 无法读取文件夹
 directory_host_unavailable: 主机不可用
 directory_fallback: 无法打开 %{path}，已显示主文件夹
-directory_trash: 移到废纸篓
-directory_trash_confirm: 将“%{name}”移到废纸篓
+directory_trash: 移到回收站
+directory_trash_confirm: 将“%{name}”移到回收站
 queue_guidance_outlived: 回复已结束，已排队为新消息
 queue_halt_interrupted: 回复已中断，排队消息已保留
 queue_halt_unsent: 消息未发送，已保留在队列中
@@ -2353,7 +2356,7 @@ meter_state_filling: 逐渐占满
 meter_state_near: 即将压缩
 meter_state_unknown: 尚未统计
 meter_left: 剩余 %{count}
-meter_tokens: 用量
+meter_tokens: Token
 meter_speed: 速度
 meter_show_details: 显示详情
 meter_hide_details: 收起
@@ -2373,7 +2376,7 @@ configuration_follow_failed: 配置同步失败
 configuration_follow_conflict: 配置已更改，请重试同步
 configuration_follow_unknown: 同步请求尚未确认，请重试以检查状态
 personal_kv_conflict: 个人数据冲突
-personal_kv_conflict_description: 已保留主控当前值。本机调度和已完成的操作仍保留。
+personal_kv_conflict_description: 已保留控制端当前值。本机调度和已完成的操作仍保留。
 resource_offline: 离线
 resource_offline_action: 该主机离线。
 resource_last_synced: 上次同步 %{time}
@@ -2385,5 +2388,5 @@ controller_login_state_changed: 任务已不再等待这次登录
 controller_login_account_mismatch: 请使用任务原来的账号和工作区登录
 controller_login_identity_unavailable: 此次登录缺少可验证的账号标识，无法恢复任务
 controller_login_target_changed: 任务原来的认证目标已变更，无法恢复登录
-controller_login_original_controller: 请在任务原来的主控上恢复登录
-controller_login_provider_missing: 任务原来的服务商不可用
+controller_login_original_controller: 请在任务原来的控制端上恢复登录
+controller_login_provider_missing: 任务原来的供应商不可用

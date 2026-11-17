@@ -330,10 +330,10 @@ func (r *Runtime) aboutFrame(c *ui.Context) {
 		switch {
 		case notice.Version != "":
 			version := notice.Version
-			c.AddToast(updateToast(notice, i18n.T(c, "updates_ready", "version", version), i18n.T(c, "updates_install"), kit.ToastDuration(c), func() {
+			c.AddToast(updateToast(notice, i18n.T(c, "updates_ready", "version", version), i18n.T(c, "updates_view"), kit.ToastDuration(c), func() {
 				if u.State == settings.UpdateReady && u.Version == version {
 					about()
-					u.Confirm()
+					u.Review()
 				}
 			}))
 		default:

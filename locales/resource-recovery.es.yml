@@ -1,0 +1,13 @@
+resource_offline: Sin conexión
+resource_offline_action: Este host está sin conexión.
+resource_last_synced: Última sincronización %{time}
+controller_login_restore: Restaurar inicio de sesión
+controller_login_restored: Inicio de sesión de la tarea restaurado
+controller_login_restore_failed: No se pudo restaurar el inicio de sesión de esta tarea
+controller_login_restore_unknown: Recuperación no confirmada. Revisa la solicitud original.
+controller_login_state_changed: Esta tarea ya no espera ese inicio de sesión
+controller_login_account_mismatch: Inicia sesión con la cuenta y el espacio de trabajo originales de la tarea
+controller_login_identity_unavailable: Este inicio de sesión no tiene una identidad de cuenta verificada para la recuperación
+controller_login_target_changed: El destino de autenticación original de la tarea cambió
+controller_login_original_controller: Restaura el inicio de sesión en el controlador original de la tarea
+controller_login_provider_missing: El proveedor original de la tarea no está disponible

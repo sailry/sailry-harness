@@ -1,0 +1,3 @@
+ram_plugins: Plugins (geschätzt)
+ram_plugins_partial: '%{bytes} · unvollständig'
+ram_plugins_error: Plugin-Speicher konnte nicht gelesen werden

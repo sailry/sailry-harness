@@ -58,3 +58,7 @@ teams_settings_failed: "Impossible d’enregistrer la concurrence"
 teams_settings_unknown: "Résultat inconnu ; réessayez pour vérifier"
 teams_settings_retry: "Réessayer"
 teams_settings_load_failed: "Impossible de charger la concurrence"
+role_avatar: Avatar
+role_avatar_seed: Avatar %{seed}
+role_avatar_shuffle: Mélanger
+role_avatar_none: Par défaut
