@@ -37,7 +37,13 @@ func (r *Runtime) composerProviders() []protocol.ConversationProvider {
 	snapshot := r.snapshot()
 	providers := slices.Clone(snapshot.Providers)
 	if r.parent != nil {
-		providers = append(providers, r.parent.snapshot().Providers...)
+		for _, provider := range r.parent.snapshot().Providers {
+			// A followed provider already resolves on this execution Node. Keep
+			// that copy, as creationCommand does, and offer its models once.
+			if !slices.ContainsFunc(providers, func(p protocol.ConversationProvider) bool { return p.ID == provider.ID }) {
+				providers = append(providers, provider)
+			}
+		}
 	}
 	private := func(session protocol.Session) {
 		if session.Profile != nil && !slices.ContainsFunc(providers, func(p protocol.ConversationProvider) bool { return p.ID == session.Profile.Provider.ID }) {

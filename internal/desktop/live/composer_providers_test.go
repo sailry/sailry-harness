@@ -1,0 +1,58 @@
+package live
+
+import (
+	"slices"
+	"testing"
+
+	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+func TestComposerProvidersMergeFollowedChannelsByIdentity(t *testing.T) {
+	t.Parallel()
+	shared, controllerOnly, executorOnly, private := protocol.ProviderID{1}, protocol.ProviderID{2}, protocol.ProviderID{3}, protocol.ProviderID{4}
+	provider := func(id protocol.ProviderID, name string) protocol.ConversationProvider {
+		return protocol.ConversationProvider{ID: id, Name: name, Enabled: true,
+			Models: []protocol.ConversationModel{{ID: "gpt-6-sol"}, {ID: "gpt-6.1-sol"}}}
+	}
+	controllerSnapshot, executorSnapshot := protocol.DefaultSnapshot(), protocol.DefaultSnapshot()
+	controllerSnapshot.Node, executorSnapshot.Node = protocol.NodeID{1}, protocol.NodeID{2}
+	controllerSnapshot.Providers = []protocol.ConversationProvider{provider(shared, "Controller copy"), provider(controllerOnly, "Controller only")}
+	executorSnapshot.Providers = []protocol.ConversationProvider{provider(shared, "Execution copy"), provider(executorOnly, "Execution only")}
+	captured := protocol.DefaultSessionProfile()
+	captured.Provider = provider(private, "Captured")
+	executorSnapshot.Sessions = []protocol.Session{{ID: protocol.SessionID{1}, Profile: &captured}}
+	controller := client.New(&conversationTestTransport{snapshot: controllerSnapshot})
+	executor := client.New(&conversationTestTransport{snapshot: executorSnapshot})
+	defer controller.Close()
+	defer executor.Close()
+	for _, source := range []*client.Client{controller, executor} {
+		if err := source.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root := &Runtime{controller: controller}
+	r := &Runtime{controller: executor, parent: root, admittedSessions: map[string]protocol.Session{"pending": {Profile: &captured}}}
+	providers := r.composerProviders()
+	var ids []protocol.ProviderID
+	modelIDs := map[string]bool{}
+	for _, p := range providers {
+		ids = append(ids, p.ID)
+		for _, model := range p.Models {
+			key := modelKey(p.ID, model.ID)
+			if modelIDs[key] {
+				t.Fatalf("the composer offers duplicate model identity %q", key)
+			}
+			modelIDs[key] = true
+		}
+	}
+	if !slices.Equal(ids, []protocol.ProviderID{shared, executorOnly, controllerOnly, private}) || providers[0].Name != "Execution copy" {
+		t.Fatalf("merged providers changed execution resolution or order: %+v", providers)
+	}
+	if r.forwards(shared) || !r.forwards(controllerOnly) {
+		t.Fatal("offered provider precedence differs from the creation route")
+	}
+	if len(r.snapshot().Providers) != 2 || len(root.snapshot().Providers) != 2 {
+		t.Fatal("merging channels modified a source snapshot")
+	}
+}
