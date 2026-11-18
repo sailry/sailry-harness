@@ -444,8 +444,12 @@ func projectLocalModels(m *settings.Model, s *localModelState, tasks []protocol.
 		page.Catalog = slices.DeleteFunc(slices.Clone(page.Models), func(x viewmodel.LocalModel) bool { return x.Status == viewmodel.ModelInstalled })
 		page.Unavailable = reported && availability.Kind == "unavailable"
 		saved, choice := s.settings.Choices[kind], s.choice(kind)
-		page.Enabled = settings.Stored[bool]{Saved: saved.Enabled, Draft: choice.Enabled, Revision: s.settings.Revision,
-			Pending: !s.known || s.saving || !reported || availability.Kind != "available"}
+		pending := !s.known || s.saving
+		// A Decision choice can be saved even if its inference runtime is unavailable.
+		if kind != protocol.ModelsKindDecision {
+			pending = pending || !reported || availability.Kind != "available"
+		}
+		page.Enabled = settings.Stored[bool]{Saved: saved.Enabled, Draft: choice.Enabled, Revision: s.settings.Revision, Pending: pending}
 		selected := choice.Model
 		if kind == protocol.ModelsKindEmbedding {
 			// Keyword only is the picker's first choice, not a switch.

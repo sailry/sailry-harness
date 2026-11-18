@@ -11,8 +11,12 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/speech/models"
 
@@ -20,6 +24,59 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestDecisionSettingsCanClearMissingModel(t *testing.T) {
+	const lang = "zh-CN"
+	missing := "Previously selected model"
+	for _, availability := range []string{"available", "unavailable"} {
+		t.Run(availability, func(t *testing.T) {
+			kind := protocol.ModelsKindDecision
+			state := localModelState{known: true, settings: protocol.ModelsLocalSettings{
+				Revision: 4, Choices: map[protocol.ModelsKind]protocol.ModelsLocalChoice{kind: {Model: &missing}},
+			}, availability: map[protocol.ModelsKind]protocol.ModelsCatalogAvailability{kind: {Kind: availability}}}
+			page := settings.NewLive()
+			page.Open(settings.Decision)
+			projectLocalModels(page.Model, &state, nil)
+			var saves []protocol.ModelsLocalChoice
+			page.ModelActions = &settings.ModelActions{Save: func(key string) {
+				if key != settings.ModelsDecision {
+					t.Fatalf("saved %q from the Decision page", key)
+				}
+				saves = append(saves, pageLocalChoice(kind, page.Decision, state.settings.Choices[kind]))
+			}}
+			view := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				settings.Page(c, page, &viewmodel.Data{}, settings.Look{})
+			}, 900, 700)
+			view.SetLocale(lang)
+			view.Frame()
+			model, none := i18n.In(lang, "runtime_decision_model"), i18n.In(lang, "local_models_none")
+			trigger, ok := view.AccessByRole(ui.RoleButton, model)
+			if !ok || trigger.Disabled || trigger.Value != missing || view.HasText(i18n.In(lang, "local_models_status")) {
+				t.Fatalf("Decision configuration with no installed model = %+v, labels %q", trigger, view.Texts())
+			}
+			view.ClickAt(trigger.Bounds.X+trigger.Bounds.W/2, trigger.Bounds.Y+trigger.Bounds.H/2)
+			view.Frame()
+			view.Advance(time.Second)
+			option, ok := view.AccessByRole(ui.RoleOption, none)
+			if !ok {
+				t.Fatalf("the model dropdown did not offer %q: %q", none, view.Texts())
+			}
+			view.ClickAt(option.Bounds.X+option.Bounds.W/2, option.Bounds.Y+option.Bounds.H/2)
+			view.Frame()
+			if got, _ := view.AccessByRole(ui.RoleButton, model); got.Value != none || len(saves) != 1 || saves[0].Model != nil || saves[0].Enabled {
+				t.Fatalf("selecting None showed %q and saved %+v", got.Value, saves)
+			}
+			for _, status := range []string{"connections_offline", "permission_denied"} {
+				page.LocalModelsStatus = status
+				view.Frame()
+				if _, ok := view.AccessByRole(ui.RoleButton, model); ok || !view.HasText(i18n.In(lang, status)) {
+					t.Fatalf("Decision page with %q: %q", status, view.Texts())
+				}
+			}
+		})
+	}
+}
 
 // checkLocalModelHelpers covers the pure halves of the local-model pages:
 // the registry's projection onto the pages, the choice a page saves, the
@@ -95,7 +152,7 @@ func checkLocalModelHelpers(t *testing.T) {
 	if m.OCR.Model != 1 || m.OCR.Missing != "Other" || !m.OCR.Enabled.Draft || m.OCR.Unavailable {
 		t.Fatalf("OCR page = %+v", m.OCR)
 	}
-	if !m.Decision.Unavailable || !m.Decision.Enabled.Pending || m.Decision.Model != -1 {
+	if !m.Decision.Unavailable || m.Decision.Enabled.Pending || m.Decision.Model != -1 {
 		t.Fatalf("decision page = %+v", m.Decision)
 	}
 	// Speech models are the controller's: a Node's are not shown, and the

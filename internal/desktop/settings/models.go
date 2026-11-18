@@ -88,11 +88,8 @@ func dictation(c *ui.Context, m *Model) {
 // Available tabs. Knowledge (Embedding) has no switch: enable is "" and its
 // first choice, none, turns it to keywords only.
 //
-// A live page is locked (Enabled.Pending) until its host's settings are
-// read, while a save is under way and where the host cannot run the kind,
-// which a status row then says. Its switch, picker and rows save through
-// ModelActions; a chosen model the host no longer has stays the picker's
-// last choice (Missing) rather than changing the setting silently.
+// Its switch, picker and rows save through ModelActions. A model the host no
+// longer has stays the picker's choice until the user changes it.
 func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
 	if m.LocalModelsStatus != "" {
 		settingsTargetStatus(c, m.LocalModelsStatus)
@@ -100,6 +97,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 	}
 	installed := lm.Installed()
 	locked := lm.Enabled.Pending
+	decision := lm.Kind == ModelsDecision
 	save := func() {
 		if m.Live && m.ModelActions != nil {
 			m.ModelActions.Save(lm.Kind)
@@ -124,7 +122,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			t := i18n.T(c, label)
 			kit.WideRow(c, "model", t, "", func() {
 				kit.ModelSelect(c.Key("select"), kit.ModelSelectProps{Label: t, None: i18n.T(c, none), Models: models, Model: chosen,
-					Stored: lm.Missing, Disabled: !lm.Enabled.Draft || locked,
+					Stored: lm.Missing, Disabled: locked || !decision && !lm.Enabled.Draft,
 					OnChange: func(id, _ string) {
 						if lm.Model = -1; id != "" {
 							lm.Model, _ = strconv.Atoi(id)
@@ -132,7 +130,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 						save()
 					}}).FillWidth().MinWidth(0)
 			})
-			if lm.Unavailable {
+			if lm.Unavailable && !decision {
 				kit.Row(c, "status", i18n.T(c, "local_models_status"), "", func() {
 					kit.Badge(c, i18n.T(c, "local_models_unavailable"), kit.Neutral)
 				})
