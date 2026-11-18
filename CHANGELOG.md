@@ -3,6 +3,22 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.1) — 2026-11-18
+
+- Refresh available ChatGPT OAuth models and resolve sign-in status from the
+  stored account. Keep prompt cache affinity for the same conversation and
+  report cached tokens consistently across model protocols.
+- Allow delegation in Collaborate mode when a single model is configured.
+- Limit memory retained by code indexes, reconcile overlapping file changes,
+  and keep code tool output within its configured budget.
+- Match Git history against the requested file path.
+- Keep usage reports stable when switching filters or grouping. Fill the
+  activity heatmap to the card width and keep its latest date at the right edge.
+- Align conversation image thumbnails, distinguish step states, and refine
+  chart hover details.
+
+Desktop, Host and Mobile continue to use Link protocol 2.
+
 ## [0.2.0](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0) — 2026-11-18
 
 This is the first stable release of Sailry's Go runtime, shared Client and Link
