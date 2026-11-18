@@ -65,21 +65,34 @@ func (peers nodePeerStore) SetDirection(ctx context.Context, peer protocol.NodeI
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.SetIdentityPeerDirection(ctx, db, peer, direction) }))
 }
 
-func (peers nodePeerStore) PairMember(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection, scope link.InvitationScope) error {
-	err := peers.handle.Write(ctx, func(db *sql.Conn) error { return store.PairIdentityPeer(ctx, db, peers.node, peer, direction, scope) })
-	if err != nil || !direction.AllowsInbound() || peers.owner == nil {
-		return nodeFault(err)
-	}
+func (peers nodePeerStore) SavePairing(ctx context.Context, address link.EndpointAddress, direction link.PeerDirection, scope link.InvitationScope, hasNode *bool) error {
 	var user protocol.User
-	err = peers.handle.Read(ctx, func(db *sql.Conn) error {
+	initialize := peers.owner != nil && direction.AllowsInbound() && (hasNode == nil || *hasNode)
+	err := peers.handle.Write(ctx, func(db *sql.Conn) error {
 		var err error
-		user, err = store.CallerUser(ctx, db, peers.node, peer)
+		if hasNode == nil {
+			err = store.PairIdentityPeer(ctx, db, peers.node, address.ID, direction, scope)
+		} else {
+			err = store.PairPeerIdentity(ctx, db, peers.node, address.ID, direction, *hasNode)
+		}
+		if err != nil {
+			return err
+		}
+		if err = store.RememberLinkPeer(ctx, db, address); err != nil || !initialize {
+			return err
+		}
+		user, err = store.CallerUser(ctx, db, peers.node, address.ID)
 		return err
 	})
-	if err == nil {
-		err = peers.owner.InitializeUserPlugins(ctx, user)
+	if err != nil {
+		return nodeFault(err)
 	}
-	return nodeFault(err)
+	if initialize {
+		if err := peers.owner.InitializeUserPlugins(ctx, user); err != nil {
+			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the peer was saved but its defaults were not initialized; retry the same pairing"}
+		}
+	}
+	return nil
 }
 
 func (peers nodePeerStore) ClassifyPeer(ctx context.Context, peer protocol.NodeID, hasNode bool) error {
@@ -112,12 +125,6 @@ func (peers nodePeerStore) ClassifyPeer(ctx context.Context, peer protocol.NodeI
 		err = peers.owner.InitializeUserPlugins(ctx, user)
 	}
 	return nodeFault(err)
-}
-
-func (peers nodePeerStore) PairIdentity(ctx context.Context, peer protocol.NodeID, direction link.PeerDirection, hasNode bool) error {
-	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error {
-		return store.PairPeerIdentity(ctx, db, peers.node, peer, direction, hasNode)
-	}))
 }
 
 func (peers nodePeerStore) Relationships(ctx context.Context) ([]link.PeerRelationship, error) {

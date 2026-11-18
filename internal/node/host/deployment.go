@@ -560,27 +560,24 @@ func ConfigureNetwork(ctx context.Context, endpoint *link.Link, address link.End
 		return err
 	}
 	if settings.Revision > 0 {
-		if reflect.DeepEqual(settings.Selection, &selected) && reflect.DeepEqual(settings.Effective, &selected) {
-			return nil
+		if !reflect.DeepEqual(settings.Selection, &selected) || !reflect.DeepEqual(settings.Effective, &selected) {
+			return &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "installed Host network changed"}
 		}
-		return &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "installed Host network changed"}
-	}
-	request := controller.Prepare(protocol.Command{Kind: "save_network_settings", Data: protocol.CommandSaveNetworkSettingsPayload{ExpectedRevision: 0, Selection: selected}})
-	request.ID = id
-	output, err := controller.Execute(ctx, request)
-	if err != nil {
-		var fault *protocol.Fault
-		if errors.As(err, &fault) && fault.Code == protocol.ErrorCodeOutcomeUnknown {
-			_, _ = controller.Outcome(ctx, request)
+	} else {
+		request := controller.Prepare(protocol.Command{Kind: "save_network_settings", Data: protocol.CommandSaveNetworkSettingsPayload{ExpectedRevision: 0, Selection: selected}})
+		request.ID = id
+		output, err := controller.Settle(ctx, request)
+		if err != nil {
+			return err
 		}
-		return err
-	}
-	saved, ok := output.Data.(*protocol.NetworkSettings)
-	if output.Kind != "network_settings" || !ok {
-		return invalid("network settings response expected")
+		saved, ok := output.Data.(*protocol.NetworkSettings)
+		if output.Kind != "network_settings" || !ok {
+			return invalid("network settings response expected")
+		}
+		settings = *saved
 	}
 	var actual link.EndpointAddress
-	if json.Unmarshal([]byte(saved.Address), &actual) != nil {
+	if json.Unmarshal([]byte(settings.Address), &actual) != nil {
 		return invalid("invalid Host network address")
 	}
 	if actual.ID != address.ID {

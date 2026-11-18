@@ -186,6 +186,11 @@ func (store *fixturePeerStore) Directions(context.Context) ([]PeerTrust, error) 
 func (store *fixturePeerStore) PairPeer(_ context.Context, peer protocol.NodeID, direction PeerDirection) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.pair(peer, direction)
+	return store.trustOutcome
+}
+
+func (store *fixturePeerStore) pair(peer protocol.NodeID, direction PeerDirection) {
 	if store.directions == nil {
 		store.directions = make(map[protocol.NodeID]PeerDirection)
 	}
@@ -195,7 +200,18 @@ func (store *fixturePeerStore) PairPeer(_ context.Context, peer protocol.NodeID,
 	}
 	store.directions[peer] = mergeDirection(previous, direction)
 	store.trusted[peer] = true
-	return store.trustOutcome
+}
+
+func (store *fixturePeerStore) SavePairing(_ context.Context, address EndpointAddress, direction PeerDirection, _ InvitationScope, _ *bool) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	err := errors.Join(store.trustOutcome, store.rememberOutcome)
+	if err != nil && faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown {
+		return err
+	}
+	store.pair(address.ID, direction)
+	store.addresses[address.ID] = cloneAddress(address)
+	return err
 }
 
 func (store *fixturePeerStore) SetDirection(_ context.Context, peer protocol.NodeID, direction PeerDirection) error {

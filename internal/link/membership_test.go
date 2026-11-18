@@ -13,9 +13,9 @@ type membershipFixtureStore struct {
 	scope InvitationScope
 }
 
-func (store *membershipFixtureStore) PairMember(ctx context.Context, id protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
+func (store *membershipFixtureStore) SavePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool) error {
 	store.scope = scope
-	return store.PairPeer(ctx, id, direction)
+	return store.fixturePeerStore.SavePairing(ctx, address, direction, scope, hasNode)
 }
 func (*membershipFixtureStore) Relationships(context.Context) ([]PeerRelationship, error) {
 	return nil, nil
@@ -33,7 +33,7 @@ func TestMyDeviceProofComesFromCapturedOfferAndAuthenticatedAcknowledgment(t *te
 	offer := &pairingOffer{scope: InvitationScope{Kind: protocol.InvitationMyDevice, User: &user}, token: pairingToken{9}, deadline: link.now().Add(invitationLifetime), stop: make(chan struct{}), paired: make(chan struct{})}
 	link.offer = offer
 	device := protocol.NodeID{2}
-	acknowledged, err := link.acceptPairingIdentity(t.Context(), offer.token, device, EndpointAddress{ID: device}, nil)
+	acknowledged, _, err := link.acceptPairingIdentity(t.Context(), offer.token, device, EndpointAddress{ID: device}, nil)
 	if err != nil || acknowledged.Kind != protocol.InvitationMyDevice || store.scope.User == nil || *store.scope.User != user {
 		t.Fatalf("captured scope lost: %#v %v", acknowledged, err)
 	}

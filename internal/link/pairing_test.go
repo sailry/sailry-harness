@@ -273,6 +273,42 @@ func TestPairingResultRetainsRustUnit(t *testing.T) {
 // has a Node, as claimants before protocol version 2 sent it.
 func acceptLegacyPairing(t *testing.T, link *Link, token pairingToken, peer protocol.NodeID) error {
 	t.Helper()
-	_, err := link.acceptPairingIdentity(t.Context(), token, peer, EndpointAddress{ID: peer}, nil)
+	_, offer, err := link.acceptPairingIdentity(t.Context(), token, peer, EndpointAddress{ID: peer}, nil)
+	if err == nil {
+		link.confirmPairing(offer)
+	}
 	return err
+}
+
+func TestPairingKeepsClaimAvailableUntilConfirmed(t *testing.T) {
+	t.Parallel()
+	link := newFixtureLink(t)
+	store := link.store.(*fixturePeerStore)
+	offer := &pairingOffer{scope: InvitationScope{Kind: protocol.InvitationOtherUser}, token: pairingToken{7},
+		deadline: link.now().Add(invitationLifetime), stop: make(chan struct{}), paired: make(chan struct{})}
+	link.offer = offer
+	peer := EndpointAddress{ID: protocol.NodeID{2}}
+	hasNode := true
+	store.rememberOutcome = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture address storage unavailable"}
+	if _, _, err := link.acceptPairingIdentity(t.Context(), offer.token, peer.ID, peer, &hasNode); err == nil {
+		t.Fatal("address storage failure did not fail pairing")
+	}
+	if store.trusted[peer.ID] || link.isTrusted(peer.ID) || offer.peer != nil {
+		t.Fatal("failed address storage left an incomplete pairing")
+	}
+	store.rememberOutcome = nil
+	for range 2 {
+		_, saved, err := link.acceptPairingIdentity(t.Context(), offer.token, peer.ID, peer, &hasNode)
+		if err != nil || saved != offer || channelClosed(offer.paired) {
+			t.Fatalf("claim retry = %p, %v", saved, err)
+		}
+		peers, err := link.Peers(t.Context())
+		if err != nil || len(peers) != 1 || peers[0].ID != peer.ID {
+			t.Fatalf("saved address = %v, %v", peers, err)
+		}
+	}
+	link.confirmPairing(offer)
+	if !channelClosed(offer.paired) {
+		t.Fatal("acknowledged pairing did not finish")
+	}
 }

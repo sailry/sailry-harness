@@ -13,6 +13,58 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
+func TestPairingResumesAfterLocalSaveFailure(t *testing.T) {
+	if err := iroh.LoadDefault(true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	open := func(store *fixturePeerStore) *Link {
+		t.Helper()
+		identity, err := OpenIdentity(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		link, err := Bind(ctx, EndpointOptions{Identity: identity, Scope: NetworkScope{Bind: "127.0.0.1:0"},
+			Peers: store, Handler: fixtureHandler{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = link.Close() })
+		return link
+	}
+	host := open(&fixturePeerStore{trusted: map[protocol.NodeID]bool{}, addresses: map[protocol.NodeID]EndpointAddress{}})
+	store := &fixturePeerStore{trusted: map[protocol.NodeID]bool{}, addresses: map[protocol.NodeID]EndpointAddress{},
+		rememberOutcome: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture address storage unavailable"}}
+	claimant := open(store)
+	invitation, err := host.Invite(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer invitation.Close()
+	peer, err := claimant.Pair(ctx, invitation.Ticket())
+	if faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown || peer.ID != host.nodeID {
+		t.Fatalf("unconfirmed pairing = %v, %v", peer, err)
+	}
+	if invitation.IsPaired() || claimant.Direction(host.nodeID).Valid() {
+		t.Fatal("failed local save confirmed an incomplete pairing")
+	}
+	store.mu.Lock()
+	store.rememberOutcome = nil
+	store.mu.Unlock()
+	if _, err := claimant.Pair(ctx, invitation.Ticket()); err != nil {
+		t.Fatal(err)
+	}
+	if err := invitation.Paired(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range []*Link{host, claimant} {
+		if peers, err := node.Peers(ctx); err != nil || len(peers) != 1 {
+			t.Fatalf("confirmed peers = %v, %v", peers, err)
+		}
+	}
+}
+
 // TestSilentPairingConnectionsLeaveAcceptWorkers binds real loopback endpoints.
 // Run it with SAILRY_IROH_LIB naming the built iroh library.
 func TestSilentPairingConnectionsLeaveAcceptWorkers(t *testing.T) {

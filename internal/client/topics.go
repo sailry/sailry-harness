@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -57,59 +58,71 @@ func (stream *topicSubscription) Next(ctx context.Context) (protocol.Update, err
 	defer cancel()
 	stop := context.AfterFunc(stream.ctx, cancel)
 	defer stop()
+	delay := 250 * time.Millisecond
 	for {
 		stream.mu.Lock()
 		current := stream.stream
-		routeCancel := stream.routeCancel
 		stream.mu.Unlock()
-		update, err := current.Next(operation)
-		if stream.topic.Kind == "status" || stream.topic.Kind == "connector_login" || err == nil || !transient(err) || operation.Err() != nil {
-			return update, err
-		}
-		_ = current.Close()
-		if routeCancel != nil {
-			routeCancel()
-		}
-		for {
+		if current != nil {
+			update, err := current.Next(operation)
+			if stream.topic.Kind == "status" || stream.topic.Kind == "connector_login" || err == nil || !transient(err) || operation.Err() != nil {
+				return update, err
+			}
+			// Keep the broken stream detached even if this particular read is
+			// cancelled before a replacement can be established.
 			stream.mu.Lock()
-			changed := stream.changed
-			generation := stream.generation
-			fresh := generation != stream.bound
+			retired, cancelRoute := stream.stream, stream.routeCancel
+			stream.stream, stream.routeCancel = nil, nil
 			stream.mu.Unlock()
-			if !fresh {
-				select {
-				case <-operation.Done():
-					return protocol.Update{}, operation.Err()
-				case <-changed:
-				}
-				continue
+			if cancelRoute != nil {
+				cancelRoute()
 			}
-			routeContext, cancelRoute := context.WithCancel(stream.ctx)
-			stopRoute := context.AfterFunc(operation, cancelRoute)
-			reconnected, err := stream.client.transport.Subscribe(routeContext, copyValue(stream.topic))
-			stopRoute()
-			if err == nil && operation.Err() != nil {
-				_ = reconnected.Close()
-				err = operation.Err()
+			if retired != nil {
+				_ = retired.Close()
 			}
-			stream.mu.Lock()
-			stream.bound = generation
-			if err == nil && stream.ctx.Err() != nil {
-				_ = reconnected.Close()
-				err = stream.ctx.Err()
+		}
+
+		stream.mu.Lock()
+		changed, generation, fresh := stream.changed, stream.generation, stream.generation != stream.bound
+		stream.mu.Unlock()
+		if !fresh && operation.Err() == nil {
+			timer := time.NewTimer(delay)
+			select {
+			case <-operation.Done():
+			case <-changed:
+			case <-timer.C:
 			}
-			if err == nil {
-				stream.stream = reconnected
-				stream.routeCancel = cancelRoute
-			}
+			timer.Stop()
+		}
+		if err := operation.Err(); err != nil {
+			return protocol.Update{}, err
+		}
+		delay = min(delay*2, 5*time.Second)
+
+		routeContext, cancelRoute := context.WithCancel(stream.ctx)
+		stopRoute := context.AfterFunc(operation, cancelRoute)
+		reconnected, err := stream.client.transport.Subscribe(routeContext, copyValue(stream.topic))
+		stopRoute()
+		stream.mu.Lock()
+		stream.bound = generation
+		cancelled := operation.Err()
+		if cancelled == nil {
+			cancelled = stream.ctx.Err()
+		}
+		if err == nil && cancelled == nil {
+			stream.stream = reconnected
+			stream.routeCancel = cancelRoute
 			stream.mu.Unlock()
-			if err == nil {
-				break
-			}
-			cancelRoute()
-			if !transient(err) || operation.Err() != nil {
-				return protocol.Update{}, err
-			}
+			continue
+		}
+		stream.mu.Unlock()
+		cancelRoute()
+		if err == nil {
+			_ = reconnected.Close()
+			return protocol.Update{}, cancelled
+		}
+		if !transient(err) || operation.Err() != nil {
+			return protocol.Update{}, err
 		}
 	}
 }
@@ -119,8 +132,11 @@ func (stream *topicSubscription) Close() error {
 		stream.cancel()
 		stream.mu.Lock()
 		current := stream.stream
+		stream.stream, stream.routeCancel = nil, nil
 		stream.mu.Unlock()
-		stream.err = current.Close()
+		if current != nil {
+			stream.err = current.Close()
+		}
 		stream.client.topicsMu.Lock()
 		delete(stream.client.topics, stream)
 		stream.client.topicsMu.Unlock()

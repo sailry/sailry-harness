@@ -90,6 +90,10 @@ func (link *Link) pairPeer(ctx context.Context, peer protocol.NodeID, direction 
 func (link *Link) updateTrust(ctx context.Context, peer protocol.NodeID, update func() error) error {
 	link.trustUpdate.Lock()
 	defer link.trustUpdate.Unlock()
+	return link.updateTrustLocked(ctx, peer, update)
+}
+
+func (link *Link) updateTrustLocked(ctx context.Context, peer protocol.NodeID, update func() error) error {
 	if err := link.ctx.Err(); err != nil {
 		return linkNetwork(err)
 	}

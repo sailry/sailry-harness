@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -169,4 +170,47 @@ func TestTopicRecovery(t *testing.T) {
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("closed subscription remained active: %v", err)
 	}
+}
+
+func TestTopicRecoveryWithoutNodeRefresh(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		first := &topicFixture{fail: true, first: make(chan struct{})}
+		recovered := &topicFixture{updates: make(chan protocol.Update, 1), closed: make(chan struct{})}
+		recovered.updates <- protocol.Update{Kind: "connections"}
+		var attempts []time.Time
+		transport := &topicTransport{clientTransport: &clientTransport{}}
+		transport.subscribe = func(ctx context.Context, _ protocol.Topic) (link.Subscription, error) {
+			attempts = append(attempts, time.Now())
+			switch len(attempts) {
+			case 1:
+				return first, nil
+			case 2:
+				return nil, fault(protocol.ErrorCodeBusy, "fixture temporarily busy")
+			default:
+				recovered.ctx = ctx
+				return recovered, nil
+			}
+		}
+		controller := New(transport)
+		defer controller.Close()
+		stream, err := controller.Subscribe(t.Context(), protocol.Topic{Kind: "connections"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		probe, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		if _, err := stream.Next(probe); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("short read = %v", err)
+		}
+		read, release := context.WithTimeout(t.Context(), 2*time.Second)
+		defer release()
+		update, err := stream.Next(read)
+		if err != nil || update.Kind != "connections" {
+			t.Fatalf("independent recovery = %+v, %v", update, err)
+		}
+		if len(attempts) != 3 || attempts[2].Sub(attempts[1]) <= attempts[1].Sub(attempts[0])-100*time.Millisecond {
+			t.Fatalf("retries did not back off: %v", attempts)
+		}
+	})
 }

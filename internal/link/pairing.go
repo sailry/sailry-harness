@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"sync"
 	"time"
 
@@ -283,29 +284,34 @@ func (link *Link) pairSelected(ctx context.Context, encoded string, relays []str
 	if err := link.writeFrame(ctx, stream, pairingClaim{Token: ticket.Token, Address: address, HasNode: &hasNode}); err != nil {
 		return EndpointAddress{}, err
 	}
-	if err := stream.CloseWrite(); err != nil {
-		return EndpointAddress{}, linkNetwork(err)
-	}
 	var accepted pairingResult
 	if err := link.readFrame(ctx, stream, &accepted, false); err != nil {
-		return EndpointAddress{}, err
+		return ticket.Address, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the pairing response was not received; retry the same invitation"}
 	}
 	if accepted.Fault != nil {
+		if accepted.Fault.Code == protocol.ErrorCodeOutcomeUnknown {
+			return ticket.Address, accepted.Fault
+		}
 		return EndpointAddress{}, accepted.Fault
 	}
 	scope := InvitationScope{Kind: protocol.InvitationOtherUser}
-	if accepted.MyDevice {
+	if accepted.HasNode == nil && accepted.MyDevice {
 		scope.Kind = protocol.InvitationMyDevice
 	}
-	if accepted.HasNode != nil {
-		if err := link.pairIdentity(ctx, info.RemoteID, DirectionHost, *accepted.HasNode); err != nil {
-			return EndpointAddress{}, err
-		}
-	} else if err := link.pairMember(ctx, info.RemoteID, DirectionHost, scope); err != nil {
-		return EndpointAddress{}, err
+	save, release := link.operation(context.WithoutCancel(ctx), true)
+	err = link.savePairing(save, ticket.Address, DirectionHost, scope, accepted.HasNode)
+	release()
+	if err != nil {
+		// Closing an unfinished send stream resets it. The sharer keeps the
+		// invitation available to this authenticated claimant until it expires.
+		return ticket.Address, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the host accepted the pairing but the local pairing could not be confirmed; retry the same invitation"}
 	}
-	if err := link.remember(ctx, ticket.Address); err != nil {
-		return EndpointAddress{}, err
+	// The write half closes only after both ends have confirmed their
+	// records. Older sharers still accept the original claim frame.
+	if stream.CloseWrite() == nil {
+		scoped, cancel := link.operation(ctx, true)
+		_, _ = stream.WaitStopped(scoped)
+		cancel()
 	}
 	if link.paired != nil {
 		link.paired(ticket.Address.ID)
@@ -383,10 +389,11 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 	}
 	var accepted error
 	var scope InvitationScope
-	if claim.Address.ID != peer || len(claim.Address.Addrs) > 16 || protocol.VERSION >= 2 && claim.HasNode == nil {
+	var saved *pairingOffer
+	if protocol.VERSION >= 2 && claim.HasNode == nil {
 		accepted = pairingRejected()
 	} else {
-		scope, accepted = link.acceptPairingIdentity(link.ctx, claim.Token, peer, claim.Address, claim.HasNode)
+		scope, saved, accepted = link.acceptPairingIdentity(link.ctx, claim.Token, peer, claim.Address, claim.HasNode)
 	}
 	result := pairingResult{}
 	hasNode := link.handler != nil
@@ -402,12 +409,26 @@ func (link *Link) servePairing(connection *iroh.Connection, peer protocol.NodeID
 	if stream.CloseWrite() != nil {
 		return
 	}
+	if saved != nil {
+		// Claimants that can recover a local write failure acknowledge only
+		// after saving. Legacy claimants already closed their write half.
+		scoped, cancel := link.operation(link.ctx, true)
+		var extra [1]byte
+		count, err := stream.ReadContext(scoped, extra[:])
+		cancel()
+		if count == 0 && errors.Is(err, io.EOF) {
+			link.confirmPairing(saved)
+		}
+	}
 	scoped, cancel = link.operation(link.ctx, true)
 	_, _ = stream.WaitStopped(scoped)
 	cancel()
 }
 
-func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress, hasNode *bool) (InvitationScope, error) {
+func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken, peer protocol.NodeID, address EndpointAddress, hasNode *bool) (InvitationScope, *pairingOffer, error) {
+	if address.ID != peer || len(address.Addrs) > 16 {
+		return InvitationScope{}, nil, pairingRejected()
+	}
 	link.offerMu.Lock()
 	offer := link.offer
 	if offer == nil || subtle.ConstantTimeCompare(offer.token[:], token[:]) != 1 ||
@@ -415,7 +436,7 @@ func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken,
 		offer.peer != nil && *offer.peer != peer ||
 		channelClosed(offer.paired) && !link.isTrusted(peer) {
 		link.offerMu.Unlock()
-		return InvitationScope{}, pairingRejected()
+		return InvitationScope{}, nil, pairingRejected()
 	}
 	claimed := peer
 	offer.peer = &claimed
@@ -424,30 +445,39 @@ func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken,
 	if hasNode != nil {
 		scope = InvitationScope{Kind: protocol.InvitationOtherUser}
 	}
-	var paired error
-	if hasNode != nil {
-		paired = link.pairIdentity(ctx, peer, DirectionController, *hasNode)
-	} else {
-		paired = link.pairMember(ctx, peer, DirectionController, scope)
-	}
-	if paired != nil {
+	if err := link.savePairing(ctx, address, DirectionController, scope, hasNode); err != nil {
 		// A claimant that gained no trust leaves the invitation to the others.
 		link.offerMu.Lock()
-		if offer.peer == &claimed && !link.isTrusted(peer) {
+		if offer.peer == &claimed && !link.isTrusted(peer) && faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown {
 			offer.peer = nil
 		}
 		link.offerMu.Unlock()
-		return InvitationScope{}, paired
+		return InvitationScope{}, nil, err
 	}
-	if err := link.remember(ctx, address); err != nil {
-		return InvitationScope{}, err
-	}
+	return scope, offer, nil
+}
+
+func (link *Link) confirmPairing(offer *pairingOffer) {
 	link.offerMu.Lock()
+	defer link.offerMu.Unlock()
 	if link.offer == offer {
 		offer.accept.Do(func() { close(offer.paired) })
 	}
-	link.offerMu.Unlock()
-	return scope, nil
+}
+
+func (link *Link) savePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool) error {
+	link.trustUpdate.Lock()
+	defer link.trustUpdate.Unlock()
+	if err := link.updateTrustLocked(ctx, address.ID, func() error {
+		link.cancelHostRemoval(address.ID)
+		return link.store.SavePairing(ctx, address, direction, scope, hasNode)
+	}); err != nil {
+		return err
+	}
+	if hasNode != nil {
+		link.peerKinds.Store(address.ID, *hasNode)
+	}
+	return nil
 }
 
 func channelClosed(channel <-chan struct{}) bool {

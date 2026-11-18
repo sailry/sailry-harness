@@ -78,7 +78,7 @@ func TestRememberPeerNameRequiresTrustAndSkipsUnchangedMetadata(t *testing.T) {
 	if err := endpoint.RememberPeerName(ctx, peer, "Untrusted"); err == nil {
 		t.Fatal("unpaired name was retained")
 	}
-	if err := endpoint.pairMember(ctx, peer, DirectionHost, InvitationScope{Kind: protocol.InvitationOtherUser}); err != nil {
+	if err := endpoint.savePairing(ctx, EndpointAddress{ID: peer}, DirectionHost, InvitationScope{Kind: protocol.InvitationOtherUser}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := endpoint.RememberPeerName(ctx, peer, "Known host"); err != nil {
