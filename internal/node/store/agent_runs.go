@@ -357,7 +357,7 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	inv := &AgentInvocation{Session: session, Run: run, Turn: queued.Turn, Message: queued.Message, Instructions: []AgentInstruction{}}
 	inv.User, inv.StorageUser = user, origin.ID
 	if err = captureAssistant(ctx, db, inv); err != nil {
-		return nil, nil, err
+		return rejectInvocationCapture(ctx, db, turn, err, now)
 	}
 	catalog, err := operations.Bundled()
 	if err != nil {
@@ -397,8 +397,9 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 		if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
 			return nil, nil, err
 		}
-		if initialized {
-			return nil, nil, err
+		failure, known := errors.AsType[*protocol.Fault](err)
+		if initialized || !known || failure.Code != protocol.ErrorCodeNotConfigured {
+			return rejectInvocationCapture(ctx, db, turn, err, now)
 		}
 		for _, instruction := range catalog.Instructions {
 			if instruction.Owner.Name == reference.Name && instruction.Owner.Digest == reference.Digest {
@@ -483,6 +484,18 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	events, err := activityEvent(ctx, db, run.Session)
 	return inv, events, err
 }
+
+// A permanent error in this turn's captured configuration must not block the
+// next ready turn. FinishTurn preserves input that never reached history.
+func rejectInvocationCapture(ctx context.Context, db *sql.Conn, turn protocol.TurnID, cause error, now time.Time) (*AgentInvocation, []protocol.Event, error) {
+	failure, ok := errors.AsType[*protocol.Fault](cause)
+	if !ok || failure.Code != protocol.ErrorCodeNotConfigured && failure.Code != protocol.ErrorCodeInvalidRequest {
+		return nil, nil, cause
+	}
+	_, events, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusFailed, failure, now)
+	return nil, events, err
+}
+
 func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status protocol.ConversationStatus, failure *protocol.Fault, now time.Time) (protocol.ConversationRun, []protocol.Event, error) {
 	run, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {

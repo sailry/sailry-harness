@@ -119,3 +119,33 @@ func TestRollingSummaryRetainsTailAndResetsReadProjection(t *testing.T) {
 		t.Fatal("request projection mutated canonical records")
 	}
 }
+
+func TestAnsweredPairsReusedIDsByOccurrence(t *testing.T) {
+	turn := protocol.NewTurnID()
+	request := func() canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{
+			Kind: "tool_request", Data: &canonical.ToolRequest{ID: "reused", Name: "read", Arguments: json.RawMessage(`{}`)},
+		}), time.Time{})
+	}
+	response := func(value string) canonical.Block {
+		return canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "reused", Name: "read", Result: canonical.Payload{Value: json.RawMessage(value)}}}
+	}
+	result := func(blocks ...canonical.Block) canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, blocks...), time.Time{})
+	}
+	records := []canonical.Record{request(), result(response(`1`), response(`2`)), request(), result(response(`3`)), request()}
+	projected := Answered(records)
+	first := projected[0].Message().Content[0].Data.(*canonical.ToolRequest).ID
+	firstResult := projected[1].Message().Content
+	second := projected[2].Message().Content[0].Data.(*canonical.ToolRequest).ID
+	secondResult := projected[3].Message().Content[0].Data.(*canonical.ToolResponse)
+	if first != "reused" || len(firstResult) != 1 || firstResult[0].Data.(*canonical.ToolResponse).ID != first || second == first || secondResult.ID != second {
+		t.Fatalf("history pairs lost their occurrences: %q, %v, %q, %+v", first, firstResult, second, secondResult)
+	}
+	if len(projected[4].Message().Content) != 0 || len(records[1].Message().Content) != 2 || records[2].Message().Content[0].Data.(*canonical.ToolRequest).ID != "reused" {
+		t.Fatal("repair did not remove exactly the unpaired blocks or mutated stored history")
+	}
+	if again := Answered(projected); !reflect.DeepEqual(again, projected) {
+		t.Fatal("a second projection changed established tool pairs")
+	}
+}

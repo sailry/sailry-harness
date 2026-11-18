@@ -331,45 +331,86 @@ func VisibleRecords(records []canonical.Record) []canonical.Record {
 // received a result is removed. A turn that ended before recording a result
 // therefore cannot make every later request invalid.
 func Answered(records []canonical.Record) []canonical.Record {
-	pending := map[string]bool{}
-	orphans := map[string]bool{}
+	type position struct {
+		record string
+		block  int
+	}
+	pending := map[string][]position{}
+	used := map[string]bool{}
+	// An empty repair drops the unpaired block. A nonempty repair keeps the
+	// pair but gives this occurrence a distinct provider-facing ID.
+	repairs := map[string]map[int]string{}
+	repair := func(where position, id string) {
+		if repairs[where.record] == nil {
+			repairs[where.record] = map[int]string{}
+		}
+		repairs[where.record][where.block] = id
+	}
 	for _, record := range VisibleRecords(records) {
 		message := record.Message()
 		if message == nil {
 			continue
 		}
-		for _, block := range message.Content {
+		for index, block := range message.Content {
+			where := position{record.ID, index}
 			switch value := block.Data.(type) {
 			case *canonical.ToolRequest:
-				pending[value.ID] = true
+				pending[value.ID] = append(pending[value.ID], where)
 			case *canonical.ToolResponse:
-				if !pending[value.ID] {
-					orphans[record.ID+"\x00"+value.ID] = true
+				matches := pending[value.ID]
+				if len(matches) == 0 {
+					repair(where, "")
+					continue
 				}
-				delete(pending, value.ID)
+				call := matches[0]
+				pending[value.ID] = matches[1:]
+				if used[value.ID] {
+					id := canonical.ToolCallOccurrenceID(call.record, call.block)
+					repair(call, id)
+					repair(where, id)
+				} else {
+					used[value.ID] = true
+				}
 			}
 		}
 	}
-	if len(pending) == 0 && len(orphans) == 0 {
+	for _, matches := range pending {
+		for _, call := range matches {
+			repair(call, "")
+		}
+	}
+	if len(repairs) == 0 {
 		return records
 	}
 	repaired := slices.Clone(records)
 	for index := range repaired {
 		record := &repaired[index]
-		message := record.Message()
-		if message == nil {
+		changes := repairs[record.ID]
+		if len(changes) == 0 {
 			continue
 		}
+		message := record.Message()
 		kept := *message
-		kept.Content = slices.DeleteFunc(slices.Clone(message.Content), func(block canonical.Block) bool {
+		kept.Content = make([]canonical.Block, 0, len(message.Content))
+		for index, block := range message.Content {
+			id, change := changes[index]
+			if !change {
+				kept.Content = append(kept.Content, block)
+				continue
+			}
+			if id == "" {
+				continue
+			}
 			switch value := block.Data.(type) {
 			case *canonical.ToolRequest:
-				return pending[value.ID]
+				updated := *value
+				updated.ID, block.Data = id, &updated
 			case *canonical.ToolResponse:
-				return orphans[record.ID+"\x00"+value.ID]
+				updated := *value
+				updated.ID, block.Data = id, &updated
 			}
-			return false
-		})
+			kept.Content = append(kept.Content, block)
+		}
 		record.Data = &kept
 	}
 	return repaired

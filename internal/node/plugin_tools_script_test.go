@@ -5,11 +5,42 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestBeforeModelResultsKeepRecentCompleteResultsOfThisTurn(t *testing.T) {
+	current, earlier := protocol.NewTurnID(), protocol.NewTurnID()
+	result := func(turn protocol.TurnID, id, name, body string) canonical.Record {
+		return canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{
+			ID: id, Name: name, Result: canonical.Payload{Value: json.RawMessage(body)},
+		}}), time.Time{})
+	}
+	initial := canonical.NewRecord(current, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Current turn")), time.Time{})
+	initial.Provenance.Author = "user"
+	initial.Metadata.Input = &canonical.Input{Turn: &current}
+	records := []canonical.Record{
+		result(earlier, "older", "memory-read", `"Earlier turn"`),
+		initial,
+		result(current, "first", "memory-read", `"First"`),
+		result(current, "large", "memory-read", `"`+strings.Repeat("x", plugins.ScriptMaxDataBytes)+`"`),
+		result(current, "second", "memory-read", `"Second"`),
+		result(current, "other-tool", "private-tool", `"Another package"`),
+	}
+	names := map[string]string{"memory-read": "read"}
+	results, latest := beforeModelResults(records, current, names, "")
+	encoded, err := json.Marshal(map[string]any{"results": results})
+	if err != nil || latest != "other-tool" || string(encoded) != `{"results":[{"name":"read","response":"First"},{"name":"read","response":"Second"}]}` {
+		t.Fatalf("before_model results have %d bytes, %d entries, newest %q, error %v", len(encoded), len(results), latest, err)
+	}
+	if repeated, newest := beforeModelResults(records, current, names, latest); repeated != nil || newest != latest {
+		t.Fatalf("unchanged tool results requested a second evaluation: %d, %q", len(repeated), newest)
+	}
+}
 
 func TestPluginTurnInput(t *testing.T) {
 	delegate, apply, query, transfer := protocol.ToolOperationDelegateAgent, protocol.ToolOperationApplyRoles, protocol.ToolOperationQueryDatabase, protocol.ToolOperationTransferSsh

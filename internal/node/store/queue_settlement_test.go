@@ -59,6 +59,62 @@ func queueFixtureItem(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	return queue, nil, nil
 }
 
+func TestUnavailableCaptureDoesNotBlockAnotherSession(t *testing.T) {
+	t.Parallel()
+	storage, node, ordinary, _, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if _, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1"); err != nil {
+			return err
+		}
+		admit := func(message string) (protocol.QueuedTurn, error) {
+			created, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &ordinary.Config})
+			if err != nil {
+				return protocol.QueuedTurn{}, err
+			}
+			session := created.Data.(protocol.Session)
+			output, err := queueFixtureCommand(ctx, db, storage, node, "submit_turn", &protocol.CommandSubmitTurnPayload{
+				Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: message},
+			}, now)
+			if err != nil {
+				return protocol.QueuedTurn{}, err
+			}
+			return output.Data.(protocol.QueuedTurn), nil
+		}
+		bad, err := admit("Retained input")
+		if err != nil {
+			return err
+		}
+		// A restored turn can reference a bundle that is unavailable here.
+		captured, err := encode([]protocol.PluginReference{{Name: "fixture", Digest: fmt.Sprintf("%064x", 1)}})
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE turns SET plugins=?2 WHERE id=?1", bad.ID.String(), captured); err != nil {
+			return err
+		}
+		good, err := admit("Another session")
+		if err != nil {
+			return err
+		}
+		invocation, _, err := ClaimNext(ctx, db, now)
+		if err != nil || invocation == nil || invocation.Run.Turn != good.ID {
+			return fmt.Errorf("another session did not start: %+v, %v", invocation, err)
+		}
+		run, err := ReadAgentRun(ctx, db, bad.ID)
+		if err != nil || run.Status != protocol.ConversationStatusFailed || run.Error == nil || run.Error.Code != protocol.ErrorCodeNotConfigured {
+			return fmt.Errorf("missing capture did not fail only its turn: %+v, %v", run, err)
+		}
+		queue, item, err := queueFixtureItem(ctx, db, bad.Session, bad.ID)
+		if err != nil || !queue.Paused || item == nil {
+			return fmt.Errorf("unrecorded input was not held: %+v, %v", queue, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQueueSettlement(t *testing.T) {
 	t.Parallel()
 	guide := func(ctx context.Context, db *sql.Conn, storage *Store, node protocol.NodeID, session protocol.Session, recipient protocol.TurnID, now time.Time) (protocol.TurnID, error) {

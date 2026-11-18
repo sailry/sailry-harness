@@ -198,6 +198,9 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 		out.order()
 		x.names.restore(out.blocks)
+		if err == nil {
+			out.separateRepeatedCalls(state.Records)
+		}
 		empty := out.empty()
 		var billing []canonical.Record
 		for _, attempt := range attempts {
@@ -346,6 +349,28 @@ func (out *streamOutput) receive(part fantasy.StreamPart) error {
 	}
 	return nil
 }
+
+func (out *streamOutput) separateRepeatedCalls(records []canonical.Record) {
+	if len(out.calls) == 0 {
+		return
+	}
+	seen := map[string]bool{}
+	for _, record := range records {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
+				if call, ok := block.Data.(*canonical.ToolRequest); ok && out.calls[call.ID] {
+					seen[call.ID] = true
+				}
+			}
+		}
+	}
+	for position, block := range out.blocks {
+		if call, ok := block.Data.(*canonical.ToolRequest); ok && seen[call.ID] {
+			call.ID = canonical.ToolCallOccurrenceID(out.record.ID, position)
+		}
+	}
+}
+
 func (out *streamOutput) empty() bool {
 	if out.limited {
 		return false

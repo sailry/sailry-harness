@@ -1,6 +1,11 @@
 package canonical
 
-import "encoding/json"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strconv"
+)
 
 type Block struct {
 	Index uint64 `json:"index"`
@@ -32,6 +37,14 @@ type ToolRequest struct {
 	ToolMeta  json.RawMessage             `json:"tool_meta,omitempty"`
 	Error     *ToolError                  `json:"error,omitempty"`
 }
+
+// ToolCallOccurrenceID distinguishes reused provider IDs by their canonical
+// message and position. Its length and character set also fit provider calls.
+func ToolCallOccurrenceID(record string, position int) string {
+	digest := sha256.Sum256([]byte(record + "\x00" + strconv.Itoa(position)))
+	return "call_" + hex.EncodeToString(digest[:16])
+}
+
 type ToolError struct {
 	Code    int64           `json:"code"`
 	Message string          `json:"message"`

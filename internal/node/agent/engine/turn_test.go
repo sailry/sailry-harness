@@ -24,7 +24,7 @@ import (
 
 func TestOneRequestPerStep(t *testing.T) {
 	for _, scenario := range []string{"tool then response", "bounded empty responses", "output limit prevents empty retry", "partial failure", "redacted before text",
-		"failed stream with a tool call", "tool panic", "turn panic", "credential renewed mid-turn"} {
+		"failed stream with a tool call", "tool panic", "turn panic", "credential renewed mid-turn", "provider reuses a tool ID"} {
 		t.Run(scenario, func(t *testing.T) {
 			m := &scriptedModel{}
 			var executed atomic.Int32
@@ -60,6 +60,8 @@ func TestOneRequestPerStep(t *testing.T) {
 				m.scripts = []script{response(call("stuck", "prepared", `{}`), finish()), response(text("Recovered"), finish())}
 			case "credential renewed mid-turn":
 				m.scripts = []script{response(call("first", "probe", `{}`), finish()), response(call("second", "probe", `{}`), finish()), response(text("Done"), finish())}
+			case "provider reuses a tool ID":
+				m.scripts = []script{response(call("reused", "probe", `{}`), finish()), response(call("reused", "probe", `{}`), finish()), response(text("Done"), finish())}
 			case "redacted before text":
 				m.scripts = []script{response(fantasy.StreamPart{Type: fantasy.StreamPartTypeReasoningEnd, ID: "redacted", ProviderMetadata: fantasy.ProviderMetadata{anthropic.Name: &anthropic.ReasoningOptionMetadata{RedactedData: "opaque"}}}, text("Answer"), finish())}
 			}
@@ -114,7 +116,7 @@ func TestOneRequestPerStep(t *testing.T) {
 				// The worker survives and the settled call does not poison the next request.
 				f.waitRun(f.submit("Again"), protocol.ConversationStatusCompleted)
 			}
-			expected := map[string]int{"tool then response": 2, "bounded empty responses": 4, "tool panic": 2, "turn panic": 2, "credential renewed mid-turn": 3}[scenario]
+			expected := map[string]int{"tool then response": 2, "bounded empty responses": 4, "tool panic": 2, "turn panic": 2, "credential renewed mid-turn": 3, "provider reuses a tool ID": 3}[scenario]
 			if expected == 0 {
 				expected = 1
 			}
@@ -160,6 +162,27 @@ func TestOneRequestPerStep(t *testing.T) {
 				defer guard.Unlock()
 				if !reflect.DeepEqual(built, []string{"token-1", "token-2"}) || minted != 2 || authorizations < 4 {
 					t.Fatalf("transports=%v minted=%d authorizations=%d", built, minted, authorizations)
+				}
+			case "provider reuses a tool ID":
+				if executed.Load() != 2 || requests != 2 || len(responses) != 2 || responses["reused"] == "" {
+					t.Fatalf("reused call lost an occurrence: requests=%d responses=%v executed=%d", requests, responses, executed.Load())
+				}
+				m.mu.Lock()
+				prompt := m.calls[2].Prompt
+				m.mu.Unlock()
+				var calls, results []string
+				for _, message := range prompt {
+					for _, part := range message.Content {
+						switch value := part.(type) {
+						case fantasy.ToolCallPart:
+							calls = append(calls, value.ToolCallID)
+						case fantasy.ToolResultPart:
+							results = append(results, value.ToolCallID)
+						}
+					}
+				}
+				if len(calls) != 2 || calls[0] != "reused" || calls[0] == calls[1] || !reflect.DeepEqual(calls, results) {
+					t.Fatalf("history lost the distinction between the two calls: calls=%v results=%v", calls, results)
 				}
 			case "tool then response":
 				mustHaveText(t, state.Records, "Done")

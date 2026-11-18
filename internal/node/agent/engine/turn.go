@@ -558,29 +558,33 @@ func pending(records []canonical.Record) []canonical.ToolRequest {
 			start = i
 		}
 	}
-	answered := map[string]bool{}
+	var requests []*canonical.ToolRequest
+	waiting := map[string][]int{}
 	for i := start; i < len(records); i++ {
 		if m := records[i].Message(); m != nil {
 			for _, block := range m.Content {
-				if v, ok := block.Data.(*canonical.ToolResponse); ok {
-					answered[v.ID] = true
+				switch value := block.Data.(type) {
+				case *canonical.ToolRequest:
+					waiting[value.ID] = append(waiting[value.ID], len(requests))
+					requests = append(requests, value)
+				case *canonical.ToolResponse:
+					if matches := waiting[value.ID]; len(matches) > 0 {
+						requests[matches[0]] = nil
+						waiting[value.ID] = matches[1:]
+					}
 				}
 			}
 		}
 	}
 	var calls []canonical.ToolRequest
-	for i := start; i < len(records); i++ {
-		if m := records[i].Message(); m != nil {
-			for _, block := range m.Content {
-				if v, ok := block.Data.(*canonical.ToolRequest); ok && !answered[v.ID] {
-					var meta map[string]any
-					_ = json.Unmarshal(v.ToolMeta, &meta)
-					if meta[canonical.ExternalDispatchKey] != true {
-						calls = append(calls, *v)
-						answered[v.ID] = true
-					}
-				}
-			}
+	for _, request := range requests {
+		if request == nil {
+			continue
+		}
+		var meta map[string]any
+		_ = json.Unmarshal(request.ToolMeta, &meta)
+		if meta[canonical.ExternalDispatchKey] != true {
+			calls = append(calls, *request)
 		}
 	}
 	return calls

@@ -4,7 +4,10 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"log/slog"
 	"sync"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/clock"
@@ -13,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
@@ -192,42 +196,66 @@ func (r *Runtime) run() {
 			return
 		case <-r.wake:
 		}
+		retries := 0
 		for r.ctx.Err() == nil {
 			unlock := r.LockPublication()
 			var inv *store.AgentInvocation
 			var ended []*delegatedChild
-			changed := false
+			var changes []protocol.Event
 			err := r.db.Write(r.ctx, func(db *sql.Conn) error {
-				var changes []protocol.Event
 				var err error
 				inv, changes, ended, err = r.claimInvocation(r.ctx, db)
-				changed = len(changes) > 0
 				if err != nil {
 					return err
 				}
 				_, err = store.RecordEvents(r.ctx, db, r.node, changes)
 				return err
 			})
-			if err == nil {
-				for _, child := range ended {
-					child.cancel()
-					r.mu.Lock()
-					delete(r.children, child.turn)
-					r.mu.Unlock()
-					if child.commandsInherited && r.stopCommands != nil && r.ctx.Err() == nil {
-						r.stopCommands(child.session)
-					}
+			if err != nil {
+				unlock()
+				if retries == 0 && r.ctx.Err() == nil {
+					logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed),
+						slog.String("operation", "claim"), slog.String("exception", err.Error()))
+				}
+				failure, ok := errors.AsType[*protocol.Fault](err)
+				// The writer can report an uncertain COMMIT. Retry only when
+				// storage says it did not admit this claim.
+				if !ok || failure.Code != protocol.ErrorCodeBusy && failure.Code != protocol.ErrorCodeUnavailable || retries == 3 || r.clock.Sleep(r.ctx, time.Second) != nil {
+					break
+				}
+				retries++
+				continue
+			}
+			retries = 0
+			for _, child := range ended {
+				child.cancel()
+				r.mu.Lock()
+				delete(r.children, child.turn)
+				r.mu.Unlock()
+				if child.commandsInherited && r.stopCommands != nil && r.ctx.Err() == nil {
+					r.stopCommands(child.session)
 				}
 			}
-			if err != nil || inv == nil {
-				if err == nil && changed {
-					r.publish()
+			if inv != nil || len(changes) > 0 {
+				r.publish()
+			}
+			// A capture can settle in the same pass that starts another
+			// session. Open feeds need that settlement as well as the event.
+			refreshed := map[protocol.SessionID]bool{}
+			for _, event := range changes {
+				value, ok := event.Data.(protocol.EventConversationChangedPayload)
+				if ok && !refreshed[value.Session] && (inv == nil || value.Session != inv.Session.ID) {
+					refreshed[value.Session] = true
+					r.RefreshCommitted(value.Session)
+				}
+			}
+			if inv == nil {
+				if len(changes) > 0 {
 					r.Wake()
 				}
 				unlock()
 				break
 			}
-			r.publish()
 			parent := r.ctx
 			r.mu.Lock()
 			if child := r.children[inv.Run.Turn]; child != nil {

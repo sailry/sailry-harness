@@ -398,30 +398,13 @@ func pluginResultFailed(value any) bool {
 }
 
 func (owner *pluginScriptTurn) beforeModel(handler string) func(context.Context, []canonical.Record) (bool, error) {
+	names := make(map[string]string, len(owner.info.Extension.Tools))
+	for _, declaration := range owner.info.Extension.Tools {
+		names[plugins.ToolAlias(owner.info.Summary.Name, declaration.Name)] = declaration.Name
+	}
 	lastCall := ""
 	return func(ctx context.Context, records []canonical.Record) (bool, error) {
-		calls := map[string]string{}
-		results := []any{}
-		newest := ""
-		for _, record := range records {
-			if message := record.Message(); message != nil {
-				for _, block := range message.Content {
-					switch value := block.Data.(type) {
-					case *canonical.ToolRequest:
-						calls[value.ID] = value.Name
-					case *canonical.ToolResponse:
-						newest = value.ID
-						for _, declaration := range owner.info.Extension.Tools {
-							if plugins.ToolAlias(owner.info.Summary.Name, declaration.Name) == calls[value.ID] {
-								var response any
-								_ = json.Unmarshal(value.Result.Value, &response)
-								results = append(results, map[string]any{"name": declaration.Name, "response": response})
-							}
-						}
-					}
-				}
-			}
-		}
+		results, newest := beforeModelResults(records, owner.invocation.Run.Turn, names, lastCall)
 		if newest == lastCall && newest != "" {
 			return false, nil
 		}
@@ -436,4 +419,51 @@ func (owner *pluginScriptTurn) beforeModel(handler string) func(context.Context,
 		_ = json.Unmarshal(body, &response)
 		return response.Stop, nil
 	}
+}
+
+func beforeModelResults(records []canonical.Record, turn protocol.TurnID, names map[string]string, lastCall string) ([]json.RawMessage, string) {
+	// Reserve the array envelope. Keep whole recent results, since even a
+	// valid partial result can give a package the wrong view of its state.
+	remaining := plugins.ScriptMaxDataBytes - len(`{"results":[]}`)
+	results := []json.RawMessage{}
+	newest := ""
+	for i := len(records) - 1; i >= 0; i-- {
+		record := records[i]
+		if record.Turn != turn {
+			continue
+		}
+		if record.Metadata.Input != nil && record.Provenance.Author == "user" {
+			break
+		}
+		message := record.Message()
+		if message == nil {
+			continue
+		}
+		for j := len(message.Content) - 1; j >= 0; j-- {
+			value, ok := message.Content[j].Data.(*canonical.ToolResponse)
+			if !ok {
+				continue
+			}
+			if newest == "" {
+				newest = value.ID
+				if newest != "" && newest == lastCall {
+					return nil, newest
+				}
+			}
+			name, ok := names[value.Name]
+			if !ok || len(value.Result.Value) > remaining {
+				continue
+			}
+			body, err := json.Marshal(struct {
+				Name     string          `json:"name"`
+				Response json.RawMessage `json:"response"`
+			}{name, value.Result.Value})
+			if err == nil && len(body)+1 <= remaining {
+				results = append(results, body)
+				remaining -= len(body) + 1
+			}
+		}
+	}
+	slices.Reverse(results)
+	return results, newest
 }
