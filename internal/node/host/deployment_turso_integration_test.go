@@ -20,14 +20,18 @@ import (
 
 func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 	for _, test := range []struct {
-		name, corrupt string
-		serviceFails  bool
-		fresh         bool
-		cleanupFails  bool
-		overlap       bool
+		name, corrupt  string
+		serviceFails   bool
+		fresh          bool
+		cleanupFails   bool
+		overlap        bool
+		oneTempDir     bool
+		versionChanged bool
 	}{
 		{name: "publish all runtime files"},
 		{name: "service failure restores old runtime", serviceFails: true},
+		{name: "rollback uses its original temporary directory", serviceFails: true, oneTempDir: true},
+		{name: "stale version cannot replace a newer installation", versionChanged: true},
 		{name: "damaged Turso is refused", corrupt: "libturso_sync_sdk_kit.so"},
 		{name: "damaged seal is refused", corrupt: shipped.SealName},
 		{name: "publish new runtime", fresh: true},
@@ -48,8 +52,13 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			const verifiedVersion = "Sailry Host 0.1.0"
+			currentVersion := verifiedVersion
+			if test.versionChanged {
+				currentVersion = "Sailry Host 99.0.0"
+			}
 			current := map[string][]byte{
-				"sailry-host":              []byte("old Host"),
+				"sailry-host":              []byte("#!/bin/sh\nprintf '%s\\n' '" + currentVersion + "'\n"),
 				"libsailry_iroh.so":        []byte("old transport"),
 				"libturso_sync_sdk_kit.so": []byte("old engine"),
 				shipped.SealName:           []byte("old seal"),
@@ -115,7 +124,11 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 				digest := sha256.Sum256(body)
 				artifacts[name] = &artifact{name: name, digest: hex.EncodeToString(digest[:])}
 			}
-			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, !test.fresh, nil)
+			var installedVersion string
+			if !test.fresh {
+				installedVersion = verifiedVersion
+			}
+			script, err := deploymentScript(stage, artifacts["sailry-host"], artifacts["libsailry_iroh.so"], artifacts["libturso_sync_sdk_kit.so"], artifacts[shipped.SealName], paths, installedVersion, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,10 +137,12 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 			}
 			// Keep all service operations inside the fixture on every POSIX host.
 			tools := filepath.Join(directory, "bin")
+			serviceLog := filepath.Join(directory, "systemctl.log")
 			for name, body := range map[string]string{
 				"uname": "#!/bin/sh\nprintf 'Linux\\n'\n",
 				"id":    "#!/bin/sh\nprintf '0\\n'\n",
 				"systemctl": `#!/bin/sh
+printf '%s\n' "$*" >> "$SAILRY_FIXTURE_SERVICE_LOG"
 case "$*" in
   *"disable --now"*) test "$SAILRY_FIXTURE_CLEANUP_FAILS" != true;;
   *"is-active"*) test "$SAILRY_FIXTURE_SERVICE_FAILS" != true;;
@@ -140,11 +155,23 @@ esac
 			if _, err := exec.LookPath("sha256sum"); err != nil {
 				write(filepath.Join(tools, "sha256sum"), []byte("#!/bin/sh\nexec shasum -a 256 \"$@\"\n"), 0o700)
 			}
+			if test.oneTempDir {
+				write(filepath.Join(tools, "mktemp"), []byte(`#!/bin/sh
+mkdir "$PWD/mktemp-called" || exit 28
+exec /usr/bin/mktemp "$@"
+`), 0o700)
+				write(filepath.Join(tools, "mv"), []byte(`#!/bin/sh
+# Keep even a broken rollback within the test directory.
+if test "$#" -eq 2 && test "$2" = /failed; then exit 1; fi
+exec /bin/mv "$@"
+`), 0o700)
+			}
 			command := func() *exec.Cmd {
 				value := exec.CommandContext(t.Context(), "/bin/sh", "-s")
 				value.Dir = directory
 				value.Env = []string{
 					"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"SAILRY_FIXTURE_SERVICE_LOG=" + serviceLog,
 					fmt.Sprintf("SAILRY_FIXTURE_SERVICE_FAILS=%t", test.serviceFails),
 					fmt.Sprintf("SAILRY_FIXTURE_CLEANUP_FAILS=%t", test.cleanupFails),
 				}
@@ -158,7 +185,7 @@ esac
 				output, err = command().CombinedOutput()
 			}
 			want := next
-			if test.serviceFails || test.corrupt != "" {
+			if test.serviceFails || test.corrupt != "" || test.versionChanged {
 				want = current
 				var exit *exec.ExitError
 				if !errors.As(err, &exit) || test.serviceFails && (!test.fresh || test.cleanupFails) && exit.ExitCode() != 73 {
@@ -166,6 +193,20 @@ esac
 				}
 			} else if err != nil {
 				t.Fatalf("publication: %v: %s", err, output)
+			}
+			if test.versionChanged {
+				if !strings.Contains(string(output), "Host version changed after verification") {
+					t.Fatalf("stale update failed for the wrong reason: %s", output)
+				}
+				if _, err := os.Stat(serviceLog); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("stale update touched the service: %v", err)
+				}
+			}
+			if test.oneTempDir {
+				commands, err := os.ReadFile(serviceLog)
+				if err != nil || string(commands) != "stop service\nrestart service\n" {
+					t.Fatalf("rollback did not restart the old service: %q, %v", commands, err)
+				}
 			}
 			if test.fresh && test.serviceFails {
 				for _, path := range []string{root, profile, paths.ServicePath, paths.CommandPath} {

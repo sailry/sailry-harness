@@ -232,6 +232,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 			return unavailable("locally built Host native artifacts do not match their package seal")
 		}
 	}
+	var installedVersion string
 	if expected != nil {
 		identity, err := inspectInstalled(ctx, connection, paths)
 		if err != nil {
@@ -240,6 +241,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
 			return err
 		}
+		installedVersion = identity.Version
 	}
 	stage, err := commandSSH(ctx, connection, stageCommand, nil)
 	if err != nil {
@@ -268,7 +270,7 @@ func (owner *Installations) installLocal(ctx context.Context, connection *crypto
 	if _, err := commandSSH(ctx, connection, "umask 077; set -C; cat > "+destination, strings.NewReader(string(service))); err != nil {
 		return err
 	}
-	script, err := deploymentScript(stage, binary, library, database, seal, paths, expected != nil, selection)
+	script, err := deploymentScript(stage, binary, library, database, seal, paths, installedVersion, selection)
 	if err != nil {
 		return err
 	}
@@ -302,6 +304,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 	if owner.options != (DeploymentOptions{}) {
 		return invalid("isolated Host deployment requires locally built Host artifacts")
 	}
+	var installedVersion string
 	if expected != nil {
 		source, _ := deploymentSources.ReadFile("deployment/identity.py")
 		body, err := commandSSH(ctx, connection, "sh -s", strings.NewReader(releaseIdentity+strings.ReplaceAll(string(source), "\r\n", "\n")+"\nSAILRY_IDENTITY\n"))
@@ -315,6 +318,7 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 		if err := validateUpdate(identity, *expected, link.ProductVersion); err != nil {
 			return err
 		}
+		installedVersion = identity.Version
 	}
 	if selection != nil && selection.Kind == "custom" {
 		var custom protocol.NetworkSelectionCustomPayload
@@ -327,6 +331,13 @@ func (owner *Installations) installRelease(ctx context.Context, connection *cryp
 	script, err := wsl.ReleaseScript(link.ProductVersion, expected != nil, selection)
 	if err != nil {
 		return err
+	}
+	if installedVersion != "" {
+		quoted, err := shellQuote(installedVersion)
+		if err != nil {
+			return err
+		}
+		script = "export SAILRY_HOST_EXPECT_CURRENT_VERSION=" + quoted + "\n" + script
 	}
 	owner.Progress(caller, request, "installing")
 	_, err = commandSSH(ctx, connection, "sh -s", strings.NewReader(script))
@@ -383,7 +394,7 @@ func inspectInstalled(ctx context.Context, connection *cryptossh.Client, paths D
 	return identity, nil
 }
 
-func deploymentScript(stage string, binary, native, database, seal *artifact, paths DeploymentOptions, update bool, selection *protocol.NetworkSelection) (string, error) {
+func deploymentScript(stage string, binary, native, database, seal *artifact, paths DeploymentOptions, installedVersion string, selection *protocol.NetworkSelection) (string, error) {
 	if !semver.IsValid("v" + link.ProductVersion) {
 		return "", invalid("invalid target Host version")
 	}
@@ -392,6 +403,7 @@ func deploymentScript(stage string, binary, native, database, seal *artifact, pa
 		{"install_digest", binary.digest}, {"install_native_digest", native.digest}, {"install_turso_digest", database.digest}, {"install_seal_digest", seal.digest},
 		{"install_root", paths.ProgramRoot}, {"install_data", paths.Profile}, {"install_service_path", paths.ServicePath},
 		{"install_command", paths.CommandPath}, {"install_version", link.ProductVersion},
+		{"SAILRY_HOST_EXPECT_CURRENT_VERSION", installedVersion},
 	}
 	var script strings.Builder
 	for _, value := range values {
@@ -401,7 +413,7 @@ func deploymentScript(stage string, binary, native, database, seal *artifact, pa
 		}
 		script.WriteString("export " + value.name + "=" + quoted + "\n")
 	}
-	if update {
+	if installedVersion != "" {
 		script.WriteString("export install_update=1\n")
 	} else {
 		script.WriteString("export install_update=0\n")

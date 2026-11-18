@@ -57,6 +57,12 @@ else
   test -f "$install_root/managed-go-host"
   test "$(cat "$install_root/managed-go-host")" = 1
   test -x "$install_root/sailry-host"
+  # The controller checked the running Host before uploading the artifacts.
+  # Recheck its installed version while holding the publication lock.
+  if ! install_current_version="$("$install_root/sailry-host" --version)" || test "$install_current_version" != "$SAILRY_HOST_EXPECT_CURRENT_VERSION"; then
+    echo 'Host version changed after verification; inspect it before retrying' >&2
+    exit 1
+  fi
   test -f "$install_service_path"
   test ! -L "$install_service_path"
   test -L "$install_command"
@@ -69,7 +75,8 @@ else
     install_had_backup=1
   fi
 fi
-install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
+install_transaction="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
+install_publish="$install_transaction/program"
 install_changed=0
 install_complete=0
 install_published=0
@@ -107,11 +114,11 @@ install_cleanup() {
       if test "$install_data_created" = 1 && ! rmdir -- "$install_data" 2>/dev/null; then
         printf 'Host data remains at %s; inspect it before retrying the installation\n' "$install_data" >&2
       fi
-      if test -d "$install_publish"; then rm -rf -- "$install_publish"; fi
+      rm -rf -- "$install_transaction"
       exit "$install_status"
     fi
     if test "$install_update" = 1 && test -d "$install_backup"; then
-      if test -d "$install_root"; then mv "$install_root" "$install_publish/failed" || exit 73; fi
+      if test -d "$install_root"; then mv "$install_root" "$install_transaction/failed" || exit 73; fi
       mv "$install_backup" "$install_root" || exit 73
     fi
     if test "$install_update" = 1 && test -d "$install_root"; then
@@ -130,13 +137,14 @@ install_cleanup() {
   if test "$install_complete" = 0 && test -d "$install_stage/previous-backup"; then
     mv "$install_stage/previous-backup" "$install_backup" || exit 73
   fi
-  if test -d "$install_publish"; then rm -rf -- "$install_publish"; fi
+  rm -rf -- "$install_transaction"
   exit "$install_status"
 }
 trap install_cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+mkdir "$install_publish"
 cp "$install_stage/sailry-host" "$install_publish/sailry-host"
 cp "$install_stage/$install_native" "$install_publish/$install_native"
 cp "$install_stage/$install_turso" "$install_publish/$install_turso"
@@ -160,7 +168,6 @@ fi
 install_changed=1
 mv "$install_publish" "$install_root"
 install_published=1
-install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
 if test "$install_update" = 0; then
   mkdir "$install_data"
   install_data_created=1

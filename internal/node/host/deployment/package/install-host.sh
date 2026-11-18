@@ -227,6 +227,14 @@ except BlockingIOError:
     sys.exit("Another Host installation or update is in progress")
 PY
 task_check_paths
+# SSH verifies a paired Host before downloading the release. Compare that
+# version under the shared lock before changing the installation.
+if test "$task_update" = 1 && test -n "${SAILRY_HOST_EXPECT_CURRENT_VERSION:-}"; then
+  if ! task_current_version="$("$task_existing/sailry-host" --version)" || test "$task_current_version" != "$SAILRY_HOST_EXPECT_CURRENT_VERSION"; then
+    echo 'Host version changed after verification; inspect it before retrying' >&2
+    exit 1
+  fi
+fi
 if test "$task_migrate" = 1; then
   cp -p "$task_unit" "$task_stage/previous-service"
   "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" <<'PY'

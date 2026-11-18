@@ -192,6 +192,45 @@ func TestFreshHostInstallSerializesConcurrentPublication(t *testing.T) {
 	}
 }
 
+func TestPublishedSSHUpdateRejectsStaleVersion(t *testing.T) {
+	directory, home, installer, tools := freshHostInstaller(t)
+	root := filepath.Join(home, ".local", "lib", "sailry")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	current := []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host 99.0.0'\n")
+	binary := filepath.Join(root, "sailry-host")
+	if err := os.WriteFile(binary, current, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	serviceLog := filepath.Join(directory, "service-called")
+	commandPath := filepath.Join(root, "sailry")
+	const service = `#!/bin/sh
+: > "$SAILRY_INSTALL_FIXTURE/service-called"
+exit 1
+`
+	if err := os.WriteFile(commandPath, []byte(service), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(t.Context(), "/bin/bash", installer, "--version", link.ProductVersion, "--update")
+	command.Env = append(os.Environ(),
+		"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"SAILRY_INSTALL_FIXTURE="+directory,
+		"SAILRY_INSTALL_FIXTURE_HOME="+home,
+		"SAILRY_HOST_EXPECT_CURRENT_VERSION=Sailry Host 0.1.0",
+	)
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "Host version changed after verification") {
+		t.Fatalf("stale update returned %v: %s", err, output)
+	}
+	if actual, err := os.ReadFile(binary); err != nil || !bytes.Equal(actual, current) {
+		t.Fatalf("stale update touched the installed Host: %q, %v", actual, err)
+	}
+	if _, err := os.Stat(serviceLog); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale update touched the service: %v", err)
+	}
+}
+
 func assertHostInstallExclusive(t *testing.T, directory, tools, root string, first, second *exec.Cmd) {
 	t.Helper()
 	ready, release := filepath.Join(directory, "before-publication"), filepath.Join(directory, "allow-publication")
