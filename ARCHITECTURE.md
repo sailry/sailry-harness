@@ -274,6 +274,9 @@ The writer groups queued operations in a
 `BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become
 visible to callers after commit. Identifiers and event sequences advance in the
 same transaction as their records.
+Readers pin a snapshot before calling application code. If a local commit's
+checkpoint blocks a new snapshot, the reader rolls back its read transaction and
+waits for the commit to finish. The read request can cancel that wait.
 
 The SDK's default `"node"` KV scope identifies the authenticated user's
 namespace on the execution Node. Plugin writes, associated dispatch or

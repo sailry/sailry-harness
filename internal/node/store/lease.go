@@ -27,7 +27,7 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 		return err
 	}
 	defer connection.Close()
-	if err := beginRead(ctx, connection); err != nil {
+	if err := beginRead(ctx, connection, state.writer); err != nil {
 		return err
 	}
 	err = callback(connection)
@@ -40,7 +40,7 @@ func (handle *Handle) Read(ctx context.Context, callback func(*sql.Conn) error) 
 	return errors.Join(err, rollbackRead(ctx, connection))
 }
 
-func beginRead(ctx context.Context, connection *sql.Conn) error {
+func beginRead(ctx context.Context, connection *sql.Conn, writer *writer) error {
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -55,10 +55,16 @@ func beginRead(ctx context.Context, connection *sql.Conn) error {
 		if !transactionConflict(err) || attempt >= conflictRetries {
 			return err
 		}
-		// Turso admits a fresh MVCC snapshot on its first table read. A
-		// checkpoint may refuse it, so retry only before invoking the callback
-		// and after ending the failed transaction, as in the Rust store.
-		if err := waitForConflict(ctx, attempt); err != nil {
+		// Turso's blocking MVCC checkpoint runs inside COMMIT and can reject
+		// new snapshots until its I/O completes. Wait for the local writer
+		// only after the reader has ended its failed admission.
+		if done := writer.commitDone.Load(); done != nil {
+			select {
+			case <-*done:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		} else if err := waitForConflict(ctx, attempt); err != nil {
 			return err
 		}
 	}

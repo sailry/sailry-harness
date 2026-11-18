@@ -45,6 +45,8 @@ layers, and rebuilt Desktop and Mobile controllers.
   queued messages, provider editors and Mobile model controls.
 - Fix Windows startup compatibility checks and background Git console windows;
   enlarge the Windows application icon without changing the macOS icon.
+- Keep conversation history reads available under concurrent writes by waiting
+  for active storage checkpoints when opening a new read snapshot.
 
 ### Compatibility and distribution
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
+	"sync/atomic"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 	turso "turso.tech/database/tursogo"
@@ -38,6 +39,7 @@ type writer struct {
 	jobs       chan *writeJob
 	stop       chan struct{}
 	done       chan struct{}
+	commitDone atomic.Pointer[chan struct{}]
 	// failed is set while the connection could not be replaced after its
 	// transaction state became unknown; the next batch tries again.
 	failed error
@@ -129,7 +131,11 @@ func (writer *writer) batch(first *writeJob) {
 	}
 	committing := failure == nil
 	if committing {
+		done := make(chan struct{})
+		writer.commitDone.Store(&done)
 		_, failure = writer.connection.ExecContext(ctx, "COMMIT")
+		close(done)
+		writer.commitDone.Store(nil)
 	}
 	if failure != nil {
 		// Callbacks are not replayed, so the jobs that had succeeded are asked

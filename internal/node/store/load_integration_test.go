@@ -522,12 +522,16 @@ func storageLoadRun(parent context.Context, storage *Store, code *Handle, measur
 		go func(index int) {
 			defer readers.Done()
 			<-start
+			operation := "conversation history"
+			if index == 1 {
+				operation = "knowledge search"
+			}
 			ticker := time.NewTicker(5 * time.Millisecond)
 			defer ticker.Stop()
 			for {
 				if err := storageLoadRead(ctx, storage, index, measurements); err != nil {
 					if ctx.Err() == nil {
-						failures <- err
+						failures <- fmt.Errorf("%s: %w", operation, err)
 						cancel()
 					}
 					return

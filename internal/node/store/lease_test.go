@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 	turso "turso.tech/database/tursogo"
@@ -122,6 +124,47 @@ func (rows *readAdmissionRows) Next(values []driver.Value) error {
 	return nil
 }
 
+func TestReadAdmissionWaitsForWriterCommit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const pin = "SELECT rootpage FROM sqlite_schema LIMIT 1"
+		busy := fmt.Errorf("%w: database is locked", turso.ErrTursoBusy)
+		script := &readAdmissionScript{t: t, steps: []readAdmissionStep{
+			{query: "BEGIN"}, {query: pin, rowErr: busy}, {query: "ROLLBACK"},
+			{query: "BEGIN"}, {query: pin}, {query: "COMMIT"},
+		}}
+		database := sql.OpenDB(script)
+		defer database.Close()
+		done := make(chan struct{})
+		writer := new(writer)
+		writer.commitDone.Store(&done)
+		handle := &Handle{leases: semaphore.NewWeighted(allLeases), state: &connections{readDB: database, writer: writer}}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		result := make(chan error, 1)
+		calls := 0
+		go func() {
+			result <- handle.Read(ctx, func(*sql.Conn) error {
+				calls++
+				return nil
+			})
+		}()
+		// A checkpoint can outlast every fallback delay. The failed snapshot
+		// must roll back before waiting, and application code runs on success.
+		time.Sleep(time.Second)
+		synctest.Wait()
+		if script.next != 3 || calls != 0 {
+			t.Fatalf("read retried before writer commit ended: %d SQL steps, %d callbacks", script.next, calls)
+		}
+		close(done)
+		if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+		if script.next != len(script.steps) || calls != 1 {
+			t.Fatalf("read did not complete after writer commit: %d SQL steps, %d callbacks", script.next, calls)
+		}
+	})
+}
+
 func TestReadAdmission(t *testing.T) {
 	t.Parallel()
 	const pin = "SELECT rootpage FROM sqlite_schema LIMIT 1"
@@ -167,7 +210,7 @@ func TestReadAdmission(t *testing.T) {
 			script := &readAdmissionScript{t: t, steps: test.steps, cancel: cancel}
 			database := sql.OpenDB(script)
 			t.Cleanup(func() { _ = database.Close() })
-			handle := &Handle{leases: semaphore.NewWeighted(allLeases), state: &connections{readDB: database}}
+			handle := &Handle{leases: semaphore.NewWeighted(allLeases), state: &connections{readDB: database, writer: new(writer)}}
 			called := 0
 			err := handle.Read(ctx, func(*sql.Conn) error {
 				called++
