@@ -76,17 +76,17 @@ const (
 )
 
 type Manifest struct {
-	Version         uint32          `json:"version"`
-	Node            protocol.NodeID `json:"node"`
-	OriginalProfile string          `json:"original_profile"`
-	Files           []File          `json:"files"`
-	Links           []Link          `json:"links,omitempty"`
-	Skipped         []Skipped       `json:"skipped,omitempty"`
-	SkippedTotal    uint32          `json:"skipped_total,omitempty"`
+	Version          uint32          `json:"version"`
+	Node             protocol.NodeID `json:"node"`
+	OriginalProfile  string          `json:"original_profile"`
+	Files            []File          `json:"files"`
+	Links            []Link          `json:"links,omitempty"`
+	EmptyPackageDirs []string        `json:"empty_package_dirs,omitempty"`
+	Skipped          []Skipped       `json:"skipped,omitempty"`
+	SkippedTotal     uint32          `json:"skipped_total,omitempty"`
 }
 
-// Snapshot is a private copy of the profile's backup content: regular files,
-// the symbolic links among them, and a record of what could not be copied.
+// Snapshot holds the profile's staged files and the manifest that restores them.
 type Snapshot struct {
 	Directory string
 	Manifest  Manifest
@@ -336,6 +336,14 @@ func (snapshot *Snapshot) copy(ctx context.Context, source *os.Root, name, relat
 			snapshot.skip(relative, skipUnreadable)
 			return nil
 		}
+		if len(names) == 0 && packageSubdirectory(relative) && !snapshot.paths[relative] {
+			if len(snapshot.paths) >= MaxFiles {
+				snapshot.skip(relative, skipLimit)
+				return nil
+			}
+			snapshot.paths[relative] = true
+			snapshot.Manifest.EmptyPackageDirs = append(snapshot.Manifest.EmptyPackageDirs, relative)
+		}
 		sort.Strings(names)
 		for _, name := range names {
 			if _, err := components(name); err != nil {
@@ -519,6 +527,7 @@ func (snapshot *Snapshot) archive(ctx context.Context, output io.Writer) error {
 	sort.Slice(snapshot.Manifest.Links, func(left, right int) bool {
 		return snapshot.Manifest.Links[left].Path < snapshot.Manifest.Links[right].Path
 	})
+	slices.Sort(snapshot.Manifest.EmptyPackageDirs)
 	if err := snapshot.Manifest.Validate(); err != nil {
 		return err
 	}
@@ -551,6 +560,14 @@ func (snapshot *Snapshot) archive(ctx context.Context, output io.Writer) error {
 		_ = input.Close()
 		if err != nil {
 			return err
+		}
+	}
+	for _, path := range snapshot.Manifest.EmptyPackageDirs {
+		if err := cancelled(ctx); err != nil {
+			return err
+		}
+		if err := archive.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: path, Mode: 0o700, Format: tar.FormatGNU}); err != nil {
+			return ioFault(err)
 		}
 	}
 	for _, link := range snapshot.Manifest.Links {
@@ -637,7 +654,7 @@ func (manifest *Manifest) RefreshDatabases(ctx context.Context, root string) err
 }
 
 func (manifest *Manifest) Validate() error {
-	if manifest.Version != 1 || !filepath.IsAbs(manifest.OriginalProfile) || len(manifest.Files)+len(manifest.Links) > MaxFiles ||
+	if manifest.Version != 1 || !filepath.IsAbs(manifest.OriginalProfile) || len(manifest.Files)+len(manifest.Links)+len(manifest.EmptyPackageDirs) > MaxFiles ||
 		len(manifest.Skipped) > maxSkipped || uint64(manifest.SkippedTotal) < uint64(len(manifest.Skipped)) {
 		return invalid("invalid backup manifest")
 	}
@@ -651,7 +668,15 @@ func (manifest *Manifest) Validate() error {
 	}
 	var total uint64
 	paths := map[string]bool{}
-	links := map[string]bool{}
+	for _, path := range manifest.EmptyPackageDirs {
+		if _, err := components(path); err != nil {
+			return err
+		}
+		if paths[path] || !packageSubdirectory(path) {
+			return invalid("invalid backup package directory")
+		}
+		paths[path] = true
+	}
 	for _, link := range manifest.Links {
 		parts, err := components(link.Path)
 		if err != nil {
@@ -661,21 +686,7 @@ func (manifest *Manifest) Validate() error {
 			!utf8.ValidString(link.Target) || strings.ContainsRune(link.Target, 0) {
 			return invalid("invalid backup link metadata")
 		}
-		paths[link.Path], links[link.Path] = true, true
-	}
-	// beneath refuses an entry that would be written through a link.
-	beneath := func(parts []string) bool {
-		for end := len(parts) - 1; end > 0 && len(links) > 0; end-- {
-			if links[strings.Join(parts[:end], "/")] {
-				return true
-			}
-		}
-		return false
-	}
-	for _, link := range manifest.Links {
-		if beneath(strings.Split(link.Path, "/")) {
-			return invalid("invalid backup link metadata")
-		}
+		paths[link.Path] = true
 	}
 	for _, file := range manifest.Files {
 		parts, err := components(file.Path)
@@ -683,12 +694,23 @@ func (manifest *Manifest) Validate() error {
 			return err
 		}
 		valid := file.Path == identityName || database(file.Path) || content(file.Path, parts)
-		if !valid || paths[file.Path] || beneath(parts) || !digest(file.SHA256) || file.Mode&^0o700 != 0 {
+		if !valid || paths[file.Path] || !digest(file.SHA256) || file.Mode&^0o700 != 0 {
 			return invalid("invalid backup file metadata")
 		}
 		paths[file.Path] = true
 		if total += file.Size; total > MaxBytes || total < file.Size {
 			return invalid("backup content exceeds the restore limit")
+		}
+	}
+	leaves := make([]string, 0, len(paths))
+	for path := range paths {
+		// Sort a leaf next to its descendants, not its prefix-sharing siblings.
+		leaves = append(leaves, path+"/")
+	}
+	slices.Sort(leaves)
+	for i := 1; i < len(leaves); i++ {
+		if strings.HasPrefix(leaves[i], leaves[i-1]) {
+			return invalid("backup entry is below a file, link or empty directory")
 		}
 	}
 	for _, skipped := range manifest.Skipped {
@@ -715,6 +737,12 @@ func (manifest *Manifest) Validate() error {
 	return nil
 }
 
+func packageSubdirectory(path string) bool {
+	rest, ok := strings.CutPrefix(path, "plugins/packages/")
+	hash, child, _ := strings.Cut(rest, "/")
+	return ok && child != "" && digest(hash) && hash == strings.ToLower(hash)
+}
+
 func database(path string) bool {
 	for _, name := range databaseNames {
 		for _, member := range core.DatabaseFiles("storage/" + name) {
@@ -726,10 +754,9 @@ func database(path string) bool {
 	return false
 }
 
-// Unpack verifies an archive into an empty private directory. Links are
-// checked against the manifest here and created by Transfer, in the profile
-// they belong to. A stream that does not read as an archive is reported as
-// damaged, apart from a failure of the destination.
+// Unpack verifies an archive into an empty private directory. Transfer creates
+// its verified links and empty package directories in the destination profile.
+// An unreadable stream is reported as damaged, apart from destination failures.
 func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest, error) {
 	compressed, err := gzip.NewReader(input)
 	if err != nil {
@@ -775,6 +802,10 @@ func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest,
 	for _, link := range manifest.Links {
 		links[link.Path] = link.Target
 	}
+	directories := make(map[string]bool, len(manifest.EmptyPackageDirs))
+	for _, path := range manifest.EmptyPackageDirs {
+		directories[path] = true
+	}
 	for {
 		if err := cancelled(ctx); err != nil {
 			return Manifest{}, err
@@ -786,6 +817,13 @@ func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest,
 		if err != nil {
 			return Manifest{}, damaged(ctx)
 		}
+		if header.Typeflag == tar.TypeDir {
+			if !directories[header.Name] || header.Mode != 0o700 || header.Size != 0 {
+				return Manifest{}, invalid("backup directory is unexpected or differs from its manifest")
+			}
+			delete(directories, header.Name)
+			continue
+		}
 		if header.Typeflag == tar.TypeSymlink {
 			if target, ok := links[header.Name]; !ok || target != header.Linkname {
 				return Manifest{}, invalid("backup link is unexpected or differs from its manifest")
@@ -794,7 +832,7 @@ func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest,
 			continue
 		}
 		if header.Typeflag != tar.TypeReg {
-			return Manifest{}, invalid("backup entries must be regular files or symbolic links")
+			return Manifest{}, invalid("unsupported backup entry type")
 		}
 		spec, ok := expected[header.Name]
 		if !ok {
@@ -812,8 +850,8 @@ func Unpack(ctx context.Context, input io.Reader, destination string) (Manifest,
 			return Manifest{}, err
 		}
 	}
-	if len(expected) != 0 || len(links) != 0 {
-		return Manifest{}, invalid("backup contains missing files")
+	if len(expected) != 0 || len(links) != 0 || len(directories) != 0 {
+		return Manifest{}, invalid("backup contains missing entries")
 	}
 	// The gzip trailer and the end of the encrypted stream are checked only
 	// when the input is read to its end.
@@ -853,21 +891,29 @@ func Transfer(ctx context.Context, source string, destination *os.Root, manifest
 			return err
 		}
 	}
+	for _, path := range manifest.EmptyPackageDirs {
+		if err := cancelled(ctx); err != nil {
+			return err
+		}
+		parent, name, err := createParent(destination, path)
+		if err != nil {
+			return err
+		}
+		err = parent.Mkdir(name, 0o700)
+		_ = parent.Close()
+		if err != nil {
+			return ioFault(err)
+		}
+	}
 	for _, link := range manifest.Links {
 		if err := cancelled(ctx); err != nil {
 			return err
 		}
-		parts := strings.Split(link.Path, "/")
-		if directory := strings.Join(parts[:len(parts)-1], "/"); directory != "" {
-			if err := destination.MkdirAll(directory, 0o700); err != nil {
-				return ioFault(err)
-			}
-		}
-		parent, err := descend(destination, parts[:len(parts)-1])
+		parent, name, err := createParent(destination, link.Path)
 		if err != nil {
-			return ioFault(err)
+			return err
 		}
-		err = parent.Symlink(link.Target, parts[len(parts)-1])
+		err = parent.Symlink(link.Target, name)
 		_ = parent.Close()
 		if err != nil {
 			return fault(protocol.ErrorCodeUnavailable, "restore could not create the symbolic link "+link.Path+": "+err.Error())
@@ -976,26 +1022,34 @@ func openRegular(root *os.Root, name string) (*os.File, fs.FileInfo, error) {
 
 // create makes private parents and a new private file; existing files are refused.
 func create(root *os.Root, relative string) (*os.File, error) {
-	parts, err := components(relative)
+	parent, name, err := createParent(root, relative)
 	if err != nil {
 		return nil, err
 	}
-	directory := strings.Join(parts[:len(parts)-1], "/")
-	if directory != "" {
-		if err := root.MkdirAll(directory, 0o700); err != nil {
-			return nil, ioFault(err)
-		}
-	}
-	parent, err := descend(root, parts[:len(parts)-1])
-	if err != nil {
-		return nil, ioFault(err)
-	}
 	defer parent.Close()
-	file, err := parent.OpenFile(parts[len(parts)-1], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, ioFault(err)
 	}
 	return file, nil
+}
+
+func createParent(root *os.Root, relative string) (*os.Root, string, error) {
+	parts, err := components(relative)
+	if err != nil {
+		return nil, "", err
+	}
+	directory := strings.Join(parts[:len(parts)-1], "/")
+	if directory != "" {
+		if err := root.MkdirAll(directory, 0o700); err != nil {
+			return nil, "", ioFault(err)
+		}
+	}
+	parent, err := descend(root, parts[:len(parts)-1])
+	if err != nil {
+		return nil, "", ioFault(err)
+	}
+	return parent, parts[len(parts)-1], nil
 }
 
 func digest(value string) bool {

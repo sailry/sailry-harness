@@ -153,7 +153,9 @@ func installPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, 
 		return protocol.PluginInfo{}, invalid("plugin settings revision exhausted")
 	}
 	settings = max(settings, maximum)
-	immutable, err := encode(info)
+	metadata := info
+	metadata.Summary.Pinned = false
+	immutable, err := encode(metadata)
 	if err != nil {
 		return protocol.PluginInfo{}, err
 	}

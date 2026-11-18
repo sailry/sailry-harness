@@ -42,5 +42,6 @@ func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.Plu
 		}
 	}
 	info.Summary.SettingsRevision = reference.SettingsRevision
+	info.Summary.Pinned = false
 	return *info, nil
 }
