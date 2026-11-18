@@ -1,6 +1,7 @@
 package live
 
 import (
+	"crypto/sha256"
 	"path"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -30,18 +32,19 @@ func (r *Runtime) workspaces(visit func(*workspaceProject)) {
 	}
 }
 
-// UnsavedDocuments names the documents of this window whose drafts are not
-// saved, as the worktree's folder over the file's path. Closing the window
-// or quitting would drop them.
-func (r *Runtime) UnsavedDocuments() []string {
-	var names []string
+// UnsavedDocuments captures the drafts that closing this window would lose.
+func (r *Runtime) UnsavedDocuments() []shell.CloseDocument {
+	var documents []shell.CloseDocument
 	r.workspaces(func(project *workspaceProject) {
 		for _, file := range project.panel.Unsaved() {
-			names = append(names, path.Join(path.Base(project.owner.Path), file))
+			text, _ := project.panel.FileDraft(file)
+			documents = append(documents, shell.CloseDocument{
+				Project: project.panel, Name: path.Join(path.Base(project.owner.Path), file), Digest: sha256.Sum256([]byte(text)),
+			})
 		}
 	})
-	slices.Sort(names)
-	return names
+	slices.SortFunc(documents, func(a, b shell.CloseDocument) int { return strings.Compare(a.Name, b.Name) })
+	return documents
 }
 
 // saveAllBatch is the saves one Save all started. The close prompt leaves

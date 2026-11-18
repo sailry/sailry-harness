@@ -14,7 +14,7 @@ import (
 
 // closeRequest is a close over documents with a save the test finishes.
 type closeRequest struct {
-	documents []string
+	documents []CloseDocument
 	saving    bool
 	saves     int
 	proceeded int
@@ -22,7 +22,7 @@ type closeRequest struct {
 
 func (r *closeRequest) request() CloseRequest {
 	return CloseRequest{
-		Documents: func() []string { return r.documents },
+		Documents: func() []CloseDocument { return r.documents },
 		Save:      func() { r.saves++; r.saving = true },
 		Saving:    func() bool { return r.saving },
 		Proceed:   func() { r.proceeded++ },
@@ -33,7 +33,10 @@ func TestClosePrompt(t *testing.T) {
 	en := func(key string) string { return i18n.In("en", key) }
 	open := func(t *testing.T, documents ...string) (*App, *closeRequest, func(string), func() bool) {
 		a, tt := newTester(t)
-		r := &closeRequest{documents: documents}
+		r := &closeRequest{}
+		for _, name := range documents {
+			r.documents = append(r.documents, CloseDocument{Name: name})
+		}
 		a.ConfirmClose(r.request())
 		tt.Frame()
 		tt.Advance(time.Second)
@@ -57,9 +60,9 @@ func TestClosePrompt(t *testing.T) {
 	}
 	t.Run("names the documents once and stays idle", func(t *testing.T) {
 		a, tt := newTester(t)
-		r := &closeRequest{documents: []string{"sailry/main.go", "sailry/notes.md"}}
+		r := &closeRequest{documents: []CloseDocument{{Name: "sailry/main.go"}, {Name: "sailry/notes.md"}}}
 		a.ConfirmClose(r.request())
-		a.ConfirmClose(CloseRequest{Documents: func() []string { return []string{"other.go"} }})
+		a.ConfirmClose(CloseRequest{Documents: func() []CloseDocument { return []CloseDocument{{Name: "other.go"}} }})
 		tt.Frame()
 		tt.Advance(time.Second)
 		for _, text := range []string{en("files_unsaved"), "sailry/main.go", "sailry/notes.md", en("files_unsaved_description"), en("files_save_all"), en("files_unsaved_discard")} {
@@ -79,7 +82,7 @@ func TestClosePrompt(t *testing.T) {
 			a.closeDialog(c)
 		}, 800, 600)
 		tt.SetLocale("en")
-		r := &closeRequest{documents: []string{"a.go"}}
+		r := &closeRequest{documents: []CloseDocument{{Name: "a.go"}}}
 		a.ConfirmClose(r.request())
 		tt.Frame()
 		tt.Advance(time.Second)
@@ -113,6 +116,19 @@ func TestClosePrompt(t *testing.T) {
 		press("files_unsaved_discard")
 		if shown() || a.Closing() || r.proceeded != 1 || r.saves != 0 {
 			t.Fatalf("after Discard: closing=%v proceeded=%d saves=%d", a.Closing(), r.proceeded, r.saves)
+		}
+	})
+	t.Run("Discard covers unchanged drafts but not later edits to the same file", func(t *testing.T) {
+		a, r, press, shown := open(t, "a.go", "b.go")
+		r.documents[0].Digest[0]++
+		press("files_unsaved_discard")
+		if !shown() || !a.Closing() || r.proceeded != 0 || r.saves != 0 {
+			t.Fatal("an earlier discard accepted the later edit")
+		}
+		r.documents = r.documents[:1]
+		press("files_unsaved_discard")
+		if shown() || a.Closing() || r.proceeded != 1 || r.saves != 0 {
+			t.Fatal("a draft that was saved elsewhere caused another confirmation")
 		}
 	})
 	t.Run("Save all closes after every save ends", func(t *testing.T) {
@@ -160,7 +176,7 @@ func TestNativeClosePrompt(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a := New(preview.Load())
-			r := &closeRequest{documents: []string{"notes.md", "main.go"}}
+			r := &closeRequest{documents: []CloseDocument{{Name: "notes.md"}, {Name: "main.go"}}}
 			var prompts []kit.Confirmation
 			var answer func(int)
 			tester := ui.NewTester(func(c *ui.Context) {
@@ -213,7 +229,7 @@ func TestNativeClosePrompt(t *testing.T) {
 	}
 	t.Run("failed native save keeps the drafts and window", func(t *testing.T) {
 		a := New(preview.Load())
-		r := &closeRequest{documents: []string{"notes.md"}}
+		r := &closeRequest{documents: []CloseDocument{{Name: "notes.md"}}}
 		var answer func(int)
 		prompts := 0
 		tester := ui.NewTester(func(c *ui.Context) {

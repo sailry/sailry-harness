@@ -93,7 +93,7 @@ func run() error {
 	guard := &exitGuard{
 		windows: func() []*desktopWindow { return windows },
 		active:  func() *desktopWindow { return active },
-		documents: func(entry *desktopWindow) []string {
+		documents: func(entry *desktopWindow) []shell.CloseDocument {
 			if entry.live == nil {
 				return nil
 			}
@@ -239,7 +239,7 @@ func run() error {
 			runtime.SetPreferencesChanged(applyPreferences)
 			runtime.SetRestartProfile(func(restored string, refused func(error)) {
 				restart.run(restored, refused, func(proceed func()) {
-					if !guard.ask(entry, windows, restartProfile, proceed) {
+					if !guard.ask(entry, restartProfile, proceed) {
 						proceed()
 					}
 				})

@@ -2,8 +2,13 @@ package main
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 )
@@ -12,7 +17,7 @@ import (
 type guardTest struct {
 	guard   *exitGuard
 	windows []*desktopWindow
-	unsaved map[*desktopWindow][]string
+	unsaved map[*desktopWindow][]shell.CloseDocument
 	work    bool
 	raised  []*desktopWindow
 	shut    []*desktopWindow
@@ -20,16 +25,14 @@ type guardTest struct {
 }
 
 func newGuardTest(documents ...[]string) *guardTest {
-	g := &guardTest{unsaved: map[*desktopWindow][]string{}}
+	g := &guardTest{unsaved: map[*desktopWindow][]shell.CloseDocument{}}
 	for _, names := range documents {
-		window := &desktopWindow{app: shell.New(preview.Load())}
-		g.windows = append(g.windows, window)
-		g.unsaved[window] = names
+		g.openWindow(names...)
 	}
 	g.guard = &exitGuard{
 		windows:   func() []*desktopWindow { return g.windows },
 		active:    func() *desktopWindow { return g.windows[len(g.windows)-1] },
-		documents: func(window *desktopWindow) []string { return g.unsaved[window] },
+		documents: func(window *desktopWindow) []shell.CloseDocument { return g.unsaved[window] },
 		save:      func(*desktopWindow) {},
 		saving:    func(*desktopWindow) bool { return false },
 		work:      func(*desktopWindow) bool { return g.work },
@@ -38,6 +41,66 @@ func newGuardTest(documents ...[]string) *guardTest {
 		quit:      func() { g.quits++ },
 	}
 	return g
+}
+
+func (g *guardTest) openWindow(names ...string) *desktopWindow {
+	window := &desktopWindow{app: shell.New(preview.Load())}
+	g.windows = append(g.windows, window)
+	project := &panel.Project{}
+	for _, name := range names {
+		g.unsaved[window] = append(g.unsaved[window], shell.CloseDocument{Project: project, Name: name})
+	}
+	return window
+}
+
+func TestQuitRechecksEveryOpenWindow(t *testing.T) {
+	g := newGuardTest(nil, nil)
+	entry := g.windows[1]
+	var prompts []kit.Confirmation
+	var answer func(int)
+	tester := ui.NewTesterWith(func(c *ui.Context) {
+		kit.BindConfirmations(c, func(request kit.Confirmation, done func(int)) {
+			prompts, answer = append(prompts, request), done
+		})
+		entry.app.View(c)
+	}, 1280, 820, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tester.SetLocale("en")
+	if !g.guard.beforeQuit(false) {
+		t.Fatal("a clean quit did not ask")
+	}
+	tester.Frame()
+	if len(prompts) != 1 || prompts[0].Title != i18n.In("en", "app_exit_confirm") {
+		t.Fatalf("initial prompts: %+v", prompts)
+	}
+	const name = "project/notes.md"
+	g.unsaved[g.windows[0]] = []shell.CloseDocument{{Project: &panel.Project{}, Name: name}}
+	confirm := func(choice int) {
+		answer(choice)
+		tester.Frame()
+		tester.Frame()
+	}
+	checkDraftPrompt := func(count int) {
+		t.Helper()
+		if len(prompts) != count || prompts[count-1].Title != i18n.In("en", "files_unsaved") || !strings.Contains(prompts[count-1].Message, name) || g.quits != 0 || g.guard.passing {
+			t.Fatalf("quit did not wait for the current drafts: quits=%d prompts=%+v", g.quits, prompts)
+		}
+	}
+	confirm(1)
+	checkDraftPrompt(2)
+	// The original draft was saved. Another window now owns a same-named draft.
+	delete(g.unsaved, g.windows[0])
+	added := g.openWindow(name)
+	confirm(1)
+	checkDraftPrompt(3)
+	var saved []*desktopWindow
+	g.guard.save = func(window *desktopWindow) {
+		saved = append(saved, window)
+		delete(g.unsaved, window)
+	}
+	confirm(2)
+	if !slices.Contains(saved, added) || g.quits != 1 || !g.guard.passing || len(prompts) != 3 {
+		t.Fatalf("Save all missed the new window or asked again: saved=%v quits=%d prompts=%d", saved, g.quits, len(prompts))
+	}
 }
 
 func TestExitGuard(t *testing.T) {
@@ -94,11 +157,11 @@ func TestExitGuard(t *testing.T) {
 		g := newGuardTest(nil)
 		entry := g.windows[0]
 		proceed := func() { t.Fatal("asked before deciding whether a prompt is needed") }
-		if g.guard.ask(entry, g.windows, restartProfile, proceed) || entry.app.Closing() {
+		if g.guard.ask(entry, restartProfile, proceed) || entry.app.Closing() {
 			t.Fatal("an idle profile restart added a quit prompt")
 		}
 		g.work = true
-		if !g.guard.ask(entry, g.windows, restartProfile, proceed) || !entry.app.Closing() {
+		if !g.guard.ask(entry, restartProfile, proceed) || !entry.app.Closing() {
 			t.Fatal("a profile restart over local work did not ask")
 		}
 	})

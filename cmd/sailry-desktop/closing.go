@@ -10,7 +10,7 @@ import (
 type exitGuard struct {
 	windows    func() []*desktopWindow
 	active     func() *desktopWindow
-	documents  func(*desktopWindow) []string // unsaved documents of a window
+	documents  func(*desktopWindow) []shell.CloseDocument
 	save       func(*desktopWindow)
 	saving     func(*desktopWindow) bool
 	work       func(*desktopWindow) bool // the local Node runs a task or a terminal
@@ -33,7 +33,7 @@ const (
 
 // ask opens the prompt in entry for the windows that are about to close. It
 // reports whether the action must wait for a prompt.
-func (g *exitGuard) ask(entry *desktopWindow, closing []*desktopWindow, action closeAction, proceed func()) bool {
+func (g *exitGuard) ask(entry *desktopWindow, action closeAction, proceed func()) bool {
 	if g.quitPrompt != nil {
 		if g.quitPrompt.app.Closing() {
 			return true
@@ -43,9 +43,13 @@ func (g *exitGuard) ask(entry *desktopWindow, closing []*desktopWindow, action c
 	if entry.app.Closing() {
 		return true
 	}
-	documents := func() []string {
-		var all []string
-		for _, window := range closing {
+	closing := g.windows
+	if action == closeWindow {
+		closing = func() []*desktopWindow { return []*desktopWindow{entry} }
+	}
+	documents := func() []shell.CloseDocument {
+		var all []shell.CloseDocument
+		for _, window := range closing() {
 			all = append(all, g.documents(window)...)
 		}
 		return all
@@ -61,12 +65,12 @@ func (g *exitGuard) ask(entry *desktopWindow, closing []*desktopWindow, action c
 		Documents:      documents,
 		StopsLocalWork: stopsLocalWork,
 		Save: func() {
-			for _, window := range closing {
+			for _, window := range closing() {
 				g.save(window)
 			}
 		},
 		Saving: func() bool {
-			for _, window := range closing {
+			for _, window := range closing() {
 				if g.saving(window) {
 					return true
 				}
@@ -91,7 +95,7 @@ func (g *exitGuard) beforeQuit(sessionEnding bool) bool {
 	if entry == nil && len(windows) > 0 {
 		entry = windows[0]
 	}
-	if entry != nil && g.ask(entry, windows, quitApplication, g.pass) {
+	if entry != nil && g.ask(entry, quitApplication, g.pass) {
 		return true
 	}
 	g.passing = true
@@ -104,10 +108,10 @@ func (g *exitGuard) closing(entry *desktopWindow) bool {
 	if g.passing || entry.passing {
 		return false
 	}
-	if windows := g.windows(); len(windows) == 1 {
-		return g.ask(entry, windows, quitApplication, g.pass)
+	if len(g.windows()) == 1 {
+		return g.ask(entry, quitApplication, g.pass)
 	}
-	return g.ask(entry, []*desktopWindow{entry}, closeWindow, func() {
+	return g.ask(entry, closeWindow, func() {
 		entry.passing = true
 		g.shut(entry)
 	})

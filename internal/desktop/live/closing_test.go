@@ -55,8 +55,8 @@ func TestCloseGuard(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
 			project := closeTestDraft(fixture)
-			if names := root.UnsavedDocuments(); !slices.Equal(names, []string{"fixture/a.go"}) || root.SavingDocuments() {
-				t.Fatalf("unsaved documents = %v", names)
+			if docs := root.UnsavedDocuments(); len(docs) != 1 || docs[0].Name != "fixture/a.go" || docs[0].Project != project.panel || root.SavingDocuments() {
+				t.Fatalf("unsaved documents = %v", docs)
 			}
 			var written []protocol.CommandWriteFilePayload
 			fixture.source.dispatch = func(request protocol.Request) (link.Admission, error) {
@@ -116,8 +116,8 @@ func TestCloseGuard(t *testing.T) {
 			synctest.Wait()
 			window.Frame()
 			window.Frame()
-			if names := root.UnsavedDocuments(); !slices.Equal(names, []string{"fixture/a.go", "fixture/b.go"}) || root.SavingDocuments() {
-				t.Fatalf("after the failure: unsaved %v, saving %v", names, root.SavingDocuments())
+			if docs := root.UnsavedDocuments(); len(docs) != 2 || docs[0].Name != "fixture/a.go" || docs[1].Name != "fixture/b.go" || root.SavingDocuments() {
+				t.Fatalf("after the failure: unsaved %v, saving %v", docs, root.SavingDocuments())
 			}
 			if text, dirty := project.panel.FileDraft("a.go"); text != "two\n" || !dirty {
 				t.Fatalf("the draft changed: %q dirty=%v", text, dirty)
@@ -166,6 +166,16 @@ func TestCloseGuard(t *testing.T) {
 				t.Fatalf("unsaved %v, saving %v, texts %q", root.UnsavedDocuments(), root.SavingDocuments(), window.Texts())
 			}
 		})
+	})
+	t.Run("edits to an already unsaved document change its close snapshot", func(t *testing.T) {
+		fixture := newPluginLocationTestFixture(t)
+		project := closeTestDraft(fixture)
+		before := fixture.root.UnsavedDocuments()
+		project.panel.FileChanged("a.go", "a later edit")
+		after := fixture.root.UnsavedDocuments()
+		if len(before) != 1 || len(after) != 1 || before[0].Name != after[0].Name || before[0].Digest == after[0].Digest {
+			t.Fatal("the changed draft did not invalidate its discard confirmation")
+		}
 	})
 	t.Run("only running local work asks before a quit", func(t *testing.T) {
 		idle := protocol.DefaultSnapshot()
@@ -266,12 +276,14 @@ func TestNoticeChannels(t *testing.T) {
 			if _, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "activity_failed")+" Build the index"); ok {
 				t.Fatal("the notice has a body action")
 			}
-			for _, item := range window.AccessAll() {
-				if item.Role == ui.RoleStatus {
-					window.ClickAt(item.Bounds.X+item.Bounds.W/2, item.Bounds.Y+item.Bounds.H/2)
-					break
-				}
+			items := window.AccessAll()
+			status := slices.IndexFunc(items, func(item ui.AccessInfo) bool { return item.Role == ui.RoleStatus })
+			if status < 0 || items[status].Bounds.W <= 0 || items[status].Bounds.H <= 0 {
+				t.Fatal("the toast has no clickable status bounds")
 			}
+			bounds := items[status].Bounds
+			window.ClickAt(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
+			window.Advance(500 * time.Millisecond)
 			if root.App.Page != page || root.App.Sidebar.Selected != selected || !window.HasText("Build the index") {
 				t.Fatal("clicking the toast navigated or dismissed it")
 			}

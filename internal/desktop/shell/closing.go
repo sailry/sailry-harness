@@ -7,14 +7,23 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 )
+
+// CloseDocument identifies the draft that a discard confirmation would lose.
+// Each window owns its project editors, even when they show the same file.
+type CloseDocument struct {
+	Project *panel.Project
+	Name    string
+	Digest  [32]byte
+}
 
 // CloseRequest asks to close a window or quit the application. With unsaved
 // documents the prompt offers Save all, Discard and Cancel. Otherwise it
 // confirms the quit and warns about any local work that will stop.
 type CloseRequest struct {
-	// Documents are the unsaved documents now, read again after a save.
-	Documents      func() []string
+	// Documents are read again before discarding drafts and after saving.
+	Documents      func() []CloseDocument
 	StopsLocalWork bool
 	// Save starts saving every unsaved document; Saving reports whether a
 	// save is still under way. A failed save tells its own toast.
@@ -25,6 +34,7 @@ type CloseRequest struct {
 
 type closing struct {
 	CloseRequest
+	shown  map[CloseDocument]bool
 	names  []string
 	open   bool
 	saving bool
@@ -40,7 +50,16 @@ func (a *App) ConfirmClose(r CloseRequest) {
 	if a.closing != nil && a.closing.open {
 		return
 	}
-	a.closing = &closing{CloseRequest: r, names: r.Documents(), open: true}
+	a.closing = newClosePrompt(r, r.Documents())
+}
+
+func newClosePrompt(r CloseRequest, documents []CloseDocument) *closing {
+	st := &closing{CloseRequest: r, shown: make(map[CloseDocument]bool, len(documents)), open: true}
+	for _, document := range documents {
+		st.shown[document] = true
+		st.names = append(st.names, document.Name)
+	}
+	return st
 }
 
 // Closing reports whether the close prompt shows.
@@ -80,7 +99,7 @@ func (a *App) closeDialog(c *ui.Context) {
 			Title: i18n.T(c, "app_exit_confirm"), Message: message,
 			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "app_exit")}, Default: 1, Destructive: []int{1},
 		}) == 1 {
-			a.finishClose(st)
+			a.finishClose(c, st)
 		}
 	} else {
 		open := st.open
@@ -92,7 +111,7 @@ func (a *App) closeDialog(c *ui.Context) {
 		case 0:
 			st.open = false
 		case 1:
-			a.finishClose(st)
+			a.finishClose(c, st)
 		case 2:
 			st.saving = true
 			st.Save()
@@ -104,9 +123,17 @@ func (a *App) closeDialog(c *ui.Context) {
 	}
 }
 
-func (a *App) finishClose(st *closing) {
+func (a *App) finishClose(c *ui.Context, st *closing) {
 	if a.closing != st {
 		return
+	}
+	documents := st.Documents()
+	for _, document := range documents {
+		if !st.shown[document] {
+			a.closing = newClosePrompt(st.CloseRequest, documents)
+			c.Invalidate()
+			return
+		}
 	}
 	st.open = false
 	a.closing = nil
