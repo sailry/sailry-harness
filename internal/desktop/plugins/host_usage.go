@@ -33,20 +33,11 @@ func (owner *Host) sampledUsage() *UsageSample {
 func (owner *Host) SetUsageSample(sample *UsageSample) {
 	owner.mu.Lock()
 	owner.usageSample = sample
-	watched := owner.usageWatch != nil
 	close(owner.usageChanged)
 	owner.usageChanged = make(chan struct{})
 	owner.mu.Unlock()
-	if !watched {
-		return
-	}
 	// A Node's watch opens off the caller's frame.
-	go func() {
-		owner.mu.Lock()
-		arguments := owner.usageWatch
-		owner.mu.Unlock()
-		_ = owner.watchUsage(arguments, true)
-	}()
+	go func() { _ = owner.watchUsage(nil, true) }()
 }
 
 func (owner *Host) usageSources() []map[string]string {
@@ -188,16 +179,40 @@ func sampleUsage(sample *UsageSample, node protocol.NodeID, query protocol.Usage
 	return body
 }
 
-// watchUsage opens the page's usage watch: on the sample while one answers,
-// else on the Nodes. moved runs the page's last watch again after the sample
-// changed or was read anew: the new feed takes the place of the one before
-// under a later revision, so a call that waits goes on with it and never
-// sees the old one end.
+// waitForUsageOverview defers an initial host failure until other hosts can
+// supply a report or have failed. With a summary, individual errors can be
+// shown alongside the available totals.
+func waitForUsageOverview(value any) bool {
+	if hostAt(value, "summary") != nil || hostAt(value, "error") != nil {
+		return false
+	}
+	sources, _ := hostAt(value, "sources").([]any)
+	pending, failed := false, false
+	for _, source := range sources {
+		view := hostAt(source, "view")
+		hasError := hostAt(view, "error") != nil
+		failed = failed || hasError
+		pending = pending || !hasError || hostAt(view, "refreshing") == true
+	}
+	return pending && failed
+}
+
+// watchUsage opens the page's usage watch on the sample or the Nodes. A move
+// reuses the last successful query after a sample change or refresh. Each
+// replacement advances the revision and wakes callers waiting on the old feed.
 func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 	owner.usageWatching.Lock()
 	defer owner.usageWatching.Unlock()
 	if err := owner.checkUsage(); err != nil {
 		return err
+	}
+	if moved {
+		owner.mu.Lock()
+		arguments = owner.usageWatch
+		owner.mu.Unlock()
+		if arguments == nil {
+			return nil
+		}
 	}
 	query, err := hostUsageQuery(arguments)
 	if err != nil {
@@ -221,21 +236,6 @@ func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 	}
 	if err != nil && !moved {
 		return err
-	}
-	if !moved {
-		kept := make([]json.RawMessage, len(arguments))
-		for index, argument := range arguments {
-			kept[index] = append(json.RawMessage{}, argument...)
-		}
-		owner.mu.Lock()
-		previous := owner.observers["usage"]
-		delete(owner.observers, "usage")
-		delete(owner.feeds, "usage")
-		owner.usageWatch = kept
-		owner.mu.Unlock()
-		if previous != nil {
-			_ = previous.Close()
-		}
 	}
 	feed := &hostFeed{changed: make(chan struct{}), query: &query, all: all}
 	switch {
@@ -268,6 +268,13 @@ func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 	}
 	observer := feed.observer
 	owner.mu.Lock()
+	if owner.closed {
+		owner.mu.Unlock()
+		if observer != nil {
+			_ = observer.Close()
+		}
+		return context.Canceled
+	}
 	replaced, previous := owner.feeds["usage"], owner.observers["usage"]
 	if replaced != nil {
 		replaced.mu.Lock()
@@ -276,6 +283,12 @@ func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 		close(replaced.changed)
 		replaced.changed = make(chan struct{})
 		replaced.mu.Unlock()
+	}
+	if !moved {
+		owner.usageWatch = make([]json.RawMessage, len(arguments))
+		for index, argument := range arguments {
+			owner.usageWatch[index] = append(json.RawMessage{}, argument...)
+		}
 	}
 	owner.feeds["usage"] = feed
 	delete(owner.observers, "usage")
@@ -291,6 +304,10 @@ func (owner *Host) watchUsage(arguments []json.RawMessage, moved bool) error {
 			for {
 				value, err := observer.Next(owner.ctx)
 				feed.mu.Lock()
+				if feed.replaced {
+					feed.mu.Unlock()
+					return
+				}
 				feed.latest, feed.err = value, err
 				feed.revision++
 				close(feed.changed)
@@ -454,7 +471,9 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 						}
 					}
 				}
-				return hostJSON(map[string]any{"cursor": cursor, "all": all, "view": exactHostUsage(value)})
+				if !all || !waitForUsageOverview(value) {
+					return hostJSON(map[string]any{"cursor": cursor, "all": all, "view": exactHostUsage(value)})
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -470,14 +489,11 @@ func (owner *Host) addUsageSDK(add hostSDKAdd) {
 			return nil, err
 		}
 		owner.mu.Lock()
-		observer, sample, arguments := owner.observers["usage"], owner.usageSample, owner.usageWatch
+		observer, sample := owner.observers["usage"], owner.usageSample
 		owner.mu.Unlock()
 		if sample != nil {
 			// The sample is read anew, which shows what its clock has reached.
-			if arguments != nil {
-				return json.RawMessage("null"), owner.watchUsage(arguments, true)
-			}
-			return json.RawMessage("null"), nil
+			return json.RawMessage("null"), owner.watchUsage(nil, true)
 		}
 		if observer != nil {
 			if err := observer.Control(ctx, "refresh", json.RawMessage("null")); err != nil {

@@ -14,6 +14,46 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestUsageOverviewWaitsForOtherHosts(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		wait       bool
+	}{
+		{"remote fails before local starts", `{"sources":[{"view":{"error":{"code":"not_configured"}}},{"view":{}}]}`, true},
+		{"local is still refreshing", `{"sources":[{"view":{"error":{"code":"unavailable"}}},{"view":{"refreshing":true,"error":{"code":"unavailable"}}}]}`, true},
+		{"local supplies a partial report", `{"summary":{"totals":{"responses":1}},"complete":false,"sources":[{"view":{"error":{"code":"not_configured"}}},{"view":{"report":{"cursor":1}}}]}`, false},
+		{"all hosts have failed", `{"sources":[{"view":{"error":{"code":"unavailable"}}},{"view":{"error":{"code":"unavailable"}}}]}`, false},
+		{"aggregation itself fails", `{"error":{"code":"invalid_request"},"sources":[{"view":{"error":{"code":"unavailable"}}},{"view":{"refreshing":true}}]}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scope := protocol.DefaultPluginContext()
+			scope.Surface.Kind = "settings"
+			owner := NewHost(HostBinding{Context: t.Context(), Scope: scope})
+			defer owner.Close()
+			owner.feeds["usage"] = &hostFeed{all: true, latest: json.RawMessage(test.body), changed: make(chan struct{})}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			for _, export := range owner.sdkModule().Exports {
+				if export.Name != "nextUsageChange" {
+					continue
+				}
+				// An already canceled caller prevents waiting without making
+				// delivery of a ready feed depend on goroutine scheduling.
+				body, err := export.Async(ctx, []json.RawMessage{json.RawMessage(`""`)})
+				if test.wait {
+					if !errors.Is(err, context.Canceled) {
+						t.Fatalf("premature overview: %s, %v", body, err)
+					}
+				} else if err != nil || len(body) == 0 {
+					t.Fatalf("settled overview was withheld: %s, %v", body, err)
+				}
+				return
+			}
+			t.Fatal("the SDK has no nextUsageChange")
+		})
+	}
+}
+
 // A usage sample answers every usage call in place of the Nodes, as one
 // source, with a Node's shapes; setting another or none moves an open watch
 // over under a later cursor, and without one the calls go to the Node.
@@ -151,7 +191,7 @@ func testHostUsageSample(t *testing.T) {
 		if _, err := call(owner, "watchUsage", filtered, "true"); err != nil {
 			t.Fatalf("aggregate model filter was refused: %v", err)
 		}
-		if event, err := call(owner, "nextUsageChange", `""`); err != nil || hostAt(event, "all") != true ||
+		if event, err := call(owner, "nextUsageChange", `""`); err != nil || hostAt(event, "cursor") != "0" || hostAt(event, "all") != true ||
 			hostAt(event, "view", "summary", "totals", "responses") != "1" {
 			t.Fatalf("aggregate model filter observes %#v, %v", event, err)
 		}
@@ -164,12 +204,14 @@ func testHostUsageSample(t *testing.T) {
 			}
 		}
 
-		// A watch observes the sample once; a refresh reads it anew.
+		// Replacing the query wakes a request waiting on the previous cursor.
+		waiting := later(owner, "nextUsageChange", `"0"`)
 		if _, err := call(owner, "watchUsage", query, "false"); err != nil {
 			t.Fatal(err)
 		}
-		event, err := call(owner, "nextUsageChange", `""`)
-		if err != nil || hostAt(event, "cursor") != "0" || hostAt(event, "all") != false || hostAt(event, "view", "connected") != true ||
+		got := wait(waiting)
+		event, err := got.value, got.err
+		if err != nil || hostAt(event, "cursor") != "1" || hostAt(event, "all") != false || hostAt(event, "view", "connected") != true ||
 			hostAt(event, "view", "refreshing") != false || hostAt(event, "view", "error") != nil ||
 			hostAt(event, "view", "report", "totals", "responses") != "7" || hostAt(event, "view", "report", "node") != node {
 			t.Fatalf("the watch observes %#v, %v", event, err)
@@ -177,20 +219,20 @@ func testHostUsageSample(t *testing.T) {
 		if _, err := call(owner, "refreshUsage"); err != nil {
 			t.Fatal(err)
 		}
-		if event, err := call(owner, "nextUsageChange", `"0"`); err != nil || hostAt(event, "cursor") != "1" || hostAt(event, "view", "report", "totals", "responses") != "7" {
+		if event, err := call(owner, "nextUsageChange", `"1"`); err != nil || hostAt(event, "cursor") != "2" || hostAt(event, "view", "report", "totals", "responses") != "7" {
 			t.Fatalf("the refreshed watch observes %#v, %v", event, err)
 		}
 
 		// Another sample: the call that waits goes on with it.
-		waiting, listing := later(owner, "nextUsageChange", `"1"`), later(owner, "nextUsageSources", string(before))
+		waiting, listing := later(owner, "nextUsageChange", `"2"`), later(owner, "nextUsageSources", string(before))
 		owner.SetUsageSample(sample(9))
-		if got := wait(waiting); got.err != nil || hostAt(got.value, "cursor") != "2" || hostAt(got.value, "view", "report", "totals", "responses") != "9" {
+		if got := wait(waiting); got.err != nil || hostAt(got.value, "cursor") != "3" || hostAt(got.value, "view", "report", "totals", "responses") != "9" {
 			t.Fatalf("the watch moved to %#v, %v", got.value, got.err)
 		}
 
 		// No sample: the sources are the Nodes', which this fixture has none
 		// of, and the calls ask for the Node's Client.
-		waiting = later(owner, "nextUsageChange", `"2"`)
+		waiting = later(owner, "nextUsageChange", `"3"`)
 		owner.SetUsageSample(nil)
 		if got := wait(listing); got.err != nil || len(got.value.([]any)) != 0 {
 			t.Fatalf("the sources without a sample are %#v, %v", got.value, got.err)
@@ -208,14 +250,66 @@ func testHostUsageSample(t *testing.T) {
 		// The sample again: the page's watch is still the one to move.
 		owner.SetUsageSample(sample(7))
 		for {
-			event, err = call(owner, "nextUsageChange", `"2"`)
+			event, err = call(owner, "nextUsageChange", `"3"`)
 			if err == nil || ctx.Err() != nil {
 				break
 			}
 			runtime.Gosched()
 		}
-		if err != nil || hostAt(event, "cursor") != "4" || hostAt(event, "view", "report", "totals", "responses") != "7" {
+		if err != nil || hostAt(event, "cursor") != "5" || hostAt(event, "view", "report", "totals", "responses") != "7" {
 			t.Fatalf("the watch moved back to %#v, %v", event, err)
+		}
+	})
+
+	t.Run("replaces a live watch", func(t *testing.T) {
+		controller := client.New(&hostTestTransport{target: protocol.NodeID{1}})
+		defer controller.Close()
+		selecting, proceed := make(chan struct{}), make(chan struct{})
+		workspace := scope
+		workspace.Surface.Kind = "workspace"
+		owner := NewHost(HostBinding{Context: ctx, Client: controller, Scope: workspace, UsageSources: func() []UsageSource {
+			close(selecting)
+			select {
+			case <-proceed:
+			case <-ctx.Done():
+			}
+			return nil
+		}})
+		defer owner.Close()
+		if _, err := call(owner, "watchUsage", query, "false"); err != nil {
+			t.Fatal(err)
+		}
+		owner.mu.Lock()
+		previous := owner.observers["usage"]
+		owner.mu.Unlock()
+		if previous == nil {
+			t.Fatal("the old watch has no observer")
+		}
+		replacement := later(owner, "watchUsage", filtered, "true")
+		var before any
+		func() {
+			defer close(proceed)
+			select {
+			case <-selecting:
+			case <-ctx.Done():
+				t.Fatal("the replacement did not begin selecting usage sources")
+			}
+			var err error
+			before, err = call(owner, "nextUsageChange", `""`)
+			if err != nil || hostAt(before, "all") != false {
+				t.Fatalf("the old watch was lost while preparing its successor: %#v, %v", before, err)
+			}
+		}()
+		if got := wait(replacement); got.err != nil {
+			t.Fatal(got.err)
+		}
+		if _, err := previous.Next(ctx); !errors.Is(err, context.Canceled) {
+			t.Fatalf("the old observer remained open: %v", err)
+		}
+		cursor := hostAt(before, "cursor").(string)
+		after, err := call(owner, "nextUsageChange", quote(cursor))
+		if err != nil || hostAt(after, "all") != true || hostAt(after, "cursor") == cursor {
+			t.Fatalf("the replacement watch observes %#v, %v", after, err)
 		}
 	})
 
