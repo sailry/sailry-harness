@@ -41,8 +41,6 @@ Future<void> checkUpdates(
             .replaceAll('{version}', '${release.version}'),
         key: const ValueKey('update-toast'),
         duration: const Duration(seconds: 10),
-        action: context.tr('updatesDownload'),
-        onAction: () => unawaited(openUpdate(context, release)),
       );
     } else if (!automatic) {
       showToast(
