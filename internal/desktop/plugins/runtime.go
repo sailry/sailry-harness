@@ -16,6 +16,7 @@ import (
 	"github.com/MoeForge/moejs"
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -67,7 +68,8 @@ type Mounted struct {
 	selectors  map[uint64]*int
 	widgetIDs  map[string]uint64
 	nextWidget uint64
-	viewport   map[string]float32
+	viewport   [2]float32
+	palette    *theme.Palette
 	nativeText map[uint64]string
 	images     map[string]ui.ImageSource
 	// scrolling is the chain of elements being built, with the axes each
@@ -172,7 +174,7 @@ func (runtime *Runtime) Mount(bundle Bundle, pluginContext PluginContext) (_ *Mo
 		inputs: map[uint64]*string{}, toggles: map[uint64]*bool{}, popovers: map[uint64]*bool{},
 		selectors: map[uint64]*int{}, widgetIDs: map[string]uint64{},
 		focusHandles: map[uint64]*ui.Handle{},
-		viewport:     map[string]float32{"width": 1280, "height": 820}, nativeText: map[uint64]string{}, images: map[string]ui.ImageSource{},
+		nativeText:   map[uint64]string{}, images: map[string]ui.ImageSource{},
 	}
 	mounted.engine = moejs.NewRuntime(moejs.Options{Importer: &moejs.Importer{Resolve: mounted.resolveModule}})
 	mounted.unroot = mounted.engine.AddLiveRoots(func(add func(moejs.Value)) {
@@ -469,19 +471,21 @@ func (mounted *Mounted) snapshot() (*NativeElement, error) {
 	if mounted.closed {
 		return nil, errors.New("plugin view is closed")
 	}
-	result, err := mounted.call("render")
+	result, err := mounted.call("render", mounted.last != nil)
 	if err != nil {
 		return nil, err
 	}
-	text, ok := result.(string)
-	if !ok {
-		return nil, errors.New("plugin render returned no element snapshot")
+	if result != nil || mounted.last == nil {
+		text, ok := result.(string)
+		if !ok {
+			return nil, errors.New("plugin render returned no element snapshot")
+		}
+		var element NativeElement
+		if err := json.Unmarshal([]byte(text), &element); err != nil {
+			return nil, err
+		}
+		mounted.last = &element
 	}
-	var element NativeElement
-	if err := json.Unmarshal([]byte(text), &element); err != nil {
-		return nil, err
-	}
-	mounted.last = &element
 	if mounted.jobsHeld && !mounted.jobsPosted && mounted.runtime.bindings.Post != nil {
 		mounted.jobsPosted = true
 		mounted.runtime.bindings.Post(func() {
@@ -493,7 +497,7 @@ func (mounted *Mounted) snapshot() (*NativeElement, error) {
 			}
 		})
 	}
-	return &element, nil
+	return mounted.last, nil
 }
 
 func (mounted *Mounted) Dispatch(callback CallbackRef, event json.RawMessage) error {

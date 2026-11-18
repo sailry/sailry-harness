@@ -160,10 +160,10 @@ globalThis.__desktop = (() => {
       if(typeof object.init==="function") invoke(cx=>object.init(undefined,cx),[],"event",true,object);
       dirty=true;
     },
-    render() {
+    render(reuse) {
       check();
       if(!object) throw new Error("desktop entry has not finished loading");
-      if(!dirty && rootSnapshot) return rootSnapshot;
+      if(!dirty && rootSnapshot) return reuse ? null : rootSnapshot;
       generation++;nextOrdinal=0;nodes=new Map();consumed=new Set();
       const previous=phase;phase="render";
       try {

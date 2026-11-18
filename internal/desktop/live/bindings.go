@@ -206,6 +206,7 @@ func (r *Runtime) syncNetwork() {
 		}
 		present[id] = true
 		if old := r.bindings[id]; old != nil && old.controller != peer.controller {
+			r.detachBindingTerminals(old)
 			_ = old.Close()
 			delete(r.bindings, id)
 		}
@@ -226,6 +227,7 @@ func (r *Runtime) syncNetwork() {
 				// selected host's.
 				r.showNodeSettings(nil)
 			}
+			r.detachBindingTerminals(bound)
 			_ = bound.Close()
 			delete(r.bindings, id)
 		}

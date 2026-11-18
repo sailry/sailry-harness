@@ -33,14 +33,19 @@ func (mounted *Mounted) Render(context *ui.Context) (ui.Element, error) {
 		return ui.Element{}, err
 	}
 	bounds := context.Root().Bounds()
-	if bounds.W > 0 && bounds.H > 0 {
-		mounted.viewport = map[string]float32{"width": bounds.W, "height": bounds.H}
+	size := [2]float32{bounds.W, bounds.H}
+	if bounds.W > 0 && bounds.H > 0 && size != mounted.viewport {
+		if _, err := mounted.call("setViewport", map[string]float32{"width": bounds.W, "height": bounds.H}); err != nil {
+			return ui.Element{}, err
+		}
+		mounted.viewport = size
 	}
-	if _, err := mounted.call("setViewport", mounted.viewport); err != nil {
-		return ui.Element{}, err
-	}
-	if _, err := mounted.call("setTheme", runtimeTheme(context)); err != nil {
-		return ui.Element{}, err
+	palette := theme.Of(context)
+	if palette != mounted.palette {
+		if _, err := mounted.call("setTheme", runtimeTheme(palette)); err != nil {
+			return ui.Element{}, err
+		}
+		mounted.palette = palette
 	}
 	element, err := mounted.snapshot()
 	if err != nil {
@@ -623,8 +628,7 @@ func runtimeBool(value any) bool {
 	return boolean
 }
 
-func runtimeTheme(context *ui.Context) map[string]any {
-	palette := theme.Of(context)
+func runtimeTheme(palette *theme.Palette) map[string]any {
 	result := map[string]any{}
 	_ = json.Unmarshal(ThemeSnapshot(palette), &result)
 	result["dark"] = palette.Dark

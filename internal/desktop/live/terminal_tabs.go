@@ -104,6 +104,9 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	if !owner.async(func() {
 		output, err := owner.controller.Execute(owner.ctx, request)
 		root.enqueue(func(c *ui.Context) {
+			if root.packages.terminals[id] != state {
+				return
+			}
 			info, valid := detail[protocol.TerminalInfo](output.Data)
 			if err == nil && !valid {
 				err = pluginNativeFault(protocol.ErrorCodeInternal, "terminal creation returned no terminal")
@@ -111,9 +114,6 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 			if err != nil {
 				root.dropTerminalTab(id)
 				root.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-				return
-			}
-			if root.packages.terminals[id] != state {
 				return
 			}
 			if state.closing {

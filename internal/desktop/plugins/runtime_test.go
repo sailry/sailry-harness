@@ -72,11 +72,16 @@ export default class Counter extends View {
 		if renderErr != nil {
 			t.Fatal(renderErr)
 		}
+		initial := mounted.last
+		tester.Frame()
+		if renderErr != nil || mounted.last != initial {
+			t.Fatalf("unchanged frame replaced its decoded tree: %v", renderErr)
+		}
 		if err := tester.Click("Count 0"); err != nil {
 			t.Fatal(err)
 		}
 		tester.Frame()
-		if renderErr != nil || !tester.HasText("Count 1") {
+		if renderErr != nil || mounted.last == initial || !tester.HasText("Count 1") {
 			t.Fatalf("persistent event did not update native frame: %v", renderErr)
 		}
 		snapshot, err := mounted.Snapshot()

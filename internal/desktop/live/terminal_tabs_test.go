@@ -104,6 +104,44 @@ func terminalTabsTestTabs(root *Runtime) []string {
 	return ids
 }
 
+func TestTerminalTabSurvivesBindingReplacement(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		root, _ := terminalTabsFixture(t)
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{2}
+		info := terminalTabsTestInfo(4, protocol.WorktreeID{2}, "running")
+		snapshot.Terminals = []protocol.TerminalInfo{info}
+		node := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snapshot}}
+		makeBinding := func() *Runtime {
+			owner := client.New(link.NewLocal(snapshot.Node, snapshot.Node, node))
+			t.Cleanup(func() { _ = owner.Close() })
+			if err := owner.Start(root.ctx); err != nil {
+				t.Fatal(err)
+			}
+			return &Runtime{ctx: root.ctx, controller: owner}
+		}
+		previous := makeBinding()
+		id := info.ID.String()
+		ctx, cancel := context.WithCancel(root.ctx)
+		root.packages.terminals[id] = &liveTerminal{owner: previous, cancel: cancel}
+		root.terminalInventory().pending[id] = true
+		root.App.OpenWorkspaceTerminal(id, "")
+
+		root.detachBindingTerminals(previous)
+		root.terminalsFrame(nil)
+		if ctx.Err() == nil || root.packages.terminals[id] != nil || !slices.Contains(root.App.WorkspaceTerminalIDs(), id) {
+			t.Fatal("retiring a binding should detach the stream and preserve its tab")
+		}
+		current := makeBinding()
+		root.bindings = map[string]*Runtime{snapshot.Node.String(): current}
+		root.terminalsFrame(nil)
+		owner, captured, exists := root.terminalOwner(info.ID)
+		if !exists || owner != current || captured.ID != info.ID || !slices.Contains(root.App.WorkspaceTerminalIDs(), id) {
+			t.Fatal("the existing tab did not resolve to its replacement binding")
+		}
+	})
+}
+
 // testTerminalTabsPrune covers PANEL-056 and PANE-016: only a terminal its
 // Node reports as active keeps its tab.
 func testTerminalTabsPrune(t *testing.T) {

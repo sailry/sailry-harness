@@ -152,6 +152,22 @@ func (r *Runtime) releaseLiveTerminal(id string) {
 	}
 }
 
+// Drop a retired binding's observations while keeping each tab's Node
+// identity. A replacement binding can attach the same running terminal.
+func (r *Runtime) detachBindingTerminals(bound *Runtime) {
+	if r.packages == nil {
+		return
+	}
+	inventory := r.terminalInventory()
+	for id, state := range r.packages.terminals {
+		if state.owner == bound {
+			inventory.nodes[id] = bound.controller.Target()
+			delete(inventory.pending, id)
+			r.releaseLiveTerminal(id)
+		}
+	}
+}
+
 // terminalView is a terminal tab's screen. MyGo shows a terminal in one view
 // at a time, so a workspace pane rendered this frame owns that screen.
 func (r *Runtime) terminalView(c *ui.Context, id string) {
