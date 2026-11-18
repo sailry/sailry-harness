@@ -22,6 +22,12 @@ type mediaState struct {
 	wanted   string // the latest ones the snapshot showed
 	reading  bool
 	bindings map[string]protocol.MediaBinding
+	saving   map[mediaSaveKey]func() bool
+}
+
+type mediaSaveKey struct {
+	revision uint64
+	bindings [4]string
 }
 
 // followMedia reads the media assignments and the models offered when the
@@ -161,15 +167,28 @@ func (r *Runtime) saveMedia() {
 	if field.Pending {
 		return
 	}
+	key := mediaSaveKey{revision: field.Revision}
 	request := protocol.MediaSettings{Revision: field.Revision, Bindings: map[protocol.MediaKind]*protocol.MediaBinding{}}
 	for i, kind := range viewmodel.MediaKinds {
 		if binding, chosen := r.media.bindings[field.Draft[i]]; chosen {
 			request.Bindings[protocol.MediaKind(kind)] = &binding
+			key.bindings[i] = mediaKey(binding)
 		}
 	}
 	field.Pending = true
-	current := r.settingsCurrent()
+	if r.media.saving == nil {
+		r.media.saving = map[mediaSaveKey]func() bool{}
+	}
+	// A returning page can make the same choice at the same revision before
+	// it sees the result. Attach its binding to the original write.
+	_, pending := r.media.saving[key]
+	r.media.saving[key] = r.settingsCurrent()
+	if pending {
+		return
+	}
 	r.saveSetting(protocol.Command{Kind: "save_media_settings", Data: request}, settings.MediaMessages, func(output protocol.Output, ok bool) {
+		current := r.media.saving[key]
+		delete(r.media.saving, key)
 		if !current() {
 			return
 		}

@@ -417,14 +417,19 @@ func TestMediaSaveCompletionFollowsSettingsBinding(t *testing.T) {
 			synctest.Wait()
 			tester.Frame()
 		}
+		returnToHost := func(value protocol.MediaSettings) {
+			r.settingsShown = &Runtime{}
+			r.settingsGeneration++
+			*field = settings.Stored[[4]string]{}
+			r.settingsShown = r
+			r.settingsGeneration++
+			r.projectMedia(value, candidates, true)
+		}
 		r.projectMedia(protocol.MediaSettings{Revision: 1}, candidates, true)
 		first := save("first")
 		// The page switches to another host and back. The newly read value
 		// includes the save the Node already applied, with its reply still held.
-		r.settingsShown, r.settingsGeneration = &Runtime{}, 1
-		*field = settings.Stored[[4]string]{}
-		r.settingsShown, r.settingsGeneration = r, 2
-		r.projectMedia(first.value, candidates, true)
+		returnToHost(first.value)
 		second := save("second")
 		before := *field
 		complete(first)
@@ -438,6 +443,21 @@ func TestMediaSaveCompletionFollowsSettingsBinding(t *testing.T) {
 		complete(second)
 		if field.Pending || field.Revision != newer.Revision || field.Draft != field.Saved || field.Saved[0] != modelKey(provider, "first") {
 			t.Fatalf("an older acknowledgement replaced the current settings: %+v", *field)
+		}
+
+		// If the Node still shows the prior revision on return, selecting the
+		// same model again waits for the original request to finish.
+		pending := save("second")
+		returnToHost(newer)
+		field.Draft[0] = modelKey(provider, "second")
+		r.saveMedia()
+		synctest.Wait()
+		if !field.Pending || len(transport.saves) != 0 {
+			t.Fatal("the repeated save started another write or stopped waiting for the result")
+		}
+		complete(pending)
+		if field.Pending || field.Revision != pending.value.Revision || field.Draft != field.Saved || field.Saved[0] != modelKey(provider, "second") {
+			t.Fatalf("the original reply did not settle the returning page: %+v", *field)
 		}
 	})
 }
