@@ -126,12 +126,7 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 		return result, err
 	}
 	result.ReferencesTruncated = truncated
-	options := &gogit.LogOptions{From: hash, Order: gogit.LogOrderCommitterTime}
-	if input.Path != nil {
-		path := *input.Path
-		options.PathFilter = func(value string) bool { return value == path }
-	}
-	iter, err := r.Log(options)
+	iter, err := r.Log(&gogit.LogOptions{From: hash, Order: gogit.LogOrderCommitterTime})
 	if err != nil {
 		return result, mapError(err)
 	}
@@ -152,6 +147,15 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 			resumed = commit.Hash.String() == input.Cursor.After
 			continue
 		}
+		if input.Path != nil {
+			changed, err := historyChange(ctx, commit, *input.Path)
+			if err != nil {
+				return result, err
+			}
+			if !changed {
+				continue
+			}
+		}
 		if uint64(len(result.Entries)) == limit {
 			result.Truncated = true
 			break
@@ -166,6 +170,67 @@ func (s *Service) Log(ctx context.Context, root string, input protocol.CommandRe
 	}
 	return result, nil
 }
+
+// A subtree's hash changes whenever its contents change. Compare the literal
+// entry against the commit's parents to avoid walking unrelated trees.
+func historyChange(ctx context.Context, commit *object.Commit, path string) (bool, error) {
+	current, err := historyEntry(commit, path)
+	if err != nil {
+		return false, mapError(err)
+	}
+	if commit.NumParents() == 0 {
+		return current.Mode != filemode.Empty, nil
+	}
+	for i := range commit.NumParents() {
+		if err := checkContext(ctx); err != nil {
+			return false, err
+		}
+		parent, err := commit.Parent(i)
+		if err != nil {
+			return false, mapError(err)
+		}
+		if parent.TreeHash == commit.TreeHash {
+			return false, nil
+		}
+		value, err := historyEntry(parent, path)
+		if err != nil {
+			return false, mapError(err)
+		}
+		if current == value {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func historyEntry(commit *object.Commit, path string) (object.TreeEntry, error) {
+	tree, err := commit.Tree()
+	if err != nil {
+		return object.TreeEntry{}, err
+	}
+	for {
+		name, rest, nested := strings.Cut(path, "/")
+		value, err := tree.FindEntry(name)
+		if errors.Is(err, object.ErrEntryNotFound) {
+			return object.TreeEntry{}, nil
+		}
+		if err != nil {
+			return object.TreeEntry{}, err
+		}
+		if !nested {
+			return *value, nil
+		}
+		if value.Mode != filemode.Dir {
+			return object.TreeEntry{}, nil
+		}
+		tree, err = tree.Tree(name)
+		if err != nil {
+			return object.TreeEntry{}, err
+		}
+		path = rest
+	}
+}
+
 func (s *Service) Commit(ctx context.Context, root, revision string) (protocol.GitCommit, error) {
 	r, err := open(root)
 	if err != nil {
