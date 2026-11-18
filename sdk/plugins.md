@@ -264,11 +264,11 @@ Use `prepareHostCall(node, handler, input, readOnly?)` to invoke this package's
 declared host handler on that resource's execution Node. Complete and retain the
 returned draft using the ordinary SDK request lifecycle. The helper fixes the
 real target before assigning the request ID; outcome recovery never creates
-another invocation. A read-only call must name `host.read_only`. Calls follow
-the initiating controller's direct hosts, and an unavailable target returns a
-fault without executing a local substitute. The target creates a local callback
-scope; foreign session and turn IDs are not interpreted as target resources.
-The original captured package version remains authoritative.
+another invocation. A read-only call must name `host.read_only`. An unscoped
+desktop-owned view can select a directly connected host. A host-owned view,
+workspace view or Node callback calls handlers on its execution Node. The target uses its own installed
+package and settings for a new controller call. A handler creates a local callback
+scope, and an unavailable target returns a source fault.
 
 Authorized Code tools may use `prepareTransaction` with their own namespace's
 `write` and `remove` operations. They retain the ordinary atomic batch budget,
@@ -810,12 +810,10 @@ the ones the agent lists; none is invented.
 
 Declare `storage.read` and/or `storage.write` in
 `extensions.dev.sailry.platform.actions`. Node derives the namespace from the
-authenticated controller user and plugin name. Personal data survives package
-updates, configuration edits, removal and reinstallation. The default `"node"`
-scope is the current controller's personal namespace, with a local view on each
-of its execution hosts. It does not select a physical storage machine or make
-the data public. No localStorage, filesystem path or credential access is
-provided.
+authenticated user and plugin name on the execution Node. Personal data
+survives package updates, configuration edits, removal and reinstallation.
+The default `"node"` scope selects that user's private storage on this Node.
+A storage key carries the same meaning across calls routed to that Node.
 
 ```js
 import { getValue, setValue, completeRequest, forgetRequest } from "sailry/sdk";
@@ -838,27 +836,11 @@ cannot recreate them silently. `present` distinguishes stored JSON null from an
 absent value. Set and delete are compare-and-set operations and return a prepared
 request ID, not a success claim.
 
-The current execution Node commits personal writes locally and immediately
-exposes them to its reads. A remote executor retains a controller snapshot plus
-pending writes in a durable overlay. `prepareTransaction` remains one local
-transaction: personal KV, dispatch, notifications and scoped session operations
-commit together with the personal-write outbox group. It is not split across
-hosts. Local completion establishes that transaction's outcome; it does not
-claim that another host has already received its personal data.
-
-The controller retrieves the original personal write group and compares its
-source revisions before applying all its keys. It retains the request ID, digest,
-sequence and predecessor receipts for offline writes. A source conflict produces one deduplicated notification and preserves
-the controller's current values; it does not choose a last writer or repeat the
-original handler. Acknowledgements settle the executor's overlay, and snapshots
-update the other hosts. Dispatch, notifications, project mutations and session
-operations are never replayed during this reconciliation. Retain a resource's
-`execution_node` and use the host-call method above when its next operation must
-run where it was created. Pending write payloads have a separate 128 MiB
-limit per controller and plugin on each executor. Exceeding that limit returns
-`busy` and rolls back the entire local transaction; existing pending writes remain
-available for reconciliation. Source snapshots preserve all undecided local
-writes while refreshing the base underneath them.
+The execution Node commits personal writes locally and exposes them to its
+subsequent reads and searches. `prepareTransaction` commits personal KV,
+dispatch, notifications and scoped session operations together on that Node.
+Retain the resource's `execution_node` when opening it from a controller so later
+operations use the same Node. Each Node maintains its own revisions.
 
 A package may declare a collection with `"project"` scope and supply `"project"`
 as the optional final argument of `getValue`, `listKeys`, `setValue`, `indexedValue`
@@ -866,12 +848,12 @@ or `deleteValue`. Storage search accepts the same scope. Project storage stays o
 the project's Node and follows its visibility across worktrees and users.
 Node resolves the project from the captured worktree; packages cannot supply an
 unrelated project ID. Conversation storage stays in the captured session's Node
-namespace. Neither scope participates in personal KV reconciliation.
+namespace.
 
-Package content is cached by digest. Controller-owned installation choices,
-enablement, settings and connections have separate per-user execution caches.
-Writable directories and MCP/program instances remain on their execution Node.
-An admitted turn or callback retains its original settings and storage principal.
+Package content is cached by digest. Installation choices, enablement, settings
+and connections belong to the authenticated user on that execution Node.
+Writable directories and MCP/program instances live there too. An admitted turn
+or callback retains its original settings and storage principal.
 
 Machine-bound resources retain a separate `HostPath{node, path}` location.
 Caching a database profile or SSH key-file reference does not copy its file or
@@ -1081,54 +1063,41 @@ through the SDK. Declare `knowledge.read` for queries and citation reads and
 declared file, storage and conversation actions. The built-in knowledge settings
 configure vector models.
 
-Each collection returns `{node, id}` as its `KnowledgeRef`, its owning user,
-definition and revision. `node` is the physical owner of the source and derived
-index. `visibility` is independent: an independent collection defaults to
-`"private"`, or can be `"shared"` for other authenticated users on that storage
-Node to read. Its owner retains management. Shared data is available through
-trusted connected Nodes; it is not an anonymous public endpoint. Worktree and
-project-storage collections follow the project's visibility; conversation
-collections keep their session scope. `shared_with` selects other plugin
-consumers and does not move the data or change its user owner.
+Each collection returns a `KnowledgeRef` with its storage Node and ID, along
+with its owning user, definition and revision. The source and derived index
+stay on the storage Node. A new independent collection defaults to
+`"shared"`, allowing authenticated users on that Node to read it. Use
+`"private"` to restrict it to the owner. The owner manages the collection.
+Worktree and project-storage collections follow project visibility, and
+conversation collections follow their session's access. `shared_with` selects
+other plugin consumers within that same scope.
 
-`prepareKnowledgeCollection(draft)` accepts an optional `node` for storage and
-the visibility, name, source, model, globs and tags. Plugin sources are a captured
-worktree path or the package's `"node"`, `"project"` or `"conversation"` KV.
-Worktree, project and conversation sources remain on their captured Node.
-Personal `"node"` KV is indexed on its controller, where the authoritative values
-converge. File and directory sources selected by a controller retain their own
-Node and path; a path string is never reinterpreted on another machine.
+`prepareKnowledgeCollection(draft)` accepts an optional storage `node`,
+visibility, name, source, model, globs and tags. Plugin sources include a
+captured worktree path and the package's `"node"`, `"project"` or
+`"conversation"` KV. The owning Node indexes each source. File and directory
+sources selected in the management UI keep their Node and path.
 
-`listKnowledgeCollections()` and `queryKnowledge(query)` without a source
-selection use the initiating controller's unified view of its own sources and
-direct hosts.
-Executing the callback on C keeps A as that resource entry. Queries can select
-`refs: [{node, id}]` to retain explicit source identity; a selection containing
-only collections on the execution Node can run locally while its controller is
-offline. The query page reports per-source `fault` entries, indexing state and
-the actual search mode. Available results remain usable when another source
-fails. Preserve and show those failures instead of treating them as empty data.
-The controller combines source ranks without comparing unrelated raw scores.
-Legacy `collections: [id]` filters have no host identity; use `refs` for
-unambiguous multi-host selection.
+Task tools, Node callbacks and workspace views use their execution Node for
+`listKnowledgeCollections()`, `queryKnowledge(query)` and collection
+changes. An explicit `ref` must belong to that Node. The desktop management view
+can list and search its own Node and directly connected hosts. Use
+`refs: [{node, id}]` to identify collections across that view. The query page
+reports per-source `fault` entries, indexing state and the actual search mode.
+Keep successful results and report per-source failures. The entry combines
+source ranks across hosts.
 
 `readKnowledgeCitation(citation)` returns to the citation's original Node and
 rechecks its collection visibility, source revision and content. Keep the full
-`node`, `collection`, `chunk` and `revision`, including when opening a citation
-from another host. Retrieved text remains untrusted input. An offline source is
-unavailable; a cached list entry cannot substitute for a successful source read.
+`node`, `collection`, `chunk` and `revision`. Retrieved text remains untrusted.
+An offline source returns an unavailable fault.
 
 Use the returned `KnowledgeRef` and exact revision with
 `prepareKnowledgeUpdate`, `prepareKnowledgePause`, `prepareKnowledgeRebuild`
 and `prepareKnowledgeRemoval`. Complete and recover each through its original
-request ID. A legacy string collection ID selects the current Node; use an
-explicit reference for another host. Removal deletes the collection and derived
-index, preserving the original source data. Scoped calls validate the captured
-package at its execution Node before using the controller's route. Workspace UI
-calls retain that validation Node separately from a reference's storage Node;
-personal storage collections still default to the controller. Recovery keeps the
-original request and checks the current collection visibility without treating
-another Node's workspace identifiers as local resources.
+request identity and target. A legacy string collection ID selects the
+current Node. Removal deletes the collection and derived index while
+preserving the original source data.
 
 ## Resource components
 
@@ -1642,7 +1611,7 @@ worktree and session checks. File/Git/conversation operations use the existing
 scoped protocol through `prepareRequest`; HTTP uses the declared Node service;
 the SDK grants no raw process or OS access. UI and game rules stay in plugins.
 Resource persistence, model execution and durable receipts stay in their owning
-Node. Personal configuration and credential renewal remain on the controller.
+Node. Personal configuration and credential renewal run on the Node that owns them.
 
 The `read_command` operation accepts `wait_ms` with a command `id`, capped at
 30000 milliseconds. Zero or omission reads immediately. Without `until`, waiting

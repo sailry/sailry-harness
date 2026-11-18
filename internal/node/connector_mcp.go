@@ -373,25 +373,12 @@ type connectorOAuthSource struct {
 	mu     sync.Mutex
 	record store.ConnectorRecord
 	value  connectorOAuthRecord
-	remote bool
 }
 
 func (node *Node) connectorMCPSource(record store.ConnectorRecord, contexts ...context.Context) (*connectorOAuthSource, error) {
 	ctx := node.ctx
 	if len(contexts) != 0 {
 		ctx = contexts[0]
-	}
-	var remote bool
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		controller, err := store.CurrentController(ctx, db, node.ID())
-		remote = controller != node.ID()
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	if remote {
-		return &connectorOAuthSource{ctx: ctx, node: node, record: record, remote: true}, nil
 	}
 	owner, err := node.pluginOwnerContext(ctx)
 	if err != nil {
@@ -407,18 +394,6 @@ func (node *Node) connectorMCPSource(record store.ConnectorRecord, contexts ...c
 func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	if source.remote {
-		var value *protocol.Secret
-		err := source.node.profile.Store.Node.Read(source.ctx, func(db *sql.Conn) error {
-			var err error
-			value, err = store.ReadRuntimeConnectorCredential(source.ctx, db, source.node.ID(), source.record)
-			return err
-		})
-		if err != nil {
-			return nil, err
-		}
-		return &oauth2.Token{AccessToken: value.Expose(), TokenType: "Bearer"}, nil
-	}
 	value, _ := source.node.auth.connectorLocks.LoadOrStore(source.record.ID, make(chan struct{}, 1))
 	lock := value.(chan struct{})
 	select {

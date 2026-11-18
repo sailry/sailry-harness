@@ -17,13 +17,6 @@ func readPersonalSetting[T any](ctx context.Context, db *sql.Conn, kind string) 
 	if !personalSettingKind(kind) {
 		return nil, errors.New("invalid personal setting")
 	}
-	if registration, followed := personalConfigurationKind(kind); followed {
-		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-			return nil, err
-		} else if cached {
-			return readCachedConfiguration[T](ctx, db, registration.Name, "default")
-		}
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
@@ -40,11 +33,6 @@ func readPersonalSetting[T any](ctx context.Context, db *sql.Conn, kind string) 
 func writePersonalSetting(ctx context.Context, db *sql.Conn, kind string, body []byte) error {
 	if !personalSettingKind(kind) {
 		return errors.New("invalid personal setting")
-	}
-	if registration, followed := personalConfigurationKind(kind); followed {
-		if err := CheckConfigurationEditable(ctx, db, registration.Name, "default"); err != nil {
-			return err
-		}
 	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {

@@ -4,7 +4,7 @@ package protocol
 // service. It does not include the separate resource directory.
 func KnowledgeCommand(kind string) bool {
 	switch kind {
-	case "query_knowledge", "read_knowledge_citation", "read_knowledge_candidates", "list_knowledge_collections",
+	case "query_knowledge", "read_knowledge_citation", "list_knowledge_collections",
 		"create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection",
 		"rebuild_knowledge_collection", "pause_knowledge_collection":
 		return true
@@ -73,8 +73,8 @@ func KnowledgeTarget(command Command) NodeID {
 }
 
 // KnowledgeRequestTarget selects the initial target from the captured execution
-// and controller identities. Existing collection references take precedence;
-// personal storage and an unfiltered catalog or query use the controller view.
+// Node and the management entry. Runtime callers pass their execution Node as
+// both identities. Explicit references retain their original targets.
 func KnowledgeRequestTarget(command Command, execution, controller NodeID) NodeID {
 	if selected := KnowledgeTarget(command); selected != (NodeID{}) {
 		return selected
@@ -95,7 +95,7 @@ func KnowledgeRequestTarget(command Command, execution, controller NodeID) NodeI
 			return execution
 		}
 		return controller
-	case "list_knowledge_collections", "read_knowledge_candidates":
+	case "list_knowledge_collections":
 		return controller
 	case "create_knowledge_collection":
 		var source *KnowledgeSource
@@ -126,8 +126,8 @@ func KnowledgeRequestTarget(command Command, execution, controller NodeID) NodeI
 	return execution
 }
 
-// KnowledgeQueryLocal keeps an explicitly local selection usable while its
-// controller is offline. Empty selections always mean the controller view.
+// KnowledgeQueryLocal reports whether an explicit query selection is entirely
+// on one Node.
 func KnowledgeQueryLocal(query KnowledgeQuery, node NodeID) bool {
 	if len(query.Refs) == 0 {
 		return false
@@ -138,4 +138,26 @@ func KnowledgeQueryLocal(query KnowledgeQuery, node NodeID) bool {
 		}
 	}
 	return true
+}
+
+// ValidateKnowledgeExecution confines a scoped operation and all of its
+// explicitly selected collections to the Node that owns the execution.
+func ValidateKnowledgeExecution(request Request, execution NodeID) error {
+	if request.Target == execution {
+		switch query := request.Command.Data.(type) {
+		case KnowledgeQuery:
+			if len(query.Refs) == 0 || KnowledgeQueryLocal(query, execution) {
+				return nil
+			}
+		case *KnowledgeQuery:
+			if query != nil && (len(query.Refs) == 0 || KnowledgeQueryLocal(*query, execution)) {
+				return nil
+			}
+		default:
+			if selected := KnowledgeTarget(request.Command); selected == (NodeID{}) || selected == execution {
+				return nil
+			}
+		}
+	}
+	return &Fault{Code: ErrorCodeWrongTarget, Message: "scoped knowledge operations must use the execution Node"}
 }

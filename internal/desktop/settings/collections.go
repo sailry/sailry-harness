@@ -8,8 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-// collections are the selected host's knowledge collections on the
-// Knowledge page: each one's state, and pausing, resuming and updating it.
+// collections are the accessible collections on the Knowledge page: each one's state, and pausing, resuming and updating it.
 // A host without collections shows no group.
 func collections(c *ui.Context, m *Model) {
 	if len(m.Collections) == 0 {
@@ -18,7 +17,7 @@ func collections(c *ui.Context, m *Model) {
 	kit.Group(c, "collections", i18n.T(c, "knowledge_collections"), "", nil, func() {
 		kit.Card(c, func() {
 			for _, x := range m.Collections {
-				kit.Entry(c, x.ID, func() { kit.Record(c, x.Name, collectionState(c, x)) }, nil, func() {
+				kit.Entry(c, x.ID, func() { kit.Record(c, providerHostLabel(c, m, x.Node, x.Name), collectionState(c, x)) }, nil, func() {
 					paused := x.State == viewmodel.KnowledgePaused
 					icon, label := icons.Pause, "knowledge_pause"
 					if paused {

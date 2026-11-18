@@ -382,7 +382,7 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 							f.Value = f.Options[chosen]
 						}
 					case "model":
-						PluginModelField(c, e.fields, f, m.modelOptions(), label, e.pending)
+						PluginModelField(c, e.fields, f, m.modelOptions(m.PackageNode), label, e.pending)
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {

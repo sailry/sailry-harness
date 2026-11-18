@@ -26,14 +26,14 @@ func TestKnowledgeVisibilityAndOwnerManagement(t *testing.T) {
 		ownerCtx, readerCtx := WithUser(ctx, owner), WithUser(ctx, reader)
 		definition := protocol.DefaultKnowledgeDefinition()
 		definition.Name = "Shared notes"
-		definition.Visibility = protocol.KnowledgeVisibilityShared
+		definition.Visibility = ""
 		definition.Source = protocol.KnowledgeSource{Kind: "directory", Data: &protocol.KnowledgeSourceDirectoryPayload{Path: t.TempDir()}}
 		created, _, err := ExecuteKnowledge(ownerCtx, db, protocol.NewRequest(node, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}}))
 		if err != nil {
 			return err
 		}
 		collection := created.Data.(protocol.KnowledgeCollection)
-		if collection.Node != node || collection.OwnerUser != owner.ID || ReadKnowledgeSource(collection.Definition.Source).Node == nil || *ReadKnowledgeSource(collection.Definition.Source).Node != node {
+		if collection.Node != node || collection.OwnerUser != owner.ID || collection.Definition.Visibility != protocol.KnowledgeVisibilityShared || ReadKnowledgeSource(collection.Definition.Source).Node == nil || *ReadKnowledgeSource(collection.Definition.Source).Node != node {
 			return fmt.Errorf("collection lost storage identity: %+v", collection)
 		}
 		entries, err := ListKnowledgeCollections(readerCtx, db, protocol.NewRequest(node, protocol.Command{Kind: "list_knowledge_collections"}))
@@ -57,6 +57,47 @@ func TestKnowledgeVisibilityAndOwnerManagement(t *testing.T) {
 		entries, err = ListKnowledgeCollections(readerCtx, db, protocol.NewRequest(node, protocol.Command{Kind: "list_knowledge_collections"}))
 		if err != nil || len(entries) != 0 {
 			return fmt.Errorf("sharing revocation did not apply: %+v: %v", entries, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConversationKnowledgeRetainsItsSessionAudience(t *testing.T) {
+	t.Parallel()
+	_, _, storage := schemaFixture(t)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		owner, err := LocalUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		reader, err := CreateUser(ctx, db, "Another controller")
+		if err != nil {
+			return err
+		}
+		session := protocol.NewSessionID()
+		if _, err := db.ExecContext(ctx, "INSERT INTO sessions(id,owner,revision) VALUES(?1,?2,1)", session.String(), owner.ID.String()); err != nil {
+			return err
+		}
+		stored := KnowledgeStored{Capture: KnowledgeCapture{User: &owner.ID, Session: &session}}
+		stored.Collection.Definition.Visibility = protocol.KnowledgeVisibilityShared
+		stored.Collection.Definition.SharedWith = []string{"consumer"}
+		for _, user := range []protocol.User{owner, reader} {
+			if allowed, err := knowledgeUserAllowed(WithUser(ctx, user), db, stored); err != nil || allowed != (user.ID == owner.ID) {
+				return fmt.Errorf("session knowledge audience mismatch: %t: %v", allowed, err)
+			}
+		}
+		scope := protocol.DefaultPluginContext()
+		scope.Package.Name = "consumer"
+		request := protocol.Request{Plugin: &scope}
+		if knowledgeVisible(stored, request) {
+			return fmt.Errorf("shared plugin grant exposed a conversation outside its session scope")
+		}
+		scope.Session = &session
+		if !knowledgeVisible(stored, request) {
+			return fmt.Errorf("the captured session did not retain its plugin grant")
 		}
 		return nil
 	}); err != nil {

@@ -29,9 +29,6 @@ func ExecuteConnectorCommand(ctx context.Context, db *sql.Conn, command protocol
 	}
 	switch command.Kind {
 	case "update_connection", "set_connection_enabled", "remove_connection":
-		if err := CheckConfigurationEditable(ctx, db, "connections", id.String()); err != nil {
-			return protocol.Output{}, err
-		}
 	}
 	record, err := ReadConnectorRecord(ctx, db, id)
 	if err != nil {

@@ -27,8 +27,8 @@ func (transport scopedKnowledgeTransport) ScopedKnowledge(_ context.Context, cal
 	return link.Admission{Receipt: protocol.Receipt{ID: call.Request.ID, Durable: call.Request.Command.Durable()}, Completion: done}, nil
 }
 
-func TestScopedKnowledgeKeepsExecutionEntryAndStorageRequest(t *testing.T) {
-	execution, storage := protocol.NodeID{2}, protocol.NodeID{3}
+func TestScopedKnowledgeKeepsExactExecutionRequestAndReceipt(t *testing.T) {
+	execution := protocol.NodeID{2}
 	var calls []protocol.ScopedKnowledgeCall
 	var command protocol.Request
 	value := New(scopedKnowledgeTransport{
@@ -37,7 +37,7 @@ func TestScopedKnowledgeKeepsExecutionEntryAndStorageRequest(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = value.Close() })
 	scope := protocol.DefaultPluginContext()
-	request := protocol.NewRequest(storage, protocol.Command{Kind: "delete_knowledge_collection", Data: protocol.CommandDeleteKnowledgeCollectionPayload{ID: protocol.NewKnowledgeID()}})
+	request := protocol.NewRequest(execution, protocol.Command{Kind: "delete_knowledge_collection", Data: protocol.CommandDeleteKnowledgeCollectionPayload{ID: protocol.NewKnowledgeID()}})
 	request.Plugin = &scope
 	if _, err := value.ExecuteScopedKnowledge(t.Context(), request); err != nil {
 		t.Fatal(err)
@@ -45,8 +45,18 @@ func TestScopedKnowledgeKeepsExecutionEntryAndStorageRequest(t *testing.T) {
 	if outcome, err := value.ScopedKnowledgeOutcome(t.Context(), request); err != nil || outcome.Kind != "not_admitted" {
 		t.Fatalf("scoped recovery: %+v: %v", outcome, err)
 	}
-	if command.ID != (protocol.RequestID{}) || len(calls) != 2 || calls[0].Request.Target != storage || calls[0].Request.ID != request.ID ||
-		calls[1].Original == nil || calls[1].Original.ID != request.ID || calls[1].Request.Target != storage {
+	if command.ID != (protocol.RequestID{}) || len(calls) != 2 || calls[0].Request.Target != execution || calls[0].Request.ID != request.ID ||
+		calls[1].Original == nil || calls[1].Original.ID != request.ID || calls[1].Request.Target != execution {
 		t.Fatalf("scoped call used an ordinary storage route or rewrote its request: command=%+v calls=%+v", command, calls)
+	}
+	request.Target = protocol.NodeID{3}
+	if _, err := value.ExecuteScopedKnowledge(t.Context(), request); faultCode(err) != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("scoped execution accepted a different Node: %v", err)
+	}
+	if _, err := value.ScopedKnowledgeOutcome(t.Context(), request); faultCode(err) != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("scoped inspection accepted a different Node: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("foreign requests reached the transport: %+v", calls)
 	}
 }

@@ -26,7 +26,7 @@ func initialExplore(id protocol.RoleID) protocol.RoleProfile {
 	}
 }
 
-func initializeRoles(ctx context.Context, connection *sql.Conn) error {
+func initializeRoles(ctx context.Context, connection *sql.Conn, owner protocol.User) error {
 	limit := uint32(8)
 	roles := []protocol.RoleProfile{
 		initialExplore(protocol.NewRoleID()),
@@ -43,7 +43,7 @@ func initializeRoles(ctx context.Context, connection *sql.Conn) error {
 		if err != nil {
 			return err
 		}
-		if _, err := connection.ExecContext(ctx, "INSERT INTO roles(id,key,body) VALUES(?1,?2,?3)", role.ID.String(), role.Key, body); err != nil {
+		if _, err := connection.ExecContext(ctx, "INSERT INTO roles(id,user,key,body) VALUES(?1,?2,?3,?4)", role.ID.String(), owner.ID.String(), configurationKey(owner, role.Key), body); err != nil {
 			return err
 		}
 	}

@@ -169,7 +169,6 @@ func (node *Node) executeHost(ctx context.Context, caller protocol.NodeID, reque
 		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	if configuration && operationErr == nil {
-		node.NotifyConfigurationFollow(events)
 		node.publish()
 	}
 	return response(output, operationErr)

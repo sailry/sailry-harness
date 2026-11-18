@@ -171,10 +171,10 @@ func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) erro
 		Identity: node.profile.Identity,
 		Scope:    scope, Handler: node,
 		Peers: nodePeerStore{handle: node.profile.Store.Node, node: node.ID(), owner: node}, Name: name,
-		Paired: node.reauthenticateConfigurationHost,
+		Paired: node.reauthenticateResourceHost,
 	})
 	if err == nil {
-		err = node.StartConfigurationFollow()
+		err = node.startResourceObservers()
 	}
 	return err
 }

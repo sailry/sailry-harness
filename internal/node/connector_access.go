@@ -27,24 +27,6 @@ type connectorCachedCLI struct {
 }
 
 func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRecord, declaration protocol.PluginConnectorDeclaration) (*protocol.Secret, error) {
-	var remote bool
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		controller, err := store.CurrentController(ctx, db, node.ID())
-		remote = controller != node.ID()
-		return err
-	})
-	if err != nil {
-		return nil, err
-	}
-	if remote {
-		var token *protocol.Secret
-		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			var err error
-			token, err = store.ReadRuntimeConnectorCredential(ctx, db, node.ID(), record)
-			return err
-		})
-		return token, err
-	}
 	if record.Method == protocol.PluginConnectorKindSecret {
 		return nil, nil
 	}
@@ -69,7 +51,7 @@ func (node *Node) connectorAccess(ctx context.Context, record store.ConnectorRec
 		return nil, ctx.Err()
 	}
 	var current store.ConnectorRecord
-	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		current, err = store.ReadConnectorRecord(ctx, db, record.ID)
 		return err
@@ -279,7 +261,6 @@ func (node *Node) connectorCredentialCommitted(ctx context.Context, record store
 		return err
 	})
 	node.authChanged()
-	node.NotifyConfigurationFollow(changes)
 	node.publish()
 }
 

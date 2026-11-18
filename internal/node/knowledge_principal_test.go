@@ -63,7 +63,7 @@ func TestKnowledgeCommandsRetainRemotePrincipal(t *testing.T) {
 	owned := make([]protocol.KnowledgeCollection, len(callers))
 	for index, caller := range callers {
 		definition := protocol.KnowledgeDefinition{
-			Name: "Private notes", Globs: []string{}, Tags: []string{}, SharedWith: []string{},
+			Name: "Private notes", Visibility: protocol.KnowledgeVisibilityPrivate, Globs: []string{}, Tags: []string{}, SharedWith: []string{},
 			Source: protocol.KnowledgeSource{Kind: "directory", Data: &protocol.KnowledgeSourceDirectoryPayload{Path: t.TempDir()}},
 		}
 		owned[index] = collection(must(caller, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{Definition: definition}}))

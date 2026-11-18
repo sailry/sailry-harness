@@ -124,10 +124,10 @@ func TestRuntimeCredentialExportIncludesCapturedAccountsWithoutRenewalMaterial(t
 	}
 }
 
-func TestRuntimeMCPExportOmitsOAuthClientAndNestedToken(t *testing.T) {
+func TestNodeLocalConnectorRenewalIsNeverFollowed(t *testing.T) {
 	t.Parallel()
-	_, _, storage := schemaFixture(t)
-	err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
+	storage, node, _, ctx := controllerCacheFixture(t)
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		info := pluginTestInfo("runtime-connector", 'd')
 		extension := protocol.DefaultPluginExtension()
 		extension.ApiVersion = "v1"
@@ -139,7 +139,7 @@ func TestRuntimeMCPExportOmitsOAuthClientAndNestedToken(t *testing.T) {
 			Inject: []protocol.PluginConnectorInjection{{Server: &server, Header: &header, Prefix: "Bearer "}},
 		}
 		extension.Connectors, info.Extension = []protocol.PluginConnectorDeclaration{declaration}, &extension
-		if _, err := InstallPlugin(t.Context(), db, info, 0, true); err != nil {
+		if _, err := InstallPlugin(ctx, db, info, 0, true); err != nil {
 			return err
 		}
 		refresh := "never-copy-refresh"
@@ -147,21 +147,20 @@ func TestRuntimeMCPExportOmitsOAuthClientAndNestedToken(t *testing.T) {
 		record := ConnectorRecord{
 			ID: protocol.NewRequestID(), Plugin: info.Summary.Name, Connector: declaration.ID,
 			Method: protocol.PluginConnectorKindMcpOauth, Revision: 11, AuthRevision: 7, GrantRevision: 9, Enabled: true,
+			State: protocol.PluginConnectorStateConnected, Fields: map[string]string{}, Secrets: map[string]protocol.Secret{},
 			Grant: &authorization.Issued{Access: "mcp-runtime-access", Refresh: &refresh, ExpiresAtMs: &expiry,
 				Extra: map[string]string{"mcp_oauth": `{"Config":{"ClientSecret":"never-copy-client-secret"},"Token":{"RefreshToken":"never-copy-nested-refresh"}}`, "unused": "never-copy-unused"}},
 		}
-		value, err := runtimeConnector(t.Context(), db, record)
-		if err != nil {
+		if err := saveConnectorRecord(ctx, db, record); err != nil {
 			return err
 		}
-		body, _ := json.Marshal(value)
-		if bytes.Contains(body, []byte("never-copy-")) || value.Access.Expose() != "mcp-runtime-access" || value.Generation != "7" || value.Revision != 11 {
-			return fmt.Errorf("MCP execution export copied client or renewal state")
+		renewals, err := ReadCredentialRenewals(ctx, db, node)
+		if err != nil || len(renewals) != 1 || renewals[0].Connection == nil || renewals[0].Connection.ID != record.ID {
+			return fmt.Errorf("the paired user's local connector did not own its renewal: %v", err)
 		}
-		record.Method = protocol.PluginConnectorKindLocalCli
-		value, err = runtimeConnector(t.Context(), db, record)
-		if err != nil || value.State != "machine_bound" || value.Access.Expose() != "" {
-			return fmt.Errorf("local CLI authentication was exported: %w", err)
+		records, err := exportRuntimeCredentials(ctx, db, node, nil)
+		if err != nil || len(records) != 0 {
+			return fmt.Errorf("connector authorization appeared in the retained model credentials: %v", err)
 		}
 		return nil
 	})

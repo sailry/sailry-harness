@@ -80,8 +80,6 @@ func runCLI(ctx context.Context, args []string, input *bufio.Reader, interactive
 		return 0, RunLink(ctx, rest, input, interactive, stdout, stderr)
 	case "share":
 		return 0, RunShare(ctx, rest, stdout, stderr)
-	case "follow":
-		return runFollow(ctx, rest, stdout)
 	case "users", "devices":
 		return runIdentity(ctx, command, rest, stdout)
 	case "submit", "wait":
@@ -112,10 +110,6 @@ func runService(ctx context.Context, args []string, handlers CLIHandlers) (int, 
 		return 1, errors.New("Host service is unavailable")
 	}
 	return handlers.Service(ctx, args)
-}
-
-func runFollow(ctx context.Context, args []string, stdout io.Writer) (int, error) {
-	return 0, RunFollow(ctx, args, stdout)
 }
 
 func runIdentity(ctx context.Context, command string, args []string, stdout io.Writer) (int, error) {
@@ -149,7 +143,6 @@ Commands:
   update     Update the installed Host
   version    Show the installed version
   share      Show a code on the current network (legacy)
-  follow     Manage configuration following
   submit     Submit work to this Host
   wait       Observe submitted work
   users      Inspect Host users

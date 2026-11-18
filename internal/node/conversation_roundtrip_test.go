@@ -107,10 +107,16 @@ func TestAgentRoundTrip(t *testing.T) {
 		t.Fatal("committed input remained in the pending queue during streaming")
 	}
 	update, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	_, followErr := controller.ConfigurationFollow(update, protocol.ConfigurationFollowCommand{Action: "sync"})
+	settings := protocol.DefaultTeamSettings()
+	settings.ChildConcurrency++
+	result, updateErr := controller.Do(update, protocol.Command{Kind: "save_team_settings", Data: settings})
 	cancel()
-	if followErr != nil {
-		t.Fatalf("configuration lifecycle blocked a running turn: %v", followErr)
+	if updateErr != nil {
+		t.Fatalf("configuration update blocked a running turn: %v", updateErr)
+	}
+	saved, ok := result.Data.(protocol.TeamSettings)
+	if !ok || saved.Revision != 1 || saved.ChildConcurrency != settings.ChildConcurrency {
+		t.Fatalf("configuration update did not commit during streaming: %+v", result)
 	}
 	finish()
 	state := wait(func(state protocol.ConversationSnapshot) bool {

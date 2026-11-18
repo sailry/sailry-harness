@@ -227,9 +227,13 @@ func (r *Runtime) initB8Packages() {
 	r.packagesFrame(nil)
 }
 
-// packageOwner keeps global package pages and configuration on the controller.
+// packageOwner is the explicitly selected Node for package management.
 func (r *Runtime) packageOwner() *Runtime {
-	owner := r.localRuntime()
+	root := r.localRuntime()
+	owner := root.runtimeFor(root.App.Settings.PackageNode)
+	if owner == nil {
+		return nil
+	}
 	if owner.packages == nil {
 		owner.packages = newPackageState()
 	}
@@ -237,11 +241,20 @@ func (r *Runtime) packageOwner() *Runtime {
 }
 
 func (r *Runtime) packagesFrame(c *ui.Context) {
+	root := r.localRuntime()
 	owner := r.packageOwner()
+	m := root.App.Settings
 	if owner == nil {
+		m.Packages, m.SkillList, m.MarketPlugins, m.MarketSkills = nil, nil, nil, nil
+		if root.packages.selectedNode != "" {
+			root.packages.selectedNode = ""
+			m.CloseDetails()
+			m.ClosePackageConfiguration()
+		}
+		root.projectInstallations()
+		root.projectMarketThemes()
 		return
 	}
-	root := r.localRuntime()
 	node := owner.controller.Target().String()
 	if root.packages.selectedNode != node {
 		if previous := root.runtimeFor(root.packages.selectedNode); previous != nil && previous.packages != nil && root.packages.selectedNode != "" {

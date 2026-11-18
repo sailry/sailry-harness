@@ -52,9 +52,6 @@ func CheckKnowledgeScope(ctx context.Context, request protocol.Request) error {
 		return knowledgeDenied("resource call package differs from its captured scope")
 	}
 	action := protocol.PluginActionReadKnowledge
-	if request.Command.Kind == "read_knowledge_candidates" {
-		action = protocol.PluginActionReadStorage
-	}
 	if request.Command.Durable() {
 		action = protocol.PluginActionWriteKnowledge
 	}
@@ -89,7 +86,7 @@ func projectKnowledge(ctx context.Context, db *sql.Conn, stored *KnowledgeStored
 	}
 	if visibility != nil {
 		stored.Collection.Definition.Visibility = *visibility
-	} else if stored.Collection.Definition.Visibility == "" {
+	} else if stored.Capture.Session != nil || stored.Collection.Definition.Visibility == "" {
 		stored.Collection.Definition.Visibility = protocol.KnowledgeVisibilityPrivate
 	}
 	return nil

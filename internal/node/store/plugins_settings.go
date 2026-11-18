@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"slices"
 	"strings"
@@ -34,11 +33,6 @@ type ResolvedPluginSettings struct {
 }
 
 func readStoredPluginSettings(ctx context.Context, db *sql.Conn, info protocol.PluginInfo) (storedPluginSettings, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return storedPluginSettings{}, err
-	} else if cached {
-		return cachedPluginSettings(ctx, db, plugins.PackageReference(info))
-	}
 	if info.Summary.SettingsRevision == 0 {
 		return storedPluginSettings{
 			Schema: info.Settings, Values: plugins.SettingDefaults(info.Settings), Slots: map[string]*protocol.Secret{},
@@ -156,7 +150,6 @@ func ReadPluginSettings(ctx context.Context, db *sql.Conn, reference protocol.Pl
 }
 
 func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.CommandSavePluginSettingsPayload, targets ...map[string]string) (protocol.PluginSettingsState, error) {
-	editErr := CheckConfigurationEditable(ctx, db, "plugin_settings", input.Package.Name)
 	info, err := ReadPlugin(ctx, db, input.Package.Name)
 	if err != nil {
 		return protocol.PluginSettingsState{}, err
@@ -180,34 +173,6 @@ func SavePluginSettings(ctx context.Context, db *sql.Conn, input protocol.Comman
 	destinations := map[string]string{}
 	if len(targets) != 0 {
 		destinations = targets[0]
-	}
-	if editErr != nil {
-		var failure *protocol.Fault
-		if !errors.As(editErr, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
-			return protocol.PluginSettingsState{}, editErr
-		}
-		if !reflect.DeepEqual(stored.Values, input.Values) {
-			return protocol.PluginSettingsState{}, editErr
-		}
-		for name, update := range input.Secrets {
-			binding := settingsBinding(info.Settings, name)
-			if binding == nil || binding.Server == nil {
-				if update.Kind != "keep" {
-					return protocol.PluginSettingsState{}, editErr
-				}
-				continue
-			}
-			if update.Kind == "keep" && destinations[name] == stored.McpTargets[name] {
-				continue
-			}
-			local, err := ConfigurationMCPServerLocal(ctx, db, input.Package.Name, *binding.Server)
-			if err != nil {
-				return protocol.PluginSettingsState{}, err
-			}
-			if !local {
-				return protocol.PluginSettingsState{}, editErr
-			}
-		}
 	}
 	for name := range input.Secrets {
 		if settingsBinding(info.Settings, name) == nil {
@@ -371,17 +336,7 @@ func ResolvePluginSettings(ctx context.Context, db *sql.Conn, reference protocol
 	if err != nil {
 		return ResolvedPluginSettings{}, err
 	}
-	_, cached, err := configurationCacheUser(ctx, db)
-	if err != nil {
-		return ResolvedPluginSettings{}, err
-	}
 	for name, secret := range stored.Slots {
-		if cached {
-			if secret != nil && sameSettingsBinding(stored, info.Settings, name, stored.McpTargets) {
-				result.Secrets[name] = *secret
-			}
-			continue
-		}
 		if secret == nil || current == nil || settingsBinding(current.Settings, name) == nil {
 			continue
 		}

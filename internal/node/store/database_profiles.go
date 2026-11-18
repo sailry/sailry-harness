@@ -19,9 +19,6 @@ func ListDatabases(ctx context.Context, db *sql.Conn) ([]protocol.DatabaseProfil
 	if err != nil {
 		return nil, err
 	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil || cached {
-		return values, err
-	}
 	node, err := storageNode(ctx, db)
 	if err != nil {
 		return nil, err
@@ -38,9 +35,6 @@ func ListDatabases(ctx context.Context, db *sql.Conn) ([]protocol.DatabaseProfil
 func ReadDatabase(ctx context.Context, db *sql.Conn, id protocol.DatabaseID) (*protocol.DatabaseProfile, error) {
 	value, err := readUserConfiguration[protocol.DatabaseProfile](ctx, db, "database_profiles", id.String())
 	if err != nil || value == nil {
-		return value, err
-	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil || cached {
 		return value, err
 	}
 	node, err := storageNode(ctx, db)
@@ -78,9 +72,6 @@ func ExecuteDatabaseCommand(ctx context.Context, db *sql.Conn, command protocol.
 		input, valid := dispatchValue[protocol.CommandRemoveDatabasePayload](command.Data)
 		if !valid {
 			break
-		}
-		if err := CheckConfigurationEditable(ctx, db, "database_profiles", input.Profile.String()); err != nil {
-			return protocol.Output{}, nil, err
 		}
 		if _, err := currentDatabase(ctx, db, input.Profile, input.ExpectedRevision); err != nil {
 			return protocol.Output{}, nil, err

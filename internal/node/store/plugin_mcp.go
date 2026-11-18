@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"reflect"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
@@ -100,9 +99,6 @@ func SavePluginMCP(ctx context.Context, db *sql.Conn, input protocol.CommandSave
 	if err != nil {
 		return info, err
 	}
-	if err := checkMCPConfigurationEdit(ctx, db, input.Package.Name, current, input.Configuration); err != nil {
-		return info, err
-	}
 	if info.Settings != nil {
 		for _, field := range info.Settings.Properties {
 			if binding := field.Secret; binding != nil && binding.Server != nil && (binding.Header != nil || binding.Env != nil) {
@@ -121,13 +117,6 @@ func SavePluginMCP(ctx context.Context, db *sql.Conn, input protocol.CommandSave
 }
 
 func SetPluginMCPAllowed(ctx context.Context, db *sql.Conn, input protocol.CommandSetPluginMcpAllowedPayload) (protocol.PluginInfo, error) {
-	if err := CheckConfigurationEditable(ctx, db, "plugin_settings", input.Package.Name); err != nil {
-		local, localErr := ConfigurationMCPServerLocal(ctx, db, input.Package.Name, input.Server)
-		var failure *protocol.Fault
-		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodePermissionDenied || localErr != nil || !local {
-			return protocol.PluginInfo{}, err
-		}
-	}
 	info, err := currentMCPPlugin(ctx, db, input.Package)
 	if err != nil {
 		return info, err
@@ -216,28 +205,4 @@ func MCPSettingsTargets(schema *protocol.PluginSettingsSchema, configuration pro
 		}
 	}
 	return targets
-}
-
-func checkMCPConfigurationEdit(ctx context.Context, db *sql.Conn, name string, before, after protocol.PluginMcpConfiguration) error {
-	err := CheckConfigurationEditable(ctx, db, "plugin_settings", name)
-	if err == nil {
-		return nil
-	}
-	var failure *protocol.Fault
-	if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
-		return err
-	}
-	for server, next := range after.Servers {
-		if reflect.DeepEqual(before.Servers[server], next) {
-			continue
-		}
-		local, localErr := ConfigurationMCPServerLocal(ctx, db, name, server)
-		if localErr != nil {
-			return localErr
-		}
-		if !local {
-			return err
-		}
-	}
-	return nil
 }

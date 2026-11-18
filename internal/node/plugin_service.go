@@ -103,16 +103,7 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 	for _, entry := range plugins.BundledDefaults() {
 		var current *protocol.PluginInfo
 		var recorded bool
-		editable := true
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			if err := store.CheckConfigurationEditable(ctx, db, "plugins", entry.Name); err != nil {
-				var failure *protocol.Fault
-				if errors.As(err, &failure) && failure.Code == protocol.ErrorCodePermissionDenied {
-					editable = false
-					return nil
-				}
-				return err
-			}
 			var err error
 			current, err = store.ReadPlugin(ctx, db, entry.Name)
 			if err != nil {
@@ -123,9 +114,6 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 		})
 		if err != nil {
 			return err
-		}
-		if !editable {
-			continue
 		}
 		if current != nil && current.Summary.Pinned {
 			continue
@@ -160,13 +148,6 @@ func (node *Node) InitializeUserPlugins(ctx context.Context, user protocol.User)
 	}
 	for _, name := range plugins.RetiredBundled() {
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			if err := store.CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
-				var failure *protocol.Fault
-				if errors.As(err, &failure) && failure.Code == protocol.ErrorCodePermissionDenied {
-					return nil
-				}
-				return err
-			}
 			current, err := store.ReadPlugin(ctx, db, name)
 			if err != nil || current == nil || current.Origin == nil || current.Origin.Kind != "bundled" {
 				return err
@@ -391,12 +372,8 @@ func (node *Node) runPluginHandler(ctx context.Context, caller protocol.NodeID, 
 	node.plugins.mu.Unlock()
 	defer func() { node.plugins.mu.Lock(); delete(node.plugins.invocations, identity); node.plugins.mu.Unlock() }()
 	operation = node.plugins.memory.Context(operation, scope.Package, "callback", pluginMemoryUser(operation))
-	controller := node.ID()
-	if user.Controller != nil {
-		controller = *user.Controller
-	}
 	value, err := plugins.RunCallback(operation, plugins.ScriptBundle{Entry: host.Entry, Files: files}, handler, input,
-		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Controller: controller, Deadline: time.Now().Add(time.Minute)}, readOnly,
+		plugins.ScriptEnvironment{Context: scope, Target: node.ID(), Deadline: time.Now().Add(time.Minute)}, readOnly,
 		func(ctx context.Context, command protocol.Request) (protocol.Output, error) {
 			return node.dispatchCallbackResult(ctx, command)
 		})
@@ -460,7 +437,6 @@ func (node *Node) pluginCommitted(changes []protocol.Event, ctx context.Context,
 			node.RuntimeCredentialsChanged()
 		}
 	}
-	node.NotifyConfigurationFollow(changes)
 	node.wakeDispatch()
 	node.publish()
 	node.agent.Committed()

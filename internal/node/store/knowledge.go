@@ -151,6 +151,9 @@ func knowledgeVisible(stored KnowledgeStored, request protocol.Request) bool {
 	if scope == nil {
 		return true
 	}
+	if session := stored.Capture.Session; session != nil && (scope.Session == nil || *scope.Session != *session) {
+		return false
+	}
 	collection := stored.Collection
 	if collection.Owner.Kind != "plugin" || knowledgeOwner(collection.Owner) != scope.Package.Name {
 		return slices.Contains(collection.Definition.SharedWith, scope.Package.Name)
@@ -159,8 +162,6 @@ func knowledgeVisible(stored KnowledgeStored, request protocol.Request) bool {
 	switch {
 	case source.Kind == "worktree":
 		return scope.Worktree != nil && *scope.Worktree == source.Worktree
-	case source.Kind == "storage" && source.Scope == protocol.PluginStorageScopeConversation:
-		return scope.Session != nil && stored.Capture.Session != nil && *stored.Capture.Session == *scope.Session
 	}
 	return true
 }

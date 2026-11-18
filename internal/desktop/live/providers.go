@@ -410,13 +410,19 @@ func (r *Runtime) projectProviderSnapshot() {
 	}
 	var channels []viewmodel.Channel
 	var brands []viewmodel.Brand
+	channelsByNode := make(map[string][]viewmodel.Channel, len(owners)+1)
 	for _, owner := range owners {
 		owner.initProviders()
 		if loadAccountDetails {
 			owner.readProviderCredentials()
 			owner.readProviderPresets()
 		}
-		channels = append(channels, owner.projectNodeProviders()...)
+		rows := owner.projectNodeProviders()
+		channelsByNode[owner.controller.Target().String()] = rows
+		if owner == root {
+			channelsByNode[""] = rows
+		}
+		channels = append(channels, rows...)
 		brands = append(brands, owner.providerCatalogBrands...)
 	}
 	groups := map[preferences.ProviderMember]preferences.ProviderGroup{}
@@ -445,7 +451,7 @@ func (r *Runtime) projectProviderSnapshot() {
 		grouped = grouped && parseErr == nil
 		if grouped {
 			channel.Group = group.ID.String()
-			channel.Targets = channel.Targets[:0]
+			channel.Targets = nil
 			channel.TargetIDs = map[string]string{}
 			channel.TargetRevisions = map[string]uint64{}
 			for _, member := range group.Members {
@@ -466,10 +472,12 @@ func (r *Runtime) projectProviderSnapshot() {
 		projected = append(projected, channel)
 	}
 	channels = projected
-	root.App.Settings.Channels = channels
+	root.App.Settings.Channels, root.App.Settings.ChannelsByNode = channels, channelsByNode
 	root.App.Settings.Brands = brands
 	snapshot := root.snapshot()
-	root.followMedia(snapshot)
+	if owner := root.shownSettings(); owner != nil {
+		owner.followMedia(owner.snapshot())
+	}
 	status := snapshot.ModelCatalog
 	root.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
 	if status.UpdatedAtMs != nil {

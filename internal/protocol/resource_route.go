@@ -14,9 +14,9 @@ type RouteKey struct {
 	Target NodeID `json:"target"`
 }
 
-// ResourceCall carries an execution Node's captured resource operation back
-// through its controller. Request.Target remains the resource's actual Node.
-// The Link authenticates the execution peer; no user identity is accepted here.
+// ResourceCall carries a resource operation to its owning Node. Request.Target
+// retains the original storage identity for both management and recovery. Link
+// authenticates the peer that sent the call.
 type ResourceCall struct {
 	Local    bool           `json:"local,omitempty"`
 	Request  Request        `json:"request"`
@@ -74,14 +74,14 @@ func (call ResourceCall) Validate() error {
 	return nil
 }
 
-// ResourceCommand limits the reverse execution channel to knowledge and a
-// captured package's declared host handlers.
+// ResourceCommand identifies knowledge and declared host handler operations
+// supported by the resource channel.
 func ResourceCommand(kind string) bool {
 	switch kind {
 	case "list_knowledge_collections", "create_knowledge_collection",
 		"update_knowledge_collection", "delete_knowledge_collection",
 		"pause_knowledge_collection", "rebuild_knowledge_collection",
-		"query_knowledge", "read_knowledge_citation", "read_knowledge_candidates", "call_host_handler":
+		"query_knowledge", "read_knowledge_citation", "call_host_handler":
 		return true
 	}
 	return false

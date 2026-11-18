@@ -40,34 +40,31 @@ func (node *Node) admitResourceCommand(ctx context.Context, caller protocol.Node
 			return protocol.Output{Kind: "resource_catalog", Data: catalog}, err
 		})
 	}
-	var controller protocol.NodeID
-	err = node.profile.Store.Node.Read(verified, func(db *sql.Conn) error {
-		var err error
-		controller, err = store.CurrentController(verified, db, node.ID())
-		return err
-	})
-	if err != nil {
-		return link.Admission{}, nodeFault(err)
+	selected := knowledgeTarget(request)
+	if selected != (protocol.NodeID{}) && selected != request.Target {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "knowledge request must target its storage Node"}
+	}
+	if executionKnowledgeOnly(verified, request.Plugin) {
+		if err := protocol.ValidateKnowledgeExecution(request, node.ID()); err != nil {
+			return link.Admission{}, err
+		}
+		return node.admitKnowledgeLocal(verified, caller, request)
 	}
 	scope, err := node.captureResourceScope(verified, request)
 	if err != nil {
 		return link.Admission{}, err
 	}
-	selected := knowledgeTarget(request)
-	if selected != (protocol.NodeID{}) && selected != request.Target {
-		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "knowledge request must target its storage Node"}
-	}
-	// Local resources remain usable without the controller. A query with no
-	// selected Node asks the controller's complete view while it is reachable.
-	localResource := request.Target == node.ID() && request.Command.Kind != "query_knowledge" && request.Command.Kind != "list_knowledge_collections"
-	if query, ok := request.Command.Data.(*protocol.KnowledgeQuery); ok && protocol.KnowledgeQueryLocal(*query, node.ID()) {
-		localResource = true
-	}
-	if caller == node.ID() && controller != node.ID() && !localResource && selected != node.ID() {
-		return node.sendResource(verified, controller, protocol.ResourceCall{Request: request, Scope: scope}, false)
-	}
-	aggregate := controller == node.ID() && (request.Command.Kind == "list_knowledge_collections" || request.Command.Kind == "query_knowledge")
-	return node.routeKnowledge(verified, caller, protocol.ResourceCall{Request: request, Scope: scope}, aggregate)
+	return node.routeKnowledge(verified, caller, protocol.ResourceCall{Request: request, Scope: scope}, true)
+}
+
+func executionKnowledgeScope(scope *protocol.PluginContext) bool {
+	return scope != nil && (scope.Worktree != nil || scope.Session != nil || scope.Turn != nil || scope.Invocation != nil)
+}
+
+func executionKnowledgeOnly(ctx context.Context, scope *protocol.PluginContext) bool {
+	user, _ := store.UserFromContext(ctx)
+	captured, _ := ctx.Value(capturedDispatchKey{}).(bool)
+	return captured || !user.Local || executionKnowledgeScope(scope)
 }
 
 func knowledgeTarget(request protocol.Request) protocol.NodeID {
@@ -90,9 +87,8 @@ func (node *Node) captureResourceScope(ctx context.Context, request protocol.Req
 	return &protocol.ResourceScope{Plugin: &info, Origin: request.Plugin}, nil
 }
 
-// Resource is the only captured runtime entry point. A controller can send a
-// local operation to its storage host; an execution host can ask its controller
-// to resolve a resource. The latter can traverse only one direct host edge.
+// Resource admits management requests at their storage Node from a direct
+// controller.
 func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call protocol.ResourceCall) (link.Admission, error) {
 	if err := call.Validate(); err != nil {
 		return link.Admission{}, err
@@ -100,19 +96,16 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	if caller == node.ID() {
 		return node.localResource(ctx, call)
 	}
-	if node.network == nil || call.Request.Version != protocol.VERSION {
+	if !call.Local || node.network == nil || call.Request.Version != protocol.VERSION {
 		return link.Admission{}, permissionDenied()
 	}
 	relations, err := node.network.Relationships(ctx)
 	if err != nil {
 		return link.Admission{}, nodeFault(err)
 	}
-	index := slices.IndexFunc(relations, func(peer link.PeerRelationship) bool { return peer.ID == caller && peer.Direct && !peer.Removed })
-	if index < 0 {
-		return link.Admission{}, permissionDenied()
-	}
-	inbound := call.Local
-	if inbound && !relations[index].DirectDirection.AllowsInbound() || !inbound && !relations[index].DirectDirection.AllowsOutbound() {
+	if !slices.ContainsFunc(relations, func(peer link.PeerRelationship) bool {
+		return peer.ID == caller && peer.Direct && !peer.Removed && peer.DirectDirection.AllowsInbound()
+	}) {
 		return link.Admission{}, permissionDenied()
 	}
 	original := call.Request
@@ -125,21 +118,23 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	var actor protocol.User
 	err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
-		if inbound {
-			actor, err = store.CallerUser(ctx, db, node.ID(), caller)
-		} else {
-			actor, err = store.LocalUser(ctx, db)
-		}
+		actor, err = store.CallerUser(ctx, db, node.ID(), caller)
 		return err
 	})
 	if err != nil || actor.State != "active" {
 		return link.Admission{}, permissionDenied()
 	}
+	if call.Request.Target != node.ID() {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "resource call cannot forward through a storage Node"}
+	}
+	if executionKnowledgeScope(original.Plugin) {
+		return link.Admission{}, permissionDenied()
+	}
 	if original.Command.Kind == "call_host_handler" {
-		if inbound && call.Request.Target != node.ID() {
-			return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "host handler cannot forward through an execution Node"}
-		}
 		return node.routeHostHandler(store.WithUser(ctx, actor), caller, call)
+	}
+	if selected := knowledgeTarget(original); selected != (protocol.NodeID{}) && selected != node.ID() {
+		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "knowledge request must target its storage Node"}
 	}
 	verified, err := store.WithKnowledgeScope(store.WithUser(ctx, actor), call.Scope)
 	if err != nil {
@@ -148,16 +143,7 @@ func (node *Node) Resource(ctx context.Context, caller protocol.NodeID, call pro
 	if err := store.CheckKnowledgeScope(verified, original); err != nil {
 		return link.Admission{}, err
 	}
-	if original.Command.Kind == "read_knowledge_candidates" {
-		query, valid := original.Command.Data.(*protocol.PluginStorageSearch)
-		if !valid || query.Scope != "" && query.Scope != protocol.PluginStorageScopeNode {
-			return link.Admission{}, permissionDenied()
-		}
-	}
-	if inbound && call.Request.Target != node.ID() {
-		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "resource call cannot forward through a storage Node"}
-	}
-	return node.routeKnowledge(verified, caller, call, !inbound)
+	return node.routeKnowledge(verified, caller, call, false)
 }
 
 func (node *Node) localResource(ctx context.Context, call protocol.ResourceCall) (link.Admission, error) {
@@ -183,18 +169,24 @@ func (node *Node) localResource(ctx context.Context, call protocol.ResourceCall)
 		return link.Admission{}, err
 	}
 	if original.Command.Kind == "call_host_handler" {
+		if original.Target != node.ID() && executionKnowledgeOnly(verified, original.Plugin) {
+			return link.Admission{}, permissionDenied()
+		}
 		return node.routeHostHandler(verified, node.ID(), call)
 	}
-	return node.routeKnowledge(verified, node.ID(), call, true)
+	aggregate := !executionKnowledgeOnly(verified, original.Plugin)
+	if !aggregate {
+		if err := protocol.ValidateKnowledgeExecution(original, node.ID()); err != nil {
+			return link.Admission{}, err
+		}
+	}
+	return node.routeKnowledge(verified, node.ID(), call, aggregate)
 }
 
 func (node *Node) routeKnowledge(ctx context.Context, caller protocol.NodeID, call protocol.ResourceCall, aggregate bool) (link.Admission, error) {
 	request := call.Request
-	if request.Target != node.ID() && !aggregate {
-		return node.sendResource(ctx, request.Target, call, true)
-	}
-	if request.Target != node.ID() && request.Command.Kind != "query_knowledge" && request.Command.Kind != "list_knowledge_collections" {
-		return node.sendResource(ctx, request.Target, call, true)
+	if request.Target != node.ID() {
+		return node.sendResource(ctx, request.Target, call)
 	}
 	if request.Command.Kind == "inspect_request" {
 		return node.resourceReadAdmission(ctx, request, func(ctx context.Context) (protocol.Output, error) {
@@ -209,15 +201,13 @@ func (node *Node) routeKnowledge(ctx context.Context, caller protocol.NodeID, ca
 	return node.admitKnowledgeLocal(ctx, caller, request)
 }
 
-func (node *Node) sendResource(ctx context.Context, target protocol.NodeID, call protocol.ResourceCall, outbound bool) (link.Admission, error) {
-	call.Local = outbound
-	if outbound {
-		if remote := node.controllerClients()[target]; remote != nil {
-			if !remote.Connected() {
-				return link.Admission{}, resourceUnavailable()
-			}
-			return remote.Resource(ctx, call)
+func (node *Node) sendResource(ctx context.Context, target protocol.NodeID, call protocol.ResourceCall) (link.Admission, error) {
+	call.Local = true
+	if remote := node.controllerClients()[target]; remote != nil {
+		if !remote.Connected() {
+			return link.Admission{}, resourceUnavailable()
 		}
+		return remote.Resource(ctx, call)
 	}
 	if node.network == nil {
 		return link.Admission{}, resourceUnavailable()
@@ -227,7 +217,7 @@ func (node *Node) sendResource(ctx context.Context, target protocol.NodeID, call
 		return link.Admission{}, nodeFault(err)
 	}
 	if !slices.ContainsFunc(relations, func(peer link.PeerRelationship) bool {
-		return peer.ID == target && peer.Direct && !peer.Removed && (outbound && peer.DirectDirection.AllowsOutbound() || !outbound && peer.DirectDirection.AllowsInbound())
+		return peer.ID == target && peer.Direct && !peer.Removed && peer.DirectDirection.AllowsOutbound()
 	}) {
 		return link.Admission{}, permissionDenied()
 	}

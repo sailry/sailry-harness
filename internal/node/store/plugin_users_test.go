@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -20,9 +21,16 @@ func TestPluginUserNamespaces(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		second, err := CreateUser(ctx, db, "Second user")
+		controller := protocol.NodeID{44}
+		if err := PairPeerIdentity(ctx, db, node, controller, link.DirectionController, true); err != nil {
+			return err
+		}
+		second, err := CallerUser(ctx, db, node, controller)
 		if err != nil {
 			return err
+		}
+		if second.Controller == nil || *second.Controller != controller {
+			return fmt.Errorf("fixture did not create a paired controller user")
 		}
 		contexts := []context.Context{WithUser(ctx, local), WithUser(ctx, second)}
 		refs := make([]protocol.PluginReference, 2)
@@ -52,6 +60,13 @@ func TestPluginUserNamespaces(t *testing.T) {
 			if _, err := WritePluginValue(owner, db, refs[index], "record", json.RawMessage(fmt.Sprintf(`{"owner":%d}`, index)), 0, indexed); err != nil {
 				return err
 			}
+		}
+		var replicas int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM plugin_space_values WHERE space LIKE 'controller:%'").Scan(&replicas); err != nil {
+			return err
+		}
+		if replicas != 0 {
+			return fmt.Errorf("a paired user wrote to controller replica storage")
 		}
 		if refs[0] != refs[1] {
 			return fmt.Errorf("fixture did not create colliding user revision captures")

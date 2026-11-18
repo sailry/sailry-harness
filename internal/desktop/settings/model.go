@@ -157,6 +157,8 @@ type BackupLast struct {
 const DefaultTextSize = 14
 
 type Model struct {
+	ManagedNode string // owner on the team, connector and media pages
+	PackageNode string // owner on package management and market pages
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
 	Live                bool
 	SavePower           func()
@@ -218,11 +220,12 @@ type Model struct {
 	// Providers (settings/providers): the channels, the directory's
 	// brands, the catalog, the compaction threshold and the family
 	// filter ("" for all).
-	Channels   []preview.Channel
-	Brands     []preview.Brand
-	Catalog    preview.Catalog
-	Compaction Stored[float64]
-	Family     string
+	Channels       []preview.Channel
+	ChannelsByNode map[string][]preview.Channel
+	Brands         []preview.Brand
+	Catalog        preview.Catalog
+	Compaction     Stored[float64]
+	Family         string
 	// Media models: the model each of viewmodel.MediaKinds uses, by its
 	// MediaOption.Key, "" following the conversation model; the models
 	// offered; and the saved choices that can no longer run. SaveMedia sends
@@ -320,8 +323,6 @@ type Model struct {
 	Relays            []string
 	ConnectionRelays  []RelayChoice
 	ConnectionActions *ConnectionActions
-	FollowActions     *ConfigurationFollowActions
-	FollowEditor      *ConfigurationFollowEditor
 	ConnectionPending bool
 	ConnectionStage   string
 	// ConnectionFailure is how the Add host dialog's last attempt ended,

@@ -133,7 +133,7 @@ func TestFollowKeepsCapturedRuntimeCredentialsOutOfNewProviderChoices(t *testing
 	}
 }
 
-func TestFollowedRoleAndTeamModelsDoNotOverrideExecutionNode(t *testing.T) {
+func TestNodeOwnedRolesAndTeamsExcludeLegacyFollowedModels(t *testing.T) {
 	t.Parallel()
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -167,18 +167,25 @@ func TestFollowedRoleAndTeamModelsDoNotOverrideExecutionNode(t *testing.T) {
 			return err
 		}
 		roles := created.Data.(protocol.Session).Roles
-		if len(roles.Profiles) != 1 || roles.Profiles[0].Model != nil || len(roles.Providers) != 0 {
-			return errors.New("the followed role carried its controller model into a new session")
+		if len(roles.Profiles) != 2 || roles.Profiles[0].Key != "explore" || roles.Profiles[1].Key != "research" || len(roles.Providers) != 0 {
+			return errors.New("a new session did not use the Node's default roster")
+		}
+		model := &protocol.RoleModel{Provider: local.ID, Model: local.DefaultModel}
+		role.Model, team.Model = model, model
+		if _, err := putRole(ctx, db, role, 0); err != nil {
+			return err
+		}
+		if _, err := putTeam(ctx, db, team, 0); err != nil {
+			return err
 		}
 		selection := &protocol.TeamSelection{ID: team.ID}
-		models := map[protocol.RoleID]protocol.RoleModel{role.ID: {Provider: local.ID, Model: local.DefaultModel}}
-		roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, selection, models)
+		roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, selection, nil)
 		if err != nil || len(roles.Providers) != 1 || roles.Providers[0].ID != local.ID {
-			return fmt.Errorf("the followed team could not select an explicit Node-local role model: %v", err)
+			return fmt.Errorf("the Node-local team could not select its own role model: %v", err)
 		}
 		effective, err := configureSessionTeam(ctx, db, config, selection)
 		if err != nil || effective.Provider != local.ID {
-			return fmt.Errorf("the followed team changed the conversation's Node-local model: %v", err)
+			return fmt.Errorf("the Node-local team did not resolve its own model: %v", err)
 		}
 		return nil
 	})

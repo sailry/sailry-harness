@@ -194,7 +194,7 @@ func TestConfigurationCacheKeepsCapturedRuntimeCredentialsAndVersions(t *testing
 	}
 }
 
-func TestPersonalConfigurationCacheNeverFallsBackToExecutor(t *testing.T) {
+func TestPersonalConfigurationUsesNodeLocalRowsForPairedUser(t *testing.T) {
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		if value, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media"); err != nil || value != nil {
@@ -203,27 +203,31 @@ func TestPersonalConfigurationCacheNeverFallsBackToExecutor(t *testing.T) {
 		media := protocol.DefaultMediaSettings()
 		media.Revision = 7
 		record := followRecord(t, "default", 8, media, nil)
-		changes, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+		_, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
 			Source: controller, Category: "personal:media", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
 		})
 		if err != nil {
 			return err
 		}
-		if !slices.ContainsFunc(changes, func(event protocol.Event) bool { return event.Kind == "media_settings_changed" }) {
-			return fmt.Errorf("personal media update did not publish its event")
-		}
 		value, err := readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
-		if err != nil || value == nil || value.Revision != 7 {
-			return fmt.Errorf("personal media not read from controller cache: %w", err)
+		if err != nil || value != nil {
+			return fmt.Errorf("the paired user inherited controller media settings: %v", err)
 		}
-		user, err := CurrentUser(ctx, db)
+		media.Revision = 1
+		body, err := encode(media)
 		if err != nil {
 			return err
 		}
-		var localRows int
-		err = db.QueryRowContext(ctx, "SELECT count(*) FROM user_personal_settings WHERE user=?1 AND kind='media'", user.ID.String()).Scan(&localRows)
-		if err != nil || localRows != 0 {
-			return fmt.Errorf("cache wrote formal personal settings: %w", err)
+		if err := writePersonalSetting(ctx, db, "media", body); err != nil {
+			return err
+		}
+		value, err = readPersonalSetting[protocol.MediaSettings](ctx, db, "media")
+		if err != nil || value == nil || value.Revision != 1 {
+			return fmt.Errorf("the paired user's settings were not saved on the Node: %v", err)
+		}
+		retained, err := readConfigurationCacheRecord(ctx, db, "personal:media", "default", 8)
+		if err != nil || retained == nil || retained.Digest != record.Digest {
+			return fmt.Errorf("the old media settings record was lost: %v", err)
 		}
 		return nil
 	})

@@ -321,7 +321,6 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 	node.authCommitted(caller, request, operationErr)
 	if request.Command.Kind == "set_plugin_pinned" {
 		// Update preferences do not restart package programs or authentication.
-		node.NotifyConfigurationFollow(changes)
 		node.publish()
 	} else {
 		var preservePrograms map[string]bool
@@ -449,7 +448,7 @@ func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID,
 		return node.pluginModelCatalog(ctx, request)
 	}
 	if request.Command.Kind == "search_plugin_values" {
-		page, err := node.searchKnowledgeStorage(ctx, request)
+		page, err := node.knowledge.SearchStorage(ctx, request)
 		return protocol.Output{Kind: "plugin_search", Data: page}, err
 	}
 	if output, handled, err := node.prepareAuthCommand(ctx, caller, request); handled {

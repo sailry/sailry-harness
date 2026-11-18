@@ -58,14 +58,10 @@ func CaptureSessionRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	return completeRoleSnapshot(ctx, db, node, value)
 }
 func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID, value protocol.RoleSnapshot) (protocol.RoleSnapshot, error) {
-	_, followed, err := configurationCacheUser(ctx, db)
-	if err != nil {
-		return value, err
-	}
 	required := map[protocol.ProviderID]bool{}
 	ids := map[protocol.RoleID]bool{}
 	keys := map[string]bool{}
-	for index, role := range value.Profiles {
+	for _, role := range value.Profiles {
 		if err := ValidateRole(role); err != nil {
 			return value, err
 		}
@@ -73,11 +69,7 @@ func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 			return value, invalid("session roles must have distinct identities and keys")
 		}
 		ids[role.ID], keys[role.Key] = true, true
-		if followed {
-			// A followed role is a reusable definition. Its model preference
-			// belongs to the controller's provider inventory.
-			value.Profiles[index].Model = nil
-		} else if role.Model != nil {
+		if role.Model != nil {
 			required[role.Model.Provider] = true
 		}
 	}
@@ -265,9 +257,6 @@ func configureSessionTeam(ctx context.Context, db *sql.Conn, config protocol.Ses
 	}
 	if team.Model == nil {
 		return config, nil
-	}
-	if _, followed, err := configurationCacheUser(ctx, db); err != nil || followed {
-		return config, err
 	}
 	provider, err := listedRoleProvider(ctx, db, team.Model.Provider)
 	if err != nil {

@@ -101,9 +101,9 @@ conversation reduction, paging and transfer verification.
 
 | Owner | State |
 | --- | --- |
-| Controller Node | Controller-owned settings, authoritative personal KV and the unified resource directory |
-| Execution or storage Node | Projects, files, sessions, canonical history, knowledge indexes, dispatch, admitted revisions and operation outcomes |
-| Executor's user cache | Followed configuration, retained runtime credentials for existing captures, personal KV base and pending local writes |
+| Controller entry | Direct peer directory, source availability and authenticated command routing |
+| Execution or storage Node | Projects, files, sessions, knowledge, configuration, credentials, personal and scoped KV, dispatch, admitted revisions and operation outcomes |
+| Execution capture | Provider, package and settings references, credential identity and request receipts |
 | Client | Ordered projections, recovery state and shared detail caches |
 | Desktop / Flutter | Drafts, focus, layout, selection and expansion |
 | Controller device | Identity, paired peers, preferences and rebuildable caches |
@@ -122,9 +122,8 @@ captured worktree; SSH, database and plugin surfaces retain their Node and resou
 identity. Registered projects remain at their original filesystem paths.
 
 Machine paths carry their owner as `HostPath{node, path}`. File-backed database
-profiles and SSH key-file credentials preserve that location when their
-configuration is cached elsewhere. SSH agents also retain their authentication
-Node. A different execution Node rejects the operation with a target fault
+profiles and SSH key-file credentials preserve that location. SSH agents also
+retain their authentication Node. A different execution Node rejects the operation with a target fault
 instead of interpreting the path or `SSH_AUTH_SOCK` on its own machine. Legacy
 file locations resolve against the Node that owns their saved definition.
 
@@ -145,14 +144,13 @@ projectless draft chooses its execution Node with a separate control beside
 the Chats location menu.
 
 Knowledge collections likewise retain their storage Node, source location and
-owning user. Independent collections default to private; shared collections are
-readable by other authenticated users on that Node while management remains with
-the owner. Worktree and project-storage collections inherit the project's
-visibility. Conversation collections retain their session boundary. Visibility
-never changes where source files, collection definitions or indexes are stored.
-For example, A's private collection stored on B remains A's collection on B, and
-a task running on C can reach it through A's resource entry. No additional device
-grant or invitation is needed for that trusted route.
+owning user. New independent collections default to host-shared. Existing
+collections retain their visibility. Shared collections are readable by other
+authenticated users on that Node while management remains with the owner.
+Worktree and project-storage collections inherit the project's visibility.
+Conversation collections retain their session boundary. A controller can browse
+its own collections and accessible collections on directly connected hosts.
+A task on a host uses that host's collections under its captured user.
 
 Node authenticates callers before every command family, direct subscription and
 byte stream; typed resource identifiers are checked centrally and unknown commands
@@ -184,31 +182,16 @@ API-key channels can have explicit per-Node copies tracked in desktop preference
 OAuth grants stay on one Node. Selecting a project selects that Node's channels.
 New sessions cannot borrow a model channel or credential from their controller.
 
-Other controller-owned personal configuration is followed by direct execution
-hosts in a separate cache for each controller, using source IDs, revisions and
-digests. Packages materialize their exact immutable archives before dependent
-settings. Roles, teams, connection definitions and personal settings resolve
-through this cache without becoming host-local authoritative rows. Model
-providers and defaults are excluded. Runtime credential records remain
-exportable only to preserve already admitted historical captures; they are not
-model choices for new sessions. A single configuration registry owns category
-export, validation, events and invalidation. Cached records are never published
-onward as another controller's source. Composite exports, including package
-settings references, retain their own monotonic export revision rather than
-reusing a connection's business revision for changing content. This leaves
-connection edit CAS intact.
+Roles, teams, media assignments, plugin installs and settings, connectors,
+MCP, SSH and database profiles also belong to the authenticated user on the
+Node that uses them. A controller explicitly selects the Node when managing
+these resources. The package list follows the explicitly selected host.
+Host-owned package views use that Node's catalog and records. Worktree views
+follow their workspace. Device monitoring has its own selection. A new task reads and captures settings on its execution
+Node. Admitted tasks keep their package and settings revisions.
 
-New sessions are created on the Node that owns the selected model. The retired
-remote import path rejects first-time admissions; the exact request ledger still
-answers previously accepted replays. Existing session-private provider records
-and their retained runtime credentials remain available to admitted work.
-
-Configuration snapshots travel in bounded pages under one persisted delivery
-identity. Receivers retain staged pages and their digests across restarts; the
-complete snapshot, absent-record cleanup, events and completion receipt commit
-together. Interrupted transfers leave the current cache intact. Page retries
-reuse their original identities and completed receipts without entering the
-business-effect ledger.
+New sessions are created on the Node that owns the selected model. Existing
+durable request ledgers continue to bind recovery to the original identity.
 
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy
@@ -219,12 +202,9 @@ even after the channel selects a newer key. Plugin-backed authentication checks
 the current installation's availability while loading its captured package and
 settings; changing a package does not replace an existing account's binding.
 
-Each Node signs in and renews the model accounts it owns. Other execution hosts
-receive runtime credential records only when needed to keep an already admitted
-historical capture working, with the original account identity, generation and
-real expiry. Refresh tokens, OAuth client secrets, private registrations and
-other renewal material remain on the owning Node. Connector credentials retain
-their existing controller-owned configuration flow. Declared runtime header and
+Each Node signs in and renews the model and connector accounts it owns.
+Refresh tokens, OAuth client secrets, private registrations and other renewal
+material remain on the owning Node. Declared runtime header and
 connector slots cannot expose refresh material. Machine-bound CLI credentials
 stay on their own Node. The implementation stores secrets as plaintext in
 private profile databases; it has no encrypted vault or OS keychain. Public
@@ -239,10 +219,9 @@ rotation is not replayed. Node timers retry failures that sent no renewal
 request, including legacy grants using their existing expiry rule. An early
 refresh failure does not invalidate an access token before its real expiry;
 uncertain rotations block further refresh attempts while allowing a still-valid
-access token to run. A Node can renew its local model accounts while other Nodes
-are offline. Existing tasks that still depend on a retained remote capture can
-use valid cached inputs while that source is offline. If a captured model credential
-expires, the current turn waits at its next model step with `controller_login`
+access token to run. A Node can renew its model accounts while other Nodes
+are offline. If a captured model credential expires, the current turn waits
+at its next model step with `controller_login`
 state. A replacement for that credential resumes the same turn. An unresolved or rejected renewal keeps
 the model step waiting with its reason; it does not replay the rotation.
 Completed tools are not rerun to resume it.
@@ -276,31 +255,11 @@ The writer groups queued operations in a
 visible to callers after commit. Identifiers and event sequences advance in the
 same transaction as their records.
 
-The SDK's default `"node"` KV scope identifies the current controller's personal
-namespace. On an execution host, reads use a materialized base plus pending local
-writes. A transaction commits its personal writes, dispatch or conversation
-changes, events and a durable outbox group in one local SQL transaction. Reads on
-that host immediately see its committed writes even while the controller is
-offline.
-
-The controller later retrieves each outbox group with its original request ID,
-digest, sequence and source revisions. It compares every key against the
-authoritative source revision and applies the complete personal write set or
-records a conflict. Predecessor receipts connect successive offline writes to
-the same keys. Values retain their exact JSON bytes through durable groups,
-receipts and snapshot pages. Large groups are read in bounded pages under their
-original request identity. Acknowledgements reuse durable configuration paging;
-the complete receipt and overlay adjustment commit together. A worker settles
-an interrupted source snapshot before acknowledging newer writes so an old page
-cannot replace their confirmed base. Acknowledgements update that base without erasing
-later pending writes; complete source snapshots refresh the base under undecided
-local writes. Each pass drains a fixed pending sequence boundary so continuous
-local writes cannot starve source snapshots. Conflict decisions and one notice
-commit with their deduplicated receipt. Reconciliation never replays dispatch,
-notifications, project mutations or
-conversation commands, and never resolves a conflict by last-writer wins.
-Project KV stays in the project's Node namespace and conversation KV in its
-session namespace.
+The SDK's default `"node"` KV scope identifies the authenticated user's
+namespace on the execution Node. Plugin writes, associated dispatch or
+conversation changes and their events commit in one transaction. Project and
+conversation KV retain their captured scope. New keys and search indexes stay on
+the Node that accepted the write.
 
 Every connection uses full synchronous durability. `internal/turso` delegates SQL
 and value binding to the official SDK. Its native extension supplies connection
@@ -615,9 +574,8 @@ compute another market update policy. Explicit history switching uses the normal
 inspection, immutable acquisition and revision-fenced installation transaction;
 downgrades pin the result. Unsupported configuration or declared data constraints
 refuse a switch without resetting values. Running admitted turns keep captured
-code. Configuration following preserves active programs for unchanged packages,
-pin preferences and code replacements; actual settings changes, disabling and
-removal retain their existing cancellation rules. Package retention and collection
+code. Node-local settings changes, disabling and removal retain their existing
+cancellation rules. Package retention and collection
 still follow actual references, not the history list.
 
 Plugins own their feature UI, state, workflows, prompts and orchestration. Core
@@ -663,8 +621,7 @@ bounded execution and idle cleanup. Service connections inject credentials only
 into declared origins, headers, MCP servers or environment targets.
 
 Plugin package files are shared by digest. Configuration and personal KV/search
-spaces belong to one controller user; executor caches remain separate from their
-host's own user. Explicit project storage uses the captured accessible project
+spaces belong to the authenticated user on each execution Node. Explicit project storage uses the captured accessible project
 and follows its visibility. Conversation storage remains session-scoped.
 Background indexing and scheduled callbacks restore their admitted user and
 original storage principal. Runtime diagnostics filter instances by user.
@@ -811,27 +768,19 @@ their layout, expansion, selection and local drafts, show their availability,
 and block remote operations. Cached running state is historical rather than a
 claim of current execution. Reconnection updates the same resources and restores
 operations. Mobile through the controller consumes the same summaries and
-availability. A knowledge directory is not a queryable copy: executor-local
-collections remain local, while collections that depend on an offline controller
-return a source fault and multi-source searches retain partial failure status.
+availability. Directory summaries carry metadata. Searches read the owning Nodes, and
+multi-source searches retain partial failure status.
 
-Execution Nodes use the limited resource channel to reach their captured
-controller's knowledge view or the calling package's declared host handler. The
-controller can serve locally or forward once to a directly connected storage or
-execution Node. Forwarded calls explicitly select local handling and use the
-authenticated controller's user. Plugin calls retain the verified original
-package and scope; foreign turn IDs are provenance, not IDs to resolve in the
-receiving database. Requests bind the actual target and original ID before
-dispatch. Recovery additionally binds the exact original command and digest.
-The channel cannot carry arbitrary reverse commands. Scoped knowledge requests
-validate at their captured execution Node before using the controller's resource
-route. A workspace UI uses the same validation path even when the selected
-collection lives elsewhere: its transport route identifies the execution Node,
-while its unchanged request identifies the storage Node. Stored receipts record
-foreign plugin provenance separately from local resources, and recovery checks
-the recorded user and the collection's current visibility. Historical sponsorship
-and identity-merge records remain readable but are not replayed or used to grant
-new access.
+Interactive controller lists and searches aggregate accessible sources. An
+unscoped desktop-owned view can address resources or declared package handlers on
+a directly connected host. A host-owned view, workspace or task resolves
+knowledge and handlers on its execution Node. A host receives no new access to the controller or to
+another host through this channel. Desktop keeps the combined project, model and
+knowledge lists; operations use each item's owner and saved revision.
+Scoped requests retain the authenticated user, package and workspace. The
+destination checks current access before execution and again before returning
+a stored receipt. Recovery retains the original command, target, request ID
+and digest.
 
 Removing an outbound host removes local trust immediately. If an authenticated
 connection is already live, Link retains it only for one background
@@ -841,10 +790,6 @@ known or uncertain outcome after local removal. This is diagnostic history
 without a retry worker. Explicit re-pairing cancels an outstanding notification
 before starting a new relationship and preserves earlier records.
 
-Configuration caches and personal KV reconciliation follow the same direct host
-relationships. Each host has one serial reconciliation worker, so an offline
-host does not block another host. Machine settings, project data, knowledge
-source files, sessions and dispatch queues remain with their owning Node.
 Knowledge lists and queries aggregate accessible sources through the controller,
 retaining each source's Node, continuation and any failure. Aggregate paging
 reads enough of each source's ranking to continue beyond its first page. Cached

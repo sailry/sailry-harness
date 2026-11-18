@@ -43,6 +43,9 @@ func TestSettingsTarget(t *testing.T) {
 		// one revision 2, 70 %, 5 children, sleep prevented, both off.
 		revision := uint64(index + 1)
 		snapshot.PowerSettingsRevision, snapshot.SandboxSettingsRevision, snapshot.TeamSettingsRevision = revision, revision, revision
+		info := protocol.DefaultPluginInfo()
+		info.Summary.Name, info.Summary.Digest, info.Summary.Revision = "fixture", "fixture-digest", revision
+		snapshot.Plugins = []protocol.PluginSummary{info.Summary}
 		transport := &conversationTestTransport{snapshot: snapshot}
 		transport.handle = func(request protocol.Request) (link.Response, bool) {
 			output := func(kind string, data any) (link.Response, bool) {
@@ -75,6 +78,16 @@ func TestSettingsTarget(t *testing.T) {
 				input, _ := detail[protocol.TeamSettings](request.Command.Data)
 				input.Revision++
 				return output("team_settings", input)
+			case "read_plugin":
+				return output("plugin", info)
+			case "set_plugin_enabled":
+				input, _ := detail[protocol.CommandSetPluginEnabledPayload](request.Command.Data)
+				if input.ExpectedRevision != revision {
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "wrong package owner's revision"}}, true
+				}
+				info.Summary.Enabled = input.Enabled
+				info.Summary.Revision++
+				return output("plugin", info)
 			case "read_media_settings":
 				return output("media_settings", protocol.MediaSettings{Revision: revision, Bindings: map[protocol.MediaKind]*protocol.MediaBinding{}})
 			case "list_media_models":
@@ -350,6 +363,54 @@ func TestSettingsTarget(t *testing.T) {
 		settle()
 		if count(0, "read_compaction_settings") != reads+1 {
 			t.Error("a revision already read was read again")
+		}
+	})
+	t.Run("an explicit teams target reads and saves only on that Node", func(t *testing.T) {
+		m.Open(settings.Teams)
+		m.ManagedNode = nodes[1].String()
+		root.nodeSettingsFrame()
+		settle()
+		if root.shownSettings() != remote || m.Concurrency.Revision != 2 || m.Concurrency.Saved != 5 {
+			t.Fatalf("remote concurrency settings = %+v", m.Concurrency)
+		}
+		beforeLocal, beforeRemote := count(0, "save_team_settings"), count(1, "save_team_settings")
+		m.Concurrency.Draft = 8
+		m.TeamActions.SaveConcurrency()
+		settle()
+		if count(0, "save_team_settings") != beforeLocal || count(1, "save_team_settings") != beforeRemote+1 {
+			t.Fatal("explicit host save went to another Node")
+		}
+
+		m.ManagedNode = "offline-host"
+		root.nodeSettingsFrame()
+		settle()
+		m.TeamActions.SaveConcurrency()
+		settle()
+		if root.shownSettings() != nil || count(0, "save_team_settings") != beforeLocal || count(1, "save_team_settings") != beforeRemote+1 {
+			t.Fatal("unavailable host save used another Node")
+		}
+	})
+	t.Run("package management shows the selected installation", func(t *testing.T) {
+		m.Open(settings.Plugins)
+		m.PackageNode = nodes[1].String()
+		root.packagesFrame(nil)
+		settle()
+		root.packagesFrame(nil)
+		if root.packageOwner() != remote || len(m.Packages) != 1 || m.Packages[0].Enabled {
+			t.Fatalf("remote package list = %+v", m.Packages)
+		}
+		m.PackageActions.Toggle("fixture", true)
+		settle()
+		root.packagesFrame(nil)
+		if !m.Packages[0].Enabled || count(0, "set_plugin_enabled") != 0 || count(1, "set_plugin_enabled") != 1 {
+			t.Fatal("package toggle used another Node's installation")
+		}
+		m.PackageNode = ""
+		root.packagesFrame(nil)
+		settle()
+		root.packagesFrame(nil)
+		if root.packageOwner() != root || len(m.Packages) != 1 || m.Packages[0].Enabled {
+			t.Fatalf("local package list picked up the remote change: %+v", m.Packages)
 		}
 	})
 }

@@ -229,6 +229,10 @@ func TestUserConfigurationPartitions(t *testing.T) {
 			return err
 		}
 		ownCtx, otherCtx := WithUser(ctx, owner), WithUser(ctx, other)
+		localRoles, err := ReadRoles(ownCtx, db)
+		if err != nil {
+			return err
+		}
 		role := protocol.RoleProfile{ID: protocol.NewRoleID(), Key: "fixture", Name: "Owner role", Skills: []string{}}
 		role, err = putRole(ownCtx, db, role, 0)
 		if err != nil {
@@ -239,8 +243,17 @@ func TestUserConfigurationPartitions(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if roles, err := ReadRoles(otherCtx, db); err != nil || len(roles) != 0 {
-			return fmt.Errorf("role visibility: %v", err)
+		roles, err := ReadRoles(otherCtx, db)
+		if err != nil {
+			return err
+		}
+		if len(roles) != 2 || roles[0].Key != "explore" || roles[1].Key != "research" || len(localRoles) != 2 {
+			return fmt.Errorf("the other user did not receive built-in roles: %+v", roles)
+		}
+		for index, profile := range roles {
+			if profile.Key != localRoles[index].Key || profile.ID == localRoles[index].ID || profile.Revision != 1 {
+				return fmt.Errorf("the built-in role belongs to another user or revision: %+v", profile)
+			}
 		}
 		if teams, err := ReadTeams(otherCtx, db); err != nil || len(teams) != 0 {
 			return fmt.Errorf("team visibility: %v", err)

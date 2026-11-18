@@ -13,8 +13,8 @@ func TestHostCallPreservesExecutionNodeAndTarget(t *testing.T) {
 	var requests []protocol.Request
 	source := `import {context,prepareHostCall,completeRequest} from 'sailry/sdk';
 export async function run() {
-  const scope=context(), selected=Array(32).fill(0); selected[0]=9;
-  const result=await completeRequest(prepareHostCall(selected,'save',{value:'kept'}));
+  const scope=context();
+  const result=await completeRequest(prepareHostCall(scope.execution_node,'save',{value:'kept'}));
   return {node:scope.execution_node,result};
 }`
 	value, err := scriptTestRun(t, source, func(_ context.Context, request protocol.Request) (protocol.Output, error) {
@@ -32,7 +32,7 @@ export async function run() {
 	}
 	request := requests[0]
 	payload, ok := protocol.HostHandlerPayload(request.Command)
-	if !ok || request.Target != (protocol.NodeID{9}) || request.Plugin == nil ||
+	if !ok || request.Target != (protocol.NodeID{1}) || request.Plugin == nil ||
 		payload.Handler != "save" || !reflect.DeepEqual(payload.Input, map[string]any{"value": "kept"}) {
 		t.Fatalf("host request lost scope or target: %+v", request)
 	}
@@ -46,5 +46,18 @@ export async function run() {return await completeRequest(prepareHostCall(contex
 			t.Fatal("read-only callback dispatched mutation")
 			return protocol.Output{}, nil
 		})
+	scriptTestFault(t, err, protocol.ErrorCodePermissionDenied)
+}
+
+func TestHostCallbackCannotPrepareAnotherNodesHandler(t *testing.T) {
+	source := `import {prepareHostCall,completeRequest} from 'sailry/sdk';
+export async function run() {
+  const selected=Array(32).fill(0); selected[0]=9;
+  return await completeRequest(prepareHostCall(selected,'save',{}));
+}`
+	_, err := scriptTestRun(t, source, func(context.Context, protocol.Request) (protocol.Output, error) {
+		t.Fatal("host callback sent a handler request to another Node")
+		return protocol.Output{}, nil
+	})
 	scriptTestFault(t, err, protocol.ErrorCodePermissionDenied)
 }

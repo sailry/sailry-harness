@@ -107,22 +107,31 @@ func TestConfigurationFollowKeepsModelProvidersOnTheirNodeIntegration(t *testing
 		t.Fatal("source provider has no credential capture")
 	}
 	owner := store.WithUser(ctx, *follower.User)
-	// Wait for the category to reconcile before checking the empty inventory.
-	wait("runtime credentials reconciled", func() bool {
-		var manifest protocol.ConfigurationManifest
-		err := target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-			var err error
-			manifest, err = store.ReadConfigurationManifest(owner, db, source.ID(), "runtime_credentials")
+	// The authenticated controller can browse Host resources, while the
+	// obsolete configuration channel cannot accept or refresh a replica.
+	sourceID := source.ID()
+	manifest := protocol.ConfigurationManifest{Source: sourceID, Category: "runtime_credentials", Revision: 1}
+	_, err = remote.Do(ctx, protocol.Command{Kind: "configuration_follow", Data: protocol.ConfigurationFollowCommand{
+		Action: "apply", Manifest: &manifest,
+	}})
+	var retired *protocol.Fault
+	if !errors.As(err, &retired) || retired.Code != protocol.ErrorCodeInvalidRequest || retired.Message != "invalid command" {
+		t.Fatalf("configuration transfer was not retired: %v", err)
+	}
+	if err := target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+		var copied bool
+		if err := db.QueryRowContext(owner, `SELECT EXISTS(SELECT 1 FROM configuration_cache WHERE user=?1)
+			OR EXISTS(SELECT 1 FROM configuration_follow_records WHERE user=?1 AND source=?2)
+			OR EXISTS(SELECT 1 FROM configuration_follow_packages)`, follower.User.ID.String(), sourceID[:]).Scan(&copied); err != nil {
 			return err
-		})
-		if err != nil {
-			t.Fatal(err)
 		}
-		if len(manifest.Records) != 0 {
-			t.Fatal("a newly paired host received a controller credential")
+		if copied {
+			return errors.New("a newly paired host received controller configuration or packages")
 		}
-		return manifest.Revision != 0
-	})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// The same stable ID identifies the user's selected channel, while each
 	// Node independently owns its endpoint, credential, revision and default.

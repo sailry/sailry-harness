@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"golang.org/x/oauth2"
 )
 
 func runtimeCredentialFixture(t *testing.T) (*Node, context.Context, protocol.ConversationProvider, protocol.CredentialRef, func(protocol.RuntimeCredential)) {
@@ -139,20 +140,46 @@ func TestExecutorCredentialWaitCancelsAndRejectsChangedAccount(t *testing.T) {
 	}
 }
 
-func TestExecutorMCPSourceNeverNeedsOAuthClientConfiguration(t *testing.T) {
+func TestPairedNodeMCPSourceUsesItsOwnAuthorization(t *testing.T) {
 	node, ctx, _, _, write := runtimeCredentialFixture(t)
-	record := store.ConnectorRecord{ID: protocol.NewRequestID(), Method: protocol.PluginConnectorKindMcpOauth, AuthRevision: 4, Enabled: true}
-	expiry := uint64(time.Now().Add(time.Hour).UnixMilli())
+	record := store.ConnectorRecord{
+		ID: protocol.NewRequestID(), Plugin: "fixture", Connector: "account", Method: protocol.PluginConnectorKindMcpOauth,
+		Revision: 1, AuthRevision: 4, GrantRevision: 1, Enabled: true, State: protocol.PluginConnectorStateConnected,
+		Fields: map[string]string{}, Secrets: map[string]protocol.Secret{},
+	}
+	expiration := time.Now().Add(time.Hour)
+	expiry := uint64(expiration.UnixMilli())
 	write(protocol.RuntimeCredential{
 		Kind: "connector", ID: record.ID.String(), Generation: "4", Revision: 3, State: "ready",
 		Access: protocol.NewSecret("runtime-mcp-access"), ExpiresAtMs: &expiry,
 	})
+	var fault *protocol.Fault
+	if _, err := node.connectorMCPSource(record, ctx); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeNotConfigured {
+		t.Fatalf("controller cache supplied connector authorization: %v", err)
+	}
+	local := connectorOAuthIssued(&oauth2.Config{ClientID: "fixture"}, &oauth2.Token{AccessToken: "node-mcp-access", Expiry: expiration})
+	record.Grant = &local
+	body, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		user, err := store.CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(ctx, "INSERT INTO plugin_connections(id,plugin,connector,revision,body,user) VALUES(?1,?2,?3,?4,?5,?6)",
+			record.ID.String(), record.Plugin, record.Connector, record.Revision, body, user.ID.String())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	source, err := node.connectorMCPSource(record, ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	token, err := source.Token()
-	if err != nil || token.AccessToken != "runtime-mcp-access" || token.RefreshToken != "" {
-		t.Fatalf("runtime MCP token required controller-only client config: %v", err)
+	if err != nil || token == nil || token.AccessToken != "node-mcp-access" {
+		t.Fatalf("paired Node could not use its MCP authorization: %v", err)
 	}
 }

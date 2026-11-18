@@ -38,3 +38,27 @@ func TestKnowledgeReferencesAndLegacyPrivateDefault(t *testing.T) {
 		t.Fatalf("host path: %+v: %v", decodedPath, err)
 	}
 }
+
+func TestNewIndependentKnowledgeDefaultsToShared(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		definition string
+		want       KnowledgeVisibility
+	}{
+		{"directory", `{"name":"Library","source":{"kind":"directory","path":"/notes"}}`, KnowledgeVisibilityShared},
+		{"personal storage", `{"name":"Library","source":{"kind":"storage","scope":"node","prefix":"notes/"}}`, KnowledgeVisibilityShared},
+		{"project storage", `{"name":"Library","source":{"kind":"storage","scope":"project","prefix":"notes/"}}`, KnowledgeVisibilityPrivate},
+		{"explicit private", `{"name":"Library","visibility":"private","source":{"kind":"directory","path":"/notes"}}`, KnowledgeVisibilityPrivate},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var create CommandCreateKnowledgeCollectionPayload
+			if err := json.Unmarshal([]byte(`{"definition":`+test.definition+`}`), &create); err != nil {
+				t.Fatal(err)
+			}
+			if got := create.Definition.Visibility; got != test.want {
+				t.Fatalf("creation visibility = %q, want %q", got, test.want)
+			}
+		})
+	}
+}

@@ -41,12 +41,18 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	root := r.localRuntime()
 	state := root.pluginViews
 	selected := root.packageOwner()
+	workspace := root.selectedRuntime()
 	locale := root.packageLocale()
 	entries := []pluginNavigationEntry{}
-	for _, source := range []struct {
+	type navigationSource struct {
 		owner *Runtime
 		scope protocol.PluginScope
-	}{{selected, protocol.PluginScopeHost}, {root, protocol.PluginScopeDesktop}} {
+	}
+	sources := []navigationSource{{selected, protocol.PluginScopeHost}, {root, protocol.PluginScopeDesktop}}
+	if workspace != selected {
+		sources = append(sources, navigationSource{workspace, protocol.PluginScopeHost})
+	}
+	for _, source := range sources {
 		for _, info := range root.pluginViewCatalog(source.owner) {
 			extension := info.Extension
 			if extension == nil || extension.Scope != source.scope || extension.Desktop == nil || unmountedPlugin(info.Summary.Name) ||
@@ -56,6 +62,15 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 			desktop := extension.Desktop
 			if desktop.Navigation == nil {
 				continue
+			}
+			if source.scope == protocol.PluginScopeHost {
+				owner := selected
+				if desktop.NavigationOptions.Target == protocol.PluginDesktopNavigationTargetWorktree {
+					owner = workspace
+				}
+				if source.owner != owner {
+					continue
+				}
 			}
 			scope := protocol.DefaultPluginContext()
 			scope.Package = packageReference(info.Summary)

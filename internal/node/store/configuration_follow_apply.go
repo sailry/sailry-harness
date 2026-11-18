@@ -3,13 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// ApplyConfigurationManifest publishes authenticated controller configuration
-// only into its isolated cache. Historical materialized rows stay available to
-// captured work; a new delivery never changes those authoritative tables.
+// ApplyConfigurationManifest updates retained model credentials for admitted
+// captures. Other configuration is owned by the execution Node.
 func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, manifest protocol.ConfigurationManifest) ([]protocol.Event, error) {
 	if err := validateConfigurationManifest(manifest); err != nil {
 		return nil, err
@@ -17,7 +17,22 @@ func ApplyConfigurationManifest(ctx context.Context, db *sql.Conn, node, caller 
 	if _, err := configurationReceiver(ctx, db, node, caller, manifest.Source); err != nil {
 		return nil, err
 	}
+	if err := checkRetainedConfigurationManifest(manifest); err != nil {
+		return nil, err
+	}
 	return applyConfigurationCache(ctx, db, node, caller, manifest)
+}
+
+func checkRetainedConfigurationManifest(manifest protocol.ConfigurationManifest) error {
+	if manifest.Category != "runtime_credentials" {
+		return fault(protocol.ErrorCodeNotConfigured, "configuration is managed on its owning Node")
+	}
+	for _, record := range manifest.Records {
+		if !strings.HasPrefix(record.ID, "provider:") {
+			return fault(protocol.ErrorCodeNotConfigured, "connector credentials are managed on their owning Node")
+		}
+	}
+	return nil
 }
 
 func configurationReceiver(ctx context.Context, db *sql.Conn, node, caller, source protocol.NodeID) (protocol.User, error) {

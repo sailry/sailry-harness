@@ -168,6 +168,9 @@ func knowledgeChanged(stored KnowledgeStored) (protocol.Output, []protocol.Event
 }
 
 func createKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request, definition protocol.KnowledgeDefinition, selected *string) (protocol.Output, []protocol.Event, error) {
+	if definition.Visibility == "" {
+		definition.Visibility = protocol.KnowledgeCreateVisibility(definition.Source)
+	}
 	if request.Plugin != nil && len(definition.SharedWith) != 0 {
 		return protocol.Output{}, nil, knowledgeDenied("collection sharing requires a controller")
 	}
@@ -289,15 +292,6 @@ func removeKnowledge(ctx context.Context, db *sql.Conn, request protocol.Request
 // worktree it indexes, the conversation whose values it indexes or the
 // package that owns it. A disabled package still owns its collections.
 func knowledgeOrphaned(ctx context.Context, db *sql.Conn, stored KnowledgeStored) (bool, error) {
-	if stored.Automatic && ReadKnowledgeSource(stored.Collection.Definition.Source).Scope == protocol.PluginStorageScopeNode && stored.Capture.User != nil {
-		user, err := ResolveUser(ctx, db, *stored.Capture.User)
-		if err != nil {
-			return false, err
-		}
-		if !user.Local && user.Controller != nil {
-			return true, nil
-		}
-	}
 	present := true
 	switch source := ReadKnowledgeSource(stored.Collection.Definition.Source); {
 	case source.Kind == "worktree":

@@ -6,17 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/node/authorization"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+type runtimeCapture struct {
+	waiting bool
+	// A peer predating capture reports keeps its existing access material
+	// until expiry, removal or revocation. Never send it a fresh access token.
+	legacy *protocol.ConfigurationFollowRecord
+}
+
 // Only a previously delivered capture can keep receiving a model credential.
-// Connector projections retain their existing configuration-follow scope.
 func exportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller protocol.NodeID, captured map[protocol.CredentialID]runtimeCapture) ([]protocol.ConfigurationFollowRecord, error) {
 	result := []protocol.ConfigurationFollowRecord{}
 	user, err := CurrentUser(ctx, db)
@@ -98,19 +102,6 @@ func exportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller prot
 			}
 		}
 	}
-	connections, err := connectorRecords(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	for _, record := range connections {
-		value, err := runtimeConnector(ctx, db, record)
-		if err != nil {
-			return nil, err
-		}
-		if err := add(value); err != nil {
-			return nil, err
-		}
-	}
 	slices.SortFunc(result, func(a, b protocol.ConfigurationFollowRecord) int { return strings.Compare(a.ID, b.ID) })
 	return result, nil
 }
@@ -165,81 +156,6 @@ func runtimeProvider(provider protocol.ConversationProvider, id protocol.Credent
 	}
 	exported.AuthenticationTarget = providers.RecoveryAuthenticationTarget(provider, target, grant)
 	return exported
-}
-
-func runtimeConnector(ctx context.Context, db *sql.Conn, record ConnectorRecord) (protocol.RuntimeCredential, error) {
-	value := protocol.RuntimeCredential{
-		Kind: "connector", ID: record.ID.String(), Generation: strconv.FormatUint(record.AuthRevision, 10),
-		Revision: max(1, record.Revision), State: "ready", Slots: map[string]protocol.Secret{},
-	}
-	switch {
-	case record.Method == protocol.PluginConnectorKindLocalCli:
-		value.State = "machine_bound"
-	case !record.Enabled || record.Login != nil:
-		value.State = "revoked"
-	case record.Method != protocol.PluginConnectorKindSecret && record.Grant == nil:
-		value.State = "revoked"
-	case record.Grant != nil:
-		value.Access, value.ExpiresAtMs = protocol.NewSecret(record.Grant.Access), record.Grant.ExpiresAtMs
-		value.IssuedAtMs = record.Grant.IssuedAtMs
-		if record.Grant.Extra["renewal_uncertain"] == "true" {
-			value.State = "uncertain"
-		}
-		if record.Grant.Extra["renewal_rejected"] == "true" {
-			value.State = "rejected"
-		}
-	}
-	if value.State == "machine_bound" || value.State == "revoked" {
-		return value, nil
-	}
-	info, err := ReadPlugin(ctx, db, record.Plugin)
-	if err != nil {
-		return value, err
-	}
-	if info == nil {
-		value.State = "unavailable"
-		return value, nil
-	}
-	for _, declaration := range ConnectorDeclarations(*info) {
-		if declaration.ID != record.Connector {
-			continue
-		}
-		for _, injection := range declaration.Inject {
-			if injection.Field == nil {
-				continue
-			}
-			name := *injection.Field
-			if !providers.RuntimeField(name) {
-				value.State = "unavailable"
-				continue
-			}
-			if secret, ok := record.Secrets[name]; ok {
-				value.Slots[name] = secret
-			} else if text, ok := record.Fields[name]; ok {
-				value.Slots[name] = protocol.NewSecret(text)
-			}
-		}
-		// The implicit first field of secret authentication is also an
-		// execution slot when an injection omits its field selection.
-		if record.Method == protocol.PluginConnectorKindSecret {
-			for _, auth := range declaration.Auth {
-				if auth.Kind != string(record.Method) {
-					continue
-				}
-				var selection protocol.PluginConnectorAuthSecretPayload
-				body, _ := json.Marshal(auth.Data)
-				if json.Unmarshal(body, &selection) == nil && len(selection.Fields) > 0 && providers.RuntimeField(selection.Fields[0]) {
-					name := selection.Fields[0]
-					if secret, ok := record.Secrets[name]; ok {
-						value.Slots[name] = secret
-					}
-				}
-			}
-		}
-		return value, nil
-	}
-	value.State = "unavailable"
-	return value, nil
 }
 
 func readRuntimeCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, kind, id string) (protocol.RuntimeCredential, error) {
@@ -316,46 +232,4 @@ func ReadRuntimeProviderCredential(ctx context.Context, db *sql.Conn, node proto
 		return nil, err
 	}
 	return secret, nil
-}
-
-func ReadRuntimeConnectorCredential(ctx context.Context, db *sql.Conn, node protocol.NodeID, record ConnectorRecord) (*protocol.Secret, error) {
-	if !record.Enabled || record.Login != nil {
-		return nil, fault(protocol.ErrorCodeNotConfigured, "controller connector authorization is unavailable")
-	}
-	value, err := readRuntimeCredential(ctx, db, node, "connector", record.ID.String())
-	if err != nil {
-		return nil, err
-	}
-	if value.Generation != strconv.FormatUint(record.AuthRevision, 10) {
-		return nil, fault(protocol.ErrorCodeRevisionConflict, "connector account changed")
-	}
-	if err := runtimeCredentialReady(value); err != nil {
-		return nil, err
-	}
-	if record.Method == protocol.PluginConnectorKindSecret {
-		return nil, nil
-	}
-	token := value.Access
-	return &token, nil
-}
-
-// restoreRuntimeConnector only reconstructs the slots used by execution.
-// OAuth refresh data and the provider client configuration stay absent.
-func restoreRuntimeConnector(ctx context.Context, db *sql.Conn, record *ConnectorRecord) error {
-	body, exists, err := ReadConfigurationCache(ctx, db, "runtime_credentials", "connector:"+record.ID.String())
-	if err != nil || !exists {
-		return err
-	}
-	var value protocol.RuntimeCredential
-	if err := json.Unmarshal(body, &value); err != nil {
-		return err
-	}
-	if value.Kind != "connector" || value.ID != record.ID.String() || value.Generation != strconv.FormatUint(record.AuthRevision, 10) {
-		return nil
-	}
-	record.Secrets = value.Slots
-	if value.State == "ready" || value.State == "uncertain" {
-		record.Grant = &authorization.Issued{Access: value.Access.Expose(), ExpiresAtMs: value.ExpiresAtMs, IssuedAtMs: value.IssuedAtMs}
-	}
-	return nil
 }

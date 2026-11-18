@@ -65,13 +65,6 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 				})
 			}
 		}
-		controller, err := CurrentController(owner, db, node)
-		if err != nil {
-			return nil, err
-		}
-		if controller != node {
-			continue
-		}
 		connections, err := connectorRecords(owner, db)
 		if err != nil {
 			return nil, err

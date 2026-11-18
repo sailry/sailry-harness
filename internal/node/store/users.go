@@ -77,8 +77,8 @@ func readUser(ctx context.Context, db *sql.Conn, query string, args ...any) (pro
 	return value, nil
 }
 
-// CurrentController resolves the authority for personal configuration. A local
-// or legacy user without a recorded controller keeps this Node as authority.
+// CurrentController resolves the Node identity used by captured controller
+// credentials. A user without a recorded controller resolves to this Node.
 func CurrentController(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol.NodeID, error) {
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
@@ -128,8 +128,13 @@ func CreateUser(ctx context.Context, db *sql.Conn, name string) (protocol.User, 
 		return protocol.User{}, err
 	}
 	value := protocol.User{ID: protocol.NewUserID(), Name: name, Administrator: first, State: "active"}
-	_, err := db.ExecContext(ctx, "INSERT INTO users(id,name,administrator) VALUES(?1,?2,?3)", value.ID.String(), value.Name, value.Administrator)
-	return value, err
+	if _, err := db.ExecContext(ctx, "INSERT INTO users(id,name,administrator) VALUES(?1,?2,?3)", value.ID.String(), value.Name, value.Administrator); err != nil {
+		return protocol.User{}, err
+	}
+	if err := initializeRoles(ctx, db, value); err != nil {
+		return protocol.User{}, err
+	}
+	return value, nil
 }
 
 func validateUsers(ctx context.Context, db *sql.Conn) error {

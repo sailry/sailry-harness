@@ -344,13 +344,6 @@ func ValidateConnectionTrust(ctx context.Context, db *sql.Conn, turn protocol.Tu
 	if profile == nil || profile.Revision != trust.ExpectedRevision || profile.Host != trust.Host || profile.Port != trust.Port {
 		return denied
 	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return err
-	} else if cached {
-		if err := readSshTrust(ctx, db, profile); err != nil {
-			return err
-		}
-	}
 	if trust.Changed != (profile.HostKey != nil) || profile.HostKey != nil && *profile.HostKey == trust.Key {
 		return denied
 	}

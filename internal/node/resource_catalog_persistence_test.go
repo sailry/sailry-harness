@@ -226,7 +226,7 @@ func TestResourceDirectoryObservesCreationAndRestoresOfflineAfterRestart(t *test
 	if err := changes.Close(); err != nil {
 		t.Fatal(err)
 	}
-	configurationFollowers.Delete(controller)
+	resourceObservers.Delete(controller)
 	controller.invalidateResourceProjection(source.ID())
 	if err := controller.Stop(context.Background()); err != nil {
 		t.Fatal(err)

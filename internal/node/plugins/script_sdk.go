@@ -24,7 +24,6 @@ type scriptBridge struct {
 	ctx           context.Context
 	deadline      time.Time
 	target        protocol.NodeID
-	controller    protocol.NodeID
 	scope         protocol.PluginContext
 	execution     *ScriptExecution
 	dispatch      ScriptDispatch
@@ -160,7 +159,9 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 		if json.Unmarshal([]byte(body), &input) != nil || input.Node == (protocol.NodeID{}) || strings.TrimSpace(input.Handler) == "" {
 			return nil, scriptInvalid("invalid host handler target or name")
 		}
-		target = input.Node
+		if input.Node != bridge.target {
+			return nil, scriptPermission("host callbacks can only call handlers on their execution Node")
+		}
 		value, err = scriptJSONValue(protocol.Command{Kind: "call_host_handler", Data: protocol.HostHandlerCall{
 			Handler: input.Handler, Input: input.Input, ReadOnly: input.ReadOnly,
 		}})
@@ -200,10 +201,12 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 	if operation != "host.prepare" && !scriptCommandAllowed(command.Kind) {
 		return nil, scriptPermission("command is not exposed to host callbacks")
 	}
-	if protocol.KnowledgeCommand(command.Kind) {
-		target = protocol.KnowledgeRequestTarget(command, bridge.target, bridge.controller)
-	}
 	request := protocol.NewRequest(target, command)
+	if protocol.KnowledgeCommand(command.Kind) {
+		if err := protocol.ValidateKnowledgeExecution(request, bridge.target); err != nil {
+			return nil, err
+		}
+	}
 	scope := bridge.scope
 	request.Plugin = &scope
 	if command.Durable() && bridge.execution != nil {

@@ -59,18 +59,6 @@ func ReadPluginCommand(ctx context.Context, db *sql.Conn, request protocol.Reque
 }
 
 func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
-	ctx, tx, err := beginPersonalKVTransaction(ctx, db, node, request)
-	if err != nil {
-		return protocol.Output{}, nil, err
-	}
-	output, changes, err := executePluginStorageCommand(ctx, db, node, profile, caller, request)
-	if err == nil {
-		err = finishPersonalKVTransaction(ctx, db, tx)
-	}
-	return output, changes, err
-}
-
-func executePluginStorageCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
 	if request.Plugin == nil {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin provenance is required")
 	}

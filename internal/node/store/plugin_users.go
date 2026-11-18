@@ -86,6 +86,10 @@ func knowledgeUserAllowed(ctx context.Context, db *sql.Conn, stored KnowledgeSto
 		return false, err
 	}
 	var allowed bool
+	if session := stored.Capture.Session; session != nil {
+		err = db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions s LEFT JOIN projects p ON p.id=s.project WHERE s.id=?1 AND s.state!='removed' AND (`+sessionAccessPredicate+`) AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=s.project))`, session.String(), user.ID.String()).Scan(&allowed)
+		return allowed, err
+	}
 	if project, ok := strings.CutPrefix(stored.Capture.Space, "project:"); ok {
 		err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM projects p WHERE p.id=?1 AND (p.owner=?2 OR p.visibility='shared') AND NOT EXISTS(SELECT 1 FROM removed_projects r WHERE r.project=p.id))", project, user.ID.String()).Scan(&allowed)
 		return allowed, err
@@ -155,20 +159,13 @@ type pluginSpaceKey struct{}
 // a plugin. Project storage commands resolve their project before setting it.
 func pluginValueSpace(ctx context.Context, db *sql.Conn) (string, error) {
 	if space, ok := ctx.Value(pluginSpaceKey{}).(string); ok {
-		if value, personal := strings.CutPrefix(space, "user:"); personal {
-			user, err := protocol.ParseUserID(value)
-			if err != nil {
-				return "", err
-			}
-			return personalPluginSpace(ctx, db, user)
-		}
 		return space, nil
 	}
 	user, err := CapturedUser(ctx, db)
 	if err != nil {
 		return "", err
 	}
-	return personalPluginSpace(ctx, db, user)
+	return "user:" + user.String(), nil
 }
 
 func pluginValueScope(ctx context.Context) protocol.PluginStorageScope {

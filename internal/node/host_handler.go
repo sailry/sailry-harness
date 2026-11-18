@@ -14,10 +14,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// admitHostHandler captures a plugin's identity on its execution Node before
-// selecting the handler's real host. It admits no arbitrary nested command.
+// admitHostHandler captures a plugin's identity on the handler's execution Node.
 func (node *Node) admitHostHandler(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
-	if request.Version != protocol.VERSION || request.Target != node.ID() && caller != node.ID() || request.Plugin == nil {
+	if request.Version != protocol.VERSION || request.Target != node.ID() || request.Plugin == nil {
 		return link.Admission{}, permissionDenied()
 	}
 	body, err := json.Marshal(request)
@@ -52,19 +51,7 @@ func (node *Node) admitHostHandler(ctx context.Context, caller protocol.NodeID, 
 	if err := checkHostHandlerScope(request, scope); err != nil {
 		return link.Admission{}, err
 	}
-	var controller protocol.NodeID
-	err = node.profile.Store.Node.Read(verified, func(db *sql.Conn) error {
-		var err error
-		controller, err = store.CurrentController(verified, db, node.ID())
-		return err
-	})
-	if err != nil {
-		return link.Admission{}, nodeFault(err)
-	}
 	call := protocol.ResourceCall{Request: request, Scope: scope}
-	if request.Target != node.ID() && controller != node.ID() {
-		return node.sendResource(verified, controller, call, false)
-	}
 	return node.routeHostHandler(verified, caller, call)
 }
 
@@ -92,7 +79,7 @@ func (node *Node) routeHostHandler(ctx context.Context, caller protocol.NodeID, 
 		return link.Admission{}, err
 	}
 	if call.Request.Target != node.ID() {
-		return node.sendResource(ctx, call.Request.Target, call, true)
+		return node.sendResource(ctx, call.Request.Target, call)
 	}
 	if call.Request.Command.Kind == "inspect_request" {
 		return node.resourceReadAdmission(ctx, call.Request, func(ctx context.Context) (protocol.Output, error) {
@@ -131,12 +118,32 @@ func (node *Node) admitHostHandlerLocal(ctx context.Context, caller protocol.Nod
 	}
 	completion := make(chan link.Response, 1)
 	accepted := link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: completion}
+	info := *call.Scope.Plugin
+	capturePackage := func(db *sql.Conn) error {
+		if !call.Local || caller == node.ID() {
+			return nil
+		}
+		// A controller can select a handler on this Node. Capture this
+		// user's installed package and settings before acknowledging it.
+		installed, err := store.ReadPlugin(ctx, db, info.Summary.Name)
+		if err != nil {
+			return err
+		}
+		if installed == nil || !installed.Summary.Enabled || installed.Summary.Compatibility.Kind != "compatible" {
+			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "enable the package on the execution Node"}
+		}
+		info = *installed
+		return nil
+	}
 	if accepted.Receipt.Durable {
 		var previous *link.Response
 		err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 			var err error
 			previous, err = admission.Admit(ctx, db, caller, request, body)
-			return err
+			if err != nil || previous != nil {
+				return err
+			}
+			return capturePackage(db)
 		})
 		if err != nil {
 			node.work.Done()
@@ -148,6 +155,9 @@ func (node *Node) admitHostHandlerLocal(ctx context.Context, caller protocol.Nod
 			close(completion)
 			return accepted, nil
 		}
+	} else if err := node.profile.Store.Node.Read(ctx, capturePackage); err != nil {
+		node.work.Done()
+		return link.Admission{}, nodeFault(err)
 	}
 	err = node.tasks.Submit(func(owner context.Context) {
 		defer node.work.Done()
@@ -169,11 +179,11 @@ func (node *Node) admitHostHandlerLocal(ctx context.Context, caller protocol.Nod
 			stop := context.AfterFunc(owner, cancel)
 			defer func() { stop(); cancel() }()
 		}
-		// Foreign worktree, session and turn IDs remain provenance. Commands
-		// emitted by the handler belong to a fresh invocation on this Node.
+		// Foreign worktree and session IDs remain provenance. The handler
+		// obtains a fresh invocation scope on this Node.
 		scope := protocol.DefaultPluginContext()
-		scope.Package = request.Plugin.Package
-		output, err := node.runPluginHandler(operation, caller, request, scope, *call.Scope.Plugin, user, storage, input.Handler, input.Input, input.ReadOnly)
+		scope.Package = plugins.PackageReference(info)
+		output, err := node.runPluginHandler(operation, caller, request, scope, info, user, storage, input.Handler, input.Input, input.ReadOnly)
 		result = response(output, err)
 	})
 	if err != nil {

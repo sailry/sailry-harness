@@ -46,12 +46,12 @@ const (
 // the first one's Reason, or the collection's own when it failed as a
 // whole, and whether an action on it is under way.
 type KnowledgeCollection struct {
-	ID, Name string
-	State    KnowledgeState
-	Sources  uint64
-	Failed   uint64
-	Reason   string
-	Busy     bool
+	ID, Name, Node string
+	State          KnowledgeState
+	Sources        uint64
+	Failed         uint64
+	Reason         string
+	Busy           bool
 }
 
 // LibraryModel is a model the model library finds (model_library rows).

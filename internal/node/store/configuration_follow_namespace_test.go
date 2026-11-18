@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -87,20 +88,25 @@ func TestConfigurationManifestRejectsUnclassifiedControllerWithoutMaterializing(
 	}
 }
 
-func TestConfigurationCachesKeepSourceIDsSeparateFromFormalRows(t *testing.T) {
+func TestRetiredRoleConfigurationLeavesHistoricalRowsAndLocalNamespace(t *testing.T) {
 	storage, node, source, ctx := followFixture(t)
 	role := protocol.DefaultRoleProfile()
 	role.ID, role.Key, role.Name, role.Revision = protocol.NewRoleID(), "reviewer", "Reviewer", 1
-	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, followRecord(t, role.ID.String(), 1, role, nil)); err != nil {
-		t.Fatal(err)
+	record := followRecord(t, role.ID.String(), 1, role, nil)
+	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, record); !providerFixtureFault(err, protocol.ErrorCodeNotConfigured) {
+		t.Fatalf("legacy follow accepted a new role: %v", err)
 	}
-	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := applyConfigurationCache(ctx, db, node, source, protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record}})
+		if err != nil {
+			return err
+		}
 		roles, err := ReadRoles(ctx, db)
 		if err != nil {
 			return err
 		}
-		if len(roles) != 1 || roles[0].ID != role.ID {
-			return errors.New("cache changed source identity")
+		if slices.ContainsFunc(roles, func(profile protocol.RoleProfile) bool { return profile.ID == role.ID }) {
+			return errors.New("followed role is a current execution choice")
 		}
 		var formal int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM roles WHERE id=?1", role.ID.String()).Scan(&formal); err != nil {
@@ -109,18 +115,10 @@ func TestConfigurationCachesKeepSourceIDsSeparateFromFormalRows(t *testing.T) {
 		if formal != 0 {
 			return errors.New("cache wrote authoritative role table")
 		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	role.Name, role.Revision = "Updated", 2
-	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 2, followRecord(t, role.ID.String(), 2, role, nil)); err != nil {
-		t.Fatal(err)
-	}
-	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 3); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		role.Name = "Local reviewer"
+		if _, err := putRole(ctx, db, role, 0); err != nil {
+			return err
+		}
 		old, err := readConfigurationCacheRecord(ctx, db, "roles", role.ID.String(), 1)
 		if err != nil || old == nil {
 			return errors.New("removal deleted captured role revision")
@@ -129,8 +127,8 @@ func TestConfigurationCachesKeepSourceIDsSeparateFromFormalRows(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if len(current) != 0 {
-			return errors.New("removed role remains current")
+		if !slices.ContainsFunc(current, func(profile protocol.RoleProfile) bool { return profile.ID == role.ID && profile.Name == role.Name }) {
+			return errors.New("local role write did not use the execution Node")
 		}
 		return nil
 	}); err != nil {

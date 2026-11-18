@@ -13,19 +13,21 @@ import (
 )
 
 type HostBinding struct {
-	Context       context.Context
-	Client        *client.Client
-	Resources     *client.Client
-	Target        protocol.NodeID
-	Scope         protocol.PluginContext
-	Locale        string
-	Contributions ContributionHooks
-	Native        *NativeBinding
-	Clock         clockwork.Clock
-	ReadFiles     bool
-	Actions       []protocol.PluginAction
-	UsageSources  func() []UsageSource
-	UsageChanges  <-chan struct{}
+	// ExecutionResources keeps a host-owned view on its mounted Node.
+	ExecutionResources bool
+	Context            context.Context
+	Client             *client.Client
+	Resources          *client.Client
+	Target             protocol.NodeID
+	Scope              protocol.PluginContext
+	Locale             string
+	Contributions      ContributionHooks
+	Native             *NativeBinding
+	Clock              clockwork.Clock
+	ReadFiles          bool
+	Actions            []protocol.PluginAction
+	UsageSources       func() []UsageSource
+	UsageChanges       <-chan struct{}
 	// UsageSample is the sample the usage calls answer from at first;
 	// SetUsageSample changes it.
 	UsageSample *UsageSample

@@ -56,7 +56,6 @@ func (r *Runtime) initConnectionActions() {
 		name, _ := os.Hostname()
 		r.connections = &connectionState{localName: name}
 	}
-	r.initConfigurationFollowActions()
 	state := r.connections
 	if r.network != nil {
 		state.endpoint = r.network.endpoint

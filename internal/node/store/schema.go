@@ -209,11 +209,6 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 		if err := initializeDefaults(ctx, connection); err != nil {
 			return err
 		}
-		if definition.state == schemaFresh || definition.plan.created["roles"] {
-			if err := initializeRoles(ctx, connection); err != nil {
-				return err
-			}
-		}
 		if definition.state == schemaFresh || definition.plan.created["local_model_settings"] {
 			if err := initializeLocalModels(ctx, connection); err != nil {
 				return err
@@ -241,6 +236,15 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	if definition.state != schemaCurrent {
 		if err := initializeUsers(ctx, connection); err != nil {
 			return err
+		}
+		if definition.state == schemaFresh || definition.plan.created["roles"] {
+			owner, err := LocalUser(ctx, connection)
+			if err != nil {
+				return err
+			}
+			if err := initializeRoles(ctx, connection, owner); err != nil {
+				return err
+			}
 		}
 		if err := InitializeIdentity(ctx, connection); err != nil {
 			return err

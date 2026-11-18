@@ -44,9 +44,6 @@ func configurationOwner(ctx context.Context, db *sql.Conn, table, id string) (pr
 }
 
 func checkConfigurationOwner(ctx context.Context, db *sql.Conn, table, id string) error {
-	if err := CheckConfigurationEditable(ctx, db, table, id); err != nil {
-		return err
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return err
@@ -65,11 +62,6 @@ func readUserConfiguration[T any](ctx context.Context, db *sql.Conn, table, id s
 	if !configurationTable(table) {
 		return nil, errors.New("invalid configuration table")
 	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		return readCachedConfiguration[T](ctx, db, table, id)
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return nil, err
@@ -80,11 +72,6 @@ func readUserConfiguration[T any](ctx context.Context, db *sql.Conn, table, id s
 func listUserConfiguration[T any](ctx context.Context, db *sql.Conn, table string) ([]T, error) {
 	if !configurationTable(table) {
 		return nil, errors.New("invalid configuration table")
-	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		return listCachedConfiguration[T](ctx, db, table)
 	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {

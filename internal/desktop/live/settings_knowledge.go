@@ -11,7 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Knowledge: the selected host's knowledge collections with
+// Settings › Knowledge: the controller's visible knowledge collections with
 // their indexing state, read when the page shows and again whenever the
 // Node reports knowledge_collections_changed (its progress, a failure, a
 // removal), and paused, resumed or updated at the revision read.
@@ -135,6 +135,9 @@ func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[strin
 	for _, x := range collections {
 		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, Busy: acting[knowledgeCollectionKey(x)],
 			Sources: x.Progress.Sources, Failed: x.Progress.Failed}
+		if x.Node != (protocol.NodeID{}) {
+			view.Node = x.Node.String()
+		}
 		if len(x.Progress.Failures) > 0 {
 			first := x.Progress.Failures[0]
 			view.Reason = first.Reason

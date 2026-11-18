@@ -52,12 +52,17 @@ func TestExecutionLocalKnowledgeRemainsUsableWithoutController(t *testing.T) {
 		t.Fatalf("explicit local collection routed through the offline controller: %+v: %v", output, err)
 	}
 	query.Refs = []protocol.KnowledgeRef{{Node: controller, ID: collection.ID}}
-	if _, err := call(protocol.Command{Kind: "query_knowledge", Data: &query}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeUnavailable {
-		t.Fatalf("controller-owned source was treated as an empty local result: %v", err)
+	if _, err := call(protocol.Command{Kind: "query_knowledge", Data: &query}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("execution accepted a controller-owned source: %v", err)
 	}
 	query.Refs = nil
-	if _, err := call(protocol.Command{Kind: "query_knowledge", Data: &query}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeUnavailable {
-		t.Fatalf("controller-wide view was treated as available offline: %v", err)
+	if output, err := call(protocol.Command{Kind: "query_knowledge", Data: &query}); err != nil || output.Kind != "knowledge_search" {
+		t.Fatalf("unfiltered execution query depended on its controller: %+v: %v", output, err)
+	}
+	output, err = call(protocol.Command{Kind: "list_knowledge_collections"})
+	collections, valid := dispatchPayload[[]protocol.KnowledgeCollection](output.Data)
+	if err != nil || !valid || len(collections) != 1 || collections[0].ID != collection.ID {
+		t.Fatalf("execution library list depended on its controller: %+v: %v", output, err)
 	}
 }
 

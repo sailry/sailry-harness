@@ -22,15 +22,14 @@ type ConfigurationExport struct {
 // ConfigurationKind owns one complete synchronization contract. A new personal
 // category registers its exporter, validation and projections in one place.
 type ConfigurationKind struct {
-	Name            string
-	Events          []string
-	Runtime         bool
-	LocalOnly       bool
-	PersonalSetting string
-	Export          func(context.Context, *sql.Conn, ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error)
-	Validate        func(context.Context, *sql.Conn, protocol.ConfigurationFollowRecord) error
-	Changed         func(context.Context, *sql.Conn, []protocol.ConfigurationFollowRecord) ([]protocol.Event, error)
-	Removed         func(string) (*protocol.Event, error)
+	Name      string
+	Events    []string
+	Runtime   bool
+	LocalOnly bool
+	Export    func(context.Context, *sql.Conn, ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error)
+	Validate  func(context.Context, *sql.Conn, protocol.ConfigurationFollowRecord) error
+	Changed   func(context.Context, *sql.Conn, []protocol.ConfigurationFollowRecord) ([]protocol.Event, error)
+	Removed   func(string) (*protocol.Event, error)
 }
 
 var configurationRegistry = struct {
@@ -82,17 +81,6 @@ func RuntimeCredentialEvent(event string) bool {
 		}
 	}
 	return false
-}
-
-func personalConfigurationKind(name string) (ConfigurationKind, bool) {
-	configurationRegistry.RLock()
-	defer configurationRegistry.RUnlock()
-	for _, kind := range configurationRegistry.kinds {
-		if kind.PersonalSetting == name {
-			return kind, true
-		}
-	}
-	return ConfigurationKind{}, false
 }
 
 func changedConfiguration[T any](event string) func(context.Context, *sql.Conn, []protocol.ConfigurationFollowRecord) ([]protocol.Event, error) {
@@ -248,7 +236,7 @@ func registerPersonalConfiguration(name, event string, payload func(uint64) any)
 		changed = changedConfiguration[protocol.MediaSettings](event)
 	}
 	RegisterConfigurationKind(ConfigurationKind{
-		Name: "personal:" + name, PersonalSetting: name, Events: []string{event},
+		Name: "personal:" + name, Events: []string{event},
 		Export: func(ctx context.Context, db *sql.Conn, options ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
 			return exportPersonalConfiguration(ctx, db, name, options)
 		},

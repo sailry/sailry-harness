@@ -156,12 +156,12 @@ func (transport *resourceCatalogTransport) Resource(_ context.Context, call prot
 
 func resourceCatalogFixture(t *testing.T, node *Node, peers map[protocol.NodeID]*client.Client) context.Context {
 	t.Helper()
-	followers := &configurationFollowRuntime{peers: map[protocol.NodeID]*configurationFollowPeer{}}
+	followers := &resourceObserverRuntime{peers: map[protocol.NodeID]*resourceObserverPeer{}}
 	for id, remote := range peers {
-		followers.peers[id] = &configurationFollowPeer{client: remote}
+		followers.peers[id] = &resourceObserverPeer{client: remote}
 	}
-	configurationFollowers.Store(node, followers)
-	t.Cleanup(func() { configurationFollowers.Delete(node) })
+	resourceObservers.Store(node, followers)
+	t.Cleanup(func() { resourceObservers.Delete(node) })
 	var user protocol.User
 	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
 		for id := range peers {

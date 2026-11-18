@@ -5,8 +5,6 @@ package node
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"lukechampine.com/blake3"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -149,6 +145,15 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	if replay := collection(execute(desktop, original)); replay.ID != kb.ID {
 		t.Fatal("replaying an admitted request created another library")
 	}
+	// A direct transport call must obey the explicit storage selection even
+	// when the receiving Node's actor owns a matching collection ID.
+	misrouted := protocol.NewRequest(b.ID(), protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{
+		Node: &kc.Node, ID: kb.ID, ExpectedRevision: kb.Revision, Paused: true,
+	}})
+	storage := a.Link().Remote(addressB)
+	if _, err := resourceResult(ctx, storage.Resource, protocol.ResourceCall{Local: true, Request: misrouted}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("storage Node accepted a differently targeted mutation: %v", err)
+	}
 	project := func(owner *client.Client, name string) protocol.Project {
 		t.Helper()
 		draft := protocol.DefaultProjectsDraft()
@@ -212,8 +217,9 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	query := protocol.DefaultKnowledgeQuery()
 	query.Query, query.Mode, query.Limit = "uniquecontroller", protocol.KnowledgeModeKeyword, 5
 	var hit protocol.KnowledgeHit
-	wait("keyword index through executor controller storage route", func() bool {
-		output, err := runtimeCall(protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &query}))
+	queryRequest := protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &query})
+	wait("controller aggregates its directly connected stores", func() bool {
+		output, err := desktop.ExecuteKnowledge(ctx, queryRequest)
 		page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
 		if err != nil || !valid || len(page.Hits) == 0 {
 			return false
@@ -222,10 +228,22 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		return hit.Citation.Node == b.ID() && hit.Citation.Collection == kb.ID
 	})
 	read := protocol.KnowledgeCitationRequest{Node: b.ID(), Collection: hit.Citation.Collection, Chunk: hit.Citation.Chunk, Revision: hit.Citation.Revision, Limit: 4096}
-	output, err := runtimeCall(protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &read}))
+	readRequest := protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &read})
+	output, err := desktop.ExecuteKnowledge(ctx, readRequest)
 	cited, valid := dispatchPayload[protocol.KnowledgeCitationPage](output.Data)
 	if err != nil || !valid || !strings.Contains(cited.Text, "uniquecontroller") {
-		t.Fatalf("executor did not read the original storage citation: %+v: %v", output, err)
+		t.Fatalf("entry did not read the original storage citation: %+v: %v", output, err)
+	}
+	for _, request := range []protocol.Request{queryRequest, readRequest} {
+		if _, err := runtimeCall(request); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+			t.Fatalf("executor accepted a foreign knowledge target: %v", err)
+		}
+	}
+	reverse := c.Link().Remote(addressA)
+	for _, local := range []bool{false, true} {
+		if _, err := reverse.Resource(executorCtx, protocol.ResourceCall{Local: local, Request: queryRequest}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("entry accepted reverse knowledge access (local=%t): %v", local, err)
+		}
 	}
 	pluginName := "scoped-knowledge"
 	pluginSource := t.TempDir()
@@ -233,41 +251,27 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pluginSource, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info, err := a.plugins.manager.Install(ctx, pluginSource, "", pluginName)
+	info, err := b.plugins.manager.Install(ctx, pluginSource, "", pluginName)
 	if err != nil || len(info.Issues) != 0 {
 		t.Fatalf("scoped knowledge fixture: %+v: %v", info.Issues, err)
 	}
-	if err := a.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+	owner := store.WithUser(ctx, remoteUser(b))
+	if err := b.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
 		var err error
-		info, err = store.InstallPlugin(ctx, db, info, 0, true)
+		info, err = store.InstallPlugin(owner, db, info, 0, true)
 		if err != nil {
 			return err
 		}
-		_, err = store.RecordEvents(ctx, db, a.ID(), []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
+		_, err = store.RecordEvents(owner, db, b.ID(), []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	a.NotifyConfigurationFollow([]protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
-	a.publish()
-	wait("scoped package reaches execution hosts", func() bool {
-		for _, host := range []*Node{b, c} {
-			ready := false
-			owner := store.WithUser(ctx, remoteUser(host))
-			if err := host.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-				current, err := store.ReadPlugin(owner, db, pluginName)
-				ready = err == nil && current != nil && current.Summary.Digest == info.Summary.Digest
-				return err
-			}); err != nil || !ready {
-				return false
-			}
-		}
-		return true
-	})
-	kc.Definition.SharedWith = []string{pluginName}
-	kc = collection(execute(desktop, desktop.PrepareKnowledge(protocol.KnowledgeRef{Node: c.ID()}, protocol.Command{
+	b.publish()
+	kb.Definition.SharedWith = []string{pluginName}
+	kb = collection(execute(desktop, desktop.PrepareKnowledge(protocol.KnowledgeRef{Node: b.ID()}, protocol.Command{
 		Kind: "update_knowledge_collection", Data: &protocol.CommandUpdateKnowledgeCollectionPayload{
-			Node: &kc.Node, ID: kc.ID, ExpectedRevision: kc.Revision, Definition: kc.Definition,
+			Node: &kb.Node, ID: kb.ID, ExpectedRevision: kb.Revision, Definition: kb.Definition,
 		},
 	})))
 	var scopeWorktree protocol.WorktreeID
@@ -283,54 +287,64 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	pluginScope := protocol.DefaultPluginContext()
 	pluginScope.Package, pluginScope.Worktree = plugins.PackageReference(info), &scopeWorktree
 	scopedQuery := protocol.DefaultKnowledgeQuery()
-	scopedQuery.Query, scopedQuery.Mode, scopedQuery.Limit = "executorlocal", protocol.KnowledgeModeKeyword, 5
+	scopedQuery.Query, scopedQuery.Mode, scopedQuery.Limit = "uniquecontroller", protocol.KnowledgeModeKeyword, 5
 	scopedQuery.Refs = []protocol.KnowledgeRef{{Node: c.ID(), ID: kc.ID}}
 	scopedRequest := protocol.NewRequest(c.ID(), protocol.Command{Kind: "query_knowledge", Data: &scopedQuery})
 	scopedRequest.Plugin = &pluginScope
+	workspace := phone.Via(addressA, b.ID())
+	if _, err := workspace.ScopedKnowledge(ctx, protocol.ScopedKnowledgeCall{Request: scopedRequest}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("workspace accepted another storage Node: %v", err)
+	}
+	scopedRequest.Target = b.ID()
+	scopedQuery.Refs = append(scopedQuery.Refs, protocol.KnowledgeRef{Node: b.ID(), ID: kb.ID})
+	if _, err := workspace.ScopedKnowledge(ctx, protocol.ScopedKnowledgeCall{Request: scopedRequest}); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("workspace accepted a mixed-Node selection: %v", err)
+	}
+	scopedQuery.Refs = nil
 	var scopedHit protocol.KnowledgeHit
-	wait("mobile workspace query validates at B before routing to C", func() bool {
+	wait("mobile workspace query uses its execution Node", func() bool {
 		output, err := via.ExecuteScopedKnowledge(ctx, scopedRequest)
 		page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
 		if err != nil {
-			t.Fatalf("scoped cross-host query: %v", err)
+			t.Fatalf("workspace query: %v", err)
 		}
 		if !valid || len(page.Hits) != 1 {
 			return false
 		}
 		scopedHit = page.Hits[0]
-		return scopedHit.Citation.Node == c.ID() && scopedHit.Citation.Collection == kc.ID
+		return scopedHit.Citation.Node == b.ID() && scopedHit.Citation.Collection == kb.ID
 	})
-	scopedRead := protocol.NewRequest(c.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &protocol.KnowledgeCitationRequest{
-		Node: c.ID(), Collection: kc.ID, Chunk: scopedHit.Citation.Chunk, Revision: scopedHit.Citation.Revision, Limit: 4096,
+	scopedRead := protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &protocol.KnowledgeCitationRequest{
+		Node: b.ID(), Collection: kb.ID, Chunk: scopedHit.Citation.Chunk, Revision: scopedHit.Citation.Revision, Limit: 4096,
 	}})
 	scopedRead.Plugin = &pluginScope
 	output, err = via.ExecuteScopedKnowledge(ctx, scopedRead)
 	scopedCitation, valid := dispatchPayload[protocol.KnowledgeCitationPage](output.Data)
-	if err != nil || !valid || !strings.Contains(scopedCitation.Text, "executorlocal") {
-		t.Fatalf("scoped citation lost its storage Node: %+v: %v", output, err)
+	if err != nil || !valid || !strings.Contains(scopedCitation.Text, "uniquecontroller") {
+		t.Fatalf("workspace citation lost its storage Node: %+v: %v", output, err)
 	}
-	if _, err := mobile.ExecuteScopedKnowledge(ctx, scopedRead); err == nil {
-		t.Fatal("controller accepted the execution host's foreign workspace scope")
+	if _, err := mobile.ExecuteScopedKnowledge(ctx, scopedRead); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("entry accepted the execution host's workspace scope: %v", err)
 	}
 	personalDefinition := protocol.DefaultKnowledgeDefinition()
 	personalDefinition.Name = "Scoped personal library"
 	personalDefinition.Source = protocol.KnowledgeSource{Kind: "storage", Data: &protocol.KnowledgeSourceStoragePayload{Scope: protocol.PluginStorageScopeNode}}
-	scopedCreate := protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
-		Node: &addressA.ID, Definition: personalDefinition,
+	scopedCreate := protocol.NewRequest(b.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
+		Node: &addressB.ID, Definition: personalDefinition,
 	}})
 	scopedCreate.Plugin = &pluginScope
 	output, err = via.ExecuteScopedKnowledge(ctx, scopedCreate)
-	if err != nil || collection(output).Node != a.ID() {
-		t.Fatalf("scoped create did not reach its canonical Node: %+v: %v", output, err)
+	if err != nil || collection(output).Node != b.ID() {
+		t.Fatalf("scoped create did not reach its execution Node: %+v: %v", output, err)
 	}
 	if recovered, err := via.ScopedKnowledgeOutcome(ctx, scopedCreate); err != nil || recovered.Kind != "completed" {
 		t.Fatalf("scoped create recovery lost its original request: %+v: %v", recovered, err)
 	}
-	selectedLibrary := protocol.NewRequest(c.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
-		Node: &kc.Node, Plugin: &pluginName, Definition: definition("Plugin library", "scopedplugin"),
+	selectedLibrary := protocol.NewRequest(b.ID(), protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
+		Node: &kb.Node, Plugin: &pluginName, Definition: definition("Plugin library", "scopedplugin"),
 	}})
 	pluginLibrary := collection(execute(desktop, selectedLibrary))
-	scopedPause := protocol.NewRequest(c.ID(), protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{
+	scopedPause := protocol.NewRequest(b.ID(), protocol.Command{Kind: "pause_knowledge_collection", Data: &protocol.CommandPauseKnowledgeCollectionPayload{
 		Node: &pluginLibrary.Node, ID: pluginLibrary.ID, ExpectedRevision: pluginLibrary.Revision, Paused: true,
 	}})
 	scopedPause.Plugin = &pluginScope
@@ -343,7 +357,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	recoveredResult, valid := dispatchPayload[protocol.Result[protocol.Output, protocol.Fault]](recoveredPause.Data)
 	if err != nil || recoveredPause.Kind != "completed" || !valid || recoveredResult.Ok == nil ||
 		collection(*recoveredResult.Ok).ID != paused.ID || collection(*recoveredResult.Ok).Revision != paused.Revision {
-		t.Fatalf("ordinary outcome recovery treated foreign plugin scope as local: %+v: %v", recoveredPause, err)
+		t.Fatalf("entry could not recover an admitted workspace operation at its storage Node: %+v: %v", recoveredPause, err)
 	}
 	phoneKB.Definition.Visibility = protocol.KnowledgeVisibilityShared
 	phoneKB = collection(execute(direct, direct.PrepareKnowledge(protocol.KnowledgeRef{Node: b.ID()}, protocol.Command{
@@ -356,7 +370,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	sharedQuery.Refs = []protocol.KnowledgeRef{{Node: b.ID(), ID: phoneKB.ID}}
 	var sharedHit protocol.KnowledgeHit
 	wait("shared library visible without another grant", func() bool {
-		output, err := runtimeCall(protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &sharedQuery}))
+		output, err := desktop.ExecuteKnowledge(ctx, protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &sharedQuery}))
 		page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
 		if err != nil || !valid || len(page.Hits) != 1 {
 			return false
@@ -365,7 +379,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		return sharedHit.Citation.Collection == phoneKB.ID
 	})
 	sharedRef := protocol.KnowledgeRef{Node: b.ID(), ID: phoneKB.ID}
-	if _, err := runtimeCall(protocol.NewRequest(b.ID(), protocol.Command{Kind: "delete_knowledge_collection",
+	if _, err := desktop.ExecuteKnowledge(ctx, protocol.NewRequest(b.ID(), protocol.Command{Kind: "delete_knowledge_collection",
 		Data: &protocol.CommandDeleteKnowledgeCollectionPayload{Node: &sharedRef.Node, ID: sharedRef.ID, ExpectedRevision: phoneKB.Revision}})); err == nil {
 		t.Fatal("a shared reader deleted its owner's library")
 	}
@@ -375,31 +389,18 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 			Node: &sharedRef.Node, ID: sharedRef.ID, ExpectedRevision: phoneKB.Revision, Definition: phoneKB.Definition,
 		}}))
 	sharedRead := protocol.KnowledgeCitationRequest{Node: b.ID(), Collection: sharedHit.Citation.Collection, Chunk: sharedHit.Citation.Chunk, Revision: sharedHit.Citation.Revision, Limit: 4096}
-	if _, err := runtimeCall(protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &sharedRead})); err == nil {
+	if _, err := desktop.ExecuteKnowledge(ctx, protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_knowledge_citation", Data: &sharedRead})); err == nil {
 		t.Fatal("a citation remained accessible after shared visibility was removed")
 	}
-	runtimeRequest := protocol.NewRequest(b.ID(), protocol.Command{Kind: "create_knowledge_collection",
-		Data: &protocol.CommandCreateKnowledgeCollectionPayload{Node: &addressB.ID, Definition: definition("Runtime library", "runtimecreated")}})
+	runtimeRequest := protocol.NewRequest(c.ID(), protocol.Command{Kind: "create_knowledge_collection",
+		Data: &protocol.CommandCreateKnowledgeCollectionPayload{Node: &kc.Node, Definition: definition("Runtime library", "runtimecreated")}})
 	output, err = runtimeCall(runtimeRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	created := collection(output)
-	if created.Node != b.ID() || created.OwnerUser != kb.OwnerUser {
+	if created.Node != c.ID() || created.OwnerUser != kc.OwnerUser {
 		t.Fatal("executor mutation reached a different storage owner")
-	}
-	body, err := json.Marshal(runtimeRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := blake3.Sum256(body)
-	recovery := protocol.NewRequest(b.ID(), protocol.Command{Kind: "inspect_request", Data: &protocol.CommandInspectRequestPayload{ID: runtimeRequest.ID, Digest: hex.EncodeToString(digest[:])}})
-	recovered, err := resourceResult(ctx, func(ctx context.Context, call protocol.ResourceCall) (link.Admission, error) {
-		return c.sendResource(executorCtx, a.ID(), call, false)
-	}, protocol.ResourceCall{Request: recovery, Original: &runtimeRequest})
-	outcome, valid := dispatchPayload[protocol.OutputRequestOutcomePayload](recovered.Data)
-	if err != nil || !valid || outcome.ID != runtimeRequest.ID || outcome.Outcome.Kind != "completed" {
-		t.Fatalf("executor recovery lost the original request: %+v: %v", recovered, err)
 	}
 	viaFeed, err := phone.Via(addressA, b.ID()).Subscribe(ctx, protocol.Topic{Kind: "node"})
 	if err != nil {
@@ -435,7 +436,6 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	}
 	localQuery := protocol.DefaultKnowledgeQuery()
 	localQuery.Query, localQuery.Mode, localQuery.Limit = "executorlocal", protocol.KnowledgeModeKeyword, 5
-	localQuery.Refs = []protocol.KnowledgeRef{{Node: c.ID(), ID: kc.ID}}
 	wait("executor local index", func() bool {
 		output, err := runtimeCall(protocol.NewRequest(c.ID(), protocol.Command{Kind: "query_knowledge", Data: &localQuery}))
 		page, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
@@ -448,10 +448,5 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 	localPage, valid := dispatchPayload[protocol.KnowledgePage](output.Data)
 	if err != nil || !valid || len(localPage.Hits) != 1 || localPage.Hits[0].Citation.Node != c.ID() {
 		t.Fatalf("local knowledge depended on an offline controller: %+v: %v", output, err)
-	}
-	unavailable, release := context.WithTimeout(executorCtx, 3*time.Second)
-	defer release()
-	if _, err := c.dispatchCallbackResult(unavailable, protocol.NewRequest(a.ID(), protocol.Command{Kind: "query_knowledge", Data: &query})); err == nil {
-		t.Fatal("offline controller route returned an unrelated local result")
 	}
 }

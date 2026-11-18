@@ -8,7 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestControllerFileLocationsRemainOnTheirOwningNode(t *testing.T) {
+func TestControllerFileLocationsDoNotAppearOnExecutionNode(t *testing.T) {
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		path := `C:\private\archive.sqlite`
@@ -26,13 +26,13 @@ func TestControllerFileLocationsRemainOnTheirOwningNode(t *testing.T) {
 			return err
 		}
 		found, err := ReadDatabase(ctx, db, profile.ID)
-		if err != nil || found.Location == nil || found.Location.Node != controller || found.Location.Path != path {
-			return fmt.Errorf("cached database location was rebound to executor: %w", err)
+		if err != nil || found != nil {
+			return fmt.Errorf("cached database location appeared on executor: %v", err)
 		}
 		_, err = PrepareDatabase(ctx, db, t.TempDir(), protocol.Command{Kind: "check_database", Data: protocol.CommandCheckDatabasePayload{
 			Profile: profile.ID, ExpectedRevision: profile.Revision,
 		}})
-		if !providerFixtureFault(err, protocol.ErrorCodeWrongTarget) {
+		if !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
 			return fmt.Errorf("executor attempted another Node's file: %v", err)
 		}
 		ssh := protocol.DefaultSshProfile()
@@ -44,52 +44,8 @@ func TestControllerFileLocationsRemainOnTheirOwningNode(t *testing.T) {
 		}); err != nil {
 			return err
 		}
-		if _, _, err := ReadSsh(ctx, db, ssh.ID, ssh.Revision); !providerFixtureFault(err, protocol.ErrorCodeWrongTarget) {
+		if _, _, err := ReadSsh(ctx, db, ssh.ID, ssh.Revision); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
 			return fmt.Errorf("executor attempted its own SSH_AUTH_SOCK for a controller-bound agent: %v", err)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestCachedSshTrustSurvivesConfigurationUpdates(t *testing.T) {
-	storage, node, controller, ctx := controllerCacheFixture(t)
-	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		profile := protocol.DefaultSshProfile()
-		profile.ID, profile.Revision, profile.Name = protocol.NewSshID(), 1, "Initial"
-		profile.Host, profile.Port, profile.Username, profile.Authentication = "ssh.example.test", 22, "fixture", protocol.SshAuthenticationPassword
-		credential := protocol.NewSecret(`{"kind":"password","password":"fixture-password"}`)
-		record := followRecord(t, profile.ID.String(), 1, profile, &credential)
-		apply := func(record protocol.ConfigurationFollowRecord, revision uint64) error {
-			_, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-				Source: controller, Category: "ssh_profiles", Revision: revision, Records: []protocol.ConfigurationFollowRecord{record},
-			})
-			return err
-		}
-		if err := apply(record, 1); err != nil {
-			return err
-		}
-		key := protocol.SshHostKey{Algorithm: "ssh-ed25519", Fingerprint: "SHA256:fixture"}
-		if err := saveSshTrust(ctx, db, profile, key); err != nil {
-			return err
-		}
-		profile.Name, profile.Revision = "Renamed", 2
-		if err := apply(followRecord(t, profile.ID.String(), 2, profile, &credential), 2); err != nil {
-			return err
-		}
-		cached, _, err := ReadSsh(ctx, db, profile.ID, profile.Revision)
-		if err != nil || cached.HostKey == nil || *cached.HostKey != key {
-			return fmt.Errorf("configuration update discarded local SSH trust: %w", err)
-		}
-		profile.Host, profile.Revision = "different.example.test", 3
-		if err := apply(followRecord(t, profile.ID.String(), 3, profile, &credential), 3); err != nil {
-			return err
-		}
-		cached, _, err = ReadSsh(ctx, db, profile.ID, profile.Revision)
-		if err != nil || cached.HostKey != nil {
-			return fmt.Errorf("SSH trust leaked to a different endpoint: %w", err)
 		}
 		return nil
 	})

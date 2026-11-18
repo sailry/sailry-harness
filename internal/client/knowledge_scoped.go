@@ -14,6 +14,13 @@ func (client *Client) scopedKnowledge(ctx context.Context, call protocol.ScopedK
 	if err := call.Validate(); err != nil {
 		return protocol.Output{}, err
 	}
+	original := call.Request
+	if call.Original != nil {
+		original = *call.Original
+	}
+	if err := protocol.ValidateKnowledgeExecution(original, client.Target()); err != nil {
+		return protocol.Output{}, err
+	}
 	transport, ok := client.transport.(interface {
 		ScopedKnowledge(context.Context, protocol.ScopedKnowledgeCall) (link.Admission, error)
 	})
@@ -41,8 +48,8 @@ func (client *Client) scopedKnowledge(ctx context.Context, call protocol.ScopedK
 	}
 }
 
-// ExecuteScopedKnowledge first visits this Client's execution Node, which owns
-// the plugin scope. The request still targets its final storage Node.
+// ExecuteScopedKnowledge sends the request to the Node that owns the plugin
+// scope and the collection.
 func (client *Client) ExecuteScopedKnowledge(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	return client.scopedKnowledge(ctx, protocol.ScopedKnowledgeCall{Request: request})
 }

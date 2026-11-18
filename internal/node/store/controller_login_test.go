@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -179,21 +178,7 @@ func TestNodeOwnedProviderLoginRestoresPairedUsersTask(t *testing.T) {
 			Script: protocol.PluginModelAdapterScript{Entry: "auth.js", Resources: []string{}}, Refresh: true, Handler: "step", Requests: map[string]protocol.PluginModelAuthEndpoint{},
 		}}
 		extension.ModelAuth, info.Extension = []protocol.PluginModelAuthDeclaration{declaration}, &extension
-		if err := CacheConfigurationPackage(ctx, db, info, protocol.PluginMcpConfiguration{}); err != nil {
-			return err
-		}
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "plugins", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, info.Summary.Name, 1, info, nil)},
-		}); err != nil {
-			return err
-		}
-		reference := plugins.PackageReference(info)
-		settings := pluginFollowSettings{Package: reference, Values: map[string]json.RawMessage{}}
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "plugin_settings", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, pluginSettingsCacheID(reference), 1, settings, nil)},
-		}); err != nil {
+		if _, err := InstallPlugin(ctx, db, info, 0, true); err != nil {
 			return err
 		}
 		provider := providerFixture()

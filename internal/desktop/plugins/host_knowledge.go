@@ -8,15 +8,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (owner *Host) knowledgeClient() *client.Client {
+func (owner *Host) resourceScoped() bool {
 	scope := owner.scope()
-	if scope.Worktree != nil || scope.Session != nil {
+	return owner.binding.ExecutionResources || scope.Worktree != nil || scope.Session != nil ||
+		owner.binding.Resources != nil && owner.binding.Resources.Target() != owner.binding.Client.Target()
+}
+
+func (owner *Host) knowledgeClient() *client.Client {
+	if owner.resourceScoped() {
 		return owner.binding.Client
 	}
-	if owner.binding.Resources != nil {
-		return owner.binding.Resources
-	}
-	return owner.binding.Client
+	return owner.resourceClient()
 }
 
 func (owner *Host) resourceClient() *client.Client {
@@ -31,17 +33,25 @@ func (owner *Host) prepareHostCommand(command protocol.Command) protocol.Request
 		return owner.binding.Client.Prepare(command)
 	}
 	entry := owner.knowledgeClient()
-	target := protocol.KnowledgeRequestTarget(command, owner.binding.Client.Target(), owner.resourceClient().Target())
+	target := protocol.KnowledgeRequestTarget(command, owner.binding.Client.Target(), entry.Target())
 	return entry.PrepareKnowledge(protocol.KnowledgeRef{Node: target}, command)
 }
 
 func (owner *Host) executeHostCommand(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	if request.Command.Kind == "call_host_handler" {
+		if request.Target == owner.binding.Client.Target() {
+			return owner.binding.Client.ExecuteHostCall(ctx, request)
+		}
+		if owner.resourceScoped() {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "workspace host handlers must run on their execution Node"}
+		}
 		return owner.resourceClient().ExecuteHostCall(ctx, request)
 	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
-		if request.Plugin != nil && (request.Plugin.Worktree != nil || request.Plugin.Session != nil) && request.Target != owner.binding.Client.Target() {
-			return owner.binding.Client.ExecuteScopedKnowledge(ctx, request)
+		if owner.resourceScoped() {
+			if err := protocol.ValidateKnowledgeExecution(request, owner.binding.Client.Target()); err != nil {
+				return protocol.Output{}, err
+			}
 		}
 		return owner.knowledgeClient().ExecuteKnowledge(ctx, request)
 	}
@@ -50,11 +60,16 @@ func (owner *Host) executeHostCommand(ctx context.Context, request protocol.Requ
 
 func (owner *Host) hostCommandOutcome(ctx context.Context, request protocol.Request) (protocol.RequestOutcome, error) {
 	if request.Command.Kind == "call_host_handler" {
+		if request.Target == owner.binding.Client.Target() {
+			return owner.binding.Client.HostCallOutcome(ctx, request)
+		}
 		return owner.resourceClient().HostCallOutcome(ctx, request)
 	}
 	if protocol.KnowledgeCommand(request.Command.Kind) {
-		if request.Plugin != nil && (request.Plugin.Worktree != nil || request.Plugin.Session != nil) && request.Target != owner.binding.Client.Target() {
-			return owner.binding.Client.ScopedKnowledgeOutcome(ctx, request)
+		if owner.resourceScoped() {
+			if err := protocol.ValidateKnowledgeExecution(request, owner.binding.Client.Target()); err != nil {
+				return protocol.RequestOutcome{}, err
+			}
 		}
 		return owner.knowledgeClient().KnowledgeOutcome(ctx, request)
 	}

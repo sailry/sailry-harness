@@ -210,9 +210,6 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						notice(c)
 					}
 				}
-				if execution && m.FollowActions != nil && menu.Item(i18n.T(c, "configuration_follow_title")).Chosen() {
-					m.FollowActions.Open(d)
-				}
 				if menu.Item(i18n.T(c, "connections_copy_id")).Chosen() {
 					c.WriteClipboard(d.ID)
 				}
@@ -281,9 +278,6 @@ func devices(c *ui.Context, m *Model, execution bool) {
 								} else {
 									notice(c)
 								}
-							}
-							if execution && m.FollowActions != nil && menu.Item(i18n.T(c, "configuration_follow_title")).Chosen() {
-								m.FollowActions.Open(d)
 							}
 							if menu.Item(i18n.T(c, "live_revoke")).Danger().Chosen() {
 								m.pairing.revoking = &d

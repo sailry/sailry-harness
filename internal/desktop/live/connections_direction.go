@@ -1,20 +1,24 @@
 package live
 
 import (
+	"encoding/hex"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func (r *Runtime) narrowConnection(device viewmodel.Device, selected string) {
 	state := r.connections
 	direction := link.PeerDirection(selected)
-	id, ok := configurationNodeID(device.ID)
-	if !ok || state == nil || state.endpoint == nil || device.Local || device.Direction != "both" || direction != link.DirectionHost && direction != link.DirectionController || state.narrowing[device.ID] {
+	raw, err := hex.DecodeString(device.ID)
+	if err != nil || len(raw) != len(protocol.NodeID{}) || state == nil || state.endpoint == nil || device.Local || device.Direction != "both" || direction != link.DirectionHost && direction != link.DirectionController || state.narrowing[device.ID] {
 		return
 	}
+	id := protocol.NodeID(raw)
 	if state.narrowing == nil {
 		state.narrowing = map[string]bool{}
 	}

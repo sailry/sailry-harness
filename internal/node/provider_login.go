@@ -194,14 +194,6 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 					var err error
 					changes, err = store.CompleteProviderLogin(recording, db, node.ID(), capture, grant)
 					if err == nil {
-						err = store.RefreshConfigurationAuthorization(recording, db)
-					}
-					if err == nil {
-						var status protocol.ConfigurationFollowStatus
-						status, err = store.ReadConfigurationFollow(recording, db)
-						changes = append(changes, protocol.Event{Kind: "configuration_follow_changed", Data: status})
-					}
-					if err == nil {
 						_, err = store.RecordEvents(recording, db, node.ID(), changes)
 					}
 					return err
@@ -599,7 +591,6 @@ func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.Conv
 				return store.MarkProviderRenewalUncertain(context.WithoutCancel(ctx), db, renewal.Capture.Provider, renewal.Credential)
 			})
 			node.authChanged()
-			node.NotifyConfigurationFollow([]protocol.Event{{Kind: "credential_changed"}})
 			return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider authorization renewal did not complete; sign in again"}
 		}
 	}

@@ -205,8 +205,12 @@ func DefaultKnowledgeDefinition() KnowledgeDefinition {
 	}
 }
 func (value *KnowledgeDefinition) UnmarshalJSON(data []byte) error {
+	return value.decodeJSON(data, false)
+}
+
+func (value *KnowledgeDefinition) decodeJSON(data []byte, creating bool) error {
 	type plain KnowledgeDefinition
-	decoded := plain{Visibility: KnowledgeVisibilityPrivate}
+	decoded := plain{}
 	decoded.Model = nil
 	decoded.Globs = []string{}
 	decoded.Tags = []string{}
@@ -215,7 +219,31 @@ func (value *KnowledgeDefinition) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*value = KnowledgeDefinition(decoded)
+	if value.Visibility == "" {
+		value.Visibility = KnowledgeVisibilityPrivate
+		if creating {
+			value.Visibility = KnowledgeCreateVisibility(value.Source)
+		}
+	}
 	return nil
+}
+
+// KnowledgeCreateVisibility defaults stand-alone collections to host sharing.
+func KnowledgeCreateVisibility(source KnowledgeSource) KnowledgeVisibility {
+	if source.Kind == "directory" || source.Kind == "file" {
+		return KnowledgeVisibilityShared
+	}
+	switch input := source.Data.(type) {
+	case KnowledgeSourceStoragePayload:
+		if input.Scope == PluginStorageScopeNode {
+			return KnowledgeVisibilityShared
+		}
+	case *KnowledgeSourceStoragePayload:
+		if input != nil && input.Scope == PluginStorageScopeNode {
+			return KnowledgeVisibilityShared
+		}
+	}
+	return KnowledgeVisibilityPrivate
 }
 func (value KnowledgeDefinition) MarshalJSON() ([]byte, error) {
 	type plain KnowledgeDefinition
@@ -238,17 +266,16 @@ type KnowledgeDraft struct {
 
 func DefaultKnowledgeDraft() KnowledgeDraft {
 	return KnowledgeDraft{
-		Visibility: KnowledgeVisibilityPrivate,
-		Name:       "",
-		Source:     KnowledgeDraftSource{},
-		Model:      nil,
-		Globs:      []string{},
-		Tags:       []string{},
+		Name:   "",
+		Source: KnowledgeDraftSource{},
+		Model:  nil,
+		Globs:  []string{},
+		Tags:   []string{},
 	}
 }
 func (value *KnowledgeDraft) UnmarshalJSON(data []byte) error {
 	type plain KnowledgeDraft
-	decoded := plain{Visibility: KnowledgeVisibilityPrivate}
+	decoded := plain{}
 	decoded.Model = nil
 	decoded.Globs = []string{}
 	decoded.Tags = []string{}

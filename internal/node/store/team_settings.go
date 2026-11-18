@@ -8,15 +8,6 @@ import (
 )
 
 func ReadTeamSettings(ctx context.Context, db *sql.Conn) (protocol.TeamSettings, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return protocol.TeamSettings{}, err
-	} else if cached {
-		value, err := readCachedConfiguration[protocol.TeamSettings](ctx, db, "team_settings", "default")
-		if err != nil || value == nil {
-			return protocol.DefaultTeamSettings(), err
-		}
-		return *value, nil
-	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return protocol.TeamSettings{}, err
@@ -64,9 +55,6 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		value, err := putTeam(ctx, db, v.Team, v.ExpectedRevision)
 		return protocol.Output{Kind: "team", Data: value}, []protocol.Event{{Kind: "team_changed", Data: value}}, err
 	case *protocol.CommandRemoveRolePayload:
-		if err := CheckConfigurationEditable(ctx, db, "roles", v.Role.String()); err != nil {
-			return protocol.Output{}, nil, err
-		}
 		current, err := readUserConfiguration[protocol.RoleProfile](ctx, db, "roles", v.Role.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
@@ -108,9 +96,6 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		remaining, err := ReadRoles(ctx, db)
 		return protocol.Output{Kind: "roles", Data: remaining}, []protocol.Event{{Kind: "role_removed", Data: protocol.EventRoleRemovedPayload{ID: v.Role, Teams: changed}}}, err
 	case *protocol.CommandRemoveTeamPayload:
-		if err := CheckConfigurationEditable(ctx, db, "teams", v.Team.String()); err != nil {
-			return protocol.Output{}, nil, err
-		}
 		current, err := readUserConfiguration[protocol.TeamProfile](ctx, db, "teams", v.Team.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
@@ -128,9 +113,6 @@ func ExecuteTeamCommand(ctx context.Context, db *sql.Conn, command protocol.Comm
 		remaining, err := ReadTeams(ctx, db)
 		return protocol.Output{Kind: "teams", Data: remaining}, []protocol.Event{{Kind: "team_removed", Data: protocol.EventTeamRemovedPayload{ID: v.Team}}}, err
 	case *protocol.TeamSettings:
-		if err := CheckConfigurationEditable(ctx, db, "team_settings", "default"); err != nil {
-			return protocol.Output{}, nil, err
-		}
 		if v.ChildConcurrency == 0 {
 			return protocol.Output{}, nil, invalid("child concurrency must be a positive integer")
 		}

@@ -169,9 +169,6 @@ func ensureSemantic(ctx context.Context, db *sql.Conn, reference protocol.Plugin
 	if err != nil {
 		return nil, false, err
 	}
-	if strings.HasPrefix(space, "controller:") {
-		return nil, false, nil
-	}
 	namespace, err := pluginSearchName(ctx, db, reference.Name)
 	if err != nil {
 		return nil, false, err
@@ -520,7 +517,7 @@ func PrepareSemanticSearch(ctx context.Context, db *sql.Conn, request protocol.R
 		return plan, err
 	}
 	var declarations []protocol.PluginStorageCollection
-	if query.Mode != protocol.KnowledgeModeKeyword && query.Query != nil && strings.TrimSpace(*query.Query) != "" && !strings.HasPrefix(plan.Space, "controller:") {
+	if query.Mode != protocol.KnowledgeModeKeyword && query.Query != nil && strings.TrimSpace(*query.Query) != "" {
 		if declarations, err = semanticDeclarations(ctx, db, reference); err != nil {
 			return plan, err
 		}

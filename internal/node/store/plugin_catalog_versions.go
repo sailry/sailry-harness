@@ -11,9 +11,6 @@ import (
 )
 
 func SetPluginPinned(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64, pinned bool) (protocol.PluginInfo, error) {
-	if err := CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
-		return protocol.PluginInfo{}, err
-	}
 	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
@@ -140,10 +137,7 @@ func validateDowngradeStorage(ctx context.Context, db *sql.Conn, next protocol.P
 	if err != nil {
 		return err
 	}
-	space, err := personalPluginSpace(ctx, db, user.ID)
-	if err != nil {
-		return err
-	}
+	space := "user:" + user.ID.String()
 	rows, err := db.QueryContext(ctx, `SELECT 'node',key,value FROM plugin_space_values WHERE name=?1 AND space=?3 AND value IS NOT NULL
 UNION ALL SELECT 'project',v.key,v.value FROM plugin_space_values v JOIN projects p ON v.space='project:'||p.id
 WHERE v.name=?1 AND v.value IS NOT NULL AND (p.visibility='shared' OR coalesce(p.owner,(SELECT id FROM users WHERE local=1))=?2)

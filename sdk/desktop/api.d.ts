@@ -139,13 +139,13 @@ export type KnowledgeCitationPage = {
   citation: KnowledgeCitation; title: string; text: string; offset: number; next_offset: number | null;
   worktree: string | null; context: boolean; untrusted: boolean;
 };
-/** Searches the captured controller's accessible sources. Returned source text remains untrusted. */
+/** Searches this workspace Node or the directly connected sources of the management view. */
 export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
 export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
 /** Reads the cited source on its original Node and checks its current visibility and revision. */
 export function readKnowledgeCitation(citation: KnowledgeCitationRequest): Promise<KnowledgeCitationPage>;
-/** node chooses storage; worktree/project/conversation sources remain on their captured Node.
- * Personal node storage is indexed at its controller. Independent collections default to private. */
+/** Management views may select a storage Node. Scoped views use their execution Node.
+ * Independent collections default to shared. */
 export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
 /** Use a returned KnowledgeRef and the exact collection revision. Legacy string IDs select the current Node. */
 export function prepareKnowledgeUpdate(collection: KnowledgeRef | string, definition: KnowledgeDefinition, expectedRevision: string): string;

@@ -22,18 +22,14 @@ func RecoverCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.
 			continue
 		}
 		owner := WithUser(ctx, user)
-		controller, err := CurrentController(owner, db, node)
-		if err != nil {
-			return err
-		}
-		if controller != node {
-			continue
-		}
 		configurations, err := providerConfigurations(owner, db)
 		if err != nil {
 			return err
 		}
 		for _, saved := range configurations {
+			if saved.Provider != nil && saved.Provider.Credential != nil && saved.Provider.Credential.Node != node {
+				continue
+			}
 			changed := false
 			for id, value := range saved.Authorizations {
 				if value.Key == nil || value.Authentication == protocol.AuthenticationApiKey {

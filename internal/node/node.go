@@ -619,10 +619,6 @@ func externalCommand(command protocol.Command) bool {
 		return true
 	}
 	switch command.Kind {
-	case "configuration_follow":
-		// Applying a manifest updates plugin lifecycles after its transaction.
-		// Those owners may admit work and must run outside the admission lock.
-		return true
 	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
 		return true
 	case "create_project", "register_project", "update_project", "remove_project", "register_worktree":
@@ -682,7 +678,7 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 	}
 
 	if SupportsConfigurationFollow(request.Command.Kind) {
-		output, err := node.ReadConfigurationFollow(ctx, caller, request)
+		output, err := node.ReadConfigurationFollow(ctx, request)
 		return response(output, err)
 	}
 	if store.SupportsProviderCommand(request.Command.Kind) {
@@ -862,7 +858,6 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	var output protocol.Output
 	var operationErr error
 	var changes []protocol.Event
-	var previousPlugins []protocol.PluginSummary
 	var reviewChanges []store.AgentReviewChange
 	var previous *link.Response
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
@@ -891,12 +886,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 					changes = append(changes, protocol.Event{Kind: "projection_invalidated"})
 				}
 			case SupportsConfigurationFollow(job.request.Command.Kind):
-				if input, ok := dispatchPayload[protocol.ConfigurationFollowCommand](job.request.Command.Data); ok && input.Manifest != nil && input.Manifest.Category == "plugins" {
-					previousPlugins, operationErr = store.ReadPlugins(ctx, db)
-				}
-				if operationErr == nil {
-					output, changes, operationErr = ExecuteConfigurationFollow(ctx, db, node.ID(), job.caller, job.request.Command)
-				}
+				output, changes, operationErr = ExecuteConfigurationFollow(job.request.Command)
 			case store.SupportsTeamCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteTeamCommand(ctx, db, job.request.Command)
 			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
@@ -909,7 +899,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 				output, changes, operationErr = store.ExecuteCommand(ctx, db, node.ID(), job.caller, node.profile.Ownership.Path, job.request, prepared)
 			}
 		}
-		if operationErr == nil && (job.request.Command.Kind == "continue_turn" || SupportsConfigurationFollow(job.request.Command.Kind)) {
+		if operationErr == nil && job.request.Command.Kind == "continue_turn" {
 			changes, operationErr = node.followKnowledgeStorage(ctx, db, job.request, changes)
 		}
 		if operationErr == nil {
@@ -945,7 +935,6 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	}
 	publication()
 	if err == nil {
-		node.NotifyConfigurationFollow(changes)
 		if operationErr == nil && (job.request.Command.Kind == "resume_controller_login" || job.request.Command.Kind == "stop_turn") {
 			node.RuntimeCredentialsChanged()
 		}
@@ -958,9 +947,6 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			if refreshErr := node.RefreshIdentity(ctx); refreshErr != nil {
 				slog.Warn("Identity connection refresh failed", "error", refreshErr)
 			}
-		}
-		if operationErr == nil && SupportsConfigurationFollow(job.request.Command.Kind) {
-			node.pluginCommitted(changes, ctx, preserveFollowedPrograms(previousPlugins, changes))
 		}
 		if operationErr == nil {
 			node.refreshKnowledgeStorage(job.request.Command, changes)

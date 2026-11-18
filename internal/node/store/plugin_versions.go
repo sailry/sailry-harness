@@ -11,23 +11,6 @@ import (
 // ReadPluginVersion reads an immutable package capture independently of its live
 // installation. It never creates inventory or substitutes a newer package.
 func ReadPluginVersion(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return protocol.PluginInfo{}, err
-	} else if cached {
-		info, _, err := followedPackage(ctx, db, reference)
-		if err != nil {
-			return info, err
-		}
-		if _, err := cachedPluginSettings(ctx, db, reference); err != nil {
-			return info, err
-		}
-		info.Summary.SettingsRevision = reference.SettingsRevision
-		refreshPluginCompatibility(&info)
-		if info.Summary.Compatibility.Kind != "compatible" {
-			return info, fault(protocol.ErrorCodeNotConfigured, "plugin version is incompatible")
-		}
-		return info, nil
-	}
 	info, err := readBody[protocol.PluginInfo](ctx, db, "SELECT body FROM plugin_packages WHERE digest=?1 AND name=?2", reference.Digest, reference.Name)
 	if err != nil {
 		return protocol.PluginInfo{}, err

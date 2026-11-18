@@ -19,7 +19,7 @@ var MediaMessages = Messages{"", "media_failed", "media_conflict", "media_unknow
 // draft. A saved model that can no longer run, or that is no longer
 // offered, stays the select's choice, marked there.
 func mediaModels(c *ui.Context, m *Model) {
-	known := m.modelOptions()
+	known := m.modelOptions(m.ManagedNode)
 	kit.Group(c, "media", "", "", nil, func() {
 		kit.Card(c, func() {
 			for i, kind := range viewmodel.MediaKinds {

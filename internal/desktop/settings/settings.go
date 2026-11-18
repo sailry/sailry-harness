@@ -153,6 +153,15 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	// The library is open while a page's Available tab shows this frame.
 	s.library.open = false
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
+		if s.Section.ManagesNode() {
+			target := &s.ManagedNode
+			if s.Section == Plugins || s.Section == Skills {
+				target = &s.PackageNode
+			}
+			if managedNodeSelect(c, s.Model, target) {
+				return
+			}
+		}
 		switch s.Section {
 		case General:
 			general(c, s.Model)

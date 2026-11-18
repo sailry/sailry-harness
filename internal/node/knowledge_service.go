@@ -413,10 +413,6 @@ func (node *Node) dispatchKnowledge(ctx context.Context, caller protocol.NodeID,
 }
 
 func (node *Node) readKnowledge(ctx context.Context, request protocol.Request) (protocol.Output, error) {
-	if request.Command.Kind == "read_knowledge_candidates" {
-		candidates, err := node.knowledge.StorageCandidates(ctx, request)
-		return protocol.Output{Kind: "knowledge_candidates", Data: candidates}, err
-	}
 	switch input := request.Command.Data.(type) {
 	case *protocol.KnowledgeQuery:
 		page, err := node.knowledge.Query(ctx, request, *input)

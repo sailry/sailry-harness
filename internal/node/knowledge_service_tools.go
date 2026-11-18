@@ -153,19 +153,10 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 			if err != nil {
 				return err
 			}
-			if created, ok := command.Data.(*protocol.CommandCreateKnowledgeCollectionPayload); ok && created.Definition.Source.Kind == "worktree" &&
-				created.Node != nil && *created.Node != node.ID() {
-				return &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "worktree knowledge belongs to its captured execution Node"}
+			request := protocol.NewRequest(node.ID(), command)
+			if err := protocol.ValidateKnowledgeExecution(request, node.ID()); err != nil {
+				return err
 			}
-			controller := node.ID()
-			if inv.User.Controller != nil {
-				controller = *inv.User.Controller
-			}
-			target := protocol.KnowledgeRequestTarget(command, node.ID(), controller)
-			if target == (protocol.NodeID{}) {
-				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "knowledge creation requires a storage Node"}
-			}
-			request := protocol.NewRequest(target, command)
 			request.Plugin = &scope
 			mu.Lock()
 			calls[call.ID] = &request
@@ -218,7 +209,7 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 }
 
 // knowledgeToolOutcome recovers the exact admitted operation through the same
-// execution scope and controller route. It never resubmits the mutation.
+// execution scope and storage Node.
 func (node *Node) knowledgeToolOutcome(ctx context.Context, original protocol.Request) (protocol.Output, bool, error) {
 	body, err := json.Marshal(original)
 	if err != nil {

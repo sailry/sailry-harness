@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -65,12 +66,17 @@ func (owner *Host) sdkModule() HostModule {
 		return owner.prepare(ctx, command)
 	})
 	add("readResourceCatalog", true, func(ctx context.Context, _ []json.RawMessage) (json.RawMessage, error) {
-		if owner.resourceClient() == nil {
+		if owner.binding.Client == nil {
 			return nil, hostUnavailable("resource Client is unavailable")
 		}
-		value, err := owner.resourceClient().ReadResourceCatalog(ctx)
+		value, err := owner.knowledgeClient().ReadResourceCatalog(ctx)
 		if err != nil {
 			return nil, err
+		}
+		if owner.resourceScoped() {
+			value.Sources = slices.DeleteFunc(value.Sources, func(source protocol.ResourceSource) bool {
+				return source.Node != owner.binding.Client.Target()
+			})
 		}
 		return hostJSON(value)
 	})

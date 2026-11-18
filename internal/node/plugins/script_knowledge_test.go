@@ -10,10 +10,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestScriptKnowledgeUsesCapturedControllerAndStorageRefs(t *testing.T) {
+func TestScriptKnowledgeUsesExecutionNodeAndLocalReferences(t *testing.T) {
 	environment := scriptTestEnvironment()
-	environment.Controller = protocol.NodeID{2}
-	storage := protocol.NodeID{3}
+	storage := environment.Target
 	encoded, err := json.Marshal(storage)
 	if err != nil {
 		t.Fatal(err)
@@ -26,10 +25,10 @@ func TestScriptKnowledgeUsesCapturedControllerAndStorageRefs(t *testing.T) {
 		kind   string
 		target protocol.NodeID
 	}{
-		{"query", `await queryKnowledge({query:"notes"})`, "query_knowledge", environment.Controller},
-		{"list", `await listKnowledgeCollections()`, "list_knowledge_collections", environment.Controller},
+		{"query", `await queryKnowledge({query:"notes"})`, "query_knowledge", environment.Target},
+		{"list", `await listKnowledgeCollections()`, "list_knowledge_collections", environment.Target},
 		{"citation", `await readKnowledgeCitation(` + citation + `)`, "read_knowledge_citation", storage},
-		{"create", `await completeRequest(prepareKnowledgeCollection({name:"Notes",visibility:"shared",source:{kind:"storage",scope:"node",prefix:"note/"}}))`, "create_knowledge_collection", environment.Controller},
+		{"create", `await completeRequest(prepareKnowledgeCollection({name:"Notes",visibility:"shared",source:{kind:"storage",scope:"node",prefix:"note/"}}))`, "create_knowledge_collection", environment.Target},
 		{"rebuild", `await completeRequest(prepareKnowledgeRebuild(` + ref + `,"9007199254740993"))`, "rebuild_knowledge_collection", storage},
 		{"remove", `await completeRequest(prepareKnowledgeRemoval(` + ref + `,"9007199254740993"))`, "delete_knowledge_collection", storage},
 		{"pause", `await completeRequest(prepareKnowledgePause(` + ref + `,true,"9007199254740993"))`, "pause_knowledge_collection", storage},
@@ -68,7 +67,6 @@ func TestScriptKnowledgeUsesCapturedControllerAndStorageRefs(t *testing.T) {
 
 func TestScriptKnowledgeLocalSelectionWorksWithoutController(t *testing.T) {
 	environment := scriptTestEnvironment()
-	environment.Controller = protocol.NodeID{2}
 	node, err := json.Marshal(environment.Target)
 	if err != nil {
 		t.Fatal(err)
@@ -82,5 +80,22 @@ func TestScriptKnowledgeLocalSelectionWorksWithoutController(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScriptKnowledgeRejectsForeignSelectionBeforeDispatch(t *testing.T) {
+	environment := scriptTestEnvironment()
+	foreign := protocol.NodeID{2}
+	node, err := json.Marshal(foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := fmt.Sprintf(`import {queryKnowledge} from "sailry/sdk";export async function run(){return await queryKnowledge({query:"notes",refs:[{node:%s,id:"00000000-0000-4000-8000-000000000001"}]})}`, node)
+	_, err = RunCallback(t.Context(), scriptTestBundle(query), "run", nil, environment, false, func(_ context.Context, request protocol.Request) (protocol.Output, error) {
+		t.Fatalf("script dispatched a foreign collection selection: %+v", request)
+		return protocol.Output{}, nil
+	})
+	if err == nil || scriptFault(err).Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("script accepted a foreign collection selection: %v", err)
 	}
 }

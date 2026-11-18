@@ -1,8 +1,7 @@
 package protocol
 
 // ScopedKnowledgeCall sends a plugin operation to its execution Node for scope
-// validation before the Node follows the user's controller to the real target.
-// It cannot carry a user, controller or previously trusted ResourceScope.
+// validation. Outcome inspection retains the original storage Node.
 type ScopedKnowledgeCall struct {
 	Request  Request  `json:"request"`
 	Original *Request `json:"original,omitempty"`

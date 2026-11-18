@@ -7,15 +7,28 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings edits the controller's local Node. A device monitor does not change
-// configuration ownership. Workspace hooks separately follow the selected
-// project's execution Node (workspace_settings.go).
+// Machine settings stay local. An explicit choice on the managed pages
+// selects the owner of team, connector, media and package configuration.
 
 // settingsOwner is the local Runtime that owns controller configuration.
 func (r *Runtime) settingsOwner() *Runtime { return r.localRuntime() }
 
+func (r *Runtime) managedSettingsNode() *Runtime {
+	root := r.localRuntime()
+	return root.runtimeFor(root.App.Settings.ManagedNode)
+}
+
+func (r *Runtime) nodeSettingsOwner() *Runtime {
+	root := r.localRuntime()
+	switch root.App.Settings.Section {
+	case settings.Teams, settings.Connectors, settings.Media:
+		return root.managedSettingsNode()
+	}
+	return root
+}
+
 // shownSettings is the Runtime currently bound to the configuration pages.
-// Normal frames keep this on the local Node.
+// Its host selection is independent of the device monitor.
 func (r *Runtime) shownSettings() *Runtime {
 	root := r.localRuntime()
 	if !root.settingsTurned {
@@ -33,7 +46,7 @@ func (r *Runtime) showsSettings() bool { return r.shownSettings() == r }
 func (r *Runtime) initNodeSettings() {
 	on := func(act func(owner *Runtime)) bool {
 		owner := r.shownSettings()
-		if owner == nil {
+		if owner == nil || !owner.controller.Connected() {
 			r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the settings host is unavailable"))
 			return false
 		}
@@ -172,12 +185,12 @@ func (r *Runtime) initNodeSettings() {
 	r.enterNodeSettings()
 }
 
-// nodeSettingsFrame keeps the pages on the local Node and follows
+// nodeSettingsFrame binds the pages to their selected owner and follows
 // what that Node reports: its roles and teams, and newer power, compaction
 // and team settings.
 func (r *Runtime) nodeSettingsFrame() {
 	root := r.localRuntime()
-	owner := root.settingsOwner()
+	owner := root.nodeSettingsOwner()
 	if owner != root.shownSettings() {
 		root.showNodeSettings(owner)
 	}
@@ -203,13 +216,12 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	}
 	root.settingsShown, root.settingsTurned = owner, true
 	m := root.App.Settings
-	m.CloseNodeDialogs()
+	m.CloseManagedNodeDialogs()
 	// Without a Node the controls wait, as the other host pages do.
 	waiting := owner == nil
 	m.Power, m.Compaction, m.Concurrency = settings.Stored[bool]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}
 	m.Media, m.MediaOptions, m.MediaUnavailable = settings.Stored[[4]string]{Pending: waiting}, nil, [4]bool{}
 	m.CodeIndex = settings.Stored[bool]{Pending: waiting}
-	m.Channels, m.Brands, m.Catalog = nil, nil, viewmodel.Catalog{}
 	m.Roles, m.Teams = nil, nil
 	m.Services, m.ConnTypes, m.ConnAccounts = nil, nil, nil
 	if actions := m.ConnectorActions; actions != nil {
@@ -238,16 +250,11 @@ func (r *Runtime) enterNodeSettings() {
 }
 
 // leaveNodeSettings ends what only the pages could finish on this Node: a
-// provider or connector sign-in under way, and a concurrency save in doubt.
+// connector sign-in under way and the view of a concurrency save in doubt.
 // A command already sent still ends in its toast.
 func (r *Runtime) leaveNodeSettings() {
 	r.modelCatalogEntered = false
 	if state := r.authorizations; state != nil {
-		if attempt := state.provider; attempt != nil {
-			r.cancelProviderLogin()
-			attempt.cancel()
-			state.provider = nil
-		}
 		if attempt := state.connector; attempt != nil {
 			r.cancelConnectorLogin()
 			attempt.cancel()

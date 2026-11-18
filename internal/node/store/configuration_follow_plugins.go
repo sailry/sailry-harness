@@ -36,15 +36,6 @@ type pluginFollowConnection struct {
 	Login         *protocol.RequestID               `json:"login,omitempty"`
 }
 
-func (value pluginFollowConnection) runtimeRecord() ConnectorRecord {
-	return ConnectorRecord{
-		ID: value.ID, Plugin: value.Package.Name, Connector: value.Connector, Revision: value.Revision,
-		AuthRevision: value.AuthRevision, GrantRevision: value.GrantRevision, Method: value.Method,
-		Enabled: value.Enabled, Fields: value.Fields, Identity: value.Identity, Bound: value.Bound,
-		State: value.State, CheckedAtMs: value.CheckedAtMs, Login: value.Login,
-	}
-}
-
 // CacheConfigurationPackage records metadata only after Node has materialized
 // and verified the content-addressed package outside the category transaction.
 func CacheConfigurationPackage(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, declared protocol.PluginMcpConfiguration) error {

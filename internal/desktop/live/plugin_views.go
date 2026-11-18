@@ -437,14 +437,17 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		})
 	}
 	var actions []protocol.PluginAction
+	var executionResources bool
 	if mounted.info.Extension != nil {
 		actions = mounted.info.Extension.Actions
+		executionResources = mounted.info.Extension.Scope == protocol.PluginScopeHost
 	}
 	host := desktopplugins.NewHost(desktopplugins.HostBinding{
 		Context: mounted.ctx, Client: mounted.owner.controller, Resources: root.controller, Scope: mounted.scope, Locale: mounted.locale,
 		Actions: actions, Contributions: mounted.hooks, Native: native,
-		ReadFiles:    slices.Contains(actions, protocol.PluginActionReadFiles),
-		UsageSources: root.pluginUsageSources, UsageChanges: root.pluginUsageChanges(mounted.ctx),
+		ExecutionResources: executionResources,
+		ReadFiles:          slices.Contains(actions, protocol.PluginActionReadFiles),
+		UsageSources:       root.pluginUsageSources, UsageChanges: root.pluginUsageChanges(mounted.ctx),
 		UsageSample: root.pluginUsageSample(),
 	})
 	mounted.host = host

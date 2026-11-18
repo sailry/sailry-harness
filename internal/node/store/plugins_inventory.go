@@ -25,15 +25,6 @@ func ReadPlugins(ctx context.Context, db *sql.Conn) ([]protocol.PluginSummary, e
 }
 
 func ReadPluginInfos(ctx context.Context, db *sql.Conn) ([]protocol.PluginInfo, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		infos, err := listCachedConfiguration[protocol.PluginInfo](ctx, db, "plugins")
-		for index := range infos {
-			refreshPluginCompatibility(&infos[index])
-		}
-		return infos, err
-	}
 	user, err := pluginUserID(ctx, db)
 	if err != nil {
 		return nil, err
@@ -48,15 +39,6 @@ func ReadPluginInfos(ctx context.Context, db *sql.Conn) ([]protocol.PluginInfo, 
 func ReadPlugin(ctx context.Context, db *sql.Conn, name string) (*protocol.PluginInfo, error) {
 	if !plugins.ValidateName(name) {
 		return nil, invalid("invalid plugin name")
-	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		info, err := readCachedConfiguration[protocol.PluginInfo](ctx, db, "plugins", name)
-		if info != nil {
-			refreshPluginCompatibility(info)
-		}
-		return info, err
 	}
 	user, err := pluginUserID(ctx, db)
 	if err != nil {
@@ -128,9 +110,6 @@ func InstallCatalogPlugin(ctx context.Context, db *sql.Conn, info protocol.Plugi
 }
 
 func installPlugin(ctx context.Context, db *sql.Conn, info protocol.PluginInfo, expectedRevision uint64, enabled bool, mode protocol.PluginInstallMode, declared protocol.PluginMcpConfiguration) (protocol.PluginInfo, error) {
-	if err := CheckConfigurationEditable(ctx, db, "plugins", info.Summary.Name); err != nil {
-		return protocol.PluginInfo{}, err
-	}
 	if !plugins.ValidateName(info.Summary.Name) || len(info.Summary.Digest) != 64 {
 		return protocol.PluginInfo{}, invalid("invalid plugin package identity")
 	}
@@ -223,9 +202,6 @@ WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status
 }
 
 func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64, enabled bool) (protocol.PluginInfo, error) {
-	if err := CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
-		return protocol.PluginInfo{}, err
-	}
 	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginInfo{}, err
@@ -261,9 +237,6 @@ func SetPluginEnabled(ctx context.Context, db *sql.Conn, name string, expectedRe
 }
 
 func RemovePlugin(ctx context.Context, db *sql.Conn, name string, expectedRevision uint64) (protocol.PluginSummary, error) {
-	if err := CheckConfigurationEditable(ctx, db, "plugins", name); err != nil {
-		return protocol.PluginSummary{}, err
-	}
 	info, err := ReadPlugin(ctx, db, name)
 	if err != nil {
 		return protocol.PluginSummary{}, err
@@ -310,21 +283,6 @@ func ResolvePluginInfo(ctx context.Context, db *sql.Conn, reference protocol.Plu
 }
 
 func PluginSettingsBody(ctx context.Context, db *sql.Conn, name string, revision uint64) (json.RawMessage, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		info, err := ReadPlugin(ctx, db, name)
-		if err != nil || info == nil {
-			return nil, err
-		}
-		reference := plugins.PackageReference(*info)
-		reference.SettingsRevision = revision
-		record, err := cachedPluginSettings(ctx, db, reference)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(record)
-	}
 	user, err := pluginUserID(ctx, db)
 	if err != nil {
 		return nil, err

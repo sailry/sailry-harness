@@ -113,23 +113,6 @@ func ConnectorDeclaration(ctx context.Context, db *sql.Conn, reference protocol.
 }
 
 func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginConnectorID) (ConnectorRecord, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return ConnectorRecord{}, err
-	} else if cached {
-		body, exists, err := ReadConfigurationCache(ctx, db, "connections", id.String())
-		if err != nil {
-			return ConnectorRecord{}, err
-		}
-		if !exists {
-			return ConnectorRecord{}, fault(protocol.ErrorCodeNotFound, "controller connection is unavailable")
-		}
-		var value pluginFollowConnection
-		if err := json.Unmarshal(body, &value); err != nil {
-			return ConnectorRecord{}, err
-		}
-		record := value.runtimeRecord()
-		return record, restoreRuntimeConnector(ctx, db, &record)
-	}
 	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return ConnectorRecord{}, err
@@ -146,11 +129,6 @@ func ReadConnectorRecord(ctx context.Context, db *sql.Conn, id protocol.PluginCo
 }
 
 func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorRecord) error {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return err
-	} else if cached {
-		return fault(protocol.ErrorCodePermissionDenied, "connector changes belong to the controller")
-	}
 	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return err
@@ -182,23 +160,6 @@ func saveConnectorRecord(ctx context.Context, db *sql.Conn, record ConnectorReco
 }
 
 func connectorRecords(ctx context.Context, db *sql.Conn) ([]ConnectorRecord, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return nil, err
-	} else if cached {
-		records, err := listCachedConfiguration[pluginFollowConnection](ctx, db, "connections")
-		if err != nil {
-			return nil, err
-		}
-		values := make([]ConnectorRecord, 0, len(records))
-		for _, value := range records {
-			record := value.runtimeRecord()
-			if err := restoreRuntimeConnector(ctx, db, &record); err != nil {
-				return nil, err
-			}
-			values = append(values, record)
-		}
-		return values, nil
-	}
 	raw, current, err := pluginUserIDs(ctx, db)
 	if err != nil {
 		return nil, err
@@ -230,10 +191,6 @@ func ConnectionProjection(ctx context.Context, db *sql.Conn, record ConnectorRec
 		State: record.State, Identity: record.Identity, CheckedAtMs: record.CheckedAtMs, Fields: maps.Clone(record.Fields), Configured: []string{},
 		CanDisconnect: record.State != protocol.PluginConnectorStateConnecting && record.Login == nil &&
 			(record.Grant != nil || len(record.Secrets) > 0 || record.Method == protocol.PluginConnectorKindLocalCli && record.Identity != nil),
-	}
-	value.Source, err = configurationOrigin(ctx, db, "connections", record.ID.String())
-	if err != nil {
-		return value, err
 	}
 	for name := range record.Secrets {
 		value.Configured = append(value.Configured, name)
@@ -409,9 +366,6 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 			definitionChanged = definitionChanged || record.Fields[key] != value
 		}
 		if definitionChanged {
-			if err := CheckConfigurationEditable(ctx, db, "connections", record.ID.String()); err != nil {
-				return capture, err
-			}
 		}
 		if record.Plugin != input.Package.Name || record.Connector != input.Connector || input.ExpectedRevision == nil {
 			return capture, invalid("connector connection does not match its package")

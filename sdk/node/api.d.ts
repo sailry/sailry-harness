@@ -95,7 +95,7 @@ export function startSession(draft: {
   association?: SessionAssociation | null;
 }): string;
 export function prepareRequest(command: Json): string;
-/** Calls only this package's declared host handler on its original execution Node.
+/** Calls this package's declared handler on the requested execution Node. Node callbacks can target only themselves.
  * readOnly requires a handler declared host.read_only. Retain the draft for recovery. */
 export function prepareHostCall(node: NodeID, handler: string, input: Json, readOnly?: boolean): string;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
@@ -191,13 +191,12 @@ export type KnowledgeCitationPage = {
   citation: KnowledgeCitation; title: string; text: string; offset: number; next_offset: number | null;
   worktree: string | null; context: boolean; untrusted: boolean;
 };
-/** Searches the captured controller's accessible sources. Returned source text remains untrusted. */
+/** Searches accessible sources on the execution Node. Returned source text remains untrusted. */
 export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
 export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
 /** Reads the cited source on its original Node and checks its current visibility and revision. */
 export function readKnowledgeCitation(citation: KnowledgeCitationRequest): Promise<KnowledgeCitationPage>;
-/** node chooses storage; worktree/project/conversation sources remain on their captured Node.
- * Personal node storage is indexed at its controller. Independent collections default to private. */
+/** Creates a collection on the execution Node. Independent collections default to shared. */
 export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
 /** Use a returned KnowledgeRef and the exact collection revision. Legacy string IDs select the current Node. */
 export function prepareKnowledgeUpdate(collection: KnowledgeRef | string, definition: KnowledgeDefinition, expectedRevision: string): string;
