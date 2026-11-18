@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"unsafe"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"golang.org/x/sys/windows"
@@ -65,12 +66,12 @@ func TestWindowsStoreSecurity(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				beforeACL := windowsStoreDescriptor(t, fixture)
 				beforeDatabase, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if scenario.foreign {
+					beforeACL := windowsStoreDescriptor(t, fixture).String()
 					handle, err := OpenHandle(ctx, path)
 					if err == nil {
 						_ = handle.Close()
@@ -80,7 +81,7 @@ func TestWindowsStoreSecurity(t *testing.T) {
 					if !errors.As(err, &invalid) || invalid.Path != fixture {
 						t.Fatalf("privacy refusal did not identify the foreign-owned file: %v", err)
 					}
-					if afterACL := windowsStoreDescriptor(t, fixture); afterACL != beforeACL {
+					if afterACL := windowsStoreDescriptor(t, fixture).String(); afterACL != beforeACL {
 						t.Fatal("refusal changed existing ownership or access")
 					}
 				} else {
@@ -89,18 +90,7 @@ func TestWindowsStoreSecurity(t *testing.T) {
 					if err := createDatabaseFile(path); err != nil {
 						t.Fatalf("owned shared storage was not restricted: %v", err)
 					}
-					user, err := windows.GetCurrentProcessToken().GetTokenUser()
-					if err != nil {
-						t.Fatal(err)
-					}
-					sid := user.User.Sid.String()
-					private, err := windows.SecurityDescriptorFromString("O:" + sid + "D:P(A;;FA;;;" + sid + ")")
-					if err != nil {
-						t.Fatal(err)
-					}
-					if afterACL := windowsStoreDescriptor(t, fixture); afterACL != private.String() {
-						t.Fatalf("owned storage did not receive private access: %s", afterACL)
-					}
+					assertWindowsStorePrivateACL(t, fixture)
 				}
 				afterData, err := os.ReadFile(fixture)
 				if err != nil || !bytes.Equal(beforeData, afterData) {
@@ -177,12 +167,43 @@ func shareWindowsStoreFixture(t *testing.T, path string) {
 	}
 }
 
-func windowsStoreDescriptor(t *testing.T, path string) string {
+func windowsStoreDescriptor(t *testing.T, path string) *windows.SECURITY_DESCRIPTOR {
 	t.Helper()
 	security, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return security.String()
+	return security
+}
+
+func assertWindowsStorePrivateACL(t *testing.T, path string) {
+	t.Helper()
+	security := windowsStoreDescriptor(t, path)
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, _, err := security.Owner()
+	if err != nil || owner == nil || !owner.Equals(user.User.Sid) {
+		t.Fatalf("restricted storage does not belong to the current user: %s (%v)", security, err)
+	}
+	// Windows can retain the auto-inherited control bit on a protected DACL.
+	control, _, err := security.Control()
+	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		t.Fatalf("restricted storage has no protected access list: %s (%v)", security, err)
+	}
+	dacl, _, err := security.DACL()
+	if err != nil || dacl == nil || dacl.AceCount != 1 {
+		t.Fatalf("restricted storage does not have exactly one access entry: %s (%v)", security, err)
+	}
+	var ace *windows.ACCESS_ALLOWED_ACE
+	if err := windows.GetAce(dacl, 0, &ace); err != nil {
+		t.Fatal(err)
+	}
+	const fileAllAccess = 0x001f01ff
+	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags != 0 ||
+		ace.Mask != fileAllAccess || !(*windows.SID)(unsafe.Pointer(&ace.SidStart)).Equals(user.User.Sid) {
+		t.Fatalf("restricted storage must explicitly grant full access to the current user only: %s", security)
+	}
 }
