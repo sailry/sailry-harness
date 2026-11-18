@@ -90,6 +90,11 @@ type Attachment struct {
 	Spec AttachmentSpec `json:"spec"`
 }
 
+// NewAttachmentNotFound identifies which attachment could not be read.
+func NewAttachmentNotFound(id AttachmentID) *Fault {
+	return &Fault{Code: ErrorCodeNotFound, Message: "attachment " + id.String() + " is unavailable"}
+}
+
 func DefaultAttachment() Attachment {
 	return Attachment{
 		ID:   AttachmentID{},

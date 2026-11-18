@@ -199,7 +199,7 @@ func bindAgentAttachments(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 			return err
 		}
 		if !bound {
-			return fault(protocol.ErrorCodeNotFound, "attachment is unavailable on this worktree")
+			return attachmentMissing(id)
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO turn_attachments(turn,attachment,position) VALUES(?1,?2,?3)", turn.String(), id.String(), i); err != nil {
 			return err

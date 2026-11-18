@@ -1725,6 +1725,7 @@ project_changed: プロジェクトが変更されました。エディタを再
 chat_action_failed: 操作に失敗しました。もう一度試してください
 chat_action_unknown: 結果が確認されていません。元の要求をやり直します
 chat_first_send_unconfirmed: The first message could not be confirmed. Check conversation history before sending again.
+chat_first_send_unavailable: Message sent, but the conversation is unavailable
 chat_config_unavailable: セッションの設定が利用できません。プロバイダを確認してください
 notification_update_failed: 通知を更新できませんでした。再試行してください
 session_archive_named: 「%{name}」をアーカイブし、アクティブな会話から非表示にします

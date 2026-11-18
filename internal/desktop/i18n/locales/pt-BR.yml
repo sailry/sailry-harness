@@ -1725,6 +1725,7 @@ project_changed: Projeto alterado; reabrir o editor
 chat_action_failed: Operação falhou; tente novamente
 chat_action_unknown: Resultado não confirmado; tente novamente a solicitação original
 chat_first_send_unconfirmed: The first message could not be confirmed. Check conversation history before sending again.
+chat_first_send_unavailable: Message sent, but the conversation is unavailable
 chat_config_unavailable: Configuração da sessão indisponível; verifique o provedor
 notification_update_failed: Não foi possível atualizar as notificações; tente novamente
 session_archive_named: Arquivar “%{name}” e ocultá-la das conversas ativas

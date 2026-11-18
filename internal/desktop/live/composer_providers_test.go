@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -51,5 +52,36 @@ func TestComposerProvidersStayOnTheirExecutionNode(t *testing.T) {
 	}
 	if len(r.snapshot().Providers) != 2 || len(root.snapshot().Providers) != 2 {
 		t.Fatal("merging channels modified a source snapshot")
+	}
+}
+
+func TestComposerOnlyOffersCredentialsFromItsExecutionNode(t *testing.T) {
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = protocol.NodeID{1}
+	origin := protocol.NodeID{2}
+	local := protocol.ConversationProvider{
+		ID: protocol.ProviderID{1}, Enabled: true,
+		Source:     &protocol.ConfigurationOrigin{Node: origin},
+		Credential: &protocol.CredentialRef{Node: snapshot.Node, ID: protocol.NewCredentialID()},
+		Models:     []protocol.ConversationModel{{ID: "local"}},
+	}
+	legacy := local
+	legacy.ID = protocol.ProviderID{2}
+	legacy.Credential = &protocol.CredentialRef{Node: origin, ID: protocol.NewCredentialID()}
+	legacy.Models = []protocol.ConversationModel{{ID: "legacy"}}
+	snapshot.Providers = []protocol.ConversationProvider{local, legacy}
+	controller := client.New(&conversationTestTransport{snapshot: snapshot})
+	defer controller.Close()
+	if err := controller.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runtime{controller: controller}
+	localModel, legacyModel := modelKey(local.ID, "local"), modelKey(legacy.ID, "legacy")
+	offered := r.offeredModels("draft/1", []composer.Model{{ID: localModel}, {ID: legacyModel}})
+	if len(offered) != 1 || offered[0].ID != localModel {
+		t.Fatalf("wrong executable models: %+v", offered)
+	}
+	if _, _, err := r.composerConfig(composer.New(""), composer.Message{Model: legacyModel}); faultCode(err) != protocol.ErrorCodeNotConfigured {
+		t.Fatalf("a stale selection used the foreign credential: %v", err)
 	}
 }

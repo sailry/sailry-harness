@@ -12,7 +12,7 @@ import (
 )
 
 func attachmentMissing(id protocol.AttachmentID) error {
-	return fault(protocol.ErrorCodeNotFound, "attachment "+id.String()+" is unavailable")
+	return protocol.NewAttachmentNotFound(id)
 }
 func ReadAttachment(ctx context.Context, db *sql.Conn, worktree protocol.WorktreeID, id protocol.AttachmentID) (protocol.Attachment, error) {
 	value, err := readBody[protocol.Attachment](ctx, db, "SELECT body FROM attachments WHERE id=?1 AND worktree=?2", id.String(), worktree.String())

@@ -1737,6 +1737,7 @@ project_changed
 chat_action_failed
 chat_action_unknown
 chat_first_send_unconfirmed
+chat_first_send_unavailable
 chat_config_unavailable
 notification_update_failed
 session_archive_named

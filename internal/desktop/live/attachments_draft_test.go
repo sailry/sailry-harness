@@ -29,6 +29,8 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 		{name: "in project", withProject: true},
 		{name: "late snapshot proves first admission", receipt: "admitted"},
 		{name: "terminal unknown releases the draft", receipt: "unknown"},
+		{name: "admitted conversation removed before read", receipt: "removed"},
+		{name: "expired upload can be retried", receipt: "missing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			withProject := test.withProject
@@ -76,6 +78,14 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 				case "start_session":
 					if test.receipt == "" {
 						return link.Response{}, false
+					}
+					if test.receipt == "removed" {
+						result := base.admitStart(request)
+						delete(base.sessions, result.Data.(protocol.QueuedTurn).Session)
+						return link.Response{Output: result}, true
+					}
+					if test.receipt == "missing" {
+						return link.Response{Fault: protocol.NewAttachmentNotFound(attachment.ID)}, true
 					}
 					if test.receipt == "admitted" {
 						admitted = base.admitStart(request).Data.(protocol.QueuedTurn)
@@ -209,6 +219,26 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 			if test.receipt == "unknown" {
 				if cv.ID != draft || actions.attachmentsLocked() || len(comp.Attachments) != 1 || comp.Attachments[0].Status != composer.Ready {
 					t.Fatal("a terminal unknown result did not unlock the original draft and attachment")
+				}
+				return
+			}
+			if test.receipt == "removed" {
+				if cv.ID != draft || actions.attachmentsLocked() || len(comp.Attachments) != 0 || r.composerOutgoing[draft] != nil {
+					t.Fatal("a confirmed send left its draft locked after the conversation was removed")
+				}
+				return
+			}
+			if test.receipt == "missing" {
+				if cv.ID != draft || actions.attachmentsLocked() || len(comp.Attachments) != 1 || comp.Attachments[0].Status != composer.Failed {
+					t.Fatal("the missing upload was not made retryable")
+				}
+				base.mu.Lock()
+				attachment.ID = protocol.AttachmentID{8}
+				base.mu.Unlock()
+				actions.Upload(comp.Attachments[0])
+				settle()
+				if comp.Attachments[0].ID != attachment.ID.String() || comp.Attachments[0].Status != composer.Ready {
+					t.Fatal("retry did not replace the missing upload")
 				}
 				return
 			}

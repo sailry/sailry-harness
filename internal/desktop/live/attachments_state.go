@@ -159,6 +159,9 @@ func (r *Runtime) attachmentsCommitted(attachments []*composer.Attachment) {
 			if record.cancel != nil {
 				record.cancel()
 			}
+			if record.ready != nil && record.worktree == (protocol.WorktreeID{}) {
+				delete(r.attachments.files, attachmentKey(record.conversation, record.ready.ID.String()))
+			}
 			delete(r.attachments.items, attachment)
 		}
 	}

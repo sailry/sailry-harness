@@ -1725,6 +1725,7 @@ project_changed: 项目已变化，请重新打开编辑
 chat_action_failed: 操作失败，请重试
 chat_action_unknown: 结果未确认，可重试原请求
 chat_first_send_unconfirmed: 无法确认首条消息是否发出，请先查看会话记录
+chat_first_send_unavailable: 消息已发送，会话已不可用
 chat_config_unavailable: 会话配置不可用，请检查供应商
 notification_update_failed: 通知更新失败，请重试
 session_archive_named: 归档“%{name}”并从活动会话中隐藏

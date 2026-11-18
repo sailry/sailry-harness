@@ -23,6 +23,10 @@ type conversationCreation struct {
 	finish     func(protocol.Output, bool)
 }
 
+func (r *Runtime) hasLocalProviderCredential(provider protocol.ConversationProvider) bool {
+	return provider.Credential == nil || provider.Credential.Node == r.controller.Target()
+}
+
 // composerProviders are the providers owned by this execution Node, plus the
 // immutable provider captured by an existing session.
 func (r *Runtime) composerProviders() []protocol.ConversationProvider {
@@ -47,11 +51,13 @@ func (r *Runtime) composerProviders() []protocol.ConversationProvider {
 func (r *Runtime) offeredModels(id string, models []composer.Model) []composer.Model {
 	allowed := map[string]bool{}
 	for _, provider := range r.snapshot().Providers {
-		allowed[provider.ID.String()] = true
+		if r.hasLocalProviderCredential(provider) {
+			allowed[provider.ID.String()] = true
+		}
 	}
 	if session, exists := r.session(id); exists && session.Profile != nil && session.Profile.Source != r.controller.Target() {
 		return nil
-	} else if exists && session.Profile != nil {
+	} else if exists && session.Profile != nil && r.hasLocalProviderCredential(session.Profile.Provider) {
 		allowed[session.Profile.Provider.ID.String()] = true
 	}
 	var offered []composer.Model
@@ -63,10 +69,8 @@ func (r *Runtime) offeredModels(id string, models []composer.Model) []composer.M
 	return offered
 }
 
-// memberModels are those of offered a team member may take: nil for all of
-// them on the local Node, and on another Node only that Node's own, since a
-// member's model is resolved there and the local Node's providers reach it
-// only as the lead of a forwarded session.
+// memberModels restricts a remote session's role choices to the providers
+// listed on its execution Node.
 func (r *Runtime) memberModels(offered []composer.Model) []composer.Model {
 	if r.parent == nil {
 		return nil
@@ -159,8 +163,28 @@ func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error)
 		kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_first_send_unconfirmed"))
 		return
 	}
+	missingAttachment := false
+	if x.restore != nil && r.attachments != nil && faultCode(err) == protocol.ErrorCodeNotFound {
+		message := faultMessage(err)
+		for _, a := range x.restore.Attachments {
+			record := r.attachments.items[a]
+			if record == nil || record.conversation != x.cv.ID || record.ready == nil ||
+				record.worktree != (protocol.WorktreeID{}) || message != protocol.NewAttachmentNotFound(record.ready.ID).Message {
+				continue
+			}
+			delete(r.attachments.files, attachmentKey(x.cv.ID, a.ID))
+			record.ready = nil
+			a.ID, a.Status, a.Error, a.Progress = "", composer.Failed, "files_upload_failed", 0
+			missingAttachment = true
+			break
+		}
+	}
 	if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
 		x.offerRestore(c, err)
+		return
+	}
+	if missingAttachment {
+		r.attachmentOutcome(c, err)
 		return
 	}
 	r.reportCreation(c, err)
@@ -277,6 +301,16 @@ func (p *conversationCreation) readSession() {
 				return
 			}
 			delete(r.conversationCreating, before)
+			switch faultCode(err) {
+			case protocol.ErrorCodeNotFound, protocol.ErrorCodePermissionDenied:
+				// The send was admitted. Release only its draft state, even
+				// if this controller can no longer open the new conversation.
+				delete(r.conversationCreations, before)
+				r.discardOutgoing(before)
+				p.finish(protocol.Output{}, true)
+				kit.Notify(c, "", i18n.T(c, "chat_first_send_unavailable"))
+				return
+			}
 			r.failCreation(c, x, fileActionFault(protocol.ErrorCodeOutcomeUnknown, "admitted conversation is unavailable"))
 			return
 		}

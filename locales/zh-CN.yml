@@ -947,6 +947,7 @@ provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模�
 provider_save: 保存
 chat_action_unknown: 结果未确认，可重试原请求
 chat_first_send_unconfirmed: 无法确认首条消息是否发出，请先查看会话记录
+chat_first_send_unavailable: 消息已发送，会话已不可用
 chat_action_failed: 操作失败，请重试
 chat_response_invalid: 无法解析模型响应
 chat_subscription_limit: ChatGPT 共享用量已达上限

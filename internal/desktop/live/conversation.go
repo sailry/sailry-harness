@@ -99,7 +99,7 @@ func (r *Runtime) projectModels() {
 		if i < own {
 			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name})
 		}
-		if !p.Enabled {
+		if !p.Enabled || !r.hasLocalProviderCredential(p) {
 			continue
 		}
 		for _, m := range p.Models {
@@ -432,7 +432,7 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 
 func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (protocol.SessionConfig, uint64, error) {
 	for _, p := range r.composerProviders() {
-		if !p.Enabled {
+		if !p.Enabled || !r.hasLocalProviderCredential(p) {
 			continue
 		}
 		for _, model := range p.Models {
