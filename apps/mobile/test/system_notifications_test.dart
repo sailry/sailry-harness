@@ -103,13 +103,14 @@ void main() {
       final alerts = SystemAlerts(supported: true, plugin: plugin);
       String translate(String key) => key;
       expect(await alerts.start(translate), isTrue);
+      final notices = [_notice(1), _notice(2), _notice(3)];
       await alerts.sync(
-        [_notice(1), _notice(2)],
-        fresh: {jsonEncode(_notice(1)['id']), jsonEncode(_notice(2)['id'])},
+        notices,
+        fresh: {for (final notice in notices) jsonEncode(notice['id'])},
         refreshedRoutes: {},
         translate: translate,
       );
-      final [first, second] = plugin.shown;
+      final [first, second, third] = plugin.shown;
       expect(first.id, isNot(second.id));
       final tap = alerts.taps.first;
       plugin.onTap!(
@@ -153,6 +154,14 @@ void main() {
         (id: first.id, tag: first.tag),
         (id: second.id, tag: second.tag),
       ]);
+      await restarted.sync(
+        [_notice(3)],
+        fresh: {},
+        refreshedRoutes: {},
+        forgottenRoutes: {_route('03')},
+        translate: translate,
+      );
+      expect(plugin.cancelled.last, (id: third.id, tag: third.tag));
       await restarted.close();
     },
   );

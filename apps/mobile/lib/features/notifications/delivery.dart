@@ -30,6 +30,7 @@ class NotificationDelivery extends StatefulWidget {
 
 class _NotificationDeliveryState extends State<NotificationDelivery> {
   final _freshness = NoticeFreshness();
+  Set<String> _registeredRoutes = const {};
   Object? _owner;
   bool _reading = false;
   bool _pending = false;
@@ -117,12 +118,14 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
     if (_owner != owner) {
       _owner = owner;
       _freshness.clear();
+      _registeredRoutes = const {};
     }
     _reading = true;
     try {
       do {
         _pending = false;
         final hosts = widget.session.hosts;
+        final registeredRoutes = {for (final host in hosts) host.id};
         final refreshedRoutes = {
           for (final host in hosts)
             if (host.connected && host.snapshot['node'] != null) host.id,
@@ -130,9 +133,11 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
         final inbox = object(jsonDecode(await owner.notifications()));
         if (!mounted || widget.session.controller != owner) return;
         final notices = objects(inbox['notices']);
-        final fresh = _freshness.observe(notices, refreshedRoutes, {
-          for (final host in hosts) host.id,
-        });
+        final fresh = _freshness.observe(
+          notices,
+          refreshedRoutes,
+          registeredRoutes,
+        );
         final foreground = WidgetsBinding.instance.lifecycleState;
         final front =
             foreground == null || foreground == AppLifecycleState.resumed;
@@ -141,9 +146,11 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
           notices,
           fresh: widget.enabled && !front ? fresh : const {},
           refreshedRoutes: refreshedRoutes,
+          forgottenRoutes: _registeredRoutes.difference(registeredRoutes),
           translate: context.tr,
         );
         if (!mounted || widget.session.controller != owner) return;
+        _registeredRoutes = registeredRoutes;
         if (widget.enabled && front) {
           for (final notice in notices.reversed.where(
             (notice) =>

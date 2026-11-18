@@ -97,6 +97,7 @@ class SystemAlerts {
     List<Map<String, dynamic>> notices, {
     required Set<String> fresh,
     required Set<String> refreshedRoutes,
+    Set<String> forgottenRoutes = const {},
     required Translator translate,
   }) async {
     if (!supported || await _ready != true) return;
@@ -112,8 +113,10 @@ class SystemAlerts {
     };
     for (final MapEntry(key: key, value: alert) in _posted.entries.toList()) {
       // On startup an empty inbox does not yet say what the host holds.
-      if (!unread.containsKey(key) &&
-          (current.containsKey(key) || refreshedRoutes.contains(alert.route))) {
+      if (forgottenRoutes.contains(alert.route) ||
+          !unread.containsKey(key) &&
+              (current.containsKey(key) ||
+                  refreshedRoutes.contains(alert.route))) {
         await _plugin.cancel(id: alert.id, tag: '$_tagPrefix$key');
         _posted.remove(key);
       }
@@ -121,7 +124,7 @@ class SystemAlerts {
     for (final MapEntry(key: key, value: notice) in unread.entries) {
       if (!fresh.contains(key) || _posted.containsKey(key)) continue;
       final route = noticeRoute(object(notice['id']));
-      if (route == null) continue;
+      if (route == null || forgottenRoutes.contains(route)) continue;
       final id = _nextId++;
       await _plugin.show(
         id: id,
