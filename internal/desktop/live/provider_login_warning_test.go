@@ -114,7 +114,8 @@ func testProviderLoginWarning(t *testing.T) {
 	risky, plain := protocol.ProviderID{1}, protocol.ProviderID{2}
 	await("the preset directory", func() bool { return len(r.providerPresets) == 2 && len(m.Channels) == 2 })
 
-	m.ProviderActions.SignIn(risky.String())
+	node := r.controller.Target().String()
+	m.ProviderActions.SignIn(node, risky.String())
 	await("the warning", func() bool { return tester.HasText(warning) })
 	if !tester.HasText(en("provider_reconnect")+" Risky account") || len(begun()) != 0 || m.ProviderAuthorization().Open {
 		t.Fatalf("the warning did not precede the sign-in: %d commands, %q", len(begun()), tester.Texts())
@@ -126,7 +127,7 @@ func testProviderLoginWarning(t *testing.T) {
 	}
 
 	// Each attempt asks again.
-	m.ProviderActions.SignIn(risky.String())
+	m.ProviderActions.SignIn(node, risky.String())
 	await("the warning of the second attempt", func() bool { return tester.HasText(warning) })
 	click(en("provider_login_continue"))
 	await("the login command", func() bool { return len(begun()) == 1 })
@@ -134,7 +135,7 @@ func testProviderLoginWarning(t *testing.T) {
 		t.Fatalf("Continue began %v with the warning still shown: %q", sent, tester.Texts())
 	}
 
-	m.ProviderActions.SignIn(plain.String())
+	m.ProviderActions.SignIn(node, plain.String())
 	await("the sign-in without a warning", func() bool { return len(begun()) == 2 })
 	if sent := begun(); sent[1] != plain || tester.HasText(warning) {
 		t.Fatalf("a sign-in without a warning began %v: %q", sent, tester.Texts())

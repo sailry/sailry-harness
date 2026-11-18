@@ -428,19 +428,8 @@ func (node *Node) awaitProviderAuthorization(ctx context.Context, provider proto
 }
 
 func (node *Node) providerAuthorization(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
-	var remote bool
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		controller, err := store.CurrentController(ctx, db, node.ID())
-		remote = controller != node.ID()
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	if remote {
-		return node.readProviderAuthorization(ctx, provider, reference)
-	}
 	if reference.Node != node.ID() {
-		return nil, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "credential belongs to another Node"}
+		return node.readProviderAuthorization(ctx, provider, reference)
 	}
 	node.auth.mu.Lock()
 	if previous := node.auth.renewals[reference.ID]; previous != nil {

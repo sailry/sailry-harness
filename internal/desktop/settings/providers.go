@@ -97,9 +97,10 @@ func providers(c *ui.Context, s *State) {
 		open := true
 		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title"), ch.Name+"\n"+i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
 			if m.Live && m.ProviderActions.Remove != nil {
-				m.ProviderActions.Remove(ch.ID, ch.Revision)
+				m.ProviderActions.Remove(ch.Node, ch.ID, ch.Revision)
 			} else {
-				m.Channels = slices.DeleteFunc(m.Channels, func(x preview.Channel) bool { return x.ID == ch.ID })
+				key := channelKey(ch.Node, ch.ID)
+				m.Channels = slices.DeleteFunc(m.Channels, func(x preview.Channel) bool { return channelKey(x.Node, x.ID) == key })
 			}
 		}
 		if !open {
@@ -188,7 +189,9 @@ type family struct{ id, name string }
 func (m *Model) families() []family {
 	var out []family
 	for _, b := range m.Brands {
-		out = append(out, family{b.ID, b.Name})
+		if !slices.ContainsFunc(out, func(f family) bool { return f.id == b.ID }) {
+			out = append(out, family{b.ID, b.Name})
+		}
 	}
 	for _, ch := range m.Channels {
 		if ch.Brand == "" || slices.ContainsFunc(out, func(f family) bool { return f.id == ch.Brand }) {
@@ -230,13 +233,17 @@ func channelTile(c *ui.Context, ch *preview.Channel, size float32) {
 // clicking it shows its models.
 func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 	p := theme.Of(c)
-	ui.Column(c.Key(ch.ID)).Children(func() {
+	key := channelKey(ch.Node, ch.ID)
+	ui.Column(c.Key(key)).Children(func() {
 		ui.Row(c.Key("row")).Padding(12, 0).Gap(12).Children(func() {
 			access := ch.API
 			if ch.Auth == preview.AuthOAuth {
 				access = "OAuth"
 			}
 			desc := access + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
+			if host := providerHostByID(m, ch.Node); host != nil {
+				desc += " · " + i18n.T(c, "provider_on_host", "host", providerHostName(c, *host))
+			}
 			if ch.Source != "" {
 				desc += " · " + i18n.T(c, "configuration_follow_from_source")
 			}
@@ -245,10 +252,10 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 			}
 			b := ui.ButtonBase(c.Key("details")).Label(ch.Name).Grow(1).Shrink(1).MinWidth(0).Justify(ui.Start).Cursor(ui.CursorPointer).
 				Opacity(enabledOpacity(ch.Enabled)).OnClick(func() {
-				if m.expanded == ch.ID {
+				if m.expanded == key {
 					m.expanded = ""
 				} else {
-					m.expanded = ch.ID
+					m.expanded = key
 				}
 			})
 			b.Children(func() {
@@ -256,7 +263,7 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 			})
 			var usage *ChannelUsage
 			if m.Live && m.ProviderActions.Usage != nil {
-				usage = m.ProviderActions.Usage(c, ch.ID)
+				usage = m.ProviderActions.Usage(c, ch.Node, ch.ID)
 			}
 			if usage != nil {
 				channelUsage(c, ch, usage)
@@ -284,11 +291,11 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 				})
 			}
 			if ui.Switch(c.Key("enabled"), &ch.Enabled).Label(i18n.T(c, "provider_enabled")+" "+ch.Name).Disabled(ch.ConfigurationReadOnly).Changed() && m.Live && m.ProviderActions.Enable != nil {
-				m.ProviderActions.Enable(ch.ID, ch.Revision, ch.Enabled)
+				m.ProviderActions.Enable(ch.Node, ch.ID, ch.Revision, ch.Enabled)
 			}
 			channelMenu(c, m, ch)
 		})
-		if m.expanded == ch.ID {
+		if m.expanded == key {
 			channelModels(c, ch)
 		}
 	})
@@ -364,7 +371,8 @@ func channelModels(c *ui.Context, ch *preview.Channel) {
 
 // channelMenu is edit, the account's sign-in, and delete.
 func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
-	kit.MenuButton(c.Key("menu"), "provider-menu-"+ch.ID, func(b ui.Element) {
+	key := channelKey(ch.Node, ch.ID)
+	kit.MenuButton(c.Key("menu"), "provider-menu-"+key, func(b ui.Element) {
 		kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
 	}, func(menu *Menu) {
 		if menu.Item(i18n.T(c, "settings_edit")).Icon(icons.Pencil).Disabled(ch.ConfigurationReadOnly).Chosen() {
@@ -376,12 +384,12 @@ func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 				key = "provider_reconnect"
 			}
 			if menu.Item(i18n.T(c, key)).Icon(icons.CircleUser).Chosen() {
-				m.signIn(ch.ID)
+				m.signIn(ch.Node, ch.ID)
 			}
 		}
 		menu.Separator()
 		if menu.Item(i18n.T(c, "settings_delete")).Icon(icons.Trash).Disabled(ch.ConfigurationReadOnly).Danger().Chosen() {
-			m.removing = ch.ID
+			m.removing = key
 		}
 	}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
 }
@@ -389,12 +397,19 @@ func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 // Menu is kit.Menu, named here for the builders' signatures.
 type Menu = kit.Menu
 
-func (m *Model) channel(id string) *preview.Channel {
-	if id == "" {
+func channelKey(node, id string) string {
+	if node == "" {
+		return id
+	}
+	return node + "/" + id
+}
+
+func (m *Model) channel(key string) *preview.Channel {
+	if key == "" {
 		return nil
 	}
 	for i := range m.Channels {
-		if m.Channels[i].ID == id {
+		if channelKey(m.Channels[i].Node, m.Channels[i].ID) == key || m.Channels[i].Node == "" && m.Channels[i].ID == key {
 			return &m.Channels[i]
 		}
 	}
@@ -404,22 +419,24 @@ func (m *Model) channel(id string) *preview.Channel {
 // signIn opens the authorization of a channel's account login. The
 // preview has no provider: ChatGPT shows a device code, Claude its
 // browser page with the pasted callback.
-func (m *Model) signIn(id string) {
+func (m *Model) signIn(node, id string) {
 	if m.Live {
 		if m.ProviderActions.SignIn != nil {
-			m.ProviderActions.SignIn(id)
+			m.ProviderActions.SignIn(node, id)
 		}
 		return
 	}
-	ch := m.channel(id)
+	key := channelKey(node, id)
+	ch := m.channel(key)
 	if ch == nil {
 		return
 	}
-	m.loginFor = id
-	m.login = Authorization{Open: true, Title: ch.Name, Flow: FlowBrowser, URL: "https://claude.ai/oauth/authorize", Callback: true}
+	view := &Authorization{Title: ch.Name, Flow: FlowBrowser, URL: "https://claude.ai/oauth/authorize", Callback: true}
 	if ch.Method == "chatgpt-login" {
-		m.login = Authorization{Open: true, Title: ch.Name, Flow: FlowDevice, Code: "PREV-IEW0", URL: "https://auth.openai.com/codex/device", Expires: "14:52"}
+		view = &Authorization{Title: ch.Name, Flow: FlowDevice, Code: "PREV-IEW0", URL: "https://auth.openai.com/codex/device", Expires: "14:52"}
 	}
+	view.Retry = func() { m.signIn(node, id) }
+	m.ShowProviderAuthorization(node, id, view)
 }
 
 // providerStep is the editor's page.
@@ -461,9 +478,18 @@ type modelDraft struct {
 // the method and route chosen, the fields and the models. editing is the
 // channel edited, "" for a new one.
 type providerEditor struct {
+	resumeSave          func(ProviderDraft, func(ProviderSaveResult))
 	generation          uint64
 	id                  string
+	owner               string
+	group               string
 	revision            uint64
+	targets             []string
+	targetIDs           map[string]string
+	targetRevisions     map[string]uint64
+	targetSucceeded     []string
+	targetFailed        []string
+	targetUncertain     []string
 	open                bool
 	step                providerStep
 	editing             string
@@ -510,14 +536,34 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 
 func (e *providerEditor) add(m *Model) {
 	*e = providerEditor{open: true, step: stepBrand, generation: e.generation + 1}
+	if m.Live && m.ProviderActions.DefaultTarget != nil {
+		e.owner = m.ProviderActions.DefaultTarget()
+	}
+	if e.owner != "" {
+		e.targets = []string{e.owner}
+	}
 	if m.Live && m.ProviderActions.NewID != nil {
 		e.id = m.ProviderActions.NewID()
 	}
 }
 
 func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
-	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
+	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, owner: ch.Node, group: ch.Group, targetIDs: maps.Clone(ch.TargetIDs), targetRevisions: maps.Clone(ch.TargetRevisions), id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
+	if ch.Group != "" && len(ch.TargetIDs) > 0 {
+		for node := range ch.TargetIDs {
+			e.targets = append(e.targets, node)
+		}
+		e.targets = providerTargetList(e.targets)
+	} else if ch.Node != "" {
+		e.targets = []string{ch.Node}
+	}
+	if e.targetRevisions == nil && ch.Node != "" {
+		e.targetRevisions = map[string]uint64{ch.Node: ch.Revision}
+	}
+	if !providerAuthAllowsMultipleTargets(ch.Auth) && ch.Node != "" {
+		e.targets = []string{ch.Node}
+	}
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
@@ -525,8 +571,8 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	if m.Live && !ch.ConfigurationReadOnly && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
-		m.ProviderActions.ReadKey(id, func(value string) {
-			if e.open && e.generation == generation && e.editing == id {
+		m.ProviderActions.ReadKey(ch.Node, id, func(value string) {
+			if e.open && e.generation == generation && e.editing == id && e.owner == ch.Node {
 				e.keySet, e.originalKey = value != "", value
 				if e.key == "" {
 					e.key = value
@@ -537,6 +583,9 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	for i := range m.Brands {
 		b := &m.Brands[i]
 		for _, x := range b.Methods {
+			if ch.Node != "" && x.Node != ch.Node {
+				continue
+			}
 			for j, route := range methodRoutes(x) {
 				if route.ID == ch.Method {
 					e.brand, e.method, e.route = b, x, j
@@ -551,7 +600,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 		}
 	}
 	if e.brand == nil {
-		e.method = preview.Method{ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
+		e.method = preview.Method{Node: ch.Node, ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
 	}
 	if e.azure() && e.apiVersion == "" {
 		e.apiVersion = azureDefaultVersion
@@ -670,6 +719,22 @@ func (e *providerEditor) choose(b *preview.Brand, methods []preview.Method) {
 // configure opens the form on a method's first route.
 func (e *providerEditor) configure(x preview.Method) {
 	e.method, e.route, e.step = x, 0, stepConfigure
+	if e.editing == "" && e.owner == "" && x.Node != "" {
+		e.owner = x.Node
+		e.targets = []string{x.Node}
+	} else if e.owner == "" {
+		e.owner = x.Node
+	}
+	if len(e.targets) == 0 && e.owner != "" {
+		e.targets = []string{e.owner}
+	}
+	if !providerAuthAllowsMultipleTargets(e.auth()) && len(e.targets) > 1 {
+		if e.owner != "" && slices.Contains(e.targets, e.owner) {
+			e.targets = []string{e.owner}
+		} else {
+			e.targets = e.targets[:1]
+		}
+	}
 	e.name, e.endpoint = x.Name, e.current().Endpoint
 	e.models, e.def = nil, 0
 	e.oauth = x.OAuth
@@ -699,6 +764,116 @@ func (e *providerEditor) back() {
 
 func (e *providerEditor) usesKey() bool {
 	return e.method.Keyed || e.method.Access == "provider_access_key" || e.method.Access == "provider_access_cloud"
+}
+
+func (e *providerEditor) auth() preview.Auth {
+	if e.method.Auth == preview.AuthOAuth || e.method.Auth == preview.AuthPlugin {
+		return e.method.Auth
+	}
+	if e.login() {
+		return preview.AuthOAuth
+	}
+	if e.method.Auth == preview.AuthKey || e.usesKey() {
+		return preview.AuthKey
+	}
+	return preview.AuthNone
+}
+
+func providerAuthAllowsMultipleTargets(auth preview.Auth) bool {
+	return auth == preview.AuthKey || auth == preview.AuthNone
+}
+
+func providerTargetList(targets []string) []string {
+	result := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target != "" && !slices.Contains(result, target) {
+			result = append(result, target)
+		}
+	}
+	slices.Sort(result)
+	return result
+}
+
+func completeProviderSaveResult(targets []string, result ProviderSaveResult) ProviderSaveResult {
+	wanted := providerTargetList(targets)
+	result.Uncertain = providerTargetList(result.Uncertain)
+	uncertain := func(node string) bool { return slices.Contains(result.Uncertain, node) }
+	failed := map[string]bool{}
+	var extraFailed []string
+	for _, node := range result.Failed {
+		if uncertain(node) {
+			continue
+		}
+		failed[node] = true
+		if !slices.Contains(wanted, node) {
+			extraFailed = append(extraFailed, node)
+		}
+	}
+	succeeded := map[string]bool{}
+	for _, node := range result.Succeeded {
+		if !failed[node] {
+			succeeded[node] = true
+		}
+	}
+	result.Succeeded, result.Failed = nil, nil
+	for _, node := range wanted {
+		if uncertain(node) {
+			continue
+		}
+		if failed[node] {
+			result.Failed = append(result.Failed, node)
+		} else if succeeded[node] {
+			result.Succeeded = append(result.Succeeded, node)
+		} else {
+			result.Failed = append(result.Failed, node)
+		}
+	}
+	result.Failed = append(result.Failed, providerTargetList(extraFailed)...)
+	return result
+}
+
+func toggleProviderTarget(targets []string, node string, multiple, checked bool) []string {
+	if node == "" {
+		return slices.Clone(targets)
+	}
+	if !multiple {
+		if checked {
+			return []string{node}
+		}
+		return slices.Clone(targets)
+	}
+	result := providerTargetList(targets)
+	if checked {
+		if !slices.Contains(result, node) {
+			result = append(result, node)
+		}
+		return result
+	}
+	return slices.DeleteFunc(result, func(value string) bool { return value == node })
+}
+
+func (e *providerEditor) targetHosts(m *Model) []ProviderHost {
+	if m.ProviderActions.Hosts == nil {
+		return nil
+	}
+	hosts := m.ProviderActions.Hosts()
+	for _, node := range e.targets {
+		if !slices.ContainsFunc(hosts, func(host ProviderHost) bool { return host.Node == node }) {
+			hosts = append(hosts, ProviderHost{Node: node, Name: node})
+		}
+	}
+	return hosts
+}
+
+func (e *providerEditor) normalizedTargets() []string {
+	targets := providerTargetList(e.targets)
+	if !providerAuthAllowsMultipleTargets(e.auth()) && len(targets) > 1 {
+		if e.owner != "" && slices.Contains(targets, e.owner) {
+			return []string{e.owner}
+		}
+		return targets[:1]
+	}
+	return targets
 }
 
 // keyUpdate keeps displaying a stored key from creating a new credential
@@ -799,6 +974,11 @@ func (e *providerEditor) save(m *Model) string {
 	if problem := e.Check(); problem != "" {
 		return problem
 	}
+	targets := e.normalizedTargets()
+	if m.Live && m.ProviderActions.Hosts != nil &&
+		(len(targets) == 0 || !providerAuthAllowsMultipleTargets(e.auth()) && len(targets) != 1) {
+		return "provider_host_required"
+	}
 	models := make([]preview.ChannelModel, len(e.models))
 	for i, d := range e.models {
 		x := d.model
@@ -818,13 +998,7 @@ func (e *providerEditor) save(m *Model) string {
 		}
 		models[i] = x
 	}
-	auth := preview.AuthKey
-	switch {
-	case e.login():
-		auth = preview.AuthOAuth
-	case !e.usesKey():
-		auth = preview.AuthNone
-	}
+	auth := e.auth()
 	brand := ""
 	if e.brand != nil {
 		brand = e.brand.ID
@@ -835,7 +1009,7 @@ func (e *providerEditor) save(m *Model) string {
 			return ""
 		}
 		e.probing, e.saving = true, true
-		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		channel := preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID, API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
 		if e.azure() {
 			channel.APIVersion = strings.TrimSpace(e.apiVersion)
 		}
@@ -843,24 +1017,64 @@ func (e *providerEditor) save(m *Model) string {
 			channel.Headers, _ = parseHeaders(e.headers)
 		}
 		generation := e.generation
-		signIn := e.login() && e.editing == ""
-		id := e.id
-		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.keyUpdate(), ExpectedRevision: e.revision, OAuth: e.oauth}, func(ok bool) {
+		signIn := e.login() && (e.editing == "" || len(targets) == 1 && targets[0] != e.owner)
+		signInNode, id := e.owner, e.id
+		if len(targets) > 0 {
+			signInNode = targets[0]
+		}
+		e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
+		save := m.ProviderActions.Save
+		if e.resumeSave != nil {
+			save = e.resumeSave
+		}
+		save(ProviderDraft{Channel: channel, Key: e.keyUpdate(), ExpectedRevision: e.revision, OAuth: e.oauth, Group: e.group, Targets: slices.Clone(targets), TargetRevisions: maps.Clone(e.targetRevisions)}, func(result ProviderSaveResult) {
 			if e.generation != generation || !e.open {
 				return
 			}
 			e.probing, e.saving = false, false
-			if ok {
-				e.open = false
-				e.key = ""
-				if signIn {
-					m.signIn(id)
+			e.resumeSave = result.Resume
+			result = completeProviderSaveResult(targets, result)
+			e.targetSucceeded, e.targetFailed = slices.Clone(result.Succeeded), slices.Clone(result.Failed)
+			e.targetUncertain = slices.Clone(result.Uncertain)
+			if result.Group != "" || result.TargetIDs != nil {
+				e.group = result.Group
+			}
+			if e.targetIDs == nil {
+				e.targetIDs = map[string]string{}
+			}
+			for node, id := range result.TargetIDs {
+				e.targetIDs[node] = id
+			}
+			if e.targetRevisions == nil {
+				e.targetRevisions = map[string]uint64{}
+			}
+			for node, revision := range result.TargetRevisions {
+				e.targetRevisions[node] = revision
+			}
+			if revision, ok := result.TargetRevisions[e.owner]; ok {
+				e.revision = revision
+			}
+			if len(result.Failed) > 0 || len(result.Uncertain) > 0 {
+				if signIn && slices.Contains(result.Succeeded, signInNode) {
+					if targetID := result.TargetIDs[signInNode]; targetID != "" {
+						id = targetID
+					}
+					m.signIn(signInNode, id)
 				}
+				return
+			}
+			e.open = false
+			e.key = ""
+			if signIn {
+				if targetID := result.TargetIDs[signInNode]; targetID != "" {
+					id = targetID
+				}
+				m.signIn(signInNode, id)
 			}
 		})
 		return ""
 	}
-	if ch := m.channel(e.editing); ch != nil {
+	if ch := m.channel(channelKey(e.owner, e.editing)); ch != nil {
 		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.endpoint, models, e.def
 		ch.Method, ch.API = route.ID, route.API
 		if e.azure() {
@@ -873,10 +1087,14 @@ func (e *providerEditor) save(m *Model) string {
 		return ""
 	}
 	id := fmt.Sprintf("%s-%d", e.method.ID, len(m.Channels)+1)
-	m.Channels = append(m.Channels, preview.Channel{ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
+	m.Channels = append(m.Channels, preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(targets), TargetIDs: maps.Clone(e.targetIDs), ID: id, Name: strings.TrimSpace(e.name), Brand: brand, Icon: e.method.Icon, Method: route.ID,
 		API: route.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.key != "", Models: models, Default: e.def})
 	if e.login() {
-		m.signIn(id)
+		node := e.owner
+		if len(targets) > 0 {
+			node = targets[0]
+		}
+		m.signIn(node, id)
 	}
 	return ""
 }
@@ -946,6 +1164,41 @@ func loginLabel(c *ui.Context, x preview.Method) string {
 // apiMethods are a brand's methods that are not account sign-ins.
 func apiMethods(b *preview.Brand) []preview.Method {
 	return slices.DeleteFunc(slices.Clone(b.Methods), func(x preview.Method) bool { return x.Login != "" })
+}
+
+func providerHostLabel(c *ui.Context, m *Model, node, label string) string {
+	if node == "" || m.ProviderActions.Hosts == nil {
+		return label
+	}
+	hosts := m.ProviderActions.Hosts()
+	if len(hosts) < 2 {
+		return label
+	}
+	for _, host := range hosts {
+		if host.Node == node {
+			if host.Name != "" {
+				return label + " (" + i18n.T(c, host.Name) + ")"
+			}
+			return label + " (" + node + ")"
+		}
+	}
+	return label + " (" + node + ")"
+}
+
+func providerHostByID(m *Model, node string) *ProviderHost {
+	if node == "" || m.ProviderActions.Hosts == nil {
+		return nil
+	}
+	hosts := m.ProviderActions.Hosts()
+	if len(hosts) < 2 {
+		return nil
+	}
+	for i := range hosts {
+		if hosts[i].Node == node {
+			return &hosts[i]
+		}
+	}
+	return nil
 }
 
 // brandPicker is two groups of outlined pills, each with its heading and
@@ -1024,12 +1277,12 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 				if len(x.methods) == 1 && icons.Brand(x.methods[0].Icon) != nil {
 					mark = x.methods[0].Icon
 				}
-				chip("login-"+x.brand.ID, x.label, mark, func() { m.chooseProvider(x.brand, x.methods) })
+				chip("login-"+channelKey(x.brand.Node, x.brand.ID), providerHostLabel(c, m, x.brand.Node, x.label), mark, func() { m.chooseProvider(x.brand, x.methods) })
 			}
 		})
 		group("provider_access_key", len(brands), func() {
 			for _, b := range brands {
-				chip("api-"+b.ID, b.Name, b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
+				chip("api-"+channelKey(b.Node, b.ID), providerHostLabel(c, m, b.Node, b.Name), b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
 			}
 		})
 	})
@@ -1049,7 +1302,7 @@ func methodList(c *ui.Context, m *Model) {
 		})
 		modalList(c, "list", "", "", "", len(e.methods), func() {
 			for _, x := range e.methods {
-				listRow{subtitle: i18n.T(c, x.Access), chevron: true, onClick: func() { m.configureProvider(x) }}.row(c, x.ID, x.Name)
+				listRow{subtitle: i18n.T(c, x.Access), chevron: true, onClick: func() { m.configureProvider(x) }}.row(c, channelKey(x.Node, x.ID), x.Name)
 			}
 		}, nil)
 	})
@@ -1125,6 +1378,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	}
 	ui.Column(c.Key("form")).Gap(16).Children(func() {
 		input("name", t("settings_name"), t("provider_name_hint"), &e.name, false)
+		providerTargets(c, m, e)
 		// The protocol is a choice where the method has several, and the
 		// plain name of a method that names its only one.
 		if !routeField(c, e, "api", t("provider_api"), axisProtocol) && len(e.method.Routes) == 0 && e.method.API != "" {
@@ -1222,7 +1476,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				}
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), ExpectedRevision: e.revision}
+					draft := ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), ExpectedRevision: e.revision, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
 					generation := e.generation
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
@@ -1261,6 +1515,75 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 			}
 		}, nil)
 	})
+}
+
+func providerTargets(c *ui.Context, m *Model, e *providerEditor) {
+	hosts := e.targetHosts(m)
+	if len(hosts) == 0 {
+		return
+	}
+	multiple := providerAuthAllowsMultipleTargets(e.auth())
+	label := i18n.T(c, "provider_host")
+	if multiple {
+		label = i18n.T(c, "provider_hosts")
+	}
+	if !multiple {
+		chosen := ""
+		if len(e.targets) > 0 {
+			chosen = e.targets[0]
+		}
+		options := make([]kit.SelectOption, 0, len(hosts))
+		for _, host := range hosts {
+			name := i18n.T(c, host.Name)
+			if name == "" {
+				name = host.Node
+			}
+			options = append(options, kit.SelectOption{Value: host.Node, Label: name, Disabled: !host.Connected && host.Node != chosen})
+		}
+		if _, changed := kit.SelectField(c.Key("target"), "provider-host", &chosen, kit.SelectProps{Label: label, Options: options}); changed && !e.probing {
+			e.targets = toggleProviderTarget(e.targets, chosen, false, true)
+			e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
+		}
+		providerTargetStatuses(c, hosts, e)
+		return
+	}
+	kit.Field(c, "hosts", label, "", func() {
+		ui.Column(c.Key("options")).Gap(6).Children(func() {
+			for _, host := range hosts {
+				selected := slices.Contains(e.targets, host.Node)
+				name := i18n.T(c, host.Name)
+				if name == "" {
+					name = host.Node
+				}
+				if ui.Checkbox(c.Key(host.Node), &selected, name).Disabled(e.probing || !host.Connected && !selected).Changed() {
+					e.targets = toggleProviderTarget(e.targets, host.Node, true, selected)
+					e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
+				}
+			}
+		})
+	})
+	providerTargetStatuses(c, hosts, e)
+}
+
+func providerTargetStatuses(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
+	for _, host := range hosts {
+		if slices.Contains(e.targetSucceeded, host.Node) {
+			ui.Text(c, i18n.T(c, "provider_host_saved", "host", providerHostName(c, host))).FontSize(12).TextColor(theme.Of(c).Success)
+		}
+		if slices.Contains(e.targetFailed, host.Node) {
+			ui.Text(c, i18n.T(c, "provider_host_save_failed", "host", providerHostName(c, host))).FontSize(12).TextColor(theme.Of(c).Warning)
+		}
+		if slices.Contains(e.targetUncertain, host.Node) {
+			ui.Text(c, providerHostName(c, host)+" · "+i18n.T(c, "provider_save_unknown")).FontSize(12).TextColor(theme.Of(c).Warning)
+		}
+	}
+}
+
+func providerHostName(c *ui.Context, host ProviderHost) string {
+	if host.Name != "" {
+		return i18n.T(c, host.Name)
+	}
+	return host.Node
 }
 
 // providerModel is the model's title, Default, its check to make it the
@@ -1525,25 +1848,29 @@ func ProviderPicker(c *ui.Context, s *State, chosen, back func()) {
 }
 
 func providerAuthorizationDialog(c *ui.Context, m *Model) {
-	authorization(c, "login", &m.login, func() {
+	view := m.ProviderAuthorization()
+	authorization(c, "login", view, func() {
 		if ch := m.channel(m.loginFor); ch != nil {
 			channelTile(c, ch, 48)
 		}
-	}, func() { m.signIn(m.loginFor) }, func() {
-		if strings.TrimSpace(m.login.Pasted) == "" {
+	}, view.Retry, func() {
+		if strings.TrimSpace(view.Pasted) == "" {
 			kit.Toast(c, kit.Failed, i18n.T(c, "provider_login_callback_required"))
 			return
 		}
-		if m.Live && m.ProviderActions.SubmitLogin != nil {
-			m.ProviderActions.SubmitLogin(m.login.Pasted)
+		if view.Submit != nil {
+			view.Submit(view.Pasted)
 		} else {
 			notice(c)
 		}
 	})
 	if w := &m.loginWarning; w.open {
-		proceed := w.proceed
-		if confirm(c, "login-warning", &w.open, i18n.T(c, w.verb)+" "+w.title, w.text, i18n.T(c, "provider_login_continue")) && proceed != nil {
+		proceed, cancel := w.proceed, w.cancel
+		confirmed := confirm(c, "login-warning", &w.open, i18n.T(c, w.verb)+" "+w.title, w.text, i18n.T(c, "provider_login_continue"))
+		if confirmed && proceed != nil {
 			proceed()
+		} else if !w.open && cancel != nil {
+			cancel()
 		}
 		if !w.open {
 			*w = loginWarning{}

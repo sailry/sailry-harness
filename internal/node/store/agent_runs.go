@@ -136,7 +136,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	value.Roles = session.Roles
 	// A forwarded session keeps the roles its source Node captured.
 	if session.Profile == nil {
-		if err := RefreshTurnRoles(ctx, db, &value.Roles); err != nil {
+		if err := RefreshTurnRoles(ctx, db, node, &value.Roles); err != nil {
 			return value, err
 		}
 	}
@@ -154,7 +154,14 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if session.Delegation != nil {
 		return value, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 	}
-	if err := validateConfig(ctx, db, node, session.Config); err != nil {
+	if hasRemoteModelCapture(session, node) {
+		return value, fault(protocol.ErrorCodeNotConfigured, "new turns require a model channel configured on this Node")
+	}
+	if session.Profile == nil {
+		if err := validateConfig(ctx, db, node, session.Config); err != nil {
+			return value, err
+		}
+	} else if err := validateCapturedConfig(ctx, db, node, *session.Profile, session.Config); err != nil {
 		return value, err
 	}
 	var count uint64

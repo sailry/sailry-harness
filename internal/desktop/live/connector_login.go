@@ -194,7 +194,7 @@ func (r *Runtime) watchConnectorLogin(ctx context.Context, attempt *liveAuthoriz
 					browser, _ := detail[protocol.PluginConnectorLoginStateBrowserPayload](value.State.Data)
 					state.Data = protocol.ConversationLoginStateBrowserPayload{AuthorizationUrl: browser.Url, ExpiresAtMs: browser.ExpiresAtMs}
 				}
-				view := r.authorizationView(attempt, false)
+				view := attempt.view
 				expiry, terminal := projectAuthorization(view, state)
 				if state.Kind == "browser" && view.URL != "" {
 					c.OpenURL(view.URL)
@@ -236,7 +236,7 @@ func (r *Runtime) submitConnectorLogin(callback string) {
 	if attempt == nil || attempt.id == (protocol.RequestID{}) {
 		return
 	}
-	view := r.authorizationView(attempt, false)
+	view := attempt.view
 	view.Busy = true
 	r.execute(protocol.Command{Kind: "submit_connector_input", Data: protocol.CommandSubmitConnectorInputPayload{Attempt: attempt.id, Input: protocol.NewSecret(callback)}}, func(c *ui.Context, _ protocol.Output, err error) {
 		if r.authorizations.connector != attempt {
@@ -255,7 +255,7 @@ func (r *Runtime) cancelConnectorLogin() {
 	if attempt == nil {
 		return
 	}
-	view := r.authorizationView(attempt, false)
+	view := attempt.view
 	// As cancelProviderLogin: nothing is left to cancel on the Node.
 	if attempt.id == (protocol.RequestID{}) || attempt.ctx.Err() != nil {
 		view.Open = false

@@ -29,7 +29,8 @@ func configurationPageCount(size uint64) uint64 {
 }
 
 func validateConfigurationSnapshot(page protocol.ConfigurationSnapshotPage) error {
-	_, category := configurationKind(page.Category)
+	kind, category := configurationKind(page.Category)
+	category = category && !kind.LocalOnly
 	if page.Category == protocol.PersonalKVAcknowledgementCategory {
 		category = page.Bytes <= MaxPersonalKVTransferBytes
 	}

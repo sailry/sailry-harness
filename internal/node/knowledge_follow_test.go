@@ -64,7 +64,7 @@ func TestConfigurationCacheAndPersonalSnapshotAvoidDuplicateSemanticIndex(t *tes
 			return err
 		}
 		for _, category := range []string{"plugins", "plugin_settings"} {
-			manifest, err := store.ExportConfigurationManifest(ctx, db, source, node.ID(), category, true)
+			manifest, err := store.ExportConfigurationManifest(ctx, db, source, node.ID(), category, true, nil, nil)
 			if err != nil {
 				return err
 			}

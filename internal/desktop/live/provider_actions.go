@@ -1,68 +1,12 @@
 package live
 
 import (
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) saveProvider(d settings.ProviderDraft, done func(bool)) {
-	p := r.providerDraft(d)
-	var secret *protocol.Secret
-	if strings.TrimSpace(d.Key) != "" {
-		s := protocol.NewSecret(d.Key)
-		secret = &s
-	}
-	r.providerCommand(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: p, ExpectedRevision: d.ExpectedRevision, Secret: secret}}, func(output protocol.Output, ok bool) {
-		if ok {
-			if saved, valid := detail[protocol.ConversationProvider](output.Data); valid {
-				r.authorizations.savedProviders[saved.ID.String()] = saved
-			}
-		}
-		done(ok)
-		if ok {
-			r.project()
-			r.projectProviderSnapshot()
-			// Completion and the Node subscription are independent streams. A
-			// fresh ordered snapshot makes the saved models available to existing
-			// drafts without retaining a second provider inventory in Desktop.
-			r.async(func() {
-				err := r.controller.Refresh(r.ctx)
-				r.enqueue(func(c *ui.Context) {
-					if err != nil {
-						r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
-						return
-					}
-					r.project()
-					r.projectProviderSnapshot()
-				})
-			})
-		}
-	})
-}
-func (r *Runtime) enableProvider(id string, revision uint64, enabled bool) {
-	if p, ok := r.provider(id); ok {
-		p.Enabled = enabled
-		r.providerCommand(protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: p, ExpectedRevision: revision}}, func(_ protocol.Output, ok bool) {
-			if !ok {
-				r.projectProviderSnapshot()
-			}
-		})
-	}
-}
-func (r *Runtime) removeProvider(id string, revision uint64) {
-	if p, ok := r.provider(id); ok {
-		r.providerCommand(protocol.Command{Kind: "remove_provider", Data: protocol.CommandRemoveProviderPayload{Provider: p.ID, ExpectedRevision: revision}}, func(_ protocol.Output, ok bool) {
-			if ok {
-				delete(r.authorizations.savedProviders, id)
-				r.projectProviderSnapshot()
-			}
-		})
-	}
-}
 func (r *Runtime) readProviderKey(id string, done func(string)) {
 	p, ok := r.provider(id)
 	if !ok {
@@ -83,8 +27,48 @@ func (r *Runtime) readProviderKey(id string, done func(string)) {
 		}
 	})
 }
-func (r *Runtime) discoverModels(d settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
-	draft := r.providerDraft(d)
+
+func (r *Runtime) readProviderKeyForSave(p protocol.ConversationProvider, done func(string, bool)) {
+	if p.Credential == nil {
+		done("", true)
+		return
+	}
+	r.execute(protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: p.ID, ExpectedRevision: p.Revision}}, func(c *ui.Context, out protocol.Output, err error) {
+		if err != nil {
+			r.reportKeys(c, err, "provider_key_failed", "provider_revision_changed", "provider_save_unknown")
+			done("", false)
+			return
+		}
+		key, valid := detail[*protocol.Secret](out.Data)
+		if !valid {
+			done("", false)
+			return
+		}
+		if key == nil {
+			done("", true)
+			return
+		}
+		done(key.Expose(), true)
+	})
+}
+
+func (r *Runtime) refreshProviderSnapshot() {
+	root := r.localRuntime()
+	r.async(func() {
+		err := r.controller.Refresh(r.ctx)
+		r.enqueue(func(c *ui.Context) {
+			if err != nil {
+				r.reportKeys(c, err, "provider_catalog_read_failed", "provider_catalog_read_failed", "provider_catalog_read_failed")
+				return
+			}
+			r.project()
+			root.projectProviderSnapshot()
+		})
+	})
+}
+
+func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
+	draft := editor.providerDraft(d)
 	source := protocol.ConversationDiscoverySource{Kind: "draft", Data: protocol.ConversationDiscoveryDraft{Provider: draft.ID, Api: draft.Api, Endpoint: draft.Endpoint, Preset: draft.Preset, Credential: draft.Credential}}
 	if draft.Authentication != protocol.AuthenticationApiKey && d.ExpectedRevision != 0 {
 		source = protocol.ConversationDiscoverySource{Kind: "saved", Data: protocol.ConversationDiscoverySourceSavedPayload{Provider: draft.ID, ExpectedRevision: d.ExpectedRevision, Oauth: draft.Oauth}}
@@ -139,7 +123,7 @@ func (r *Runtime) discoverModels(d settings.ProviderDraft, done func([]viewmodel
 				known[model.ID] = model
 				models = append(models, channelModel(model))
 			}
-			r.finishDiscovery(draft, result.Models, known, done)
+			r.finishDiscovery(draft, result.Models, known, editor.providerModels, done)
 			return
 		}
 		done(models)

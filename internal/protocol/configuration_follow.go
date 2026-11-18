@@ -25,7 +25,15 @@ type ConfigurationFollowRecord struct {
 	ExpiresAtMs *uint64         `json:"expires_at_ms,omitempty"`
 }
 
+// CapturedModelCredential identifies a historical controller credential still
+// needed by an admitted turn. Waiting refers to its existing login wait.
+type CapturedModelCredential struct {
+	ID      CredentialID `json:"id"`
+	Waiting bool         `json:"waiting,omitempty"`
+}
+
 type ConfigurationManifest struct {
+	Captured []CapturedModelCredential   `json:"captured,omitzero"`
 	Source   NodeID                      `json:"source"`
 	Category string                      `json:"category"`
 	Revision uint64                      `json:"revision"`

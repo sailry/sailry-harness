@@ -89,9 +89,7 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 	if len(snapshot(other).Projects) != 1 {
 		t.Fatal("shared project absent")
 	}
-	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model = protocol.NewProviderID(), "fixture"
-	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	config := sessionConfigFixtureFor(t, node, owner)
 	createdSession := send(owner, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}})
 	if createdSession.Fault != nil {
 		t.Fatal(createdSession.Fault)

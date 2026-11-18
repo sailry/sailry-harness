@@ -409,15 +409,21 @@ func (node *Node) reconcileConfigurationHost(ctx context.Context, address link.E
 		var request protocol.Request
 		unchanged := false
 		if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-			manifest, err := store.ExportConfigurationManifest(ctx, db, node.ID(), address.ID, category, target.Secrets, declarations)
+			// A pending snapshot owns its original identity and manifest digest.
+			// Finish that transfer before computing a new credential inventory.
+			previous, err := store.ConfigurationCommandDelivery(ctx, db, address.ID, category, nil)
 			if err != nil {
 				return err
 			}
-			var pending bool
-			if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM configuration_follow_deliveries WHERE user=?1 AND host=?2 AND category=?3)", local.ID.String(), address.ID[:], category).Scan(&pending); err != nil {
+			if previous != nil {
+				request = *previous
+				return nil
+			}
+			manifest, err := store.ExportConfigurationManifest(ctx, db, node.ID(), address.ID, category, target.Secrets, declarations, &known)
+			if err != nil {
 				return err
 			}
-			if !pending && !bindSource && known.Revision == manifest.Revision && len(known.Records) == len(manifest.Records) {
+			if !bindSource && known.Revision == manifest.Revision && len(known.Records) == len(manifest.Records) {
 				matches := true
 				have := map[string]string{}
 				for _, record := range known.Records {

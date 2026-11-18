@@ -217,12 +217,19 @@ func testPluginMessageCommandResolution(t *testing.T) {
 func pluginMessageSessionFixture(t *testing.T) (*Store, protocol.NodeID, protocol.Session) {
 	t.Helper()
 	profile, node, storage := schemaFixture(t)
+	provider := providerFixture()
+	key := protocol.NewSecret("plugin-message-fixture-key")
 	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model = protocol.NewProviderID(), "fixture"
-	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 	var session protocol.Session
 	if err := storage.Node.Write(t.Context(), func(db *sql.Conn) error {
-		output, _, err := createSession(t.Context(), db, node, profile, protocol.CommandCreateSessionPayload{Config: &config})
+		output, _, err := ExecuteProviderCommand(t.Context(), db, node, protocol.NewRequest(node, protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &key}}), nil)
+		if err != nil {
+			return err
+		}
+		saved := output.Data.(protocol.ConversationProvider)
+		config.Provider, config.Model, config.Credential = saved.ID, saved.DefaultModel, saved.Credential
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		output, _, err = createSession(t.Context(), db, node, profile, protocol.CommandCreateSessionPayload{Config: &config})
 		if err == nil {
 			session = output.Data.(protocol.Session)
 		}

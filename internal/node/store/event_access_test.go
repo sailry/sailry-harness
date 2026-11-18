@@ -30,8 +30,15 @@ func TestEventAudiencesRetainCursorsAndRecheckProjectAccess(t *testing.T) {
 				return protocol.Project{}, protocol.Session{}, err
 			}
 			project := out.Data.(protocol.Project)
+			provider := providerFixture()
+			key := protocol.NewSecret("event-session-fixture-key")
+			out, _, err = ExecuteProviderCommand(owned, db, node, protocol.NewRequest(node, protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &key}}), nil)
+			if err != nil {
+				return project, protocol.Session{}, err
+			}
+			saved := out.Data.(protocol.ConversationProvider)
 			config := protocol.DefaultSessionConfig()
-			config.Provider, config.Model = protocol.NewProviderID(), "fixture"
+			config.Provider, config.Model, config.Credential = saved.ID, saved.DefaultModel, saved.Credential
 			config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 			out, _, err = createSession(owned, db, node, t.TempDir(), protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config})
 			if err != nil {

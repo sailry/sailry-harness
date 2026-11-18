@@ -44,11 +44,7 @@ func TestRemovedSessionManagedWorktree(t *testing.T) {
 	}
 	session := func(tree protocol.Worktree) protocol.Session {
 		t.Helper()
-		config := protocol.DefaultSessionConfig()
-		config.Provider = protocol.NewProviderID()
-		config.Model = "fixture"
-		config.Mode = protocol.WorkModeCode
-		config.Permission = protocol.PermissionProject
+		config := sessionConfigFixture(t, node)
 		return acceptanceDo[protocol.Session](t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Worktree: &tree.ID, Config: &config}})
 	}
 	remove := func(value protocol.Session) {

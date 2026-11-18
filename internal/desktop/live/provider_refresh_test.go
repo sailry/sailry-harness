@@ -75,13 +75,13 @@ func TestSavedProviderRefreshesOpenDraft(t *testing.T) {
 			comp.Draft = "Keep the existing conversation draft"
 			selected := comp.Model
 			newID := protocol.ProviderID{9}.String()
-			done := false
-			r.saveProvider(settings.ProviderDraft{Channel: viewmodel.Channel{
+			result := settings.ProviderSaveResult{}
+			r.saveManagedProvider(settings.ProviderDraft{Channel: viewmodel.Channel{
 				ID: newID, Name: "New channel", API: "responses", Endpoint: "https://models.example.test/v1", Auth: viewmodel.AuthKey, Enabled: true,
 				Models: []viewmodel.ChannelModel{{ID: "new-model", Context: 128000, Output: 16384}},
-			}}, func(ok bool) { done = ok })
+			}}, func(saved settings.ProviderSaveResult) { result = saved })
 			settle()
-			if !done {
+			if len(result.Succeeded) != 1 {
 				t.Fatal("confirmed channel save was not reported")
 			}
 			found := slices.ContainsFunc(offered.Models, func(model composer.Model) bool { return model.ID == modelKey(saved.ID, "new-model") })

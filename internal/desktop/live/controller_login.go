@@ -32,14 +32,25 @@ func (x *conversationActions) ResumeLogin(turn string) {
 		}
 		root := x.r.localRuntime()
 		waiting := run.Waiting
-		if waiting.Credential.Node != root.controller.Target() || !root.controller.Connected() {
+		// The credential is held either by this execution Node or by the
+		// controller of a retained historical capture. The executor checks
+		// the caller against the original turn's principal.
+		credentialNode := waiting.Credential.Node
+		if credentialNode != x.r.controller.Target() && credentialNode != root.controller.Target() {
 			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "controller_login_original_controller"))
 			return
 		}
 		if waiting.Provider == (protocol.ProviderID{}) || waiting.Attempt == (protocol.RequestID{}) {
 			break
 		}
-		if _, exists := root.loginProvider(waiting.Provider.String()); !exists {
+		owner := root.providerOwner(credentialNode.String())
+		if owner == nil {
+			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "resource_offline_action"))
+			return
+		}
+		owner.initProviders()
+		root.initProviders()
+		if _, exists := owner.loginProvider(waiting.Provider.String()); !exists {
 			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "controller_login_provider_missing"))
 			return
 		}
@@ -64,11 +75,11 @@ func (x *conversationActions) ResumeLogin(turn string) {
 			root.restoreControllerLogin(recovery)
 			return
 		}
-		if attempt := root.authorizations.provider; attempt != nil && attempt.recovery == recovery && attempt.ctx.Err() == nil {
-			root.authorizationView(attempt, true).Open = true
+		if attempt := owner.authorizations.provider; attempt != nil && attempt.recovery == recovery && attempt.ctx.Err() == nil {
+			owner.App.Settings.ShowProviderAuthorization(credentialNode.String(), attempt.provider, attempt.view)
 			return
 		}
-		root.beginProviderLoginFor(waiting.Provider.String(), recovery)
+		owner.beginProviderLoginFor(waiting.Provider.String(), recovery)
 		return
 	}
 	kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "controller_login_state_changed"))
@@ -76,7 +87,7 @@ func (x *conversationActions) ResumeLogin(turn string) {
 
 func (r *Runtime) completeControllerLogin(c *ui.Context, attempt *liveAuthorization, replacement *protocol.CredentialRef) {
 	recovery := attempt.recovery
-	if replacement == nil || replacement.Node != r.controller.Target() {
+	if replacement == nil || replacement.Node != r.controller.Target() || replacement.Node != recovery.input.Previous.Node {
 		kit.Toast(c, kit.Failed, i18n.T(c, "controller_login_restore_failed"))
 		return
 	}
@@ -86,7 +97,7 @@ func (r *Runtime) completeControllerLogin(c *ui.Context, attempt *liveAuthorizat
 	recovery.input.Replacement = *replacement
 	request := recovery.executor.controller.Prepare(protocol.Command{Kind: "resume_controller_login", Data: recovery.input})
 	recovery.request = &request
-	r.restoreControllerLogin(recovery)
+	r.localRuntime().restoreControllerLogin(recovery)
 }
 
 func (r *Runtime) restoreControllerLogin(recovery *controllerLoginRecovery) {

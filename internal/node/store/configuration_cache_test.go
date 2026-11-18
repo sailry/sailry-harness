@@ -110,11 +110,12 @@ func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 		}
 	}
 	if ConfigurationChanged("unregistered_changed") || RuntimeCredentialEvent("role_changed") ||
+		!RuntimeCredentialEvent("provider_changed") || !RuntimeCredentialEvent("provider_removed") ||
 		!RuntimeCredentialEvent("credential_changed") || !RuntimeCredentialEvent("connections_changed") {
 		t.Fatal("configuration event routing inferred names or missed runtime metadata")
 	}
 	for _, dependency := range [][2]string{
-		{"plugins", "plugin_settings"}, {"plugin_settings", "providers"}, {"providers", "runtime_credentials"},
+		{"plugins", "plugin_settings"}, {"plugin_settings", "runtime_credentials"},
 		{"runtime_credentials", "roles"}, {"roles", "teams"}, {"ssh_profiles", "database_profiles"},
 	} {
 		if slices.Index(ConfigurationCategories, dependency[0]) >= slices.Index(ConfigurationCategories, dependency[1]) {
@@ -123,7 +124,7 @@ func TestConfigurationRegistryOwnsCategoryAndEvents(t *testing.T) {
 	}
 }
 
-func TestConfigurationCacheKeepsControllerRefsAndCapturedVersions(t *testing.T) {
+func TestConfigurationCacheKeepsCapturedRuntimeCredentialsAndVersions(t *testing.T) {
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		provider := providerFixture()
@@ -135,23 +136,19 @@ func TestConfigurationCacheKeepsControllerRefsAndCapturedVersions(t *testing.T) 
 			Revision: 3, State: "ready", Provider: &provider.ID, Authentication: protocol.AuthenticationApiKey,
 			Access: protocol.NewSecret("cache-api-key"), ExpiresAtMs: &expiry,
 		}
-		for category, record := range map[string]protocol.ConfigurationFollowRecord{
-			"providers":           followRecord(t, provider.ID.String(), provider.Revision, provider, nil),
-			"runtime_credentials": followRecord(t, credential.CacheID(), credential.Revision, credential, nil),
-		} {
-			if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-				Source: controller, Category: category, Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
-			}); err != nil {
-				return err
-			}
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "runtime_credentials", Revision: 1,
+			Records: []protocol.ConfigurationFollowRecord{followRecord(t, credential.CacheID(), credential.Revision, credential, nil)},
+		}); err != nil {
+			return err
 		}
 		saved, err := readProviderConfiguration(ctx, db, provider.ID)
-		if err != nil || saved == nil || saved.Provider.Credential.Node != controller {
-			return fmt.Errorf("cache rewrote controller credential identity: %w", err)
+		if err != nil || saved != nil {
+			return fmt.Errorf("runtime cache became a model channel: %v", err)
 		}
-		key, err := resolveProviderKey(ctx, db, node, *saved.Provider.Credential, saved.ID)
+		key, err := ReadRuntimeProviderCredential(ctx, db, node, provider, *provider.Credential)
 		if err != nil || key.Expose() != "cache-api-key" {
-			return fmt.Errorf("cache did not resolve execution key: %w", err)
+			return fmt.Errorf("cache did not resolve captured execution key: %w", err)
 		}
 		info := pluginTestInfo("history-cache", 'a')
 		schema, err := plugins.ValidateSettings([]byte(`{"$schema":"` + plugins.SettingsSchema + `","type":"object","additionalProperties":false,"properties":{"choice":{"type":"string"}}}`))

@@ -62,6 +62,7 @@ type Runtime struct {
 	workspaceSettingsOwner   *Runtime
 	settingsShown            *Runtime // the Node the settings pages hold, once settingsTurned (settings_target.go)
 	settingsTurned           bool
+	providerMoves            map[string]providerMove
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
 	localModels              localModelState
@@ -144,6 +145,9 @@ type Runtime struct {
 	conversationCreating      map[string]bool
 	providerPresets           map[string]protocol.ConversationPresetsEntry
 	providerBrands            map[string]string // brand names by presetBrand, offered or not
+	providerCatalogBrands     []viewmodel.Brand
+	providerPresetsLoaded     bool
+	providerPresetsLoading    bool
 	providerModels            map[string]map[string]protocol.ConversationModel
 	providerDraftBases        map[string]protocol.ConversationProvider
 	modelCatalogEntered       bool

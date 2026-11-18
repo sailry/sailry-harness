@@ -220,7 +220,11 @@ func createProfiledSession(ctx context.Context, db *sql.Conn, node protocol.Node
 	if config == nil {
 		return protocol.Output{}, nil, invalid("Node model defaults are not configured")
 	}
-	if err := validateConfig(ctx, db, node, *config); err != nil {
+	if forwarded != nil {
+		if err := validateCapturedConfig(ctx, db, node, *forwarded, *config); err != nil {
+			return protocol.Output{}, nil, err
+		}
+	} else if err := validateConfig(ctx, db, node, *config); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	if err := validateAssistant(ctx, db, input.Project, *config); err != nil {

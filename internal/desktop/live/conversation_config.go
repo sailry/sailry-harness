@@ -34,13 +34,7 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 			}
 		}
 	}
-	providers := snapshot.Providers
-	if r.parent != nil {
-		// Another Node without a provider of its own starts on the local
-		// Node's, forwarded.
-		providers = append(slices.Clone(providers), r.parent.snapshot().Providers...)
-	}
-	for _, p := range providers {
+	for _, p := range snapshot.Providers {
 		if !p.Enabled || len(p.Models) == 0 {
 			continue
 		}

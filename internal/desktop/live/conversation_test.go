@@ -1712,7 +1712,7 @@ func TestComposerSendRouting(t *testing.T) {
 			}
 		})
 	}
-	t.Run("a session on another Node is forwarded by the local Node", testSessionForwarding)
+	t.Run("a session on another Node uses that Node's model", testSessionForwarding)
 	t.Run("a failed installation removal keeps its row and toasts", testInstallationRemoval)
 	t.Run("python preparations keep the stages the page names", func(t *testing.T) {
 		got := pythonPreparations([]protocol.PythonPreparation{
@@ -1781,10 +1781,11 @@ func TestComposerSendRouting(t *testing.T) {
 		}
 		// A provider saved without a route shows the first route of its preset in every projection.
 		entry := protocol.ConversationPresetsEntry{Source: source, Preset: protocol.ConversationPresetsPreset{ID: "fixture", Routes: make([]protocol.ConversationPresetsRoute, 4)}}
-		r.providerPresets = map[string]protocol.ConversationPresetsEntry{"builtin:fixture/3": entry, "builtin:fixture/0": entry, "builtin:fixture/2": entry, "builtin:fixture/1": entry}
+		node := snapshot.Node.String()
+		r.providerPresets = map[string]protocol.ConversationPresetsEntry{node + "/builtin:fixture/3": entry, node + "/builtin:fixture/0": entry, node + "/builtin:fixture/2": entry, node + "/builtin:fixture/1": entry}
 		for range 20 {
 			r.projectProviderSnapshot()
-			if channels := r.App.Settings.Channels; len(channels) != 1 || channels[0].Method != "builtin:fixture/0" {
+			if channels := r.App.Settings.Channels; len(channels) != 1 || channels[0].Method != node+"/builtin:fixture/0" {
 				t.Fatalf("provider without a saved route = %#v", channels)
 			}
 		}
@@ -1795,15 +1796,11 @@ func (t *conversationTestTransport) Open(context.Context, protocol.StreamID) (li
 	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
 }
 
-// testSessionForwarding sends from drafts whose Host is another Node. A
-// model of the local Node's provider is forwarded by the local Node, which
-// holds the provider and its credential; a model of the other Node's own
-// provider is created there. A refused or unconfirmed forward keeps the
-// draft and toasts its outcome.
+// A draft on a remote project can only submit with that Node's model.
 func testSessionForwarding(t *testing.T) {
 	localNode, remoteNode := protocol.NodeID{1}, protocol.NodeID{2}
 	project, worktree := protocol.ProjectID{3}, protocol.WorktreeID{4}
-	localProvider, remoteProvider, private := protocol.ProviderID{5}, protocol.ProviderID{6}, protocol.ProviderID{7}
+	localProvider, remoteProvider := protocol.ProviderID{5}, protocol.ProviderID{6}
 	credential := &protocol.CredentialRef{Node: localNode, ID: protocol.CredentialID{8}}
 	provider := func(id protocol.ProviderID, name string) protocol.ConversationProvider {
 		return protocol.ConversationProvider{ID: id, Revision: 7, Enabled: true, Name: name, Api: "responses", Authentication: "api_key",
@@ -1832,38 +1829,6 @@ func testSessionForwarding(t *testing.T) {
 		}
 		defer controllers[index].Close()
 	}
-	// refusal answers the next forward; forwarded counts the sessions made.
-	var refusal protocol.ErrorCode
-	forwarded := byte(0)
-	// unconfirmed is the forward the local Node recorded as not known.
-	var unconfirmed *protocol.RequestID
-	transports[0].handle = func(request protocol.Request) (link.Response, bool) {
-		if inspected, valid := detail[protocol.CommandInspectRequestPayload](request.Command.Data); valid && request.Command.Kind == "inspect_request" && unconfirmed != nil && inspected.ID == *unconfirmed {
-			// The local Node's ledger holds that outcome as final; only the
-			// same request, sent again, asks the target.
-			recorded := protocol.Result[protocol.Output, protocol.Fault]{Err: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "remote session creation could not be confirmed"}}
-			return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: inspected.ID, Outcome: protocol.RequestOutcome{Kind: "completed", Data: recorded}}}}, true
-		}
-		if request.Command.Kind != "create_session_at" {
-			return link.Response{}, false
-		}
-		if refusal != "" {
-			if refusal == protocol.ErrorCodeOutcomeUnknown {
-				unconfirmed = &request.ID
-			}
-			return link.Response{Fault: &protocol.Fault{Code: refusal, Message: "Claude sign-in is required on the execution Node"}}, true
-		}
-		input := request.Command.Data.(protocol.CommandCreateSessionAtPayload)
-		forwarded++
-		session := protocol.DefaultSession()
-		session.ID, session.Project, session.Worktree, session.Revision = protocol.SessionID{20 + forwarded}, input.Project, *input.Worktree, 1
-		copied := held
-		copied.ID, copied.Credential = private, &protocol.CredentialRef{Node: remoteNode, ID: protocol.CredentialID{9}}
-		session.Config = *input.Config
-		session.Config.Provider, session.Config.Credential = copied.ID, copied.Credential
-		session.Profile = &protocol.SessionProfile{Source: localNode, Provider: copied}
-		return link.Response{Output: protocol.Output{Kind: "session", Data: session}}, true
-	}
 	local, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(t.TempDir()+"/preferences.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1877,9 +1842,15 @@ func testSessionForwarding(t *testing.T) {
 	var toasts []string
 	// rendered is the conversation on screen, if any.
 	var rendered *viewmodel.Conversation
-	tester := ui.NewTester(func(c *ui.Context) {
+	var sendInFrame func(*ui.Context)
+	tester := ui.NewTesterWith(func(c *ui.Context) {
 		context = c
 		local.drain(c)
+		if sendInFrame != nil {
+			pending := sendInFrame
+			sendInFrame = nil
+			pending(c)
+		}
 		if rendered != nil {
 			local.conversation(c, rendered, local.App.Composer(rendered.ID))
 			local.finishFrame()
@@ -1890,7 +1861,7 @@ func testSessionForwarding(t *testing.T) {
 				toasts = append(toasts, toast.Title)
 			}
 		})
-	}, 640, 400)
+	}, 640, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tester.SetLocale("en")
 	settle := func() {
 		for range 4 {
@@ -1933,8 +1904,11 @@ func testSessionForwarding(t *testing.T) {
 		return cv, comp, &conversationActions{r: remote, c: context, cv: cv, comp: comp}
 	}
 	send := func(actions *conversationActions, comp *composer.State) {
-		actions.c = context
-		actions.Send(composer.Message{Text: "Captured draft", Model: comp.Model, Mode: composer.Code, Permission: composer.AskFirst})
+		sendInFrame = func(c *ui.Context) {
+			actions.c = c
+			actions.Send(composer.Message{Text: comp.Draft, Model: comp.Model, Mode: composer.Code, Permission: composer.AskFirst})
+		}
+		tester.Frame()
 		settle()
 	}
 	offered := func(cv *viewmodel.Conversation) (ids []string) {
@@ -1945,8 +1919,8 @@ func testSessionForwarding(t *testing.T) {
 	}
 
 	cv, comp, actions := draft(modelKey(localProvider, "fixture"))
-	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture"), modelKey(localProvider, "fixture")}; !slices.Equal(got, want) {
-		t.Fatalf("a draft on another Node offers %q, want %q", got, want)
+	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture")}; !slices.Equal(got, want) {
+		t.Fatalf("a draft on another Node offers %q, want only %q", got, want)
 	}
 	// A team member there takes only that Node's own models; the local Node
 	// has no narrower list.
@@ -1957,80 +1931,44 @@ func testSessionForwarding(t *testing.T) {
 	if own := local.memberModels(local.models()); own != nil {
 		t.Fatalf("a member on the local Node is offered a narrower list: %v", own)
 	}
-	for _, outcome := range []struct {
-		code  protocol.ErrorCode
-		toast string
-	}{
-		{protocol.ErrorCodeNotConfigured, "chat_config_unavailable"},
-		{protocol.ErrorCodeRevisionConflict, "session_changed"},
-		{protocol.ErrorCodeOutcomeUnknown, "chat_action_unknown"},
-	} {
-		transports[0].mu.Lock()
-		refusal = outcome.code
-		transports[0].mu.Unlock()
-		before := len(sent(0, "create_session_at"))
-		send(actions, comp)
-		requests := sent(0, "create_session_at")
-		if len(requests) != before+1 || !slices.Contains(toasts, i18n.In("en", outcome.toast)) {
-			t.Fatalf("%s: %d forwards, toasts %q", outcome.code, len(requests)-before, toasts)
-		}
-		if comp.Draft != "Captured draft" || !strings.HasPrefix(cv.ID, "draft/") || len(sent(1, "submit_turn")) != 0 {
-			t.Fatalf("%s: draft %q, conversation %s, %d turns", outcome.code, comp.Draft, cv.ID, len(sent(1, "submit_turn")))
-		}
-	}
-	// The unconfirmed forward is sent again as the request it was.
-	transports[0].mu.Lock()
-	refusal = ""
-	transports[0].mu.Unlock()
+	comp.Model = modelKey(localProvider, "fixture")
+	comp.Draft = "Keep the remote draft"
 	send(actions, comp)
-	requests := sent(0, "create_session_at")
-	last := requests[len(requests)-1]
-	if last.ID != requests[len(requests)-2].ID || last.Target != localNode {
-		t.Fatalf("the retried forward: request %v after %v, to %v", last.ID, requests[len(requests)-2].ID, last.Target)
+	if len(sent(0, "create_session_at")) != 0 || len(sent(1, "create_session")) != 0 ||
+		!strings.HasPrefix(cv.ID, "draft/") || comp.Draft != "Keep the remote draft" || !slices.Contains(toasts, i18n.In("en", "chat_config_unavailable")) {
+		t.Fatalf("controller model was borrowed: local=%+v remote=%+v draft=%q toasts=%q", sent(0, "create_session_at"), sent(1, "create_session"), comp.Draft, toasts)
 	}
-	create := last.Command.Data.(protocol.CommandCreateSessionAtPayload)
-	if create.Target != remoteNode || create.ProviderRevision != 7 || create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != worktree ||
-		create.Config == nil || create.Config.Provider != localProvider || create.Config.Model != "fixture" || create.Config.Credential == nil || *create.Config.Credential != *credential {
-		t.Fatalf("forwarded creation = %+v, config %+v", create, create.Config)
+	comp.Model = modelKey(remoteProvider, "fixture")
+	comp.Draft = "Create on the remote Node"
+	send(actions, comp)
+	requests := sent(1, "create_session")
+	if len(requests) != 1 || requests[0].Target != remoteNode || len(sent(0, "create_session_at")) != 0 {
+		t.Fatalf("remote session was not created by its owner: local=%+v remote=%+v", sent(0, "create_session_at"), requests)
 	}
-	if len(sent(1, "create_session_at"))+len(sent(1, "create_session")) != 0 {
-		t.Fatal("the other Node was asked to create the forwarded session")
+	create := requests[0].Command.Data.(protocol.CommandCreateSessionPayload)
+	if create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != worktree || create.Config == nil || create.Config.Provider != remoteProvider {
+		t.Fatalf("remote creation lost its execution Node or project: %+v", create)
 	}
-	created := (protocol.SessionID{21}).String()
 	turns := sent(1, "submit_turn")
-	if cv.ID != created || comp.Draft != "" || len(turns) != 1 || turns[0].Target != remoteNode {
-		t.Fatalf("after the forward: conversation %s, draft %q, turns %+v", cv.ID, comp.Draft, turns)
+	if cv.ID != (protocol.SessionID{9}).String() || comp.Draft != "" || len(turns) != 1 || turns[0].Target != remoteNode {
+		t.Fatalf("after remote creation: conversation %s, draft %q, turns %+v", cv.ID, comp.Draft, turns)
 	}
-	// The session shows the private provider it was given and sends on with it.
-	if comp.Model != modelKey(private, "fixture") {
-		t.Fatalf("the forwarded session's model = %q", comp.Model)
+	if comp.Model != modelKey(remoteProvider, "fixture") {
+		t.Fatalf("the remote session's model = %q", comp.Model)
 	}
-	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture"), modelKey(private, "fixture")}; !slices.Equal(got, want) {
-		t.Fatalf("the forwarded session offers %q, want %q", got, want)
+	if got, want := offered(cv), []string{modelKey(remoteProvider, "fixture")}; !slices.Equal(got, want) {
+		t.Fatalf("the remote session offers %q, want %q", got, want)
 	}
 	rendered = cv
 	settle()
-	if comp.Model != modelKey(private, "fixture") {
-		t.Fatalf("the forwarded session's model on screen = %q", comp.Model)
+	if comp.Model != modelKey(remoteProvider, "fixture") {
+		t.Fatalf("the remote session's model on screen = %q", comp.Model)
 	}
+	comp.Draft = "Continue the remote conversation"
 	send(actions, comp)
 	rendered = nil
-	if turns = sent(1, "submit_turn"); len(turns) != 2 || len(sent(1, "set_session_config")) != 0 || len(sent(0, "create_session_at")) != len(requests) {
-		t.Fatalf("a later send: %d turns, %d configuration saves", len(turns), len(sent(1, "set_session_config")))
-	}
-
-	// The other Node's own provider creates the session there.
-	cv, comp, actions = draft(modelKey(remoteProvider, "fixture"))
-	send(actions, comp)
-	own := sent(1, "create_session")
-	if len(own) != 1 || own[0].Target != remoteNode || len(sent(0, "create_session_at")) != len(requests) || len(sent(0, "create_session")) != 0 {
-		t.Fatalf("creation with the Node's own provider: %+v", own)
-	}
-	if config := own[0].Command.Data.(protocol.CommandCreateSessionPayload).Config; config == nil || config.Provider != remoteProvider {
-		t.Fatalf("own creation config = %+v", config)
-	}
-	if cv.ID != (protocol.SessionID{9}).String() || comp.Draft != "" {
-		t.Fatalf("after the own creation: conversation %s, draft %q", cv.ID, comp.Draft)
+	if turns = sent(1, "submit_turn"); len(turns) != 2 || len(sent(1, "set_session_config")) != 0 || len(sent(0, "create_session_at")) != 0 {
+		t.Fatalf("a later remote send: %d turns, %d configuration saves", len(turns), len(sent(1, "set_session_config")))
 	}
 
 	// On another Host the model list says whose configuration each provider
@@ -2057,13 +1995,10 @@ func testSessionForwarding(t *testing.T) {
 		window.Advance(100 * time.Millisecond)
 		window.Frame()
 	}
-	var providers []string
 	for _, model := range shown.Models {
-		providers = append(providers, model.Provider)
-	}
-	desktop := i18n.In("zh-CN", "chat_config_desktop")
-	if want := []string{"Remote · Build box", "Local · " + desktop}; !slices.Equal(providers, want) {
-		t.Fatalf("a draft on another Host names its providers %q, want %q", providers, want)
+		if model.Provider == localProvider.String() {
+			t.Fatalf("remote project composer exposed controller model %q", model.ID)
+		}
 	}
 	for _, e := range window.AccessAll() {
 		if e.Role != ui.RoleText && (e.Name == "Build box" || e.Name == i18n.In("zh-CN", "local_host_name")) {

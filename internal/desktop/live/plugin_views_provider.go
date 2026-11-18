@@ -32,10 +32,10 @@ func providerSlotShown(shown, owner *Runtime, demo bool) bool {
 
 // providerUsage is what the provider slot holds for a channel of the Node
 // Settings holds (settings.ProviderActions.Usage).
-func (r *Runtime) providerUsage(view *ui.Context, channel string) *settings.ChannelUsage {
+func (r *Runtime) providerUsage(view *ui.Context, node, channel string) *settings.ChannelUsage {
 	root := r.localRuntime()
-	owner := root.shownSettings()
-	if owner == nil || root.App.Settings.DemoMode || owner.authorizations == nil {
+	owner := root.runtimeFor(node)
+	if owner == nil || !owner.controller.Connected() || root.App.Settings.DemoMode || owner.authorizations == nil {
 		return nil
 	}
 	registry := owner.pluginRegistry(protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "provider"}})

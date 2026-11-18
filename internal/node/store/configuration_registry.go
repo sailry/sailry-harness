@@ -13,6 +13,7 @@ import (
 )
 
 type ConfigurationExport struct {
+	Captured     map[protocol.CredentialID]runtimeCapture
 	Node         protocol.NodeID
 	Secrets      bool
 	Declarations map[string]protocol.PluginMcpConfiguration
@@ -24,6 +25,7 @@ type ConfigurationKind struct {
 	Name            string
 	Events          []string
 	Runtime         bool
+	LocalOnly       bool
 	PersonalSetting string
 	Export          func(context.Context, *sql.Conn, ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error)
 	Validate        func(context.Context, *sql.Conn, protocol.ConfigurationFollowRecord) error
@@ -50,7 +52,9 @@ func RegisterConfigurationKind(kind ConfigurationKind) {
 		panic("duplicate configuration kind: " + kind.Name)
 	}
 	configurationRegistry.kinds[kind.Name] = kind
-	ConfigurationCategories = append(ConfigurationCategories, kind.Name)
+	if !kind.LocalOnly {
+		ConfigurationCategories = append(ConfigurationCategories, kind.Name)
+	}
 	for _, event := range kind.Events {
 		configurationRegistry.events[event] = append(configurationRegistry.events[event], kind.Name)
 	}
@@ -170,15 +174,15 @@ func init() {
 		Validate: validateConfigurationIdentity(func(value pluginFollowSettings) string { return pluginSettingsCacheID(value.Package) }),
 	})
 	RegisterConfigurationKind(ConfigurationKind{
-		Name: "providers", Events: []string{"provider_changed", "provider_removed"}, Runtime: true, Export: exportProviderConfiguration,
+		Name: "providers", Events: []string{"provider_changed", "provider_removed"}, Runtime: true, LocalOnly: true, Export: exportLocalOnlyConfiguration,
 		Validate: validateConfigurationIdentity(func(value protocol.ConversationProvider) string { return value.ID.String() }),
 		Changed:  changedConfiguration[protocol.ConversationProvider]("provider_changed"),
 		Removed:  removedConfiguration("provider_removed", protocol.ParseProviderID, func(id protocol.ProviderID) any { return protocol.EventProviderRemovedPayload{ID: id} }),
 	})
 	RegisterConfigurationKind(ConfigurationKind{
-		Name: "runtime_credentials", Events: []string{"credential_changed", "provider_changed", "provider_removed", "connections_changed"},
+		Name: "runtime_credentials", Events: []string{"provider_changed", "provider_removed", "credential_changed", "connections_changed"},
 		Runtime: true, Export: func(ctx context.Context, db *sql.Conn, options ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
-			return ExportRuntimeCredentials(ctx, db, options.Node)
+			return exportRuntimeCredentials(ctx, db, options.Node, options.Captured)
 		},
 		Validate: validateRuntimeConfiguration, Changed: changedRuntimeCredentials,
 		Removed: func(id string) (*protocol.Event, error) {
@@ -221,8 +225,7 @@ func init() {
 		Removed:  removedConfiguration("database_removed", protocol.ParseDatabaseID, func(id protocol.DatabaseID) any { return protocol.EventDatabaseRemovedPayload{ID: id} }),
 	})
 	RegisterConfigurationKind(ConfigurationKind{
-		Name: "defaults", Events: []string{"defaults_changed"}, Export: exportDefaultsConfiguration,
-		Changed: changedConfiguration[protocol.Defaults]("defaults_changed"),
+		Name: "defaults", LocalOnly: true, Export: exportLocalOnlyConfiguration,
 	})
 	RegisterConfigurationKind(ConfigurationKind{
 		Name: "team_settings", Events: []string{"team_settings_changed"}, Export: exportTeamSettingsConfiguration,

@@ -11,7 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discovered []protocol.ConversationDiscoveryModel, known map[string]protocol.ConversationModel, done func([]viewmodel.ChannelModel)) {
+func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discovered []protocol.ConversationDiscoveryModel, known map[string]protocol.ConversationModel, draftModels map[string]map[string]protocol.ConversationModel, done func([]viewmodel.ChannelModel)) {
 	r.async(func() {
 		ctx, cancel := context.WithTimeout(r.ctx, 10*time.Second)
 		defer cancel()
@@ -89,7 +89,7 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discov
 				known[model.ID] = model
 				models = append(models, channelModel(model))
 			}
-			r.providerModels[provider.ID.String()] = known
+			draftModels[provider.ID.String()] = known
 			done(models)
 		})
 	})

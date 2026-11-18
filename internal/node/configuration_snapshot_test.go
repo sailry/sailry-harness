@@ -84,7 +84,7 @@ func (transport *configurationSnapshotTransport) Dispatch(_ context.Context, req
 
 func snapshotRequestFixture(t *testing.T, source, target protocol.NodeID, records int) protocol.Request {
 	t.Helper()
-	manifest := protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}}
+	manifest := protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}}
 	for index := range records {
 		body, err := json.Marshal(map[string]string{"fixture": strings.Repeat("x", 960*1024)})
 		if err != nil {
@@ -212,14 +212,14 @@ func TestConfigurationSnapshotPageDispatchRecordsEventsOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	manifest := protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}}
+	manifest := protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}}
 	var body bytes.Buffer
 	if err := writeConfigurationSnapshot(&body, manifest); err != nil {
 		t.Fatal(err)
 	}
 	sum := blake3.Sum256(body.Bytes())
 	page := protocol.ConfigurationSnapshotPage{
-		Root: protocol.NewRequestID(), Source: source, Category: "providers", Revision: 1,
+		Root: protocol.NewRequestID(), Source: source, Category: "roles", Revision: 1,
 		Bytes: uint64(body.Len()), Digest: hex.EncodeToString(sum[:]), Data: body.Bytes(),
 	}
 	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "configuration_follow", Data: &protocol.ConfigurationFollowCommand{Action: "apply_page", Page: &page}})

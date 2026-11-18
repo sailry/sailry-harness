@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -20,7 +18,6 @@ import (
 
 const forwardedKey = "forwarded-key-7f3a"
 
-// forwardingProvider saves a key-based provider and returns it as listed.
 func forwardingProvider(t *testing.T, node *Node, endpoint string) protocol.ConversationProvider {
 	t.Helper()
 	provider := protocol.DefaultConversationProvider()
@@ -32,7 +29,7 @@ func forwardingProvider(t *testing.T, node *Node, endpoint string) protocol.Conv
 	selected.ID, selected.Context, selected.Output = "fixture", 200000, 8192
 	provider.Models = []protocol.ConversationModel{selected}
 	secret := protocol.NewSecret(forwardedKey)
-	commandFixture(t, node, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
+	commandFixture(t, node, protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
 	for _, saved := range commandFixture(t, node, protocol.Command{Kind: "list_providers"}).Data.([]protocol.ConversationProvider) {
 		if saved.ID == provider.ID {
 			return saved
@@ -42,8 +39,6 @@ func forwardingProvider(t *testing.T, node *Node, endpoint string) protocol.Conv
 	return provider
 }
 
-// nodeText returns everything a controller can read from the Node, together
-// with its admission ledger and committed events.
 func nodeText(t *testing.T, node *Node) string {
 	t.Helper()
 	var text bytes.Buffer
@@ -85,7 +80,6 @@ func nodeText(t *testing.T, node *Node) string {
 	return text.String()
 }
 
-// storedProvider reads one provider row as it is stored, secret included.
 func storedProvider(t *testing.T, node *Node, id protocol.ProviderID) (string, bool) {
 	t.Helper()
 	var body []byte
@@ -101,20 +95,6 @@ func storedProvider(t *testing.T, node *Node, id protocol.ProviderID) (string, b
 	return string(body), true
 }
 
-// inspectForward asks the Node what its ledger holds for a request of its own
-// controller.
-func inspectForward(t *testing.T, node *Node, request protocol.Request) protocol.RequestOutcome {
-	t.Helper()
-	body, err := json.Marshal(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: request.ID, Digest: admission.Digest(body)}}
-	return commandFixture(t, node, query).Data.(protocol.OutputRequestOutcomePayload).Outcome
-}
-
-// forwardingControllerFixture uses authenticated v2 controller membership.
-// Legacy SetLinkTrust fixtures instead resolve the host-local user.
 func forwardingControllerFixture(t *testing.T, target *Node, controller protocol.NodeID) context.Context {
 	t.Helper()
 	var user protocol.User
@@ -131,433 +111,242 @@ func forwardingControllerFixture(t *testing.T, target *Node, controller protocol
 	return store.WithUser(t.Context(), user)
 }
 
-// syncForwardingFixture completes the normal configuration boundary explicitly;
-// session creation must not fetch or import missing configuration itself.
-func syncForwardingFixture(t *testing.T, source, target *Node) {
-	t.Helper()
-	for _, category := range []string{"providers", "runtime_credentials", "roles", "teams"} {
-		var manifest protocol.ConfigurationManifest
-		if err := source.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-			var err error
-			manifest, err = store.ExportConfigurationManifest(t.Context(), db, source.ID(), target.ID(), category, true)
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-		result := dispatchFixture(t, target, source.ID(), protocol.NewRequest(target.ID(), protocol.Command{
-			Kind: "configuration_follow", Data: protocol.ConfigurationFollowCommand{Action: "apply", Manifest: &manifest},
-		}))
-		if result.Fault != nil {
-			t.Fatal(result.Fault)
-		}
-	}
-}
-
-// Forwarding retains canonical controller identities and uses the executor's
-// isolated runtime cache. Over 1 s: Nodes verify the bundled packages.
-func TestSessionForwarding(t *testing.T) {
+func TestSessionCreationUsesExecutionNodeProvider(t *testing.T) {
 	t.Parallel()
-	authorizations := make(chan string, 16)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case authorizations <- r.Header.Get("Authorization"):
-		default:
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3,\"total_tokens\":15}}\n\ndata: [DONE]\n\n")
-	}))
-	t.Cleanup(server.Close)
 	a, b := nodeFixture(t), nodeFixture(t)
 	owner := forwardingControllerFixture(t, b, a.ID())
 	trustedCallerFixture(t, a, b.ID())
-	sends := 0
-	paired := func(ctx context.Context, request protocol.Request) (link.Admission, error) {
-		sends++
-		bundle, ok := dispatchPayload[protocol.SessionImport](request.Command.Data)
-		if !ok || bundle.Secret != nil || bundle.ExpiresAtMs != nil || len(bundle.RoleCredentials) != 0 {
-			t.Fatal("session forward carried credentials")
-		}
-		return b.Dispatch(ctx, a.ID(), request)
-	}
-	a.forward = paired
-	provider := forwardingProvider(t, a, server.URL+"/v1")
-	syncForwardingFixture(t, a, b)
-	if provider.Credential == nil {
-		t.Fatal("saved provider has no credential")
-	}
+	provider := forwardingProvider(t, a, "https://controller.invalid/v1")
+
 	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model, config.Credential = provider.ID, "fixture", provider.Credential
+	config.Provider, config.Model, config.Credential = provider.ID, provider.DefaultModel, provider.Credential
 	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-	forward := func(revision uint64, selected protocol.SessionConfig) protocol.Request {
-		return protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_session_at", Data: protocol.CommandCreateSessionAtPayload{Target: b.ID(), Config: &selected, ProviderRevision: revision}})
+	remoteCreate := protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_session_at", Data: &protocol.CommandCreateSessionAtPayload{
+		Target: b.ID(), Config: &config, ProviderRevision: provider.Revision,
+	}})
+	result := dispatchFixture(t, a, a.ID(), remoteCreate)
+	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeNotConfigured || result.Fault.Message != "select a model channel configured on the execution Node" {
+		t.Fatalf("controller model was borrowed for a new remote session: %v", result.Fault)
 	}
-	fails := func(t *testing.T, result link.Response, code protocol.ErrorCode, message string) {
-		t.Helper()
-		if result.Fault == nil || result.Fault.Code != code || result.Fault.Message != message {
-			t.Fatalf("result = %#v, fault %v; want %s %q", result.Output, result.Fault, code, message)
-		}
-	}
-	sessions := func(node *Node) int {
-		if node == a {
-			return len(snapshotFixture(t, node).Sessions)
-		}
-		result := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "snapshot"}))
-		if result.Fault != nil {
-			t.Fatal(result.Fault)
-		}
-		return len(result.Output.Data.(protocol.Snapshot).Sessions)
-	}
-	readSession := func(id protocol.SessionID) protocol.Session {
-		result := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}))
-		if result.Fault != nil {
-			t.Fatal(result.Fault)
-		}
-		return result.Output.Data.(protocol.Session)
+	if body, exists := storedProvider(t, b, provider.ID); exists {
+		t.Fatalf("controller provider was materialized on the execution Node: %s", body)
 	}
 
-	request := forward(provider.Revision, config)
-	created := dispatchFixture(t, a, a.ID(), request)
+	// The paired user can save an independent replica under the same channel ID.
+	local := provider
+	local.Owner, local.Source, local.Consent = nil, nil, nil
+	local.Revision, local.Shared = 0, false
+	local.Name, local.Endpoint, local.Credential = "Execution channel", "https://execution.invalid/v1", nil
+	key := protocol.NewSecret("execution-local-key")
+	savedResponse := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{
+		Provider: local, ExpectedRevision: 0, Secret: &key,
+	}}))
+	if savedResponse.Fault != nil {
+		t.Fatal(savedResponse.Fault)
+	}
+	saved, ok := dispatchPayload[protocol.ConversationProvider](savedResponse.Output.Data)
+	if !ok || saved.Credential == nil || saved.Credential.Node != b.ID() || saved.ID != provider.ID {
+		t.Fatalf("execution Node channel is not independent: %+v", savedResponse.Output)
+	}
+	for name, current := range map[string]*Node{"controller": a, "execution": b} {
+		if text := nodeText(t, current); strings.Contains(text, forwardedKey) || strings.Contains(text, key.Expose()) {
+			t.Fatalf("%s exposed a provider secret in requests, events or public projections", name)
+		}
+	}
+	config.Provider, config.Model, config.Credential = saved.ID, saved.DefaultModel, saved.Credential
+	created := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &config}}))
 	if created.Fault != nil {
 		t.Fatal(created.Fault)
 	}
-	session := created.Output.Data.(protocol.Session)
-
-	t.Run("target retains canonical controller captures", func(t *testing.T) {
-		stored := readSession(session.ID)
-		if stored.Profile == nil || stored.Profile.Source != a.ID() || stored.Config.Provider != provider.ID || stored.Profile.Provider.ID != provider.ID ||
-			stored.Config.Credential == nil || *stored.Config.Credential != *provider.Credential {
-			t.Fatalf("imported session = %#v", stored)
-		}
-		if sessions(a) != 0 || sessions(b) != 1 || len(snapshotFixture(t, b).Sessions) != 0 {
-			t.Fatalf("sessions: source %d, controller target %d", sessions(a), sessions(b))
-		}
-		if body, exists := storedProvider(t, b, stored.Config.Provider); exists {
-			t.Fatalf("forward materialized a private provider: %s", body)
-		}
-		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-			key, err := store.ReadRuntimeProviderCredential(owner, db, b.ID(), stored.Profile.Provider, *stored.Config.Credential)
-			if err == nil && (key == nil || key.Expose() != forwardedKey) {
-				return errors.New("forwarded session did not use cached controller credential")
-			}
-			return err
-		}); err != nil {
-			t.Fatal(err)
-		}
-	})
-
-	t.Run("secret reaches no controller, ledger or event", func(t *testing.T) {
-		for name, node := range map[string]*Node{"source": a, "target": b} {
-			if text := nodeText(t, node); strings.Contains(text, forwardedKey) {
-				t.Fatalf("%s exposes the forwarded secret: %s", name, text)
-			}
-		}
-		// The target retains the import by digest, which still answers inspection.
-		var body []byte
-		caller := a.ID()
-		err := b.profile.Store.Node.Read(context.Background(), func(db *sql.Conn) error {
-			return db.QueryRowContext(context.Background(), "SELECT body FROM requests WHERE caller=?1 AND id=?2", caller[:], request.ID.String()).Scan(&body)
-		})
-		digest, retained := strings.CutPrefix(string(body), "credential-v1:")
-		if err != nil || !retained || len(digest) != 64 {
-			t.Fatalf("import admission = %q, %v", body, err)
-		}
-		inspected := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "inspect_request", Data: protocol.CommandInspectRequestPayload{ID: request.ID, Digest: digest}}))
-		if inspected.Fault != nil || inspected.Output.Data.(protocol.OutputRequestOutcomePayload).Outcome.Kind != "completed" {
-			t.Fatalf("import inspection = %#v, %v", inspected.Output, inspected.Fault)
-		}
-	})
-
-	t.Run("replay returns the original session", func(t *testing.T) {
-		before := sends
-		replayed := dispatchFixture(t, a, a.ID(), request)
-		if replayed.Fault != nil {
-			t.Fatal(replayed.Fault)
-		}
-		body, err := json.Marshal(replayed.Output.Data)
+	session, ok := dispatchPayload[protocol.Session](created.Output.Data)
+	if !ok || session.Config.Credential == nil || session.Config.Credential.Node != b.ID() {
+		t.Fatal("execution Node did not capture its local credential")
+	}
+	if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+		output, err := store.ReadProviderCommand(owner, db, b.ID(), protocol.Command{Kind: "read_provider_key", Data: &protocol.CommandReadProviderKeyPayload{Provider: saved.ID, ExpectedRevision: saved.Revision}})
 		if err != nil {
-			t.Fatal(err)
-		}
-		var recovered protocol.Session
-		if err := json.Unmarshal(body, &recovered); err != nil {
-			t.Fatal(err)
-		}
-		if recovered.ID != session.ID || sends != before || sessions(b) != 1 {
-			t.Fatalf("replay: session %s, %d new sends, %d target sessions", recovered.ID, sends-before, sessions(b))
-		}
-		changed := request
-		other := config
-		other.Model = "another"
-		changed.Command = forward(provider.Revision, other).Command
-		if _, err := a.Dispatch(context.Background(), a.ID(), changed); err == nil || err.(*protocol.Fault).Code != protocol.ErrorCodeConflict {
-			t.Fatalf("reused request identifier: %v", err)
-		}
-	})
-
-	t.Run("turn authorizes with the forwarded credential", func(t *testing.T) {
-		input := protocol.DefaultConversationInput()
-		input.Text = "Say hello"
-		queued := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: input}}))
-		if queued.Fault != nil {
-			t.Fatal(queued.Fault)
-		}
-		select {
-		case authorization := <-authorizations:
-			if authorization != "Bearer "+forwardedKey {
-				t.Fatalf("model request authorization = %q", authorization)
-			}
-		case <-t.Context().Done():
-			t.Fatal(context.Cause(t.Context()))
-		}
-	})
-
-	t.Run("source refuses", func(t *testing.T) {
-		before, target := sends, sessions(b)
-		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision+1, config)), protocol.ErrorCodeRevisionConflict, "source provider revision changed")
-		fails(t, dispatchFixture(t, a, b.ID(), forward(provider.Revision, config)), protocol.ErrorCodePermissionDenied, "only the local controller can forward configuration to another Node")
-		missing := config
-		missing.Provider = protocol.NewProviderID()
-		missing.Credential = nil
-		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision, missing)), protocol.ErrorCodeNotFound, "source provider does not exist")
-
-		// The explicit selection is authoritative: no credential forwards no secret.
-		unsigned := config
-		unsigned.Credential = nil
-		bare := dispatchFixture(t, a, a.ID(), forward(provider.Revision, unsigned))
-		if bare.Fault != nil || bare.Output.Data.(protocol.Session).Config.Credential != nil {
-			t.Fatalf("forward without a credential = %#v, %v", bare.Output, bare.Fault)
-		}
-		if sends != before+1 || sessions(b) != target+1 {
-			t.Fatalf("refusals reached the target: %d sends, %d sessions", sends-before, sessions(b)-target)
-		}
-	})
-
-	t.Run("target refuses uncached metadata and attached credentials", func(t *testing.T) {
-		before := sessions(b)
-		bundle := protocol.DefaultSessionImport()
-		bundle.Source, bundle.Config, bundle.Provider = a.ID(), config, provider
-		bundle.Roles = session.Roles
-		secret := protocol.NewSecret(forwardedKey)
-		send := func(caller protocol.NodeID, bundle protocol.SessionImport) link.Response {
-			return dispatchFixture(t, b, caller, protocol.NewRequest(b.ID(), protocol.Command{Kind: "import_session", Data: bundle}))
-		}
-		fails(t, send(b.ID(), bundle), protocol.ErrorCodePermissionDenied, "configuration source does not match the paired caller")
-		attached := bundle
-		attached.Secret = &secret
-		fails(t, send(a.ID(), attached), protocol.ErrorCodeInvalidRequest, "session imports use cached controller credentials")
-		roles := bundle
-		roles.RoleCredentials = []protocol.RoleProviderSecret{{Provider: provider.ID, Secret: secret}}
-		fails(t, send(a.ID(), roles), protocol.ErrorCodeInvalidRequest, "session imports use cached controller credentials")
-		missing := bundle
-		missing.Provider.ID = protocol.NewProviderID()
-		missing.Config.Provider = missing.Provider.ID
-		fails(t, send(a.ID(), missing), protocol.ErrorCodeNotConfigured, "captured controller provider is unavailable on the execution Node")
-		if sessions(b) != before {
-			t.Fatal("refused import created a session")
-		}
-		var rows int
-		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-			return db.QueryRowContext(owner, "SELECT count(*) FROM providers WHERE instr(body,?1)>0", forwardedKey).Scan(&rows)
-		}); err != nil || rows != 0 {
-			t.Fatalf("%d provider rows hold the forwarded secret, %v", rows, err)
-		}
-	})
-
-	t.Run("a replay resolves a lost outcome", func(t *testing.T) {
-		const unknown = "remote session creation could not be confirmed; send the same request again to resolve it"
-		before, calls := sessions(b), 0
-		// The target admits the import and its answer never arrives.
-		a.forward = func(ctx context.Context, request protocol.Request) (link.Admission, error) {
-			calls++
-			accepted, err := b.Dispatch(ctx, a.ID(), request)
-			if err != nil {
-				return link.Admission{}, err
-			}
-			<-accepted.Completion
-			lost := make(chan link.Response)
-			close(lost)
-			return link.Admission{Completion: lost}, nil
-		}
-		uncertain := forward(provider.Revision, config)
-		for range 2 {
-			fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
-		}
-		if calls != 2 || sessions(b) != before+1 {
-			t.Fatalf("unknown forward: %d sends, %d sessions", calls, sessions(b)-before)
-		}
-		// Mutate the source after the target has admitted the request. Recovery
-		// must replay its retained package rather than recapturing a new body.
-		if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-			_, err := db.ExecContext(t.Context(), "UPDATE providers SET body=json_set(body,'$.provider.name','Changed after admission') WHERE id=?1", provider.ID.String())
 			return err
-		}); err != nil {
-			t.Fatal(err)
 		}
-		defer func() {
-			if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-				_, err := db.ExecContext(t.Context(), "UPDATE providers SET body=json_set(body,'$.provider.name',?2) WHERE id=?1", provider.ID.String(), provider.Name)
-				return err
-			}); err != nil {
-				t.Error(err)
-			}
-		}()
-		// A target that holds other content under the identifier settles nothing.
-		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
-			refused := make(chan link.Response, 1)
-			refused <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}}
-			close(refused)
-			return link.Admission{Completion: refused}, nil
+		secret, ok := output.Data.(*protocol.Secret)
+		if !ok || secret == nil || secret.Expose() != key.Expose() {
+			return errors.New("execution session resolved another Node's credential")
 		}
-		fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
-		a.forward = nil
-		fails(t, dispatchFixture(t, a, a.ID(), uncertain), protocol.ErrorCodeOutcomeUnknown, unknown)
-		a.forward = paired
-		resolved := dispatchFixture(t, a, a.ID(), uncertain)
-		// The target answers from its ledger, which decodes to a pointer.
-		recorded, valid := resolved.Output.Data.(*protocol.Session)
-		if resolved.Fault != nil || !valid {
-			t.Fatalf("resolved = %#v, %v", resolved.Output, resolved.Fault)
-		}
-		stored := readSession(recorded.ID)
-		if stored.Profile == nil || stored.Profile.Source != a.ID() || sessions(b) != before+1 {
-			t.Fatalf("resolved session = %#v, %d created", stored, sessions(b)-before)
-		}
-		// The target's answer replaced the unknown outcome in the source
-		// ledger: a replay and an inspection read it without another send.
-		sent := sends
-		replayed := dispatchFixture(t, a, a.ID(), uncertain)
-		again, valid := replayed.Output.Data.(*protocol.Session)
-		if replayed.Fault != nil || !valid || again.ID != recorded.ID || sends != sent {
-			t.Fatalf("replay after the answer = %#v, %v, %d sends", replayed.Output, replayed.Fault, sends-sent)
-		}
-		if outcome := inspectForward(t, a, uncertain); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Ok == nil {
-			t.Fatalf("source ledger after the answer = %#v", outcome)
-		}
-		// A send that fails here is not the target's answer and settles nothing.
-		lost := forward(provider.Revision, config)
-		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
-			closed := make(chan link.Response)
-			close(closed)
-			return link.Admission{Completion: closed}, nil
-		}
-		fails(t, dispatchFixture(t, a, a.ID(), lost), protocol.ErrorCodeOutcomeUnknown, unknown)
-		a.forward = func(context.Context, protocol.Request) (link.Admission, error) {
-			return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "target Node is not paired"}
-		}
-		fails(t, dispatchFixture(t, a, a.ID(), lost), protocol.ErrorCodeOutcomeUnknown, unknown)
-		if outcome := inspectForward(t, a, lost); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Err == nil {
-			t.Fatalf("source ledger without an answer = %#v", outcome)
-		}
-		a.forward = nil
-		fails(t, dispatchFixture(t, a, a.ID(), forward(provider.Revision, config)), protocol.ErrorCodeBusy, "Node operation queue is unavailable")
-		a.forward = paired
-	})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("a result that could not be stored is written again", func(t *testing.T) {
-		// The writer's connection refuses to store a result until the gate opens.
-		gate := func(statement string) {
-			t.Helper()
-			if err := a.profile.Store.Node.Write(context.Background(), func(db *sql.Conn) error {
-				_, err := db.ExecContext(context.Background(), statement)
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		gate("CREATE TEMP TABLE forward_gate AS SELECT 1 AS closed")
-		gate("CREATE TEMP TRIGGER forward_refused BEFORE UPDATE OF status ON requests WHEN (SELECT closed FROM forward_gate)=1 BEGIN SELECT RAISE(ABORT,'result write refused'); END")
-		defer gate("DROP TRIGGER forward_refused")
-		before := sessions(b)
-		unrecorded := forward(provider.Revision, config)
-		accepted, err := a.Dispatch(context.Background(), a.ID(), unrecorded)
+	bundle := protocol.DefaultSessionImport()
+	bundle.Source, bundle.Config, bundle.Provider = a.ID(), config, provider
+	imported := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "import_session", Data: &bundle}))
+	if imported.Fault == nil || imported.Fault.Code != protocol.ErrorCodeNotConfigured {
+		t.Fatalf("direct import bypassed execution-Node model ownership: %v", imported.Fault)
+	}
+}
+
+func TestPreviouslyAdmittedImportReplayUsesTargetLedger(t *testing.T) {
+	t.Parallel()
+	target := nodeFixture(t)
+	controller := protocol.NodeID{71}
+	owner := forwardingControllerFixture(t, target, controller)
+	var project protocol.Project
+	if err := target.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
+		path := t.TempDir()
+		draft := &protocol.ProjectsDraft{Name: "Replay fixture", Path: path, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}
+		output, _, err := store.ExecuteCommand(owner, db, target.ID(), target.ID(), target.profile.Ownership.Path,
+			protocol.NewRequest(target.ID(), protocol.Command{Kind: "create_project", Data: draft}), store.PreparedPaths{Path: path})
 		if err != nil {
-			t.Fatal(err)
-		}
-		for sessions(b) == before && t.Context().Err() == nil {
-		}
-		select {
-		case early := <-accepted.Completion:
-			t.Fatalf("answered before the result was stored: %#v, %v", early.Output, early.Fault)
-		default:
-		}
-		if outcome := inspectForward(t, a, unrecorded); outcome.Kind != "admitted" {
-			t.Fatalf("while the result is unrecorded = %#v", outcome)
-		}
-		gate("UPDATE forward_gate SET closed=0")
-		result := <-accepted.Completion
-		if _, valid := result.Output.Data.(protocol.Session); result.Fault != nil || !valid {
-			t.Fatalf("result = %#v, %v", result.Output, result.Fault)
-		}
-		if outcome := inspectForward(t, a, unrecorded); outcome.Kind != "completed" || outcome.Data.(protocol.Result[protocol.Output, protocol.Fault]).Ok == nil {
-			t.Fatalf("stored outcome = %#v", outcome)
-		}
-	})
-
-	t.Run("removal preserves the shared controller cache", func(t *testing.T) {
-		current := readSession(session.ID)
-		for {
-			removed := dispatchFixture(t, b, a.ID(), protocol.NewRequest(b.ID(), protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: current.Revision}}))
-			if removed.Fault == nil {
-				break
-			}
-			if removed.Fault.Code != protocol.ErrorCodeBusy || t.Context().Err() != nil {
-				t.Fatal(removed.Fault)
-			}
-		}
-		if err := b.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-			_, err := store.ReadRuntimeProviderCredential(owner, db, b.ID(), current.Profile.Provider, *current.Config.Credential)
 			return err
-		}); err != nil {
-			t.Fatalf("session removal deleted its controller cache: %v", err)
 		}
-		if _, exists := storedProvider(t, a, provider.ID); !exists {
-			t.Fatal("removal on the target touched the source provider")
+		project = output.Data.(protocol.Project)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bundle := protocol.DefaultSessionImport()
+	bundle.Source, bundle.Project = controller, &project.ID
+	bundle.Config = protocol.DefaultSessionConfig()
+	bundle.Config.Provider, bundle.Config.Model = protocol.NewProviderID(), "fixture"
+	bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	bundle.Provider = protocol.DefaultConversationProvider()
+	bundle.Provider.ID = bundle.Config.Provider
+	bundle.Provider.Api, bundle.Provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	bundle.Roles = protocol.DefaultRoleSnapshot()
+	request := protocol.NewRequest(target.ID(), protocol.Command{Kind: "import_session", Data: &bundle})
+	if err := target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+		return target.authorizeCommandDB(owner, db, controller, request)
+	}); err != nil {
+		t.Fatalf("request resources are not accessible before ledger replay: %v", err)
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := protocol.Output{Kind: "providers", Data: []protocol.ConversationProvider{}}
+	if err := target.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
+		if _, err := admission.Admit(owner, db, controller, request, body); err != nil {
+			return err
 		}
-	})
+		return admission.Complete(owner, db, controller, request.ID, link.Response{Output: want})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	replayed := dispatchFixture(t, target, controller, request)
+	if replayed.Fault != nil || replayed.Output.Kind != want.Kind {
+		t.Fatalf("target did not resolve the exact prior request: fault=%v output=%#v", replayed.Fault, replayed.Output)
+	}
+}
 
-	t.Run("associated sessions page newest first", func(t *testing.T) {
-		association := protocol.ConversationAssociation{Namespace: "fixture", Kind: "ticket", ID: "42"}
-		local := config
-		var started []protocol.SessionID
-		for index := range 3 {
-			draft := protocol.DefaultConversationStart()
-			draft.Config, draft.Title, draft.Execution = &local, fmt.Sprintf("Ticket %d", index), protocol.ConversationExecutionModel
-			draft.Message.Text = "Say hello"
-			draft.Association = &association
-			if index == 2 {
-				draft.Association = &protocol.ConversationAssociation{Namespace: "fixture", Kind: "ticket", ID: "43"}
-			}
-			started = append(started, commandFixture(t, a, protocol.Command{Kind: "start_session", Data: draft}).Data.(protocol.QueuedTurn).Session)
+func TestUncertainForwardReplayKeepsFrozenImport(t *testing.T) {
+	t.Parallel()
+	a, b := nodeFixture(t), nodeFixture(t)
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model = protocol.NewProviderID(), "captured-model"
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	request := protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_session_at", Data: &protocol.CommandCreateSessionAtPayload{
+		Target: b.ID(), Config: &config, ProviderRevision: 1,
+	}})
+	caller := a.ID()
+	bundle := protocol.DefaultSessionImport()
+	bundle.Source, bundle.Config = a.ID(), config
+	bundle.Provider = protocol.DefaultConversationProvider()
+	bundle.Provider.ID = config.Provider
+	bundle.Provider.Api, bundle.Provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	bundle.Roles = protocol.DefaultRoleSnapshot()
+	frozen := protocol.Request{Version: request.Version, ID: request.ID, Target: b.ID(), Command: protocol.Command{Kind: "import_session", Data: &bundle}}
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(frozen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		if _, err := admission.Admit(t.Context(), db, a.ID(), request, body); err != nil {
+			return err
 		}
-		list := func(before *protocol.SessionID, limit uint16) link.Response {
-			return dispatchFixture(t, a, a.ID(), protocol.NewRequest(a.ID(), protocol.Command{Kind: "list_associated_sessions", Data: protocol.CommandListAssociatedSessionsPayload{Association: association, Before: before, Limit: limit}}))
+		if _, err := db.ExecContext(t.Context(), "INSERT INTO session_forwards(caller,request,body) VALUES(?1,?2,?3)", caller[:], request.ID.String(), encoded); err != nil {
+			return err
 		}
-		first := list(nil, 1)
-		if first.Fault != nil {
-			t.Fatal(first.Fault)
+		replayed, err := store.PrepareSessionForward(t.Context(), db, a.ID(), a.ID(), request)
+		if err != nil {
+			return err
 		}
-		page := first.Output.Data.(protocol.ConversationAssociationAssociatedSessions)
-		if len(page.Sessions) != 1 || page.Sessions[0].ID != started[1] || page.NextBefore == nil || *page.NextBefore != started[1] {
-			t.Fatalf("first page = %#v", page)
+		replayedBody, err := json.Marshal(replayed)
+		if err != nil {
+			return err
 		}
-		second := list(page.NextBefore, 1)
-		if second.Fault != nil {
-			t.Fatal(second.Fault)
+		if string(replayedBody) != string(encoded) {
+			return errors.New("uncertain request did not reuse its frozen import")
 		}
-		page = second.Output.Data.(protocol.ConversationAssociationAssociatedSessions)
-		if len(page.Sessions) != 1 || page.Sessions[0].ID != started[0] || page.NextBefore != nil {
-			t.Fatalf("second page = %#v", page)
-		}
-		fails(t, list(nil, 0), protocol.ErrorCodeInvalidRequest, "session page limit must be between 1 and 100")
-		fails(t, list(nil, 101), protocol.ErrorCodeInvalidRequest, "session page limit must be between 1 and 100")
-		fails(t, list(&started[2], 1), protocol.ErrorCodeWrongTarget, "session cursor belongs to another association")
-	})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
 
-	t.Run("search model binding captures a valid configuration", func(t *testing.T) {
-		unsecured := provider
-		unsecured.Credential = nil
-		binding, err := store.ResolveSearchBinding(context.Background(), nil, a.ID(), unsecured, "fixture", protocol.NewSessionID())
-		if err != nil || binding.Config.Model != "fixture" || binding.Config.Provider != provider.ID {
-			t.Fatalf("search binding = %#v, %v", binding.Config, err)
+func TestAssociatedSessionsPagesNewestFirst(t *testing.T) {
+	t.Parallel()
+	node := nodeFixture(t)
+	provider := forwardingProvider(t, node, "https://models.invalid/v1")
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Credential = provider.ID, provider.DefaultModel, provider.Credential
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	association := protocol.ConversationAssociation{Namespace: "fixture", Kind: "ticket", ID: "42"}
+	var started []protocol.SessionID
+	for index := range 3 {
+		draft := protocol.DefaultConversationStart()
+		draft.Config, draft.Title, draft.Execution = &config, fmt.Sprintf("Ticket %d", index), protocol.ConversationExecutionModel
+		draft.Message.Text = "Test request"
+		draft.Association = &association
+		if index == 2 {
+			draft.Association = &protocol.ConversationAssociation{Namespace: "fixture", Kind: "ticket", ID: "43"}
 		}
-	})
+		queued, ok := commandFixture(t, node, protocol.Command{Kind: "start_session", Data: draft}).Data.(protocol.QueuedTurn)
+		if !ok {
+			t.Fatal("start_session returned an unexpected result")
+		}
+		started = append(started, queued.Session)
+	}
+	list := func(before *protocol.SessionID, limit uint16) link.Response {
+		return dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "list_associated_sessions", Data: &protocol.CommandListAssociatedSessionsPayload{Association: association, Before: before, Limit: limit}}))
+	}
+	first := list(nil, 1)
+	if first.Fault != nil {
+		t.Fatal(first.Fault)
+	}
+	page, ok := first.Output.Data.(protocol.ConversationAssociationAssociatedSessions)
+	if !ok || len(page.Sessions) != 1 || page.Sessions[0].ID != started[1] || page.NextBefore == nil || *page.NextBefore != started[1] {
+		t.Fatalf("first page = %#v", first.Output.Data)
+	}
+	second := list(page.NextBefore, 1)
+	if second.Fault != nil {
+		t.Fatal(second.Fault)
+	}
+	page, ok = second.Output.Data.(protocol.ConversationAssociationAssociatedSessions)
+	if !ok || len(page.Sessions) != 1 || page.Sessions[0].ID != started[0] || page.NextBefore != nil {
+		t.Fatalf("second page = %#v", second.Output.Data)
+	}
+	for _, limit := range []uint16{0, 101} {
+		invalid := list(nil, limit)
+		if invalid.Fault == nil || invalid.Fault.Code != protocol.ErrorCodeInvalidRequest {
+			t.Fatalf("limit %d returned %v", limit, invalid.Fault)
+		}
+	}
+	wrongCursor := list(&started[2], 1)
+	if wrongCursor.Fault == nil || wrongCursor.Fault.Code != protocol.ErrorCodeWrongTarget {
+		t.Fatalf("wrong association cursor returned %v", wrongCursor.Fault)
+	}
+}
+
+func TestSearchModelBindingCapturesUnsecuredLocalProvider(t *testing.T) {
+	t.Parallel()
+	node := nodeFixture(t)
+	provider := forwardingProvider(t, node, "https://models.invalid/v1")
+	provider.Credential = nil
+	binding, err := store.ResolveSearchBinding(context.Background(), nil, node.ID(), provider, "fixture", protocol.NewSessionID())
+	if err != nil || binding.Config.Model != "fixture" || binding.Config.Provider != provider.ID {
+		t.Fatalf("search binding = %#v, %v", binding.Config, err)
+	}
 }

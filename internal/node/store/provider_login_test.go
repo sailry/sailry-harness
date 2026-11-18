@@ -97,6 +97,25 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		if err != nil || len(candidates) != 1 || candidates[0].DueMs != *storedGrant.RenewalAt() {
 			return fmt.Errorf("legacy account disappeared from controller renewals: %+v, %v", candidates, err)
 		}
+		remoteProvider := protocol.DefaultConversationProvider()
+		remoteProvider.ID, remoteProvider.Name, remoteProvider.Api = protocol.NewProviderID(), "Retained remote capture", protocol.ConversationModelApiResponses
+		remoteProvider.Authentication, remoteProvider.Endpoint = authentication, "https://api.openai.com/v1"
+		remoteCredential := protocol.CredentialID{99}
+		remoteProvider.Credential = &protocol.CredentialRef{Node: protocol.NodeID{99}, ID: remoteCredential}
+		grantBody, err := json.Marshal(storedGrant)
+		if err != nil {
+			return err
+		}
+		grantSecret := protocol.NewSecret(string(grantBody))
+		remote := providerConfiguration{ID: remoteProvider.ID, Listed: true, Provider: &remoteProvider,
+			Authorizations: map[protocol.CredentialID]providerAuthorization{remoteCredential: {Authentication: authentication, Revision: 1, Key: &grantSecret}}}
+		if err := saveProviderConfiguration(ctx, db, remote); err != nil {
+			return err
+		}
+		candidates, err = ReadCredentialRenewals(ctx, db, node)
+		if err != nil || len(candidates) != 1 || candidates[0].Provider.ID != provider.ID {
+			return fmt.Errorf("execution Node attempted to renew a retained remote account: %+v, %v", candidates, err)
+		}
 		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
 		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
 		if err != nil || renewal == nil {

@@ -19,12 +19,8 @@ type ProviderResourceCapture struct {
 
 func CaptureProviderResource(ctx context.Context, db *sql.Conn, node protocol.NodeID, caller protocol.PluginReference, id protocol.ProviderID, revision uint64, name string, mutation bool) (ProviderResourceCapture, error) {
 	var capture ProviderResourceCapture
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+	if err := checkProviderWrite(ctx, db, id); err != nil {
 		return capture, err
-	} else if !cached {
-		if err := checkProviderWrite(ctx, db, id); err != nil {
-			return capture, err
-		}
 	}
 	saved, err := currentProvider(ctx, db, id, &revision)
 	if err != nil {
@@ -85,12 +81,8 @@ func CaptureProviderResource(ctx context.Context, db *sql.Conn, node protocol.No
 }
 
 func CheckProviderResource(ctx context.Context, db *sql.Conn, capture ProviderResourceCapture) error {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+	if err := checkProviderWrite(ctx, db, capture.Provider.ID); err != nil {
 		return err
-	} else if !cached {
-		if err := checkProviderWrite(ctx, db, capture.Provider.ID); err != nil {
-			return err
-		}
 	}
 	saved, err := currentProvider(ctx, db, capture.Provider.ID, &capture.Provider.Revision)
 	if err != nil {

@@ -50,13 +50,6 @@ func TestClaimForwardedTurnRetainsCapturedAPIKey(t *testing.T) {
 				previous := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
 				current := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
 				provider.Credential, provider.Revision = &previous, 1
-				publishProvider := func() error {
-					_, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-						Source: controller, Category: "providers", Revision: provider.Revision,
-						Records: []protocol.ConfigurationFollowRecord{followRecord(t, provider.ID.String(), provider.Revision, provider, nil)},
-					})
-					return err
-				}
 				publishCredentials := func(revision uint64, credentials ...protocol.RuntimeCredential) error {
 					records := make([]protocol.ConfigurationFollowRecord, 0, len(credentials))
 					for _, credential := range credentials {
@@ -72,38 +65,25 @@ func TestClaimForwardedTurnRetainsCapturedAPIKey(t *testing.T) {
 					Revision: 1, State: "ready", Provider: &provider.ID, Authentication: protocol.AuthenticationApiKey,
 					Access: protocol.NewSecret("captured-key"),
 				}
-				if err := publishProvider(); err != nil {
-					return err
-				}
 				if err := publishCredentials(1, old); err != nil {
 					return err
 				}
-				bundle := protocol.DefaultSessionImport()
-				bundle.Source, bundle.Provider = controller, provider
-				bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = provider.ID, "fixture", &previous
-				bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-				bundle.Roles.Execution = protocol.ConversationExecutionModel
-				output, _, err := importSession(ctx, db, node, controller, storage.Profile, bundle)
+				session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, provider.ID, time.Now())
 				if err != nil {
 					return err
 				}
-				session := output.Data.(protocol.Session)
+				if err := installHistoricalRemoteCapture(ctx, db, session, turn.ID, controller, provider); err != nil {
+					return err
+				}
 				// A controller key rotation changes the provider's current selection
 				// and keeps the previous credential in the runtime snapshot.
 				provider.Credential, provider.Revision = &current, 2
 				next := old
 				next.ID, next.Generation, next.Access = current.ID.String(), current.ID.String(), protocol.NewSecret("new-key")
-				if err := publishProvider(); err != nil {
-					return err
-				}
 				if err := publishCredentials(2, old, next); err != nil {
 					return err
 				}
 				now := time.Now()
-				turn, err := admitCredentialClaim(ctx, db, storage, node, controller, session, now)
-				if err != nil {
-					return fmt.Errorf("admit existing session after key rotation: %w", err)
-				}
 				old.Revision++
 				switch fixture.name {
 				case "revoked":

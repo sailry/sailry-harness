@@ -120,6 +120,9 @@ revision=excluded.revision,digest=excluded.digest,body=excluded.body,secret=excl
 }
 
 func applyConfigurationCache(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, manifest protocol.ConfigurationManifest) ([]protocol.Event, error) {
+	if kind, ok := configurationKind(manifest.Category); !ok || kind.LocalOnly {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "configuration category is owned by this Node")
+	}
 	user, cached, err := configurationCacheUser(ctx, db)
 	if err != nil {
 		return nil, err

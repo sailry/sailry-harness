@@ -74,9 +74,7 @@ func testPluginMessageCommandOutputs(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		config := protocol.DefaultSessionConfig()
-		config.Provider, config.Model = protocol.NewProviderID(), "fixture"
-		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		config := sessionConfigFixtureFor(t, node, caller)
 		created := dispatchFixture(t, node, caller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}))
 		if created.Fault != nil {
 			t.Fatal(created.Fault)

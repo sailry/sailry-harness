@@ -76,14 +76,17 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 	if strings.TrimSpace(config.Model) == "" || len(config.Model) > 256 {
 		return invalid("model identifier is required and must be bounded")
 	}
+	stored, err := readProviderConfiguration(ctx, db, config.Provider)
+	if err != nil {
+		return err
+	}
+	if stored == nil || stored.Provider == nil {
+		return protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model channel is not configured on this Node")
+	}
+	if !stored.Listed {
+		return protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "model channel is not available on this Node")
+	}
 	if ref := config.Credential; ref != nil {
-		stored, err := readProviderConfiguration(ctx, db, config.Provider)
-		if err != nil {
-			return err
-		}
-		if stored == nil {
-			return fault(protocol.ErrorCodeNotFound, "credential not found on the execution Node")
-		}
 		if _, err := resolveProviderKey(ctx, db, node, *ref, config.Provider); err != nil {
 			// A captured runtime account can wait at its next unsent model
 			// step; expiry does not invalidate the selected configuration.
@@ -92,18 +95,45 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 			}
 		}
 	}
-	stored, err := readProviderConfiguration(ctx, db, config.Provider)
-	if err != nil {
+	if err := providers.ValidateSelection(*stored.Provider, config); err != nil {
 		return err
 	}
-	if stored != nil && stored.Provider != nil {
-		if err := providers.ValidateSelection(*stored.Provider, config); err != nil {
-			return err
-		}
-	} else if len(config.Features) != 0 {
-		return invalid("model feature choices require an advertised model")
-	}
 	return nil
+}
+
+// Older direct sessions could capture a remote credential without a profile.
+func hasRemoteModelCapture(session protocol.Session, node protocol.NodeID) bool {
+	return session.Profile != nil && session.Profile.Source != node ||
+		session.Config.Credential != nil && session.Config.Credential.Node != node
+}
+
+func validateCapturedConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile protocol.SessionProfile, config protocol.SessionConfig) error {
+	provider := profile.Provider
+	if provider.ID != config.Provider {
+		return fault(protocol.ErrorCodePermissionDenied, "captured model channel identity changed")
+	}
+	if (provider.Credential == nil) != (config.Credential == nil) || provider.Credential != nil && *provider.Credential != *config.Credential {
+		return fault(protocol.ErrorCodePermissionDenied, "captured model credential identity changed")
+	}
+	if config.Credential != nil {
+		if profile.Source == node {
+			if config.Credential.Node != node {
+				return fault(protocol.ErrorCodePermissionDenied, "captured model credential belongs to another Node")
+			}
+			if _, err := resolveCapturedProviderKey(ctx, db, node, *config.Credential, provider); err != nil {
+				return err
+			}
+		} else {
+			if config.Credential.Node != profile.Source {
+				return fault(protocol.ErrorCodePermissionDenied, "captured model credential belongs to another Node")
+			}
+			if _, err := ReadRuntimeProviderCredential(ctx, db, node, provider, *config.Credential); err != nil &&
+				(provider.Authentication == protocol.AuthenticationApiKey || !expiredRuntimeCredential(err)) {
+				return err
+			}
+		}
+	}
+	return providers.ValidateSelection(provider, config)
 }
 
 // Preserve retired private fields exactly as the current v1 configuration does.
@@ -159,22 +189,6 @@ type providerAuthorization struct {
 }
 
 func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) {
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return protocol.Defaults{}, err
-	} else if cached {
-		value, err := readCachedConfiguration[protocol.Defaults](ctx, db, "defaults", "default")
-		if err != nil || value == nil {
-			return protocol.DefaultDefaults(), err
-		}
-		if value.Config != nil {
-			if saved, err := cachedProviderConfiguration(ctx, db, value.Config.Provider); err != nil {
-				return protocol.Defaults{}, err
-			} else if saved != nil && saved.Provider != nil {
-				value.Config.Credential = saved.Provider.Credential
-			}
-		}
-		return *value, nil
-	}
 	var value protocol.Defaults
 	var body []byte
 	user, err := CurrentUser(ctx, db)
@@ -197,8 +211,7 @@ func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) 
 		return value, err
 	}
 	value.Config = &config
-	value.Source, err = configurationOrigin(ctx, db, "defaults", "default")
-	return value, err
+	return value, nil
 }
 
 // SaveDefaults replaces only the active user's default session configuration.

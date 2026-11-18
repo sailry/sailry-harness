@@ -101,7 +101,7 @@ func (m *Model) FailMCPConfiguration(id, detail string) {
 // host: their drafts belong to the Node they were opened on.
 func (m *Model) CloseNodeDialogs() {
 	m.provider = providerEditor{generation: m.provider.generation + 1}
-	m.login, m.loginFor, m.removing, m.expanded = Authorization{}, "", "", ""
+	m.login, m.loginFor, m.removing, m.expanded = nil, "", "", ""
 	m.loginWarning = loginWarning{}
 	m.connector, m.mcp, m.connDetails, m.connRemoving = connectorEditor{}, mcpEditor{}, "", ""
 	m.teamEdit, m.roleEdit, m.teamRemoving, m.roleRemoving = teamEditor{}, roleEditor{}, "", ""

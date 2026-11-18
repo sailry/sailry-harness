@@ -113,14 +113,17 @@ func TestCapturedCallbackSurvivesDeviceRevocation(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := sessionConfigFixtureFor(t, node, caller)
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		return store.SetLinkTrust(ctx, db, caller, false)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	owned := store.WithCapturedUser(store.WithUser(ctx, user), user.ID)
-	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model = protocol.NewProviderID(), "fixture"
-	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
 	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}})
 	if _, err := node.Dispatch(owned, caller, request); err == nil {
 		t.Fatal("public dispatch accepted a revoked caller carrying an old context")

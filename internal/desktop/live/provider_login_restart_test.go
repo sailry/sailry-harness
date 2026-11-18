@@ -7,6 +7,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -95,7 +96,7 @@ func testProviderLoginRestart(t *testing.T) {
 	id := provider.ID.String()
 	await("the provider", func() bool { _, ok := r.loginProvider(id); return ok })
 
-	m.ProviderActions.SignIn(id)
+	m.ProviderActions.SignIn(r.controller.Target().String(), id)
 	await("the first start", func() bool { return len(sent("begin_provider_login")) == 1 })
 	view := m.ProviderAuthorization()
 	if !view.Open || view.Flow != settings.FlowStarting {
@@ -106,7 +107,7 @@ func testProviderLoginRestart(t *testing.T) {
 		t.Fatal("a sign-in the Node has not begun did not close")
 	}
 
-	m.ProviderActions.SignIn(id)
+	m.ProviderActions.SignIn(r.controller.Target().String(), id)
 	await("the second start", func() bool { return len(sent("begin_provider_login")) == 2 })
 	starts := sent("begin_provider_login")
 	await("the second attempt", func() bool {
@@ -125,4 +126,61 @@ func testProviderLoginRestart(t *testing.T) {
 	if current := r.authorizations.provider; current == nil || current.id != starts[1].ID || !m.ProviderAuthorization().Open {
 		t.Fatal("the superseded start's answer disturbed the current sign-in")
 	}
+
+	// Both Nodes expose the same provider ID. A settings refresh can also
+	// remove its row while its browser callback is still pending.
+	remoteSnapshot := snapshot
+	remoteSnapshot.Node = protocol.NodeID{2}
+	peer := &heldLoginTransport{
+		conversationTestTransport: &conversationTestTransport{snapshot: remoteSnapshot},
+		first:                     make(chan link.Response, 1),
+	}
+	remoteController := client.New(peer)
+	if err := remoteController.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer remoteController.Close()
+	remote := r.newBinding(remoteController)
+	defer remote.Close()
+	remote.initProviders()
+	r.bindings = map[string]*Runtime{remoteSnapshot.Node.String(): remote}
+	m.ProviderActions.SignIn(remoteSnapshot.Node.String(), id)
+	await("the remote attempt", func() bool {
+		return remote.authorizations.provider != nil && remote.authorizations.provider.id != (protocol.RequestID{})
+	})
+	remoteAttempt := remote.authorizations.provider
+	localAttempt := r.authorizations.provider
+	projectAuthorization(localAttempt.view, protocol.ConversationLoginState{Kind: "cancelled"})
+	if shown := m.ProviderAuthorization(); shown != remoteAttempt.view || !shown.Open {
+		t.Fatal("the local attempt closed the remote dialog")
+	}
+	view.Cancel()
+	view.Submit("stale callback")
+	if r.authorizations.provider != localAttempt || len(sent("cancel_provider_login")) != 1 {
+		t.Fatal("a superseded dialog changed a later local attempt")
+	}
+	m.Channels = nil
+	remoteAttempt.view.Flow, remoteAttempt.view.Callback, remoteAttempt.view.Pasted = settings.FlowBrowser, true, "remote callback"
+	tester.Frame()
+	tester.Advance(time.Second)
+	tester.Frame()
+	continueButton, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "provider_login_continue"))
+	if !ok {
+		t.Fatal("the callback action was unavailable after the provider list changed")
+	}
+	tester.ClickAt(continueButton.Bounds.X+continueButton.Bounds.W/2, continueButton.Bounds.Y+continueButton.Bounds.H/2)
+	tester.Frame()
+	remote.workers.Wait()
+	peer.mu.Lock()
+	defer peer.mu.Unlock()
+	for _, request := range peer.requests {
+		if request.Command.Kind == "complete_provider_login" {
+			callback, _ := detail[protocol.CommandCompleteProviderLoginPayload](request.Command.Data)
+			if request.Target != remoteSnapshot.Node || callback.Attempt != remoteAttempt.id || callback.Callback.Expose() != "remote callback" || len(sent("complete_provider_login")) != 0 {
+				t.Fatal("the callback changed its original Node or attempt")
+			}
+			return
+		}
+	}
+	t.Fatal("the remote attempt did not receive the pasted callback")
 }

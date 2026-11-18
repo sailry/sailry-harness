@@ -47,34 +47,49 @@ func (r *Runtime) initNodeSettings() {
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },
 		Available: func() bool {
-			owner := r.shownSettings()
-			return owner != nil && owner.controller.Connected()
+			for _, host := range r.providerHosts() {
+				if host.Connected {
+					return true
+				}
+			}
+			return false
 		},
-		Save: func(draft settings.ProviderDraft, done func(bool)) {
-			if !on(func(owner *Runtime) { owner.saveProvider(draft, done) }) {
-				done(false)
+		Hosts:         r.providerHosts,
+		DefaultTarget: r.providerDefaultTarget,
+		Save: func(draft settings.ProviderDraft, done func(settings.ProviderSaveResult)) {
+			if root := r.localRuntime(); root != nil {
+				root.saveManagedProvider(draft, done)
+			} else {
+				done(providerSaveFailure(draft.Targets))
 			}
 		},
 		Discover: func(draft settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
-			if !on(func(owner *Runtime) { owner.discoverModels(draft, done) }) {
+			node := draft.Channel.Node
+			if draft.ExpectedRevision == 0 && len(draft.Targets) == 1 {
+				node = draft.Targets[0]
+			}
+			editor, owner := r.runtimeFor(draft.Channel.Node), r.providerOwner(node)
+			if editor == nil || owner == nil {
 				done(nil)
+				return
 			}
+			owner.discoverModels(editor, draft, done)
 		},
-		ReadKey: func(id string, done func(string)) {
-			if !on(func(owner *Runtime) { owner.readProviderKey(id, done) }) {
-				done("")
-			}
+		ReadKey: func(node, id string, done func(string)) {
+			r.localRuntime().readManagedProviderKey(node, id, done)
 		},
-		Remove: func(id string, revision uint64) {
-			on(func(owner *Runtime) { owner.removeProvider(id, revision) })
+		Remove: func(node, id string, revision uint64) {
+			r.localRuntime().removeManagedProvider(node, id, revision)
 		},
-		Enable: func(id string, revision uint64, enabled bool) {
-			on(func(owner *Runtime) { owner.enableProvider(id, revision, enabled) })
+		Enable: func(node, id string, revision uint64, enabled bool) {
+			r.localRuntime().enableManagedProvider(node, id, revision, enabled)
 		},
 		SaveCompaction: func() { on(func(owner *Runtime) { owner.saveCompaction() }) },
-		SignIn:         func(id string) { on(func(owner *Runtime) { owner.beginProviderLogin(id) }) },
-		SubmitLogin:    func(callback string) { on(func(owner *Runtime) { owner.submitProviderLogin(callback) }) },
-		CancelLogin:    func() { on(func(owner *Runtime) { owner.cancelProviderLogin() }) },
+		SignIn: func(node, id string) {
+			if owner := r.providerOwner(node); owner != nil {
+				owner.beginProviderLogin(id)
+			}
+		},
 		RefreshCatalog: func() { on(func(owner *Runtime) { owner.refreshModelCatalog() }) },
 		Usage:          r.providerUsage,
 	}

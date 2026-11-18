@@ -58,10 +58,14 @@ func CaptureSessionRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID
 	return completeRoleSnapshot(ctx, db, node, value)
 }
 func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID, value protocol.RoleSnapshot) (protocol.RoleSnapshot, error) {
+	_, followed, err := configurationCacheUser(ctx, db)
+	if err != nil {
+		return value, err
+	}
 	required := map[protocol.ProviderID]bool{}
 	ids := map[protocol.RoleID]bool{}
 	keys := map[string]bool{}
-	for _, role := range value.Profiles {
+	for index, role := range value.Profiles {
 		if err := ValidateRole(role); err != nil {
 			return value, err
 		}
@@ -69,7 +73,11 @@ func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 			return value, invalid("session roles must have distinct identities and keys")
 		}
 		ids[role.ID], keys[role.Key] = true, true
-		if role.Model != nil {
+		if followed {
+			// A followed role is a reusable definition. Its model preference
+			// belongs to the controller's provider inventory.
+			value.Profiles[index].Model = nil
+		} else if role.Model != nil {
 			required[role.Model.Provider] = true
 		}
 	}
@@ -100,12 +108,8 @@ func completeRoleSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 			return value, err
 		}
 		if provider.Credential != nil {
-			controller, err := CurrentController(ctx, db, node)
-			if err != nil {
-				return value, err
-			}
-			if provider.Credential.Node != controller {
-				return value, fault(protocol.ErrorCodePermissionDenied, "role provider belongs to another controller")
+			if provider.Credential.Node != node {
+				return value, fault(protocol.ErrorCodePermissionDenied, "role provider belongs to another Node")
 			}
 		}
 		for _, role := range value.Profiles {
@@ -172,8 +176,12 @@ func AssignSessionMemberModel(ctx context.Context, db *sql.Conn, node protocol.N
 	previous.Models = models
 	return completeRoleSnapshot(ctx, db, node, previous)
 }
-func RefreshTurnRoles(ctx context.Context, db *sql.Conn, snapshot *protocol.RoleSnapshot) error {
+func RefreshTurnRoles(ctx context.Context, db *sql.Conn, node protocol.NodeID, snapshot *protocol.RoleSnapshot) error {
 	for index, provider := range snapshot.Providers {
+		if provider.Source != nil && provider.Source.Node != node ||
+			provider.Credential != nil && provider.Credential.Node != node {
+			return fault(protocol.ErrorCodeNotConfigured, "update role models to use channels configured on this Node")
+		}
 		captured, err := CaptureProvider(ctx, db, provider)
 		if err != nil {
 			return err
@@ -257,6 +265,9 @@ func configureSessionTeam(ctx context.Context, db *sql.Conn, config protocol.Ses
 	}
 	if team.Model == nil {
 		return config, nil
+	}
+	if _, followed, err := configurationCacheUser(ctx, db); err != nil || followed {
+		return config, err
 	}
 	provider, err := listedRoleProvider(ctx, db, team.Model.Provider)
 	if err != nil {

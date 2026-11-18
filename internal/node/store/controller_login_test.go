@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -44,37 +45,17 @@ func newControllerLoginFixture(t *testing.T) *controllerLoginFixture {
 	f.next = f.old
 	f.next.ID, f.next.Generation, f.next.Access, f.next.ExpiresAtMs = f.replacement.ID.String(), f.replacement.ID.String(), protocol.NewSecret("fresh-fixture-access"), &future
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{Source: controller, Category: "providers", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, f.provider.ID.String(), 1, f.provider, nil)}}); err != nil {
-			return err
-		}
 		if err := f.publish(t, db, false); err != nil {
 			return err
 		}
-		bundle := protocol.DefaultSessionImport()
-		bundle.Source, bundle.Provider = controller, f.provider
-		bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = f.provider.ID, "fixture", &f.previous
-		bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-		bundle.Roles.Execution = protocol.ConversationExecutionModel
-		output, _, err := importSession(ctx, db, node, controller, storage.Profile, bundle)
+		session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, f.provider.ID, time.Now())
 		if err != nil {
 			return err
 		}
-		session := output.Data.(protocol.Session)
+		if err := installHistoricalRemoteCapture(ctx, db, session, turn.ID, controller, f.provider); err != nil {
+			return err
+		}
 		f.session = session.ID
-		request := protocol.NewRequest(node, protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{
-			Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Continue the admitted step"},
-		}})
-		body, err := encode(request)
-		if err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", controller[:], request.ID.String(), body); err != nil {
-			return err
-		}
-		if _, _, err := ExecuteAgentCommand(ctx, db, node, storage.Profile, controller, request, time.Now()); err != nil {
-			return err
-		}
 		invocation, _, err := ClaimNext(ctx, db, time.Now())
 		if err != nil {
 			return err
@@ -82,7 +63,7 @@ func newControllerLoginFixture(t *testing.T) *controllerLoginFixture {
 		if invocation == nil {
 			return fmt.Errorf("fixture task was not claimed")
 		}
-		f.turn = invocation.Run.Turn
+		f.turn = turn.ID
 		if _, err := SetRunCredentialWait(ctx, db, node, f.turn, &protocol.ConversationRunWaiting{Kind: "controller_login", Credential: f.previous, Provider: f.provider.ID}); err != nil {
 			return err
 		}
@@ -173,6 +154,138 @@ func TestControllerLoginRecoveryKeepsAdmissionAndOnlyChangesEffectiveCredential(
 		}
 		if count != 1 {
 			return fmt.Errorf("recorded %d recovery effects", count)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNodeOwnedProviderLoginRestoresPairedUsersTask(t *testing.T) {
+	t.Parallel()
+	storage, node, controller, ctx := controllerCacheFixture(t)
+	now := time.Now()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		info := pluginTestInfo("local-account-fixture", 'a')
+		info.Summary.Enabled, info.Summary.Revision = true, 1
+		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
+		extension.Actions = []protocol.PluginAction{protocol.PluginActionAuthenticateModels, protocol.PluginActionInspectCredentials}
+		authentication, client := protocol.AuthenticationChatGpt, "oaiapp_fixture"
+		declaration := protocol.DefaultPluginModelAuthDeclaration()
+		declaration.ID, declaration.Authentication, declaration.Client.ClientID = "account", &authentication, &client
+		declaration.Flow = protocol.PluginModelAuthFlow{Kind: "script", Data: protocol.PluginModelAuthFlowScriptPayload{
+			Script: protocol.PluginModelAdapterScript{Entry: "auth.js", Resources: []string{}}, Refresh: true, Handler: "step", Requests: map[string]protocol.PluginModelAuthEndpoint{},
+		}}
+		extension.ModelAuth, info.Extension = []protocol.PluginModelAuthDeclaration{declaration}, &extension
+		if err := CacheConfigurationPackage(ctx, db, info, protocol.PluginMcpConfiguration{}); err != nil {
+			return err
+		}
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "plugins", Revision: 1,
+			Records: []protocol.ConfigurationFollowRecord{followRecord(t, info.Summary.Name, 1, info, nil)},
+		}); err != nil {
+			return err
+		}
+		reference := plugins.PackageReference(info)
+		settings := pluginFollowSettings{Package: reference, Values: map[string]json.RawMessage{}}
+		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
+			Source: controller, Category: "plugin_settings", Revision: 1,
+			Records: []protocol.ConfigurationFollowRecord{followRecord(t, pluginSettingsCacheID(reference), 1, settings, nil)},
+		}); err != nil {
+			return err
+		}
+		provider := providerFixture()
+		provider.Revision, provider.Authentication = 1, authentication
+		provider.Api, provider.Endpoint = protocol.ConversationModelApiResponses, "https://api.openai.com/v1"
+		if err := saveProviderConfiguration(ctx, db, providerConfiguration{ID: provider.ID, Listed: true, Provider: &provider}); err != nil {
+			return err
+		}
+		grant := providers.AccountGrant{
+			Kind: authentication, Access: "initial-access", Refresh: "initial-refresh", IDToken: "initial-identity",
+			ClientID: client, Subject: "local-account", ExpiresAtMs: uint64(now.Add(time.Hour).UnixMilli()),
+			Scopes: []string{"resource.invoke", "chatgpt.tokens.use.direct"},
+		}
+		signIn := func(revision uint64, grant providers.AccountGrant) (*providerConfiguration, error) {
+			login, err := CaptureProviderLogin(ctx, db, provider.ID, revision, protocol.NewRequestID())
+			if err != nil {
+				return nil, err
+			}
+			if _, err := CompleteProviderLogin(ctx, db, node, login, grant); err != nil {
+				return nil, err
+			}
+			return currentProvider(ctx, db, provider.ID, nil)
+		}
+		saved, err := signIn(provider.Revision, grant)
+		if err != nil {
+			return err
+		}
+		previous := *saved.Provider.Credential
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model, config.Credential = saved.Provider.ID, saved.Provider.DefaultModel, &previous
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		created, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &config})
+		if err != nil {
+			return err
+		}
+		session := created.Data.(protocol.Session)
+		turn, err := admitCredentialClaim(ctx, db, storage, node, controller, session, now)
+		if err != nil {
+			return err
+		}
+		expired := grant
+		expired.ExpiresAtMs = 1
+		body, err := json.Marshal(expired)
+		if err != nil {
+			return err
+		}
+		entry := saved.Authorizations[previous.ID]
+		entry.Key, entry.ExpiresAtMs = pointerSecret(string(body)), expired.Expiry()
+		saved.Authorizations[previous.ID] = entry
+		if err := saveProviderConfiguration(ctx, db, *saved); err != nil {
+			return err
+		}
+		invocation, _, err := ClaimNext(ctx, db, now)
+		if err != nil || invocation == nil || invocation.Turn.ID != turn.ID {
+			return fmt.Errorf("claim the paired user's task: %v", err)
+		}
+		if _, err := ReadProviderAuthorization(ctx, db, node, *invocation.Provider, previous); !providerFixtureFault(err, protocol.ErrorCodeExpired) {
+			return fmt.Errorf("expired Node-owned authorization did not permit login recovery: %v", err)
+		}
+		if _, err := SetRunCredentialWait(ctx, db, node, turn.ID, &protocol.ConversationRunWaiting{
+			Kind: "controller_login", Credential: previous, Provider: provider.ID,
+		}); err != nil {
+			return err
+		}
+		run, err := ReadAgentRun(ctx, db, turn.ID)
+		if err != nil || run.Waiting == nil || run.Waiting.AccountIdentity == "" || run.Waiting.AuthenticationTarget == "" {
+			return fmt.Errorf("task did not record its Node-owned account identity: %v", err)
+		}
+		grant.Access = "replacement-access"
+		replacement, err := signIn(saved.Provider.Revision, grant)
+		if err != nil {
+			return err
+		}
+		input := protocol.CommandResumeControllerLoginPayload{
+			Session: session.ID, Turn: turn.ID, Waiting: run.Waiting.Attempt,
+			Previous: previous, Replacement: *replacement.Provider.Credential,
+		}
+		if available, err := ControllerLoginReplacementAvailable(ctx, db, node, input); err != nil || !available {
+			return fmt.Errorf("Node-owned replacement waited for an unrelated configuration push: %v", err)
+		}
+		wrongNode := input
+		wrongNode.Replacement.Node = controller
+		if _, err := CheckControllerLoginWait(ctx, db, node, controller, wrongNode); !providerFixtureFault(err, protocol.ErrorCodePermissionDenied) {
+			return fmt.Errorf("login recovery allowed a replacement from a different Node: %v", err)
+		}
+		request := protocol.NewRequest(node, protocol.Command{Kind: "resume_controller_login", Data: &input})
+		if _, _, err := ExecuteAgentCommand(ctx, db, node, storage.Profile, controller, request, now); err != nil {
+			return err
+		}
+		effective, err := EffectiveTurnCredential(ctx, db, turn.ID, previous)
+		if err != nil || effective != input.Replacement {
+			return fmt.Errorf("login recovery did not retain the target Node's account: %v", err)
 		}
 		return nil
 	})
@@ -409,7 +522,7 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 			Authorizations: map[protocol.CredentialID]providerAuthorization{id: {Authentication: provider.Authentication, Revision: 4, Key: &secret}}}); err != nil {
 			return err
 		}
-		before, err := ExportRuntimeCredentials(ctx, db, node)
+		before, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
 		if err != nil {
 			return err
 		}
@@ -430,7 +543,7 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 		if grant.RenewalPending || !grant.RenewalUncertain {
 			return fmt.Errorf("restart retried or retained pending renewal")
 		}
-		after, err := ExportRuntimeCredentials(ctx, db, node)
+		after, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
 		if err != nil {
 			return err
 		}
@@ -447,7 +560,7 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 		if err := RecoverCredentialRenewals(ctx, db, node); err != nil {
 			return err
 		}
-		stable, err := ExportRuntimeCredentials(ctx, db, node)
+		stable, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
 		if err != nil {
 			return err
 		}

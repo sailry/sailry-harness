@@ -60,7 +60,7 @@ func TestProviderDiscoveryCatalogFailureRetainsModels(t *testing.T) {
 			tester.SetLocale("en")
 			pending, completed := true, false
 			known := map[string]protocol.ConversationModel{"new": {ID: "new", Context: 128000, Output: 16384}}
-			r.finishDiscovery(provider, []protocol.ConversationDiscoveryModel{{ID: "new"}}, known, func(models []viewmodel.ChannelModel) {
+			r.finishDiscovery(provider, []protocol.ConversationDiscoveryModel{{ID: "new"}}, known, r.providerModels, func(models []viewmodel.ChannelModel) {
 				pending, completed = false, true
 				if models != nil {
 					t.Error("failed metadata lookup exposed incomplete discovered models")

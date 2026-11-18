@@ -69,12 +69,35 @@ func commandFixture(t *testing.T, node *Node, command protocol.Command) protocol
 
 func sessionFixture(t *testing.T, node *Node) protocol.Session {
 	t.Helper()
-	config := protocol.DefaultSessionConfig()
-	config.Provider = protocol.NewProviderID()
-	config.Model = "fixture"
-	config.Mode = protocol.WorkModeCode
-	config.Permission = protocol.PermissionProject
+	config := sessionConfigFixture(t, node)
 	return commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)
+}
+
+func sessionConfigFixture(t *testing.T, node *Node) protocol.SessionConfig {
+	return sessionConfigFixtureFor(t, node, node.ID())
+}
+
+func sessionConfigFixtureFor(t *testing.T, node *Node, caller protocol.NodeID) protocol.SessionConfig {
+	t.Helper()
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Name = protocol.NewProviderID(), "Fixture"
+	provider.Api, provider.Authentication, provider.Enabled = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, true
+	provider.Endpoint, provider.DefaultModel = "https://fixture.invalid/v1", "fixture"
+	model := protocol.DefaultConversationModel()
+	model.ID, model.Context, model.Output = "fixture", 64000, 8192
+	vision := false
+	model.Capabilities = &protocol.ConversationDiscoveryCapabilities{Vision: &vision}
+	provider.Models = []protocol.ConversationModel{model}
+	key := protocol.NewSecret("test-only-session-fixture-key")
+	response := dispatchFixture(t, node, caller, protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: provider, Secret: &key}}))
+	if response.Fault != nil {
+		t.Fatal(response.Fault)
+	}
+	created := response.Output.Data.(protocol.ConversationProvider)
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Credential = created.ID, created.DefaultModel, created.Credential
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+	return config
 }
 
 func snapshotFixture(t *testing.T, node *Node) protocol.Snapshot {
@@ -921,7 +944,7 @@ func TestArchiveAndRemoveEvents(t *testing.T) {
 	t.Run("project-scoped manual order", func(t *testing.T) {
 		node := nodeFixture(t)
 		project := commandFixture(t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: "Project", Path: t.TempDir(), Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}}).Data.(protocol.Project)
-		config := first.Config
+		config := sessionConfigFixture(t, node)
 		one := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 		two := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 		unassigned := sessionFixture(t, node)

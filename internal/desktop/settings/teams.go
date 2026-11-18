@@ -53,8 +53,12 @@ type roleEditor struct {
 // labels, after none (the "" choice labeled follow).
 func (m *Model) modelChoices(c *ui.Context, follow string) (ids, names []string) {
 	ids, names = []string{""}, []string{i18n.T(c, follow)}
+	target := ""
+	if m.ProviderActions.DefaultTarget != nil {
+		target = m.ProviderActions.DefaultTarget()
+	}
 	for _, ch := range m.Channels {
-		if !ch.Enabled {
+		if !ch.Enabled || target != "" && ch.Node != target {
 			continue
 		}
 		for _, x := range ch.Models {
@@ -71,9 +75,13 @@ func (m *Model) modelChoices(c *ui.Context, follow string) (ids, names []string)
 func (m *Model) modelOptions() []kit.ModelOption {
 	var out []kit.ModelOption
 	families := m.families()
+	target := ""
+	if m.ProviderActions.DefaultTarget != nil {
+		target = m.ProviderActions.DefaultTarget()
+	}
 	for i := range m.Channels {
 		ch := &m.Channels[i]
-		if !ch.Enabled {
+		if !ch.Enabled || target != "" && ch.Node != target {
 			continue
 		}
 		brand := ""
@@ -91,7 +99,15 @@ func (m *Model) modelOptions() []kit.ModelOption {
 // modelFeatures are the features a model declares.
 func (m *Model) modelFeatures(id string) []preview.ModelFeature {
 	ch, model, _ := strings.Cut(id, "/")
-	if x := m.channel(ch); x != nil {
+	target := ""
+	if m.ProviderActions.DefaultTarget != nil {
+		target = m.ProviderActions.DefaultTarget()
+	}
+	for i := range m.Channels {
+		x := &m.Channels[i]
+		if x.ID != ch || target != "" && x.Node != target {
+			continue
+		}
 		for _, y := range x.Models {
 			if y.ID == model {
 				return y.Features

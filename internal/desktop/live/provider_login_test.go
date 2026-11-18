@@ -72,7 +72,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 		failed := protocol.ConversationLoginState{Kind: "failed", Data: protocol.Fault{Code: protocol.ErrorCodeUnavailable}}
 		ended := func(view *settings.Authorization) *liveAuthorization {
 			ctx, cancel := context.WithCancel(t.Context())
-			attempt := &liveAuthorization{id: protocol.NewRequestID(), ctx: ctx, cancel: cancel}
+			attempt := &liveAuthorization{id: protocol.NewRequestID(), ctx: ctx, cancel: cancel, view: view}
 			view.Open = true
 			// What a terminal update does to the attempt and its dialog.
 			if _, terminal := projectAuthorization(view, failed); !terminal || !view.Open || view.Flow != settings.FlowFailed {

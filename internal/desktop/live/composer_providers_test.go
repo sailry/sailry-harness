@@ -8,7 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func TestComposerProvidersMergeFollowedChannelsByIdentity(t *testing.T) {
+func TestComposerProvidersStayOnTheirExecutionNode(t *testing.T) {
 	t.Parallel()
 	shared, controllerOnly, executorOnly, private := protocol.ProviderID{1}, protocol.ProviderID{2}, protocol.ProviderID{3}, protocol.ProviderID{4}
 	provider := func(id protocol.ProviderID, name string) protocol.ConversationProvider {
@@ -46,13 +46,25 @@ func TestComposerProvidersMergeFollowedChannelsByIdentity(t *testing.T) {
 			modelIDs[key] = true
 		}
 	}
-	if !slices.Equal(ids, []protocol.ProviderID{shared, executorOnly, controllerOnly, private}) || providers[0].Name != "Execution copy" {
-		t.Fatalf("merged providers changed execution resolution or order: %+v", providers)
-	}
-	if r.forwards(shared) || !r.forwards(controllerOnly) {
-		t.Fatal("offered provider precedence differs from the creation route")
+	if !slices.Equal(ids, []protocol.ProviderID{shared, executorOnly, private}) || providers[0].Name != "Execution copy" {
+		t.Fatalf("composer exposed a provider not owned or captured by the execution Node: %+v", providers)
 	}
 	if len(r.snapshot().Providers) != 2 || len(root.snapshot().Providers) != 2 {
 		t.Fatal("merging channels modified a source snapshot")
+	}
+}
+
+func TestNewSessionCreationStaysOnSelectedNode(t *testing.T) {
+	t.Parallel()
+	r := &Runtime{parent: &Runtime{}}
+	project := protocol.ProjectID{3}
+	worktree := protocol.WorktreeID{4}
+	command := r.creationCommand(&project, &worktree, protocol.DefaultSessionConfig(), 9)
+	if command.Kind != "create_session" {
+		t.Fatalf("new session creation command = %q, want create_session", command.Kind)
+	}
+	payload, ok := command.Data.(protocol.CommandCreateSessionPayload)
+	if !ok || payload.Project == nil || *payload.Project != project || payload.Worktree == nil || *payload.Worktree != worktree {
+		t.Fatalf("creation payload lost the selected project or worktree: %+v", command.Data)
 	}
 }

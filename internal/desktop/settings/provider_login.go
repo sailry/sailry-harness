@@ -8,14 +8,18 @@ import (
 // ProviderLoginDialog presents the existing sign-in flow from a waiting task.
 func ProviderLoginDialog(c *ui.Context, m *Model) { providerAuthorizationDialog(c, m) }
 
-func (m *Model) BeginProviderAuthorization(id, title string, callback bool) {
-	m.loginFor = id
-	m.login = Authorization{Open: true, Title: title, Flow: FlowStarting, Callback: callback}
-	m.login.Cancel = m.ProviderActions.CancelLogin
+// Each attempt retains its own view, including when another Node opens a dialog.
+func (m *Model) ShowProviderAuthorization(node, id string, view *Authorization) {
+	m.loginFor = channelKey(node, id)
+	m.login = view
+	view.Open = true
 }
 
 func (m *Model) ProviderAuthorization() *Authorization {
-	return &m.login
+	if m.login == nil {
+		m.login = &Authorization{}
+	}
+	return m.login
 }
 
 // loginWarning is a package's warning, asked before a sign-in starts or,
@@ -25,12 +29,13 @@ type loginWarning struct {
 	open              bool
 	verb, title, text string
 	proceed           func()
+	cancel            func()
 }
 
 // WarnProviderAuthorization asks the user to accept text before the sign-in
 // of the provider named title starts; proceed runs when they continue.
-func (m *Model) WarnProviderAuthorization(title, text string, proceed func()) {
-	m.loginWarning = loginWarning{open: true, verb: "provider_reconnect", title: title, text: text, proceed: proceed}
+func (m *Model) WarnProviderAuthorization(title, text string, proceed, cancel func()) {
+	m.loginWarning = loginWarning{open: true, verb: "provider_reconnect", title: title, text: text, proceed: proceed, cancel: cancel}
 }
 
 // configureProvider opens the add editor's form on a method. A method that

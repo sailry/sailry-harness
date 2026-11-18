@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -32,10 +33,26 @@ func TestProviderRouteProjection(t *testing.T) {
 			provider.Api, provider.Preset.Route = test.api, test.route
 			listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
 			channel, _ := projectProviderRouteFixture(t, provider, listing)
-			if channel.Method != test.method {
-				t.Fatalf("projected method = %q, want %q", channel.Method, test.method)
+			want := protocol.NodeID{1}.String() + "/" + test.method
+			if channel.Method != want {
+				t.Fatalf("projected method = %q, want %q", channel.Method, want)
 			}
 		})
+	}
+}
+
+func TestProviderProjectionKeepsNoAuthAndRevision(t *testing.T) {
+	provider := providerRouteFixture()
+	provider.Credential = nil
+	listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
+	for i := range listing.Entries {
+		if listing.Entries[i].Preset.ID == provider.Preset.ID {
+			listing.Entries[i].Preset.Auth = protocol.ConversationPresetsAuth{Kind: "none"}
+		}
+	}
+	channel, _ := projectProviderRouteFixture(t, provider, listing)
+	if channel.Auth != viewmodel.AuthNone || channel.TargetRevisions[protocol.NodeID{1}.String()] != provider.Revision {
+		t.Fatalf("no-auth channel projection = %+v", channel)
 	}
 }
 
@@ -66,13 +83,14 @@ func TestLegacyCompatibleProviderRouteProjection(t *testing.T) {
 				}
 			}
 			channel, brands := projectProviderRouteFixture(t, provider, listing)
+			node := protocol.NodeID{1}.String()
 			if test.target != "offered" {
-				if channel.Method != "builtin:compatible-chat/0" {
+				if channel.Method != node+"/builtin:compatible-chat/0" {
 					t.Fatalf("legacy method = %q without an offered replacement", channel.Method)
 				}
 				return
 			}
-			if channel.Method != "builtin:compatible-responses/1" {
+			if channel.Method != node+"/builtin:compatible-responses/1" {
 				t.Fatalf("legacy method = %q, want the offered Chat Completions route", channel.Method)
 			}
 			for _, brand := range brands {
@@ -121,8 +139,12 @@ func projectProviderRouteFixture(t *testing.T, provider protocol.ConversationPro
 	snapshot.Node, snapshot.Providers = protocol.NodeID{1}, []protocol.ConversationProvider{provider}
 	controller := client.New(&conversationTestTransport{snapshot: snapshot})
 	defer controller.Close()
-	r := &Runtime{controller: controller, snapshotRead: true, snapshotCopy: snapshot,
-		App: &shell.App{Settings: settings.New()}, media: mediaState{reading: true}}
+	app := &shell.App{Settings: settings.New()}
+	app.Page = shell.SettingsPage
+	app.Settings.Open(settings.Providers)
+	r := &Runtime{ctx: t.Context(), controller: controller, snapshotRead: true, snapshotCopy: snapshot,
+		authorizations: &authorizationState{credentialLoad: true, credentials: map[protocol.CredentialID]protocol.Credential{}},
+		App:            app, Preferences: &preferences.Store{Data: preferences.Default()}, providerPresetsLoaded: true, media: mediaState{reading: true}}
 	r.applyPresets(listing)
 	r.projectProviderSnapshot()
 	if len(r.App.Settings.Channels) != 1 {
@@ -130,7 +152,7 @@ func projectProviderRouteFixture(t *testing.T, provider protocol.ConversationPro
 	}
 	channel := r.App.Settings.Channels[0]
 	if channel.ID != provider.ID.String() || channel.Revision != provider.Revision || channel.Name != provider.Name || channel.API != string(provider.Api) ||
-		channel.Endpoint != provider.Endpoint || channel.Enabled != provider.Enabled || channel.Auth != viewmodel.AuthKey || !channel.KeySet || channel.Default != 1 {
+		channel.Endpoint != provider.Endpoint || channel.Enabled != provider.Enabled || (provider.Credential != nil) != channel.KeySet || channel.Default != 1 {
 		t.Fatalf("provider configuration changed in the projection: %+v", channel)
 	}
 	wantModels := []viewmodel.ChannelModel{channelModel(provider.Models[0]), channelModel(provider.Models[1])}

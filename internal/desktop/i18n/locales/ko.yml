@@ -1141,6 +1141,12 @@ provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: API 키 입력
 provider_api_key: API 키
 provider_get_key: API 키 받기
+provider_host: Host
+provider_hosts: Hosts
+provider_host_required: Select a host. Account sign-in channels require exactly one host.
+provider_host_saved: Saved on {host}
+provider_host_save_failed: Could not save on {host}
+provider_on_host: on {host}
 provider_oauth_advanced: 고급 설정
 provider_oauth_catalog_version: 목록 버전
 provider_oauth_user_agent: User-Agent

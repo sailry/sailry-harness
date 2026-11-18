@@ -51,6 +51,9 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if hasRemoteModelCapture(session, node) {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "legacy remote model sessions cannot be reassigned; create a new session on this Node")
+		}
 		if err = validateConfig(ctx, db, node, v.Config); err != nil {
 			return protocol.Output{}, nil, err
 		}

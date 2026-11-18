@@ -43,6 +43,20 @@ func forkConversation(ctx context.Context, db *sql.Conn, input protocol.CommandF
 	return branchConversation(ctx, db, input, false)
 }
 
+func checkSessionForkable(ctx context.Context, db *sql.Conn, session protocol.Session) error {
+	if session.Profile == nil && session.Config.Credential == nil {
+		return nil
+	}
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return err
+	}
+	if hasRemoteModelCapture(session, node) {
+		return fault(protocol.ErrorCodeNotConfigured, "legacy remote model sessions cannot be forked into new model conversations")
+	}
+	return nil
+}
+
 // branchConversation creates a session that shares the source's turns through
 // the boundary. A rewind backup also preserves the source's current plugin
 // conversation values, which an earlier rewind may have left without a record.
@@ -50,6 +64,11 @@ func branchConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 	previous, err := checkedSession(ctx, db, input.Session, input.ExpectedRevision)
 	if err != nil {
 		return protocol.Session{}, nil, err
+	}
+	if !preserveCurrent {
+		if err := checkSessionForkable(ctx, db, previous); err != nil {
+			return protocol.Session{}, nil, err
+		}
 	}
 	boundary, err := visibleAgentRun(ctx, db, input.Session, input.Through)
 	if err != nil {
@@ -324,6 +343,9 @@ func moveConversation(ctx context.Context, db *sql.Conn, input protocol.CommandM
 func forkConversationAt(ctx context.Context, db *sql.Conn, input protocol.CommandForkConversationAtPayload) (protocol.Output, []protocol.Event, error) {
 	current, err := locationTarget(ctx, db, input.Session, input.Worktree, input.ExpectedRevision)
 	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if err := checkSessionForkable(ctx, db, current); err != nil {
 		return protocol.Output{}, nil, err
 	}
 	groups, err := conversationGroups(ctx, db, input.Session)

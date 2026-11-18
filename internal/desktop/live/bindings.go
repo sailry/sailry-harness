@@ -35,16 +35,41 @@ func (r *Runtime) conversationRuntime(cv *viewmodel.Conversation, comp *composer
 	}
 	node := cv.Node
 	if comp != nil && len(cv.ID) >= 6 && cv.ID[:6] == "draft/" {
-		if comp.Host != "" {
+		previous := comp.Host
+		if comp.Project == "" && comp.Host != "" {
 			node = comp.Host
 		}
-		for _, project := range root.App.Data.Projects {
-			if project.ID == comp.Project && (node == "" || project.Host == node) {
-				node = project.Host
-				break
+		if comp.Project != "" {
+			var matches []*viewmodel.Project
+			for _, project := range root.App.Data.Projects {
+				if project.ID == comp.Project {
+					matches = append(matches, project)
+					if project.Host == comp.Host {
+						node = project.Host
+						matches = nil
+						break
+					}
+				}
+			}
+			if len(matches) == 1 {
+				node = matches[0].Host
+			} else if len(matches) > 1 {
+				for _, project := range matches {
+					if project.Host == cv.Node {
+						node = project.Host
+						break
+					}
+				}
 			}
 		}
 		cv.Node, comp.Host = node, node
+		if previous != "" && previous != node {
+			comp.Model, comp.Effort = "", 0
+			comp.Features = nil
+			if owner := root.runtimeFor(node); owner != nil {
+				owner.defaultComposer(comp)
+			}
+		}
 	} else if comp != nil {
 		// An admitted session and every queue action retain its execution
 		// Node even when a different draft or device monitor is selected.

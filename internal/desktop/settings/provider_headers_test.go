@@ -10,9 +10,9 @@ func TestProviderOAuthSaveIgnoresHiddenKeyHeaderDraft(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Live = true
 	var saved *ProviderDraft
-	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) {
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
 		saved = &draft
-		done(false)
+		done(ProviderSaveResult{Failed: []string{"fixture-node"}})
 	}
 	e := &m.provider
 	e.add(m)

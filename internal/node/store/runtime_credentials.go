@@ -15,9 +15,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// ExportRuntimeCredentials is deliberately separate from configuration export:
-// a full account grant or connector OAuth configuration must never be copied.
-func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller protocol.NodeID) ([]protocol.ConfigurationFollowRecord, error) {
+// Only a previously delivered capture can keep receiving a model credential.
+// Connector projections retain their existing configuration-follow scope.
+func exportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller protocol.NodeID, captured map[protocol.CredentialID]runtimeCapture) ([]protocol.ConfigurationFollowRecord, error) {
 	result := []protocol.ConfigurationFollowRecord{}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
@@ -44,54 +44,57 @@ func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller prot
 		}
 		return err
 	}
-	saved, err := providerConfigurations(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	for _, saved := range saved {
-		if saved.Provider == nil {
-			continue
+	if len(captured) != 0 {
+		configs, err := providerConfigurations(ctx, db)
+		if err != nil {
+			return nil, err
 		}
-		for id, credential := range saved.Authorizations {
-			value := protocol.RuntimeCredential{
-				Kind: "provider", ID: id.String(), Generation: id.String(), Revision: max(1, credential.Revision),
-				Authentication: credential.Authentication, Provider: &saved.Provider.ID,
-				State: "revoked",
+		for _, saved := range configs {
+			if saved.Provider == nil {
+				continue
 			}
-			if credential.Key != nil {
-				value.State = "ready"
-				if credential.Authentication == protocol.AuthenticationApiKey || credential.Authentication == "" {
-					value.Authentication, value.Access = protocol.AuthenticationApiKey, *credential.Key
-				} else {
-					var grant providers.AccountGrant
-					if json.Unmarshal([]byte(credential.Key.Expose()), &grant) != nil {
-						value.State = "unavailable"
-					} else {
-						exported, exportErr := providers.RuntimeAccount(*saved.Provider, grant)
-						if exportErr != nil {
-							value.State = "unavailable"
-						} else {
-							exported.Kind, exported.ID, exported.Generation = value.Kind, value.ID, value.Generation
-							exported.Revision, exported.State = value.Revision, "ready"
-							if grant.RenewalPending || grant.RenewalUncertain {
-								exported.State = "uncertain"
-							}
-							if grant.RenewalRejected {
-								exported.State = "rejected"
-							}
-							exported.AccountIdentity = providers.RecoveryAccountIdentity(grant)
-							target := credential.Auth
-							if grant.Record != nil {
-								target = &grant.Record.Target
-							}
-							exported.AuthenticationTarget = providers.RecoveryAuthenticationTarget(*saved.Provider, target, grant)
-							value = exported
-						}
-					}
+			var current *protocol.RuntimeCredential
+			selected := saved.Provider.Credential
+			if selected != nil && selected.Node == controller {
+				if credential, ok := saved.Authorizations[selected.ID]; ok {
+					candidate := runtimeProvider(*saved.Provider, selected.ID, credential)
+					current = &candidate
 				}
 			}
-			if err := add(value); err != nil {
-				return nil, err
+			includeCurrent := false
+			for id, credential := range saved.Authorizations {
+				capture, ok := captured[id]
+				if !ok {
+					continue
+				}
+				value := runtimeProvider(*saved.Provider, id, credential)
+				if capture.legacy != nil {
+					if value.State == "ready" || value.State == "uncertain" {
+						result = append(result, *capture.legacy)
+					}
+					continue
+				}
+				// A replacement is usable only for the same service-issued
+				// account and authentication target as the original capture.
+				if current != nil && selected.ID != id && value.Authentication != protocol.AuthenticationApiKey {
+					reason := runtimeLoginRefusal(value, *current)
+					if reason != "" {
+						value.RefusedReplacement = &protocol.RuntimeLoginRefusal{ID: selected.ID, Reason: reason}
+					} else if capture.waiting {
+						includeCurrent = true
+					}
+				}
+				if err := add(value); err != nil {
+					return nil, err
+				}
+			}
+			if includeCurrent {
+				if _, alreadyCaptured := captured[selected.ID]; alreadyCaptured {
+					continue
+				}
+				if err := add(*current); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -110,6 +113,58 @@ func ExportRuntimeCredentials(ctx context.Context, db *sql.Conn, controller prot
 	}
 	slices.SortFunc(result, func(a, b protocol.ConfigurationFollowRecord) int { return strings.Compare(a.ID, b.ID) })
 	return result, nil
+}
+
+func runtimeLoginRefusal(original, replacement protocol.RuntimeCredential) string {
+	switch {
+	case original.AccountIdentity == "" || replacement.AccountIdentity == "" || original.AuthenticationTarget == "" || replacement.AuthenticationTarget == "":
+		return "identity_unavailable"
+	case original.AuthenticationTarget != replacement.AuthenticationTarget:
+		return "target_changed"
+	case original.AccountIdentity != replacement.AccountIdentity:
+		return "account_mismatch"
+	default:
+		return ""
+	}
+}
+
+func runtimeProvider(provider protocol.ConversationProvider, id protocol.CredentialID, credential providerAuthorization) protocol.RuntimeCredential {
+	value := protocol.RuntimeCredential{
+		Kind: "provider", ID: id.String(), Generation: id.String(), Revision: max(1, credential.Revision),
+		Authentication: credential.Authentication, Provider: &provider.ID, State: "revoked",
+	}
+	if credential.Key == nil {
+		return value
+	}
+	if credential.Authentication == protocol.AuthenticationApiKey || credential.Authentication == "" {
+		value.State, value.Authentication, value.Access = "ready", protocol.AuthenticationApiKey, *credential.Key
+		return value
+	}
+	var grant providers.AccountGrant
+	if json.Unmarshal([]byte(credential.Key.Expose()), &grant) != nil {
+		value.State = "unavailable"
+		return value
+	}
+	exported, err := providers.RuntimeAccount(provider, grant)
+	if err != nil {
+		value.State = "unavailable"
+		return value
+	}
+	exported.Kind, exported.ID, exported.Generation = value.Kind, value.ID, value.Generation
+	exported.Revision, exported.State = value.Revision, "ready"
+	if grant.RenewalPending || grant.RenewalUncertain {
+		exported.State = "uncertain"
+	}
+	if grant.RenewalRejected {
+		exported.State = "rejected"
+	}
+	exported.AccountIdentity = providers.RecoveryAccountIdentity(grant)
+	target := credential.Auth
+	if grant.Record != nil {
+		target = &grant.Record.Target
+	}
+	exported.AuthenticationTarget = providers.RecoveryAuthenticationTarget(provider, target, grant)
+	return exported
 }
 
 func runtimeConnector(ctx context.Context, db *sql.Conn, record ConnectorRecord) (protocol.RuntimeCredential, error) {

@@ -225,7 +225,7 @@ func testProviderFlow(t *testing.T) {
 		"builtin:copilot":        {1: providers.DefaultCopilotAgent, 2: providers.DefaultCopilotEditor, 3: providers.DefaultCopilotEditorPlugin},
 		"builtin:openai":         [4]string{},
 	} {
-		if got, ok := oauth[id]; !ok || got != want {
+		if got, ok := oauth[snapshot.Node.String()+"/"+id]; !ok || got != want {
 			t.Errorf("method %q starts its advanced settings on %q (listed %v), want %q", id, got, ok, want)
 		}
 	}
@@ -403,10 +403,10 @@ func testProviderFlow(t *testing.T) {
 
 	// An Azure OpenAI channel saves its API version as the provider's
 	// connection options, and a saved one shows it again.
-	azure := viewmodel.Channel{ID: protocol.ProviderID{9}.String(), Name: "Azure", Method: "builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
+	azure := viewmodel.Channel{ID: protocol.ProviderID{9}.String(), Name: "Azure", Node: snapshot.Node.String(), Method: snapshot.Node.String() + "/builtin:azure-openai/0", API: string(protocol.ConversationModelApiAzureOpenAi),
 		Endpoint: "https://unit.openai.azure.com", APIVersion: "2025-01-01-preview", Models: []viewmodel.ChannelModel{{ID: "deployment", Context: 128000}}}
 	before := sent()
-	m.ProviderActions.Save(settings.ProviderDraft{Channel: azure, Key: "key"}, func(bool) {})
+	m.ProviderActions.Save(settings.ProviderDraft{Channel: azure, Key: "key"}, func(settings.ProviderSaveResult) {})
 	await("the Azure save", func() bool { return sent() == before+1 })
 	transport.mu.Lock()
 	p = saves[before].Provider

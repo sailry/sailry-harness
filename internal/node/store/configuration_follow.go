@@ -7,19 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
-
-type configurationApplyKey struct{}
-
-func configurationApplyContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, configurationApplyKey{}, true)
-}
-func configurationApplying(ctx context.Context) bool {
-	value, _ := ctx.Value(configurationApplyKey{}).(bool)
-	return value
-}
 
 func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string) (*protocol.ConfigurationOrigin, error) {
 	user, err := CurrentUser(ctx, db)
@@ -53,20 +45,18 @@ func configurationOrigin(ctx context.Context, db *sql.Conn, category, id string)
 }
 
 func CheckConfigurationEditable(ctx context.Context, db *sql.Conn, category, id string) error {
-	if configurationApplying(ctx) {
-		return nil
-	}
-	if _, cached, err := configurationCacheUser(ctx, db); err != nil {
-		return err
-	} else if cached {
-		return fault(protocol.ErrorCodePermissionDenied, "configuration is managed by its controller")
-	}
-	source, err := configurationOrigin(ctx, db, category, id)
-	if err != nil {
-		return err
-	}
-	if source != nil {
-		return fault(protocol.ErrorCodePermissionDenied, "configuration is read-only on a following host")
+	kind, nodeOwned := configurationKind(category)
+	if !nodeOwned || !kind.LocalOnly {
+		if _, cached, err := configurationCacheUser(ctx, db); err != nil {
+			return err
+		} else if cached {
+			return fault(protocol.ErrorCodePermissionDenied, "configuration is managed by its controller")
+		}
+		if source, err := configurationOrigin(ctx, db, category, id); err != nil {
+			return err
+		} else if source != nil {
+			return fault(protocol.ErrorCodePermissionDenied, "configuration is read-only on a following host")
+		}
 	}
 	return nil
 }
@@ -217,6 +207,9 @@ func CompleteConfigurationFollowDelivery(ctx context.Context, db *sql.Conn, host
 }
 
 func ReadConfigurationManifest(ctx context.Context, db *sql.Conn, source protocol.NodeID, category string) (protocol.ConfigurationManifest, error) {
+	if kind, ok := configurationKind(category); !ok || kind.LocalOnly {
+		return protocol.ConfigurationManifest{}, invalid("unsupported configuration category")
+	}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
 		return protocol.ConfigurationManifest{}, err
@@ -245,11 +238,25 @@ func ReadConfigurationManifest(ctx context.Context, db *sql.Conn, source protoco
 		}
 		value.Records = append(value.Records, record)
 	}
-	return value, rows.Err()
+	if err := rows.Err(); err != nil {
+		return value, err
+	}
+	if category == "runtime_credentials" && user.Controller != nil && *user.Controller == source {
+		value.Captured = []protocol.CapturedModelCredential{}
+		if slices.ContainsFunc(value.Records, func(record protocol.ConfigurationFollowRecord) bool {
+			return strings.HasPrefix(record.ID, "provider:")
+		}) {
+			value.Captured, err = capturedRuntimeCredentials(ctx, db, user.ID, source)
+		}
+	}
+	return value, err
 }
 
 func validateConfigurationManifest(value protocol.ConfigurationManifest) error {
-	_, valid := configurationKind(value.Category)
+	kind, valid := configurationKind(value.Category)
+	if valid && kind.LocalOnly {
+		valid = false
+	}
 	if !valid || value.Revision == 0 || value.Revision > math.MaxInt64 || len(value.Records) > 4096 {
 		return invalid("configuration manifest is invalid")
 	}

@@ -55,17 +55,6 @@ type liveAuthorization struct {
 	recovery   *controllerLoginRecovery
 }
 
-func (r *Runtime) authorizationView(attempt *liveAuthorization, provider bool) *settings.Authorization {
-	if attempt.view == nil {
-		if provider {
-			attempt.view = r.App.Settings.ProviderAuthorization()
-		} else {
-			attempt.view = &r.App.Settings.ConnectorActions.Authorization
-		}
-	}
-	return attempt.view
-}
-
 func localAuthorization(ctx context.Context, presentation *protocol.PluginModelAuthPresentation) (*string, <-chan string, bool, error) {
 	path, port, manual, needed, localhost := "/auth/callback", uint16(0), false, false, false
 	if presentation != nil {
@@ -196,10 +185,13 @@ func (r *Runtime) beginProviderLogin(id string) {
 func (r *Runtime) beginProviderLoginFor(id string, recovery *controllerLoginRecovery) {
 	provider, ok := r.loginProvider(id)
 	if !ok {
+		r.providerLoginFinished(providerIDFromString(id), false)
 		return
 	}
 	if entry, found := r.loginEntry(provider); found && entry.LoginWarning != nil {
-		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLoginFor(id, recovery) })
+		r.App.Settings.WarnProviderAuthorization(provider.Name, r.loginWarning(entry), func() { r.startProviderLoginFor(id, recovery) }, func() {
+			r.providerLoginFinished(provider.ID, false)
+		})
 		return
 	}
 	r.startProviderLoginFor(id, recovery)
@@ -219,6 +211,7 @@ func (r *Runtime) loginWarning(entry protocol.ConversationPresetsEntry) string {
 func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginRecovery) {
 	provider, ok := r.loginProvider(id)
 	if !ok {
+		r.providerLoginFinished(providerIDFromString(id), false)
 		return
 	}
 	if previous := r.authorizations.provider; previous != nil {
@@ -233,6 +226,7 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 	redirect, returned, manual, err := localAuthorization(ctx, presentation)
 	if err != nil {
 		cancel()
+		r.providerLoginFinished(provider.ID, false)
 		r.enqueue(func(c *ui.Context) {
 			r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
 		})
@@ -241,10 +235,21 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 	attempt := &liveAuthorization{provider: id, ctx: ctx, cancel: cancel, title: provider.Name, recovery: recovery}
 	r.authorizations.provider = attempt
 	model := r.App.Settings.Model
-	model.BeginProviderAuthorization(id, provider.Name, manual)
-	view := model.ProviderAuthorization()
+	view := &settings.Authorization{Title: provider.Name, Flow: settings.FlowStarting, Callback: manual}
 	attempt.view = view
 	view.OpenURL = func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }
+	view.Submit = func(callback string) { r.submitProviderLogin(attempt, callback) }
+	view.Cancel = func() {
+		if r.authorizations.provider == attempt {
+			r.cancelProviderLogin()
+		}
+	}
+	view.Retry = func() {
+		if r.authorizations.provider == attempt {
+			r.beginProviderLoginFor(id, recovery)
+		}
+	}
+	model.ShowProviderAuthorization(r.controller.Target().String(), id, view)
 	var started protocol.RequestID
 	started = r.loginRequest(protocol.Command{Kind: "begin_provider_login", Data: protocol.CommandBeginProviderLoginPayload{Provider: provider.ID, ExpectedRevision: provider.Revision, Redirect: redirect}}, func(c *ui.Context, output protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
@@ -255,11 +260,15 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 			cancel()
 			view.Flow = settings.FlowFailed
 			r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
+			if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				r.providerLoginFinished(provider.ID, false)
+			}
 			return
 		}
 		value, ok := detail[protocol.ConversationLoginAttempt](output.Data)
 		if !ok {
 			cancel()
+			r.providerLoginFinished(provider.ID, false)
 			return
 		}
 		attempt.id = value.ID
@@ -270,9 +279,7 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 				case <-ctx.Done():
 				case callback := <-returned:
 					r.enqueue(func(*ui.Context) {
-						if r.authorizations.provider == attempt {
-							r.submitProviderLogin(callback)
-						}
+						r.submitProviderLogin(attempt, callback)
 					})
 				}
 			})
@@ -343,17 +350,23 @@ func projectAuthorization(view *settings.Authorization, state protocol.Conversat
 }
 
 func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, value protocol.ConversationLoginUpdate) {
-	view := r.authorizationView(attempt, true)
+	view := attempt.view
 	expiry, terminal := projectAuthorization(view, value.State)
-	if value.State.Kind == "browser" && view.URL != "" {
+	if value.State.Kind == "browser" && view.URL != "" && r.App.Settings.ProviderAuthorization() == view {
 		c.OpenURL(view.URL)
 	}
 	if value.State.Kind == "failed" {
 		failure, _ := detail[protocol.Fault](value.State.Data)
 		r.reportKeys(c, &failure, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
+		if attempt.recovery == nil {
+			r.providerLoginFinished(providerIDFromString(attempt.provider), false)
+		}
 	}
 	if terminal {
 		attempt.cancel()
+		if value.State.Kind == "cancelled" && attempt.recovery == nil {
+			r.providerLoginFinished(providerIDFromString(attempt.provider), false)
+		}
 	}
 	if value.State.Kind == "connected" {
 		kit.Toast(c, kit.Done, i18n.T(c, "authorization_connected"))
@@ -362,6 +375,7 @@ func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, 
 		if attempt.recovery != nil {
 			r.completeControllerLogin(c, attempt, value.Credential)
 		}
+		r.providerLoginFinished(providerIDFromString(attempt.provider), true)
 		if value.ModelError != nil {
 			r.reportKeys(c, value.ModelError, "provider_query_failed", "provider_revision_changed", "provider_login_unknown")
 		}
@@ -406,12 +420,11 @@ func (r *Runtime) authorizationCountdown(attempt *liveAuthorization, view *setti
 	})
 }
 
-func (r *Runtime) submitProviderLogin(callback string) {
-	attempt := r.authorizations.provider
-	if attempt == nil || attempt.id == (protocol.RequestID{}) {
+func (r *Runtime) submitProviderLogin(attempt *liveAuthorization, callback string) {
+	if r.authorizations.provider != attempt || attempt.id == (protocol.RequestID{}) || attempt.ctx.Err() != nil {
 		return
 	}
-	view := r.authorizationView(attempt, true)
+	view := attempt.view
 	view.Busy = true
 	r.execute(protocol.Command{Kind: "complete_provider_login", Data: protocol.CommandCompleteProviderLoginPayload{Attempt: attempt.id, Callback: protocol.NewSecret(callback)}}, func(c *ui.Context, _ protocol.Output, err error) {
 		if r.authorizations.provider != attempt {
@@ -430,7 +443,7 @@ func (r *Runtime) cancelProviderLogin() {
 	if attempt == nil {
 		return
 	}
-	view := r.authorizationView(attempt, true)
+	view := attempt.view
 	view.Cancelling = true
 	// An attempt the Node never began or has already ended (its context is
 	// over) has nothing to cancel there: the dialog closes by itself.
@@ -438,6 +451,9 @@ func (r *Runtime) cancelProviderLogin() {
 		attempt.cancel()
 		view.Open, view.Cancelling = false, false
 		r.authorizations.provider = nil
+		if attempt.recovery == nil {
+			r.providerLoginFinished(providerIDFromString(attempt.provider), false)
+		}
 		return
 	}
 	r.execute(protocol.Command{Kind: "cancel_provider_login", Data: protocol.CommandCancelProviderLoginPayload{Attempt: attempt.id}}, func(c *ui.Context, _ protocol.Output, err error) {
@@ -448,6 +464,9 @@ func (r *Runtime) cancelProviderLogin() {
 		r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
 		if err == nil {
 			view.Open = false
+			if attempt.recovery == nil {
+				r.providerLoginFinished(providerIDFromString(attempt.provider), false)
+			}
 			attempt.cancel()
 		}
 	})

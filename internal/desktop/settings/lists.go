@@ -183,6 +183,8 @@ type Authorization struct {
 	Busy       bool
 	Cancelling bool
 	OpenURL    func(string)
+	Submit     func(string)
+	Retry      func()
 	Cancel     func()
 }
 

@@ -30,21 +30,43 @@ type ProviderDraft struct {
 	Key              string
 	ExpectedRevision uint64
 	OAuth            [4]string
+	Group            string
+	Targets          []string
+	TargetRevisions  map[string]uint64
 }
+
+// ProviderHost is a Node available to own a model channel.
+type ProviderHost struct {
+	Node, Name string
+	Connected  bool
+}
+
+// ProviderSaveResult reports each Node's outcome for a channel save.
+type ProviderSaveResult struct {
+	// Resume settles outstanding requests and applies edits to the same replicas.
+	Resume          func(ProviderDraft, func(ProviderSaveResult))
+	Succeeded       []string
+	Failed          []string
+	Uncertain       []string
+	Group           string
+	TargetIDs       map[string]string
+	TargetRevisions map[string]uint64
+}
+
 type ProviderActions struct {
 	NewID          func() string
 	Available      func() bool
-	Save           func(ProviderDraft, func(bool))
+	Hosts          func() []ProviderHost
+	DefaultTarget  func() string
+	Save           func(ProviderDraft, func(ProviderSaveResult))
 	Discover       func(ProviderDraft, func([]viewmodel.ChannelModel))
-	Enable         func(string, uint64, bool)
-	Remove         func(string, uint64)
-	ReadKey        func(string, func(string))
+	Enable         func(node, id string, revision uint64, enabled bool)
+	Remove         func(node, id string, revision uint64)
+	ReadKey        func(node, id string, done func(string))
 	RefreshCatalog func()
 	SaveCompaction func()
-	SignIn         func(string)
-	SubmitLogin    func(string)
-	CancelLogin    func()
+	SignIn         func(node, id string)
 	// Usage is what the provider slot holds for the channel, nil where no
 	// enabled package publishes a figure for it.
-	Usage func(c *ui.Context, channel string) *ChannelUsage
+	Usage func(c *ui.Context, node, channel string) *ChannelUsage
 }

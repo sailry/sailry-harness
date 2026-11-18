@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,13 +16,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"lukechampine.com/blake3"
 )
 
 func controllerLoginRunFixture(t *testing.T) (*Node, context.Context, *store.AgentInvocation, protocol.RuntimeCredential, func(protocol.RuntimeCredential)) {
 	t.Helper()
 	node, ctx, provider, reference, write := runtimeCredentialFixture(t)
-	provider.Revision, provider.Enabled, provider.DefaultModel = 1, true, "fixture"
+	provider.Revision, provider.Enabled, provider.DefaultModel, provider.Name = 1, true, "fixture", "Login fixture"
 	model := protocol.DefaultConversationModel()
 	model.ID, model.Context, model.Output, model.Tools = "fixture", 32000, 8000, true
 	provider.Models, provider.Credential = []protocol.ConversationModel{model}, &reference
@@ -44,44 +42,75 @@ func controllerLoginRunFixture(t *testing.T) (*Node, context.Context, *store.Age
 		if _, err := db.ExecContext(ctx, "UPDATE link_peers SET user=?2 WHERE identity=?1", reference.Node[:], user.ID.String()); err != nil {
 			return err
 		}
-		body, err := json.Marshal(provider)
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model, config.Mode, config.Permission = provider.ID, model.ID, protocol.WorkModeCode, protocol.PermissionProject
+		config.Credential = &reference
+		roles := protocol.DefaultRoleSnapshot()
+		roles.Execution = protocol.ConversationExecutionModel
+		captured := protocol.SessionProfile{Source: reference.Node, Provider: provider}
+		localConfig := config
+		localProvider := provider
+		localProvider.Authentication = protocol.AuthenticationApiKey
+		localProvider.Api = protocol.ConversationModelApiResponses
+		localProvider.Credential = nil
+		localProvider.Preset, localProvider.Oauth = nil, nil
+		localProvider.Models = []protocol.ConversationModel{model}
+		localProvider.Enabled = true
+		localSecret := protocol.NewSecret("controller-login-local-fixture-key")
+		localOutput, _, err := store.ExecuteProviderCommand(ctx, db, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_provider", Data: &protocol.CommandSaveProviderPayload{Provider: localProvider, Secret: &localSecret}}), nil)
 		if err != nil {
 			return err
 		}
-		record := protocol.ConfigurationFollowRecord{ID: provider.ID.String(), Revision: provider.Revision, Body: body}
-		encoded, err := json.Marshal(record)
-		if err != nil {
-			return err
-		}
-		digest := blake3.Sum256(encoded)
-		record.Digest = hex.EncodeToString(digest[:])
-		if _, err := store.ApplyConfigurationManifest(ctx, db, node.ID(), reference.Node, protocol.ConfigurationManifest{
-			Source: reference.Node, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
-		}); err != nil {
-			return err
-		}
-		bundle := protocol.DefaultSessionImport()
-		bundle.Source, bundle.Provider = reference.Node, provider
-		bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = provider.ID, model.ID, &reference
-		bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-		bundle.Roles.Execution = protocol.ConversationExecutionModel
+		localSaved := localOutput.Data.(protocol.ConversationProvider)
+		localConfig.Credential = localSaved.Credential
 		output, _, err := store.ExecuteCommand(ctx, db, node.ID(), reference.Node, node.profile.Ownership.Path,
-			protocol.NewRequest(node.ID(), protocol.Command{Kind: "import_session", Data: &bundle}), store.PreparedPaths{})
+			protocol.NewRequest(node.ID(), protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &localConfig}}), store.PreparedPaths{})
 		if err != nil {
 			return err
 		}
 		session := output.Data.(protocol.Session)
+		session, err = store.ReadSession(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{
 			Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Original admitted input"},
 		}})
-		encoded, err = json.Marshal(request)
+		encoded, err := json.Marshal(request)
 		if err != nil {
 			return err
 		}
 		if _, err := db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", reference.Node[:], request.ID.String(), encoded); err != nil {
 			return err
 		}
-		if _, _, err := store.ExecuteAgentCommand(ctx, db, node.ID(), node.profile.Ownership.Path, reference.Node, request, time.Now()); err != nil {
+		admitted, _, err := store.ExecuteAgentCommand(ctx, db, node.ID(), node.profile.Ownership.Path, reference.Node, request, time.Now())
+		if err != nil {
+			return err
+		}
+		queued, ok := admitted.Data.(protocol.QueuedTurn)
+		if !ok {
+			return fmt.Errorf("fixture turn was not admitted")
+		}
+		configBody, err := json.Marshal(config)
+		if err != nil {
+			return err
+		}
+		profileBody, err := json.Marshal(captured)
+		if err != nil {
+			return err
+		}
+		rolesBody, err := json.Marshal(roles)
+		if err != nil {
+			return err
+		}
+		providerBody, err := json.Marshal(provider)
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE session_revisions SET config=?3,profile=?4,roles=?5 WHERE session=?1 AND revision=?2", session.ID.String(), session.Revision, configBody, profileBody, rolesBody); err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE agent_runs SET provider=?2 WHERE turn=?1", queued.ID.String(), providerBody); err != nil {
 			return err
 		}
 		invocation, _, err = store.ClaimNext(ctx, db, time.Now())

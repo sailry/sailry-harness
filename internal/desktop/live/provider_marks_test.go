@@ -3,6 +3,7 @@ package live
 import (
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -26,16 +27,21 @@ func TestPackageBrandMark(t *testing.T) {
 	if icons.Brand(key) != nil || icons.Brand(entry.Preset.ID) != nil {
 		t.Fatal("the collection has a mark for the test brand")
 	}
-	r := &Runtime{App: &shell.App{Settings: settings.New()}}
+	node := protocol.NodeID{1}
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = node
+	controller := client.New(&conversationTestTransport{snapshot: snapshot})
+	r := &Runtime{App: &shell.App{Settings: settings.New()}, controller: controller}
 	r.applyPresets(protocol.ConversationPresetsListing{Entries: []protocol.ConversationPresetsEntry{entry}})
-	if icons.Brand(key) == nil || icons.BrandColor(key) == nil {
+	qualified := node.String() + "/" + key
+	if icons.Brand(qualified) == nil || icons.BrandColor(qualified) == nil {
 		t.Fatal("the brand does not show the mark its package declares")
 	}
 	if icons.Brand(entry.Preset.ID) != nil {
 		t.Fatal("the declared mark was given to another identifier")
 	}
-	brands := r.App.Settings.Brands
-	if len(brands) != 1 || brands[0].ID != key || brands[0].Name != "Markless" || len(brands[0].Methods) != 1 {
+	brands := r.providerCatalogBrands
+	if len(brands) != 1 || brands[0].Node != node.String() || brands[0].ID != qualified || brands[0].Name != "Markless" || len(brands[0].Methods) != 1 {
 		t.Fatalf("brands = %+v", brands)
 	}
 	// The collection's own mark is not replaced by a declared one.

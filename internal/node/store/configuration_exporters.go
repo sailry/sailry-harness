@@ -12,25 +12,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func exportProviderConfiguration(ctx context.Context, db *sql.Conn, _ ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
-	values, err := providerConfigurations(ctx, db)
-	if err != nil {
-		return nil, err
-	}
-	result := []protocol.ConfigurationFollowRecord{}
-	for _, saved := range values {
-		if !saved.Listed || saved.Provider == nil {
-			continue
-		}
-		value := *saved.Provider
-		value.Owner, value.Shared, value.Source, value.Consent = nil, false, nil, nil
-		record, err := configurationRecord(value.ID.String(), value.Revision, value, nil)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, record)
-	}
-	return result, nil
+func exportLocalOnlyConfiguration(context.Context, *sql.Conn, ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
+	return []protocol.ConfigurationFollowRecord{}, nil
 }
 
 func exportRoleConfiguration(ctx context.Context, db *sql.Conn, _ ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
@@ -119,22 +102,6 @@ func exportDatabaseConfiguration(ctx context.Context, db *sql.Conn, options Conf
 		result = append(result, record)
 	}
 	return result, nil
-}
-
-func exportDefaultsConfiguration(ctx context.Context, db *sql.Conn, options ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {
-	value, err := ReadDefaults(ctx, db)
-	if err != nil || value.Config == nil {
-		return nil, err
-	}
-	value.Source = nil
-	config := *value.Config
-	config.Resource = nil
-	if !options.Secrets {
-		config.Credential = nil
-	}
-	value.Config = &config
-	record, err := configurationRecord("default", value.Revision, value, nil)
-	return []protocol.ConfigurationFollowRecord{record}, err
 }
 
 func exportTeamSettingsConfiguration(ctx context.Context, db *sql.Conn, _ ConfigurationExport) ([]protocol.ConfigurationFollowRecord, error) {

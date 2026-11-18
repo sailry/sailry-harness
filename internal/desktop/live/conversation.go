@@ -260,7 +260,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			if saved := r.Preferences.Data.Composer; saved != nil {
 				comp.Mode = modeChoice(saved.Mode)
 				comp.Permission = permissionChoice(saved.Permission)
-				if m := saved.Model; m != nil && (m.Source == snapshot.Node || r.forwards(m.Provider) && m.Source == r.parent.controller.Target()) {
+				if m := saved.Model; m != nil && m.Source == snapshot.Node {
 					for _, p := range r.composerProviders() {
 						if p.ID == m.Provider && p.Enabled && slices.ContainsFunc(p.Models, func(v protocol.ConversationModel) bool { return v.ID == m.Model }) {
 							config := protocol.DefaultSessionConfig()
@@ -473,9 +473,6 @@ func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (prot
 
 func (r *Runtime) rememberConfig(config protocol.SessionConfig, team string) {
 	source := r.controller.Target()
-	if r.forwards(config.Provider) {
-		source = r.parent.controller.Target()
-	}
 	r.Preferences.Data.Composer = &preferences.Composer{Mode: config.Mode, Permission: config.Permission, Team: team, Model: &preferences.Model{Source: source, Provider: config.Provider, Model: config.Model, Effort: config.Effort, Features: config.Features}}
 }
 
@@ -749,6 +746,11 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			x.create(captured.command, m, finish)
 			return
 		}
+	}
+	if session, exists := x.r.session(x.cv.ID); exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
+		x.r.discardUnsubmitted(x.cv.ID)
+		x.r.reportCreation(x.c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "legacy remote model sessions cannot start new turns on this Node"}})
+		return
 	}
 	config, revision, err := x.r.composerConfig(x.comp, m)
 	if err != nil {

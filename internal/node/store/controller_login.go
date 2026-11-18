@@ -20,19 +20,13 @@ func controllerLoginFault(reason string, code protocol.ErrorCode, message string
 // ProviderRecoveryIdentity reads account identity even after expiry, without
 // treating an expired token or an unresolved refresh as usable authorization.
 func ProviderRecoveryIdentity(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef) (string, string, error) {
-	controller, err := CurrentController(ctx, db, node)
-	if err != nil {
-		return "", "", err
-	}
-	if reference.Node != controller {
-		return "", "", controllerLoginFault("target_changed", protocol.ErrorCodePermissionDenied, "credential belongs to another controller")
-	}
-	if controller != node {
+	if reference.Node != node {
 		value, err := readRuntimeCredential(ctx, db, node, "provider", reference.ID.String())
 		if err != nil {
 			return "", "", err
 		}
-		if value.Provider == nil || *value.Provider != provider.ID || value.Authentication != provider.Authentication || value.Generation != reference.ID.String() {
+		if reference.Node != value.Controller || value.Provider == nil || *value.Provider != provider.ID ||
+			value.Authentication != provider.Authentication || value.Generation != reference.ID.String() {
 			return "", "", controllerLoginFault("target_changed", protocol.ErrorCodePermissionDenied, "credential does not match the captured provider")
 		}
 		return value.AccountIdentity, value.AuthenticationTarget, nil
@@ -100,7 +94,8 @@ func CheckControllerLoginWait(ctx context.Context, db *sql.Conn, node, caller pr
 	if err != nil {
 		return run, err
 	}
-	if current.ID != owner.ID || caller != controller || input.Previous.Node != controller || input.Replacement.Node != controller {
+	if current.ID != owner.ID || caller != controller || input.Previous.Node != input.Replacement.Node ||
+		input.Previous.Node != node && input.Previous.Node != controller {
 		return run, controllerLoginFault("target_changed", protocol.ErrorCodePermissionDenied, "only the task's original controller can restore its login")
 	}
 	return run, nil
@@ -110,12 +105,25 @@ func CheckControllerLoginWait(ctx context.Context, db *sql.Conn, node, caller pr
 // arrive before a new durable recovery is admitted. No refresh material is
 // fetched from the controller by the executor.
 func ControllerLoginReplacementAvailable(ctx context.Context, db *sql.Conn, node protocol.NodeID, input protocol.CommandResumeControllerLoginPayload) (bool, error) {
-	controller, err := CurrentController(ctx, db, node)
-	if err != nil || controller == node {
-		return err == nil, err
+	if input.Replacement.Node == node {
+		return true, nil
 	}
 	_, exists, err := ReadConfigurationCache(ctx, db, "runtime_credentials", "provider:"+input.Replacement.ID.String())
-	return exists, err
+	if exists || err != nil {
+		return exists, err
+	}
+	original, err := readCachedConfiguration[protocol.RuntimeCredential](ctx, db, "runtime_credentials", "provider:"+input.Previous.ID.String())
+	if err != nil || original == nil {
+		return false, err
+	}
+	if refusal := original.RefusedReplacement; refusal != nil && refusal.ID == input.Replacement.ID {
+		code := protocol.ErrorCodePermissionDenied
+		if refusal.Reason == "identity_unavailable" {
+			code = protocol.ErrorCodeNotConfigured
+		}
+		return false, controllerLoginFault(refusal.Reason, code, "the new sign-in could not restore the original captured account")
+	}
+	return false, nil
 }
 
 type credentialRecovery struct {

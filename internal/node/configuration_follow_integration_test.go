@@ -17,9 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Real loopback transports exercise the follow workers and target observers. No
-// model request is made, and MCP startup uses the deterministic unavailable fixture.
-func TestConfigurationFollowIntegration(t *testing.T) {
+func TestConfigurationFollowKeepsModelProvidersOnTheirNodeIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	scope := link.NetworkScope{Bind: "127.0.0.1:0"}
@@ -37,14 +35,6 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		return node
 	}
 	source, target := start("source"), start("target")
-	if err := source.Link().SetName("Source workstation"); err != nil {
-		t.Fatal(err)
-	}
-	if err := target.Link().SetName("Target server"); err != nil {
-		t.Fatal(err)
-	}
-	// A shared host already has an administrator. The next controller's personal
-	// configuration is cached in its own authenticated nonadministrator namespace.
 	if err := target.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		_, err := store.CreateUser(ctx, db, "Existing administrator")
 		return err
@@ -86,7 +76,16 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 			}
 		}
 	}
-	readCopy := func(controller *client.Client) protocol.ConversationProvider {
+	var follower protocol.ConfigurationFollowStatus
+	wait("paired user", func() bool {
+		var err error
+		follower, err = remote.ReadConfigurationFollow(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return follower.User != nil && follower.Source != nil && *follower.Source == source.ID()
+	})
+	list := func(controller *client.Client) []protocol.ConversationProvider {
 		t.Helper()
 		output, err := controller.Do(ctx, protocol.Command{Kind: "list_providers"})
 		if err != nil {
@@ -94,140 +93,98 @@ func TestConfigurationFollowIntegration(t *testing.T) {
 		}
 		values, ok := dispatchPayload[[]protocol.ConversationProvider](output.Data)
 		if !ok {
-			t.Fatal("provider list has an invalid payload")
+			t.Fatal("provider listing has an invalid payload")
 		}
-		for _, value := range values {
-			if value.ID == provider.ID || value.Source != nil && value.Source.Node == source.ID() {
-				return value
-			}
-		}
-		return protocol.ConversationProvider{}
+		return values
 	}
-	var copied protocol.ConversationProvider
-	wait("initial worker copy", func() bool {
-		copied = readCopy(remote)
-		return copied.Source != nil && copied.Credential != nil
-	})
-	catalog, err := local.ReadResourceCatalog(ctx)
-	if err != nil || catalog.Entry != source.ID() || len(catalog.Sources) != 2 {
-		t.Fatalf("controller resource directory is unavailable: %+v: %v", catalog, err)
+	if values := list(remote); len(values) != 0 {
+		t.Fatalf("controller providers appeared on the execution Node: %+v", values)
 	}
-	receiving, err := remote.ReadConfigurationFollow(ctx)
-	if err != nil {
-		t.Fatal(err)
+	if values := list(local); len(values) != 1 || values[0].ID != provider.ID {
+		t.Fatalf("source provider changed: %+v", values)
 	}
-	if receiving.User == nil || receiving.User.Administrator || receiving.Source == nil || *receiving.Source != source.ID() || copied.Source.Node != source.ID() || copied.Credential == nil {
-		t.Fatalf("personal configuration mirror is invalid: %#v %#v", receiving, copied)
+	if provider.Credential == nil {
+		t.Fatal("source provider has no credential capture")
 	}
-	denied := func(command protocol.Command) {
-		t.Helper()
-		_, err := remote.Do(ctx, command)
-		var fault *link.FaultError
-		if !errors.As(err, &fault) || fault.Fault.Code != protocol.ErrorCodePermissionDenied {
-			t.Fatalf("%s on a followed provider: %v", command.Kind, err)
-		}
-	}
-	denied(protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: copied, ExpectedRevision: copied.Revision}})
-	denied(protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: copied.ID, ExpectedRevision: copied.Revision}})
-	var policy protocol.ConfigurationFollowTarget
-	wait("source discovers target policy", func() bool {
-		status, err := local.ReadConfigurationFollow(ctx)
+	owner := store.WithUser(ctx, *follower.User)
+	// Wait for the category to reconcile before checking the empty inventory.
+	wait("runtime credentials reconciled", func() bool {
+		var manifest protocol.ConfigurationManifest
+		err := target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+			var err error
+			manifest, err = store.ReadConfigurationManifest(owner, db, source.ID(), "runtime_credentials")
+			return err
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, value := range status.Targets {
-			if value.Host == target.ID() {
-				policy = value
-				return true
-			}
+		if len(manifest.Records) != 0 {
+			t.Fatal("a newly paired host received a controller credential")
 		}
-		return false
+		return manifest.Revision != 0
 	})
-	if !policy.Configuration || !policy.Secrets {
-		t.Fatalf("personal configuration defaults = %#v", policy)
-	}
-	if copied.Credential.Node != source.ID() || copied.Credential.ID != provider.Credential.ID {
-		t.Fatalf("cached credential lost its controller identity: %#v", copied.Credential)
-	}
-	owner := store.WithUser(ctx, *receiving.User)
-	checkKey := func(expected string) error {
-		t.Helper()
-		return target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
-			key, err := store.ReadRuntimeProviderCredential(owner, db, target.ID(), copied, *copied.Credential)
-			if err != nil {
-				return err
-			}
-			if key == nil || key.Expose() != expected {
-				return errors.New("cached runtime credential differs")
-			}
-			var materialized int
-			if err := db.QueryRowContext(owner, "SELECT count(*) FROM providers WHERE id=?1 AND user=?2", copied.ID.String(), receiving.User.ID.String()).Scan(&materialized); err != nil {
-				return err
-			}
-			if materialized != 0 {
-				return errors.New("controller cache was materialized as executor configuration")
-			}
-			return nil
-		})
-	}
-	waitKey := func(expected string) {
-		t.Helper()
-		lastFailure := ""
-		wait("committed runtime credential", func() bool {
-			err := checkKey(expected)
-			if err == nil {
-				return true
-			}
-			status, readErr := local.ReadConfigurationFollow(ctx)
-			if readErr == nil {
-				for _, target := range status.Targets {
-					if target.Host == address.ID && target.Error != nil && target.Error.Error() != lastFailure {
-						lastFailure = target.Error.Error()
-						t.Logf("configuration delivery: %s", lastFailure)
-					}
-				}
-			}
-			return false
-		})
-	}
-	waitKey(forwardedKey)
-	provider.Name = "Updated source provider"
-	updatedKey := protocol.NewSecret("configuration-follow-updated-key")
-	if _, err := local.Do(ctx, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, ExpectedRevision: provider.Revision, Secret: &updatedKey}}); err != nil {
+
+	// The same stable ID identifies the user's selected channel, while each
+	// Node independently owns its endpoint, credential, revision and default.
+	localProvider := provider
+	localProvider.Owner, localProvider.Source, localProvider.Consent = nil, nil, nil
+	localProvider.Revision, localProvider.Shared = 0, false
+	localProvider.Name = "Execution Node channel"
+	localProvider.Endpoint = "https://execution.invalid/v1"
+	localProvider.Credential = nil
+	key := protocol.NewSecret("execution-node-key")
+	output, err := remote.Do(ctx, protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{
+		Provider: localProvider, ExpectedRevision: 0, Secret: &key,
+	}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	wait("committed source change wakes worker", func() bool {
-		copied = readCopy(remote)
-		return copied.Name == provider.Name && copied.Source != nil && copied.Source.Revision > provider.Revision && copied.Credential != nil
-	})
-	waitKey(updatedKey.Expose())
-	capture := copied
+	saved, ok := dispatchPayload[protocol.ConversationProvider](output.Data)
+	if !ok || saved.Credential == nil || saved.Credential.Node != target.ID() || saved.ID != provider.ID || saved.Name != localProvider.Name {
+		t.Fatalf("execution Node did not save its own channel: %+v", output)
+	}
+	secretOutput, err := remote.Do(ctx, protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: saved.ID, ExpectedRevision: saved.Revision}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, ok := dispatchPayload[*protocol.Secret](secretOutput.Data)
+	if !ok || secret == nil || secret.Expose() != key.Expose() {
+		t.Fatal("execution Node did not retain its own API key")
+	}
+	if err := target.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var localRows, copiedRows int
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM providers WHERE id=?1 AND user=?2", saved.ID.String(), follower.User.ID.String()).Scan(&localRows); err != nil {
+			return err
+		}
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM configuration_cache WHERE user=?1 AND category='providers' AND id=?2", follower.User.ID.String(), saved.ID.String()).Scan(&copiedRows); err != nil {
+			return err
+		}
+		if localRows != 1 || copiedRows != 0 {
+			return errors.New("provider is not isolated as the paired user's local configuration")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	local.Close()
 	remote.Close()
 	if err := source.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	copied = capture
-	if copied.Name != provider.Name || copied.Source == nil || copied.Source.Node != source.ID() || copied.Credential == nil {
-		t.Fatal("target lost followed configuration when source stopped")
-	}
-	if err := checkKey(updatedKey.Expose()); err != nil {
+	if err := target.profile.Store.Node.Read(owner, func(db *sql.Conn) error {
+		output, err := store.ReadProviderCommand(owner, db, target.ID(), protocol.Command{
+			Kind: "read_provider_key",
+			Data: protocol.CommandReadProviderKeyPayload{Provider: saved.ID, ExpectedRevision: saved.Revision},
+		})
+		if err != nil {
+			return err
+		}
+		secret, ok := dispatchPayload[*protocol.Secret](output.Data)
+		if !ok || secret == nil || secret.Expose() != key.Expose() {
+			return errors.New("the execution Node lost its own provider key")
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
-	}
-	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model, config.Credential = copied.ID, copied.DefaultModel, copied.Credential
-	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-	request := protocol.NewRequest(target.ID(), protocol.Command{Kind: "create_session", Data: &protocol.CommandCreateSessionPayload{Config: &config}})
-	accepted, err := target.Dispatch(owner, target.ID(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result := <-accepted.Completion
-	if result.Fault != nil {
-		t.Fatal(result.Fault)
-	}
-	session, ok := dispatchPayload[protocol.Session](result.Output.Data)
-	if !ok || session.Config.Provider != copied.ID || session.Config.Credential == nil || *session.Config.Credential != *copied.Credential {
-		t.Fatal("offline source copy cannot configure a target session")
 	}
 }

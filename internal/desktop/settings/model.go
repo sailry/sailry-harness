@@ -233,7 +233,7 @@ type Model struct {
 	SaveMedia        func()
 	expanded         string // the channel whose models show
 	provider         providerEditor
-	login            Authorization
+	login            *Authorization
 	loginFor         string
 	loginWarning     loginWarning
 	removing         string

@@ -101,9 +101,9 @@ conversation reduction, paging and transfer verification.
 
 | Owner | State |
 | --- | --- |
-| Controller Node | Personal configuration, authorization grants, authoritative personal KV and the unified resource directory |
+| Controller Node | Controller-owned settings, authoritative personal KV and the unified resource directory |
 | Execution or storage Node | Projects, files, sessions, canonical history, knowledge indexes, dispatch, admitted revisions and operation outcomes |
-| Executor's user cache | Controller configuration, execution credentials, personal KV base and pending local writes |
+| Executor's user cache | Followed configuration, retained runtime credentials for existing captures, personal KV base and pending local writes |
 | Client | Ordered projections, recovery state and shared detail caches |
 | Desktop / Flutter | Drafts, focus, layout, selection and expansion |
 | Controller device | Identity, paired peers, preferences and rebuildable caches |
@@ -177,25 +177,31 @@ concurrency token; it does not determine which messages a history action retains
 
 ### Personal configuration and credentials
 
-Each controller's local Node owns its personal configuration. Settings pages edit
-that source; project hook settings stay on the project's execution Node. Direct
-execution hosts retain a separate cache for each controller, using source IDs,
-revisions and digests. Packages materialize their exact immutable archives before
-dependent settings. Providers, roles, teams, connection definitions and personal
-settings resolve through this cache without becoming host-local authoritative
-rows. A single configuration registry owns category export, validation, events
-and invalidation. Cached records are never published onward as another
-controller's source. Composite exports, including package settings references,
-retain their own monotonic export revision rather than reusing a connection's
-business revision for changing content. This leaves connection edit CAS intact.
+Each Node owns its model channels, model credentials and session defaults for its
+authenticated users. Desktop presents connected Nodes together, while each save,
+login, renewal and default-model choice remains bound to the owning Node. Static
+API-key channels can have explicit per-Node copies tracked in desktop preferences;
+OAuth grants stay on one Node. Selecting a project selects that Node's channels.
+New sessions cannot borrow a model channel or credential from their controller.
 
-Remote session creation forwards frozen provider and role metadata under the
-original request identity. The executor resolves their controller cache and
-runtime credentials without remapping IDs or importing account grants. Missing
-cache revisions reject admission; they do not trigger an on-demand configuration
-copy. The source retains the forwarded metadata with its request so an unknown
-outcome can be recovered after configuration changes or a restart. Historical
-session-private provider records remain stored for existing sessions.
+Other controller-owned personal configuration is followed by direct execution
+hosts in a separate cache for each controller, using source IDs, revisions and
+digests. Packages materialize their exact immutable archives before dependent
+settings. Roles, teams, connection definitions and personal settings resolve
+through this cache without becoming host-local authoritative rows. Model
+providers and defaults are excluded. Runtime credential records remain
+exportable only to preserve already admitted historical captures; they are not
+model choices for new sessions. A single configuration registry owns category
+export, validation, events and invalidation. Cached records are never published
+onward as another controller's source. Composite exports, including package
+settings references, retain their own monotonic export revision rather than
+reusing a connection's business revision for changing content. This leaves
+connection edit CAS intact.
+
+New sessions are created on the Node that owns the selected model. The retired
+remote import path rejects first-time admissions; the exact request ledger still
+answers previously accepted replays. Existing session-private provider records
+and their retained runtime credentials remain available to admitted work.
 
 Configuration snapshots travel in bounded pages under one persisted delivery
 identity. Receivers retain staged pages and their digests across restarts; the
@@ -213,28 +219,31 @@ even after the channel selects a newer key. Plugin-backed authentication checks
 the current installation's availability while loading its captured package and
 settings; changing a package does not replace an existing account's binding.
 
-Sign-in and renewal run on the controller. Execution hosts receive static keys
-and the current runtime credentials needed for their captured operations, with
-the original account identity, generation and real expiry. Refresh tokens, OAuth
-client secrets, private registrations and other renewal material remain at the
-source. Declared runtime header and connector slots cannot expose those fields.
-Machine-bound CLI credentials stay on their own Node. The implementation stores
-secrets as plaintext in private profile databases; it has no encrypted vault or
-OS keychain. Public projections and diagnostics exclude secret values.
+Each Node signs in and renews the model accounts it owns. Other execution hosts
+receive runtime credential records only when needed to keep an already admitted
+historical capture working, with the original account identity, generation and
+real expiry. Refresh tokens, OAuth client secrets, private registrations and
+other renewal material remain on the owning Node. Connector credentials retain
+their existing controller-owned configuration flow. Declared runtime header and
+connector slots cannot expose refresh material. Machine-bound CLI credentials
+stay on their own Node. The implementation stores secrets as plaintext in
+private profile databases; it has no encrypted vault or OS keychain. Public
+projections and diagnostics exclude secret values.
 
 Renewable grants with a known issue time are due at
 `issued_at + (expires_at - issued_at) / 4`, respecting any provider-declared
 earliest refresh time. Renewal does not shorten the recorded expiry. Legacy
 grants without an issue time retain their existing refresh rule; no lifetime is
 invented. Refreshes are serialized by credential identity, and an uncertain
-rotation is not replayed. Controller timers retry failures that sent no renewal
+rotation is not replayed. Node timers retry failures that sent no renewal
 request, including legacy grants using their existing expiry rule. An early
 refresh failure does not invalidate an access token before its real expiry;
 uncertain rotations block further refresh attempts while allowing a still-valid
-access token to run. Hosts continue using valid cached inputs while the
-controller is offline. If a captured model credential expires, the current turn
-waits at its next model step with `controller_login` state. A replacement for that
-same credential resumes the same turn. An unresolved or rejected renewal keeps
+access token to run. A Node can renew its local model accounts while other Nodes
+are offline. Existing tasks that still depend on a retained remote capture can
+use valid cached inputs while that source is offline. If a captured model credential
+expires, the current turn waits at its next model step with `controller_login`
+state. A replacement for that credential resumes the same turn. An unresolved or rejected renewal keeps
 the model step waiting with its reason; it does not replay the rotation.
 Completed tools are not rerun to resume it.
 

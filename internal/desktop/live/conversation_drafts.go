@@ -22,6 +22,8 @@ func unsentDraft(cv *viewmodel.Conversation) bool { return strings.HasPrefix(cv.
 func (r *Runtime) newDraft(p *viewmodel.Project) {
 	cv := r.draftIn(p)
 	if p != nil {
+		comp := r.App.Composer(cv.ID)
+		comp.Host, comp.Project = p.Host, p.ID
 		r.App.Sidebar.Reveal(p.ID)
 	}
 	r.App.Page = shell.ConversationPage

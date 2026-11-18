@@ -70,6 +70,14 @@ type Model struct {
 	Effort   protocol.Effort     `json:"effort"`
 	Features map[string]string   `json:"features"`
 }
+type ProviderMember struct {
+	Node     protocol.NodeID     `json:"node"`
+	Provider protocol.ProviderID `json:"provider"`
+}
+type ProviderGroup struct {
+	ID      protocol.RequestID `json:"id"`
+	Members []ProviderMember   `json:"members"`
+}
 type Dictation struct {
 	Microphone *string           `json:"microphone"`
 	Language   string            `json:"language"`
@@ -118,6 +126,7 @@ type Data struct {
 	Pins              *map[string]Pin           `json:"pins"`
 	ArtifactDrafts    *map[string]ArtifactDraft `json:"artifact_drafts"`
 	PluginDirectories *map[string]Directory     `json:"plugin_directories"`
+	ProviderGroups    []ProviderGroup           `json:"provider_groups,omitempty"`
 	MessageDisplay    *string                   `json:"message_display"`
 	SessionOrder      *string                   `json:"session_order"`
 	MessageTextSize   *uint8                    `json:"message_text_size"`
@@ -217,6 +226,20 @@ func (d Data) Validate() error {
 	}
 	if !slices.Contains([]uint64{3, 5, 8, 10}, d.ToastSeconds) {
 		return errors.New("invalid notification duration")
+	}
+	groups, members := map[protocol.RequestID]bool{}, map[ProviderMember]bool{}
+	for _, group := range d.ProviderGroups {
+		if group.ID == (protocol.RequestID{}) || groups[group.ID] || len(group.Members) < 2 {
+			return errors.New("invalid provider group")
+		}
+		groups[group.ID] = true
+		seenNodes := map[protocol.NodeID]bool{}
+		for _, member := range group.Members {
+			if member.Node == (protocol.NodeID{}) || member.Provider == (protocol.ProviderID{}) || seenNodes[member.Node] || members[member] {
+				return errors.New("invalid provider group member")
+			}
+			seenNodes[member.Node], members[member] = true, true
+		}
 	}
 	if d.Terminal.FontSize < 8 || d.Terminal.FontSize > 32 || strings.ContainsFunc(d.Terminal.FontFamily, unicode.IsControl) {
 		return errors.New("invalid terminal display preferences")

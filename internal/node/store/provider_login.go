@@ -109,7 +109,7 @@ func providerAuthDeclaration(ctx context.Context, db *sql.Conn, provider protoco
 
 func CaptureProviderLogin(ctx context.Context, db *sql.Conn, id protocol.ProviderID, expected uint64, attempt protocol.RequestID) (ProviderLoginCapture, error) {
 	var capture ProviderLoginCapture
-	if err := checkProviderWrite(configurationApplyContext(ctx), db, id); err != nil {
+	if err := checkProviderWrite(ctx, db, id); err != nil {
 		return capture, err
 	}
 	saved, err := currentProvider(ctx, db, id, &expected)
@@ -264,7 +264,7 @@ func CaptureProviderAuthorization(ctx context.Context, db *sql.Conn, id protocol
 	if saved != nil && saved.Provider == nil {
 		return protocol.ConversationProvider{}, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "provider does not exist")
 	}
-	if saved == nil || !saved.Listed && transferable(saved.Provider.Authentication) != nil {
+	if saved == nil || !saved.Listed && saved.Provider.Authentication != protocol.AuthenticationApiKey && saved.Provider.Authentication != protocol.AuthenticationCopilot {
 		return protocol.ConversationProvider{}, fault(protocol.ErrorCodeNotFound, "provider does not exist")
 	}
 	return CaptureProvider(ctx, db, *saved.Provider)
@@ -280,18 +280,11 @@ func authorizationProvider(ctx context.Context, db *sql.Conn, provider protocol.
 	if saved == nil || saved.Provider == nil {
 		return nil, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "provider does not exist")
 	}
-	if !saved.Listed && provider.Authentication != protocol.AuthenticationCopilot {
-		return nil, protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "provider does not exist")
-	}
 	return saved, nil
 }
 
 func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef) (*protocol.Secret, error) {
-	controller, err := CurrentController(ctx, db, node)
-	if err != nil {
-		return nil, err
-	}
-	if controller != node {
+	if reference.Node != node {
 		return ReadRuntimeProviderCredential(ctx, db, node, provider, reference)
 	}
 	saved, err := authorizationProvider(ctx, db, provider)
@@ -331,17 +324,13 @@ func ReadProviderAuthorization(ctx context.Context, db *sql.Conn, node protocol.
 			return nil, protocol.NewConfigurationFault(protocol.ConfigurationAuthenticationChanged, "model authentication changed; sign in again")
 		}
 	}
+	if expiry := grant.Expiry(); expiry != nil && *expiry <= uint64(time.Now().UnixMilli()) {
+		return nil, fault(protocol.ErrorCodeExpired, "provider authorization expired; sign in again")
+	}
 	return resolveCapturedProviderKey(ctx, db, node, reference, provider)
 }
 
 func BeginProviderRenewal(ctx context.Context, db *sql.Conn, node protocol.NodeID, provider protocol.ConversationProvider, reference protocol.CredentialRef, now time.Time) (*ProviderRenewal, error) {
-	controller, err := CurrentController(ctx, db, node)
-	if err != nil {
-		return nil, err
-	}
-	if controller != node {
-		return nil, fault(protocol.ErrorCodePermissionDenied, "only the controller renews account credentials")
-	}
 	if reference.Node != node {
 		return nil, fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node")
 	}

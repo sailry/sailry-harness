@@ -38,7 +38,7 @@ func TestRuntimeCredentialExportIncludesCapturedAccountsWithoutRenewalMaterial(t
 			}}); err != nil {
 			return err
 		}
-		records, err := ExportRuntimeCredentials(ctx, db, node)
+		records, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{first: {}, second: {}})
 		if err != nil || len(records) != 2 {
 			return fmt.Errorf("runtime accounts missing retained generation: %d, %w", len(records), err)
 		}
@@ -51,6 +51,71 @@ func TestRuntimeCredentialExportIncludesCapturedAccountsWithoutRenewalMaterial(t
 			if json.Unmarshal(record.Body, &value) != nil || value.Controller != node || value.Generation != value.ID || value.Access.Expose() != grant.Access {
 				return fmt.Errorf("runtime identity or token was lost")
 			}
+		}
+		// Simulate the controller's last pre-upgrade export to one host.
+		host := protocol.NodeID{31}
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		digest, err := configurationManifestDigest(records)
+		if err != nil {
+			return err
+		}
+		if _, err := db.ExecContext(ctx, "INSERT INTO configuration_follow_versions(user,source,category,revision,digest) VALUES(?1,?2,'runtime_credentials',1,?3)", user.ID.String(), host[:], digest); err != nil {
+			return err
+		}
+		known := protocol.ConfigurationManifest{Source: node, Category: "runtime_credentials", Revision: 1, Records: records}
+		// An older host can keep its existing material, but no fresh token is sent.
+		legacy, err := ExportConfigurationManifest(ctx, db, node, host, "runtime_credentials", true, nil, &known)
+		if err != nil || len(legacy.Records) != 2 || len(legacy.Records[0].Body)+len(legacy.Records[1].Body) != 0 {
+			return fmt.Errorf("legacy peer did not keep metadata-only records: %v", err)
+		}
+		known.Captured = []protocol.CapturedModelCredential{{ID: first}}
+		other, err := ExportConfigurationManifest(ctx, db, node, protocol.NodeID{32}, "runtime_credentials", true, nil, &known)
+		if err != nil || len(other.Records) != 0 {
+			return fmt.Errorf("a different host obtained the historical account: %v", err)
+		}
+		only, err := ExportConfigurationManifest(ctx, db, node, host, "runtime_credentials", true, nil, &known)
+		if err != nil || len(only.Records) != 1 || only.Records[0].ID != "provider:"+first.String() {
+			return fmt.Errorf("a host received a credential outside its turn: %v", err)
+		}
+		known = only
+		known.Captured = []protocol.CapturedModelCredential{{ID: first, Waiting: true}}
+		waiting, err := ExportConfigurationManifest(ctx, db, node, host, "runtime_credentials", true, nil, &known)
+		if err != nil || len(waiting.Records) != 1 {
+			return fmt.Errorf("replacement without trusted workspace was exported: %v", err)
+		}
+		var retained protocol.RuntimeCredential
+		if err := json.Unmarshal(waiting.Records[0].Body, &retained); err != nil {
+			return err
+		}
+		if retained.RefusedReplacement == nil || retained.RefusedReplacement.ID != second || retained.RefusedReplacement.Reason != "identity_unavailable" {
+			return fmt.Errorf("the waiting host cannot report the rejected login")
+		}
+		org := "original-workspace"
+		grant.OrgID = &org
+		material, err := json.Marshal(grant)
+		if err != nil {
+			return err
+		}
+		issued := protocol.NewSecret(string(material))
+		if err := saveProviderConfiguration(ctx, db, providerConfiguration{ID: provider.ID, Listed: true, Provider: &provider,
+			Authorizations: map[protocol.CredentialID]providerAuthorization{
+				first:  {Authentication: provider.Authentication, Revision: 5, Key: &issued},
+				second: {Authentication: provider.Authentication, Revision: 2, Key: &issued},
+			}}); err != nil {
+			return err
+		}
+		reauthorized, err := ExportConfigurationManifest(ctx, db, node, host, "runtime_credentials", true, nil, &known)
+		if err != nil || len(reauthorized.Records) != 2 {
+			return fmt.Errorf("verified waiting account did not receive its replacement: %v", err)
+		}
+		known = reauthorized
+		known.Captured = []protocol.CapturedModelCredential{}
+		finished, err := ExportConfigurationManifest(ctx, db, node, host, "runtime_credentials", true, nil, &known)
+		if err != nil || len(finished.Records) != 0 {
+			return fmt.Errorf("credentials remained in the inventory after completion: %v", err)
 		}
 		return nil
 	})
@@ -149,30 +214,22 @@ func TestRuntimeCredentialStatesAndConnectorRefreshTime(t *testing.T) {
 func TestForwardedSessionAdmitsExpiredSameAccountCapture(t *testing.T) {
 	t.Parallel()
 	storage, node, controller, ctx := controllerCacheFixture(t)
-	profile := t.TempDir()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		provider := providerFixture()
 		provider.Revision, provider.Authentication = 1, protocol.AuthenticationClaudeOAuth
 		provider.Api, provider.Endpoint = protocol.ConversationModelApiAnthropic, "https://api.anthropic.com"
 		reference := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
 		provider.Credential = &reference
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "providers", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, provider.ID.String(), provider.Revision, provider, nil)},
-		}); err != nil {
-			return err
-		}
 		expired := uint64(1)
 		runtime := protocol.RuntimeCredential{
 			Controller: controller, Kind: "provider", ID: reference.ID.String(), Generation: reference.ID.String(),
 			Revision: 1, State: "ready", Provider: &provider.ID, Authentication: provider.Authentication,
 			Endpoint: provider.Endpoint, Access: protocol.NewSecret("expired-runtime"), ExpiresAtMs: &expired,
 		}
-		bundle := protocol.DefaultSessionImport()
-		bundle.Source, bundle.Provider = controller, provider
-		bundle.Config.Provider, bundle.Config.Model, bundle.Config.Credential = provider.ID, "fixture", &reference
-		bundle.Config.Mode, bundle.Config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-		bundle.Roles.Execution = protocol.ConversationExecutionModel
+		config := protocol.DefaultSessionConfig()
+		config.Provider, config.Model, config.Credential = provider.ID, "fixture", &reference
+		config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
+		capture := protocol.SessionProfile{Source: controller, Provider: provider}
 		for _, fixture := range []struct {
 			name, state, generation string
 			code                    protocol.ErrorCode
@@ -188,18 +245,14 @@ func TestForwardedSessionAdmitsExpiredSameAccountCapture(t *testing.T) {
 			}); err != nil {
 				return err
 			}
-			output, _, err := importSession(ctx, db, node, controller, profile, bundle)
+			err := validateCapturedConfig(ctx, db, node, capture, config)
 			if fixture.code != "" {
 				if !providerFixtureFault(err, fixture.code) {
-					return fmt.Errorf("%s admission: %v", fixture.name, err)
+					return fmt.Errorf("%s captured config validation: %v", fixture.name, err)
 				}
 			} else {
 				if err != nil {
-					return fmt.Errorf("same-account expiry rejected session admission: %w", err)
-				}
-				session, ok := output.Data.(protocol.Session)
-				if !ok || session.Config.Credential == nil || *session.Config.Credential != reference {
-					return fmt.Errorf("admission replaced the captured account")
+					return fmt.Errorf("same-account expiry rejected captured session: %w", err)
 				}
 				if _, err := ReadRuntimeProviderCredential(ctx, db, node, provider, reference); !providerFixtureFault(err, protocol.ErrorCodeExpired) {
 					return fmt.Errorf("admission made expired access usable: %v", err)

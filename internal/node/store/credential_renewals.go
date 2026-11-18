@@ -32,19 +32,15 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 			continue
 		}
 		owner := WithUser(ctx, user)
-		controller, err := CurrentController(owner, db, node)
-		if err != nil {
-			return nil, err
-		}
-		if controller != node {
-			continue
-		}
 		configurations, err := providerConfigurations(owner, db)
 		if err != nil {
 			return nil, err
 		}
 		for _, saved := range configurations {
 			if saved.Provider == nil {
+				continue
+			}
+			if saved.Provider.Credential != nil && saved.Provider.Credential.Node != node {
 				continue
 			}
 			for id, value := range saved.Authorizations {
@@ -68,6 +64,13 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 					Revision: value.Revision, DueMs: *due,
 				})
 			}
+		}
+		controller, err := CurrentController(owner, db, node)
+		if err != nil {
+			return nil, err
+		}
+		if controller != node {
+			continue
 		}
 		connections, err := connectorRecords(owner, db)
 		if err != nil {

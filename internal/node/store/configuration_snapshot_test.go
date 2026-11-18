@@ -77,7 +77,7 @@ func snapshotCacheRecords(t *testing.T, storage *Store, ctx context.Context, sou
 	var revision uint64
 	var records []protocol.ConfigurationFollowRecord
 	if err := storage.Node.Read(ctx, func(db *sql.Conn) error {
-		manifest, err := ReadConfigurationManifest(ctx, db, source, "providers")
+		manifest, err := ReadConfigurationManifest(ctx, db, source, "roles")
 		if err != nil {
 			return err
 		}
@@ -93,18 +93,18 @@ func largeSnapshotRecords(t *testing.T, count int) []protocol.ConfigurationFollo
 	t.Helper()
 	var records []protocol.ConfigurationFollowRecord
 	for index := range count {
-		provider := providerFixture()
-		provider.ID = protocol.NewProviderID()
-		provider.Name = fmt.Sprintf("Snapshot provider %d", index)
-		provider.Revision = 1
-		body, err := json.Marshal(provider)
+		role := protocol.DefaultRoleProfile()
+		role.ID, role.Revision = protocol.NewRoleID(), 1
+		role.Key = fmt.Sprintf("snapshot_%d", index)
+		role.Name = fmt.Sprintf("Snapshot role %d", index)
+		body, err := json.Marshal(role)
 		if err != nil {
 			t.Fatal(err)
 		}
 		// An ignored body field exercises record-size pagination without
 		// creating invalid configuration or oversized user-visible events.
 		body = append(body[:len(body)-1], []byte(`,"fixture_padding":"`+strings.Repeat("x", 960*1024)+`"}`)...)
-		record := protocol.ConfigurationFollowRecord{ID: provider.ID.String(), Revision: provider.Revision, Body: body}
+		record := protocol.ConfigurationFollowRecord{ID: role.ID.String(), Revision: role.Revision, Body: body}
 		record.Digest, err = configurationDigest(record)
 		if err != nil {
 			t.Fatal(err)
@@ -116,13 +116,13 @@ func largeSnapshotRecords(t *testing.T, count int) []protocol.ConfigurationFollo
 
 func TestConfigurationSnapshotPublishesOnlyWhenCompleteAndResumesAfterRestart(t *testing.T) {
 	storage, node, source, ctx := snapshotFixture(t)
-	oldProvider := providerFixture()
-	oldProvider.Revision = 1
-	old := followRecord(t, oldProvider.ID.String(), 1, oldProvider, nil)
-	if err := applyFollowFixture(t, storage, ctx, node, source, "providers", 1, old); err != nil {
+	oldRole := protocol.DefaultRoleProfile()
+	oldRole.ID, oldRole.Revision, oldRole.Key, oldRole.Name = protocol.NewRoleID(), 1, "old_capture", "Old capture"
+	old := followRecord(t, oldRole.ID.String(), 1, oldRole, nil)
+	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, old); err != nil {
 		t.Fatal(err)
 	}
-	next := protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 2, Records: largeSnapshotRecords(t, 18)}
+	next := protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 2, Records: largeSnapshotRecords(t, 18)}
 	pages := snapshotPages(t, next)
 	if pages[0].Bytes <= protocol.MAX_FRAME_BYTES || len(pages) < 2 {
 		t.Fatal("fixture does not exceed a wire frame")
@@ -202,7 +202,7 @@ func TestConfigurationSnapshotPublishesOnlyWhenCompleteAndResumesAfterRestart(t 
 
 func TestConfigurationSnapshotRejectsChangedIdentityAndPartialOrdering(t *testing.T) {
 	storage, node, source, ctx := snapshotFixture(t)
-	manifest := protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 1, Records: largeSnapshotRecords(t, 2)}
+	manifest := protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 1, Records: largeSnapshotRecords(t, 2)}
 	pages := snapshotPages(t, manifest)
 	_, _, err := stageSnapshot(t, storage, ctx, node, source, pages[1])
 	if !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
@@ -259,15 +259,16 @@ func TestConfigurationSnapshotValidatesDigestBeforeDeletingCurrentCache(t *testi
 	for _, corrupt := range []string{"digest", "record", "header", "trailing"} {
 		t.Run(corrupt, func(t *testing.T) {
 			storage, node, source, ctx := snapshotFixture(t)
-			provider := providerFixture()
-			old := followRecord(t, provider.ID.String(), 1, provider, nil)
-			if err := applyFollowFixture(t, storage, ctx, node, source, "providers", 1, old); err != nil {
+			role := protocol.DefaultRoleProfile()
+			role.ID, role.Revision, role.Key, role.Name = protocol.NewRoleID(), 1, "retained", "Retained"
+			old := followRecord(t, role.ID.String(), 1, role, nil)
+			if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, old); err != nil {
 				t.Fatal(err)
 			}
-			next := protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 2, Records: []protocol.ConfigurationFollowRecord{}}
+			next := protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 2, Records: []protocol.ConfigurationFollowRecord{}}
 			if corrupt == "record" {
-				provider.ID = protocol.NewProviderID()
-				record := followRecord(t, provider.ID.String(), 1, provider, nil)
+				role.ID = protocol.NewRoleID()
+				record := followRecord(t, role.ID.String(), 1, role, nil)
 				record.Digest = strings.Repeat("0", 64)
 				next.Records = []protocol.ConfigurationFollowRecord{record}
 			}
@@ -299,12 +300,13 @@ func TestConfigurationSnapshotValidatesDigestBeforeDeletingCurrentCache(t *testi
 
 func TestConfigurationSnapshotEmptyReplacementAndRetainedReceipt(t *testing.T) {
 	storage, node, source, ctx := snapshotFixture(t)
-	provider := providerFixture()
-	old := followRecord(t, provider.ID.String(), 1, provider, nil)
-	if err := applyFollowFixture(t, storage, ctx, node, source, "providers", 1, old); err != nil {
+	role := protocol.DefaultRoleProfile()
+	role.ID, role.Revision, role.Key, role.Name = protocol.NewRoleID(), 1, "retained", "Retained"
+	old := followRecord(t, role.ID.String(), 1, role, nil)
+	if err := applyFollowFixture(t, storage, ctx, node, source, "roles", 1, old); err != nil {
 		t.Fatal(err)
 	}
-	pages := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 2, Records: []protocol.ConfigurationFollowRecord{}})
+	pages := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 2, Records: []protocol.ConfigurationFollowRecord{}})
 	progress, changes, err := stageSnapshot(t, storage, ctx, node, source, pages[0])
 	if err != nil || !progress.Complete || len(changes) != 2 {
 		t.Fatalf("empty replacement did not remove prior data once: %+v %d %v", progress, len(changes), err)
@@ -312,7 +314,7 @@ func TestConfigurationSnapshotEmptyReplacementAndRetainedReceipt(t *testing.T) {
 	if revision, records := snapshotCacheRecords(t, storage, ctx, source); revision != 2 || len(records) != 0 {
 		t.Fatal("empty snapshot did not clear absent records")
 	}
-	next := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 3, Records: []protocol.ConfigurationFollowRecord{old}})
+	next := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 3, Records: []protocol.ConfigurationFollowRecord{old}})
 	if _, _, err := stageSnapshot(t, storage, ctx, node, source, next[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +329,7 @@ func TestConfigurationSnapshotEmptyReplacementAndRetainedReceipt(t *testing.T) {
 
 func TestConfigurationSnapshotReceiptAndPublicationRollbackTogether(t *testing.T) {
 	storage, node, source, ctx := snapshotFixture(t)
-	pages := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}})
+	pages := snapshotPages(t, protocol.ConfigurationManifest{Source: source, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{}})
 	page := pages[0]
 	abort := errors.New("fixture transaction interrupted before commit")
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -372,7 +374,7 @@ func TestConfigurationSnapshotReceiptAndPublicationRollbackTogether(t *testing.T
 func TestConfigurationSnapshotUsesAuthenticatedControllerAndExactPageID(t *testing.T) {
 	storage, node, source, ctx := snapshotFixture(t)
 	page := snapshotPages(t, protocol.ConfigurationManifest{
-		Source: source, Category: "providers", Revision: 1, Records: []protocol.ConfigurationFollowRecord{},
+		Source: source, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{},
 	})[0]
 	wrongSource := page
 	wrongSource.Source = protocol.NodeID{99}

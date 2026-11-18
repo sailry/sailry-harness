@@ -667,7 +667,7 @@ func TestProviderEditor(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Live = true
 		var saved []ProviderDraft
-		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(ProviderSaveResult)) { saved = append(saved, d) }
 		chatgpt := preview.Method{ID: "chatgpt", Name: "ChatGPT OAuth", Access: "provider_access_login", Login: "provider_login_chat_gpt",
 			OAuth: [4]string{"0.160.1", "Sailry/0.1"}, Routes: []preview.Route{{ID: "chatgpt/0", API: "responses", Endpoint: "https://chatgpt.example/codex"}}}
 		copilot := preview.Method{ID: "copilot", Name: "Copilot", Access: "provider_access_login", Login: "provider_access_login",
@@ -725,7 +725,7 @@ func TestProviderEditor(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Live = true
 		var saved []ProviderDraft
-		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(ProviderSaveResult)) { saved = append(saved, d) }
 		azure := preview.Method{ID: "azure", Name: "Azure OpenAI", Access: "provider_access_endpoint", Keyed: true, Routes: []preview.Route{{ID: "azure/0", API: "azure_open_ai", Custom: true}}}
 		e := &m.provider
 		e.add(m)
@@ -807,7 +807,7 @@ func TestProviderEditor(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Live = true
 		var saved []ProviderDraft
-		m.ProviderActions.Save = func(d ProviderDraft, _ func(bool)) { saved = append(saved, d) }
+		m.ProviderActions.Save = func(d ProviderDraft, _ func(ProviderSaveResult)) { saved = append(saved, d) }
 		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true, models: draftsOf([]preview.ChannelModel{
 			{ID: "hosted", Context: 128000, Tools: true, Generates: []string{viewmodel.GenerateImageTool, viewmodel.GenerateSpeech}},
 			{ID: "plain", Context: 128000, Vision: true},

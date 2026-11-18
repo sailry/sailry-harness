@@ -24,7 +24,7 @@ func configurationDigest(value any) (string, error) {
 
 // ExportConfigurationManifest exports only the source Node's local personal
 // rows. A receiver's replicas never become another user's onward source.
-func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host protocol.NodeID, category string, secrets bool, declarations ...map[string]protocol.PluginMcpConfiguration) (protocol.ConfigurationManifest, error) {
+func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host protocol.NodeID, category string, secrets bool, declarations map[string]protocol.PluginMcpConfiguration, known *protocol.ConfigurationManifest) (protocol.ConfigurationManifest, error) {
 	value := protocol.ConfigurationManifest{Source: node, Category: category, Records: []protocol.ConfigurationFollowRecord{}}
 	user, err := CurrentUser(ctx, db)
 	if err != nil {
@@ -34,12 +34,15 @@ func ExportConfigurationManifest(ctx context.Context, db *sql.Conn, node, host p
 		return value, fault(protocol.ErrorCodePermissionDenied, "only local configuration can be published")
 	}
 	kind, ok := configurationKind(category)
-	if !ok || kind.Export == nil {
+	if !ok || kind.Export == nil || kind.LocalOnly {
 		return value, invalid("unsupported configuration category")
 	}
-	options := ConfigurationExport{Node: node, Secrets: secrets, Declarations: map[string]protocol.PluginMcpConfiguration{}}
-	if len(declarations) != 0 {
-		options.Declarations = declarations[0]
+	options := ConfigurationExport{Node: node, Secrets: secrets, Declarations: declarations}
+	if category == "runtime_credentials" && known != nil && len(known.Records) != 0 {
+		options.Captured, err = authorizedRuntimeCaptures(ctx, db, user, host, node, *known)
+		if err != nil {
+			return value, err
+		}
 	}
 	value.Records, err = kind.Export(ctx, db, options)
 	if err != nil {

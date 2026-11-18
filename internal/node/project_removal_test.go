@@ -103,8 +103,7 @@ func TestProjectRemovalClosesResources(t *testing.T) {
 		}
 		node.processes = service
 		project, _ := projectFixture(t, node)
-		config := protocol.DefaultSessionConfig()
-		config.Provider, config.Model, config.Mode, config.Permission = protocol.NewProviderID(), "fixture", protocol.WorkModeCode, protocol.PermissionProject
+		config := sessionConfigFixture(t, node)
 		inside := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 		outside := sessionFixture(t, node)
 		for _, session := range []protocol.SessionID{inside.ID, outside.ID} {

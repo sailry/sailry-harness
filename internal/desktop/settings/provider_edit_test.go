@@ -21,11 +21,11 @@ func TestSavedProviderProtocolAndKey(t *testing.T) {
 	m.Channels = []preview.Channel{{ID: "saved", Revision: 7, Name: "Saved", Brand: "fixture", Method: "compatible/1", API: "chat_completions",
 		Endpoint: "https://provider.example/v1", Auth: preview.AuthKey, KeySet: true, Models: models, Default: 1}}
 	var read func(string)
-	m.ProviderActions.ReadKey = func(_ string, done func(string)) { read = done }
+	m.ProviderActions.ReadKey = func(_, _ string, done func(string)) { read = done }
 	var saved []ProviderDraft
-	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) {
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
 		saved = append(saved, draft)
-		done(false)
+		done(ProviderSaveResult{Failed: []string{"fixture-node"}})
 	}
 	e := &m.provider
 	e.edit(m, &m.Channels[0])
@@ -81,7 +81,7 @@ func TestSavedProviderKeyReadKeepsDraft(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Live = true
 	var reads []func(string)
-	m.ProviderActions.ReadKey = func(_ string, done func(string)) { reads = append(reads, done) }
+	m.ProviderActions.ReadKey = func(_, _ string, done func(string)) { reads = append(reads, done) }
 	channel := preview.Channel{ID: "saved", Auth: preview.AuthKey, KeySet: true}
 	e := &m.provider
 	e.edit(m, &channel)
@@ -106,11 +106,11 @@ func TestProviderEditorKeepsConfigurationIsolated(t *testing.T) {
 	m.Live = true
 	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", API: "responses", Custom: true, Keyed: true}}}}
 	ch := preview.Channel{ID: "shared", Name: "Shared", Brand: "fixture", Method: "compatible", API: "responses", Endpoint: "https://fixture.test", Auth: preview.AuthKey, Shared: true, KeySet: true, Models: []preview.ChannelModel{{ID: "model", Name: "Model", Context: 128000}}}
-	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) {
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
 		if draft.Channel.Shared {
 			t.Error("editor retained obsolete host sharing")
 		}
-		done(false)
+		done(ProviderSaveResult{Failed: []string{"fixture-node"}})
 	}
 	m.provider.edit(m, &ch)
 	if problem := m.provider.save(m); problem != "" {
@@ -121,8 +121,179 @@ func TestProviderEditorKeepsConfigurationIsolated(t *testing.T) {
 func TestFollowedProviderEditorDoesNotReadCopiedKey(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Live = true
-	m.ProviderActions.ReadKey = func(string, func(string)) { t.Fatal("readonly copy attempted key read") }
+	m.ProviderActions.ReadKey = func(string, string, func(string)) { t.Fatal("readonly copy attempted key read") }
 	m.provider.edit(m, &preview.Channel{ID: "copy", Auth: preview.AuthKey, ConfigurationReadOnly: true, Shared: true})
+}
+
+func TestProviderTargetsRespectAuthentication(t *testing.T) {
+	if !providerAuthAllowsMultipleTargets(preview.AuthKey) || !providerAuthAllowsMultipleTargets(preview.AuthNone) {
+		t.Fatal("static and unauthenticated channels should allow multiple hosts")
+	}
+	for _, auth := range []preview.Auth{preview.AuthOAuth, preview.AuthPlugin} {
+		if providerAuthAllowsMultipleTargets(auth) {
+			t.Fatalf("auth kind %d should remain single-host", auth)
+		}
+	}
+
+	got := toggleProviderTarget([]string{"a"}, "b", true, true)
+	if !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("multi-host selection = %v", got)
+	}
+	got = toggleProviderTarget(got, "a", false, true)
+	if !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("single-host selection = %v", got)
+	}
+	got = toggleProviderTarget([]string{"a"}, "a", true, false)
+	if len(got) != 0 {
+		t.Fatalf("removed host remains selected: %v", got)
+	}
+	result := completeProviderSaveResult([]string{"node-a", "node-b"}, ProviderSaveResult{Succeeded: []string{"node-a"}})
+	if !reflect.DeepEqual(result.Succeeded, []string{"node-a"}) || !reflect.DeepEqual(result.Failed, []string{"node-b"}) {
+		t.Fatalf("an unreported host was treated as success: %+v", result)
+	}
+}
+
+func TestProviderIdentityIsNodeScopedAndGroupTargetsAreExplicit(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Channels = []preview.Channel{
+		{Node: "node-a", ID: "same", Name: "A"},
+		{Node: "node-b", ID: "same", Name: "B"},
+	}
+	if m.channel(channelKey("node-a", "same")).Name != "A" || m.channel(channelKey("node-b", "same")).Name != "B" {
+		t.Fatal("same provider IDs from separate Nodes resolved to the same channel")
+	}
+	if m.channel("same") != nil {
+		t.Fatal("unqualified lookup resolved an ambiguous provider ID across Nodes")
+	}
+
+	grouped := preview.Channel{Node: "node-a", Group: "group-a", ID: "same", Auth: preview.AuthKey,
+		TargetIDs: map[string]string{"node-a": "same", "node-b": "replica"}}
+	e := &m.provider
+	e.edit(m, &grouped)
+	if !reflect.DeepEqual(e.targets, []string{"node-a", "node-b"}) || e.targetIDs["node-b"] != "replica" {
+		t.Fatalf("explicit group mapping was not restored: targets=%v ids=%v", e.targets, e.targetIDs)
+	}
+	legacy := preview.Channel{Node: "node-a", ID: "same", Auth: preview.AuthKey, Targets: []string{"node-a", "node-b"}}
+	e.edit(m, &legacy)
+	if !reflect.DeepEqual(e.targets, []string{"node-a"}) || len(e.targetIDs) != 0 {
+		t.Fatalf("legacy channels inferred a group without persisted identity: targets=%v ids=%v", e.targets, e.targetIDs)
+	}
+}
+
+func TestProviderSaveCarriesNodeTargetsAndSignsInOnMovedOAuthTarget(t *testing.T) {
+	newEditor := func(m *Model, auth preview.Auth) *providerEditor {
+		e := &m.provider
+		e.open = true
+		e.generation = 1
+		e.id = "fixture-provider"
+		e.owner = "node-a"
+		e.targets = []string{"node-a", "node-b"}
+		e.targetRevisions = map[string]uint64{"node-a": 2, "node-b": 3}
+		e.name = "Fixture"
+		e.method = preview.Method{ID: "fixture", API: "responses", Auth: auth}
+		e.models = []modelDraft{{id: "fixture-model", context: "4096", model: preview.ChannelModel{Output: 1024}}}
+		return e
+	}
+
+	t.Run("staticChannel", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
+		var saved ProviderDraft
+		m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+			saved = draft
+			done(ProviderSaveResult{Failed: draft.Targets})
+		}
+		e := newEditor(m, preview.AuthKey)
+		e.keySet = true
+		if problem := e.save(m); problem != "" {
+			t.Fatal(problem)
+		}
+		if saved.Channel.Node != "node-a" || !reflect.DeepEqual(saved.Targets, []string{"node-a", "node-b"}) ||
+			saved.Key != "" || saved.Channel.ID != "fixture-provider" || saved.TargetRevisions["node-a"] != 2 || saved.TargetRevisions["node-b"] != 3 {
+			t.Fatalf("save did not preserve node-scoped channel identity and targets: %+v", saved)
+		}
+	})
+
+	t.Run("oauthMove", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
+		var saved ProviderDraft
+		var signedNode, signedID string
+		m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+			saved = draft
+			done(ProviderSaveResult{Succeeded: draft.Targets})
+		}
+		m.ProviderActions.SignIn = func(node, id string) { signedNode, signedID = node, id }
+		e := newEditor(m, preview.AuthOAuth)
+		e.method.Login = "provider_access_login"
+		e.targets = []string{"node-b"}
+		if problem := e.save(m); problem != "" {
+			t.Fatal(problem)
+		}
+		if !reflect.DeepEqual(saved.Targets, []string{"node-b"}) || signedNode != "node-b" || signedID != "fixture-provider" {
+			t.Fatalf("OAuth target move did not start sign-in on the destination: saved=%+v sign-in=%s/%s", saved, signedNode, signedID)
+		}
+	})
+
+	t.Run("oauthMoveStartsLoginWhenOldHostIsUnavailable", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
+		var signedNode, signedID string
+		m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+			done(ProviderSaveResult{
+				Succeeded: []string{"node-b"}, Failed: []string{"node-a"},
+				TargetIDs: map[string]string{"node-b": "replica"},
+			})
+		}
+		m.ProviderActions.SignIn = func(node, id string) { signedNode, signedID = node, id }
+		e := newEditor(m, preview.AuthOAuth)
+		e.method.Login = "provider_access_login"
+		e.targets = []string{"node-b"}
+		if problem := e.save(m); problem != "" {
+			t.Fatal(problem)
+		}
+		if signedNode != "node-b" || signedID != "replica" || !e.open || !reflect.DeepEqual(e.targetFailed, []string{"node-a"}) {
+			t.Fatalf("destination login did not proceed with the old host failure visible: sign-in=%s/%s editor=%+v", signedNode, signedID, e)
+		}
+	})
+
+	t.Run("partialResultsKeepEditorOpenAndRecordIdentity", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
+		m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+			done(ProviderSaveResult{Succeeded: []string{"node-a"}, Failed: []string{"node-b"}, Group: "group-a", TargetIDs: map[string]string{"node-a": "fixture-provider", "node-b": "replica"}})
+		}
+		e := newEditor(m, preview.AuthKey)
+		e.keySet = true
+		if problem := e.save(m); problem != "" {
+			t.Fatal(problem)
+		}
+		if !e.open || e.group != "group-a" || e.targetIDs["node-b"] != "replica" ||
+			!reflect.DeepEqual(e.targetSucceeded, []string{"node-a"}) || !reflect.DeepEqual(e.targetFailed, []string{"node-b"}) {
+			t.Fatalf("partial save result was not retained: %+v", e)
+		}
+	})
+}
+
+func TestProviderPresetSourceDoesNotReplaceChosenOwner(t *testing.T) {
+	const selectedOwner = "target-node"
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	m.ProviderActions.DefaultTarget = func() string { return selectedOwner }
+	m.ProviderActions.Hosts = func() []ProviderHost {
+		return []ProviderHost{{Node: "preset-node", Connected: true}, {Node: selectedOwner, Connected: true}}
+	}
+	e := &m.provider
+	e.add(m)
+	e.configure(preview.Method{Node: "preset-node", ID: "preset-node/builtin:fixture/0", API: "responses", Auth: preview.AuthNone,
+		Access: "provider_access_endpoint", Routes: []preview.Route{{ID: "preset-node/builtin:fixture/0", API: "responses", Endpoint: "https://fixture.test/v1"}}})
+	if e.owner != selectedOwner || !reflect.DeepEqual(e.targets, []string{selectedOwner}) || e.auth() != preview.AuthNone {
+		t.Fatalf("preset source replaced the chosen owner or authentication: owner=%q targets=%v auth=%d", e.owner, e.targets, e.auth())
+	}
 }
 
 func TestProviderEditorCustomHeaders(t *testing.T) {
@@ -135,7 +306,10 @@ func TestProviderEditorCustomHeaders(t *testing.T) {
 		Endpoint: "https://gateway.example", Auth: preview.AuthKey, KeySet: true, Headers: map[string]string{"x-b": "2", "User-Agent": "claude-cli/9"},
 		Models: []preview.ChannelModel{{ID: "model", Name: "model", Context: 128000, DefaultEffort: "default"}}}}
 	var saved []ProviderDraft
-	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) { saved = append(saved, draft); done(false) }
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+		saved = append(saved, draft)
+		done(ProviderSaveResult{Failed: []string{"fixture-node"}})
+	}
 	e := &m.provider
 	e.edit(m, &m.Channels[0])
 	if !reflect.DeepEqual(e.headers, []header{{"User-Agent", "claude-cli/9"}, {"x-b", "2"}}) {

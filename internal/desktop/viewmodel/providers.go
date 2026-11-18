@@ -88,10 +88,17 @@ type Channel struct {
 	Revision                      uint64
 	Shared, ConfigurationReadOnly bool
 	Source                        string
-	ID, Name, Brand               string
-	BrandName, Icon               string
-	Method                        string
-	API, Endpoint                 string
+	// Node is the channel's actual owner. Group and TargetIDs identify explicit
+	// per-Node copies of a non-OAuth channel shown in shared settings.
+	Node            string
+	Group           string
+	Targets         []string
+	TargetIDs       map[string]string
+	TargetRevisions map[string]uint64
+	ID, Name, Brand string
+	BrandName, Icon string
+	Method          string
+	API, Endpoint   string
 	// APIVersion is the Azure OpenAI API version, "" for every other API.
 	APIVersion string
 	// Headers are the request headers an API-key channel adds to model calls.
@@ -133,19 +140,20 @@ type Route struct {
 // before a channel is added with it, "" for none; a sign-in's warning is
 // asked before the sign-in instead and is not here.
 type Method struct {
-	ID, Name, Access, API, Endpoint string
-	Custom, Keyed                   bool
-	Login, KeyURL                   string
-	Warning                         string
-	OAuth                           [4]string
-	Icon                            string
-	Routes                          []Route
+	Node, ID, Name, Access, API, Endpoint string
+	Custom, Keyed                         bool
+	Auth                                  Auth
+	Login, KeyURL                         string
+	Warning                               string
+	OAuth                                 [4]string
+	Icon                                  string
+	Routes                                []Route
 }
 
 // Brand is a family of channels and the methods that add one.
 type Brand struct {
-	ID, Name string
-	Methods  []Method
+	Node, ID, Name string
+	Methods        []Method
 }
 type Catalog struct {
 	Updated, Bundled, Scores bool

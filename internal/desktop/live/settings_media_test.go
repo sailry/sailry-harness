@@ -71,6 +71,11 @@ func TestMediaSettings(t *testing.T) {
 		case "save_provider":
 			input, _ := detail[protocol.CommandSaveProviderPayload](request.Command.Data)
 			providerSaves = append(providerSaves, input)
+			if input.ExpectedRevision != transport.snapshot.Providers[0].Revision {
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "fixture revision conflict"}}, true
+			}
+			input.Provider.Revision = input.ExpectedRevision + 1
+			transport.snapshot.Providers = []protocol.ConversationProvider{input.Provider}
 			return link.Response{Output: protocol.Output{Kind: "provider", Data: input.Provider}}, true
 		}
 		return link.Response{}, false
@@ -263,7 +268,7 @@ func TestMediaSettings(t *testing.T) {
 		// The editor sends the API of the method it configures.
 		channel.API = string(protocol.ConversationModelApiResponses)
 		done := false
-		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(ok bool) { done = ok })
+		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(result settings.ProviderSaveResult) { done = len(result.Succeeded) > 0 })
 
 		await("the provider save", func() bool { return done })
 		locked(func() {
@@ -284,7 +289,9 @@ func TestMediaSettings(t *testing.T) {
 		// Tags reset in the form go out as the Node's to tag again, whatever
 		// the boxes showed.
 		edited.CustomCapabilities, done = false, false
-		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(ok bool) { done = ok })
+		channel.Revision = 3
+		channel.TargetRevisions = map[string]uint64{channel.Node: channel.Revision}
+		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(result settings.ProviderSaveResult) { done = len(result.Succeeded) > 0 })
 		await("the provider save after a reset", func() bool { return done })
 		locked(func() {
 			if len(providerSaves) != 2 || providerSaves[1].Provider.Models[1].CustomCapabilities {

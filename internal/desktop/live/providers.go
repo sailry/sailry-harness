@@ -1,6 +1,7 @@
 package live
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -79,24 +81,38 @@ func (r *Runtime) followModelCatalog() {
 // for the pages; an answer for a Node they left is dropped.
 func (r *Runtime) readProviders() {
 	r.compactionObserved = r.snapshot().CompactionSettingsRevision
+	r.readProviderPresets()
+	r.fetchCompaction()
+	r.projectProviderSnapshot()
+}
+
+func (r *Runtime) readProviderPresets() {
+	root := r.localRuntime()
+	if r.providerPresetsLoading || r.providerPresetsLoaded || !r.controller.Connected() {
+		return
+	}
+	r.providerPresetsLoading = true
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
 		r.enqueue(func(c *ui.Context) {
-			if !r.showsSettings() {
-				return
-			}
+			r.providerPresetsLoading = false
 			if err != nil {
-				r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
+				if root.shownSettings() == r && root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
+					r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
+				}
 				return
 			}
 			if listing, ok := detail[protocol.ConversationPresetsListing](out.Data); ok {
 				r.applyPresets(listing)
-				r.projectProviderSnapshot()
+				r.providerPresetsLoaded = true
+				root.projectProviderSnapshot()
+				return
+			}
+			if root.shownSettings() == r && root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
+				r.reportKeys(c, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model preset catalog response is invalid"), "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
 			}
 		})
-		r.fetchCompaction()
 	})
-	r.projectProviderSnapshot()
 }
 
 // fetchCompaction reads the Node's compaction threshold off the UI thread.
@@ -161,6 +177,38 @@ func presetBrand(entry protocol.ConversationPresetsEntry) string {
 	return name
 }
 
+func providerBrandKey(node string, entry protocol.ConversationPresetsEntry) string {
+	brand := presetBrand(entry)
+	if entry.Source.Kind == "package" {
+		return node + "/" + brand
+	}
+	return brand
+}
+
+func presetRouteIndex(id string) int {
+	separator := strings.LastIndex(id, "/")
+	if separator < 0 {
+		return -1
+	}
+	index, err := strconv.Atoi(id[separator+1:])
+	if err != nil {
+		return -1
+	}
+	return index
+}
+
+func (r *Runtime) providerPresetForMethod(method string) (protocol.ConversationPresetsEntry, bool) {
+	root := r.localRuntime()
+	if node, _, scoped := strings.Cut(method, "/"); scoped {
+		if owner := root.runtimeFor(node); owner != nil {
+			entry, exists := owner.providerPresets[method]
+			return entry, exists
+		}
+	}
+	entry, exists := r.providerPresets[method]
+	return entry, exists
+}
+
 // applyPresets projects the Node's preset directory as the brands the
 // editor and the family filter offer. An entry is one method of its brand,
 // and its routes (protocol, product, region) are that method's variants,
@@ -173,10 +221,12 @@ func presetBrand(entry protocol.ConversationPresetsEntry) string {
 func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 	r.providerPresets = map[string]protocol.ConversationPresetsEntry{}
 	r.providerBrands = map[string]string{}
+	node := r.controller.Target().String()
 	bases := map[string]string{}
 	for _, entry := range listing.Entries {
 		p := entry.Preset
-		key := presetBrand(entry)
+		brand := presetBrand(entry)
+		key := providerBrandKey(node, entry)
 		if p.BrandDisplay != nil && p.BrandDisplay.Icon != nil && p.BrandDisplay.Icon.Kind == "Svg" {
 			// The package's own mark, for a brand the collection lacks.
 			var value protocol.PluginDesktopIconSvgPayload
@@ -186,7 +236,11 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 				}
 			}
 		}
-		if base := key[strings.LastIndex(key, ":")+1:]; p.ID == base {
+		base := brand
+		if separator := strings.LastIndex(brand, ":"); separator >= 0 {
+			base = brand[separator+1:]
+		}
+		if p.ID == base {
 			bases[key] = p.Name
 			if p.BrandDisplay != nil {
 				bases[key] = p.BrandDisplay.Label
@@ -201,9 +255,9 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 			source += ":" + entry.Package.Name
 		}
 		for i := range p.Routes {
-			r.providerPresets[fmt.Sprintf("%s:%s/%d", source, p.ID, i)] = entry
+			r.providerPresets[fmt.Sprintf("%s/%s:%s/%d", node, source, p.ID, i)] = entry
 		}
-		key := presetBrand(entry)
+		key := providerBrandKey(node, entry)
 		if _, named := r.providerBrands[key]; !named || p.Offered && !slices.ContainsFunc(brands, func(v viewmodel.Brand) bool { return v.ID == key }) {
 			name := p.Name
 			if p.BrandDisplay != nil {
@@ -218,14 +272,19 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 		}
 		index := slices.IndexFunc(brands, func(v viewmodel.Brand) bool { return v.ID == key })
 		if index < 0 {
-			brands = append(brands, viewmodel.Brand{ID: key, Name: r.providerBrands[key]})
+			brands = append(brands, viewmodel.Brand{Node: node, ID: key, Name: r.providerBrands[key]})
 			index = len(brands) - 1
 		}
-		method := viewmodel.Method{ID: source + ":" + p.ID, Name: p.Name, Icon: p.ID, Access: "provider_access_key"}
+		method := viewmodel.Method{Node: node, ID: node + "/" + source + ":" + p.ID, Name: p.Name, Icon: p.ID, Access: "provider_access_key", Auth: viewmodel.AuthKey}
 		switch p.Auth.Kind {
 		case "builtin":
 			method.Access, method.Login = "provider_access_login", "provider_access_login"
 			auth, _ := detail[protocol.ConversationPresetsAuthBuiltinPayload](p.Auth.Data)
+			if auth.Authentication == protocol.AuthenticationApiKey {
+				method.Auth = viewmodel.AuthKey
+			} else {
+				method.Auth = viewmodel.AuthOAuth
+			}
 			method.OAuth = oauthDefaults(auth.Authentication)
 			if auth.Authentication == protocol.AuthenticationClaudeOAuth {
 				method.Login = "provider_login_claude"
@@ -234,8 +293,10 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 			}
 		case "plugin":
 			method.Access, method.Login = "provider_access_login", "provider_access_login"
+			method.Auth = viewmodel.AuthPlugin
 		case "none":
 			method.Access = "provider_access_endpoint"
+			method.Auth = viewmodel.AuthNone
 		default:
 			// An API key for an address the user gives.
 			if len(p.Routes) > 0 && p.Routes[0].Endpoint == "" {
@@ -286,7 +347,7 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	r.App.Settings.Brands = brands
+	r.providerCatalogBrands = brands
 }
 
 // oauthDefaults are the advanced settings a built-in sign-in has, at the
@@ -336,24 +397,102 @@ func apiForProtocol(p protocol.ConversationPresetsProtocol) protocol.Conversatio
 	}
 }
 
-// projectProviderSnapshot shows the Node's channels, catalog and media
-// models on the pages that hold this Node.
+// projectProviderSnapshot combines channels owned by connected Nodes while
+// model metadata and general settings remain those of the selected Node.
 func (r *Runtime) projectProviderSnapshot() {
-	if !r.showsSettings() {
-		return
+	root := r.localRuntime()
+	loadAccountDetails := root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers
+	owners := []*Runtime{root}
+	for _, id := range slices.Sorted(maps.Keys(root.bindings)) {
+		if owner := root.bindings[id]; owner != nil && owner.controller.Connected() {
+			owners = append(owners, owner)
+		}
 	}
-	r.readProviderCredentials()
+	var channels []viewmodel.Channel
+	var brands []viewmodel.Brand
+	for _, owner := range owners {
+		owner.initProviders()
+		if loadAccountDetails {
+			owner.readProviderCredentials()
+			owner.readProviderPresets()
+		}
+		channels = append(channels, owner.projectNodeProviders()...)
+		brands = append(brands, owner.providerCatalogBrands...)
+	}
+	groups := map[preferences.ProviderMember]preferences.ProviderGroup{}
+	if root.Preferences != nil {
+		for _, group := range root.Preferences.Data.ProviderGroups {
+			for _, member := range group.Members {
+				groups[member] = group
+			}
+		}
+	}
+	revisions := make(map[preferences.ProviderMember]uint64, len(channels))
+	for _, channel := range channels {
+		if member, ok := providerMember(channel.Node, providerIDFromString(channel.ID)); ok {
+			revisions[member] = channel.Revision
+		}
+	}
+	seenGroups := map[protocol.RequestID]bool{}
+	projected := channels[:0]
+	for _, channel := range channels {
+		var node protocol.NodeID
+		if raw, err := hex.DecodeString(channel.Node); err == nil && len(raw) == len(node) {
+			copy(node[:], raw)
+		}
+		providerID, parseErr := protocol.ParseProviderID(channel.ID)
+		group, grouped := groups[preferences.ProviderMember{Node: node, Provider: providerID}]
+		grouped = grouped && parseErr == nil
+		if grouped {
+			channel.Group = group.ID.String()
+			channel.Targets = channel.Targets[:0]
+			channel.TargetIDs = map[string]string{}
+			channel.TargetRevisions = map[string]uint64{}
+			for _, member := range group.Members {
+				host := member.Node.String()
+				channel.Targets = append(channel.Targets, host)
+				channel.TargetIDs[host] = member.Provider.String()
+				channel.TargetRevisions[host] = revisions[member]
+			}
+			if seenGroups[group.ID] {
+				continue
+			}
+			seenGroups[group.ID] = true
+		} else {
+			channel.Targets = []string{channel.Node}
+			channel.TargetIDs = map[string]string{channel.Node: channel.ID}
+			channel.TargetRevisions = map[string]uint64{channel.Node: channel.Revision}
+		}
+		projected = append(projected, channel)
+	}
+	channels = projected
+	root.App.Settings.Channels = channels
+	root.App.Settings.Brands = brands
+	snapshot := root.snapshot()
+	root.followMedia(snapshot)
+	status := snapshot.ModelCatalog
+	root.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
+	if status.UpdatedAtMs != nil {
+		root.App.Settings.Catalog.Last = time.UnixMilli(int64(*status.UpdatedAtMs)).Local().Format("2006-01-02 15:04")
+	}
+}
+
+func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 	snapshot := r.snapshot()
 	now := uint64(time.Now().UnixMilli())
 	r.refreshQuotaReset(now, snapshot.ProviderQuotas)
 	var channels []viewmodel.Channel
+	node := r.controller.Target().String()
 	for _, p := range snapshot.Providers {
-		ch := viewmodel.Channel{ID: p.ID.String(), Revision: p.Revision, Name: p.Name, API: string(p.Api), Endpoint: p.Endpoint, Auth: viewmodel.AuthKey, Enabled: p.Enabled, KeySet: p.Credential != nil}
+		ch := viewmodel.Channel{Node: node, Targets: []string{node}, ID: p.ID.String(), Revision: p.Revision, Name: p.Name, API: string(p.Api), Endpoint: p.Endpoint, Auth: viewmodel.AuthKey, Enabled: p.Enabled, KeySet: p.Credential != nil}
 		ch.ConfigurationReadOnly = p.Source != nil
 		if p.Source != nil {
 			ch.Source = p.Source.Node.String()
 		}
-		if p.Authentication != "api_key" {
+		switch p.Authentication {
+		case protocol.AuthenticationApiKey:
+			ch.Auth = viewmodel.AuthKey
+		default:
 			ch.Auth = viewmodel.AuthOAuth
 			if p.Credential != nil && r.authorizations != nil {
 				if credential, ok := r.authorizations.credentials[p.Credential.ID]; ok {
@@ -394,7 +533,7 @@ func (r *Runtime) projectProviderSnapshot() {
 		if p.Preset != nil {
 			reference := *p.Preset
 			if reference.Source.Kind == "builtin" && reference.ID == "compatible-chat" && p.Api == protocol.ConversationModelApiChatCompletions && p.Authentication == protocol.AuthenticationApiKey {
-				if entry, ok := r.providerPresets["builtin:compatible-responses/0"]; ok && entry.Preset.Offered {
+				if entry, ok := r.providerPresets[node+"/builtin:compatible-responses/0"]; ok && entry.Preset.Offered {
 					// The retired Chat-only preset uses the offered compatible
 					// editor so its protocol can change without rewriting saved state.
 					reference.ID = entry.Preset.ID
@@ -403,14 +542,16 @@ func (r *Runtime) projectProviderSnapshot() {
 			// Without a saved route, show the first route of the provider's protocol.
 			route := -1
 			for id, entry := range r.providerPresets {
-				_, index, _ := strings.Cut(id, "/")
-				i, _ := strconv.Atoi(index)
+				i := presetRouteIndex(id)
 				if (route < 0 || i < route) && entry.Preset.ID == reference.ID && reflect.DeepEqual(entry.Source, reference.Source) && i < len(entry.Preset.Routes) && apiForProtocol(entry.Preset.Routes[i].Protocol) == p.Api && (reference.Route == nil || reflect.DeepEqual(*reference.Route, presetRouteKey(entry.Preset.Routes[i]))) {
 					route, ch.Method = i, id
-					if entry.Preset.Auth.Kind == "none" {
+					switch entry.Preset.Auth.Kind {
+					case "none":
 						ch.Auth = viewmodel.AuthNone
+					case "plugin":
+						ch.Auth = viewmodel.AuthPlugin
 					}
-					ch.Brand, ch.Icon = presetBrand(entry), entry.Preset.ID
+					ch.Brand, ch.Icon = providerBrandKey(node, entry), entry.Preset.ID
 				}
 			}
 		}
@@ -426,13 +567,7 @@ func (r *Runtime) projectProviderSnapshot() {
 		}
 		channels = append(channels, ch)
 	}
-	r.App.Settings.Channels = channels
-	r.followMedia(snapshot)
-	status := snapshot.ModelCatalog
-	r.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
-	if status.UpdatedAtMs != nil {
-		r.App.Settings.Catalog.Last = time.UnixMilli(int64(*status.UpdatedAtMs)).Local().Format("2006-01-02 15:04")
-	}
+	return channels
 }
 
 // azureVersion is the API version an Azure OpenAI provider was saved with.
@@ -488,7 +623,9 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	p, captured := r.providerDraftBases[key]
 	if !captured {
 		var exists bool
-		p, exists = r.provider(d.Channel.ID)
+		if d.ExpectedRevision != 0 {
+			p, exists = r.provider(d.Channel.ID)
+		}
 		if !exists {
 			p = protocol.DefaultConversationProvider()
 			p.ID, _ = protocol.ParseProviderID(d.Channel.ID)
@@ -507,16 +644,14 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	if p.Api == protocol.ConversationModelApiAzureOpenAi && d.Channel.APIVersion != "" {
 		p.Options = &protocol.ConversationConnectionOptions{Kind: "azure_open_ai", Data: protocol.ConversationConnectionOptionsAzureOpenAiPayload{ApiVersion: d.Channel.APIVersion}}
 	}
-	if entry, ok := r.providerPresets[d.Channel.Method]; ok {
+	if entry, ok := r.providerPresetForMethod(d.Channel.Method); ok {
 		ref := protocol.ConversationPresetsPresetRef{ID: entry.Preset.ID, Source: entry.Source}
-		if _, index, ok := strings.Cut(d.Channel.Method, "/"); ok {
-			if route, err := strconv.Atoi(index); err == nil && route >= 0 && route < len(entry.Preset.Routes) {
-				value := presetRouteKey(entry.Preset.Routes[route])
-				ref.Route = &value
-				// A hosted service's product travels with the provider.
-				if product := value.Product; product != nil && (p.Api == protocol.ConversationModelApiChatCompletions || p.Api == protocol.ConversationModelApiAnthropic || p.Api == protocol.ConversationModelApiDeepSeek) {
-					p.Options = &protocol.ConversationConnectionOptions{Kind: "hosted", Data: protocol.ConversationConnectionOptionsHostedPayload{Product: *product}}
-				}
+		if route := presetRouteIndex(d.Channel.Method); route >= 0 && route < len(entry.Preset.Routes) {
+			value := presetRouteKey(entry.Preset.Routes[route])
+			ref.Route = &value
+			// A hosted service's product travels with the provider.
+			if product := value.Product; product != nil && (p.Api == protocol.ConversationModelApiChatCompletions || p.Api == protocol.ConversationModelApiAnthropic || p.Api == protocol.ConversationModelApiDeepSeek) {
+				p.Options = &protocol.ConversationConnectionOptions{Kind: "hosted", Data: protocol.ConversationConnectionOptionsHostedPayload{Product: *product}}
 			}
 		}
 		p.Preset = &ref
@@ -541,7 +676,7 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 			}
 		}
 	}
-	if p.Authentication != protocol.AuthenticationApiKey && p.Authentication != protocol.AuthenticationPlugin {
+	if p.Authentication != protocol.AuthenticationApiKey && p.Authentication != protocol.AuthenticationPlugin && p.Authentication != "" {
 		userAgent := d.OAuth[1]
 		if userAgent == "" {
 			userAgent = defaultUserAgent

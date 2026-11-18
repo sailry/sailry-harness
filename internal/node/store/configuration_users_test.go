@@ -110,9 +110,6 @@ func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 			if _, _, err := ExecuteProviderCommand(scoped, db, node, protocol.Request{Command: protocol.Command{Kind: "remove_provider", Data: &protocol.CommandRemoveProviderPayload{Provider: shared.ID, ExpectedRevision: shared.Revision}}}, nil); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
 				return fmt.Errorf("legacy provider removal: %v", err)
 			}
-			if _, _, err := exportCredential(scoped, db, node, *shared.Credential, shared); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
-				return fmt.Errorf("legacy key export: %v", err)
-			}
 		}
 		current, err := currentProvider(ownCtx, db, shared.ID, nil)
 		if err != nil {
@@ -124,21 +121,8 @@ func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 		if key, err := resolveProviderKey(ownCtx, db, node, *shared.Credential, shared.ID); err != nil || key.Expose() != "host-key" {
 			return fmt.Errorf("owner key was lost: %v", err)
 		}
-		manifest, err := ExportConfigurationManifest(ownCtx, db, node, protocol.NodeID{7}, "providers", true)
-		if err != nil {
-			return err
-		}
-		if len(manifest.Records) != 2 {
-			return errors.New("legacy provider was lost from owner export")
-		}
-		for _, record := range manifest.Records {
-			var provider protocol.ConversationProvider
-			if err := decodeConfigurationRecord(record, &provider); err != nil {
-				return err
-			}
-			if provider.Shared || provider.Owner != nil || provider.Source != nil {
-				return errors.New("export retained source ownership or sharing")
-			}
+		if _, err := ExportConfigurationManifest(ownCtx, db, node, protocol.NodeID{7}, "providers", true, nil, nil); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
+			return fmt.Errorf("provider configuration export was not disabled: %v", err)
 		}
 		var columnShared, bodyShared bool
 		if err := db.QueryRowContext(ctx, "SELECT shared,COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", shared.ID.String()).Scan(&columnShared, &bodyShared); err != nil {

@@ -80,7 +80,10 @@ func TestMissingProviderMetadataKeepsEditorDraft(t *testing.T) {
 		t.Fatal("discovery sent a request without usable metadata")
 	}
 	saved := false
-	m.ProviderActions.Save = func(draft ProviderDraft, done func(bool)) { saved = true; done(false) }
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+		saved = true
+		done(ProviderSaveResult{Failed: []string{"fixture-node"}})
+	}
 	e := &m.provider
 	e.edit(m, &channel)
 	e.name = "Keep this draft"
