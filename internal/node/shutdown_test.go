@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -184,10 +186,6 @@ func TestProfileLeftovers(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
-	outside := filepath.Join(t.TempDir(), "outside")
-	if err := os.WriteFile(outside, []byte("kept"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	write := func(name string, mode os.FileMode) string {
 		t.Helper()
 		target := filepath.Join(path, filepath.FromSlash(name))
@@ -218,11 +216,12 @@ func TestProfileLeftovers(t *testing.T) {
 	}
 	removed = append(removed, filepath.Dir(staged))
 	// A link in tmp is removed; what it names is not.
-	link := filepath.Join(path, "tmp", "link")
-	if err := os.Symlink(outside, link); err != nil {
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("kept"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	removed = append(removed, link)
+	link := filepath.Join(path, "tmp", "link")
+	linkErr := os.Symlink(outside, link)
 	kept := []string{
 		// The process service kills the group this names, then removes it.
 		write("tmp/command-group-1", 0o600),
@@ -232,7 +231,6 @@ func TestProfileLeftovers(t *testing.T) {
 		write("python/environments/published/pyvenv.cfg", 0o600),
 		filepath.Join(path, "storage", "node.turso"),
 		filepath.Join(path, "link.key"),
-		outside,
 	}
 
 	second, err := OpenProfile(ctx, path)
@@ -250,6 +248,21 @@ func TestProfileLeftovers(t *testing.T) {
 			t.Errorf("the start removed %s: %v", name, err)
 		}
 	}
+	t.Run("symlink", func(t *testing.T) {
+		if linkErr != nil {
+			const errorPrivilegeNotHeld = syscall.Errno(1314)
+			if runtime.GOOS == "windows" && errors.Is(linkErr, errorPrivilegeNotHeld) {
+				t.Skipf("Windows symlink privilege is unavailable: %v", linkErr)
+			}
+			t.Fatal(linkErr)
+		}
+		if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s survived the start: %v", link, err)
+		}
+		if _, err := os.Lstat(outside); err != nil {
+			t.Errorf("the start removed %s: %v", outside, err)
+		}
+	})
 	if second.Identity.ID() != first.Identity.ID() {
 		t.Error("the profile changed its identity")
 	}

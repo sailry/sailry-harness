@@ -1,3 +1,5 @@
+* text=auto eol=lf
 internal/office/testdata/*.pdf binary
+third_party_licenses/phosphor-icons-MIT.txt -text
 *.sh text eol=lf
 internal/node/providers/data/model-catalog.json text eol=lf

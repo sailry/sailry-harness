@@ -375,6 +375,7 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 // Node's workflow driver against a local server standing in for GitHub.
 // Over 3 s: a Node start, then two polls at GitHub's one-second interval.
 func TestCopilotSignIn(t *testing.T) {
+	const sessionLifetime = time.Hour
 	// Keep proactive renewal behind the fixture's explicit grant transitions.
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	node := systemNodeFixture(t, Options{
@@ -412,7 +413,7 @@ func TestCopilotSignIn(t *testing.T) {
 			// their issue time; the third exchange finds the GitHub token revoked.
 			switch count := exchanges.Add(1); count {
 			case 1, 2:
-				body, _ := json.Marshal(map[string]any{"token": "session-" + string(rune('0'+count)), "expires_at": time.Now().Add(330 * time.Second).Unix(),
+				body, _ := json.Marshal(map[string]any{"token": "session-" + string(rune('0'+count)), "expires_at": time.Now().Add(sessionLifetime).Unix(),
 					"endpoints": map[string]string{"api": "https://api.individual.githubcopilot.com"}})
 				answer(writer, http.StatusOK, string(body))
 			default:
@@ -532,7 +533,7 @@ func TestCopilotSignIn(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			issued := grant.ExpiresAtMs - uint64((20 * time.Minute).Milliseconds())
+			issued := grant.ExpiresAtMs - uint64((5 * sessionLifetime).Milliseconds())
 			grant.IssuedAtMs = &issued
 			encoded, err := json.Marshal(grant)
 			if err != nil {

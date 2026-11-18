@@ -62,20 +62,25 @@ func visibleSidebarRow(t *testing.T, tt *ui.Tester, label string) ui.AccessInfo 
 // tells a preview's notice or is left dead.
 func TestProjectMenu(t *testing.T) {
 	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
+	snapshots := os.Getenv("SAILRY_SNAPSHOTS") != ""
+	const interactionScale = 0.125
 	demo := func(t *testing.T) (*App, *ui.Tester) {
 		t.Helper()
 		a := New(preview.Load())
 		a.Settings.Model.DemoMode = true
-		tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
+		options := opaque
+		options.Dark = true
+		// Menu assertions do not need the running discussions' animation.
+		options.Preferences.ReduceMotion = !snapshots
+		tt := ui.NewTesterWith(a.View, 1280, 820, options)
 		tt.SetLocale("en")
-		tt.SetDark(true)
-		// Review snapshots are saved at twice the scale. The menu checks
-		// read the access tree, so they do not rasterize four times the pixels.
-		if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+		// The access tree and pointer coordinates use DIPs at either scale.
+		if snapshots {
 			tt.SetScale(2)
+			settle(tt)
+		} else {
+			tt.SetScale(interactionScale)
 		}
-		tt.Frame()
-		settle(tt)
 		return a, tt
 	}
 	const name = "harbor-api"
@@ -107,11 +112,14 @@ func TestProjectMenu(t *testing.T) {
 	// project. No AI CLI, no trust, no records.
 	t.Run("Items", func(t *testing.T) {
 		for _, mode := range []string{"preview", "demo"} {
-			a, tt := newTester(t)
-			row := a.Data.Projects[0].Name
+			var tt *ui.Tester
+			var row string
 			if mode == "demo" {
-				a, tt = demo(t)
+				_, tt = demo(t)
 				row = name
+			} else {
+				a, previewTester := newTester(t)
+				tt, row = previewTester, a.Data.Projects[0].Name
 			}
 			menu := menu(t, tt, row)
 			want := []string{en("workspace_project"), en("project_edit"), en("workspace_new_session"), en("workspace_new_terminal"),
@@ -160,8 +168,6 @@ func TestProjectMenu(t *testing.T) {
 	// state inside the card.
 	t.Run("Records", func(t *testing.T) {
 		a, tt := demo(t)
-		// The hairline and fill probes below read device pixels at twice the scale.
-		tt.SetScale(2)
 		choose(t, tt, name, en("workspace_project"))
 		pr := a.overviewProject()
 		archived := pr.Conversations[len(pr.Conversations)-1]
@@ -178,6 +184,10 @@ func TestProjectMenu(t *testing.T) {
 			}
 			slices.SortFunc(out, func(x, y ui.AccessInfo) int { return int(x.Bounds.Y - y.Bounds.Y) })
 			return out
+		}
+		// The hairline and fill probes read device pixels at twice the scale.
+		if !snapshots {
+			tt.SetScale(2)
 		}
 		list := rows()
 		if len(list) != len(pr.Conversations)-1 {
@@ -205,7 +215,10 @@ func TestProjectMenu(t *testing.T) {
 		if inside == outside {
 			t.Fatalf("the records' card has no fill: %v inside and outside", inside)
 		}
-		if os.Getenv("SAILRY_SNAPSHOTS") != "" {
+		if !snapshots {
+			tt.SetScale(interactionScale)
+		}
+		if snapshots {
 			for _, mode := range []string{"dark", "light"} {
 				for _, backdrop := range []bool{false, true} {
 					b := New(preview.Load())

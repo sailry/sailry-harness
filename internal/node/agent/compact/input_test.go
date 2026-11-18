@@ -83,8 +83,14 @@ func TestPrepareShortensLatestTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body := strings.TrimPrefix(prepared[strings.Index(prepared, "[user]: "):], "[user]: ")
-			body = body[:strings.Index(body, "\n\n## What to keep")]
+			_, body, ok := strings.Cut(prepared, "[user]: ")
+			if !ok {
+				t.Fatal("prepared prompt is missing the user transcript")
+			}
+			body, _, ok = strings.Cut(body, "\n\n## What to keep")
+			if !ok {
+				t.Fatal("prepared prompt is missing the LF separator before the What to keep heading")
+			}
 			if size := tokens.Text(body); size > row.budget {
 				t.Fatalf("transcript is %d tokens, over its budget of %d", size, row.budget)
 			}

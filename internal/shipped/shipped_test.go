@@ -6,7 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -33,15 +35,9 @@ func TestSeal(t *testing.T) {
 	if err := os.WriteFile(library, []byte("signed library"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(library, filepath.Join(directory, "liblinked.dylib")); err != nil {
-		t.Fatal(err)
-	}
 	record, err := Record(directory, "libexample.dylib")
 	if err != nil || record.Size != 14 || len(record.SHA256) != 64 {
 		t.Fatalf("record = %+v, %v", record, err)
-	}
-	if _, err := Record(directory, "liblinked.dylib"); err == nil {
-		t.Error("a symbolic link was recorded")
 	}
 	write := func(body string) {
 		t.Helper()
@@ -111,9 +107,21 @@ func TestSeal(t *testing.T) {
 	if err := seal.Check(directory, "libother.dylib"); err == nil || !strings.Contains(err.Error(), "not in the package seal") {
 		t.Errorf("unlisted library: %v", err)
 	}
-	if err := seal.Check(directory, "liblinked.dylib"); err == nil {
-		t.Error("a symbolic link passed the seal")
-	}
+	t.Run("symlink", func(t *testing.T) {
+		if err := os.Symlink(library, filepath.Join(directory, linked.Name)); err != nil {
+			const errorPrivilegeNotHeld = syscall.Errno(1314)
+			if runtime.GOOS == "windows" && errors.Is(err, errorPrivilegeNotHeld) {
+				t.Skipf("Windows symlink privilege is unavailable: %v", err)
+			}
+			t.Fatal(err)
+		}
+		if _, err := Record(directory, linked.Name); err == nil {
+			t.Error("a symbolic link was recorded")
+		}
+		if err := seal.Check(directory, linked.Name); err == nil {
+			t.Error("a symbolic link passed the seal")
+		}
+	})
 	// Same size, different content; then a different size.
 	for _, body := range []string{"signed librarY", "signed library and more"} {
 		if err := os.WriteFile(library, []byte(body), 0o600); err != nil {

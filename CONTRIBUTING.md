@@ -37,8 +37,11 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 Initialize the reviewed submodule snapshots:
 
 ```sh
-git submodule update --init --recursive
+git submodule update --init --recursive --checkout
 ```
+
+Run the same command after switching to a revision with different submodule
+pins. `git submodule status` prefixes a mismatched checkout with `+`.
 
 Official plugins (`plugins/`) and themes (`themes/`) are separate repositories.
 Their README and AGENTS files cover package maintenance. Commit package changes

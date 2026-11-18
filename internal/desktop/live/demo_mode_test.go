@@ -717,6 +717,14 @@ func TestDemoMode(t *testing.T) {
 	})
 
 	t.Run("demo", func(t *testing.T) {
+		summaries := r.snapshot().Plugins
+		statistics := slices.IndexFunc(summaries, func(summary protocol.PluginSummary) bool { return summary.Name == pluginStatisticsPackage })
+		if statistics < 0 {
+			t.Fatal("the fixture has no statistics plugin; check the pinned plugins checkout")
+		}
+		if summary := summaries[statistics]; !summary.Enabled || summary.Compatibility.Kind != "compatible" {
+			t.Fatalf("the statistics plugin is unavailable (enabled %v, compatibility %+v); check the pinned plugins checkout", summary.Enabled, summary.Compatibility)
+		}
 		flip()
 		if !r.App.Settings.DemoMode || !r.App.Demo() || r.Preferences.Data.DemoMode {
 			t.Fatalf("the fixture presentation: setting %v, window %v, preference %v", r.App.Settings.DemoMode, r.App.Demo(), r.Preferences.Data.DemoMode)
@@ -776,14 +784,26 @@ func TestDemoMode(t *testing.T) {
 		}
 		figures := []string{packageCount(usage.Tokens + delegated), fmt.Sprintf("%.1f/s", usage.Speed), price(micros + share),
 			fmt.Sprintf("%.0f%%", 100*float64(usage.Cached)/float64(input))}
-		for range 20 {
-			if tester.HasText(figures[1]) {
+		checkMissing := func(figure string) bool { return !tester.HasText(figure) }
+		// The statistics package publishes when its contribution mounts. Draw
+		// the frames requested by that work without advancing demo playback.
+		for range 8 {
+			if !slices.ContainsFunc(figures, checkMissing) {
 				break
 			}
-			settle()
+			r.workers.Wait()
+			if !asked.Swap(false) {
+				break
+			}
+			tester.Frame()
 		}
 		for _, figure := range figures {
-			if !tester.HasText(figure) {
+			if checkMissing(figure) {
+				for key, mount := range r.pluginViews.mounts {
+					if key.name == pluginStatisticsPackage && key.scope.presentation == pluginDemoPresentation+cv.ID && mount.failure != nil {
+						t.Fatalf("the statistics plugin failed to mount for %s: %v", cv.ID, mount.failure)
+					}
+				}
 				t.Fatalf("the context bar lacks the figure %s of %q: %q", figure, figures, tester.Texts())
 			}
 		}
