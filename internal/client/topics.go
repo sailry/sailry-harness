@@ -65,7 +65,15 @@ func (stream *topicSubscription) Next(ctx context.Context) (protocol.Update, err
 		stream.mu.Unlock()
 		if current != nil {
 			update, err := current.Next(operation)
-			if stream.topic.Kind == "status" || stream.topic.Kind == "connector_login" || err == nil || !transient(err) || operation.Err() != nil {
+			if err != nil {
+				if closed := stream.ctx.Err(); closed != nil {
+					return protocol.Update{}, closed
+				}
+				if cancelled := operation.Err(); cancelled != nil {
+					return protocol.Update{}, cancelled
+				}
+			}
+			if stream.topic.Kind == "status" || stream.topic.Kind == "connector_login" || err == nil || !transient(err) {
 				return update, err
 			}
 			// Keep the broken stream detached even if this particular read is
@@ -121,7 +129,10 @@ func (stream *topicSubscription) Next(ctx context.Context) (protocol.Update, err
 			_ = reconnected.Close()
 			return protocol.Update{}, cancelled
 		}
-		if !transient(err) || operation.Err() != nil {
+		if cancelled != nil {
+			return protocol.Update{}, cancelled
+		}
+		if !transient(err) {
 			return protocol.Update{}, err
 		}
 	}
