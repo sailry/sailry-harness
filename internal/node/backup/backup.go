@@ -141,7 +141,7 @@ func List(ctx context.Context, plan Plan) (protocol.BackupPage, error) {
 // a shared location, records that do not read back and every location when
 // Keep is zero are left alone. A backup's commit marker goes first, so a
 // half-removed backup is never listed.
-func Prune(ctx context.Context, plan Plan, node protocol.NodeID) (int, error) {
+func Prune(ctx context.Context, plan Plan, node protocol.NodeID, temporary string) (int, error) {
 	if plan.Keep == 0 {
 		return 0, nil
 	}
@@ -154,7 +154,7 @@ func Prune(ctx context.Context, plan Plan, node protocol.NodeID) (int, error) {
 		if !enabled {
 			continue
 		}
-		count, err := prune(ctx, plan, location, node)
+		count, err := prune(ctx, plan, location, node, temporary)
 		removed += count
 		if err != nil {
 			return removed, err
@@ -165,11 +165,15 @@ func Prune(ctx context.Context, plan Plan, node protocol.NodeID) (int, error) {
 
 func sortRecords(records []protocol.BackupRecord) {
 	sort.Slice(records, func(left, right int) bool {
-		if records[left].CreatedMs != records[right].CreatedMs {
-			return records[left].CreatedMs > records[right].CreatedMs
-		}
-		return records[left].ID < records[right].ID
+		return recordNewer(records[left], records[right])
 	})
+}
+
+func recordNewer(left, right protocol.BackupRecord) bool {
+	if left.CreatedMs != right.CreatedMs {
+		return left.CreatedMs > right.CreatedMs
+	}
+	return left.ID < right.ID
 }
 
 // ValidatePassphrase checks a newly chosen passphrase; existing archives keep theirs.

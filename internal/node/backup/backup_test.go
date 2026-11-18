@@ -592,11 +592,11 @@ func TestBackupArchiveLayout(t *testing.T) {
 		}
 
 		// Keeping all is the default: nothing is ever deleted unasked.
-		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+		if removed, err := Prune(t.Context(), plan, node, t.TempDir()); err != nil || removed != 0 {
 			t.Fatalf("prune without a limit = %d, %v", removed, err)
 		}
 		plan.Keep = 2
-		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 2 {
+		if removed, err := Prune(t.Context(), plan, node, t.TempDir()); err != nil || removed != 2 {
 			t.Fatalf("prune = %d, %v", removed, err)
 		}
 		// The Node's two newest stay, with another Node's backup and the
@@ -616,7 +616,7 @@ func TestBackupArchiveLayout(t *testing.T) {
 				t.Fatalf("retention touched %s: %v", name, err)
 			}
 		}
-		if removed, err := Prune(t.Context(), plan, node); err != nil || removed != 0 {
+		if removed, err := Prune(t.Context(), plan, node, t.TempDir()); err != nil || removed != 0 {
 			t.Fatalf("second prune = %d, %v", removed, err)
 		}
 		// A kept backup still restores.

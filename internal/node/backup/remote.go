@@ -1,7 +1,9 @@
 package backup
 
 import (
+	"bufio"
 	"bytes"
+	"container/heap"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,7 +13,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -127,37 +128,85 @@ func list(ctx context.Context, plan Plan, location protocol.BackupLocation) (pro
 		return protocol.BackupPage{}, err
 	}
 	defer target.close()
-	page := protocol.BackupPage{Records: []protocol.BackupRecord{}}
-	var ids []string
-	inspected := 0
-	err = step(ctx, target.list(func(name string, file bool) bool {
-		inspected++
-		if inspected > maxRecords*4 || len(ids) >= maxRecords {
-			page.Partial = true
-			return false
+	records := newestRecords{}
+	overflow := false
+	partial, err := scanManifests(ctx, target, func(manifest remoteManifest) error {
+		if records.keep(manifest.Record, maxRecords) != "" {
+			overflow = true
 		}
-		if id, ok := strings.CutSuffix(name, ".json"); ok && file && ValidIdentifier(id) {
-			ids = append(ids, id)
-		}
-		return true
-	}))
+		return nil
+	})
 	if err != nil {
 		return protocol.BackupPage{}, err
 	}
-	for _, id := range ids {
+	sortRecords(records)
+	return protocol.BackupPage{Records: records, Partial: partial || overflow}, nil
+}
+
+// scanManifests follows the location's whole listing. Storage enumeration
+// order does not imply creation time or identify the backup's owning Node.
+func scanManifests(ctx context.Context, target storage, visit func(remoteManifest) error) (bool, error) {
+	partial := false
+	var failure error
+	err := target.list(func(name string, file bool) bool {
+		if failure = cancelled(ctx); failure != nil {
+			return false
+		}
+		id, ok := strings.CutSuffix(name, ".json")
+		if !file || !ok || !ValidIdentifier(id) {
+			return true
+		}
 		manifest, err := readManifest(ctx, target, id)
 		if unreadable(err) {
-			// One damaged record must not hide the backups beside it.
-			page.Partial = true
-			continue
+			partial = true
+			return true
 		}
-		if err != nil {
-			return protocol.BackupPage{}, err
+		failure = err
+		if failure == nil {
+			failure = visit(manifest)
 		}
-		page.Records = append(page.Records, manifest.Record)
+		return failure == nil
+	})
+	if failure != nil {
+		return partial, failure
 	}
-	sortRecords(page.Records)
-	return page, nil
+	return partial, step(ctx, err)
+}
+
+// newestRecords holds up to the requested number of summaries, with the
+// least recent retained record at the root.
+type newestRecords []protocol.BackupRecord
+
+func (records newestRecords) Len() int { return len(records) }
+func (records newestRecords) Less(left, right int) bool {
+	return recordNewer(records[right], records[left])
+}
+func (records newestRecords) Swap(left, right int) {
+	records[left], records[right] = records[right], records[left]
+}
+func (records *newestRecords) Push(value any) {
+	*records = append(*records, value.(protocol.BackupRecord))
+}
+func (records *newestRecords) Pop() any {
+	last := len(*records) - 1
+	value := (*records)[last]
+	*records = (*records)[:last]
+	return value
+}
+
+// keep returns the ID that fell outside the retained range, if any.
+func (records *newestRecords) keep(value protocol.BackupRecord, limit uint32) string {
+	if uint64(len(*records)) < uint64(limit) {
+		heap.Push(records, value)
+		return ""
+	}
+	if recordNewer(value, (*records)[0]) {
+		expired := (*records)[0].ID
+		(*records)[0] = value
+		heap.Fix(records, 0)
+		return expired
+	}
+	return value.ID
 }
 
 // unreadable reports a record that is missing or does not read back as one,
@@ -166,51 +215,73 @@ func unreadable(err error) bool {
 	return code(err) == protocol.ErrorCodeInvalidRequest || code(err) == protocol.ErrorCodeNotFound
 }
 
-func prune(ctx context.Context, plan Plan, location protocol.BackupLocation, node protocol.NodeID) (int, error) {
+func prune(ctx context.Context, plan Plan, location protocol.BackupLocation, node protocol.NodeID, temporary string) (int, error) {
 	target, err := plan.open(ctx, location)
 	if err != nil {
 		return 0, err
 	}
 	defer target.close()
-	var ids []string
-	err = step(ctx, target.list(func(name string, file bool) bool {
-		if id, ok := strings.CutSuffix(name, ".json"); ok && file && ValidIdentifier(id) {
-			ids = append(ids, id)
+	kept := newestRecords{}
+	var candidates *os.File
+	var ids *bufio.Writer
+	defer func() {
+		if candidates != nil {
+			_ = candidates.Close()
+			_ = os.Remove(candidates.Name())
 		}
-		return len(ids) < maxRecords
-	}))
-	if err != nil {
+	}()
+	// Save only the discarded IDs. Deleting during enumeration can change
+	// the results of the storage provider's next page.
+	_, err = scanManifests(ctx, target, func(manifest remoteManifest) error {
+		if manifest.Record.Node != node {
+			return nil
+		}
+		id := kept.keep(manifest.Record, plan.Keep)
+		if id == "" {
+			return nil
+		}
+		if candidates == nil {
+			file, err := os.CreateTemp(temporary, "retention-")
+			if err != nil {
+				return ioFault(err)
+			}
+			candidates = file
+			ids = bufio.NewWriter(file)
+		}
+		_, err := ids.WriteString(id + "\n")
+		return wrapIO(err)
+	})
+	if err != nil || candidates == nil {
 		return 0, err
 	}
-	var own []remoteManifest
-	for _, id := range ids {
+	if err := ids.Flush(); err != nil {
+		return 0, ioFault(err)
+	}
+	if _, err := candidates.Seek(0, io.SeekStart); err != nil {
+		return 0, ioFault(err)
+	}
+	cutoff := kept[0]
+	removed := 0
+	scanner := bufio.NewScanner(candidates)
+	for scanner.Scan() {
+		id := scanner.Text()
 		manifest, err := readManifest(ctx, target, id)
 		if unreadable(err) {
 			continue
 		}
 		if err != nil {
-			return 0, err
+			return removed, err
 		}
-		if manifest.Record.Node == node {
-			own = append(own, manifest)
+		if manifest.Record.Node != node || !recordNewer(cutoff, manifest.Record) {
+			continue
 		}
-	}
-	sort.Slice(own, func(left, right int) bool {
-		if own[left].Record.CreatedMs != own[right].Record.CreatedMs {
-			return own[left].Record.CreatedMs > own[right].Record.CreatedMs
-		}
-		return own[left].Record.ID < own[right].Record.ID
-	})
-	removed := 0
-	for index := int(min(uint64(plan.Keep), uint64(len(own)))); index < len(own); index++ {
-		id := own[index].Record.ID
 		if err := step(ctx, target.remove(id+".json")); err != nil {
 			return removed, err
 		}
 		removed++
 		// Segments without their marker are unreachable; what a failure
 		// leaves here is storage, not a listed backup.
-		for part := range own[index].Parts {
+		for part := range manifest.Parts {
 			if err := step(ctx, target.remove(partPath(id, part))); err != nil && code(err) != protocol.ErrorCodeNotFound {
 				return removed, err
 			}
@@ -219,7 +290,7 @@ func prune(ctx context.Context, plan Plan, location protocol.BackupLocation, nod
 			return removed, err
 		}
 	}
-	return removed, nil
+	return removed, wrapIO(scanner.Err())
 }
 
 // Fetch downloads and verifies one sealed archive into a new file in temporary.

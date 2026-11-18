@@ -5,6 +5,8 @@ package backup
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
+	"encoding/json"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -54,6 +56,7 @@ type fixtureS3 struct {
 	mu      sync.Mutex
 	bucket  string
 	objects map[string][]byte
+	page    int
 }
 
 func (store *fixtureS3) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -104,35 +107,111 @@ func (store *fixtureS3) list(writer http.ResponseWriter, request *http.Request) 
 	}
 	type prefix struct{ Prefix string }
 	result := struct {
-		XMLName        xml.Name `xml:"ListBucketResult"`
-		Name           string
-		Prefix         string
-		Delimiter      string
-		IsTruncated    bool
-		Contents       []content
-		CommonPrefixes []prefix
+		XMLName               xml.Name `xml:"ListBucketResult"`
+		Name                  string
+		Prefix                string
+		Delimiter             string
+		IsTruncated           bool
+		NextContinuationToken string
+		Contents              []content
+		CommonPrefixes        []prefix
 	}{Name: store.bucket, Prefix: request.URL.Query().Get("prefix"), Delimiter: request.URL.Query().Get("delimiter")}
 	keys := make([]string, 0, len(store.objects))
 	for key := range store.objects {
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
+	offset, _ := strconv.Atoi(request.URL.Query().Get("continuation-token"))
+	index := 0
+	lastPrefix := ""
 	for _, key := range keys {
 		rest, ok := strings.CutPrefix(key, result.Prefix)
 		if !ok {
 			continue
 		}
-		if index := strings.Index(rest, result.Delimiter); result.Delimiter != "" && index >= 0 {
-			common := prefix{Prefix: result.Prefix + rest[:index+1]}
-			if !slices.Contains(result.CommonPrefixes, common) {
-				result.CommonPrefixes = append(result.CommonPrefixes, common)
+		common := ""
+		if split := strings.Index(rest, result.Delimiter); result.Delimiter != "" && split >= 0 {
+			common = result.Prefix + rest[:split+1]
+			if common == lastPrefix {
+				continue
 			}
+			lastPrefix = common
+		}
+		index++
+		if index <= offset {
 			continue
 		}
-		result.Contents = append(result.Contents, content{Key: key, Size: len(store.objects[key]), LastModified: "2023-11-14T22:13:20.000Z", ETag: `"fixture"`})
+		if store.page > 0 && len(result.Contents)+len(result.CommonPrefixes) == store.page {
+			result.IsTruncated = true
+			result.NextContinuationToken = strconv.Itoa(index - 1)
+			break
+		}
+		if common != "" {
+			result.CommonPrefixes = append(result.CommonPrefixes, prefix{Prefix: common})
+		} else {
+			result.Contents = append(result.Contents, content{Key: key, Size: len(store.objects[key]), LastModified: "2023-11-14T22:13:20.000Z", ETag: `"fixture"`})
+		}
 	}
 	writer.Header().Set("Content-Type", "application/xml")
 	_ = xml.NewEncoder(writer).Encode(result)
+}
+
+func TestBackupSelectionAcrossStoragePages(t *testing.T) {
+	objects := &fixtureS3{bucket: "profile-backups", page: 250, objects: map[string][]byte{}}
+	identity, secret := protocol.NewSecret(fixtureIdentity), protocol.NewSecret(fixtureSecret)
+	node, foreign := protocol.NodeID{1}, protocol.NodeID{2}
+	add := func(index int, owner protocol.NodeID, created uint64) string {
+		var id uuid.UUID
+		binary.BigEndian.PutUint64(id[8:], uint64(index+1))
+		checksum := strings.Repeat("a", 64)
+		body, err := json.Marshal(remoteManifest{
+			Version: 1,
+			Record:  protocol.BackupRecord{ID: id.String(), Node: owner, CreatedMs: created, SizeBytes: 1, Sha256: checksum},
+			Parts:   []part{{Size: 1, SHA256: checksum}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects.objects[id.String()+".json"] = body
+		return id.String()
+	}
+	var expired []string
+	for index := range maxRecords {
+		if index == 7 || index == objects.page {
+			expired = append(expired, add(index, node, 1))
+		} else {
+			add(index, foreign, uint64(index+2))
+		}
+	}
+	expired = append(expired, add(maxRecords, node, 1))
+	latest := add(maxRecords+1, node, maxRecords+2)
+	tied := add(maxRecords+2, node, maxRecords+2)
+	expired = append(expired, tied)
+	server := httptest.NewServer(objects)
+	t.Cleanup(server.Close)
+	plan := Plan{OnlineEnabled: true, Keep: 1, Auth: Auth{Identity: &identity, Secret: &secret}, Transport: server.Client().Transport,
+		Destination: &protocol.BackupDestination{Kind: protocol.BackupKindS3, Endpoint: server.URL, Bucket: objects.bucket, Region: "us-east-1"}}
+	page, err := List(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !page.Partial || len(page.Records) != maxRecords || page.Records[0].ID != latest || page.Records[1].ID != tied {
+		t.Fatalf("listing returned %d records, partial=%t", len(page.Records), page.Partial)
+	}
+	removed, err := Prune(t.Context(), plan, node, t.TempDir())
+	if err != nil || removed != len(expired) {
+		t.Fatalf("retention removed %d backups, err=%v", removed, err)
+	}
+	objects.mu.Lock()
+	defer objects.mu.Unlock()
+	if len(objects.objects) != maxRecords-1 || objects.objects[latest+".json"] == nil {
+		t.Fatal("retention did not preserve the owning Node's newest backup and every foreign backup")
+	}
+	for _, id := range expired {
+		if objects.objects[id+".json"] != nil {
+			t.Fatalf("expired backup %s remained after pruning", id)
+		}
+	}
 }
 
 // fixtureS3Body reads a plain or aws-chunked request body.

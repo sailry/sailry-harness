@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -42,7 +43,7 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 		}
 		// The new backup is published; a retention failure does not undo it
 		// and the next backup prunes again.
-		if removed, err := backup.Prune(ctx, prunePlan, node.ID()); err != nil {
+		if removed, err := backup.Prune(ctx, prunePlan, node.ID(), filepath.Dir(packed.Path)); err != nil {
 			slog.Warn("Backup retention failed", "removed", removed, "error", err)
 		}
 		if err != nil {
