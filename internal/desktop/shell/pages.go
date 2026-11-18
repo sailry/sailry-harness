@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // pageFeatures are the rail features that open an independent page, and the
@@ -19,9 +20,59 @@ var pageFeatures = map[string]Page{
 	"page:settings_plugins": MarketPage,
 }
 
-// project returns the state of the selected conversation's project, nil
-// when it has none.
+// ResourceTarget identifies the independent Files and Git workspace. An empty
+// Worktree selects the project's main worktree.
+type ResourceTarget struct {
+	Node, Project, Worktree string
+}
+
+// ResourceTarget returns the explicit selection when Files or Git is shown.
+// The zero value follows the current conversation.
+func (a *App) ResourceTarget() ResourceTarget {
+	if a.paged() == "" {
+		return ResourceTarget{}
+	}
+	return a.resourceTarget
+}
+
+// SetResourceTarget selects the workspace shared by Files and Git.
+func (a *App) SetResourceTarget(target ResourceTarget) {
+	if target.Project == "" {
+		target = ResourceTarget{}
+	}
+	a.resourceTarget = target
+}
+
+// ResourceProject is the project named in the Files or Git breadcrumb.
+func (a *App) ResourceProject() *viewmodel.Project {
+	target := a.ResourceTarget()
+	if target.Project == "" {
+		return a.Data.ProjectOf(a.Sidebar.Selected)
+	}
+	for _, project := range a.Data.Projects {
+		if project.ID == target.Project && project.Host == target.Node {
+			return project
+		}
+	}
+	return nil
+}
+
+// project resolves the explicit Files or Git selection, or the current
+// conversation's workspace for conversation panels and resource following mode.
 func (a *App) project() *panel.Project {
+	if target := a.ResourceTarget(); target.Project != "" {
+		project := a.ResourceProject()
+		if project == nil || project.Offline {
+			return nil
+		}
+		if a.sampled() {
+			return a.Projects.Of(project.ID)
+		}
+		if a.Hooks.ResourceWorkspace != nil {
+			return a.Hooks.ResourceWorkspace(target)
+		}
+		return nil
+	}
 	if !a.sampled() {
 		if a.Hooks.WorkspaceProject != nil {
 			return a.Hooks.WorkspaceProject()
@@ -156,8 +207,8 @@ func (a *App) featurePage(c *ui.Context) {
 		switch {
 		case pr != nil:
 			panel.Page(c, k, pr, func() { a.Navigate(FilesPage) })
-		case a.Data.ProjectOf(a.Sidebar.Selected) != nil:
-			// The project is known and its worktree is not: its host is away.
+		case a.ResourceTarget().Project != "" || a.ResourceProject() != nil:
+			// The selected project has no reachable worktree.
 			a.unavailable(c)
 		default:
 			a.projectPrompt(c, k)

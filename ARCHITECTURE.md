@@ -613,7 +613,10 @@ navigation and details project into the shell's common columns; shell layout own
 resizing, dividers and visibility. SSH and database workflows use package
 surfaces and reusable native components. Files and Git use the core panels; their
 full-page resource lists use the shell's details column, width and fold toggle,
-while conversation tabs retain their compact adaptive layout. Their package
+while conversation tabs retain their compact adaptive layout. Files and Git
+share their own project and worktree selection per window. Their breadcrumb
+opens a project's main worktree. Follow current conversation uses the
+conversation's worktree. Their package
 navigation and panel surfaces are not mounted. Local terminal tabs also
 use the shared native terminal, which packages can embed. A package name does not
 grant a privileged renderer.

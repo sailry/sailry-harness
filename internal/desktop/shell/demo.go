@@ -42,6 +42,7 @@ type stage struct {
 	panelWidth float32
 	shown      string
 	overview   *projectOverview
+	resource   ResourceTarget
 }
 
 // demoMode is the demo while it shows: the stage that waits, the language
@@ -62,13 +63,14 @@ type demoMode struct {
 func (a *App) onStage() stage {
 	return stage{data: a.Data, sidebar: a.Sidebar, messages: a.Messages, panel: a.Panel, projects: a.Projects,
 		drafts: a.drafts, children: a.children, panes: a.panes, panels: a.panels, panelOpen: a.PanelOpen,
-		panelWidth: a.PanelWidth, shown: a.shown, overview: a.overview}
+		panelWidth: a.PanelWidth, shown: a.shown, overview: a.overview, resource: a.resourceTarget}
 }
 
 func (a *App) setStage(s stage) {
 	a.Data, a.Sidebar, a.Messages, a.Panel, a.Projects = s.data, s.sidebar, s.messages, s.panel, s.projects
 	a.drafts, a.children, a.panes, a.panels = s.drafts, s.children, s.panes, s.panels
 	a.PanelOpen, a.PanelWidth, a.shown, a.overview = s.panelOpen, s.panelWidth, s.shown, s.overview
+	a.resourceTarget = s.resource
 }
 
 // Demo reports whether the window shows the demo conversations.

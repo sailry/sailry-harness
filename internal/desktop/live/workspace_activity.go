@@ -171,6 +171,9 @@ func (r *Runtime) projectWorkspaceLocations() {
 		delete(r.workspace.admitted, tree.ID)
 	}
 	for _, project := range r.App.Data.Projects {
+		if project.Host != "" && project.Host != snapshot.Node.String() {
+			continue
+		}
 		var main *workspaceProject
 		for _, tree := range snapshot.Worktrees {
 			if tree.Project != nil && tree.Project.String() == project.ID && tree.Main {

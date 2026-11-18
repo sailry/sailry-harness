@@ -527,6 +527,7 @@ browser_annotation_unavailable: 无法截取所选元素
 content_document: 文档
 content_source: 源码
 resource_project_empty: 选择项目
+resource_follow_conversation: 跟随当前会话
 unavailable: 不可用
 menu_about: 关于 Sailry
 menu_settings: 设置

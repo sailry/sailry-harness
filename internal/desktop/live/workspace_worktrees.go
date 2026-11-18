@@ -85,8 +85,17 @@ func worktreeName(path string) string {
 // manageWorktrees opens the worktree manager: every worktree of the
 // repository, the current one checked, and New worktree.
 func (p *workspaceProject) manageWorktrees() {
+	root := p.runtime.localRuntime()
+	standalone := root.shownResourceWorkspace() == p
+	open := p.openWorktree
+	if standalone {
+		open = p.openResourceWorktree
+	}
 	command := protocol.Command{Kind: "list_worktrees", Data: protocol.CommandListWorktreesPayload{Worktree: p.owner.ID}}
 	p.runtime.executeScoped("workspace-read/"+p.owner.ID.String()+"/worktrees", command, func(c *ui.Context, out protocol.Output, err error) {
+		if standalone && root.shownResourceWorkspace() != p {
+			return
+		}
 		trees, ok := detail[protocol.GitWorktrees](out.Data)
 		switch {
 		case err != nil || !ok:
@@ -96,12 +105,12 @@ func (p *workspaceProject) manageWorktrees() {
 		case trees.Kind == protocol.RepositoryKindDirectory:
 			kit.Toast(c, kit.Failed, i18n.T(c, "worktree_no_repository"))
 		default:
-			p.panel.Pick(i18n.T(c, "worktree_manage"), p.worktreeRows(c, trees))
+			p.panel.Pick(i18n.T(c, "worktree_manage"), p.worktreeRows(c, trees, open))
 		}
 	})
 }
 
-func (p *workspaceProject) worktreeRows(c *ui.Context, trees protocol.GitWorktrees) []panel.PickerRow {
+func (p *workspaceProject) worktreeRows(c *ui.Context, trees protocol.GitWorktrees, open func(*ui.Context, string)) []panel.PickerRow {
 	group := i18n.T(c, "workspace_worktrees")
 	rows := []panel.PickerRow{}
 	var base *protocol.GitWorktree
@@ -123,7 +132,7 @@ func (p *workspaceProject) worktreeRows(c *ui.Context, trees protocol.GitWorktre
 		case entry.stale:
 			row.Run = func(*ui.Context) { p.confirmWorktreePrune(entry.tree) }
 		case entry.tree.Available:
-			row.Run = func(c *ui.Context) { p.panel.Pick(entry.tree.Path, p.worktreeActions(c, entry)) }
+			row.Run = func(c *ui.Context) { p.panel.Pick(entry.tree.Path, p.worktreeActions(c, entry, open)) }
 		}
 		rows = append(rows, row)
 		if entry.tree.Available && entry.tree.Head != nil && (base == nil || entry.current) {
@@ -143,12 +152,12 @@ func (p *workspaceProject) worktreeRows(c *ui.Context, trees protocol.GitWorktre
 
 // worktreeActions are what an available worktree offers; one that cannot be
 // done is left out.
-func (p *workspaceProject) worktreeActions(c *ui.Context, entry worktreeEntry) []panel.PickerRow {
+func (p *workspaceProject) worktreeActions(c *ui.Context, entry worktreeEntry, open func(*ui.Context, string)) []panel.PickerRow {
 	path := entry.tree.Path
 	rows := []panel.PickerRow{}
 	if entry.open {
 		rows = append(rows, panel.PickerRow{Label: i18n.T(c, "workspace_open_worktree"), Icon: icons.Folder,
-			Run: func(c *ui.Context) { p.openWorktree(c, path) }})
+			Run: func(c *ui.Context) { open(c, path) }})
 	}
 	rows = append(rows, panel.PickerRow{Label: i18n.T(c, "workspace_copy_path"), Icon: icons.Copy,
 		Run: func(c *ui.Context) { c.WriteClipboard(path) }})
@@ -166,7 +175,7 @@ func (p *workspaceProject) openWorktree(c *ui.Context, path string) {
 	r := p.runtime
 	id := r.App.Sidebar.Selected
 	cv := r.App.Data.Find(id)
-	if cv == nil || r.workspace.selected != p.owner.ID {
+	if r.showingResourcePage() || cv == nil || r.workspace.selected != p.owner.ID {
 		kit.Toast(c, kit.Conflict, i18n.T(c, "worktree_context_changed"))
 		return
 	}

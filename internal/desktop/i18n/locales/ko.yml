@@ -527,6 +527,7 @@ browser_annotation_unavailable: 선택한 요소를 캡처할 수 없습니다
 content_document: 문서
 content_source: 소스
 resource_project_empty: 프로젝트 선택
+resource_follow_conversation: Follow current conversation
 unavailable: 사용할 수 없음
 menu_about: Sailry에 대하여
 menu_settings: 설정

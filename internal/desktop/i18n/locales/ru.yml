@@ -527,6 +527,7 @@ browser_annotation_unavailable: Не удалось снять выбранны�
 content_document: Документ
 content_source: Источник
 resource_project_empty: Выберите проект
+resource_follow_conversation: Follow current conversation
 unavailable: Недоступно
 menu_about: О Sailry
 menu_settings: Настройки

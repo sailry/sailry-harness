@@ -255,9 +255,9 @@ func worktreeManagerLive(t *testing.T) {
 
 		var rows, current, linked []panel.PickerRow
 		frame(func(c *ui.Context) {
-			rows = p.worktreeRows(c, listing)
+			rows = p.worktreeRows(c, listing, p.openWorktree)
 			entries := worktreeEntries(listing, p.owner.Path)
-			current, linked = p.worktreeActions(c, entries[0]), p.worktreeActions(c, entries[1])
+			current, linked = p.worktreeActions(c, entries[0], p.openWorktree), p.worktreeActions(c, entries[1], p.openWorktree)
 		})
 		type shown struct {
 			label, detail, group string

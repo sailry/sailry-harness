@@ -385,7 +385,7 @@ func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
 		title(i18n.T(c, "metrics_title"))
 		return
 	}
-	if a.resourceDetails() {
+	if a.paged() != "" {
 		// The resource toolbar names its tree or branch and keeps its
 		// actions together; do not repeat that title in the window band.
 		return
@@ -433,15 +433,12 @@ func (a *App) trail(c *ui.Context) {
 	if id := a.feature(); a.Page != ConversationPage && id != "" {
 		f, _ := a.lookupFeature(id)
 		label := i18n.T(c, f.Label)
-		pr := a.Data.ProjectOf(a.Sidebar.Selected)
-		if pr == nil || a.Page != FilesPage && a.Page != GitPage {
+		if a.paged() == "" {
 			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 			return
 		}
-		// A project page: the project, whose menu switches the page to
-		// another project, and the page.
 		ui.Row(c.Key("trail")).Gap(4).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(func() {
-			a.projectSwitcher(c, pr)
+			a.projectSwitcher(c, a.ResourceProject())
 			ui.Icon(c, icons.ChevronRight).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
 		})
@@ -482,38 +479,54 @@ func (a *App) trail(c *ui.Context) {
 // sidebar's edge and over the panel's: both in the title bar's border colour.
 const dividerHeight = 16
 
-// projectSwitcher is a project page's project in the title: its menu lists
-// the projects, and choosing one shows its page of the same resource. A
-// page shows the selected session's project, so the choice selects the
-// project's session updated last; a project without a session has no
-// worktree to show and cannot be chosen.
+// projectSwitcher selects a Files and Git workspace without moving the chat.
 func (a *App) projectSwitcher(c *ui.Context, current *preview.Project) {
 	p := theme.Of(c)
+	target := a.ResourceTarget()
+	shown := i18n.T(c, "shell_sessions")
+	if current != nil {
+		shown = current.Name
+	} else if target.Project != "" {
+		shown = i18n.T(c, "unavailable")
+	}
+	if target.Project == "" && len(a.Data.Projects) == 0 {
+		ui.Text(c, shown).FontSize(14).SingleLine().Shrink(1).TextColor(p.MutedForeground)
+		return
+	}
 	kit.MenuButton(c.Key("project"), "project-switch", func(b ui.Element) {
 		kit.GhostLook(c, b, false).Row().Height(28).Gap(4).PaddingX(8).Shrink(1).MinWidth(0).Label(i18n.T(c, "projects")).Children(func() {
-			ui.Text(c, current.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+			ui.Text(c, shown).FontSize(14).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
 		})
 	}, func(m *kit.Menu) {
-		for _, pr := range a.Data.Projects {
-			latest := latestSession(pr)
-			if m.Item(pr.Name).Checked(pr == current).Disabled(latest == nil).Chosen() && pr != current {
-				// The page stays: followSelection goes back to the
-				// conversation only for a selection it has not seen.
-				a.Sidebar.Selected, a.shown = latest.ID, latest.ID
+		if m.Item(i18n.T(c, "resource_follow_conversation")).Checked(target.Project == "").Chosen() {
+			a.SetResourceTarget(ResourceTarget{})
+		}
+		if len(a.Data.Projects) > 0 {
+			m.Separator()
+		}
+		for _, project := range a.Data.Projects {
+			active := target.Node == project.Host && target.Project == project.ID
+			item := m.Item(project.Name).Checked(active)
+			hostName := project.Host[:min(len(project.Host), 10)]
+			for _, host := range a.Data.Hosts {
+				if host.ID == project.Host && host.Name != "" {
+					hostName = a.hostName(c, host.Name)
+					break
+				}
+			}
+			if project.Offline {
+				if hostName != "" {
+					hostName += " · "
+				}
+				hostName += i18n.T(c, "resource_offline")
+			}
+			if hostName != "" {
+				item.Trailing(hostName)
+			}
+			if item.Chosen() && !active {
+				a.SetResourceTarget(ResourceTarget{Node: project.Host, Project: project.ID})
 			}
 		}
-	}, kit.MenuOptions{At: ui.AnchorBottomStart, Self: ui.AnchorTopStart})
-}
-
-// latestSession is pr's session updated last that is not archived, nil
-// for none.
-func latestSession(pr *preview.Project) *preview.Conversation {
-	var latest *preview.Conversation
-	for _, cv := range pr.Conversations {
-		if !cv.Archived && (latest == nil || cv.Updated.After(latest.Updated)) {
-			latest = cv
-		}
-	}
-	return latest
+	}, kit.MenuOptions{At: ui.AnchorBottomStart, Self: ui.AnchorTopStart, MaxHeight: 320})
 }

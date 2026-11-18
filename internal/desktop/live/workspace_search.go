@@ -88,6 +88,6 @@ func (p *workspaceProject) openFileKind(relative string) bool {
 	if source, ok := p.files[relative]; ok {
 		descriptor.revision = source.Revision
 	}
-	p.runtime.openCapturedFilePreview(p.session.String(), conversation.File{ID: relative, Path: relative, Kind: kind}, descriptor)
+	p.runtime.openCapturedFilePreview(p.owner.ID.String(), conversation.File{ID: relative, Path: relative, Kind: kind}, descriptor)
 	return true
 }

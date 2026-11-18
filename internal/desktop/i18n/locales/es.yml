@@ -527,6 +527,7 @@ browser_annotation_unavailable: No se pudo capturar el elemento seleccionado
 content_document: Documento
 content_source: Fuente
 resource_project_empty: Seleccionar un proyecto
+resource_follow_conversation: Follow current conversation
 unavailable: No disponible
 menu_about: Acerca de Sailry
 menu_settings: Configuración

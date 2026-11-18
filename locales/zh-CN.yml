@@ -1335,6 +1335,7 @@ changes: 文件变更
 file_tree: 项目文件
 file_empty: 打开文件
 resource_project_empty: 选择项目
+resource_follow_conversation: 跟随当前会话
 file_search: 搜索文件
 file_search_query: 搜索内容
 file_search_filter: 文件范围，如 **/*.rs

@@ -16,11 +16,12 @@ import (
 
 // Hooks keeps I/O and thread scheduling in the live controller.
 type Hooks struct {
-	HostActions      func(string) host.Actions
-	EditHost         func(string)
-	WorkspaceProject func() *panel.Project
-	DownloadDialog   func(*ui.Context)
-	PackageDialogs   func(*ui.Context)
+	HostActions       func(string) host.Actions
+	EditHost          func(string)
+	WorkspaceProject  func() *panel.Project
+	ResourceWorkspace func(ResourceTarget) *panel.Project
+	DownloadDialog    func(*ui.Context)
+	PackageDialogs    func(*ui.Context)
 	// FilePreview draws the preview dialog of a file outside a
 	// conversation.
 	FilePreview func(*ui.Context)

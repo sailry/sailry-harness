@@ -114,15 +114,31 @@ func (r *Runtime) workspaceProject() *panel.Project {
 			return owner.workspaceProject()
 		}
 	}
-	if r.workspace == nil {
-		return nil
-	}
-	project := r.workspace.projects[r.workspace.selected]
+	project := r.selectedWorkspace()
 	if project == nil {
 		return nil
 	}
 	return project.panel
 }
+
+func (r *Runtime) selectedWorkspace() *workspaceProject {
+	if r == nil || r.workspace == nil {
+		return nil
+	}
+	return r.workspace.projects[r.workspace.selected]
+}
+
+func (r *Runtime) workspaceWorktree(id protocol.WorktreeID) (protocol.Worktree, bool) {
+	for _, tree := range r.snapshot().Worktrees {
+		if tree.ID == id {
+			delete(r.workspace.admitted, id)
+			return tree, true
+		}
+	}
+	tree, found := r.workspace.admitted[id]
+	return tree, found
+}
+
 func (r *Runtime) workspaceFrame(c *ui.Context) {
 	r.bindArtifactCallbacks()
 	if r.workspace == nil {
@@ -145,20 +161,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		return
 	}
-	var worktree protocol.Worktree
-	found := false
-	for _, candidate := range r.snapshot().Worktrees {
-		if candidate.ID == session.Worktree {
-			worktree = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		if admitted, ok := r.workspace.admitted[session.Worktree]; ok {
-			worktree, found = admitted, true
-		}
-	}
+	worktree, found := r.workspaceWorktree(session.Worktree)
 	if !found {
 		r.releaseSelectedWorkspace()
 		r.workspace.selected = protocol.WorktreeID{}
@@ -196,29 +199,33 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	if !r.controller.Connected() {
 		return
 	}
-	if project.release == nil {
-		project.watch()
+	project.resourceFrame()
+	project.sessionResourcesFrame()
+}
+
+func (p *workspaceProject) resourceFrame() {
+	if p.release == nil {
+		p.watch()
 	}
-	if project.pendingFiles {
+	if p.pendingFiles {
 		busy := false
-		for key := range project.loading {
+		for key := range p.loading {
 			if strings.HasPrefix(key, "file/") || strings.HasPrefix(key, "directory") {
 				busy = true
 			}
 		}
 		if !busy {
-			project.pendingFiles = false
-			project.refreshFiles()
+			p.pendingFiles = false
+			p.refreshFiles()
 		}
 	}
-	if project.pendingGit && !project.loading["git-status"] && !project.loading["git-branches"] && !project.loading["git-log"] {
-		project.refreshWatchedGit()
+	if p.pendingGit && !p.loading["git-status"] && !p.loading["git-branches"] && !p.loading["git-log"] {
+		p.refreshWatchedGit()
 	}
-	if !project.initialized {
-		project.initialized = true
-		project.refresh()
+	if !p.initialized {
+		p.initialized = true
+		p.refresh()
 	}
-	project.sessionResourcesFrame()
 }
 func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
@@ -231,18 +238,22 @@ func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	return project
 }
 func (r *Runtime) releaseSelectedWorkspace() {
-	if old := r.workspace.projects[r.workspace.selected]; old != nil {
-		if old.release != nil {
-			old.release()
-			old.release = nil
-		}
-		if old.cancel != nil {
-			old.cancel()
-			old.cancel = nil
-		}
-		old.panel.ResetFileSearch()
-		old.stopGitRefreshTimer()
+	if old := r.selectedWorkspace(); old != nil && old != r.localRuntime().resourcePage.shown {
+		old.releaseView()
 	}
+}
+
+func (p *workspaceProject) releaseView() {
+	if p.release != nil {
+		p.release()
+		p.release = nil
+	}
+	if p.cancel != nil {
+		p.cancel()
+		p.cancel = nil
+	}
+	p.panel.ResetFileSearch()
+	p.stopGitRefreshTimer()
 }
 func (r *Runtime) closeWorkspace() {
 	if r.workspace == nil {

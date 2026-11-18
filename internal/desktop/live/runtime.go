@@ -59,6 +59,7 @@ type Runtime struct {
 	attachmentSessionWaiters map[string][]attachmentSessionWaiter
 	attachments              *attachmentState
 	workspace                *workspaceState
+	resourcePage             resourcePageState
 	workspaceSettings        workspaceSettingsState
 	workspaceSettingsOwner   *Runtime
 	codeIndexSettings        settings.Stored[bool]
@@ -273,6 +274,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Hooks.FilePreview = r.renderFilePreview
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
+	r.App.Hooks.ResourceWorkspace = r.resourceWorkspace
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
@@ -487,6 +489,7 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.App.Panel.Data = &viewmodel.Workspace{}
 		r.App.Panel.Session = false
 	}
+	r.resourceWorkspaceFrame(owner)
 	// A terminal starts in the shown conversation's worktree on a connected
 	// Node; without one the panel does not offer Terminal.
 	r.App.Panel.Worktree = owner != nil && r.packages != nil && r.packages.terminals != nil && owner.controller.Connected() &&
@@ -711,7 +714,9 @@ func (r *Runtime) observe(work func()) bool {
 func (r *Runtime) Refresh() {
 	if r.parent == nil {
 		owner := r.selectedRuntime()
-		if r.App.Page == shell.HostPage {
+		if target := r.App.ResourceTarget(); target.Project != "" {
+			owner = r.runtimeFor(target.Node)
+		} else if r.App.Page == shell.HostPage {
 			owner = r.runtimeFor(r.App.Host)
 		}
 		if owner == nil {

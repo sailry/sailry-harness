@@ -527,6 +527,7 @@ browser_annotation_unavailable: 選択した要素を撮影できませんでし
 content_document: 文書
 content_source: ソース
 resource_project_empty: プロジェクトを選択
+resource_follow_conversation: Follow current conversation
 unavailable: 利用できません
 menu_about: Sailryについて
 menu_settings: 設定

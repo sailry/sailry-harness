@@ -18,7 +18,12 @@ func workspaceGitDocumentFile(diff protocol.GitDiff) panel.GitDocumentFile {
 func (p *workspaceProject) showGitDocument(id string) {
 	// Captured reads may finish after navigation; keep their own project cache
 	// without selecting a different worktree's panel.
-	if p.runtime.workspace.selected == p.owner.ID {
+	root := p.runtime.localRuntime()
+	if root.showingResourcePage() {
+		if root.shownResourceWorkspace() == p {
+			p.showItem(panel.Changes, id)
+		}
+	} else if root.selectedRuntime().selectedWorkspace() == p {
 		p.showItem(panel.Changes, id)
 	}
 }

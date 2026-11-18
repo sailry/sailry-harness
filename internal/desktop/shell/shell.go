@@ -121,6 +121,7 @@ type App struct {
 	// resourceColumn is the last frame's full-page resource owning details.
 	// Changing owners settles the destination; folding within it animates.
 	resourceColumn panel.Kind
+	resourceTarget ResourceTarget
 
 	pluginWorkspace      string
 	pluginWorkspaces     map[string]*PluginWorkspacePrefs
@@ -547,7 +548,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.Settings.CloseDetails()
 				return
 			}
-			if a.workspaceDetails() {
+			if a.paged() != "" || a.pluginDetails() {
 				a.pluginWorkspacePrefs().Folded = true
 				a.mainPane.Focus(c)
 				return
@@ -568,7 +569,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.PluginDetails(c)
 				return
 			}
-			if a.resourceDetails() {
+			if a.paged() != "" {
 				panel.PageDetails(c, a.paged(), a.project())
 				return
 			}

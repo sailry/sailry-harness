@@ -542,6 +542,7 @@ browser_annotation_unavailable
 content_document
 content_source
 resource_project_empty
+resource_follow_conversation
 unavailable
 # App menu
 menu_about
