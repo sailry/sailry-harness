@@ -74,13 +74,17 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 			return ui.Element{}, hostInvalid("invalid heatmap cell")
 		}
 	}
-	return ui.Column(view).FillWidth().Children(func() {
-		ui.Box(view).FillWidth().AspectRatio(float32(source.Columns) / float32(source.Rows)).MaxHeight(float32(source.Rows) * 24).Children(func() {
+	palette := theme.Of(view)
+	active := nativeChartColor(view, "chart_2")
+	// Limit the plot's width before resolving its aspect ratio so short
+	// calendars keep the same horizontal and vertical cell sizes.
+	return ui.Column(view).FillWidth().MaxWidth(float32(source.Columns) * 24).Children(func() {
+		ui.Box(view).FillWidth().AspectRatio(float32(source.Columns) / float32(source.Rows)).Children(func() {
 			chart.Plot(view, chart.Axes{}, func(area ui.Element) {
 				for _, cell := range source.Cells {
-					color := theme.Of(view).Muted
+					color := palette.Muted
 					if cell.Intensity > 0 {
-						color = nativeChartColor(view, "chart_2").Alpha(cell.Intensity)
+						color = active.Alpha(cell.Intensity)
 					}
 					x := chart.Span{Lo: float32(cell.Column) / float32(source.Columns), Hi: (float32(cell.Column) + 0.8) / float32(source.Columns)}
 					y := chart.Span{Lo: 1 - (float32(cell.Row)+0.8)/float32(source.Rows), Hi: 1 - float32(cell.Row)/float32(source.Rows)}
@@ -102,7 +106,7 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 				if cell.LabelGroup != nil {
 					previous = *cell.LabelGroup
 				}
-				nativeText(view, cell.Label).FontSize(10).TextColor(theme.Of(view).MutedForeground).Grow(1)
+				nativeText(view, cell.Label).FontSize(10).TextColor(palette.MutedForeground).Grow(1)
 			}
 		})
 	}), nil
