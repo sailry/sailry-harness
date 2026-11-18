@@ -134,7 +134,7 @@ func (r *records) advance(revision uint64) {
 func (r *records) insert(file *Parsed, fingerprint string) state {
 	entry := cached{fingerprint: fingerprint, state: stateOf(file)}
 	if file.Hash != "" {
-		entry.hash = &file.Hash
+		entry.hash = new(file.Hash)
 	}
 	r.entries[file.Path] = entry
 	return entry.state
@@ -425,11 +425,13 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 			scan.report.record(path, &state)
 			completed[path] = true
 		}
-		// Keep every committed file and cached result when a later transaction
-		// reaches the work budget; the remaining atomic files stay queued.
-		// The batch is still the cursor front, so only that front is filtered.
+		// Keep unfinished files queued at the front without copying the
+		// unprocessed tail on every batch.
 		kept := slices.DeleteFunc(batch, func(path string) bool { return completed[path] })
-		scan.pending = append(kept, scan.pending[len(results):]...)
+		advance := len(batch) - len(kept)
+		copy(scan.pending[advance:len(batch)], kept)
+		clear(scan.pending[:advance])
+		scan.pending = scan.pending[advance:]
 		if committed < len(changes) {
 			break
 		}

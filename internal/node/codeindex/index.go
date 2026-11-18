@@ -31,7 +31,8 @@ type state struct {
 func stateOf(file *Parsed) state {
 	value := state{Status: file.Status, Capabilities: file.Capabilities, Partial: file.Partial, Truncated: file.Truncated}
 	if file.Language != "" {
-		value.Language = &file.Language
+		// A separate allocation lets the parsed file and its syntax data be reclaimed.
+		value.Language = new(file.Language)
 	}
 	return value
 }

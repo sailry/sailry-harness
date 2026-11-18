@@ -354,6 +354,19 @@ func TestReconcileFollowsWatchChangeAfterFinishedPass(t *testing.T) {
 	}
 }
 
+func TestCachedMetadataOwnsItsValues(t *testing.T) {
+	cache := records{entries: map[string]cached{}}
+	file := Parsed{Path: "main.go", Hash: "content-hash", Language: "go", Status: StatusParsed}
+	cache.insert(&file, Fingerprint)
+	entry := cache.entries[file.Path]
+	if entry.hash == nil || *entry.hash != file.Hash || entry.hash == &file.Hash {
+		t.Fatal("cached hash must retain only the parsed file's hash value")
+	}
+	if entry.state.Language == nil || *entry.state.Language != file.Language || entry.state.Language == &file.Language {
+		t.Fatal("cached language must retain only the parsed file's language value")
+	}
+}
+
 // TestIndexRebuildable proves the index is a cache: records follow file
 // changes and deletions, rows written under other extraction rules are parsed
 // again, and a deleted database is rebuilt to the same answers.
