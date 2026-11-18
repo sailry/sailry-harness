@@ -89,7 +89,10 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 					x := chart.Span{Lo: float32(cell.Column) / float32(source.Columns), Hi: (float32(cell.Column) + 0.8) / float32(source.Columns)}
 					y := chart.Span{Lo: 1 - (float32(cell.Row)+0.8)/float32(source.Rows), Hi: 1 - float32(cell.Row)/float32(source.Rows)}
 					mark := chart.Rect(view, x, y).Background(color).Radius(2)
-					lines := []string{cell.Tooltip.Heading, cell.Tooltip.Title}
+					lines := []string{cell.Tooltip.Heading}
+					if cell.Tooltip.Title != "" {
+						lines = append(lines, cell.Tooltip.Title)
+					}
 					for _, row := range cell.Tooltip.Rows {
 						lines = append(lines, row.Label+" "+row.Value)
 					}
@@ -97,8 +100,9 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 				}
 			}).Fill()
 		})
-		ui.Row(view).FillWidth().Height(28).Children(func() {
+		ui.Box(view).FillWidth().Height(24).Children(func() {
 			previous := ""
+			lastColumn := -2
 			for _, cell := range source.Cells {
 				if cell.Label == "" || cell.LabelGroup != nil && previous == *cell.LabelGroup {
 					continue
@@ -106,7 +110,16 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 				if cell.LabelGroup != nil {
 					previous = *cell.LabelGroup
 				}
-				nativeText(view, cell.Label).FontSize(10).TextColor(palette.MutedForeground).Grow(1)
+				if cell.Column-lastColumn < 2 {
+					continue
+				}
+				lastColumn = cell.Column
+				label := nativeText(view, cell.Label).FontSize(10).TextColor(palette.MutedForeground).Absolute().Top(4)
+				if cell.Column == source.Columns-1 {
+					label.Right(0)
+				} else {
+					label.LeftPercent(100 * float32(cell.Column) / float32(source.Columns))
+				}
 			}
 		})
 	}), nil

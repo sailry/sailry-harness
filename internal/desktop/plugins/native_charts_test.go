@@ -54,3 +54,37 @@ func TestHeatmapDrawsSquareCells(t *testing.T) {
 		})
 	}
 }
+
+func TestHeatmapFillsMeasuredWidth(t *testing.T) {
+	for _, width := range []int{250, 900} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			const rows = 7
+			columns := (width + 17) / 18
+			cells := fmt.Sprintf(`[{"column":0,"row":0,"intensity":0},{"column":%d,"row":6,"intensity":1}]`, columns-1)
+			binding := NewNativeBinding(t.Context())
+			var renderErr error
+			tester := ui.NewTester(func(view *ui.Context) {
+				theme.Apply(view, "", theme.Dark)
+				ui.Column(view).Fill().Children(func() {
+					_, renderErr = binding.renderHeatmap(view, map[string]json.RawMessage{
+						"rows":    json.RawMessage(fmt.Sprint(rows)),
+						"columns": json.RawMessage(fmt.Sprint(columns)),
+						"cells":   json.RawMessage(cells),
+					})
+				})
+			}, width, 230)
+			tester.Frame()
+			if renderErr != nil {
+				t.Fatal(renderErr)
+			}
+			frame := tester.Image()
+			pitch := float64(width) / float64(columns)
+			first := frame.RGBAAt(int(0.4*pitch), int(0.4*pitch))
+			last := frame.RGBAAt(int(float64(width)-0.6*pitch), int((rows-0.6)*pitch))
+			background := frame.RGBAAt(width-1, 0)
+			if first == background || last == background || first == last {
+				t.Fatalf("gray first and active last cells do not span the plot: %v, %v, background %v", first, last, background)
+			}
+		})
+	}
+}
