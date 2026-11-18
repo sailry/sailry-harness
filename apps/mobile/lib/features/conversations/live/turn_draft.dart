@@ -29,6 +29,30 @@ class TurnDraft extends ChangeNotifier {
   }) : input = TextEditingController(text: text),
        attachments = List.of(attachments);
 
+  static final _drafts = Expando<Map<String, TurnDraft>>();
+
+  /// A connection is scoped to both the controller entry and execution Node.
+  /// Keep unsettled input attached to that route when a page is dismissed.
+  static TurnDraft retain({
+    required HostConnection host,
+    required String session,
+    String text = '',
+    List<PickedAttachment> attachments = const [],
+  }) {
+    final drafts = _drafts[host] ??= {};
+    final draft = drafts.putIfAbsent(
+      session,
+      () => TurnDraft(
+        host: host,
+        session: session,
+        text: text,
+        attachments: attachments,
+      ),
+    );
+    draft._views++;
+    return draft;
+  }
+
   final HostConnection host;
   final String session;
   final TextEditingController input;
@@ -37,6 +61,7 @@ class TurnDraft extends ChangeNotifier {
   GuidancePreview? _guidance;
   bool _sending = false;
   bool _disposed = false;
+  int _views = 0;
 
   PendingMessage? get pending => _pending;
   bool get sending => _sending;
@@ -96,6 +121,7 @@ class TurnDraft extends ChangeNotifier {
       if (!_disposed) {
         _sending = false;
         notifyListeners();
+        _releaseIfSettled();
       }
     }
   }
@@ -123,6 +149,7 @@ class TurnDraft extends ChangeNotifier {
       if (!_disposed) {
         _sending = false;
         notifyListeners();
+        _releaseIfSettled();
       }
     }
   }
@@ -151,6 +178,23 @@ class TurnDraft extends ChangeNotifier {
     // Preserve typing and files added while admission was pending.
     if (input.text == text) input.clear();
     attachments.removeWhere(files.contains);
+  }
+
+  void release() {
+    _views--;
+    _releaseIfSettled();
+  }
+
+  void _releaseIfSettled() {
+    final drafts = _drafts[host];
+    if (_views != 0 ||
+        _sending ||
+        _pending != null ||
+        drafts?[session] != this) {
+      return;
+    }
+    drafts!.remove(session);
+    dispose();
   }
 
   @override

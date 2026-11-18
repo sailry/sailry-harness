@@ -60,7 +60,7 @@ class LiveConversationPage extends StatefulWidget {
 
 class _LiveConversationPageState extends State<LiveConversationPage>
     with WidgetsBindingObserver {
-  late final _submission = TurnDraft(
+  late final _submission = TurnDraft.retain(
     host: widget.host,
     session: widget.sessionId,
     text: widget.initialDraft,
@@ -324,7 +324,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     final updates = _updates;
     if (updates != null) unawaited(updates.close());
     _submission.removeListener(_rebuild);
-    _submission.dispose();
+    _submission.release();
     _scroll.dispose();
     _artifactActions.dispose();
     _view.dispose();

@@ -266,4 +266,49 @@ void main() {
     reply.complete({});
     await sending;
   });
+
+  test('reopened conversation checks the original unfinished send', () async {
+    final reply = Completer<Map<String, dynamic>>();
+    final connection = RecoveryConnection();
+    var submissions = 0;
+    final host = HostConnection.test(
+      id: 'entry/host',
+      label: 'Host',
+      connection: connection,
+      command: (kind, _) {
+        expect(kind, 'submit_turn');
+        submissions++;
+        return reply.future;
+      },
+    );
+    addTearDown(host.dispose);
+    final draft = TurnDraft.retain(
+      host: host,
+      session: 'session',
+      text: 'Message',
+    );
+    final failed = expectLater(draft.send(7), throwsA(isA<CommandFailure>()));
+    draft.release();
+    final reopened = TurnDraft.retain(host: host, session: 'session');
+    expect(reopened.sending, isTrue);
+    await reopened.send(8);
+    reopened.release();
+    reply.completeError(
+      const CommandFailure('outcome_unknown', request: 'original'),
+    );
+    await failed;
+
+    final pending = TurnDraft.retain(host: host, session: 'session');
+    expect(pending.input.text, 'Message');
+    expect(pending.pending?.request, 'original');
+    expect(await pending.check(), isTrue);
+    expect(connection.requests, ['original']);
+    expect(submissions, 1);
+    pending.release();
+
+    final clean = TurnDraft.retain(host: host, session: 'session');
+    expect(clean.input.text, isEmpty);
+    expect(clean.pending, isNull);
+    clean.release();
+  });
 }
