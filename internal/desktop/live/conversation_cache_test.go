@@ -1,6 +1,7 @@
 package live
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -112,8 +113,43 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		}
 		r.beginConversationFrame()
 		r.finishConversationFrame()
-		if len(r.conversationCache) != 0 || len(r.conversationPresentations) != 0 || r.conversationCopies != nil {
-			t.Fatal("leaving the conversation retained its frame caches")
+		if len(r.conversationCache) != 0 || len(r.conversationPresentations) != 0 || r.conversationCopies != nil || cv.Turns != nil {
+			t.Fatal("leaving the conversation retained its frame caches or view history")
+		}
+	})
+}
+
+func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, _, detached, id := cacheTestRuntime(t)
+		state := cacheTestFrame(t, r, detached, id)
+		r.beginConversationFrame()
+		// An earlier detail or attachment read can finish just as the view is
+		// replaced. The bulk projection writes to App.Data before layout.
+		r.projectConversations()
+		if len(detached.Turns) != 1 || detached.Turns[0].User != "Latest input" {
+			t.Fatal("fixture did not repopulate the detached view")
+		}
+		detached.Queue = []composer.Queued{{ID: "queued"}}
+		detached.Waiting.Approvals = []composer.Approval{{ID: "approval"}}
+		detached.Animating = true
+
+		visible := &viewmodel.Conversation{ID: detached.ID, Node: detached.Node}
+		r.conversationSeen[id] = true
+		r.projectConversation(visible, id, state, time.Unix(20, 0), "en")
+		r.finishConversationFrame()
+		if detached.Turns != nil || detached.Queue != nil || detached.Waiting.Approvals != nil || detached.Animating {
+			t.Fatal("an observation shared with a newer view retained the detached presentation")
+		}
+		if len(visible.Turns) != 1 || len(r.conversationPresentations) != 1 {
+			t.Fatal("releasing the detached view removed its mounted replacement")
+		}
+
+		r.beginConversationFrame()
+		r.projectConversations()
+		r.finishConversationFrame()
+		if detached.Turns != nil || visible.Turns != nil || len(r.conversationPresentations) != 0 {
+			t.Fatal("a bulk projection survived a frame without a mounted view")
 		}
 	})
 }
@@ -217,10 +253,20 @@ func TestConversationPresentationTransientState(t *testing.T) {
 		active.Snapshot.Page.Runs[0].Status, active.Snapshot.Page.Runs[0].FinishedMs = protocol.ConversationStatusRunning, nil
 		active.Snapshot.Drafts = []protocol.ConversationDraft{{ID: "draft", Turn: active.Snapshot.Page.Runs[0].Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Streaming reply"}}}}
 		apply(active, "en")
-		elapsed := cv.Turns[0].Reply.Elapsed
+		turn := &cv.Turns[0]
+		elapsed := turn.Reply.Elapsed
 		r.projectConversation(cv, id, active, time.Unix(22, 0), "en")
-		if cv.Turns[0].Reply.Elapsed != elapsed+2*time.Second || cv.Turns[0].Reply.Status != conversation.Running {
-			t.Fatal("an unchanged live source stopped advancing its clock")
+		if turn != &cv.Turns[0] || turn.Reply.Elapsed != elapsed+2*time.Second || turn.Reply.Status != conversation.Running {
+			t.Fatal("an unchanged live source rebuilt its transcript or stopped advancing its clock")
+		}
+		active.Snapshot.Drafts[0].Parts = []protocol.ConversationPart{{
+			Kind: "resource", Data: json.RawMessage(`{"type":"compacting","started_ms":17500}`),
+		}}
+		apply(active, "en")
+		turn = &cv.Turns[0]
+		r.projectConversation(cv, id, active, time.Unix(22, 0), "en")
+		if turn != &cv.Turns[0] || turn.Reply.Phase != conversation.Compacting || turn.Reply.PhaseElapsed != 4500*time.Millisecond {
+			t.Fatal("a cached compaction did not advance from its own start time")
 		}
 	})
 }
@@ -255,6 +301,22 @@ func TestConversationPresentationEditAndOutgoing(t *testing.T) {
 		r.projectConversation(cv, id, state, time.Unix(22, 0), "en")
 		if len(cv.Turns) != 1 || cv.Turns[0].User != "Latest input" {
 			t.Fatal("discarding outgoing input kept its temporary history overlay")
+		}
+
+		loading := state
+		loading.Snapshot.Page = protocol.DefaultConversationPage()
+		loading.Loading = true
+		r.conversationCopies[id] = conversationCopy{state: loading, ok: true, generation: r.conversationVersion + 1}
+		r.projectConversation(cv, id, loading, time.Unix(22, 0), "en")
+		x := conversationActions{r: r, cv: cv, comp: comp}
+		x.stageOutgoing(composer.Message{Text: "Temporary input"})
+		if cv.Session.Loading || len(cv.Turns) != 1 {
+			t.Fatal("fixture did not make its outgoing row visible during loading")
+		}
+		r.discardOutgoing(cv.ID)
+		r.projectConversation(cv, id, loading, time.Unix(22, 0), "en")
+		if !cv.Session.Loading || len(cv.Turns) != 0 {
+			t.Fatal("a rejected outgoing message hid the initial loading state")
 		}
 	})
 }

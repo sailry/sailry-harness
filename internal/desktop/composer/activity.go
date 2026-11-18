@@ -166,10 +166,12 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 			s.subagents(c, a, actions)
 		}
 		ui.Spacer(c)
+		s.draftRecovery(c, ctx)
 		in := ctx.Interactions
 		if len(in.Approvals) > 0 {
 			s.approvals(c, in.Approvals, actions)
 		}
+		s.questionReceipts(c, in.QuestionReceipts)
 		if in.Question != nil {
 			s.ask(c, in.Question, actions)
 		}

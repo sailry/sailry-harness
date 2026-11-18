@@ -12,12 +12,14 @@ import (
 
 func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.ConversationState, locales ...string) {
 	type source struct {
-		ref     protocol.ToolDetailReference
-		summary *protocol.ToolDetailSummary
+		ref        protocol.ToolDetailReference
+		summary    *protocol.ToolDetailSummary
+		historical *client.HistoricalCommandReference
 	}
+	page := state.Snapshot.Page
 	sources := map[string]source{}
 	pending := map[string][]toolAssociation{}
-	for _, entry := range state.Snapshot.Page.Entries {
+	for _, entry := range page.Entries {
 		for index, part := range entry.Parts {
 			if part.Kind != "tool_call" && part.Kind != "tool_result" {
 				continue
@@ -51,12 +53,16 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 			if summary == nil {
 				continue
 			}
-			if !summary.HasDetails {
+			ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(index), Call: id, Revision: summary.Revision}
+			var historical *client.HistoricalCommandReference
+			if part.Kind == "tool_result" {
+				historical = client.HistoricalCommandDetail(page, ref, name, summary)
+			}
+			if !summary.HasDetails && historical == nil {
 				delete(sources, key)
 				continue
 			}
-			ref := protocol.ToolDetailReference{Session: state.Snapshot.Page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(index), Call: id, Revision: summary.Revision}
-			sources[key] = source{ref, summary}
+			sources[key] = source{ref, summary, historical}
 		}
 	}
 	if len(sources) == 0 {
@@ -71,9 +77,21 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				if !ok {
 					continue
 				}
-				if loaded, ok := r.controller.ConversationDetail(source.ref); ok {
-					r.bindPluginCards(cv, call.ID, loaded)
-					ProjectToolDetail(call, source.summary, loaded, locales...)
+				var loaded bool
+				if source.summary.HasDetails {
+					var value protocol.ToolDetail
+					if value, loaded = r.controller.ConversationDetail(source.ref); loaded {
+						r.bindPluginCards(cv, call.ID, value)
+						ProjectToolDetail(call, source.summary, value, locales...)
+					}
+				}
+				call.BackgroundDetail = nil
+				if ref := source.historical; ref != nil && state.Connected && !call.Pending && call.State != conversation.Denied && call.State != conversation.StateInterrupted {
+					call.BackgroundDetail = func() conversation.BackgroundDetail {
+						return r.historicalCommandDetail(*ref)
+					}
+				}
+				if !source.summary.HasDetails || loaded {
 					continue
 				}
 				if call.Output == nil {

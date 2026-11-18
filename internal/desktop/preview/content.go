@@ -132,15 +132,11 @@ func changed(id string) cv.Turn {
 	return cv.Turn{User: "Give every menu the floating look.", Reply: r}
 }
 
-// noticed: background results delivered with a turn.
+// noticed: an automatic follow-up with no user input or reply text.
 func noticed(id string) cv.Turn {
 	r := done(cv.Completed, 3)
 	r.Notice = true
-	return cv.Turn{Notices: []cv.Notice{
-		{Title: "go test ./...", Outcome: cv.OutcomeCompleted},
-		{Title: "Audit the icon set", Agent: true, Outcome: cv.OutcomeFailed},
-		{Title: "npm run watch", Outcome: cv.OutcomeStalled},
-	}, Reply: r}
+	return cv.Turn{Reply: r}
 }
 
 // compacted: a compaction turn, finished with its summary, failed, or

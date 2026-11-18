@@ -14,6 +14,7 @@ type liveCommands struct {
 	busy     map[commandViewKey]bool
 	releases map[protocol.SessionID]func()
 	outputs  map[commandViewKey]func()
+	details  map[commandDetailKey]*commandDetailRead
 }
 type commandViewKey struct {
 	session protocol.SessionID
@@ -33,6 +34,10 @@ func (r *Runtime) closeCommands() {
 	for _, release := range r.commands.outputs {
 		release()
 	}
+	for _, read := range r.commands.details {
+		read.cancel()
+	}
+	clear(r.commands.details)
 }
 func (r *Runtime) projectCommands(cv string, comp *composer.State, activity *composer.Activity) {
 	session, ok := r.session(cv)
@@ -134,6 +139,7 @@ func (r *Runtime) pruneCommands() {
 			delete(r.commands.outputs, key)
 		}
 	}
+	r.pruneCommandDetails()
 }
 func (x *conversationActions) stopWorkspaceCommand(text string) {
 	session, ok := x.r.session(x.cv.ID)

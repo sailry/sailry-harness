@@ -29,7 +29,7 @@ func (x *conversationActions) stageOutgoing(message composer.Message) {
 	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && pending.transcript {
 		return
 	}
-	input := conversation.Turn{ID: "outgoing/" + x.cv.ID, User: message.Text, Sent: time.Now(), Reply: conversation.Reply{Notice: true}}
+	input := conversation.Turn{ID: "outgoing/" + x.cv.ID, User: message.Text, Sent: time.Now(), InputOnly: true}
 	for _, attachment := range message.Attachments {
 		file := conversation.File{ID: attachment.ID, Path: attachment.Name, Mime: attachment.Mime, Size: attachment.Size, Kind: attachmentFileKind(attachment.Name, attachment.Mime)}
 		if file.Kind == conversation.ImageFile {

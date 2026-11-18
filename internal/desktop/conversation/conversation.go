@@ -11,7 +11,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/egoist/mygo/ui/markdown/parser"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -34,7 +33,8 @@ const (
 type State struct {
 	toolCards     map[string]map[string]func(*ui.Context)
 	renderSession string
-	lists         map[string]*ui.ListState
+	lists         map[string]*transcriptList
+	boundLists    []*transcriptList
 	open          map[string]bool    // the disclosures open
 	work          map[string]bool    // work regions the user opened or closed
 	built         map[string]bool    // lists built once, so laid out
@@ -45,17 +45,16 @@ type State struct {
 	md            markdown.Options   // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
-	light         float32                // the welcome wordmark's beam, in window DIPs
-	lit           bool                   // the pointer has moved over the welcome page
-	views         map[string]*Viewer     // the image viewer of each conversation
-	edits         map[string]*edit       // the open message editor of each conversation
-	rewind        string                 // the turn whose rewind waits to be confirmed
-	rewindOf      string                 // the conversation it is of
-	reading       string                 // the turn read aloud
-	finds         map[string]*search     // the search bar of each conversation
-	wantOlder     bool                   // the start came into view this frame
-	navs          map[string]*navigation // the message navigation rail of each conversation
-	navigated     string                 // the transcript built last, when it has one not built yet
+	light         float32            // the welcome wordmark's beam, in window DIPs
+	lit           bool               // the pointer has moved over the welcome page
+	views         map[string]*Viewer // the image viewer of each conversation
+	edits         map[string]*edit   // the open message editor of each conversation
+	rewind        string             // the turn whose rewind waits to be confirmed
+	rewindOf      string             // the conversation it is of
+	reading       string             // the turn read aloud
+	finds         map[string]*search // the search bar of each conversation
+	wantOlder     bool               // the start came into view this frame
+	navigated     *transcriptList    // the transcript built last, when it has a rail not built yet
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split bool
@@ -117,17 +116,7 @@ func pathLink(path string) string {
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}, docks: map[string]*dock{}}
-}
-
-// List returns the list state of a conversation.
-func (s *State) List(id string) *ui.ListState {
-	if l, ok := s.lists[id]; ok {
-		return l
-	}
-	l := &ui.ListState{FollowEnd: true}
-	s.lists[id] = l
-	return l
+	return &State{lists: map[string]*transcriptList{}, open: map[string]bool{}, work: map[string]bool{}, built: map[string]bool{}, area: map[string]ui.Rect{}, docks: map[string]*dock{}}
 }
 
 // Navigation builds the message navigation of the transcript View built
@@ -136,10 +125,12 @@ func (s *State) List(id string) *ui.ListState {
 // height rather than in the list's. It builds nothing for a transcript
 // without one.
 func Navigation(c *ui.Context, s *State) {
-	if id := s.navigated; id != "" {
-		s.navigated = ""
-		nav := s.navs[id]
-		nav.view(c, nav.list, nav.turns)
+	if l := s.navigated; l != nil {
+		s.navigated = nil
+		if l.nav == nil {
+			l.nav = &navigation{}
+		}
+		l.nav.view(c, l)
 	}
 }
 
@@ -215,15 +206,12 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 	s.messageTheme(c)
 	s.md.ShareSelection = true
 	s.bindVisuals()
-	s.md.Block, s.md.LinkIcon = nil, nil
-	if s.Embed != nil {
-		s.md.Block = func(c *ui.Context, d *parser.Document, i int) bool { return s.embed(c, id, d, i, actions) }
-	}
+	s.md.LinkIcon = nil
 	if s.SessionLink != nil {
 		s.md.LinkIcon = sessionIcon(c, s.SessionLink)
 	}
-	s.md.OnLink = func(link string) { s.follow(c, id, link) }
 	if sess != nil && sess.Loading {
+		s.navigated = nil
 		loading(c)
 		if below != nil {
 			below()
@@ -242,8 +230,6 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 		reserve = d.box.Bounds(c).H
 		d.c, d.reserve = c, reserve
 	}
-	l := s.List(id)
-	l.Key = func(i int) any { return turns[i].ID }
 	n := len(turns)
 	s.wantOlder = false
 	// A lost or recovering connection is told after the last turn, where the
@@ -277,34 +263,23 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 // search bar, over the theme's conversation effects. reserve is the room the
 // list leaves under its last turn: the height of what floats over its end.
 func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Turn, sess *Session, actions Actions, reserve float32) {
-	l, n := s.List(id), len(turns)
 	kit.Draws(pane, kit.Backdrop(c, "conversation"))
 	s.pressOf(id).watch(pane)
 	pane.Children(func() {
+		l, n := s.bindTranscript(c, id, turns, sess, actions), len(turns)
 		// What shows of the transcript is the list above the dock.
-		list := ui.List(c, l, n, func(i int) {
-			s.turn(c, id, i, &turns[i], n, sess, actions)
-		}).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog)
+		list := ui.List(c, &l.layout, n, l.row).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog)
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
 		s.area[id] = area
 		// A delegated session's transcript, the child panel's (no session), is
 		// read-only and has no navigation. The pane builds it (Navigation).
-		s.navigated = ""
+		s.navigated = nil
 		if sess != nil && n > 0 && !s.Split {
-			nav := s.navs[id]
-			if nav == nil {
-				nav = &navigation{}
-				if s.navs == nil {
-					s.navs = map[string]*navigation{}
-				}
-				s.navs[id] = nav
-			}
-			nav.list, nav.turns, nav.aside = l, turns, s.Aside
-			s.navigated = id
+			s.navigated = l
 		}
-		jump(c, l, n, !s.built[id], reserve, s.Aside)
+		jump(c, &l.layout, n, !s.built[id], reserve, s.Aside)
 		s.built[id] = true
 		s.searchBar(c, id, turns)
 	})
@@ -322,7 +297,9 @@ func fadeUnder(list ui.Element, area ui.Rect, reserve float32) {
 	if reserve <= 0 || area.H <= reserve || area.W <= scrollStrip {
 		return
 	}
-	list.Effect(dockFadeEffect{reserve: reserve})
+	// Keep the source layer when only the controls over the transcript change.
+	// MyGo redraws it when the list's scene changes, including scroll and animation.
+	list.Effect(dockFadeEffect{reserve: reserve}).Cache()
 }
 
 // scrollStrip is the width at the list's trailing edge the fade leaves
@@ -369,10 +346,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		}
 		if len(t.Segments) == 0 {
 			s.user(c, session, t, q, current, marked, actions)
-			if len(t.Notices) > 0 {
-				notices(c, t.Notices)
-			}
-			if !t.Reply.Notice || len(t.Reply.Blocks) > 0 {
+			if !t.InputOnly {
 				s.reply(c, t, mark, actions)
 			}
 			return
@@ -398,9 +372,6 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 						s.user(c, session, &message, q, current, marked, actions)
 					})
 					current -= strings.Count(strings.ToLower(input.User), strings.ToLower(q))
-				}
-				if index == 0 && len(t.Notices) > 0 {
-					notices(c, t.Notices)
 				}
 				end := len(blocks)
 				latest := index == len(t.Segments)-1
@@ -649,8 +620,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	})
 }
 
-// blocks builds blocks in order. continuing marks the latest tool row
-// running while the turn goes on.
+// blocks builds blocks in transcript order.
 func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
@@ -669,7 +639,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 					})
 				})
 			case ToolsBlock:
-				s.tools(c, b.Calls, continuing && last)
+				s.tools(c, b.Calls)
 			case QuestionBlock:
 				s.question(c, b.Question)
 			case ChildrenBlock:
@@ -697,30 +667,21 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 	}
 }
 
-// showPhase hides the phase row while the run waits on the user or a
-// call or child runs: their rows already say what goes on. A reply that
-// ends in tools, children or a retry keeps the activity on that row (tools
-// marks the last call running) until new content takes over, so the phase
-// row shows only before the first content, while the model thinks or
-// writes, and while the context compacts.
+// The tail reports the parent's current phase, not the last activity in its
+// history. A background child has its own status independent of the parent.
 func showPhase(r *Reply, blocks []Block) bool {
+	if r.Status == Stopping || r.Phase == WaitingUser || r.Phase == ExecutingTool {
+		return false
+	}
 	if r.Phase == WaitingController {
 		return true
 	}
-	if n := len(blocks); n > 0 && r.Phase != Compacting && r.Status != Queued {
-		switch blocks[n-1].Kind {
-		case ToolsBlock, ChildrenBlock, RetryBlock:
-			return false
-		}
+	if n := len(blocks); n > 0 && blocks[n-1].Kind == RetryBlock && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
+		return false
 	}
-	for _, b := range blocks {
+	for _, b := range r.Blocks {
 		for _, call := range b.Calls {
 			if call.Pending || call.Running {
-				return false
-			}
-		}
-		for _, k := range b.Children {
-			if k.Status.Active() {
 				return false
 			}
 		}

@@ -1,6 +1,7 @@
 package preview
 
 import (
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,7 +24,8 @@ func (b *demo) review() *Conversation {
 	first.Reply.Blocks = []cv.Block{
 		{Kind: cv.ChildrenBlock, Children: []cv.Child{
 			{ID: first.ID + "/visual", Title: b.t("review.child.visual"), Model: DemoModel, Effort: "high", Status: cv.ChildCompleted, Avatar: "avatar-cat"},
-			{ID: first.ID + "/a11y", Title: b.t("review.child.a11y"), Model: demoFast, Effort: "low", Status: cv.ChildFailed},
+			{ID: first.ID + "/a11y", Turn: first.ID + "/a11y/run", Title: b.t("review.child.a11y"), Model: demoFast, Effort: "low",
+				Status: cv.ChildFailed, Error: "The checkout test account is unavailable."},
 			{ID: first.ID + "/copy", Title: b.t("review.child.copy"), Model: demoFast, Effort: "low", Status: cv.ChildInterrupted},
 			{ID: first.ID + "/legacy", Title: b.t("review.child.legacy"), Model: demoFast, Status: cv.ChildCancelled},
 			{ID: first.ID + "/payments", Title: b.t("review.child.payments"), Model: DemoModel, Effort: "medium", Status: cv.ChildContinued},
@@ -47,8 +49,8 @@ func (b *demo) review() *Conversation {
 }
 
 // onboarding is the history rows of questions in every state, a plan
-// review, a connector's form and its authorization link, and a question
-// still open that can be declined.
+// review, a connector's form and its authorization link, and recovery of
+// answers to both closed and pending questions.
 func (b *demo) onboarding() *Conversation {
 	const id = "lumen-web/onboarding"
 	options := func(key string) []string { return strings.Split(b.t(key), "\n") }
@@ -73,6 +75,7 @@ func (b *demo) onboarding() *Conversation {
 		Terminal: true, Standalone: true, Output: output(b.t("onboard.form.text"))}
 	link := cv.Call{ID: issues.ID + "/link", Name: "mcp_elicitation", Label: "Pulse Analytics", Icon: "globe", Detail: "https://auth.pulse.example/device",
 		Terminal: true, Standalone: true}
+	digest := question(issues.ID+"/digest", cv.QuestionAccepted, b.t("onboard.q.digest"), options("onboard.q.digest.options"), b.t("onboard.q.digest.answer"))
 	issues.Reply = done(cv.Completed, 246)
 	issues.Reply.Blocks = []cv.Block{
 		tools(form),
@@ -80,19 +83,36 @@ func (b *demo) onboarding() *Conversation {
 		tools(link),
 		question(issues.ID+"/code", cv.QuestionInterrupted, b.t("onboard.q.code"), nil),
 		question(issues.ID+"/workspace", cv.QuestionTimedOut, b.t("onboard.q.workspace"), []string{"lumen-production", "lumen-staging"}),
-		question(issues.ID+"/digest", cv.QuestionAccepted, b.t("onboard.q.digest"), options("onboard.q.digest.options"), b.t("onboard.q.digest.answer")),
+		digest,
 		text(b.t("onboard.1.answer")),
 	}
 
 	tone := b.user(id+"/2", "onboard.2.user")
+	pending := &composer.Ask{ID: tone.ID + "/ask", Prompt: b.t("onboard.ask.prompt"), Options: options("onboard.ask.options"), Multi: true, Declinable: true}
 	tone.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(38), Phase: cv.Generating}
 	tone.Reply.Blocks = []cv.Block{
 		reasoning(b.t("onboard.2.think")),
-		question(tone.ID+"/ask", cv.QuestionPending, b.t("onboard.ask.prompt"), nil),
+		question(pending.ID, cv.QuestionPending, pending.Prompt, nil),
 	}
 	c := b.conv(id, "onboard.title", Waiting, 12*time.Minute, cv.Usage{Tokens: 22600, Speed: 69.1, Cost: 0.0139, Cached: 15800, Context: 0.11}, first, issues, tone)
-	c.Waiting = composer.Interactions{Question: &composer.Ask{ID: tone.ID + "/ask", Prompt: b.t("onboard.ask.prompt"),
-		Options: options("onboard.ask.options"), Multi: true, Declinable: true}}
+	checking := *pending
+	checking.Check = func() {
+		// The original answer was not recorded; the same question is editable again.
+		if c.Waiting.Question == &checking {
+			c.Waiting.Question = pending
+		}
+	}
+	roleID := roles.Question.CallID
+	c.Waiting = composer.Interactions{
+		Question: &checking,
+		QuestionReceipts: []composer.QuestionReceipt{
+			{ID: roleID, Prompt: roles.Question.Prompt, Check: func() {
+				// The recorded roles answer is already in the history.
+				c.Waiting.QuestionReceipts = slices.DeleteFunc(slices.Clone(c.Waiting.QuestionReceipts), func(r composer.QuestionReceipt) bool { return r.ID == roleID })
+			}},
+			{ID: digest.Question.CallID, Prompt: digest.Question.Prompt, Busy: true},
+		},
+	}
 	return c
 }
 

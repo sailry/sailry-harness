@@ -62,7 +62,7 @@ func TestReplyContentSpacing(t *testing.T) {
 				tester := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Light)
 					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
-					state.tools(c, calls, false)
+					state.tools(c, calls)
 				}, 900, 700)
 				tester.Frame()
 				scope, plan := spacingRow(t, tester, "Review scope"), spacingRow(t, tester, "Update plan")

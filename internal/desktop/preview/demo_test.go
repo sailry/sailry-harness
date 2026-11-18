@@ -34,6 +34,7 @@ var unshown = map[string]string{
 	"conversation.Session.Loading":             "a moment before any content, not content",
 	"conversation.Session.LoadingOlder":        "a moment, which would keep the window redrawing",
 	"conversation.Call.Load":                   "a live disclosure's request",
+	"conversation.Turn.InputOnly":              "optimistic input while awaiting admission on a live host",
 	"composer.Attachment.Chip":                 "set by a pick in the live browser, which binds the file to its chip",
 	"composer.Queued.Load":                     "a live queue's request",
 	"composer.Queued.Save":                     "a live queue's request",
@@ -375,6 +376,34 @@ func TestDemo(t *testing.T) {
 		after := ship.Waiting.Approvals
 		if before != 7 || len(after) != 6 || slices.ContainsFunc(after, func(a composer.Approval) bool { return a.Failed || a.Receipt }) {
 			t.Errorf("the release waits on %d approvals, then %d", before, len(after))
+		}
+
+		onboard := d.Find("lumen-web/onboarding")
+		if onboard == nil {
+			t.Fatal("the onboarding conversation is missing")
+		}
+		interactions := func() composer.Interactions { return DemoComposer(d, onboard, onboard.Worktree).Interactions }
+		waiting := interactions()
+		pending, receipts := waiting.Question, waiting.QuestionReceipts
+		if pending == nil || pending.Check == nil || len(receipts) != 2 {
+			t.Fatalf("onboarding does not offer its question and two receipts: %+v", waiting)
+		}
+		ready, busy := receipts[0], receipts[1]
+		if ready.ID != onboard.ID+"/0/roles" || ready.Prompt == "" || ready.Busy || ready.Check == nil ||
+			busy.ID != onboard.ID+"/1/digest" || busy.Prompt == "" || !busy.Busy || busy.Check != nil {
+			t.Fatalf("invalid checkable and busy question receipts: %+v", receipts)
+		}
+		ready.Check()
+		waiting = interactions()
+		if current, remaining := waiting.Question, waiting.QuestionReceipts; current == nil || current.ID != pending.ID || current.Check == nil ||
+			len(remaining) != 1 || remaining[0].ID != busy.ID || !remaining[0].Busy {
+			t.Fatalf("checking a receipt disturbed the other answer attempts: %+v", waiting)
+		}
+		waiting.Question.Check()
+		waiting = interactions()
+		if editable := waiting.Question; editable == nil || editable.ID != pending.ID || editable.Check != nil || editable.Busy || editable.Disabled ||
+			!slices.Equal(editable.Options, pending.Options) || len(waiting.QuestionReceipts) != 1 || waiting.QuestionReceipts[0].ID != busy.ID {
+			t.Fatalf("checking an unrecorded answer did not restore the same question: %+v", waiting)
 		}
 	})
 

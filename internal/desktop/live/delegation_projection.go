@@ -16,6 +16,7 @@ func (r *Runtime) watchChild(id protocol.SessionID) {
 	if _, ok := r.conversationWatches[id]; !ok {
 		if release, err := r.controller.WatchConversation(r.ctx, id, func() { r.conversationChanged(id) }); err == nil {
 			r.conversationWatches[id] = release
+			delete(r.conversationCache, id)
 		}
 	}
 }
@@ -136,6 +137,12 @@ func childElapsed(run protocol.ConversationRun, now time.Time) string {
 }
 
 func childView(page *protocol.ConversationPage, child protocol.ConversationChild, session protocol.Session, locale string) conversation.Child {
+	view := transcriptChild(page, child, locale)
+	view.Model, view.Effort = session.Config.Model, effortName(session.Config.Effort)
+	return view
+}
+
+func transcriptChild(page *protocol.ConversationPage, child protocol.ConversationChild, locale string) conversation.Child {
 	status := conversation.ChildCompleted
 	switch child.Run.Status {
 	case "queued":
@@ -153,7 +160,11 @@ func childView(page *protocol.ConversationPage, child protocol.ConversationChild
 	case "cancelled":
 		status = conversation.ChildCancelled
 	}
-	return conversation.Child{ID: session.ID.String(), Title: childTitle(page, child, locale), Model: session.Config.Model, Effort: effortName(session.Config.Effort), Status: status}
+	view := conversation.Child{ID: child.Run.Session.String(), Turn: child.Run.Turn.String(), Title: childTitle(page, child, locale), Status: status}
+	if child.Run.Error != nil {
+		view.Error = child.Run.Error.Message
+	}
+	return view
 }
 
 func enrichChildModels(cv *viewmodel.Conversation, page protocol.ConversationPage, snapshot protocol.Snapshot, locale string) {

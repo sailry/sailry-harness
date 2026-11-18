@@ -42,9 +42,10 @@ const (
 // nothing for them, and the current turn is read from the list as it
 // paints, after layout, so the highlight follows the frame it shows.
 type navigation struct {
-	c      *ui.Context
-	list   *ui.ListState
-	turns  []Turn
+	c          *ui.Context
+	transcript *transcriptList
+	mounted    bool
+
 	hover  int     // the tick under the pointer, -1 for none
 	drag   bool    // a press on a tick goes on
 	went   int     // the turn the press showed last
@@ -68,18 +69,26 @@ type navigation struct {
 func (u *navigation) wide() bool { return u.width >= railMin }
 
 // view builds the rail over the pane, after the transcript and the composer.
-func (u *navigation) view(c *ui.Context, l *ui.ListState, turns []Turn) {
+func (u *navigation) view(c *ui.Context, l *transcriptList) {
 	if u.paint == nil {
 		u.paint, u.hit, u.build, u.went = u.draw, u.hits, u.children, -1
 	}
 	p := theme.Of(c)
-	u.c, u.list, u.turns, u.tick, u.muted = c, l, turns, p.Foreground, p.MutedForeground
+	u.c, u.transcript, u.mounted = c, l, true
+	u.aside, u.tick, u.muted = l.frame.aside, p.Foreground, p.MutedForeground
 	ui.Box(c.Key("navigation")).Absolute().Left(0).Top(0).Right(u.aside).Bottom(0).PassThrough().
 		Draw(u.paint).Children(u.build)
 }
 
+func (u *navigation) turns() []Turn {
+	if u.transcript == nil {
+		return nil
+	}
+	return u.transcript.frame.turns
+}
+
 func (u *navigation) children() {
-	c, n := u.c, len(u.turns)
+	c, n := u.c, len(u.turns())
 	wide := u.wide()
 	rail := ui.Box(c.Key("rail")).Absolute().Left(0).Top(0).Bottom(0).Width(railWidth).HitTest(u.hit).
 		Role(ui.RoleSlider).Label(i18n.T(c, "chat_navigation")).Value(u.valueText(min(u.active, n-1)+1, n)).
@@ -145,21 +154,25 @@ func (u *navigation) valueText(i, n int) string {
 
 // navigate shows turn i at the top of the view.
 func (u *navigation) navigate(i int) {
-	if i < 0 || i >= len(u.turns) {
+	if i < 0 || i >= len(u.turns()) {
 		return
 	}
 	u.active = i
-	u.list.ScrollTo(i, ui.Start)
+	u.transcript.layout.ScrollTo(i, ui.Start)
 }
 
 // current is the turn at the top of the view, the last while the list
 // shows its end, or the one shown last before the list is laid out.
 func (u *navigation) current() int {
-	n := len(u.turns)
-	if u.list.AtEnd() {
+	n := len(u.turns())
+	if n == 0 {
+		return -1
+	}
+	l := &u.transcript.layout
+	if l.AtEnd() {
 		return n - 1
 	}
-	if first, last := u.list.Visible(); last >= first {
+	if first, last := l.Visible(); last >= first {
 		return first
 	}
 	return min(u.active, n-1)
@@ -168,7 +181,7 @@ func (u *navigation) current() int {
 // draw records the transcript's size and paints the ticks.
 func (u *navigation) draw(pt *ui.Painter, r ui.Rect) {
 	u.width, u.height = r.W, r.H
-	n := len(u.turns)
+	n := len(u.turns())
 	if !u.wide() || n == 0 {
 		return
 	}
@@ -213,7 +226,7 @@ func (u *navigation) draw(pt *ui.Painter, r ui.Rect) {
 // hits reports whether (x, y) is on a tick, or near one, rather than on
 // the empty rail.
 func (u *navigation) hits(x, y float32, r ui.Rect) bool {
-	return u.wide() && u.at(x-r.X, y-r.Y, len(u.turns)) >= 0
+	return u.wide() && u.at(x-r.X, y-r.Y, len(u.turns())) >= 0
 }
 
 // at returns the tick at (x, y) in the rail, -1 for none: a small margin
@@ -235,7 +248,7 @@ func (u *navigation) at(x, y float32, n int) int {
 
 // title is turn i's first line of text, or the new chat's label.
 func (u *navigation) title(i int) string {
-	text := u.turns[i].User
+	text := u.turns()[i].User
 	for text != "" {
 		line, rest, _ := strings.Cut(text, "\n")
 		if line = strings.TrimSpace(line); line != "" {

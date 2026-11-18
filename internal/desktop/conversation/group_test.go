@@ -320,18 +320,34 @@ func testRunsAndSequence(t *testing.T) {
 	}
 }
 
-// The header of a group is its last call with the flags of all of them:
-// failures show only once nothing runs, and a failure hides warnings.
 func testSummary(t *testing.T) {
-	calls := named("read", 3)
-	calls[0].Failed, calls[1].Warning, calls[2].Detail = true, true, "last"
-	s := Summary(calls)
-	if s.Detail != "last" || !s.Failed || s.Warning || s.Output != nil {
-		t.Errorf("finished summary %+v", s)
+	p := &theme.Palette{
+		MutedForeground: ui.RGBA(100, 100, 100, 1), Foreground: ui.RGBA(250, 250, 250, 1),
+		Danger: ui.RGBA(240, 40, 40, 1), Warning: ui.RGBA(240, 170, 40, 1),
 	}
-	calls[2].Running, calls[2].State = true, NotExecuted
-	if s = Summary(calls); !s.Running || s.Failed || s.State != StateNone {
-		t.Errorf("running summary %+v", s)
+	failed := Call{Name: "read", Failed: true}
+	for _, row := range []struct {
+		name string
+		last Call
+		want ui.Color
+	}{
+		{"settled after failure", Call{}, p.MutedForeground},
+		{"running after failure", Call{Running: true}, p.MutedForeground.Mix(p.Foreground, 0.35)},
+		{"awaiting approval after failure", Call{Pending: true}, p.Warning},
+		{"interrupted after failure", Call{Warning: true, State: NotExecuted}, p.Warning},
+		{"latest failure", Call{Failed: true}, p.Danger},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			row.last.Name, row.last.Detail, row.last.Output = "read", "last", &Output{}
+			calls := []Call{failed, {Name: "read", Pending: true}, row.last}
+			s := Summary(calls)
+			if s.Detail != "last" || s.Output != nil || rowColor(p, s) != row.want {
+				t.Fatalf("summary %+v has color %v, want %v", s, rowColor(p, s), row.want)
+			}
+			if rowColor(p, calls[0]) != p.Danger || calls[2].Output == nil {
+				t.Fatal("summary changed a grouped call's status or output")
+			}
+		})
 	}
 }
 
@@ -363,8 +379,8 @@ func testBackground(t *testing.T) {
 	}
 	active := append([]Call{}, calls[:2]...)
 	active[0].Running = true
-	if s := Summary(active); s.Background != nil {
-		t.Errorf("a group at work names the state %+v", s.Background)
+	if s := Summary(active); s.Background != calls[1].Background || s.Running {
+		t.Errorf("an earlier running call changed the last call's settled state: %+v", s)
 	}
 	for _, lang := range []string{"en", "zh-CN"} {
 		for _, size := range []float32{12, 18} {

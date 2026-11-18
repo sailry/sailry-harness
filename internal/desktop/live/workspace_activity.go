@@ -127,9 +127,10 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		ctx.Repository = composer.Repository{Kind: kind, Branch: branchLabel(p.status.Branch, p.status.Head)}
 		ctx.Activity.Changes = workspaceChanges(p.status)
 	}
-	comp.ActivityCallbacks = &composer.ActivityCallbacks{WorktreeEnabled: func() bool { return r.canMoveWorkspace(cv, comp) }, Worktree: func(relative string) {
-		if _, exists := r.session(cv.ID); exists {
-			r.selectConversationWorktree(cv, comp, relative)
+	id := cv.ID
+	comp.ActivityCallbacks = &composer.ActivityCallbacks{WorktreeEnabled: func() bool { return r.canMoveWorkspace(id, comp) }, Worktree: func(relative string) {
+		if _, exists := r.session(id); exists {
+			r.selectConversationWorktree(id, comp, relative)
 		} else {
 			r.selectDraftWorktree(comp, relative)
 		}

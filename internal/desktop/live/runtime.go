@@ -163,7 +163,7 @@ type Runtime struct {
 	conversationCopies        map[protocol.SessionID]conversationCopy
 	conversationCache         map[protocol.SessionID]conversationCopy
 	conversationVersion       uint64
-	conversationPresentations map[protocol.SessionID]conversationPresentation
+	conversationPresentations map[*viewmodel.Conversation]conversationPresentation
 	childConversations        map[protocol.SessionID]*viewmodel.Conversation
 	conversationChanges       map[protocol.SessionID]struct{} // guarded by mu
 	// composerOutgoing holds the captured input until its Node projection arrives:

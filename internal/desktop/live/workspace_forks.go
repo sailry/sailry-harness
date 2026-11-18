@@ -12,7 +12,7 @@ import (
 )
 
 func (r *Runtime) forkWorkspaceTurn(x *conversationActions, turn string) {
-	if !r.canMoveWorkspace(x.cv, x.comp) {
+	if !r.canMoveWorkspace(x.cv.ID, x.comp) {
 		return
 	}
 	session, state, ok := x.state()
@@ -160,8 +160,8 @@ func (p *workspaceProject) managedWorktree(status protocol.GitStatus, session *p
 	}, panel.PromptToggle{Label: "location_copy_changes", Value: &includeChanges})
 }
 
-func (r *Runtime) canMoveWorkspace(cv *viewmodel.Conversation, comp *composer.State) bool {
-	session, exists := r.session(cv.ID)
+func (r *Runtime) canMoveWorkspace(id string, comp *composer.State) bool {
+	session, exists := r.session(id)
 	if !exists {
 		return true
 	}
@@ -185,12 +185,12 @@ func workspacePageIdle(page protocol.ConversationPage) bool {
 	}
 	return true
 }
-func (r *Runtime) selectConversationWorktree(cv *viewmodel.Conversation, comp *composer.State, relative string) {
-	session, ok := r.session(cv.ID)
+func (r *Runtime) selectConversationWorktree(id string, comp *composer.State, relative string) {
+	session, ok := r.session(id)
 	if !ok {
 		return
 	}
-	if !r.canMoveWorkspace(cv, comp) {
+	if !r.canMoveWorkspace(id, comp) {
 		return
 	}
 	p := r.workspace.projects[session.Worktree]
@@ -206,7 +206,7 @@ func (r *Runtime) selectConversationWorktree(cv *viewmodel.Conversation, comp *c
 			if _, ok := detail[protocol.Session](out.Data); ok {
 				comp.References = nil
 				r.project()
-				r.OpenSession(cv.ID)
+				r.OpenSession(id)
 				kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 			}
 		})

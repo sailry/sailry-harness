@@ -184,11 +184,11 @@ func (p *workspaceProject) openWorktree(c *ui.Context, path string) {
 		r.selectDraftWorktree(comp, path)
 		return
 	}
-	if !r.canMoveWorkspace(cv, comp) {
+	if !r.canMoveWorkspace(id, comp) {
 		kit.Toast(c, kit.Failed, i18n.T(c, "worktree_open_busy"))
 		return
 	}
-	r.selectConversationWorktree(cv, comp, path)
+	r.selectConversationWorktree(id, comp, path)
 }
 
 // unusedWorktrees are the paths of a project's linked worktrees that the

@@ -381,13 +381,14 @@ func TestLiveBlocks(t *testing.T) {
 			_, _, r, tt := scenesTester(t, dark, lang)
 			for _, want := range []string{
 				i18n.In(lang, "turn_changes_count", "count", 5),
-
-				i18n.In(lang, "background_outcome_stalled"),
 				"scroll-report.md", "invoice-2026-11.pdf", "Frames per day",
 			} {
 				if !tt.HasText(want) {
 					t.Errorf("%s dark=%v: %q not shown", lang, dark, want)
 				}
+			}
+			if _, ok := tt.Access(i18n.In(lang, "background_notice_title")); ok {
+				t.Errorf("%s dark=%v: preview shows a background notice bubble", lang, dark)
 			}
 			if r.older == 0 {
 				t.Errorf("the start in view asked for no older page")

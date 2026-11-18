@@ -327,7 +327,11 @@ func (a *App) View(c *ui.Context) {
 	// The panel is the selected conversation's before anything opens a tab
 	// in it (panels.go).
 	a.clock = c.Now()
+	previousMessages := a.Messages
 	a.syncDemo(c)
+	if previousMessages != a.Messages {
+		previousMessages.FinishFrame()
+	}
 	a.MountPanel()
 	if a.Hooks.BeforeFrame != nil {
 		a.underneath(func() { a.Hooks.BeforeFrame(c) })
@@ -335,6 +339,7 @@ func (a *App) View(c *ui.Context) {
 	if a.Hooks.AfterFrame != nil {
 		defer a.underneath(a.Hooks.AfterFrame)
 	}
+	defer a.Messages.FinishFrame()
 	if a.Mode != a.applied && a.OnMode != nil {
 		a.OnMode(a.Mode)
 	}
@@ -343,11 +348,6 @@ func (a *App) View(c *ui.Context) {
 	system := c.Theme().Dark
 	theme.Apply(c, a.Theme, a.Mode)
 	kit.SetEffects(a.Effects)
-	a.shortcuts(c)
-	a.MountPanel()
-	a.followSelection()
-	a.followPanes()
-	a.sweepOverviews()
 	if a.panels.focusMain {
 		a.panels.focusMain = false
 		if c.FocusWithin(a.panelPane) {
@@ -357,13 +357,18 @@ func (a *App) View(c *ui.Context) {
 	// The live workspace was resolved by BeforeFrame for the mounted session.
 	// A selection changed by a shortcut takes that binding on the next frame.
 	boundConversation := a.panels.mounted
+	a.shortcuts(c)
+	a.MountPanel()
+	a.followSelection()
+	a.followPanes()
+	if a.Page == ConversationPage && (a.sampled() || a.panels.mounted == boundConversation) {
+		a.syncPanel()
+	}
+	a.sweepOverviews()
 	if a.paged() != "" {
 		a.SetPluginWorkspace(a.feature(), 0, 260, 320)
 	}
 	p := theme.Of(c)
-	if a.Page == ConversationPage && (a.sampled() || a.panels.mounted == boundConversation) {
-		a.syncPanel()
-	}
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, fill := p.TitleBar, p.Background
 	if c.Vibrancy() && theme.IsDark(c, a.Mode) == system {
@@ -669,7 +674,8 @@ func (a *App) togglePageDetails() bool {
 		state.Folded = !state.Folded
 	case a.Page == HostPage:
 		a.Metrics = !a.Metrics
-		return
+	default:
+		return false
 	}
 	return true
 }
@@ -679,8 +685,7 @@ func (a *App) openPanel(k panel.Kind) {
 	a.syncPanel()
 	if !a.Panel.Offers(k) {
 		// A shortcut opens only what the launcher lists.
-	default:
-		return false
+		return
 	}
 	a.RevealConversationPanel()
 	a.Panel.Open(k)
@@ -702,14 +707,14 @@ func (a *App) pane(c *ui.Context, e ui.Element, ref *ui.Handle, closes bool, clo
 // panel for the next, or the panel itself with none left, the focus then
 // going back to the conversation.
 func (a *App) closeTab(c *ui.Context) {
+	if a.Page != ConversationPage || !a.PanelOpen || a.Sidebar.Selected != a.panels.mounted {
+		return
+	}
 	if a.Panel.Active != (panel.Tab{}) && a.Panel.Close(a.Panel.Active) {
 		a.panelPane.Focus(c)
 		return
 	}
 	a.foldConversationPanel()
-	if a.Page != ConversationPage || !a.PanelOpen || a.Sidebar.Selected != a.panels.mounted {
-		return
-	}
 	a.mainPane.Focus(c)
 }
 

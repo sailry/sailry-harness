@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -13,13 +14,14 @@ import (
 )
 
 // A presentation belongs to one view model and one observed source copy.
-// Completed turns keep their UI enrichment between frames; controls, images,
+// Turns keep their UI enrichment between frames; controls, images,
 // publications and outgoing input are still refreshed by the ordinary pipeline.
 type conversationPresentation struct {
 	generation uint64
 	language   string
-	view       *viewmodel.Conversation
 	connection conversation.Connection
+	clocks     transcriptClocks
+	mounted    bool
 }
 
 // Composer bindings share the usage wire representation and the run flags
@@ -77,10 +79,15 @@ func (r *Runtime) finishConversationFrame() {
 			delete(r.conversationCache, id)
 		}
 	}
-	for id := range r.conversationPresentations {
-		if !r.conversationSeen[id] {
-			delete(r.conversationPresentations, id)
+	for cv, presentation := range r.conversationPresentations {
+		if presentation.mounted {
+			presentation.mounted = false
+			r.conversationPresentations[cv] = presentation
+			continue
 		}
+		cv.Turns, cv.Queue = nil, nil
+		cv.Waiting, cv.Animating = composer.Interactions{}, false
+		delete(r.conversationPresentations, cv)
 	}
 	for id := range r.childConversations {
 		if !r.conversationSeen[id] {
@@ -90,27 +97,39 @@ func (r *Runtime) finishConversationFrame() {
 	r.conversationCopies = nil
 }
 
+func (r *Runtime) saveConversationPresentation(cv *viewmodel.Conversation, presentation conversationPresentation) {
+	if r.conversationPresentations == nil {
+		r.conversationPresentations = map[*viewmodel.Conversation]conversationPresentation{}
+	}
+	r.conversationPresentations[cv] = presentation
+}
+
+// A bulk projection or an optimistic edit invalidates reuse, not ownership of
+// the view. This still lets the frame release a detached presentation.
+func (r *Runtime) invalidateConversationPresentation(cv *viewmodel.Conversation) {
+	r.saveConversationPresentation(cv, conversationPresentation{mounted: r.conversationPresentations[cv].mounted})
+}
+
 func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState, now time.Time, language string) {
 	copy := r.conversationCopies[id]
-	pending := r.composerOutgoing[cv.ID] != nil
-	if saved, ok := r.conversationPresentations[id]; ok && !pending && copy.generation != 0 &&
-		saved.generation == copy.generation && saved.language == language && saved.view == cv {
+	cacheable := copy.generation != 0 && r.composerOutgoing[cv.ID] == nil
+	saved := r.conversationPresentations[cv]
+	if cacheable && saved.generation == copy.generation && saved.language == language {
 		// The Node's connection override is applied later in conversation.
 		// Restore the observed connection when that Node becomes available.
 		cv.Session.Connection = saved.connection
+		saved.clocks.advance(cv.Turns, now)
+		saved.mounted = true
+		r.conversationPresentations[cv] = saved
 		return
 	}
-	delete(r.conversationPresentations, id)
-	cv.Turns, cv.Session, cv.Waiting, cv.Queue = conversationAt(state, now, language)
-	// Active clocks and streaming drafts are time-dependent; keep the existing
-	// projection/timer path. Injected copies without a generation are uncached.
-	if pending || copy.generation == 0 || len(state.Snapshot.Drafts) != 0 || slices.ContainsFunc(state.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
-		return run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping
-	}) {
-		return
+	var clocks transcriptClocks
+	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
+	clocks.advance(cv.Turns, now)
+	presentation := conversationPresentation{mounted: true}
+	if cacheable {
+		presentation.generation, presentation.language = copy.generation, language
+		presentation.connection, presentation.clocks = cv.Session.Connection, clocks
 	}
-	if r.conversationPresentations == nil {
-		r.conversationPresentations = map[protocol.SessionID]conversationPresentation{}
-	}
-	r.conversationPresentations[id] = conversationPresentation{generation: copy.generation, language: language, view: cv, connection: cv.Session.Connection}
+	r.saveConversationPresentation(cv, presentation)
 }

@@ -27,6 +27,48 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 	if len(locales) > 0 {
 		language = locales[0]
 	}
+	turns, session, interactions, queue, clocks := projectTranscript(state, language)
+	clocks.advance(turns, now)
+	return turns, session, interactions, queue
+}
+
+// Only rows with a running clock need to change between observed revisions.
+type transcriptClock struct{ started, compacting time.Time }
+type transcriptClocks map[int]transcriptClock
+
+func (clocks *transcriptClocks) record(position int, started, compacting time.Time) {
+	if started.IsZero() && compacting.IsZero() {
+		return
+	}
+	if *clocks == nil {
+		*clocks = make(transcriptClocks)
+	}
+	clock := (*clocks)[position]
+	if !started.IsZero() {
+		clock.started = started
+	}
+	if !compacting.IsZero() {
+		clock.compacting = compacting
+	}
+	(*clocks)[position] = clock
+}
+
+func (clocks transcriptClocks) advance(turns []conversation.Turn, now time.Time) {
+	for position, clock := range clocks {
+		turn := &turns[position]
+		if !clock.started.IsZero() {
+			turn.Reply.Elapsed = max(0, now.Sub(clock.started))
+			if turn.Compaction != nil {
+				turn.Compaction.Elapsed = turn.Reply.Elapsed
+			}
+		}
+		if !clock.compacting.IsZero() {
+			turn.Reply.PhaseElapsed = max(0, now.Sub(clock.compacting))
+		}
+	}
+}
+
+func projectTranscript(state client.ConversationState, language string) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued, transcriptClocks) {
 	snapshot := state.Snapshot
 	page := snapshot.Page
 	session := conversation.Session{Loading: state.Loading, LoadingOlder: state.LoadingOlder, OlderFailed: state.OlderErr != nil}
@@ -103,6 +145,7 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		pending[p.Turn] = true
 	}
 	var turns []conversation.Turn
+	var clocks transcriptClocks
 	positions := map[protocol.TurnID]int{}
 	for _, r := range runs {
 		if owners[r.Turn] != r.Turn || r.Status == "queued" && pending[r.Turn] {
@@ -123,7 +166,7 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		}
 		if t.Reply.Status.Active() {
 			if state.Connected && r.StartedMs != nil {
-				t.Reply.Elapsed = max(0, now.Sub(time.UnixMilli(*r.StartedMs)))
+				clocks.record(len(turns), t.Sent, time.Time{})
 			}
 			t.Reply.Phase = conversation.AwaitingResponse
 			if !state.Connected {
@@ -134,11 +177,8 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		// prompt, which is input for the model.
 		if r.Continuation != nil {
 			t.Marker = continuationMarker(r.Continuation)
-		} else if r.Input != nil {
+		} else if !r.Notice && r.Input != nil {
 			t.User = r.Input.Message.Text
-		}
-		for _, notice := range r.Notices {
-			t.Notices = append(t.Notices, conversation.Notice{Title: notice.Title, Agent: notice.Kind.Kind == "agent", Outcome: noticeOutcome(notice.Outcome)})
 		}
 		if r.Kind == "compaction" {
 			t.Compaction = &conversation.Compaction{State: conversation.Compacted}
@@ -166,6 +206,20 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		turns = append(turns, t)
 	}
 	associations := map[string][]toolAssociation{}
+	// Unlike composer activity, the transcript keeps every execution of a
+	// reused session at its own delegation call.
+	launches := map[string][]conversation.Child{}
+	parents := map[protocol.TurnID]bool{}
+	for _, child := range page.Children {
+		if child.Run.Joined != nil {
+			continue
+		}
+		view := transcriptChild(&page, child, language)
+		view.Unsynced = !state.Connected
+		key := toolCallKey(child.Origin.Entry, child.Origin.Index)
+		launches[key] = append(launches[key], view)
+		parents[owners[child.Origin.Turn]] = true
+	}
 	// started is the background task each call started, by the call's row.
 	started := map[string]string{}
 	inputs := client.TranscriptInputs(page)
@@ -273,7 +327,8 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 			// Search is work in the accepted layout, so it precedes the answer.
 			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, language, now, segmentFrom(t))
+		phase := projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t))
+		clocks.record(position, time.Time{}, phase)
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -309,9 +364,17 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 	for _, draft := range snapshot.Drafts {
 		if position, ok := positions[owners[draft.Turn]]; ok {
 			t := &turns[position]
-			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, language, now, segmentFrom(t))
+			phase := projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t))
+			clocks.record(position, time.Time{}, phase)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
+			}
+		}
+	}
+	for _, matches := range associations {
+		for _, match := range matches {
+			if match.Executing != nil {
+				match.Executing.Phase = conversation.ExecutingTool
 			}
 		}
 	}
@@ -423,6 +486,9 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		if a.State != "pending" {
 			continue
 		}
+		if position, ok := positions[owners[a.Turn]]; ok {
+			turns[position].Reply.Phase = conversation.WaitingUser
+		}
 		call := callAt(page, a.Entry, a.Index)
 		v := projectApproval(a, call, language)
 		if call != nil {
@@ -434,6 +500,9 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		interactions.Approvals = append(interactions.Approvals, v)
 	}
 	for _, q := range page.Questions {
+		if position, ok := positions[owners[q.Turn]]; ok && q.State.Kind == "pending" {
+			turns[position].Reply.Phase = conversation.WaitingUser
+		}
 		call := callAt(page, q.Entry, q.Index)
 		if call == nil || call.Summary == nil || call.Summary.Question == nil || *call.Summary.Question == nil {
 			continue
@@ -459,39 +528,12 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		}
 		interactions.Question = projectAsk(q, spec)
 	}
-	ownedChildren := map[protocol.TurnID][]protocol.ConversationChild{}
-	for _, child := range page.Children {
-		owner := owners[child.Origin.Turn]
-		ownedChildren[owner] = append(ownedChildren[owner], child)
-	}
-	children := map[protocol.TurnID][]conversation.Child{}
-	for owner, owned := range ownedChildren {
-		for _, child := range client.LatestConversationChildren(owned) {
-			status := conversation.ChildCompleted
-			switch child.Run.Status {
-			case "queued":
-				status = conversation.ChildQueued
-			case "running":
-				status = conversation.ChildRunning
-			case "stopping":
-				status = conversation.ChildStopping
-			case "continued":
-				status = conversation.ChildContinued
-			case "failed":
-				status = conversation.ChildFailed
-			case "interrupted":
-				status = conversation.ChildInterrupted
-			case "cancelled":
-				status = conversation.ChildCancelled
-			}
-			title := childTitle(&page, child, language)
-			children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status, Unsynced: !state.Connected})
-		}
-	}
-	for owner, list := range children {
+	for owner := range parents {
 		if position, ok := positions[owner]; ok {
 			reply := &turns[position].Reply
-			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ChildrenBlock, Children: list})
+			if reply.Phase != conversation.AwaitingResponse {
+				continue
+			}
 			reply.Waiting = waitingConversationChildren(snapshot, owner)
 			if reply.Waiting > 0 {
 				reply.Phase = conversation.WaitingChildren
@@ -526,7 +568,7 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		}
 		queue = append(queue, q)
 	}
-	return turns, session, interactions, queue
+	return turns, session, interactions, queue, clocks
 }
 
 // continuationMarker is the label a package declared for its continuation;
@@ -648,13 +690,21 @@ scan:
 	return count
 }
 
-// projectBackground is a background command's state for the row of the call
-// that started it: running, or how it ended, the exit code of one that
-// failed, and whether its result still waits for a turn to take it.
+// projectBackground keeps the command's outcome and retained output with its launch.
 func projectBackground(task protocol.ConversationBackgroundTask) *conversation.Background {
-	background := &conversation.Background{Running: task.State == protocol.ConversationBackgroundStateRunning, Waiting: task.State == protocol.ConversationBackgroundStatePending}
+	background := &conversation.Background{
+		Running: task.State == protocol.ConversationBackgroundStateRunning,
+		Waiting: task.State == protocol.ConversationBackgroundStatePending,
+	}
+	if task.Summary != nil {
+		background.Preview = *task.Summary
+	}
+	if background.Running {
+		return background
+	}
+	background.Outcome = conversation.OutcomeUnknown
 	if task.Outcome != nil {
-		background.Outcome = noticeOutcome(*task.Outcome)
+		background.Outcome = backgroundOutcome(*task.Outcome)
 	}
 	if task.ExitCode != nil && *task.ExitCode != 0 {
 		code := int(*task.ExitCode)
@@ -663,8 +713,10 @@ func projectBackground(task protocol.ConversationBackgroundTask) *conversation.B
 	return background
 }
 
-func noticeOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.NoticeOutcome {
+func backgroundOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.BackgroundOutcome {
 	switch outcome {
+	case "completed":
+		return conversation.OutcomeCompleted
 	case "failed":
 		return conversation.OutcomeFailed
 	case "cancelled":
@@ -675,12 +727,10 @@ func noticeOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.
 		return conversation.OutcomeTimedOut
 	case "interrupted":
 		return conversation.OutcomeInterrupted
-	case "unknown":
-		return conversation.OutcomeUnknown
 	case "stalled":
 		return conversation.OutcomeStalled
 	default:
-		return conversation.OutcomeCompleted
+		return conversation.OutcomeUnknown
 	}
 }
 
@@ -721,6 +771,7 @@ type toolAssociation struct {
 	Progress   bool
 	Standalone bool
 	Block      int
+	Executing  *conversation.Reply // set by tool_started until the matching result consumes this association
 }
 
 func toolCallKey(entry string, index uint64) string {
@@ -748,7 +799,8 @@ func segmentFrom(turn *conversation.Turn) int {
 	return turn.Segments[len(turn.Segments)-1].From
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, language string, now time.Time, from int) {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int) time.Time {
+	var compacting time.Time
 	for index, part := range parts {
 		switch part.Kind {
 		case "thinking":
@@ -776,13 +828,17 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 		case "tool_call":
 			if source, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok {
 				id := toolCallKey(entry, uint64(index))
-				progress := source.Summary != nil && source.Summary.Progress != nil
+				children := launches[id]
+				progress := len(children) == 0 && source.Summary != nil && source.Summary.Progress != nil
 				hidden := source.Presentation == protocol.ToolPresentationHidden && !toolDiagnostics(source.Summary)
 				if source.ID != nil {
 					key := toolPendingKey(turn, branch, *source.ID)
 					pending[key] = append(pending[key], toolAssociation{ID: id, Name: source.Name, Hidden: hidden, Progress: progress, Standalone: source.Grouping == protocol.ToolGroupingStandalone, Block: len(reply.Blocks)})
 				}
 				if hidden {
+					if len(children) != 0 {
+						reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ChildrenBlock, Children: children})
+					}
 					continue
 				}
 				if progress {
@@ -797,7 +853,11 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 					call.State = conversation.NotExecuted
 					call.Warning = true
 				}
-				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{call}})
+				block := conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{call}}
+				if len(children) != 0 {
+					block.Kind, block.Children = conversation.ChildrenBlock, children
+				}
+				reply.Blocks = append(reply.Blocks, block)
 			}
 		case "tool_result":
 			if result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
@@ -814,7 +874,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						// A hidden activity's failure still has the original call's
 						// identity, so revision-scoped detail loading can resolve it.
 						id, standalone = matches[0].ID, matches[0].Standalone
-						if !matches[0].Hidden && result.Summary != nil && result.Summary.Progress != nil {
+						if !matches[0].Hidden && len(launches[id]) == 0 && result.Summary != nil && result.Summary.Progress != nil {
 							// A pending plan becomes progress only after its validated result arrives.
 							reply.Blocks[matches[0].Block] = conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)}
 							continue
@@ -822,7 +882,14 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						if matches[0].Progress {
 							continue
 						}
-						call = projectedCall(reply, matches[0].ID)
+						if matches[0].Hidden && len(launches[id]) != 0 {
+							// A diagnostic reveals the call beside its original child row.
+							block := &reply.Blocks[matches[0].Block]
+							block.Calls = []conversation.Call{{ID: id, Standalone: standalone}}
+							call = &block.Calls[0]
+						} else {
+							call = projectedCall(reply, id)
+						}
 					}
 				}
 				if call == nil {
@@ -861,6 +928,9 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 				if json.Unmarshal(raw, &started) == nil && started.Type == "tool_started" {
 					matches := pending[toolPendingKey(turn, branch, started.ID)]
 					if len(matches) == 1 && matches[0].Name == started.Name {
+						if reply.Status == conversation.Running {
+							matches[0].Executing = reply
+						}
 						if call := projectedCall(reply, matches[0].ID); call != nil {
 							call.Running = reply.Status.Active() && reply.Status != conversation.Unsynced
 							call.State = conversation.StateNone
@@ -870,9 +940,10 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 					continue
 				}
 			}
-			projectResource(reply, part.Data, now)
+			projectResource(reply, part.Data, &compacting)
 		}
 	}
+	return compacting
 }
 
 func toolDiagnostics(summary *protocol.ToolDetailSummary) bool {
@@ -888,7 +959,7 @@ func draftPhase(parts []protocol.ConversationPart) conversation.Phase {
 				phase = conversation.Generating
 			}
 		case "thinking":
-			if text, ok := detail[string](part.Data); ok && text != "" && phase == conversation.PhaseNone {
+			if text, ok := detail[string](part.Data); ok && text != "" && phase != conversation.Compacting {
 				phase = conversation.Thinking
 			}
 		case "resource":
@@ -1124,7 +1195,7 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	return call
 }
 
-func projectResource(reply *conversation.Reply, data any, now time.Time) {
+func projectResource(reply *conversation.Reply, data any, compacting *time.Time) {
 	var raw json.RawMessage
 	if v, ok := detail[json.RawMessage](data); ok {
 		raw = v
@@ -1167,7 +1238,7 @@ func projectResource(reply *conversation.Reply, data any, now time.Time) {
 			Started int64 `json:"started_ms"`
 		}
 		if json.Unmarshal(raw, &started) == nil && started.Started > 0 {
-			reply.PhaseElapsed = max(0, now.Sub(time.UnixMilli(started.Started)))
+			*compacting = time.UnixMilli(started.Started)
 		}
 	case "output_limit":
 		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock})

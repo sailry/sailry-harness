@@ -54,9 +54,12 @@ func TestConversationSyncFailureFreezesChildrenWithoutChangingRunStatus(t *testi
 	page := protocol.DefaultConversationPage()
 	page.Session = parent
 	page.Runs = []protocol.ConversationRun{{Session: parent, Turn: turn, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning}}
+	page.Entries = []protocol.ConversationEntry{{ID: "launch", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{
+		{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{Name: "spawn_agent", Summary: &protocol.ToolDetailSummary{}}},
+	}}}
 	page.Children = []protocol.ConversationChild{{
 		Run:    protocol.ConversationRun{Session: childID, Turn: protocol.TurnID{2}, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning},
-		Origin: protocol.Delegation{Session: parent, Turn: turn},
+		Origin: protocol.Delegation{Session: parent, Turn: turn, Entry: "launch"},
 	}}
 	for _, connected := range []bool{false, true} {
 		turns, _, _, _ := Conversation(client.ConversationState{Connected: connected, Snapshot: protocol.ConversationSnapshot{Page: page}})

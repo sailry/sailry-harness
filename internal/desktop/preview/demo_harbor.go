@@ -52,7 +52,7 @@ func (b *demo) rateLimit() *Conversation {
 	migrate := b.call(run.ID, "command", "command", "make migrate")
 	migrate.Pending, migrate.State = true, cv.Pending
 	load := b.t("limit.child.load")
-	run.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(72), Phase: cv.Generating}
+	run.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(72), Phase: cv.WaitingUser}
 	// A message whose reply still runs is not edited, forked or rewound.
 	run.Controls = cv.Controls{NoEdit: true, NoFork: true, NoRewind: true}
 	run.Reply.Blocks = []cv.Block{
@@ -176,9 +176,8 @@ func (b *demo) flakyTest() *Conversation {
 }
 
 // invoices is a plan with a step in every state, calls that were denied,
-// interrupted and not executed, background results in every outcome,
-// commands sent to the background (running, ended, failed), model
-// retries that gave up, and runs that were continued, cancelled and failed.
+// interrupted and not executed, background command outcomes,
+// exhausted model retries, and runs that were continued, cancelled and failed.
 func (b *demo) invoices() *Conversation {
 	const id = "harbor-api/invoices"
 	plan := b.user(id+"/0", "invoice.0.user")
@@ -203,16 +202,7 @@ func (b *demo) invoices() *Conversation {
 		text(b.t("invoice.0.answer")),
 	}
 
-	results := cv.Turn{ID: id + "/1", Notices: []cv.Notice{
-		{Title: "go test ./internal/billing/...", Outcome: cv.OutcomeCompleted},
-		{Title: b.t("invoice.notice.verify"), Agent: true, Outcome: cv.OutcomeFailed},
-		{Title: "pg_dump --table invoices", Outcome: cv.OutcomeCancelled},
-		{Title: b.t("invoice.notice.totals"), Agent: true, Outcome: cv.OutcomeStopped},
-		{Title: "make lint", Outcome: cv.OutcomeTimedOut},
-		{Title: "npm run docs", Outcome: cv.OutcomeInterrupted},
-		{Title: b.t("invoice.notice.rollback"), Agent: true, Outcome: cv.OutcomeUnknown},
-		{Title: "watch -n 5 psql -c 'select count(*) from invoices_v2'", Outcome: cv.OutcomeStalled},
-	}, Reply: done(cv.Completed, 4)}
+	results := cv.Turn{ID: id + "/1", Reply: done(cv.Completed, 4)}
 	results.Reply.Notice = true
 
 	why := b.user(id+"/2", "invoice.2.user")
@@ -228,16 +218,27 @@ func (b *demo) invoices() *Conversation {
 	again := b.user(id+"/3", "invoice.3.user")
 	logs := b.call(again.ID, "read", "book-open", "logs/backfill-2026-11-08.log")
 	logs.Output = output("batch 07: 5000 rows ok\nbatch 08: 5000 rows ok\nbatch 09: ERROR null value in column \"currency\" violates not-null constraint\nbatch 09: rolled back")
-	// Commands sent to the background: one still running, one that ended
-	// and one that failed, whose results no turn has taken yet.
-	backfill := b.call(again.ID, "command", "command", "go run ./cmd/backfill --from-batch 9")
-	backfill.Background = &cv.Background{Running: true}
-	lint := b.call(again.ID, "command", "command", "make lint")
-	lint.Background = &cv.Background{Outcome: cv.OutcomeCompleted, Waiting: true}
-	verify := b.call(again.ID, "command", "command", "go test ./internal/billing/...")
-	verify.Background = &cv.Background{Outcome: cv.OutcomeFailed, Exit: new(1), Waiting: true}
+	checks := []cv.Call{logs}
+	for _, job := range []struct {
+		command string
+		state   cv.Background
+	}{
+		{"pg_dump --table invoices", cv.Background{Outcome: cv.OutcomeCancelled, Preview: "pg_dump: query canceled before the archive was written"}},
+		{"tail -f logs/backfill-2026-11-08.log", cv.Background{Outcome: cv.OutcomeStopped, Preview: "batch 09: rolled back"}},
+		{"make check-migrations", cv.Background{Outcome: cv.OutcomeTimedOut, Preview: "Waiting for the migration lock"}},
+		{"go run ./cmd/check-balances", cv.Background{Outcome: cv.OutcomeInterrupted, Preview: "Compared invoice totals through 2020"}},
+		{"go run ./cmd/reconcile-invoices --dry-run", cv.Background{Outcome: cv.OutcomeUnknown}},
+		{"watch -n 5 psql -c 'select count(*) from invoices_v2'", cv.Background{Outcome: cv.OutcomeStalled, Preview: "invoices_v2: 12480 rows"}},
+		{"go run ./cmd/backfill --from-batch 9", cv.Background{Running: true}},
+		{"make lint", cv.Background{Outcome: cv.OutcomeCompleted, Waiting: true}},
+		{"go test ./internal/billing/...", cv.Background{Outcome: cv.OutcomeFailed, Exit: new(1), Waiting: true, Preview: "FAIL: TestBackfillMissingCurrency"}},
+	} {
+		call := b.call(again.ID, "command", "command", job.command)
+		call.Background = &job.state
+		checks = append(checks, call)
+	}
 	again.Reply = done(cv.Continued, 184)
-	again.Reply.Blocks = []cv.Block{tools(logs, backfill, lint, verify), text(b.t("invoice.3.answer"))}
+	again.Reply.Blocks = []cv.Block{tools(checks...), text(b.t("invoice.3.answer"))}
 
 	more := b.user(id+"/4", "invoice.4.user")
 	more.Reply = done(cv.Completed, 23)
@@ -245,7 +246,12 @@ func (b *demo) invoices() *Conversation {
 
 	only := b.user(id+"/5", "invoice.5.user")
 	batch := b.call(only.ID, "command", "command", "go run ./cmd/backfill --year 2024")
-	batch.Output = &cv.Output{Text: "batch 01: 5000 rows ok\nbatch 02: 5000 rows ok\nbatch 03: 5000 rows ok", Command: true}
+	batch.BackgroundDetail = func() cv.BackgroundDetail {
+		return cv.BackgroundDetail{
+			Status: &cv.Background{Outcome: cv.OutcomeStopped},
+			Output: &cv.Output{Text: "batch 01: 5000 rows ok\nbatch 02: 5000 rows ok\nbatch 03: 5000 rows ok", Command: true},
+		}
+	}
 	only.Reply = done(cv.Cancelled, 21)
 	only.Reply.Blocks = []cv.Block{tools(batch), text(b.t("invoice.5.answer"))}
 

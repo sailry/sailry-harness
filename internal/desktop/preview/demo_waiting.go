@@ -166,7 +166,7 @@ func (b *demo) audit() *Conversation {
 	axe.Output = &cv.Output{Text: "Violation of \"image-alt\" with 1 occurrence\nViolation of \"color-contrast\" with 3 occurrences\nViolation of \"button-name\" with 1 occurrence\n\n5 accessibility issues detected", Command: true}
 	contrast := b.call(brief.ID, "search", "search", `"--muted-foreground" in src/styles/`)
 	contrast.Running = true
-	brief.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(63), Phase: cv.Generating}
+	brief.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(63), Phase: cv.ExecutingTool}
 	brief.Reply.Blocks = []cv.Block{reasoning(b.t("audit.0.think")), tools(page, axe), text(b.t("audit.0.partial")), tools(contrast)}
 	c := b.conv(id, "audit.title", Running, 4*time.Minute, cv.Usage{Tokens: 14200, Speed: 84.1, Cost: 0.0021, Cached: 9600, Context: 0.07}, brief)
 	c.Session.ReadOnly = true

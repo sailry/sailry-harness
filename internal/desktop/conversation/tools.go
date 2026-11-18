@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -253,16 +254,7 @@ func Rail(c *ui.Context) ui.Element {
 	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(railGap)
 }
 
-// tools builds a tool block. continuing marks the last call running while
-// the turn goes on, so the shimmer stays on the latest activity.
-func (s *State) tools(c *ui.Context, calls []Call, continuing bool) {
-	if continuing {
-		calls = append([]Call(nil), calls...)
-		last := &calls[len(calls)-1]
-		if !last.Pending && !last.Failed && !last.Warning {
-			last.Running = true
-		}
-	}
+func (s *State) tools(c *ui.Context, calls []Call) {
 	if Sequence(calls) {
 		head := Summary(calls)
 		s.disclosure(c, "tool-sequence-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
@@ -303,7 +295,9 @@ func (s *State) group(c *ui.Context, run []Call) {
 				s.pathRow(c, path)
 			}
 			for _, call := range run {
-				if call.Output != nil && call.Output.Failure != "" {
+				if call.Background != nil || call.BackgroundDetail != nil {
+					s.row(c, call)
+				} else if call.Output != nil && call.Output.Failure != "" {
 					notice(c, call.Output.Failure, failureTone(c, call.Output))
 				}
 			}
@@ -340,18 +334,57 @@ func (s *State) row(c *ui.Context, call Call) {
 	// A call whose loaded output has nothing to draw does not open: its
 	// row already says all there is.
 	card := s.toolCards[s.renderSession][call.ID]
-	if call.Output == nil || call.Load == nil && card == nil && bare(call) {
+	if call.Background == nil && call.BackgroundDetail == nil && (call.Output == nil || call.Load == nil && card == nil && bare(call)) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
 	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func() {
-		s.output(c, call.Output)
+		if b := call.Background; b != nil {
+			notice(c, backgroundStatus(c, b), rowColor(theme.Of(c), call))
+			if b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
+				s.output(c, &Output{Text: b.Preview, Command: true})
+			}
+		}
+		if call.BackgroundDetail != nil {
+			detail := call.BackgroundDetail()
+			if detail.Denied {
+				notice(c, i18n.T(c, "permission_denied"), theme.Of(c).Warning)
+			}
+			if detail.Status != nil {
+				withStatus := call
+				withStatus.Background = detail.Status
+				notice(c, backgroundStatus(c, detail.Status), rowColor(theme.Of(c), withStatus))
+			}
+			if detail.Output != nil {
+				s.output(c, detail.Output)
+			}
+		}
+		if call.Output != nil && (call.Background == nil || !bare(call)) {
+			s.output(c, call.Output)
+		}
 		if card != nil {
 			card(c)
 		}
 	})
+}
+
+func backgroundStatus(c *ui.Context, b *Background) string {
+	if b.Running {
+		return i18n.T(c, "background_running")
+	}
+	keys := [...]string{"background_outcome_completed", "background_outcome_failed", "background_outcome_cancelled",
+		"background_outcome_stopped", "background_outcome_timed_out", "background_outcome_interrupted",
+		"background_outcome_unknown", "background_outcome_stalled"}
+	label := i18n.T(c, keys[b.Outcome])
+	if b.Exit != nil {
+		label = i18n.T(c, "background_exit", "code", *b.Exit)
+	}
+	if b.Waiting {
+		label += " · " + i18n.T(c, "background_result_waiting")
+	}
+	return label
 }
 
 // bare reports an output with nothing to display below its row.
@@ -647,14 +680,14 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		running = running || !k.Unsynced && k.Status.Active()
 	}
 	label := i18n.T(c, "subagent_count", "completed", done, "total", len(kids))
-	s.disclosure(c, "children-"+kids[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+	s.disclosure(c, "children-"+cmp.Or(kids[0].Turn, kids[0].ID), func(hovered, open bool, sw *kit.Sweep) {
 		color := p.MutedForeground
 		if hovered {
 			color = p.Foreground
 		}
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
-				kit.RoleIdenticon(c.Key(k.ID), k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
+				kit.RoleIdenticon(c.Key(cmp.Or(k.Turn, k.ID)), k.ID, k.Avatar, !k.Unsynced && k.Status.Active(), rowIcon(size))
 			}
 		})
 		// Laid out as the sweep draws it, running or not (summary).
@@ -688,7 +721,7 @@ func child(c *ui.Context, k Child, actions Actions) {
 	if k.Status == ChildFailed || k.Status == ChildInterrupted {
 		color = p.Danger
 	}
-	b := ui.ButtonBase(c.Key("child-" + k.ID)).Label(title).Height(rowHeight(size)).Gap(8).AlignSelf(ui.Start).Justify(ui.Start).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c.Key("child-" + cmp.Or(k.Turn, k.ID))).Label(title).Height(rowHeight(size)).Gap(8).AlignSelf(ui.Start).Justify(ui.Start).Cursor(ui.CursorPointer)
 	hovered := b.Hovered()
 	if hovered && color == p.MutedForeground {
 		color = p.Foreground
@@ -711,4 +744,16 @@ func child(c *ui.Context, k Child, actions Actions) {
 			ch.Opacity(0)
 		}
 	}).OnClick(func() { actions.OpenChild(k.ID) })
+	keys := [...]string{ChildRunning: "chat_running", ChildCompleted: "turn_completed", ChildFailed: "turn_failed",
+		ChildInterrupted: "chat_interrupted", ChildCancelled: "turn_cancelled", ChildQueued: "turn_queued",
+		ChildStopping: "chat_stopping", ChildContinued: "turn_continued"}
+	key := keys[k.Status]
+	if k.Unsynced && k.Status.Active() {
+		key = "chat_status_unsynced"
+	}
+	status := i18n.T(c, key)
+	if k.Error != "" && (k.Status == ChildFailed || k.Status == ChildInterrupted) {
+		status += "\n" + k.Error
+	}
+	kit.Tooltip(c, b, status)
 }

@@ -44,9 +44,11 @@ const (
 	Compacting
 	WaitingChildren // Reply.Waiting is the count
 	WaitingController
+	ExecutingTool
+	WaitingUser
 )
 
-// Turn is a user message and the reply to it.
+// Turn is a conversation exchange, with input and reply when present.
 type Turn struct {
 	ID   string
 	User string
@@ -59,9 +61,8 @@ type Turn struct {
 	// Segments interleave consumed guidance with the output that preceded it.
 	// They share this turn's identity and reply; From indexes Reply.Blocks.
 	Segments []Segment
-	// Notices are background results delivered with the turn, shown as a bubble
-	// on the user's side.
-	Notices []Notice
+	// InputOnly is local input whose admission has not yet been observed.
+	InputOnly bool
 	// Compaction makes the turn a context compaction: a marker row, its summary
 	// or failure, and no reply frame.
 	Compaction *Compaction
@@ -131,8 +132,8 @@ type Reply struct {
 	// Changes is the files the turn edited, the card after the answer; nil for
 	// none.
 	Changes *Changes
-	// Notice marks a run that only delivered background notices: no footer
-	// menus.
+	// Notice marks an automatic background follow-up, not a user turn that
+	// can be forked, rewound or retried.
 	Notice bool
 }
 
@@ -144,7 +145,7 @@ const (
 	ReasoningBlock                   // the model's thinking in Text
 	ToolsBlock                       // Calls, grouped by the view
 	QuestionBlock                    // Question, its history row
-	ChildrenBlock                    // Children: subagent sessions
+	ChildrenBlock                    // Children: delegated runs; Calls: their launch details, if visible
 	ProgressBlock                    // Steps: a task's progress
 	ErrorBlock                       // the turn's failure: Label, Fields and Text
 	ImagesBlock                      // Images: generated or attached pictures
@@ -274,11 +275,11 @@ type Visual struct {
 	Mermaid string
 }
 
-// NoticeOutcome is how a background task ended.
-type NoticeOutcome int
+// BackgroundOutcome is how a background task ended.
+type BackgroundOutcome int
 
 const (
-	OutcomeCompleted NoticeOutcome = iota
+	OutcomeCompleted BackgroundOutcome = iota
 	OutcomeFailed
 	OutcomeCancelled
 	OutcomeStopped
@@ -287,13 +288,6 @@ const (
 	OutcomeUnknown
 	OutcomeStalled
 )
-
-// Notice is a background task's result: an agent's or a command's.
-type Notice struct {
-	Title   string
-	Agent   bool
-	Outcome NoticeOutcome
-}
 
 // Marker is the label of a turn a package continued: its English and its
 // translations by locale. Without a label the row shows the generic one.
@@ -377,7 +371,8 @@ type Call struct {
 	Output *Output
 	// Background is the command the call sent to the background; nil for a
 	// call that ran in place. Its outcome contributes to the row's status color.
-	Background *Background
+	Background       *Background
+	BackgroundDetail func() BackgroundDetail
 	// Load requests revision-scoped details when this disclosure first opens.
 	Load func()
 
@@ -389,11 +384,19 @@ type Call struct {
 type Background struct {
 	Running bool
 	// Outcome is how the command ended, once it is not running.
-	Outcome NoticeOutcome
+	Outcome BackgroundOutcome
 	// Exit is the exit code of a command that ran to its end and failed.
 	Exit *int
 	// Waiting is a result no turn has taken yet: it joins the next one.
 	Waiting bool
+	// Preview is the retained command output or diagnostic from the Host.
+	Preview string
+}
+
+type BackgroundDetail struct {
+	Status *Background
+	Output *Output
+	Denied bool
 }
 
 // Output is a call's result, one or more of its parts.
@@ -488,11 +491,13 @@ const (
 	ChildContinued
 )
 
-// Child is a subagent session a call delegated to.
+// Child is one delegated execution. ID opens the session; Turn identifies
+// this execution's transcript row even if the session is reused.
 type Child struct {
-	ID, Title     string
-	Model, Effort string
-	Status        ChildStatus
+	ID, Turn, Title string
+	Model, Effort   string
+	Status          ChildStatus
+	Error           string
 	// Unsynced freezes animation while retaining the last accepted run status.
 	Unsynced bool
 	// Avatar is the avatar of the role it runs as (icons.Avatar), "" for

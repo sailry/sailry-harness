@@ -17,7 +17,7 @@ import (
 
 // Content blocks of a message beyond text and tools (live/messages/*,
 // content/files, content/images): file cards, thumbnails and the image
-// viewer, visuals, background notices, grounding, model retries,
+// viewer, visuals, grounding, model retries,
 // compaction turns, the changes card and citations.
 
 const (
@@ -206,45 +206,6 @@ func visual(c *ui.Context, key string, v *Visual) {
 		caption(c, v.Title)
 		kit.Code(c, ui.Column(c.Key("source")), v.Mermaid, kit.CodeOptions{Tint: true})
 	})
-}
-
-// notices are background results, on the user's side as a bubble: each task's
-// icon, title and outcome in its tone.
-func notices(c *ui.Context, list []Notice) {
-	p := theme.Of(c)
-	size := textSize(c)
-	ui.Row(c.Key("notices")).Justify(ui.End).Children(func() {
-		ui.Column(c).Gap(6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).MaxWidth(bubbleMax).
-			Label(i18n.T(c, "background_notice_title")).Children(func() {
-			for i, n := range list {
-				ui.Row(c.Key(i)).Gap(8).MinWidth(0).AlignItems(ui.Center).Children(func() {
-					icon := icons.Terminal
-					if n.Agent {
-						icon = icons.Bot
-					}
-					ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(p.MutedForeground)
-					ui.Text(c, n.Title).FontSize(size).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-					ui.Text(c, i18n.T(c, outcomeKey(n.Outcome))).FontSize(size).Shrink(0).TextColor(outcomeTone(p, n.Outcome))
-				})
-			}
-		})
-	})
-}
-
-func outcomeKey(o NoticeOutcome) string {
-	return [...]string{"background_outcome_completed", "background_outcome_failed", "background_outcome_cancelled",
-		"background_outcome_stopped", "background_outcome_timed_out", "background_outcome_interrupted",
-		"background_outcome_unknown", "background_outcome_stalled"}[o]
-}
-
-func outcomeTone(p *theme.Palette, o NoticeOutcome) ui.Color {
-	switch o {
-	case OutcomeFailed, OutcomeTimedOut, OutcomeInterrupted, OutcomeUnknown:
-		return p.Danger
-	case OutcomeStalled:
-		return p.Warning
-	}
-	return p.MutedForeground
 }
 
 // grounding is a web search's row: it opens the result over the window,

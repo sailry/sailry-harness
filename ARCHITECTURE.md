@@ -776,8 +776,16 @@ current. Full-range recovery can request up to 1,000 entries per turn page;
 interactive reads and partial-range recovery retain their smaller entry limit.
 Node byte and wire frame limits apply to both.
 
-update path. Leaving a conversation releases its presentation cache, and command
-admission reads current Client state independently of rendering.
+Desktop reuses read-only conversation source copies until a Client observation
+changes, including pagination and connection state. An unchanged visible
+transcript projection is reused even for active runs; elapsed labels update
+without rebuilding its history. Controls and mutable presentation overlays still
+refresh. Leaving a conversation releases its presentation cache and unbinds
+the transcript's render payload without resetting its scroll position. Command
+admission reads current Client state independently of rendering. Old background
+commands open on their original tool row: the controller resolves the stored
+call revision and reads bounded output for that exact session and command.
+Closing the disclosure releases the read, not the process.
 
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses

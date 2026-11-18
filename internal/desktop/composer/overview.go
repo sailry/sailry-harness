@@ -94,6 +94,8 @@ type OverviewAsset struct {
 type OverviewState struct {
 	open, was bool
 	more      bool // the read that failed was for a further page
+	// folded hides a section without forgetting whether it was shown whole.
+	folded map[string]bool
 	// all are the sections shown whole past their first rows.
 	all map[string]bool
 	// Docked means the conversation has room for the overview column.
@@ -228,18 +230,38 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 			})
 			return
 		}
-		// section is a heading, with trailing beside it, over its rows.
 		section := func(key, label string, trailing func(), rows func()) {
 			rule(key)
+			open := !s.folded[key]
 			ui.Column(c.Key(key)).FillWidth().MinWidth(0).Gap(2).Children(func() {
-				ui.Row(c.Key("heading")).FillWidth().Height(28).Gap(8).PaddingX(6).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, i18n.T(c, label)).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).
-						TextColor(p.MutedForeground)
+				ui.Row(c.Key("heading")).FillWidth().Height(28).Gap(8).PaddingX(6).AlignItems(ui.Center).Justify(ui.SpaceBetween).Children(func() {
+					title := i18n.T(c, label)
+					toggle := ui.ButtonBase(c.Key("title")).Label(title).Expanded(open).FillHeight().Shrink(1).MinWidth(0).Gap(4).
+						Justify(ui.Start).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+					hovered := toggle.Hovered()
+					toggle.Children(func() {
+						ui.Text(c, title).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+						chevron := icons.ChevronRight
+						if open {
+							chevron = icons.ChevronDown
+						}
+						arrow := ui.Icon(c, chevron).FontSize(14).Shrink(0)
+						if !hovered {
+							arrow.Opacity(0)
+						}
+					}).OnClick(func() {
+						if s.folded == nil {
+							s.folded = map[string]bool{}
+						}
+						s.folded[key] = !s.folded[key]
+					})
 					if trailing != nil {
 						trailing()
 					}
 				})
-				ui.Column(c.Key("rows")).FillWidth().MinWidth(0).Children(rows)
+				if open {
+					ui.Column(c.Key("rows")).FillWidth().MinWidth(0).Children(rows)
+				}
 			})
 		}
 		ghost := func(key, name string, content func()) ui.Element {

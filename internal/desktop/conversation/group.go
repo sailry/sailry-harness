@@ -15,31 +15,47 @@ func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 func Compact(blocks []Block) []Block {
 	var out []Block
 	var failures []Block
-	push := func(b Block) {
-		if n := len(out); n > 0 {
+	joinFrom := 0
+	pushCall := func(c Call) {
+		if n := len(out); n > joinFrom {
 			last := &out[n-1]
-			switch {
-			case b.Kind == ToolsBlock && last.Kind == ToolsBlock && groupable(b.Calls[0]) && groupable(last.Calls[len(last.Calls)-1]):
-				last.Calls = append(last.Calls[:len(last.Calls):len(last.Calls)], b.Calls...)
-				return
-			case b.Kind == ChildrenBlock && last.Kind == ChildrenBlock:
-				last.Children = append(last.Children[:len(last.Children):len(last.Children)], b.Children...)
+			if last.Kind == ToolsBlock && groupable(c) && groupable(last.Calls[len(last.Calls)-1]) {
+				last.Calls = append(last.Calls, c)
 				return
 			}
 		}
-		out = append(out, b)
+		out = append(out, Block{Kind: ToolsBlock, Calls: []Call{c}})
 	}
-	for _, b := range blocks {
+	for len(blocks) > 0 {
+		b := blocks[0]
+		blocks = blocks[1:]
 		switch {
 		case b.Kind == ErrorBlock:
 			failures = append(failures, b)
+			joinFrom = len(out)
 		case b.Kind == TextBlock && strings.TrimSpace(b.Text) == "":
 		case b.Kind == ToolsBlock:
 			for _, c := range b.Calls {
-				push(Block{Kind: ToolsBlock, Calls: []Call{c}})
+				pushCall(c)
 			}
+		case b.Kind == ChildrenBlock:
+			// Consecutive launches share one count after their original call
+			// disclosures. A later launch starts a new count, not a session total.
+			joinFrom = len(out)
+			var children []Child
+			for {
+				for _, c := range b.Calls {
+					pushCall(c)
+				}
+				children = append(children, b.Children...)
+				if len(blocks) == 0 || blocks[0].Kind != ChildrenBlock {
+					break
+				}
+				b, blocks = blocks[0], blocks[1:]
+			}
+			out = append(out, Block{Kind: ChildrenBlock, Children: children})
 		default:
-			push(b)
+			out = append(out, b)
 		}
 	}
 	return append(out, failures...)
@@ -104,29 +120,10 @@ func pathList(c Call) bool {
 	return n >= 2 || n == 1 && c.Output.Paths[0] != c.Detail
 }
 
-// Summary is the header of a group: the last call's label and detail, with
-// the states of all of them (group_summary).
+// Summary shows the last call's label, detail and status, without its output.
 func Summary(calls []Call) Call {
 	s := calls[len(calls)-1]
 	s.Output = nil
-	s.Pending, s.Running, s.Failed, s.Warning = false, false, false, false
-	for _, c := range calls {
-		s.Pending = s.Pending || c.Pending
-		s.Running = s.Running || c.Running
-	}
-	active := s.Pending || s.Running
-	for _, c := range calls {
-		if !active {
-			s.Failed = s.Failed || c.Failed
-			s.Warning = s.Warning || c.Warning
-		}
-	}
-	if s.Failed {
-		s.Warning = false
-	}
-	if active {
-		s.State, s.Background = StateNone, nil
-	}
 	return s
 }
 

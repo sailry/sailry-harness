@@ -122,7 +122,7 @@ func (location *pluginNativeLocation) selectComposer(view *ui.Context, selection
 	if err != nil {
 		return nil, err
 	}
-	if !state.runtime.controller.Connected() || !state.runtime.canMoveWorkspace(source, comp) ||
+	if !state.runtime.controller.Connected() || !state.runtime.canMoveWorkspace(source.ID, comp) ||
 		state.composerBusy(source.ID) || comp.Running || config.Assistant != nil {
 		return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "conversation location is unavailable")
 	}
@@ -223,7 +223,7 @@ func (location *pluginNativeLocation) selectComposer(view *ui.Context, selection
 		})
 		return pluginNativeJSON(true)
 	}
-	state.runtime.selectConversationWorktree(source, comp, tree.Path)
+	state.runtime.selectConversationWorktree(source.ID, comp, tree.Path)
 	return pluginNativeJSON(true)
 }
 

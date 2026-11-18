@@ -113,7 +113,7 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 		}
 		value["can_retarget"] = retarget
 		value["can_move"] = state.runtime.controller.Connected() && config.Assistant == nil && !busy && !comp.Running &&
-			state.runtime.canMoveWorkspace(source, comp)
+			state.runtime.canMoveWorkspace(source.ID, comp)
 		if session, exists := state.runtime.session(source.ID); exists {
 			value["revision"] = strconv.FormatUint(session.Revision, 10)
 		}
