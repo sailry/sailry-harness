@@ -186,11 +186,14 @@ func (a *App) workspaceDetails() bool { return a.pluginDetails() || a.resourceDe
 
 // RevealDetails shows the right column again after its toggle folded it.
 func (a *App) RevealDetails() {
-	if a.Page == PluginPage || a.paged() != "" {
+	switch {
+	case a.Page == PluginPage || a.paged() != "":
 		a.pluginWorkspacePrefs().Folded = false
-		return
+	case a.Page == HostPage:
+		a.Metrics = true
+	case a.Page == ConversationPage:
+		a.RevealConversationPanel()
 	}
-	a.PanelOpen = true
 }
 
 // featurePage is a rail feature's page: Files and Git as the project's

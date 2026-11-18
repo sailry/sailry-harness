@@ -177,8 +177,8 @@ func (r *Runtime) openChatLink(c *ui.Context, session, link string) bool {
 			if external || r.browser == nil || !r.browser.available {
 				c.OpenURL(link)
 			} else {
+				r.App.RevealConversationPanel()
 				r.browserNavigate(r.App.Panel.AddBrowser(true).ID, link)
-				r.App.PanelOpen = true
 			}
 			return true
 		case "mailto", "tel":

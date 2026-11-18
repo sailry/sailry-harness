@@ -62,8 +62,8 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 		document = newDocumentImages(ctx, r, descriptor, version)
 		r.attachments.previewDocuments[file.ID] = document
 		ctx = document.ctx
+		r.App.RevealConversationPanel()
 		r.App.Panel.ShowArtifact(file)
-		r.App.PanelOpen = true
 	}
 	r.async(func() {
 		loaded, content, err := r.readAttachmentPreview(ctx, descriptor, file)

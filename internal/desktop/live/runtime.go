@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -165,7 +164,8 @@ type Runtime struct {
 	conversationCache         map[protocol.SessionID]conversationCopy
 	conversationVersion       uint64
 	conversationPresentations map[protocol.SessionID]conversationPresentation
-	conversationsStale        atomic.Bool
+	childConversations        map[protocol.SessionID]*viewmodel.Conversation
+	conversationChanges       map[protocol.SessionID]struct{} // guarded by mu
 	// composerOutgoing holds the captured input until its Node projection arrives:
 	// ordinary sends appear in the transcript, and queued input in the tray.
 	composerOutgoing map[string]*conversationOutgoing
@@ -187,6 +187,7 @@ type conversationCopy struct {
 	state      client.ConversationState
 	ok         bool
 	generation uint64
+	composer   *composerHistory
 }
 
 // snapshot returns the Client's Node snapshot, copied once per Client
@@ -216,9 +217,6 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 	if r.conversationCopies == nil {
 		return r.controller.Conversation(id)
 	}
-	if r.conversationsStale.Swap(false) {
-		clear(r.conversationCopies)
-	}
 	copied, ok := r.conversationCopies[id]
 	if !ok {
 		copied.state, copied.ok = r.controller.Conversation(id)
@@ -229,10 +227,15 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 	return copied.state, copied.ok
 }
 
-// conversationChanged redraws after an observed conversation changed. The frame reads that state itself, so the Node snapshot is not
-// projected again.
-func (r *Runtime) conversationChanged() {
-	r.conversationsStale.Store(true)
+// conversationChanged redraws the changed conversation without projecting the
+// Node snapshot or dropping copies of other observed conversations.
+func (r *Runtime) conversationChanged(id protocol.SessionID) {
+	r.mu.Lock()
+	if r.conversationChanges == nil {
+		r.conversationChanges = map[protocol.SessionID]struct{}{}
+	}
+	r.conversationChanges[id] = struct{}{}
+	r.mu.Unlock()
 	r.localRuntime().wake()
 }
 

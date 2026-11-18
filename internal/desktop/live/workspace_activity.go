@@ -262,7 +262,7 @@ func (r *Runtime) openWorkspaceChange(x *conversationActions, relative string) {
 	p.reviewTurns = map[string]protocol.TurnID{}
 	p.projectStatus(p.status)
 	p.panel.DiffOpen(relative, "all")
-	r.App.PanelOpen = true
+	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: relative})
 }
 func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string) {
@@ -305,7 +305,7 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 		} else {
 			p.panel.Git.Show(target)
 		}
-		r.App.PanelOpen = true
+		r.App.RevealConversationPanel()
 		r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: target})
 	})
 }
@@ -344,7 +344,7 @@ func (r *Runtime) undoWorkspaceTurn(x *conversationActions, turn, relative strin
 	}
 	r.enqueue(func(c *ui.Context) {
 		// Opening History keeps the existing confirmation visible without inventing a new surface.
-		r.App.PanelOpen = true
+		r.App.RevealConversationPanel()
 		r.App.Panel.Show(panel.Tab{Kind: panel.History})
 		p.panel.Confirm("turn_changes_undo_all", target, func(done func(bool)) { p.restoreTurn(session.ID, turn, relative, done) }, "workspace_restore_confirm")
 	})
@@ -478,7 +478,7 @@ func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, 
 	if p == nil {
 		return
 	}
-	r.App.PanelOpen = true
+	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: ":changes"})
 	if operation == "create" {
 		if cv := r.App.Data.Find(r.App.Sidebar.Selected); cv != nil {

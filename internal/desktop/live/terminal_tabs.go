@@ -99,6 +99,7 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 	if placement == terminalWorkspace {
 		root.App.OpenWorkspaceTerminal(id, "")
 	} else {
+		root.App.RevealConversationPanel()
 		root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
 	}
 	if !owner.async(func() {
@@ -192,8 +193,8 @@ func (r *Runtime) showLiveTerminal(id string) {
 	}
 	root.terminalInventory().focus = id
 	root.App.DropWorkspaceTerminal(id)
+	root.App.RevealConversationPanel()
 	root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
-	root.App.PanelOpen = true
 }
 
 // showWorkspaceTerminal opens a project's terminal as an independent main

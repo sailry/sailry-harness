@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,10 +28,14 @@ type pluginNativeAssistantTools struct {
 	// failed is the details whose read failed: the conversation's own row
 	// reports and loads them again, the observer does not retry them.
 	failed map[string]bool
-	// signature names what the published value is built from — the mounted
-	// assistants, their sessions, revisions and available call details — so
-	// an idle history is not hashed every frame.
-	signature string
+	// Generations include detail arrivals as well as new conversation events.
+	// Keep only the identities of the sources already published to the plugin.
+	sources map[string]assistantToolSource
+}
+
+type assistantToolSource struct {
+	session    protocol.SessionID
+	generation uint64
 }
 
 type pluginAssistantCall struct {
@@ -90,52 +93,49 @@ func (state *pluginNativeState) refreshAssistantTools() {
 	if owner == nil {
 		return
 	}
-	prefix := nodeplugins.ToolAlias(state.scope.Package.Name, "")
-	conversations := map[string]pluginAssistantHistory{}
-	var signature strings.Builder
-	waiting := false
-	identities := make([]string, 0, len(state.conversations))
-	for identity := range state.conversations {
-		identities = append(identities, identity)
+	if len(state.conversations) == 0 && len(owner.sources) == 0 && owner.body == nil {
+		return
 	}
-	slices.Sort(identities)
-	for _, identity := range identities {
-		mounted := state.conversations[identity]
-		session := mounted.session
-		if session == (protocol.SessionID{}) && mounted.view != nil {
-			if captured, exists := state.runtime.session(mounted.view.ID); exists {
-				session = captured.ID
+	if owner.sources != nil && len(owner.sources) == len(state.conversations) {
+		unchanged := true
+		for identity, mounted := range state.conversations {
+			source := state.assistantToolSource(mounted)
+			previous, ok := owner.sources[identity]
+			if !ok || previous != source || source.session != (protocol.SessionID{}) && source.generation == 0 {
+				unchanged = false
+				break
 			}
 		}
+		if unchanged {
+			return
+		}
+	}
+	prefix := nodeplugins.ToolAlias(state.scope.Package.Name, "")
+	conversations := make(map[string]pluginAssistantHistory, len(state.conversations))
+	sources := make(map[string]assistantToolSource, len(state.conversations))
+	waiting := false
+	for identity, mounted := range state.conversations {
+		source := state.assistantToolSource(mounted)
 		history := pluginAssistantHistory{Calls: []pluginAssistantCall{}}
-		revision, connected := uint64(0), false
-		if session != (protocol.SessionID{}) {
-			if current, exists := state.runtime.controller.Conversation(session); exists {
+		if source.session != (protocol.SessionID{}) {
+			if current, exists := state.runtime.conversationState(source.session); exists {
 				var pending bool
 				history, pending = state.assistantHistory(current, prefix)
 				waiting = waiting || pending
-				revision, connected = current.Snapshot.Page.Revision, current.Connected
 			}
+			source.generation = state.runtime.conversationCopies[source.session].generation
 		}
-		fmt.Fprintf(&signature, "%q/%s/%d/%t", identity, session, revision, connected)
-		// Detail reads populate the Client cache without changing the page
-		// revision. Include the calls now available, including after a
-		// failed read is retried by the conversation's own tool row.
-		for _, call := range history.Calls {
-			fmt.Fprintf(&signature, "/%q", call.Key)
-		}
-		signature.WriteByte(';')
+		sources[identity] = source
 		conversations[identity] = history
 	}
-	// A detail still loading leaves the published value short: it is
-	// rebuilt until every call it holds has its arguments.
-	if signature.String() == owner.signature && !waiting {
-		return
-	}
-	owner.signature = signature.String()
 	body, err := json.Marshal(conversations)
 	if err != nil {
 		return
+	}
+	if waiting {
+		owner.sources = nil
+	} else {
+		owner.sources = sources
 	}
 	digest := blake3.Sum256(body)
 	cursor := hex.EncodeToString(digest[:])
@@ -147,6 +147,16 @@ func (state *pluginNativeState) refreshAssistantTools() {
 	owner.body, owner.cursor = body, cursor
 	close(owner.changed)
 	owner.changed = make(chan struct{})
+}
+
+func (state *pluginNativeState) assistantToolSource(mounted *pluginNativeConversation) assistantToolSource {
+	session := mounted.session
+	if session == (protocol.SessionID{}) && mounted.view != nil {
+		if captured, exists := state.runtime.session(mounted.view.ID); exists {
+			session = captured.ID
+		}
+	}
+	return assistantToolSource{session: session, generation: state.runtime.conversationCopies[session].generation}
 }
 
 // assistantHistory lists the package's calls of one conversation. A call's

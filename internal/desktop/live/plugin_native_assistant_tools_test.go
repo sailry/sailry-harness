@@ -82,6 +82,8 @@ func TestNativeAssistantTools(t *testing.T) {
 	state := &pluginNativeState{runtime: runtime, scope: scope, native: &native, conversations: map[string]*pluginNativeConversation{
 		"chat": {session: session},
 	}}
+	runtime.beginConversationFrame()
+	runtime.watchChild(session)
 	state.assistantToolOperations()
 	next := native.Operations["sailry.nextAssistantTools"]
 	read := func(ctx context.Context, cursor string) (string, map[string]pluginAssistantHistory, error) {
@@ -108,6 +110,9 @@ func TestNativeAssistantTools(t *testing.T) {
 	if current, exists := controller.Conversation(session); !exists || current.Snapshot.Page.Revision != 4 {
 		t.Fatal("loading a tool detail changed the captured conversation revision")
 	}
+	runtime.finishConversationFrame()
+	runtime.beginConversationFrame()
+	runtime.watchChild(session)
 	state.refreshAssistantTools()
 	if state.assistantTools.cursor == first {
 		t.Fatal("a detail arriving at the same page revision was not published")
@@ -126,6 +131,9 @@ func TestNativeAssistantTools(t *testing.T) {
 		string(call.Arguments) != `{"sql":"select 1"}` || string(call.Result) != `{"rows":[[1]]}` ||
 		call.Sequence == nil || *call.Sequence != "6" {
 		t.Fatalf("unexpected call: %+v", call)
+	}
+	if source := state.assistantTools.sources["chat"]; source.generation == 0 || source.session != session {
+		t.Fatal("the complete assistant tool history has no observed source")
 	}
 	// A frame with no change keeps the cursor; a waiter on it waits.
 	state.refreshAssistantTools()

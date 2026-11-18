@@ -202,7 +202,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 		r.conversationSeen[id] = true
 		if _, ok := r.conversationWatches[id]; !ok {
-			release, err := r.controller.WatchConversation(r.ctx, id, r.conversationChanged)
+			release, err := r.controller.WatchConversation(r.ctx, id, func() { r.conversationChanged(id) })
 			if err == nil {
 				r.conversationWatches[id] = release
 			} else {
@@ -810,8 +810,12 @@ func (x *conversationActions) Stop() {
 		x.unavailable()
 		return
 	}
-	if run, ok := x.activeRun(); ok {
-		x.r.command(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}, "session_changed", nil)
+	// Stop belongs to the reply that exposed the control. The Node can
+	// cancel it while it is still queued or acknowledge that it already ended.
+	if x.cv.Running() {
+		if turn, err := protocol.ParseTurnID(x.cv.Turns[len(x.cv.Turns)-1].ID); err == nil {
+			x.r.command(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: turn}}, "session_changed", nil)
+		}
 	}
 }
 func (x *conversationActions) LoadOlder() {

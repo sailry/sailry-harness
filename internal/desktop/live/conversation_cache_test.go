@@ -50,7 +50,7 @@ func cacheTestRuntime(t *testing.T) (*Runtime, *liveWorkspaceBenchmarkTransport,
 	cv := &viewmodel.Conversation{ID: id.String(), Node: snapshot.Node.String()}
 	r := &Runtime{controller: controller, ctx: t.Context(), conversationEdits: map[string]conversationEdit{},
 		composerOutgoing: map[string]*conversationOutgoing{}, App: shell.NewLive(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{cv}, Workspace: &viewmodel.Workspace{}})}
-	release, err := controller.WatchConversation(t.Context(), id, r.conversationChanged)
+	release, err := controller.WatchConversation(t.Context(), id, func() { r.conversationChanged(id) })
 	if err != nil {
 		_ = controller.Close()
 		t.Fatal(err)
@@ -114,6 +114,55 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		r.finishConversationFrame()
 		if len(r.conversationCache) != 0 || len(r.conversationPresentations) != 0 || r.conversationCopies != nil {
 			t.Fatal("leaving the conversation retained its frame caches")
+		}
+	})
+}
+
+func TestConversationFrameCacheKeepsUnchangedSibling(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, first, firstID := cacheTestRuntime(t)
+		secondID := protocol.SessionID{2}
+		second := &viewmodel.Conversation{ID: secondID.String(), Node: first.Node}
+		observed := protocol.DefaultConversationSnapshot()
+		observed.Node, observed.Sequence, observed.Page = source.snapshot.Node, 10, cacheTestPage(secondID, 3, "Second conversation")
+		source.conversations[secondID] = observed
+		release, err := r.controller.WatchConversation(t.Context(), secondID, func() { r.conversationChanged(secondID) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer release()
+		synctest.Wait()
+
+		frame := func() (client.ConversationState, client.ConversationState) {
+			r.beginConversationFrame()
+			defer r.finishConversationFrame()
+			r.conversationSeen[firstID], r.conversationSeen[secondID] = true, true
+			one, firstOK := r.conversationState(firstID)
+			two, secondOK := r.conversationState(secondID)
+			if !firstOK || !secondOK || !one.Connected || !two.Connected || len(one.Snapshot.Page.Runs) == 0 || len(two.Snapshot.Page.Runs) == 0 {
+				t.Fatal("both loaded conversations should be observed")
+			}
+			r.projectConversation(first, firstID, one, time.Unix(20, 0), "en")
+			r.projectConversation(second, secondID, two, time.Unix(20, 0), "en")
+			return one, two
+		}
+		oldFirst, oldSecond := frame()
+		firstTurn := &first.Turns[0]
+		observed.Sequence++
+		observed.Page = cacheTestPage(secondID, 4, "Updated second conversation")
+		observed.Page.Revision++
+		source.conversations[secondID] = observed
+		if err := r.controller.RefreshConversation(t.Context(), secondID); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+
+		newFirst, newSecond := frame()
+		if &oldFirst.Snapshot.Page.Runs[0] != &newFirst.Snapshot.Page.Runs[0] || firstTurn != &first.Turns[0] {
+			t.Fatal("a sibling update recopied or reprojected unchanged history")
+		}
+		if &oldSecond.Snapshot.Page.Runs[0] == &newSecond.Snapshot.Page.Runs[0] || second.Turns[0].User != "Updated second conversation" {
+			t.Fatal("the updated conversation retained stale history")
 		}
 	})
 }
@@ -235,10 +284,12 @@ func TestConversationActionReadsBeyondFrameCache(t *testing.T) {
 		if !exists || !pageBusy(current.Snapshot.Page) {
 			t.Fatal("the Client did not receive the newly running turn")
 		}
-		r.beginConversationFrame()
 		// Model the interval after the Client changes but before its UI callback
 		// is delivered. Rendering still owns its earlier accepted source copy.
-		r.conversationsStale.Store(false)
+		r.mu.Lock()
+		clear(r.conversationChanges)
+		r.mu.Unlock()
+		r.beginConversationFrame()
 		if _, cached, ok := x.viewState(); !ok || pageBusy(cached.Page) {
 			t.Fatal("the fixture did not retain the earlier frame copy")
 		}

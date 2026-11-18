@@ -94,7 +94,6 @@ func (c *Client) workspaceChanged(w *workspaceWatch, update protocol.Update) {
 			callback(copyValue(update))
 		}
 	}
-	c.changed()
 }
 func (c *Client) observeWorkspace(w *workspaceWatch) {
 	defer c.workspaceOwners.Done()

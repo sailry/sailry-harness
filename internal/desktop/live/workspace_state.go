@@ -742,6 +742,6 @@ func (r *Runtime) openWorkspaceFile(sessionID protocol.SessionID, worktreeID pro
 		return
 	}
 	project.panel.FileOpen(relative)
-	r.App.PanelOpen = true
+	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Files, ID: relative})
 }

@@ -467,8 +467,8 @@ func (r *Runtime) browserReveal(tab *browserTab) {
 	if r.App.Sidebar.Selected != tab.conversation {
 		return
 	}
-	r.App.Panel.Show(panel.Tab{Kind: panel.Browser, ID: strconv.FormatUint(tab.id, 10)})
 	if r.App.Page == shell.ConversationPage {
-		r.App.PanelOpen = true
+		r.App.RevealConversationPanel()
 	}
+	r.App.Panel.Show(panel.Tab{Kind: panel.Browser, ID: strconv.FormatUint(tab.id, 10)})
 }

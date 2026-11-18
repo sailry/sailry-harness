@@ -35,6 +35,18 @@ type conversationPanels struct {
 	parked  map[string]*ConversationPanel
 }
 
+// RevealConversationPanel shows the selected conversation's right panel.
+// Explicit open actions call it before changing the mounted panel's tabs.
+func (a *App) RevealConversationPanel() {
+	a.MountPanel()
+	if a.Page != ConversationPage {
+		a.Navigate(ConversationPage)
+	}
+	a.syncPanel()
+	a.Panel.Sync(a.project())
+	a.PanelOpen = true
+}
+
 // MountPanel gives the panel to the selected conversation: the tabs of the
 // one left are kept for its return, and the selected one's come back, or the
 // closed panel of a conversation that never opened it. The first conversation

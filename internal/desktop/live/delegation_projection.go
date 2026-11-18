@@ -14,7 +14,7 @@ import (
 func (r *Runtime) watchChild(id protocol.SessionID) {
 	r.conversationSeen[id] = true
 	if _, ok := r.conversationWatches[id]; !ok {
-		if release, err := r.controller.WatchConversation(r.ctx, id, r.conversationChanged); err == nil {
+		if release, err := r.controller.WatchConversation(r.ctx, id, func() { r.conversationChanged(id) }); err == nil {
 			r.conversationWatches[id] = release
 		}
 	}
@@ -87,7 +87,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 	}
 	comp.ActivityCallbacks.StopChild = func(id string) {
 		if run, ok := runs[id]; ok {
-			r.stopChild(run)
+			r.stopChild(session.ID, run)
 		}
 	}
 	enrichChildModels(cv, state.Snapshot.Page, r.snapshot(), language)
@@ -102,7 +102,7 @@ func childApproval(approval protocol.ConversationApproval, child protocol.Sessio
 
 // stopChild stops one child run through stop_turn. Its parent and siblings
 // continue; the parent's page reports the child's stopping and final status.
-func (r *Runtime) stopChild(run protocol.ConversationRun) {
+func (r *Runtime) stopChild(parent protocol.SessionID, run protocol.ConversationRun) {
 	if r.childStops[run.Turn] || run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning {
 		return
 	}
@@ -110,9 +110,14 @@ func (r *Runtime) stopChild(run protocol.ConversationRun) {
 		r.childStops = map[protocol.TurnID]bool{}
 	}
 	r.childStops[run.Turn] = true
-	r.execute(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}, func(c *ui.Context, _ protocol.Output, err error) {
+	r.execute(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}, func(c *ui.Context, out protocol.Output, err error) {
 		delete(r.childStops, run.Turn)
 		r.reportKeys(c, err, "subagent_stop_failed", "session_changed", "subagent_stop_unknown")
+		// Older hosts can acknowledge a terminal child whose spawn is outside
+		// the live page without publishing it to the parent's loaded history.
+		if ended, ok := detail[protocol.ConversationRun](out.Data); err == nil && ok && out.Kind == "run" && ended.Turn == run.Turn && ended.Session == run.Session && !runStatus(ended.Status).Active() {
+			_ = r.controller.RefreshConversation(r.ctx, parent)
+		}
 	})
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -71,32 +72,50 @@ func (state *pluginNativeState) composerSource() (*viewmodel.Conversation, *comp
 	if state.composer.source == "" || state.native.Context.Err() != nil {
 		return nil, nil, protocol.SessionConfig{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer requires a captured source")
 	}
-	view := state.runtime.pluginComposerView(state.composer.source)
-	if view == nil || view.Node != state.runtime.controller.Target().String() {
+	runtime := state.runtime
+	source := state.composer.source
+	node := runtime.controller.Target().String()
+	view := runtime.pluginComposerView(source)
+	session, exists := runtime.session(source)
+	// Delegated sessions render in a detail tab without joining the window's
+	// conversation list. Their composer and history are already keyed by ID.
+	if view == nil && state.scope.Surface.Kind == "composer" && state.scope.Session != nil && exists && runtime.childComposerOpen(session) {
+		view = &viewmodel.Conversation{ID: source, Node: node}
+	}
+	if view == nil || view.Node != node {
 		return nil, nil, protocol.SessionConfig{}, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer source is unavailable")
 	}
-	comp := state.runtime.App.Composer(view.ID)
+	comp := runtime.App.Composer(source)
 	config := protocol.DefaultSessionConfig()
-	if session, exists := state.runtime.session(view.ID); exists {
+	if exists {
 		if state.scope.Session == nil || session.ID != *state.scope.Session ||
 			state.scope.Worktree != nil && session.Worktree != *state.scope.Worktree {
 			return nil, nil, config, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer scope changed")
 		}
 		config = session.Config
-	} else if state.scope.Session != nil || comp.Host != "" && comp.Host != state.runtime.controller.Target().String() {
+	} else if state.scope.Session != nil || comp.Host != "" && comp.Host != node {
 		return nil, nil, config, pluginNativeFault(protocol.ErrorCodeUnavailable, "composer scope changed")
-	} else if base, exists := state.runtime.composerBases[comp]; exists {
+	} else if base, exists := runtime.composerBases[comp]; exists {
 		config = base
 	}
 	config.Mode = []protocol.WorkMode{"code", "plan", "flagship"}[min(max(int(comp.Mode), 0), 2)]
 	config.Permission = []protocol.Permission{"ask", "project", "full"}[min(max(int(comp.Permission), 0), 2)]
-	if selected, _, err := state.runtime.composerConfig(comp, composer.Message{
-		Model: comp.Model, Effort: comp.EffortName(nil, comp.Chosen(state.runtime.models())),
+	if selected, _, err := runtime.composerConfig(comp, composer.Message{
+		Model: comp.Model, Effort: comp.EffortName(nil, comp.Chosen(runtime.models())),
 		Features: comp.Features, Mode: comp.Mode, Permission: comp.Permission,
 	}); err == nil {
 		config = selected
 	}
 	return view, comp, config, nil
+}
+
+func (r *Runtime) childComposerOpen(session protocol.Session) bool {
+	if r.teams == nil || !delegated(session) {
+		return false
+	}
+	id := session.ID.String()
+	parent, opened := r.teams.childParents[id]
+	return opened && parent == (*session.Delegation).Session && r.App.HasPanelTab(panel.Tab{Kind: panel.Subagent, ID: id})
 }
 
 func (state *pluginNativeState) refreshComposer() {
@@ -205,18 +224,12 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 	var statistics json.RawMessage = json.RawMessage("null")
 	compacting, hasMessages := false, len(view.Turns) > 0
 	if state.scope.Session != nil {
-		if history, exists := runtime.conversationState(*state.scope.Session); exists {
-			var err error
-			statistics, err = plugins.ComposerStatistics(history.Snapshot.Statistics)
-			if err != nil {
-				return nil, err
-			}
-			for _, run := range history.Snapshot.Page.Runs {
-				hasMessages = true
-				compacting = compacting || run.Kind == protocol.ConversationRunKindCompaction &&
-					(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
-			}
+		history := runtime.composerHistory(*state.scope.Session)
+		if history.err != nil {
+			return nil, history.err
 		}
+		statistics, compacting = history.statistics, history.compacting
+		hasMessages = hasMessages || history.hasMessages
 	}
 	// The model and the window are the composer's selection. The statistics
 	// carry the model and the window of the last request beside them, and a

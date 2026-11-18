@@ -289,7 +289,6 @@ func (a *App) sampleLink(c *ui.Context, session, link string) bool {
 	if strings.HasPrefix(link, "#") {
 		return false
 	}
-	shown := func() { a.Page, a.PanelOpen = ConversationPage, true }
 	if target, err := url.Parse(link); err == nil && target.Scheme != "" {
 		switch {
 		case target.Scheme == "sailry-knowledge":
@@ -298,13 +297,13 @@ func (a *App) sampleLink(c *ui.Context, session, link string) bool {
 		case conversation.External(c):
 			c.OpenURL(link)
 		default:
-			shown()
+			a.RevealConversationPanel()
 			a.Panel.Browse(link)
 		}
 		return true
 	}
 	if e, ok := preview.Embed(a.Data.Find(session), link, false); ok && e.File != nil {
-		shown()
+		a.RevealConversationPanel()
 		a.Panel.ShowArtifact(*e.File)
 	}
 	return true

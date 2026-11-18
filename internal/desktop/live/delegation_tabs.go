@@ -17,12 +17,8 @@ func delegated(session protocol.Session) bool {
 	return session.Delegation != nil && *session.Delegation != nil
 }
 
-func (r *Runtime) childSession(parent protocol.SessionID, id string) (protocol.ConversationChild, protocol.Session, bool) {
-	state, ok := r.controller.Conversation(parent)
-	if !ok {
-		return protocol.ConversationChild{}, protocol.Session{}, false
-	}
-	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
+func (r *Runtime) childSession(page protocol.ConversationPage, parent protocol.SessionID, id string) (protocol.ConversationChild, protocol.Session, bool) {
+	for _, child := range client.LatestConversationChildren(page.Children) {
 		if child.Run.Session.String() == id {
 			session, valid := client.ConversationChildSession(r.snapshot(), parent, child)
 			return child, session, valid
@@ -67,12 +63,17 @@ func (r *Runtime) openLiveChild(parent *viewmodel.Conversation, id string) {
 	if err != nil {
 		return
 	}
-	child, session, ok := r.childSession(parentID, id)
+	state, _ := r.controller.Conversation(parentID)
+	child, session, ok := r.childSession(state.Snapshot.Page, parentID, id)
 	if !ok {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "chat_child_unavailable")) })
 		return
 	}
+	selected, origin := r.App.Sidebar.Selected, r.App.Page
 	r.executeScoped("child-tab/"+id, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session.ID}}, func(c *ui.Context, out protocol.Output, err error) {
+		if r.App.Sidebar.Selected != selected || r.App.Page != origin {
+			return
+		}
 		if err != nil {
 			r.reportKeys(c, err, "chat_child_unavailable", "chat_child_unavailable", "chat_child_unavailable")
 			return
@@ -88,6 +89,7 @@ func (r *Runtime) openLiveChild(parent *viewmodel.Conversation, id string) {
 		if state, ready := r.controller.Conversation(parentID); ready {
 			page = &state.Snapshot.Page
 		}
+		r.App.RevealConversationPanel()
 		r.App.Panel.ShowChild(id, childTitle(page, child, c.Locale()))
 	})
 }
@@ -110,17 +112,22 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 		return
 	}
 	r.watchChild(parent)
-	child, session, ok := r.childSession(parent, id)
+	state, _ := r.conversationState(parent)
+	page := &state.Snapshot.Page
+	child, session, ok := r.childSession(*page, parent, id)
 	if !ok || !delegated(session) {
 		kit.Result(c, kit.ResultProps{Title: i18n.T(c, "chat_child_unavailable")}).Grow(1).Justify(ui.Center)
 		return
 	}
-	r.conversationSeen[parent] = true
-	var page *protocol.ConversationPage
-	if state, ready := r.conversationState(parent); ready {
-		page = &state.Snapshot.Page
+	if r.childConversations == nil {
+		r.childConversations = map[protocol.SessionID]*viewmodel.Conversation{}
 	}
-	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: id, Title: childTitle(page, child, c.Locale())}
+	cv := r.childConversations[session.ID]
+	if cv == nil {
+		cv = &viewmodel.Conversation{Node: r.controller.Target().String(), ID: id}
+		r.childConversations[session.ID] = cv
+	}
+	cv.Title = childTitle(page, child, c.Locale())
 	comp := r.App.Composer(id)
 	ctx, actions := r.conversation(c, cv, comp)
 	ctx.Readonly = true

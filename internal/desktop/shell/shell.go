@@ -643,14 +643,12 @@ func (a *App) togglePanel() {
 
 // openPanel shows a resource in the right panel.
 func (a *App) openPanel(k panel.Kind) {
-	a.MountPanel()
 	a.syncPanel()
 	if !a.Panel.Offers(k) {
 		// A shortcut opens only what the launcher lists.
 		return
 	}
-	a.Page, a.PanelOpen = ConversationPage, true
-	a.Panel.Sync(a.project())
+	a.RevealConversationPanel()
 	a.Panel.Open(k)
 }
 
@@ -1094,7 +1092,7 @@ func (x *actions) OpenChild(id string) {
 	if _, ok := x.a.children[id]; !ok {
 		x.a.children[id] = preview.ChildTurns(id, title)
 	}
-	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.RevealConversationPanel()
 	x.a.Panel.ShowChild(id, title)
 }
 
@@ -1232,7 +1230,7 @@ func (x *actions) Undo(turn, path string) {
 	if target == "" {
 		target = x.cv.Title
 	}
-	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.RevealConversationPanel()
 	x.a.Panel.Sync(pr)
 	x.a.Panel.Show(panel.Tab{Kind: panel.History})
 	pr.Confirm("turn_changes_undo_all", target, func(done func(bool)) {
@@ -1326,6 +1324,6 @@ func (x *actions) OpenFile(f conversation.File) {
 		x.openSystem(f)
 		return
 	}
-	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.RevealConversationPanel()
 	x.a.Panel.ShowArtifact(f)
 }

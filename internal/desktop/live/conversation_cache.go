@@ -1,11 +1,13 @@
 package live
 
 import (
+	"encoding/json"
 	"slices"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -20,11 +22,52 @@ type conversationPresentation struct {
 	connection conversation.Connection
 }
 
+// Composer bindings share the usage wire representation and the run flags
+// of their observed history. Local draft, model and permission state are read
+// independently so plugins still see changes before the Node observes them.
+type composerHistory struct {
+	statistics  json.RawMessage
+	compacting  bool
+	hasMessages bool
+	err         error
+}
+
+func (r *Runtime) composerHistory(id protocol.SessionID) composerHistory {
+	history := composerHistory{statistics: json.RawMessage("null")}
+	state, ok := r.conversationState(id)
+	if !ok {
+		return history
+	}
+	copied, cached := r.conversationCopies[id]
+	if copied.composer != nil {
+		return *copied.composer
+	}
+	if state.Snapshot.Statistics != nil {
+		history.statistics, history.err = plugins.ComposerStatistics(state.Snapshot.Statistics)
+	}
+	history.hasMessages = len(state.Snapshot.Page.Runs) != 0
+	history.compacting = slices.ContainsFunc(state.Snapshot.Page.Runs, func(run protocol.ConversationRun) bool {
+		return run.Kind == protocol.ConversationRunKindCompaction &&
+			(run.Status == protocol.ConversationStatusQueued || run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping)
+	})
+	if cached {
+		copied.composer = &history
+		r.conversationCopies[id] = copied
+	}
+	return history
+}
+
 func (r *Runtime) beginConversationFrame() {
 	r.conversationSeen = map[protocol.SessionID]bool{}
 	if r.conversationCache == nil {
 		r.conversationCache = map[protocol.SessionID]conversationCopy{}
 	}
+	r.mu.Lock()
+	for id := range r.conversationChanges {
+		delete(r.conversationCache, id)
+	}
+	clear(r.conversationChanges)
+	r.mu.Unlock()
 	r.conversationCopies = r.conversationCache
 }
 
@@ -37,6 +80,11 @@ func (r *Runtime) finishConversationFrame() {
 	for id := range r.conversationPresentations {
 		if !r.conversationSeen[id] {
 			delete(r.conversationPresentations, id)
+		}
+	}
+	for id := range r.childConversations {
+		if !r.conversationSeen[id] {
+			delete(r.childConversations, id)
 		}
 	}
 	r.conversationCopies = nil

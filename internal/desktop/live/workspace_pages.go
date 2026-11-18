@@ -125,9 +125,6 @@ func (p *workspaceProject) showItem(kind panel.Kind, id string) {
 	if root.showingResourcePage() || root.selectedRuntime().selectedWorkspace() != p {
 		return
 	}
-	if app.Page != shell.ConversationPage {
-		app.Panel.Sync(p.panel)
-	}
-	app.PanelOpen = true
+	app.RevealConversationPanel()
 	app.Panel.Show(panel.Tab{Kind: kind, ID: id})
 }

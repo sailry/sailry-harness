@@ -23,6 +23,20 @@ func (t *sharedResourceTransport) Subscribe(ctx context.Context, topic protocol.
 	t.topics = append(t.topics, topic)
 	return t.subscription, nil
 }
+
+func TestWorkspaceChangeNotifiesOnlyWorkspaceObservers(t *testing.T) {
+	controller := New(&clientTransport{})
+	defer controller.Close()
+	unsubscribe := controller.OnChange(func() { t.Error("workspace change broadcast a global Client change") })
+	defer unsubscribe()
+	var observed protocol.Update
+	watch := &workspaceWatch{callbacks: map[uint64]func(protocol.Update){1: func(update protocol.Update) { observed = update }}}
+	controller.workspaceChanged(watch, protocol.Update{Kind: "reset_required"})
+	if observed.Kind != "reset_required" {
+		t.Fatalf("workspace observer did not receive the update: %#v", observed)
+	}
+}
+
 func TestSharedWorkspaceAndCommandOwners(t *testing.T) {
 	for _, kind := range []string{"files", "repository", "commands"} {
 		t.Run(kind, func(t *testing.T) {

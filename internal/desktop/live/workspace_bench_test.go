@@ -104,7 +104,7 @@ func newLiveWorkspaceBenchmark(b *testing.B, count int) *liveWorkspaceBenchmark 
 	changed := make(chan struct{}, count)
 	for _, id := range ids {
 		release, err := controller.WatchConversation(b.Context(), id, func() {
-			runtime.conversationChanged()
+			runtime.conversationChanged(id)
 			select {
 			case changed <- struct{}{}:
 			default:

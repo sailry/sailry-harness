@@ -70,7 +70,7 @@ func (r *Runtime) openManagedConversation(cv *viewmodel.Conversation, session *p
 	if p == nil || p.owner.Project == nil {
 		return
 	}
-	r.App.PanelOpen = true
+	r.App.RevealConversationPanel()
 	r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: ":changes"})
 	delete(p.failedReads, "managed-worktree-status")
 	p.read("managed-worktree-status", protocol.Command{Kind: "inspect_git", Data: protocol.CommandInspectGitPayload{Worktree: p.owner.ID}}, func(c *ui.Context, out protocol.Output) {
