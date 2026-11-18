@@ -979,6 +979,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get project => 'プロジェクト';
 
   @override
+  String get projects => 'プロジェクト';
+
+  @override
+  String get editProject => 'プロジェクトを編集';
+
+  @override
+  String get removeProject => 'プロジェクトを削除';
+
+  @override
+  String get removeProjectWarning =>
+      'プロジェクトを一覧から削除し、開いているターミナルを閉じてバックグラウンドコマンドを停止します。ファイルとチャット履歴は残ります。';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'プロジェクトの一部のターミナルはすでに閉じている可能性があります。';
+
+  @override
   String get worktree => 'ワークツリー';
 
   @override
@@ -2250,4 +2267,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get personalKvConflict => '個人データが競合しました。コントローラーの値を保持しました';
+
+  @override
+  String get sessionAlerts => 'チャットの通知';
 }

@@ -372,6 +372,11 @@
   "newTerminal": "Новый терминал",
   "files": "Файлы",
   "project": "Проект",
+  "projects": "Проекты",
+  "editProject": "Изменить проект",
+  "removeProject": "Убрать проект",
+  "removeProjectWarning": "Проект будет убран из списка, открытые терминалы будут закрыты, а фоновые команды остановлены. Файлы и история чатов сохранятся.",
+  "projectRemovalMayHaveClosedTerminals": "Некоторые терминалы проекта, возможно, уже закрыты.",
   "worktree": "Рабочее дерево",
   "allHosts": "Все хосты",
   "all": "Все",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "Прямое сопряжение",
   "hostOriginSource": "Через {name}",
-  "personalKvConflict": "Конфликт личных данных: сохранены значения контроллера"
+  "personalKvConflict": "Конфликт личных данных: сохранены значения контроллера",
+  "sessionAlerts": "Уведомления чатов"
 }

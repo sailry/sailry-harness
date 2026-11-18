@@ -17,15 +17,23 @@ import 'project_form.dart';
 import 'workspace.dart';
 
 class ResourcesPage extends StatefulWidget {
-  const ResourcesPage({super.key, this.hostId, this.worktreeId});
+  const ResourcesPage({
+    super.key,
+    this.hostId,
+    this.worktreeId,
+    this.projectId,
+  });
   final String? hostId;
   final String? worktreeId;
+  final String? projectId;
   @override
   State<ResourcesPage> createState() => _ResourcesPageState();
 }
 
 class _ResourcesPageState extends State<ResourcesPage> {
   bool get _fixedScope => widget.hostId != null || widget.worktreeId != null;
+  bool get _workspaceSelectable => !_fixedScope || widget.projectId != null;
+  String? _selectedProjectTree;
   final _git = GitSummary();
 
   @override
@@ -60,6 +68,18 @@ class _ResourcesPageState extends State<ResourcesPage> {
   }
 
   Future<void> _workspace(HostConnection host) async {
+    if (widget.projectId case final project?) {
+      final id = await showLiveWorkspacePicker(
+        context,
+        host,
+        _selectedProjectTree ?? widget.worktreeId,
+        project: project,
+      );
+      if (mounted && id != null) {
+        setState(() => _selectedProjectTree = id);
+      }
+      return;
+    }
     final session = AppSession.of(context);
     final id = await showLiveWorkspacePicker(
       context,
@@ -111,12 +131,30 @@ class _ResourcesPageState extends State<ResourcesPage> {
     final host = widget.hostId == null
         ? session.selectedHost
         : session.host(widget.hostId!);
-    final target = resourceTarget(context, widget.hostId, widget.worktreeId);
+    final target = resourceTarget(
+      context,
+      widget.hostId,
+      _selectedProjectTree ?? widget.worktreeId,
+    );
     final ready = host != null && host.connected && target != null;
     final worktree = ready ? text(target.worktree['id']) : null;
     _git.track(ready ? host : null, worktree);
     return PageFrame(
       title: context.tr('resources'),
+      // A project's resources belong to one host; name it under the title.
+      subtitle: host == null
+          ? null
+          : Text(
+              host.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant.withValues(alpha: .65),
+              ),
+            ),
       onRefresh: host == null
           ? null
           : () async {
@@ -151,7 +189,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
               listenable: Listenable.merge([_git, host.ports]),
               builder: (context, _) => _overview(host, target),
             )
-          : host != null && host.connected && !_fixedScope
+          : host != null && host.connected && _workspaceSelectable
           ? ProjectBar(
               project: null,
               title: context.tr('selectWorkspace'),
@@ -185,7 +223,7 @@ class _ResourcesPageState extends State<ResourcesPage> {
         ProjectBar(
           project: {...?project, 'name': name},
           detail: branch,
-          onTap: _fixedScope ? null : () => _workspace(host),
+          onTap: _workspaceSelectable ? () => _workspace(host) : null,
         ),
         GitOverviewCard(
           summary: _git,

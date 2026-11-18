@@ -372,6 +372,11 @@
   "newTerminal": "新しいターミナル",
   "files": "ファイル",
   "project": "プロジェクト",
+  "projects": "プロジェクト",
+  "editProject": "プロジェクトを編集",
+  "removeProject": "プロジェクトを削除",
+  "removeProjectWarning": "プロジェクトを一覧から削除し、開いているターミナルを閉じてバックグラウンドコマンドを停止します。ファイルとチャット履歴は残ります。",
+  "projectRemovalMayHaveClosedTerminals": "プロジェクトの一部のターミナルはすでに閉じている可能性があります。",
   "worktree": "ワークツリー",
   "allHosts": "全ホスト",
   "all": "すべて",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "直接ペアリング",
   "hostOriginSource": "{name} 経由",
-  "personalKvConflict": "個人データが競合しました。コントローラーの値を保持しました"
+  "personalKvConflict": "個人データが競合しました。コントローラーの値を保持しました",
+  "sessionAlerts": "チャットの通知"
 }

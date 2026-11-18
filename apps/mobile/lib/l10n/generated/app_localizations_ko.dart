@@ -980,6 +980,23 @@ class AppLocalizationsKo extends AppLocalizations {
   String get project => '프로젝트';
 
   @override
+  String get projects => '프로젝트';
+
+  @override
+  String get editProject => '프로젝트 편집';
+
+  @override
+  String get removeProject => '프로젝트 제거';
+
+  @override
+  String get removeProjectWarning =>
+      '프로젝트를 목록에서 제거하고 열린 터미널을 닫으며 백그라운드 명령을 중지합니다. 파일과 채팅 기록은 유지됩니다.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      '프로젝트의 일부 터미널이 이미 닫혔을 수 있습니다.';
+
+  @override
   String get worktree => '작업 트리';
 
   @override
@@ -2251,4 +2268,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get personalKvConflict => '개인 데이터 충돌: 컨트롤러의 값을 유지했습니다';
+
+  @override
+  String get sessionAlerts => '채팅 알림';
 }

@@ -35,5 +35,11 @@
   "demoSimulatedReply": "I'll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.",
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "Pareamento direto",
-  "hostOriginSource": "Via {name}"
+  "hostOriginSource": "Via {name}",
+  "projects": "Projetos",
+  "editProject": "Editar projeto",
+  "removeProject": "Remover projeto",
+  "removeProjectWarning": "Remove o projeto da lista, fecha os terminais abertos e interrompe os comandos em segundo plano. Os arquivos e o histórico de conversas são mantidos.",
+  "projectRemovalMayHaveClosedTerminals": "Alguns terminais do projeto podem já estar fechados.",
+  "sessionAlerts": "Alertas de conversas"
 }

@@ -7,8 +7,11 @@ import 'package:fluttertoast/fluttertoast.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/json.dart';
 import '../../runtime/session.dart';
+import '../../ui/kit.dart';
 import '../../ui/toast.dart';
+import '../conversations/live/page.dart';
 import 'presentation.dart';
+import 'system.dart';
 
 /// Presentation only: the shared Client inbox owns notices and read state.
 class NotificationDelivery extends StatefulWidget {
@@ -31,15 +34,78 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
   bool _reading = false;
   bool _pending = false;
   final _toast = FToast();
+  final _system = SystemAlerts();
+  StreamSubscription<SessionTarget>? _taps;
+  SessionTarget? _pendingTap;
+  Future<bool>? _starting;
 
   @override
   void initState() {
     super.initState();
     widget.session.addListener(_changed);
+    _taps = _system.taps.listen((target) {
+      _pendingTap = target;
+      _openTapped();
+    });
     unawaited(_read());
   }
 
-  void _changed() => unawaited(_read());
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_starting != null) return;
+    _starting = _system.start(context.tr);
+    if (widget.enabled) unawaited(_requestPermission());
+    unawaited(
+      _starting!.then((_) {
+        if (mounted) unawaited(_read());
+      }),
+    );
+  }
+
+  @override
+  void didUpdateWidget(NotificationDelivery oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.enabled && widget.enabled) unawaited(_requestPermission());
+  }
+
+  Future<void> _requestPermission() async {
+    try {
+      if (await _starting == true && mounted && widget.enabled) {
+        await widget.session.background.requestNotificationPermission();
+      }
+    } catch (_) {
+      // System permission failures do not affect the in-app inbox.
+    }
+  }
+
+  /// Opens the session a system notification named, once its host has
+  /// connected and lists it.
+  void _openTapped() {
+    final target = _pendingTap;
+    if (target == null || !mounted) return;
+    final host = widget.session.host(target.host);
+    final session = host == null
+        ? null
+        : objects(
+            host.snapshot['sessions'],
+          ).where((value) => value['id'] == target.session).firstOrNull;
+    if (host == null || !host.connected || session == null) return;
+    _pendingTap = null;
+    pushPage(
+      context,
+      LiveConversationPage(
+        host: host,
+        sessionId: target.session,
+        initialSession: session,
+      ),
+    );
+  }
+
+  void _changed() {
+    _openTapped();
+    unawaited(_read());
+  }
 
   Future<void> _read() async {
     if (_reading) {
@@ -56,6 +122,10 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
     try {
       do {
         _pending = false;
+        final refreshedRoutes = {
+          for (final host in widget.session.hosts)
+            if (host.connected && host.snapshot['node'] != null) host.id,
+        };
         final inbox = object(jsonDecode(await owner.notifications()));
         if (!mounted || widget.session.controller != owner) return;
         final notices = objects(inbox['notices']);
@@ -64,6 +134,17 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
         // alerts off or going to the background never discards inbox history.
         _shown = notices.map((notice) => jsonEncode(notice['id'])).toSet();
         final foreground = WidgetsBinding.instance.lifecycleState;
+        final front =
+            foreground == null || foreground == AppLifecycleState.resumed;
+        // In the background the app posts system notifications instead.
+        await _system.sync(
+          notices,
+          post: previous != null && widget.enabled && !front,
+          known: previous ?? const {},
+          refreshedRoutes: refreshedRoutes,
+          translate: context.tr,
+        );
+        if (!mounted || widget.session.controller != owner) return;
         if (previous != null &&
             widget.enabled &&
             (foreground == null || foreground == AppLifecycleState.resumed)) {
@@ -93,6 +174,8 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
   @override
   void dispose() {
     widget.session.removeListener(_changed);
+    unawaited(_taps?.cancel());
+    unawaited(_system.close());
     _toast.removeQueuedCustomToasts();
     super.dispose();
   }

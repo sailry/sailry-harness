@@ -1001,6 +1001,23 @@ class AppLocalizationsPt extends AppLocalizations {
   String get project => 'Projeto';
 
   @override
+  String get projects => 'Projetos';
+
+  @override
+  String get editProject => 'Editar projeto';
+
+  @override
+  String get removeProject => 'Remover projeto';
+
+  @override
+  String get removeProjectWarning =>
+      'Remove o projeto da lista, fecha os terminais abertos e para os comandos em segundo plano. Os ficheiros e o histórico de conversas são mantidos.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Alguns terminais do projeto poderão já estar fechados.';
+
+  @override
   String get worktree => 'Árvore de trabalho';
 
   @override
@@ -2286,11 +2303,31 @@ class AppLocalizationsPt extends AppLocalizations {
   @override
   String get personalKvConflict =>
       'Conflito de dados pessoais: valores do controlador mantidos';
+
+  @override
+  String get sessionAlerts => 'Alertas de conversas';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
 class AppLocalizationsPtBr extends AppLocalizationsPt {
   AppLocalizationsPtBr() : super('pt_BR');
+
+  @override
+  String get projects => 'Projetos';
+
+  @override
+  String get editProject => 'Editar projeto';
+
+  @override
+  String get removeProject => 'Remover projeto';
+
+  @override
+  String get removeProjectWarning =>
+      'Remove o projeto da lista, fecha os terminais abertos e interrompe os comandos em segundo plano. Os arquivos e o histórico de conversas são mantidos.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Alguns terminais do projeto podem já estar fechados.';
 
   @override
   String get hostOriginDirect => 'Pareamento direto';
@@ -2410,4 +2447,7 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
   @override
   String get demoTerminalWelcome =>
       'Last login: Sun Nov 15 09:00:00 on ttys001';
+
+  @override
+  String get sessionAlerts => 'Alertas de conversas';
 }

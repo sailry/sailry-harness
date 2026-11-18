@@ -1009,6 +1009,23 @@ class AppLocalizationsFr extends AppLocalizations {
   String get project => 'Projet';
 
   @override
+  String get projects => 'Projets';
+
+  @override
+  String get editProject => 'Modifier le projet';
+
+  @override
+  String get removeProject => 'Retirer le projet';
+
+  @override
+  String get removeProjectWarning =>
+      'Le projet sera retiré de la liste. Ses terminaux ouverts seront fermés et ses commandes en arrière-plan arrêtées. Les fichiers et l’historique des discussions seront conservés.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Certains terminaux du projet ont peut-être déjà été fermés.';
+
+  @override
   String get worktree => 'Arbre de travail';
 
   @override
@@ -2296,4 +2313,7 @@ class AppLocalizationsFr extends AppLocalizations {
   @override
   String get personalKvConflict =>
       'Conflit de données personnelles : valeurs du contrôleur conservées';
+
+  @override
+  String get sessionAlerts => 'Alertes de discussion';
 }

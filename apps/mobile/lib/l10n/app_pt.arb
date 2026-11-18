@@ -372,6 +372,11 @@
   "newTerminal": "O novo terminal",
   "files": "Arquivos",
   "project": "Projeto",
+  "projects": "Projetos",
+  "editProject": "Editar projeto",
+  "removeProject": "Remover projeto",
+  "removeProjectWarning": "Remove o projeto da lista, fecha os terminais abertos e para os comandos em segundo plano. Os ficheiros e o histórico de conversas são mantidos.",
+  "projectRemovalMayHaveClosedTerminals": "Alguns terminais do projeto poderão já estar fechados.",
   "worktree": "Árvore de trabalho",
   "allHosts": "Todos os hosts",
   "all": "Tudo",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "Pareamento direto",
   "hostOriginSource": "Via {name}",
-  "personalKvConflict": "Conflito de dados pessoais: valores do controlador mantidos"
+  "personalKvConflict": "Conflito de dados pessoais: valores do controlador mantidos",
+  "sessionAlerts": "Alertas de conversas"
 }

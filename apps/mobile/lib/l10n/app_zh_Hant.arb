@@ -483,6 +483,11 @@
   "newTerminal": "新建終端",
   "files": "檔案",
   "project": "專案",
+  "projects": "專案",
+  "editProject": "編輯專案",
+  "removeProject": "移除專案",
+  "removeProjectWarning": "將專案從清單移除，並關閉其開啟的終端機、停止背景命令。磁碟檔案與對話紀錄會保留。",
+  "projectRemovalMayHaveClosedTerminals": "專案的部分終端機可能已經關閉。",
   "worktree": "工作樹",
   "allHosts": "全部主機",
   "all": "全部",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "直接配對",
   "hostOriginSource": "來自 {name}",
-  "personalKvConflict": "個人資料衝突，已保留控制端目前的值"
+  "personalKvConflict": "個人資料衝突，已保留控制端目前的值",
+  "sessionAlerts": "對話提醒"
 }

@@ -483,6 +483,11 @@
   "newTerminal": "新建终端",
   "files": "文件",
   "project": "项目",
+  "projects": "项目",
+  "editProject": "编辑项目",
+  "removeProject": "移除项目",
+  "removeProjectWarning": "将项目从列表移除，并关闭其打开的终端、停止后台命令。磁盘文件和会话记录会保留。",
+  "projectRemovalMayHaveClosedTerminals": "项目的部分终端可能已经关闭。",
   "worktree": "工作树",
   "allHosts": "全部主机",
   "all": "全部",
@@ -875,5 +880,6 @@
   "demoNotesPrompt": "为登录页面整理一份简短的发布评审清单。",
   "demoSimulatedReply": "我会围绕登录页面继续完善，并保留现有布局。\n\n1. 检查字段间距与键盘焦点。\n2. 保持点击区域至少为 44 px。\n3. 对照检查 `src/pages/Login.tsx` 与 `src/styles/login.css`。\n\n发布评审清单位于 `docs/review.md`。",
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
-  "personalKvConflict": "个人数据冲突，已保留控制端当前值"
+  "personalKvConflict": "个人数据冲突，已保留控制端当前值",
+  "sessionAlerts": "会话提醒"
 }

@@ -1003,6 +1003,23 @@ class AppLocalizationsEs extends AppLocalizations {
   String get project => 'Proyecto';
 
   @override
+  String get projects => 'Proyectos';
+
+  @override
+  String get editProject => 'Editar proyecto';
+
+  @override
+  String get removeProject => 'Quitar proyecto';
+
+  @override
+  String get removeProjectWarning =>
+      'El proyecto se quitará de la lista, se cerrarán sus terminales abiertas y se detendrán sus comandos en segundo plano. Los archivos y el historial de chats se conservan.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Es posible que algunas terminales del proyecto ya se hayan cerrado.';
+
+  @override
   String get worktree => 'Árbol de trabajo';
 
   @override
@@ -2291,4 +2308,7 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get personalKvConflict =>
       'Conflicto de datos personales: se conservaron los valores del controlador';
+
+  @override
+  String get sessionAlerts => 'Avisos de chats';
 }

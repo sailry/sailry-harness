@@ -331,6 +331,12 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'newTerminal' => strings.newTerminal,
   'files' => strings.files,
   'project' => strings.project,
+  'projects' => strings.projects,
+  'editProject' => strings.editProject,
+  'removeProject' => strings.removeProject,
+  'removeProjectWarning' => strings.removeProjectWarning,
+  'projectRemovalMayHaveClosedTerminals' =>
+    strings.projectRemovalMayHaveClosedTerminals,
   'worktree' => strings.worktree,
   'allHosts' => strings.allHosts,
   'all' => strings.all,
@@ -739,5 +745,6 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'demoSimulatedReply' => strings.demoSimulatedReply,
   'demoTerminalWelcome' => strings.demoTerminalWelcome,
   'personalKvConflict' => strings.personalKvConflict,
+  'sessionAlerts' => strings.sessionAlerts,
   _ => null,
 };

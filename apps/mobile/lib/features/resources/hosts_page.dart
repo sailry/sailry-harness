@@ -153,7 +153,14 @@ class _HostsPageState extends State<HostsPage> {
     }
     final worktreeId = text(tree['id']);
     session.selectWorkspace(host.id, worktreeId);
-    pushPage(context, ResourcesPage(hostId: host.id, worktreeId: worktreeId));
+    pushPage(
+      context,
+      ResourcesPage(
+        hostId: host.id,
+        worktreeId: worktreeId,
+        projectId: projectId,
+      ),
+    );
   }
 
   /// Keeps the host switcher above a state so another host stays reachable.

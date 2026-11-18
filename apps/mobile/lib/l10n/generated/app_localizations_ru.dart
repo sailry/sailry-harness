@@ -1000,6 +1000,23 @@ class AppLocalizationsRu extends AppLocalizations {
   String get project => 'Проект';
 
   @override
+  String get projects => 'Проекты';
+
+  @override
+  String get editProject => 'Изменить проект';
+
+  @override
+  String get removeProject => 'Убрать проект';
+
+  @override
+  String get removeProjectWarning =>
+      'Проект будет убран из списка, открытые терминалы будут закрыты, а фоновые команды остановлены. Файлы и история чатов сохранятся.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Некоторые терминалы проекта, возможно, уже закрыты.';
+
+  @override
   String get worktree => 'Рабочее дерево';
 
   @override
@@ -2285,4 +2302,7 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get personalKvConflict =>
       'Конфликт личных данных: сохранены значения контроллера';
+
+  @override
+  String get sessionAlerts => 'Уведомления чатов';
 }

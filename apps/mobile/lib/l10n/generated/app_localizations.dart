@@ -2016,6 +2016,36 @@ abstract class AppLocalizations {
   /// **'Project'**
   String get project;
 
+  /// No description provided for @projects.
+  ///
+  /// In en, this message translates to:
+  /// **'Projects'**
+  String get projects;
+
+  /// No description provided for @editProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit project'**
+  String get editProject;
+
+  /// No description provided for @removeProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove project'**
+  String get removeProject;
+
+  /// No description provided for @removeProjectWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes the project from the list, closes its open terminals, and stops its background commands. Files and chat history are kept.'**
+  String get removeProjectWarning;
+
+  /// No description provided for @projectRemovalMayHaveClosedTerminals.
+  ///
+  /// In en, this message translates to:
+  /// **'Some project terminals may already be closed.'**
+  String get projectRemovalMayHaveClosedTerminals;
+
   /// No description provided for @worktree.
   ///
   /// In en, this message translates to:
@@ -4415,6 +4445,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Personal data conflict: controller values kept'**
   String get personalKvConflict;
+
+  /// No description provided for @sessionAlerts.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat alerts'**
+  String get sessionAlerts;
 }
 
 class _AppLocalizationsDelegate

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
+import 'package:sailry_mobile/features/resources/files_page.dart';
+import 'package:sailry_mobile/features/resources/git_page.dart';
+import 'package:sailry_mobile/features/resources/overview_cards.dart';
 import 'package:sailry_mobile/features/resources/project_form.dart';
+import 'package:sailry_mobile/features/resources/projects_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/features/resources/workspace.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
@@ -24,9 +28,10 @@ class _UpdatingHost extends HostConnection {
   }
 }
 
-HostConnection source() => HostConnection.test(
+HostConnection source({CommandHandler? command}) => HostConnection.test(
   id: 'host',
   label: 'Host',
+  command: command,
   snapshot: {
     'projects': [
       {'id': 'project', 'name': 'User project', 'path': '/fixture/repository'},
@@ -68,6 +73,49 @@ Future<void> release(WidgetTester tester, AppSession session) async {
 }
 
 void main() {
+  testWidgets('project resources can open Files and Git on a linked worktree', (
+    tester,
+  ) async {
+    final host = source(
+      command: (kind, data) async => {
+        'data': {
+          if (kind == 'inspect_git') ...{
+            'kind': 'repository',
+            'branch': 'branch-${data!['worktree']}',
+          },
+        },
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(screen(session, const ProjectsPage()));
+    await tester.tap(find.text('User project'));
+    await tester.pumpAndSettle();
+    expect(session.selectedWorktreeId, 'main');
+    await tester.tap(find.byType(ProjectBar));
+    await tester.pumpAndSettle();
+    expect(find.text(scratchName), findsNothing);
+    await tester.tap(find.text('feature'));
+    await tester.pumpAndSettle();
+    expect(session.selectedWorktreeId, 'main');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(GitOverviewCard),
+        matching: find.text('branch-linked'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<GitPage>(find.byType(GitPage)).worktreeId, 'linked');
+    Navigator.of(tester.element(find.byType(GitPage))).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Files'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<FilesPage>(find.byType(FilesPage)).worktreeId,
+      'linked',
+    );
+    await release(tester, session);
+  });
+
   testWidgets(
     'general resources follow the selected project while session targets stay explicit',
     (tester) async {

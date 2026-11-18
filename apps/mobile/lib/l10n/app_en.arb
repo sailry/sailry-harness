@@ -379,6 +379,11 @@
   "newTerminal": "New terminal",
   "files": "Files",
   "project": "Project",
+  "projects": "Projects",
+  "editProject": "Edit project",
+  "removeProject": "Remove project",
+  "removeProjectWarning": "Removes the project from the list, closes its open terminals, and stops its background commands. Files and chat history are kept.",
+  "projectRemovalMayHaveClosedTerminals": "Some project terminals may already be closed.",
   "worktree": "Worktree",
   "allHosts": "All hosts",
   "all": "All",
@@ -1026,5 +1031,6 @@
   "demoNotesPrompt": "Create a short release review checklist for the sign-in page.",
   "demoSimulatedReply": "I'll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.",
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
-  "personalKvConflict": "Personal data conflict: controller values kept"
+  "personalKvConflict": "Personal data conflict: controller values kept",
+  "sessionAlerts": "Chat alerts"
 }

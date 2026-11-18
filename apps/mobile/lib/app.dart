@@ -5,7 +5,7 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'features/conversations/tasks_page.dart';
 import 'features/notifications/delivery.dart';
 import 'features/resources/hosts_page.dart';
-import 'features/resources/resources_page.dart';
+import 'features/resources/projects_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/updates/presentation.dart';
 import 'features/updates/service.dart';
@@ -205,7 +205,7 @@ class _ShellState extends State<_Shell> {
                               _index = 0;
                             }),
                           ),
-                          const ResourcesPage(),
+                          const ProjectsPage(),
                           SettingsPage(
                             updates: widget.updates,
                             language: widget.language,

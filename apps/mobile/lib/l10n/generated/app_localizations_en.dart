@@ -996,6 +996,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get project => 'Project';
 
   @override
+  String get projects => 'Projects';
+
+  @override
+  String get editProject => 'Edit project';
+
+  @override
+  String get removeProject => 'Remove project';
+
+  @override
+  String get removeProjectWarning =>
+      'Removes the project from the list, closes its open terminals, and stops its background commands. Files and chat history are kept.';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals =>
+      'Some project terminals may already be closed.';
+
+  @override
   String get worktree => 'Worktree';
 
   @override
@@ -2272,4 +2289,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get personalKvConflict =>
       'Personal data conflict: controller values kept';
+
+  @override
+  String get sessionAlerts => 'Chat alerts';
 }

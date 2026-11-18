@@ -23,6 +23,7 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
   bool _closed = false;
   bool _hasHosts = false;
   bool _permissionRequested = false;
+  Future<void>? _permissionRequest;
   Future<void> _pending = Future.value();
   Translator _translate = tr;
   bool _notificationDirty = false;
@@ -100,6 +101,21 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Both the host service and session alerts use the app's one permission.
+  Future<void> requestNotificationPermission() {
+    if (!supported || _closed) return Future.value();
+    return _permissionRequest ??= () async {
+      try {
+        if (await FlutterForegroundTask.checkNotificationPermission() !=
+            NotificationPermission.granted) {
+          await FlutterForegroundTask.requestNotificationPermission();
+        }
+      } finally {
+        _permissionRequest = null;
+      }
+    }();
+  }
+
   Future<void> _sync() {
     // Serialize starts/stops and recheck the latest intent after each await.
     return _pending = _pending.then((_) async {
@@ -110,10 +126,7 @@ class BackgroundConnection extends ChangeNotifier with WidgetsBindingObserver {
         if (wanted && !active && _foreground) {
           if (!_permissionRequested) {
             _permissionRequested = true;
-            if (await FlutterForegroundTask.checkNotificationPermission() !=
-                NotificationPermission.granted) {
-              await FlutterForegroundTask.requestNotificationPermission();
-            }
+            await requestNotificationPermission();
           }
           if (_closed || !enabled || !_hasHosts || !_foreground) return;
           // No callback or new controller: keep the current process and Go

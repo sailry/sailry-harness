@@ -372,6 +372,11 @@
   "newTerminal": "새 터미널",
   "files": "파일",
   "project": "프로젝트",
+  "projects": "프로젝트",
+  "editProject": "프로젝트 편집",
+  "removeProject": "프로젝트 제거",
+  "removeProjectWarning": "프로젝트를 목록에서 제거하고 열린 터미널을 닫으며 백그라운드 명령을 중지합니다. 파일과 채팅 기록은 유지됩니다.",
+  "projectRemovalMayHaveClosedTerminals": "프로젝트의 일부 터미널이 이미 닫혔을 수 있습니다.",
   "worktree": "작업 트리",
   "allHosts": "모든 호스트",
   "all": "모두",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "직접 페어링",
   "hostOriginSource": "{name} 경유",
-  "personalKvConflict": "개인 데이터 충돌: 컨트롤러의 값을 유지했습니다"
+  "personalKvConflict": "개인 데이터 충돌: 컨트롤러의 값을 유지했습니다",
+  "sessionAlerts": "채팅 알림"
 }

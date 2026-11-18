@@ -519,7 +519,7 @@ class FloatingNavigation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const icons = ['chat', 'server', 'folder', 'settings'];
-    const labels = ['chat', 'hosts', 'resources', 'settings'];
+    const labels = ['chat', 'hosts', 'projects', 'settings'];
     final colors = Theme.of(context).colorScheme;
     return SafeArea(
       top: false,

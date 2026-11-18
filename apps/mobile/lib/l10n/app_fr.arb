@@ -372,6 +372,11 @@
   "newTerminal": "Nouveau terminal",
   "files": "Fichiers",
   "project": "Projet",
+  "projects": "Projets",
+  "editProject": "Modifier le projet",
+  "removeProject": "Retirer le projet",
+  "removeProjectWarning": "Le projet sera retiré de la liste. Ses terminaux ouverts seront fermés et ses commandes en arrière-plan arrêtées. Les fichiers et l’historique des discussions seront conservés.",
+  "projectRemovalMayHaveClosedTerminals": "Certains terminaux du projet ont peut-être déjà été fermés.",
   "worktree": "Arbre de travail",
   "allHosts": "Tous les hôtes",
   "all": "Tout",
@@ -875,5 +880,6 @@
   "demoTerminalWelcome": "Last login: Sun Nov 15 09:00:00 on ttys001",
   "hostOriginDirect": "Appairage direct",
   "hostOriginSource": "Via {name}",
-  "personalKvConflict": "Conflit de données personnelles : valeurs du contrôleur conservées"
+  "personalKvConflict": "Conflit de données personnelles : valeurs du contrôleur conservées",
+  "sessionAlerts": "Alertes de discussion"
 }

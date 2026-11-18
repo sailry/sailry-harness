@@ -976,6 +976,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get project => '项目';
 
   @override
+  String get projects => '项目';
+
+  @override
+  String get editProject => '编辑项目';
+
+  @override
+  String get removeProject => '移除项目';
+
+  @override
+  String get removeProjectWarning => '将项目从列表移除，并关闭其打开的终端、停止后台命令。磁盘文件和会话记录会保留。';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals => '项目的部分终端可能已经关闭。';
+
+  @override
   String get worktree => '工作树';
 
   @override
@@ -2245,6 +2260,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get personalKvConflict => '个人数据冲突，已保留控制端当前值';
+
+  @override
+  String get sessionAlerts => '会话提醒';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3217,6 +3235,21 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get project => '專案';
+
+  @override
+  String get projects => '專案';
+
+  @override
+  String get editProject => '編輯專案';
+
+  @override
+  String get removeProject => '移除專案';
+
+  @override
+  String get removeProjectWarning => '將專案從清單移除，並關閉其開啟的終端機、停止背景命令。磁碟檔案與對話紀錄會保留。';
+
+  @override
+  String get projectRemovalMayHaveClosedTerminals => '專案的部分終端機可能已經關閉。';
 
   @override
   String get worktree => '工作樹';
@@ -4488,4 +4521,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get personalKvConflict => '個人資料衝突，已保留控制端目前的值';
+
+  @override
+  String get sessionAlerts => '對話提醒';
 }

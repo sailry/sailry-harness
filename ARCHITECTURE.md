@@ -786,6 +786,9 @@ another host changes both together. Open conversation, file and terminal routes
 retain their captured owner. General resource pickers list registered project
 worktrees; explicit conversation routes retain access to their own scratch
 directories. A missing workspace does not hide the project selection entry.
+An open project resources page can switch between its worktrees without changing
+the top-level selection. Project forms retain unresolved writes on the original
+host connection and inspect the captured request when reopened.
 An unfinished send retains its request on the connection's conversation draft
 while a page is closed. Reopening queries the original Node outcome.
 Mobile preserves the covered task catalog during navigation, resumes preview
@@ -795,6 +798,8 @@ status. Mobile projects the full host session list through the synchronous Dart
 FFI bridge and caches the lanes for that snapshot before filtering out delegated
 sessions or applying project and status filters. The local demo supplies fixture
 lanes with its simulated sessions.
+Android system alerts reconcile posted notices against the Client inbox for
+their original entry and target, including after the app restarts.
 Mobile registers saved direct hosts from local pairing metadata before completing
 startup, then refreshes remote directories in the background. Directory reads
 run outside the pairing-change queue, and reads spanning a pairing change cannot
