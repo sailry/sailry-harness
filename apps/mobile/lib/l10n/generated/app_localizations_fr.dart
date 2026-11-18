@@ -2277,34 +2277,34 @@ class AppLocalizationsFr extends AppLocalizations {
   String get demoUnavailable => 'Action indisponible.';
 
   @override
-  String get demoConversationTitle => 'Improve the sign-in form';
+  String get demoConversationTitle => 'Améliorer le formulaire de connexion';
 
   @override
-  String get demoNotesTitle => 'Prepare the release review';
+  String get demoNotesTitle => 'Préparer la revue de version';
 
   @override
   String get demoUserMessage =>
-      'Improve the sign-in form spacing and keyboard focus. Keep the existing layout.';
+      'Améliore l’espacement et le focus clavier du formulaire de connexion. Conserve la mise en page actuelle.';
 
   @override
   String get demoReply =>
-      'Updated the sign-in form spacing and touch targets.\n\n- Set the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Preserved the field order and keyboard navigation.\n\n```css\nmin-height: 44px;\n```\n\nThe changes are in `src/pages/Login.tsx` and `src/styles/login.css`.';
+      'L’espacement et les zones tactiles du formulaire de connexion ont été ajustés.\n\n- Espacement du formulaire fixé à 20 px.\n- Hauteur minimale du bouton fixée à 44 px.\n- Ordre des champs et navigation au clavier conservés.\n\n```css\nmin-height: 44px;\n```\n\nLes modifications se trouvent dans `src/pages/Login.tsx` et `src/styles/login.css`.';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\nA responsive sign-in page with accessible inputs and clear keyboard navigation.\n\n## Project structure\n\n- `src/pages/Login.tsx` — sign-in form.\n- `src/styles/login.css` — layout and interaction styles.\n- `docs/review.md` — release checklist.\n\n## Interface guidelines\n\nKeep 20 px between fields and use touch targets of at least 44 px. Preserve the field order and visible focus styles.\n';
+      '# Lumen Web\n\nUne page de connexion adaptative avec des champs accessibles et une navigation au clavier claire.\n\n## Structure du projet\n\n- `src/pages/Login.tsx` — formulaire de connexion.\n- `src/styles/login.css` — styles de mise en page et d’interaction.\n- `docs/review.md` — liste de contrôle de version.\n\n## Règles d’interface\n\nGarder 20 px entre les champs et des zones tactiles d’au moins 44 px. Conserver l’ordre des champs et des styles de focus visibles.\n';
 
   @override
   String get demoReviewNotes =>
-      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n';
+      '# Revue de version\n\n| Domaine | Vérification |\n| --- | --- |\n| Champs | Vérifier les libellés et les messages des champs obligatoires |\n| Clavier | Vérifier l’ordre de tabulation et le focus visible |\n| Zones tactiles | Garder le bouton de connexion d’au moins 44 px de haut |\n| Mise en page | Vérifier les écrans étroits et larges |\n| Modifications | Revoir la page de connexion et ses styles avant la publication |\n';
 
   @override
   String get demoNotesPrompt =>
-      'Create a short release review checklist for the sign-in page.';
+      'Crée une courte liste de contrôle de revue de version pour la page de connexion.';
 
   @override
   String get demoSimulatedReply =>
-      'I\'ll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.';
+      'Je vais me concentrer sur la page de connexion en conservant sa mise en page.\n\n1. Vérifier l’espacement des champs et le focus clavier.\n2. Garder des zones tactiles d’au moins 44 px de haut.\n3. Vérifier `src/pages/Login.tsx` et `src/styles/login.css` ensemble.\n\nLa liste de contrôle se trouve dans `docs/review.md`.';
 
   @override
   String get demoTerminalWelcome =>

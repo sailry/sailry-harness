@@ -87,16 +87,19 @@ void main() {
       },
     );
     final session = AppSession.test(hosts: [host]);
+    session.selectProject(host.id, unassignedProject);
     await tester.pumpWidget(screen(session, const ProjectsPage()));
     await tester.tap(find.text('User project'));
     await tester.pumpAndSettle();
-    expect(session.selectedWorktreeId, 'main');
+    expect(session.selectedProjectId, unassignedProject);
+    expect(session.selectedWorktreeId, isNull);
     await tester.tap(find.byType(ProjectBar));
     await tester.pumpAndSettle();
     expect(find.text(scratchName), findsNothing);
     await tester.tap(find.text('feature'));
     await tester.pumpAndSettle();
-    expect(session.selectedWorktreeId, 'main');
+    expect(session.selectedProjectId, unassignedProject);
+    expect(session.selectedWorktreeId, isNull);
     await tester.tap(
       find.descendant(
         of: find.byType(GitOverviewCard),

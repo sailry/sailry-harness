@@ -29,7 +29,7 @@ class NotificationDelivery extends StatefulWidget {
 }
 
 class _NotificationDeliveryState extends State<NotificationDelivery> {
-  Set<String>? _shown;
+  final _freshness = NoticeFreshness();
   Object? _owner;
   bool _reading = false;
   bool _pending = false;
@@ -116,44 +116,39 @@ class _NotificationDeliveryState extends State<NotificationDelivery> {
     if (owner == null) return;
     if (_owner != owner) {
       _owner = owner;
-      _shown = null;
+      _freshness.clear();
     }
     _reading = true;
     try {
       do {
         _pending = false;
+        final hosts = widget.session.hosts;
         final refreshedRoutes = {
-          for (final host in widget.session.hosts)
+          for (final host in hosts)
             if (host.connected && host.snapshot['node'] != null) host.id,
         };
         final inbox = object(jsonDecode(await owner.notifications()));
         if (!mounted || widget.session.controller != owner) return;
         final notices = objects(inbox['notices']);
-        final previous = _shown;
-        // Keep only presentation identities in the bounded Client snapshot. Turning
-        // alerts off or going to the background never discards inbox history.
-        _shown = notices.map((notice) => jsonEncode(notice['id'])).toSet();
+        final fresh = _freshness.observe(notices, refreshedRoutes, {
+          for (final host in hosts) host.id,
+        });
         final foreground = WidgetsBinding.instance.lifecycleState;
         final front =
             foreground == null || foreground == AppLifecycleState.resumed;
         // In the background the app posts system notifications instead.
         await _system.sync(
           notices,
-          post: previous != null && widget.enabled && !front,
-          known: previous ?? const {},
+          fresh: widget.enabled && !front ? fresh : const {},
           refreshedRoutes: refreshedRoutes,
           translate: context.tr,
         );
         if (!mounted || widget.session.controller != owner) return;
-        if (previous != null &&
-            widget.enabled &&
-            (foreground == null || foreground == AppLifecycleState.resumed)) {
+        if (widget.enabled && front) {
           for (final notice in notices.reversed.where(
             (notice) =>
-                notice['read'] != true &&
-                notice['kind'] == 'Completed' &&
-                object(object(notice['id'])['target']).containsKey('Session') &&
-                !previous.contains(jsonEncode(notice['id'])),
+                completedSessionNotice(notice) &&
+                fresh.contains(jsonEncode(notice['id'])),
           )) {
             showToast(
               context,

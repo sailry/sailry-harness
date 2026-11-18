@@ -134,11 +134,11 @@ class PageFrame extends StatelessWidget {
     this.bottom,
     this.empty,
     this.failure,
-    this.titleSize = 22,
     this.backEnabled = true,
     this.subtitle,
     this.titleAccessory,
     this.onRefresh,
+    this.pinned,
   });
   final String title;
   final List<Widget> actions;
@@ -149,13 +149,16 @@ class PageFrame extends StatelessWidget {
   final Widget? bottom;
   final Widget? empty;
   final Widget? failure;
-  final double titleSize;
   final bool backEnabled;
   final Widget? subtitle;
   final Widget? titleAccessory;
 
   /// Enables pull-to-refresh on the page's own scroll view.
   final Future<void> Function()? onRefresh;
+
+  /// Controls held under the heading while the content scrolls beneath
+  /// them, such as a list's scope and filters. A failure hides them.
+  final Widget? pinned;
   @override
   Widget build(BuildContext context) {
     final physics = onRefresh == null
@@ -172,19 +175,29 @@ class PageFrame extends StatelessWidget {
           );
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(20, 19, 20, _headerFade),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: PageHeading(
-              title: title,
-              size: titleSize,
-              enabled: backEnabled,
-              subtitle: subtitle,
-              accessory: titleAccessory,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: PageHeading(
+                  title: title,
+                  size: 22,
+                  enabled: backEnabled,
+                  subtitle: subtitle,
+                  accessory: titleAccessory,
+                ),
+              ),
+              if (actions.isNotEmpty) const SizedBox(width: 8),
+              ...actions.expand((item) => [const SizedBox(width: 4), item]),
+            ],
           ),
-          if (actions.isNotEmpty) const SizedBox(width: 8),
-          ...actions.expand((item) => [const SizedBox(width: 4), item]),
+          if (pinned != null && failure == null) ...[
+            const SizedBox(height: 12),
+            pinned!,
+          ],
         ],
       ),
     );

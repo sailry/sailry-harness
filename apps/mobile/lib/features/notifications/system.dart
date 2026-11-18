@@ -56,7 +56,7 @@ class SystemAlerts {
         final tag = alert.tag;
         if (id == null || tag == null || !tag.startsWith(_tagPrefix)) continue;
         final key = tag.substring(_tagPrefix.length);
-        final route = _noticeRoute(object(jsonDecode(key)));
+        final route = noticeRoute(object(jsonDecode(key)));
         if (route == null) continue;
         _posted[key] = (id: id, route: route);
         if (id >= _nextId) _nextId = id + 1;
@@ -91,40 +91,11 @@ class SystemAlerts {
     } catch (_) {}
   }
 
-  static String? _noticeRoute(Map<String, dynamic> id) {
-    String? decode(Object? value) {
-      if (value is! List ||
-          value.length != 32 ||
-          value.any((byte) => byte is! int || byte < 0 || byte > 255)) {
-        return null;
-      }
-      return value
-          .cast<int>()
-          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-          .join();
-    }
-
-    final node = decode(id['node']);
-    final entry = id['entry'] == null ? node : decode(id['entry']);
-    if (node == null || entry == null) return null;
-    return node == entry ? node : '$entry/$node';
-  }
-
-  /// The session a notice concerns, if it names one.
-  static String? sessionOf(Map<String, dynamic> notice) {
-    final session = notice['session'];
-    if (session is String && session.isNotEmpty) return session;
-    final target = object(object(notice['id'])['target'])['Session'];
-    return target is String && target.isNotEmpty ? target : null;
-  }
-
   /// Posts [notices] not yet shown and withdraws those no longer unread.
-  /// [post] is false while the app is in front, where toasts and the lists
-  /// already show them; withdrawal still applies.
+  /// In the foreground [fresh] is empty and withdrawal still applies.
   Future<void> sync(
     List<Map<String, dynamic>> notices, {
-    required bool post,
-    required Set<String> known,
+    required Set<String> fresh,
     required Set<String> refreshedRoutes,
     required Translator translate,
   }) async {
@@ -136,7 +107,7 @@ class SystemAlerts {
       for (final MapEntry(key: key, value: notice) in current.entries)
         if (notice['read'] != true &&
             kinds.contains(notice['kind']) &&
-            sessionOf(notice) != null)
+            noticeSession(notice) != null)
           key: notice,
     };
     for (final MapEntry(key: key, value: alert) in _posted.entries.toList()) {
@@ -147,11 +118,9 @@ class SystemAlerts {
         _posted.remove(key);
       }
     }
-    if (!post) return;
     for (final MapEntry(key: key, value: notice) in unread.entries) {
-      // Only notices that arrived after the inbox was first read are new.
-      if (_posted.containsKey(key) || known.contains(key)) continue;
-      final route = _noticeRoute(object(notice['id']));
+      if (!fresh.contains(key) || _posted.containsKey(key)) continue;
+      final route = noticeRoute(object(notice['id']));
       if (route == null) continue;
       final id = _nextId++;
       await _plugin.show(
@@ -173,7 +142,7 @@ class SystemAlerts {
             autoCancel: true,
           ),
         ),
-        payload: jsonEncode({'host': route, 'session': sessionOf(notice)}),
+        payload: jsonEncode({'host': route, 'session': noticeSession(notice)}),
       );
       _posted[key] = (id: id, route: route);
     }

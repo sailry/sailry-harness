@@ -515,38 +515,68 @@ void main() {
     await release(tester, session);
   });
 
-  testWidgets('projects follow the host and select their owning workspace', (
+  testWidgets(
+    'projects follow the host and open their workspace without filtering chats',
+    (tester) async {
+      final first = source('first', connected: false);
+      final second = source('second');
+      final session = AppSession.test(hosts: [first, second]);
+      await tester.pumpWidget(screen(session, ProjectsPage(host: first)));
+      await tester.pump();
+      expect(find.text('first-project'), findsOneWidget);
+      expect(find.text('second-project'), findsNothing);
+      final offline = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('first-project'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      expect(offline.enabled, isFalse);
+      expect(offline.onTap, isNull);
+      expect(find.text('Offline'), findsOneWidget);
+      expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
+      session.selectHost(second.id);
+      await tester.pump();
+      expect(find.text('first-project'), findsNothing);
+      expect(find.text('second-project'), findsOneWidget);
+      await tester.tap(find.text('second-project'));
+      await tester.pumpAndSettle();
+      final resource = tester.widget<ResourcesPage>(find.byType(ResourcesPage));
+      expect(resource.hostId, second.id);
+      expect(resource.worktreeId, 'second-tree');
+      expect(resource.projectId, 'shared-id');
+      expect(session.selectedHost, same(second));
+      expect(session.selectedProjectId, isNull);
+      expect(session.selectedWorktreeId, isNull);
+      await release(tester, session);
+    },
+  );
+
+  testWidgets('task search can scroll with a compact keyboard viewport', (
     tester,
   ) async {
-    final first = source('first', connected: false);
-    final second = source('second');
-    final session = AppSession.test(hosts: [first, second]);
-    await tester.pumpWidget(screen(session, ProjectsPage(host: first)));
-    await tester.pump();
-    expect(find.text('first-project'), findsOneWidget);
-    expect(find.text('second-project'), findsNothing);
-    final offline = tester.widget<ListTile>(
-      find.ancestor(
-        of: find.text('first-project'),
-        matching: find.byType(ListTile),
-      ),
-    );
-    expect(offline.enabled, isFalse);
-    expect(offline.onTap, isNull);
-    expect(find.text('Offline'), findsOneWidget);
-    expect(tester.widget<PageFrame>(find.byType(PageFrame)).failure, isNull);
-    session.selectHost(second.id);
-    await tester.pump();
-    expect(find.text('first-project'), findsNothing);
-    expect(find.text('second-project'), findsOneWidget);
-    await tester.tap(find.text('second-project'));
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(640, 360);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetViewInsets);
+    final session = AppSession.test(hosts: [source('first')]);
+    await tester.pumpWidget(screen(session, LiveTasksPage(session: session)));
     await tester.pumpAndSettle();
-    final resource = tester.widget<ResourcesPage>(find.byType(ResourcesPage));
-    expect(resource.hostId, second.id);
-    expect(resource.worktreeId, 'second-tree');
-    expect(session.selectedHost, same(second));
-    expect(session.selectedProjectId, 'shared-id');
-    expect(session.selectedWorktreeId, 'second-tree');
+    final row = find.text('first-conversation');
+    await tester.tap(find.byTooltip(tester.element(row).tr('searchTasks')));
+    await tester.pumpAndSettle();
+    tester.view.viewInsets = const FakeViewPadding(bottom: 232);
+    await tester.pumpAndSettle();
+
+    final top = tester.getTopLeft(row).dy;
+    await tester.dragFrom(const Offset(320, 109), const Offset(0, -75));
+    await tester.pumpAndSettle();
+    expect(
+      row.hitTestable().evaluate().isNotEmpty ||
+          tester.getTopLeft(row).dy < top,
+      isTrue,
+    );
     await release(tester, session);
   });
 }

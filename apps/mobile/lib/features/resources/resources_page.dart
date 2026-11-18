@@ -4,6 +4,7 @@ import '../../l10n/strings.dart';
 import '../../runtime/session.dart';
 import '../../runtime/json.dart';
 import '../../ui/kit.dart';
+import '../../ui/toast.dart';
 import '../conversations/live/project_bar.dart';
 import '../conversations/live/terminal_tasks.dart';
 import '../terminal/terminal_page.dart';
@@ -15,6 +16,30 @@ import 'overview_cards.dart';
 import 'ports_page.dart';
 import 'project_form.dart';
 import 'workspace.dart';
+
+/// Opens a project's resources without changing the chat list's filter.
+void openProjectResources(
+  BuildContext context,
+  HostConnection host,
+  String project,
+) {
+  final trees = projectWorktrees(host, project: project);
+  final tree =
+      trees.where((tree) => tree['main'] == true).firstOrNull ??
+      trees.firstOrNull;
+  if (tree == null) {
+    showToast(context, context.tr('resourceNoWorkspace'));
+    return;
+  }
+  pushPage(
+    context,
+    ResourcesPage(
+      hostId: host.id,
+      worktreeId: text(tree['id']),
+      projectId: project,
+    ),
+  );
+}
 
 class ResourcesPage extends StatefulWidget {
   const ResourcesPage({

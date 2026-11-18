@@ -11,7 +11,6 @@ import '../../ui/swipe_action.dart';
 import 'host/host_sheet.dart';
 import 'project_form.dart';
 import 'resources_page.dart';
-import 'workspace.dart';
 
 /// The selected host's projects: a row opens resources and a left swipe edits
 /// or removes the project. An embedded view can supply its own host.
@@ -60,32 +59,6 @@ class ProjectsPage extends StatelessWidget {
     context.tr('removeProject'),
     child: ProjectForm.remove(host: source, project: project),
   );
-
-  void _open(
-    BuildContext context,
-    AppSession? session,
-    HostConnection source,
-    Map<String, dynamic> project,
-  ) {
-    final projectId = text(project['id']);
-    final trees = projectWorktrees(source, project: projectId);
-    final tree =
-        trees.where((tree) => tree['main'] == true).firstOrNull ??
-        trees.firstOrNull;
-    if (tree == null) {
-      session?.selectProject(source.id, projectId);
-      return;
-    }
-    session?.selectWorkspace(source.id, text(tree['id']));
-    pushPage(
-      context,
-      ResourcesPage(
-        hostId: source.id,
-        worktreeId: text(tree['id']),
-        projectId: projectId,
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,7 +145,11 @@ class ProjectsPage extends StatelessWidget {
                       enabled: source.connected,
                       onTap: !source.connected
                           ? null
-                          : () => _open(context, session, source, project),
+                          : () => openProjectResources(
+                              context,
+                              source,
+                              text(project['id']),
+                            ),
                     ),
                   ),
               ],

@@ -284,9 +284,110 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         sessions.isNotEmpty ||
         allTerminals.isNotEmpty;
     final connected = hosts.any((host) => host.connected);
+    // Search uses the list's scroll view so its focused field stays mounted.
+    final controls = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_searching) ...[
+          TextField(
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: context.tr('searchTasks'),
+              prefixIcon: const Padding(
+                padding: EdgeInsets.all(12),
+                child: AppIcon('search'),
+              ),
+            ),
+            onChanged: (value) => setState(() => _search = value),
+          ),
+          const SizedBox(height: 16),
+        ],
+        ProjectBar(
+          project: selectedProject,
+          title: projectId == unassignedProject
+              ? context.tr('unassignedChats')
+              : null,
+          leading: projectId == unassignedProject
+              ? const AppIcon('chat', size: 15)
+              : null,
+          onTap: () => showAppSheet(
+            context,
+            context.tr('filterProjects'),
+            actions: [
+              if (creationHost?.connected == true)
+                ListTile(
+                  leading: const AppIcon('plus'),
+                  title: Text(context.tr('hostRegisterProject')),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showAppSheet(
+                      context,
+                      context.tr('hostRegisterProject'),
+                      child: ProjectForm(host: creationHost!),
+                    );
+                  },
+                ),
+            ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const AppIcon('folder'),
+                  title: Text(context.tr('allProjects')),
+                  onTap: selected == null
+                      ? null
+                      : () {
+                          widget.session.selectProject(selected.id, null);
+                          Navigator.pop(context);
+                        },
+                ),
+                ListTile(
+                  leading: const AppIcon('chat'),
+                  title: Text(context.tr('unassignedChats')),
+                  onTap: selected == null
+                      ? null
+                      : () {
+                          widget.session.selectProject(
+                            selected.id,
+                            unassignedProject,
+                          );
+                          Navigator.pop(context);
+                        },
+                ),
+                for (final (host, project) in projects)
+                  ListTile(
+                    leading: ProjectIcon(project: project),
+                    title: Text(project['name'] as String),
+                    onTap: () {
+                      widget.session.selectProject(
+                        host.id,
+                        project['id'] as String,
+                      );
+                      Navigator.pop(context);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (taskFilters.contains(_filter))
+          TaskFilters(
+            selected: _filter,
+            onSelected: (filter) => setState(() => _filter = filter),
+            onArchive: () => setState(() => _filter = 'archived'),
+          )
+        else
+          TaskScope(
+            label: context.tr(
+              _filter == 'archived' ? 'archiveTab' : 'terminal',
+            ),
+            onClose: () => setState(() => _filter = 'all'),
+          ),
+      ],
+    );
     return PageFrame(
       title: context.tr('brand'),
-      titleSize: 28,
       onRefresh: hosts.isEmpty ? null : _refresh,
       failure: !connected && !hasCatalog
           ? HostState(
@@ -360,107 +461,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               ),
             )
           : null,
+      pinned: _searching ? null : controls,
       child: SlidableAutoCloseBehavior(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_searching) ...[
-              TextField(
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: context.tr('searchTasks'),
-                  prefixIcon: const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: AppIcon('search'),
-                  ),
-                ),
-                onChanged: (value) => setState(() => _search = value),
-              ),
-              const SizedBox(height: 16),
-            ],
-            ProjectBar(
-              project: selectedProject,
-              title: projectId == unassignedProject
-                  ? context.tr('unassignedChats')
-                  : null,
-              leading: projectId == unassignedProject
-                  ? const AppIcon('chat', size: 15)
-                  : null,
-              onTap: () => showAppSheet(
-                context,
-                context.tr('filterProjects'),
-                actions: [
-                  if (creationHost?.connected == true)
-                    ListTile(
-                      leading: const AppIcon('plus'),
-                      title: Text(context.tr('hostRegisterProject')),
-                      onTap: () {
-                        Navigator.pop(context);
-                        showAppSheet(
-                          context,
-                          context.tr('hostRegisterProject'),
-                          child: ProjectForm(host: creationHost!),
-                        );
-                      },
-                    ),
-                ],
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ListTile(
-                      leading: const AppIcon('folder'),
-                      title: Text(context.tr('allProjects')),
-                      onTap: selected == null
-                          ? null
-                          : () {
-                              widget.session.selectProject(selected.id, null);
-                              Navigator.pop(context);
-                            },
-                    ),
-                    ListTile(
-                      leading: const AppIcon('chat'),
-                      title: Text(context.tr('unassignedChats')),
-                      onTap: selected == null
-                          ? null
-                          : () {
-                              widget.session.selectProject(
-                                selected.id,
-                                unassignedProject,
-                              );
-                              Navigator.pop(context);
-                            },
-                    ),
-                    for (final (host, project) in projects)
-                      ListTile(
-                        leading: ProjectIcon(project: project),
-                        title: Text(project['name'] as String),
-                        onTap: () {
-                          widget.session.selectProject(
-                            host.id,
-                            project['id'] as String,
-                          );
-                          Navigator.pop(context);
-                        },
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (taskFilters.contains(_filter))
-              TaskFilters(
-                selected: _filter,
-                onSelected: (filter) => setState(() => _filter = filter),
-                onArchive: () => setState(() => _filter = 'archived'),
-              )
-            else
-              TaskScope(
-                label: context.tr(
-                  _filter == 'archived' ? 'archiveTab' : 'terminal',
-                ),
-                onClose: () => setState(() => _filter = 'all'),
-              ),
-            const SizedBox(height: 8),
+            if (_searching) ...[controls, const SizedBox(height: 8)],
             for (final (group, items) in groups) ...[
               _GroupTitle(context.tr(group.key)),
               for (final (index, (host, session)) in items.indexed)

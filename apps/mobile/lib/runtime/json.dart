@@ -12,4 +12,16 @@ String text(Object? value, [String fallback = '']) =>
 num number(Object? value, [num fallback = 0]) =>
     value is num ? value : fallback;
 
+String? nodeIdHex(Object? value) {
+  if (value is! List ||
+      value.length != 32 ||
+      value.any((byte) => byte is! int || byte < 0 || byte > 255)) {
+    return null;
+  }
+  return value
+      .cast<int>()
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
+
 String newId() => const Uuid().v4();

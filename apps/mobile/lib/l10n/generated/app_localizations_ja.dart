@@ -949,7 +949,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tasks => 'タスク';
 
   @override
-  String get chat => 'Chat';
+  String get chat => 'チャット';
 
   @override
   String get hosts => 'ホスト';
@@ -1402,7 +1402,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get tokens => 'Tokens';
 
   @override
-  String get requests => 'Responses';
+  String get requests => 'レスポンス';
 
   @override
   String usageCoverage(String priced, String total) {
@@ -2232,34 +2232,33 @@ class AppLocalizationsJa extends AppLocalizations {
   String get demoUnavailable => 'この操作は利用できません。';
 
   @override
-  String get demoConversationTitle => 'Improve the sign-in form';
+  String get demoConversationTitle => 'サインインフォームを改善';
 
   @override
-  String get demoNotesTitle => 'Prepare the release review';
+  String get demoNotesTitle => 'リリースレビューを準備';
 
   @override
   String get demoUserMessage =>
-      'Improve the sign-in form spacing and keyboard focus. Keep the existing layout.';
+      'サインインフォームの余白とキーボードフォーカスを改善してください。既存のレイアウトは維持してください。';
 
   @override
   String get demoReply =>
-      'Updated the sign-in form spacing and touch targets.\n\n- Set the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Preserved the field order and keyboard navigation.\n\n```css\nmin-height: 44px;\n```\n\nThe changes are in `src/pages/Login.tsx` and `src/styles/login.css`.';
+      'サインインフォームの余白とタップ領域を調整しました。\n\n- フォームの間隔を 20 px に設定。\n- ボタンの最小高さを 44 px に設定。\n- フィールドの順序とキーボード操作を維持。\n\n```css\nmin-height: 44px;\n```\n\n変更は `src/pages/Login.tsx` と `src/styles/login.css` にあります。';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\nA responsive sign-in page with accessible inputs and clear keyboard navigation.\n\n## Project structure\n\n- `src/pages/Login.tsx` — sign-in form.\n- `src/styles/login.css` — layout and interaction styles.\n- `docs/review.md` — release checklist.\n\n## Interface guidelines\n\nKeep 20 px between fields and use touch targets of at least 44 px. Preserve the field order and visible focus styles.\n';
+      '# Lumen Web\n\nアクセシブルな入力欄と分かりやすいキーボード操作を備えた、レスポンシブなサインインページです。\n\n## プロジェクト構成\n\n- `src/pages/Login.tsx` — サインインフォーム。\n- `src/styles/login.css` — レイアウトと操作のスタイル。\n- `docs/review.md` — リリースチェックリスト。\n\n## インターフェースのガイドライン\n\nフィールド間は 20 px 空け、タップ領域は 44 px 以上にします。フィールドの順序と、見えるフォーカススタイルを維持します。\n';
 
   @override
   String get demoReviewNotes =>
-      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n';
+      '# リリースレビュー\n\n| 項目 | 確認内容 |\n| --- | --- |\n| フィールド | ラベルと必須項目のメッセージを確認 |\n| キーボード | タブ順と見えるフォーカスを確認 |\n| タップ領域 | サインインボタンの高さを 44 px 以上に保つ |\n| レイアウト | 狭い画面と広い画面を確認 |\n| 変更 | リリース前にサインインページとスタイルを確認 |\n';
 
   @override
-  String get demoNotesPrompt =>
-      'Create a short release review checklist for the sign-in page.';
+  String get demoNotesPrompt => 'サインインページ用の短いリリースレビューチェックリストを作成してください。';
 
   @override
   String get demoSimulatedReply =>
-      'I\'ll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.';
+      'レイアウトを維持したまま、サインインページに集中します。\n\n1. フィールドの余白とキーボードフォーカスを確認します。\n2. タップ領域の高さを 44 px 以上に保ちます。\n3. `src/pages/Login.tsx` と `src/styles/login.css` をあわせて確認します。\n\nリリースチェックリストは `docs/review.md` にあります。';
 
   @override
   String get demoTerminalWelcome =>

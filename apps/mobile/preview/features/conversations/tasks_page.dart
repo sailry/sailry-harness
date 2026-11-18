@@ -271,7 +271,6 @@ class _TasksPageState extends State<TasksPage> {
     );
     return PageFrame(
       title: context.tr('brand'),
-      titleSize: 28,
       actions: [
         RoundButton(
           icon: 'server',

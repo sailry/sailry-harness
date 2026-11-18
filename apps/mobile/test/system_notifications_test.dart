@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_mobile/features/notifications/presentation.dart';
 import 'package:sailry_mobile/features/notifications/system.dart';
 
 class _NotificationPlugin extends Fake
@@ -48,18 +51,51 @@ class _NotificationPlugin extends Fake
   }
 }
 
-Map<String, dynamic> _notice(int entry, {bool read = false}) => {
-  'id': {
-    'node': List.filled(32, 9),
-    'entry': List.filled(32, entry),
-    'target': {'Session': 'session'},
-  },
-  'session': 'session',
-  'kind': 'Completed',
-  'read': read,
-};
+Map<String, dynamic> _notice(int entry, {int cursor = 1, bool read = false}) =>
+    {
+      'id': {
+        'node': List.filled(32, 9),
+        'entry': List.filled(32, entry),
+        'cursor': cursor,
+        'target': {'Session': 'session'},
+      },
+      'session': 'session',
+      'kind': 'Completed',
+      'read': read,
+    };
+
+String _route(String entry) => '${entry * 32}/${'09' * 32}';
 
 void main() {
+  test(
+    'each host route primes its inbox after its first confirmed snapshot',
+    () {
+      final freshness = NoticeFreshness();
+      final first = _route('01'), second = _route('02');
+      final routes = {first, second};
+      final history = [_notice(1), _notice(2)];
+      expect(freshness.observe([], {}, routes), isEmpty);
+      expect(freshness.observe(history, {first}, routes), isEmpty);
+      final nextFirst = _notice(1, cursor: 2);
+      expect(freshness.observe([...history, nextFirst], routes, routes), {
+        jsonEncode(nextFirst['id']),
+      });
+      final nextSecond = _notice(2, cursor: 2);
+      expect(
+        freshness.observe([...history, nextFirst, nextSecond], routes, routes),
+        {jsonEncode(nextSecond['id'])},
+      );
+    },
+  );
+
+  test('durable completions identify the session for foreground alerts', () {
+    final notice = _notice(1);
+    (notice['id'] as Map)['target'] = {'Notification': 'receipt'};
+    expect(completedSessionNotice(notice), isTrue);
+    notice['read'] = true;
+    expect(completedSessionNotice(notice), isFalse);
+  });
+
   test(
     'restores and withdraws alerts by entry and target after restart',
     () async {
@@ -69,8 +105,7 @@ void main() {
       expect(await alerts.start(translate), isTrue);
       await alerts.sync(
         [_notice(1), _notice(2)],
-        post: true,
-        known: {},
+        fresh: {jsonEncode(_notice(1)['id']), jsonEncode(_notice(2)['id'])},
         refreshedRoutes: {},
         translate: translate,
       );
@@ -84,10 +119,7 @@ void main() {
           payload: second.payload,
         ),
       );
-      expect(await tap, (
-        host: '${'02' * 32}/${'09' * 32}',
-        session: 'session',
-      ));
+      expect(await tap, (host: _route('02'), session: 'session'));
       await alerts.close();
 
       plugin.active = [
@@ -99,24 +131,21 @@ void main() {
       expect(await restarted.start(translate), isTrue);
       await restarted.sync(
         [],
-        post: false,
-        known: {},
+        fresh: {},
         refreshedRoutes: {},
         translate: translate,
       );
       expect(plugin.cancelled, isEmpty);
       await restarted.sync(
         [],
-        post: false,
-        known: {},
-        refreshedRoutes: {'${'01' * 32}/${'09' * 32}'},
+        fresh: {},
+        refreshedRoutes: {_route('01')},
         translate: translate,
       );
       expect(plugin.cancelled, [(id: first.id, tag: first.tag)]);
       await restarted.sync(
         [_notice(2, read: true)],
-        post: false,
-        known: {},
+        fresh: {},
         refreshedRoutes: {},
         translate: translate,
       );

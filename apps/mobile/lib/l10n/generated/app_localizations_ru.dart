@@ -970,7 +970,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get tasks => 'Задачи';
 
   @override
-  String get chat => 'Chat';
+  String get chat => 'Чат';
 
   @override
   String get hosts => 'Хосты';
@@ -1128,10 +1128,10 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
-  String get pauseQueue => 'Очередной перерыв';
+  String get pauseQueue => 'Приостановить очередь';
 
   @override
-  String get resumeQueue => 'Возобновление очереди';
+  String get resumeQueue => 'Возобновить очередь';
 
   @override
   String get moveUp => 'Движение вверх';
@@ -1423,7 +1423,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get tokens => 'Tokens';
 
   @override
-  String get requests => 'Responses';
+  String get requests => 'Ответы';
 
   @override
   String usageCoverage(String priced, String total) {
@@ -2266,34 +2266,34 @@ class AppLocalizationsRu extends AppLocalizations {
   String get demoUnavailable => 'Действие недоступно.';
 
   @override
-  String get demoConversationTitle => 'Improve the sign-in form';
+  String get demoConversationTitle => 'Улучшить форму входа';
 
   @override
-  String get demoNotesTitle => 'Prepare the release review';
+  String get demoNotesTitle => 'Подготовить проверку релиза';
 
   @override
   String get demoUserMessage =>
-      'Improve the sign-in form spacing and keyboard focus. Keep the existing layout.';
+      'Улучши отступы и фокус клавиатуры в форме входа. Сохрани текущую раскладку.';
 
   @override
   String get demoReply =>
-      'Updated the sign-in form spacing and touch targets.\n\n- Set the form gap to 20 px.\n- Set the button minimum height to 44 px.\n- Preserved the field order and keyboard navigation.\n\n```css\nmin-height: 44px;\n```\n\nThe changes are in `src/pages/Login.tsx` and `src/styles/login.css`.';
+      'Отступы и области нажатия в форме входа скорректированы.\n\n- Промежуток в форме — 20 px.\n- Минимальная высота кнопки — 44 px.\n- Порядок полей и навигация с клавиатуры сохранены.\n\n```css\nmin-height: 44px;\n```\n\nИзменения находятся в `src/pages/Login.tsx` и `src/styles/login.css`.';
 
   @override
   String get demoReadme =>
-      '# Lumen Web\n\nA responsive sign-in page with accessible inputs and clear keyboard navigation.\n\n## Project structure\n\n- `src/pages/Login.tsx` — sign-in form.\n- `src/styles/login.css` — layout and interaction styles.\n- `docs/review.md` — release checklist.\n\n## Interface guidelines\n\nKeep 20 px between fields and use touch targets of at least 44 px. Preserve the field order and visible focus styles.\n';
+      '# Lumen Web\n\nАдаптивная страница входа с доступными полями ввода и понятной навигацией с клавиатуры.\n\n## Структура проекта\n\n- `src/pages/Login.tsx` — форма входа.\n- `src/styles/login.css` — стили раскладки и взаимодействия.\n- `docs/review.md` — чек-лист релиза.\n\n## Правила интерфейса\n\nОставляйте 20 px между полями и делайте области нажатия не меньше 44 px. Сохраняйте порядок полей и видимые стили фокуса.\n';
 
   @override
   String get demoReviewNotes =>
-      '# Release review\n\n| Area | Review |\n| --- | --- |\n| Fields | Check labels and required-field messages |\n| Keyboard | Check tab order and visible focus |\n| Touch targets | Keep the sign-in button at least 44 px high |\n| Layout | Check narrow and wide screens |\n| Changes | Review the sign-in page and styles before release |\n';
+      '# Проверка релиза\n\n| Раздел | Проверка |\n| --- | --- |\n| Поля | Проверить подписи и сообщения обязательных полей |\n| Клавиатура | Проверить порядок табуляции и видимый фокус |\n| Области нажатия | Высота кнопки входа не менее 44 px |\n| Раскладка | Проверить узкие и широкие экраны |\n| Изменения | Просмотреть страницу входа и стили перед релизом |\n';
 
   @override
   String get demoNotesPrompt =>
-      'Create a short release review checklist for the sign-in page.';
+      'Составь короткий чек-лист проверки релиза для страницы входа.';
 
   @override
   String get demoSimulatedReply =>
-      'I\'ll focus on the sign-in page while preserving its layout.\n\n1. Review the field spacing and keyboard focus.\n2. Keep touch targets at least 44 px high.\n3. Check `src/pages/Login.tsx` and `src/styles/login.css` together.\n\nThe release checklist is in `docs/review.md`.';
+      'Сосредоточусь на странице входа, сохранив её раскладку.\n\n1. Проверю отступы полей и фокус клавиатуры.\n2. Сохраню высоту областей нажатия не менее 44 px.\n3. Проверю `src/pages/Login.tsx` и `src/styles/login.css` вместе.\n\nЧек-лист релиза находится в `docs/review.md`.';
 
   @override
   String get demoTerminalWelcome =>
