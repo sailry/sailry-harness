@@ -259,9 +259,6 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 				access = "OAuth"
 			}
 			desc := access + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
-			if ch.Source != "" {
-				desc += " · " + i18n.T(c, "configuration_follow_from_source")
-			}
 			if !m.Live {
 				desc = i18n.T(c, "preview") + " · " + desc
 			}
@@ -403,7 +400,7 @@ func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 			}
 		}
 		menu.Separator()
-		if menu.Item(i18n.T(c, "settings_delete")).Icon(icons.Trash).Disabled(ch.ConfigurationReadOnly).Danger().Chosen() {
+		if menu.Item(i18n.T(c, "settings_delete")).Icon(icons.Trash).Danger().Chosen() {
 			m.removing = key
 		}
 	}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -44,6 +45,85 @@ func TestProviderAndDefaultsAreOwnedByEachNode(t *testing.T) {
 		read, err := ReadDefaults(ctx, db)
 		if err != nil || read.Config == nil || read.Config.Provider != saved.ID || read.Config.Credential == nil || *read.Config.Credential != *saved.Credential {
 			return errors.New("paired user defaults did not retain its local provider")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoveProviderWithHistoricalOrigin(t *testing.T) {
+	t.Parallel()
+	storage, node, controller, ctx := controllerCacheFixture(t)
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		id := protocol.NewProviderID()
+		now := time.Now()
+		session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, id, now)
+		if err != nil {
+			return err
+		}
+		saved, err := currentProvider(ctx, db, id, nil)
+		if err != nil {
+			return err
+		}
+		origin := protocol.ConfigurationOrigin{Node: controller, Revision: 7}
+		saved.Provider.Source = &origin
+		if err := saveProviderConfiguration(ctx, db, *saved); err != nil {
+			return err
+		}
+		legacy := *saved.Provider
+		legacy.Revision = origin.Revision
+		legacy.Credential = &protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
+		if err := seedHistoricalConfiguration(ctx, db, "providers", id.String(), legacy.Revision, legacy); err != nil {
+			return err
+		}
+		runtime := protocol.RuntimeCredential{
+			Controller: controller, Kind: "provider", ID: legacy.Credential.ID.String(), Generation: legacy.Credential.ID.String(),
+			Revision: 1, State: "ready", Provider: &id, Authentication: protocol.AuthenticationApiKey, Access: protocol.NewSecret("historical-source-key"),
+		}
+		if err := seedHistoricalRuntimeCredentials(ctx, db, runtime); err != nil {
+			return err
+		}
+		if err := installHistoricalRemoteCapture(ctx, db, session, turn.ID, controller, legacy); err != nil {
+			return err
+		}
+		projected, _, err := ReadProviderSnapshot(ctx, db, node)
+		if err != nil {
+			return err
+		}
+		if len(projected) != 1 || projected[0].ID != id || projected[0].Shared || projected[0].Source == nil || *projected[0].Source != origin {
+			return errors.New("historical provenance changed the host provider's scope")
+		}
+		remove := protocol.NewRequest(node, protocol.Command{Kind: "remove_provider", Data: &protocol.CommandRemoveProviderPayload{Provider: id, ExpectedRevision: projected[0].Revision}})
+		local, err := LocalUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		if _, _, err := ExecuteProviderCommand(WithUser(ctx, local), db, node, remove, nil); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+			return fmt.Errorf("host administrator could remove another user's provider: %v", err)
+		}
+		stale := remove
+		stale.Command.Data = &protocol.CommandRemoveProviderPayload{Provider: id, ExpectedRevision: origin.Revision}
+		if _, _, err := ExecuteProviderCommand(ctx, db, node, stale, nil); !providerFixtureFault(err, protocol.ErrorCodeRevisionConflict) {
+			return fmt.Errorf("source revision was accepted as the host revision: %v", err)
+		}
+		output, events, err := ExecuteProviderCommand(ctx, db, node, remove, nil)
+		if err != nil {
+			return err
+		}
+		if output.Kind != "providers" || len(output.Data.([]protocol.ConversationProvider)) != 0 || len(events) == 0 || events[0].Kind != "provider_removed" {
+			return errors.New("removal did not unlist the host provider")
+		}
+		source, err := readCachedConfiguration[protocol.ConversationProvider](ctx, db, "providers", id.String())
+		if err != nil || source == nil || source.Revision != origin.Revision || source.Credential == nil || *source.Credential != *legacy.Credential {
+			return fmt.Errorf("host removal changed the preserved source: %v", err)
+		}
+		if key, err := resolveCapturedProviderKey(ctx, db, node, *saved.Provider.Credential, *saved.Provider); err != nil || key == nil || key.Expose() != "local-capture-fixture-key" {
+			return fmt.Errorf("host removal invalidated its captured key: %v", err)
+		}
+		invocation, _, err := ClaimNext(ctx, db, now)
+		if err != nil || invocation == nil || invocation.Turn.ID != turn.ID || invocation.AuthorizationFailure != nil || invocation.Secret == nil || invocation.Secret.Expose() != runtime.Access.Expose() {
+			return fmt.Errorf("host removal changed the admitted historical turn: %v", err)
 		}
 		return nil
 	}); err != nil {

@@ -210,6 +210,8 @@ original request receipt or a matching task observation.
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy
 provider-sharing metadata remains readable but grants no cross-user access.
+The Models page lists channels on the selected Node. Removing one affects that
+Node even when the channel retains its historical controller origin.
 Already admitted tasks retain their provider, credential identity and package
 capture when the source changes. Execution resolves that captured credential
 even after the channel selects a newer key. Plugin-backed authentication checks

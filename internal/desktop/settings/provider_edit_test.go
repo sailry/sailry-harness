@@ -2,6 +2,7 @@ package settings
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -201,6 +202,37 @@ func TestProviderSettingsUseSelectedNodeRows(t *testing.T) {
 	m.ManagedNode = "disconnected"
 	if rows := m.providerSettingsChannels(); len(rows) != 0 {
 		t.Fatalf("unavailable selection showed another Node's channels: %+v", rows)
+	}
+}
+
+func TestProviderMenuCanRemoveLegacyHostChannel(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	channel := preview.Channel{Node: "debian", Source: "controller", ID: "legacy", Name: "Legacy channel", API: "responses", Auth: preview.AuthKey, ConfigurationReadOnly: true}
+	key := channelKey(channel.Node, channel.ID)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		ui.Column(c).Fill().Padding(20).Children(func() { channelRow(c, m, &channel) })
+	}, 800, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true, ReduceMotion: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	if strings.Contains(strings.Join(tt.Texts(), "\n"), i18n.In("en", "configuration_follow_from_source")) {
+		t.Fatal("the channel row included an obsolete source badge")
+	}
+	more, ok := tt.AccessByRole(ui.RoleMenuButton, i18n.In("en", "more"))
+	if !ok || more.Disabled {
+		t.Fatal("channel menu is unavailable")
+	}
+	tt.ClickAt(more.Bounds.X+more.Bounds.W/2, more.Bounds.Y+more.Bounds.H/2)
+	tt.Advance(200 * time.Millisecond)
+	remove, ok := tt.AccessByRole(ui.RoleMenuItem, i18n.In("en", "settings_delete"))
+	if !ok || remove.Disabled {
+		t.Fatalf("channel removal is unavailable: %q", tt.Texts())
+	}
+	tt.ClickAt(remove.Bounds.X+remove.Bounds.W/2, remove.Bounds.Y+remove.Bounds.H/2)
+	tt.Frame()
+	if m.removing != key {
+		t.Fatalf("delete did not select the channel on its current host: %q", m.removing)
 	}
 }
 
