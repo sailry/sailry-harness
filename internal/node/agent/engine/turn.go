@@ -84,7 +84,7 @@ func (r *Runtime) execute(x *execution) {
 		if status != protocol.ConversationStatusCompleted {
 			hookStatus = "failed"
 		}
-		if hookErr := x.hooks.Complete(x.ctx, hookStatus); hookErr != nil {
+		if hookErr := x.hooks.Complete(x.ctx, hookStatus); hookErr != nil && (x.ctx.Err() == nil || !turnEndHookCancelled(hookErr)) {
 			status = protocol.ConversationStatusFailed
 			failure = model.Fault(hookErr)
 		}
@@ -229,6 +229,15 @@ func (r *Runtime) execute(x *execution) {
 		x.observedMu.Unlock()
 		r.afterTurn(r.ctx, x.inv, run, observed)
 	}
+}
+
+func turnEndHookCancelled(err error) bool {
+	// The hook binding reports a recorded process cancellation as unavailable.
+	// Match the exact fault, not a combined hook or receipt failure.
+	if fault, ok := errors.AsType[*protocol.Fault](err); ok {
+		return fault.Code == protocol.ErrorCodeUnavailable && fault.Message == string(protocol.HooksPhaseTurnEnd)+" hook failed: cancelled"
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func (r *Runtime) waitSettlementRetry(x *execution, operation string, err error, reported *bool) bool {

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -13,6 +14,135 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestForegroundChildCompletionHookSettlement(t *testing.T) {
+	for _, row := range []struct {
+		name, end     string
+		exitCode      int32
+		refuseReceipt bool
+		status        protocol.ConversationStatus
+		code          protocol.ErrorCode
+		diagnostic    string
+	}{
+		{name: "parent ends", status: protocol.ConversationStatusCancelled},
+		{name: "script fails as parent ends", exitCode: 7, status: protocol.ConversationStatusFailed, code: protocol.ErrorCodeUnavailable, diagnostic: "hook failed: exited 7"},
+		{name: "receipt fails as parent ends", refuseReceipt: true, status: protocol.ConversationStatusFailed, code: protocol.ErrorCodeOutcomeUnknown, diagnostic: "hook completion could not be recorded"},
+		{name: "Node shuts down", end: "shutdown", status: protocol.ConversationStatusInterrupted},
+		{name: "explicit Stop preserves uncertain receipt", end: "stop", refuseReceipt: true, status: protocol.ConversationStatusCancelled, code: protocol.ErrorCodeOutcomeUnknown, diagnostic: "hook completion could not be recorded"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			language := &scriptedModel{scripts: []script{response(text("Child response"), finish())}}
+			f, parent := delegationFixture(t, language)
+			settings := protocol.DefaultHooksSettings()
+			settings.Enabled = true
+			settings.TurnEnd = &protocol.HooksScript{Enabled: true, Command: "fixture", TimeoutMs: 1000}
+			if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+				if _, err := store.SaveHooks(f.ctx, db, settings, settings.Revision); err != nil {
+					return err
+				}
+				if row.refuseReceipt {
+					_, err := db.ExecContext(f.ctx, `CREATE TRIGGER refuse_hook_receipt BEFORE UPDATE OF result ON hook_executions
+						BEGIN SELECT RAISE(ABORT,'injected hook receipt failure'); END`)
+					return err
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			spawn := saveDelegationCall(t, f, parent, "foreground", false)
+			if result := f.r.spawnChild(parent, spawn, spawn.Arguments); result.Failure != nil {
+				t.Fatal(result.Failure)
+			}
+			f.r.workers.Wait()
+			child := parent.foreground[0]
+			if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+				_, err := store.ReleaseChildren(f.ctx, db, parent.inv.Run.Turn, []protocol.TurnID{child.turn})
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			child.released = true
+
+			entered := make(chan string, 1)
+			outcome := protocol.ProcessOutcome{Kind: "cancelled"}
+			if row.exitCode != 0 {
+				outcome = protocol.ProcessOutcome{Kind: "exited", Data: row.exitCode}
+			}
+			f.r.hooksForTurn = func(ctx context.Context, inv *store.AgentInvocation) *hooks.Binding {
+				return hooks.New(hooks.Capture{Admitted: true, Turn: inv.Run.Turn, Stop: ctx, Settings: inv.Hooks,
+					Claim: func(ctx context.Context, turn protocol.TurnID, phase protocol.HooksPhase, ordinal uint64) error {
+						return f.db.Node.Write(ctx, func(db *sql.Conn) error { return store.ClaimHook(ctx, db, turn, phase, ordinal) })
+					},
+					Finish: func(ctx context.Context, turn protocol.TurnID, phase protocol.HooksPhase, ordinal uint64, outcome protocol.ProcessOutcome, err error) error {
+						return f.db.Node.Write(ctx, func(db *sql.Conn) error { return store.FinishHook(ctx, db, turn, phase, ordinal, outcome, err) })
+					},
+					Launch: func(ctx context.Context, _ string, _ uint64, env map[string]string, _ string) (protocol.ProcessCompletion, error) {
+						entered <- env["SAILRY_HOOK_STATUS"]
+						select {
+						case <-ctx.Done():
+							return protocol.ProcessCompletion{Outcome: outcome}, nil
+						case <-f.ctx.Done():
+							return protocol.ProcessCompletion{}, f.ctx.Err()
+						}
+					},
+				})
+			}
+			f.start()
+			select {
+			case status := <-entered:
+				if status != "completed" {
+					t.Fatalf("hook started with status %q", status)
+				}
+			case <-f.ctx.Done():
+				t.Fatal("child did not reach its completion hook")
+			}
+			switch row.end {
+			case "shutdown":
+				f.r.cancel()
+			case "stop":
+				f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: child.turn})
+			default:
+				// The parent's end cancels the child owner without storing a Stop.
+				settled := make(chan bool, 1)
+				f.r.workers.Go(func() { settled <- f.r.cancelForeground(parent) })
+				select {
+				case ok := <-settled:
+					if !ok {
+						t.Fatal("parent did not settle its foreground child")
+					}
+				case <-f.ctx.Done():
+					t.Fatal("parent did not leave foreground settlement")
+				}
+			}
+			run := f.settled(child.turn)
+			if run.Status != row.status || run.FinishedMs == nil {
+				t.Fatalf("child settled as %s (%v), want %s", run.Status, run.Error, row.status)
+			}
+			if row.code == "" {
+				if run.Error != nil {
+					t.Fatalf("child fault = %v, want none", run.Error)
+				}
+			} else if run.Error == nil || run.Error.Code != row.code || !strings.Contains(run.Error.Message, row.diagnostic) {
+				t.Fatalf("child fault = %v, want code %q and diagnostic %q", run.Error, row.code, row.diagnostic)
+			}
+			var written bool
+			var receipt sql.NullString
+			if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+				return db.QueryRowContext(f.ctx, `SELECT result IS NOT NULL, json_extract(result,'$.Ok.kind')
+					FROM hook_executions WHERE turn=?1 AND phase='turn_end' AND ordinal=0`, child.turn.String()).Scan(&written, &receipt)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if row.refuseReceipt {
+				if written {
+					t.Fatal("the refused hook receipt was persisted")
+				}
+			} else if !written || receipt.String != outcome.Kind {
+				t.Fatalf("hook receipt = %v, want %s", receipt, outcome.Kind)
+			}
+		})
+	}
+}
 
 func TestParentSettlementRetriesChildWrites(t *testing.T) {
 	for _, row := range []struct {
