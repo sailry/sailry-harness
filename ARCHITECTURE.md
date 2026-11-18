@@ -184,11 +184,14 @@ New sessions cannot borrow a model channel or credential from their controller.
 
 Roles, teams, media assignments, plugin installs and settings, connectors,
 MCP, SSH and database profiles also belong to the authenticated user on the
-Node that uses them. A controller explicitly selects the Node when managing
-these resources. The package list follows the explicitly selected host.
-Host-owned package views use that Node's catalog and records. Worktree views
-follow their workspace. Device monitoring has its own selection. A new task reads and captures settings on its execution
-Node. Admitted tasks keep their package and settings revisions.
+Node that uses them. Desktop settings share a host selection per window.
+Host-owned settings and package catalogs use that Node's Client and identity.
+Settings for desktop devices use the local controller. On the Knowledge page
+the model controls follow the settings host, while the catalog spans direct
+hosts and actions follow each collection's storage Node. Hooks follow the
+selected worktree. Device monitoring has its own selection. A new task reads
+and captures settings on its execution Node. Admitted tasks keep their package
+and settings revisions.
 
 New sessions are created on the Node that owns the selected model. Existing
 durable request ledgers continue to bind recovery to the original identity.
@@ -595,7 +598,11 @@ still follow actual references, not the history list.
 
 Plugins own their feature UI, state, workflows, prompts and orchestration. Core
 exposes shared scoped services through Protocol, Client and the SDK. Desktop
-navigation and settings pages resolve from declarations. Workspace content,
+settings pages resolve from the selected owner's installations. The controller
+loads the exact declared view from that owner's package revision and binds its
+actions to the same Client. Desktop-only settings use the local installation
+and settings for a missing or unreachable remote installation show that state.
+Workspace content,
 navigation and details project into the shell's common columns; shell layout owns
 resizing, dividers and visibility. SSH and database workflows use package
 surfaces and reusable native components. Files and Git use the core panels; their

@@ -157,16 +157,17 @@ type BackupLast struct {
 const DefaultTextSize = 14
 
 type Model struct {
-	ManagedNode string // owner on the team, connector and media pages
-	PackageNode string // owner on package management and market pages
+	// ManagedNode is the shared target for Node-owned settings in this window.
+	ManagedNode string
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
 	Live                bool
 	SavePower           func()
 	SaveSandbox         func()
 	SaveCodeIndex       func()
 	SaveHooks           func()
-	HooksContext        func() (string, bool)
+	HooksContext        func() (HookTarget, bool)
 	HooksSandboxed      func() bool
+	SelectHookWorktree  func(string)
 	ConcurrencyReadOnly bool
 	TeamActions         *TeamActions
 	SaveTelemetry       func()
@@ -188,11 +189,12 @@ type Model struct {
 	Memory []kit.TreemapGroup
 	// DemoMode is an in-memory presentation switch for fixture harnesses.
 	// Normal startup never restores it from preferences.
-	DemoMode  bool
-	Notify    [4]bool // system, approval, completed, failed
-	Toast     int     // of ToastSeconds
-	Power     Stored[bool]
-	Telemetry Stored[Telemetry]
+	DemoMode                bool
+	Notify                  [4]bool // system, approval, completed, failed
+	Toast                   int     // of ToastSeconds
+	Power                   Stored[bool]
+	ExecutionSettingsStatus string
+	Telemetry               Stored[Telemetry]
 
 	// Conversation.
 	Sandbox Stored[bool]
@@ -341,15 +343,16 @@ type Model struct {
 
 	// Runtime and OCR (runtime/*, models/*).
 	PythonVersion string
+	PythonStatus  string
 	// PythonPreparing are the packages whose Python dependencies the Node
 	// is preparing now, with the stage each is at.
-	PythonPreparing []PythonPreparation
-	Indexes         []string
-	Python          Stored[Python]
-	OCR             LocalModels
-	Knowledge       LocalModels // embedding models (knowledge-settings)
-	// Collections are the selected host's knowledge collections; the
-	// preview has none.
+	PythonPreparing   []PythonPreparation
+	Indexes           []string
+	Python            Stored[Python]
+	OCR               LocalModels
+	Knowledge         LocalModels // embedding models (knowledge-settings)
+	LocalModelsStatus string
+	// Collections span the controller's own and directly connected Nodes.
 	Collections []viewmodel.KnowledgeCollection
 	Decision    LocalModels // decision models
 

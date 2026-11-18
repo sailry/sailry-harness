@@ -26,7 +26,8 @@ func checkKnowledgeViews(t *testing.T) {
 		collection(5, "a failed", false, protocol.KnowledgeProgress{Status: protocol.KnowledgeStatusPaused,
 			Failures: []protocol.KnowledgeFailure{{Reason: "worktree is unavailable"}}}),
 	}
-	views := knowledgeViews(collections, map[string]bool{collections[2].ID.String(): true}, nil)
+	writable := func(protocol.KnowledgeCollection) bool { return true }
+	views := knowledgeViews(collections, map[string]bool{collections[2].ID.String(): true}, nil, writable)
 	want := []viewmodel.KnowledgeCollection{
 		{ID: collections[4].ID.String(), Name: "a failed", State: viewmodel.KnowledgeFailed, Reason: "worktree is unavailable"},
 		{ID: collections[3].ID.String(), Name: "b paused", State: viewmodel.KnowledgePaused, Sources: 5},
@@ -43,7 +44,7 @@ func checkKnowledgeViews(t *testing.T) {
 		}
 	}
 	collections[0].Node = protocol.NodeID{9}
-	offline := knowledgeViews(collections, nil, map[protocol.NodeID]bool{{9}: true})
+	offline := knowledgeViews(collections, nil, map[protocol.NodeID]bool{{9}: true}, writable)
 	if len(offline) != len(collections) || offline[4].State != viewmodel.KnowledgeUnavailable || !offline[4].Busy {
 		t.Fatalf("offline collection disappeared or remained actionable: %+v", offline)
 	}

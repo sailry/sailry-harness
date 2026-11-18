@@ -83,17 +83,25 @@ func (p *systemProbe) install(w *terminalUI, goos string) {
 			return nil
 		},
 	}
-	root.permissions.actions = settings.PermissionActions{Check: root.checkPermissions, Request: root.requestPermission, Settings: root.openPermissionSettings, ShowApp: root.showPermissionApp}
 }
 
 var permissionStatuses = []string{"Authorized", "Unauthorized", "Access denied", "Not checked", "Partially authorized", "Unavailable on this device", "Allow access on the execution device", "Not needed"}
 
 // permissionRow is the status text under a row's label, "" without the row.
-func permissionRow(w *terminalUI, label string) string {
+func permissionRow(w *terminalUI, label string, host bool) string {
+	entries := w.tester.AccessAll()
+	hostTop := float32(0)
+	for _, entry := range entries {
+		if entry.Role == ui.RoleText && entry.Name == "Host permissions" {
+			hostTop = entry.Bounds.Y
+			break
+		}
+	}
 	var rows []ui.AccessInfo
-	for _, entry := range w.tester.AccessAll() {
+	for _, entry := range entries {
 		// The settings navigation is left of the page.
-		if entry.Role == ui.RoleText && entry.Name == label && entry.Bounds.X > 500 {
+		underHostHeading := hostTop != 0 && entry.Bounds.Y > hostTop
+		if entry.Role == ui.RoleText && entry.Name == label && entry.Bounds.X > 500 && host == underHostHeading {
 			rows = append(rows, entry)
 		}
 	}
@@ -101,7 +109,7 @@ func permissionRow(w *terminalUI, label string) string {
 		return ""
 	}
 	status, nearest := "", float32(48)
-	for _, entry := range w.tester.AccessAll() {
+	for _, entry := range entries {
 		if entry.Role != ui.RoleText || !slices.Contains(permissionStatuses, entry.Name) {
 			continue
 		}
@@ -211,9 +219,11 @@ func TestSystemPermissionsUI(t *testing.T) {
 
 	const disk, access, microphone, screen = "Full Disk Access", "Accessibility", "Microphone", "Screen recording"
 	rows := func(w *terminalUI) string {
-		return fmt.Sprintf("disk %q, accessibility %q, microphone %q, screen %q", permissionRow(w, disk), permissionRow(w, access), permissionRow(w, microphone), permissionRow(w, screen))
+		return fmt.Sprintf("disk %q, accessibility %q, microphone %q, host accessibility %q, host screen %q",
+			permissionRow(w, disk, false), permissionRow(w, access, false), permissionRow(w, microphone, false),
+			permissionRow(w, access, true), permissionRow(w, screen, true))
 	}
-	expect := func(w *terminalUI, label string, want map[string]string) {
+	expectRows := func(w *terminalUI, label string, want map[string]string, host bool) {
 		t.Helper()
 		settle(w, label+" (now "+rows(w)+")", systemUIWait, func() bool {
 			state := &w.runtime.localRuntime().permissions
@@ -221,12 +231,20 @@ func TestSystemPermissionsUI(t *testing.T) {
 				return false
 			}
 			for row, status := range want {
-				if permissionRow(w, row) != status {
+				if permissionRow(w, row, host) != status {
 					return false
 				}
 			}
 			return true
 		})
+	}
+	expect := func(w *terminalUI, label string, want map[string]string) {
+		t.Helper()
+		expectRows(w, label, want, false)
+	}
+	expectHost := func(w *terminalUI, label string, want map[string]string) {
+		t.Helper()
+		expectRows(w, label, want, true)
 	}
 	quiet := func(w *terminalUI) {
 		t.Helper()
@@ -244,7 +262,8 @@ func TestSystemPermissionsUI(t *testing.T) {
 	window := openTerminalWindow(t, ctx, desk.owner, profile, session, nil)
 	probe.install(window, "darwin")
 	showSection(window, settings.Permissions)
-	expect(window, "the page's first check", map[string]string{disk: "Unauthorized", access: "Authorized", microphone: "Access denied", screen: ""})
+	expect(window, "the page's first check", map[string]string{disk: "Unauthorized", access: "Authorized", microphone: "Access denied"})
+	expectHost(window, "no screen grant without a package", map[string]string{screen: ""})
 	for _, permission := range []permissionflow.Permission{permissionflow.FullDiskAccess, permissionflow.Accessibility, permissionflow.Microphone} {
 		if counts := probe.counts(permission); counts != [3]int{1, 0, 0} {
 			t.Fatalf("opening the page made %v checks, requests and settings openings of %s", counts, permission)
@@ -406,7 +425,8 @@ func TestSystemPermissionsUI(t *testing.T) {
 	defer window.close()
 	probe.install(window, "darwin")
 	showSection(window, settings.Permissions)
-	expect(window, "the helper's rows", map[string]string{disk: "Authorized", access: "Authorized", microphone: "Authorized", screen: "Unauthorized"})
+	expect(window, "the desktop's rows", map[string]string{disk: "Authorized", access: "Authorized", microphone: "Authorized"})
+	expectHost(window, "the helper's rows", map[string]string{access: "Authorized", screen: "Unauthorized"})
 	if lines := calls(); len(lines) == 0 || slices.ContainsFunc(lines, func(line string) bool { return line != "run permissions" }) {
 		t.Fatalf("the page's check ran the helper as %v", lines)
 	}
@@ -415,10 +435,11 @@ func TestSystemPermissionsUI(t *testing.T) {
 	}
 	grants("denied", "denied")
 	press(window, "Check")
-	expect(window, "the helper lost accessibility", map[string]string{access: "Partially authorized", screen: "Unauthorized"})
+	expect(window, "desktop accessibility remains granted", map[string]string{access: "Authorized"})
+	expectHost(window, "the helper lost accessibility", map[string]string{access: "Unauthorized", screen: "Unauthorized"})
 	read := len(calls())
 	clickRow(window, screen, "Request access")
-	expect(window, "the helper's granted screen recording", map[string]string{screen: "Authorized"})
+	expectHost(window, "the helper's granted screen recording", map[string]string{screen: "Authorized"})
 	asked := calls()[read:]
 	if count := len(slices.DeleteFunc(slices.Clone(asked), func(line string) bool { return line != "run permissions --request" })); count != 1 {
 		t.Fatalf("the screen recording request ran the helper as %v", asked)
@@ -427,6 +448,6 @@ func TestSystemPermissionsUI(t *testing.T) {
 		t.Fatalf("the helper's request reached this process's probe: %v", counts)
 	}
 	// The stand-in grants every refused permission on a request.
-	expect(window, "the helper's accessibility", map[string]string{access: "Authorized", screen: "Authorized"})
-	t.Logf("step 7 passed: with the computer package enabled the Screen recording row appeared from the helper's `permissions` output (Unauthorized), a helper without accessibility made the shared row Partially authorized, and Request access ran `permissions --request` exactly once (helper calls: %v), after which both rows are Authorized; this process's probe was never asked about the helper's grants", asked)
+	expectHost(window, "the helper's accessibility", map[string]string{access: "Authorized", screen: "Authorized"})
+	t.Logf("step 7 passed: the helper's grants were checked separately from the desktop, and Request access ran the helper once (calls: %v)", asked)
 }

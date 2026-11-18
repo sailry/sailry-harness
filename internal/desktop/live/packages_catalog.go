@@ -139,6 +139,11 @@ func (r *Runtime) projectPluginMarket() {
 		if current, installed := r.packages.infos[name]; installed {
 			applyPackageUpdate(row, current, r.packages.updates[name], r.packageLocale())
 		}
+		if r.parent != nil && (desktopPlugin(info) || desktopPlugin(r.packages.infos[name])) {
+			row.Host = "composer_host_local"
+			row.Installed, row.Installable, row.UpdateAvailable = false, false, false
+			row.Versions = nil
+		}
 	}
 }
 

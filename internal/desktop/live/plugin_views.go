@@ -260,13 +260,13 @@ func (r *Runtime) pluginViewCurrent(mounted *pluginMountedView) bool {
 		!mounted.owner.controller.Connected() && !mounted.disconnected || !pluginViewScopeExists(mounted.owner, mounted.scope) {
 		return false
 	}
+	if mounted.key.role == "settings" && !root.pluginSettingsRetained(mounted) {
+		return false
+	}
 	if mounted.disconnected {
 		return true
 	}
 	if mounted.key.role == "navigation" && !root.pluginNavigationRetained(mounted) {
-		return false
-	}
-	if mounted.key.role == "settings" && !root.pluginSettingsRetained(mounted) {
 		return false
 	}
 	if mounted.key.role == "contribution" {

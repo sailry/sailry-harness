@@ -27,6 +27,14 @@ func general(c *ui.Context, m *Model) {
 			// The window takes the language in the frame that saves it, so
 			// the choice has no toast.
 			choose(c, "language", i18n.T(c, "settings_language"), "", &m.Language, labels(c, Languages), 192)
+		})
+	})
+	managedNodeGroup(c, m, "power", i18n.T(c, "settings_managed_host"), func() {
+		if m.ExecutionSettingsStatus != "" {
+			settingsTargetStatus(c, m.ExecutionSettingsStatus)
+			return
+		}
+		kit.Card(c, func() {
 			if settingSwitch(c, "power", i18n.T(c, "power_prevent_sleep"), i18n.T(c, "power_prevent_sleep_description"), &m.Power.Draft, m.Power.Pending) {
 				if m.SavePower != nil {
 					m.SavePower()

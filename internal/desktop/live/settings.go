@@ -10,16 +10,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// readSettings reads this Runtime's Node again: prevent sleep while Settings
-// shows the Node, the desktop's telemetry consent on the local Node, and the
-// sandbox.
+// readSettings refreshes the shown Node and the controller's telemetry consent.
 func (r *Runtime) readSettings() {
-	if r.showsSettings() {
+	if r.showsSettings() && r.machineSettingsStatus() == "" {
 		r.readPower()
+		r.readSandbox()
 	}
 	if r.parent == nil {
 		r.readTelemetry()
-		r.readSandbox()
 	}
 }
 
@@ -30,10 +28,11 @@ func (r *Runtime) readPower() {
 	}
 	m.Pending = true
 	r.powerObservedRevision = r.snapshot().PowerSettingsRevision
+	current := r.settingsCurrent()
 	r.async(func() {
 		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_power_settings"})
 		r.enqueue(func(c *ui.Context) {
-			if !r.showsSettings() {
+			if !current() {
 				return
 			}
 			m.Pending = false
@@ -86,22 +85,23 @@ func (r *Runtime) savePower() {
 	}
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
+	current := r.settingsCurrent()
 	// A save in doubt reads the section again only while the pages still
 	// hold this Node: they share one model, and a read for a Node they left
 	// would mark the shown Node's switch pending and never clear it.
 	reread := func() {
-		if r.showsSettings() {
+		if current() {
 			r.readPower()
 		}
 	}
 	// Retry saves the switch again while the pages still hold this Node.
 	again := func() {
-		if r.showsSettings() {
+		if current() {
 			r.savePower()
 		}
 	}
 	r.saveSettingRetry(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, again, func(output protocol.Output, ok bool) {
-		if !r.showsSettings() {
+		if !current() {
 			return
 		}
 		m.Pending = false

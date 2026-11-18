@@ -26,4 +26,6 @@ plugins_sailry_catalog: Sailry
 plugins_previous: 上一页
 plugins_next: 下一页
 plugins_path: 插件目录
+plugins_not_installed_on_host: 未在此主机安装
+plugins_desktop_only: 切换到「本机」管理此桌面插件
 plugins_path_hint: 默认仓库根目录

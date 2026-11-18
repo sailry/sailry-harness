@@ -19,11 +19,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// TestSettingsTarget drives the Node-owned settings pages over two Nodes
+// TestSettingsTarget drives the Node-owned settings pages over several Nodes
 // that answer with different values: device monitoring never changes the
 // controller's configuration Node, pending drafts or captured saves.
 func TestSettingsTarget(t *testing.T) {
-	nodes := []protocol.NodeID{{1}, {2}}
+	nodes := []protocol.NodeID{{1}, {2}, {3}}
 	transports := make([]*conversationTestTransport, len(nodes))
 	reporting := make([]*settingsTestTransport, len(nodes))
 	// external is the compaction revision another controller saved on a
@@ -38,6 +38,7 @@ func TestSettingsTarget(t *testing.T) {
 	for index, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
+		snapshot.User = &protocol.User{ID: protocol.UserID{byte(index + 1)}, Name: "Fixture", Local: index == 0, Administrator: index != 2, State: "active"}
 		// Each Node answers its own values: the local one revision 1, 60 %, 4
 		// children, sleep allowed, sandbox and code index on; the remote
 		// one revision 2, 70 %, 5 children, sleep prevented, both off.
@@ -102,6 +103,23 @@ func TestSettingsTarget(t *testing.T) {
 				input, _ := detail[protocol.SandboxSettings](request.Command.Data)
 				input.Revision++
 				return output("sandbox_settings", input)
+			case "read_local_model_settings":
+				models := protocol.DefaultModelsLocalSettings()
+				models.Revision = revision
+				return output("local_model_settings", models)
+			case "read_local_models":
+				return output("local_models", protocol.ModelsCatalog{Availability: map[protocol.ModelsKind]protocol.ModelsCatalogAvailability{
+					protocol.ModelsKindDecision: {Kind: "available"}, protocol.ModelsKindEmbedding: {Kind: "available"},
+				}})
+			case "save_local_model_settings":
+				input, _ := detail[protocol.ModelsLocalSettings](request.Command.Data)
+				input.Revision++
+				return output("local_model_settings", input)
+			case "pause_knowledge_collection":
+				input, _ := detail[protocol.CommandPauseKnowledgeCollectionPayload](request.Command.Data)
+				value := protocol.DefaultKnowledgeCollection()
+				value.ID, value.Node, value.OwnerUser, value.Revision, value.Paused = input.ID, node, snapshot.User.ID, input.ExpectedRevision+1, input.Paused
+				return output("knowledge_collection", value)
 			case "read_code_index_settings":
 				return output("code_index_settings", protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0})
 			case "save_code_index_settings":
@@ -137,7 +155,9 @@ func TestSettingsTarget(t *testing.T) {
 	}
 	defer root.Close()
 	remote := root.newBinding(controllers[1])
-	root.bindings = map[string]*Runtime{nodes[1].String(): remote}
+	readOnly := root.newBinding(controllers[2])
+	t.Cleanup(func() { _ = readOnly.Close() })
+	root.bindings = map[string]*Runtime{nodes[1].String(): remote, nodes[2].String(): readOnly}
 	m := root.App.Settings
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
@@ -157,6 +177,7 @@ func TestSettingsTarget(t *testing.T) {
 		for range 8 {
 			root.workers.Wait()
 			remote.workers.Wait()
+			readOnly.workers.Wait()
 			tester.Frame()
 		}
 	}
@@ -366,6 +387,7 @@ func TestSettingsTarget(t *testing.T) {
 		}
 	})
 	t.Run("an explicit teams target reads and saves only on that Node", func(t *testing.T) {
+		root.App.Page = shell.SettingsPage
 		m.Open(settings.Teams)
 		m.ManagedNode = nodes[1].String()
 		root.nodeSettingsFrame()
@@ -392,7 +414,7 @@ func TestSettingsTarget(t *testing.T) {
 	})
 	t.Run("package management shows the selected installation", func(t *testing.T) {
 		m.Open(settings.Plugins)
-		m.PackageNode = nodes[1].String()
+		m.ManagedNode = nodes[1].String()
 		root.packagesFrame(nil)
 		settle()
 		root.packagesFrame(nil)
@@ -405,12 +427,79 @@ func TestSettingsTarget(t *testing.T) {
 		if !m.Packages[0].Enabled || count(0, "set_plugin_enabled") != 0 || count(1, "set_plugin_enabled") != 1 {
 			t.Fatal("package toggle used another Node's installation")
 		}
-		m.PackageNode = ""
+		m.ManagedNode = ""
 		root.packagesFrame(nil)
 		settle()
 		root.packagesFrame(nil)
 		if root.packageOwner() != root || len(m.Packages) != 1 || m.Packages[0].Enabled {
 			t.Fatalf("local package list picked up the remote change: %+v", m.Packages)
+		}
+	})
+	t.Run("model and machine settings share the selected host", func(t *testing.T) {
+		root.App.Page = shell.SettingsPage
+		m.ManagedNode = nodes[1].String()
+		m.Open(settings.Providers)
+		root.nodeSettingsFrame()
+		root.workspaceSettingsFrame()
+		settle()
+		if m.Compaction.Revision != 2 || m.Compaction.Saved != 70 {
+			t.Fatalf("remote compaction = %+v", m.Compaction)
+		}
+		before := count(0, "save_compaction_settings")
+		m.Compaction.Draft = 78
+		m.ProviderActions.SaveCompaction()
+		settle()
+		if count(1, "save_compaction_settings") != 1 || count(0, "save_compaction_settings") != before || m.Compaction.Saved != 78 {
+			t.Fatal("compaction save did not remain on the host selected in Models")
+		}
+		m.Open(settings.Conversation)
+		root.nodeSettingsFrame()
+		root.workspaceSettingsFrame()
+		heldMachine := m.ExecutionSettingsStatus == "" && m.Sandbox.Revision == 2 && m.CodeIndex.Revision == 2
+		if !heldMachine {
+			t.Fatalf("remote execution settings = %+v / %+v", m.Sandbox, m.CodeIndex)
+		}
+		m.Sandbox.Draft, m.CodeIndex.Draft = true, true
+		m.SaveSandbox()
+		m.SaveCodeIndex()
+		settle()
+		if count(1, "save_sandbox_settings") != 1 || count(1, "save_code_index_settings") != 1 {
+			t.Fatal("conversation settings save did not reach the selected host")
+		}
+		m.Open(settings.Decision)
+		root.localModelsFrame()
+		settle()
+		root.localModelsFrame()
+		if m.Decision.Enabled.Revision != 2 || m.Decision.Enabled.Pending {
+			t.Fatalf("remote decision settings = %+v", m.Decision.Enabled)
+		}
+		m.Decision.Enabled.Draft = !m.Decision.Enabled.Saved
+		m.ModelActions.Save(settings.ModelsDecision)
+		settle()
+		if count(1, "save_local_model_settings") != 1 || count(0, "save_local_model_settings") != 0 {
+			t.Fatal("decision settings were written outside the selected host")
+		}
+	})
+	t.Run("knowledge rows retain their owners across settings targets", func(t *testing.T) {
+		owned := protocol.DefaultKnowledgeCollection()
+		owned.ID, owned.Node, owned.OwnerUser, owned.Revision = protocol.KnowledgeID{1}, nodes[1], protocol.UserID{2}, 5
+		owned.Definition.Name = "Writable"
+		shared := owned
+		shared.Node, shared.OwnerUser = nodes[2], protocol.UserID{99}
+		shared.Definition.Name = "Shared"
+		root.knowledge.known, root.localModels.knowledge = true, true
+		root.knowledge.collections = []protocol.KnowledgeCollection{owned, shared}
+		m.ManagedNode = nodes[2].String()
+		m.Open(settings.Knowledge)
+		root.localModelsFrame()
+		if m.LocalModelsStatus != "permission_denied" || len(m.Collections) != 2 || !m.Collections[0].ReadOnly || m.Collections[1].ReadOnly {
+			t.Fatalf("remote embedding or collection scope = %s, %+v", m.LocalModelsStatus, m.Collections)
+		}
+		m.ModelActions.CollectionPause(m.Collections[0].ID, true)
+		m.ModelActions.CollectionPause(m.Collections[1].ID, true)
+		settle()
+		if count(1, "pause_knowledge_collection") != 1 || count(2, "pause_knowledge_collection") != 0 || count(0, "pause_knowledge_collection") != 0 {
+			t.Fatal("collection writes did not preserve owner and access scope")
 		}
 	})
 }

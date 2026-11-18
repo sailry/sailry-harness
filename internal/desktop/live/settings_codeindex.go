@@ -14,16 +14,16 @@ import (
 // a save that did not take, which also puts the switch back.
 
 func (r *Runtime) readCodeIndex() {
-	m := &r.App.Settings.CodeIndex
+	m := &r.codeIndexSettings
+	r.publishCodeIndex()
 	if m.Pending {
 		return
 	}
 	m.Pending = true
+	r.publishCodeIndex()
 	r.execute(protocol.Command{Kind: "read_code_index_settings"}, func(c *ui.Context, out protocol.Output, err error) {
-		if !r.showsSettings() {
-			return
-		}
 		m.Pending = false
+		defer r.publishCodeIndex()
 		if err != nil {
 			r.reportKeys(c, err, settings.CodeIndexMessages.Failed, settings.CodeIndexMessages.Conflict, settings.CodeIndexMessages.Uncertain)
 			return
@@ -40,19 +40,19 @@ func (r *Runtime) readCodeIndex() {
 }
 
 func (r *Runtime) saveCodeIndex() {
-	m := &r.App.Settings.CodeIndex
+	m := &r.codeIndexSettings
 	if m.Pending {
 		return
 	}
+	m.Draft = r.App.Settings.CodeIndex.Draft
 	m.Pending = true
+	r.publishCodeIndex()
 	command := protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{
 		Settings: protocol.CodeIndexSettings{Revision: m.Revision, Enabled: m.Draft}, ExpectedRevision: m.Revision,
 	}}
 	r.saveSetting(command, settings.CodeIndexMessages, func(out protocol.Output, ok bool) {
-		if !r.showsSettings() {
-			return
-		}
 		m.Pending = false
+		defer r.publishCodeIndex()
 		if !ok {
 			// The toast says what happened; the switch goes back to the
 			// Node's value, read again with the revision to save at.
@@ -64,4 +64,10 @@ func (r *Runtime) saveCodeIndex() {
 			m.Saved, m.Revision = value.Enabled, value.Revision
 		}
 	})
+}
+
+func (r *Runtime) publishCodeIndex() {
+	if r.showsSettings() {
+		r.App.Settings.CodeIndex = r.codeIndexSettings
+	}
 }

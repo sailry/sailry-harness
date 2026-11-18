@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -60,8 +61,9 @@ type Runtime struct {
 	workspace                *workspaceState
 	workspaceSettings        workspaceSettingsState
 	workspaceSettingsOwner   *Runtime
-	settingsShown            *Runtime // the Node the settings pages hold, once settingsTurned (settings_target.go)
-	settingsTurned           bool
+	codeIndexSettings        settings.Stored[bool]
+	settingsShown            *Runtime
+	settingsGeneration       uint64
 	providerMoves            map[string]providerMove
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
@@ -490,6 +492,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	// Node; without one the panel does not offer Terminal.
 	r.App.Panel.Worktree = owner != nil && r.packages != nil && r.packages.terminals != nil && owner.controller.Connected() &&
 		owner.workspace != nil && owner.workspace.selected != (protocol.WorktreeID{})
+	r.nodeSettingsFrame()
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
 	r.backupSettingsFrame(c)
@@ -497,7 +500,6 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.localModelsFrame()
 	r.dictationFrame(c)
 	r.permissionsFrame()
-	r.nodeSettingsFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
 	r.terminalsFrame(c)
@@ -604,9 +606,7 @@ func (r *Runtime) project() {
 	r.applyConversationData(d)
 	r.selectPendingSession()
 	r.projectConversations()
-	if owner := r.shownSettings(); owner != nil {
-		owner.projectProviderSnapshot()
-	}
+	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
 	r.pruneSessions(snapshot)
 }

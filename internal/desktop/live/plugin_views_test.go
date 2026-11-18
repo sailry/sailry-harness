@@ -29,6 +29,7 @@ import (
 type pluginViewTestNode struct {
 	snapshot protocol.Snapshot
 	bundle   chan link.Response
+	reads    chan protocol.Request
 }
 
 type pluginViewTestSubscription struct {
@@ -42,8 +43,16 @@ func (source *pluginViewTestNode) Open(context.Context, protocol.NodeID, protoco
 }
 
 func (source *pluginViewTestNode) Dispatch(_ context.Context, _ protocol.NodeID, request protocol.Request) (link.Admission, error) {
-	if request.Command.Kind != "read_plugin_view" && request.Command.Kind != "read_plugin_settings" || source.bundle == nil {
+	switch request.Command.Kind {
+	case "read_plugin_view", "read_plugin_settings", "read_plugin_value":
+	default:
 		return link.Admission{}, errors.New("unexpected fixture command")
+	}
+	if source.bundle == nil {
+		return link.Admission{}, errors.New("unexpected fixture command")
+	}
+	if source.reads != nil {
+		source.reads <- request
 	}
 	return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: source.bundle}, nil
 }

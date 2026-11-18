@@ -3,25 +3,47 @@ package live
 import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
-
-// Machine settings stay local. An explicit choice on the managed pages
-// selects the owner of team, connector, media and package configuration.
 
 // settingsOwner is the local Runtime that owns controller configuration.
 func (r *Runtime) settingsOwner() *Runtime { return r.localRuntime() }
 
 func (r *Runtime) managedSettingsNode() *Runtime {
 	root := r.localRuntime()
-	return root.runtimeFor(root.App.Settings.ManagedNode)
+	owner := root.runtimeFor(root.App.Settings.ManagedNode)
+	if owner != nil && (owner == root || owner.controller.Connected()) {
+		return owner
+	}
+	return nil
+}
+
+// machineSettingsStatus follows the Node's administrator boundary for
+// settings shared by every user of that machine.
+func (r *Runtime) machineSettingsStatus() string {
+	if r == nil {
+		return "connections_offline"
+	}
+	if r.parent != nil {
+		if !r.controller.Connected() {
+			return "connections_offline"
+		}
+		if user := r.snapshot().User; user == nil || !user.Administrator {
+			return "permission_denied"
+		}
+	}
+	return ""
 }
 
 func (r *Runtime) nodeSettingsOwner() *Runtime {
 	root := r.localRuntime()
+	if root.App.Page != shell.SettingsPage {
+		return root
+	}
 	switch root.App.Settings.Section {
-	case settings.Teams, settings.Connectors, settings.Media:
+	case settings.General, settings.Conversation, settings.Providers, settings.Teams, settings.Connectors, settings.Media:
 		return root.managedSettingsNode()
 	}
 	return root
@@ -31,7 +53,7 @@ func (r *Runtime) nodeSettingsOwner() *Runtime {
 // Its host selection is independent of the device monitor.
 func (r *Runtime) shownSettings() *Runtime {
 	root := r.localRuntime()
-	if !root.settingsTurned {
+	if root.settingsGeneration == 0 {
 		return root
 	}
 	return root.settingsShown
@@ -39,6 +61,14 @@ func (r *Runtime) shownSettings() *Runtime {
 
 // showsSettings reports whether the pages hold this Runtime's Node.
 func (r *Runtime) showsSettings() bool { return r.shownSettings() == r }
+
+// settingsCurrent checks whether a response still belongs to the same
+// binding, including when the user switches away and back before it arrives.
+func (r *Runtime) settingsCurrent() func() bool {
+	root := r.localRuntime()
+	generation := root.settingsGeneration
+	return func() bool { return root.settingsGeneration == generation && r.showsSettings() }
+}
 
 // initNodeSettings builds the pages' actions once, on the local Runtime.
 // Each runs on the Node shown when it is called; with no Node shown a save
@@ -54,21 +84,28 @@ func (r *Runtime) initNodeSettings() {
 		return true
 	}
 	m := r.App.Settings
-	m.SavePower = func() { on(func(owner *Runtime) { owner.savePower() }) }
+	onMachine := func(act func(owner *Runtime)) {
+		on(func(owner *Runtime) {
+			if owner.machineSettingsStatus() == "" {
+				act(owner)
+			}
+		})
+	}
+	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
-	m.SaveCodeIndex = func() { on(func(owner *Runtime) { owner.saveCodeIndex() }) }
+	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },
 		Available: func() bool {
-			for _, host := range r.providerHosts() {
-				if host.Connected {
-					return true
-				}
+			owner := r.localRuntime()
+			if owner.App.Page == shell.SettingsPage && owner.App.Settings.Section == settings.Providers {
+				owner = owner.managedSettingsNode()
 			}
-			return false
+			return owner != nil && owner.controller.Connected()
 		},
 		Hosts:         r.providerHosts,
 		DefaultTarget: r.providerDefaultTarget,
+		CatalogAt:     r.providerCatalogStatus,
 		Save: func(draft settings.ProviderDraft, done func(settings.ProviderSaveResult)) {
 			if root := r.localRuntime(); root != nil {
 				root.saveManagedProvider(draft, done)
@@ -194,13 +231,22 @@ func (r *Runtime) nodeSettingsFrame() {
 	if owner != root.shownSettings() {
 		root.showNodeSettings(owner)
 	}
+	m := root.App.Settings
+	status := owner.machineSettingsStatus()
+	allowedNow := status == "" && m.ExecutionSettingsStatus != ""
+	m.ExecutionSettingsStatus = status
 	if owner == nil {
 		return
 	}
 	owner.teamsFrame()
 	owner.followConnectorPackages()
-	if owner.snapshot().PowerSettingsRevision != owner.powerObservedRevision && !root.App.Settings.Power.Pending {
-		owner.readPower()
+	if status == "" {
+		if allowedNow || owner.snapshot().PowerSettingsRevision != owner.powerObservedRevision && !m.Power.Pending {
+			owner.readPower()
+		}
+		if allowedNow {
+			owner.readCodeIndex()
+		}
 	}
 	owner.followCompaction()
 	owner.followModelCatalog()
@@ -214,9 +260,15 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	if previous := root.shownSettings(); previous != nil {
 		previous.leaveNodeSettings()
 	}
-	root.settingsShown, root.settingsTurned = owner, true
+	root.settingsShown = owner
+	root.settingsGeneration++
 	m := root.App.Settings
 	m.CloseManagedNodeDialogs()
+	var nextNode string
+	if owner != nil {
+		nextNode = owner.controller.Target().String()
+	}
+	m.CloseProviderEditor(nextNode)
 	// Without a Node the controls wait, as the other host pages do.
 	waiting := owner == nil
 	m.Power, m.Compaction, m.Concurrency = settings.Stored[bool]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}
@@ -230,6 +282,8 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	m.SetBusy(settings.BusyCatalog, false)
 	if owner != nil {
 		owner.enterNodeSettings()
+	} else {
+		root.projectProviderSnapshot()
 	}
 }
 
@@ -240,8 +294,10 @@ func (r *Runtime) enterNodeSettings() {
 		r.teams = newTeamState()
 	}
 	r.media.seen = ""
-	r.readPower()
-	r.readCodeIndex()
+	if r.machineSettingsStatus() == "" {
+		r.readPower()
+		r.readCodeIndex()
+	}
 	r.readProviders()
 	r.teamsFrame()
 	r.readTeamSettings()

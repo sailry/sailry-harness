@@ -2,6 +2,8 @@ package live
 
 import (
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
@@ -11,6 +13,8 @@ import (
 
 type workspaceSettingsState struct {
 	worktree        protocol.WorktreeID
+	contextWorktree protocol.WorktreeID
+	chosenWorktree  protocol.WorktreeID
 	hooks           protocol.HooksSettings
 	sandboxed       bool
 	sandboxRevision uint64
@@ -47,9 +51,6 @@ func (r *Runtime) workspaceHooksModel(id protocol.WorktreeID) *settings.Stored[s
 }
 func (r *Runtime) captureWorkspaceSettings() {
 	r.initWorkspaceSettings()
-	if r.parent == nil {
-		r.workspaceSettings.sandboxModel = r.App.Settings.Sandbox
-	}
 	if r.localRuntime().workspaceSettingsOwner != r {
 		return
 	}
@@ -58,9 +59,6 @@ func (r *Runtime) captureWorkspaceSettings() {
 	}
 }
 func (r *Runtime) publishWorkspaceSettings() {
-	if r.parent == nil {
-		r.App.Settings.Sandbox = r.workspaceSettings.sandboxModel
-	}
 	if r.localRuntime().workspaceSettingsOwner != r {
 		return
 	}
@@ -73,30 +71,22 @@ func (r *Runtime) bindWorkspaceSettings() {
 	root := r.localRuntime()
 	r.initWorkspaceSettings()
 	root.workspaceSettingsOwner = r
-	root.App.Settings.SaveSandbox = root.saveSandbox
 	root.App.Settings.SaveHooks = r.saveWorkspaceHooks
 	root.App.Settings.HooksContext = r.hookContext
 	root.App.Settings.HooksSandboxed = r.hooksSandboxed
+	root.App.Settings.SelectHookWorktree = r.selectHookWorktree
 	r.publishWorkspaceSettings()
 }
 
-// workspaceSettingsFrame keeps sandbox configuration local and hooks on the
-// selected project's execution Node. Hook editors and in-flight saves retain
-// their captured owner and worktree while navigation changes.
+// workspaceSettingsFrame follows the settings host for sandbox configuration
+// and the worktree for hooks. Hook editors retain their captured context.
 func (r *Runtime) workspaceSettingsFrame() {
 	root := r.localRuntime()
-	root.captureWorkspaceSettings()
-	root.App.Settings.SaveSandbox = root.saveSandbox
-	state := &root.workspaceSettings
-	if (!state.sandboxKnown || root.snapshot().SandboxSettingsRevision > state.sandboxRevision) && !state.sandboxModel.Pending {
-		root.readSandbox()
-	}
+	root.sandboxFrame()
 	owner := root.selectedRuntime()
 	previous := root.workspaceSettingsOwner
 	if previous != nil {
-		if previous != root {
-			previous.captureWorkspaceSettings()
-		}
+		previous.captureWorkspaceSettings()
 		if root.App.Settings.HooksEditing() {
 			owner = previous
 		}
@@ -105,7 +95,8 @@ func (r *Runtime) workspaceSettingsFrame() {
 		root.workspaceSettingsOwner = nil
 		m := root.App.Settings
 		m.SaveHooks, m.HooksSandboxed = nil, nil
-		m.HooksContext = func() (string, bool) { return "", false }
+		m.HooksContext = func() (settings.HookTarget, bool) { return settings.HookTarget{}, false }
+		m.SelectHookWorktree = nil
 		m.Hooks = settings.Stored[settings.HookSettings]{}
 	} else {
 		if previous != owner {
@@ -113,7 +104,28 @@ func (r *Runtime) workspaceSettingsFrame() {
 		}
 		owner.refreshWorkspaceSettings()
 	}
-	root.publishWorkspaceSettings()
+}
+
+func (r *Runtime) sandboxFrame() {
+	owner := r.shownSettings()
+	m := r.App.Settings
+	if owner.machineSettingsStatus() != "" {
+		m.SaveSandbox = nil
+		m.Sandbox = settings.Stored[bool]{Pending: true}
+		return
+	}
+	owner.initWorkspaceSettings()
+	state := &owner.workspaceSettings
+	m.SaveSandbox = func() {
+		if owner.showsSettings() && owner.machineSettingsStatus() == "" {
+			state.sandboxModel.Draft = m.Sandbox.Draft
+			owner.saveSandbox()
+		}
+	}
+	if (!state.sandboxKnown || owner.snapshot().SandboxSettingsRevision > state.sandboxRevision) && !state.sandboxModel.Pending {
+		owner.readSandbox()
+	}
+	owner.publishSandbox()
 }
 
 func (r *Runtime) refreshWorkspaceSettings() {
@@ -134,7 +146,21 @@ func (r *Runtime) refreshWorkspaceSettings() {
 			id = session.Worktree
 		}
 	}
-	if id != state.worktree && !r.App.Settings.HooksEditing() {
+	if r.App.Settings.HooksEditing() {
+		r.publishWorkspaceSettings()
+		return
+	}
+	if id != state.contextWorktree {
+		state.contextWorktree, state.chosenWorktree = id, protocol.WorktreeID{}
+	}
+	if state.chosenWorktree != (protocol.WorktreeID{}) {
+		if _, found := r.hookWorktree(state.chosenWorktree); found {
+			id = state.chosenWorktree
+		} else {
+			state.chosenWorktree = protocol.WorktreeID{}
+		}
+	}
+	if id != state.worktree {
 		state.worktree = id
 		state.hooks = protocol.DefaultHooksSettings()
 		state.sandboxed = false
@@ -145,32 +171,70 @@ func (r *Runtime) refreshWorkspaceSettings() {
 	}
 	r.publishWorkspaceSettings()
 }
-func (r *Runtime) hookContext() (string, bool) {
-	id := r.workspaceSettings.worktree
+func (r *Runtime) hookWorktree(id protocol.WorktreeID) (protocol.Worktree, bool) {
 	if id == (protocol.WorktreeID{}) {
-		return "", false
+		return protocol.Worktree{}, false
 	}
-	var tree protocol.Worktree
-	found := false
-	for _, candidate := range r.snapshot().Worktrees {
-		if candidate.ID == id {
-			tree, found = candidate, true
+	for _, tree := range r.snapshot().Worktrees {
+		if tree.ID == id {
+			return tree, tree.Project != nil
+		}
+	}
+	if r.workspace != nil {
+		tree, found := r.workspace.admitted[id]
+		return tree, found && tree.Project != nil
+	}
+	return protocol.Worktree{}, false
+}
+
+func (r *Runtime) hookContext() (settings.HookTarget, bool) {
+	tree, ok := r.hookWorktree(r.workspaceSettings.worktree)
+	if !ok {
+		return settings.HookTarget{}, false
+	}
+	target := settings.HookTarget{
+		Host: r.packageHostLabel(), Project: tree.Project.String(), Path: tree.Path, Worktree: tree.ID.String(),
+		Worktrees: []settings.HookWorktree{{ID: tree.ID.String(), Path: tree.Path}},
+	}
+	snapshot := r.snapshot()
+	for _, project := range snapshot.Projects {
+		if project.ID == *tree.Project {
+			target.Project = project.Name
 			break
 		}
 	}
-	if !found && r.workspace != nil {
-		tree, found = r.workspace.admitted[id]
-	}
-	if !found || tree.Project == nil {
-		return "", false
-	}
-	label := r.controller.Target().String() + " · " + tree.Path + " · " + tree.ID.String()
-	if r.workspace != nil {
-		if project := r.workspace.projects[id]; project != nil && project.status.Branch != nil {
-			label += " · " + *project.status.Branch
+	appendTree := func(candidate protocol.Worktree) {
+		if candidate.ID != tree.ID && candidate.Project != nil && *candidate.Project == *tree.Project &&
+			!slices.ContainsFunc(target.Worktrees, func(x settings.HookWorktree) bool { return x.ID == candidate.ID.String() }) {
+			target.Worktrees = append(target.Worktrees, settings.HookWorktree{ID: candidate.ID.String(), Path: candidate.Path})
 		}
 	}
-	return label, true
+	for _, candidate := range snapshot.Worktrees {
+		appendTree(candidate)
+	}
+	if r.workspace != nil {
+		for _, candidate := range r.workspace.admitted {
+			appendTree(candidate)
+		}
+	}
+	slices.SortFunc(target.Worktrees, func(a, b settings.HookWorktree) int { return strings.Compare(a.Path, b.Path) })
+	return target, true
+}
+
+func (r *Runtime) selectHookWorktree(value string) {
+	if r.localRuntime().workspaceSettingsOwner != r || r.App.Settings.HooksEditing() || r.App.Settings.Hooks.Pending {
+		return
+	}
+	id, err := protocol.ParseWorktreeID(value)
+	if err != nil {
+		return
+	}
+	base, baseValid := r.hookWorktree(r.workspaceSettings.contextWorktree)
+	chosen, chosenValid := r.hookWorktree(id)
+	if baseValid && chosenValid && *base.Project == *chosen.Project {
+		r.workspaceSettings.chosenWorktree = id
+		r.refreshWorkspaceSettings()
+	}
 }
 func (r *Runtime) hooksSandboxed() bool {
 	return r.workspaceSettings.sandboxed
@@ -301,10 +365,10 @@ func (r *Runtime) readSandbox() {
 	m.Pending = true
 	r.workspaceSettings.sandboxRevision = r.snapshot().SandboxSettingsRevision
 	r.workspaceSettings.sandboxKnown = true
-	r.publishWorkspaceSettings()
+	r.publishSandbox()
 	r.execute(protocol.Command{Kind: "read_sandbox_settings"}, func(c *ui.Context, out protocol.Output, err error) {
 		m.Pending = false
-		defer r.publishWorkspaceSettings()
+		defer r.publishSandbox()
 		if err != nil {
 			r.reportKeys(c, err, "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown")
 			return
@@ -325,16 +389,15 @@ func (r *Runtime) saveSandbox() {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the sandbox execution host is unavailable"))
 		return
 	}
-	r.captureWorkspaceSettings()
 	m := &r.workspaceSettings.sandboxModel
 	if m.Pending {
 		return
 	}
 	m.Pending = true
-	r.publishWorkspaceSettings()
+	r.publishSandbox()
 	r.saveSettingRetry(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, nil, r.saveSandbox, func(out protocol.Output, ok bool) {
 		m.Pending = false
-		defer r.publishWorkspaceSettings()
+		defer r.publishSandbox()
 		if !ok {
 			return
 		}
@@ -345,4 +408,10 @@ func (r *Runtime) saveSandbox() {
 		m.Saved, m.Revision = value.Enabled, value.Revision
 		r.workspaceSettings.sandboxRevision = value.Revision
 	})
+}
+
+func (r *Runtime) publishSandbox() {
+	if r.showsSettings() {
+		r.App.Settings.Sandbox = r.workspaceSettings.sandboxModel
+	}
 }

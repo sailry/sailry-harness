@@ -71,6 +71,17 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 	if own.User == nil || len(own.Projects) != 1 || len(own.Worktrees) != 1 {
 		t.Fatal("owner snapshot missing resources or identity")
 	}
+	t.Run("only administrators may change the machine code index", func(t *testing.T) {
+		command := protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{
+			Settings: protocol.CodeIndexSettings{Enabled: false},
+		}}
+		if response := send(other, command); response.Fault == nil || response.Fault.Code != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("non-administrator code index write: %+v", response)
+		}
+		if response := send(owner, command); response.Fault != nil {
+			t.Fatalf("administrator code index write: %+v", response)
+		}
+	})
 	tree := own.Worktrees[0].ID
 	denied := send(other, protocol.Command{Kind: "read_worktree_catalog", Data: protocol.CommandReadWorktreeCatalogPayload{Worktree: tree}})
 	if denied.Fault == nil || denied.Fault.Code != protocol.ErrorCodePermissionDenied {

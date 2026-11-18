@@ -4,19 +4,164 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestManagedSystemSettings(t *testing.T) {
+	app := shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	app.Page = shell.SettingsPage
+	var owners [2]*Runtime
+	var transports [2]*conversationTestTransport
+	var terminalSaveIDs []protocol.RequestID
+	for index := range owners {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{byte(index + 1)}
+		snapshot.User = &protocol.User{ID: protocol.UserID{byte(index + 1)}, Administrator: index == 0, State: "active"}
+		snapshot.Sessions = []protocol.Session{{ID: protocol.NewSessionID(), Revision: uint64(index + 1)}}
+		transport := &conversationTestTransport{snapshot: snapshot}
+		transports[index] = transport
+		controller := client.New(transport)
+		if err := controller.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { controller.Close() })
+		owners[index] = &Runtime{ctx: t.Context(), App: app, controller: controller, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		transport.handle = func(request protocol.Request) (link.Response, bool) {
+			out := func(kind string, value any) (link.Response, bool) {
+				return link.Response{Output: protocol.Output{Kind: kind, Data: value}}, true
+			}
+			switch request.Command.Kind {
+			case "read_terminal_settings":
+				return out("terminal_settings", protocol.TerminalSettings{Revision: uint64(index + 1)})
+			case "list_shells":
+				return out("shells", []protocol.TerminalShell{{Path: []string{"/bin/local", "/bin/remote"}[index]}})
+			case "save_terminal_settings":
+				terminalSaveIDs = append(terminalSaveIDs, request.ID)
+				if len(terminalSaveIDs) == 1 {
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}}, true
+				}
+				value, _ := detail[protocol.TerminalSettings](request.Command.Data)
+				value.Revision++
+				return out("terminal_settings", value)
+			case "inspect_request":
+				value, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
+				return out("request_outcome", protocol.OutputRequestOutcomePayload{ID: value.ID, Outcome: protocol.RequestOutcome{Kind: "admitted"}})
+			case "read_backup_settings":
+				return out("backup_settings", protocol.BackupSettings{Revision: 10, Local: &protocol.BackupLocal{Directory: "/backups/local", Enabled: true}})
+			case "archive_sessions":
+				return out("sessions_archived", snapshot.Sessions)
+			}
+			return link.Response{}, false
+		}
+	}
+	root, remote := owners[0], owners[1]
+	remote.parent = root
+	remoteID := remote.controller.Target().String()
+	root.bindings = map[string]*Runtime{remoteID: remote}
+	m := app.Settings
+	var retry func()
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		root.mu.Lock()
+		queue := root.queue
+		root.queue = nil
+		root.mu.Unlock()
+		for _, finish := range queue {
+			finish(c)
+		}
+		root.terminalSettingsFrame()
+		root.backupSettingsFrame(c)
+		ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
+			for _, toast := range shown {
+				if toast.OnAction != nil {
+					retry = toast.OnAction
+				}
+			}
+		})
+	}, 640, 480)
+	settle := func() {
+		for range 4 {
+			tester.Frame()
+			root.workers.Wait()
+			remote.workers.Wait()
+		}
+	}
+	requests := func(index int, kind string) []protocol.Request {
+		transport := transports[index]
+		transport.mu.Lock()
+		defer transport.mu.Unlock()
+		var selected []protocol.Request
+		for _, request := range transport.requests {
+			if request.Command.Kind == kind {
+				selected = append(selected, request)
+			}
+		}
+		return selected
+	}
+
+	m.Open(settings.Terminal)
+	settle()
+	if m.SaveTerminal == nil || m.Host.Revision != 1 || m.Shells[1].Path != "/bin/local" {
+		t.Fatalf("local terminal settings: %+v %+v", m.Host, m.Shells)
+	}
+	m.Host.Draft.Env = []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}
+	m.SaveTerminal()
+	settle()
+	if retry == nil {
+		t.Fatal("the original save's outcome was not available for retry")
+	}
+	m.ManagedNode = remoteID
+	settle()
+	if m.Host.Revision != 2 || m.Shells[1].Path != "/bin/remote" || len(m.Host.Draft.Env) != 0 {
+		t.Fatalf("terminal settings did not turn to the selected Host: %+v %+v", m.Host, m.Shells)
+	}
+	retry()
+	settle()
+	if len(terminalSaveIDs) != 2 || terminalSaveIDs[0] != terminalSaveIDs[1] || len(requests(0, "save_terminal_settings")) != 2 || len(requests(1, "save_terminal_settings")) != 0 || len(m.Host.Draft.Env) != 0 {
+		t.Fatalf("terminal retry changed ownership or identity: %v, remote draft %+v", terminalSaveIDs, m.Host.Draft)
+	}
+
+	m.Open(settings.Backup)
+	settle()
+	if a := m.BackupActions; a.Status != "permission_denied" || a.ArchiveUnavailable || a.Restartable || m.Sessions != 1 || len(requests(1, "read_backup_settings")) != 0 {
+		t.Fatalf("backup authorization and session scope were mixed: %q, sessions %d", a.Status, m.Sessions)
+	}
+	m.BackupActions.ArchiveAll()
+	settle()
+	received := requests(1, "archive_sessions")
+	if len(received) != 1 || len(requests(0, "archive_sessions")) != 0 {
+		t.Fatalf("archive ran against the wrong Node: %+v", received)
+	}
+	archived, _ := detail[protocol.CommandArchiveSessionsPayload](received[0].Command.Data)
+	session := transports[1].snapshot.Sessions[0]
+	if !slices.Equal(archived.Expected, []protocol.SessionRevision{{Session: session.ID, Revision: session.Revision}}) {
+		t.Fatalf("archive captured the wrong sessions: %+v", archived.Expected)
+	}
+	m.ManagedNode = "missing-host"
+	settle()
+	if m.BackupActions.Status != "connections_offline" || !m.BackupActions.ArchiveUnavailable || m.Sessions != 0 || m.SaveTerminal != nil {
+		t.Fatal("missing Host retained the previous settings actions")
+	}
+	m.ManagedNode = ""
+	settle()
+	if m.BackupActions.Status != "" || m.Backup.Saved.Directory != "/backups/local" || m.Backup.Revision != 10 || len(requests(0, "read_backup_settings")) != 1 {
+		t.Fatalf("returning to this device loaded the wrong backup settings: %+v", m.Backup)
+	}
+}
 
 // checkBackupSettingsHelpers covers the page's projection of a Node's
 // backup settings and the requests its drafts become.

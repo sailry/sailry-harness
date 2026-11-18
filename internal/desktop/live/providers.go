@@ -1,7 +1,6 @@
 package live
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -44,11 +43,12 @@ func (r *Runtime) refreshModelCatalog() {
 	if r.modelCatalogLoading {
 		return
 	}
+	current := r.settingsCurrent()
 	r.modelCatalogLoading = true
 	r.App.Settings.SetBusy(settings.BusyCatalog, true)
 	r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
 		r.modelCatalogLoading = false
-		if !r.showsSettings() {
+		if !current() {
 			return
 		}
 		r.App.Settings.SetBusy(settings.BusyCatalog, false)
@@ -82,7 +82,9 @@ func (r *Runtime) followModelCatalog() {
 func (r *Runtime) readProviders() {
 	r.compactionObserved = r.snapshot().CompactionSettingsRevision
 	r.readProviderPresets()
-	r.fetchCompaction()
+	if r.showsSettings() {
+		r.fetchCompaction()
+	}
 	r.projectProviderSnapshot()
 }
 
@@ -119,28 +121,31 @@ func (r *Runtime) readProviderPresets() {
 // A draft the user holds stays; only the saved value and revision move, and
 // never back to an older revision.
 func (r *Runtime) fetchCompaction() {
-	result, failed := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
-	r.enqueue(func(c *ui.Context) {
-		if !r.showsSettings() {
-			return
-		}
-		if failed != nil {
-			r.reportKeys(c, failed, "compaction_settings_load_failed", "compaction_settings_conflict", "compaction_settings_load_failed")
-			return
-		}
-		if value, ok := detail[protocol.ConversationCompactionSettings](result.Data); ok {
-			field := &r.App.Settings.Compaction
-			// A read the Node answered before a save can arrive after the
-			// save's answer; the older revision does not replace the newer.
-			if !field.Pending && value.Revision >= field.Revision {
-				pristine := field.Draft == field.Saved
-				field.Saved = float64(value.Percent)
-				if pristine {
-					field.Draft = field.Saved
-				}
-				field.Revision = value.Revision
+	current := r.settingsCurrent()
+	r.async(func() {
+		result, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
+		r.enqueue(func(c *ui.Context) {
+			if !current() {
+				return
 			}
-		}
+			if err != nil {
+				r.reportKeys(c, err, "compaction_settings_load_failed", "compaction_settings_conflict", "compaction_settings_load_failed")
+				return
+			}
+			if value, ok := detail[protocol.ConversationCompactionSettings](result.Data); ok {
+				field := &r.App.Settings.Compaction
+				// A read the Node answered before a save can arrive after the
+				// save's answer; the older revision does not replace the newer.
+				if !field.Pending && value.Revision >= field.Revision {
+					pristine := field.Draft == field.Saved
+					field.Saved = float64(value.Percent)
+					if pristine {
+						field.Draft = field.Saved
+					}
+					field.Revision = value.Revision
+				}
+			}
+		})
 	})
 }
 
@@ -155,7 +160,7 @@ func (r *Runtime) followCompaction() {
 	}
 	r.compactionObserved = revision
 	if field.Revision < revision {
-		r.async(r.fetchCompaction)
+		r.fetchCompaction()
 	}
 }
 
@@ -408,9 +413,9 @@ func (r *Runtime) projectProviderSnapshot() {
 			owners = append(owners, owner)
 		}
 	}
-	var channels []viewmodel.Channel
 	var brands []viewmodel.Brand
 	channelsByNode := make(map[string][]viewmodel.Channel, len(owners)+1)
+	revisions := map[preferences.ProviderMember]uint64{}
 	for _, owner := range owners {
 		owner.initProviders()
 		if loadAccountDetails {
@@ -422,7 +427,11 @@ func (r *Runtime) projectProviderSnapshot() {
 		if owner == root {
 			channelsByNode[""] = rows
 		}
-		channels = append(channels, rows...)
+		for _, row := range rows {
+			if member, ok := providerMember(row.Node, providerIDFromString(row.ID)); ok {
+				revisions[member] = row.Revision
+			}
+		}
 		brands = append(brands, owner.providerCatalogBrands...)
 	}
 	groups := map[preferences.ProviderMember]preferences.ProviderGroup{}
@@ -433,56 +442,62 @@ func (r *Runtime) projectProviderSnapshot() {
 			}
 		}
 	}
-	revisions := make(map[preferences.ProviderMember]uint64, len(channels))
-	for _, channel := range channels {
-		if member, ok := providerMember(channel.Node, providerIDFromString(channel.ID)); ok {
-			revisions[member] = channel.Revision
-		}
-	}
 	seenGroups := map[protocol.RequestID]bool{}
-	projected := channels[:0]
-	for _, channel := range channels {
-		var node protocol.NodeID
-		if raw, err := hex.DecodeString(channel.Node); err == nil && len(raw) == len(node) {
-			copy(node[:], raw)
-		}
-		providerID, parseErr := protocol.ParseProviderID(channel.ID)
-		group, grouped := groups[preferences.ProviderMember{Node: node, Provider: providerID}]
-		grouped = grouped && parseErr == nil
-		if grouped {
-			channel.Group = group.ID.String()
-			channel.Targets = nil
-			channel.TargetIDs = map[string]string{}
-			channel.TargetRevisions = map[string]uint64{}
-			for _, member := range group.Members {
-				host := member.Node.String()
-				channel.Targets = append(channel.Targets, host)
-				channel.TargetIDs[host] = member.Provider.String()
-				channel.TargetRevisions[host] = revisions[member]
+	var channels []viewmodel.Channel
+	for _, owner := range owners {
+		node := owner.controller.Target()
+		rows := channelsByNode[node.String()]
+		for index := range rows {
+			channel := &rows[index]
+			group, grouped := groups[preferences.ProviderMember{Node: node, Provider: providerIDFromString(channel.ID)}]
+			if grouped {
+				channel.Group = group.ID.String()
+				channel.Targets = nil
+				channel.TargetIDs = map[string]string{}
+				channel.TargetRevisions = map[string]uint64{}
+				for _, member := range group.Members {
+					host := member.Node.String()
+					channel.Targets = append(channel.Targets, host)
+					channel.TargetIDs[host] = member.Provider.String()
+					channel.TargetRevisions[host] = revisions[member]
+				}
+				if seenGroups[group.ID] {
+					continue
+				}
+				seenGroups[group.ID] = true
+			} else {
+				channel.TargetIDs = map[string]string{channel.Node: channel.ID}
+				channel.TargetRevisions = map[string]uint64{channel.Node: channel.Revision}
 			}
-			if seenGroups[group.ID] {
-				continue
-			}
-			seenGroups[group.ID] = true
-		} else {
-			channel.Targets = []string{channel.Node}
-			channel.TargetIDs = map[string]string{channel.Node: channel.ID}
-			channel.TargetRevisions = map[string]uint64{channel.Node: channel.Revision}
+			channels = append(channels, *channel)
 		}
-		projected = append(projected, channel)
 	}
-	channels = projected
 	root.App.Settings.Channels, root.App.Settings.ChannelsByNode = channels, channelsByNode
 	root.App.Settings.Brands = brands
-	snapshot := root.snapshot()
 	if owner := root.shownSettings(); owner != nil {
 		owner.followMedia(owner.snapshot())
 	}
-	status := snapshot.ModelCatalog
-	root.App.Settings.Catalog = viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
-	if status.UpdatedAtMs != nil {
-		root.App.Settings.Catalog.Last = time.UnixMilli(int64(*status.UpdatedAtMs)).Local().Format("2006-01-02 15:04")
+	catalogOwner := root
+	if loadAccountDetails {
+		catalogOwner = root.shownSettings()
 	}
+	root.App.Settings.Catalog = viewmodel.Catalog{}
+	if catalogOwner != nil {
+		root.App.Settings.Catalog = root.providerCatalogStatus(catalogOwner.controller.Target().String())
+	}
+}
+
+func (r *Runtime) providerCatalogStatus(node string) viewmodel.Catalog {
+	owner := r.providerOwner(node)
+	if owner == nil {
+		return viewmodel.Catalog{}
+	}
+	status := owner.snapshot().ModelCatalog
+	catalog := viewmodel.Catalog{Updated: status.UpdatedAtMs != nil, Bundled: status.Bundled, Scores: status.Scores.UpdatedAtMs != nil}
+	if status.UpdatedAtMs != nil {
+		catalog.Last = time.UnixMilli(int64(*status.UpdatedAtMs)).Local().Format("2006-01-02 15:04")
+	}
+	return catalog
 }
 
 func (r *Runtime) projectNodeProviders() []viewmodel.Channel {

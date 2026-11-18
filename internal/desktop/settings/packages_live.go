@@ -16,7 +16,6 @@ type PackageActions struct {
 	Update         func([]string)
 	Toggle         func(string, bool)
 	Configure      func(string)
-	SaveSettings   func(string, []viewmodel.Setting, map[string]int, func(bool))
 	Uninstall      func(string, func(bool))
 	Install        func(string, string, func(bool))
 	Browse         func(string, string, func() bool, func(string)) // a package file of this machine, where Install reads it: the local host's name, the directory first shown, whether the form still wants it, the chosen path
@@ -71,7 +70,32 @@ func (m *Model) OpenPackageConfiguration(id, name string, fields []viewmodel.Set
 	m.config = pluginConfig{open: true, generation: m.config.generation + 1, id: id, name: name, fields: fields, secrets: map[string]int{}, tabs: tabs}
 }
 
-func (m *Model) ClosePackageConfiguration() { m.config.open = false }
+// OpenNodePackageConfiguration binds the form and its models to its owner.
+func (m *Model) OpenNodePackageConfiguration(id, name, node string, fields []viewmodel.Setting, tabs []viewmodel.SettingsTab, save func([]viewmodel.Setting, map[string]int, func(bool))) {
+	m.OpenPackageConfiguration(id, name, fields, tabs...)
+	m.config.node, m.config.save = node, save
+}
+
+func (m *Model) ClosePackageConfiguration() {
+	m.config = pluginConfig{generation: m.config.generation + 1}
+}
+
+func (m *Model) CloseManagedPackageDialogs() {
+	m.ClosePackageConfiguration()
+	m.install = pluginInstall{generation: m.install.generation + 1}
+	m.download = pluginDownload{generation: m.download.generation + 1}
+	m.skillAdd = skillInstall{generation: m.skillAdd.generation + 1}
+	m.updates, m.uninstalling, m.skillRemoving, m.checked = pluginUpdates{}, "", "", false
+	if m.PackageActions != nil {
+		if selection := m.PackageActions.Selection; selection != nil {
+			selection.Open = false
+			if !selection.Pending && selection.Cancel != nil {
+				selection.Cancel()
+				selection.Cancel = nil
+			}
+		}
+	}
+}
 
 func (m *Model) MarkUpdatesChecked() { m.checked = true }
 

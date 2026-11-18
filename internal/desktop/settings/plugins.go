@@ -49,6 +49,8 @@ type pluginConfig struct {
 	// dialog: a Desktop package configured while another host is selected
 	// is not in that host's list.
 	name    string
+	node    string
+	save    func([]viewmodel.Setting, map[string]int, func(bool))
 	fields  []preview.Setting
 	secrets map[string]int
 	tabs    []viewmodel.SettingsTab
@@ -152,6 +154,10 @@ func iconTile(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size flo
 
 func plugins(c *ui.Context, s *State) {
 	m := s.Model
+	if m.packageTargetOffline() {
+		settingsTargetStatus(c, "connections_offline")
+		return
+	}
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	shown := Classified(m.Packages, preview.KindPlugin)
 	updates := 0
@@ -225,8 +231,9 @@ func plugins(c *ui.Context, s *State) {
 		if confirm(c, "uninstall", &open, t("plugins_uninstall"), t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
 			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
 				id := p.ID
+				details := s.Details
 				m.PackageActions.Uninstall(id, func(ok bool) {
-					if ok && s.Details != nil && s.Details.ID == id {
+					if ok && details != nil && s.Details == details && details.ID == id {
 						s.Details = nil
 					}
 				})
@@ -382,7 +389,7 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 							f.Value = f.Options[chosen]
 						}
 					case "model":
-						PluginModelField(c, e.fields, f, m.modelOptions(m.PackageNode), label, e.pending)
+						PluginModelField(c, e.fields, f, m.modelOptions(e.node), label, e.pending)
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {
@@ -403,27 +410,22 @@ func PackageConfigurationDialog(c *ui.Context, m *Model) {
 				})
 			}
 		})
-		footer(c, t("settings_save"), func() { e.open = false }, func() {
-			if e.pending {
+		footer(c, t("settings_save"), m.ClosePackageConfiguration, func() {
+			if !e.open || e.pending {
 				return
 			}
 			if problem := e.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
 				return
 			}
-			if m.PackageActions != nil && m.PackageActions.SaveSettings != nil {
+			if e.save != nil {
 				e.pending = true
 				id, generation := e.id, e.generation
-				m.PackageActions.SaveSettings(id, slices.Clone(e.fields), e.secrets, func(ok bool) {
+				e.save(slices.Clone(e.fields), e.secrets, func(ok bool) {
 					if e.id == id && e.generation == generation {
 						e.pending = false
 						if ok {
-							e.open = false
-							for index := range e.fields {
-								if e.fields[index].Kind == "secret" {
-									e.fields[index].Value = ""
-								}
-							}
+							m.ClosePackageConfiguration()
 						}
 					}
 				})

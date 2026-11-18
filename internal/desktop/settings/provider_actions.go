@@ -37,8 +37,11 @@ type ProviderDraft struct {
 
 // ProviderHost is a Node available to own a model channel.
 type ProviderHost struct {
-	Node, Name string
-	Connected  bool
+	Node, Name, Platform string
+	Connected            bool
+	// Local marks this computer's Node, which shows as the local device
+	// rather than its network hostname.
+	Local bool
 }
 
 // ProviderSaveResult reports each Node's outcome for a channel save.
@@ -58,6 +61,7 @@ type ProviderActions struct {
 	Available      func() bool
 	Hosts          func() []ProviderHost
 	DefaultTarget  func() string
+	CatalogAt      func(node string) viewmodel.Catalog
 	Save           func(ProviderDraft, func(ProviderSaveResult))
 	Discover       func(ProviderDraft, func([]viewmodel.ChannelModel))
 	Enable         func(node, id string, revision uint64, enabled bool)

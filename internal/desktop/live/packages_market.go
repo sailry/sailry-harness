@@ -322,7 +322,7 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 		return
 	}
 	candidate, valid := detail[protocol.PluginInfo](report.Available.Data)
-	if !valid || candidate.Origin == nil || ensureDesktopPackage(candidate) != nil {
+	if !valid || candidate.Origin == nil || r.ensureDesktopPackage(candidate) != nil {
 		finish()
 		return
 	}
@@ -451,7 +451,7 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 		r.async(func() {
 			selection, err := r.inspectOfficialPackage(entry.ID, version)
 			if err == nil {
-				err = ensureDesktopPackage(selection.Info)
+				err = r.ensureDesktopPackage(selection.Info)
 			}
 			r.enqueue(func(c *ui.Context) {
 				if err != nil {
@@ -485,7 +485,7 @@ func (r *Runtime) installCatalogEntry(entry protocol.PluginCatalogEntry, source 
 				err = errors.New("plugin source does not match the selected catalog entry")
 			}
 			if err == nil {
-				err = ensureDesktopPackage(selection.Info)
+				err = r.ensureDesktopPackage(selection.Info)
 			}
 		}
 		r.enqueue(func(c *ui.Context) {

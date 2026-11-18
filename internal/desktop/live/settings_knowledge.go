@@ -28,9 +28,8 @@ type knowledgeState struct {
 	failed      bool
 }
 
-// knowledgeFrame keeps the page's collections on this Node: it reads them
-// on entering the page and after a reported change. A failed read is a
-// toast and is not tried again until the page is entered anew.
+// knowledgeFrame reads the controller's combined catalog and projects each
+// collection with the connected identity that can manage it.
 func (r *Runtime) knowledgeFrame(m *settings.Model, entered bool) {
 	s := &r.knowledge
 	if entered {
@@ -39,7 +38,27 @@ func (r *Runtime) knowledgeFrame(m *settings.Model, entered bool) {
 	if !s.reading && (!s.known || s.stale) && !s.failed {
 		r.readCollections()
 	}
-	m.Collections = knowledgeViews(s.collections, s.acting, s.unavailable)
+	m.Collections = knowledgeViews(s.collections, s.acting, s.unavailable, func(x protocol.KnowledgeCollection) bool {
+		return collectionWritable(r.collectionRuntime(x.Node), x.OwnerUser)
+	})
+}
+
+func (r *Runtime) collectionRuntime(node protocol.NodeID) *Runtime {
+	if node == (protocol.NodeID{}) {
+		return r.localRuntime()
+	}
+	return r.runtimeFor(node.String())
+}
+
+func collectionWritable(target *Runtime, owner protocol.UserID) bool {
+	if target == nil || !target.controller.Connected() {
+		return false
+	}
+	if owner == (protocol.UserID{}) {
+		return target.parent == nil
+	}
+	user := target.snapshot().User
+	return user != nil && user.ID == owner
 }
 
 func (r *Runtime) readCollections() {
@@ -97,19 +116,15 @@ func (r *Runtime) changeCollection(id string, command func(protocol.KnowledgeCol
 		return
 	}
 	x := s.collections[index]
+	owner := r.collectionRuntime(x.Node)
+	if s.unavailable[x.Node] || !collectionWritable(owner, x.OwnerUser) {
+		r.enqueue(func(c *ui.Context) { settings.Report(c, kit.Failed, settings.CollectionMessages) })
+		return
+	}
 	if s.acting == nil {
 		s.acting = map[string]bool{}
 	}
 	s.acting[knowledgeCollectionKey(x)] = true
-	owner := r
-	if x.Node != (protocol.NodeID{}) && x.Node != r.controller.Target() {
-		owner = r.localRuntime().runtimeFor(x.Node.String())
-		if owner == nil {
-			delete(s.acting, knowledgeCollectionKey(x))
-			r.enqueue(func(c *ui.Context) { settings.Report(c, kit.Failed, settings.CollectionMessages) })
-			return
-		}
-	}
 	owner.saveSetting(command(x), settings.CollectionMessages, func(output protocol.Output, ok bool) {
 		delete(s.acting, knowledgeCollectionKey(x))
 		s.stale = true
@@ -130,10 +145,10 @@ func (s *knowledgeState) accept(changed protocol.KnowledgeCollection) {
 }
 
 // knowledgeViews are the collections as the page's rows, by name.
-func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[string]bool, unavailable map[protocol.NodeID]bool) []viewmodel.KnowledgeCollection {
+func knowledgeViews(collections []protocol.KnowledgeCollection, acting map[string]bool, unavailable map[protocol.NodeID]bool, writable func(protocol.KnowledgeCollection) bool) []viewmodel.KnowledgeCollection {
 	views := make([]viewmodel.KnowledgeCollection, 0, len(collections))
 	for _, x := range collections {
-		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, Busy: acting[knowledgeCollectionKey(x)],
+		view := viewmodel.KnowledgeCollection{ID: knowledgeCollectionKey(x), Name: x.Definition.Name, ReadOnly: !writable(x), Busy: acting[knowledgeCollectionKey(x)],
 			Sources: x.Progress.Sources, Failed: x.Progress.Failed}
 		if x.Node != (protocol.NodeID{}) {
 			view.Node = x.Node.String()

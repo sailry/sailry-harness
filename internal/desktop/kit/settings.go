@@ -13,15 +13,21 @@ const PageWidth = 800
 
 // Page is a settings page: a scrolling column at most 800 wide, padded 24,
 // its title (18, semibold) and description (14, muted) over its groups 24
-// apart. key keeps each page's scroll place.
-func Page(c *ui.Context, key any, title, description string, body func()) ui.Element {
+// apart. Optional actions sit at the header's trailing edge, centered beside
+// its title and description. key keeps each page's scroll place.
+func Page(c *ui.Context, key any, title, description string, body func(), actions ...func()) ui.Element {
 	p := theme.Of(c)
 	return ui.Scroll(c.Key(key)).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(PageWidth).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
-			ui.Column(c).Gap(8).Children(func() {
-				ui.Text(c, title).FontSize(18).FontWeight(600).TextColor(p.Foreground)
-				if description != "" {
-					ui.Text(c, description).FontSize(14).TextColor(p.MutedForeground)
+			ui.Row(c.Key("heading")).Gap(16).AlignItems(ui.Center).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+					ui.Text(c, title).FontSize(18).FontWeight(600).TextColor(p.Foreground)
+					if description != "" {
+						ui.Text(c, description).FontSize(14).TextColor(p.MutedForeground)
+					}
+				})
+				if len(actions) > 0 && actions[0] != nil {
+					ui.Row(c.Key("actions")).Shrink(0).MaxWidthPercent(50).Gap(8).Children(actions[0])
 				}
 			})
 			body()

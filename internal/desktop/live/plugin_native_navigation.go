@@ -98,11 +98,15 @@ func (state *pluginNativeState) navigationOperations() {
 	}
 	operations["sailry/ui.openSettings"] = func(context.Context, []json.RawMessage) (json.RawMessage, error) {
 		return state.effect(func(view *ui.Context) {
-			if _, available := state.packageInfo(); !available {
+			info, available := state.packageInfo()
+			if !available {
 				return
 			}
 			root := state.runtime.localRuntime()
-			root.App.Host = state.runtime.controller.Target().String()
+			if root.openPluginSettings(state.runtime, info) {
+				return
+			}
+			root.selectPackageSettingsNode(state.runtime)
 			root.App.Settings.Open(settings.Plugins)
 			root.App.Navigate(shell.SettingsPage)
 			root.packagesFrame(view)
@@ -123,12 +127,16 @@ func (state *pluginNativeState) navigationOperations() {
 		if !state.scope.ControllerSettings() {
 			return nil, pluginNativeFault(protocol.ErrorCodePermissionDenied, "settings host selection requires a settings view")
 		}
-		if state.runtime.runtimeFor(id.String()) == nil {
+		owner := state.runtime.runtimeFor(id.String())
+		if owner == nil || !owner.controller.Connected() {
 			return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "settings host is unavailable")
 		}
 		return state.effect(func(view *ui.Context) {
 			root := state.runtime.localRuntime()
-			root.App.Host = id.String()
+			if !state.activeSettings() || root.runtimeFor(id.String()) != owner || !owner.controller.Connected() {
+				return
+			}
+			root.selectPackageSettingsNode(owner)
 			root.packagesFrame(view)
 		})
 	}
@@ -140,8 +148,7 @@ func (state *pluginNativeState) navigationOperations() {
 			if info, available := state.packageInfo(); !available || info.Settings == nil {
 				return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin configuration is unavailable")
 			}
-			root := state.runtime.localRuntime()
-			if root.App.Page != shell.SettingsPage || root.packageOwner() != state.runtime {
+			if !state.activeSettings() {
 				return nil, pluginNativeFault(protocol.ErrorCodeUnavailable, "plugin settings view is inactive")
 			}
 			state.runtime.configurePackage(state.scope.Package.Name)
@@ -199,6 +206,16 @@ func (state *pluginNativeState) navigationOperations() {
 		}
 		return pluginNativeJSON(invoked)
 	}
+}
+
+func (state *pluginNativeState) activeSettings() bool {
+	root := state.runtime.localRuntime()
+	if root.pluginViews == nil || root.App.Page != shell.SettingsPage {
+		return false
+	}
+	entry, exists := root.pluginViews.settings[root.App.Settings.Section]
+	return exists && entry.owner == state.runtime && entry.scope.Package.Name == state.scope.Package.Name &&
+		root.pluginSettingsTargetCurrent(entry)
 }
 
 func (state *pluginNativeState) openSession(id protocol.SessionID, node ...*protocol.NodeID) {

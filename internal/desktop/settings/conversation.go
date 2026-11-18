@@ -15,7 +15,11 @@ var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settin
 // conversation is the host's command sandbox and code index, the sessions'
 // order, and how messages show.
 func conversation(c *ui.Context, m *Model) {
-	kit.Group(c, "execution", i18n.T(c, "settings_execution"), "", nil, func() {
+	managedNodeGroup(c, m, "execution", i18n.T(c, "settings_execution"), func() {
+		if m.ExecutionSettingsStatus != "" {
+			settingsTargetStatus(c, m.ExecutionSettingsStatus)
+			return
+		}
 		kit.Card(c, func() {
 			if settingSwitch(c, "sandbox", i18n.T(c, "settings_command_sandbox"), i18n.T(c, "settings_command_sandbox_description"), &m.Sandbox.Draft, m.Live && m.SaveSandbox == nil || m.Sandbox.Pending) {
 				if m.Live {

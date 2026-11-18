@@ -65,11 +65,21 @@ func MarketPage(c *ui.Context, s *State) {
 	}
 	ui.Scroll(c.Key("market")).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(20).Children(func() {
-			ui.Row(c.Key("heading")).Gap(12).Children(func() {
+			changedHost := false
+			ui.Row(c.Key("heading")).Gap(12).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t("market_title")).FontSize(20).FontWeight(600).Grow(1)
-				kit.Segmented(c, "kind", &m.MarketKind, []string{t("market_plugins"), t("market_skills"), t("market_themes")}, kit.SegmentedProps{}).Label(t("market_kind"))
+				if m.MarketKind != 2 {
+					ui.Row(c.Key("host")).Shrink(0).MaxWidthPercent(50).Children(func() {
+						changedHost = managedNodeSelect(c, m, &m.ManagedNode)
+					})
+				}
 			})
-			if m.MarketKind != 2 && managedNodeSelect(c, m, &m.PackageNode) {
+			if changedHost {
+				return
+			}
+			kit.Segmented(c, "kind", &m.MarketKind, []string{t("market_plugins"), t("market_skills"), t("market_themes")}, kit.SegmentedProps{}).Label(t("market_kind")).AlignSelf(ui.Start)
+			if m.MarketKind != 2 && m.packageTargetOffline() {
+				settingsTargetStatus(c, "connections_offline")
 				return
 			}
 			search := []string{"market_search_plugins", "market_search_skills", "market_search_themes"}[m.MarketKind]

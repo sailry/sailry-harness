@@ -18,7 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Backup: the controller's local storage, schedule and archives.
+// Settings › Backup: the selected Node's storage, schedule and archives.
 // Settings are read when the page shows and after every action; the
 // schedule's draft is saved shortly after it changes.
 
@@ -29,17 +29,23 @@ const backupScheduleDelay = 350 * time.Millisecond
 // against it. shown, visible and actions are the local runtime's: the Node
 // the page holds, whether the page showed last frame, and its actions.
 type backupSettingsState struct {
+	model   settings.Stored[settings.BackupTarget]
 	saved   protocol.BackupSettings
 	known   bool
 	reading bool
 	failed  bool
 	stale   bool
 	busy    bool
+	work    string
+	archive string
 	// retry is whether the storage save sent last is a request the Node
 	// has not confirmed (client.Retained), which the same save sends again.
 	retry bool
 	// storage is that save's command while its dialog may send it again.
 	storage *protocol.Command
+	// restores retain their original command and staging stream while the
+	// outcome is pending on this Node.
+	restores map[settings.BackupRestore]protocol.Command
 
 	records []settings.BackupRecord
 	partial bool
@@ -49,9 +55,11 @@ type backupSettingsState struct {
 	changed  time.Time
 	refused  *backupSchedule
 
-	shown   *Runtime
-	visible bool
-	actions *settings.BackupActions
+	shown                   *Runtime
+	visible                 bool
+	binding                 uint64
+	actions                 *settings.BackupActions
+	shownWork, shownArchive string
 	// restart is the Desktop's switch to a restored profile; nil without one.
 	restart func(restored string, refused func(error))
 }
@@ -70,39 +78,69 @@ type backupSchedule struct {
 	timezone     string
 }
 
-// backupSettingsFrame keeps the page and its drafts on the controller's local
-// Node. Settings are read when unknown or after an action, while the page shows.
+// backupSettingsFrame projects only the selected Node's settings and history.
 func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	root := r.localRuntime()
 	state := &root.backupSettings
 	m := root.App.Settings
-	owner := root.settingsOwner()
+	owner := root.managedSettingsNode()
+	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Backup
+	turned := owner != state.shown
+	entered := visible && (!state.visible || turned)
+	state.visible = visible
 	if state.actions == nil {
 		state.actions = root.backupActions()
 	}
 	m.BackupActions = state.actions
-	if owner != state.shown {
+	if turned {
+		if previous := state.shown; previous != nil {
+			previous.backupSettings.model = m.Backup
+			previous.forgetBackupStorage()
+		}
 		state.shown = owner
+		state.binding++
 		m.CloseBackupDialogs()
 		m.Backup = settings.Stored[settings.BackupTarget]{}
-		if owner != nil && owner.backupSettings.known {
-			owner.showBackupSettings()
+		if owner != nil {
+			m.Backup = owner.backupSettings.model
 		}
 	}
-	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Backup
-	entered := visible && !state.visible
-	state.visible = visible
+	status := owner.machineSettingsStatus()
+	if owner != nil && status != state.actions.Status {
+		if status != "" {
+			owner.forgetBackupStorage()
+			state.binding++
+			m.CloseBackupDialogs()
+		} else {
+			entered = visible
+		}
+	}
+	state.actions.Status = status
 	// Only this Desktop's own profile can be switched and restarted.
 	state.actions.Restartable = owner == root && state.restart != nil
+	state.actions.ArchiveUnavailable = owner == nil
 	if owner == nil {
 		m.Backup.Pending, m.Archived, m.Sessions = true, nil, 0
 		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = nil, false, false, false
+		state.actions.Host, state.actions.ArchiveBusy = "", false
+		root.showBackupWork("", "")
 		return
 	}
 	s := &owner.backupSettings
-	m.Backup.Pending = s.busy || !s.known
-	state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = s.records, s.partial, s.listing, s.retry
+	state.actions.ArchiveBusy = s.busy || s.archive != ""
+	root.showBackupWork(s.work, s.archive)
+	m.Backup.Pending = state.actions.ArchiveBusy || !s.known || state.actions.Status != ""
+	if state.actions.Status != "" {
+		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = nil, false, false, false
+	} else {
+		state.actions.Records, state.actions.Partial, state.actions.Listing, state.actions.Retry = s.records, s.partial, s.listing, s.retry
+	}
 	if !visible {
+		return
+	}
+	state.actions.Host = root.backupHostName(c, owner)
+	m.Archived, m.Sessions = backupSessions(owner.snapshot().Sessions, i18n.T(c, "conversation"))
+	if state.actions.Status != "" {
 		return
 	}
 	if entered {
@@ -112,9 +150,39 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	if !s.reading && !s.busy && (!s.known || s.stale) && !s.failed {
 		owner.readBackupSettings()
 	}
-	state.actions.Host = i18n.T(c, "local_host_name")
-	m.Archived, m.Sessions = backupSessions(owner.snapshot().Sessions, i18n.T(c, "conversation"))
 	owner.saveBackupSchedule(time.Now())
+}
+
+func (r *Runtime) backupHostName(c *ui.Context, owner *Runtime) string {
+	if owner == r {
+		return i18n.T(c, "local_host_name")
+	}
+	id := owner.controller.Target().String()
+	for _, host := range r.App.Data.Hosts {
+		if host.ID == id && host.Name != "" {
+			return host.Name
+		}
+	}
+	return id
+}
+
+func (r *Runtime) showBackupWork(backup, archive string) {
+	s := &r.backupSettings
+	for _, pair := range []struct {
+		shown *string
+		next  string
+	}{{&s.shownWork, backup}, {&s.shownArchive, archive}} {
+		if *pair.shown == pair.next {
+			continue
+		}
+		if *pair.shown != "" {
+			r.App.Settings.SetBusy(settings.BusyBackup+*pair.shown, false)
+		}
+		*pair.shown = pair.next
+		if pair.next != "" {
+			r.App.Settings.SetBusy(settings.BusyBackup+pair.next, true)
+		}
+	}
 }
 
 // backupSessions are the archived sessions the page lists and how many
@@ -318,30 +386,27 @@ func backupSessionFailure(err error) (kit.Outcome, string) {
 	return kit.Failed, "backup_sessions_failed"
 }
 
-// showBackupSettings puts the Node's settings on the page, dropping its draft.
-func (r *Runtime) showBackupSettings() {
-	s := &r.backupSettings
-	target := backupTarget(s.saved)
-	r.localRuntime().App.Settings.Backup = settings.Stored[settings.BackupTarget]{Saved: target, Draft: target, Revision: s.saved.Revision}
-	s.schedule, s.refused = backupScheduleOf(target), nil
+// backupModel keeps each Node's unpublished draft when the page switches.
+func (r *Runtime) backupModel() *settings.Stored[settings.BackupTarget] {
+	root := r.localRuntime()
+	if root.backupSettings.shown == r {
+		return &root.App.Settings.Backup
+	}
+	return &r.backupSettings.model
 }
 
-// acceptBackupSettings takes what the Node holds. While the page shows this
-// Node, a schedule draft that differs from what was saved is kept.
+// acceptBackupSettings takes what the Node holds and keeps its unsaved schedule.
 func (r *Runtime) acceptBackupSettings(value protocol.BackupSettings) {
 	s := &r.backupSettings
-	root := r.localRuntime()
-	model := &root.App.Settings.Backup
-	draft, dirty := model.Draft, s.known && root.backupSettings.shown == r && backupScheduleOf(model.Draft) != backupScheduleOf(model.Saved)
+	model := r.backupModel()
+	draft, dirty := model.Draft, s.known && backupScheduleOf(model.Draft) != backupScheduleOf(model.Saved)
 	s.saved, s.known, s.failed, s.stale = value, true, false, false
-	if root.backupSettings.shown != r {
-		return
-	}
-	schedule, refused := s.schedule, s.refused
-	r.showBackupSettings()
+	target := backupTarget(value)
+	*model = settings.Stored[settings.BackupTarget]{Saved: target, Draft: target, Revision: value.Revision}
 	if dirty {
 		model.Draft.Schedule, model.Draft.Time, model.Draft.Timezone = draft.Schedule, draft.Time, draft.Timezone
-		s.schedule, s.refused = schedule, refused
+	} else {
+		s.schedule, s.refused = backupScheduleOf(target), nil
 	}
 }
 
@@ -363,8 +428,10 @@ func (r *Runtime) readBackupSettings() {
 			s.reading = false
 			if err != nil {
 				s.failed = true
-				outcome, key := backupFailure(err)
-				kit.Toast(c, outcome, i18n.T(c, key))
+				if root := r.localRuntime(); root.backupSettings.shown == r && root.backupSettings.visible {
+					outcome, key := backupFailure(err)
+					kit.Toast(c, outcome, i18n.T(c, key))
+				}
 				return
 			}
 			r.acceptBackupRead(value)
@@ -388,8 +455,8 @@ func (r *Runtime) acceptBackupRead(value protocol.BackupSettings) {
 // Node refused is not sent again until it changes.
 func (r *Runtime) saveBackupSchedule(now time.Time) {
 	s := &r.backupSettings
-	model := &r.localRuntime().App.Settings.Backup
-	if !s.known || s.busy || s.reading {
+	model := r.backupModel()
+	if !s.known || s.busy || s.archive != "" || s.reading {
 		return
 	}
 	draft, saved := backupScheduleOf(model.Draft), backupScheduleOf(model.Saved)
@@ -408,7 +475,7 @@ func (r *Runtime) saveBackupSchedule(now time.Time) {
 		return
 	}
 	command := protocol.Command{Kind: "save_backup_settings", Data: backupScheduleUpdate(draft, s.saved)}
-	r.submitBackup(command, "", backupFailure, func(err error) {
+	r.submitBackup(command, "", func(err error) {
 		if err != nil {
 			s.refused = &draft
 		}
@@ -419,17 +486,17 @@ func (r *Runtime) saveBackupSchedule(now time.Time) {
 // disabled until it ends. Its outcome is a toast, and the settings are read
 // again unless the Node returned them. A request whose outcome is unknown
 // is retained and sent again by the same action.
-func (r *Runtime) submitBackup(command protocol.Command, done string, failure func(error) (kit.Outcome, string), finished func(error)) {
+func (r *Runtime) submitBackup(command protocol.Command, done string, finished func(error)) {
 	s := &r.backupSettings
 	s.busy = true
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
-		s.busy, s.stale = false, true
+		s.work, s.busy, s.stale = "", false, true
 		if value, ok := detail[protocol.BackupSettings](output.Data); err == nil && ok && output.Kind == "backup_settings" {
-			r.acceptBackupSettings(value)
+			r.acceptBackupRead(value)
 		}
 		outcome, key := kit.Done, done
 		if err != nil {
-			outcome, key = failure(err)
+			outcome, key = backupFailure(err)
 		}
 		if key != "" {
 			kit.Toast(c, outcome, i18n.T(c, key))
@@ -443,27 +510,34 @@ func (r *Runtime) submitBackup(command protocol.Command, done string, failure fu
 // backupActions are the page's actions; each acts on the Node the page shows.
 func (r *Runtime) backupActions() *settings.BackupActions {
 	state := &r.backupSettings
-	// ready is the shown Node when it can take an action.
-	ready := func() *Runtime {
+	current := func() *Runtime {
 		owner := state.shown
-		if owner == nil || owner.backupSettings.busy || !owner.backupSettings.known {
+		if !state.visible || owner == nil || r.managedSettingsNode() != owner || !owner.controller.Connected() {
 			return nil
 		}
 		return owner
 	}
-	session := func(id string) (protocol.Session, bool) {
-		for _, session := range state.shown.controller.Snapshot().Sessions {
+	ready := func() *Runtime {
+		owner := current()
+		if owner == nil || owner.machineSettingsStatus() != "" || owner.backupSettings.busy ||
+			owner.backupSettings.archive != "" || !owner.backupSettings.known {
+			return nil
+		}
+		return owner
+	}
+	archiveReady := func() *Runtime {
+		if owner := current(); owner != nil && !owner.backupSettings.busy && owner.backupSettings.archive == "" {
+			return owner
+		}
+		return nil
+	}
+	session := func(owner *Runtime, id string) (protocol.Session, bool) {
+		for _, session := range owner.snapshot().Sessions {
 			if session.ID.String() == id {
 				return session, true
 			}
 		}
 		return protocol.Session{}, false
-	}
-	// working marks the action name as under way until the returned func,
-	// a submission's finished, runs.
-	working := func(name string) func(error) {
-		r.App.Settings.SetBusy(settings.BusyBackup+name, true)
-		return func(error) { r.App.Settings.SetBusy(settings.BusyBackup+name, false) }
 	}
 	picker := func(key string) {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, key)) })
@@ -475,48 +549,53 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				done(false)
 				return
 			}
-			saved := owner.backupSettings.saved
-			if !backupStorageDirty(target, saved) {
-				done(true)
-				return
-			}
-			command := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}
+			binding := state.binding
 			s := &owner.backupSettings
+			var command protocol.Command
+			if s.retry && s.storage != nil {
+				command = *s.storage
+			} else {
+				if !backupStorageDirty(target, s.saved) {
+					done(true)
+					return
+				}
+				command = protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, s.saved)}
+			}
 			s.storage = &command
-			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) {
+			owner.submitBackup(command, "backup_saved", func(err error) {
 				if s.storage != &command {
 					// The dialog closed, or sent another draft, meanwhile.
 					owner.forgetCommand(command)
 				} else if s.retry = client.Retained(err); !s.retry {
 					s.storage = nil
 				}
-				state.actions.Retry = s.retry
-				done(err == nil)
+				if state.shown == owner && state.binding == binding {
+					state.actions.Retry = s.retry
+					done(err == nil)
+				}
 			})
 		},
 		Forget: func() {
-			owner := state.shown
-			if owner == nil {
-				return
+			if owner := state.shown; owner != nil {
+				owner.forgetBackupStorage()
+				state.actions.Retry = false
 			}
-			s := &owner.backupSettings
-			if s.storage != nil {
-				owner.forgetCommand(*s.storage)
-			}
-			s.storage, s.retry, state.actions.Retry = nil, false, false
 		},
 		Keep: func(keep int) {
 			if owner := ready(); owner != nil && keep >= 0 && uint32(keep) != owner.backupSettings.saved.Keep {
 				command := protocol.Command{Kind: "save_backup_settings", Data: backupKeepUpdate(keep, owner.backupSettings.saved)}
-				owner.submitBackup(command, "backup_saved", backupFailure, nil)
+				owner.submitBackup(command, "backup_saved", nil)
 			}
 		},
 		ChooseFolder: func(initial string, selected func(string)) {
-			owner := state.shown
+			owner := ready()
 			if owner == nil {
 				return
 			}
-			r.chooseDirectory(owner.controller.Target().String(), state.actions.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
+			binding := state.binding
+			r.chooseDirectory(owner.controller.Target().String(), state.actions.Host, "backup_local_directory", initial, func() bool {
+				return state.binding == binding && current() == owner && r.App.Settings.BackupEditing()
+			}, selected)
 		},
 		Export: func() {
 			owner := ready()
@@ -527,16 +606,18 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				picker("files_download_picker")
 				return
 			}
+			revision := owner.backupSettings.saved.Revision
 			r.attachments.native.SaveFile("sailry-backup.age", func(path string) {
 				if path != "" {
-					r.enqueue(func(*ui.Context) { owner.downloadBackup(path) })
+					r.enqueue(func(*ui.Context) { owner.downloadBackup(path, revision) })
 				}
 			})
 		},
 		Now: func() {
 			if owner := ready(); owner != nil {
 				command := protocol.Command{Kind: "export_backup", Data: protocol.CommandExportBackupPayload{ExpectedRevision: owner.backupSettings.saved.Revision}}
-				owner.submitBackup(command, "backup_exported", backupFailure, working("now"))
+				owner.backupSettings.work = "now"
+				owner.submitBackup(command, "backup_exported", nil)
 			}
 		},
 		Import: func(selected func(string)) {
@@ -548,13 +629,14 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				picker("files_upload_picker")
 				return
 			}
+			binding := state.binding
 			r.attachments.native.PickFiles(func(paths []string) {
 				if len(paths) == 0 {
 					return
 				}
 				path := paths[0]
 				r.enqueue(func(*ui.Context) {
-					if state.shown == owner {
+					if state.binding == binding && current() == owner {
 						selected(path)
 					}
 				})
@@ -571,7 +653,16 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 				done(false)
 				return
 			}
-			finished := func(err error) { done(err == nil) }
+			binding := state.binding
+			finished := func(err error) {
+				if state.binding == binding && state.shown == owner {
+					done(err == nil)
+				}
+			}
+			if command, pending := owner.backupSettings.restores[restore]; pending {
+				owner.submitBackupRestore(restore, command, finished)
+				return
+			}
 			if restore.File != "" {
 				owner.restoreBackupFile(restore, finished)
 				return
@@ -582,10 +673,10 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			}
 			command := protocol.Command{Kind: "restore_backup", Data: protocol.CommandRestoreBackupPayload{ID: restore.ID,
 				ExpectedRevision: owner.backupSettings.saved.Revision, Target: restore.Target, Passphrase: backupPassphrase(restore.Passphrase), Location: location}}
-			owner.submitBackup(command, "backup_restored", backupFailure, finished)
+			owner.submitBackupRestore(restore, command, finished)
 		},
 		Restart: func(target string) {
-			if state.restart == nil || state.shown != r {
+			if state.restart == nil || current() != r {
 				return
 			}
 			state.restart(target, func(error) {
@@ -593,38 +684,83 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			})
 		},
 		Unarchive: func(id string) {
-			if owner := ready(); owner != nil {
-				if session, found := session(id); found {
+			if owner := archiveReady(); owner != nil {
+				if session, found := session(owner, id); found && session.Archived {
 					command := protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: session.ID, ExpectedRevision: session.Revision, Archived: false}}
-					owner.submitBackup(command, "backup_unarchived", backupSessionFailure, working("unarchive/"+id))
+					owner.submitArchive(command, "backup_unarchived", "unarchive/"+id)
 				}
 			}
 		},
 		Delete: func(id string) {
-			if owner := ready(); owner != nil {
-				if session, found := session(id); found {
+			if owner := archiveReady(); owner != nil {
+				if session, found := session(owner, id); found && session.Archived {
 					command := protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: session.Revision}}
-					owner.submitBackup(command, "backup_deleted", backupSessionFailure, working("delete/"+id))
+					owner.submitArchive(command, "backup_deleted", "delete/"+id)
 				}
 			}
 		},
 		ArchiveAll: func() {
-			if owner := ready(); owner != nil {
-				if expected := backupRevisions(owner.controller.Snapshot().Sessions, false); len(expected) != 0 {
+			if owner := archiveReady(); owner != nil {
+				if expected := backupRevisions(owner.snapshot().Sessions, false); len(expected) != 0 {
 					command := protocol.Command{Kind: "archive_sessions", Data: protocol.CommandArchiveSessionsPayload{Expected: expected}}
-					owner.submitBackup(command, "backup_archived", backupSessionFailure, working("archive"))
+					owner.submitArchive(command, "backup_archived", "archive")
 				}
 			}
 		},
 		DeleteAll: func() {
-			if owner := ready(); owner != nil {
-				if expected := backupRevisions(owner.controller.Snapshot().Sessions, true); len(expected) != 0 {
+			if owner := archiveReady(); owner != nil {
+				if expected := backupRevisions(owner.snapshot().Sessions, true); len(expected) != 0 {
 					command := protocol.Command{Kind: "remove_sessions", Data: protocol.CommandRemoveSessionsPayload{Expected: expected}}
-					owner.submitBackup(command, "backup_deleted", backupSessionFailure, working("delete"))
+					owner.submitArchive(command, "backup_deleted", "delete")
 				}
 			}
 		},
 	}
+}
+
+// A pending restore must be settled with the original command, without
+// making a second upload or taking a new expected revision.
+func (r *Runtime) submitBackupRestore(restore settings.BackupRestore, command protocol.Command, finished func(error)) {
+	s := &r.backupSettings
+	r.submitBackup(command, "backup_restored", func(err error) {
+		if client.Retained(err) {
+			if s.restores == nil {
+				s.restores = make(map[settings.BackupRestore]protocol.Command)
+			}
+			s.restores[restore] = command
+		} else {
+			delete(s.restores, restore)
+			if upload, ok := detail[protocol.CommandRestoreBackupFilePayload](command.Data); ok && err != nil && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+				r.async(func() {
+					_, _ = r.controller.Do(r.ctx, protocol.Command{Kind: "cancel_file_transfer", Data: protocol.CommandCancelFileTransferPayload{Stream: upload.Stream}})
+				})
+			}
+		}
+		finished(err)
+	})
+}
+
+func (r *Runtime) forgetBackupStorage() {
+	s := &r.backupSettings
+	if s.storage != nil {
+		r.forgetCommand(*s.storage)
+	}
+	s.storage, s.retry = nil, false
+}
+
+// Session commands use the session's ACL and revision without requiring
+// access to the Node's backup administration.
+func (r *Runtime) submitArchive(command protocol.Command, done, operation string) {
+	s := &r.backupSettings
+	s.archive = operation
+	r.execute(command, func(c *ui.Context, _ protocol.Output, err error) {
+		s.archive = ""
+		outcome, key := kit.Done, done
+		if err != nil {
+			outcome, key = backupSessionFailure(err)
+		}
+		kit.Toast(c, outcome, i18n.T(c, key))
+	})
 }
 
 // backupPassphrase is a typed passphrase; blank uses the Node's saved one.
@@ -678,21 +814,21 @@ func (r *Runtime) backupTransferEnded(c *ui.Context, err error, done string) {
 
 // downloadBackup exports a sealed archive to the path the user chose. The
 // file appears there only once it is complete.
-func (r *Runtime) downloadBackup(path string) {
+func (r *Runtime) downloadBackup(path string, revision uint64) {
 	s := &r.backupSettings
-	if s.busy || !s.known {
+	if s.busy || !s.known || r.machineSettingsStatus() != "" || !r.controller.Connected() {
 		return
 	}
-	revision := s.saved.Revision
 	s.busy = r.async(func() {
 		err := r.exportBackup(r.ctx, path, revision)
 		r.enqueue(func(c *ui.Context) {
-			r.App.Settings.SetBusy(settings.BusyBackup+"export", false)
-			s.busy, s.stale = false, true
+			s.work, s.busy, s.stale = "", false, true
 			r.backupTransferEnded(c, err, "backup_exported")
 		})
 	})
-	r.App.Settings.SetBusy(settings.BusyBackup+"export", s.busy)
+	if s.busy {
+		s.work = "export"
+	}
 }
 
 func (r *Runtime) exportBackup(ctx context.Context, path string, revision uint64) error {
@@ -731,14 +867,7 @@ func (r *Runtime) restoreBackupFile(restore settings.BackupRestore, finished fun
 			}
 			command := protocol.Command{Kind: "restore_backup_file", Data: protocol.CommandRestoreBackupFilePayload{Stream: upload.Stream,
 				ExpectedRevision: revision, Target: restore.Target, Passphrase: backupPassphrase(restore.Passphrase)}}
-			r.submitBackup(command, "backup_restored", backupFailure, func(err error) {
-				if err != nil && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-					r.async(func() {
-						_, _ = r.controller.Do(r.ctx, protocol.Command{Kind: "cancel_file_transfer", Data: &protocol.CommandCancelFileTransferPayload{Stream: upload.Stream}})
-					})
-				}
-				finished(err)
-			})
+			r.submitBackupRestore(restore, command, finished)
 		})
 	})
 	if !s.busy {

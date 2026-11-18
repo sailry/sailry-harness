@@ -134,6 +134,10 @@ func OpenMenu(c *ui.Context, id string, open bool) {
 	*menuState(c, id) = open
 }
 
+// MenuOpen reports whether the MenuButton named id shows its menu, as a
+// trigger turning its chevron while open.
+func MenuOpen(c *ui.Context, id string) bool { return *menuState(c, id) }
+
 // menuState is whether the menu named id shows.
 func menuState(c *ui.Context, id string) *bool {
 	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*menuEntry { return map[string]*menuEntry{} })
@@ -600,7 +604,7 @@ func SelectField(c *ui.Context, id string, chosen *string, o SelectProps) (ui.El
 		}
 	}
 	b := MenuButton(c, id, func(b ui.Element) {
-		SelectTrigger(c, b.Label(o.Label).Disabled(o.Disabled), shown, placeholder, *menuState(c, id))
+		SelectTrigger(c, b.Label(o.Label).Disabled(o.Disabled), shown, placeholder, MenuOpen(c, id))
 	}, func(m *Menu) {
 		for _, option := range o.Options {
 			if m.Item(option.Label).Image(option.Image).Checked(option.Value == *chosen).Disabled(option.Disabled).Chosen() && option.Value != *chosen {

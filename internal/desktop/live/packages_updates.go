@@ -43,9 +43,14 @@ func (r *Runtime) recordPackageUpdate(report protocol.PluginUpdatesReport, failu
 	return true
 }
 
+var errDesktopPackageTarget = errors.New("desktop plugin requires the local Node")
+
 // Node-only packages run on their execution Node. Desktop declarations also
 // need to load in this process before replacing its currently usable UI.
-func ensureDesktopPackage(info protocol.PluginInfo) error {
+func (r *Runtime) ensureDesktopPackage(info protocol.PluginInfo) error {
+	if r.parent != nil && desktopPlugin(info) {
+		return errDesktopPackageTarget
+	}
 	if info.Extension == nil || info.Extension.Desktop == nil {
 		return nil
 	}
@@ -137,7 +142,7 @@ func (r *Runtime) resolvePackageUpdates(batch *protocol.PluginUpdatesBatch, cach
 			batch.Failures = append(batch.Failures, protocol.PluginUpdatesFailure{Name: report.Current.Name, Error: protocol.Fault{Code: faultCode(err), Message: err.Error()}})
 			continue
 		}
-		if ensureDesktopPackage(info) == nil {
+		if r.ensureDesktopPackage(info) == nil {
 			report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: info}
 		}
 	}
@@ -165,7 +170,7 @@ func (r *Runtime) updateOfficialPackage(report protocol.PluginUpdatesReport, rev
 	r.async(func() {
 		selected, err := r.inspectOfficialPackage(reviewed.Summary.Name, reviewed.Summary.Version)
 		if err == nil {
-			err = ensureDesktopPackage(selected.Info)
+			err = r.ensureDesktopPackage(selected.Info)
 		}
 		changed := err == nil && !sameOfficialUpdate(expected, selected)
 		if changed {

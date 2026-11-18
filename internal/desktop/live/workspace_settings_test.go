@@ -1,7 +1,6 @@
 package live
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -32,6 +31,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 	t.Run("browser capture", testBrowserCapture)
 	t.Run("browser call deadline", testBrowserDeadline)
 	t.Run("project hooks stay remote while sandbox remains local", func(t *testing.T) {
+		alternate := protocol.NewWorktreeID()
 		owners := make([]*Runtime, 2)
 		transports := make([]*conversationTestTransport, 2)
 		data := &viewmodel.Data{Workspace: &viewmodel.Workspace{}}
@@ -42,10 +42,17 @@ func TestWorkspaceHookSettings(t *testing.T) {
 			snapshot.Node = node
 			snapshot.SandboxSettingsRevision = uint64(index + 3)
 			snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/owner"}}
+			if index == 1 {
+				snapshot.Worktrees = append(snapshot.Worktrees, protocol.Worktree{ID: alternate, Project: &project, Path: "/fixture/alternate"})
+			}
 			snapshot.Sessions = []protocol.Session{{ID: session, Project: &project, Worktree: worktree}}
 			transports[index] = &conversationTestTransport{snapshot: snapshot}
 			transports[index].handle = func(request protocol.Request) (link.Response, bool) {
 				switch request.Command.Kind {
+				case "read_hooks":
+					hooks := protocol.DefaultHooksSettings()
+					hooks.Revision = 9
+					return link.Response{Output: protocol.Output{Kind: "hooks", Data: protocol.HooksState{Settings: hooks, Sandboxed: true}}}, true
 				case "save_hooks":
 					input, _ := detail[protocol.CommandSaveHooksPayload](request.Command.Data)
 					input.Settings.Revision++
@@ -84,7 +91,7 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		app.Host = localHost
 		local.OpenSession(remoteSession)
 		local.workspaceSettingsFrame()
-		if label, ok := app.Settings.HooksContext(); !ok || !strings.Contains(label, remoteHost) || app.Settings.Hooks.Revision != 8 || app.Settings.Sandbox.Revision != 3 {
+		if target, ok := app.Settings.HooksContext(); !ok || target.Host != remoteHost || app.Settings.Hooks.Revision != 8 || app.Settings.Sandbox.Revision != 3 {
 			t.Fatal("remote project hooks or local sandbox lost their owner")
 		}
 		app.Host = remoteHost
@@ -93,15 +100,6 @@ func TestWorkspaceHookSettings(t *testing.T) {
 			t.Fatal("monitor changed settings ownership")
 		}
 
-		app.Settings.Hooks.Draft.Enabled = true
-		app.Settings.SaveHooks()
-		app.Settings.Sandbox.Draft = true
-		app.Settings.SaveSandbox()
-		app.Host = localHost
-		local.OpenSession(localSession)
-		local.workspaceSettingsFrame()
-		remote.workers.Wait()
-		local.workers.Wait()
 		tester := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
 			local.mu.Lock()
@@ -112,6 +110,21 @@ func TestWorkspaceHookSettings(t *testing.T) {
 				complete(c)
 			}
 		}, 640, 480)
+		app.Settings.SelectHookWorktree(alternate.String())
+		remote.workers.Wait()
+		tester.Frame()
+		if target, ok := app.Settings.HooksContext(); !ok || target.Worktree != alternate.String() || app.Settings.Hooks.Revision != 9 {
+			t.Fatal("the worktree picker did not load the chosen worktree")
+		}
+		app.Settings.Hooks.Draft.Enabled = true
+		app.Settings.SaveHooks()
+		app.Settings.Sandbox.Draft = true
+		app.Settings.SaveSandbox()
+		app.Host = localHost
+		local.OpenSession(localSession)
+		local.workspaceSettingsFrame()
+		remote.workers.Wait()
+		local.workers.Wait()
 		tester.Frame()
 		if app.Settings.Hooks.Revision != 7 || app.Settings.Hooks.Draft.Enabled || app.Settings.Sandbox.Revision != 4 || !app.Settings.Sandbox.Draft {
 			t.Fatal("remote hook completion overwrote local hooks or sandbox completion")
@@ -119,18 +132,26 @@ func TestWorkspaceHookSettings(t *testing.T) {
 		transports[1].mu.Lock()
 		requests := append([]protocol.Request(nil), transports[1].requests...)
 		transports[1].mu.Unlock()
-		if len(requests) != 1 {
+		if len(requests) != 2 {
 			t.Fatalf("remote hooks dispatched %d requests", len(requests))
 		}
 		for _, request := range requests {
 			if request.Target != remote.controller.Target() {
 				t.Fatal("remote settings save escaped its execution Node")
 			}
-			if request.Command.Kind == "save_hooks" {
+			switch request.Command.Kind {
+			case "read_hooks":
+				input, valid := detail[protocol.CommandReadHooksPayload](request.Command.Data)
+				if !valid || input.Worktree != alternate {
+					t.Fatal("the hooks page read a different worktree")
+				}
+			case "save_hooks":
 				input, valid := detail[protocol.CommandSaveHooksPayload](request.Command.Data)
-				if !valid || input.Worktree != remote.workspaceSettings.worktree || input.ExpectedRevision != 8 || !input.Settings.Enabled {
+				if !valid || input.Worktree != alternate || input.ExpectedRevision != 9 || !input.Settings.Enabled {
 					t.Fatal("remote hook save lost its captured worktree, revision or draft")
 				}
+			default:
+				t.Fatalf("unexpected settings command %s on the remote Node", request.Command.Kind)
 			}
 		}
 		transports[0].mu.Lock()
@@ -184,9 +205,9 @@ func TestWorkspaceHookSettings(t *testing.T) {
 			if r.workspaceSettings.worktree != worktree || r.App.Settings.Hooks.Revision != 7 || !r.hooksSandboxed() {
 				t.Fatal("project draft lost its captured hook owner or settings")
 			}
-			label, ok := r.hookContext()
-			if !ok || !strings.Contains(label, node.String()) || !strings.Contains(label, tree.Path) || !strings.Contains(label, worktree.String()) {
-				t.Fatalf("hook consent scope = %q, available=%v", label, ok)
+			target, ok := r.hookContext()
+			if !ok || target.Host != "composer_host_local" || target.Path != tree.Path || target.Worktree != worktree.String() {
+				t.Fatalf("hook consent scope = %+v, available=%v", target, ok)
 			}
 			delete(r.workspace.admitted, worktree)
 			r.App.Data.Projects = nil

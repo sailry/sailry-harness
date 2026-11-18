@@ -69,7 +69,7 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		return address
 	}
 	addressB := pair(b, a.Link())
-	pair(c, a.Link())
+	addressC := pair(c, a.Link())
 	addressA := pair(a, phone)
 	directB := pair(b, phone)
 	connect := func(transport link.Transport) *client.Client {
@@ -246,28 +246,62 @@ func TestMultiHostControllerRoutesIntegration(t *testing.T) {
 		}
 	}
 	pluginName := "scoped-knowledge"
-	pluginSource := t.TempDir()
-	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"` + pluginName + `","version":"0.1.0","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","knowledge.read","knowledge.write"]}}}`
-	if err := os.WriteFile(filepath.Join(pluginSource, "plugin.json"), []byte(manifest), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info, err := b.plugins.manager.Install(ctx, pluginSource, "", pluginName)
-	if err != nil || len(info.Issues) != 0 {
-		t.Fatalf("scoped knowledge fixture: %+v: %v", info.Issues, err)
-	}
-	owner := store.WithUser(ctx, remoteUser(b))
-	if err := b.profile.Store.Node.Write(owner, func(db *sql.Conn) error {
-		var err error
-		info, err = store.InstallPlugin(owner, db, info, 0, true)
-		if err != nil {
-			return err
+	const entry = "dev.sailry.platform/desktop/settings.js"
+	install := func(target *Node, version string) protocol.PluginInfo {
+		t.Helper()
+		pluginSource := t.TempDir()
+		manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"` + pluginName + `","version":"` + version + `","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["storage.read","knowledge.read","knowledge.write"],"settings_page":{"navigation":{"label":"Scoped knowledge"},"entry":"` + entry + `"},"desktop":{"resources":["` + entry + `"]}}}}`
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(pluginSource, entry)), 0o700); err != nil {
+			t.Fatal(err)
 		}
-		_, err = store.RecordEvents(owner, db, b.ID(), []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
-		return err
-	}); err != nil {
-		t.Fatal(err)
+		for path, content := range map[string]string{"plugin.json": manifest, entry: "export const version = \"" + version + "\";"} {
+			if err := os.WriteFile(filepath.Join(pluginSource, path), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		info, err := target.plugins.manager.Install(ctx, pluginSource, "", pluginName)
+		if err != nil || len(info.Issues) != 0 {
+			t.Fatalf("scoped knowledge fixture: %+v: %v", info.Issues, err)
+		}
+		actor := store.WithUser(ctx, remoteUser(target))
+		err = target.profile.Store.Node.Write(actor, func(db *sql.Conn) error {
+			var err error
+			info, err = store.InstallPlugin(actor, db, info, 0, true)
+			if err != nil {
+				return err
+			}
+			_, err = store.RecordEvents(actor, db, target.ID(), []protocol.Event{{Kind: "plugin_changed", Data: info.Summary}})
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		target.publish()
+		return info
 	}
-	b.publish()
+	info, otherInfo := install(b, "0.1.0"), install(c, "0.2.0")
+	t.Run("settings bundles are loaded from the owning host", func(t *testing.T) {
+		read := func(owner *client.Client, info protocol.PluginInfo) (protocol.Output, error) {
+			return owner.Do(ctx, protocol.Command{Kind: "read_plugin_view", Data: protocol.CommandReadPluginViewPayload{
+				Package: plugins.PackageReference(info), Surface: protocol.PluginDesktopSurface{Kind: "settings"},
+			}})
+		}
+		first, second := connect(storage), connect(a.Link().Remote(addressC))
+		for _, fixture := range []struct {
+			owner *client.Client
+			info  protocol.PluginInfo
+		}{{first, info}, {second, otherInfo}} {
+			output, err := read(fixture.owner, fixture.info)
+			bundle, valid := dispatchPayload[protocol.PluginDesktopBundle](output.Data)
+			if err != nil || !valid || bundle.Package != plugins.PackageReference(fixture.info) ||
+				bundle.Entry != entry || fixture.info.Summary.Version == nil || !strings.Contains(bundle.Files[entry], *fixture.info.Summary.Version) {
+				t.Fatalf("selected host returned another package: %+v, %v", bundle, err)
+			}
+		}
+		if _, err := read(second, info); resourceFault(err) == nil || resourceFault(err).Code != protocol.ErrorCodeRevisionConflict {
+			t.Fatalf("second host served the first host's version: %v", err)
+		}
+	})
 	kb.Definition.SharedWith = []string{pluginName}
 	kb = collection(execute(desktop, desktop.PrepareKnowledge(protocol.KnowledgeRef{Node: b.ID()}, protocol.Command{
 		Kind: "update_knowledge_collection", Data: &protocol.CommandUpdateKnowledgeCollectionPayload{

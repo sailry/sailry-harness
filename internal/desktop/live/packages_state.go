@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,6 @@ type packageState struct {
 	removed            map[string]uint64
 	reads              map[string]bool
 	failures           map[string]string
-	settings           map[string]protocol.PluginSettingsState
 	updates            map[string]protocol.PluginUpdatesReport
 	directories        map[string]*localPackage // the updates read from a local directory
 	catalog            map[string]protocol.PluginCatalogEntry
@@ -46,12 +46,13 @@ type packageState struct {
 	connected          bool
 	observing          bool
 	installFailed      bool
+	pythonObserving    bool
 	pythonFailed       bool
 	pythonReadFailed   bool
 	preparations       []settings.PythonPreparation
 	queue              transfers.Queue
 	pythonRead         bool
-	pythonRevision     uint64
+	pythonReady        bool
 	pythonDraft        settings.Stored[settings.Python]
 	pythonVersion      string
 	selectedNode       string
@@ -67,17 +68,12 @@ type packageState struct {
 	terminals          map[string]*liveTerminal
 	skillOperation     *skillSourceOperation
 	configuration      uint64
-	// configurer is the runtime whose package the open dialog configures,
-	// as the reference binds a panel's settings to the panel's own client:
-	// a Desktop package's page keeps the local Node while another host is
-	// selected, and its Save goes there too.
-	configurer *Runtime
 }
 
 func newPackageState() *packageState {
 	return &packageState{
 		infos: map[string]protocol.PluginInfo{}, removed: map[string]uint64{}, reads: map[string]bool{}, failures: map[string]string{},
-		settings: map[string]protocol.PluginSettingsState{}, updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
+		updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
 		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
 		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
@@ -111,17 +107,6 @@ func (r *Runtime) initB8Packages() {
 		Configure: func(id string) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.configurePackage(id)
-			}
-		},
-		SaveSettings: func(id string, fields []viewmodel.Setting, secrets map[string]int, done func(bool)) {
-			owner := r.localRuntime().packages.configurer
-			if owner == nil {
-				owner = r.packageOwner()
-			}
-			if owner != nil {
-				owner.savePackageSettings(id, fields, secrets, done)
-			} else {
-				done(false)
 			}
 		},
 		Uninstall: func(id string, done func(bool)) {
@@ -161,14 +146,14 @@ func (r *Runtime) initB8Packages() {
 			}
 		},
 		RetryMarket: func() {
-			if owner := r.packageOwner(); owner != nil {
+			root := r.localRuntime()
+			m := root.App.Settings.Model
+			if m.MarketKind == 2 {
+				root.packages.themeRead = false
+			} else if owner := r.packageOwner(); owner != nil {
 				owner.packages.marketKey = ""
-				root := r.localRuntime()
-				if root.App.Settings.MarketKind == 2 {
-					root.packages.themeRead = false
-				}
-				r.searchPackageMarket(root.App.Settings.MarketKind, root.App.Settings.MarketSource, root.App.Settings.MarketQuery)
 			}
+			r.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery)
 		},
 		MarketPlugin: func(id string) {
 			if owner := r.packageOwner(); owner != nil {
@@ -229,8 +214,7 @@ func (r *Runtime) initB8Packages() {
 
 // packageOwner is the explicitly selected Node for package management.
 func (r *Runtime) packageOwner() *Runtime {
-	root := r.localRuntime()
-	owner := root.runtimeFor(root.App.Settings.PackageNode)
+	owner := r.managedSettingsNode()
 	if owner == nil {
 		return nil
 	}
@@ -244,44 +228,72 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	root := r.localRuntime()
 	owner := r.packageOwner()
 	m := root.App.Settings
-	if owner == nil {
-		m.Packages, m.SkillList, m.MarketPlugins, m.MarketSkills = nil, nil, nil, nil
-		if root.packages.selectedNode != "" {
-			root.packages.selectedNode = ""
-			m.CloseDetails()
-			m.ClosePackageConfiguration()
-		}
-		root.projectInstallations()
-		root.projectMarketThemes()
-		return
+	node := ""
+	if owner != nil {
+		node = owner.controller.Target().String()
 	}
-	node := owner.controller.Target().String()
-	if root.packages.selectedNode != node {
-		if previous := root.runtimeFor(root.packages.selectedNode); previous != nil && previous.packages != nil && root.packages.selectedNode != "" {
-			previous.packages.pythonDraft = r.App.Settings.Python
+	changed := root.packages.selectedNode != node
+	if changed {
+		if previousNode := root.packages.selectedNode; previousNode != "" && m.PythonStatus == "" {
+			if previous := root.runtimeFor(previousNode); previous != nil && previous.packages != nil {
+				previous.packages.pythonDraft = m.Python
+			}
 		}
 		root.packages.selectedNode = node
-		r.App.Settings.Python, r.App.Settings.PythonVersion = owner.packages.pythonDraft, owner.packages.pythonVersion
-		r.App.Settings.PythonPreparing = owner.packages.preparations
-		root.App.Settings.MarketPlugins, root.App.Settings.MarketSkills = nil, nil
-		owner.packages.marketKey = ""
-		root.App.Settings.CloseDetails()
-		root.App.Settings.ClosePackageConfiguration()
+		root.packages.configuration++
+		m.MarketPlugins, m.MarketSkills = nil, nil
+		m.CloseDetails()
+		m.CloseManagedPackageDialogs()
 	}
-	owner.projectPackages()
-	if !owner.packages.observing {
-		owner.observeInstallations()
-		owner.observePython()
+	root.projectPythonSettings(owner, changed)
+	if owner == nil {
+		m.Packages, m.SkillList, m.MarketPlugins, m.MarketSkills = nil, nil, nil, nil
+		if m.MarketKind != 2 {
+			m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
+		}
+	} else {
+		if changed {
+			owner.packages.marketKey = ""
+		}
+		owner.projectPackages()
+		if !owner.packages.observing {
+			owner.observeInstallations()
+		}
 	}
-	if !owner.packages.pythonRead {
-		owner.readPython()
-	}
-	if r.App.Page == shell.MarketPage {
-		m := r.App.Settings.Model
-		r.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery)
+	if root.App.Page == shell.MarketPage {
+		root.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery)
 	}
 	r.projectInstallations()
 	r.projectMarketThemes()
+}
+
+func (r *Runtime) projectPythonSettings(owner *Runtime, changed bool) {
+	m := r.App.Settings
+	status := owner.machineSettingsStatus()
+	if status == "" {
+		state := owner.packages
+		if !state.pythonObserving {
+			owner.observePython()
+		}
+		if !state.pythonRead {
+			owner.readPython()
+		}
+		switch {
+		case state.pythonReadFailed:
+			status = "unavailable"
+		case !state.pythonReady:
+			status = "plugins_loading"
+		default:
+			if changed || m.PythonStatus != "" {
+				m.Python = state.pythonDraft
+			}
+			m.PythonVersion, m.PythonPreparing = state.pythonVersion, state.preparations
+		}
+	}
+	if status != "" {
+		m.Python, m.PythonVersion, m.PythonPreparing = settings.Stored[settings.Python]{}, "", nil
+	}
+	m.PythonStatus = status
 }
 
 func packageReference(summary protocol.PluginSummary) protocol.PluginReference {
@@ -320,6 +332,9 @@ func (r *Runtime) projectPackages() {
 				r.readPackage(summary.Name, key, nil)
 			}
 			info = protocol.PluginInfo{Summary: summary}
+		}
+		if r.parent != nil && desktopPlugin(info) {
+			continue
 		}
 		view := packageView(info, r.packageLocale())
 		view.Host = r.packageHostLabel()
@@ -550,6 +565,10 @@ func (r *Runtime) packageID(id string) string {
 }
 
 func (r *Runtime) packageReport(c *ui.Context, err error) {
+	if errors.Is(err, errDesktopPackageTarget) {
+		kit.Toast(c, kit.Failed, i18n.T(c, "plugins_desktop_only"))
+		return
+	}
 	r.reportKeys(c, err, "plugins_failed", "plugins_settings_conflict", "plugins_unknown")
 }
 
@@ -687,7 +706,7 @@ func (r *Runtime) uninstallPackage(id string, done func(bool)) {
 		release()
 		if ok {
 			r.packages.removed[name] = info.Summary.Revision
-			if selected := r.App.Settings.Details; selected != nil && r.packageID(selected.ID) == name {
+			if selected := r.App.Settings.Details; r.packageOwner() == r && selected != nil && r.packageID(selected.ID) == name {
 				r.App.Settings.CloseDetails()
 			}
 			delete(r.packages.infos, name)

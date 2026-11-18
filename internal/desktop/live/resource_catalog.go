@@ -33,6 +33,7 @@ func (r *Runtime) observeResourceCatalog() {
 			}
 			r.enqueue(func(*ui.Context) {
 				r.resourceCatalog = view.Catalog
+				r.knowledge.stale = true
 				r.pruneResourceViews()
 				r.syncNetwork()
 				r.project()

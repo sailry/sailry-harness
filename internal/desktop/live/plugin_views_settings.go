@@ -32,42 +32,82 @@ type pluginSchemaSettings struct {
 
 func (r *Runtime) renderPluginSettings(view *ui.Context, entry pluginSettingsEntry) {
 	page := entry.info.Extension.SettingsPage
-	render := func() {
-		if page.EnabledControl {
-			enabled := entry.info.Summary.Enabled
-			kit.Card(view, func() {
-				kit.Row(view, "plugin-enabled", i18n.T(view, "plugins_enabled"), "", func() {
-					ui.Switch(view, &enabled).Label(i18n.T(view, "plugins_enabled")).Disabled(!entry.owner.controller.Connected()).
-						OnChange(func() { entry.owner.togglePackage(entry.info.Summary.Name, enabled) })
-				})
-			})
-		}
-		if page.Entry == nil {
-			if entry.info.Settings != nil {
-				r.renderPluginSchema(view, entry)
-			} else {
-				kit.Card(view, func() {
-					kit.Row(view, "plugin-node", i18n.T(view, "project_host"), "", func() {
-						ui.Text(view, i18n.T(view, entry.owner.packageHostLabel())).FontSize(14).TextColor(theme.Of(view).MutedForeground)
-					})
-				})
-			}
-			return
-		}
-		mounted := r.ensurePluginView(view, entry.owner, entry.info, entry.scope, "settings", nil)
-		if !r.renderMountedPlugin(view, mounted) {
-			ui.Box(view).FillWidth()
+	model := r.App.Settings.Model
+	changed := false
+	header := func() {
+		if localPluginSettings(entry.info) {
+			ui.Text(view, i18n.T(view, "composer_host_local")).FontSize(13).TextColor(theme.Of(view).MutedForeground)
+		} else {
+			changed = settings.ManagedNodeSelect(view, model)
 		}
 	}
+	render := func() {
+		if changed {
+			return
+		}
+		status := entry.status
+		if status == "" && (entry.owner == nil || !entry.owner.controller.Connected()) {
+			status = "plugins_view_offline"
+		}
+		if status != "" {
+			kit.Result(view, kit.ResultProps{Title: i18n.T(view, status), Card: true})
+			return
+		}
+		if !r.pluginSettingsTargetCurrent(entry) {
+			return
+		}
+		r.renderPluginSettingsContent(view.Key(entry.owner.controller.Target().String()).Key(entry.scope.Package.Digest), entry)
+		settings.PackageConfigurationDialog(view, model)
+	}
 	if page.FullWidth {
-		ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(render)
+		ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(func() {
+			ui.Box(view.Key("settings-scope")).FillWidth().Padding(8, 24).Children(func() {
+				kit.Group(view, "settings-header", "", "", header, func() {})
+			})
+			render()
+		})
 		return
 	}
 	description := stringValue(entry.info.Summary.Description)
 	if entry.info.Extension.Description != nil {
 		description = pluginNavigation(*entry.info.Extension.Description, r.packageLocale())
 	}
-	kit.Page(view, entry.section, pluginNavigation(page.Navigation, r.packageLocale()), description, render)
+	kit.Page(view, entry.section, pluginNavigation(page.Navigation, r.packageLocale()), description, render, header)
+}
+
+func (r *Runtime) renderPluginSettingsContent(view *ui.Context, entry pluginSettingsEntry) {
+	page := entry.info.Extension.SettingsPage
+	if page.EnabledControl {
+		enabled := entry.info.Summary.Enabled
+		kit.Card(view, func() {
+			kit.Row(view, "plugin-enabled", i18n.T(view, "plugins_enabled"), "", func() {
+				ui.Switch(view, &enabled).Label(i18n.T(view, "plugins_enabled")).Disabled(!entry.owner.controller.Connected()).OnChange(func() {
+					current, exists := r.pluginViews.settings[entry.section]
+					if exists && current.owner == entry.owner && current.scope.Package == entry.scope.Package && r.pluginSettingsTargetCurrent(current) {
+						entry.owner.togglePackage(entry.info.Summary.Name, enabled)
+					}
+				})
+			})
+		})
+	}
+	if page.Entry == nil {
+		if entry.info.Settings != nil {
+			r.renderPluginSchema(view, entry)
+		}
+		return
+	}
+	mounted := r.ensurePluginView(view, entry.owner, entry.info, entry.scope, "settings", nil)
+	if !r.renderMountedPlugin(view, mounted) {
+		if mounted != nil && mounted.failure != nil {
+			key := "plugins_view_load_failed"
+			if faultCode(mounted.failure) == protocol.ErrorCodePermissionDenied {
+				key = "permission_denied"
+			}
+			kit.Result(view, kit.ResultProps{Title: i18n.T(view, key), Card: true})
+			return
+		}
+		ui.Box(view).FillWidth()
+	}
 }
 
 func rootPluginSchemaCurrent(root *Runtime, section settings.Section, schema *pluginSchemaSettings) bool {
@@ -76,7 +116,7 @@ func rootPluginSchemaCurrent(root *Runtime, section settings.Section, schema *pl
 		return false
 	}
 	entry, exists := root.pluginViews.settings[section]
-	return exists && entry.owner == schema.owner &&
+	return exists && entry.owner == schema.owner && root.pluginSettingsTargetCurrent(entry) &&
 		(entry.scope.Package == schema.reference || entry.scope.Package == schema.source)
 }
 
@@ -161,6 +201,11 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 		return
 	}
 	if schema.failure != nil {
+		key := "plugins_settings_read_failed"
+		if faultCode(schema.failure) == protocol.ErrorCodePermissionDenied {
+			key = "permission_denied"
+		}
+		kit.Result(view, kit.ResultProps{Title: i18n.T(view, key), Card: true})
 		return
 	}
 	disabled := schema.pending || !entry.owner.controller.Connected()
@@ -210,8 +255,7 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 			return
 		}
 		schema.pending = true
-		entry.owner.packages.settings[entry.info.Summary.Name] = schema.state
-		entry.owner.savePackageSettings(entry.info.Summary.Name, slices.Clone(schema.fields), schema.secrets, func(saved bool) {
+		entry.owner.savePackageSettings(entry.info, schema.state, slices.Clone(schema.fields), schema.secrets, func(state protocol.PluginSettingsState, saved bool) {
 			if !rootPluginSchemaCurrent(r.localRuntime(), entry.section, schema) {
 				return
 			}
@@ -220,7 +264,7 @@ func (r *Runtime) renderPluginSchema(view *ui.Context, entry pluginSettingsEntry
 				return
 			}
 			schema.source = schema.reference
-			schema.state = entry.owner.packages.settings[entry.info.Summary.Name]
+			schema.state = state
 			schema.reference = schema.state.Package
 			for index := range schema.fields {
 				field := &schema.fields[index]

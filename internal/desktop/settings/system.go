@@ -36,33 +36,32 @@ func permissions(c *ui.Context, m *Model) {
 		}
 		kit.Action(c.Key("check"), icons.Reload, i18n.T(c, "permission_check"), false).OnClick(act(func(a *PermissionActions) { a.Check() }))
 	}, func() {
-		kit.Card(c, func() {
-			for _, x := range m.Permissions {
-				granted := x.Status == "permission_granted" || x.Status == "permission_not_needed"
-				// Nothing on this device grants a resource that is unavailable
-				// here or granted on the execution device.
-				absent := x.Status == "permission_unavailable" || x.Status == "permission_remote"
-				kit.Row(c, x.Resource, i18n.T(c, x.Resource), i18n.T(c, x.Status), func() {
-					// The shortcut of a granted resource; before that the
-					// row's one action opens the settings itself.
-					if x.Settings && granted {
-						kit.Action(c.Key("settings"), icons.Settings2, i18n.T(c, "permission_settings"), false).OnClick(act(func(a *PermissionActions) { a.Settings(x.Resource) }))
-					}
-					if !granted {
-						action := "permission_request"
-						if x.Settings {
-							action = "permission_settings"
-						}
-						small(c, "request", i18n.T(c, action)).Disabled(absent).OnClick(act(func(a *PermissionActions) { a.Request(x.Resource) }))
-					}
-				})
+		permissionSettingsRows(c, m.Permissions,
+			func(resource string) { act(func(a *PermissionActions) { a.Request(resource) })() },
+			func(resource string) { act(func(a *PermissionActions) { a.Settings(resource) })() })
+	})
+	rows := m.Permissions
+	if a := m.PermissionActions; m.Live && a != nil {
+		managedNodeGroup(c, m, "host-permissions", i18n.T(c, "permission_host_title"), func() {
+			switch {
+			case a.HostUnavailable:
+				settingsTargetStatus(c, "connections_offline")
+			case len(a.HostPermissions) == 0:
+				kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
+			case a.HostReadOnly:
+				permissionSettingsRows(c, a.HostPermissions, nil, nil)
+			default:
+				permissionSettingsRows(c, a.HostPermissions, a.HostRequest, a.HostSettings)
 			}
 		})
-	})
+		if !a.HostReadOnly {
+			rows = slices.Concat(rows, a.HostPermissions)
+		}
+	}
 	// Full disk access, accessibility and screen recording are granted by
 	// adding the application to a list in the system's settings: the help
 	// and Show app stay while any of them is missing here.
-	if slices.ContainsFunc(m.Permissions, func(x preview.Permission) bool {
+	if slices.ContainsFunc(rows, func(x preview.Permission) bool {
 		switch x.Resource {
 		case "permission_full_disk", "permission_accessibility", "permission_screen":
 		default:
@@ -77,15 +76,41 @@ func permissions(c *ui.Context, m *Model) {
 	}
 }
 
+func permissionSettingsRows(c *ui.Context, rows []preview.Permission, request, openSettings func(string)) {
+	kit.Card(c, func() {
+		for _, x := range rows {
+			granted := x.Status == "permission_granted" || x.Status == "permission_not_needed"
+			absent := x.Status == "permission_unavailable" || x.Status == "permission_remote"
+			kit.Row(c, x.Resource, i18n.T(c, x.Resource), i18n.T(c, x.Status), func() {
+				if granted && x.Settings && openSettings != nil {
+					kit.Action(c.Key("settings"), icons.Settings2, i18n.T(c, "permission_settings"), false).OnClick(func() { openSettings(x.Resource) })
+				}
+				if !granted && request != nil {
+					action := "permission_request"
+					if x.Settings {
+						action = "permission_settings"
+					}
+					small(c, "request", i18n.T(c, action)).Disabled(absent).OnClick(func() { request(x.Resource) })
+				}
+			})
+		}
+	})
+}
+
 // PermissionActions are the live permissions page's actions. Check reads
 // every grant; Request asks for a resource's missing grants or opens the
 // system's settings when only they can change it; Settings opens the
 // resource's page there; ShowApp reveals the application to add to a list.
 type PermissionActions struct {
-	Check    func()
-	Request  func(resource string)
-	Settings func(resource string)
-	ShowApp  func()
+	Check           func()
+	Request         func(resource string)
+	Settings        func(resource string)
+	ShowApp         func()
+	HostPermissions []preview.Permission
+	HostUnavailable bool
+	HostReadOnly    bool
+	HostRequest     func(resource string)
+	HostSettings    func(resource string)
 }
 
 // ghostIcon is a small ghost button with an icon and a label.

@@ -23,6 +23,7 @@ type pluginSettingsEntry struct {
 	owner   *Runtime
 	info    protocol.PluginInfo
 	scope   protocol.PluginContext
+	status  string // display-only when the selected Node cannot provide the page
 }
 
 func hasPluginSettingsContent(info protocol.PluginInfo) bool {
@@ -33,6 +34,34 @@ func hasPluginSettingsContent(info protocol.PluginInfo) bool {
 	return page.Entry != nil || page.EnabledControl || info.Settings != nil
 }
 
+func localPluginSettings(info protocol.PluginInfo) bool {
+	extension := info.Extension
+	if extension == nil {
+		return false
+	}
+	if desktopPlugin(info) {
+		return true
+	}
+	// A browser-only custom page configures the controller's browser
+	// profile. The package itself can still be installed on a Host.
+	page := extension.SettingsPage
+	return page != nil && page.Entry != nil && !page.EnabledControl && info.Settings == nil &&
+		len(extension.Actions) > 0 && !slices.ContainsFunc(extension.Actions, func(action protocol.PluginAction) bool {
+		return action != protocol.PluginActionReadBrowser && action != protocol.PluginActionControlBrowser
+	})
+}
+
+func desktopPlugin(info protocol.PluginInfo) bool {
+	return info.Extension != nil && info.Extension.Scope == protocol.PluginScopeDesktop
+}
+
+func pluginSettingsSection(owner *Runtime, info protocol.PluginInfo) settings.Section {
+	if localPluginSettings(info) {
+		return settings.Section("plugin:" + owner.controller.Target().String() + "/" + info.Summary.Name)
+	}
+	return settings.Section("plugin:" + info.Summary.Name)
+}
+
 func unmountedPlugin(name string) bool {
 	return name == "files" || name == "git"
 }
@@ -40,7 +69,6 @@ func unmountedPlugin(name string) bool {
 func (r *Runtime) projectPluginViews(view *ui.Context) {
 	root := r.localRuntime()
 	state := root.pluginViews
-	selected := root.packageOwner()
 	workspace := root.selectedRuntime()
 	locale := root.packageLocale()
 	entries := []pluginNavigationEntry{}
@@ -48,8 +76,8 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 		owner *Runtime
 		scope protocol.PluginScope
 	}
-	sources := []navigationSource{{selected, protocol.PluginScopeHost}, {root, protocol.PluginScopeDesktop}}
-	if workspace != selected {
+	sources := []navigationSource{{root, protocol.PluginScopeHost}, {root, protocol.PluginScopeDesktop}}
+	if workspace != root {
 		sources = append(sources, navigationSource{workspace, protocol.PluginScopeHost})
 	}
 	for _, source := range sources {
@@ -64,7 +92,7 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 				continue
 			}
 			if source.scope == protocol.PluginScopeHost {
-				owner := selected
+				owner := root
 				if desktop.NavigationOptions.Target == protocol.PluginDesktopNavigationTargetWorktree {
 					owner = workspace
 				}
@@ -104,16 +132,36 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	}
 	state.navigation = navigation
 	root.App.SetPluginFeatures(features)
+	root.projectPluginSettings(view)
+}
+
+func (r *Runtime) projectPluginSettings(view *ui.Context) {
+	state := r.pluginViews
+	selected := r.packageOwner()
 	var settingsEntries []pluginSettingsEntry
-	for _, info := range root.pluginViewCatalog(selected) {
-		if !hasPluginSettingsContent(info) || info.Summary.Compatibility.Kind != "compatible" {
-			continue
+	for _, owner := range []*Runtime{selected, r} {
+		for _, info := range r.pluginViewCatalog(owner) {
+			local := localPluginSettings(info)
+			if !hasPluginSettingsContent(info) || info.Summary.Compatibility.Kind != "compatible" ||
+				local && owner != r || !local && owner != selected {
+				continue
+			}
+			section := pluginSettingsSection(owner, info)
+			scope := protocol.DefaultPluginContext()
+			scope.Package, scope.Surface = packageReference(info.Summary), protocol.PluginDesktopSurface{Kind: "settings"}
+			settingsEntries = append(settingsEntries, pluginSettingsEntry{section: section, owner: owner, info: info, scope: scope})
 		}
-		scope := protocol.DefaultPluginContext()
-		scope.Package, scope.Surface = packageReference(info.Summary), protocol.PluginDesktopSurface{Kind: "settings"}
+		if selected == r {
+			break
+		}
+	}
+	active := r.App.Settings.Section
+	if previous, exists := state.settings[active]; exists && !localPluginSettings(previous.info) &&
+		!slices.ContainsFunc(settingsEntries, func(entry pluginSettingsEntry) bool { return entry.section == active }) {
+		// Keep the open page's identity and label. Its previous declaration
+		// is only presentation, never a fallback package or Client.
 		settingsEntries = append(settingsEntries, pluginSettingsEntry{
-			section: settings.Section("plugin:" + selected.controller.Target().String() + "/" + info.Summary.Name),
-			owner:   selected, info: info, scope: scope,
+			section: active, info: previous.info, status: pluginSettingsStatus(selected, previous.info.Summary.Name),
 		})
 	}
 	slices.SortFunc(settingsEntries, func(first, second pluginSettingsEntry) int {
@@ -124,29 +172,66 @@ func (r *Runtime) projectPluginViews(view *ui.Context) {
 	})
 	pages := make([]settings.PluginPage, 0, len(settingsEntries))
 	state.settings = make(map[settings.Section]pluginSettingsEntry, len(settingsEntries))
+	locale := r.packageLocale()
 	for _, entry := range settingsEntries {
 		state.settings[entry.section] = entry
 		page := entry.info.Extension.SettingsPage
 		pages = append(pages, settings.PluginPage{
 			Section: entry.section, Label: pluginNavigation(page.Navigation, locale),
-			Icon:  root.pluginNavigationIcon(view, page.Navigation.Icon),
+			Icon:  r.pluginNavigationIcon(view, page.Navigation.Icon),
 			Group: "settings_group_" + string(page.Placement.Group),
 			Order: page.Placement.Order,
 			Render: func(current *ui.Context) {
-				live, exists := root.pluginViews.settings[entry.section]
-				if !exists || live.owner != entry.owner || live.scope.Package != entry.scope.Package {
+				live, exists := state.settings[entry.section]
+				if !exists || live.owner != entry.owner || live.scope.Package != entry.scope.Package || live.status != entry.status {
 					return
 				}
-				root.renderPluginSettings(current, entry)
+				r.renderPluginSettings(current, live)
 			},
 		})
 	}
-	root.App.Settings.SetPluginPages(pages)
+	r.App.Settings.SetPluginPages(pages)
+}
+
+func pluginSettingsStatus(owner *Runtime, name string) string {
+	if owner == nil || !owner.controller.Connected() {
+		return "plugins_view_offline"
+	}
+	for _, summary := range owner.snapshot().Plugins {
+		if summary.Name != name {
+			continue
+		}
+		if removed, exists := owner.packages.removed[name]; exists && summary.Revision <= removed {
+			break
+		}
+		if summary.Compatibility.Kind != "compatible" {
+			return "market_details_unsupported"
+		}
+		if owner.packages.failures[name] == packageVersion(summary) {
+			return "plugins_read_failed"
+		}
+		if info := owner.packages.infos[name]; info.Summary.Digest == summary.Digest {
+			return "plugins_settings_none"
+		}
+		return "plugins_loading"
+	}
+	return "plugins_not_installed_on_host"
+}
+
+func (r *Runtime) pluginSettingsTargetCurrent(entry pluginSettingsEntry) bool {
+	if entry.owner == nil {
+		return false
+	}
+	root := r.localRuntime()
+	if localPluginSettings(entry.info) {
+		return entry.owner == root
+	}
+	return root.managedSettingsNode() == entry.owner
 }
 
 func (r *Runtime) pluginSettingsRetained(mounted *pluginMountedView) bool {
 	for _, entry := range r.localRuntime().pluginViews.settings {
-		if entry.owner == mounted.owner && entry.info.Summary.Name == mounted.scope.Package.Name &&
+		if entry.owner == mounted.owner && r.pluginSettingsTargetCurrent(entry) && entry.info.Summary.Name == mounted.scope.Package.Name &&
 			pluginScopeIdentity(entry.owner.controller.Target(), entry.scope) == mounted.key.scope {
 			return true
 		}
@@ -175,11 +260,7 @@ func (r *Runtime) selectPluginView(id string) bool {
 		return false
 	}
 	if entry.scope.Surface.Kind == "settings" {
-		section := settings.Section("plugin:" + entry.owner.controller.Target().String() + "/" + entry.info.Summary.Name)
-		if _, exists := root.pluginViews.settings[section]; exists {
-			root.App.Settings.Open(section)
-			root.App.Navigate(shell.SettingsPage)
-		} else {
+		if !root.openPluginSettings(entry.owner, entry.info) {
 			entry.owner.configurePackage(entry.info.Summary.Name)
 		}
 		return false
@@ -197,6 +278,29 @@ func (r *Runtime) selectPluginView(id string) bool {
 		mounted.host.Enter()
 	}
 	return true
+}
+
+func (r *Runtime) openPluginSettings(owner *Runtime, info protocol.PluginInfo) bool {
+	root := r.localRuntime()
+	if !hasPluginSettingsContent(info) || !owner.controller.Connected() || info.Summary.Compatibility.Kind != "compatible" ||
+		localPluginSettings(info) && owner != root {
+		return false
+	}
+	if !localPluginSettings(info) {
+		root.selectPackageSettingsNode(owner)
+	}
+	root.App.Settings.Open(pluginSettingsSection(owner, info))
+	root.App.Navigate(shell.SettingsPage)
+	return true
+}
+
+func (r *Runtime) selectPackageSettingsNode(owner *Runtime) {
+	root := r.localRuntime()
+	target := ""
+	if owner != root {
+		target = owner.controller.Target().String()
+	}
+	root.App.Settings.ManagedNode = target
 }
 
 func (r *Runtime) renderPluginPage(view *ui.Context, id string) {

@@ -62,20 +62,25 @@ func tokens(c *ui.Context, n int) string {
 
 func providers(c *ui.Context, s *State) {
 	m := s.Model
+	if m.Live && m.ProviderActions.Available != nil && !m.ProviderActions.Available() {
+		kit.Result(c, kit.ResultProps{Icon: icons.Device, Title: i18n.T(c, "unavailable"), Card: true})
+		return
+	}
+	channels := m.providerSettingsChannels()
 	ui.Column(c).Gap(24).Children(func() {
 		catalog(c, m)
 		ui.Column(c.Key("channels")).Gap(12).Children(func() {
 			var shown []int
-			for i := range m.Channels {
-				ch := &m.Channels[i]
+			for i := range channels {
+				ch := &channels[i]
 				if (m.Family == "" || ch.Brand == m.Family) && matches(ch, s.Query) {
 					shown = append(shown, i)
 				}
 			}
-			kit.Toolbar(c, i18n.T(c, "provider_channels"), len(m.Channels), &s.Query, i18n.T(c, "provider_list_search"), func() {
+			kit.Toolbar(c, i18n.T(c, "provider_channels"), len(channels), &s.Query, i18n.T(c, "provider_list_search"), func() {
 				families(c, m)
 				iconButton(c, "add", icons.Plus, i18n.T(c, "settings_add"), true, false).OnClick(func() {
-					if requireProviderCatalog(c, m) {
+					if requireProviderCatalog(c, m, m.managedNodeID()) {
 						m.provider.add(m)
 					}
 				})
@@ -86,16 +91,17 @@ func providers(c *ui.Context, s *State) {
 			}
 			kit.Card(c, func() {
 				for _, i := range shown {
-					channelRow(c, m, &m.Channels[i])
+					channelRow(c, m, &channels[i])
 				}
 			})
 		})
 	})
 	providerEditorDialog(c, m)
 	providerAuthorizationDialog(c, m)
-	if ch := m.channel(m.removing); ch != nil {
+	if ch := findChannel(channels, m.removing); ch != nil {
 		open := true
-		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title"), ch.Name+"\n"+i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
+		name := providerHostLabel(c, m, ch.Node, ch.Name)
+		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title"), name+"\n"+i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
 			if m.Live && m.ProviderActions.Remove != nil {
 				m.ProviderActions.Remove(ch.Node, ch.ID, ch.Revision)
 			} else {
@@ -145,6 +151,10 @@ func catalog(c *ui.Context, m *Model) {
 			})
 			t := i18n.T(c, "provider_compaction_threshold")
 			kit.Row(c, "compaction", t, "", func() {
+				if m.Live && m.Compaction.Saved == 0 {
+					ui.Text(c, i18n.T(c, "unavailable")).FontSize(14).TextColor(p.MutedForeground)
+					return
+				}
 				ui.Row(c).Width(240).Gap(12).Children(func() {
 					if ui.StepSlider(c.Key("slider"), &m.Compaction.Draft, 50, 95, 5).Label(t).Disabled(m.Compaction.Pending).Grow(1).Changed() {
 						if m.Live && m.ProviderActions.SaveCompaction != nil {
@@ -163,8 +173,12 @@ func catalog(c *ui.Context, m *Model) {
 	})
 }
 
-func requireProviderCatalog(c *ui.Context, m *Model) bool {
-	if !m.Live || m.Catalog.Updated || m.Catalog.Bundled {
+func requireProviderCatalog(c *ui.Context, m *Model, node string) bool {
+	catalog := m.Catalog
+	if m.Live && node != "" && m.ProviderActions.CatalogAt != nil {
+		catalog = m.ProviderActions.CatalogAt(node)
+	}
+	if !m.Live || catalog.Updated || catalog.Bundled {
 		return true
 	}
 	kit.Toast(c, kit.Failed, i18n.T(c, "provider_catalog_required"))
@@ -188,12 +202,16 @@ type family struct{ id, name string }
 // no longer offered), named by the channel.
 func (m *Model) families() []family {
 	var out []family
+	node := m.managedNodeID()
 	for _, b := range m.Brands {
+		if node != "" && b.Node != node {
+			continue
+		}
 		if !slices.ContainsFunc(out, func(f family) bool { return f.id == b.ID }) {
 			out = append(out, family{b.ID, b.Name})
 		}
 	}
-	for _, ch := range m.Channels {
+	for _, ch := range m.providerSettingsChannels() {
 		if ch.Brand == "" || slices.ContainsFunc(out, func(f family) bool { return f.id == ch.Brand }) {
 			continue
 		}
@@ -241,9 +259,6 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 				access = "OAuth"
 			}
 			desc := access + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
-			if host := providerHostByID(m, ch.Node); host != nil {
-				desc += " · " + i18n.T(c, "provider_on_host", "host", providerHostName(c, *host))
-			}
 			if ch.Source != "" {
 				desc += " · " + i18n.T(c, "configuration_follow_from_source")
 			}
@@ -405,12 +420,26 @@ func channelKey(node, id string) string {
 }
 
 func (m *Model) channel(key string) *preview.Channel {
+	if node, _, qualified := strings.Cut(key, "/"); qualified && m.Live && m.ChannelsByNode != nil {
+		return findChannel(m.ChannelsByNode[node], key)
+	}
+	return findChannel(m.Channels, key)
+}
+
+func (m *Model) providerSettingsChannels() []preview.Channel {
+	if m.Live && (m.ChannelsByNode != nil || m.ManagedNode != "") {
+		return m.ChannelsByNode[m.managedNodeID()]
+	}
+	return m.Channels
+}
+
+func findChannel(channels []preview.Channel, key string) *preview.Channel {
 	if key == "" {
 		return nil
 	}
-	for i := range m.Channels {
-		if channelKey(m.Channels[i].Node, m.Channels[i].ID) == key || m.Channels[i].Node == "" && m.Channels[i].ID == key {
-			return &m.Channels[i]
+	for i := range channels {
+		if channelKey(channels[i].Node, channels[i].ID) == key {
+			return &channels[i]
 		}
 	}
 	return nil
@@ -535,10 +564,17 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 }
 
 func (e *providerEditor) add(m *Model) {
-	*e = providerEditor{open: true, step: stepBrand, generation: e.generation + 1}
-	if m.Live && m.ProviderActions.DefaultTarget != nil {
-		e.owner = m.ProviderActions.DefaultTarget()
+	owner := m.managedNodeID()
+	if m.Live && m.ManagedNode == "" && m.ProviderActions.DefaultTarget != nil {
+		if preferred := m.ProviderActions.DefaultTarget(); preferred != "" {
+			owner = preferred
+		}
 	}
+	e.addOn(m, owner)
+}
+
+func (e *providerEditor) addOn(m *Model, owner string) {
+	*e = providerEditor{open: true, step: stepBrand, generation: e.generation + 1, owner: owner}
 	if e.owner != "" {
 		e.targets = []string{e.owner}
 	}
@@ -547,22 +583,24 @@ func (e *providerEditor) add(m *Model) {
 	}
 }
 
+// CloseProviderEditor drops the draft and actions captured for the previous Node.
+func (m *Model) CloseProviderEditor(nextNode string) {
+	m.removing, m.expanded, m.Family = "", "", ""
+	if e := &m.provider; nextNode != "" && e.open && e.returnTo != nil && e.owner == nextNode {
+		// The welcome guide opens its editor on the incoming local Node.
+		return
+	}
+	m.provider = providerEditor{generation: m.provider.generation + 1}
+}
+
 func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, owner: ch.Node, group: ch.Group, targetIDs: maps.Clone(ch.TargetIDs), targetRevisions: maps.Clone(ch.TargetRevisions), id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
-	if ch.Group != "" && len(ch.TargetIDs) > 0 {
-		for node := range ch.TargetIDs {
-			e.targets = append(e.targets, node)
-		}
-		e.targets = providerTargetList(e.targets)
-	} else if ch.Node != "" {
+	if ch.Node != "" {
 		e.targets = []string{ch.Node}
 	}
 	if e.targetRevisions == nil && ch.Node != "" {
 		e.targetRevisions = map[string]uint64{ch.Node: ch.Revision}
-	}
-	if !providerAuthAllowsMultipleTargets(ch.Auth) && ch.Node != "" {
-		e.targets = []string{ch.Node}
 	}
 	e.revision = ch.Revision
 	e.oauth = ch.OAuth
@@ -600,7 +638,10 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 		}
 	}
 	if e.brand == nil {
-		e.method = preview.Method{Node: ch.Node, ID: ch.Method, Name: ch.Name, API: ch.API, Access: "provider_access_key", Custom: ch.Endpoint != ""}
+		e.method = preview.Method{Node: ch.Node, ID: ch.Method, Name: ch.Name, API: ch.API, Auth: ch.Auth, Keyed: ch.Auth == preview.AuthKey, Custom: ch.Endpoint != ""}
+		if ch.Auth == preview.AuthOAuth {
+			e.method.Login = "provider_access_login"
+		}
 	}
 	if e.azure() && e.apiVersion == "" {
 		e.apiVersion = azureDefaultVersion
@@ -719,22 +760,13 @@ func (e *providerEditor) choose(b *preview.Brand, methods []preview.Method) {
 // configure opens the form on a method's first route.
 func (e *providerEditor) configure(x preview.Method) {
 	e.method, e.route, e.step = x, 0, stepConfigure
-	if e.editing == "" && e.owner == "" && x.Node != "" {
-		e.owner = x.Node
-		e.targets = []string{x.Node}
-	} else if e.owner == "" {
+	if e.owner == "" {
 		e.owner = x.Node
 	}
 	if len(e.targets) == 0 && e.owner != "" {
 		e.targets = []string{e.owner}
 	}
-	if !providerAuthAllowsMultipleTargets(e.auth()) && len(e.targets) > 1 {
-		if e.owner != "" && slices.Contains(e.targets, e.owner) {
-			e.targets = []string{e.owner}
-		} else {
-			e.targets = e.targets[:1]
-		}
-	}
+	e.targets = e.normalizedTargets()
 	e.name, e.endpoint = x.Name, e.current().Endpoint
 	e.models, e.def = nil, 0
 	e.oauth = x.OAuth
@@ -832,24 +864,16 @@ func completeProviderSaveResult(targets []string, result ProviderSaveResult) Pro
 	return result
 }
 
-func toggleProviderTarget(targets []string, node string, multiple, checked bool) []string {
-	if node == "" {
-		return slices.Clone(targets)
+func (e *providerEditor) toggleCopyTarget(node string) {
+	if node == "" || node == e.owner || !providerAuthAllowsMultipleTargets(e.auth()) {
+		return
 	}
-	if !multiple {
-		if checked {
-			return []string{node}
-		}
-		return slices.Clone(targets)
+	if index := slices.Index(e.targets, node); index >= 0 {
+		e.targets = slices.Delete(e.targets, index, index+1)
+	} else {
+		e.targets = append(e.targets, node)
 	}
-	result := providerTargetList(targets)
-	if checked {
-		if !slices.Contains(result, node) {
-			result = append(result, node)
-		}
-		return result
-	}
-	return slices.DeleteFunc(result, func(value string) bool { return value == node })
+	e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
 }
 
 func (e *providerEditor) targetHosts(m *Model) []ProviderHost {
@@ -866,12 +890,15 @@ func (e *providerEditor) targetHosts(m *Model) []ProviderHost {
 }
 
 func (e *providerEditor) normalizedTargets() []string {
+	if e.owner == "" {
+		return nil
+	}
+	if !providerAuthAllowsMultipleTargets(e.auth()) {
+		return []string{e.owner}
+	}
 	targets := providerTargetList(e.targets)
-	if !providerAuthAllowsMultipleTargets(e.auth()) && len(targets) > 1 {
-		if e.owner != "" && slices.Contains(targets, e.owner) {
-			return []string{e.owner}
-		}
-		return targets[:1]
+	if !slices.Contains(targets, e.owner) {
+		targets = append(targets, e.owner)
 	}
 	return targets
 }
@@ -1017,11 +1044,8 @@ func (e *providerEditor) save(m *Model) string {
 			channel.Headers, _ = parseHeaders(e.headers)
 		}
 		generation := e.generation
-		signIn := e.login() && (e.editing == "" || len(targets) == 1 && targets[0] != e.owner)
+		signIn := e.login() && e.editing == ""
 		signInNode, id := e.owner, e.id
-		if len(targets) > 0 {
-			signInNode = targets[0]
-		}
 		e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
 		save := m.ProviderActions.Save
 		if e.resumeSave != nil {
@@ -1124,7 +1148,7 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Children(func() {
 			switch e.step {
 			case stepBrand:
-				brandPicker(c, m, nil, nil)
+				brandPicker(c, m, e.owner, nil, nil)
 			case stepMethod:
 				methodList(c, m)
 			default:
@@ -1166,56 +1190,21 @@ func apiMethods(b *preview.Brand) []preview.Method {
 	return slices.DeleteFunc(slices.Clone(b.Methods), func(x preview.Method) bool { return x.Login != "" })
 }
 
-func providerHostLabel(c *ui.Context, m *Model, node, label string) string {
-	if node == "" || m.ProviderActions.Hosts == nil {
-		return label
-	}
-	hosts := m.ProviderActions.Hosts()
-	if len(hosts) < 2 {
-		return label
-	}
-	for _, host := range hosts {
-		if host.Node == node {
-			if host.Name != "" {
-				return label + " (" + i18n.T(c, host.Name) + ")"
-			}
-			return label + " (" + node + ")"
-		}
-	}
-	return label + " (" + node + ")"
-}
-
-func providerHostByID(m *Model, node string) *ProviderHost {
-	if node == "" || m.ProviderActions.Hosts == nil {
-		return nil
-	}
-	hosts := m.ProviderActions.Hosts()
-	if len(hosts) < 2 {
-		return nil
-	}
-	for i := range hosts {
-		if hosts[i].Node == node {
-			return &hosts[i]
-		}
-	}
-	return nil
-}
-
 // brandPicker is two groups of outlined pills, each with its heading and
 // its marks: account sign-ins grouped by brand, then brands with API methods.
 // A brand opens its only method's form or asks which. before runs ahead of a
 // choice and after it, as the welcome guide opens the editor (nil for
 // none).
-func brandPicker(c *ui.Context, m *Model, before, after func()) {
+func brandPicker(c *ui.Context, m *Model, node string, before, after func()) {
 	p := theme.Of(c)
 	chip := func(key, label, mark string, pick func()) {
 		b := ui.ButtonBase(c.Key(key)).Label(label).Height(32).Padding(0, 14, 0, 10).Gap(8).Radius(999).
 			Border(1, p.Border).Background(p.ButtonSecondary).Cursor(ui.CursorPointer).OnClick(func() {
-			if m.Live && m.ProviderActions.Available != nil && !m.ProviderActions.Available() {
+			if m.Live && !m.providerHostAvailable(node) {
 				kit.Toast(c, kit.Failed, i18n.T(c, "onboarding_host_unavailable"))
 				return
 			}
-			if !requireProviderCatalog(c, m) {
+			if !requireProviderCatalog(c, m, node) {
 				return
 			}
 			if before != nil {
@@ -1252,6 +1241,9 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	var brands []*preview.Brand
 	for i := range m.Brands {
 		b := &m.Brands[i]
+		if node != "" && b.Node != node {
+			continue
+		}
 		var methods []preview.Method
 		for _, x := range b.Methods {
 			if x.Login != "" {
@@ -1277,12 +1269,12 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 				if len(x.methods) == 1 && icons.Brand(x.methods[0].Icon) != nil {
 					mark = x.methods[0].Icon
 				}
-				chip("login-"+channelKey(x.brand.Node, x.brand.ID), providerHostLabel(c, m, x.brand.Node, x.label), mark, func() { m.chooseProvider(x.brand, x.methods) })
+				chip("login-"+channelKey(x.brand.Node, x.brand.ID), x.label, mark, func() { m.chooseProvider(x.brand, x.methods) })
 			}
 		})
 		group("provider_access_key", len(brands), func() {
 			for _, b := range brands {
-				chip("api-"+channelKey(b.Node, b.ID), providerHostLabel(c, m, b.Node, b.Name), b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
+				chip("api-"+channelKey(b.Node, b.ID), b.Name, b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
 			}
 		})
 	})
@@ -1471,7 +1463,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				label = t("provider_querying")
 			}
 			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
-				if !requireProviderCatalog(c, m) {
+				if !requireProviderCatalog(c, m, e.owner) {
 					return
 				}
 				if m.Live && m.ProviderActions.Discover != nil {
@@ -1501,7 +1493,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				kit.Toast(c, kit.Done, t("provider_discovered_preview"))
 			})
 			kit.Secondary(c.Key("add-model"), t("provider_add_model")).Disabled(e.probing).OnClick(func() {
-				if !requireProviderCatalog(c, m) {
+				if !requireProviderCatalog(c, m, e.owner) {
 					return
 				}
 				// A model typed in starts with the tags a save gives it.
@@ -1519,50 +1511,50 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 
 func providerTargets(c *ui.Context, m *Model, e *providerEditor) {
 	hosts := e.targetHosts(m)
-	if len(hosts) == 0 {
-		return
-	}
-	multiple := providerAuthAllowsMultipleTargets(e.auth())
-	label := i18n.T(c, "provider_host")
-	if multiple {
-		label = i18n.T(c, "provider_hosts")
-	}
-	if !multiple {
-		chosen := ""
-		if len(e.targets) > 0 {
-			chosen = e.targets[0]
+	for _, host := range hosts {
+		if host.Node == e.owner {
+			kit.Field(c, "owner", i18n.T(c, "provider_host"), "", func() {
+				ui.Text(c, providerHostName(c, host)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+			})
+			break
 		}
-		options := make([]kit.SelectOption, 0, len(hosts))
-		for _, host := range hosts {
-			name := i18n.T(c, host.Name)
-			if name == "" {
-				name = host.Node
-			}
-			options = append(options, kit.SelectOption{Value: host.Node, Label: name, Disabled: !host.Connected && host.Node != chosen})
-		}
-		if _, changed := kit.SelectField(c.Key("target"), "provider-host", &chosen, kit.SelectProps{Label: label, Options: options}); changed && !e.probing {
-			e.targets = toggleProviderTarget(e.targets, chosen, false, true)
-			e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
-		}
-		providerTargetStatuses(c, hosts, e)
-		return
 	}
-	kit.Field(c, "hosts", label, "", func() {
-		ui.Column(c.Key("options")).Gap(6).Children(func() {
-			for _, host := range hosts {
-				selected := slices.Contains(e.targets, host.Node)
-				name := i18n.T(c, host.Name)
-				if name == "" {
-					name = host.Node
-				}
-				if ui.Checkbox(c.Key(host.Node), &selected, name).Disabled(e.probing || !host.Connected && !selected).Changed() {
-					e.targets = toggleProviderTarget(e.targets, host.Node, true, selected)
-					e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
-				}
-			}
-		})
-	})
+	if len(hosts) > 1 && providerAuthAllowsMultipleTargets(e.auth()) {
+		providerCopyTargets(c, hosts, e)
+	}
 	providerTargetStatuses(c, hosts, e)
+}
+
+func providerCopyTargets(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
+	label := i18n.T(c, "provider_copy_to_hosts")
+	names := make([]string, 0, len(e.targets))
+	for _, host := range hosts {
+		if host.Node != e.owner && slices.Contains(e.targets, host.Node) {
+			names = append(names, providerHostName(c, host))
+		}
+	}
+	shown, placeholder := strings.Join(names, ", "), len(names) == 0
+	if placeholder {
+		shown = i18n.T(c, "provider_no_copy_targets")
+	}
+	const id = "provider-hosts"
+	kit.Field(c, "hosts", label, "", func() {
+		kit.MenuButton(c.Key("hosts"), id, func(b ui.Element) {
+			kit.SelectTrigger(c, b.Label(label).Disabled(e.probing), shown, placeholder, kit.MenuOpen(c, id)).FillWidth()
+		}, func(menu *kit.Menu) {
+			for _, host := range hosts {
+				if host.Node == e.owner {
+					continue
+				}
+				selected := slices.Contains(e.targets, host.Node)
+				if menu.Item(providerHostName(c, host)).Icon(icons.Platform(host.Platform)).Checked(selected).
+					Disabled(!host.Connected && !selected).Chosen() {
+					e.toggleCopyTarget(host.Node)
+					kit.OpenMenu(c, id, true)
+				}
+			}
+		}, kit.MenuOptions{CheckRight: true, MaxHeight: 320, Match: true})
+	})
 }
 
 func providerTargetStatuses(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
@@ -1580,10 +1572,22 @@ func providerTargetStatuses(c *ui.Context, hosts []ProviderHost, e *providerEdit
 }
 
 func providerHostName(c *ui.Context, host ProviderHost) string {
+	if host.Local {
+		return i18n.T(c, "composer_host_local")
+	}
 	if host.Name != "" {
 		return i18n.T(c, host.Name)
 	}
 	return host.Node
+}
+
+func (m *Model) providerHostAvailable(node string) bool {
+	if node != "" && m.ProviderActions.Hosts != nil {
+		return slices.ContainsFunc(m.ProviderActions.Hosts(), func(host ProviderHost) bool {
+			return host.Node == node && host.Connected
+		})
+	}
+	return m.ProviderActions.Available == nil || m.ProviderActions.Available()
 }
 
 // providerModel is the model's title, Default, its check to make it the
@@ -1841,7 +1845,17 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 // brand or login, then runs chosen, which shows Providers. back reopens
 // the guide from the editor's first Back (ReturnTo).
 func ProviderPicker(c *ui.Context, s *State, chosen, back func()) {
-	brandPicker(c, s.Model, func() { s.provider.add(s.Model) }, func() {
+	var node string
+	if s.Live && s.ProviderActions.Hosts != nil {
+		for _, host := range s.ProviderActions.Hosts() {
+			if host.Local {
+				node = host.Node
+				break
+			}
+		}
+	}
+	brandPicker(c, s.Model, node, func() { s.provider.addOn(s.Model, node) }, func() {
+		s.ManagedNode = ""
 		s.provider.returnTo = back
 		chosen()
 	})
@@ -1876,4 +1890,22 @@ func providerAuthorizationDialog(c *ui.Context, m *Model) {
 			*w = loginWarning{}
 		}
 	}
+}
+
+// providerHostLabel is label with its host's name when several hosts are
+// connected.
+func providerHostLabel(c *ui.Context, m *Model, node, label string) string {
+	if node == "" || m.ProviderActions.Hosts == nil {
+		return label
+	}
+	hosts := m.ProviderActions.Hosts()
+	if len(hosts) < 2 {
+		return label
+	}
+	for _, host := range hosts {
+		if host.Node == node {
+			return label + " (" + providerHostName(c, host) + ")"
+		}
+	}
+	return label + " (" + node + ")"
 }

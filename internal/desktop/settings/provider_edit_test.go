@@ -135,17 +135,18 @@ func TestProviderTargetsRespectAuthentication(t *testing.T) {
 		}
 	}
 
-	got := toggleProviderTarget([]string{"a"}, "b", true, true)
-	if !reflect.DeepEqual(got, []string{"a", "b"}) {
-		t.Fatalf("multi-host selection = %v", got)
+	e := providerEditor{owner: "a", targets: []string{"a"}, method: preview.Method{Auth: preview.AuthKey}}
+	e.toggleCopyTarget("b")
+	if got := e.normalizedTargets(); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("explicit copy selection = %v", got)
 	}
-	got = toggleProviderTarget(got, "a", false, true)
-	if !reflect.DeepEqual(got, []string{"a"}) {
-		t.Fatalf("single-host selection = %v", got)
+	e.toggleCopyTarget("a")
+	if got := e.targets; !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("copy selector removed the channel owner: %v", got)
 	}
-	got = toggleProviderTarget([]string{"a"}, "a", true, false)
-	if len(got) != 0 {
-		t.Fatalf("removed host remains selected: %v", got)
+	e.toggleCopyTarget("b")
+	if got := e.normalizedTargets(); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("removed copy destination remains selected: %v", got)
 	}
 	result := completeProviderSaveResult([]string{"node-a", "node-b"}, ProviderSaveResult{Succeeded: []string{"node-a"}})
 	if !reflect.DeepEqual(result.Succeeded, []string{"node-a"}) || !reflect.DeepEqual(result.Failed, []string{"node-b"}) {
@@ -170,8 +171,8 @@ func TestProviderIdentityIsNodeScopedAndGroupTargetsAreExplicit(t *testing.T) {
 		TargetIDs: map[string]string{"node-a": "same", "node-b": "replica"}}
 	e := &m.provider
 	e.edit(m, &grouped)
-	if !reflect.DeepEqual(e.targets, []string{"node-a", "node-b"}) || e.targetIDs["node-b"] != "replica" {
-		t.Fatalf("explicit group mapping was not restored: targets=%v ids=%v", e.targets, e.targetIDs)
+	if !reflect.DeepEqual(e.targets, []string{"node-a"}) || e.targetIDs["node-b"] != "replica" {
+		t.Fatalf("group mapping changed the row's default write target: targets=%v ids=%v", e.targets, e.targetIDs)
 	}
 	legacy := preview.Channel{Node: "node-a", ID: "same", Auth: preview.AuthKey, Targets: []string{"node-a", "node-b"}}
 	e.edit(m, &legacy)
@@ -180,7 +181,30 @@ func TestProviderIdentityIsNodeScopedAndGroupTargetsAreExplicit(t *testing.T) {
 	}
 }
 
-func TestProviderSaveCarriesNodeTargetsAndSignsInOnMovedOAuthTarget(t *testing.T) {
+func TestProviderSettingsUseSelectedNodeRows(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	m.ProviderActions.Hosts = func() []ProviderHost {
+		return []ProviderHost{{Node: "node-a", Local: true}, {Node: "node-b"}}
+	}
+	local := preview.Channel{Node: "node-a", ID: "same", Name: "Local channel", Group: "group", Targets: []string{"node-a", "node-b"}}
+	remote := preview.Channel{Node: "node-b", ID: "same", Name: "Remote channel", Group: "group", Targets: []string{"node-a", "node-b"}}
+	m.Channels = []preview.Channel{local}
+	m.ChannelsByNode = map[string][]preview.Channel{"node-a": {local}, "node-b": {remote}, "": {local}}
+	m.ManagedNode = "node-b"
+	if rows := m.providerSettingsChannels(); len(rows) != 1 || rows[0].Node != remote.Node || rows[0].Name != remote.Name {
+		t.Fatalf("remote settings used a representative from another Node: %+v", rows)
+	}
+	if ch := m.channel(channelKey(remote.Node, remote.ID)); ch == nil || ch.Name != remote.Name {
+		t.Fatalf("Node-qualified channel lookup lost the remote row: %+v", ch)
+	}
+	m.ManagedNode = "disconnected"
+	if rows := m.providerSettingsChannels(); len(rows) != 0 {
+		t.Fatalf("unavailable selection showed another Node's channels: %+v", rows)
+	}
+}
+
+func TestProviderSaveCopiesStaticChannelsAndKeepsOAuthOnOwner(t *testing.T) {
 	newEditor := func(m *Model, auth preview.Auth) *providerEditor {
 		e := &m.provider
 		e.open = true
@@ -215,7 +239,7 @@ func TestProviderSaveCarriesNodeTargetsAndSignsInOnMovedOAuthTarget(t *testing.T
 		}
 	})
 
-	t.Run("oauthMove", func(t *testing.T) {
+	t.Run("oauthSignIn", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Live = true
 		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
@@ -232,31 +256,30 @@ func TestProviderSaveCarriesNodeTargetsAndSignsInOnMovedOAuthTarget(t *testing.T
 		if problem := e.save(m); problem != "" {
 			t.Fatal(problem)
 		}
-		if !reflect.DeepEqual(saved.Targets, []string{"node-b"}) || signedNode != "node-b" || signedID != "fixture-provider" {
-			t.Fatalf("OAuth target move did not start sign-in on the destination: saved=%+v sign-in=%s/%s", saved, signedNode, signedID)
+		if !reflect.DeepEqual(saved.Targets, []string{"node-a"}) || signedNode != "node-a" || signedID != "fixture-provider" {
+			t.Fatalf("OAuth sign-in did not stay on its owner: saved=%+v sign-in=%s/%s", saved, signedNode, signedID)
 		}
 	})
 
-	t.Run("oauthMoveStartsLoginWhenOldHostIsUnavailable", func(t *testing.T) {
+	t.Run("oauthEdit", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Live = true
 		m.ProviderActions.Hosts = func() []ProviderHost { return []ProviderHost{{Node: "node-a"}, {Node: "node-b"}} }
-		var signedNode, signedID string
+		var saved ProviderDraft
 		m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
-			done(ProviderSaveResult{
-				Succeeded: []string{"node-b"}, Failed: []string{"node-a"},
-				TargetIDs: map[string]string{"node-b": "replica"},
-			})
+			saved = draft
+			done(ProviderSaveResult{Succeeded: draft.Targets})
 		}
-		m.ProviderActions.SignIn = func(node, id string) { signedNode, signedID = node, id }
+		m.ProviderActions.SignIn = func(node, id string) { t.Fatalf("OAuth configuration edit unexpectedly signed in on %s/%s", node, id) }
 		e := newEditor(m, preview.AuthOAuth)
 		e.method.Login = "provider_access_login"
+		e.editing = e.id
 		e.targets = []string{"node-b"}
 		if problem := e.save(m); problem != "" {
 			t.Fatal(problem)
 		}
-		if signedNode != "node-b" || signedID != "replica" || !e.open || !reflect.DeepEqual(e.targetFailed, []string{"node-a"}) {
-			t.Fatalf("destination login did not proceed with the old host failure visible: sign-in=%s/%s editor=%+v", signedNode, signedID, e)
+		if !reflect.DeepEqual(saved.Targets, []string{"node-a"}) || e.open {
+			t.Fatalf("editing an existing authorization changed its ownership: saved=%+v editor=%+v", saved, e)
 		}
 	})
 

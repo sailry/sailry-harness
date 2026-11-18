@@ -23,10 +23,10 @@ func collections(c *ui.Context, m *Model) {
 					if paused {
 						icon, label = icons.Play, "knowledge_resume"
 					}
-					kit.Action(c.Key("pause"), icon, i18n.T(c, label), x.Busy).OnClick(func() {
+					kit.Action(c.Key("pause"), icon, i18n.T(c, label), x.Busy || x.ReadOnly).OnClick(func() {
 						m.modelAction(c, func(a *ModelActions) { a.CollectionPause(x.ID, !paused) })
 					})
-					kit.Action(c.Key("update"), icons.Reload, i18n.T(c, "knowledge_update"), x.Busy || paused).OnClick(func() {
+					kit.Action(c.Key("update"), icons.Reload, i18n.T(c, "knowledge_update"), x.Busy || x.ReadOnly || paused).OnClick(func() {
 						m.modelAction(c, func(a *ModelActions) { a.CollectionUpdate(x.ID) })
 					})
 				})

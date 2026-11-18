@@ -13,7 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
-	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -160,7 +159,7 @@ func (r *Runtime) activePluginHeader() (*pluginMountedView, pluginHeaderContent)
 		key = pluginMountKey{scope: pluginScopeIdentity(entry.owner.controller.Target(), entry.scope), role: "navigation", name: entry.scope.Package.Name}
 	case shell.SettingsPage:
 		entry, exists := root.pluginViews.settings[root.App.Settings.Section]
-		if !exists {
+		if !exists || !root.pluginSettingsTargetCurrent(entry) {
 			return nil, pluginHeaderContent{}
 		}
 		key = pluginMountKey{scope: pluginScopeIdentity(entry.owner.controller.Target(), entry.scope), role: "settings", name: entry.scope.Package.Name}
@@ -332,11 +331,9 @@ func (r *Runtime) pluginPageSettings() func() {
 		return nil
 	}
 	name := entry.info.Summary.Name
-	section := settings.Section("plugin:" + entry.owner.controller.Target().String() + "/" + name)
-	if _, paged := root.pluginViews.settings[section]; paged {
+	if hasPluginSettingsContent(entry.info) {
 		return func() {
-			root.App.Settings.Open(section)
-			root.App.Navigate(shell.SettingsPage)
+			root.openPluginSettings(entry.owner, entry.info)
 		}
 	}
 	if entry.info.Settings == nil || len(entry.info.Settings.Properties) == 0 {

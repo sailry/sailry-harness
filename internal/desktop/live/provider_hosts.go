@@ -1,10 +1,13 @@
 package live
 
 import (
+	"cmp"
+	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 )
 
 func (r *Runtime) providerHosts() []settings.ProviderHost {
@@ -15,12 +18,12 @@ func (r *Runtime) providerHosts() []settings.ProviderHost {
 	for _, host := range root.App.Data.Hosts {
 		owner := root.runtimeFor(host.ID)
 		hosts = append(hosts, settings.ProviderHost{
-			Node: host.ID, Name: host.Name, Connected: owner != nil && owner.controller.Connected(),
+			Node: host.ID, Name: host.Name, Platform: host.Platform, Connected: owner != nil && owner.controller.Connected(), Local: host.ID == localNode,
 		})
 		seen[host.ID] = true
 	}
 	if !seen[localNode] {
-		hosts = append(hosts, settings.ProviderHost{Node: localNode, Name: "local_host_name", Connected: root.controller.Connected()})
+		hosts = append(hosts, settings.ProviderHost{Node: localNode, Name: "local_host_name", Platform: runtime.GOOS, Connected: root.controller.Connected(), Local: true})
 	}
 	slices.SortFunc(hosts, func(a, b settings.ProviderHost) int {
 		if a.Node == localNode {
@@ -36,6 +39,9 @@ func (r *Runtime) providerHosts() []settings.ProviderHost {
 
 func (r *Runtime) providerDefaultTarget() string {
 	root := r.localRuntime()
+	if root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
+		return cmp.Or(root.App.Settings.ManagedNode, root.controller.Target().String())
+	}
 	if selected := root.selectedRuntime(); selected != nil {
 		return selected.controller.Target().String()
 	}

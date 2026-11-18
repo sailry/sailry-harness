@@ -16,12 +16,19 @@ type PythonPreparation struct{ Package, Stage string }
 func runtimePage(c *ui.Context, m *Model) {
 	py := &m.Python
 	kit.Group(c, "python", i18n.T(c, "runtime_python"), "", nil, func() {
+		if m.PythonStatus != "" {
+			kit.Result(c, kit.ResultProps{Title: i18n.T(c, m.PythonStatus), Card: true})
+			return
+		}
 		kit.Card(c, func() {
 			kit.Row(c, "version", i18n.T(c, "runtime_python_version"), "", func() {
 				ui.Text(c, m.PythonVersion).FontSize(14)
 				kit.Badge(c, i18n.T(c, "runtime_python_bundled"), kit.Neutral)
 			})
 			options := append([]string(nil), m.Indexes...)
+			if len(options) == 0 {
+				return
+			}
 			options[len(options)-1] = i18n.T(c, "runtime_python_custom")
 			title := i18n.T(c, "runtime_python_index")
 			kit.WideRow(c, "index", title, "", func() {

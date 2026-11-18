@@ -26,5 +26,7 @@ plugins_sailry_catalog: Sailry
 plugins_previous: Previous page
 plugins_next: Next page
 plugins_path: Plugin directory
+plugins_not_installed_on_host: Not installed on this host
+plugins_desktop_only: Select This Computer to manage this desktop plugin
 plugins_path_hint: Repository root by default
 settings_plugins_description: Manage installed plugins

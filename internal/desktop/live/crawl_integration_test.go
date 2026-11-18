@@ -197,7 +197,6 @@ func newCrawlDesk(t *testing.T, ctx context.Context) *crawlDesk {
 		},
 		settings: func(permissionflow.Permission) error { return nil },
 	}
-	root.permissions.actions = settings.PermissionActions{Check: root.checkPermissions, Request: root.requestPermission, Settings: root.openPermissionSettings, ShowApp: root.showPermissionApp}
 	r.App.NavOpen = true
 	r.SetUpdate(func(func()) {})
 	d.runtime = r

@@ -103,9 +103,60 @@ func backupLast(c *ui.Context, last BackupLast) {
 // restores read and write archives, and the sessions are the user's: the
 // preview stops at the notice for them.
 func backup(c *ui.Context, m *Model) {
-	b := &m.Backup
 	d := &m.backups
 	a := m.BackupActions
+	t := func(k string) string { return i18n.T(c, k) }
+	kit.Group(c, "backup", "", "", nil, func() {
+		if a != nil && a.Status != "" {
+			settingsTargetStatus(c, a.Status)
+			if a.ArchiveUnavailable {
+				return
+			}
+		}
+		kit.Card(c, func() {
+			if a == nil || a.Status == "" {
+				backupStorageRows(c, m)
+			}
+			backupArchiveRows(c, m)
+		})
+	})
+	storageDialog(c, m)
+	archivesDialog(c, m)
+	if d.deleting {
+		// Destructive: named and its consequence said once.
+		if kit.AlertDialog(c.Key("delete-all"), &d.deleting, t("backup_delete_all")+"?", a.confirmOnHost(c, t("backup_delete_all_consequence")),
+			t("settings_cancel"), t("backup_delete_all_action")) == 1 {
+			if a == nil {
+				notice(c)
+			} else {
+				a.DeleteAll()
+			}
+		}
+	}
+	// Destructive: the backups are named and their deletion said once.
+	if confirm(c, "keep", &d.keeping, i18n.T(c, "backup_keep_confirm", "count", d.keep), a.confirmOnHost(c, t("backup_keep_consequence")), t("settings_save")) {
+		m.keepBackups(c, d.keep)
+	}
+	recordsDialog(c, m)
+	restoreDialog(c, m)
+	// The consequence for the profile in use is said once.
+	if confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", a.confirmOnHost(c, t("backup_restart_consequence")), t("updates_restart")) && a != nil {
+		a.Restart(d.restart)
+	}
+	if d.removing && a != nil {
+		message := "session_delete_named"
+		if d.removedPrivate {
+			message = "session_delete_private_named"
+		}
+		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), a.confirmOnHost(c, i18n.T(c, message, "name", d.removedTitle)),
+			t("settings_cancel"), t("backup_delete")) == 1 {
+			a.Delete(d.removed)
+		}
+	}
+}
+
+func backupStorageRows(c *ui.Context, m *Model) {
+	b, d, a := &m.Backup, &m.backups, m.BackupActions
 	t := func(k string) string { return i18n.T(c, k) }
 	target := b.Saved.PassphraseSet && (b.Saved.Tab == 2 && b.Saved.Directory != "" || b.Saved.Tab < 2 && b.Saved.Endpoint != "")
 	entry := func(key, title, action string, run func()) {
@@ -118,131 +169,103 @@ func backup(c *ui.Context, m *Model) {
 		d.draft.Passphrase, d.draft.Confirm, d.draft.Identity, d.draft.Secret, d.draft.Token = "", "", "", "", ""
 		d.editing = true
 	}
-	kit.Group(c, "backup", "", "", nil, func() {
-		kit.Card(c, func() {
-			entry("storage", t("backup_destination"), t("backup_configure"), configure)
-			// The live page saves the schedule's draft whenever it changes.
-			if kit.SwitchRow(c, "schedule", t("backup_schedule_enabled"), "", &b.Draft.Schedule) && a == nil {
-				report(c, b.Commit(), Messages{Failed: backupMessages.Failed, Conflict: backupMessages.Conflict, Uncertain: backupMessages.Uncertain})
-			}
-			if b.Draft.Schedule {
-				kit.Row(c, "time", t("backup_schedule_time"), "", func() {
-					ui.TimeInput(c.Key("time"), &b.Draft.Time).Label(t("backup_schedule_time"))
-				})
-				kit.Row(c, "timezone", t("backup_timezone"), "", func() {
-					ui.TextInput(c.Key("input"), &b.Draft.Timezone).Label(t("backup_timezone")).Width(192)
-				})
-			}
-			counts, labels := backupKeepOptions(c, b.Saved.Keep)
-			chosen := slices.Index(counts, b.Saved.Keep)
-			kit.Row(c, "keep", t("backup_keep"), "", func() {
-				if !pick(c, "keep", t("backup_keep"), &chosen, labels, b.Pending).Width(160).Changed() {
-					return
-				}
-				// Keeping fewer deletes stored backups: confirmed first.
-				// Keeping all deletes nothing and is saved at once.
-				if d.keep = counts[chosen]; d.keep > 0 {
-					d.keeping = true
-					return
-				}
-				m.keepBackups(c, 0)
-			})
-			export := t("backup_configure")
-			if b.Saved.PassphraseSet {
-				export = t("backup_export")
-			}
-			entry("export", t("backup_export_data"), export, func() {
-				if !b.Saved.PassphraseSet {
-					configure()
-					return
-				}
-				if a == nil {
-					notice(c)
-					return
-				}
-				a.Export()
-			})
-			now := t("backup_configure")
-			if target {
-				now = t("backup_now")
-			}
-			entry("now", t("backup_now"), now, func() {
-				if !target {
-					configure()
-					return
-				}
-				if a == nil {
-					notice(c)
-					return
-				}
-				a.Now()
-			})
-			backupLast(c, b.Saved.Last)
-			entry("import", t("backup_import"), t("backup_restore"), func() {
-				if a == nil {
-					notice(c)
-					return
-				}
-				a.Import(func(path string) { d.openRestore(BackupRestore{File: path}) })
-			})
-			kit.Entry(c, "storage-restore", func() { ui.Text(c, t("backup_restore_storage")).FontSize(14) }, nil, func() {
-				kit.TextAction(c.Key("action"), t("backup_restore"), b.Pending || !target).OnClick(func() {
-					if a == nil {
-						notice(c)
-						return
-					}
-					d.records = true
-					a.List()
-				})
-			})
-			entry("archives", t("backup_archived_sessions"), t("backup_manage"), func() { d.archives = true })
-			kit.Entry(c, "archive-all", func() { ui.Text(c, t("backup_archive_all")).FontSize(14) }, nil, func() {
-				kit.TextActionBusy(c.Key("action"), t("backup_archive_all_action"), b.Pending || m.Sessions == 0, m.Busy[BusyBackup+"archive"]).OnClick(func() {
-					if a == nil {
-						notice(c)
-						return
-					}
-					a.ArchiveAll()
-				})
-			})
-			kit.Entry(c, "delete-all", func() { ui.Text(c, t("backup_delete_all")).FontSize(14) }, func() {
-				kit.DangerBusy(c.Key("action"), t("backup_delete_all_action"), m.Busy[BusyBackup+"delete"]).Height(28).Disabled(b.Pending || m.Busy[BusyBackup+"delete"]).OnClick(func() { d.deleting = true })
-			}, nil)
+	entry("storage", t("backup_destination"), t("backup_configure"), configure)
+	// The live page saves the schedule's draft whenever it changes.
+	if settingSwitch(c, "schedule", t("backup_schedule_enabled"), "", &b.Draft.Schedule, b.Pending) && a == nil {
+		report(c, b.Commit(), Messages{Failed: backupMessages.Failed, Conflict: backupMessages.Conflict, Uncertain: backupMessages.Uncertain})
+	}
+	if b.Draft.Schedule {
+		kit.Row(c, "time", t("backup_schedule_time"), "", func() {
+			ui.TimeInput(c.Key("time"), &b.Draft.Time).Label(t("backup_schedule_time")).Disabled(b.Pending)
 		})
+		kit.Row(c, "timezone", t("backup_timezone"), "", func() {
+			ui.TextInput(c.Key("input"), &b.Draft.Timezone).Label(t("backup_timezone")).Width(192).Disabled(b.Pending)
+		})
+	}
+	counts, labels := backupKeepOptions(c, b.Saved.Keep)
+	chosen := slices.Index(counts, b.Saved.Keep)
+	kit.Row(c, "keep", t("backup_keep"), "", func() {
+		if !pick(c, "keep", t("backup_keep"), &chosen, labels, b.Pending).Width(160).Changed() {
+			return
+		}
+		// Keeping fewer deletes stored backups: confirmed first.
+		// Keeping all deletes nothing and is saved at once.
+		if d.keep = counts[chosen]; d.keep > 0 {
+			d.keeping = true
+			return
+		}
+		m.keepBackups(c, 0)
 	})
-	storageDialog(c, m)
-	archivesDialog(c, m)
-	if d.deleting {
-		// Destructive: named and its consequence said once.
-		if kit.AlertDialog(c.Key("delete-all"), &d.deleting, t("backup_delete_all")+"?", t("backup_delete_all_consequence"),
-			t("settings_cancel"), t("backup_delete_all_action")) == 1 {
+	export := t("backup_configure")
+	if b.Saved.PassphraseSet {
+		export = t("backup_export")
+	}
+	entry("export", t("backup_export_data"), export, func() {
+		if !b.Saved.PassphraseSet {
+			configure()
+			return
+		}
+		if a == nil {
+			notice(c)
+			return
+		}
+		a.Export()
+	})
+	now := t("backup_configure")
+	if target {
+		now = t("backup_now")
+	}
+	entry("now", t("backup_now"), now, func() {
+		if !target {
+			configure()
+			return
+		}
+		if a == nil {
+			notice(c)
+			return
+		}
+		a.Now()
+	})
+	backupLast(c, b.Saved.Last)
+	entry("import", t("backup_import"), t("backup_restore"), func() {
+		if a == nil {
+			notice(c)
+			return
+		}
+		a.Import(func(path string) { d.openRestore(BackupRestore{File: path}) })
+	})
+	kit.Entry(c, "storage-restore", func() { ui.Text(c, t("backup_restore_storage")).FontSize(14) }, nil, func() {
+		kit.TextAction(c.Key("action"), t("backup_restore"), b.Pending || !target).OnClick(func() {
 			if a == nil {
 				notice(c)
-			} else {
-				a.DeleteAll()
+				return
 			}
-		}
-	}
-	// Destructive: the backups are named and their deletion said once.
-	if confirm(c, "keep", &d.keeping, i18n.T(c, "backup_keep_confirm", "count", d.keep), t("backup_keep_consequence"), t("settings_save")) {
-		m.keepBackups(c, d.keep)
-	}
-	recordsDialog(c, m)
-	restoreDialog(c, m)
-	// The consequence for the profile in use is said once.
-	if confirm(c, "restart-restored", &d.restarting, t("backup_restart_restored")+"?", t("backup_restart_consequence"), t("updates_restart")) && a != nil {
-		a.Restart(d.restart)
-	}
-	if d.removing && a != nil {
-		message := "session_delete_named"
-		if d.removedPrivate {
-			message = "session_delete_private_named"
-		}
-		if kit.AlertDialog(c.Key("delete-session"), &d.removing, t("session_delete"), i18n.T(c, message, "name", d.removedTitle),
-			t("settings_cancel"), t("backup_delete")) == 1 {
-			a.Delete(d.removed)
-		}
-	}
+			d.records = true
+			a.List()
+		})
+	})
+}
+
+func backupArchiveRows(c *ui.Context, m *Model) {
+	d, a := &m.backups, m.BackupActions
+	t := func(k string) string { return i18n.T(c, k) }
+	locked := a != nil && (a.ArchiveUnavailable || a.ArchiveBusy)
+	kit.Entry(c, "archives", func() { ui.Text(c, t("backup_archived_sessions")).FontSize(14) }, nil, func() {
+		kit.TextAction(c.Key("action"), t("backup_manage"), locked).OnClick(func() { d.archives = true })
+	})
+	kit.Entry(c, "archive-all", func() { ui.Text(c, t("backup_archive_all")).FontSize(14) }, nil, func() {
+		kit.TextActionBusy(c.Key("action"), t("backup_archive_all_action"), locked || m.Sessions == 0, m.Busy[BusyBackup+"archive"]).OnClick(func() {
+			if a == nil {
+				notice(c)
+				return
+			}
+			a.ArchiveAll()
+		})
+	})
+	kit.Entry(c, "delete-all", func() { ui.Text(c, t("backup_delete_all")).FontSize(14) }, func() {
+		noSessions := m.Live && m.Sessions == 0 && len(m.Archived) == 0
+		kit.DangerBusy(c.Key("action"), t("backup_delete_all_action"), m.Busy[BusyBackup+"delete"]).Height(28).Disabled(locked || noSessions || m.Busy[BusyBackup+"delete"]).OnClick(func() { d.deleting = true })
+	}, nil)
 }
 
 // keepBackups saves the retention. The live page's Node saves it and its
@@ -377,6 +400,7 @@ func archivesDialog(c *ui.Context, m *Model) {
 	}
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
+	locked := m.BackupActions != nil && (m.BackupActions.ArchiveUnavailable || m.BackupActions.ArchiveBusy)
 	title := t("backup_archived_sessions")
 	kit.Dialog(c.Key("archives"), &d.archives, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
@@ -391,14 +415,14 @@ func archivesDialog(c *ui.Context, m *Model) {
 						at = a.At.Format(time.DateOnly)
 					}
 					kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, at) }, nil, func() {
-						kit.TextActionBusy(c.Key("unarchive"), t("backup_unarchive"), m.Backup.Pending, m.Busy[BusyBackup+"unarchive/"+a.ID]).OnClick(func() {
+						kit.TextActionBusy(c.Key("unarchive"), t("backup_unarchive"), locked, m.Busy[BusyBackup+"unarchive/"+a.ID]).OnClick(func() {
 							if x := m.BackupActions; x != nil {
 								x.Unarchive(a.ID)
 								return
 							}
 							notice(c)
 						})
-						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), m.Backup.Pending, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
+						kit.TextActionBusy(c.Key("delete"), t("backup_delete"), locked, m.Busy[BusyBackup+"delete/"+a.ID]).TextColor(p.Danger).OnClick(func() {
 							if m.BackupActions != nil {
 								d.removed, d.removedTitle, d.removedPrivate, d.removing = a.ID, a.Title, a.Private, true
 								return

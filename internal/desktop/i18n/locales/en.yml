@@ -793,6 +793,7 @@ backup_passphrase_required: Enter a backup passphrase
 backup_prefix: Prefix
 backup_region: Region
 backup_restore: Restore
+backup_action_host: 'Host: %{name}'
 backup_restore_storage: Restore from storage
 backup_s3: S3
 backup_saved: Settings saved
@@ -925,6 +926,7 @@ permission_settings: Open settings
 permission_show_app: Show app
 permission_title: System access
 permission_denied: Access denied
+permission_host_title: Host permissions
 permission_remote: Allow access on the execution device
 permission_partial: Partially authorized
 permission_unavailable: Unavailable on this device
@@ -992,6 +994,7 @@ settings_message_text_size: Text size
 settings_messages: Messages
 settings_name: Name
 settings_notifications: Notifications
+settings_managed_host: Execution host
 settings_notify_approval: Approval request notifications
 settings_notify_completed: Task completion notifications
 settings_notify_failed: Task failure notifications
@@ -1142,6 +1145,8 @@ provider_key_hint: Enter API Key
 provider_api_key: API Key
 provider_get_key: Get API key
 provider_host: Host
+provider_copy_to_hosts: Copy to other hosts
+provider_no_copy_targets: This host only
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_host_saved: Saved on {host}
@@ -1437,6 +1442,8 @@ plugins_fixed_version: Fixed at %{version}
 plugins_following_versions: Following compatible releases
 plugins_download: Download plugin
 plugins_empty: No plugins
+plugins_not_installed_on_host: Not installed on this host
+plugins_desktop_only: Select This Computer to manage this desktop plugin
 plugins_remove_effect: Uninstall “%{name}”? Plugin data will be kept
 plugins_uninstalled: Plugin uninstalled
 plugins_update_available: Update

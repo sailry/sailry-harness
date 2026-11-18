@@ -105,9 +105,121 @@ func TestProviderGroupProjectionRetainsNodeIDsAndRevisions(t *testing.T) {
 		channel.TargetRevisions[nodeA.String()] != providerA.Revision || channel.TargetRevisions[nodeB.String()] != providerB.Revision {
 		t.Fatalf("grouped target mapping lost its per-Node identity or revision: %+v", channel)
 	}
+	rows := root.App.Settings.ChannelsByNode[nodeB.String()]
+	if len(rows) != 1 || rows[0].ID != providerB.ID.String() || rows[0].Revision != providerB.Revision || rows[0].TargetIDs[nodeA.String()] != providerA.ID.String() {
+		t.Fatalf("remote settings row lost its own identity or explicit copy target: %+v", rows)
+	}
+}
+
+func TestManagedProviderRowWritesOnlyItsNode(t *testing.T) {
+	nodes := []protocol.NodeID{{1}, {2}}
+	providers := []protocol.ConversationProvider{providerRouteFixture(), providerRouteFixture()}
+	controllers := make([]*client.Client, len(nodes))
+	transports := make([]*conversationTestTransport, len(nodes))
+	members := make([]preferences.ProviderMember, len(nodes))
+	for i, node := range nodes {
+		provider := providers[i]
+		provider.ID, provider.Revision = protocol.ProviderID{byte(i + 1)}, uint64(i+1)
+		providers[i] = provider
+		members[i] = preferences.ProviderMember{Node: node, Provider: provider.ID}
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node, snapshot.Providers = node, []protocol.ConversationProvider{provider}
+		transport := &conversationTestTransport{snapshot: snapshot}
+		transport.handle = func(request protocol.Request) (link.Response, bool) {
+			var changed protocol.ConversationProvider
+			switch request.Command.Kind {
+			case "save_provider":
+				input, _ := detail[protocol.CommandSaveProviderPayload](request.Command.Data)
+				changed = input.Provider
+			case "put_provider":
+				input, _ := detail[protocol.CommandPutProviderPayload](request.Command.Data)
+				changed = input.Provider
+			case "remove_provider":
+				transport.snapshot.Cursor++
+				transport.snapshot.Providers = nil
+				return link.Response{Output: protocol.Output{Kind: "providers", Data: []protocol.ConversationProvider{}}}, true
+			default:
+				return link.Response{}, false
+			}
+			changed.Revision = transport.snapshot.Providers[0].Revision + 1
+			transport.snapshot.Cursor++
+			transport.snapshot.Providers = []protocol.ConversationProvider{changed}
+			return link.Response{Output: protocol.Output{Kind: "provider", Data: changed}}, true
+		}
+		controller := client.New(transport)
+		if err := controller.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		controllers[i], transports[i] = controller, transport
+		t.Cleanup(func() { _ = controller.Close() })
+	}
+	root, err := NewWithPreferences(t.Context(), controllers[0], preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	remote := root.newBinding(controllers[1])
+	root.bindings = map[string]*Runtime{nodes[1].String(): remote}
+	root.Preferences.Data.ProviderGroups = []preferences.ProviderGroup{{ID: protocol.NewRequestID(), Members: members}}
+	root.App.Page = shell.SettingsPage
+	root.App.Settings.Open(settings.Providers)
+	root.App.Settings.ManagedNode = nodes[1].String()
+	root.showNodeSettings(remote)
+	window := ui.NewTester(func(c *ui.Context) { root.drain(c) }, 320, 240)
+	settle := func() {
+		for range 5 {
+			root.workers.Wait()
+			remote.workers.Wait()
+			window.Frame()
+		}
+	}
+	rows := root.App.Settings.ChannelsByNode[nodes[1].String()]
+	if len(rows) != 1 {
+		t.Fatalf("remote channel was missing from settings: %+v", rows)
+	}
+	row := rows[0]
+	row.Name = "Remote edit"
+	var result settings.ProviderSaveResult
+	actions := root.App.Settings.ProviderActions
+	actions.Save(settings.ProviderDraft{Channel: row, Group: row.Group, Targets: []string{row.Node}, ExpectedRevision: row.Revision}, func(saved settings.ProviderSaveResult) { result = saved })
+	settle()
+	if !slices.Equal(result.Succeeded, []string{row.Node}) || len(result.Failed) != 0 || len(root.Preferences.Data.ProviderGroups) != 1 {
+		t.Fatalf("editing one row changed its copy association or targeted another Node: %+v", result)
+	}
+	actions.Enable(row.Node, row.ID, result.TargetRevisions[row.Node], false)
+	settle()
+	actions.Remove(row.Node, row.ID, result.TargetRevisions[row.Node]+1)
+	settle()
+	for i, transport := range transports {
+		var writes []string
+		transport.mu.Lock()
+		for _, request := range transport.requests {
+			switch request.Command.Kind {
+			case "save_provider", "put_provider", "remove_provider":
+				writes = append(writes, request.Command.Kind)
+			}
+		}
+		transport.mu.Unlock()
+		var want []string
+		if i == 1 {
+			want = []string{"save_provider", "put_provider", "remove_provider"}
+		}
+		if !slices.Equal(writes, want) {
+			t.Fatalf("Node %s received writes %v, want %v", nodes[i].String(), writes, want)
+		}
+	}
+	if local := controllers[0].Snapshot().Providers; len(local) != 1 || local[0].ID != providers[0].ID || local[0].Revision != providers[0].Revision {
+		t.Fatalf("editing or deleting the remote channel changed its local copy: %+v", local)
+	}
 }
 
 func TestPartialProviderSaveInspectsOriginalRequest(t *testing.T) {
+	t.Run("selected destination", func(t *testing.T) { testPartialProviderSave(t, false) })
+	t.Run("deselected destination", func(t *testing.T) { testPartialProviderSave(t, true) })
+}
+
+func testPartialProviderSave(t *testing.T, deselectDestination bool) {
+	t.Helper()
 	nodes := []protocol.NodeID{{1}, {2}}
 	controllers := make([]*client.Client, len(nodes))
 	saves := make([]int, len(nodes))
@@ -192,6 +304,9 @@ func TestPartialProviderSaveInspectsOriginalRequest(t *testing.T) {
 	draft.TargetRevisions = result.TargetRevisions
 	draft.ExpectedRevision = result.TargetRevisions[nodes[0].String()]
 	draft.Channel.TargetIDs = result.TargetIDs
+	if deselectDestination {
+		draft.Targets = draft.Targets[:1]
+	}
 	result.Resume(draft, done)
 	settle()
 	if !slices.Equal(saves, []int{1, 1}) || original == (protocol.RequestID{}) || !slices.Equal(inspected, []protocol.RequestID{original, original}) {
@@ -199,6 +314,9 @@ func TestPartialProviderSaveInspectsOriginalRequest(t *testing.T) {
 	}
 	if !slices.Equal(result.Succeeded, draft.Targets) || len(result.Failed)+len(result.Uncertain) != 0 || result.Group == "" {
 		t.Fatalf("recovered save: successes %v, uncertain %v, failed %v, group %q", result.Succeeded, result.Uncertain, result.Failed, result.Group)
+	}
+	if groups := root.Preferences.Data.ProviderGroups; len(groups) != 1 || len(groups[0].Members) != 2 || result.TargetIDs[nodes[1].String()] == "" {
+		t.Fatalf("the confirmed copy was missing from the association: %+v", groups)
 	}
 }
 

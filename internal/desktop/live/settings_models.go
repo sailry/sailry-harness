@@ -13,7 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › OCR, Knowledge and Decision: the controller Node's local models
+// Settings › OCR, Knowledge and Decision: the selected Node's local models
 // and which of them each kind uses, read when one of the pages shows,
 // followed through the Node's events and saved whole at the revision read.
 // Dictation's speech models are the controller's, not a Node's
@@ -58,8 +58,7 @@ type localModelState struct {
 	knowledge bool
 }
 
-// localModelsFrame keeps the local-model pages on the controller's local
-// Node: it reads the Node's settings and models when they are unknown, a
+// localModelsFrame reads the selected Node's settings and models when they are unknown, a
 // save left them in doubt or an event reported a change, follows the
 // Node's events from the first visit on, and shows the result. Nothing is
 // read while another page shows.
@@ -87,7 +86,15 @@ func (r *Runtime) localModelsFrame() {
 		state.visible, state.knowledge = false, false
 		return
 	}
-	owner := root.settingsOwner()
+	if m.Section == settings.Knowledge {
+		root.knowledgeFrame(m.Model, !state.knowledge)
+	}
+	state.knowledge = m.Section == settings.Knowledge
+	owner := root.managedSettingsNode()
+	m.LocalModelsStatus = owner.machineSettingsStatus()
+	if m.LocalModelsStatus != "" {
+		owner = nil
+	}
 	entered := !state.visible || owner != state.shown
 	if owner != state.shown {
 		// The library and the details belong to the Node they were opened on.
@@ -99,7 +106,6 @@ func (r *Runtime) localModelsFrame() {
 	}
 	if owner == nil {
 		projectLocalModels(m.Model, &localModelState{}, nil)
-		m.Collections = nil
 		root.libraryFrame(nil)
 		return
 	}
@@ -118,10 +124,6 @@ func (r *Runtime) localModelsFrame() {
 		tasks = owner.packages.tasks
 	}
 	projectLocalModels(m.Model, s, tasks)
-	if m.Section == settings.Knowledge {
-		owner.knowledgeFrame(m.Model, entered || !state.knowledge)
-	}
-	state.knowledge = m.Section == settings.Knowledge
 	root.libraryFrame(owner)
 }
 
@@ -173,17 +175,15 @@ func (r *Runtime) modelActions() *settings.ModelActions {
 			}
 			on(func(owner *Runtime) { owner.deleteLocalModel(id) })
 		},
-		Microphone:     r.requestMicrophone,
-		LibraryInstall: r.installLibraryModel,
-		LibraryCancel:  r.cancelLibraryModel,
-		LibraryDelete:  r.deleteLibraryModel,
-		LibraryDetails: r.readLibraryModel,
-		LibraryVersion: r.showLibraryVersion,
-		LibraryMore:    r.moreLibrary,
-		CollectionPause: func(id string, paused bool) {
-			on(func(owner *Runtime) { owner.pauseCollection(id, paused) })
-		},
-		CollectionUpdate: func(id string) { on(func(owner *Runtime) { owner.updateCollection(id) }) },
+		Microphone:       r.requestMicrophone,
+		LibraryInstall:   r.installLibraryModel,
+		LibraryCancel:    r.cancelLibraryModel,
+		LibraryDelete:    r.deleteLibraryModel,
+		LibraryDetails:   r.readLibraryModel,
+		LibraryVersion:   r.showLibraryVersion,
+		LibraryMore:      r.moreLibrary,
+		CollectionPause:  r.pauseCollection,
+		CollectionUpdate: r.updateCollection,
 	}
 }
 

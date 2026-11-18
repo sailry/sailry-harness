@@ -1532,6 +1532,7 @@ settings_connections_description: 管理配对设备和远程节点连接
 settings_shortcuts_description: 查看应用全局命令与键盘快捷键
 settings_about_description: 应用版本与构建信息
 settings_notifications: 通知
+settings_managed_host: 执行主机
 settings_notify_system: 系统通知
 settings_notify_approval: 审批请求通知
 settings_notify_completed: 任务完成通知
@@ -2492,6 +2493,7 @@ permission_required: 未授权
 permission_granted: 已授权
 permission_not_needed: 无需授权
 permission_denied: 已拒绝
+permission_host_title: 主机权限
 permission_restricted: 系统限制
 permission_remote: 请在执行设备上授权
 permission_unavailable: 此设备不可用

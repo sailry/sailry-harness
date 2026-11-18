@@ -94,6 +94,10 @@ func dictation(c *ui.Context, m *Model) {
 // ModelActions; a chosen model the host no longer has stays the picker's
 // last choice (Missing) rather than changing the setting silently.
 func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
+	if m.LocalModelsStatus != "" {
+		settingsTargetStatus(c, m.LocalModelsStatus)
+		return
+	}
 	installed := lm.Installed()
 	locked := lm.Enabled.Pending
 	save := func() {
@@ -136,7 +140,11 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 		})
 	})
 	ui.Column(c.Key("library")).Gap(16).Children(func() {
-		libraryBar(c, m, lm.Kind, i18n.T(c, title), &lm.Tab, &lm.Query)
+		libraryTitle := title
+		if title == "" {
+			libraryTitle = "knowledge_settings"
+		}
+		libraryBar(c, m, lm.Kind, i18n.T(c, libraryTitle), &lm.Tab, &lm.Query)
 		if lm.Tab == 1 {
 			// Available: the recommended models the query matches, then
 			// the hub's others.

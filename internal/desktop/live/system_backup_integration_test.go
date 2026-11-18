@@ -552,7 +552,8 @@ func TestSystemBackupUI(t *testing.T) {
 	restoredRecord := filepath.Join(root, "restored-record")
 	press(window, "Local")
 	settle(window, "the restore form", systemUIWait, func() bool { return len(window.named(ui.RoleTextField, "New absolute profile path")) == 1 })
-	if shown(window, "sailry-mac.local") != 1 || shown(window, "Restore to an empty directory. The copy retains this Node identity; run only one copy at a time") != 1 {
+	const backupHost = "Host: sailry-mac.local"
+	if shown(window, backupHost) != 1 || shown(window, "Restore to an empty directory. The copy retains this Node identity; run only one copy at a time") != 1 {
 		t.Fatalf("the restore form does not name its host and consequence once; visible text: %q", window.tester.Texts())
 	}
 	if field := labelled(window, "Encryption passphrase"); field.Value != "" || field.Placeholder != "Keep existing" {
@@ -941,7 +942,8 @@ func TestSystemBackupUI(t *testing.T) {
 	})
 	clickRow(window, "Gamma notes", "Delete")
 	settle(window, "the confirmation naming the session", systemUIWait, func() bool {
-		return shown(window, "Gamma notes?") > 0 && shown(window, "Delete this session and its child sessions. This cannot be undone; project files and account settings are kept") == 1
+		return shown(window, "Delete session") > 0 &&
+			shown(window, backupHost+"\n\n"+i18n.In("en", "session_delete_named", "name", "Gamma notes")) == 1
 	})
 	if _, found := desk.current(gamma.ID); !found {
 		t.Fatal("the session was deleted before its confirmation")
@@ -956,7 +958,8 @@ func TestSystemBackupUI(t *testing.T) {
 	idle("the page before Delete all")
 	press(window, "Delete all")
 	settle(window, "the confirmation naming every session", systemUIWait, func() bool {
-		return shown(window, "Delete all sessions?") > 0 && shown(window, "Delete all sessions, including archived sessions. This cannot be undone; project files and account settings are kept") == 1
+		return shown(window, "Delete all sessions?") > 0 &&
+			shown(window, backupHost+"\n\n"+i18n.In("en", "backup_delete_all_consequence")) == 1
 	})
 	if len(desk.setup.Snapshot().Sessions) != 2 {
 		t.Fatalf("sessions before the confirmation: %d", len(desk.setup.Snapshot().Sessions))

@@ -136,17 +136,19 @@ func (r *Runtime) saveCompaction() {
 	}
 	draft := s.Draft
 	revision := s.Revision
+	current := r.settingsCurrent()
 	s.Pending = true
-	r.execute(protocol.Command{Kind: "save_compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: revision, Percent: uint8(draft)}}, func(c *ui.Context, out protocol.Output, err error) {
+	command := protocol.Command{Kind: "save_compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: revision, Percent: uint8(draft)}}
+	request := r.executeScoped("", command, func(c *ui.Context, out protocol.Output, err error) {
 		// The outcome is a toast wherever the pages are; the slider is this
 		// Node's only while they show it.
-		shown := r.showsSettings()
+		shown := current()
 		if shown {
 			s.Pending = false
 		}
 		if err != nil {
 			r.reportKeysRetry(c, err, "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown", func() {
-				if r.showsSettings() {
+				if current() {
 					r.saveCompaction()
 				}
 			})
@@ -162,4 +164,7 @@ func (r *Runtime) saveCompaction() {
 			r.readProviders()
 		}
 	})
+	if request == (protocol.RequestID{}) {
+		s.Pending = false
+	}
 }

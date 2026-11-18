@@ -69,6 +69,34 @@ func (h *TerminalHost) SetVariable(index int, key, value string) string {
 // terminal's font.
 func terminal(c *ui.Context, m *Model) {
 	p := theme.Of(c)
+	managedNodeGroup(c, m, "terminal-host", i18n.T(c, "settings_managed_host"), func() { terminalHostSettings(c, m) })
+	kit.Group(c, "input", i18n.T(c, "terminal_input"), "", nil, func() {
+		kit.Card(c, func() {
+			kit.SwitchRow(c, "paste", i18n.T(c, "settings_paste_protection"), i18n.T(c, "settings_paste_description"), &m.PasteProtection)
+		})
+	})
+	kit.Group(c, "display", i18n.T(c, "settings_terminal_display"), "", nil, func() {
+		kit.Card(c, func() {
+			title := i18n.T(c, "settings_font_size")
+			kit.WideRow(c, "size", title, "", func() {
+				ui.Row(c).FillWidth().Gap(12).Children(func() {
+					// Whole sizes: the arrow keys move by one, not by a
+					// hundredth of the range, which the rounding below undid.
+					ui.Slider(c.Key("slider"), &m.FontSize, 8, 32).Step(1).Label(title).Grow(1)
+					m.FontSize = float64(int(m.FontSize + 0.5))
+					ui.Textf(c, "%d", int(m.FontSize)).FontSize(14).TextColor(p.SurfaceForeground)
+				})
+			})
+			title = i18n.T(c, "settings_font_family")
+			kit.WideRow(c, "font", title, "", func() {
+				el, _ := kit.SelectField(c, "terminal-font", &m.Font, kit.SelectProps{Label: title, Options: fontOptions(c, m.Font)})
+				el.FillWidth().MinWidth(0)
+			})
+		})
+	})
+}
+
+func terminalHostSettings(c *ui.Context, m *Model) {
 	h := &m.Host
 	e := &m.env
 	locked := h.Pending || m.Live && m.SaveTerminal == nil
@@ -107,30 +135,6 @@ func terminal(c *ui.Context, m *Model) {
 			})
 		})
 	})
-	kit.Group(c, "input", i18n.T(c, "terminal_input"), "", nil, func() {
-		kit.Card(c, func() {
-			kit.SwitchRow(c, "paste", i18n.T(c, "settings_paste_protection"), i18n.T(c, "settings_paste_description"), &m.PasteProtection)
-		})
-	})
-	kit.Group(c, "display", i18n.T(c, "settings_terminal_display"), "", nil, func() {
-		kit.Card(c, func() {
-			title := i18n.T(c, "settings_font_size")
-			kit.WideRow(c, "size", title, "", func() {
-				ui.Row(c).FillWidth().Gap(12).Children(func() {
-					// Whole sizes: the arrow keys move by one, not by a
-					// hundredth of the range, which the rounding below undid.
-					ui.Slider(c.Key("slider"), &m.FontSize, 8, 32).Step(1).Label(title).Grow(1)
-					m.FontSize = float64(int(m.FontSize + 0.5))
-					ui.Textf(c, "%d", int(m.FontSize)).FontSize(14).TextColor(p.SurfaceForeground)
-				})
-			})
-			title = i18n.T(c, "settings_font_family")
-			kit.WideRow(c, "font", title, "", func() {
-				el, _ := kit.SelectField(c, "terminal-font", &m.Font, kit.SelectProps{Label: title, Options: fontOptions(c, m.Font)})
-				el.FillWidth().MinWidth(0)
-			})
-		})
-	})
 	draftDialog(c, "env", &e.open, "terminal_environment_add", []field{
 		{label: "terminal_variable", hint: "form_variable_hint", value: &e.key},
 		{label: "terminal_value", hint: "form_value_hint", value: &e.value},
@@ -156,9 +160,8 @@ func saveTerminal(c *ui.Context, m *Model) {
 	}
 }
 
-// TerminalEditing reports whether the environment variable dialog is open,
-// so its draft is not replaced under it.
-func (m *Model) TerminalEditing() bool { return m.env.open }
+// CloseTerminalEditor drops the environment editor when its host changes.
+func (m *Model) CloseTerminalEditor() { m.env = envEditor{} }
 
 // shellTitles names the shells of the select, which tells its options
 // apart by name: a program whose name another shares shows its whole

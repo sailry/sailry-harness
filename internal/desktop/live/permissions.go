@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/plugins/permissionflow"
@@ -21,11 +22,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// The Settings permissions page shows one row per system resource. Sailry's
-// own grants (Full Disk Access, Accessibility and the microphone) are read
-// from this process; a package's grants, such as the computer helper's
-// Accessibility and Screen Recording, are read and requested through the
-// package's host handlers on the device that executes them.
+// Sailry's system grants are read from this process. Package grants are
+// checked through the selected Node. Only this machine can open a native
+// prompt or the OS settings.
 
 const permissionApp = "sailry"
 
@@ -237,7 +236,7 @@ func permissionRows(cards []permissionCard) []viewmodel.Permission {
 func permissionRequests(cards []permissionCard, kind protocol.PermissionsKind) []permissionCard {
 	var selected []permissionCard
 	for _, card := range cards {
-		if card.kind != kind || card.satisfied() || card.absent() || card.entry != nil && card.entry.declaration.Request == nil {
+		if card.kind != kind || !card.actionable() {
 			continue
 		}
 		selected = append(selected, card)
@@ -254,7 +253,7 @@ type permissionState struct {
 	probe      permissionProbe
 	visible    bool
 	cards      []permissionCard
-	entries    []permissionEntry
+	host       *Runtime
 	binding    string
 	checking   bool
 	pending    bool
@@ -280,29 +279,38 @@ func (r *Runtime) permissionsFrame() {
 	}
 	if state.probe.check == nil {
 		state.probe = systemPermissions()
-		state.actions = settings.PermissionActions{Check: root.checkPermissions, Request: root.requestPermission, Settings: root.openPermissionSettings, ShowApp: root.showPermissionApp}
+	}
+	if state.actions.Check == nil {
+		state.actions = settings.PermissionActions{
+			Check: root.checkPermissions, ShowApp: root.showPermissionApp,
+			Request:  func(resource string) { root.requestPermission(resource, false) },
+			Settings: func(resource string) { root.openPermissionSettings(resource, false) },
+			HostRequest: func(resource string) {
+				if state.host == root && root.managedSettingsNode() == root {
+					root.requestPermission(resource, true)
+				}
+			},
+			HostSettings: func(resource string) {
+				if state.host == root && root.managedSettingsNode() == root {
+					root.openPermissionSettings(resource, true)
+				}
+			},
+		}
 	}
 	refresh := !state.visible
 	state.visible = true
 	local := root.controller.Target()
+	owner := root.managedSettingsNode()
 	var entries []permissionEntry
-	binding := []string{}
-	for _, owner := range []*Runtime{root.packageOwner(), root} {
-		if owner == nil || slices.ContainsFunc(entries, func(entry permissionEntry) bool { return entry.owner == owner }) {
-			continue
+	var binding []string
+	if owner != nil {
+		entries = permissionDirectory(owner, root.pluginViewCatalog(owner))
+		for _, entry := range entries {
+			binding = append(binding, entry.pack.Name, entry.pack.Digest, strconv.FormatUint(entry.pack.SettingsRevision, 10), entry.declaration.Subject, string(entry.declaration.Kind))
 		}
-		device := owner.controller.Target()
-		listed := permissionDirectory(owner, root.pluginViewCatalog(owner))
-		for _, entry := range listed {
-			binding = append(binding, device.String(), entry.pack.Name, entry.pack.Digest, entry.declaration.Subject, string(entry.declaration.Kind))
-		}
-		if len(listed) != 0 {
-			binding = append(binding, device.String(), map[bool]string{true: "connected", false: "offline"}[owner.controller.Connected()])
-		}
-		entries = append(entries, listed...)
 	}
-	if key := strings.Join(binding, "\x00"); refresh && state.cards == nil || key != state.binding {
-		state.binding, state.entries = key, entries
+	if key := strings.Join(binding, "\x00"); state.cards == nil || owner != state.host || key != state.binding {
+		state.binding, state.host = key, owner
 		state.generation++
 		state.checking, state.pending, state.failed = false, false, false
 		state.cards = permissionCards(state.probe.goos, local, entries, func(entry permissionEntry) (protocol.NodeID, bool) {
@@ -313,8 +321,21 @@ func (r *Runtime) permissionsFrame() {
 	if refresh {
 		root.checkPermissions()
 	}
-	m.Permissions, m.PermissionActions = permissionRows(state.cards), &state.actions
+	m.Permissions, state.actions.HostPermissions = permissionRows(state.cardsFor(false)), permissionRows(state.cardsFor(true))
+	state.actions.HostUnavailable = owner == nil
+	state.actions.HostReadOnly = owner != root
+	m.PermissionActions = &state.actions
 	m.SetBusy(settings.BusyPermissions, state.checking)
+}
+
+func (state *permissionState) cardsFor(host bool) []permissionCard {
+	var cards []permissionCard
+	for _, card := range state.cards {
+		if (card.subject != permissionApp) == host {
+			cards = append(cards, card)
+		}
+	}
+	return cards
 }
 
 func (state *permissionState) apply(owner permissionCard, changes []permissionChange) {
@@ -481,18 +502,18 @@ func (r *Runtime) permissionKind(resource string) (protocol.PermissionsKind, boo
 // requestPermission is a row's action: it asks for the resource's missing
 // grants in turn, or opens the system's settings for a grant only they can
 // change, then checks again.
-func (r *Runtime) requestPermission(resource string) {
+func (r *Runtime) requestPermission(resource string, host bool) {
 	state := &r.permissions
 	kind, known := r.permissionKind(resource)
 	if !known || state.checking || state.pending {
 		return
 	}
-	requests := permissionRequests(state.cards, kind)
+	requests := permissionRequests(state.cardsFor(host), kind)
 	if len(requests) == 0 {
 		return
 	}
 	if len(requests) == 1 && requests[0].subject == permissionApp && requests[0].opensSettings() {
-		r.openPermissionSettings(resource)
+		r.openPermissionSettings(resource, host)
 		return
 	}
 	probe := state.probe
@@ -529,19 +550,20 @@ func (r *Runtime) requestPermission(resource string) {
 // openPermissionSettings opens the resource's page of the system's settings.
 // Full Disk Access is checked first: a refused protected open is what lists
 // the application on that page.
-func (r *Runtime) openPermissionSettings(resource string) {
+func (r *Runtime) openPermissionSettings(resource string, host bool) {
 	state := &r.permissions
 	kind, known := r.permissionKind(resource)
 	if !known || state.checking || state.pending {
 		return
 	}
-	index := slices.IndexFunc(state.cards, func(card permissionCard) bool { return card.kind == kind && card.settings && !card.absent() })
+	cards := state.cardsFor(host)
+	index := slices.IndexFunc(cards, func(card permissionCard) bool { return card.kind == kind && card.settings && !card.absent() })
 	if index < 0 {
 		return
 	}
 	probe := state.probe
 	var steps []func() func(*ui.Context)
-	if card := state.cards[index]; kind == protocol.PermissionsKindFullDisk && card.check {
+	if card := cards[index]; kind == protocol.PermissionsKindFullDisk && card.check {
 		steps = append(steps, r.permissionStep(card, false))
 	}
 	steps = append(steps, func() func(*ui.Context) {

@@ -136,7 +136,6 @@ type providerSaveTarget struct {
 	intent        [sha256.Size]byte
 	requestIntent [sha256.Size]byte
 	saved         *protocol.ConversationProvider
-	removed       bool
 }
 
 type providerSaveBatch map[string]*providerSaveTarget
@@ -193,15 +192,9 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 					output, outcome := resolution.Result()
 					switch resolution.State {
 					case client.RequestApplied:
-						if request.Command.Kind == "remove_provider" {
-							target.request, target.saved, target.removed = nil, nil, true
-							owner.refreshProviderSnapshot()
-							batch.save(root, d, finished)
-							return
-						}
 						saved, ok := detail[protocol.ConversationProvider](output.Data)
 						if ok && saved.ID == target.id {
-							target.request, target.saved, target.intent, target.removed = nil, &saved, target.requestIntent, false
+							target.request, target.saved, target.intent = nil, &saved, target.requestIntent
 							owner.refreshProviderSnapshot()
 							batch.save(root, d, finished)
 							return
@@ -255,7 +248,7 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 		done(providerSaveFailure(nodes))
 		return
 	}
-	if d.Group != "" {
+	if d.Group != "" && len(nodes) > 1 {
 		selected, exists := providerGroup(root.Preferences.Data, d.Group)
 		related := slices.Contains(selected.Members, mustProviderMember(sourceNode, provider.ID)) || slices.ContainsFunc(selected.Members, func(member preferences.ProviderMember) bool {
 			target := batch[member.Node.String()]
@@ -267,10 +260,6 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 		}
 		group, oldMembers = selected, slices.Clone(selected.Members)
 	}
-	oldMembers = slices.DeleteFunc(oldMembers, func(member preferences.ProviderMember) bool {
-		target := batch[member.Node.String()]
-		return target != nil && target.removed
-	})
 	for node, target := range batch {
 		member, ok := providerMember(node, target.id)
 		if ok && target.saved != nil && !slices.Contains(oldMembers, member) {
@@ -307,10 +296,6 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 		}
 		targets = append(targets, owner)
 		if target := batch[node]; target != nil {
-			if target.removed {
-				// Removed providers retain historical records with their old IDs.
-				target.id = protocol.NewProviderID()
-			}
 			targetIDs[node] = target.id
 			continue
 		}
@@ -369,7 +354,7 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 	done func(settings.ProviderSaveResult)) {
 	root := r.localRuntime()
 	groupID := oldGroup.ID
-	if groupID == (protocol.RequestID{}) && len(nodes) > 1 {
+	if groupID == (protocol.RequestID{}) && (len(nodes) > 1 || len(batch) > 1) {
 		groupID = protocol.NewRequestID()
 	}
 
@@ -409,9 +394,6 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 			target = &providerSaveTarget{id: id}
 			batch[node] = target
 		}
-		if target.removed {
-			expected = 0
-		}
 		if target.saved != nil {
 			expected = target.saved.Revision
 			if target.intent == intent {
@@ -442,7 +424,7 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 					if owner.authorizations == nil {
 						owner.initAuthorization()
 					}
-					target.saved, target.intent, target.removed = &saved, intent, false
+					target.saved, target.intent = &saved, intent
 					owner.authorizations.savedProviders[id.String()] = saved
 					members[member.Node] = member
 					savedRevisions[node] = saved.Revision
@@ -506,48 +488,50 @@ func (r *Runtime) finishManagedProviderSave(batch providerSaveBatch, groupID pro
 				failed = append(failed, member.Node.String())
 			}
 		}
-		r.finishManagedProviderGroup(protocol.RequestID{}, members, succeeded, failed, savedRevisions, done)
+		r.finishManagedProviderGroup(protocol.RequestID{}, nil, members, succeeded, failed, savedRevisions, done)
 		return
 	}
-	if len(failed) == 0 {
-		selected := make(map[string]bool, len(nodes))
-		for _, node := range nodes {
-			selected[node] = true
-		}
-		var stale []providerLocation
-		var staleUnknown []preferences.ProviderMember
-		for _, member := range oldMembers {
-			if selected[member.Node.String()] {
-				continue
-			}
-			if location, exists := oldByNode[member.Node.String()]; exists {
-				stale = append(stale, location)
-			} else {
-				staleUnknown = append(staleUnknown, member)
-			}
-		}
-		for _, member := range staleUnknown {
-			failed = append(failed, member.Node.String())
-		}
-		if len(stale) > 0 {
-			root.removeProviderLocations(batch, stale, func(removed []providerLocation, removeFailed []string) {
-				for _, location := range removed {
-					delete(members, location.owner.controller.Target())
-				}
-				failed = append(failed, removeFailed...)
-				root.finishManagedProviderGroup(groupID, members, succeeded, failed, savedRevisions, done)
-			})
-			return
-		}
-	}
-	root.finishManagedProviderGroup(groupID, members, succeeded, failed, savedRevisions, done)
+	// The destinations are explicit writes. Existing copies elsewhere remain
+	// independent and keep their identities when omitted from the save.
+	root.finishManagedProviderGroup(groupID, batch, members, succeeded, failed, savedRevisions, done)
 }
 
-func (r *Runtime) finishManagedProviderGroup(groupID protocol.RequestID, members map[protocol.NodeID]preferences.ProviderMember,
+func (r *Runtime) finishManagedProviderGroup(groupID protocol.RequestID, batch providerSaveBatch, members map[protocol.NodeID]preferences.ProviderMember,
 	succeeded, failed []string, savedRevisions map[string]uint64, done func(settings.ProviderSaveResult)) {
 	root := r.localRuntime()
-	ordered := make([]preferences.ProviderMember, 0, len(members))
+	group, _ := providerGroup(root.Preferences.Data, groupID.String())
+	if len(batch) > 1 {
+		group.Members = root.recordProviderCopies(groupID, group.Members, batch)
+	}
+	result := settings.ProviderSaveResult{Succeeded: uniqueProviderNodes(succeeded), Failed: uniqueProviderNodes(failed)}
+	if len(group.Members) > 1 {
+		result.Group = groupID.String()
+	}
+	result.TargetIDs = make(map[string]string, len(members))
+	result.TargetRevisions = maps.Clone(savedRevisions)
 	for _, member := range members {
+		result.TargetIDs[member.Node.String()] = member.Provider.String()
+	}
+	done(result)
+	root.projectProviderSnapshot()
+}
+
+// recordProviderCopies merges confirmed saves into the current association,
+// including a destination whose receipt was resolved after it was unchecked.
+func (r *Runtime) recordProviderCopies(groupID protocol.RequestID, previous []preferences.ProviderMember, batch providerSaveBatch) []preferences.ProviderMember {
+	current := make(map[protocol.NodeID]preferences.ProviderMember, len(previous)+len(batch))
+	for _, member := range previous {
+		current[member.Node] = member
+	}
+	for node, target := range batch {
+		if target.saved != nil {
+			if member, ok := providerMember(node, target.saved.ID); ok {
+				current[member.Node] = member
+			}
+		}
+	}
+	ordered := make([]preferences.ProviderMember, 0, len(current))
+	for _, member := range current {
 		ordered = append(ordered, member)
 	}
 	slices.SortFunc(ordered, func(a, b preferences.ProviderMember) int {
@@ -556,27 +540,10 @@ func (r *Runtime) finishManagedProviderGroup(groupID protocol.RequestID, members
 		}
 		return strings.Compare(a.Provider.String(), b.Provider.String())
 	})
-	if groupID != (protocol.RequestID{}) {
-		root.replaceProviderGroup(groupID, ordered)
-	} else if len(ordered) > 1 {
-		groupID = protocol.NewRequestID()
-		root.replaceProviderGroup(groupID, ordered)
+	if len(ordered) > 1 && !slices.Equal(previous, ordered) {
+		r.replaceProviderGroup(groupID, ordered)
 	}
-	result := settings.ProviderSaveResult{Succeeded: uniqueProviderNodes(succeeded), Failed: uniqueProviderNodes(failed)}
-	if len(ordered) > 1 {
-		result.Group = groupID.String()
-	}
-	result.TargetIDs = make(map[string]string, len(ordered))
-	result.TargetRevisions = make(map[string]uint64, len(ordered))
-	for _, member := range ordered {
-		node := member.Node.String()
-		result.TargetIDs[node] = member.Provider.String()
-		if revision := savedRevisions[node]; revision != 0 {
-			result.TargetRevisions[node] = revision
-		}
-	}
-	done(result)
-	root.projectProviderSnapshot()
+	return ordered
 }
 
 func (r *Runtime) replaceProviderGroup(id protocol.RequestID, members []preferences.ProviderMember) {
@@ -589,20 +556,18 @@ func (r *Runtime) replaceProviderGroup(id protocol.RequestID, members []preferen
 	root.wake()
 }
 
-func (r *Runtime) removeProviderLocations(batch providerSaveBatch, locations []providerLocation, done func([]providerLocation, []string)) {
+func (r *Runtime) removeProviderLocations(locations []providerLocation, done func([]string)) {
 	if len(locations) == 0 {
-		done(nil, nil)
+		done(nil)
 		return
 	}
 	pending := len(locations)
-	var removed []providerLocation
 	var failed []string
 	for _, location := range locations {
 		owner, provider := location.owner, location.provider
 		command := protocol.Command{Kind: "remove_provider", Data: protocol.CommandRemoveProviderPayload{Provider: provider.ID, ExpectedRevision: provider.Revision}}
-		completed := func(ok bool) {
+		owner.providerCommand(command, func(_ protocol.Output, ok bool) {
 			if ok {
-				removed = append(removed, location)
 				if owner.authorizations != nil {
 					delete(owner.authorizations.savedProviders, provider.ID.String())
 				}
@@ -611,31 +576,8 @@ func (r *Runtime) removeProviderLocations(batch providerSaveBatch, locations []p
 			}
 			pending--
 			if pending == 0 {
-				done(removed, failed)
+				done(failed)
 			}
-		}
-		if batch == nil {
-			owner.providerCommand(command, func(_ protocol.Output, ok bool) { completed(ok) })
-			continue
-		}
-		node := owner.controller.Target().String()
-		target := batch[node]
-		if target == nil {
-			target = &providerSaveTarget{id: provider.ID}
-			batch[node] = target
-		}
-		request := owner.controller.Prepare(command)
-		owner.async(func() {
-			_, err := owner.controller.Settle(owner.ctx, request)
-			owner.enqueue(func(c *ui.Context) {
-				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", "provider_save_unknown")
-				if err == nil {
-					target.saved, target.removed = nil, true
-				} else if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
-					target.request = &request
-				}
-				completed(err == nil)
-			})
 		})
 	}
 }
@@ -643,7 +585,7 @@ func (r *Runtime) removeProviderLocations(batch providerSaveBatch, locations []p
 func (r *Runtime) finishProviderMove(move providerMove) {
 	root := r.localRuntime()
 	key := providerMoveKey(move.target.controller.Target().String(), move.id)
-	root.removeProviderLocations(nil, move.old, func(removed []providerLocation, failed []string) {
+	root.removeProviderLocations(move.old, func(failed []string) {
 		if len(failed) != 0 {
 			return
 		}
@@ -687,71 +629,58 @@ func providerIDFromString(value string) protocol.ProviderID {
 
 func (r *Runtime) enableManagedProvider(node, id string, revision uint64, enabled bool) {
 	root := r.localRuntime()
-	providerID, err := protocol.ParseProviderID(id)
-	if err != nil {
+	if node == "" {
 		return
 	}
-	_, members := providerGroupFor(root.Preferences.Data, node, providerID)
-	locations := providerLocations(root, members)
-	if len(locations) == 0 {
+	owner := root.providerOwner(node)
+	if owner == nil {
+		root.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the settings host is unavailable"))
+		root.projectProviderSnapshot()
 		return
 	}
-	for _, member := range members {
-		location, exists := locations[member]
-		if !exists || !location.owner.controller.Connected() {
-			continue
-		}
-		provider := location.provider
-		expected := provider.Revision
-		if member.Node.String() == node {
-			expected = revision
-		}
-		provider.Enabled = enabled
-		location.owner.providerCommand(protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: expected}}, func(_ protocol.Output, ok bool) {
-			if !ok {
-				root.projectProviderSnapshot()
-			}
-		})
+	provider, exists := owner.provider(id)
+	if !exists {
+		root.Report(fileActionFault(protocol.ErrorCodeNotFound, "provider is unavailable"))
+		root.projectProviderSnapshot()
+		return
 	}
+	provider.Enabled = enabled
+	owner.providerCommand(protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider, ExpectedRevision: revision}}, func(_ protocol.Output, ok bool) {
+		if ok {
+			owner.refreshProviderSnapshot()
+		} else {
+			root.projectProviderSnapshot()
+		}
+	})
 }
 
 func (r *Runtime) removeManagedProvider(node, id string, revision uint64) {
 	root := r.localRuntime()
 	providerID, err := protocol.ParseProviderID(id)
-	if err != nil {
+	if node == "" || err != nil {
 		return
 	}
-	group, members := providerGroupFor(root.Preferences.Data, node, providerID)
-	locations := providerLocations(root, members)
-	if len(locations) == 0 {
+	owner := root.providerOwner(node)
+	if owner == nil {
+		root.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the settings host is unavailable"))
 		return
 	}
-	member := mustProviderMember(node, providerID)
-	if location, exists := locations[member]; exists {
-		location.provider.Revision = revision
-		locations[member] = location
-	}
-	root.removeProviderLocations(nil, providerLocationsInOrder(members, locations), func(removed []providerLocation, failed []string) {
-		removedMembers := make(map[preferences.ProviderMember]bool, len(removed))
-		for _, location := range removed {
-			removedMembers[preferences.ProviderMember{Node: location.owner.controller.Target(), Provider: location.provider.ID}] = true
+	command := protocol.Command{Kind: "remove_provider", Data: protocol.CommandRemoveProviderPayload{Provider: providerID, ExpectedRevision: revision}}
+	owner.providerCommand(command, func(_ protocol.Output, ok bool) {
+		if !ok {
+			return
 		}
-		remaining := slices.DeleteFunc(slices.Clone(members), func(member preferences.ProviderMember) bool { return removedMembers[member] })
+		if owner.authorizations != nil {
+			delete(owner.authorizations.savedProviders, id)
+		}
+		group, members := providerGroupFor(root.Preferences.Data, node, providerID)
 		if group.ID != (protocol.RequestID{}) {
+			member := preferences.ProviderMember{Node: owner.controller.Target(), Provider: providerID}
+			remaining := slices.DeleteFunc(members, func(candidate preferences.ProviderMember) bool { return candidate == member })
 			root.replaceProviderGroup(group.ID, remaining)
 		}
-		root.projectProviderSnapshot()
+		owner.refreshProviderSnapshot()
 	})
-}
-
-func providerLocationsInOrder(members []preferences.ProviderMember, locations map[preferences.ProviderMember]providerLocation) []providerLocation {
-	result := make([]providerLocation, 0, len(members))
-	for _, member := range members {
-		if location, exists := locations[member]; exists && location.owner.controller.Connected() {
-			result = append(result, location)
-		}
-	}
-	return result
 }
 
 func (r *Runtime) readManagedProviderKey(node, id string, done func(string)) {

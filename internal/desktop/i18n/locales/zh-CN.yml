@@ -793,6 +793,7 @@ backup_passphrase_required: 请输入备份口令
 backup_prefix: 路径前缀
 backup_region: 区域
 backup_restore: 恢复
+backup_action_host: 主机：%{name}
 backup_restore_storage: 从存储恢复
 backup_s3: S3
 backup_saved: 设置已保存
@@ -925,6 +926,7 @@ permission_settings: 打开设置
 permission_show_app: 显示应用
 permission_title: 系统权限
 permission_denied: 已拒绝
+permission_host_title: 主机权限
 permission_remote: 请在执行设备上授权
 permission_partial: 部分授权
 permission_unavailable: 此设备不可用
@@ -992,6 +994,7 @@ settings_message_text_size: 文字大小
 settings_messages: 消息
 settings_name: 名称
 settings_notifications: 通知
+settings_managed_host: 执行主机
 settings_notify_approval: 审批请求通知
 settings_notify_completed: 任务完成通知
 settings_notify_failed: 任务失败通知
@@ -1142,6 +1145,8 @@ provider_key_hint: 输入 API Key
 provider_api_key: API 密钥
 provider_get_key: 获取密钥
 provider_host: 主机
+provider_copy_to_hosts: 复制到其他主机
+provider_no_copy_targets: 仅此主机
 provider_hosts: 主机
 provider_host_required: 请选择主机。账号登录渠道只能归属一台主机。
 provider_host_saved: 已保存到 {host}
@@ -1437,6 +1442,8 @@ plugins_fixed_version: 固定于 %{version}
 plugins_following_versions: 跟随兼容版本
 plugins_download: 下载插件
 plugins_empty: 暂无插件
+plugins_not_installed_on_host: 未在此主机安装
+plugins_desktop_only: 切换到「本机」管理此桌面插件
 plugins_remove_effect: 卸载“%{name}”？插件数据会保留
 plugins_uninstalled: 插件已卸载
 plugins_update_available: 可更新

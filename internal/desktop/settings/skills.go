@@ -66,6 +66,10 @@ func skillSource(c *ui.Context, s *preview.Skill) string {
 
 func skills(c *ui.Context, s *State) {
 	m := s.Model
+	if m.packageTargetOffline() {
+		settingsTargetStatus(c, "connections_offline")
+		return
+	}
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	ui.Column(c.Key("skills")).Gap(16).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(8).Children(func() {

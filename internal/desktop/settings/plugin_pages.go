@@ -18,6 +18,21 @@ type PluginPage struct {
 	Render  func(*ui.Context)
 }
 
+// ManagedNodeSelect renders the same setting target on built-in and mounted
+// settings pages.
+func ManagedNodeSelect(c *ui.Context, m *Model) bool {
+	return managedNodeSelect(c, m, &m.ManagedNode)
+}
+
+func (m *Model) packageTargetOffline() bool {
+	if node := m.managedNodeID(); node != "" {
+		return !slices.ContainsFunc(m.ProviderActions.Hosts(), func(host ProviderHost) bool {
+			return host.Node == node && host.Connected
+		})
+	}
+	return false
+}
+
 func (section Section) navigationOrder() uint16 {
 	switch section {
 	case General, Providers, Terminal, Permissions:

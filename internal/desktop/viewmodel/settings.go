@@ -52,6 +52,7 @@ type KnowledgeCollection struct {
 	Failed         uint64
 	Reason         string
 	Busy           bool
+	ReadOnly       bool
 }
 
 // LibraryModel is a model the model library finds (model_library rows).

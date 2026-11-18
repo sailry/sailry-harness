@@ -105,6 +105,10 @@ func TestPermissionsMapping(t *testing.T) {
 		if !cards[3].check || cards[3].request || cards[3].settings || cards[3].device != remote {
 			t.Fatal(cards[3])
 		}
+		state := permissionState{cards: cards}
+		if system, host := state.cardsFor(false), state.cardsFor(true); len(system) != 3 || len(host) != 2 || len(permissionRequests(host, accessibility)) != 0 {
+			t.Fatalf("local grants and the selected host's read-only grants overlap: %+v %+v", system, host)
+		}
 		// A grant without a check handler is this process's own, or another device's.
 		cards = permissionCards("darwin", local, []permissionEntry{helper(screen, false, false)}, on(local, true), nil)
 		if cards[3].entry != nil || !cards[3].check || !cards[3].request || cards[3].subject != "dev.sailry.computer" {
@@ -234,10 +238,10 @@ func TestPermissionsMapping(t *testing.T) {
 		r := &Runtime{ctx: t.Context()}
 		r.permissions.probe = permissionProbe{goos: "darwin", settings: func(permissionflow.Permission) error { return errors.New("no settings") }}
 		r.permissions.cards = []permissionCard{
-			{device: local, subject: permissionApp, kind: microphone, status: "permission_denied", settings: true},
+			{device: local, subject: "dev.sailry.capture", kind: microphone, status: "permission_denied", settings: true},
 			{device: local, subject: "dev.sailry.computer", kind: microphone, status: "permission_denied", settings: true},
 		}
-		r.requestPermission(permissionKinds[microphone].key)
+		r.requestPermission(permissionKinds[microphone].key, true)
 		r.workers.Wait()
 		var toasts []string
 		tester := ui.NewTester(func(view *ui.Context) {

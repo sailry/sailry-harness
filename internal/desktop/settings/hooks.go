@@ -35,7 +35,22 @@ type consent struct {
 	settings HookSettings
 }
 
-func (m *Model) HooksEditing() bool { return m.hook.open || m.consent.open }
+type HookWorktree struct {
+	ID, Path string
+}
+
+type HookTarget struct {
+	Host, Project, Worktree, Path string
+	Worktrees                     []HookWorktree
+}
+
+func (t HookTarget) label(c *ui.Context) string {
+	return strings.Join([]string{i18n.T(c, t.Host), t.Project, t.Path}, " · ")
+}
+
+func (m *Model) HooksEditing() bool {
+	return m.hook.open || m.consent.open || m.hook.removing != ""
+}
 
 // Check validates a hook's draft: the i18n key of the problem, or "".
 func (e *hookEditor) Check() string {
@@ -50,13 +65,36 @@ func (e *hookEditor) Check() string {
 // hooks is hooks on or off, and the scripts, each with its switch, its editor
 // and its removal. Turning scripts on asks for consent.
 func hooks(c *ui.Context, m *Model) {
+	h := &m.Hooks
 	if m.Live && m.HooksContext != nil {
-		if _, ok := m.HooksContext(); !ok {
+		target, ok := m.HooksContext()
+		if !ok {
 			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "hooks_project_required"), Card: true})
 			return
 		}
+		var changed bool
+		kit.Card(c, func() {
+			kit.WideRow(c, "worktree", i18n.T(c, "workspace_worktrees"), target.label(c), func() {
+				if len(target.Worktrees) < 2 || m.SelectHookWorktree == nil {
+					return
+				}
+				options := make([]kit.SelectOption, 0, len(target.Worktrees))
+				for _, tree := range target.Worktrees {
+					options = append(options, kit.SelectOption{Value: tree.ID, Label: tree.Path})
+				}
+				id := target.Worktree
+				_, changed = kit.SelectField(c.Key("target"), "worktree", &id, kit.SelectProps{
+					Label: i18n.T(c, "workspace_worktrees"), Options: options, Disabled: h.Pending || m.HooksEditing(),
+				})
+				if changed {
+					m.SelectHookWorktree(id)
+				}
+			})
+		})
+		if changed {
+			return
+		}
 	}
-	h := &m.Hooks
 	save := func(s HookSettings) {
 		h.Draft = s
 		if m.Live && m.SaveHooks != nil {
@@ -225,7 +263,11 @@ func consentDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 	title := i18n.T(c, "hooks_enable")
 	location := i18n.T(c, "composer_host_local") + " · ~/Projects/sailry-go · main"
 	if m.Live && m.HooksContext != nil {
-		location, _ = m.HooksContext()
+		target, ok := m.HooksContext()
+		if !ok {
+			return
+		}
+		location = target.label(c)
 	}
 	message := []string{i18n.T(c, "hooks_consent"), i18n.T(c, hookScope(m)), location}
 	for _, x := range k.settings.Scripts {

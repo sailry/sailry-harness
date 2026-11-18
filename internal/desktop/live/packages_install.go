@@ -27,7 +27,7 @@ func (r *Runtime) installGitPlugin(repository, revision, selectedPath string, do
 			err = errors.New("unexpected plugin source response")
 		}
 		if err == nil {
-			err = ensureDesktopPackage(selection.Info)
+			err = r.ensureDesktopPackage(selection.Info)
 		}
 		r.enqueue(func(c *ui.Context) {
 			if err == nil {
@@ -83,7 +83,7 @@ func (r *Runtime) installLocalPlugin(selectedPath, workingDirectory string, done
 			r.async(func() {
 				selection, err := r.inspectOfficialPackage(entry.ID, entry.Version)
 				if err == nil {
-					err = ensureDesktopPackage(selection.Info)
+					err = r.ensureDesktopPackage(selection.Info)
 				}
 				r.enqueue(func(c *ui.Context) {
 					if err != nil {
@@ -159,7 +159,7 @@ func (r *Runtime) localPackage(selectedPath, workingDirectory string) (localPack
 // installPackageUpload installs an uploaded package and remembers the local
 // directory it came from, which a later update check reads again.
 func (r *Runtime) installPackageUpload(local localPackage, done func(bool)) {
-	if err := ensureDesktopPackage(local.info); err != nil {
+	if err := r.ensureDesktopPackage(local.info); err != nil {
 		r.async(func() { r.cancelAttachmentStream(local.stream) })
 		r.enqueue(func(c *ui.Context) {
 			r.packageReport(c, err)
@@ -301,7 +301,7 @@ func (r *Runtime) installSkillSource(draft settings.SkillSourceDraft, done func(
 			}
 		}
 		r.enqueue(func(c *ui.Context) {
-			if ctx.Err() != nil || r.packages.skillOperation != operation {
+			if ctx.Err() != nil || r.packages.skillOperation != operation || r.packageOwner() != r {
 				r.finishSkillSource(operation, false)
 				done(false)
 				return

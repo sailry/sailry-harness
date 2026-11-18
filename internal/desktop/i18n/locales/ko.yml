@@ -793,6 +793,7 @@ backup_passphrase_required: 백업 암호문을 입력하세요
 backup_prefix: 접두 경로
 backup_region: 리전
 backup_restore: 복원
+backup_action_host: 'Host: %{name}'
 backup_restore_storage: 저장소에서 복원
 backup_s3: S3
 backup_saved: 설정 저장됨
@@ -925,6 +926,7 @@ permission_settings: 설정 열기
 permission_show_app: 응용 프로그램 보기
 permission_title: 시스템 액세스
 permission_denied: 접근 거부됨
+permission_host_title: Host permissions
 permission_remote: 실행 장치에 대한 액세스 허용
 permission_partial: 일부 허용됨
 permission_unavailable: 이 장치에서 사용할 수 없음
@@ -992,6 +994,7 @@ settings_message_text_size: 글자 크기
 settings_messages: 메시지
 settings_name: 이름
 settings_notifications: 알림
+settings_managed_host: Execution host
 settings_notify_approval: 승인 요청 알림
 settings_notify_completed: 작업 완료 알림
 settings_notify_failed: 작업 실패 알림
@@ -1142,6 +1145,8 @@ provider_key_hint: API 키 입력
 provider_api_key: API 키
 provider_get_key: API 키 받기
 provider_host: Host
+provider_copy_to_hosts: Copy to other hosts
+provider_no_copy_targets: This host only
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_host_saved: Saved on {host}
@@ -1437,6 +1442,8 @@ plugins_fixed_version: Fixed at %{version}
 plugins_following_versions: Following compatible releases
 plugins_download: 플러그인 다운로드
 plugins_empty: 플러그인 없음
+plugins_not_installed_on_host: Not installed on this host
+plugins_desktop_only: Select This Computer to manage this desktop plugin
 plugins_remove_effect: “%{name}”을 제거하시겠습니까? 플러그인 데이터는 유지됩니다
 plugins_uninstalled: 플러그인이 제거됨
 plugins_update_available: 업데이트

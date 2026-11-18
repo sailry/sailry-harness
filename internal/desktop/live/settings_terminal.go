@@ -3,9 +3,11 @@ package live
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -13,7 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Settings › Terminal: the controller's local shell and environment, read
+// Settings › Terminal: the settings host's shell and environment, read
 // when the page shows and saved whole on every change.
 
 // terminalSettingsState is a Node's terminal settings as the page edits
@@ -33,20 +35,18 @@ type terminalSettingsState struct {
 	visible  bool
 }
 
-// terminalSettingsFrame keeps the page on the controller's local Node: it
-// takes back the draft the page edited, shows the Node's, and reads its
-// settings when they are unknown, a save left them in doubt, or the Node
-// reports a newer revision. Nothing is read while another page shows.
+// terminalSettingsFrame stores the outgoing Node's draft and displays the
+// selected Node's. It reads unknown or stale settings while Terminal shows.
 func (r *Runtime) terminalSettingsFrame() {
 	root := r.localRuntime()
 	state := &root.terminalSettings
 	m := root.App.Settings
-	owner := root.settingsOwner()
+	owner := root.managedSettingsNode()
 	if previous := state.shown; previous != nil {
 		previous.terminalSettings.model = m.Host
-		if m.TerminalEditing() {
-			owner = previous
-		}
+	}
+	if owner != state.shown {
+		m.CloseTerminalEditor()
 	}
 	visible := root.App.Page == shell.SettingsPage && m.Section == settings.Terminal
 	entered := visible && (!state.visible || owner != state.shown)
@@ -109,7 +109,9 @@ func (r *Runtime) readTerminalSettings() {
 			state.reading = false
 			if err != nil {
 				state.failed = true
-				settings.Report(c, kit.Failed, settings.TerminalMessages)
+				if root := r.localRuntime(); root.terminalSettings.shown == r && root.terminalSettings.visible {
+					settings.Report(c, kit.Failed, settings.TerminalMessages)
+				}
 				return
 			}
 			r.acceptTerminalRead(value, shells)
@@ -152,34 +154,65 @@ func (r *Runtime) acceptTerminalSettings(value protocol.TerminalSettings, shells
 	state.shells = shells
 }
 
-// saveTerminalSettings saves the page's draft at the revision it was read
-// at. A request whose outcome is unknown is retained and sent again by the
-// same draft; a failed or conflicting save keeps the draft and reads the
-// Node's settings again.
+// saveTerminalSettings submits the shown Node's draft at the revision it was read.
 func (r *Runtime) saveTerminalSettings() {
 	state := &r.terminalSettings
 	model := r.terminalModel()
-	if model.Pending || !state.known {
+	root := r.localRuntime()
+	if !root.terminalSettings.visible || root.terminalSettings.shown != r || root.managedSettingsNode() != r {
+		return
+	}
+	r.submitTerminalSettings(terminalRequest(model.Draft, model.Revision, state.choices, state.saved))
+}
+
+// submitTerminalSettings keeps a retry on its original Node. An unconfirmed
+// save settles the original request even if a fresh read changed the revision.
+func (r *Runtime) submitTerminalSettings(request protocol.TerminalSettings) {
+	state, model := &r.terminalSettings, r.terminalModel()
+	root := r.localRuntime()
+	if model.Pending || !state.known || !r.controller.Connected() || root.runtimeFor(r.controller.Target().String()) != r {
 		return
 	}
 	model.Pending = true
-	request := terminalRequest(model.Draft, model.Revision, state.choices, state.saved)
-	again := func() {
-		if r.showsSettings() {
-			r.saveTerminalSettings()
-		}
-	}
-	r.saveSettingRetry(protocol.Command{Kind: "save_terminal_settings", Data: request}, settings.TerminalMessages, nil, again, func(output protocol.Output, ok bool) {
+	r.execute(protocol.Command{Kind: "save_terminal_settings", Data: request}, func(c *ui.Context, output protocol.Output, err error) {
 		model := r.terminalModel()
 		model.Pending = false
 		value, valid := detail[protocol.TerminalSettings](output.Data)
-		if !ok || !valid || output.Kind != "terminal_settings" {
-			state.stale = true
+		draftMatches := func() bool {
+			draft := terminalRequest(model.Draft, model.Revision, state.choices, state.saved)
+			return draft.Shell == request.Shell && slices.Equal(draft.ShellArguments, request.ShellArguments) && maps.Equal(draft.Environment, request.Environment)
+		}
+		if err == nil && valid && output.Kind == "terminal_settings" {
+			state.observed = max(state.observed, value.Revision)
+			if draftMatches() && value.Revision >= state.saved.Revision {
+				model.Draft = model.Saved
+			}
+			r.acceptTerminalRead(value, state.shells)
+			settings.Report(c, kit.Done, settings.TerminalMessages)
 			return
 		}
-		state.observed = value.Revision
-		model.Draft = model.Saved
-		r.acceptTerminalSettings(value, state.shells)
+		state.stale = true
+		outcome := kit.Failed
+		var again func()
+		switch faultCode(err) {
+		case protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeConflict:
+			outcome = kit.Conflict
+		case protocol.ErrorCodeOutcomeUnknown:
+			outcome = kit.Uncertain
+			if client.Retained(err) {
+				again = func() { r.submitTerminalSettings(request) }
+			}
+		default:
+			if err != nil {
+				again = func() {
+					model = r.terminalModel()
+					if draftMatches() && !sameTerminalHost(model.Draft, model.Saved) {
+						r.submitTerminalSettings(terminalRequest(model.Draft, model.Revision, state.choices, state.saved))
+					}
+				}
+			}
+		}
+		settings.ReportRetry(c, outcome, settings.TerminalMessages, again)
 	})
 }
 

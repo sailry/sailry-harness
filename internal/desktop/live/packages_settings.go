@@ -102,7 +102,7 @@ func packageSettingText(value json.RawMessage) string {
 func (r *Runtime) configurePackage(id string) {
 	name := r.packageID(id)
 	info, exists := r.packages.infos[name]
-	if !exists || info.Settings == nil {
+	if !exists || info.Settings == nil || !r.controller.Connected() {
 		return
 	}
 	reference := packageReference(info.Summary)
@@ -111,7 +111,22 @@ func (r *Runtime) configurePackage(id string) {
 	generation := root.packages.configuration
 	// The dialog opens where it was asked for: the settings section that
 	// asked, or the page, as a package's own page from its header.
-	page, section := root.App.Page, root.App.Settings.Section
+	page, section, feature := root.App.Page, root.App.Settings.Section, root.App.PluginFeature()
+	stillHere := func() bool {
+		if root.packages.configuration != generation || root.App.Page != page || !r.controller.Connected() {
+			return false
+		}
+		if page == shell.SettingsPage {
+			if root.App.Settings.Section != section {
+				return false
+			}
+			if localPluginSettings(info) {
+				return r == root
+			}
+			return root.packageOwner() == r
+		}
+		return page != shell.PluginPage || root.App.PluginFeature() == feature
+	}
 	modelsNeeded := false
 	for _, property := range info.Settings.Properties {
 		modelsNeeded = modelsNeeded || property.Model || property.Effort != nil
@@ -131,28 +146,30 @@ func (r *Runtime) configurePackage(id string) {
 			}
 		}
 		r.enqueue(func(c *ui.Context) {
+			if !stillHere() {
+				return
+			}
 			if err != nil {
 				r.packageReport(c, err)
 				return
 			}
-			r.packages.settings[name] = state
-			if root.packages.configuration == generation && root.App.Page == page &&
-				(page != shell.SettingsPage || root.packageOwner() == r && root.App.Settings.Section == section) {
-				root.packages.configurer = r
-				r.App.Settings.OpenPackageConfiguration(name, packageView(info, r.packageLocale()).Name, packageSettingsFields(info.Settings, state, r.packageLocale(), models), packageSettingsTabs(info.Settings, r.packageLocale())...)
-			}
+			locale := r.packageLocale()
+			fields := packageSettingsFields(info.Settings, state, locale, models)
+			tabs := packageSettingsTabs(info.Settings, locale)
+			root.App.Settings.OpenNodePackageConfiguration(name, packageView(info, locale).Name, r.controller.Target().String(), fields, tabs,
+				func(fields []viewmodel.Setting, secrets map[string]int, done func(bool)) {
+					if !stillHere() {
+						done(false)
+						return
+					}
+					r.savePackageSettings(info, state, fields, secrets, func(_ protocol.PluginSettingsState, ok bool) { done(ok) })
+				})
 		})
 	})
 }
 
-func (r *Runtime) savePackageSettings(id string, fields []viewmodel.Setting, secretActions map[string]int, done func(bool)) {
-	name := r.packageID(id)
-	info, exists := r.packages.infos[name]
-	base, captured := r.packages.settings[name]
-	if !exists || !captured || info.Settings == nil {
-		done(false)
-		return
-	}
+func (r *Runtime) savePackageSettings(info protocol.PluginInfo, base protocol.PluginSettingsState, fields []viewmodel.Setting, secretActions map[string]int, done func(protocol.PluginSettingsState, bool)) {
+	name := info.Summary.Name
 	input := protocol.CommandSavePluginSettingsPayload{Package: base.Package, Values: map[string]json.RawMessage{}, Secrets: map[string]protocol.PluginSettingsSecretUpdate{}}
 	for _, field := range fields {
 		property, known := info.Settings.Properties[field.Name]
@@ -208,26 +225,29 @@ func (r *Runtime) savePackageSettings(id string, fields []viewmodel.Setting, sec
 			encoded, err = json.Marshal(field.Value)
 		}
 		if err != nil {
-			r.enqueue(func(c *ui.Context) { r.packageReport(c, err); done(false) })
+			r.enqueue(func(c *ui.Context) { r.packageReport(c, err); done(protocol.PluginSettingsState{}, false) })
 			return
 		}
 		input.Values[field.Name] = encoded
 	}
 	r.packageCommand(protocol.Command{Kind: "save_plugin_settings", Data: input}, func(out protocol.Output, ok bool) {
-		if ok {
-			if state, valid := detail[protocol.PluginSettingsState](out.Data); valid {
-				r.packages.settings[name] = state
-				info.Summary.SettingsRevision = state.Package.SettingsRevision
-				r.packages.infos[name] = info
-				if r.authorizations != nil && r.authorizations.mcpConfiguring == name {
-					r.authorizations.mcpConfiguring = ""
-					r.authorizations.packages[name] = info
-					r.reconnectMCP("mcp:" + name)
-					r.readConnectorPackages()
-				}
+		state, valid := detail[protocol.PluginSettingsState](out.Data)
+		if !ok || !valid || out.Kind != "plugin_settings" || state.Package.Name != name || state.Package.Digest != base.Package.Digest {
+			done(protocol.PluginSettingsState{}, false)
+			return
+		}
+		current := r.packages.infos[name]
+		if current.Summary.Digest == state.Package.Digest && current.Summary.SettingsRevision <= state.Package.SettingsRevision {
+			current.Summary.SettingsRevision = state.Package.SettingsRevision
+			r.packages.infos[name] = current
+			if r.authorizations != nil && r.authorizations.mcpConfiguring == name {
+				r.authorizations.mcpConfiguring = ""
+				r.authorizations.packages[name] = current
+				r.reconnectMCP("mcp:" + name)
+				r.readConnectorPackages()
 			}
 		}
-		done(ok)
+		done(state, true)
 	})
 }
 
@@ -246,7 +266,11 @@ func pythonView(index *string) settings.Python {
 }
 
 func (r *Runtime) readPython() {
-	r.packages.pythonRead = true
+	if r.machineSettingsStatus() != "" {
+		return
+	}
+	state := r.packages
+	state.pythonRead = true
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_python_settings"})
 		r.enqueue(func(c *ui.Context) {
@@ -255,36 +279,44 @@ func (r *Runtime) readPython() {
 				err = errors.New("unexpected Python settings response")
 			}
 			if err != nil {
-				r.packages.pythonReadFailed = true
+				state.pythonReadFailed = true
 				r.packageReport(c, err)
 				return
 			}
-			r.packages.pythonRevision = info.Settings.Revision
-			r.packages.pythonVersion = info.Version
-			target := &r.packages.pythonDraft
-			if !target.Pending && target.Draft == target.Saved {
-				target.Draft = pythonView(info.Settings.Index)
+			state.pythonVersion, state.pythonReady = info.Version, true
+			state.pythonReadFailed = false
+			shown := r.showsPythonSettings()
+			m := r.App.Settings
+			if shown && m.PythonStatus == "" {
+				state.pythonDraft = m.Python
 			}
-			target.Saved, target.Revision = pythonView(info.Settings.Index), info.Settings.Revision
-			if r.localRuntime().packageOwner() != r {
-				return
+			draft := &state.pythonDraft
+			saved := pythonView(info.Settings.Index)
+			if !draft.Pending {
+				if draft.Draft == draft.Saved {
+					draft.Draft = saved
+				}
+				draft.Saved, draft.Revision = saved, info.Settings.Revision
 			}
-			m := &r.App.Settings.Python
-			if !m.Pending && m.Draft == m.Saved {
-				m.Draft = pythonView(info.Settings.Index)
+			if shown {
+				m.Python, m.PythonStatus = *draft, ""
 			}
-			m.Saved, m.Revision = pythonView(info.Settings.Index), info.Settings.Revision
-			r.App.Settings.PythonVersion = info.Version
-			r.packages.pythonDraft = *m
 		})
 	})
 }
 
+func (r *Runtime) showsPythonSettings() bool {
+	root := r.localRuntime()
+	return root.packages.selectedNode == r.controller.Target().String() &&
+		root.packageOwner() == r && r.machineSettingsStatus() == ""
+}
+
 func (r *Runtime) savePython() {
-	field := &r.App.Settings.Python
-	if field.Pending {
+	m := r.App.Settings
+	if !r.showsPythonSettings() || m.PythonStatus != "" || m.Python.Pending {
 		return
 	}
+	field := &m.Python
 	input := protocol.PythonSettings{Revision: field.Revision}
 	if field.Draft.Index == len(pythonIndexURLs) {
 		input.Index = optionalPackageText(field.Draft.Custom)
@@ -295,21 +327,17 @@ func (r *Runtime) savePython() {
 	field.Pending = true
 	r.packages.pythonDraft = *field
 	r.packageCommand(protocol.Command{Kind: "save_python_settings", Data: input}, func(out protocol.Output, ok bool) {
-		if r.localRuntime().packageOwner() != r {
-			field = &r.packages.pythonDraft
-		}
-		field.Pending = false
+		saved := &r.packages.pythonDraft
+		saved.Pending = false
 		if ok {
 			if info, valid := detail[protocol.PythonInfo](out.Data); valid {
-				field.Saved, field.Draft, field.Revision = pythonView(info.Settings.Index), pythonView(info.Settings.Index), info.Settings.Revision
+				saved.Saved, saved.Draft, saved.Revision = pythonView(info.Settings.Index), pythonView(info.Settings.Index), info.Settings.Revision
 				r.packages.pythonVersion = info.Version
-				if r.localRuntime().packageOwner() == r {
-					r.App.Settings.PythonVersion = info.Version
-				}
-				r.packages.pythonRevision = info.Settings.Revision
 			}
 		}
-		r.packages.pythonDraft = *field
+		if r.showsPythonSettings() {
+			m.Python = *saved
+		}
 	})
 }
 

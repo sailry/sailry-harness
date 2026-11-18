@@ -793,6 +793,7 @@ backup_passphrase_required: Saisir la phrase de sauvegarde
 backup_prefix: Préfixe
 backup_region: Région
 backup_restore: Restaurer
+backup_action_host: 'Host: %{name}'
 backup_restore_storage: Restaurer depuis le stockage
 backup_s3: S3
 backup_saved: Paramètres enregistrés
@@ -925,6 +926,7 @@ permission_settings: Ouvrir les paramètres
 permission_show_app: Afficher l'appli
 permission_title: Accès au système
 permission_denied: Accès refusé
+permission_host_title: Host permissions
 permission_remote: Autoriser l'accès sur le périphérique d'exécution
 permission_partial: Partiellement autorisé
 permission_unavailable: Indisponible sur cet appareil
@@ -992,6 +994,7 @@ settings_message_text_size: Taille du texte
 settings_messages: Messages
 settings_name: Nom
 settings_notifications: Notifications
+settings_managed_host: Execution host
 settings_notify_approval: Notifications de demande d'approbation
 settings_notify_completed: Notifications d'achèvement des tâches
 settings_notify_failed: Notifications d'échec de tâche
@@ -1142,6 +1145,8 @@ provider_key_hint: Entrez la clé API
 provider_api_key: Clé API
 provider_get_key: Obtenir une clé API
 provider_host: Host
+provider_copy_to_hosts: Copy to other hosts
+provider_no_copy_targets: This host only
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_host_saved: Saved on {host}
@@ -1437,6 +1442,8 @@ plugins_fixed_version: Fixed at %{version}
 plugins_following_versions: Following compatible releases
 plugins_download: Télécharger le plugin
 plugins_empty: Pas de plugins
+plugins_not_installed_on_host: Not installed on this host
+plugins_desktop_only: Select This Computer to manage this desktop plugin
 plugins_remove_effect: Désinstaller « %{name} » ? Les données du plugin seront conservées
 plugins_uninstalled: Plugin désinstallé
 plugins_update_available: Mettre à jour

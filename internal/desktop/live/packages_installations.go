@@ -46,14 +46,15 @@ func (r *Runtime) observeInstallations() {
 // dependencies it prepares now, shown on the Runtime page of the Node the
 // settings show (settings/runtime/view.rs). A stream that ends leaves none.
 func (r *Runtime) observePython() {
+	if r.machineSettingsStatus() != "" {
+		return
+	}
 	state := r.packages
+	state.pythonObserving = true
 	failed := func() {
 		r.enqueue(func(*ui.Context) {
 			state.pythonFailed = true
 			state.preparations = nil
-			if root := r.localRuntime(); root.packages != nil && root.packages.selectedNode == r.controller.Target().String() {
-				root.App.Settings.PythonPreparing = nil
-			}
 		})
 	}
 	show := func(preparations []settings.PythonPreparation) {
@@ -62,9 +63,6 @@ func (r *Runtime) observePython() {
 				return
 			}
 			state.preparations = preparations
-			if root := r.localRuntime(); root.packages != nil && root.packages.selectedNode == r.controller.Target().String() {
-				root.App.Settings.PythonPreparing = preparations
-			}
 		})
 	}
 	r.observe(func() {

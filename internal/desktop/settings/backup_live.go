@@ -33,15 +33,16 @@ type BackupRestore struct {
 // BackupActions are the live page's actions and what the Node listed.
 // Their outcomes are toasts; done reports whether a dialog may close.
 type BackupActions struct {
-	// Host names the Node a restore writes to.
-	Host string
+	// Host names the Node these actions address. Status is the reason
+	// machine backup controls are unavailable, independently of session access.
+	Host   string
+	Status string
 	// Save saves the storage dialog's draft with its typed secrets. The
 	// schedule's draft is saved as it changes.
 	Save func(target BackupTarget, done func(bool))
 	// Retry is whether the Node has not confirmed the storage save sent
 	// last. The dialog that sent it keeps its draft as sent and its Save
-	// reads Retry, which sends that request again
-	// (settings/backup/editor.rs).
+	// sends that request again.
 	Retry bool
 	// Forget drops that unconfirmed save when its dialog closes, so that
 	// a later identical draft is a new request.
@@ -65,8 +66,18 @@ type BackupActions struct {
 	ArchiveAll        func()
 	DeleteAll         func()
 
+	// Archive access follows the session's scope rather than backup status.
+	ArchiveUnavailable, ArchiveBusy bool
+
 	Records          []BackupRecord
 	Partial, Listing bool
+}
+
+func (a *BackupActions) confirmOnHost(c *ui.Context, message string) string {
+	if a == nil || a.Host == "" {
+		return message
+	}
+	return i18n.T(c, "backup_action_host", "name", a.Host) + "\n\n" + message
 }
 
 // CloseBackupDialogs drops the page's dialogs and their drafts, typed
@@ -149,7 +160,7 @@ func restoreDialog(c *ui.Context, m *Model) {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Column(c.Key("body")).Gap(16).Children(func() {
 			if a.Host != "" {
-				ui.Text(c, a.Host).FontSize(14).TextColor(p.MutedForeground)
+				ui.Text(c, i18n.T(c, "backup_action_host", "name", a.Host)).FontSize(14).TextColor(p.MutedForeground)
 			}
 			ui.Text(c, t("backup_restore_consequence")).FontSize(14)
 			label := t("backup_passphrase")
