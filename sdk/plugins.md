@@ -839,6 +839,10 @@ request ID, not a success claim.
 The execution Node commits personal writes locally and exposes them to its
 subsequent reads and searches. `prepareTransaction` commits personal KV,
 dispatch, notifications and scoped session operations together on that Node.
+Conversation writes preceding an admission in the same session belong to that
+turn for branching and rewind. When a transaction admits several turns, each
+segment belongs to its next admitted turn, and trailing writes belong to the
+last turn.
 Retain the resource's `execution_node` when opening it from a controller so later
 operations use the same Node. Each Node maintains its own revisions.
 
@@ -1383,6 +1387,11 @@ can write the package's private storage with an identity derived from the turn
 (`initialize`) or the newest observed tool result (`before_model`), so a replayed
 evaluation reuses its request. Planning turns still reject these writes; treat
 any write failure as optional and continue.
+
+`before_model` receives `{results}` containing the package's tool results from
+the active turn in conversation order. The Node keeps recent complete results
+within the callback input budget. Older or individually oversized results may
+be omitted.
 
 `initialize` returns `{tools, instruction, parts?, parameters?}`. Both `instruction`
 and `parts` become agent-only turn context, never part of the system prompt; put fixed

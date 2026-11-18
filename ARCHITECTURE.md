@@ -36,9 +36,9 @@ and `themes/` submodules. `bundled.go` embeds those exact snapshots for offline
 installation. Installed packages and their mutable data live in the Node profile. Immutable
 package content is shared by digest; installation choices, settings revisions,
 connections, writable package directories and reusable runtimes belong to the
-Node's authenticated user. Personal plugin KV has a controller-owned source and
-an execution-local view; project and conversation storage stay with their
-resources. Admitted work and queued jobs retain their captured storage user.
+Node's authenticated user. Personal plugin KV belongs to that user on the Node
+that runs the plugin. Project and conversation storage stay with their resources.
+Admitted work and queued jobs retain their captured storage user.
 Dispatch handlers, schedules, events and jobs remain on their execution Node.
 The shared scheduler restores those principals for callback execution and
 recovery. Native automatic backups belong to the local Node owner.
@@ -215,8 +215,9 @@ Renewable grants with a known issue time are due at
 earliest refresh time. Renewal does not shorten the recorded expiry. Legacy
 grants without an issue time retain their existing refresh rule; no lifetime is
 invented. Refreshes are serialized by credential identity, and an uncertain
-rotation is not replayed. Node timers retry failures that sent no renewal
-request, including legacy grants using their existing expiry rule. An early
+rotation is not replayed. Node timers renew the selected account of each enabled,
+listed channel and retry failures that sent no renewal request. Admitted tasks
+can renew their retained accounts when they need them. An early
 refresh failure does not invalidate an access token before its real expiry;
 uncertain rotations block further refresh attempts while allowing a still-valid
 access token to run. A Node can renew its model accounts while other Nodes
@@ -226,8 +227,8 @@ state. A replacement for that credential resumes the same turn. An unresolved or
 the model step waiting with its reason; it does not replay the rotation.
 Completed tools are not rerun to resume it.
 
-Manual sign-in creates a new credential identity. A waiting task exposes an
-explicit Restore sign-in action using the existing controller login dialog.
+Manual sign-in creates a new credential identity. A task waiting for a credential
+owned by its execution Node exposes an explicit Restore sign-in action.
 Its durable recovery request binds the session, turn, exact waiting-state token,
 old credential and replacement credential. The executor verifies the original
 controller and user, captured provider and authentication target, and matching
@@ -236,8 +237,11 @@ not account identities; credentials without a trustworthy stable identity cannot
 be substituted. The executor records the accepted reference and recovery receipt
 separately from the immutable admission capture, then continues the unsent model
 step. A stopped, completed or changed task rejects a stale recovery. Repeated or
-unconfirmed requests use their original request identity. Ordinary sign-in,
-account switching and logout never replace credentials across existing tasks.
+unconfirmed requests use their original request identity. A recovery for a
+historical remote capture requires a replacement already retained on the
+executor. A missing replacement returns a configuration fault before durable
+admission. Ordinary sign-in, account switching and logout preserve credentials
+captured by existing tasks.
 Plugin, MCP and connector callbacks retain their deadlines and effect recovery.
 
 Desktop controller preferences live at
@@ -326,6 +330,8 @@ or is cancelled. Password-encrypted age
 archives support local folders, WebDAV and S3. Restore validates into an empty
 profile, retains Node identity and does not start it. Automatic backups use the
 Node's dispatch service. A restored identity must not run beside its original.
+Listing selects the newest records across each location's pages. Retention
+finishes enumerating before deleting older backups owned by the execution Node.
 Workspace archives preserve relative, absolute and dangling symbolic links.
 Validation rejects any archived entry beneath a link. Restore copies verified
 regular files first and creates links last, so archive extraction never writes
@@ -367,6 +373,8 @@ canonical state, settles approvals and tool results, consumes guidance and child
 outcomes, compacts when needed and requests the next model step. Effects commit
 through Store before publication. The engine keeps ownership until turn settlement
 is durable and drains admitted operations before finalizing the turn.
+Unavailable captured package versions settle their queued turn and retain any
+unrecorded input. Other sessions on the Node can still claim their work.
 
 The model boundary supports provider SDK adapters, package-declared translations
 and Agent Client Protocol programs. Fantasy supplies the per-step
@@ -381,6 +389,9 @@ projection adapts messages and paired tool results to the selected protocol;
 private reasoning is replayed only to its producing provider and model. Reviewed
 capability lookup corrections recognize supported model aliases without renaming
 the provider's requested model or changing stored records.
+Repeated provider call IDs are disambiguated by their message occurrence before
+execution. Package hooks observe a bounded set of their own recent, complete
+tool results from the active turn.
 
 API-key model requests identify as `Sailry/<product version>` and carry the
 session ID in `x-session-affinity` and `X-Session-Id`; Responses and Chat
@@ -730,6 +741,8 @@ another host changes both together. Open conversation, file and terminal routes
 retain their captured owner. General resource pickers list registered project
 worktrees; explicit conversation routes retain access to their own scratch
 directories. A missing workspace does not hide the project selection entry.
+An unfinished send retains its request on the connection's conversation draft
+while a page is closed. Reopening queries the original Node outcome.
 Mobile preserves the covered task catalog during navigation, resumes preview
 reads after the return transition, and bounds list previews without changing
 canonical history.
@@ -746,6 +759,9 @@ the entry's local user; a remote Node retains a separate user whose controller
 is that peer. Existing pairings are classified on authenticated reconnection.
 Classification preserves captured task owners, stored history and resource
 ownership. Invitations do not select a user group or trigger a merge.
+Each endpoint commits the pairing relationship and address together. Current
+claimants acknowledge an invitation after their local commit. A claimant with
+an uncertain outcome can retry the same invitation while it remains valid.
 
 The resource catalog contains the entry itself and its directly connected hosts.
 Mobile retains `{Entry, Target}` for clients, projections, notifications and
@@ -753,15 +769,17 @@ recovery. A directory member never creates another trusted peer or a recursive
 directory import. Commands, subscriptions and byte streams traverse the entry
 with the original request identity and actual resource target; each hop negotiates
 its own compression and retains frame boundaries and stream half-closes.
+Large resource catalog replies use the bounded, assembled paging path.
 
 The controller Node durably stores directory summaries per authenticated access
 user and direct source Node. Each summary retains its entry and actual resource
 owner, project and worktree identifiers and paths, knowledge directory metadata,
 visibility, confirmed source cursor and last successful synchronization time.
 It contains no provider keys, file bodies, session history or knowledge indexes.
-Startup reads these summaries before remote Clients connect. Existing shared
-Client observations update them even when no resource page is open; only a
-complete successful snapshot can remove absent entries. A temporary disconnect
+Startup reads these summaries before remote Clients connect. The shared
+observation follows resource and connection changes even when no resource page
+is open. Reading the catalog consumes the projection. A complete successful
+snapshot can remove absent entries. A temporary disconnect
 retains the last summary as offline. Explicit connection removal or access
 revocation invalidates disk summaries, in-memory state and open projections,
 without deleting resources on their owning Node.
@@ -850,9 +868,10 @@ heap estimates while the diagnostics page is visible.
 
 The updater verifies signed `update-v1` catalogs and archives against compiled
 publisher keys. Stable selects final versions; the experience channel includes
-prereleases. The implemented updater installs macOS packages and does not replace
-remote Hosts. `internal/shipped` verifies packaged native libraries against their
-seal; release loading is confined to packaged resources.
+prereleases. Installation targets the local macOS app. The updater keeps a
+backup and commits the replacement in one same-volume exchange.
+`internal/shipped` verifies packaged native libraries against their seal.
+Release loading is confined to packaged resources.
 
 Computer use runs the bundled, checksum-verified `agent-desktop` helper through
 stdio MCP, ordinary approvals and an exclusive lock. It uses semantic accessibility
