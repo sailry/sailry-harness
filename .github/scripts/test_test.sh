@@ -192,18 +192,19 @@ done
 core=$module/internal/core
 engine=$module/internal/node/agent/engine
 node=$module/internal/node
-printf '%s\n' "$core" "$engine" "$node" >> "$fixture/packages"
+shipped=$module/internal/shipped
 # Every curated suite package exists; only those with metadata have tests here.
 awk -F '\t' -v module="$module" '!/^#/ && NF { print module "/" $1 }' "$fixture/scripts/platform-tests.tsv" >> "$fixture/packages"
 sort -u "$fixture/packages" -o "$fixture/packages"
-for package in "$backend" "$i18n" "$live" "$shell" "$core" "$engine" "$node"; do
+for package in "$backend" "$i18n" "$live" "$shell" "$core" "$engine" "$node" "$shipped"; do
   mkdir -p "$fixture/source/${package#"$module"/}"
   printf 'package fixture\n' > "$fixture/source/${package#"$module"/}/shared_test.go"
 done
 printf '%s\n' TestLargeInstructionsReachModel TestSharedEngineShouldNotRun > "$fixture/engine.list"
-printf '%s\n' TestConstrainedProfile TestSharedNodeShouldNotRun > "$fixture/node.list"
-printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestUpdatePendingNativeInput TestSSHWindowsPairingGuidance TestSharedLiveShouldNotRun > "$fixture/live.list"
-printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu TestSharedShellShouldNotRun > "$fixture/shell.list"
+printf '%s\n' TestConstrainedProfile TestCopilotSignIn TestProfileLeftovers TestSharedNodeShouldNotRun > "$fixture/node.list"
+printf '%s\n' TestSeal TestSharedShippedShouldNotRun > "$fixture/shipped.list"
+printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestDemoMode TestUpdatePendingNativeInput TestSSHWindowsPairingGuidance TestSharedLiveShouldNotRun > "$fixture/live.list"
+printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu TestProjectMenu TestSharedShellShouldNotRun > "$fixture/shell.list"
 cat > "$fixture/source/internal/node/constrained_test.go" <<'SOURCE'
 //go:build darwin || windows
 
@@ -214,7 +215,7 @@ func TestMain() {}
 SOURCE
 for platform in darwin windows; do
   : > "$fixture/$platform.metadata"
-  for package in "$i18n" "$live" "$shell" "$core" "$engine"; do
+  for package in "$i18n" "$live" "$shell" "$core" "$engine" "$shipped"; do
     printf '%s\tshared_test.go\n' "$package" >> "$fixture/$platform.metadata"
   done
   printf '%s\tshared_test.go\tconstrained_test.go\n' "$node" >> "$fixture/$platform.metadata"
@@ -230,10 +231,11 @@ SOURCE
   printf '%s\n' "TestNewPlatform_$platform" "ExampleNewPlatform_$platform" "FuzzNewPlatform_$platform" > "$fixture/client.$platform.expected"
   printf '%s\n' all > "$fixture/core.$platform.expected"
   printf '%s\n' TestLargeInstructionsReachModel > "$fixture/engine.$platform.expected"
-  printf '%s\n' TestConstrainedProfile > "$fixture/node.$platform.expected"
-  printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestUpdatePendingNativeInput TestSSHWindowsPairingGuidance > "$fixture/live.$platform.expected"
-  printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu > "$fixture/shell.$platform.expected"
-  SAILRY_CI_PLATFORM=$platform check_case "$platform-full" "$core" "$engine" "$node" "$backend" "$live" "$shell"
+  printf '%s\n' TestConstrainedProfile TestCopilotSignIn TestProfileLeftovers > "$fixture/node.$platform.expected"
+  printf '%s\n' TestSeal > "$fixture/shipped.$platform.expected"
+  printf '%s\n' TestAuthorizationFixedPortCallback TestAttachmentLocalIO TestDemoMode TestUpdatePendingNativeInput TestSSHWindowsPairingGuidance > "$fixture/live.$platform.expected"
+  printf '%s\n' TestCloseShortcut TestNativeClosePrompt TestMenu TestProjectMenu > "$fixture/shell.$platform.expected"
+  SAILRY_CI_PLATFORM=$platform check_case "$platform-full" "$core" "$engine" "$node" "$shipped" "$backend" "$live" "$shell"
 done
 
 for failure in build list test; do
