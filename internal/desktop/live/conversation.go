@@ -713,27 +713,6 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	if !guide && !queue {
 		x.stageOutgoing(m)
 	}
-	finish := func(output protocol.Output, ok bool) {
-		if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
-			delete(x.r.composerOutgoing, x.cv.ID)
-		}
-		if ok {
-			x.r.attachmentsCommitted(m.Attachments)
-		}
-		if ok && composerFingerprint(x.comp) == draft {
-			x.comp.Draft = ""
-			x.comp.References = nil
-			x.comp.Attachments = nil
-			x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
-		} else if ok && draftSession {
-			x.comp.Attachments = slices.DeleteFunc(x.comp.Attachments, func(a *composer.Attachment) bool {
-				return slices.Contains(m.Attachments, a)
-			})
-		}
-		if ok {
-			x.r.pluginCommandIntent(composerPluginScope(x.r, x.cv, x.comp), x.cv.ID, output)
-		}
-	}
 	if session, exists := x.r.session(x.cv.ID); exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
 		x.r.discardUnsubmitted(x.cv.ID)
 		x.r.reportCreation(x.c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "legacy remote model sessions cannot start new turns on this Node"}})
@@ -751,9 +730,10 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	x.r.rememberConfig(config, x.comp.Team)
 	if draftSession {
-		x.start(m, config, !guide && !queue, finish)
+		x.start(m, config, !guide && !queue)
 		return
 	}
+	finish := func(output protocol.Output, ok bool) { x.finishSubmission(output, false, ok) }
 	if s, ok := x.r.session(x.cv.ID); ok {
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
@@ -789,6 +769,28 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	x.r.discardUnsubmitted(x.cv.ID)
 	x.unavailable()
+}
+
+func (x *conversationActions) finishSubmission(output protocol.Output, draftSession, ok bool) {
+	if pending := x.r.composerOutgoing[x.cv.ID]; pending != nil && !pending.transcript {
+		delete(x.r.composerOutgoing, x.cv.ID)
+	}
+	if !ok {
+		return
+	}
+	files := x.restore.Attachments
+	x.r.attachmentsCommitted(files)
+	if composerFingerprint(x.comp) == x.restoreDraft {
+		x.comp.Draft = ""
+		x.comp.References = nil
+		x.comp.Attachments = nil
+		x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
+	} else if draftSession {
+		x.comp.Attachments = slices.DeleteFunc(x.comp.Attachments, func(a *composer.Attachment) bool {
+			return slices.Contains(files, a)
+		})
+	}
+	x.r.pluginCommandIntent(composerPluginScope(x.r, x.cv, x.comp), x.cv.ID, output)
 }
 
 func (x *conversationActions) activeRun() (protocol.ConversationRun, bool) {
@@ -935,7 +937,7 @@ func (x *conversationActions) Discard(a *composer.Attachment) {
 }
 
 func (x *conversationActions) attachmentsLocked() bool {
-	return unsentDraft(x.cv) && x.r.draftSubmitted(x.cv)
+	return unsentDraft(x.cv) && x.r.draftSubmitted(x.cv) && x.r.guardedCreation(x.cv.ID) == nil
 }
 
 var _ shell.ConversationActions = (*conversationActions)(nil)

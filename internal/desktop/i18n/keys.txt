@@ -167,6 +167,7 @@ approval_allow_once
 approval_allow_session
 approval_live_count
 subagent_count
+tool_list_subagents
 chat_child
 question_reply
 question_other

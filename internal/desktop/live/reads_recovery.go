@@ -3,18 +3,26 @@ package live
 func (r *Runtime) resumeReadsOnReconnect() {
 	connected := r.controller.Connected()
 	if connected && !r.readsConnected {
-		r.retryFailedReads()
+		r.recoverFailedReads(false)
+	} else if connected {
+		// A replacement binding can already be connected at its first frame.
+		r.retryControllerLogins(false)
 	}
 	r.readsConnected = connected
 }
 
-// retryFailedReads is driven by a reconnected Node or the user's Refresh.
+func (r *Runtime) retryFailedReads() {
+	r.recoverFailedReads(true)
+}
+
+// recoverFailedReads is driven by a reconnected Node or the user's Refresh.
 // Client owns recovery inside a subscription; reads that have ended wait for
 // one of these events, so a persistent fault cannot turn drawing into polling.
-func (r *Runtime) retryFailedReads() {
+func (r *Runtime) recoverFailedReads(refresh bool) {
 	if !r.controller.Connected() || r.ctx.Err() != nil {
 		return
 	}
+	r.retryControllerLogins(true)
 	for _, pending := range r.conversationCreations {
 		pending.resume()
 	}

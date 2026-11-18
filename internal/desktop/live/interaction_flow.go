@@ -2,6 +2,7 @@ package live
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -13,11 +14,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// interactionFlow is one conversation's decisions and answers on their way.
-// The conversation holds one decision and one answer at a time; a request
-// whose outcome is unknown is retained so Retry sends that same request.
+// interactionFlow keeps a decision and the attempts for individual questions.
+// A question leaving the page does not settle its request or hold up the next
+// question.
 type interactionFlow struct {
-	approval, question *interactionAttempt
+	approval  *interactionAttempt
+	questions map[string]*interactionAttempt
 	// settled holds what the Node accepted, hidden until its stream stops
 	// listing it as pending.
 	settled map[string]bool
@@ -30,6 +32,7 @@ type interactionFlow struct {
 
 type interactionAttempt struct {
 	id       string
+	prompt   string
 	request  protocol.Request
 	busy     bool
 	retained bool
@@ -44,39 +47,49 @@ func (r *Runtime) interactionFlow(id string) *interactionFlow {
 	}
 	f := r.interactionFlows[id]
 	if f == nil {
-		f = &interactionFlow{settled: map[string]bool{}, failedDetails: map[string]bool{}}
+		f = &interactionFlow{questions: map[string]*interactionAttempt{}, settled: map[string]bool{}, failedDetails: map[string]bool{}}
 		r.interactionFlows[id] = f
 	}
 	return f
 }
 
-// sendInteraction executes the attempt's request. Success settles it; a
-// closed, changed or rejected request is dropped with its toast; an unknown
-// outcome keeps the request for Retry, which resolves it.
+// sendInteraction executes a new attempt. A retained question is only looked
+// up: disappearance of its card is not evidence that the answer was applied.
 func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
-	if a.busy || f.approval != a && f.question != a {
+	if a.busy || f.approval != a && f.questions[a.id] != a {
 		return
 	}
-	// Retry sends the kept request again and asks the Node what became of
-	// it, so an outcome that can never be known ends the request.
 	again := a.retained
 	a.busy, a.retained = true, false
 	r.async(func() {
-		send := r.controller.Execute
-		if again {
-			send = r.controller.Settle
-		}
-		output, err := send(r.ctx, a.request)
-		r.enqueue(func(c *ui.Context) {
-			a.busy = false
+		var output protocol.Output
+		var err error
+		var retained bool
+		if again && a.question {
+			var resolution client.Resolution
+			resolution, err = r.controller.Resolve(r.ctx, a.request)
+			retained = err != nil || resolution.State == client.RequestPending
+			if err == nil {
+				output, err = resolution.Result()
+			}
+		} else {
+			send := r.controller.Execute
+			if again {
+				send = r.controller.Settle
+			}
+			output, err = send(r.ctx, a.request)
 			code := faultCode(err)
-			a.retained = err != nil && !client.Released(err) && (code == "" || code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeBusy)
+			retained = err != nil && !client.Released(err) && (code == "" || code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == protocol.ErrorCodeBusy)
+		}
+		r.enqueue(func(c *ui.Context) {
+			a.busy, a.retained = false, retained
+			code := faultCode(err)
 			if !a.retained {
 				if f.approval == a {
 					f.approval = nil
 				}
-				if f.question == a {
-					f.question = nil
+				if f.questions[a.id] == a {
+					delete(f.questions, a.id)
 				}
 			}
 			closed := "approval_closed"
@@ -88,6 +101,9 @@ func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 				f.settled[a.id] = true
 				if a.done != nil {
 					a.done(output)
+				}
+				if again && a.question {
+					kit.Toast(c, kit.Done, i18n.T(c, "activity_completed"))
 				}
 			case a.retained:
 				if code == protocol.ErrorCodeBusy {
@@ -103,7 +119,11 @@ func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 				kit.Toast(c, kit.Failed, i18n.T(c, "question_invalid_answer"))
 			case code == protocol.ErrorCodeOutcomeUnknown:
 				// Released: the Node can never tell what the request did.
-				kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_action_unknown"))
+				key := "chat_action_unknown"
+				if a.question {
+					key = "tool_interrupted"
+				}
+				kit.Toast(c, kit.Uncertain, i18n.T(c, key))
 			default:
 				kit.Toast(c, kit.Failed, i18n.T(c, "chat_action_failed"))
 			}
@@ -238,18 +258,31 @@ func (r *Runtime) projectInteractionStates(cv *viewmodel.Conversation, ctx *comp
 		approvals = append(approvals, receipt)
 	}
 	ctx.Interactions.Approvals = approvals
-	if q := ctx.Interactions.Question; q != nil {
+	q := ctx.Interactions.Question
+	if q != nil {
 		listed[q.ID] = true
 		if f.settled[q.ID] {
 			ctx.Interactions.Question = nil
 		} else {
 			ask := *q
 			ask.Disabled = !connected
-			if a := f.question; a != nil && a.id == q.ID {
-				ask.Busy, ask.Retry = a.busy, a.retained && !a.busy
+			if a := f.questions[q.ID]; a != nil {
+				ask.Busy, ask.Check = a.busy, again(a)
 			}
 			ctx.Interactions.Question = &ask
 		}
+	}
+	ctx.Interactions.QuestionReceipts = nil
+	for _, id := range slices.Sorted(maps.Keys(f.questions)) {
+		if q != nil && q.ID == id {
+			continue
+		}
+		a := f.questions[id]
+		receipt := composer.QuestionReceipt{ID: id, Prompt: a.prompt, Busy: a.busy}
+		if connected {
+			receipt.Check = again(a)
+		}
+		ctx.Interactions.QuestionReceipts = append(ctx.Interactions.QuestionReceipts, receipt)
 	}
 	for id := range f.settled {
 		if !listed[id] {

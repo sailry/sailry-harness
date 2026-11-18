@@ -12,6 +12,7 @@
 package composer
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -83,6 +84,7 @@ type State struct {
 	Attachments             []*Attachment
 	References              []Reference // chipped into the draft
 	Dictation               Dictation
+	recovery                draftRecovery
 
 	view   kit.Viewer[*Attachment] // the image viewer over the draft's pictures
 	picker bool                    // the model controls are open
@@ -190,8 +192,9 @@ func (s *State) message(ctx *Context) Message {
 	if list := efforts(m); len(list) > 0 {
 		effort = s.EffortName(nil, m)
 	}
-	return Message{Text: strings.TrimSpace(s.Draft), Attachments: s.Attachments, References: s.active(),
-		Mode: s.Mode, Permission: s.Permission, Model: s.Model, Effort: effort, Features: s.Features, Team: s.Team}
+	return Message{Text: strings.TrimSpace(s.Draft), Attachments: slices.Clone(s.Attachments), References: s.active(),
+		Mode: s.Mode, Permission: s.Permission, Model: s.Model, Effort: effort, Features: s.Features, Team: s.Team,
+		draftText: s.Draft, draftHost: s.Host}
 }
 
 // clear empties the draft once it was sent or queued.

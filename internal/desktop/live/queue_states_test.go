@@ -241,6 +241,7 @@ func TestQueueStates(t *testing.T) {
 		two, zero := int32(2), int32(0)
 		taker := protocol.TurnID{7}
 		limit := protocol.ConversationBackgroundHoldLimit
+		const stderr = "make: target 'watch' failed"
 		for _, row := range []struct {
 			name   string
 			change func(*protocol.ConversationBackgroundTask)
@@ -256,10 +257,14 @@ func TestQueueStates(t *testing.T) {
 			}, &conversation.Background{Outcome: conversation.OutcomeFailed, Exit: new(2), Waiting: true}},
 			{"failed, delivered", func(task *protocol.ConversationBackgroundTask) {
 				task.State, task.Outcome, task.ExitCode, task.Delivery = protocol.ConversationBackgroundStateDelivered, &failed, &two, &taker
-			}, &conversation.Background{Outcome: conversation.OutcomeFailed, Exit: new(2)}},
+				task.Summary = new(stderr)
+			}, &conversation.Background{Outcome: conversation.OutcomeFailed, Exit: new(2), Preview: stderr}},
 			{"stopped by the user", func(task *protocol.ConversationBackgroundTask) {
 				task.State, task.Outcome = protocol.ConversationBackgroundStateConsumed, &stopped
 			}, &conversation.Background{Outcome: conversation.OutcomeStopped}},
+			{"dismissed without an outcome", func(task *protocol.ConversationBackgroundTask) {
+				task.State = protocol.ConversationBackgroundStateDismissed
+			}, &conversation.Background{Outcome: conversation.OutcomeUnknown}},
 			{"no longer listed", nil, nil},
 		} {
 			t.Run(row.name, func(t *testing.T) {
@@ -299,7 +304,8 @@ func TestQueueStates(t *testing.T) {
 				if got == nil {
 					return
 				}
-				if got.Running != row.want.Running || got.Outcome != row.want.Outcome || got.Waiting != row.want.Waiting || (got.Exit == nil) != (row.want.Exit == nil) || got.Exit != nil && *got.Exit != *row.want.Exit {
+				if got.Running != row.want.Running || got.Outcome != row.want.Outcome || got.Waiting != row.want.Waiting || got.Preview != row.want.Preview ||
+					(got.Exit == nil) != (row.want.Exit == nil) || got.Exit != nil && *got.Exit != *row.want.Exit {
 					t.Fatalf("background = %+v, want %+v", got, row.want)
 				}
 				if calls[0].Running || calls[0].Failed || calls[0].State != conversation.StateNone {

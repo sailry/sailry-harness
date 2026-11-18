@@ -343,12 +343,14 @@ func round(c *ui.Context, key string, icon *ui.SVG, label string, fn func()) {
 	b.Children(func() { ui.Icon(c, icon).FontSize(12) }).OnClick(fn)
 }
 
-// remove takes a file out of the draft and tells the backend.
+// remove takes a file out of the active draft. A saved or outgoing draft can
+// still own it, in which case detaching the card must not discard the file.
 func (s *State) remove(a *Attachment, actions Actions) {
 	if s.attachmentsLocked() {
 		return
 	}
-	if s.attachmentCallbacks != nil && s.attachmentCallbacks.Remove != nil {
+	held := s.holdsDraftAttachment(a)
+	if !held && s.attachmentCallbacks != nil && s.attachmentCallbacks.Remove != nil {
 		s.attachmentCallbacks.Remove(a)
 		return
 	}
@@ -358,5 +360,7 @@ func (s *State) remove(a *Attachment, actions Actions) {
 			break
 		}
 	}
-	actions.Discard(a)
+	if !held {
+		actions.Discard(a)
+	}
 }

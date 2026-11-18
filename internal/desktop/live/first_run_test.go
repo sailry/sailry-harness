@@ -413,7 +413,7 @@ func firstRun(t *testing.T) {
 		t.Fatalf("the conversation page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
 
-	// A draft with input survives navigation; an untouched one leaves no trace.
+	// A draft with input survives navigation; once emptied and deselected, it leaves no trace.
 	r.App.Navigate(shell.SettingsPage)
 	settle()
 	if r.App.Data.Find(draft) == nil || comp.Draft != "hello" {
@@ -424,6 +424,9 @@ func firstRun(t *testing.T) {
 	settle()
 	if r.App.Data.Find(draft) != nil || len(r.App.Data.Unassigned) != 0 || len(controller.Snapshot().Sessions) != 0 {
 		t.Fatal("an untouched draft was kept after navigating away")
+	}
+	if _, tracked := r.openDrafts[draft]; tracked || r.composerInitialized[draft] || r.App.DropComposer(draft) != nil {
+		t.Fatal("the abandoned draft retained its composer")
 	}
 	before = len(sent())
 	if frames := idle(); frames != 0 || len(sent()) != before {

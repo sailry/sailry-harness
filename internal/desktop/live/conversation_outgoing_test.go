@@ -3,6 +3,7 @@ package live
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -10,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -57,7 +59,7 @@ func TestOutgoingMessageProjection(t *testing.T) {
 	comp.Draft = "Typed after sending"
 	file.Name, image.Name = "changed.txt", "changed.png"
 	r.projectOutgoing(cv, protocol.ConversationPage{})
-	if len(cv.Turns) != 1 || cv.Turns[0].User != message.Text || cv.Running() || !cv.Turns[0].Reply.Notice ||
+	if len(cv.Turns) != 1 || cv.Turns[0].User != message.Text || cv.Running() || !cv.Turns[0].InputOnly ||
 		len(cv.Turns[0].Files) != 1 || cv.Turns[0].Files[0].Path != "note.txt" ||
 		len(cv.Turns[0].Images) != 1 || cv.Turns[0].Images[0].Name != "picture.png" {
 		t.Fatalf("captured input changed or invented assistant work: %+v", cv.Turns)
@@ -156,13 +158,16 @@ func TestOutgoingPrerequisiteFailurePreservesNewDraft(t *testing.T) {
 	for _, command := range []string{"set_session_config", "set_session_team"} {
 		t.Run(command, func(t *testing.T) {
 			node, sessionID, provider := protocol.NodeID{1}, protocol.SessionID{2}, protocol.ProviderID{3}
+			model := protocol.DefaultConversationModel()
+			model.ID = "fixture"
 			config := protocol.DefaultSessionConfig()
-			config.Provider, config.Model = provider, "fixture"
+			config.Provider, config.Model, config.Effort = provider, model.ID, model.DefaultEffort
 			config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
 			session := protocol.DefaultSession()
 			session.ID, session.Worktree, session.Revision, session.Config = sessionID, protocol.WorktreeID{4}, 1, config
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node, snapshot.Sessions = node, []protocol.Session{session}
+			snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Enabled: true, Models: []protocol.ConversationModel{model}}}
 			team := protocol.TeamID{5}
 			snapshot.Teams = []protocol.TeamProfile{{ID: team, Key: "review", Name: "Review", Revision: 1}}
 			transport := &conversationTestTransport{snapshot: snapshot}
@@ -179,53 +184,88 @@ func TestOutgoingPrerequisiteFailurePreservesNewDraft(t *testing.T) {
 			defer controller.Close()
 			cv := &viewmodel.Conversation{Node: node.String(), ID: sessionID.String()}
 			r := &Runtime{ctx: t.Context(), controller: controller,
-				App:  shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{cv}}),
+				App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}, Unassigned: []*viewmodel.Conversation{cv}}), Preferences: &preferences.Store{},
 				busy: map[string]bool{}, uncertain: map[string]protocol.Request{},
 				composerObserved: map[string]string{}, composerSaving: map[string]bool{}, composerRevisions: map[string]uint64{},
 				composerWaiters: map[string][]func(bool){}, admittedSessions: map[string]protocol.Session{}, teams: newTeamState()}
-			var view *ui.Context
+			r.initAttachments()
+			defer r.closeAttachments()
+			comp := r.App.Composer(cv.ID)
+			comp.Host, comp.Model = cv.Node, modelKey(provider, model.ID)
+			if command == "set_session_config" {
+				comp.Mode = composer.Plan
+			} else {
+				comp.Team = team.String()
+			}
+			const original = "  Captured before prerequisite @note @element\n\n"
+			refs := []composer.Reference{{ID: "note.txt", Label: "note", Kind: composer.File}, {ID: "element/1", Label: "element", Kind: composer.Element}}
+			file := &composer.Attachment{ID: protocol.AttachmentID{6}.String(), Name: "element.txt", Mime: "text/plain", Chip: refs[1].ID, Status: composer.Ready}
+			comp.Draft, comp.References, comp.Attachments = original, slices.Clone(refs), []*composer.Attachment{file}
+			newRef := composer.Reference{ID: "new.txt", Label: "new", Kind: composer.File}
+			const newer = "A newer unsent draft @new "
+			restoreLabel := i18n.In("en", "chat_restore_draft")
+			showComposer, deliverOutcomes := true, false
 			tester := ui.NewTester(func(c *ui.Context) {
-				view = c
 				theme.Apply(c, "", theme.Light)
-				r.mu.Lock()
-				callbacks := r.queue
-				r.queue = nil
-				r.mu.Unlock()
-				for _, callback := range callbacks {
-					callback(c)
+				if deliverOutcomes {
+					r.mu.Lock()
+					callbacks := r.queue
+					r.queue = nil
+					r.mu.Unlock()
+					for _, callback := range callbacks {
+						callback(c)
+					}
+				}
+				if showComposer {
+					actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
+					ctx := &composer.Context{Models: []composer.Model{{ID: comp.Model, Name: model.ID}}, Docked: true, References: []composer.Reference{newRef}}
+					ui.Column(c).Fill().Justify(ui.End).Children(func() { composer.View(c, comp, ctx, actions) })
 				}
 				kit.ToastHost(c)
-			}, 600, 300)
+			}, 760, 460)
 			tester.SetLocale("en")
 			tester.SetPreferences(ui.Preferences{ReduceMotion: true, ReduceTransparency: true})
 			tester.Frame()
-			comp := r.App.Composer(cv.ID)
-			message := composer.Message{Text: "Captured before prerequisite", Attachments: []*composer.Attachment{{ID: "file", Name: "note.txt", Status: composer.Ready}}}
-			comp.Draft, comp.Attachments = message.Text, message.Attachments
-			actions := &conversationActions{r: r, c: view, cv: cv, comp: comp, restore: &message, restoreDraft: composerFingerprint(comp)}
-			actions.stageOutgoing(message)
-			comp.Draft, comp.Attachments = "A newer unsent draft", nil
-			if command == "set_session_config" {
-				changed := config
-				changed.Mode = protocol.WorkModePlan
-				r.saveComposerConfig(session, changed, nil)
-			} else {
-				comp.Team = team.String()
-				r.withComposerTeam(session, comp, func(protocol.Session) { t.Error("failed team prerequisite continued submission") })
+			if err := tester.Click(i18n.In("en", "send")); err != nil {
+				t.Fatal(err)
 			}
+			if r.composerOutgoing[cv.ID] == nil {
+				t.Fatal("send did not stage its input")
+			}
+			area, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
+			if !ok {
+				t.Fatal("the composer has no draft input")
+			}
+			b := area.Bounds
+			tester.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			tester.Key(ui.Cmd, ui.KeyA)
+			tester.Type("A newer unsent draft @ne")
+			tester.Frame()
+			if _, ok := tester.AccessByRole(ui.RoleOption, newRef.Label); !ok {
+				t.Fatal("typing did not open the reference picker", tester.Texts())
+			}
+			tester.Key(0, ui.KeyEnter) // accept the reference before using the activity strip above the picker
+			tester.Frame()
+			if comp.Draft != newer || tester.HasText(i18n.In("en", "reference_title")) || tester.HasText(restoreLabel) {
+				t.Fatalf("the accepted reference did not close the picker, or an in-flight send offered recovery: draft=%q %v", comp.Draft, tester.Texts())
+			}
+			newFile := &composer.Attachment{ID: protocol.AttachmentID{7}.String(), Name: "new.txt", Status: composer.Ready}
+			comp.Attachments = append(comp.Attachments, newFile)
+			tester.Frame()
+			if !slices.Equal(comp.Attachments, []*composer.Attachment{newFile}) {
+				t.Fatal("the older draft's file stayed on the newer draft")
+			}
+			showComposer, deliverOutcomes = false, true
 			r.workers.Wait()
 			tester.Frame()
-			if comp.Draft != "A newer unsent draft" || len(comp.Attachments) != 0 || r.composerOutgoing[cv.ID] != nil || len(cv.Turns) != 0 {
+			if comp.Draft != newer || len(comp.References) != 1 || comp.References[0].ID != newRef.ID ||
+				!slices.Equal(comp.Attachments, []*composer.Attachment{newFile}) || r.composerOutgoing[cv.ID] != nil || len(cv.Turns) != 0 {
 				t.Fatalf("failed prerequisite changed new input or kept the local message: draft=%q turns=%v", comp.Draft, cv.Turns)
 			}
-			buttons := 0
 			for _, item := range tester.AccessAll() {
-				if item.Role == ui.RoleButton && item.Name == i18n.In("en", "chat_restore_draft") {
-					buttons++
+				if item.Name == restoreLabel {
+					t.Fatalf("a prerequisite failure put recovery in a toast: %v", tester.Texts())
 				}
-			}
-			if buttons != 0 {
-				t.Fatalf("a prerequisite failure shows %d toast actions: %v", buttons, tester.Texts())
 			}
 			failures := 0
 			for _, text := range tester.Texts() {
@@ -236,13 +276,55 @@ func TestOutgoingPrerequisiteFailurePreservesNewDraft(t *testing.T) {
 			if failures != 1 {
 				t.Fatalf("one prerequisite failure produced %d outcome toasts", failures)
 			}
+			tester.Advance(10 * time.Second)
+			showComposer = true
+			tester.Frame()
+			if err := tester.Click(restoreLabel); err != nil {
+				t.Fatal(err, tester.Texts())
+			}
+			tester.Frame()
+			findRestore := func(disabled bool) ui.AccessInfo {
+				t.Helper()
+				for _, item := range tester.AccessAll() {
+					if item.Role == ui.RoleButton && item.Name == restoreLabel && !item.Expanded && item.Disabled == disabled {
+						return item
+					}
+				}
+				t.Fatalf("no recovery action with disabled=%v: %v", disabled, tester.Texts())
+				return ui.AccessInfo{}
+			}
+			blocked := findRestore(true).Bounds
+			tester.ClickAt(blocked.X+blocked.W/2, blocked.Y+blocked.H/2)
+			if comp.Draft != newer || !slices.Equal(comp.Attachments, []*composer.Attachment{newFile}) {
+				t.Fatal("recovery overwrote new input")
+			}
+			comp.Draft, comp.References, comp.Attachments = "", nil, nil
+			tester.Frame()
+			if comp.Draft != "" || !tester.HasText(file.Name) {
+				t.Fatal("the recovery panel lost its file or restored without a choice", tester.Texts())
+			}
+			button := findRestore(false).Bounds
+			tester.ClickAt(button.X+button.W/2, button.Y+button.H/2)
+			tester.Frame()
+			if comp.Draft != original || !slices.Equal(comp.Attachments, []*composer.Attachment{file}) ||
+				!slices.EqualFunc(comp.References, refs, func(a, b composer.Reference) bool { return a.ID == b.ID && a.Label == b.Label && a.Kind == b.Kind }) || tester.HasText(restoreLabel) {
+				t.Fatalf("recovery did not restore the captured draft once: draft=%q references=%v files=%v", comp.Draft, comp.References, comp.Attachments)
+			}
 
+			r.workers.Wait()
 			transport.mu.Lock()
 			defer transport.mu.Unlock()
+			prerequisites := 0
 			for _, request := range transport.requests {
-				if request.Command.Kind == "submit_turn" {
-					t.Fatal("failed prerequisite submitted or replayed a turn")
+				switch request.Command.Kind {
+				case command:
+					prerequisites++
+				case "submit_turn", "discard_attachment":
+					t.Fatalf("failure or recovery dispatched %q", request.Command.Kind)
 				}
+			}
+			if prerequisites != 1 {
+				t.Fatalf("expected one %s prerequisite, got %d", command, prerequisites)
 			}
 		})
 	}

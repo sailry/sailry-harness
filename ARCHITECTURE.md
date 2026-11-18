@@ -212,7 +212,11 @@ Desktop stages a draft's attachments on its selected Node, scoped to the
 authenticated user and device. Admission of the first message creates the
 session and binds those attachments to its worktree in one transaction.
 After a lost acknowledgement, Desktop adopts the admitted session from the
-original request receipt or a matching task observation.
+original request receipt or a matching task observation. A first send whose
+outcome is unknown remains bound to that Node and request, including across a
+replacement connection. Controllers inspect that request without resending it.
+New request IDs carry their creation time; ledger retention is seven days, and
+a missing old record is not proof that the request was never admitted.
 
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy
@@ -764,10 +768,6 @@ observation while the Node process continues, available through terminal activit
 Explicitly closing a right-panel terminal stops its shell. Project overview lists
 active and archived conversations separately.
 
-Desktop reuses read-only conversation source copies until a Client observation
-changes, including pagination and connection state. Completed history projections
-are reused within the visible view model; controls and mutable presentation
-overlays still refresh. Active runs and streaming drafts keep their timing and
 Client restores the previously loaded history range after a new authoritative
 conversation snapshot, preserving that target even if another reconnect
 interrupts paging. The last observer drops the body and may leave one of 64

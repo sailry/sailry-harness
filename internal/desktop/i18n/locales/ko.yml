@@ -159,6 +159,7 @@ approval_allow_once: 허용
 approval_allow_session: 이 세션에서 허용
 approval_live_count: '%{count} 승인 대기 중'
 subagent_count: 하위 에이전트 %{completed}/%{total}
+tool_list_subagents: 하위 에이전트 목록
 chat_child: 하위 에이전트
 question_reply: 응답을 기다리는 중
 question_other: 기타

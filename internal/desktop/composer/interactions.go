@@ -18,10 +18,11 @@ import (
 // view models are the backend's; the State keeps only what the user is typing
 // and which popover is open.
 
-// Interactions is what a run waits on the user for.
+// Interactions holds the run's pending requests and unresolved answer receipts.
 type Interactions struct {
-	Approvals []Approval
-	Question  *Ask // nil when no question is pending
+	Approvals        []Approval
+	Question         *Ask // nil when no question is pending
+	QuestionReceipts []QuestionReceipt
 }
 
 // Approval is a call awaiting the user's decision.
@@ -115,6 +116,13 @@ type Ask struct {
 	// not connected. Busy marks an answer on its way; Retry an answer whose
 	// outcome is unknown, which Submit sends again.
 	Disabled, Busy, Retry bool
+	Check                 func() // inspect an original answer without resubmitting it
+}
+
+type QuestionReceipt struct {
+	ID, Prompt string
+	Busy       bool
+	Check      func()
 }
 
 // FieldKind is the input of a form field.
@@ -218,8 +226,8 @@ type Actions interface {
 
 // interaction is the State's part for the interactions.
 type interaction struct {
-	approvals, question bool // the popovers are open
-	at                  int  // the approval shown
+	approvals, question, receipts bool // the popovers are open
+	at                            int  // the approval shown
 	// offered are the approvals the popover has opened for, or first showed
 	// with: a request that arrives opens it once, and closing it keeps it
 	// closed.
@@ -307,9 +315,37 @@ func (s *State) offer(list []Approval, question *Ask) {
 	if question != nil && !s.in.offered["question/"+question.ID] {
 		s.in.offered["question/"+question.ID] = true
 		if !first {
-			s.in.question, s.in.approvals = true, false
+			s.in.question, s.in.approvals, s.in.receipts = true, false, false
 		}
 	}
+}
+
+func (s *State) questionReceipts(c *ui.Context, list []QuestionReceipt) {
+	in := &s.in
+	if len(list) == 0 {
+		in.receipts = false
+		return
+	}
+	label := i18n.T(c, "host_check_status")
+	trigger := chip(c.Key("question-receipts"), label, in.receipts, func() {
+		ui.Icon(c, icons.Clock).FontSize(14)
+		chipText(c, label)
+	}).HasPopup(ui.PopupDialog).OnClick(func() { in.receipts = !in.receipts })
+	place(c, kit.Popover(c, trigger, &in.receipts, func() {
+		ui.Scroll(c).MaxHeight(240).Gap(8).Children(func() {
+			for _, receipt := range list {
+				ui.Row(c.Key(receipt.ID)).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, receipt.Prompt).FontSize(14).Grow(1).MinWidth(0).MaxLines(3)
+					kit.Primary(c.Key("check"), label, receipt.Check == nil || receipt.Busy).Height(28).Radius(14).
+						Children(func() { busyLabel(c, label, receipt.Busy) }).OnClick(func() {
+						if receipt.Check != nil {
+							receipt.Check()
+						}
+					})
+				})
+			}
+		})
+	}), trigger, 8)
 }
 
 // approvals shows one pending request at a time; with several, a "1/2"
@@ -482,8 +518,7 @@ func changes(c *ui.Context, list []Change) {
 // ask is the pending question's capsule and its popover: the prompt, the
 // inputs of its kind, and Decline, Cancel and Submit. A plan review offers
 // Continue and Start; a link opens its page. An answer on its way locks the
-// inputs and shows a spinner; one whose outcome is unknown is sent again by
-// Retry, the draft kept.
+// inputs and shows a spinner; an unknown answer can be checked separately.
 func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	p := theme.Of(c)
 	in := &s.in
@@ -494,7 +529,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 			in.fields[i] = fieldDraft{include: f.Required, chosen: -1, choices: map[int]*bool{}}
 		}
 	}
-	locked := q.Disabled || q.Busy || q.Retry
+	locked := q.Disabled || q.Busy || q.Retry || q.Check != nil
 	label := i18n.T(c, "question_reply")
 	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
 	place(c, kit.Popover(c, trigger, &in.question, func() {
@@ -562,19 +597,22 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 		answer := s.answer(q)
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			held := q.Disabled || q.Busy
+			cannotRespond := held || q.Check != nil
 			if q.Declinable {
-				outlined(c.Key("decline"), i18n.T(c, "question_decline")).Disabled(held).
+				outlined(c.Key("decline"), i18n.T(c, "question_decline")).Disabled(cannotRespond).
 					OnClick(func() { actions.DeclineQuestion(q.ID) })
 			}
 			if q.Kind == AskPlan {
-				outlined(c.Key("continue"), i18n.T(c, "interaction_continue")).Disabled(held).
+				outlined(c.Key("continue"), i18n.T(c, "interaction_continue")).Disabled(cannotRespond).
 					OnClick(func() { actions.Answer(q.ID, Answer{}) })
 			} else {
-				outlined(c.Key("cancel"), i18n.T(c, "interaction_cancel")).Disabled(held).
+				outlined(c.Key("cancel"), i18n.T(c, "interaction_cancel")).Disabled(cannotRespond).
 					OnClick(func() { actions.CancelQuestion(q.ID) })
 			}
 			submit := i18n.T(c, "interaction_submit")
 			switch {
+			case q.Check != nil:
+				submit = i18n.T(c, "host_check_status")
 			case q.Retry:
 				submit = i18n.T(c, "chat_retry")
 			case q.Kind == AskPlan:
@@ -582,9 +620,13 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 			case q.Kind == AskLink:
 				submit = i18n.T(c, "question_open_url")
 			}
-			kit.Primary(c.Key("submit"), submit, held || answer == nil).Height(28).Radius(14).
+			kit.Primary(c.Key("submit"), submit, held || q.Check == nil && answer == nil).Height(28).Radius(14).
 				Children(func() { busyLabel(c, submit, q.Busy) }).
 				OnClick(func() {
+					if q.Check != nil {
+						q.Check()
+						return
+					}
 					if a := s.answer(q); a != nil {
 						actions.Answer(q.ID, *a)
 					}

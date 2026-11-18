@@ -159,6 +159,7 @@ approval_allow_once: Permitir
 approval_allow_session: Permitir nesta sessão
 approval_live_count: '%{count} aguardando aprovação'
 subagent_count: '%{completed}/%{total} subagentes'
+tool_list_subagents: Listar subagentes
 chat_child: Subagente
 question_reply: À espera de resposta
 question_other: Outro

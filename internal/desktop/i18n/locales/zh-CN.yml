@@ -159,6 +159,7 @@ approval_allow_once: 允许
 approval_allow_session: 本会话允许
 approval_live_count: 待审批 %{count} 项
 subagent_count: '%{completed}/%{total} 子代理'
+tool_list_subagents: 查看子代理
 chat_child: 子代理
 question_reply: 等待回答
 question_other: 其他

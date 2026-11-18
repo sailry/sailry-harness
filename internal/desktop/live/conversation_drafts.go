@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -85,6 +87,7 @@ func (r *Runtime) draftSubmitted(cv *viewmodel.Conversation) bool {
 }
 
 func (r *Runtime) removeDraft(id string) {
+	r = r.localRuntime()
 	remove := func(list []*viewmodel.Conversation) []*viewmodel.Conversation {
 		out := list[:0]
 		for _, cv := range list {
@@ -102,17 +105,67 @@ func (r *Runtime) removeDraft(id string) {
 	r.applyConversationData(r.App.Data)
 }
 
-// applyConversationData retains open transcripts and drafts, but chooses an
-// ordinary session when the previous selection has disappeared.
 func (r *Runtime) applyConversationData(data *viewmodel.Data) {
-	selected := r.App.Sidebar.Selected
-	r.App.ApplyData(data)
-	r.listSidebar()
-	if data.Find(selected) == nil {
-		r.App.Sidebar.Selected = ""
-		if ids := r.App.Sidebar.Order(); len(ids) > 0 {
-			r.App.Sidebar.Selected = ids[0]
+	app := r.App
+	previous, selected := app.Data, app.Sidebar.Selected
+	focused := app.FocusedConversation()
+	target := panes.Target{Kind: panes.Session, ID: focused}
+	var peers []panes.Target
+	var terminals []shell.WorkspaceTerminal
+	if focused != "" && data.Find(focused) == nil {
+		if cv := previous.Find(focused); cv == nil || !unsentDraft(cv) {
+			// Applying the data prunes the vanished pane, possibly dissolving its split.
+			layout := app.Prefs()
+			workspace := panes.Workspace{Groups: layout.Panes}
+			peers, terminals = workspace.Members(target), layout.WorkspaceTerminals
 		}
+	}
+	app.ApplyData(data)
+	// A background selection change would make the shell leave the current
+	// resource page or terminal. Keep it until a conversation needs selection.
+	app.Sidebar.Selected = selected
+	r.listSidebar()
+	r.selectPendingSession()
+	if app.Page != shell.ConversationPage || data.Find(app.Sidebar.Selected) != nil {
+		return
+	}
+	for _, peer := range peers {
+		if peer == target {
+			continue
+		}
+		switch peer.Kind {
+		case panes.Session:
+			if previous.Find(peer.ID) != nil && data.Find(peer.ID) != nil {
+				app.Sidebar.Selected = peer.ID
+				return
+			}
+		case panes.Terminal:
+			if i := slices.IndexFunc(terminals, func(t shell.WorkspaceTerminal) bool { return t.ID == peer.ID }); i >= 0 {
+				app.OpenWorkspaceTerminal(peer.ID, terminals[i].Title)
+				return
+			}
+		}
+	}
+	r.ensureConversationSelection()
+}
+
+func (r *Runtime) ensureConversationSelection() {
+	app := r.App
+	selected := app.Sidebar.Selected
+	if app.Page != shell.ConversationPage || app.Data.Find(selected) != nil {
+		return
+	}
+	focused := app.FocusedConversation()
+	if focused == "" && selected != "" {
+		// An independent terminal owns the main workspace.
+		return
+	}
+	if app.Data.Find(focused) != nil {
+		app.Sidebar.Selected = focused
+	} else if ids := app.Sidebar.Order(); len(ids) > 0 {
+		app.Sidebar.Selected = ids[0]
+	} else {
+		r.newDraft(nil)
 	}
 }
 
@@ -164,23 +217,54 @@ func (r *Runtime) listSidebar() {
 	r.App.Sidebar.Data = &listed
 }
 
-// pruneDrafts drops, after a frame, the drafts New session opened that the
-// user left untouched: not selected, in no pane, nothing typed or attached.
+// pruneDrafts drops abandoned New session drafts with no input to keep.
 func (r *Runtime) pruneDrafts() {
-	for id := range r.openDrafts {
+	for id, discardable := range r.openDrafts {
 		cv := r.App.Data.Find(id)
 		if cv == nil {
 			// The draft became its session, or was removed.
 			delete(r.openDrafts, id)
 			continue
 		}
-		if id == r.App.Sidebar.Selected || r.draftsShown[id] || r.draftSubmitted(cv) {
+		if !discardable {
+			continue
+		}
+		if r.draftSubmitted(cv) {
+			// A failed first send can leave recovery input after the request
+			// settles and the visible editor is cleared.
+			r.openDrafts[id] = false
+			continue
+		}
+		if id == r.App.Sidebar.Selected || r.draftsShown[id] {
 			continue
 		}
 		comp := r.App.Composer(id)
-		if strings.TrimSpace(comp.Draft) != "" || len(comp.Attachments) != 0 || len(comp.References) != 0 {
+		if comp.Draft != "" || len(comp.Attachments) != 0 || len(comp.References) != 0 || comp.Dictation.Phase != composer.Idle {
+			continue
+		}
+		layout := r.App.Prefs()
+		workspace := panes.Workspace{Groups: layout.Panes}
+		target := panes.Target{Kind: panes.Session, ID: id}
+		if workspace.Group(target) >= 0 || slices.Contains(layout.Tabs, target) {
 			continue
 		}
 		r.removeDraft(id)
+		r.releaseDraftComposer(id)
+	}
+}
+
+func (r *Runtime) releaseDraftComposer(id string) {
+	comp := r.App.DropComposer(id)
+	release := func(owner *Runtime) {
+		delete(owner.composerInitialized, id)
+		delete(owner.composerObserved, id)
+		delete(owner.composerBases, comp)
+		if owner.teams != nil {
+			delete(owner.teams.composers, id)
+		}
+	}
+	release(r)
+	for _, bound := range r.bindings {
+		release(bound)
 	}
 }

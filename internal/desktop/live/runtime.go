@@ -300,11 +300,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.conversationCreations = map[string]*conversationCreation{}
 	r.conversationCreating = map[string]bool{}
 	r.listSidebar()
-	if ids := r.App.Sidebar.Order(); len(ids) > 0 {
-		r.App.Sidebar.Selected = ids[0]
-	} else {
-		r.newDraft(nil)
-	}
+	r.ensureConversationSelection()
 	r.unsubscribe = controller.OnChange(r.changed)
 	r.unsubscribePrefs = prefs.OnChange(r.wake)
 	if err := prefs.FinishStartup(); err != nil {
@@ -518,6 +514,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.networkFrame(c)
 	r.browserFrame()
 	r.aboutFrame(c)
+	r.ensureConversationSelection()
 	r.attentionFrame()
 }
 
@@ -615,7 +612,6 @@ func (r *Runtime) project() {
 	}
 	r.projectHosts(d)
 	r.applyConversationData(d)
-	r.selectPendingSession()
 	r.projectConversations()
 	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
@@ -791,12 +787,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, key)
 			code := faultCode(err)
-			// A forwarded creation is the one request a Node resolves by
-			// replay: its unknown outcome
-			// is final in the local Node's ledger until the target answers,
-			// so the request is kept and the next Send asks the target.
-			forwarded := command.Kind == "create_session_at" && code == protocol.ErrorCodeOutcomeUnknown
-			if client.Retained(err) || forwarded || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
+			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
 			} else {
 				delete(r.uncertain, key)

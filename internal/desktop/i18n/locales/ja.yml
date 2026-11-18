@@ -159,6 +159,7 @@ approval_allow_once: 許可
 approval_allow_session: このセッションで許可
 approval_live_count: '%{count} 承認中'
 subagent_count: サブエージェント %{completed}/%{total}
+tool_list_subagents: サブエージェントを一覧表示
 chat_child: サブエージェント
 question_reply: 応答を待っています
 question_other: その他

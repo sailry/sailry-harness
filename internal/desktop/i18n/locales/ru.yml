@@ -159,6 +159,7 @@ approval_allow_once: Разрешить
 approval_allow_session: Разрешить для этого сеанса
 approval_live_count: '%{count} ожидает утверждения'
 subagent_count: 'Субагенты: %{completed}/%{total}'
+tool_list_subagents: Список субагентов
 chat_child: Субагент
 question_reply: Ожидание ответа
 question_other: Другое

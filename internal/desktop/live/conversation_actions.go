@@ -173,30 +173,29 @@ func (x *conversationActions) Decide(id string, decision composer.Decision, reas
 	x.r.sendInteraction(f, attempt)
 }
 
-// question sends the response to a waiting question. An answer whose outcome
-// is unknown is sent again as the same request; Cancel and Decline replace
-// it.
+// question sends a response, or checks the original request if its outcome
+// is still unknown.
 func (x *conversationActions) question(id string, response protocol.ConversationQuestionResponse, done func(protocol.Output)) {
 	if !x.interactive() {
 		return
 	}
 	f := x.r.interactionFlow(x.cv.ID)
-	if a := f.question; a != nil {
-		if a.busy {
-			return
-		}
-		if a.id == id && (response.Kind == "answer" || response.Kind == "start_coding") {
-			x.r.sendInteraction(f, a)
-			return
-		}
+	if a := f.questions[id]; a != nil {
+		x.r.sendInteraction(f, a)
+		return
 	}
-	q, _, ok := x.r.waitingQuestion(x.cv.ID, id)
+	q, spec, ok := x.r.waitingQuestion(x.cv.ID, id)
 	if !ok || f.settled[id] {
 		kit.Toast(x.c, kit.Conflict, i18n.T(x.c, "question_closed"))
 		return
 	}
-	f.question = &interactionAttempt{id: id, question: true, done: done, request: x.r.controller.Prepare(protocol.Command{Kind: "resolve_question", Data: protocol.CommandResolveQuestionPayload{Session: q.Session, Question: q.ID, Response: response}})}
-	x.r.sendInteraction(f, f.question)
+	prompt := spec.Prompt
+	if spec.Input.Kind == "plan" {
+		prompt = i18n.T(x.c, "plan_execute_confirm")
+	}
+	a := &interactionAttempt{id: id, question: true, prompt: prompt, done: done, request: x.r.controller.Prepare(protocol.Command{Kind: "resolve_question", Data: protocol.CommandResolveQuestionPayload{Session: q.Session, Question: q.ID, Response: response}})}
+	f.questions[id] = a
+	x.r.sendInteraction(f, a)
 }
 
 // questionLink is the address a link question may open. The link came from an
@@ -247,7 +246,7 @@ func (x *conversationActions) Answer(id string, a composer.Answer) {
 		form, _ := detail[protocol.ConversationQuestionInputFormPayload](spec.Input.Data)
 		answer = protocol.ConversationQuestionAnswer{Kind: "form", Data: formAnswer(form, a.Values)}
 	case "url":
-		if f := x.r.interactionFlow(x.cv.ID); f.question == nil && x.r.controller.Connected() {
+		if f := x.r.interactionFlow(x.cv.ID); f.questions[id] == nil && !f.settled[id] && x.r.controller.Connected() {
 			link, ok := questionLink(spec.Input)
 			if !ok {
 				// One this Desktop would not open is not answered as opened.
@@ -639,15 +638,8 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 	}
 }
 
-// restoreFailedDraft restores a rejected submission when its composer still
-// has room for it. Input the user has entered since the submission wins.
 func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {
-	message, comp := *x.restore, x.comp
-	if comp.Draft == "" && len(comp.References) == 0 && len(comp.Attachments) == 0 && x.owned() {
-		comp.Draft = message.Text
-		comp.References = slices.Clone(message.References)
-		comp.Attachments = slices.Clone(message.Attachments)
-	}
+	x.comp.KeepFailedDraft(*x.restore, x.owned())
 	x.r.reportKeys(c, err, "chat_action_failed", "session_changed", "chat_action_unknown")
 }
 
@@ -686,12 +678,12 @@ func (r *Runtime) settleTurnRetry(id string, comp *composer.State, turns []proto
 
 func composerFingerprint(s *composer.State) string {
 	type reference struct {
-		ID, Label string
-		Kind      composer.ReferenceKind
+		ID, Label, Source, Insert string
+		Kind                      composer.ReferenceKind
 	}
 	refs := make([]reference, 0, len(s.References))
 	for _, ref := range s.References {
-		refs = append(refs, reference{ref.ID, ref.Label, ref.Kind})
+		refs = append(refs, reference{ref.ID, ref.Label, ref.Source, ref.Insert, ref.Kind})
 	}
 	// Upload progress and publication change an attachment in place. Draft
 	// identity follows the owned cards, including files not yet assigned an ID.

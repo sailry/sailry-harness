@@ -11,8 +11,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// This is the same in-flight input the composer retains for failure recovery,
-// not another history. It never enters Client or survives a settled rejection.
+// This is in-flight input, not another history. A failed send's recoverable
+// input belongs to the composer, not to this local turn.
 type conversationOutgoing struct {
 	composer.Queued
 	input      conversation.Turn
@@ -43,13 +43,18 @@ func (x *conversationActions) stageOutgoing(message composer.Message) {
 			input.Files = append(input.Files, file)
 		}
 	}
-	x.r.composerOutgoing[x.cv.ID] = &conversationOutgoing{input: input, transcript: true, restore: func(c *ui.Context, err error) bool {
+	pending := &conversationOutgoing{input: input, transcript: true, restore: func(c *ui.Context, err error) bool {
 		if x.restore == nil || x.restoreDraft == composerFingerprint(x.comp) {
 			return false
 		}
 		x.restoreFailedDraft(c, err)
 		return true
 	}}
+	x.r.composerOutgoing[x.cv.ID] = pending
+	x.comp.HoldOutgoingAttachments(message.Attachments, func() bool { return x.r.composerOutgoing[x.cv.ID] == pending })
+	if _, err := protocol.ParseSessionID(x.cv.ID); err == nil {
+		x.r.invalidateConversationPresentation(x.cv)
+	}
 	x.r.projectOutgoing(x.cv, protocol.ConversationPage{})
 	x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
 }
@@ -62,8 +67,8 @@ func (r *Runtime) discardUnsubmitted(id string) {
 	}
 }
 
-// A failed prerequisite never submitted this message. Restore the captured
-// draft to an empty composer or keep the newer input.
+// A failed prerequisite never submitted this message. Drop the local turn,
+// but keep its input available even if the composer now has another draft.
 func (r *Runtime) failUnsubmitted(c *ui.Context, id string, err error) bool {
 	pending := r.composerOutgoing[id]
 	if pending == nil || !pending.transcript || pending.request != (protocol.RequestID{}) {

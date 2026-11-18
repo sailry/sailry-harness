@@ -328,4 +328,6 @@ type Message struct {
 	Effort      string
 	Features    map[string]string
 	Team        string
+	// The editor's text before normalization, and the host of its files.
+	draftText, draftHost string
 }

@@ -33,6 +33,15 @@ func (r *Runtime) conversationRuntime(cv *viewmodel.Conversation, comp *composer
 	if cv == nil {
 		return root
 	}
+	if unsentDraft(cv) {
+		if pending := root.guardedCreation(cv.ID); pending != nil {
+			cv.Node = pending.request.Target.String()
+			if comp != nil {
+				comp.Host = cv.Node
+			}
+			return root.runtimeFor(cv.Node)
+		}
+	}
 	node := cv.Node
 	if comp != nil && len(cv.ID) >= 6 && cv.ID[:6] == "draft/" {
 		previous := comp.Host
@@ -175,6 +184,7 @@ func (r *Runtime) newBinding(controller *client.Client) *Runtime {
 	}
 	bound.unsubscribe = controller.OnChange(r.changed)
 	bound.projectModels()
+	bound.restoreDetachedCreations()
 	return bound
 }
 
@@ -206,9 +216,7 @@ func (r *Runtime) syncNetwork() {
 		}
 		present[id] = true
 		if old := r.bindings[id]; old != nil && old.controller != peer.controller {
-			r.detachBindingTerminals(old)
-			_ = old.Close()
-			delete(r.bindings, id)
+			r.retireBinding(id, old)
 		}
 		if peer.controller != nil && r.bindings[id] == nil {
 			r.bindings[id] = r.newBinding(peer.controller)
@@ -224,11 +232,22 @@ func (r *Runtime) syncNetwork() {
 				// selected host's.
 				r.showNodeSettings(nil)
 			}
-			r.detachBindingTerminals(bound)
-			_ = bound.Close()
-			delete(r.bindings, id)
+			r.retireBinding(id, bound)
 		}
 	}
+}
+
+func (r *Runtime) retireBinding(id string, bound *Runtime) {
+	for draft, pending := range bound.conversationCreations {
+		if pending.dispatched {
+			bound.detachCreation(draft, pending)
+		}
+	}
+	clear(bound.conversationSeen)
+	bound.finishConversationFrame()
+	r.detachBindingTerminals(bound)
+	_ = bound.Close()
+	delete(r.bindings, id)
 }
 
 func (r *Runtime) workspaceRuntime(worktree protocol.WorktreeID) *Runtime {

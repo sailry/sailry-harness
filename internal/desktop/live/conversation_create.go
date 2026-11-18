@@ -14,13 +14,21 @@ import (
 )
 
 type conversationCreation struct {
-	actions    *conversationActions
-	request    protocol.Request
-	turn       protocol.QueuedTurn
-	team       string
-	transcript bool
-	dispatched bool
-	finish     func(protocol.Output, bool)
+	actions     *conversationActions
+	request     protocol.Request
+	turn        protocol.QueuedTurn
+	team        string
+	transcript  bool
+	dispatched  bool
+	observeOnly bool
+	checking    bool
+	detached    *detachedCreationDraft
+}
+
+type detachedCreationDraft struct {
+	message     *composer.Message
+	fingerprint string
+	attachments map[*composer.Attachment]protocol.Attachment
 }
 
 func (r *Runtime) hasLocalProviderCredential(provider protocol.ConversationProvider) bool {
@@ -98,8 +106,15 @@ func (r *Runtime) reportCreation(c *ui.Context, err error) {
 
 // start captures the first message and its session settings before an optional
 // managed worktree is created. The Node admits both in one transaction.
-func (x *conversationActions) start(m composer.Message, config protocol.SessionConfig, transcript bool, finish func(protocol.Output, bool)) {
+func (x *conversationActions) start(m composer.Message, config protocol.SessionConfig, transcript bool) {
 	r := x.r
+	if pending := r.guardedCreation(x.cv.ID); pending != nil {
+		r.discardUnsubmitted(x.cv.ID)
+		x.cv.Node = pending.request.Target.String()
+		x.comp.Host = x.cv.Node
+		pending.resume()
+		return
+	}
 	if x.comp.Host != "" && x.comp.Host != r.controller.Target().String() {
 		r.discardUnsubmitted(x.cv.ID)
 		x.unavailable()
@@ -135,7 +150,7 @@ func (x *conversationActions) start(m composer.Message, config protocol.SessionC
 		Project: project, Config: &config, Message: conversationInput(m), UseExplicitConfig: true,
 		Execution: execution.Execution, Team: execution.Team, Models: execution.Models,
 	}
-	pending := &conversationCreation{actions: x, team: composerTeamKey(x.comp), transcript: transcript, finish: finish}
+	pending := &conversationCreation{actions: x, team: composerTeamKey(x.comp), transcript: transcript}
 	begin := func() {
 		input.Worktree = r.draftWorktree(x.comp, project)
 		pending.request = r.controller.Prepare(protocol.Command{Kind: "start_session", Data: &input})
@@ -155,6 +170,72 @@ func (x *conversationActions) start(m composer.Message, config protocol.SessionC
 		return
 	}
 	begin()
+}
+
+func (r *Runtime) guardedCreation(draft string) *conversationCreation {
+	root := r.localRuntime()
+	if pending := root.conversationCreations[draft]; pending != nil && pending.observeOnly {
+		return pending
+	}
+	for _, owner := range root.bindings {
+		if pending := owner.conversationCreations[draft]; pending != nil && pending.observeOnly {
+			return pending
+		}
+	}
+	return nil
+}
+
+// The window retains the original request without retaining a closed binding or its callbacks.
+func (r *Runtime) detachCreation(draft string, pending *conversationCreation) {
+	delete(r.conversationCreations, draft)
+	delete(r.conversationCreating, draft)
+	r.discardOutgoing(draft)
+	root := r.localRuntime()
+	if root.App.Data.Find(draft) == nil {
+		return
+	}
+	x := pending.actions
+	detached := &detachedCreationDraft{message: x.restore, fingerprint: x.restoreDraft}
+	if r.attachments != nil {
+		for card, record := range r.attachments.items {
+			if record.composer != x.comp || record.conversation != draft || record.ready == nil || record.pending != nil ||
+				record.running || record.removing || record.ready.Spec.Worktree != (protocol.WorktreeID{}) {
+				continue
+			}
+			if detached.attachments == nil {
+				detached.attachments = map[*composer.Attachment]protocol.Attachment{}
+			}
+			detached.attachments[card] = *record.ready
+		}
+	}
+	x.comp.SetAttachmentCallbacks(nil)
+	root.conversationCreations[draft] = &conversationCreation{
+		request: pending.request, turn: pending.turn, team: pending.team, dispatched: true, observeOnly: true,
+		detached: detached,
+	}
+}
+
+func (r *Runtime) restoreDetachedCreations() {
+	root := r.localRuntime()
+	for draft, pending := range root.conversationCreations {
+		if pending.detached == nil || pending.request.Target != r.controller.Target() {
+			continue
+		}
+		delete(root.conversationCreations, draft)
+		cv := r.App.Data.Find(draft)
+		if cv == nil {
+			continue
+		}
+		comp := r.App.Composer(draft)
+		for card, ready := range pending.detached.attachments {
+			r.attachments.items[card] = &attachmentRecord{composer: comp, conversation: draft, ready: &ready}
+			r.registerConversationAttachment(draft, ready)
+		}
+		pending.actions = &conversationActions{r: r, cv: cv, comp: comp, restore: pending.detached.message, restoreDraft: pending.detached.fingerprint}
+		pending.detached = nil
+		r.conversationCreations[draft] = pending
+		r.readsConnected = false
+	}
 }
 
 func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error) {
@@ -194,17 +275,23 @@ func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error)
 // Once the turn is admitted, only the session read may need to be retried.
 func (p *conversationCreation) resume() {
 	x := p.actions
+	if x == nil {
+		return
+	}
 	r, before := x.r, x.cv.ID
-	if r.conversationCreating[before] {
+	if p.checking || r.conversationCreating[before] {
 		return
 	}
 	if p.dispatched && p.observe(r.snapshot()) {
 		return
 	}
-	if p.transcript {
-		x.stageOutgoing(*x.restore)
+	p.checking = true
+	if !p.observeOnly {
+		if p.transcript {
+			x.stageOutgoing(*x.restore)
+		}
+		r.conversationCreating[before] = true
 	}
-	r.conversationCreating[before] = true
 	if p.turn.Session != (protocol.SessionID{}) {
 		p.readSession()
 		return
@@ -215,6 +302,7 @@ func (p *conversationCreation) resume() {
 	r.async(func() {
 		var output protocol.Output
 		var err error
+		var rejected bool
 		if first {
 			output, err = r.controller.Settle(r.ctx, request)
 		} else {
@@ -222,17 +310,27 @@ func (p *conversationCreation) resume() {
 			if readErr != nil {
 				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
 			} else {
+				rejected = resolution.State == client.RequestAbsent || resolution.State == client.RequestFailed
 				output, err = resolution.Result()
 			}
 		}
 		r.enqueue(func(c *ui.Context) {
+			if r.conversationCreations[before] != p {
+				return
+			}
 			turn, ok := detail[protocol.QueuedTurn](output.Data)
 			if err == nil && output.Kind == "queued_turn" && ok && turn.Request == request.ID && turn.ID != (protocol.TurnID{}) && turn.Session != (protocol.SessionID{}) {
 				p.turn = turn
 				p.readSession()
 				return
 			}
-			if err == nil || faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			unknown := faultCode(err) == protocol.ErrorCodeOutcomeUnknown
+			if !p.observeOnly && unknown && client.Released(err) {
+				p.observeOnly = true
+				delete(r.conversationCreating, before)
+				r.discardOutgoing(before)
+			}
+			if p.observeOnly || err == nil || unknown {
 				if p.observe(r.snapshot()) {
 					return
 				}
@@ -244,9 +342,10 @@ func (p *conversationCreation) resume() {
 					err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
 				}
 			}
-			if !client.Retained(err) {
+			if (!p.observeOnly || rejected) && !client.Retained(err) {
 				delete(r.conversationCreations, before)
 			}
+			p.checking = false
 			delete(r.conversationCreating, before)
 			r.failCreation(c, x, err)
 		})
@@ -267,6 +366,9 @@ func (r *Runtime) observeConversationCreations() {
 
 // The task event or replacement snapshot proves admission by immutable request ID.
 func (p *conversationCreation) observe(snapshot protocol.Snapshot) bool {
+	if p.actions == nil || snapshot.Node != p.request.Target {
+		return false
+	}
 	if p.turn.Session == (protocol.SessionID{}) {
 		for _, turn := range snapshot.Turns {
 			if turn.Request == p.request.ID && turn.ID != (protocol.TurnID{}) && turn.Session != (protocol.SessionID{}) {
@@ -295,19 +397,24 @@ func (p *conversationCreation) readSession() {
 		return
 	}
 	r.executeScoped("open-created/"+before, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}, func(c *ui.Context, out protocol.Output, err error) {
+		if r.conversationCreations[before] != p {
+			return
+		}
 		session, ok := detail[protocol.Session](out.Data)
 		if err != nil || out.Kind != "session" || !ok || session.ID != id || session.Revision < p.turn.Revision {
 			if p.observe(r.snapshot()) {
 				return
 			}
+			p.checking = false
 			delete(r.conversationCreating, before)
 			switch faultCode(err) {
 			case protocol.ErrorCodeNotFound, protocol.ErrorCodePermissionDenied:
-				// The send was admitted. Release only its draft state, even
-				// if this controller can no longer open the new conversation.
-				delete(r.conversationCreations, before)
-				r.discardOutgoing(before)
-				p.finish(protocol.Output{}, true)
+				if !p.observeOnly {
+					// A known admission releases its draft even if the session cannot be opened.
+					delete(r.conversationCreations, before)
+					r.discardOutgoing(before)
+					x.finishSubmission(protocol.Output{}, true, true)
+				}
 				kit.Notify(c, "", i18n.T(c, "chat_first_send_unavailable"))
 				return
 			}
@@ -321,7 +428,10 @@ func (p *conversationCreation) readSession() {
 func (p *conversationCreation) adopt(session protocol.Session) {
 	x := p.actions
 	r, before, after := x.r, x.cv.ID, session.ID.String()
-	if p.transcript {
+	if p.observeOnly {
+		x.cv.Node = p.request.Target.String()
+		x.comp.Host = x.cv.Node
+	} else if p.transcript {
 		x.stageOutgoing(*x.restore)
 	}
 	delete(r.conversationCreating, before)
@@ -354,5 +464,5 @@ func (p *conversationCreation) adopt(session protocol.Session) {
 	if x.created != nil {
 		x.created(session)
 	}
-	p.finish(protocol.Output{Kind: "queued_turn", Data: p.turn}, true)
+	x.finishSubmission(protocol.Output{Kind: "queued_turn", Data: p.turn}, true, true)
 }
