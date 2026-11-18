@@ -2395,5 +2395,4 @@ controller_login_state_changed: 任务已不再等待这次登录
 controller_login_account_mismatch: 请使用任务原来的账号和工作区登录
 controller_login_identity_unavailable: 此次登录缺少可验证的账号标识，无法恢复任务
 controller_login_target_changed: 任务原来的认证目标已变更，无法恢复登录
-controller_login_original_controller: 请在任务原来的控制端上恢复登录
 controller_login_provider_missing: 任务原来的供应商不可用

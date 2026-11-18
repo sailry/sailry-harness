@@ -19,10 +19,7 @@ func TestControllerFileLocationsDoNotAppearOnExecutionNode(t *testing.T) {
 		if err := validateDatabaseProfile(profile, nil, node); err != nil {
 			return fmt.Errorf("controller imposed its own filesystem rules on another Node: %w", err)
 		}
-		record := followRecord(t, profile.ID.String(), profile.Revision, profile, nil)
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "database_profiles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
-		}); err != nil {
+		if err := seedHistoricalConfiguration(ctx, db, "database_profiles", profile.ID.String(), profile.Revision, profile); err != nil {
 			return err
 		}
 		found, err := ReadDatabase(ctx, db, profile.ID)
@@ -38,10 +35,7 @@ func TestControllerFileLocationsDoNotAppearOnExecutionNode(t *testing.T) {
 		ssh := protocol.DefaultSshProfile()
 		ssh.ID, ssh.Revision, ssh.Host, ssh.Port, ssh.Username = protocol.NewSshID(), 1, "ssh.example.test", 22, "fixture"
 		ssh.Authentication, ssh.AuthenticationNode = protocol.SshAuthenticationAgent, &controller
-		record = followRecord(t, ssh.ID.String(), ssh.Revision, ssh, nil)
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "ssh_profiles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{record},
-		}); err != nil {
+		if err := seedHistoricalConfiguration(ctx, db, "ssh_profiles", ssh.ID.String(), ssh.Revision, ssh); err != nil {
 			return err
 		}
 		if _, _, err := ReadSsh(ctx, db, ssh.ID, ssh.Revision); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {

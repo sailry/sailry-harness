@@ -128,7 +128,7 @@ func controllerLoginRunFixture(t *testing.T) (*Node, context.Context, *store.Age
 	return node, ctx, invocation, runtime, write
 }
 
-func TestControllerLoginRecoveryWaitsForPushAndReplaysOriginalReceipt(t *testing.T) {
+func TestControllerLoginRecoveryRequiresRetainedReplacementAndReplaysReceipt(t *testing.T) {
 	node, ctx, invocation, old, write := controllerLoginRunFixture(t)
 	var run protocol.ConversationRun
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -146,18 +146,11 @@ func TestControllerLoginRecoveryWaitsForPushAndReplaysOriginalReceipt(t *testing
 	defer cancel()
 	authorized := make(chan error, 1)
 	go func() { authorized <- node.authorizeTurnProvider(operation, invocation) }()
-	admitted := make(chan link.Admission, 1)
-	failures := make(chan error, 1)
-	go func() {
-		accepted, err := node.Dispatch(operation, replacement.Node, request)
-		if err != nil {
-			failures <- err
-			return
-		}
-		admitted <- accepted
-	}()
-	// With no replacement in the executor cache, no durable ledger effect can
-	// exist. The ordinary push below is what makes this request admissible.
+	_, err := node.Dispatch(operation, replacement.Node, request)
+	var failure *protocol.Fault
+	if !errors.As(err, &failure) || failure.ConfigurationReason() != protocol.ConfigurationRuntimeCredentialMissing {
+		t.Fatalf("missing replacement was not refused before admission: %v", err)
+	}
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var count int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM requests WHERE caller=?1 AND id=?2", replacement.Node[:], request.ID.String()).Scan(&count); err != nil {
@@ -174,13 +167,9 @@ func TestControllerLoginRecoveryWaitsForPushAndReplaysOriginalReceipt(t *testing
 	next := old
 	next.ID, next.Generation, next.Access, next.ExpiresAtMs = replacement.ID.String(), replacement.ID.String(), protocol.NewSecret("fresh-access"), &future
 	write(next)
-	var accepted link.Admission
-	select {
-	case accepted = <-admitted:
-	case err := <-failures:
+	accepted, err := node.Dispatch(operation, replacement.Node, request)
+	if err != nil {
 		t.Fatal(err)
-	case <-operation.Done():
-		t.Fatal(operation.Err())
 	}
 	var original link.Response
 	select {
@@ -230,7 +219,7 @@ func TestControllerLoginRecoveryWaitsForPushAndReplaysOriginalReceipt(t *testing
 	}
 }
 
-func TestControllerLoginRecoveryPreflightStopsWhenTaskStops(t *testing.T) {
+func TestControllerLoginRecoveryRejectsStoppedTask(t *testing.T) {
 	node, ctx, invocation, _, _ := controllerLoginRunFixture(t)
 	var run protocol.ConversationRun
 	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
@@ -242,26 +231,9 @@ func TestControllerLoginRecoveryPreflightStopsWhenTaskStops(t *testing.T) {
 	}
 	input := protocol.CommandResumeControllerLoginPayload{Session: run.Session, Turn: run.Turn, Waiting: run.Waiting.Attempt,
 		Previous: run.Waiting.Credential, Replacement: protocol.CredentialRef{Node: run.Waiting.Credential.Node, ID: protocol.NewCredentialID()}}
-	operation, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	started, finished := make(chan struct{}), make(chan error, 1)
-	go func() {
-		close(started)
-		finished <- node.awaitControllerLoginReplacement(operation, input.Previous.Node, input)
-	}()
-	<-started
 	stopped := dispatchFixture(t, node, input.Previous.Node, protocol.NewRequest(node.ID(), protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}))
 	if stopped.Fault != nil {
 		t.Fatal(stopped.Fault)
-	}
-	select {
-	case err := <-finished:
-		var fault *protocol.Fault
-		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
-			t.Fatalf("stopped wait returned %v", err)
-		}
-	case <-operation.Done():
-		t.Fatal("stopping the task did not release credential preflight")
 	}
 	request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "resume_controller_login", Data: input})
 	result := dispatchFixture(t, node, input.Previous.Node, request)
@@ -270,7 +242,7 @@ func TestControllerLoginRecoveryPreflightStopsWhenTaskStops(t *testing.T) {
 	}
 }
 
-func TestControllerLoginNaturalRenewalReleasesManualRecoveryPreflight(t *testing.T) {
+func TestControllerLoginNaturalRenewalClearsManualRecoveryWait(t *testing.T) {
 	node, ctx, invocation, runtime, write := controllerLoginRunFixture(t)
 	operation, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -318,25 +290,14 @@ func TestControllerLoginNaturalRenewalReleasesManualRecoveryPreflight(t *testing
 	case <-operation.Done():
 		t.Fatal("ordinary renewal did not resume the original model authorization")
 	}
-	// The credential wake was consumed above. Preflight now observes the old
-	// wait and an absent replacement before the resumed step clears that wait.
-	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		if _, err := store.CheckControllerLoginWait(ctx, db, node.ID(), input.Previous.Node, input); err != nil {
-			return err
-		}
-		available, err := store.ControllerLoginReplacementAvailable(ctx, db, node.ID(), input)
-		if available {
-			return fmt.Errorf("fixture unexpectedly received a manual replacement")
-		}
-		return err
-	}); err != nil {
-		t.Fatal(err)
+	var failure *protocol.Fault
+	err := node.checkControllerLoginReplacement(operation, input.Previous.Node, input)
+	if !errors.As(err, &failure) || failure.ConfigurationReason() != protocol.ConfigurationRuntimeCredentialMissing {
+		t.Fatalf("manual replacement check returned %v", err)
 	}
 	node.auth.mu.Lock()
 	stateChanged := node.auth.changed
 	node.auth.mu.Unlock()
-	preflight := make(chan error, 1)
-	go func() { preflight <- node.awaitControllerLoginReplacement(operation, input.Previous.Node, input) }()
 	close(releaseClear)
 	select {
 	case err := <-continued:
@@ -349,16 +310,11 @@ func TestControllerLoginNaturalRenewalReleasesManualRecoveryPreflight(t *testing
 	select {
 	case <-stateChanged:
 	default:
-		t.Fatal("naturally clearing the login wait did not notify recovery preflight")
+		t.Fatal("naturally clearing the login wait did not notify credential listeners")
 	}
-	select {
-	case err := <-preflight:
-		var fault *protocol.Fault
-		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeRevisionConflict {
-			t.Fatalf("manual recovery did not notice natural task continuation: %v", err)
-		}
-	case <-operation.Done():
-		t.Fatal("manual recovery remained busy after ordinary renewal continued the task")
+	err = node.checkControllerLoginReplacement(operation, input.Previous.Node, input)
+	if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("manual recovery did not notice natural task continuation: %v", err)
 	}
 }
 

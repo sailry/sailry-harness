@@ -101,9 +101,8 @@ func CheckControllerLoginWait(ctx context.Context, db *sql.Conn, node, caller pr
 	return run, nil
 }
 
-// ControllerLoginReplacementAvailable allows the normal configuration push to
-// arrive before a new durable recovery is admitted. No refresh material is
-// fetched from the controller by the executor.
+// ControllerLoginReplacementAvailable checks retained controller credentials
+// before admitting a durable recovery. Local credentials are checked at admission.
 func ControllerLoginReplacementAvailable(ctx context.Context, db *sql.Conn, node protocol.NodeID, input protocol.CommandResumeControllerLoginPayload) (bool, error) {
 	if input.Replacement.Node == node {
 		return true, nil
@@ -166,8 +165,7 @@ func resumeControllerLogin(ctx context.Context, db *sql.Conn, node, caller proto
 		return protocol.Output{}, nil, controllerLoginFault("target_changed", protocol.ErrorCodePermissionDenied, "the task's captured authentication target changed")
 	}
 	if run.Waiting.AccountIdentity == "" || run.Waiting.AuthenticationTarget == "" {
-		// A configuration push can enrich the original credential and deliver its
-		// replacement before the waiting step has refreshed its projection.
+		// Recovery can fill in account metadata missing from the wait projection.
 		identity, target, err := ProviderRecoveryIdentity(ctx, db, node, provider, input.Previous)
 		if err != nil {
 			return protocol.Output{}, nil, err

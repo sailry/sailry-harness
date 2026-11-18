@@ -24,7 +24,6 @@ type controllerLoginFixture struct {
 	previous, replacement protocol.CredentialRef
 	old, next             protocol.RuntimeCredential
 	waiting               protocol.ConversationRunWaiting
-	manifestRevision      uint64
 }
 
 func newControllerLoginFixture(t *testing.T) *controllerLoginFixture {
@@ -44,7 +43,7 @@ func newControllerLoginFixture(t *testing.T) *controllerLoginFixture {
 	f.next = f.old
 	f.next.ID, f.next.Generation, f.next.Access, f.next.ExpiresAtMs = f.replacement.ID.String(), f.replacement.ID.String(), protocol.NewSecret("fresh-fixture-access"), &future
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-		if err := f.publish(t, db, false); err != nil {
+		if err := f.seedCredentials(db, false); err != nil {
 			return err
 		}
 		session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, f.provider.ID, time.Now())
@@ -78,15 +77,14 @@ func newControllerLoginFixture(t *testing.T) *controllerLoginFixture {
 	return f
 }
 
-func (f *controllerLoginFixture) publish(t *testing.T, db *sql.Conn, replacement bool) error {
-	t.Helper()
-	f.manifestRevision++
-	records := []protocol.ConfigurationFollowRecord{followRecord(t, f.old.CacheID(), f.old.Revision, f.old, nil)}
-	if replacement {
-		records = append(records, followRecord(t, f.next.CacheID(), f.next.Revision, f.next, nil))
+func (f *controllerLoginFixture) seedCredentials(db *sql.Conn, replacement bool) error {
+	if err := seedHistoricalRuntimeCredentials(f.ctx, db, f.old); err != nil {
+		return err
 	}
-	_, err := applyConfigurationCache(f.ctx, db, f.node, f.controller, protocol.ConfigurationManifest{Source: f.controller, Category: "runtime_credentials", Revision: f.manifestRevision, Records: records})
-	return err
+	if replacement {
+		return seedHistoricalRuntimeCredentials(f.ctx, db, f.next)
+	}
+	return nil
 }
 
 func (f *controllerLoginFixture) request() protocol.Request {
@@ -119,9 +117,19 @@ func TestControllerLoginRecoveryKeepsAdmissionAndOnlyChangesEffectiveCredential(
 		}
 		input := *f.request().Command.Data.(*protocol.CommandResumeControllerLoginPayload)
 		if available, err := ControllerLoginReplacementAvailable(f.ctx, db, f.node, input); err != nil || available {
-			return fmt.Errorf("new login was available before configuration push: %v", err)
+			return fmt.Errorf("replacement was available before seeding its retained row: %v", err)
 		}
-		if err := f.publish(t, db, true); err != nil {
+		f.old.Revision++
+		f.old.RefusedReplacement = &protocol.RuntimeLoginRefusal{ID: f.replacement.ID, Reason: "identity_unavailable"}
+		if err := f.seedCredentials(db, false); err != nil {
+			return err
+		}
+		if available, err := ControllerLoginReplacementAvailable(f.ctx, db, f.node, input); available || controllerLoginReason(err) != "identity_unavailable" {
+			return fmt.Errorf("historical replacement refusal was not honored: %v", err)
+		}
+		f.old.Revision++
+		f.old.RefusedReplacement = nil
+		if err := f.seedCredentials(db, true); err != nil {
 			return err
 		}
 		request := f.request()
@@ -318,7 +326,7 @@ func TestControllerLoginRecoveryRejectsOtherAccountTargetAndChangedTask(t *testi
 					}
 					expected = "state_changed"
 				}
-				if err := f.publish(t, db, true); err != nil {
+				if err := f.seedCredentials(db, true); err != nil {
 					return err
 				}
 				_, _, err := ExecuteAgentCommand(f.ctx, db, f.node, f.storage.Profile, f.controller, request, time.Now())
@@ -370,7 +378,7 @@ func TestControllerLoginWaitEnrichesLegacyIdentityWithoutChangingAttempt(t *test
 					return err
 				}
 				f.old.Revision++
-				if err := f.publish(t, db, false); err != nil {
+				if err := f.seedCredentials(db, false); err != nil {
 					return err
 				}
 				if _, err := SetRunCredentialWait(f.ctx, db, f.node, f.turn, &protocol.ConversationRunWaiting{Kind: "controller_login", Credential: f.previous, Provider: f.provider.ID}); err != nil {
@@ -386,7 +394,7 @@ func TestControllerLoginWaitEnrichesLegacyIdentityWithoutChangingAttempt(t *test
 				if name == "account changed" || name == "target changed" {
 					return nil
 				}
-				if err := f.publish(t, db, true); err != nil {
+				if err := f.seedCredentials(db, true); err != nil {
 					return err
 				}
 				_, _, err = ExecuteAgentCommand(f.ctx, db, f.node, f.storage.Profile, f.controller, f.request(), time.Now())
@@ -426,7 +434,7 @@ func TestControllerLoginRecoveryEnrichesWaitBeforeScheduledRefresh(t *testing.T)
 				}
 				f.old.AccountIdentity, f.old.AuthenticationTarget = "", ""
 				f.old.Revision++
-				return f.publish(t, db, false)
+				return f.seedCredentials(db, false)
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -445,10 +453,10 @@ func TestControllerLoginRecoveryEnrichesWaitBeforeScheduledRefresh(t *testing.T)
 				f.old.AccountIdentity = ""
 				expected = "identity_unavailable"
 			}
-			// Both credentials arrive together; recovery wins the race against
-			// the scheduled SetRunCredentialWait projection refresh.
+			// Both historical credentials are readable before the task
+			// refreshes its waiting-state projection.
 			err = f.storage.Node.Write(f.ctx, func(db *sql.Conn) error {
-				return f.publish(t, db, true)
+				return f.seedCredentials(db, true)
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -507,9 +515,9 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 			Authorizations: map[protocol.CredentialID]providerAuthorization{id: {Authentication: provider.Authentication, Revision: 4, Key: &secret}}}); err != nil {
 			return err
 		}
-		before, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
-		if err != nil {
-			return err
+		identity, target, err := ProviderRecoveryIdentity(ctx, db, node, provider, *provider.Credential)
+		if err != nil || identity == "" {
+			return fmt.Errorf("original account identity is unavailable: %v", err)
 		}
 		if err := RecoverCredentialRenewals(ctx, db, node); err != nil {
 			return err
@@ -519,7 +527,7 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 			return err
 		}
 		entry := saved.Authorizations[id]
-		if entry.Revision != 5 {
+		if entry.Revision != 5 || entry.Key == nil {
 			return fmt.Errorf("recovery credential revision=%d", entry.Revision)
 		}
 		if err := json.Unmarshal([]byte(entry.Key.Expose()), &grant); err != nil {
@@ -528,28 +536,22 @@ func TestInterruptedCredentialRenewalBecomesUncertainWithNewImmutableRevision(t 
 		if grant.RenewalPending || !grant.RenewalUncertain {
 			return fmt.Errorf("restart retried or retained pending renewal")
 		}
-		after, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
-		if err != nil {
-			return err
+		if _, err := ReadProviderAuthorization(ctx, db, node, provider, *provider.Credential); controllerLoginReason(err) != "renewal_uncertain" {
+			return fmt.Errorf("expired authorization did not require explicit sign-in: %v", err)
 		}
-		if len(before) != 1 || len(after) != 1 || after[0].Revision <= before[0].Revision {
-			return fmt.Errorf("uncertain projection reused an immutable revision")
-		}
-		var runtime protocol.RuntimeCredential
-		if err := json.Unmarshal(after[0].Body, &runtime); err != nil {
-			return err
-		}
-		if runtime.State != "uncertain" || runtime.Revision != after[0].Revision || runtime.AccountIdentity == "" {
-			return fmt.Errorf("restart lost runtime recovery metadata")
+		recoveredIdentity, recoveredTarget, err := ProviderRecoveryIdentity(ctx, db, node, provider, *provider.Credential)
+		if err != nil || recoveredIdentity != identity || recoveredTarget != target {
+			return fmt.Errorf("restart changed the account recovery identity: %v", err)
 		}
 		if err := RecoverCredentialRenewals(ctx, db, node); err != nil {
 			return err
 		}
-		stable, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{id: {}})
+		stable, err := currentProvider(ctx, db, provider.ID, nil)
 		if err != nil {
 			return err
 		}
-		if stable[0].Revision != after[0].Revision || stable[0].Digest != after[0].Digest {
+		retained := stable.Authorizations[id]
+		if retained.Revision != entry.Revision || retained.Key == nil || retained.Key.Expose() != entry.Key.Expose() {
 			return fmt.Errorf("repeated startup recovery changed an already recovered credential")
 		}
 		return nil

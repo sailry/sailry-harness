@@ -86,10 +86,7 @@ func TestHistoricalRemoteSessionRejectsNewTurnAndKeepsAdmittedTurn(t *testing.T)
 			Revision: 1, State: "ready", Provider: &provider.ID, Authentication: protocol.AuthenticationApiKey,
 			Access: protocol.NewSecret("historical-runtime-key"),
 		}
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-			Source: controller, Category: "runtime_credentials", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, runtime.CacheID(), runtime.Revision, runtime, nil)},
-		}); err != nil {
+		if err := seedHistoricalRuntimeCredentials(ctx, db, runtime); err != nil {
 			return err
 		}
 		session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, provider.ID, time.Now())
@@ -98,10 +95,6 @@ func TestHistoricalRemoteSessionRejectsNewTurnAndKeepsAdmittedTurn(t *testing.T)
 		}
 		if err := installHistoricalRemoteCapture(ctx, db, session, turn.ID, controller, provider); err != nil {
 			return err
-		}
-		known, err := ReadConfigurationManifest(ctx, db, controller, "runtime_credentials")
-		if err != nil || len(known.Captured) != 1 || known.Captured[0].ID != reference.ID || known.Captured[0].Waiting {
-			return fmt.Errorf("active historical capture missing from peer inventory: %v, %v", known.Captured, err)
 		}
 		historical, err := ReadSession(ctx, db, session.ID)
 		if err != nil {

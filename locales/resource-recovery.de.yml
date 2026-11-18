@@ -9,5 +9,4 @@ controller_login_state_changed: Diese Aufgabe wartet nicht mehr auf diese Anmeld
 controller_login_account_mismatch: Mit dem ursprünglichen Konto und Arbeitsbereich der Aufgabe anmelden
 controller_login_identity_unavailable: Diese Anmeldung hat keine verifizierte Kontoidentität für die Wiederherstellung
 controller_login_target_changed: Das ursprüngliche Authentifizierungsziel der Aufgabe hat sich geändert
-controller_login_original_controller: Anmeldung auf dem ursprünglichen Controller der Aufgabe wiederherstellen
 controller_login_provider_missing: Der ursprüngliche Anbieter der Aufgabe ist nicht verfügbar

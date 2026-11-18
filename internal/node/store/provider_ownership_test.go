@@ -11,7 +11,7 @@ import (
 
 func TestProviderAndDefaultsAreOwnedByEachNode(t *testing.T) {
 	t.Parallel()
-	storage, node, controller, ctx := controllerCacheFixture(t)
+	storage, node, _, ctx := controllerCacheFixture(t)
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		user, err := CurrentUser(ctx, db)
 		if err != nil {
@@ -45,43 +45,20 @@ func TestProviderAndDefaultsAreOwnedByEachNode(t *testing.T) {
 		if err != nil || read.Config == nil || read.Config.Provider != saved.ID || read.Config.Credential == nil || *read.Config.Credential != *saved.Credential {
 			return errors.New("paired user defaults did not retain its local provider")
 		}
-		local, err := LocalUser(ctx, db)
-		if err != nil {
-			return err
-		}
-		if _, err := ExportConfigurationManifest(WithUser(ctx, local), db, node, controller, "providers", true, nil, nil); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
-			return errors.New("provider configuration was accepted for follow export")
-		}
-		if _, err := ExportConfigurationManifest(WithUser(ctx, local), db, node, controller, "defaults", true, nil, nil); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
-			return errors.New("model defaults were accepted for follow export")
-		}
-		if values, err := exportRuntimeCredentials(ctx, db, node, map[protocol.CredentialID]runtimeCapture{saved.Credential.ID: {}}); err != nil || len(values) != 1 {
-			return errors.New("runtime credential export for existing captures was removed")
-		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestFollowKeepsCapturedRuntimeCredentialsOutOfNewProviderChoices(t *testing.T) {
+func TestHistoricalRuntimeCredentialsExcludedFromNewProviderChoices(t *testing.T) {
 	t.Parallel()
 	storage, node, controller, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		provider := providerFixture()
 		provider.Revision = 1
 		provider.Credential = &protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
-		manifest := protocol.ConfigurationManifest{Source: controller, Category: "providers", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, provider.ID.String(), provider.Revision, provider, nil)}}
-		if _, err := ApplyConfigurationManifest(ctx, db, node, controller, manifest); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
-			return errors.New("follow installed a controller-owned provider")
-		}
-		user, err := CurrentUser(ctx, db)
-		if err != nil {
-			return err
-		}
-		legacyProvider := followRecord(t, provider.ID.String(), provider.Revision, provider, nil)
-		if err := cacheConfigurationRecord(ctx, db, user, "providers", legacyProvider); err != nil {
+		if err := seedHistoricalConfiguration(ctx, db, "providers", provider.ID.String(), provider.Revision, provider); err != nil {
 			return err
 		}
 		legacyDefaults := protocol.DefaultDefaults()
@@ -89,22 +66,14 @@ func TestFollowKeepsCapturedRuntimeCredentialsOutOfNewProviderChoices(t *testing
 		legacyConfig.Provider, legacyConfig.Model, legacyConfig.Credential = provider.ID, provider.DefaultModel, provider.Credential
 		legacyConfig.Mode, legacyConfig.Permission = protocol.WorkModeCode, protocol.PermissionProject
 		legacyDefaults.Config = &legacyConfig
-		if err := cacheConfigurationRecord(ctx, db, user, "defaults", followRecord(t, "default", 1, legacyDefaults, nil)); err != nil {
+		if err := seedHistoricalConfiguration(ctx, db, "defaults", "default", 1, legacyDefaults); err != nil {
 			return err
 		}
 		runtime := protocol.RuntimeCredential{Controller: controller, Kind: "provider", ID: provider.Credential.ID.String(),
 			Generation: provider.Credential.ID.String(), Revision: 1, State: "ready", Provider: &provider.ID,
 			Authentication: protocol.AuthenticationApiKey, Access: protocol.NewSecret("controller-key")}
-		if _, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{Source: controller, Category: "runtime_credentials", Revision: 1,
-			Records: []protocol.ConfigurationFollowRecord{followRecord(t, runtime.CacheID(), runtime.Revision, runtime, nil)}}); err != nil {
+		if err := seedHistoricalRuntimeCredentials(ctx, db, runtime); err != nil {
 			return err
-		}
-		var count int
-		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM configuration_cache WHERE user=?1 AND category='runtime_credentials' AND id LIKE 'provider:%'", user.ID.String()).Scan(&count); err != nil {
-			return err
-		}
-		if count != 1 {
-			return errors.New("follow did not retain the captured runtime credential")
 		}
 		values, err := providerList(ctx, db)
 		if err != nil {
@@ -135,7 +104,7 @@ func TestFollowKeepsCapturedRuntimeCredentialsOutOfNewProviderChoices(t *testing
 
 func TestNodeOwnedRolesAndTeamsExcludeLegacyFollowedModels(t *testing.T) {
 	t.Parallel()
-	storage, node, controller, ctx := controllerCacheFixture(t)
+	storage, node, _, ctx := controllerCacheFixture(t)
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		foreign := &protocol.RoleModel{Provider: protocol.NewProviderID(), Model: "controller-only"}
 		role := protocol.DefaultRoleProfile()
@@ -143,13 +112,11 @@ func TestNodeOwnedRolesAndTeamsExcludeLegacyFollowedModels(t *testing.T) {
 		team := protocol.DefaultTeamProfile()
 		team.ID, team.Revision, team.Key, team.Name, team.Model = protocol.NewTeamID(), 1, "review", "Review", foreign
 		team.Members = []protocol.RoleID{role.ID}
-		for _, manifest := range []protocol.ConfigurationManifest{
-			{Source: controller, Category: "roles", Revision: 1, Records: []protocol.ConfigurationFollowRecord{followRecord(t, role.ID.String(), 1, role, nil)}},
-			{Source: controller, Category: "teams", Revision: 1, Records: []protocol.ConfigurationFollowRecord{followRecord(t, team.ID.String(), 1, team, nil)}},
-		} {
-			if _, err := applyConfigurationCache(ctx, db, node, controller, manifest); err != nil {
-				return err
-			}
+		if err := seedHistoricalConfiguration(ctx, db, "roles", role.ID.String(), 1, role); err != nil {
+			return err
+		}
+		if err := seedHistoricalConfiguration(ctx, db, "teams", team.ID.String(), 1, team); err != nil {
+			return err
 		}
 		provider := providerFixture()
 		saved, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{

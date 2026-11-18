@@ -466,7 +466,7 @@ func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, requ
 		if request.Plugin != nil {
 			return link.Admission{}, permissionDenied()
 		}
-		if err := node.awaitControllerLoginReplacement(ctx, caller, *input); err != nil {
+		if err := node.checkControllerLoginReplacement(ctx, caller, *input); err != nil {
 			// A concurrent delivery of this same request may have completed
 			// between the first ledger lookup and the wait-state check.
 			if accepted, handled, replayErr := node.replayAdmission(ctx, caller, request, encoded); handled || replayErr != nil {

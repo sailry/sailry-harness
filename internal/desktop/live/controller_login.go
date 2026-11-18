@@ -20,6 +20,11 @@ type controllerLoginRecovery struct {
 	settled  bool
 }
 
+func canRestoreControllerLogin(node protocol.NodeID, waiting *protocol.ConversationRunWaiting) bool {
+	return node != (protocol.NodeID{}) && waiting.Credential.Node == node &&
+		waiting.Attempt != (protocol.RequestID{}) && waiting.Provider != (protocol.ProviderID{})
+}
+
 func (x *conversationActions) ResumeLogin(turn string) {
 	_, snapshot, ok := x.state()
 	if !ok || !x.r.controller.Connected() {
@@ -30,19 +35,12 @@ func (x *conversationActions) ResumeLogin(turn string) {
 		if run.Turn.String() != turn || run.Status != "running" || run.Waiting == nil || run.Waiting.Kind != "controller_login" {
 			continue
 		}
-		root := x.r.localRuntime()
 		waiting := run.Waiting
-		// The credential is held either by this execution Node or by the
-		// controller of a retained historical capture. The executor checks
-		// the caller against the original turn's principal.
-		credentialNode := waiting.Credential.Node
-		if credentialNode != x.r.controller.Target() && credentialNode != root.controller.Target() {
-			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "controller_login_original_controller"))
-			return
-		}
-		if waiting.Provider == (protocol.ProviderID{}) || waiting.Attempt == (protocol.RequestID{}) {
+		if !canRestoreControllerLogin(x.r.controller.Target(), waiting) {
 			break
 		}
+		root := x.r.localRuntime()
+		credentialNode := waiting.Credential.Node
 		owner := root.providerOwner(credentialNode.String())
 		if owner == nil {
 			kit.Toast(x.c, kit.Failed, i18n.T(x.c, "resource_offline_action"))

@@ -9,5 +9,4 @@ controller_login_state_changed: Эта задача больше не ожида
 controller_login_account_mismatch: Войдите с исходной учётной записью и рабочей областью задачи
 controller_login_identity_unavailable: У этого входа нет подтверждённой учётной записи для восстановления
 controller_login_target_changed: Исходная цель аутентификации задачи изменилась
-controller_login_original_controller: Восстановите вход на исходном контроллере задачи
 controller_login_provider_missing: Исходный поставщик задачи недоступен

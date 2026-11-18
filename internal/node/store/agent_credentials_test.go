@@ -50,22 +50,12 @@ func TestClaimForwardedTurnRetainsCapturedAPIKey(t *testing.T) {
 				previous := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
 				current := protocol.CredentialRef{Node: controller, ID: protocol.NewCredentialID()}
 				provider.Credential, provider.Revision = &previous, 1
-				publishCredentials := func(revision uint64, credentials ...protocol.RuntimeCredential) error {
-					records := make([]protocol.ConfigurationFollowRecord, 0, len(credentials))
-					for _, credential := range credentials {
-						records = append(records, followRecord(t, credential.CacheID(), credential.Revision, credential, nil))
-					}
-					_, err := applyConfigurationCache(ctx, db, node, controller, protocol.ConfigurationManifest{
-						Source: controller, Category: "runtime_credentials", Revision: revision, Records: records,
-					})
-					return err
-				}
 				old := protocol.RuntimeCredential{
 					Controller: controller, Kind: "provider", ID: previous.ID.String(), Generation: previous.ID.String(),
 					Revision: 1, State: "ready", Provider: &provider.ID, Authentication: protocol.AuthenticationApiKey,
 					Access: protocol.NewSecret("captured-key"),
 				}
-				if err := publishCredentials(1, old); err != nil {
+				if err := seedHistoricalRuntimeCredentials(ctx, db, old); err != nil {
 					return err
 				}
 				session, turn, err := createAdmittedLocalProviderTurn(ctx, db, storage, node, controller, provider.ID, time.Now())
@@ -75,12 +65,10 @@ func TestClaimForwardedTurnRetainsCapturedAPIKey(t *testing.T) {
 				if err := installHistoricalRemoteCapture(ctx, db, session, turn.ID, controller, provider); err != nil {
 					return err
 				}
-				// A controller key rotation changes the provider's current selection
-				// and keeps the previous credential in the runtime snapshot.
-				provider.Credential, provider.Revision = &current, 2
+				// The historical cache also contains a newer account.
 				next := old
 				next.ID, next.Generation, next.Access = current.ID.String(), current.ID.String(), protocol.NewSecret("new-key")
-				if err := publishCredentials(2, old, next); err != nil {
+				if err := seedHistoricalRuntimeCredentials(ctx, db, next); err != nil {
 					return err
 				}
 				now := time.Now()
@@ -99,11 +87,15 @@ func TestClaimForwardedTurnRetainsCapturedAPIKey(t *testing.T) {
 				case "different authentication":
 					old.Authentication = protocol.AuthenticationClaudeOAuth
 				}
-				credentials := []protocol.RuntimeCredential{old, next}
 				if fixture.name == "missing" {
-					credentials = []protocol.RuntimeCredential{next}
-				}
-				if err := publishCredentials(3, credentials...); err != nil {
+					user, err := CurrentUser(ctx, db)
+					if err != nil {
+						return err
+					}
+					if _, err := db.ExecContext(ctx, "DELETE FROM configuration_cache WHERE user=?1 AND category='runtime_credentials' AND id=?2", user.ID.String(), old.CacheID()); err != nil {
+						return err
+					}
+				} else if err := seedHistoricalRuntimeCredentials(ctx, db, old); err != nil {
 					return err
 				}
 				invocation, _, err := ClaimNext(ctx, db, now)

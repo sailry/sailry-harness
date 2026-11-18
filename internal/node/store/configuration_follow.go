@@ -3,10 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"math"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -93,38 +91,4 @@ func ReadConfigurationFollow(ctx context.Context, db *sql.Conn) (protocol.Config
 		status.MCPLocal = append(status.MCPLocal, value)
 	}
 	return status, rows.Err()
-}
-
-func EnsureConfigurationTarget(ctx context.Context, db *sql.Conn, host protocol.NodeID) error {
-	user, err := CurrentUser(ctx, db)
-	if err != nil {
-		return err
-	}
-	if !user.Local {
-		return fault(protocol.ErrorCodePermissionDenied, "configuration source is not local")
-	}
-	_, err = db.ExecContext(ctx, "INSERT INTO configuration_follow_targets(user,host,revision,configuration,secrets) VALUES(?1,?2,1,1,1) ON CONFLICT(user,host) DO UPDATE SET revision=revision+1,configuration=1,secrets=1 WHERE configuration=0 OR secrets=0", user.ID.String(), host[:])
-	return err
-}
-
-func validateConfigurationManifest(value protocol.ConfigurationManifest) error {
-	kind, valid := configurationKind(value.Category)
-	if valid && kind.LocalOnly {
-		valid = false
-	}
-	if !valid || value.Revision == 0 || value.Revision > math.MaxInt64 || len(value.Records) > 4096 {
-		return invalid("configuration manifest is invalid")
-	}
-	seen := map[string]bool{}
-	for _, record := range value.Records {
-		digest, err := hex.DecodeString(record.Digest)
-		if record.ID == "" || len(record.ID) > 256 || record.Revision == 0 || record.Revision > math.MaxInt64 || err != nil || len(digest) != 32 || seen[record.ID] {
-			return invalid("configuration manifest record is invalid")
-		}
-		seen[record.ID] = true
-		if len(record.Body) > 1024*1024 {
-			return invalid("configuration record exceeds its limit")
-		}
-	}
-	return nil
 }

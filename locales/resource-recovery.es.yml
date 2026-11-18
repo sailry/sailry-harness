@@ -9,5 +9,4 @@ controller_login_state_changed: Esta tarea ya no espera ese inicio de sesión
 controller_login_account_mismatch: Inicia sesión con la cuenta y el espacio de trabajo originales de la tarea
 controller_login_identity_unavailable: Este inicio de sesión no tiene una identidad de cuenta verificada para la recuperación
 controller_login_target_changed: El destino de autenticación original de la tarea cambió
-controller_login_original_controller: Restaura el inicio de sesión en el controlador original de la tarea
 controller_login_provider_missing: El proveedor original de la tarea no está disponible

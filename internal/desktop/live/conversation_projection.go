@@ -502,7 +502,7 @@ func conversationAt(state client.ConversationState, now time.Time, locales ...st
 		if run.Waiting != nil && run.Waiting.Kind == "controller_login" {
 			if position, ok := positions[run.Turn]; ok && turns[position].Reply.Status.Active() {
 				turns[position].Reply.Phase = conversation.WaitingController
-				turns[position].Reply.LoginRecovery = run.Waiting.Attempt != (protocol.RequestID{}) && run.Waiting.Provider != (protocol.ProviderID{})
+				turns[position].Reply.LoginRecovery = canRestoreControllerLogin(snapshot.Node, run.Waiting)
 			}
 		}
 	}

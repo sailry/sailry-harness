@@ -9,5 +9,4 @@ controller_login_state_changed: "This task is no longer waiting for that sign-in
 controller_login_account_mismatch: "Sign in with the task's original account and workspace"
 controller_login_identity_unavailable: "This sign-in has no verified account identity for recovery"
 controller_login_target_changed: "The task's original authentication target has changed"
-controller_login_original_controller: "Restore sign-in on the task's original controller"
 controller_login_provider_missing: "The task's original provider is unavailable"

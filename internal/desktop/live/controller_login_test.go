@@ -5,10 +5,36 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestControllerLoginRecoveryProjectsOnlyExecutionNodeCredentials(t *testing.T) {
+	node, other := protocol.NodeID{1}, protocol.NodeID{2}
+	snapshot := protocol.DefaultConversationSnapshot()
+	snapshot.Node = node
+	snapshot.Page.Session = protocol.SessionID{3}
+	run := protocol.DefaultConversationRun()
+	run.Session, run.Turn, run.Status = snapshot.Page.Session, protocol.TurnID{4}, protocol.ConversationStatusRunning
+	run.Waiting = &protocol.ConversationRunWaiting{
+		Kind: "controller_login", Attempt: protocol.RequestID{5}, Provider: protocol.ProviderID{6},
+		Credential: protocol.CredentialRef{Node: node, ID: protocol.CredentialID{7}},
+	}
+	snapshot.Page.Runs = []protocol.ConversationRun{run}
+	state := client.ConversationState{Connected: true, Snapshot: snapshot}
+	turns, _, _, _ := Conversation(state, "en")
+	if len(turns) != 1 || turns[0].Reply.Phase != conversation.WaitingController || !turns[0].Reply.LoginRecovery {
+		t.Fatalf("execution Node credential lost its recovery action: %+v", turns)
+	}
+
+	run.Waiting.Credential.Node = other
+	turns, _, _, _ = Conversation(state, "en")
+	if len(turns) != 1 || turns[0].Reply.Phase != conversation.WaitingController || turns[0].Reply.LoginRecovery {
+		t.Fatalf("historical remote credential offered an unsupported sign-in: %+v", turns)
+	}
+}
 
 func TestControllerLoginRecoveryRetainsExactRequestAfterLostCompletion(t *testing.T) {
 	source, target := protocol.NodeID{1}, protocol.NodeID{2}
@@ -37,13 +63,13 @@ func TestControllerLoginRecoveryRetainsExactRequestAfterLostCompletion(t *testin
 	sourceSnapshot := protocol.DefaultSnapshot()
 	sourceSnapshot.Node = source
 	root := &Runtime{ctx: t.Context(), controller: client.New(&conversationTestTransport{snapshot: sourceSnapshot})}
-	executor := &Runtime{ctx: t.Context(), controller: client.New(transport)}
+	executor := &Runtime{ctx: t.Context(), controller: client.New(transport), parent: root}
 	recovery := &controllerLoginRecovery{executor: executor, input: protocol.CommandResumeControllerLoginPayload{
 		Session: protocol.SessionID{3}, Turn: protocol.TurnID{4}, Waiting: protocol.RequestID{5},
-		Previous: protocol.CredentialRef{Node: source, ID: protocol.CredentialID{6}},
+		Previous: protocol.CredentialRef{Node: target, ID: protocol.CredentialID{6}},
 	}}
 	attempt := &liveAuthorization{recovery: recovery}
-	replacement := protocol.CredentialRef{Node: source, ID: protocol.CredentialID{7}}
+	replacement := protocol.CredentialRef{Node: target, ID: protocol.CredentialID{7}}
 	var context *ui.Context
 	tester := ui.NewTester(func(c *ui.Context) {
 		context = c
@@ -58,8 +84,8 @@ func TestControllerLoginRecoveryRetainsExactRequestAfterLostCompletion(t *testin
 	}, 800, 500)
 	tester.SetLocale("en")
 	tester.Frame()
-	root.completeControllerLogin(context, attempt, &replacement)
-	root.completeControllerLogin(context, attempt, &replacement)
+	executor.completeControllerLogin(context, attempt, &replacement)
+	executor.completeControllerLogin(context, attempt, &replacement)
 	root.workers.Wait()
 	tester.Frame()
 	if recovery.request == nil || recovery.settled || len(requests) != 1 {
@@ -77,7 +103,7 @@ func TestControllerLoginRecoveryRetainsExactRequestAfterLostCompletion(t *testin
 		t.Fatalf("completion recovery changed request identity: settled=%v requests=%v", recovery.settled, requests)
 	}
 	root.restoreControllerLogin(recovery)
-	root.completeControllerLogin(context, attempt, &replacement)
+	executor.completeControllerLogin(context, attempt, &replacement)
 	root.workers.Wait()
 	if len(requests) != 2 {
 		t.Fatal("duplicate completion started a second recovery")

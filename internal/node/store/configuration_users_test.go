@@ -121,9 +121,6 @@ func TestProviderUsersIgnoreLegacySharing(t *testing.T) {
 		if key, err := resolveProviderKey(ownCtx, db, node, *shared.Credential, shared.ID); err != nil || key.Expose() != "host-key" {
 			return fmt.Errorf("owner key was lost: %v", err)
 		}
-		if _, err := ExportConfigurationManifest(ownCtx, db, node, protocol.NodeID{7}, "providers", true, nil, nil); !providerFixtureFault(err, protocol.ErrorCodeInvalidRequest) {
-			return fmt.Errorf("provider configuration export was not disabled: %v", err)
-		}
 		var columnShared, bodyShared bool
 		if err := db.QueryRowContext(ctx, "SELECT shared,COALESCE(json_extract(body,'$.provider.shared'),0) FROM providers WHERE id=?1", shared.ID.String()).Scan(&columnShared, &bodyShared); err != nil {
 			return err
