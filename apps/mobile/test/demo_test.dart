@@ -9,6 +9,7 @@ import 'package:sailry_bridge/api/connection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sailry_mobile/app.dart';
 import 'package:sailry_mobile/demo/connection.dart';
+import 'package:sailry_mobile/features/conversations/live/creation_draft.dart';
 import 'package:sailry_mobile/features/conversations/live/modes.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
@@ -278,6 +279,25 @@ void main() {
     await session.close();
     session.dispose();
     await owner.channel.close();
+  });
+
+  test('demo admits the first message with the new conversation', () async {
+    final session = AppSession.test(savedPeers: (_) async => false);
+    final host = await session.pairPin('888888');
+    final draft = CreationDraft(host);
+    addTearDown(() async {
+      draft.dispose();
+      await session.close();
+      session.dispose();
+    });
+
+    await draft.send(message: 'Test atomic demo start');
+    final id = draft.created!['id'];
+    final history = await host.command('read_conversation', {'session': id});
+    final page = object(object(history['data'])['page']);
+    final runs = objects(page['runs']);
+    expect(runs, hasLength(1));
+    expect(object(runs.single['message'])['text'], 'Test atomic demo start');
   });
 
   test(

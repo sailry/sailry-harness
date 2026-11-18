@@ -1,10 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import 'team.dart';
-
-enum _Stage { create, team, config, ready }
 
 /// Captures a new session's resources until Node admission is resolved.
 class CreationDraft extends ChangeNotifier {
@@ -38,15 +38,14 @@ class CreationDraft extends ChangeNotifier {
   Map<String, dynamic>? worktree;
   Map<String, dynamic> config = {};
   Map<String, dynamic>? _created;
-  Map<String, dynamic>? _admitted;
+  ({String id, int revision})? _admitted;
   Map<String, dynamic>? _team;
   final _models = <String, dynamic>{};
-  _Stage _stage = _Stage.create;
   bool _leadChosen = false;
-  bool _configurationChanged = false;
   String? _pendingRequest;
   bool _busy = false;
-  bool _uncertain = false;
+  bool _unavailable = false;
+  bool _missingReceipt = false;
   bool attaching = false;
   bool _defaultsCaptured = false;
   bool _configChosen = false;
@@ -55,7 +54,11 @@ class CreationDraft extends ChangeNotifier {
   Map<String, dynamic>? get created => _created;
   String? get pendingRequest => _pendingRequest;
   bool get busy => _busy;
-  bool get uncertain => _uncertain;
+  bool get unavailable => _unavailable;
+  bool get canCheck =>
+      pendingRequest != null ||
+      (_admitted != null && created == null && !unavailable);
+  bool get uncertain => canCheck || _missingReceipt;
   bool get locationEditable =>
       _admitted == null && !busy && !uncertain && !attaching;
 
@@ -65,14 +68,9 @@ class CreationDraft extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<Map<String, dynamic>> get providers =>
-      objects(host.snapshot['providers'])
-          .where(
-            (provider) =>
-                provider['enabled'] == true &&
-                objects(provider['models']).isNotEmpty,
-          )
-          .toList();
+  List<Map<String, dynamic>> get providers => host.executableProviders
+      .where((provider) => objects(provider['models']).isNotEmpty)
+      .toList();
 
   List<Map<String, dynamic>> get worktrees => project == null
       ? []
@@ -80,17 +78,27 @@ class CreationDraft extends ChangeNotifier {
           host.snapshot['worktrees'],
         ).where((tree) => tree['project'] == project!['id']).toList();
 
-  bool get hasModel => providers.any(
-    (provider) =>
-        provider['id'] == config['provider'] &&
-        objects(
-          provider['models'],
-        ).any((model) => model['id'] == config['model']),
-  );
+  bool get hasModel =>
+      host.ownsCredential(config['credential']) &&
+      providers.any(
+        (provider) =>
+            provider['id'] == config['provider'] &&
+            objects(
+              provider['models'],
+            ).any((model) => model['id'] == config['model']),
+      );
 
   void _changed() {
-    if (busy || uncertain || attaching || created != null) return;
-    if (_admitted == null) _sync();
+    if (busy || attaching || created != null || unavailable) return;
+    if (uncertain) {
+      _observeAdmission();
+      if (_admitted case final admitted?) {
+        _created = _observedSession(admitted);
+      }
+      if (created == null) return;
+    } else {
+      _sync();
+    }
     notifyListeners();
   }
 
@@ -107,6 +115,7 @@ class CreationDraft extends ChangeNotifier {
         'provider': defaults['provider'],
         'model': defaults['model'],
         'effort': defaults['effort'] ?? 'default',
+        if (defaults['features'] != null) 'features': defaults['features'],
         'credential': defaults['credential'],
       };
       _defaultsCaptured = host.snapshot.containsKey('defaults');
@@ -120,6 +129,7 @@ class CreationDraft extends ChangeNotifier {
                 .where((model) => model['id'] == provider['default_model'])
                 .firstOrNull ??
             models.first;
+        config.remove('features');
         config.addAll({
           'provider': provider['id'],
           'credential': provider['credential'],
@@ -180,7 +190,6 @@ class CreationDraft extends ChangeNotifier {
       };
       _configChosen = true;
     }
-    if (_admitted != null) _stage = _Stage.team;
     notifyListeners();
   }
 
@@ -197,94 +206,149 @@ class CreationDraft extends ChangeNotifier {
         if (model.containsKey('features')) 'features': model['features'],
       };
     }
-    if (_admitted != null) _stage = _Stage.team;
     notifyListeners();
   }
 
   void configure(Map<String, dynamic> value) {
     if (busy || uncertain || created != null) return;
     if ([
-      'provider',
-      'model',
-      'effort',
-    ].any((key) => value[key] != config[key])) {
+          'provider',
+          'model',
+          'effort',
+        ].any((key) => value[key] != config[key]) ||
+        !mapEquals(object(value['features']), object(config['features']))) {
       _leadChosen = true;
     }
     config = value;
     _configChosen = true;
-    _configurationChanged = _admitted != null;
     notifyListeners();
   }
 
-  Map<String, dynamic> _configuration() {
-    if (_leadChosen) return Map.of(config);
-    final admitted = object(_admitted!['config']);
-    return {
-      ...config,
-      for (final key in ['provider', 'model', 'effort', 'credential'])
-        key: admitted[key],
-    };
+  String _requestId() {
+    final request = pendingRequest;
+    if (request == null) return '';
+    try {
+      return text(object(jsonDecode(request))['id']);
+    } on FormatException {
+      return '';
+    }
   }
 
-  Future<Map<String, dynamic>> _advance() => switch (_stage) {
-    _Stage.create => host.command('create_session', {
-      'project': project?['id'],
-      'worktree': worktree?['id'],
-      'config': Map<String, dynamic>.of(config),
-    }),
-    _Stage.team => host.command('set_session_team', {
-      ...selectCommand(
-        _admitted!['id'] as String,
-        _admitted!['revision'] as int,
-        _team,
-      ),
-      'models': Map<String, dynamic>.of(_models),
-    }),
-    _Stage.config => host.command('set_session_config', {
-      'session': _admitted!['id'],
-      'expected_revision': _admitted!['revision'],
-      'config': _configuration(),
-    }),
-    _Stage.ready => throw StateError('Draft admission is complete'),
-  };
+  void _observeAdmission() {
+    final id = _requestId();
+    if (id.isEmpty) return;
+    for (final turn in objects(host.snapshot['turns'])) {
+      final session = text(turn['session']);
+      if (turn['request'] == id &&
+          session.isNotEmpty &&
+          text(turn['id']).isNotEmpty) {
+        _admitted = (id: session, revision: 0);
+        _pendingRequest = null;
+        return;
+      }
+    }
+  }
 
-  Future<void> send({required bool hasInput}) async {
-    if (busy || attaching || created != null || !host.connected) return;
-    if (uncertain && pendingRequest == null) return;
+  Map<String, dynamic>? _observedSession(
+    ({String id, int revision}) admitted,
+  ) => objects(host.snapshot['sessions']).where((session) {
+    return session['id'] == admitted.id &&
+        number(session['revision']) >= admitted.revision;
+  }).firstOrNull;
+
+  Future<void> send({
+    required String message,
+    List<String> attachments = const [],
+  }) async {
+    if (_disposed ||
+        busy ||
+        attaching ||
+        created != null ||
+        unavailable ||
+        !host.connected ||
+        (_missingReceipt && !canCheck)) {
+      return;
+    }
     if (!uncertain &&
-        (project != null && worktree == null || !hasModel || !hasInput)) {
+        (project != null && worktree == null ||
+            !hasModel ||
+            message.trim().isEmpty && attachments.isEmpty)) {
       return;
     }
     _busy = true;
     notifyListeners();
     try {
-      while (_stage != _Stage.ready && !_disposed) {
-        final result = uncertain
-            ? await host.check(pendingRequest!)
-            : await _advance();
-        if (_disposed) return;
-        _admitted = object(result['data']);
-        _pendingRequest = null;
-        _uncertain = false;
-        _stage = switch (_stage) {
-          _Stage.create when _team != null || _models.isNotEmpty => _Stage.team,
-          _Stage.team when _leadChosen || _configurationChanged =>
-            _Stage.config,
-          _ => _Stage.ready,
-        };
-      }
-      if (!_disposed) _created = _admitted;
-    } catch (error) {
-      if (!_disposed) {
-        if (error is CommandFailure && error.retained) {
-          _uncertain = true;
-          _pendingRequest = error.request;
-        } else if (error is CommandFailure && error.rejected) {
-          _uncertain = false;
+      _observeAdmission();
+      if (_admitted == null) {
+        final request = pendingRequest;
+        try {
+          final result = request != null
+              ? await host.check(request)
+              : await host.command('start_session', {
+                  'project': project?['id'],
+                  'worktree': worktree?['id'],
+                  'config': Map.of(config),
+                  'message': {
+                    'text': message,
+                    'attachments': List.of(attachments),
+                  },
+                  'execution': 'team',
+                  'team': teamSelection(_team),
+                  'models': Map.of(_models),
+                  if (_leadChosen) 'use_explicit_config': true,
+                }, (prepared) => _pendingRequest = prepared);
+          if (_disposed) return;
+          final turn = object(result['data']);
+          final id = text(turn['session']);
+          final revision = turn['revision'];
+          final requestId = _requestId();
+          if (result['kind'] != 'queued_turn' ||
+              id.isEmpty ||
+              text(turn['id']).isEmpty ||
+              revision is! int ||
+              revision < 1 ||
+              (requestId.isNotEmpty && turn['request'] != requestId)) {
+            _missingReceipt = pendingRequest == null;
+            throw CommandFailure('outcome_unknown', request: pendingRequest);
+          }
+          _admitted = (id: id, revision: revision);
           _pendingRequest = null;
+        } on CommandFailure catch (error) {
+          if (_disposed) rethrow;
+          if (error.retained) _pendingRequest = error.request;
+          _observeAdmission();
+          if (_admitted == null) {
+            if (error.rejected) _pendingRequest = null;
+            rethrow;
+          }
         }
       }
-      rethrow;
+
+      // Admission is durable. A missing session read must not submit again.
+      final admitted = _admitted!;
+      final observed = _observedSession(admitted);
+      if (observed != null) {
+        _created = observed;
+        return;
+      }
+      final Map<String, dynamic> result;
+      try {
+        result = await host.command('read_session', {'session': admitted.id});
+      } on CommandFailure catch (error) {
+        if (!const {'not_found', 'permission_denied'}.contains(error.code)) {
+          rethrow;
+        }
+        if (!_disposed) _unavailable = true;
+        return;
+      }
+      if (_disposed) return;
+      final session = object(result['data']);
+      if (result['kind'] != 'session' ||
+          session['id'] != admitted.id ||
+          number(session['revision']) < admitted.revision) {
+        throw const CommandFailure('outcome_unknown');
+      }
+      _created = session;
     } finally {
       if (!_disposed) {
         _busy = false;

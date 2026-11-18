@@ -180,11 +180,12 @@ Map<String, dynamic> selectCommand(
   'session': session,
   'expected_revision': revision,
   'execution': 'team',
-  'team': team == null
-      ? null
-      : {'id': team['id'], 'revision': team['revision']},
+  'team': teamSelection(team),
   'models': <String, dynamic>{},
 };
+
+Map<String, dynamic>? teamSelection(Map<String, dynamic>? team) =>
+    team == null ? null : {'id': team['id'], 'revision': team['revision']};
 
 /// `set_session_member_model` data; a null model clears the override.
 Map<String, dynamic> memberCommand(

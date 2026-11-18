@@ -827,6 +827,17 @@ class HostConnection extends ChangeNotifier {
     _snapshot = value;
   }
 
+  bool ownsCredential(Object? credential) {
+    final owner = object(credential)['node'];
+    return owner == null || nodeIdHex(owner) == nodeId;
+  }
+
+  List<Map<String, dynamic>> get executableProviders => [
+    for (final provider in objects(snapshot['providers']))
+      if (provider['enabled'] == true && ownsCredential(provider['credential']))
+        provider,
+  ];
+
   final SessionLaneProjection? _projectSessionLanes;
   Map<String, String>? _sessionLanes;
 
@@ -987,6 +998,7 @@ class HostConnection extends ChangeNotifier {
   Future<Map<String, dynamic>> command(
     String kind, [
     Map<String, dynamic>? data,
+    ValueChanged<String>? onPrepared,
   ]) async {
     if (_closed) throw StateError('connection is closed');
     if (!connected && kind != 'inspect_host') {
@@ -996,6 +1008,7 @@ class HostConnection extends ChangeNotifier {
     final request = await connection.prepare(
       command: jsonEncode({'kind': kind, 'data': ?data}),
     );
+    onPrepared?.call(request);
     return execute(request);
   }
 

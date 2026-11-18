@@ -43,16 +43,10 @@ class LiveConversationPage extends StatefulWidget {
     required this.host,
     required this.sessionId,
     required this.initialSession,
-    this.initialDraft = '',
-    this.initialAttachments = const [],
-    this.submitInitial = false,
   });
   final HostConnection host;
   final String sessionId;
   final Map<String, dynamic> initialSession;
-  final String initialDraft;
-  final List<PickedAttachment> initialAttachments;
-  final bool submitInitial;
 
   @override
   State<LiveConversationPage> createState() => _LiveConversationPageState();
@@ -63,8 +57,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   late final _submission = TurnDraft.retain(
     host: widget.host,
     session: widget.sessionId,
-    text: widget.initialDraft,
-    attachments: widget.initialAttachments,
   );
   TextEditingController get _draft => _submission.input;
   List<PickedAttachment> get _attachments => _submission.attachments;
@@ -76,7 +68,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   final _toolSelection = ToolSelection();
   Future<void> _trackingTools = Future.value();
   bool _closed = false;
-  bool _initialSubmitted = false;
   bool _historyBusy = false;
   ({String kind, String request})? _historyPending;
   Map<String, dynamic>? _backup;
@@ -242,12 +233,6 @@ class _LiveConversationPageState extends State<LiveConversationPage>
         final turns = {for (final run in objects(_page['runs'])) run['turn']};
         _turnKeys.removeWhere((turn, _) => !turns.contains(turn));
         _revealMessage();
-        if (widget.submitInitial &&
-            !_initialSubmitted &&
-            value['connected'] == true) {
-          _initialSubmitted = true;
-          unawaited(_send());
-        }
         if (following && _reveal == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _scroll.hasClients) {

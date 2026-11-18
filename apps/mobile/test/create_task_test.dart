@@ -6,6 +6,23 @@ import 'package:sailry_mobile/runtime/session.dart';
 
 import 'support/drafts.dart';
 
+CommandHandler startAndRead(
+  void Function(Map<String, dynamic>) onStart, {
+  String? worktree,
+}) {
+  Map<String, dynamic>? session;
+  return (kind, data) async {
+    if (kind == 'read_session') {
+      expect(data, {'session': 'created'});
+      return sessionReceipt(session!);
+    }
+    expect(kind, 'start_session');
+    onStart(data!);
+    session = {...admitted(data), 'worktree': ?worktree};
+    return startReceipt();
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -19,20 +36,17 @@ void main() {
         ..['worktrees'] = [
           {'id': 'another-session', 'project': null},
         ],
-      command: (kind, data) async {
-        expect(kind, 'create_session');
-        requested = data;
-        return {
-          'data': {...admitted(data!), 'worktree': 'node-workspace'},
-        };
-      },
+      command: startAndRead(
+        (data) => requested = data,
+        worktree: 'node-workspace',
+      ),
     );
     final draft = CreationDraft(host);
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     expect(requested, isNull);
     expect(draft.worktree, isNull);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requested!['project'], isNull);
     expect(requested!['worktree'], isNull);
     expect(draft.created!['worktree'], 'node-workspace');
@@ -49,11 +63,7 @@ void main() {
         id: 'host',
         label: 'Host',
         snapshot: snapshot('a'),
-        command: (kind, data) async {
-          expect(kind, 'create_session');
-          requested = data;
-          return {'data': admitted(data!)};
-        },
+        command: startAndRead((data) => requested = data),
       );
       final draft = CreationDraft(host, initialProject: initial);
       addTearDown(draft.dispose);
@@ -72,7 +82,7 @@ void main() {
       host.notifyListeners();
       expect(draft.project?['id'], project);
       expect(draft.worktree?['id'], worktree);
-      await draft.send(hasInput: true);
+      await draft.send(message: 'First message');
       expect(requested!['project'], project);
       expect(requested!['worktree'], worktree);
     }
@@ -84,10 +94,7 @@ void main() {
       id: 'host',
       label: 'Host',
       snapshot: snapshot('a'),
-      command: (_, data) async {
-        requested = data;
-        return {'data': admitted(data!)};
-      },
+      command: startAndRead((data) => requested = data),
     );
     final draft = CreationDraft(host, initialProject: '');
     addTearDown(draft.dispose);
@@ -98,7 +105,7 @@ void main() {
     host.notifyListeners();
     expect(draft.project?['id'], 'project-a');
     expect(draft.worktree?['id'], 'tree-a');
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requested!['project'], 'project-a');
     expect(requested!['worktree'], 'tree-a');
   });
@@ -114,11 +121,7 @@ void main() {
           {'id': 'tree-linked', 'project': 'project-a'},
           {'id': 'tree-foreign', 'project': 'project-b'},
         ],
-      command: (kind, data) async {
-        expect(kind, 'create_session');
-        requested = data;
-        return {'data': admitted(data!)};
-      },
+      command: startAndRead((data) => requested = data),
     );
     final draft = CreationDraft(
       host,
@@ -140,7 +143,7 @@ void main() {
     expect(unassigned.worktree, isNull);
     host.notifyListeners();
     expect(draft.worktree?['id'], 'tree-linked');
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requested!['project'], 'project-a');
     expect(requested!['worktree'], 'tree-linked');
   });
@@ -172,16 +175,13 @@ void main() {
       id: 'host',
       label: 'Host',
       snapshot: {},
-      command: (_, data) async {
-        requested = data;
-        return {'data': admitted(data!)};
-      },
+      command: startAndRead((data) => requested = data),
     );
     final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     expect(draft.hasModel, isFalse);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requested, isNull);
     final config = {
       'mode': 'plan',
@@ -196,11 +196,15 @@ void main() {
     expect(draft.hasModel, isTrue);
     host.snapshot = snapshot('a', config: {...config, 'model': 'a-first'});
     host.notifyListeners();
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requested, {
       'project': 'project-a',
       'worktree': 'tree-a',
       'config': {...config, 'options': <String, dynamic>{}},
+      'message': {'text': 'First message', 'attachments': <String>[]},
+      'execution': 'team',
+      'team': null,
+      'models': <String, dynamic>{},
     });
   });
 
@@ -218,10 +222,7 @@ void main() {
       id: 'host',
       label: 'Host',
       snapshot: data,
-      command: (_, data) async {
-        requests.add(data!);
-        return {'data': admitted(data)};
-      },
+      command: startAndRead(requests.add),
     );
     final draft = CreationDraft(host, initialProject: 'project-a');
     addTearDown(draft.dispose);
@@ -238,9 +239,9 @@ void main() {
       'permission': 'project',
     });
     expect(requests, isEmpty);
-    await draft.send(hasInput: false);
+    await draft.send(message: '');
     expect(requests, isEmpty);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(requests.single['project'], 'next-project');
     expect(requests.single['worktree'], 'next-feature');
     expect((requests.single['config'] as Map)['model'], 'a-second');
@@ -269,7 +270,11 @@ void main() {
         id: 'second',
         label: 'Second',
         snapshot: snapshot('b', config: config),
-        command: (_, data) {
+        command: (kind, data) async {
+          if (kind == 'read_session') {
+            return sessionReceipt(admitted(requested!));
+          }
+          expect(kind, 'start_session');
           requested = data;
           return reply.future;
         },
@@ -282,7 +287,10 @@ void main() {
       );
       addTearDown(draft.dispose);
       addTearDown(app.dispose);
-      final sending = draft.send(hasInput: true);
+      final sending = draft.send(
+        message: 'First message',
+        attachments: ['file'],
+      );
       expect(draft.busy, isTrue);
       app.selectHost(first.id);
       second.snapshot = snapshot('b', config: {...config, 'model': 'b-first'});
@@ -292,8 +300,15 @@ void main() {
         'project': 'project-b',
         'worktree': 'tree-b',
         'config': {...config, 'options': <String, dynamic>{}},
+        'message': {
+          'text': 'First message',
+          'attachments': ['file'],
+        },
+        'execution': 'team',
+        'team': null,
+        'models': <String, dynamic>{},
       });
-      reply.complete({'data': admitted(requested!)});
+      reply.complete(startReceipt());
       await sending;
       expect(draft.host, same(second));
       expect(draft.created!['config'], requested!['config']);
@@ -319,14 +334,73 @@ void main() {
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     expect(draft.hasModel, isFalse);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     host.snapshot = snapshot('a')..['worktrees'] = [];
     host.notifyListeners();
     expect(draft.hasModel, isTrue);
     expect(draft.worktree, isNull);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(draft.created, isNull);
   });
+
+  test('execution offers only credentials owned by the selected Node', () {
+    final target = List.filled(32, '02').join();
+    final entry = List.filled(32, '01').join();
+    final foreign = {
+      ...provider('a'),
+      'credential': {'id': 'foreign', 'node': List.filled(32, 1)},
+    };
+    final local = {
+      ...provider('b'),
+      'credential': {'id': 'local', 'node': List.filled(32, 2)},
+    };
+    final anonymous = {...provider('c'), 'credential': null};
+    final host = HostConnection.test(
+      id: '$entry/$target',
+      label: 'Host',
+      snapshot: snapshot(
+        'a',
+        config: {
+          'provider': 'a',
+          'model': 'a-first',
+          'credential': foreign['credential'],
+          'features': {'speed': 'fast'},
+        },
+        providers: [foreign, local, anonymous],
+      ),
+    );
+    final draft = CreationDraft(host);
+    addTearDown(host.dispose);
+    addTearDown(draft.dispose);
+    expect(draft.providers, [local, anonymous]);
+    expect(draft.config['provider'], 'b');
+    expect(draft.config['features'], isNull);
+    expect(draft.hasModel, isTrue);
+    expect(host.snapshot['providers'], [foreign, local, anonymous]);
+  });
+
+  test(
+    'attachment-only first input is admitted with its captured tree',
+    () async {
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        snapshot: snapshot('a'),
+        command: startAndRead((data) {
+          expect(data['worktree'], 'tree-a');
+          expect(data['message'], {
+            'text': '',
+            'attachments': ['image'],
+          });
+        }),
+      );
+      final draft = CreationDraft(host, initialProject: 'project-a');
+      addTearDown(host.dispose);
+      addTearDown(draft.dispose);
+      await draft.send(message: '', attachments: ['image']);
+      expect(draft.created?['id'], 'created');
+    },
+  );
 
   test('late admission after disposal leaves no controller updates', () async {
     final reply = Completer<Map<String, dynamic>>();
@@ -334,13 +408,17 @@ void main() {
       id: 'host',
       label: 'Host',
       snapshot: snapshot('a'),
-      command: (_, _) => reply.future,
+      command: (kind, data) {
+        expect(kind, 'start_session');
+        expect(data?['message'], {'text': 'First message', 'attachments': []});
+        return reply.future;
+      },
     );
     addTearDown(host.dispose);
     final draft = CreationDraft(host, initialProject: 'project-a');
-    final sending = draft.send(hasInput: true);
+    final sending = draft.send(message: 'First message');
     draft.dispose();
-    reply.complete({'data': {}});
+    reply.complete(startReceipt());
     await sending;
     expect(draft.created, isNull);
   });

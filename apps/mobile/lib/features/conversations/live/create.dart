@@ -77,8 +77,15 @@ class _NewConversationPageState extends State<NewConversationPage> {
   Future<void> _send() async {
     try {
       await _creation.send(
-        hasInput: _draft.text.trim().isNotEmpty || _files.isNotEmpty,
+        message: _draft.text,
+        attachments: [for (final file in _files) text(file.attachment['id'])],
       );
+      if (mounted && _creation.unavailable) {
+        _draft.clear();
+        _attachments.clear();
+        showToast(context, context.tr('conversationUnavailable'));
+        await Navigator.maybePop(context);
+      }
     } catch (error) {
       if (mounted) {
         showToast(context, failureLabel(error, translate: context.tr));
@@ -140,17 +147,19 @@ class _NewConversationPageState extends State<NewConversationPage> {
         host: widget.host,
         sessionId: session['id'] as String,
         initialSession: session,
-        initialDraft: _draft.text,
-        initialAttachments: List.of(_files),
-        submitInitial: true,
       );
     }
     return ListenableBuilder(
       listenable: widget.host,
       builder: (context, _) {
         final editable =
-            !_creation.busy && !_creation.uncertain && !_creation.attaching;
-        final message = !widget.host.connected
+            !_creation.busy &&
+            !_creation.uncertain &&
+            !_creation.attaching &&
+            !_creation.unavailable;
+        final message = _creation.unavailable
+            ? 'conversationUnavailable'
+            : !widget.host.connected
             ? 'conversationOffline'
             : _creation.project != null && _creation.worktree == null
             ? 'resourceNoWorkspace'
@@ -185,13 +194,15 @@ class _NewConversationPageState extends State<NewConversationPage> {
             ),
             child: message == 'conversationEmpty' && !_creation.uncertain
                 ? ConversationWelcome(onPrompt: editable ? _prompt : null)
-                : !widget.host.connected || _creation.uncertain
+                : !widget.host.connected ||
+                      _creation.uncertain ||
+                      _creation.unavailable
                 ? FailureState(
                     icon: 'chat',
                     message: context.tr(
                       _creation.uncertain ? 'conversationUnknown' : message,
                     ),
-                    action: _creation.pendingRequest == null
+                    action: !_creation.canCheck
                         ? null
                         : FilledButton(
                             onPressed: _creation.busy || !widget.host.connected

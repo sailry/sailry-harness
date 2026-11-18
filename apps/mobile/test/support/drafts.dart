@@ -57,3 +57,13 @@ Map<String, dynamic> admitted(Map<String, dynamic> data) => {
   'revision': 1,
   'config': data['config'],
 };
+
+Map<String, dynamic> startReceipt({int revision = 1}) => {
+  'kind': 'queued_turn',
+  'data': {'id': 'first-turn', 'session': 'created', 'revision': revision},
+};
+
+Map<String, dynamic> sessionReceipt(Map<String, dynamic> session) => {
+  'kind': 'session',
+  'data': session,
+};

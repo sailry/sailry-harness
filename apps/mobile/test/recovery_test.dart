@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/attachments.dart';
@@ -10,6 +11,33 @@ import 'support/drafts.dart';
 
 PickedAttachment attachment(String id) =>
     (attachment: {'id': id}, preview: null);
+
+class MalformedStartConnection extends RecoveryConnection {
+  final started = <String>[];
+  final prepared = <String>[];
+
+  @override
+  Future<String> prepare({required String command}) async {
+    prepared.add(command);
+    return '{"id":"original"}';
+  }
+
+  @override
+  Future<String> execute({required String request}) async {
+    started.add(request);
+    return jsonEncode({
+      'Ok': {
+        'kind': 'queued_turn',
+        'data': {
+          'session': 'unexpected',
+          'id': 'turn',
+          'revision': 1,
+          'request': 'wrong',
+        },
+      },
+    });
+  }
+}
 
 void main() {
   // A released failure ends its request whatever its code: the request never
@@ -49,20 +77,20 @@ void main() {
         addTearDown(draft.dispose);
         addTearDown(host.dispose);
         await expectLater(
-          draft.send(hasInput: true),
+          draft.send(message: 'First message'),
           throwsA(isA<CommandFailure>()),
         );
         expect(draft.uncertain, isTrue);
         expect(draft.pendingRequest, 'original');
         await expectLater(
-          draft.send(hasInput: true),
+          draft.send(message: 'First message'),
           throwsA(isA<CommandFailure>()),
         );
         expect(connection.requests, ['original']);
         expect(draft.uncertain, !rejected);
         expect(draft.pendingRequest, rejected ? isNull : 'original');
         await expectLater(
-          draft.send(hasInput: true),
+          draft.send(message: 'First message'),
           throwsA(isA<CommandFailure>()),
         );
         expect(submissions, rejected ? 2 : 1);
@@ -115,17 +143,23 @@ void main() {
   }
 
   test('creation reconciliation uses the original Node result', () async {
-    final connection = RecoveryConnection()
-      ..result = {
-        'data': {'id': 'created', 'worktree': 'node-workspace'},
-      };
+    final connection = RecoveryConnection()..result = startReceipt();
     var creates = 0;
     final host = HostConnection.test(
       id: 'host',
       label: 'Host',
       snapshot: snapshot('a'),
       connection: connection,
-      command: (_, _) async {
+      command: (kind, data) async {
+        if (kind == 'read_session') {
+          expect(data, {'session': 'created'});
+          return sessionReceipt({
+            'id': 'created',
+            'revision': 1,
+            'worktree': 'node-workspace',
+          });
+        }
+        expect(kind, 'start_session');
         creates++;
         throw const CommandFailure('outcome_unknown', request: 'original');
       },
@@ -134,16 +168,117 @@ void main() {
     addTearDown(draft.dispose);
     addTearDown(host.dispose);
     await expectLater(
-      draft.send(hasInput: true),
+      draft.send(message: 'First message'),
       throwsA(isA<CommandFailure>()),
     );
     host.snapshot = {};
     host.notifyListeners();
     expect(draft.project!['id'], 'project-a');
-    await draft.send(hasInput: false);
+    await draft.send(message: '');
     expect(creates, 1);
     expect(connection.requests, ['original']);
     expect(draft.created!['worktree'], 'node-workspace');
+  });
+
+  test('a transient read failure retries only the admitted session', () async {
+    final commands = <String>[];
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: snapshot('a')
+        ..['sessions'] = [
+          {'id': 'created', 'revision': 1},
+        ],
+      command: (kind, data) async {
+        commands.add(kind);
+        if (kind == 'start_session') return startReceipt(revision: 2);
+        expect(kind, 'read_session');
+        expect(data, {'session': 'created'});
+        if (commands.length == 2) throw const CommandFailure('unavailable');
+        return sessionReceipt({'id': 'created', 'revision': 2});
+      },
+    );
+    final draft = CreationDraft(host);
+    addTearDown(host.dispose);
+    addTearDown(draft.dispose);
+    await expectLater(
+      draft.send(message: 'First message'),
+      throwsA(isA<CommandFailure>()),
+    );
+    expect(draft.uncertain, isTrue);
+    expect(draft.canCheck, isTrue);
+    expect(draft.pendingRequest, isNull);
+    await draft.send(message: 'Must not be sent');
+    expect(draft.created?['revision'], 2);
+    expect(commands, ['start_session', 'read_session', 'read_session']);
+  });
+
+  for (final code in ['not_found', 'permission_denied']) {
+    test('a $code read ends an admitted draft without resending', () async {
+      final commands = <String>[];
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        snapshot: snapshot('a'),
+        command: (kind, _) async {
+          commands.add(kind);
+          if (kind == 'start_session') return startReceipt();
+          expect(kind, 'read_session');
+          throw CommandFailure(code);
+        },
+      );
+      final draft = CreationDraft(host);
+      addTearDown(host.dispose);
+      addTearDown(draft.dispose);
+      await draft.send(message: 'First message');
+      expect(draft.unavailable, isTrue);
+      expect(draft.uncertain, isFalse);
+      expect(draft.canCheck, isFalse);
+      await draft.send(message: 'Must not be sent');
+      expect(commands, ['start_session', 'read_session']);
+    });
+  }
+
+  test('a mismatched start receipt retains the original request', () async {
+    final connection = MalformedStartConnection()..code = 'outcome_unknown';
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: snapshot('a'),
+      connection: connection,
+    );
+    final draft = CreationDraft(host);
+    addTearDown(host.dispose);
+    addTearDown(draft.dispose);
+    await expectLater(
+      draft.send(message: 'First message'),
+      throwsA(isA<CommandFailure>()),
+    );
+    expect(draft.pendingRequest, '{"id":"original"}');
+    expect(draft.locationEditable, isFalse);
+    await expectLater(
+      draft.send(message: 'Must not be sent'),
+      throwsA(isA<CommandFailure>()),
+    );
+    expect(connection.prepared, hasLength(1));
+    expect(connection.started, ['{"id":"original"}']);
+    expect(connection.requests, connection.started);
+
+    host.snapshot['sessions'] = [
+      {'id': 'created', 'revision': 1},
+    ];
+    host.snapshot['turns'] = [
+      {'id': 'other-turn', 'request': 'unrelated', 'session': 'created'},
+    ];
+    host.notifyListeners();
+    expect(draft.created, isNull);
+    host.snapshot['turns'] = [
+      {'id': 'first-turn', 'request': 'original', 'session': 'created'},
+    ];
+    host.notifyListeners();
+    expect(draft.created?['id'], 'created');
+    expect(draft.canCheck, isFalse);
+    expect(connection.started, hasLength(1));
   });
 
   test('admission preserves newly typed text and attachments', () async {

@@ -56,33 +56,30 @@ class Fixture {
       connection: recovery,
       command: (kind, data) async {
         commands.add((kind, data!));
-        if (kind == 'create_session') {
-          current = admitted(data);
-        } else {
-          current = {
-            ...current,
-            'revision': (data['expected_revision'] as int) + 1,
-            if (kind == 'set_session_team') ...{
-              'roles': {
-                'execution': 'team',
-                'team': data['team'],
-                'models': data['models'],
-              },
-              if (data['team'] != null)
-                'config': {
-                  ...object(current['config']),
-                  ...object(frontend['model']),
-                  'credential': provider('b')['credential'],
-                  'effort': 'high',
-                },
-            },
-            if (kind == 'set_session_config') 'config': data['config'],
-          };
+        if (kind == 'read_session') {
+          expect(data, {'session': 'created'});
+          return sessionReceipt(current);
         }
-        final response = {'data': current};
-        if (kind == uncertain) {
+        expect(kind, 'start_session');
+        current = {
+          ...admitted(data),
+          'roles': {
+            'execution': data['execution'],
+            'team': data['team'],
+            'models': data['models'],
+          },
+          if (data['team'] != null && data['use_explicit_config'] != true)
+            'config': {
+              ...object(data['config']),
+              ...object(frontend['model']),
+              'credential': provider('b')['credential'],
+              'effort': 'high',
+            },
+        };
+        final response = startReceipt();
+        if (uncertain) {
           recovery.result = response;
-          throw CommandFailure('outcome_unknown', request: 'original-$kind');
+          throw const CommandFailure('outcome_unknown', request: 'original');
         }
         return response;
       },
@@ -95,7 +92,8 @@ class Fixture {
   late final HostConnection host;
   late final CreationDraft draft;
   Map<String, dynamic> current = {};
-  String? uncertain;
+  bool uncertain = false;
+  Map<String, dynamic> get start => commands.first.$2;
 
   void dispose() {
     draft.dispose();
@@ -165,14 +163,19 @@ void main() {
       'effort': 'high',
       'credential': 'unused',
     });
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message', attachments: ['image']);
     expect(fixture.commands.map((item) => item.$1), [
-      'create_session',
-      'set_session_team',
+      'start_session',
+      'read_session',
     ]);
-    expect(fixture.commands.last.$2, {
-      'session': 'created',
-      'expected_revision': 1,
+    expect(fixture.start, {
+      'project': null,
+      'worktree': null,
+      'config': draft.config,
+      'message': {
+        'text': 'First message',
+        'attachments': ['image'],
+      },
       'execution': 'team',
       'team': {'id': 'frontend', 'revision': 3},
       'models': {
@@ -184,7 +187,7 @@ void main() {
       'revision': 3,
     });
     expect(draft.created!['config'], fixture.current['config']);
-    await draft.send(hasInput: true);
+    await draft.send(message: 'First message');
     expect(fixture.commands, hasLength(2));
   });
 
@@ -211,8 +214,8 @@ void main() {
         }),
       );
       draft.configureMember('reviewer', draft.team.effort(member, 'high'));
-      await draft.send(hasInput: true);
-      final models = object(fixture.commands.last.$2['models']);
+      await draft.send(message: 'First message');
+      final models = object(fixture.start['models']);
       expect(models, {
         'reviewer': {
           'provider': 'b',
@@ -247,9 +250,9 @@ void main() {
           'effort': 'default',
         }),
       );
-      await draft.send(hasInput: true);
-      expect(fixture.commands.last.$1, 'set_session_team');
-      expect(fixture.commands.last.$2['models'], {
+      await draft.send(message: 'First message');
+      expect(fixture.commands.first.$1, 'start_session');
+      expect(fixture.start['models'], {
         'reviewer': {
           'provider': 'b',
           'model': 'b-second',
@@ -260,119 +263,98 @@ void main() {
     },
   );
 
-  test('chosen lead is restored before the first turn', () async {
-    final fixture = Fixture();
-    addTearDown(fixture.dispose);
-    final draft = fixture.draft;
-    draft.selectTeam(frontend);
-    draft.configure({
-      ...draft.config,
-      'provider': 'a',
-      'credential': provider('a')['credential'],
-      'model': 'a-second',
-      'effort': 'high',
-      'mode': 'flagship',
-    });
-    await draft.send(hasInput: true);
-    expect(fixture.commands.map((item) => item.$1), [
-      'create_session',
-      'set_session_team',
-      'set_session_config',
-    ]);
-    expect(fixture.commands.last.$2['expected_revision'], 2);
-    expect(draft.created!['config'], draft.config);
-  });
-
-  for (final stage in ['set_session_team', 'set_session_config']) {
-    test('$stage recovery retains the admitted session', () async {
-      final fixture = Fixture()..uncertain = stage;
+  test(
+    'first admission uses the explicitly chosen lead over the team',
+    () async {
+      final fixture = Fixture();
       addTearDown(fixture.dispose);
       final draft = fixture.draft;
       draft.selectTeam(frontend);
-      if (stage == 'set_session_config') {
-        draft.configure({...draft.config, 'model': 'b-first'});
-      }
+      draft.configure({
+        ...draft.config,
+        'provider': 'a',
+        'credential': provider('a')['credential'],
+        'model': 'a-second',
+        'effort': 'high',
+        'mode': 'flagship',
+      });
+      await draft.send(message: 'First message');
+      expect(fixture.commands.map((item) => item.$1), [
+        'start_session',
+        'read_session',
+      ]);
+      expect(fixture.start['use_explicit_config'], isTrue);
+      expect(fixture.start['config'], draft.config);
+      expect(draft.created!['config'], draft.config);
+    },
+  );
+
+  test(
+    'pending admission retains the team and exact lead until recovered',
+    () async {
+      final fixture = Fixture()..uncertain = true;
+      addTearDown(fixture.dispose);
+      final draft = fixture.draft;
+      draft.selectTeam(frontend);
+      draft.configure({...draft.config, 'model': 'b-first'});
       await expectLater(
-        draft.send(hasInput: true),
+        draft.send(message: 'First message'),
         throwsA(isA<CommandFailure>()),
       );
       expect(draft.created, isNull);
       expect(draft.locationEditable, isFalse);
-      expect(draft.pendingRequest, 'original-$stage');
+      expect(draft.pendingRequest, 'original');
       final config = Map.of(draft.config);
       draft.selectTeam(null);
       draft.configure({...draft.config, 'mode': 'plan'});
       expect(draft.team.team?['id'], 'frontend');
       expect(draft.config, config);
-      await draft.send(hasInput: false);
-      expect(fixture.recovery.requests, ['original-$stage']);
-      expect(
-        fixture.commands.where((item) => item.$1 == 'create_session'),
-        hasLength(1),
-      );
-      expect(fixture.commands.where((item) => item.$1 == stage), hasLength(1));
+      await draft.send(message: '');
+      expect(fixture.recovery.requests, ['original']);
+      expect(fixture.commands.map((item) => item.$1), [
+        'start_session',
+        'read_session',
+      ]);
       expect(draft.created?['id'], 'created');
+      expect(object(draft.created!['config'])['model'], 'b-first');
       expect(draft.uncertain, isFalse);
-    });
-  }
-
-  test('recovered team revision admits the chosen lead once', () async {
-    final fixture = Fixture()..uncertain = 'set_session_team';
-    addTearDown(fixture.dispose);
-    final draft = fixture.draft;
-    draft.selectTeam(frontend);
-    draft.configure({...draft.config, 'model': 'b-first'});
-    await expectLater(
-      draft.send(hasInput: true),
-      throwsA(isA<CommandFailure>()),
-    );
-    await draft.send(hasInput: false);
-    expect(fixture.recovery.requests, ['original-set_session_team']);
-    expect(fixture.commands.map((item) => item.$1), [
-      'create_session',
-      'set_session_team',
-      'set_session_config',
-    ]);
-    expect(fixture.commands.last.$2['expected_revision'], 2);
-    expect(object(draft.created!['config'])['model'], 'b-first');
-  });
+    },
+  );
 
   test(
-    'rejected team admission allows correction without another session',
+    'rejected team admission keeps the composer available for correction',
     () async {
-      final fixture = Fixture()..uncertain = 'set_session_team';
+      final fixture = Fixture()..uncertain = true;
       addTearDown(fixture.dispose);
       final draft = fixture.draft;
       draft.selectTeam(frontend);
       await expectLater(
-        draft.send(hasInput: true),
+        draft.send(message: 'First message'),
         throwsA(isA<CommandFailure>()),
       );
       fixture.recovery.code = 'revision_conflict';
       await expectLater(
-        draft.send(hasInput: true),
+        draft.send(message: 'First message'),
         throwsA(isA<CommandFailure>()),
       );
       expect(draft.uncertain, isFalse);
-      fixture.uncertain = null;
+      expect(draft.created, isNull);
+      fixture.uncertain = false;
       draft.project = {'id': 'project-a'};
       draft.selectWorktree({'id': 'tree-a', 'project': 'project-a'});
-      expect(draft.project, isNull);
-      expect(draft.worktree, isNull);
+      expect(draft.project?['id'], 'project-a');
+      expect(draft.worktree?['id'], 'tree-a');
       draft.selectTeam(null);
       draft.configure({...draft.config, 'mode': 'flagship'});
-      await draft.send(hasInput: true);
-      expect(
-        fixture.commands.where((item) => item.$1 == 'create_session'),
-        hasLength(1),
-      );
-      expect(
-        fixture.commands
-            .where((item) => item.$1 == 'set_session_team')
-            .last
-            .$2['team'],
-        isNull,
-      );
+      await draft.send(message: 'First message');
+      expect(fixture.commands.map((item) => item.$1), [
+        'start_session',
+        'start_session',
+        'read_session',
+      ]);
+      final corrected = fixture.commands[1].$2;
+      expect(corrected['team'], isNull);
+      expect(corrected['message'], fixture.start['message']);
       expect(object(draft.created!['config'])['mode'], 'flagship');
       expect(draft.created?['id'], 'created');
     },

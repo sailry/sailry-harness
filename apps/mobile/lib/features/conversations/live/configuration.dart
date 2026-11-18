@@ -166,9 +166,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
   Future<void> _selectTeam(Map<String, dynamic>? team) =>
       _run(() => _commands.select(team, session: () => _session.value));
 
-  List<Map<String, dynamic>> get _providers => objects(
-    widget.host.snapshot['providers'],
-  ).where((provider) => provider['enabled'] == true).toList();
+  List<Map<String, dynamic>> get _providers => widget.host.executableProviders;
 
   Future<void> _check() => _run(_commands.check, recovery: true);
 

@@ -428,13 +428,18 @@ class DemoConnection implements Connection {
     final previous = _outcomes[request];
     if (previous != null) return previous;
     final command = object(object(jsonDecode(request))['command']);
+    final kind = text(command['kind']);
     try {
-      final result = await _command(
-        text(command['kind']),
-        object(command['data']),
-      );
+      final result = await _command(kind, object(command['data']));
       return _outcomes[request] = jsonEncode({
-        'Ok': {'kind': 'demo', 'data': result},
+        'Ok': {
+          'kind': switch (kind) {
+            'start_session' => 'queued_turn',
+            'read_session' => 'session',
+            _ => 'demo',
+          },
+          'data': result,
+        },
       });
     } catch (_) {
       return _outcomes[request] = jsonEncode({
@@ -484,23 +489,28 @@ class DemoConnection implements Connection {
         };
       case 'read_conversation':
         return {'page': _pages[data['session']], 'missing': <dynamic>[]};
+      case 'read_session':
+        return _session(data['session']);
       case 'create_session':
-        final session = _newSession(
-          id: 'demo-session-${++_sequence}',
-          project: data['project'] as String?,
-          worktree: text(data['worktree'], 'demo-workspace'),
-          config: object(data['config']),
-        );
-        _publish();
-        return session;
+      case 'start_session':
       case 'submit_turn':
-        final session = _session(data['session']);
-        final run = _appendTurn(
-          session,
-          text(object(data['message'])['text']),
-          '',
-          running: true,
-        );
+        final input = text(object(data['message'])['text']);
+        if (kind == 'start_session' && input.trim().isEmpty) {
+          throw StateError('New demo conversation requires a message');
+        }
+        final session = kind == 'submit_turn'
+            ? _session(data['session'])
+            : _newSession(
+                id: 'demo-session-${++_sequence}',
+                project: data['project'] as String?,
+                worktree: text(data['worktree'], 'demo-workspace'),
+                config: object(data['config']),
+              );
+        if (kind == 'create_session') {
+          _publish();
+          return session;
+        }
+        final run = _appendTurn(session, input, '', running: true);
         _publish();
         final answer = translate('demoSimulatedReply');
         var length = 0;
@@ -529,7 +539,13 @@ class DemoConnection implements Connection {
           _publish();
         });
         _timers.add(timer);
-        return run;
+        return kind == 'start_session'
+            ? {
+                'id': run['turn'],
+                'session': session['id'],
+                'revision': session['revision'],
+              }
+            : run;
       case 'stop_turn':
         for (final page in _pages.values) {
           for (final run in page['runs'] as List<Map<String, dynamic>>) {
