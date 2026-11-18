@@ -19,6 +19,9 @@ requested.
 Requirements:
 
 - Go 1.27.3 and Git.
+- Linux Git workflows use the system Bubblewrap with `--bind-fd` and
+  `--ro-bind-fd` support (0.10 or a distribution backport), and a kernel
+  with `openat2` (Linux 5.6 or later) and working user namespaces.
 - The MyGo and other module versions pinned in `go.mod`, with their platform
   runtime dependencies. Do not edit module-cache sources.
 - Native builds use the Rust toolchain and dependency locks under `native/`.

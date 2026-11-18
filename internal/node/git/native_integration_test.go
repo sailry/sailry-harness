@@ -493,7 +493,7 @@ func TestNativeGitIntegration(t *testing.T) {
 		// git add holds index.lock while this clean filter waits. The filter
 		// tells when it runs: Git has then installed the handlers that remove
 		// its lock, which it does just after creating the file.
-		started := filepath.Join(t.TempDir(), "started")
+		started := filepath.Join(root, "started")
 		config.Raw.Section("filter").Subsection("slow").SetOption("clean", "touch '"+started+"'; sleep 30; cat")
 		if err := r.SetConfig(config); err != nil {
 			t.Fatal(err)
@@ -698,6 +698,25 @@ func TestNativeGitIntegration(t *testing.T) {
 		}
 		if err := s.RemoveWorktree(ctx, path, commit, "managed-fixture"); err != nil {
 			t.Fatal(err)
+		}
+	})
+	t.Run("external_worktree_removal_preserves_siblings", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		s := service(t)
+		parent := t.TempDir()
+		sibling := filepath.Join(parent, "unrelated.txt")
+		if err := os.WriteFile(sibling, []byte("sibling\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		path, err := s.CreateWorktree(ctx, root, filepath.Join(parent, "linked"), "external-fixture", commit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RemoveWorktree(ctx, path, commit, "external-fixture"); err != nil {
+			t.Fatal(err, s.Output(root))
+		}
+		if body, err := os.ReadFile(sibling); err != nil || string(body) != "sibling\n" {
+			t.Fatalf("sibling = %q, %v", body, err)
 		}
 	})
 	t.Run("missing_worktree_registration", func(t *testing.T) {

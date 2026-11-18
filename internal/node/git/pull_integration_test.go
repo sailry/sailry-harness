@@ -5,6 +5,7 @@ package git
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -49,7 +50,7 @@ func TestNativeBranchPushTarget(t *testing.T) {
 			}
 			var target *gogit.Repository
 			if probe.pushSpec != "" {
-				path := t.TempDir()
+				path := filepath.Join(root, "push-target.git")
 				target, err = gogit.PlainInit(path, true)
 				if err != nil {
 					t.Fatal(err)

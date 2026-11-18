@@ -27,12 +27,17 @@ func TestNetworkGitIntegration(t *testing.T) {
 	script := func(t *testing.T, body string) *Service {
 		t.Helper()
 		bin, home := t.TempDir(), t.TempDir()
+		path := filepath.Join(bin, "git")
 		text := "#!/bin/sh\nfor target; do :; done\n" + body + "\n"
-		if err := os.WriteFile(filepath.Join(bin, "git"), []byte(text), 0o755); err != nil {
+		if err := os.WriteFile(path, []byte(text), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-		s := New(Options{Environment: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "REAL_GIT=" + real}})
+		s := New(Options{Run: func(ctx context.Context, root string, args []string, input []byte) (CommandResult, error) {
+			cmd := exec.Command(path, args...)
+			cmd.Dir = root
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "REAL_GIT=" + real}
+			return runGitCommand(ctx, directGitCommand(cmd), input)
+		}})
 		// Generous for a busy machine; the scripts that must stall lower it.
 		s.idle = 1500 * time.Millisecond
 		return s

@@ -43,7 +43,7 @@ func (s *Service) storedIDs(ctx context.Context, root string, paths []string, li
 		batch := regular[:min(len(regular), storedBatch)]
 		regular = regular[len(batch):]
 		limited, cancel := context.WithTimeout(ctx, readTimeout)
-		capture, err := s.run(limited, root, []string{"hash-object", "--stdin-paths"}, []byte(strings.Join(batch, "\n")+"\n"))
+		capture, err := s.run(context.WithValue(limited, gitReadKey{}, true), root, []string{"hash-object", "--stdin-paths"}, []byte(strings.Join(batch, "\n")+"\n"))
 		cancel()
 		if err != nil || capture.ExitCode != 0 || capture.Truncated {
 			continue
@@ -74,7 +74,7 @@ func (s *Service) filtered(ctx context.Context, root string, r *gogit.Repository
 		batch := paths[:min(len(paths), storedBatch)]
 		paths = paths[len(batch):]
 		limited, cancel := context.WithTimeout(ctx, readTimeout)
-		capture, err := s.run(limited, root, []string{"check-attr", "-z", "--stdin", "filter"}, []byte(strings.Join(batch, "\x00")+"\x00"))
+		capture, err := s.run(context.WithValue(limited, gitReadKey{}, true), root, []string{"check-attr", "-z", "--stdin", "filter"}, []byte(strings.Join(batch, "\x00")+"\x00"))
 		cancel()
 		if err != nil || capture.ExitCode != 0 {
 			continue

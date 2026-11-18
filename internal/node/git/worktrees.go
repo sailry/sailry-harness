@@ -159,7 +159,7 @@ func (s *Service) Clone(ctx context.Context, repositoryURL, destination string, 
 		}
 		return "", mapError(err)
 	}
-	if _, err := s.network(ctx, filepath.Dir(target), args); err != nil {
+	if result, err := s.network(ctx, filepath.Dir(target), args); err != nil {
 		if os.RemoveAll(target) != nil {
 			return "", fault(protocol.ErrorCodeOutcomeUnknown, "clone did not finish and its partial directory could not be removed; inspect the destination")
 		}
@@ -171,6 +171,8 @@ func (s *Service) Clone(ctx context.Context, repositoryURL, destination string, 
 			return "", fault(protocol.ErrorCodeOutcomeUnknown, "clone was stopped before it finished; its partial directory was removed")
 		case value.Code == protocol.ErrorCodePermissionDenied:
 			return "", fault(protocol.ErrorCodePermissionDenied, "clone failed: the remote refused access")
+		case value.Code == protocol.ErrorCodeUnavailable && result.ExitCode == 0:
+			return "", err
 		}
 		// Git answered: a wrong URL, an unreachable host or a missing branch. Its
 		// words stay in the ephemeral output; receipts carry no remote URL.
@@ -213,7 +215,12 @@ func (s *Service) CreateWorktree(ctx context.Context, root, destination, branch,
 	if pathWithin(target, dir) {
 		return "", invalid("worktree destination cannot be inside Git metadata")
 	}
+	ctx, cleanDestination, err := prepareGitWorktree(ctx, target)
+	if err != nil {
+		return "", err
+	}
 	if _, err := s.command(ctx, root, []string{"worktree", "add", "-b", branch, "--", target, commit}, nil, false); err != nil {
+		cleanDestination()
 		return "", err
 	}
 	created, err := open(target)
@@ -385,7 +392,7 @@ func (s *Service) RemoveWorktree(ctx context.Context, root, expectedHead, expect
 			return fault(protocol.ErrorCodeBusy, "worktree has an active Git lock")
 		}
 	}
-	if _, err := s.command(ctx, main, []string{"worktree", "remove", "--", root}, nil, false); err != nil {
+	if err := s.removeGitWorktree(ctx, main, root); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {

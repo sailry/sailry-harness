@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,13 +37,19 @@ func TestStoredContentIntegration(t *testing.T) {
 			env = append(env, pair)
 		}
 	}
-	s := New(Options{Environment: append(env, "XDG_CONFIG_HOME="+filepath.Join(os.Getenv("HOME"), ".config"))})
-	counter := filepath.Join(t.TempDir(), "runs")
+	const marker = "fixture clean filter ran\n"
+	var count atomic.Int64
+	native := nativeRunner(append(env, "XDG_CONFIG_HOME="+filepath.Join(os.Getenv("HOME"), ".config")), "")
+	s := New(Options{Run: func(ctx context.Context, root string, args []string, input []byte) (CommandResult, error) {
+		result, err := native(ctx, root, args, input)
+		count.Add(int64(strings.Count(string(result.Stderr), marker)))
+		return result, err
+	}})
 	config, err := r.Config()
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Raw.Section("filter").Subsection("upper").SetOption("clean", "echo run >> '"+counter+"'; tr a-z A-Z")
+	config.Raw.Section("filter").Subsection("upper").SetOption("clean", "echo 'fixture clean filter ran' >&2; tr a-z A-Z")
 	if err := r.SetConfig(config); err != nil {
 		t.Fatal(err)
 	}
@@ -64,14 +71,8 @@ func TestStoredContentIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runs := func() int {
-		t.Helper()
-		body, err := os.ReadFile(counter)
-		if err != nil && !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
-		return strings.Count(string(body), "run")
-	}
+	baseline := int64(0)
+	runs := func() int64 { return count.Load() - baseline }
 	status := func() map[string]protocol.GitEntry {
 		t.Helper()
 		s.Invalidate(root)
@@ -125,8 +126,9 @@ func TestStoredContentIntegration(t *testing.T) {
 	write("file.txt", "one\r\ntwo\r\nthree\r\n", time.Hour)
 	git("add", "--all")
 	git("commit", "--message", "Add a filtered file")
-	if err := os.Remove(counter); err != nil {
-		t.Fatal("staging did not run the clean filter", err)
+	baseline = runs()
+	if baseline == 0 {
+		t.Fatal("staging did not run the clean filter")
 	}
 
 	t.Run("stat_equal_files_run_no_filter", func(t *testing.T) {

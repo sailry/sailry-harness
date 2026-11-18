@@ -154,12 +154,10 @@ jobs:
           submodules: recursive
       - uses: ./.github/actions/go-cache
         id: go-cache
-      - name: UI fonts
+      - name: Linux command sandbox and UI fonts
         if: runner.os == 'Linux'
         # Fontconfig needs CJK glyphs for the Chinese UI's pixel assertions.
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes fonts-noto-cjk
+        run: bash .github/scripts/setup-linux-command-sandbox.sh fonts-noto-cjk
       - uses: ./.github/actions/turso
       - name: Test
         run: bash .github/scripts/test.sh '${{ matrix.lane }}'
@@ -413,31 +411,7 @@ jobs:
         id: go-cache
       - name: Linux command sandbox
         if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap netcat-openbsd apparmor
-          sysctl kernel.unprivileged_userns_clone user.max_user_namespaces kernel.apparmor_restrict_unprivileged_userns || true
-          # Ubuntu permits a binary-specific userns profile. Keep the host's
-          # restriction enabled and prefer its packaged bubblewrap profile.
-          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" = 1 ] &&
-             [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || true)" = Y ]; then
-            profile=
-            for candidate in /etc/apparmor.d/bwrap-userns-restrict /etc/apparmor.d/bwrap; do
-              if [ -f "$candidate" ]; then profile=$candidate; break; fi
-            done
-            if [ -z "$profile" ]; then
-              profile=/etc/apparmor.d/sailry-ci-bwrap
-              sudo tee "$profile" >/dev/null <<'PROFILE'
-          abi <abi/4.0>,
-          /usr/bin/bwrap flags=(unconfined) {
-            userns,
-          }
-          PROFILE
-            fi
-            sudo apparmor_parser -r "$profile"
-          fi
-          bwrap --die-with-parent --unshare-pid --unshare-net --new-session --ro-bind / / --proc /proc --dev /dev -- /bin/true
+        run: bash .github/scripts/setup-linux-command-sandbox.sh
       - name: macOS command sandbox
         if: runner.os == 'macOS'
         run: |

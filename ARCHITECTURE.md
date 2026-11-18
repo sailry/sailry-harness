@@ -532,11 +532,15 @@ terminal remains available to other controllers.
 
 Agent file operations exclude managed-checkout descendants and protected Git
 metadata. Authenticated manual workflows can access registered managed worktrees
-through the scoped resource services. Linux fixes the ancestor mounts of discovered
-protected paths so a command cannot bypass them by renaming their parent.
-This does not confine native Git filters: native Git reads currently execute
-outside the command sandbox, including filters from newly created repositories
-or scripts and configuration included from writable workspace files.
+through the scoped resource services. Linux anchors the ancestor mounts of
+protected paths discovered by the command sandbox. The Node also runs native
+Git and its helpers in Bubblewrap, including Git invoked on a newly initialized
+workspace. The workspace and verified linked-worktree metadata are mounted
+read-only for local reads and writable for admitted mutations. Local Git
+operations have a private network namespace. Explicit remote operations have
+network access to perform transfers. Git receives a private home with selected
+commit identity, signing and standard Git LFS settings. The Node account's
+credential helpers, SSH agent and private keys stay outside the Git sandbox.
 User-created terminals use their login-shell
 environment. Zsh starts from the Node account's home unless its launch specifies
 a startup directory; parent terminal hooks cannot replace that directory, and

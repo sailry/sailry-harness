@@ -34,6 +34,14 @@ reports the failure once for that Node process and asks again with the next work
 - The target needs `bash`, `curl` and `tar`, plus HTTPS access to GitHub downloads.
   Linux needs systemd. Non-root installs require a working user service manager
   and permission to enable lingering. macOS needs a signed-in user's launchd GUI session.
+- Linux projects that use Git need the system Git and Bubblewrap packages.
+  Bubblewrap must support `--bind-fd` and `--ro-bind-fd` (0.10 or a
+  distribution backport) and be permitted to create user namespaces. The
+  kernel needs `openat2` (Linux 5.6 or later).
+  Use Git in a user-created terminal for remotes or signing that need the Host
+  account's keys, SSH agent or credential helpers, and for custom global Git
+  commands. Built-in Git actions use the admitted workspace and any explicitly
+  selected clone source.
 
 Local decisions also need OpenMP: `libgomp` on RHEL-compatible systems or
 `libgomp1` on Debian/Ubuntu. Decision inference requires glibc 2.34+ on x64 or

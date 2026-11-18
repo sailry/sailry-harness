@@ -72,6 +72,20 @@ func (w *captureWriter) Write(p []byte) (int, error) {
 // idleKey carries the silence limit of a network operation to the runner.
 type idleKey struct{}
 
+// gitReadKey indicates that repository files need only be readable to Git.
+type gitReadKey struct{}
+
+type gitCommand struct {
+	*exec.Cmd
+	close   func()
+	started func()
+	stop    func() bool
+}
+
+func directGitCommand(cmd *exec.Cmd) gitCommand {
+	return gitCommand{Cmd: cmd, close: func() {}, started: func() {}, stop: func() bool { return terminateNative(cmd) }}
+}
+
 // stopGrace is how long a stopped Git has to end by itself, and then to be
 // reaped after the kill.
 const stopGrace = 2 * time.Second
@@ -79,14 +93,14 @@ const stopGrace = 2 * time.Second
 // errStalled reports a network operation stopped after its silence limit.
 var errStalled = errors.New("Git produced no output within the limit")
 
-func nativeRunner(environment []string) Runner {
+func nativeRunner(environment []string, profile string) Runner {
 	if environment == nil {
 		environment = os.Environ()
 	}
 	environment = append([]string(nil), environment...)
 	return func(ctx context.Context, root string, args []string, input []byte) (CommandResult, error) {
-		cmd := exec.Command("git", append([]string{"--no-pager"}, args...)...)
-		cmd.Dir = root
+		git := exec.Command("git", append([]string{"--no-pager"}, args...)...)
+		git.Dir = root
 		env := map[string]string{}
 		for _, value := range environment {
 			k, v, ok := strings.Cut(value, "=")
@@ -104,115 +118,126 @@ func nativeRunner(environment []string) Runner {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			cmd.Env = append(cmd.Env, k+"="+env[k])
+			git.Env = append(git.Env, k+"="+env[k])
 		}
-		if input != nil {
-			cmd.Stdin = bytes.NewReader(input)
-		}
-		stdout, stderr := &captureWriter{}, &captureWriter{}
-		idle, _ := ctx.Value(idleKey{}).(time.Duration)
-		activity := make(chan struct{}, 1)
-		if idle > 0 {
-			stdout.active, stderr.active, stderr.progress = activity, activity, true
-		}
-		outRead, outWrite, err := os.Pipe()
+		launch, err := prepareGitCommand(ctx, git, args, env, profile)
 		if err != nil {
 			return CommandResult{}, err
 		}
-		defer outRead.Close()
-		defer outWrite.Close()
-		errRead, errWrite, err := os.Pipe()
-		if err != nil {
-			return CommandResult{}, err
-		}
-		defer errRead.Close()
-		defer errWrite.Close()
-		cmd.Stdout, cmd.Stderr = outWrite, errWrite
+		return runGitCommand(ctx, launch, input)
+	}
+}
 
-		cleanup, err := prepareNative(cmd)
-		if err != nil {
-			return CommandResult{}, err
-		}
-		defer cleanup()
-		if err := cmd.Start(); err != nil {
-			return CommandResult{}, fault(protocol.ErrorCodeUnavailable, "Git executable unavailable on execution Node")
-		}
-		if err := ownNative(cmd); err != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return CommandResult{}, err
-		}
-		outWrite.Close()
-		errWrite.Close()
-		drained := make(chan error, 2)
-		go func() { _, err := io.Copy(stdout, outRead); drained <- err }()
-		go func() { _, err := io.Copy(stderr, errRead); drained <- err }()
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		// A stopped Git is asked to end first: it removes its lock files
-		// (index.lock, the reference locks) on a termination request and
-		// cannot on a kill, after which every later command finds them.
-		stop := func(reason error) (CommandResult, error) {
-			if terminateNative(cmd) {
-				select {
-				case <-done:
-					killNative(cmd)
-					return CommandResult{}, reason
-				case <-time.After(stopGrace):
-				}
-			}
-			killNative(cmd)
+func runGitCommand(ctx context.Context, launch gitCommand, input []byte) (CommandResult, error) {
+	defer launch.close()
+	cmd := launch.Cmd
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
+	stdout, stderr := &captureWriter{}, &captureWriter{}
+	idle, _ := ctx.Value(idleKey{}).(time.Duration)
+	activity := make(chan struct{}, 1)
+	if idle > 0 {
+		stdout.active, stderr.active, stderr.progress = activity, activity, true
+	}
+	outRead, outWrite, err := os.Pipe()
+	if err != nil {
+		return CommandResult{}, err
+	}
+	defer outRead.Close()
+	defer outWrite.Close()
+	errRead, errWrite, err := os.Pipe()
+	if err != nil {
+		return CommandResult{}, err
+	}
+	defer errRead.Close()
+	defer errWrite.Close()
+	cmd.Stdout, cmd.Stderr = outWrite, errWrite
+
+	cleanup, err := prepareNative(cmd)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	defer cleanup()
+	if err := cmd.Start(); err != nil {
+		return CommandResult{}, fault(protocol.ErrorCodeUnavailable, "Git executable unavailable on execution Node")
+	}
+	launch.started()
+	if err := ownNative(cmd); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return CommandResult{}, err
+	}
+	outWrite.Close()
+	errWrite.Close()
+	drained := make(chan error, 2)
+	go func() { _, err := io.Copy(stdout, outRead); drained <- err }()
+	go func() { _, err := io.Copy(stderr, errRead); drained <- err }()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	// A stopped Git is asked to end first: it removes its lock files
+	// (index.lock, the reference locks) on a termination request and
+	// cannot on a kill, after which every later command finds them.
+	stop := func(reason error) (CommandResult, error) {
+		if launch.stop() {
 			select {
 			case <-done:
+				killNative(cmd)
+				return CommandResult{}, reason
 			case <-time.After(stopGrace):
-			}
-			return CommandResult{}, reason
-		}
-		var silent <-chan time.Time
-		var timer *time.Timer
-		if idle > 0 {
-			timer = time.NewTimer(idle)
-			defer timer.Stop()
-			silent = timer.C
-		}
-	wait:
-		for {
-			select {
-			case err = <-done:
-				break wait
-			case <-activity:
-				timer.Reset(idle)
-			case <-silent:
-				return stop(errStalled)
-			case <-ctx.Done():
-				return stop(ctx.Err())
 			}
 		}
 		killNative(cmd)
-		deadline := time.NewTimer(2 * time.Second)
-		defer deadline.Stop()
-		for i := 0; i < 2; i++ {
-			select {
-			case drainErr := <-drained:
-				if drainErr != nil {
-					return CommandResult{}, drainErr
-				}
-			case <-deadline.C:
-				outRead.Close()
-				errRead.Close()
-				return CommandResult{}, fault(protocol.ErrorCodeOutcomeUnknown, "Git output could not be read")
-			}
+		select {
+		case <-done:
+		case <-time.After(stopGrace):
 		}
-
-		code := 0
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
-			code = exit.ExitCode()
-		} else if err != nil {
-			return CommandResult{}, err
-		}
-		return CommandResult{Stdout: stdout.data, Stderr: stderr.data, ExitCode: code, Truncated: stdout.truncated || stderr.truncated, InvalidUTF8: !utf8.Valid(stdout.data) || !utf8.Valid(stderr.data)}, nil
+		return CommandResult{}, reason
 	}
+	var silent <-chan time.Time
+	var timer *time.Timer
+	if idle > 0 {
+		timer = time.NewTimer(idle)
+		defer timer.Stop()
+		silent = timer.C
+	}
+wait:
+	for {
+		select {
+		case err = <-done:
+			break wait
+		case <-activity:
+			timer.Reset(idle)
+		case <-silent:
+			return stop(errStalled)
+		case <-ctx.Done():
+			return stop(ctx.Err())
+		}
+	}
+	killNative(cmd)
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for i := 0; i < 2; i++ {
+		select {
+		case drainErr := <-drained:
+			if drainErr != nil {
+				return CommandResult{}, drainErr
+			}
+		case <-deadline.C:
+			outRead.Close()
+			errRead.Close()
+			return CommandResult{}, fault(protocol.ErrorCodeOutcomeUnknown, "Git output could not be read")
+		}
+	}
+
+	code := 0
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	} else if err != nil {
+		return CommandResult{}, err
+	}
+	return CommandResult{Stdout: stdout.data, Stderr: stderr.data, ExitCode: code, Truncated: stdout.truncated || stderr.truncated, InvalidUTF8: !utf8.Valid(stdout.data) || !utf8.Valid(stderr.data)}, nil
 }
 
 // command runs one local Git process. A read has the read deadline; a mutation
@@ -224,7 +249,7 @@ func (s *Service) command(ctx context.Context, root string, args []string, input
 	}
 	limited, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
-	result, err := s.run(limited, root, args, input)
+	result, err := s.run(context.WithValue(limited, gitReadKey{}, read), root, args, input)
 	return s.finish(root, args, read, result, err)
 }
 
