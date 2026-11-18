@@ -271,6 +271,10 @@ func TestAutomaticChain(t *testing.T) {
 					if held == nil || !held.Task.Suppressed || held.Task.Hold == nil || *held.Task.Hold != protocol.ConversationBackgroundHoldLimit {
 						return errors.New("result past the limit is not held")
 					}
+					activity, err := readActivity(ctx, db, session.ID)
+					if err != nil || activity.Background != 0 {
+						return fmt.Errorf("held results kept the session active: %d: %v", activity.Background, err)
+					}
 					_, err = admit(&limit, nil)
 					details, e := refused(err)
 					if e != nil {

@@ -528,6 +528,9 @@ in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
 evidence, reserved to one turn and consumed with its exact canonical input.
 Opted-in completions can continue an idle session through its normal queue.
+Active follow-ups and automatic deliveries contribute to session activity.
+Held results remain available for the next input, and a descendant waiting for
+input or approval remains visible when background work is active.
 
 ## Tools and resource services
 

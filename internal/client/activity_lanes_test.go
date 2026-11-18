@@ -96,6 +96,13 @@ func testActivityLanes(t *testing.T) {
 		if AggregateLane(parent, graph) != LaneWaiting {
 			t.Fatal("nested waiting input did not project to its owner")
 		}
+		parent.Activity.Background, intermediate.Activity.Background = 1, 1
+		if LaneOf(parent) != LaneRunning || AggregateLane(parent, []protocol.Session{parent, intermediate, child}) != LaneWaiting {
+			t.Fatal("background activity hid a descendant waiting for input")
+		}
+		if AggregateLane(parent, []protocol.Session{parent, intermediate}) != LaneRunning {
+			t.Fatal("background follow-up did not keep the parent active")
+		}
 		parent.Activity.Run.Status = protocol.ConversationStatusRunning
 		parent.Activity.Waiting = new(protocol.ActivityWaitingApproval)
 		child.Activity.Waiting = nil

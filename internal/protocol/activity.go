@@ -50,15 +50,18 @@ type ActivitySummary struct {
 	Run       *ConversationRun  `json:"run"`
 	Waiting   *ActivityWaiting  `json:"waiting"`
 	Queued    uint32            `json:"queued"`
+	// Background counts active follow-up work and completions awaiting automatic delivery.
+	Background uint32 `json:"background,omitempty"`
 }
 
 func DefaultActivitySummary() ActivitySummary {
 	return ActivitySummary{
-		Title:     "",
-		Attention: DefaultActivityAttention(),
-		Run:       nil,
-		Waiting:   nil,
-		Queued:    0,
+		Title:      "",
+		Attention:  DefaultActivityAttention(),
+		Run:        nil,
+		Waiting:    nil,
+		Queued:     0,
+		Background: 0,
 	}
 }
 func (value *ActivitySummary) UnmarshalJSON(data []byte) error { return Decode(data, value) }

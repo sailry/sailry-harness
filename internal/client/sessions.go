@@ -34,7 +34,16 @@ const (
 )
 
 func LaneOf(session protocol.Session) Lane {
-	activity := session.Activity
+	lane := runLane(session.Activity)
+	// Background work outlives its turn: the session keeps running until it
+	// finishes, rather than showing the turn's outcome while it still works.
+	if session.Activity.Background > 0 && lane != LaneWaiting {
+		return LaneRunning
+	}
+	return lane
+}
+
+func runLane(activity protocol.ActivitySummary) Lane {
 	if activity.Run == nil {
 		return LaneIdle
 	}
@@ -60,9 +69,12 @@ func LaneOf(session protocol.Session) Lane {
 
 // AggregateLane includes owned descendants without changing a run's status.
 func AggregateLane(session protocol.Session, sessions []protocol.Session) Lane {
-	own := LaneOf(session)
+	own := runLane(session.Activity)
 	if own == LaneRunning || own == LaneWaiting {
 		return own
+	}
+	if session.Activity.Background > 0 {
+		own = LaneRunning
 	}
 	scoped := make(map[protocol.SessionID]protocol.Session)
 	for _, candidate := range sessions {
@@ -71,17 +83,23 @@ func AggregateLane(session protocol.Session, sessions []protocol.Session) Lane {
 		}
 	}
 	for _, child := range scoped {
-		activity := LaneOf(child)
-		if activity != LaneRunning && activity != LaneWaiting {
+		activity := runLane(child.Activity)
+		if activity != LaneRunning && activity != LaneWaiting && child.Activity.Background == 0 {
 			continue
 		}
 		for steps := 0; steps < len(scoped) && child.Delegation != nil; steps++ {
 			parent := (*child.Delegation).Session
 			if parent == session.ID {
-				if activity == LaneRunning {
+				switch activity {
+				case LaneRunning:
 					return LaneRunning
+				case LaneWaiting:
+					own = LaneWaiting
+				default:
+					if own != LaneWaiting {
+						own = LaneRunning
+					}
 				}
-				own = LaneWaiting
 				break
 			}
 			var exists bool
