@@ -34,92 +34,88 @@ func (r *Runtime) uploadAttachment(x *conversationActions, a *composer.Attachmen
 			existing.cancel()
 		}
 	}
-	record := &attachmentRecord{composer: x.comp}
+	record := &attachmentRecord{composer: x.comp, conversation: x.cv.ID}
+	if session, ok := r.session(x.cv.ID); ok {
+		record.worktree = session.Worktree
+	} else if !unsentDraft(x.cv) {
+		a.Status, a.Error = composer.Failed, "files_upload_failed"
+		x.unavailable()
+		return
+	}
 	r.attachments.items[a] = record
 	a.Status, a.Error, a.Progress = composer.Preparing, "", 0
-	x.ensureAttachmentSession(func(c *ui.Context, session protocol.Session, err error) {
-		if r.attachments.items[a] != record {
+	ctx, cancel := context.WithCancel(r.attachments.ctx)
+	record.cancel, record.running = cancel, true
+	path, data, name, media := a.Path, slices.Clone(a.Data), a.Name, a.Mime
+	r.async(func() {
+		if name == "" {
+			r.finishAttachment(a, record, protocol.Output{}, sourceAttachmentFault("files_upload_name", protocol.ErrorCodeInvalidRequest, "attachment name is unavailable"), nil, protocol.AttachmentSpec{})
 			return
 		}
+		select {
+		case r.attachments.slots <- struct{}{}:
+			defer func() { <-r.attachments.slots }()
+		case <-ctx.Done():
+			r.finishAttachment(a, record, protocol.Output{}, ctx.Err(), nil, protocol.AttachmentSpec{})
+			return
+		}
+		source, err := localSource(ctx, path, data, media)
 		if err != nil {
-			a.Status, a.Error = composer.Failed, "files_upload_failed"
-			r.attachmentOutcome(c, err)
+			r.finishAttachment(a, record, protocol.Output{}, err, nil, protocol.AttachmentSpec{})
 			return
 		}
-		record.session, record.worktree = session.ID, session.Worktree
-		ctx, cancel := context.WithCancel(r.attachments.ctx)
-		record.cancel, record.running = cancel, true
-		path, data, name, media := a.Path, slices.Clone(a.Data), a.Name, a.Mime
-		r.async(func() {
-			if name == "" {
-				r.finishAttachment(a, record, protocol.Output{}, sourceAttachmentFault("files_upload_name", protocol.ErrorCodeInvalidRequest, "attachment name is unavailable"), nil, protocol.AttachmentSpec{})
-				return
-			}
-			select {
-			case r.attachments.slots <- struct{}{}:
-				defer func() { <-r.attachments.slots }()
-			case <-ctx.Done():
-				r.finishAttachment(a, record, protocol.Output{}, ctx.Err(), nil, protocol.AttachmentSpec{})
-				return
-			}
-			source, err := localSource(ctx, path, data, media)
-			if err != nil {
-				r.finishAttachment(a, record, protocol.Output{}, err, nil, protocol.AttachmentSpec{})
-				return
-			}
-			defer source.reader.Close()
-			spec := protocol.AttachmentSpec{Worktree: record.worktree, Name: name, MediaType: source.mime, Size: source.size, Revision: source.revision}
-			output, err := r.controller.Do(ctx, protocol.Command{Kind: "upload_attachment", Data: &spec})
-			if err != nil {
-				r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
-				return
-			}
-			upload, ok := detail[protocol.AttachmentUpload](output.Data)
-			if output.Kind != "attachment_upload" || !ok || upload.Spec != spec {
-				if ok {
-					r.cancelAttachmentStream(upload.Stream)
-				}
-				r.finishAttachment(a, record, protocol.Output{}, fileActionFault(protocol.ErrorCodeInvalidRequest, "attachment upload descriptor changed"), nil, spec)
-				return
-			}
-			last := time.Time{}
-			err = r.controller.Upload(ctx, upload.Stream, spec.Size, spec.Revision, source.reader, func(copied uint64) {
-				now := time.Now()
-				if copied != 0 && copied != spec.Size && !last.IsZero() && now.Sub(last) < 75*time.Millisecond {
-					return
-				}
-				last = now
-				r.enqueue(func(*ui.Context) {
-					if r.attachments.items[a] == record && !record.removing {
-						a.Status, a.Size, a.Progress = composer.Sending, int64(spec.Size), 1
-						if spec.Size > 0 {
-							a.Progress = float32(copied) / float32(spec.Size)
-						}
-					}
-				})
-			})
-			_ = source.reader.Close()
-			if err != nil {
-				r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
-				return
-			}
-			if err = ctx.Err(); err != nil {
+		defer source.reader.Close()
+		spec := protocol.AttachmentSpec{Worktree: record.worktree, Name: name, MediaType: source.mime, Size: source.size, Revision: source.revision}
+		output, err := r.controller.Do(ctx, protocol.Command{Kind: "upload_attachment", Data: &spec})
+		if err != nil {
+			r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
+			return
+		}
+		upload, ok := detail[protocol.AttachmentUpload](output.Data)
+		if output.Kind != "attachment_upload" || !ok || upload.Spec != spec {
+			if ok {
 				r.cancelAttachmentStream(upload.Stream)
-				r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
+			}
+			r.finishAttachment(a, record, protocol.Output{}, fileActionFault(protocol.ErrorCodeInvalidRequest, "attachment upload descriptor changed"), nil, spec)
+			return
+		}
+		last := time.Time{}
+		err = r.controller.Upload(ctx, upload.Stream, spec.Size, spec.Revision, source.reader, func(copied uint64) {
+			now := time.Now()
+			if copied != 0 && copied != spec.Size && !last.IsZero() && now.Sub(last) < 75*time.Millisecond {
 				return
 			}
-			pending := r.controller.Prepare(protocol.Command{Kind: "finish_attachment_upload", Data: &protocol.CommandFinishAttachmentUploadPayload{Worktree: record.worktree, Stream: upload.Stream}})
+			last = now
 			r.enqueue(func(*ui.Context) {
-				if r.attachments.items[a] == record {
-					record.pending, record.expected = &pending, spec
-					if !record.removing {
-						a.Status = composer.Publishing
+				if r.attachments.items[a] == record && !record.removing {
+					a.Status, a.Size, a.Progress = composer.Sending, int64(spec.Size), 1
+					if spec.Size > 0 {
+						a.Progress = float32(copied) / float32(spec.Size)
 					}
 				}
 			})
-			output, err = r.controller.Execute(r.attachments.ctx, pending)
-			r.finishAttachment(a, record, output, err, &pending, spec)
 		})
+		_ = source.reader.Close()
+		if err != nil {
+			r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
+			return
+		}
+		if err = ctx.Err(); err != nil {
+			r.cancelAttachmentStream(upload.Stream)
+			r.finishAttachment(a, record, protocol.Output{}, err, nil, spec)
+			return
+		}
+		pending := r.controller.Prepare(protocol.Command{Kind: "finish_attachment_upload", Data: &protocol.CommandFinishAttachmentUploadPayload{Worktree: record.worktree, Stream: upload.Stream}})
+		r.enqueue(func(*ui.Context) {
+			if r.attachments.items[a] == record {
+				record.pending, record.expected = &pending, spec
+				if !record.removing {
+					a.Status = composer.Publishing
+				}
+			}
+		})
+		output, err = r.controller.Execute(r.attachments.ctx, pending)
+		r.finishAttachment(a, record, output, err, &pending, spec)
 	})
 }
 func (r *Runtime) cancelAttachmentStream(stream protocol.StreamID) {
@@ -147,7 +143,7 @@ func (r *Runtime) finishAttachment(a *composer.Attachment, record *attachmentRec
 			} else {
 				record.ready, record.pending = &attachment, nil
 				a.ID, a.Name, a.Mime, a.Size, a.Status, a.Progress, a.Error = attachment.ID.String(), attachment.Spec.Name, attachment.Spec.MediaType, int64(attachment.Spec.Size), composer.Ready, 1, ""
-				r.registerConversationAttachment(record.session.String(), attachment)
+				r.registerConversationAttachment(record.conversation, attachment)
 				if record.removing {
 					r.startAttachmentDiscard(a, record)
 				}
@@ -219,9 +215,9 @@ func (r *Runtime) discardAttachment(x *conversationActions, a *composer.Attachme
 	}
 	record := r.attachments.items[a]
 	if record == nil {
-		record = &attachmentRecord{composer: x.comp}
+		record = &attachmentRecord{composer: x.comp, conversation: x.cv.ID}
 		if session, ok := r.session(x.cv.ID); ok {
-			record.session, record.worktree = session.ID, session.Worktree
+			record.worktree = session.Worktree
 		}
 		if id, err := protocol.ParseAttachmentID(a.ID); err == nil {
 			record.ready = &protocol.Attachment{ID: id, Spec: protocol.AttachmentSpec{Worktree: record.worktree, Name: a.Name, MediaType: a.Mime, Size: uint64(max(a.Size, 0))}}

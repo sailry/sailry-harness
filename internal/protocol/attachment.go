@@ -7,11 +7,53 @@ import (
 )
 
 type AttachmentSpec struct {
+	// A zero Worktree stages a private controller attachment before the first turn.
 	Worktree  WorktreeID `json:"worktree"`
 	Name      string     `json:"name"`
 	MediaType string     `json:"media_type"`
 	Size      uint64     `json:"size"`
 	Revision  string     `json:"revision"`
+}
+
+// attachmentWorktreeID admits the draft scope only on attachment transfers.
+type attachmentWorktreeID WorktreeID
+
+func (value *attachmentWorktreeID) DecodeJSON(decoder *Decoder) error {
+	text, err := decoder.String()
+	if err != nil {
+		return err
+	}
+	if text == (WorktreeID{}).String() {
+		*value = attachmentWorktreeID{}
+		return nil
+	}
+	worktree, err := ParseWorktreeID(text)
+	if err == nil {
+		*value = attachmentWorktreeID(worktree)
+	}
+	return err
+}
+
+type attachmentLocation struct {
+	Worktree   attachmentWorktreeID `json:"worktree"`
+	Attachment AttachmentID         `json:"attachment"`
+}
+
+// UsesDraftAttachment identifies a transfer whose owner is the authenticated
+// controller rather than a worktree.
+func (command Command) UsesDraftAttachment() bool {
+	zero := WorktreeID{}
+	switch input := command.Data.(type) {
+	case *AttachmentSpec:
+		return command.Kind == "upload_attachment" && input != nil && input.Worktree == zero
+	case *CommandFinishAttachmentUploadPayload:
+		return command.Kind == "finish_attachment_upload" && input != nil && input.Worktree == zero
+	case *CommandDownloadAttachmentPayload:
+		return command.Kind == "download_attachment" && input != nil && input.Worktree == zero
+	case *CommandDiscardAttachmentPayload:
+		return command.Kind == "discard_attachment" && input != nil && input.Worktree == zero
+	}
+	return false
 }
 
 func DefaultAttachmentSpec() AttachmentSpec {
@@ -24,12 +66,17 @@ func DefaultAttachmentSpec() AttachmentSpec {
 	}
 }
 func (value *AttachmentSpec) UnmarshalJSON(data []byte) error {
-	type plain AttachmentSpec
-	decoded := plain{}
+	var decoded struct {
+		Worktree  attachmentWorktreeID `json:"worktree"`
+		Name      string               `json:"name"`
+		MediaType string               `json:"media_type"`
+		Size      uint64               `json:"size"`
+		Revision  string               `json:"revision"`
+	}
 	if err := DecodeObject(data, &decoded, []string{"worktree", "name", "media_type", "size", "revision"}, false); err != nil {
 		return err
 	}
-	*value = AttachmentSpec(decoded)
+	*value = AttachmentSpec{Worktree: WorktreeID(decoded.Worktree), Name: decoded.Name, MediaType: decoded.MediaType, Size: decoded.Size, Revision: decoded.Revision}
 	return nil
 }
 func (value AttachmentSpec) MarshalJSON() ([]byte, error) {

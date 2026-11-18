@@ -158,7 +158,7 @@ func (r *Runtime) newBinding(controller *client.Client) *Runtime {
 		composerInitialized: map[string]bool{}, composerObserved: map[string]string{}, composerRevisions: map[string]uint64{},
 		composerSaving: map[string]bool{}, composerWaiters: map[string][]func(bool){}, composerBases: map[*composer.State]protocol.SessionConfig{}, sessionBases: map[*composer.State]*sessionBaseStart{},
 		admittedSessions: map[string]protocol.Session{}, conversationEdits: map[string]conversationEdit{}, conversationPending: map[string]protocol.TurnID{},
-		conversationCreations: map[string]conversationCreation{}, conversationCreating: map[string]bool{},
+		conversationCreations: map[string]*conversationCreation{}, conversationCreating: map[string]bool{},
 		providerPresets: map[string]protocol.ConversationPresetsEntry{}, providerModels: map[string]map[string]protocol.ConversationModel{},
 		providerDraftBases: map[string]protocol.ConversationProvider{}, teams: newTeamState(),
 		openService: r.openService, openWindow: r.openWindow, readAloud: r.readAloud, exportConversation: r.exportConversation,

@@ -27,7 +27,7 @@ func (r *Runtime) attachmentDescriptor(session, id string) (attachmentDescriptor
 }
 func (r *Runtime) registerConversationAttachment(session string, attachment protocol.Attachment) {
 	id, err := protocol.ParseSessionID(session)
-	if err != nil || r.attachments == nil {
+	if r.attachments == nil || err != nil && (!strings.HasPrefix(session, "draft/") || attachment.Spec.Worktree != (protocol.WorktreeID{})) {
 		return
 	}
 	if current := r.attachments.files[attachmentKey(session, attachment.ID.String())]; current.image != nil && current.image.Attachment == attachment {
@@ -378,7 +378,7 @@ func (r *Runtime) pruneAttachmentImages() {
 	}
 	for session, cache := range r.attachments.imageSessions {
 		id, err := protocol.ParseSessionID(session)
-		if err == nil && r.conversationSeen[id] {
+		if err == nil && r.conversationSeen[id] || r.localRuntime().draftsShown[session] {
 			continue
 		}
 		cache.cancel()

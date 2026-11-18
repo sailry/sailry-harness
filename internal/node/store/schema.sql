@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS attachments (
     caller BLOB NOT NULL,
     body BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS draft_attachments (
+    id TEXT PRIMARY KEY,
+    user TEXT NOT NULL REFERENCES users(id),
+    caller BLOB NOT NULL CHECK(length(caller)=32),
+    created_ms INTEGER NOT NULL CHECK(created_ms>=0),
+    body BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS session_revisions (
     session TEXT NOT NULL REFERENCES sessions(id),
     revision INTEGER NOT NULL,

@@ -14,9 +14,10 @@ import (
 )
 
 func testTaskAdmission(t *testing.T) {
-	for _, selection := range []string{"explicit model", "default model", "fixed team lead"} {
+	for _, selection := range []string{"explicit model", "default model", "fixed team lead", "selected team lead"} {
 		t.Run(selection, func(t *testing.T) {
 			t.Parallel()
+			usingTeam := selection == "fixed team lead" || selection == "selected team lead"
 			storage, node, base, _, now := agentHistoryFixture(t, protocol.WorkModeCode)
 			ctx := context.Background()
 			draft := protocol.DefaultConversationStart()
@@ -39,7 +40,7 @@ func testTaskAdmission(t *testing.T) {
 					}
 					draft.Config = nil
 				}
-				if selection != "fixed team lead" {
+				if !usingTeam {
 					return nil
 				}
 				provider, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", base.Config.Provider.String())
@@ -74,7 +75,10 @@ func testTaskAdmission(t *testing.T) {
 				draft.Execution = protocol.ConversationExecutionTeam
 				draft.Team = &protocol.TeamSelection{ID: team.ID, Revision: &team.Revision}
 				draft.Models = map[protocol.RoleID]protocol.RoleModel{role.ID: *role.Model}
-				expected.Model = lead.ID
+				draft.UseExplicitConfig = selection == "selected team lead"
+				if !draft.UseExplicitConfig {
+					expected.Model = lead.ID
+				}
 				return nil
 			})
 			if err != nil {
@@ -107,7 +111,7 @@ func testTaskAdmission(t *testing.T) {
 				if turn.Request != request.ID || turn.Revision != started.Session.Revision || !reflect.DeepEqual(turn.Config, expected) {
 					return errors.New("first admission changed the request or configuration")
 				}
-				if selection == "fixed team lead" {
+				if usingTeam {
 					if turn.Roles.Team == nil || turn.Roles.Team.ID != team.ID || turn.Roles.Team.Revision != team.Revision || turn.Roles.Instructions != team.Instructions || len(turn.Roles.Profiles) != 1 || turn.Roles.Profiles[0].Name != role.Name || !reflect.DeepEqual(turn.Roles.Models, draft.Models) {
 						return errors.New("first admission lost the selected team capture")
 					}
@@ -155,7 +159,7 @@ func testTaskAdmission(t *testing.T) {
 				if _, err = db.ExecContext(ctx, "UPDATE providers SET body=?2 WHERE id=?1", base.Config.Provider.String(), changed); err != nil {
 					return err
 				}
-				if selection == "fixed team lead" {
+				if usingTeam {
 					role.Name = "Changed task reviewer"
 					if _, err = putRole(ctx, db, role, role.Revision); err != nil {
 						return err

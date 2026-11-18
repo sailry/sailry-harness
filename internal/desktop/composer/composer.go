@@ -314,7 +314,7 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 			surface.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "composer") })
 		}
 	}
-	if !ctx.Readonly {
+	if !ctx.Readonly && !s.attachmentsLocked() {
 		if surface.FileDragOver() {
 			surface.Background(fill.Mix(p.Primary, 0.12))
 		}

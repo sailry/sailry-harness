@@ -28,6 +28,9 @@ func ReadAttachment(ctx context.Context, db *sql.Conn, worktree protocol.Worktre
 	return *value, nil
 }
 func InsertAttachment(ctx context.Context, db *sql.Conn, caller protocol.NodeID, attachment protocol.Attachment) error {
+	if attachment.Spec.Worktree == (protocol.WorktreeID{}) {
+		return invalid("an attachment requires a worktree")
+	}
 	if err := files.ValidateAttachment(attachment.Spec); err != nil {
 		return err
 	}
@@ -125,7 +128,7 @@ func ResolveTurnAttachment(ctx context.Context, db *sql.Conn, turn protocol.Turn
 	return value, err
 }
 func RetainedAttachments(ctx context.Context, db *sql.Conn) (map[protocol.AttachmentID]bool, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id FROM attachments")
+	rows, err := db.QueryContext(ctx, "SELECT id FROM attachments UNION ALL SELECT id FROM draft_attachments")
 	if err != nil {
 		return nil, err
 	}

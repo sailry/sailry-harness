@@ -979,7 +979,7 @@ func (node *Node) unapplied(caller protocol.NodeID, id protocol.RequestID, cause
 	return node.settle(caller, id, link.Response{Fault: failure})
 }
 
-// pruneLedger removes expired requests once a day while the Node runs.
+// pruneLedger collects expired requests and draft attachments once a day.
 func (node *Node) pruneLedger() {
 	ticker := time.NewTicker(admission.PruneInterval)
 	defer ticker.Stop()
@@ -996,6 +996,9 @@ func (node *Node) pruneLedger() {
 			_, err := admission.Prune(node.ctx, db, time.Now())
 			return err
 		})
+		if err == nil {
+			node.collectAttachments(node.ctx)
+		}
 		node.work.Done()
 		if err != nil && node.ctx.Err() == nil {
 			slog.Warn("request ledger could not be pruned", "code", nodeFault(err).(*protocol.Fault).Code)

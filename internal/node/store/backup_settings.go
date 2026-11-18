@@ -327,7 +327,7 @@ func BackupSource(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 	for _, source := range []struct{ query, prefix string }{
 		{"SELECT session || '/' || id FROM artifacts ORDER BY session,id", "artifacts/"},
 		{"SELECT digest FROM plugin_packages ORDER BY digest", "plugins/packages/"},
-		{"SELECT id FROM attachments ORDER BY id", "attachments/"},
+		{"SELECT id FROM attachments UNION ALL SELECT id FROM draft_attachments ORDER BY id", "attachments/"},
 		{"SELECT path FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY path", ""},
 	} {
 		values, err := backupStrings(ctx, db, source.query)

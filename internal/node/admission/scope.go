@@ -29,15 +29,16 @@ type Resource struct {
 
 // Scope contains no authored text, settings, configuration or credentials.
 type Scope struct {
-	Kind           string           `json:"kind"`
-	User           *protocol.UserID `json:"user,omitempty"`
-	Remote         bool             `json:"remote,omitempty"`
-	ExternalPlugin bool             `json:"external_plugin,omitempty"`
-	Resources      []Resource       `json:"resources,omitempty"`
+	Kind            string           `json:"kind"`
+	User            *protocol.UserID `json:"user,omitempty"`
+	Remote          bool             `json:"remote,omitempty"`
+	ExternalPlugin  bool             `json:"external_plugin,omitempty"`
+	DraftAttachment bool             `json:"draft_attachment,omitempty"`
+	Resources       []Resource       `json:"resources,omitempty"`
 }
 
 func scopeBody(ctx context.Context, request protocol.Request) []byte {
-	value := Scope{Kind: request.Command.Kind}
+	value := Scope{Kind: request.Command.Kind, DraftAttachment: request.Command.UsesDraftAttachment()}
 	if user, ok := ctx.Value(userKey{}).(protocol.UserID); ok {
 		value.User = &user
 	}
@@ -53,7 +54,7 @@ func scopeBody(ctx context.Context, request protocol.Request) []byte {
 	if command, ok := request.Command.Data.(*protocol.CommandCreateSessionAtPayload); ok {
 		value.Remote = command.Target != request.Target
 	}
-	if !value.Remote {
+	if !value.Remote && !value.DraftAttachment {
 		scopeResources(reflect.ValueOf(request.Command.Data), &value.Resources)
 	}
 	if !value.ExternalPlugin {

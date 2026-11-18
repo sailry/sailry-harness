@@ -36,7 +36,11 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 		if err != nil {
 			return outcome, err
 		}
-		if scope.User != nil {
+		if scope.DraftAttachment {
+			if scope.User == nil || *scope.User != user.ID {
+				return deniedOutcome(), nil
+			}
+		} else if scope.User != nil {
 			original, err := store.ResolveUser(ctx, db, *scope.User)
 			if err != nil || original.ID != user.ID {
 				return deniedOutcome(), nil

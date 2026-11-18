@@ -7240,12 +7240,14 @@ func DefaultCommandFinishAttachmentUploadPayload() CommandFinishAttachmentUpload
 	}
 }
 func (value *CommandFinishAttachmentUploadPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandFinishAttachmentUploadPayload
-	decoded := plain{}
+	var decoded struct {
+		Worktree attachmentWorktreeID `json:"worktree"`
+		Stream   StreamID             `json:"stream"`
+	}
 	if err := DecodeObject(data, &decoded, []string{"worktree", "stream"}, false); err != nil {
 		return err
 	}
-	*value = CommandFinishAttachmentUploadPayload(decoded)
+	*value = CommandFinishAttachmentUploadPayload{Worktree: WorktreeID(decoded.Worktree), Stream: decoded.Stream}
 	return nil
 }
 func (value CommandFinishAttachmentUploadPayload) MarshalJSON() ([]byte, error) {
@@ -7292,12 +7294,11 @@ func DefaultCommandDownloadAttachmentPayload() CommandDownloadAttachmentPayload 
 	}
 }
 func (value *CommandDownloadAttachmentPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandDownloadAttachmentPayload
-	decoded := plain{}
+	var decoded attachmentLocation
 	if err := DecodeObject(data, &decoded, []string{"worktree", "attachment"}, false); err != nil {
 		return err
 	}
-	*value = CommandDownloadAttachmentPayload(decoded)
+	*value = CommandDownloadAttachmentPayload{Worktree: WorktreeID(decoded.Worktree), Attachment: decoded.Attachment}
 	return nil
 }
 func (value CommandDownloadAttachmentPayload) MarshalJSON() ([]byte, error) {
@@ -7344,12 +7345,11 @@ func DefaultCommandDiscardAttachmentPayload() CommandDiscardAttachmentPayload {
 	}
 }
 func (value *CommandDiscardAttachmentPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandDiscardAttachmentPayload
-	decoded := plain{}
+	var decoded attachmentLocation
 	if err := DecodeObject(data, &decoded, []string{"worktree", "attachment"}, false); err != nil {
 		return err
 	}
-	*value = CommandDiscardAttachmentPayload(decoded)
+	*value = CommandDiscardAttachmentPayload{Worktree: WorktreeID(decoded.Worktree), Attachment: decoded.Attachment}
 	return nil
 }
 func (value CommandDiscardAttachmentPayload) MarshalJSON() ([]byte, error) {

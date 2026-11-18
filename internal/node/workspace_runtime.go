@@ -81,7 +81,7 @@ func (node *Node) open(ctx context.Context, caller protocol.NodeID, id protocol.
 	if stream, found, err := node.ports.Open(ctx, caller, id); found || err != nil {
 		return stream, err
 	}
-	return node.transfers.Open(ctx, caller, id)
+	return node.transfers.Open(ctx, caller, userFromContext(ctx).ID, id)
 }
 func (node *Node) workspaceChanged(worktree protocol.WorktreeID) {
 	var root string

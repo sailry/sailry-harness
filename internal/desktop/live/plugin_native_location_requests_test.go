@@ -426,7 +426,7 @@ func testPluginSessionBase(t *testing.T) {
 		fixture := newPluginLocationTestFixture(t)
 		root := fixture.root
 		root.sessionBases, root.conversationCreating = map[*composer.State]*sessionBaseStart{}, map[string]bool{}
-		root.conversationCreations, root.busy, root.uncertain = map[string]conversationCreation{}, map[string]bool{}, map[string]protocol.Request{}
+		root.conversationCreations, root.busy, root.uncertain = map[string]*conversationCreation{}, map[string]bool{}, map[string]protocol.Request{}
 		comp, view := root.App.Composer("draft/first"), root.App.Data.Find("draft/first")
 		base := map[string]any{"from": "main", "branch": "feature", "commit": strings.Repeat("a", 40)}
 		if _, err := fixture.call(t, "sailry/ui.selectLocation", pluginLocationTestArguments(t, "1", map[string]any{"base": base})); err == nil {

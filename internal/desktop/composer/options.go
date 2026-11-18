@@ -267,8 +267,8 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, form
 	return ContextButton(c, b, icon, label, false, true)
 }
 
-// chooseLocation changes only an unadmitted draft. Files may already be
-// creating its session, so their target stays captured while they transfer.
+// chooseLocation changes only an unadmitted draft. Its attachments are
+// staged on the selected Node.
 func (s *State) chooseLocation(ctx *Context, host, project, worktree string) {
 	if ctx.Readonly || ctx.LocationLocked || len(s.Attachments) > 0 {
 		return

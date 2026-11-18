@@ -22,6 +22,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -165,7 +166,29 @@ func testNativeAssistantDraft(t *testing.T) {
 		ID: provider, Revision: 7, Name: "Captured provider", Enabled: true, Api: "responses", Authentication: "api_key",
 		Models: []protocol.ConversationModel{{ID: "fixture", DefaultEffort: protocol.Effort{Kind: "default"}}},
 	}}
-	transport := &conversationTestTransport{snapshot: snapshot, failure: protocol.ErrorCodeOutcomeUnknown}
+	transport := &conversationTestTransport{snapshot: snapshot}
+	var result protocol.Output
+	var admission protocol.RequestID
+	var inspections int
+	transport.handle = func(request protocol.Request) (link.Response, bool) {
+		switch request.Command.Kind {
+		case "start_session":
+			admission, result = request.ID, transport.admitStart(request)
+			return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "First message acknowledgement was lost"}}, true
+		case "inspect_request":
+			query, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
+			if query.ID != admission {
+				return link.Response{}, false
+			}
+			inspections++
+			outcome := protocol.RequestOutcome{Kind: "admitted"}
+			if inspections > 1 {
+				outcome = protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &result}}
+			}
+			return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: admission, Outcome: outcome}}}, true
+		}
+		return link.Response{}, false
+	}
 	transport.conversation = protocol.DefaultConversationSnapshot()
 	transport.conversation.Node = node
 	transport.conversation.Page.Session = protocol.SessionID{9}
@@ -236,9 +259,21 @@ func testNativeAssistantDraft(t *testing.T) {
 	if failure != nil {
 		t.Fatal(failure)
 	}
-	if mounted.session == (protocol.SessionID{}) || mounted.draft != nil || runtime.App.Page != shell.SettingsPage ||
+	if mounted.session != (protocol.SessionID{}) || mounted.draft == nil || runtime.App.Page != shell.SettingsPage ||
 		mounted.composer.Draft != message.Text {
 		t.Fatal("first admission changed the embedding page or lost its uncertain draft")
+	}
+	message.Text = "Keep this newer draft"
+	mounted.actions.Send(message)
+	for range 4 {
+		runtime.workers.Wait()
+		tester.Frame()
+	}
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if mounted.session == (protocol.SessionID{}) || mounted.draft != nil || mounted.composer.Draft != message.Text {
+		t.Fatal("confirmed first admission did not retain newer draft text")
 	}
 	if runtime.App.Sidebar.Data.Find(mounted.session.String()) != nil || runtime.App.Data.Find(mounted.session.String()) == nil {
 		t.Fatal("first admission leaked the assistant into ordinary navigation or lost its mounted view")
@@ -246,29 +281,24 @@ func testNativeAssistantDraft(t *testing.T) {
 	if runtime.pluginComposerView(draftID) != nil {
 		t.Fatal("admitted assistant retained its obsolete draft presentation")
 	}
-	mounted.actions.Send(message)
-	for range 4 {
-		runtime.workers.Wait()
-		tester.Frame()
-	}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	var created []protocol.Request
-	var submitted []protocol.Request
 	for _, request := range transport.requests {
 		switch request.Command.Kind {
-		case "create_session":
+		case "start_session":
 			created = append(created, request)
-		case "submit_turn":
-			submitted = append(submitted, request)
+		case "create_session", "submit_turn":
+			t.Error("first send used a separate session or message command", request.Command.Kind)
 		}
 	}
-	if len(created) != 1 || len(submitted) != 2 || submitted[0].ID != submitted[1].ID {
-		t.Fatalf("assistant retry replaced admission identity: creates=%d submits=%d", len(created), len(submitted))
+	if len(created) != 1 || inspections != 2 {
+		t.Fatalf("assistant retry replaced admission identity: starts=%d inspections=%d", len(created), inspections)
 	}
-	input, valid := detail[protocol.CommandCreateSessionPayload](created[0].Command.Data)
+	input, valid := detail[protocol.ConversationStart](created[0].Command.Data)
 	if !valid || created[0].Target != node || input.Worktree == nil || *input.Worktree != worktree || input.Project == nil || *input.Project != project ||
-		input.Config == nil || input.Config.Assistant == nil || input.Config.Assistant.Package != reference || input.Config.Assistant.ID != "review" {
+		input.Config == nil || input.Config.Assistant == nil || input.Config.Assistant.Package != reference || input.Config.Assistant.ID != "review" ||
+		input.Message.Text != "Inspect the captured project" {
 		t.Fatal("assistant first admission lost its captured configuration")
 	}
 }

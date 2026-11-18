@@ -308,7 +308,7 @@ func (state *pluginNativeState) projectComposer(view *viewmodel.Conversation, co
 
 func (state *pluginNativeState) composerBusy(source string) bool {
 	runtime := state.runtime
-	if runtime.conversationCreating[source] || runtime.composerSaving[source] {
+	if runtime.conversationCreating[source] || runtime.conversationCreations[source] != nil || runtime.composerSaving[source] {
 		return true
 	}
 	ownsTurn := func(id protocol.TurnID) bool {
@@ -347,18 +347,14 @@ func (state *pluginNativeState) composerBusy(source string) bool {
 		if !pending {
 			continue
 		}
-		scope, encoded, captured := strings.Cut(key, "\x00")
-		if scope == "create/"+source {
-			return true
-		}
+		_, encoded, captured := strings.Cut(key, "\x00")
 		var command protocol.Command
 		if captured && json.Unmarshal([]byte(encoded), &command) == nil && matches(command) {
 			return true
 		}
 	}
-	for key, request := range runtime.uncertain {
-		scope, _, _ := strings.Cut(key, "\x00")
-		if scope == "create/"+source || matches(request.Command) {
+	for _, request := range runtime.uncertain {
+		if matches(request.Command) {
 			return true
 		}
 	}

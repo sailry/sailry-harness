@@ -465,17 +465,19 @@ func composerMemberModel(choice *composer.MemberModel, models []composer.Model) 
 	return model, err
 }
 
-func (r *Runtime) teamSelectionCommand(session protocol.Session, comp *composer.State) (protocol.Command, error) {
-	value := protocol.CommandSetSessionExecutionPayload{Session: session.ID, ExpectedRevision: session.Revision, Execution: protocol.ConversationExecutionTeam, Models: map[protocol.RoleID]protocol.RoleModel{}}
+func (r *Runtime) composerExecution(comp *composer.State) (protocol.CommandSetSessionExecutionPayload, error) {
+	value := protocol.CommandSetSessionExecutionPayload{Execution: protocol.ConversationExecutionTeam, Models: map[protocol.RoleID]protocol.RoleModel{}}
+	if comp.Team == "" {
+		value.Execution = protocol.ConversationExecutionModel
+		return value, nil
+	}
 	snapshot := r.controller.Snapshot()
 	roles := protocol.DefaultRoleSnapshot()
 	roles.Profiles = snapshot.Roles
-	if comp.Team == "" {
-		value.Execution = protocol.ConversationExecutionModel
-	} else if comp.Team != defaultTeamID {
+	if comp.Team != defaultTeamID {
 		id, err := protocol.ParseTeamID(comp.Team)
 		if err != nil {
-			return protocol.Command{}, err
+			return value, err
 		}
 		for _, team := range snapshot.Teams {
 			if team.ID == id {
@@ -491,16 +493,23 @@ func (r *Runtime) teamSelectionCommand(session protocol.Session, comp *composer.
 			}
 		}
 		if value.Team == nil {
-			return protocol.Command{}, fileActionFault(protocol.ErrorCodeNotFound, "selected team is unavailable")
+			return value, fileActionFault(protocol.ErrorCodeNotFound, "selected team is unavailable")
 		}
 	}
-	if value.Execution == protocol.ConversationExecutionTeam {
-		models, err := selectedMemberModels(comp, r.models(), roles)
-		if err != nil {
-			return protocol.Command{}, err
-		}
-		value.Models = models
+	models, err := selectedMemberModels(comp, r.models(), roles)
+	if err != nil {
+		return value, err
 	}
+	value.Models = models
+	return value, nil
+}
+
+func (r *Runtime) teamSelectionCommand(session protocol.Session, comp *composer.State) (protocol.Command, error) {
+	value, err := r.composerExecution(comp)
+	if err != nil {
+		return protocol.Command{}, err
+	}
+	value.Session, value.ExpectedRevision = session.ID, session.Revision
 	if r.teams != nil {
 		if state := r.teams.composers[session.ID.String()]; state != nil && state.selection != nil && state.selection.ID.String() == comp.Team {
 			value.Team = state.selection

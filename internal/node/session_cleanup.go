@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -33,9 +34,8 @@ func (stored *storedFiles) publish(effect *workspaceCompletion) {
 	}
 }
 
-// collectAttachments removes the stored attachment files that no row names:
-// uploads whose row never committed and attachments whose row was deleted. It
-// waits for the finishing uploads, so no file is taken between its
+// collectAttachments expires abandoned drafts and removes files that no row
+// names. It waits for finishing uploads so no file is taken between its
 // publication and its row. A failure leaves the files for the next collection.
 func (node *Node) collectAttachments(ctx context.Context) {
 	node.stored.mu.Lock()
@@ -89,7 +89,10 @@ func (node *Node) collectAttachmentsLocked(ctx context.Context) {
 		return
 	}
 	var retained map[protocol.AttachmentID]bool
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		if err := store.PruneDraftAttachments(ctx, db, time.Now()); err != nil {
+			return err
+		}
 		var err error
 		retained, err = store.RetainedAttachments(ctx, db)
 		return err

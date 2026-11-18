@@ -8,26 +8,29 @@ import (
 )
 
 func StartSessionProvider(ctx context.Context, db *sql.Conn, draft protocol.ConversationStart) (protocol.ProviderID, error) {
+	config, err := startSessionConfig(ctx, db, draft)
+	return config.Provider, err
+}
+
+func startSessionConfig(ctx context.Context, db *sql.Conn, draft protocol.ConversationStart) (protocol.SessionConfig, error) {
 	config := draft.Config
+	if draft.UseExplicitConfig && config == nil {
+		return protocol.SessionConfig{}, invalid("the selected configuration is required")
+	}
 	if config == nil {
 		defaults, err := ReadDefaults(ctx, db)
 		if err != nil {
-			return protocol.ProviderID{}, err
+			return protocol.SessionConfig{}, err
 		}
 		config = defaults.Config
 	}
 	if config == nil {
-		return protocol.ProviderID{}, protocol.NewConfigurationFault(protocol.ConfigurationDefaultsMissing, "Node model defaults are not configured")
+		return protocol.SessionConfig{}, protocol.NewConfigurationFault(protocol.ConfigurationDefaultsMissing, "Node model defaults are not configured")
 	}
-	effective := *config
-	if draft.Execution == protocol.ConversationExecutionTeam {
-		var err error
-		effective, err = configureSessionTeam(ctx, db, effective, draft.Team)
-		if err != nil {
-			return protocol.ProviderID{}, err
-		}
+	if draft.Execution == protocol.ConversationExecutionTeam && !draft.UseExplicitConfig {
+		return configureSessionTeam(ctx, db, *config, draft.Team)
 	}
-	return effective.Provider, nil
+	return *config, nil
 }
 
 func PluginTransactionProviders(ctx context.Context, db *sql.Conn, request protocol.Request) ([]protocol.ProviderID, error) {

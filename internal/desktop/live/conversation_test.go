@@ -623,6 +623,19 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		}
 	}
 	switch request.Command.Kind {
+	case "start_session":
+		if failure != "" {
+			response.Fault = &protocol.Fault{Code: failure, Message: "Captured rejection"}
+		} else {
+			response.Output = t.admitStart(request)
+		}
+	case "read_session":
+		payload, _ := detail[protocol.CommandReadSessionPayload](request.Command.Data)
+		if session, ok := t.sessions[payload.Session]; ok {
+			response.Output = protocol.Output{Kind: "session", Data: session}
+		} else {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture session is unavailable"}
+		}
 	case "set_session_config":
 		p := request.Command.Data.(protocol.CommandSetSessionConfigPayload)
 		s := t.sessions[p.Session]
@@ -701,6 +714,29 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 	completion := make(chan link.Response, 1)
 	completion <- response
 	return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: completion}, nil
+}
+
+func (t *conversationTestTransport) admitStart(request protocol.Request) protocol.Output {
+	input, _ := detail[protocol.ConversationStart](request.Command.Data)
+	session := protocol.DefaultSession()
+	session.ID = protocol.SessionID{9}
+	session.Project, session.Config, session.Revision = input.Project, *input.Config, 1
+	session.Worktree = protocol.WorktreeID{10}
+	if input.Worktree != nil {
+		session.Worktree = *input.Worktree
+	}
+	session.Roles.Execution, session.Roles.Models = input.Execution, input.Models
+	if input.Execution == protocol.ConversationExecutionTeam {
+		session.Roles.Profiles = slices.Clone(t.snapshot.Roles)
+		if input.Team != nil {
+			session.Roles.Team = &protocol.TeamReference{ID: input.Team.ID, Revision: *input.Team.Revision}
+		}
+	}
+	t.sessions[session.ID] = session
+	turn := protocol.DefaultQueuedTurn()
+	turn.ID, turn.Session, turn.Request = protocol.TurnID{11}, session.ID, request.ID
+	turn.Kind, turn.Revision, turn.Config, turn.Roles = protocol.ConversationRunKindTask, session.Revision, session.Config, session.Roles
+	return protocol.Output{Kind: "queued_turn", Data: turn}
 }
 
 func TestComposerSendRouting(t *testing.T) {
@@ -838,21 +874,21 @@ func TestComposerSendRouting(t *testing.T) {
 		failure             protocol.ErrorCode
 		configure           bool
 	}{
-		{"new_project_session", "draft/1", "submit_turn", false, "", false},
+		{"new_project_session", "draft/1", "start_session", false, "", false},
 		{"existing", "existing", "submit_turn", false, "", false},
 		{"running_guides", "existing", "guide_turn", true, "", false},
 		{"failure_retains_draft", "existing", "submit_turn", false, protocol.ErrorCodeUnavailable, false},
 		{"unknown_retains_request", "existing", "submit_turn", false, protocol.ErrorCodeOutcomeUnknown, false},
 		{"configuration_before_admission", "existing", "submit_turn", false, "", true},
 		{"team_before_admission", "existing", "submit_turn", false, "", false},
-		{"new_team_before_admission", "draft/1", "submit_turn", false, "", false},
+		{"new_team_before_admission", "draft/1", "start_session", false, "", false},
 		{"uncertain_team_before_admission", "existing", "submit_turn", false, "", false},
 		{"replace_references", "existing", "replace_turn", false, "", false},
-		{"new_session_after_navigation", "draft/1", "submit_turn", false, "", false},
-		{"new_session_base_keeps_later_input", "draft/1", "submit_turn", false, "", false},
+		{"new_session_after_navigation", "draft/1", "start_session", false, "", false},
+		{"new_session_base_keeps_later_input", "draft/1", "start_session", false, "", false},
 		{"existing_keeps_later_attachment", "existing", "submit_turn", false, "", false},
-		{"new_session_keeps_later_attachment", "draft/1", "submit_turn", false, "", false},
-		{"new_session_base_keeps_later_attachment", "draft/1", "submit_turn", false, "", false},
+		{"new_session_keeps_later_attachment", "draft/1", "start_session", false, "", false},
+		{"new_session_base_keeps_later_attachment", "draft/1", "start_session", false, "", false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			node, project, worktree, provider := protocol.NodeID{1}, protocol.ProjectID{2}, protocol.WorktreeID{3}, protocol.ProviderID{4}
@@ -1075,7 +1111,7 @@ func TestComposerSendRouting(t *testing.T) {
 				defer transport.mu.Unlock()
 				total := 0
 				for _, request := range transport.requests {
-					if request.Command.Kind == "create_session" {
+					if request.Command.Kind == "start_session" {
 						total++
 					}
 				}
@@ -1226,12 +1262,13 @@ func TestComposerSendRouting(t *testing.T) {
 			transport.mu.Lock()
 			var commands []protocol.Request
 			for _, request := range transport.requests {
-				if request.Command.Kind == "create_session_at" || request.Command.Kind == "create_session" || request.Command.Kind == row.kind {
+				if request.Command.Kind == "create_session_at" || request.Command.Kind == "create_session" || request.Command.Kind == row.kind ||
+					row.session != "existing" && request.Command.Kind == "submit_turn" {
 					commands = append(commands, request)
 				}
 			}
 			transport.mu.Unlock()
-			if team {
+			if team && row.session == "existing" {
 				transport.mu.Lock()
 				var selected, sent int
 				var teamRequest protocol.RequestID
@@ -1251,9 +1288,7 @@ func TestComposerSendRouting(t *testing.T) {
 						sent = index + 1
 						input, _ := detail[protocol.CommandSubmitTurnPayload](request.Command.Data)
 						expected := uint64(7)
-						if row.session != "existing" {
-							expected = 2
-						} else if row.name == "uncertain_team_before_admission" {
+						if row.name == "uncertain_team_before_admission" {
 							expected = 8
 						}
 						if input.ExpectedRevision != expected {
@@ -1275,16 +1310,19 @@ func TestComposerSendRouting(t *testing.T) {
 			if row.session != "existing" {
 				// A session on the Node that holds its provider is created by
 				// that Node itself.
-				if len(commands) != 2 || commands[0].Command.Kind != "create_session" || commands[0].Target != node {
+				if len(commands) != 1 || commands[0].Command.Kind != "start_session" || commands[0].Target != node {
 					t.Fatalf("new session routing = %#v", commands)
 				}
-				create := commands[0].Command.Data.(protocol.CommandCreateSessionPayload)
+				create, _ := detail[protocol.ConversationStart](commands[0].Command.Data)
 				started := worktree
 				if based {
 					started = baseTree.ID
 				}
-				if create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != started || create.Config == nil || create.Config.Provider != provider || create.Config.Model != "fixture" {
+				if create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != started || create.Config == nil || create.Config.Provider != provider || create.Config.Model != "fixture" || !create.UseExplicitConfig {
 					t.Fatalf("captured project/Node scope = %#v", create)
+				}
+				if team && (create.Execution != protocol.ConversationExecutionTeam || create.Team == nil || create.Team.ID != snapshot.Teams[0].ID || create.Team.Revision == nil || *create.Team.Revision != 5 || len(create.Models) != 1) {
+					t.Fatalf("first admission lost its selected team: %#v", create)
 				}
 				// The session owns its draft's browser tab and no other: an agent
 				// call of the selected session rebinds nothing.
@@ -1545,9 +1583,16 @@ func TestComposerSendRouting(t *testing.T) {
 				t.Fatal("failed or unconfirmed request retained a successful-looking user message")
 			}
 			if lateAttachment {
-				sent := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)
-				if len(sent.Message.Attachments) != 0 || sent.Message.Text != message.Text {
-					t.Fatalf("submission included a later attachment: %+v", sent.Message)
+				last := commands[len(commands)-1].Command
+				var input protocol.ConversationInput
+				if last.Kind == "start_session" {
+					create, _ := detail[protocol.ConversationStart](last.Data)
+					input = create.Message
+				} else {
+					input = last.Data.(protocol.CommandSubmitTurnPayload).Message
+				}
+				if len(input.Attachments) != 0 || input.Text != message.Text {
+					t.Fatalf("submission included a later attachment: %+v", input)
 				}
 				if comp.Draft != message.Text || len(comp.Attachments) != 1 || comp.Attachments[0] != added {
 					t.Fatal("successful submission discarded a later file or pasted image", comp.Draft, comp.Attachments)
@@ -1555,7 +1600,7 @@ func TestComposerSendRouting(t *testing.T) {
 			} else if based {
 				// The first submission was sent as captured, and what was typed
 				// while its worktree was created is still the composer's.
-				sent := commands[len(commands)-1].Command.Data.(protocol.CommandSubmitTurnPayload)
+				sent, _ := detail[protocol.ConversationStart](commands[len(commands)-1].Command.Data)
 				if sent.Message.Text != "Captured draft" || len(sent.Message.References) != 0 || len(sent.Message.Attachments) != 0 {
 					t.Fatalf("the send after its base worktree = %#v", sent.Message)
 				}
@@ -1934,24 +1979,23 @@ func testSessionForwarding(t *testing.T) {
 	comp.Model = modelKey(localProvider, "fixture")
 	comp.Draft = "Keep the remote draft"
 	send(actions, comp)
-	if len(sent(0, "create_session_at")) != 0 || len(sent(1, "create_session")) != 0 ||
+	if len(sent(0, "start_session")) != 0 || len(sent(1, "start_session")) != 0 ||
 		!strings.HasPrefix(cv.ID, "draft/") || comp.Draft != "Keep the remote draft" || !slices.Contains(toasts, i18n.In("en", "chat_config_unavailable")) {
-		t.Fatalf("controller model was borrowed: local=%+v remote=%+v draft=%q toasts=%q", sent(0, "create_session_at"), sent(1, "create_session"), comp.Draft, toasts)
+		t.Fatalf("controller model was borrowed: local=%+v remote=%+v draft=%q toasts=%q", sent(0, "start_session"), sent(1, "start_session"), comp.Draft, toasts)
 	}
 	comp.Model = modelKey(remoteProvider, "fixture")
 	comp.Draft = "Create on the remote Node"
 	send(actions, comp)
-	requests := sent(1, "create_session")
-	if len(requests) != 1 || requests[0].Target != remoteNode || len(sent(0, "create_session_at")) != 0 {
-		t.Fatalf("remote session was not created by its owner: local=%+v remote=%+v", sent(0, "create_session_at"), requests)
+	requests := sent(1, "start_session")
+	if len(requests) != 1 || requests[0].Target != remoteNode || len(sent(0, "start_session")) != 0 {
+		t.Fatalf("remote session was not created by its owner: local=%+v remote=%+v", sent(0, "start_session"), requests)
 	}
-	create := requests[0].Command.Data.(protocol.CommandCreateSessionPayload)
+	create, _ := detail[protocol.ConversationStart](requests[0].Command.Data)
 	if create.Project == nil || *create.Project != project || create.Worktree == nil || *create.Worktree != worktree || create.Config == nil || create.Config.Provider != remoteProvider {
 		t.Fatalf("remote creation lost its execution Node or project: %+v", create)
 	}
-	turns := sent(1, "submit_turn")
-	if cv.ID != (protocol.SessionID{9}).String() || comp.Draft != "" || len(turns) != 1 || turns[0].Target != remoteNode {
-		t.Fatalf("after remote creation: conversation %s, draft %q, turns %+v", cv.ID, comp.Draft, turns)
+	if cv.ID != (protocol.SessionID{9}).String() || comp.Draft != "" || len(sent(1, "submit_turn")) != 0 || create.Message.Text != "Create on the remote Node" {
+		t.Fatalf("after remote creation: conversation %s, draft %q, first message %+v", cv.ID, comp.Draft, create.Message)
 	}
 	if comp.Model != modelKey(remoteProvider, "fixture") {
 		t.Fatalf("the remote session's model = %q", comp.Model)
@@ -1967,7 +2011,7 @@ func testSessionForwarding(t *testing.T) {
 	comp.Draft = "Continue the remote conversation"
 	send(actions, comp)
 	rendered = nil
-	if turns = sent(1, "submit_turn"); len(turns) != 2 || len(sent(1, "set_session_config")) != 0 || len(sent(0, "create_session_at")) != 0 {
+	if turns := sent(1, "submit_turn"); len(turns) != 1 || len(sent(1, "set_session_config")) != 0 || len(sent(0, "start_session")) != 0 {
 		t.Fatalf("a later remote send: %d turns, %d configuration saves", len(turns), len(sent(1, "set_session_config")))
 	}
 

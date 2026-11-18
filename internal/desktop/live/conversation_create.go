@@ -9,24 +9,17 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type conversationCreation struct {
-	key     string
-	command protocol.Command
-}
-
-func creationKey(c *composer.State, m composer.Message) string {
-	value, _ := json.Marshal(struct {
-		Input                                  protocol.ConversationInput
-		Host, Project, Worktree, Model, Effort string
-		Mode                                   composer.Mode
-		Permission                             composer.Permission
-		Features                               map[string]string
-	}{conversationInput(m), c.Host, c.Project, c.Worktree, m.Model, m.Effort, m.Mode, m.Permission, m.Features})
-	return string(value)
+	actions    *conversationActions
+	request    protocol.Request
+	turn       protocol.QueuedTurn
+	team       string
+	transcript bool
+	dispatched bool
+	finish     func(protocol.Output, bool)
 }
 
 // composerProviders are the providers owned by this execution Node, plus the
@@ -87,18 +80,6 @@ func (r *Runtime) memberModels(offered []composer.Model) []composer.Model {
 	return own
 }
 
-// creationCommand creates the session on the Node selected by its project or
-// explicit host. Provider configuration is resolved there.
-func (r *Runtime) creationCommand(project *protocol.ProjectID, worktree *protocol.WorktreeID, config protocol.SessionConfig, revision uint64) protocol.Command {
-	return protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: project, Worktree: worktree, Config: &config}}
-}
-
-// executeCreation sends a session creation command to its selected execution
-// Node.
-func (r *Runtime) executeCreation(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) {
-	r.executeScoped(scope, command, finished)
-}
-
 // reportCreation toasts why a session was not created. A model that is not
 // configured, as a provider the local Node no longer has or an account
 // sign-in that stays with the Node it was made on, is its own failure.
@@ -110,59 +91,184 @@ func (r *Runtime) reportCreation(c *ui.Context, err error) {
 	r.report(c, err, "session_changed")
 }
 
-// adoptForwarded shows a forwarded session's own configuration, whose
-// provider is the private copy the execution Node made.
-func (r *Runtime) adoptForwarded(comp *composer.State, session protocol.Session) {
-	if session.Profile != nil {
-		r.applyComposer(comp, session.Config)
+// start captures the first message and its session settings before an optional
+// managed worktree is created. The Node admits both in one transaction.
+func (x *conversationActions) start(m composer.Message, config protocol.SessionConfig, transcript bool, finish func(protocol.Output, bool)) {
+	r := x.r
+	if x.comp.Host != "" && x.comp.Host != r.controller.Target().String() {
+		r.discardUnsubmitted(x.cv.ID)
+		x.unavailable()
+		return
 	}
+	var project *protocol.ProjectID
+	if x.comp.Project != "" {
+		id, err := protocol.ParseProjectID(x.comp.Project)
+		if err != nil {
+			r.discardUnsubmitted(x.cv.ID)
+			x.unavailable()
+			return
+		}
+		project = &id
+	}
+	for _, a := range m.Attachments {
+		var record *attachmentRecord
+		if r.attachments != nil {
+			record = r.attachments.items[a]
+		}
+		if record == nil || record.conversation != x.cv.ID || record.ready == nil || record.ready.Spec.Worktree != (protocol.WorktreeID{}) || a.ID != record.ready.ID.String() {
+			r.discardUnsubmitted(x.cv.ID)
+			x.unavailable()
+			return
+		}
+	}
+	execution, err := r.composerExecution(x.comp)
+	if err != nil {
+		r.failCreation(x.c, x, err)
+		return
+	}
+	input := protocol.ConversationStart{
+		Project: project, Config: &config, Message: conversationInput(m), UseExplicitConfig: true,
+		Execution: execution.Execution, Team: execution.Team, Models: execution.Models,
+	}
+	pending := &conversationCreation{actions: x, team: composerTeamKey(x.comp), transcript: transcript, finish: finish}
+	begin := func() {
+		input.Worktree = r.draftWorktree(x.comp, project)
+		pending.request = r.controller.Prepare(protocol.Command{Kind: "start_session", Data: &input})
+		r.conversationCreations[x.cv.ID] = pending
+		pending.resume()
+	}
+	if base := r.pendingSessionBase(x.comp); base != nil {
+		x.startSessionBase(base, func(c *ui.Context, err error) {
+			if err != nil {
+				if !r.failUnsubmitted(c, x.cv.ID, err) {
+					r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+				}
+				return
+			}
+			begin()
+		})
+		return
+	}
+	begin()
 }
 
-func (x *conversationActions) create(command protocol.Command, m composer.Message, finish func(protocol.Output, bool)) {
-	before := x.cv.ID
-	x.r.conversationCreating[before] = true
-	x.r.executeCreation("create/"+before, command, func(c *ui.Context, out protocol.Output, err error) {
-		delete(x.r.conversationCreating, before)
-		if err != nil {
-			x.r.discardUnsubmitted(before)
-			if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-				x.offerRestore(c, err)
+func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error) {
+	r.discardOutgoing(x.cv.ID)
+	if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
+		x.offerRestore(c, err)
+		return
+	}
+	r.reportCreation(c, err)
+}
+
+// resume asks about an uncertain first message using its original request ID.
+// Once the turn is admitted, only the session read may need to be retried.
+func (p *conversationCreation) resume() {
+	x := p.actions
+	r, before := x.r, x.cv.ID
+	if r.conversationCreating[before] {
+		return
+	}
+	if p.transcript {
+		x.stageOutgoing(*x.restore)
+	}
+	r.conversationCreating[before] = true
+	if p.turn.Session != (protocol.SessionID{}) {
+		p.readSession()
+		return
+	}
+	first := !p.dispatched
+	p.dispatched = true
+	request := p.request
+	r.async(func() {
+		var output protocol.Output
+		var err error
+		if first {
+			output, err = r.controller.Settle(r.ctx, request)
+		} else {
+			resolution, readErr := r.controller.Resolve(r.ctx, request)
+			if readErr != nil {
+				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
 			} else {
-				x.r.reportCreation(c, err)
+				output, err = resolution.Result()
 			}
-			if faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-				delete(x.r.conversationCreations, before)
+		}
+		r.enqueue(func(c *ui.Context) {
+			turn, ok := detail[protocol.QueuedTurn](output.Data)
+			if err == nil && output.Kind == "queued_turn" && ok && turn.Request == request.ID && turn.ID != (protocol.TurnID{}) && turn.Session != (protocol.SessionID{}) {
+				p.turn = turn
+				p.readSession()
+				return
 			}
-			return
-		}
-		session, valid := detail[protocol.Session](out.Data)
-		if !valid {
-			x.r.discardUnsubmitted(before)
-			x.r.report(c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Session creation result is unavailable"}}, "session_changed")
-			return
-		}
-		delete(x.r.conversationCreations, before)
-		x.r.admittedSessions[session.ID.String()] = session
-		x.r.App.ReplaceConversationID(before, session.ID.String())
-		if pending := x.r.composerOutgoing[before]; pending != nil {
-			delete(x.r.composerOutgoing, before)
-			x.r.composerOutgoing[session.ID.String()] = pending
-		}
-		x.r.browserAdopt(before, session.ID.String())
-		x.cv.ID = session.ID.String()
-		x.r.composerInitialized[x.cv.ID] = true
-		x.r.composerRevisions[x.cv.ID] = session.Revision
-		x.r.composerBases[x.comp] = session.Config
-		x.r.adoptForwarded(x.comp, session)
-		key, _ := json.Marshal(session.Config)
-		x.r.composerObserved[x.cv.ID] = string(key)
-		// The created session stays selected only where its draft still is.
-		x.r.project()
-		if x.created != nil {
-			x.created(session)
-		}
-		x.r.withComposerTeam(session, x.comp, func(current protocol.Session) {
-			x.turn(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: current.ID, ExpectedRevision: current.Revision, Message: conversationInput(m)}}, finish)
+			if err == nil || faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+				for _, observed := range r.snapshot().Turns {
+					if observed.Request == request.ID {
+						p.turn = protocol.QueuedTurn{ID: observed.ID, Session: observed.Session, Request: observed.Request}
+						p.readSession()
+						return
+					}
+				}
+				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
+			} else {
+				delete(r.conversationCreations, before)
+			}
+			delete(r.conversationCreating, before)
+			r.failCreation(c, x, err)
 		})
 	})
+}
+
+func (p *conversationCreation) readSession() {
+	x := p.actions
+	r, before := x.r, x.cv.ID
+	id := p.turn.Session
+	if session, ok := r.session(id.String()); ok && session.Revision >= p.turn.Revision {
+		p.adopt(session)
+		return
+	}
+	r.executeScoped("open-created/"+before, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}, func(c *ui.Context, out protocol.Output, err error) {
+		session, ok := detail[protocol.Session](out.Data)
+		if err != nil || out.Kind != "session" || !ok || session.ID != id || session.Revision < p.turn.Revision {
+			delete(r.conversationCreating, before)
+			r.failCreation(c, x, fileActionFault(protocol.ErrorCodeOutcomeUnknown, "admitted conversation is unavailable"))
+			return
+		}
+		p.adopt(session)
+	})
+}
+
+func (p *conversationCreation) adopt(session protocol.Session) {
+	x := p.actions
+	r, before, after := x.r, x.cv.ID, session.ID.String()
+	delete(r.conversationCreating, before)
+	delete(r.conversationCreations, before)
+	r.admittedSessions[after] = session
+	r.App.ReplaceConversationID(before, after)
+	if pending := r.composerOutgoing[before]; pending != nil {
+		delete(r.composerOutgoing, before)
+		pending.request, pending.turn = p.request.ID, p.turn.ID
+		r.composerOutgoing[after] = pending
+	}
+	r.browserAdopt(before, after)
+	x.cv.ID = after
+	r.composerInitialized[after] = true
+	r.composerRevisions[after] = session.Revision
+	r.composerBases[x.comp] = session.Config
+	key, _ := json.Marshal(session.Config)
+	r.composerObserved[after] = string(key)
+	if r.teams != nil {
+		state := r.teams.composers[before]
+		delete(r.teams.composers, before)
+		if state == nil {
+			state = &teamComposer{composer: x.comp}
+		}
+		state.revision, state.observed = session.Revision, p.team
+		r.teams.composers[after] = state
+	}
+	r.adoptDraftAttachments(before, session, x.restore.Attachments)
+	r.project()
+	if x.created != nil {
+		x.created(session)
+	}
+	p.finish(protocol.Output{Kind: "queued_turn", Data: p.turn}, true)
 }

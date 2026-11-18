@@ -27,7 +27,7 @@ type NativeFileActions struct {
 type attachmentRecord struct {
 	cancel            context.CancelFunc
 	running, removing bool
-	session           protocol.SessionID
+	conversation      string
 	worktree          protocol.WorktreeID
 	ready             *protocol.Attachment
 	pending           *protocol.Request
@@ -115,7 +115,7 @@ func (r *Runtime) bindComposerAttachments(x *conversationActions) {
 		return
 	}
 	r.projectDraftAttachmentImages(x)
-	callbacks := &composer.AttachmentCallbacks{Remove: func(a *composer.Attachment) { r.discardAttachment(x, a) }, Image: func(action kit.ImageAction, a *composer.Attachment) { r.draftImageAction(x, action, a) }}
+	callbacks := &composer.AttachmentCallbacks{Locked: x.attachmentsLocked, Remove: x.Discard, Image: func(action kit.ImageAction, a *composer.Attachment) { r.draftImageAction(x, action, a) }}
 	callbacks.Pick = func() { r.chooseAttachments(x) }
 	x.comp.SetAttachmentCallbacks(callbacks)
 }
@@ -145,7 +145,7 @@ func (r *Runtime) chooseAttachments(x *conversationActions) {
 		}
 	}
 	root.App.Sidebar.ChooseFiles(x.c, root.controller.Target().String(), initial, func(paths []string) {
-		if !x.readonly() {
+		if !x.readonly() && !x.attachmentsLocked() {
 			x.comp.AttachPaths(x.c, paths, x)
 		}
 	})
@@ -161,6 +161,22 @@ func (r *Runtime) attachmentsCommitted(attachments []*composer.Attachment) {
 			}
 			delete(r.attachments.items, attachment)
 		}
+	}
+}
+
+func (r *Runtime) adoptDraftAttachments(draft string, session protocol.Session, attachments []*composer.Attachment) {
+	if r.attachments == nil {
+		return
+	}
+	for _, a := range attachments {
+		record := r.attachments.items[a]
+		if record == nil || record.ready == nil {
+			continue
+		}
+		delete(r.attachments.files, attachmentKey(draft, record.ready.ID.String()))
+		attachment := *record.ready
+		attachment.Spec.Worktree = session.Worktree
+		r.registerConversationAttachment(session.ID.String(), attachment)
 	}
 }
 func (r *Runtime) attachmentDownloadDialog(c *ui.Context) {
@@ -192,6 +208,9 @@ func (r *Runtime) removeDraftAttachment(attachment *composer.Attachment, record 
 			record.composer.Attachments = append(items[:index:index], items[index+1:]...)
 			break
 		}
+	}
+	if record.ready != nil && record.worktree == (protocol.WorktreeID{}) {
+		delete(r.attachments.files, attachmentKey(record.conversation, record.ready.ID.String()))
 	}
 	delete(r.attachments.items, attachment)
 }

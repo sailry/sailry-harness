@@ -53,18 +53,3 @@ func TestComposerProvidersStayOnTheirExecutionNode(t *testing.T) {
 		t.Fatal("merging channels modified a source snapshot")
 	}
 }
-
-func TestNewSessionCreationStaysOnSelectedNode(t *testing.T) {
-	t.Parallel()
-	r := &Runtime{parent: &Runtime{}}
-	project := protocol.ProjectID{3}
-	worktree := protocol.WorktreeID{4}
-	command := r.creationCommand(&project, &worktree, protocol.DefaultSessionConfig(), 9)
-	if command.Kind != "create_session" {
-		t.Fatalf("new session creation command = %q, want create_session", command.Kind)
-	}
-	payload, ok := command.Data.(protocol.CommandCreateSessionPayload)
-	if !ok || payload.Project == nil || *payload.Project != project || payload.Worktree == nil || *payload.Worktree != worktree {
-		t.Fatalf("creation payload lost the selected project or worktree: %+v", command.Data)
-	}
-}

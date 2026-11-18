@@ -65,7 +65,7 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 		if entries, err = os.ReadDir(staging); err != nil || len(entries) != 2 {
 			t.Fatalf("staging during an upload: %v, %v", entries, err)
 		}
-		if err := transfers.Cancel(protocol.NodeID{1}, upload.Stream); err != nil {
+		if err := transfers.Cancel(protocol.NodeID{1}, protocol.UserID{}, upload.Stream); err != nil {
 			t.Fatal(err)
 		}
 		if entries, err = os.ReadDir(staging); err != nil || len(entries) != 1 {
@@ -83,28 +83,28 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 			}
 			other := caller
 			other[0]++
-			if _, err = transfers.Open(ctx, other, upload.Stream); err == nil {
+			if _, err = transfers.Open(ctx, other, protocol.UserID{}, upload.Stream); err == nil {
 				t.Fatal("another caller opened the stream")
 			}
 			if scenario == "expiry" {
 				transfers.mu.Lock()
 				transfers.entries[upload.Stream].expires = transfers.now().Add(-time.Second)
 				transfers.mu.Unlock()
-				if _, err = transfers.Open(ctx, caller, upload.Stream); err == nil {
+				if _, err = transfers.Open(ctx, caller, protocol.UserID{}, upload.Stream); err == nil {
 					t.Fatal("expired stream opened")
 				}
 				return
 			}
-			stream, err := transfers.Open(ctx, caller, upload.Stream)
+			stream, err := transfers.Open(ctx, caller, protocol.UserID{}, upload.Stream)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer stream.Close()
-			if _, err = transfers.Open(ctx, caller, upload.Stream); err == nil {
+			if _, err = transfers.Open(ctx, caller, protocol.UserID{}, upload.Stream); err == nil {
 				t.Fatal("stream opened twice")
 			}
 			if scenario == "active cancellation" {
-				if err = transfers.Cancel(caller, upload.Stream); err != nil {
+				if err = transfers.Cancel(caller, protocol.UserID{}, upload.Stream); err != nil {
 					t.Fatal(err)
 				}
 				if _, err = stream.Write([]byte("hello")); err == nil {
@@ -127,7 +127,7 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 				t.Fatal(err)
 			}
 			finish := protocol.Command{Kind: "finish_file_upload", Data: &protocol.CommandFinishFileUploadPayload{Worktree: spec.Worktree, Path: spec.Path, Stream: upload.Stream}}
-			output, err := transfers.Finish(ctx, caller, root, finish)
+			output, err := transfers.Finish(ctx, caller, protocol.UserID{}, root, finish)
 			if scenario == "digest mismatch" {
 				if err == nil || len(ready) != 0 {
 					t.Fatalf("mismatched upload published: %v %v", ready, err)
@@ -145,7 +145,7 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			received, err := transfers.Open(ctx, caller, download.Stream)
+			received, err := transfers.Open(ctx, caller, protocol.UserID{}, download.Stream)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -155,7 +155,7 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 			if err != nil || string(data) != "hello" || download.Revision != spec.Revision || download.Stamp == "" {
 				t.Fatalf("download %q %+v %v", data, download, err)
 			}
-			if _, err = transfers.Finish(ctx, caller, root, finish); err == nil {
+			if _, err = transfers.Finish(ctx, caller, protocol.UserID{}, root, finish); err == nil {
 				t.Fatal("finished upload was replayed")
 			}
 		})
@@ -188,11 +188,11 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 	t.Run("verified command inputs", func(t *testing.T) {
 		transfers, root, caller := transferFixture(t)
 		spec := protocol.AttachmentSpec{Worktree: protocol.NewWorktreeID(), Name: "display-only.txt", MediaType: "text/plain", Size: 5, Revision: revision([]byte("input"))}
-		upload, err := transfers.UploadAttachment(ctx, caller, root, spec)
+		upload, err := transfers.UploadAttachment(ctx, caller, protocol.NewUserID(), root, spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		stream, err := transfers.Open(ctx, caller, upload.Stream)
+		stream, err := transfers.Open(ctx, caller, protocol.UserID{}, upload.Stream)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -207,7 +207,7 @@ func TestTransferRegistryAndStreams(t *testing.T) {
 		if err != nil || len(ready) != 1 || ready[0] != protocol.FILE_UPLOAD_READY {
 			t.Fatalf("attachment readiness: %v %v", ready, err)
 		}
-		output, err := transfers.Finish(ctx, caller, root, protocol.Command{Kind: "finish_attachment_upload", Data: &protocol.CommandFinishAttachmentUploadPayload{Worktree: spec.Worktree, Stream: upload.Stream}})
+		output, err := transfers.Finish(ctx, caller, protocol.UserID{}, root, protocol.Command{Kind: "finish_attachment_upload", Data: &protocol.CommandFinishAttachmentUploadPayload{Worktree: spec.Worktree, Stream: upload.Stream}})
 		if err != nil {
 			t.Fatal(err)
 		}

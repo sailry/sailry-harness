@@ -11,16 +11,11 @@ import (
 
 func startSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
 	draft := request.Command.Data.(*protocol.ConversationStart)
-	config := draft.Config
-	if config == nil {
-		defaults, err := ReadDefaults(ctx, db)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		config = defaults.Config
+	if draft.UseExplicitConfig && request.Plugin != nil {
+		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "the selected configuration requires a native controller")
 	}
-	if config == nil {
-		return protocol.Output{}, nil, protocol.NewConfigurationFault(protocol.ConfigurationDefaultsMissing, "Node model defaults are not configured")
+	if err := validateAgentInput(draft.Message); err != nil {
+		return protocol.Output{}, nil, err
 	}
 	if draft.Association != nil {
 		if err := validateSessionAssociation(*draft.Association); err != nil {
@@ -31,12 +26,9 @@ func startSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	effective := *config
-	if draft.Execution == protocol.ConversationExecutionTeam {
-		effective, err = configureSessionTeam(ctx, db, effective, draft.Team)
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
+	effective, err := startSessionConfig(ctx, db, *draft)
+	if err != nil {
+		return protocol.Output{}, nil, err
 	}
 	output, _, err := createSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Project: draft.Project, Worktree: draft.Worktree, Config: &effective}, roles)
 	if err != nil {
@@ -48,13 +40,17 @@ func startSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profi
 			return protocol.Output{}, nil, err
 		}
 	}
-	output, _, err = renameSession(ctx, db, protocol.CommandRenameSessionPayload{Session: session.ID, ExpectedRevision: session.Revision, Title: draft.Title})
-	if err != nil {
-		return protocol.Output{}, nil, err
+	if draft.Title != "" || request.Plugin != nil {
+		output, _, err = renameSession(ctx, db, protocol.CommandRenameSessionPayload{Session: session.ID, ExpectedRevision: session.Revision, Title: draft.Title})
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		session = output.Data.(protocol.Session)
 	}
-	session = output.Data.(protocol.Session)
-	if err = validateAgentInput(draft.Message); err != nil {
-		return protocol.Output{}, nil, err
+	if request.Plugin == nil {
+		if err = adoptDraftAttachments(ctx, db, caller, session.Worktree, draft.Message.Attachments); err != nil {
+			return protocol.Output{}, nil, err
+		}
 	}
 	if err = validateAgentReferences(ctx, db, session, draft.Message, nil); err != nil {
 		return protocol.Output{}, nil, err

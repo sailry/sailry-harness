@@ -102,6 +102,15 @@ func (node *Node) authorizeCommandDB(ctx context.Context, db *sql.Conn, caller p
 	if user.State != "active" {
 		return permissionDenied()
 	}
+	if request.Command.UsesDraftAttachment() {
+		storage, captured := store.CapturedUserFromContext(ctx)
+		if request.Plugin != nil || captured && storage != user.ID {
+			return permissionDenied()
+		}
+		// The transfer service and the draft table check the authenticated user
+		// and device in place of worktree membership.
+		return nil
+	}
 	switch policy {
 	case accessMachine:
 		if !user.Administrator {

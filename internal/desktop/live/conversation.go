@@ -1,7 +1,6 @@
 package live
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"slices"
 	"strconv"
@@ -684,13 +683,21 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 	x.submit(m, guide, queue, composerFingerprint(x.comp))
 }
 
-// submit sends the captured submission m, whose composer read draft when it
-// was captured. A send that first waits for its base worktree continues
-// here, so the composer keeps whatever was typed meanwhile.
+// submit sends the captured message, keeping edits made while it is pending.
 func (x *conversationActions) submit(m composer.Message, guide, queue bool, draft string) {
 	if x.readonly() {
 		x.unavailable()
 		return
+	}
+	draftSession := unsentDraft(x.cv)
+	if draftSession {
+		if pending := x.r.conversationCreations[x.cv.ID]; pending != nil {
+			pending.resume()
+			return
+		}
+		if x.r.conversationCreating[x.cv.ID] {
+			return
+		}
 	}
 	for _, attachment := range m.Attachments {
 		if attachment.Status != composer.Ready || attachment.ID == "" {
@@ -716,35 +723,13 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 			x.comp.References = nil
 			x.comp.Attachments = nil
 			x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
+		} else if ok && draftSession {
+			x.comp.Attachments = slices.DeleteFunc(x.comp.Attachments, func(a *composer.Attachment) bool {
+				return slices.Contains(m.Attachments, a)
+			})
 		}
 		if ok {
 			x.r.pluginCommandIntent(composerPluginScope(x.r, x.cv, x.comp), x.cv.ID, output)
-		}
-	}
-	if strings.HasPrefix(x.cv.ID, "draft/") {
-		if x.r.conversationCreating[x.cv.ID] {
-			return
-		}
-		if start := x.r.pendingSessionBase(x.comp); start != nil {
-			x.startSessionBase(start, func(c *ui.Context, err error) {
-				if err != nil {
-					x.r.discardUnsubmitted(x.cv.ID)
-					if faultCode(err) != protocol.ErrorCodeOutcomeUnknown && x.restoreDraft != composerFingerprint(x.comp) {
-						x.offerRestore(c, err)
-					} else {
-						x.r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-					}
-					return
-				}
-				next := *x
-				next.c = c
-				next.submit(m, guide, queue, draft)
-			})
-			return
-		}
-		if captured, ok := x.r.conversationCreations[x.cv.ID]; ok && captured.key == creationKey(x.comp, m) {
-			x.create(captured.command, m, finish)
-			return
 		}
 	}
 	if session, exists := x.r.session(x.cv.ID); exists && session.Profile != nil && session.Profile.Source != x.r.controller.Target() {
@@ -752,7 +737,7 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		x.r.reportCreation(x.c, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "legacy remote model sessions cannot start new turns on this Node"}})
 		return
 	}
-	config, revision, err := x.r.composerConfig(x.comp, m)
+	config, _, err := x.r.composerConfig(x.comp, m)
 	if err != nil {
 		x.r.discardUnsubmitted(x.cv.ID)
 		if _, exists := x.r.session(x.cv.ID); exists {
@@ -763,6 +748,10 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		return
 	}
 	x.r.rememberConfig(config, x.comp.Team)
+	if draftSession {
+		x.start(m, config, !guide && !queue, finish)
+		return
+	}
 	if s, ok := x.r.session(x.cv.ID); ok {
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
@@ -796,26 +785,8 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 		})
 		return
 	}
-	node := x.r.controller.Target()
-	owner := hex.EncodeToString(node[:])
-	if x.comp.Host != "" && x.comp.Host != owner {
-		x.r.discardUnsubmitted(x.cv.ID)
-		x.unavailable()
-		return
-	}
-	var project *protocol.ProjectID
-	if x.comp.Project != "" {
-		if id, err := protocol.ParseProjectID(x.comp.Project); err == nil {
-			project = &id
-		} else {
-			x.r.discardUnsubmitted(x.cv.ID)
-			x.unavailable()
-			return
-		}
-	}
-	command := x.r.creationCommand(project, x.r.draftWorktree(x.comp, project), config, revision)
-	x.r.conversationCreations[x.cv.ID] = conversationCreation{key: creationKey(x.comp, m), command: command}
-	x.create(command, m, finish)
+	x.r.discardUnsubmitted(x.cv.ID)
+	x.unavailable()
 }
 
 func (x *conversationActions) activeRun() (protocol.ConversationRun, bool) {
@@ -950,14 +921,18 @@ func (x *conversationActions) OpenService(port int) {
 	}
 }
 func (x *conversationActions) Upload(a *composer.Attachment) {
-	if !x.readonly() {
+	if !x.readonly() && !x.attachmentsLocked() {
 		x.r.uploadAttachment(x, a)
 	}
 }
 func (x *conversationActions) Discard(a *composer.Attachment) {
-	if !x.readonly() {
+	if !x.readonly() && !x.attachmentsLocked() {
 		x.r.discardAttachment(x, a)
 	}
+}
+
+func (x *conversationActions) attachmentsLocked() bool {
+	return unsentDraft(x.cv) && x.r.draftSubmitted(x.cv)
 }
 
 var _ shell.ConversationActions = (*conversationActions)(nil)

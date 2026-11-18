@@ -26,6 +26,9 @@ var seq int
 // A batch that would pass the limit is refused whole, with the limit's toast
 // (attach_drafts).
 func (s *State) add(c *ui.Context, list []*Attachment, actions Actions) {
+	if s.attachmentsLocked() {
+		return
+	}
 	if len(list) > MaxAttachments-len(s.Attachments) {
 		kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
 		return
@@ -64,6 +67,9 @@ var pastedImages = []struct {
 // text the clipboard has; a picture attaches only when the clipboard has no
 // text, which is the draft's otherwise. It reports whether it took the paste.
 func (s *State) paste(c *ui.Context, text string, actions Actions) bool {
+	if s.attachmentsLocked() {
+		return false
+	}
 	sv := c.Services()
 	offered := sv.ClipboardFormats()
 	var list []*Attachment
@@ -199,6 +205,9 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 	}
 	if len(cards) == 0 {
 		return
+	}
+	if s.attachmentsLocked() {
+		actions = nil
 	}
 	s.strip(c.Key("attachments"), cards, actions).FillWidth().Shrink(0).Padding(8, 2, 2, 2)
 }
@@ -336,6 +345,9 @@ func round(c *ui.Context, key string, icon *ui.SVG, label string, fn func()) {
 
 // remove takes a file out of the draft and tells the backend.
 func (s *State) remove(a *Attachment, actions Actions) {
+	if s.attachmentsLocked() {
+		return
+	}
 	if s.attachmentCallbacks != nil && s.attachmentCallbacks.Remove != nil {
 		s.attachmentCallbacks.Remove(a)
 		return

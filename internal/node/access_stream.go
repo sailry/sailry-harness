@@ -19,28 +19,31 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 	if err != nil {
 		return nil, err
 	}
-	worktree, found, err := node.transfers.Scope(caller, id)
+	user := userFromContext(verified)
+	scope, found, err := node.transfers.Scope(caller, user.ID, id)
 	if err != nil {
 		return nil, err
 	}
-	user := userFromContext(verified)
 	check := func(next context.Context) error {
 		current, err := node.authenticate(store.WithUser(next, user), caller)
 		if err != nil {
 			return err
 		}
-		if !found || worktree == (protocol.WorktreeID{}) {
+		if scope.Draft && userFromContext(current).ID != user.ID {
+			return permissionDenied()
+		}
+		if !found || scope.Worktree == (protocol.WorktreeID{}) {
 			return nil
 		}
 		return node.profile.Store.Node.Read(current, func(db *sql.Conn) error {
 			var present bool
-			if err := db.QueryRowContext(current, "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)", worktree.String()).Scan(&present); err != nil {
+			if err := db.QueryRowContext(current, "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)", scope.Worktree.String()).Scan(&present); err != nil {
 				return err
 			}
 			if !present {
 				return permissionDenied()
 			}
-			return store.CheckWorktreeAccess(current, db, worktree)
+			return store.CheckWorktreeAccess(current, db, scope.Worktree)
 		})
 	}
 	if err = check(ctx); err != nil {

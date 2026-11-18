@@ -201,6 +201,9 @@ keep their package and settings revisions. Device monitoring has its own selecti
 
 New sessions are created on the Node that owns the selected model. Existing
 durable request ledgers continue to bind recovery to the original identity.
+Desktop stages a draft's attachments on its selected Node, scoped to the
+authenticated user and device. Admission of the first message creates the
+session and binds those attachments to its worktree in one transaction.
 
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy

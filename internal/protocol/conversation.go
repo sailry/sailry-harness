@@ -83,6 +83,9 @@ type ConversationStart struct {
 	Association *ConversationAssociation `json:"association,omitempty"`
 	Team        *TeamSelection           `json:"team,omitempty"`
 	Models      map[RoleID]RoleModel     `json:"models,omitempty"`
+	// UseExplicitConfig keeps a native controller's selected lead configuration
+	// when the team also has a default lead. Config is required when set.
+	UseExplicitConfig bool `json:"use_explicit_config,omitempty"`
 }
 
 func DefaultConversationStart() ConversationStart {
@@ -105,7 +108,7 @@ func (value *ConversationStart) UnmarshalJSON(data []byte) error {
 	decoded.Association = nil
 	decoded.Team = nil
 	decoded.Models = map[RoleID]RoleModel{}
-	if err := DecodeObject(data, &decoded, []string{"title", "message"}, true); err != nil {
+	if err := DecodeObject(data, &decoded, []string{"message"}, true); err != nil {
 		return err
 	}
 	*value = ConversationStart(decoded)

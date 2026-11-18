@@ -192,7 +192,7 @@ func digest(data []byte) string {
 // sendUpload plays the controller side of a staged upload stream.
 func sendUpload(t *testing.T, transfers *files.Transfers, caller protocol.NodeID, stream protocol.StreamID, data []byte) {
 	t.Helper()
-	controller, err := transfers.Open(t.Context(), caller, stream)
+	controller, err := transfers.Open(t.Context(), caller, protocol.UserID{}, stream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,10 +399,10 @@ func TestSftpIntegration(t *testing.T) {
 		if err != nil || download.Path != target || download.Size != uint64(len(data)) || download.Revision != digest(data) {
 			t.Fatalf("download = %+v, %v", download, err)
 		}
-		if _, err = transfers.Open(t.Context(), other, download.Stream); err == nil {
+		if _, err = transfers.Open(t.Context(), other, protocol.UserID{}, download.Stream); err == nil {
 			t.Fatal("another caller opened the download")
 		}
-		stream, err := transfers.Open(t.Context(), caller, download.Stream)
+		stream, err := transfers.Open(t.Context(), caller, protocol.UserID{}, download.Stream)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -411,7 +411,7 @@ func TestSftpIntegration(t *testing.T) {
 		if err != nil || !bytes.Equal(received, data) {
 			t.Fatalf("received %d bytes, %v", len(received), err)
 		}
-		if _, err = transfers.Open(t.Context(), caller, download.Stream); err == nil {
+		if _, err = transfers.Open(t.Context(), caller, protocol.UserID{}, download.Stream); err == nil {
 			t.Fatal("download stream opened twice")
 		}
 		if _, err = transfers.DownloadSSH(t.Context(), caller, client, sftpPath(remote)); code(err) != protocol.ErrorCodeInvalidRequest {

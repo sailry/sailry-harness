@@ -20,6 +20,8 @@ type AttachmentCallbacks struct {
 	Pick   func()
 	Remove func(*Attachment)
 	Image  func(kit.ImageAction, *Attachment)
+	// Locked holds attachment changes while the first message is admitted.
+	Locked func() bool
 }
 
 func (s *State) SetAttachmentCallbacks(callbacks *AttachmentCallbacks) {
@@ -38,7 +40,11 @@ func (s *State) openFiles(c *ui.Context, ctx *Context) {
 // canPickFiles reports whether files can be chosen: not in a read-only
 // conversation, and only where the window offers its picker.
 func (s *State) canPickFiles(ctx *Context) bool {
-	return !ctx.Readonly && s.attachmentCallbacks != nil && s.attachmentCallbacks.Pick != nil
+	return !ctx.Readonly && !s.attachmentsLocked() && s.attachmentCallbacks != nil && s.attachmentCallbacks.Pick != nil
+}
+
+func (s *State) attachmentsLocked() bool {
+	return s.attachmentCallbacks != nil && s.attachmentCallbacks.Locked != nil && s.attachmentCallbacks.Locked()
 }
 
 // SetReferenceChildren keeps an open page tied to its current shared listing.
@@ -59,6 +65,9 @@ func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
 // of the draft: all of them or, over the limit, none. They have no cards
 // (Attachment.Chip) and leave when the chip is deleted (dropChipped).
 func (s *State) AttachElement(c *ui.Context, id, label string, list []*Attachment, actions Actions) bool {
+	if s.attachmentsLocked() {
+		return false
+	}
 	if len(s.Attachments)+len(list) > MaxAttachments {
 		kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
 		return false

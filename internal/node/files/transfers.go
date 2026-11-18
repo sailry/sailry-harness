@@ -26,6 +26,7 @@ const idleTimeout = 30 * time.Second
 
 type transferEntry struct {
 	caller     protocol.NodeID
+	draftUser  protocol.UserID
 	root       string
 	worktree   protocol.WorktreeID
 	state      string
@@ -48,6 +49,10 @@ type transferEntry struct {
 	stamp      string
 	cancel     context.CancelFunc
 	service    link.Stream
+}
+
+func (e *transferEntry) ownedBy(caller protocol.NodeID, user protocol.UserID) bool {
+	return e.caller == caller && (e.draftUser == (protocol.UserID{}) || e.draftUser == user)
 }
 
 // Transfers is the one resource owner for authenticated, single-use file streams.
@@ -228,10 +233,17 @@ func (t *Transfers) UploadFile(ctx context.Context, caller protocol.NodeID, root
 	}
 	return out, err
 }
-func (t *Transfers) UploadAttachment(ctx context.Context, caller protocol.NodeID, root string, spec protocol.AttachmentSpec) (protocol.AttachmentUpload, error) {
+func (t *Transfers) UploadAttachment(ctx context.Context, caller protocol.NodeID, user protocol.UserID, root string, spec protocol.AttachmentSpec) (protocol.AttachmentUpload, error) {
 	ctx, cancel := t.withTimeout(ctx, prepareTimeout)
 	defer cancel()
 	out := protocol.AttachmentUpload{Spec: spec}
+	var draftUser protocol.UserID
+	if spec.Worktree == (protocol.WorktreeID{}) {
+		if user == (protocol.UserID{}) {
+			return out, invalid("draft attachment requires an owner")
+		}
+		draftUser = user
+	}
 	if err := ValidateAttachment(spec); err != nil {
 		return out, err
 	}
@@ -245,7 +257,7 @@ func (t *Transfers) UploadAttachment(ctx context.Context, caller protocol.NodeID
 		return out, err
 	}
 	attachment := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: spec}
-	e := &transferEntry{files: fs, attachment: &attachment, size: spec.Size, revision: spec.Revision}
+	e := &transferEntry{files: fs, attachment: &attachment, size: spec.Size, revision: spec.Revision, draftUser: draftUser}
 	e.target, err = fs.PrepareUploadTarget(ctx, attachment.ID.String(), nil, attachmentLimit)
 	if err != nil {
 		cleanupTransfer(e)
@@ -334,13 +346,20 @@ func hashOpenFile(ctx context.Context, file *os.File, size uint64) (string, erro
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
-func (t *Transfers) DownloadAttachment(ctx context.Context, caller protocol.NodeID, root string, attachment protocol.Attachment) (protocol.AttachmentDownload, error) {
+func (t *Transfers) DownloadAttachment(ctx context.Context, caller protocol.NodeID, user protocol.UserID, root string, attachment protocol.Attachment) (protocol.AttachmentDownload, error) {
 	out := protocol.AttachmentDownload{Attachment: attachment}
+	var draftUser protocol.UserID
+	if attachment.Spec.Worktree == (protocol.WorktreeID{}) {
+		if user == (protocol.UserID{}) {
+			return out, invalid("draft attachment requires an owner")
+		}
+		draftUser = user
+	}
 	file, err := t.OpenAttachment(attachment)
 	if err != nil {
 		return out, err
 	}
-	e := &transferEntry{file: file, download: true, attachment: &attachment, size: attachment.Spec.Size, revision: attachment.Spec.Revision}
+	e := &transferEntry{file: file, download: true, attachment: &attachment, size: attachment.Spec.Size, revision: attachment.Spec.Revision, draftUser: draftUser}
 	if err = ctx.Err(); err != nil {
 		cleanupTransfer(e)
 		return out, err
@@ -351,13 +370,13 @@ func (t *Transfers) DownloadAttachment(ctx context.Context, caller protocol.Node
 	}
 	return out, err
 }
-func (t *Transfers) Open(ctx context.Context, caller protocol.NodeID, id protocol.StreamID) (link.Stream, error) {
+func (t *Transfers) Open(ctx context.Context, caller protocol.NodeID, user protocol.UserID, id protocol.StreamID) (link.Stream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	t.mu.Lock()
 	e := t.entries[id]
-	if e == nil || e.caller != caller {
+	if e == nil || !e.ownedBy(caller, user) {
 		t.mu.Unlock()
 		return nil, transferMissing()
 	}
@@ -507,7 +526,7 @@ func writeBytes(w io.Writer, data []byte) error {
 	}
 	return nil
 }
-func (t *Transfers) Finish(ctx context.Context, caller protocol.NodeID, root string, command protocol.Command) (protocol.Output, error) {
+func (t *Transfers) Finish(ctx context.Context, caller protocol.NodeID, user protocol.UserID, root string, command protocol.Command) (protocol.Output, error) {
 	var id protocol.StreamID
 	var worktree protocol.WorktreeID
 	path := ""
@@ -523,7 +542,7 @@ func (t *Transfers) Finish(ctx context.Context, caller protocol.NodeID, root str
 	}
 	t.mu.Lock()
 	e := t.entries[id]
-	if e == nil || e.caller != caller || e.root != root || e.upload != nil && (e.upload.Worktree != worktree || e.upload.Path != path) || e.attachment != nil && e.attachment.Spec.Worktree != worktree {
+	if e == nil || !e.ownedBy(caller, user) || e.root != root || e.upload != nil && (e.upload.Worktree != worktree || e.upload.Path != path) || e.attachment != nil && e.attachment.Spec.Worktree != worktree {
 		t.mu.Unlock()
 		return protocol.Output{}, transferMissing()
 	}
@@ -562,14 +581,14 @@ func (t *Transfers) Finish(ctx context.Context, caller protocol.NodeID, root str
 	}
 	return protocol.Output{Kind: "file_written", Data: written}, nil
 }
-func (t *Transfers) Cancel(caller protocol.NodeID, id protocol.StreamID) error {
+func (t *Transfers) Cancel(caller protocol.NodeID, user protocol.UserID, id protocol.StreamID) error {
 	t.mu.Lock()
 	e := t.entries[id]
 	if e == nil {
 		t.mu.Unlock()
 		return nil
 	}
-	if e.caller != caller {
+	if !e.ownedBy(caller, user) {
 		t.mu.Unlock()
 		return transferMissing()
 	}
@@ -664,17 +683,22 @@ func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, r
 	return out, err
 }
 
-// Scope reads the captured worktree before Open consumes the single-use transfer.
+type StreamScope struct {
+	Worktree protocol.WorktreeID
+	Draft    bool
+}
+
+// Scope reads the captured resource before Open consumes the single-use transfer.
 // Ownership is checked here and again when the resource stream is opened.
-func (t *Transfers) Scope(caller protocol.NodeID, id protocol.StreamID) (protocol.WorktreeID, bool, error) {
+func (t *Transfers) Scope(caller protocol.NodeID, user protocol.UserID, id protocol.StreamID) (StreamScope, bool, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry := t.entries[id]
 	if entry == nil {
-		return protocol.WorktreeID{}, false, nil
+		return StreamScope{}, false, nil
 	}
-	if entry.caller != caller {
-		return protocol.WorktreeID{}, true, transferMissing()
+	if !entry.ownedBy(caller, user) {
+		return StreamScope{}, true, transferMissing()
 	}
-	return entry.worktree, true, nil
+	return StreamScope{Worktree: entry.worktree, Draft: entry.draftUser != (protocol.UserID{})}, true, nil
 }

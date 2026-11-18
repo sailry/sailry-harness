@@ -32,52 +32,51 @@ type Runtime struct {
 	pluginViews *pluginViewState
 	// demoModels is the model each demo conversation's composer is set to,
 	// by conversation: what the statistics package reads as its model.
-	demoModels               sync.Map
-	pluginStatus             map[string]*pluginStatusFeed
-	pluginControls           map[string]*pluginControlPresentation
-	pluginCards              *pluginCardState
-	terminals                *terminalState
-	browser                  *browserState
-	browserSources           *browserSources // a test's Chrome profile, key and cookie store
-	authorizations           *authorizationState
-	packages                 *packageState
-	parent                   *Runtime
-	network                  *Network
-	bindings                 map[string]*Runtime
-	resourceCatalog          *protocol.ResourceCatalog
-	unsubscribeNetwork       func()
-	nodeModels               []composer.Model
-	hosts                    map[string]*liveHost
-	connections              *connectionState
-	connectionReferences     map[string]*referenceCatalog
-	sshTransfers             *sshTransferStore
-	ports                    *livePorts
-	pickKeyFile              func(func(string))
-	teams                    *teamState
-	commands                 *liveCommands
-	openService              func(string)
-	attachmentSessionWaiters map[string][]attachmentSessionWaiter
-	attachments              *attachmentState
-	workspace                *workspaceState
-	resourcePage             resourcePageState
-	workspaceSettings        workspaceSettingsState
-	hookSettings             hookSettingsState
-	codeIndexSettings        settings.Stored[bool]
-	settingsShown            *Runtime
-	settingsGeneration       uint64
-	providerMoves            map[string]providerMove
-	terminalSettings         terminalSettingsState
-	backupSettings           backupSettingsState
-	localModels              localModelState
-	knowledge                knowledgeState
-	media                    mediaState
-	dictation                dictationState
-	usage                    featureUsage
-	permissions              permissionState
-	knowledgeWanted          string // the citation the knowledge viewer was last asked for
-	pendingSession           string
-	transferDialogOwner      *Runtime
-	admittedSessions         map[string]protocol.Session
+	demoModels           sync.Map
+	pluginStatus         map[string]*pluginStatusFeed
+	pluginControls       map[string]*pluginControlPresentation
+	pluginCards          *pluginCardState
+	terminals            *terminalState
+	browser              *browserState
+	browserSources       *browserSources // a test's Chrome profile, key and cookie store
+	authorizations       *authorizationState
+	packages             *packageState
+	parent               *Runtime
+	network              *Network
+	bindings             map[string]*Runtime
+	resourceCatalog      *protocol.ResourceCatalog
+	unsubscribeNetwork   func()
+	nodeModels           []composer.Model
+	hosts                map[string]*liveHost
+	connections          *connectionState
+	connectionReferences map[string]*referenceCatalog
+	sshTransfers         *sshTransferStore
+	ports                *livePorts
+	pickKeyFile          func(func(string))
+	teams                *teamState
+	commands             *liveCommands
+	openService          func(string)
+	attachments          *attachmentState
+	workspace            *workspaceState
+	resourcePage         resourcePageState
+	workspaceSettings    workspaceSettingsState
+	hookSettings         hookSettingsState
+	codeIndexSettings    settings.Stored[bool]
+	settingsShown        *Runtime
+	settingsGeneration   uint64
+	providerMoves        map[string]providerMove
+	terminalSettings     terminalSettingsState
+	backupSettings       backupSettingsState
+	localModels          localModelState
+	knowledge            knowledgeState
+	media                mediaState
+	dictation            dictationState
+	usage                featureUsage
+	permissions          permissionState
+	knowledgeWanted      string // the citation the knowledge viewer was last asked for
+	pendingSession       string
+	transferDialogOwner  *Runtime
+	admittedSessions     map[string]protocol.Session
 
 	// acknowledged is the attention revision each shown session was marked
 	// read at (attentionFrame).
@@ -144,7 +143,7 @@ type Runtime struct {
 	conversationPending       map[string]protocol.TurnID // the turn a fork or rewind in flight acts on
 	turnRetries               map[string]turnRetry
 	interactionFlows          map[string]*interactionFlow
-	conversationCreations     map[string]conversationCreation
+	conversationCreations     map[string]*conversationCreation
 	conversationCreating      map[string]bool
 	providerPresets           map[string]protocol.ConversationPresetsEntry
 	providerBrands            map[string]string // brand names by presetBrand, offered or not
@@ -294,7 +293,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.admittedSessions = map[string]protocol.Session{}
 	r.conversationEdits = map[string]conversationEdit{}
 	r.conversationPending = map[string]protocol.TurnID{}
-	r.conversationCreations = map[string]conversationCreation{}
+	r.conversationCreations = map[string]*conversationCreation{}
 	r.conversationCreating = map[string]bool{}
 	r.listSidebar()
 	if ids := r.App.Sidebar.Order(); len(ids) > 0 {

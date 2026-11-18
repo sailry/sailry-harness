@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -61,6 +62,12 @@ func FinishFilesCommand(ctx context.Context, db *sql.Conn, caller protocol.NodeI
 		attachment, ok := filePayload[protocol.Attachment](output.Data)
 		if output.Kind != "attachment" || !ok || attachment.Spec.Worktree != v.Worktree {
 			return nil, invalid("attachment publication returned another owner")
+		}
+		if v.Worktree == (protocol.WorktreeID{}) {
+			if request.Plugin != nil {
+				return nil, fault(protocol.ErrorCodePermissionDenied, "draft attachments require a native controller")
+			}
+			return nil, InsertDraftAttachment(ctx, db, caller, attachment, time.Now())
 		}
 		if err := InsertAttachment(ctx, db, caller, attachment); err != nil {
 			return nil, err

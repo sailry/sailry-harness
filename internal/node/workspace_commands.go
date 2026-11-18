@@ -123,6 +123,9 @@ func (node *Node) workspaceRoot(ctx context.Context, id protocol.WorktreeID, int
 	return root, nil
 }
 func (node *Node) workspaceRoots(ctx context.Context, command protocol.Command, internal bool) (source, root string, err error) {
+	if command.UsesDraftAttachment() {
+		return
+	}
 	if id, ok := commandWorktree(command); ok {
 		root, err = node.workspaceRoot(ctx, id, internal)
 		if err != nil {
@@ -203,6 +206,11 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return protocol.Output{}, accessErr
 	}
 	command := request.Command
+	draft := command.UsesDraftAttachment()
+	var transferUser protocol.UserID
+	if request.Plugin == nil {
+		transferUser = userFromContext(ctx).ID
+	}
 	if terminalCommand(command.Kind) {
 		return node.terminalIO(ctx, caller, request, effect)
 	}
@@ -290,8 +298,8 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 	case "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "save_code_index_settings":
 		return node.codeIndexIO(ctx, caller, request, root, effect)
 	case "upload_attachment":
-		value, err := node.transfers.UploadAttachment(ctx, caller, root, *command.Data.(*protocol.AttachmentSpec))
-		if err == nil {
+		value, err := node.transfers.UploadAttachment(ctx, caller, transferUser, root, *command.Data.(*protocol.AttachmentSpec))
+		if err == nil && !draft {
 			err = node.recheckWorkspaceStream(ctx, value.Spec.Worktree, root, caller, value.Stream)
 		}
 		return protocol.Output{Kind: "attachment_upload", Data: value}, err
@@ -317,14 +325,18 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		var attachment protocol.Attachment
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
-			attachment, err = store.ReadAttachment(ctx, db, input.Worktree, input.Attachment)
+			if draft {
+				attachment, err = store.ReadDraftAttachment(ctx, db, caller, input.Attachment)
+			} else {
+				attachment, err = store.ReadAttachment(ctx, db, input.Worktree, input.Attachment)
+			}
 			return err
 		})
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		value, err := node.transfers.DownloadAttachment(ctx, caller, root, attachment)
-		if err == nil {
+		value, err := node.transfers.DownloadAttachment(ctx, caller, transferUser, root, attachment)
+		if err == nil && !draft {
 			err = node.recheckWorkspaceStream(ctx, input.Worktree, root, caller, value.Stream)
 		}
 		return protocol.Output{Kind: "attachment_download", Data: value}, err
@@ -350,7 +362,7 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 				return err
 			})
 			if err != nil {
-				_ = node.transfers.Cancel(caller, value.Stream)
+				_ = node.transfers.Cancel(caller, protocol.UserID{}, value.Stream)
 			}
 		}
 		return protocol.Output{Kind: "attachment_download", Data: value}, err
@@ -363,10 +375,10 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		} else {
 			node.stored.publish(effect)
 		}
-		return node.transfers.Finish(ctx, caller, root, command)
+		return node.transfers.Finish(ctx, caller, transferUser, root, command)
 	case "cancel_file_transfer":
 		id := command.Data.(*protocol.CommandCancelFileTransferPayload).Stream
-		return protocol.Output{Kind: "file_transfer_cancelled", Data: protocol.OutputFileTransferCancelledPayload{Stream: id}}, node.transfers.Cancel(caller, id)
+		return protocol.Output{Kind: "file_transfer_cancelled", Data: protocol.OutputFileTransferCancelledPayload{Stream: id}}, node.transfers.Cancel(caller, transferUser, id)
 	case "read_artifact":
 		return node.readWorkspaceArtifact(ctx, request)
 	case "write_artifact":
@@ -374,6 +386,9 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 	case "discard_attachment":
 		input := command.Data.(*protocol.CommandDiscardAttachmentPayload)
 		effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
+			if draft {
+				return out, nil, store.DiscardDraftAttachment(ctx, db, caller, input.Attachment)
+			}
 			return out, nil, store.DiscardAttachment(ctx, db, caller, input.Worktree, input.Attachment)
 		}
 		// The discarded file goes once the row is gone. The worktree lock this
@@ -401,7 +416,7 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 func (node *Node) recheckWorkspaceStream(ctx context.Context, id protocol.WorktreeID, root string, caller protocol.NodeID, stream protocol.StreamID) error {
 	current, err := node.workspaceRoot(ctx, id, false)
 	if err != nil || current != root {
-		_ = node.transfers.Cancel(caller, stream)
+		_ = node.transfers.Cancel(caller, protocol.UserID{}, stream)
 		return unavailable()
 	}
 	return nil
