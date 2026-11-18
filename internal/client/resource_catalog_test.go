@@ -8,6 +8,39 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestResourceObserversIgnoreUnrelatedUpdates(t *testing.T) {
+	controller := New(&clientTransport{})
+	t.Cleanup(func() { _ = controller.Close() })
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = controller.Target()
+	if _, err := controller.project.Apply(0, protocol.Update{Kind: "snapshot", Data: snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	var sourceChanges, directoryChanges int
+	defer controller.OnResourceChange(false, func() { sourceChanges++ })()
+	defer controller.OnResourceChange(true, func() { directoryChanges++ })()
+	emit := func(cursor uint64, kind string) {
+		t.Helper()
+		event := protocol.EventEnvelope{Node: snapshot.Node, Cursor: cursor, Event: protocol.Event{Kind: kind}}
+		if _, err := controller.project.Apply(0, protocol.Update{Kind: "event", Data: event}); err != nil {
+			t.Fatal(err)
+		}
+		controller.changed()
+	}
+	emit(1, "cursor")
+	if sourceChanges != 0 || directoryChanges != 0 {
+		t.Fatal("a cursor-only event refreshed the resource directory")
+	}
+	emit(2, "resource_catalog_changed")
+	if sourceChanges != 0 || directoryChanges != 1 {
+		t.Fatal("a foreign directory change refreshed the source Node's resources")
+	}
+	emit(3, "knowledge_collections_changed")
+	if sourceChanges != 1 || directoryChanges != 2 {
+		t.Fatal("a local knowledge change did not refresh both projections")
+	}
+}
+
 func TestResourceCatalogRejectsMixedEntries(t *testing.T) {
 	entry := protocol.NodeID{1}
 	catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{{Node: entry, Route: protocol.RouteKey{Entry: entry, Target: entry}}}}

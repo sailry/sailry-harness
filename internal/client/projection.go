@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"cmp"
+	"reflect"
 	"slices"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -23,6 +24,8 @@ type Projection struct {
 	snapshot   *protocol.Snapshot
 	recovery   bool
 	changes    pluginChangeCursors
+	resources  uint64
+	directory  uint64
 }
 
 func NewProjection(node protocol.NodeID, generation uint64) *Projection {
@@ -70,6 +73,11 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		if err := projection.changes.reset(snapshot); err != nil {
 			return Ignored, err
 		}
+		if previous := projection.snapshot; previous == nil ||
+			!reflect.DeepEqual(previous.Projects, snapshot.Projects) ||
+			!reflect.DeepEqual(previous.Worktrees, snapshot.Worktrees) {
+			projection.resources++
+		}
 		projection.snapshot, projection.recovery = &snapshot, false
 		return Applied, nil
 	case "event":
@@ -98,6 +106,12 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		recover, err := projection.reduce(copyValue(envelope.Event))
 		if err != nil {
 			return Ignored, err
+		}
+		switch envelope.Event.Kind {
+		case "projection_invalidated", "project_registered", "project_changed", "project_removed", "worktree_registered", "worktree_removed", "knowledge_collections_changed":
+			projection.resources++
+		case "resource_catalog_changed":
+			projection.directory++
 		}
 		if recover {
 			projection.recovery = true

@@ -93,8 +93,14 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	} else if settings != nil {
 		value.CompactionSettingsRevision = settings.Revision
 	}
-	err = db.QueryRowContext(ctx, "SELECT coalesce(max(cursor),0) FROM events").Scan(&value.Cursor)
+	value.Cursor, err = EventCursor(ctx, db)
 	return value, err
+}
+
+func EventCursor(ctx context.Context, db *sql.Conn) (uint64, error) {
+	var cursor uint64
+	err := db.QueryRowContext(ctx, "SELECT coalesce(max(cursor),0) FROM events").Scan(&cursor)
+	return cursor, err
 }
 
 func RecordEvents(ctx context.Context, db *sql.Conn, node protocol.NodeID, changes []protocol.Event) ([]protocol.EventEnvelope, error) {

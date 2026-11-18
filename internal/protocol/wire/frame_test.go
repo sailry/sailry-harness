@@ -149,7 +149,7 @@ func TestFramePlain(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, delivery := range []Delivery{DeliveryCompleted, DeliveryUpdate} {
-			header := SnapshotHeader{delivery, snapshot.Node, snapshot.Cursor, uint64(len(data))}
+			header := SnapshotHeader{Delivery: delivery, Node: snapshot.Node, Cursor: snapshot.Cursor, Bytes: uint64(len(data))}
 			assembly := Assembly{}
 			if reply, err := assembly.Accept(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}); err != nil || reply != nil {
 				t.Fatalf("start = %#v, %v", reply, err)
@@ -242,7 +242,7 @@ func TestFramePlain(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		header := SnapshotHeader{DeliveryUpdate, snapshot.Node, snapshot.Cursor, uint64(len(data))}
+		header := SnapshotHeader{Delivery: DeliveryUpdate, Node: snapshot.Node, Cursor: snapshot.Cursor, Bytes: uint64(len(data))}
 		assembly := Assembly{}
 		_, err = assembly.Accept(snapshotPage(0, string(data)))
 		assertFault(t, err, "invalid_request")
@@ -401,7 +401,7 @@ func TestFrameOversizeBeforeAlloc(t *testing.T) {
 	if output.Len() != 0 {
 		t.Fatal("wrote an oversized frame")
 	}
-	header := SnapshotHeader{DeliveryUpdate, protocol.NodeID{1}, 7, MaxSnapshotBytes}
+	header := SnapshotHeader{Delivery: DeliveryUpdate, Node: protocol.NodeID{1}, Cursor: 7, Bytes: MaxSnapshotBytes}
 	assembly := Assembly{}
 	if _, err := assembly.Accept(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}); err != nil {
 		t.Fatal(err)
@@ -428,6 +428,45 @@ func TestFrameOversizeBeforeAlloc(t *testing.T) {
 }
 
 type failingWriter struct{}
+
+func TestResourceCatalogPaging(t *testing.T) {
+	id := protocol.NodeID{1}
+	source := protocol.ResourceSource{Node: id, Route: protocol.RouteKey{Entry: id, Target: id}}
+	project := protocol.DefaultProject()
+	project.ID, project.Name = protocol.ProjectID{1}, "Fixture"
+	project.Path = "/" + strings.Repeat("a", 4095)
+	for range protocol.MAX_FRAME_BYTES / len(project.Path) {
+		source.Projects = append(source.Projects, project)
+	}
+	catalog := protocol.ResourceCatalog{Entry: id, Sources: []protocol.ResourceSource{source}}
+	var assembly Assembly
+	var result *Reply
+	frames := 0
+	reply := Reply{Kind: ReplyCompleted, Completed: &Response{Output: &protocol.Output{Kind: "resource_catalog", Data: catalog}}}
+	if err := WriteReply(reply, func(frame Reply) error {
+		frames++
+		var buffer bytes.Buffer
+		if err := Write(&buffer, frame, false); err != nil {
+			return err
+		}
+		var decoded Reply
+		if err := Read(&buffer, &decoded, false); err != nil {
+			return err
+		}
+		var err error
+		result, err = assembly.Accept(decoded)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if frames < 2 || result == nil || result.Kind != ReplyCompleted || result.Completed.Output.Kind != "resource_catalog" {
+		t.Fatal("oversized catalog was not assembled as a completion")
+	}
+	got := result.Completed.Output.Data.(*protocol.ResourceCatalog)
+	if got.Entry != id || len(got.Sources) != 1 || len(got.Sources[0].Projects) != len(source.Projects) || got.Sources[0].Projects[0].Path != project.Path {
+		t.Fatal("catalog paging changed the directory")
+	}
+}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 

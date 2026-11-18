@@ -10,7 +10,7 @@ import (
 
 const PageBytes = protocol.MAX_FRAME_BYTES / 16
 
-// MaxSnapshotBytes bounds what a receiver buffers for one paged snapshot: 256
+// MaxSnapshotBytes bounds what a receiver buffers for one paged snapshot or directory: 256
 // pages, twice the protocol's largest single payload (MAX_CHANGE_BYTES).
 const MaxSnapshotBytes = 16 * protocol.MAX_FRAME_BYTES
 
@@ -38,6 +38,7 @@ type SnapshotHeader struct {
 	Node     protocol.NodeID `json:"node"`
 	Cursor   uint64          `json:"cursor"`
 	Bytes    uint64          `json:"bytes"`
+	Output   string          `json:"output,omitempty"`
 }
 
 func (header *SnapshotHeader) UnmarshalJSON(data []byte) error {
@@ -65,20 +66,32 @@ func (page *SnapshotPage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// WriteReply passes each frame of a reply to write: the reply itself, or the
-// header and bounded pages of a snapshot. The caller bounds each frame, so a
-// complete snapshot may take longer than one frame deadline.
+// WriteReply passes the reply itself, or a header and bounded pages. A
+// snapshot or large resource directory can outlast one frame deadline.
 func WriteReply(reply Reply, write func(Reply) error) error {
 	snapshot, delivery := replySnapshot(reply)
-	if snapshot == nil {
+	var header SnapshotHeader
+	var data []byte
+	var err error
+	if snapshot != nil {
+		header = SnapshotHeader{Delivery: delivery, Node: snapshot.Node, Cursor: snapshot.Cursor}
+		data, err = json.Marshal(snapshot)
+	} else if catalog := replyCatalog(reply); catalog != nil {
+		data, err = json.Marshal(catalog)
+		// Leave room for the completed reply envelope. Small catalogs use
+		// the original single-frame reply.
+		if err == nil && len(data) <= protocol.MAX_FRAME_BYTES-4096 {
+			return write(reply)
+		}
+		header = SnapshotHeader{Delivery: DeliveryCompleted, Node: catalog.Entry, Output: "resource_catalog"}
+	} else {
 		return write(reply)
 	}
-	data, err := json.Marshal(snapshot)
 	if err != nil || len(data) > MaxSnapshotBytes {
 		return invalid()
 	}
 	defer clear(data)
-	header := SnapshotHeader{delivery, snapshot.Node, snapshot.Cursor, uint64(len(data))}
+	header.Bytes = uint64(len(data))
 	if err := write(Reply{Kind: ReplySnapshotStart, SnapshotStart: &header}); err != nil {
 		return err
 	}
@@ -95,6 +108,21 @@ func WriteReply(reply Reply, write func(Reply) error) error {
 		start = end
 	}
 	return nil
+}
+
+func replyCatalog(reply Reply) *protocol.ResourceCatalog {
+	if reply.Kind != ReplyCompleted || reply.Completed == nil || reply.Completed.Output == nil ||
+		reply.Completed.Output.Kind != "resource_catalog" {
+		return nil
+	}
+	switch data := reply.Completed.Output.Data.(type) {
+	case *protocol.ResourceCatalog:
+		return data
+	case protocol.ResourceCatalog:
+		return &data
+	default:
+		return nil
+	}
 }
 
 func replySnapshot(reply Reply) (*protocol.Snapshot, Delivery) {
@@ -134,6 +162,10 @@ func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 		if assembly.pending != nil || reply.SnapshotStart == nil || reply.SnapshotStart.Bytes == 0 || reply.SnapshotStart.Bytes > MaxSnapshotBytes {
 			return nil, invalid()
 		}
+		if header := reply.SnapshotStart; header.Output != "" &&
+			(header.Output != "resource_catalog" || header.Delivery != DeliveryCompleted || header.Cursor != 0) {
+			return nil, invalid()
+		}
 		assembly.pending = &pendingSnapshot{header: *reply.SnapshotStart}
 		return nil, nil
 	case ReplySnapshotPage:
@@ -155,6 +187,14 @@ func (assembly *Assembly) Accept(reply Reply) (*Reply, error) {
 		}
 		assembly.pending = nil
 		defer clear(pending.data)
+		if pending.header.Output == "resource_catalog" {
+			var catalog protocol.ResourceCatalog
+			if err := protocol.DecodeAs(protocol.PeerData, pending.data, &catalog); err != nil || catalog.Entry != pending.header.Node {
+				return nil, invalid()
+			}
+			output := protocol.Output{Kind: "resource_catalog", Data: &catalog}
+			return &Reply{Kind: ReplyCompleted, Completed: &Response{Output: &output}}, nil
+		}
 		var snapshot protocol.Snapshot
 		if err := protocol.DecodeAs(protocol.PeerData, pending.data, &snapshot); err != nil {
 			return nil, invalid()

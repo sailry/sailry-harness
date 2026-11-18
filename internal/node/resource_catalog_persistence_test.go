@@ -167,7 +167,7 @@ func watchResourceDirectory(t *testing.T, controller, source *Node) (*resourceDi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = owner.Close() })
-	release := remote.OnChange(func() { controller.notifyResourceCatalog(source.ID(), remote) })
+	release := remote.OnResourceChange(false, func() { controller.notifyResourceCatalog(source.ID(), remote) })
 	t.Cleanup(release)
 	t.Cleanup(func() { controller.invalidateResourceProjection(source.ID()) })
 	if err := remote.Start(ctx); err != nil {
@@ -390,8 +390,9 @@ func TestResourceDirectoryKeepsConnectedDiskSummariesUnavailableUntilMetadataIsC
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = changes.Close() })
-	// No OnChange callback has confirmed the knowledge metadata. Establishing
-	// the ordinary source snapshot alone must not enable writes from summaries.
+	// The source observer owns the metadata read. Its pending result must not
+	// let the connected snapshot promote disk summaries to editable definitions.
+	t.Cleanup(remote.OnResourceChange(false, func() { controller.notifyResourceCatalog(source.ID(), remote) }))
 	if err := remote.Start(ctx); err != nil || !remote.Connected() {
 		t.Fatalf("source snapshot did not connect: %v", err)
 	}
@@ -444,7 +445,8 @@ func TestResourceDirectoryKeepsConnectedDiskSummariesUnavailableUntilMetadataIsC
 	transport.mu.Lock()
 	transport.fault = nil
 	transport.mu.Unlock()
-	controller.notifyResourceCatalog(source.ID(), remote)
+	// The main stream stayed online. The observer retries its metadata read
+	// independently without needing a catalog query or a different source event.
 	waitProjection(func(value protocol.ResourceSource) bool {
 		return value.Fault == nil && len(value.Knowledge) == 1 && slices.Equal(value.Knowledge[0].Definition.SharedWith, definition.SharedWith)
 	})

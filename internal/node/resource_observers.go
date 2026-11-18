@@ -159,7 +159,7 @@ func (node *Node) refreshResourceObservers(ctx context.Context, runtime *resourc
 		if err := node.tasks.Submit(func(owner context.Context) {
 			observer := peer.client
 			defer observer.Close()
-			cancelWatch := observer.OnChange(func() {
+			cancelWatch := observer.OnResourceChange(false, func() {
 				node.notifyResourceCatalog(address.ID, observer)
 			})
 			defer cancelWatch()
