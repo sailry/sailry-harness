@@ -84,6 +84,11 @@ func mediaProvider(ctx context.Context, db *sql.Conn, kind protocol.MediaKind, b
 		// A provider whose channel declaration no longer resolves cannot run.
 		return nil, false, nil
 	}
+	if kind == protocol.MediaKindVision {
+		if err := fillProviderVision(ctx, db, &provider, binding.Model); err != nil {
+			return nil, false, err
+		}
+	}
 	for _, entry := range provider.Models {
 		if entry.ID == binding.Model {
 			if _, supported := model.MediaChannelFor(kind, provider, entry); supported {

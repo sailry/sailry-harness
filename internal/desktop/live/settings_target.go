@@ -91,6 +91,13 @@ func (r *Runtime) initNodeSettings() {
 			}
 		})
 	}
+	providerEditorHosts := func(draft settings.ProviderDraft) (editor, owner *Runtime) {
+		node := draft.Channel.Node
+		if draft.ExpectedRevision == 0 && len(draft.Targets) == 1 {
+			node = draft.Targets[0]
+		}
+		return r.runtimeFor(draft.Channel.Node), r.providerOwner(node)
+	}
 	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
 	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
@@ -114,16 +121,20 @@ func (r *Runtime) initNodeSettings() {
 			}
 		},
 		Discover: func(draft settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
-			node := draft.Channel.Node
-			if draft.ExpectedRevision == 0 && len(draft.Targets) == 1 {
-				node = draft.Targets[0]
-			}
-			editor, owner := r.runtimeFor(draft.Channel.Node), r.providerOwner(node)
+			editor, owner := providerEditorHosts(draft)
 			if editor == nil || owner == nil {
 				done(nil)
 				return
 			}
 			owner.discoverModels(editor, draft, done)
+		},
+		LookupModel: func(draft settings.ProviderDraft, id string, done func(*viewmodel.ChannelModel)) {
+			editor, owner := providerEditorHosts(draft)
+			if editor == nil || owner == nil {
+				done(nil)
+				return
+			}
+			owner.lookupProviderModel(editor.providerDraft(draft), id, done)
 		},
 		ReadKey: func(node, id string, done func(string)) {
 			r.localRuntime().readManagedProviderKey(node, id, done)

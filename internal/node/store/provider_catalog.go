@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -133,6 +134,18 @@ func applyProviderCatalog(ctx context.Context, db *sql.Conn, prepared *providers
 }
 func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.ConversationCatalogQuery) (protocol.ConversationCatalogPage, error) {
 	result := protocol.DefaultConversationCatalogPage()
+	if query.Channel != nil {
+		if query.Provider != nil || len(query.IDs) == 0 {
+			return result, invalid("channel catalog lookup requires model identifiers")
+		}
+		namespace, err := metadataCatalogProvider(query.Channel.Endpoint, query.Channel.Authentication)
+		if err != nil {
+			return result, err
+		}
+		if namespace != "" {
+			query.Provider = &namespace
+		}
+	}
 	if query.Provider != nil && (!boundedCatalogID(*query.Provider, 128)) {
 		return result, invalid("catalog identifier is invalid")
 	}
@@ -186,6 +199,15 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 	}
 	bytes := 0
 	for _, model := range models {
+		if query.Channel != nil && query.Provider == nil && !slices.Contains(model.Inputs, "image") {
+			vision, err := catalogVision(ctx, db, status.Bundled, "", model.ID)
+			if err != nil {
+				return result, err
+			}
+			if vision {
+				model.Inputs = append(model.Inputs, "image")
+			}
+		}
 		body, err := encode(model)
 		if err != nil {
 			return result, err

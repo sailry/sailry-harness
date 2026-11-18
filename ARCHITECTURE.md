@@ -439,8 +439,11 @@ request policies under `internal/node/agent/model/data`.
 Uploaded pictures reach a vision-capable conversation model as native image
 input. Explicit model tags and native discovery take precedence. Automatic
 vision uses the channel's catalog, or the canonical model when entries for
-an unlisted gateway agree on its identity. If the turn omits an image and has
-an inspection route, its prompt names the attachment directly for `inspect_image`.
+an unlisted gateway agree on its identity. Discovery and manual model entry
+read model data from the owning Node, whose settings and turn admission resolve
+the same capability. If the turn omits an image and has an inspection route,
+its prompt names the attachment directly for `inspect_image`, which makes a
+separate model request.
 
 Admission freezes the worktree, permission, configuration, model or team,
 reasoning effort, credential identity and package revisions. Renewed runtime

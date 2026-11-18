@@ -47,11 +47,17 @@ func (value ConversationCatalogStatus) MarshalJSON() ([]byte, error) {
 }
 
 type ConversationCatalogQuery struct {
-	Provider *string  `json:"provider"`
-	IDs      []string `json:"ids"`
-	Revision *uint64  `json:"revision"`
-	After    *string  `json:"after"`
-	Limit    uint16   `json:"limit"`
+	Provider *string                     `json:"provider"`
+	Channel  *ConversationCatalogChannel `json:"channel,omitempty"`
+	IDs      []string                    `json:"ids"`
+	Revision *uint64                     `json:"revision"`
+	After    *string                     `json:"after"`
+	Limit    uint16                      `json:"limit"`
+}
+
+type ConversationCatalogChannel struct {
+	Endpoint       string         `json:"endpoint"`
+	Authentication Authentication `json:"authentication"`
 }
 
 func DefaultConversationCatalogQuery() ConversationCatalogQuery {

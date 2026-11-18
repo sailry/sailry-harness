@@ -213,6 +213,9 @@ func CompleteProviderLogin(ctx context.Context, db *sql.Conn, node protocol.Node
 	if err != nil {
 		return nil, err
 	}
+	if err := fillProviderVision(ctx, db, saved.Provider, ""); err != nil {
+		return nil, err
+	}
 	if err := saveProviderConfiguration(ctx, db, *saved); err != nil {
 		return nil, err
 	}

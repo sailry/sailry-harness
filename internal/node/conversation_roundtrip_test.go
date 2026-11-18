@@ -36,31 +36,27 @@ func TestFirstModelRequestIncludesUploadedImage(t *testing.T) {
 	if err := png.Encode(&pixels, image.NewNRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
-	type imagePart struct {
+	type contentPart struct {
 		Type string `json:"type"`
+		Text string `json:"text"`
 		URL  string `json:"image_url"`
 	}
-	first := make(chan []imagePart, 1)
+	type messageInput struct {
+		Role    string        `json:"role"`
+		Content []contentPart `json:"content"`
+	}
+	first := make(chan []messageInput, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Input []struct {
-				Role    string      `json:"role"`
-				Content []imagePart `json:"content"`
-			} `json:"input"`
+			Input []messageInput `json:"input"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Errorf("decode provider request: %v", err)
 			http.Error(w, "invalid fixture request", http.StatusBadRequest)
 			return
 		}
-		var parts []imagePart
-		for _, message := range body.Input {
-			if message.Role == "user" {
-				parts = append(parts, message.Content...)
-			}
-		}
 		select {
-		case first <- parts:
+		case first <- body.Input:
 		default:
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -104,26 +100,34 @@ func TestFirstModelRequestIncludesUploadedImage(t *testing.T) {
 	config := protocol.DefaultSessionConfig()
 	config.Provider, config.Model = provider.ID, modelID
 	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}).Data.(protocol.Session)
-	spec := protocol.AttachmentSpec{Worktree: session.Worktree, Name: "fixture.png", MediaType: "image/png", Size: uint64(pixels.Len()), Revision: fmt.Sprintf("%x", blake3.Sum256(pixels.Bytes()))}
+	spec := protocol.AttachmentSpec{Name: "fixture.png", MediaType: "image/png", Size: uint64(pixels.Len()), Revision: fmt.Sprintf("%x", blake3.Sum256(pixels.Bytes()))}
 	upload := commandFixture(t, node, protocol.Command{Kind: "upload_attachment", Data: spec}).Data.(protocol.AttachmentUpload)
 	if err := controller.Upload(ctx, upload.Stream, spec.Size, spec.Revision, io.NopCloser(bytes.NewReader(pixels.Bytes())), nil); err != nil {
 		t.Fatal(err)
 	}
-	attachment := commandFixture(t, node, protocol.Command{Kind: "finish_attachment_upload", Data: protocol.CommandFinishAttachmentUploadPayload{Worktree: session.Worktree, Stream: upload.Stream}}).Data.(protocol.Attachment)
-	commandFixture(t, node, protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{
-		Session: session.ID, ExpectedRevision: session.Revision,
-		Message: protocol.ConversationInput{Text: "Describe this picture", Attachments: []protocol.AttachmentID{attachment.ID}},
-	}})
+	attachment := commandFixture(t, node, protocol.Command{Kind: "finish_attachment_upload", Data: protocol.CommandFinishAttachmentUploadPayload{Stream: upload.Stream}}).Data.(protocol.Attachment)
+	const prompt = "Describe this picture"
+	start := protocol.DefaultConversationStart()
+	start.Config, start.Execution, start.UseExplicitConfig = &config, protocol.ConversationExecutionModel, true
+	start.Message = protocol.ConversationInput{Text: prompt, Attachments: []protocol.AttachmentID{attachment.ID}}
+	commandFixture(t, node, protocol.Command{Kind: "start_session", Data: start})
 	select {
-	case parts := <-first:
+	case input := <-first:
 		want := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pixels.Bytes())
-		for _, part := range parts {
-			if part.Type == "input_image" && part.URL == want {
-				return
+		// Responses projects text and media as consecutive user input items.
+		sawPrompt := false
+		for _, message := range input {
+			if message.Role != "user" {
+				continue
+			}
+			for _, part := range message.Content {
+				if sawPrompt && part.Type == "input_image" && part.URL == want {
+					return
+				}
+				sawPrompt = sawPrompt || part.Type == "input_text" && part.Text == prompt
 			}
 		}
-		t.Fatalf("first provider request lacked the uploaded PNG, with %d user parts", len(parts))
+		t.Fatal("first provider request did not include the prompt followed by the uploaded PNG")
 	case <-ctx.Done():
 		t.Fatal("no provider request for the conversation image")
 	}

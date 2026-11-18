@@ -3,9 +3,22 @@ package providers
 import (
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// CompleteChannelModel adds the media capabilities of the specific channel.
+func CompleteChannelModel(provider protocol.ConversationProvider, model protocol.ConversationModel, reference *protocol.ConversationCatalogModel) protocol.ConversationModel {
+	model = CompleteModel(model, reference, provider.Api)
+	// OpenAI's Responses channel also offers a hosted image generation tool.
+	official := provider.Authentication == protocol.AuthenticationChatGptOAuth ||
+		provider.Authentication == protocol.AuthenticationApiKey && strings.TrimRight(provider.Endpoint, "/") == "https://api.openai.com/v1"
+	if !model.CustomCapabilities && official && provider.Api == protocol.ConversationModelApiResponses && model.Tools && model.Vision && len(model.Generates) == 0 {
+		model.Generates = []protocol.MediaGeneration{protocol.MediaGenerationImageTool}
+	}
+	return model
+}
 
 // CompleteModel resolves automatic metadata without replacing configured limits,
 // explicit effort choices, user-chosen capability tags or a compaction override.

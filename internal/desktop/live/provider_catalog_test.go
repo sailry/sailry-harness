@@ -2,6 +2,7 @@ package live
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -11,6 +12,47 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestProviderModelLookupUsesChannelCapabilities(t *testing.T) {
+	t.Parallel()
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = protocol.NodeID{1}
+	transport := &conversationTestTransport{snapshot: snapshot}
+	provider := protocol.DefaultConversationProvider()
+	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
+	provider.Endpoint = "https://fixture-gateway.invalid/v1"
+	const id = "fixture-vision"
+	transport.handle = func(request protocol.Request) (link.Response, bool) {
+		if request.Command.Kind != "read_model_catalog" {
+			return link.Response{}, false
+		}
+		query, ok := detail[protocol.ConversationCatalogQuery](request.Command.Data)
+		if !ok || query.Channel == nil || query.Channel.Endpoint != provider.Endpoint || query.Channel.Authentication != provider.Authentication ||
+			query.Provider != nil || !slices.Equal(query.IDs, []string{id}) {
+			t.Errorf("looked up a model outside the channel: %+v", query)
+		}
+		page := protocol.DefaultConversationCatalogPage()
+		page.Models = []protocol.ConversationCatalogModel{{
+			ID: id, Name: id, Inputs: []string{"text", "image"}, Outputs: []string{"text"}, Tools: new(true), Reasoning: new(true),
+		}}
+		return link.Response{Output: protocol.Output{Kind: "model_catalog", Data: page}}, true
+	}
+	controller := client.New(transport)
+	if err := controller.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Close()
+	r := &Runtime{ctx: t.Context(), controller: controller}
+	var found *viewmodel.ChannelModel
+	r.lookupProviderModel(provider, id, func(model *viewmodel.ChannelModel) { found = model })
+	r.workers.Wait()
+	for _, post := range r.queue {
+		post(nil)
+	}
+	if found == nil || found.ID != id || !found.Vision || !found.Tools || !found.Reasoning || len(found.Generates) != 0 || found.CustomCapabilities {
+		t.Fatalf("catalog tags = %+v", found)
+	}
+}
 
 func TestProviderDiscoveryCatalogFailureRetainsModels(t *testing.T) {
 	for _, test := range []struct {
@@ -24,11 +66,18 @@ func TestProviderDiscoveryCatalogFailureRetainsModels(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			snapshot := protocol.DefaultSnapshot()
 			snapshot.Node = protocol.NodeID{1}
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Api = protocol.ProviderID{1}, protocol.ConversationModelApiResponses
+			provider.Endpoint, provider.Authentication = "https://gateway.example/v1", protocol.AuthenticationApiKey
 			transport := &conversationTestTransport{snapshot: snapshot}
 			reads := 0
 			transport.handle = func(request protocol.Request) (link.Response, bool) {
 				if request.Command.Kind == "read_model_catalog" {
 					reads++
+					query, ok := detail[protocol.ConversationCatalogQuery](request.Command.Data)
+					if !ok || query.Provider != nil || query.Channel == nil || query.Channel.Endpoint != provider.Endpoint || query.Channel.Authentication != provider.Authentication {
+						t.Errorf("discovery queried a protocol namespace instead of its channel: %+v", query)
+					}
 					return link.Response{Fault: &protocol.Fault{Code: test.code, Message: "fixture catalog unavailable"}}, true
 				}
 				return link.Response{}, false
@@ -38,8 +87,6 @@ func TestProviderDiscoveryCatalogFailureRetainsModels(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer controller.Close()
-			provider := protocol.DefaultConversationProvider()
-			provider.ID, provider.Api = protocol.ProviderID{1}, protocol.ConversationModelApiResponses
 			previous := map[string]protocol.ConversationModel{"existing": {ID: "existing", Context: 200000, Output: 32000}}
 			r := &Runtime{ctx: t.Context(), controller: controller, providerModels: map[string]map[string]protocol.ConversationModel{provider.ID.String(): previous}}
 			var shown string

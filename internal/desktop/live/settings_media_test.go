@@ -76,6 +76,7 @@ func TestMediaSettings(t *testing.T) {
 			}
 			input.Provider.Revision = input.ExpectedRevision + 1
 			transport.snapshot.Providers = []protocol.ConversationProvider{input.Provider}
+			transport.snapshot.Cursor++
 			return link.Response{Output: protocol.Output{Kind: "provider", Data: input.Provider}}, true
 		}
 		return link.Response{}, false
@@ -287,13 +288,24 @@ func TestMediaSettings(t *testing.T) {
 		})
 
 		// Tags reset in the form go out as the Node's to tag again, whatever
-		// the boxes showed.
+		// the boxes showed. The editor opens again after the saved revision
+		// has arrived in the refreshed provider snapshot.
+		await("the saved provider snapshot", func() bool {
+			providers := r.snapshot().Providers
+			return controller.Connected() && len(providers) == 1 && providers[0].Revision == 3
+		})
 		edited.CustomCapabilities, done = false, false
 		channel.Revision = 3
 		channel.TargetRevisions = map[string]uint64{channel.Node: channel.Revision}
-		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(result settings.ProviderSaveResult) { done = len(result.Succeeded) > 0 })
+		var reset settings.ProviderSaveResult
+		m.ProviderActions.Save(settings.ProviderDraft{Channel: channel, ExpectedRevision: channel.Revision}, func(result settings.ProviderSaveResult) {
+			reset, done = result, true
+		})
 		await("the provider save after a reset", func() bool { return done })
 		locked(func() {
+			if len(reset.Succeeded) != 1 {
+				t.Fatalf("reset did not save the provider: failed=%v uncertain=%v toasts=%v saves=%d", reset.Failed, reset.Uncertain, toasts, len(providerSaves))
+			}
 			if len(providerSaves) != 2 || providerSaves[1].Provider.Models[1].CustomCapabilities {
 				t.Errorf("reset model sent as %+v", providerSaves[len(providerSaves)-1].Provider.Models)
 			}

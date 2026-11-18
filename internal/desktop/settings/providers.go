@@ -501,6 +501,7 @@ type modelDraft struct {
 	// catalog is the model as it came when its tags were the catalog's,
 	// which a reset of the tags shows again; nil when they were the user's.
 	catalog *preview.ChannelModel
+	lookup  *modelCapabilityLookup
 }
 
 // providerEditor is the step, the brand, the methods its choice offered and
@@ -1503,7 +1504,7 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 		modalList(c, "models", "", "", t("provider_models_empty"), len(e.models), func() {
 			for i := range e.models {
 				e.models[i].pending = e.probing
-				providerModel(c, e, i)
+				providerModel(c, m, e, i)
 			}
 		}, nil)
 	})
@@ -1592,7 +1593,7 @@ func (m *Model) providerHostAvailable(node string) bool {
 
 // providerModel is the model's title, Default, its check to make it the
 // default and its removal; open, its ID, context limit and reasoning efforts.
-func providerModel(c *ui.Context, e *providerEditor, i int) {
+func providerModel(c *ui.Context, m *Model, e *providerEditor, i int) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
 	d := &e.models[i]
@@ -1633,7 +1634,10 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 				e.def--
 			}
 		}, removeLabel: t("settings_delete"),
-		content: func() { modelForm(c, d, e.current().API) },
+		content: func() {
+			e.lookupModelCapabilities(c, m, d)
+			modelForm(c, d, e.current().API)
+		},
 	}.row(c, [2]int{e.removed, i}, title)
 }
 

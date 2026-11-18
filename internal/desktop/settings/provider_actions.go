@@ -64,6 +64,7 @@ type ProviderActions struct {
 	CatalogAt      func(node string) viewmodel.Catalog
 	Save           func(ProviderDraft, func(ProviderSaveResult))
 	Discover       func(ProviderDraft, func([]viewmodel.ChannelModel))
+	LookupModel    func(ProviderDraft, string, func(*viewmodel.ChannelModel))
 	Enable         func(node, id string, revision uint64, enabled bool)
 	Remove         func(node, id string, revision uint64)
 	ReadKey        func(node, id string, done func(string))

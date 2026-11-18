@@ -35,6 +35,17 @@ func TestBundledProviderCatalogSurvivesFailedRefresh(t *testing.T) {
 			if !slices.ContainsFunc(efforts, func(effort protocol.Effort) bool { return effort.Kind == "max" }) {
 				return fmt.Errorf("bundled reasoning choices are unavailable: %+v", efforts)
 			}
+			page, err = readProviderCatalog(ctx, db, protocol.ConversationCatalogQuery{
+				Channel: &protocol.ConversationCatalogChannel{Endpoint: "https://custom.invalid/v1", Authentication: protocol.AuthenticationApiKey},
+				IDs:     []string{"gpt-6.1-sol"},
+				Limit:   1,
+			})
+			if err != nil {
+				return err
+			}
+			if len(page.Models) != 1 || !slices.Contains(page.Models[0].Inputs, "image") {
+				return fmt.Errorf("bundled channel lookup did not recover the GPT-6.1 Sol image input")
+			}
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -213,7 +224,7 @@ func TestSaveProviderUsesBundledReasoningAndPreservesCustomChoices(t *testing.T)
 
 func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 	t.Parallel()
-	_, _, storage := schemaFixture(t)
+	_, node, storage := schemaFixture(t)
 	ctx := t.Context()
 	const modelID = "fixture-vision"
 	download, err := providers.ParseCatalog([]byte(`{
@@ -248,6 +259,7 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			provider := providerFixture()
 			provider.Endpoint, provider.DefaultModel = row.endpoint, row.model
+			provider.Revision = 7
 			if row.auth != "" {
 				provider.Authentication = row.auth
 			}
@@ -256,13 +268,51 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 			if row.nativeDeny {
 				entry.Capabilities = &protocol.ConversationDiscoveryCapabilities{Vision: new(false)}
 			}
+			if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				return saveProviderConfiguration(ctx, db, providerConfiguration{ID: provider.ID, Listed: true, Provider: &provider})
+			}); err != nil {
+				t.Fatal(err)
+			}
 			err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+				page, err := readProviderCatalog(ctx, db, protocol.ConversationCatalogQuery{
+					Channel: &protocol.ConversationCatalogChannel{Endpoint: provider.Endpoint, Authentication: provider.Authentication},
+					IDs:     []string{row.model},
+					Limit:   1,
+				})
+				if err != nil {
+					return err
+				}
+				catalogVision := row.want || row.manual || row.nativeDeny
+				if len(page.Models) != 1 || slices.Contains(page.Models[0].Inputs, "image") != catalogVision {
+					return fmt.Errorf("channel catalog lookup = %+v, want vision %v", page, catalogVision)
+				}
 				captured, err := captureTurnProvider(ctx, db, provider, row.model)
 				if err != nil {
 					return err
 				}
 				if captured.Models[0].Vision != row.want {
 					return fmt.Errorf("captured vision = %v, want %v", captured.Models[0].Vision, row.want)
+				}
+				snapshot, _, err := ReadProviderSnapshot(ctx, db, node)
+				if err != nil {
+					return err
+				}
+				listed, err := providerList(ctx, db)
+				if err != nil {
+					return err
+				}
+				for _, values := range [][]protocol.ConversationProvider{snapshot, listed} {
+					index := slices.IndexFunc(values, func(value protocol.ConversationProvider) bool { return value.ID == provider.ID })
+					if index < 0 || values[index].Models[0].Vision != row.want || values[index].Revision != provider.Revision {
+						return fmt.Errorf("provider projection did not return vision %v at revision %d", row.want, provider.Revision)
+					}
+				}
+				saved, err := readProviderConfiguration(ctx, db, provider.ID)
+				if err != nil {
+					return err
+				}
+				if saved == nil || saved.Provider.Models[0].Vision || saved.Provider.Revision != provider.Revision {
+					return fmt.Errorf("reading provider vision changed the stored configuration")
 				}
 				if err = fillProviderMetadata(ctx, db, &provider); err != nil {
 					return err

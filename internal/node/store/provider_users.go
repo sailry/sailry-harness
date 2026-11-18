@@ -114,6 +114,9 @@ func ReadProviderSnapshot(ctx context.Context, db *sql.Conn, node protocol.NodeI
 			}
 		}
 		if item.Listed && item.Provider != nil {
+			if err := fillProviderVision(ctx, db, item.Provider, ""); err != nil {
+				return nil, nil, err
+			}
 			values = append(values, *item.Provider)
 			if item.Quota != nil && providerQuotaPresent(*item.Quota) && providerQuotaMatches(node, item, *item.Quota) {
 				quotas = append(quotas, *item.Quota)

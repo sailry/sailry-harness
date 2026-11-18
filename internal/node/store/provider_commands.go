@@ -84,6 +84,9 @@ func providerList(ctx context.Context, db *sql.Conn) ([]protocol.ConversationPro
 	values := []protocol.ConversationProvider{}
 	for _, item := range saved {
 		if item.Listed && item.Provider != nil {
+			if err := fillProviderVision(ctx, db, item.Provider, ""); err != nil {
+				return nil, err
+			}
 			values = append(values, *item.Provider)
 		}
 	}
