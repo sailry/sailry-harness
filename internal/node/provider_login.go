@@ -423,63 +423,63 @@ func (node *Node) providerAuthorization(ctx context.Context, provider protocol.C
 	if reference.Node != node.ID() {
 		return node.readProviderAuthorization(ctx, provider, reference)
 	}
-	node.auth.mu.Lock()
-	if previous := node.auth.renewals[reference.ID]; previous != nil {
-		node.auth.mu.Unlock()
-		select {
-		case <-ctx.Done():
+	if err := node.renewProviderCredential(ctx, provider, reference, false); err != nil {
+		if ctx.Err() != nil {
 			return nil, ctx.Err()
-		case <-previous.done:
-			if previous.err != nil {
-				if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
-					return secret, nil
-				} else if controllerLoginWaitable(err) {
-					return nil, err
-				}
-				return nil, previous.err
-			}
 		}
-		return node.readProviderAuthorization(ctx, provider, reference)
-	}
-	renewal := &authRenewal{done: make(chan struct{})}
-	node.auth.renewals[reference.ID] = renewal
-	node.auth.mu.Unlock()
-	err := node.tasks.Submit(func(owner context.Context) {
-		if user, ok := store.UserFromContext(ctx); ok {
-			owner = store.WithUser(owner, user)
+		if secret, readErr := node.readProviderAuthorization(ctx, provider, reference); readErr == nil {
+			return secret, nil
+		} else if controllerLoginWaitable(readErr) {
+			return nil, readErr
 		}
-		if user, ok := store.CapturedUserFromContext(ctx); ok {
-			owner = store.WithCapturedUser(owner, user)
-		}
-		err := node.runProviderRenewal(owner, provider, reference)
-		node.auth.mu.Lock()
-		renewal.err = err
-		delete(node.auth.renewals, reference.ID)
-		close(renewal.done)
-		node.auth.mu.Unlock()
-	})
-	if err != nil {
-		node.auth.mu.Lock()
-		renewal.err = err
-		delete(node.auth.renewals, reference.ID)
-		close(renewal.done)
-		node.auth.mu.Unlock()
 		return nil, err
 	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-renewal.done:
-		if renewal.err != nil {
-			if secret, err := node.readProviderAuthorization(ctx, provider, reference); err == nil {
-				return secret, nil
-			} else if controllerLoginWaitable(err) {
-				return nil, err
+	return node.readProviderAuthorization(ctx, provider, reference)
+}
+
+func (node *Node) renewProviderCredential(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef, scheduled bool) error {
+	for ctx.Err() == nil {
+		node.auth.mu.Lock()
+		renewal := node.auth.renewals[reference.ID]
+		start := renewal == nil
+		if start {
+			renewal = &authRenewal{done: make(chan struct{})}
+			node.auth.renewals[reference.ID] = renewal
+		}
+		node.auth.mu.Unlock()
+		if start {
+			finish := func(err error) {
+				node.auth.mu.Lock()
+				renewal.err = err
+				delete(node.auth.renewals, reference.ID)
+				close(renewal.done)
+				node.auth.mu.Unlock()
 			}
-			return nil, renewal.err
+			if err := node.tasks.Submit(func(owner context.Context) {
+				if user, ok := store.UserFromContext(ctx); ok {
+					owner = store.WithUser(owner, user)
+				}
+				if user, ok := store.CapturedUserFromContext(ctx); ok {
+					owner = store.WithCapturedUser(owner, user)
+				}
+				finish(node.runProviderRenewal(owner, provider, reference, scheduled))
+			}); err != nil {
+				finish(err)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-renewal.done:
+			// A turn may join a scheduled renewal that made no request
+			// because the account was no longer selected. It still has
+			// authority to renew the credential captured at admission.
+			if scheduled || !errors.Is(renewal.err, store.ErrProviderRenewalNotSelected) {
+				return renewal.err
+			}
 		}
 	}
-	return node.readProviderAuthorization(ctx, provider, reference)
+	return ctx.Err()
 }
 
 func (node *Node) setCredentialWait(ctx context.Context, turn protocol.TurnID, waiting *protocol.ConversationRunWaiting) error {
@@ -512,11 +512,15 @@ func (node *Node) readProviderAuthorization(ctx context.Context, provider protoc
 	return secret, err
 }
 
-func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef) error {
+func (node *Node) runProviderRenewal(ctx context.Context, provider protocol.ConversationProvider, reference protocol.CredentialRef, scheduled bool) error {
+	begin := store.BeginProviderRenewal
+	if scheduled {
+		begin = store.BeginScheduledProviderRenewal
+	}
 	var renewal *store.ProviderRenewal
 	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
 		var err error
-		renewal, err = store.BeginProviderRenewal(ctx, db, node.ID(), provider, reference, time.Now())
+		renewal, err = begin(ctx, db, node.ID(), provider, reference, time.Now())
 		return err
 	}); err != nil || renewal == nil {
 		return err

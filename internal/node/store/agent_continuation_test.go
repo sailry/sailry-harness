@@ -200,9 +200,9 @@ func TestPluginTransactionDisabled(t *testing.T) {
 	}
 }
 
-// TestPluginTransactionSubmit admits a session's first turn through a plugin
-// transaction, whose ledger entry is only a digest: the turn still starts
-// with its message, and the session is titled by it.
+// TestPluginTransactionSubmit keeps admitted messages and attributes each
+// segment of conversation storage to its own turn, even though the ledger
+// describes the transaction only by its digest.
 func TestPluginTransactionSubmit(t *testing.T) {
 	t.Parallel()
 	storage, node, first, previous, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -222,7 +222,7 @@ func TestPluginTransactionSubmit(t *testing.T) {
 		info := pluginTestInfo("submit-fixture", 'e')
 		extension := protocol.DefaultPluginExtension()
 		extension.ApiVersion = "v1"
-		extension.Actions = []protocol.PluginAction{protocol.PluginActionControlConversation}
+		extension.Actions = []protocol.PluginAction{protocol.PluginActionControlConversation, protocol.PluginActionWriteStorage}
 		info.Extension = &extension
 		info, err = InstallPlugin(ctx, db, info, 0, true)
 		if err != nil {
@@ -230,9 +230,15 @@ func TestPluginTransactionSubmit(t *testing.T) {
 		}
 		scope := protocol.DefaultPluginContext()
 		scope.Package, scope.Session, scope.Worktree = plugins.PackageReference(info), &session.ID, &session.Worktree
-		request := protocol.NewRequest(node, protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: []protocol.PluginTransactionOperation{{
-			Kind: "submit", Data: protocol.PluginTransactionOperationSubmitPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Submitted by a package"}},
-		}}}})
+		write := func(key string) protocol.PluginTransactionOperation {
+			return protocol.PluginTransactionOperation{Kind: "conversation_write", Data: protocol.PluginTransactionOperationConversationWritePayload{Key: key, Value: json.RawMessage("true")}}
+		}
+		submit := func(text string) protocol.PluginTransactionOperation {
+			return protocol.PluginTransactionOperation{Kind: "submit", Data: protocol.PluginTransactionOperationSubmitPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: text}}}
+		}
+		request := protocol.NewRequest(node, protocol.Command{Kind: "plugin_transaction", Data: &protocol.CommandPluginTransactionPayload{Operations: []protocol.PluginTransactionOperation{
+			write("first"), submit("Submitted by a package"), write("second"), submit("Next package input"), write("trailing"),
+		}}})
 		request.Plugin = &scope
 		// The ledger stores this command as a digest, not as JSON.
 		if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), []byte("credential-v1:"+strings.Repeat("0", 64))); err != nil {
@@ -242,8 +248,18 @@ func TestPluginTransactionSubmit(t *testing.T) {
 			return fmt.Errorf("a transaction could not submit a turn: %w", err)
 		}
 		queue, err := ReadQueue(ctx, db, session.ID)
-		if err != nil || len(queue.Items) != 1 || queue.Items[0].Preview != "Submitted by a package" {
+		if err != nil || len(queue.Items) != 2 || queue.Items[0].Preview != "Submitted by a package" || queue.Items[1].Preview != "Next package input" {
 			return fmt.Errorf("queued input = %+v: %v", queue.Items, err)
+		}
+		for _, anchor := range []struct {
+			key  string
+			turn protocol.TurnID
+		}{{"first", queue.Items[0].Turn}, {"second", queue.Items[1].Turn}, {"trailing", queue.Items[1].Turn}} {
+			var turn string
+			err := db.QueryRowContext(ctx, "SELECT h.turn FROM plugin_conversation_history h JOIN plugin_conversation_records r ON r.sequence=h.record WHERE h.session=?1 AND r.key=?2", session.ID.String(), anchor.key).Scan(&turn)
+			if err != nil || turn != anchor.turn.String() {
+				return fmt.Errorf("storage %s anchored at %s, want %s: %v", anchor.key, turn, anchor.turn.String(), err)
+			}
 		}
 		invocation, _, err := ClaimNext(ctx, db, now)
 		if err != nil || invocation == nil || invocation.Session.ID != session.ID || invocation.Message.Text != "Submitted by a package" {

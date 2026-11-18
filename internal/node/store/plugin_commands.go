@@ -95,8 +95,18 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 		}
 		outputs := make([]protocol.Output, 0, len(input.Operations))
 		var checkpoint uint64
-		if err := db.QueryRowContext(ctx, "SELECT coalesce(max(sequence),0) FROM plugin_conversation_records").Scan(&checkpoint); err != nil {
-			return protocol.Output{}, nil, err
+		if scope.Session != nil {
+			if err := db.QueryRowContext(ctx, "SELECT coalesce(max(record),0) FROM plugin_conversation_history WHERE session=?1", scope.Session.String()).Scan(&checkpoint); err != nil {
+				return protocol.Output{}, nil, err
+			}
+		}
+		// Anchor each segment of conversation writes to the next turn it
+		// admits. Writes after the final admission belong to that last turn.
+		attachWrites := func(turn protocol.QueuedTurn) error {
+			if _, err := db.ExecContext(ctx, "UPDATE plugin_conversation_history SET turn=?3 WHERE session=?1 AND record>?2", turn.Session.String(), checkpoint, turn.ID.String()); err != nil {
+				return err
+			}
+			return db.QueryRowContext(ctx, "SELECT coalesce(max(record),0) FROM plugin_conversation_history WHERE session=?1", turn.Session.String()).Scan(&checkpoint)
 		}
 		// A captured turn or invocation keeps its package through a later
 		// disable. A controller surface follows the live state, so the
@@ -112,6 +122,7 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 		}
 		var admitted *protocol.QueuedTurn
 		var events []protocol.Event
+		var writes bool
 		for _, operation := range input.Operations {
 			command, err := pluginTransactionCommand(operation, scope.Package)
 			if err != nil {
@@ -145,12 +156,23 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 				return protocol.Output{}, nil, err
 			}
 			outputs, events = append(outputs, output), append(events, changes...)
+			if output.Kind == "plugin_conversation_value" {
+				writes = true
+			}
 			if output.Kind == "queued_turn" {
 				var turn protocol.QueuedTurn
 				if err := decodeProviderData(output.Data, &turn); err != nil {
 					return protocol.Output{}, nil, err
 				}
-				admitted = &turn
+				if scope.Session != nil && *scope.Session == turn.Session {
+					if writes {
+						if err := attachWrites(turn); err != nil {
+							return protocol.Output{}, nil, err
+						}
+						writes = false
+					}
+					admitted = &turn
+				}
 				// The ledger keeps only the digest of a transaction, so a
 				// turn it admits carries its input on the run.
 				if message, e := agentInput(command); e == nil {
@@ -164,8 +186,8 @@ func ExecutePluginStorageCommand(ctx context.Context, db *sql.Conn, node protoco
 				}
 			}
 		}
-		if admitted != nil {
-			if _, err := db.ExecContext(ctx, "UPDATE plugin_conversation_history SET turn=?3 WHERE session=?1 AND record>?2", admitted.Session.String(), checkpoint, admitted.ID.String()); err != nil {
+		if writes && admitted != nil {
+			if err := attachWrites(*admitted); err != nil {
 				return protocol.Output{}, nil, err
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -90,12 +91,41 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		entry := current.Authorizations[current.Provider.Credential.ID]
 		entry.Key = &secret
 		current.Authorizations[current.Provider.Credential.ID] = entry
+		retained := protocol.CredentialRef{Node: node, ID: protocol.NewCredentialID()}
+		current.Authorizations[retained.ID] = entry
 		if err := saveProviderConfiguration(ctx, db, *current); err != nil {
 			return err
 		}
 		candidates, err := ReadCredentialRenewals(ctx, db, node)
-		if err != nil || len(candidates) != 1 || candidates[0].DueMs != *storedGrant.RenewalAt() {
+		if err != nil || len(candidates) != 1 || candidates[0].Credential != *current.Provider.Credential || candidates[0].DueMs != *storedGrant.RenewalAt() {
 			return fmt.Errorf("legacy account disappeared from controller renewals: %+v, %v", candidates, err)
+		}
+		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
+		if _, err := BeginScheduledProviderRenewal(ctx, db, node, *current.Provider, retained, renewAt); !errors.Is(err, ErrProviderRenewalNotSelected) {
+			return fmt.Errorf("a scheduled refresh admitted an older account: %v", err)
+		}
+		for _, state := range []struct{ listed, enabled bool }{{false, true}, {true, false}} {
+			current.Listed, current.Provider.Enabled = state.listed, state.enabled
+			if err := saveProviderConfiguration(ctx, db, *current); err != nil {
+				return err
+			}
+			if candidates, err := ReadCredentialRenewals(ctx, db, node); err != nil || len(candidates) != 0 {
+				return fmt.Errorf("inactive provider remained scheduled: %+v, %v", candidates, err)
+			}
+			if _, err := BeginScheduledProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt); !errors.Is(err, ErrProviderRenewalNotSelected) {
+				return fmt.Errorf("a stale scheduled refresh admitted an inactive account: %v", err)
+			}
+		}
+		carried, err := BeginProviderRenewal(ctx, db, node, *current.Provider, retained, renewAt)
+		if err != nil || carried == nil {
+			return fmt.Errorf("an admitted turn cannot renew its retained authorization: %v", err)
+		}
+		if _, err := CompleteProviderRenewal(ctx, db, node, *carried, carried.Grant); err != nil {
+			return err
+		}
+		current.Listed, current.Provider.Enabled = true, true
+		if err := saveProviderConfiguration(ctx, db, *current); err != nil {
+			return err
 		}
 		remoteProvider := protocol.DefaultConversationProvider()
 		remoteProvider.ID, remoteProvider.Name, remoteProvider.Api = protocol.NewProviderID(), "Retained remote capture", protocol.ConversationModelApiResponses
@@ -116,8 +146,7 @@ func TestProviderAccountLifecycleAndQuota(t *testing.T) {
 		if err != nil || len(candidates) != 1 || candidates[0].Provider.ID != provider.ID {
 			return fmt.Errorf("execution Node attempted to renew a retained remote account: %+v, %v", candidates, err)
 		}
-		renewAt := time.UnixMilli(int64(*storedGrant.RenewalAt()))
-		renewal, err := BeginProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
+		renewal, err := BeginScheduledProviderRenewal(ctx, db, node, *current.Provider, *current.Provider.Credential, renewAt)
 		if err != nil || renewal == nil {
 			return fmt.Errorf("renewal did not capture the expiring account: %v", err)
 		}

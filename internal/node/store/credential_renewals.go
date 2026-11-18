@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -19,8 +20,23 @@ type CredentialRenewal struct {
 	DueMs       uint64
 }
 
-// ReadCredentialRenewals includes only credentials whose renewal material is
-// owned here. An executor's cache is never considered a renewal source.
+// ErrProviderRenewalNotSelected means the account stopped being eligible
+// after the scheduler collected it.
+var ErrProviderRenewalNotSelected = errors.New("scheduled provider authorization is no longer selected")
+
+func selectedProviderCredential(saved providerConfiguration, node protocol.NodeID) *protocol.CredentialRef {
+	if !saved.Listed || saved.Provider == nil || !saved.Provider.Enabled {
+		return nil
+	}
+	reference := saved.Provider.Credential
+	if reference == nil || reference.Node != node {
+		return nil
+	}
+	return reference
+}
+
+// ReadCredentialRenewals schedules currently used accounts owned here. A turn
+// that has retained another account can renew it at its next model step.
 func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.NodeID) ([]CredentialRenewal, error) {
 	users, err := ListUsers(ctx, db)
 	if err != nil {
@@ -37,33 +53,30 @@ func ReadCredentialRenewals(ctx context.Context, db *sql.Conn, node protocol.Nod
 			return nil, err
 		}
 		for _, saved := range configurations {
-			if saved.Provider == nil {
+			reference := selectedProviderCredential(saved, node)
+			if reference == nil {
 				continue
 			}
-			if saved.Provider.Credential != nil && saved.Provider.Credential.Node != node {
+			value := saved.Authorizations[reference.ID]
+			if value.Key == nil || value.Authentication == protocol.AuthenticationApiKey {
 				continue
 			}
-			for id, value := range saved.Authorizations {
-				if value.Key == nil || value.Authentication == protocol.AuthenticationApiKey {
-					continue
-				}
-				var grant providers.AccountGrant
-				if json.Unmarshal([]byte(value.Key.Expose()), &grant) != nil || grant.RenewalPending || grant.RenewalUncertain || grant.RenewalRejected {
-					continue
-				}
-				due := grant.RenewalAt()
-				if due == nil {
-					continue
-				}
-				captured, err := CaptureProvider(owner, db, *saved.Provider)
-				if err != nil {
-					continue
-				}
-				result = append(result, CredentialRenewal{
-					User: user, Provider: &captured, Credential: protocol.CredentialRef{Node: node, ID: id},
-					Revision: value.Revision, DueMs: *due,
-				})
+			var grant providers.AccountGrant
+			if json.Unmarshal([]byte(value.Key.Expose()), &grant) != nil || grant.RenewalPending || grant.RenewalUncertain || grant.RenewalRejected {
+				continue
 			}
+			due := grant.RenewalAt()
+			if due == nil {
+				continue
+			}
+			captured, err := CaptureProvider(owner, db, *saved.Provider)
+			if err != nil {
+				continue
+			}
+			result = append(result, CredentialRenewal{
+				User: user, Provider: &captured, Credential: *reference,
+				Revision: value.Revision, DueMs: *due,
+			})
 		}
 		connections, err := connectorRecords(owner, db)
 		if err != nil {
