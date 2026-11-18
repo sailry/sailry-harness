@@ -30,8 +30,9 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	SetToolSchemas(&call, request.ToolSchemas)
 	params := requestParameters(binding, &call)
 	call.ProviderOptions[parametersKey] = params
+	cache := cacheOptions(binding)
 	if request.System != "" {
-		call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleSystem, Content: []fantasy.MessagePart{fantasy.TextPart{Text: request.System, ProviderOptions: cacheOptions(binding)}}})
+		call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleSystem, Content: []fantasy.MessagePart{fantasy.TextPart{Text: request.System, ProviderOptions: cache}}})
 	}
 	for _, tool := range request.Tools {
 		call.Tools = append(call.Tools, tool)
@@ -213,11 +214,11 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		addRedacted(message.PartCount)
 		flush()
 	}
-	if binding.Provider.Api == "anthropic" {
+	if cache != nil {
 		remaining := 2
 		for i := len(call.Prompt) - 1; i >= 0 && remaining > 0; i-- {
 			if call.Prompt[i].Role == fantasy.MessageRoleUser || call.Prompt[i].Role == fantasy.MessageRoleTool {
-				call.Prompt[i].ProviderOptions = cacheOptions(binding)
+				call.Prompt[i].ProviderOptions = cache
 				remaining--
 			}
 		}
@@ -439,7 +440,10 @@ func keepReasoning(binding Binding, record canonical.Record) bool {
 	return false
 }
 func cacheOptions(binding Binding) fantasy.ProviderOptions {
-	if binding.Provider.Api == "anthropic" {
+	// Foundry can resolve an aliased deployment to native Claude Messages
+	// after capture. Only the Messages serializer reads these options.
+	switch binding.Provider.Api {
+	case protocol.ConversationModelApiAnthropic, protocol.ConversationModelApiAzureAi:
 		return fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderCacheControlOptions{CacheControl: anthropic.CacheControl{Type: "ephemeral"}}}
 	}
 	return nil

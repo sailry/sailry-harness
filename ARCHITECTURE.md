@@ -185,7 +185,9 @@ The ChatGPT OAuth channel discovers the signed-in account's model list using
 the Node's reviewed Codex catalog version unless the channel specifies an
 override. The public model catalog can supplement the account's metadata.
 ChatGPT OAuth Responses requests use the captured session ID for prompt
-cache routing.
+cache routing. Native transports emit cache controls supported by the selected
+protocol. GPT-6.2 Responses uses the first developer message for reusable
+instructions.
 
 Roles, teams, media assignments, plugin installs and settings, connectors,
 MCP, SSH and database profiles also belong to the authenticated user on the

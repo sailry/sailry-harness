@@ -42,8 +42,10 @@ func requestParameters(binding Binding, call *fantasy.Call) *callParameters {
 	enabled := reasoning == nil || *reasoning
 	// Requests without a session share no conversation, so they get no cache key.
 	cacheProtocol := provider.Authentication == protocol.AuthenticationApiKey &&
-		(provider.Api == protocol.ConversationModelApiResponses || provider.Api == protocol.ConversationModelApiChatCompletions) ||
-		provider.Authentication == protocol.AuthenticationChatGptOAuth && provider.Api == protocol.ConversationModelApiResponses
+		(provider.Api == protocol.ConversationModelApiResponses || provider.Api == protocol.ConversationModelApiChatCompletions ||
+			provider.Api == protocol.ConversationModelApiAzureOpenAi && azurePromptCacheModel.MatchString(binding.Config.Model)) ||
+		(provider.Authentication == protocol.AuthenticationChatGpt || provider.Authentication == protocol.AuthenticationChatGptOAuth) &&
+			provider.Api == protocol.ConversationModelApiResponses
 	cacheKey := cacheProtocol && binding.Session != (protocol.SessionID{})
 	if cacheKey {
 		params.Body["prompt_cache_key"] = binding.Session.String()

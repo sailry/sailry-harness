@@ -6,11 +6,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo/netproxy"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// Azure documents prompt cache keys for GPT-5.6 and newer OpenAI models.
+// Match model IDs without assuming a user-chosen deployment alias supports it.
+var azurePromptCacheModel = regexp.MustCompile(`(?i)^gpt-(?:5\.6|6(?:\.\d+)?)(?:-(?:astra|sol|terra|luna))?(?:-20\d{2}-\d{2}-\d{2})?$`)
 
 func foundryBinding(ctx context.Context, binding Binding, config transportConfig) (transportConfig, error) {
 	u, err := endpoint(binding.Provider.Endpoint)
@@ -52,6 +58,9 @@ func foundryBinding(ctx context.Context, binding Binding, config transportConfig
 		config.Kind = "chat"
 		if openai && responsesModel.MatchString(underlying) {
 			config.Kind = "responses"
+			if binding.Session != (protocol.SessionID{}) && azurePromptCacheModel.MatchString(underlying) {
+				config.JSON["prompt_cache_key"] = binding.Session.String()
+			}
 		}
 	}
 	config.Endpoint = strings.TrimRight(u.String(), "/")

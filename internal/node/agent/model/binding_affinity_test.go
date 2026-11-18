@@ -192,7 +192,7 @@ func TestChatGPTOAuthAffinityOnTheWire(t *testing.T) {
 	}
 	secret := protocol.NewSecret(string(raw))
 	selection := protocol.DefaultSessionConfig()
-	selection.Provider, selection.Model = provider.ID, "fixture-model"
+	selection.Provider, selection.Model = provider.ID, "gpt-6.2-sol"
 	first, other := protocol.NewSessionID(), protocol.NewSessionID()
 	sessions := []protocol.SessionID{first, first, other, {}}
 	for _, session := range sessions {
@@ -235,6 +235,108 @@ func TestChatGPTOAuthAffinityOnTheWire(t *testing.T) {
 		}
 		checkValue(t, request.Body, "prompt_cache_key", key)
 		checkValue(t, request.Body, "store", false)
+		checkValue(t, request.Body, "input.0.role", "developer")
+		checkValue(t, request.Body, "input.0.content.0.text", systemText)
+		checkValue(t, request.Body, "instructions", nil)
+	}
+}
+
+func TestSignInWithChatGPTResponsesCacheOnTheWire(t *testing.T) {
+	response := string(fixture(t, "responses-text.sse"))
+	server := serverFixture(t, response)
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api, provider.Enabled = protocol.NewProviderID(), protocol.ConversationModelApiResponses, true
+	provider.Authentication, provider.Endpoint = protocol.AuthenticationChatGpt, "https://api.openai.com/v1"
+	raw, err := json.Marshal(providers.AccountGrant{Kind: provider.Authentication, Access: "fixture-access",
+		Scopes: []string{"resource.invoke", "chatgpt.tokens.use.direct"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := protocol.NewSecret(string(raw))
+	selection := protocol.DefaultSessionConfig()
+	selection.Provider, selection.Model = provider.ID, "gpt-6.2-sol"
+	selection.Mode, selection.Permission = protocol.WorkModeCode, protocol.PermissionAsk
+	session := protocol.NewSessionID()
+	binding, err := Capture(provider, selection, &secret, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := transportBinding(binding)
+	if err != nil || transport.Endpoint != provider.Endpoint {
+		t.Fatalf("account route was not retained: %q, %v", transport.Endpoint, err)
+	}
+	transport.Endpoint = server.URL + "/v1"
+	language, err := newSDK(t.Context(), transport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maximum, temperature := int64(512), 0.5
+	call, err := BuildCall(binding, Request{System: systemText, MaxOutputTokens: &maximum, Temperature: &temperature})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect(t, language, call)
+	requests := server.captured()
+	if len(requests) != 1 || requests[0].Path != "/v1/responses" ||
+		requests[0].Headers.Get("Authorization") != "Bearer fixture-access" || requests[0].Headers.Get("Session-Id") != "" {
+		t.Fatal("unexpected request to the Sign in with ChatGPT route")
+	}
+	body := requests[0].Body
+	checkValue(t, body, "prompt_cache_key", session.String())
+	checkValue(t, body, "input.0.role", "developer")
+	checkValue(t, body, "input.0.content.0.text", systemText)
+	checkValue(t, body, "store", false)
+	checkValue(t, body, "stream", true)
+	for _, field := range []string{"instructions", "max_output_tokens", "temperature"} {
+		checkValue(t, body, field, nil)
+	}
+}
+
+func TestResponsesPlacesReusableDeveloperInstructionsFirst(t *testing.T) {
+	for _, modelID := range []string{"gpt-6.2-sol", "compatible/gpt-6.2-astra", "gpt-6.1-sol"} {
+		t.Run(modelID, func(t *testing.T) {
+			server := serverFixture(t, string(fixture(t, "responses-text.sse")))
+			provider := protocol.DefaultConversationProvider()
+			provider.ID, provider.Api, provider.Enabled = protocol.NewProviderID(), protocol.ConversationModelApiResponses, true
+			provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, server.URL
+			metadata := protocol.DefaultConversationModel()
+			metadata.ID, metadata.Context = modelID, 32000
+			provider.Models = []protocol.ConversationModel{metadata}
+			config := protocol.DefaultSessionConfig()
+			config.Provider, config.Model = provider.ID, modelID
+			config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
+			secret := protocol.NewSecret("fixture-key")
+			session := protocol.NewSessionID()
+			binding, err := Capture(provider, config, &secret, session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			language, err := New(t.Context(), binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			call, err := BuildCall(binding, Request{System: systemText})
+			if err != nil {
+				t.Fatal(err)
+			}
+			call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleUser, Content: []fantasy.MessagePart{fantasy.TextPart{Text: "Task"}}})
+			collect(t, language, call)
+			requests := server.captured()
+			if len(requests) != 1 {
+				t.Fatalf("captured %d requests", len(requests))
+			}
+			body := requests[0].Body
+			checkValue(t, body, "prompt_cache_key", session.String())
+			if modelID == "gpt-6.1-sol" {
+				checkValue(t, body, "instructions", systemText)
+				checkValue(t, body, "input.0.role", "user")
+				return
+			}
+			checkValue(t, body, "instructions", nil)
+			checkValue(t, body, "input.0.role", "developer")
+			checkValue(t, body, "input.0.content.0.text", systemText)
+			checkValue(t, body, "input.1.role", "user")
+		})
 	}
 }
 

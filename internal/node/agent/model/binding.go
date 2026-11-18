@@ -295,7 +295,7 @@ func transportBinding(binding Binding) (transportConfig, error) {
 		path := gatewayPath(u.Path)
 		response := (path == "/v1" && responsesModel.MatchString(config.Model)) || strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/responses")
 		u.Path = path
-		if api == protocol.ConversationModelApiOpenCodeGo {
+		if binding.Session != (protocol.SessionID{}) {
 			config.Headers["x-opencode-session"] = binding.Session.String()
 		}
 		api = protocol.ConversationModelApiChatCompletions
@@ -329,10 +329,10 @@ func transportBinding(binding Binding) (transportConfig, error) {
 		if provider.Api == protocol.ConversationModelApiAnthropic {
 			config.Headers["anthropic-version"] = "2023-06-01"
 		}
-		if provider.Authentication == protocol.AuthenticationChatGptOAuth {
+		if config.Kind == "responses" && (provider.Authentication == protocol.AuthenticationChatGpt || provider.Authentication == protocol.AuthenticationChatGptOAuth) {
 			config.JSON["store"] = false
 			config.Remove = append(config.Remove, "max_output_tokens", "temperature")
-			if config.Kind == "responses" && binding.Session != (protocol.SessionID{}) {
+			if provider.Authentication == protocol.AuthenticationChatGptOAuth && binding.Session != (protocol.SessionID{}) {
 				// ChatGPT's Responses route uses its session ID for cache affinity.
 				config.Headers["Session-Id"] = binding.Session.String()
 			}

@@ -414,18 +414,26 @@ func (emitter *sdkEmitter) updateUsage(value map[string]any, family string) {
 		keys = map[string]**int64{"promptTokenCount": &emitter.usage.UncachedInput, "toolUsePromptTokenCount": &emitter.usage.ToolInput, "candidatesTokenCount": &emitter.usage.CandidateOutput, "totalTokenCount": &emitter.usage.Total, "cachedContentTokenCount": &emitter.usage.CacheRead, "thoughtsTokenCount": &emitter.usage.Reasoning}
 	case "chat":
 		keys = map[string]**int64{"prompt_tokens": &emitter.usage.Input, "completion_tokens": &emitter.usage.Output, "total_tokens": &emitter.usage.Total}
-		if count := wireInt(wireObject(value["prompt_tokens_details"])["cached_tokens"]); count != nil {
+		details := wireObject(value["prompt_tokens_details"])
+		if count := wireInt(details["cached_tokens"]); count != nil {
 			emitter.usage.CacheRead = count
 		} else if count := wireInt(value["prompt_cache_hit_tokens"]); count != nil {
 			emitter.usage.CacheRead = count
+		}
+		if count := wireInt(details["cache_write_tokens"]); count != nil {
+			emitter.usage.CacheWrite = count
 		}
 		if count := wireInt(wireObject(value["completion_tokens_details"])["reasoning_tokens"]); count != nil {
 			emitter.usage.Reasoning = count
 		}
 	default:
 		keys = map[string]**int64{"input_tokens": &emitter.usage.Input, "output_tokens": &emitter.usage.Output, "total_tokens": &emitter.usage.Total}
-		if count := wireInt(wireObject(value["input_tokens_details"])["cached_tokens"]); count != nil {
+		details := wireObject(value["input_tokens_details"])
+		if count := wireInt(details["cached_tokens"]); count != nil {
 			emitter.usage.CacheRead = count
+		}
+		if count := wireInt(details["cache_write_tokens"]); count != nil {
+			emitter.usage.CacheWrite = count
 		}
 		if count := wireInt(wireObject(value["output_tokens_details"])["reasoning_tokens"]); count != nil {
 			emitter.usage.Reasoning = count

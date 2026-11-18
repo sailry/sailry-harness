@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/fantasy"
@@ -172,7 +173,8 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 		if call.MaxOutputTokens != nil {
 			body["max_output_tokens"] = *call.MaxOutputTokens
 		}
-		if options, ok := call.ProviderOptions[openai.Name].(*openai.ResponsesProviderOptions); ok {
+		options, _ := call.ProviderOptions[openai.Name].(*openai.ResponsesProviderOptions)
+		if options != nil {
 			if options.Instructions != nil {
 				body["instructions"] = *options.Instructions
 			}
@@ -187,6 +189,22 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 			}
 			if options.Include != nil {
 				body["include"] = options.Include
+			}
+		}
+		// GPT-6.2 caches reusable instructions at the front of input.
+		// Keep explicit request-level overrides in their original place.
+		model := strings.ToLower(config.Model[strings.LastIndexByte(config.Model, '/')+1:])
+		if model == "gpt-6.2" || strings.HasPrefix(model, "gpt-6.2-") {
+			_, configured := config.JSON["instructions"]
+			params, _ := call.ProviderOptions[parametersKey].(*callParameters)
+			var patched bool
+			if params != nil {
+				_, patched = params.Body["instructions"]
+			}
+			if text := wireString(body["instructions"]); text != "" && !configured && !patched && (options == nil || options.Instructions == nil) {
+				developer := map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": text}}}
+				body["input"] = slices.Insert(input, 0, any(developer))
+				delete(body, "instructions")
 			}
 		}
 		body["tools"] = genericTools(call, true)

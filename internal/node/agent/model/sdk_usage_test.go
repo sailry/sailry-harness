@@ -79,3 +79,32 @@ func TestChatCacheUsageFields(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAICacheWritesPreserveInputTotals(t *testing.T) {
+	for _, kind := range []string{"chat", "responses"} {
+		t.Run(kind, func(t *testing.T) {
+			body := string(fixture(t, kind+"-text.sse"))
+			if !strings.Contains(body, `"cached_tokens":8`) {
+				t.Fatal("fixture no longer carries the expected cache read")
+			}
+			body = strings.Replace(body, `"cached_tokens":8`, `"cached_tokens":8,"cache_write_tokens":3`, 1)
+			server := serverFixture(t, body)
+			model, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, part := range collect(t, model, requestCall(t, kind)) {
+				if part.Type != fantasy.StreamPartTypeFinish {
+					continue
+				}
+				usage := PartUsage(part)
+				if usage.CacheWrite == nil || *usage.CacheWrite != 3 || usage.CacheRead == nil || *usage.CacheRead != 8 ||
+					usage.Input == nil || *usage.Input != 12 || usage.Total == nil || *usage.Total != 15 {
+					t.Fatalf("cache writes were dropped or counted twice: %+v", usage)
+				}
+				return
+			}
+			t.Fatal("stream did not finish")
+		})
+	}
+}
