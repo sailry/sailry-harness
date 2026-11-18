@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -25,6 +27,7 @@ type hookEditor struct {
 	index   int
 	script  preview.Hook
 	timeout string
+	target  HookTarget
 	// removing is the ID of the script whose removal awaits confirmation.
 	removing string
 }
@@ -33,19 +36,66 @@ type hookEditor struct {
 type consent struct {
 	open     bool
 	settings HookSettings
-}
-
-type HookWorktree struct {
-	ID, Path string
+	target   HookTarget
 }
 
 type HookTarget struct {
-	Host, Project, Worktree, Path string
-	Worktrees                     []HookWorktree
+	Node, Host, Project, Worktree, Path string
 }
 
 func (t HookTarget) label(c *ui.Context) string {
 	return strings.Join([]string{i18n.T(c, t.Host), t.Project, t.Path}, " · ")
+}
+
+func (t HookTarget) same(other HookTarget) bool {
+	return t.Node == other.Node && t.Worktree == other.Worktree
+}
+
+func hooksTargetSelect(c *ui.Context, m *Model) bool {
+	if !m.Live || m.HookTargets == nil || m.SelectHookTarget == nil {
+		return false
+	}
+	target, available := m.HookSelection, false
+	if m.HooksContext != nil {
+		target, available = m.HooksContext()
+	}
+	targets := m.HookTargets()
+	title := i18n.T(c, "hooks_project_required")
+	shown, hint := title, title
+	if target.Worktree != "" {
+		worktree := path.Base(strings.ReplaceAll(target.Path, `\`, "/"))
+		shown = target.Project + " · " + worktree + " · " + i18n.T(c, target.Host)
+		hint = target.label(c)
+		if !available {
+			status := " · " + i18n.T(c, "unavailable")
+			shown, hint = shown+status, hint+status
+		}
+	}
+	changed := false
+	button := kit.MenuButton(c, "hooks-target", func(b ui.Element) {
+		kit.GhostLook(c, b.Label(title).Disabled(m.HooksEditing() || len(targets) == 0 && m.HookSelection.Node == ""), false).
+			Row().Height(28).Gap(6).PaddingX(8).MaxWidth(320).Shrink(1).MinWidth(0).Children(func() {
+			p := theme.Of(c)
+			ui.Icon(c, icons.GitBranch).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+			ui.Text(c, shown).FontSize(13).SingleLine().Shrink(1).MinWidth(0)
+			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+		})
+	}, func(menu *kit.Menu) {
+		if menu.Item(i18n.T(c, "hooks_follow_current_worktree")).Checked(m.HookSelection.Node == "").Chosen() {
+			changed = m.SelectHookTarget(HookTarget{})
+		}
+		if len(targets) > 0 {
+			menu.Separator()
+		}
+		for _, choice := range targets {
+			name := choice.Project + " · " + i18n.T(c, choice.Host)
+			if menu.Item(name).Description(choice.Path).Icon(icons.GitBranch).Checked(m.HookSelection.same(choice)).Chosen() {
+				changed = m.SelectHookTarget(choice)
+			}
+		}
+	}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd, CheckRight: true, MaxHeight: 320})
+	kit.Tooltip(c, button, hint)
+	return changed
 }
 
 func (m *Model) HooksEditing() bool {
@@ -66,46 +116,44 @@ func (e *hookEditor) Check() string {
 // and its removal. Turning scripts on asks for consent.
 func hooks(c *ui.Context, m *Model) {
 	h := &m.Hooks
-	if m.Live && m.HooksContext != nil {
-		target, ok := m.HooksContext()
-		if !ok {
-			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "hooks_project_required"), Card: true})
+	var target HookTarget
+	if m.Live {
+		if m.HooksContext == nil {
 			return
 		}
-		var changed bool
-		kit.Card(c, func() {
-			kit.WideRow(c, "worktree", i18n.T(c, "workspace_worktrees"), target.label(c), func() {
-				if len(target.Worktrees) < 2 || m.SelectHookWorktree == nil {
-					return
-				}
-				options := make([]kit.SelectOption, 0, len(target.Worktrees))
-				for _, tree := range target.Worktrees {
-					options = append(options, kit.SelectOption{Value: tree.ID, Label: tree.Path})
-				}
-				id := target.Worktree
-				_, changed = kit.SelectField(c.Key("target"), "worktree", &id, kit.SelectProps{
-					Label: i18n.T(c, "workspace_worktrees"), Options: options, Disabled: h.Pending || m.HooksEditing(),
-				})
-				if changed {
-					m.SelectHookWorktree(id)
-				}
-			})
-		})
-		if changed {
+		var ok bool
+		target, ok = m.HooksContext()
+		if (m.hook.open || m.hook.removing != "") && !m.hook.target.same(target) {
+			m.hook = hookEditor{}
+		}
+		if m.consent.open && !m.consent.target.same(target) {
+			m.consent = consent{}
+		}
+		if !ok {
+			if target.Worktree != "" {
+				settingsTargetStatus(c, "unavailable")
+			} else if m.HookTargets == nil || len(m.HookTargets()) == 0 {
+				settingsTargetStatus(c, "connection_no_projects")
+			}
+			m.consent, m.hook.removing = consent{}, ""
+			hookDialog(c, m, nil)
 			return
 		}
 	}
+	saveHooks := m.SaveHooks
 	save := func(s HookSettings) {
-		h.Draft = s
-		if m.Live && m.SaveHooks != nil {
-			m.SaveHooks()
+		if m.Live {
+			if saveHooks != nil {
+				saveHooks(s)
+			}
 		} else {
+			h.Draft = s
 			report(c, h.Commit(), hookMessages)
 		}
 	}
 	enable := func(s HookSettings) {
 		if s.Enabled && slices.ContainsFunc(s.Scripts, func(x preview.Hook) bool { return x.Enabled }) {
-			m.consent = consent{open: true, settings: s}
+			m.consent = consent{open: true, settings: s, target: target}
 			return
 		}
 		save(s)
@@ -128,7 +176,7 @@ func hooks(c *ui.Context, m *Model) {
 			return
 		}
 		kit.Action(c.Key("add"), icons.Plus, i18n.T(c, "hooks_add"), h.Pending).OnClick(func() {
-			m.hook = hookEditor{open: true, index: -1, script: preview.Hook{Phase: preview.BeforeTool}, timeout: "30000"}
+			m.hook = hookEditor{open: true, index: -1, script: preview.Hook{Phase: preview.BeforeTool}, timeout: "30000", target: target}
 		})
 	}, func() {
 		if len(h.Draft.Scripts) == 0 {
@@ -154,10 +202,10 @@ func hooks(c *ui.Context, m *Model) {
 					}
 				}, func() {
 					kit.Action(c.Key("edit"), icons.Settings2, i18n.T(c, "hooks_configure"), h.Pending).OnClick(func() {
-						m.hook = hookEditor{open: true, index: i, script: x, timeout: strconv.Itoa(x.TimeoutMS)}
+						m.hook = hookEditor{open: true, index: i, script: x, timeout: strconv.Itoa(x.TimeoutMS), target: target}
 					})
 					kit.Action(c.Key("remove"), icons.CircleX, i18n.T(c, "hooks_remove"), h.Pending).OnClick(func() {
-						m.hook.removing = x.ID
+						m.hook.removing, m.hook.target = x.ID, target
 					})
 				})
 			}
@@ -234,6 +282,10 @@ func hookDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 			})
 		})
 		ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
+			if save == nil {
+				kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.open = false })
+				return
+			}
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() {
 				if problem := e.Check(); problem != "" {
 					kit.Toast(c, kit.Failed, i18n.T(c, problem))
@@ -243,8 +295,11 @@ func hookDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 				if e.index < 0 {
 					e.script.ID = protocol.NewRequestID().String()
 					s.Scripts = append(s.Scripts, e.script)
+				} else if index := slices.IndexFunc(s.Scripts, func(x preview.Hook) bool { return x.ID == e.script.ID }); index >= 0 {
+					s.Scripts[index] = e.script
 				} else {
-					s.Scripts[e.index] = e.script
+					kit.Toast(c, kit.Failed, i18n.T(c, "hooks_target_changed"))
+					return
 				}
 				e.open = false
 				save(s)

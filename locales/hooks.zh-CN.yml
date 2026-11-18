@@ -1,6 +1,7 @@
 hooks_settings: "钩子"
 hooks_settings_description: "配置此工作区的脚本"
 hooks_project_required: "选择项目"
+hooks_follow_current_worktree: "跟随当前工作树"
 hooks_enabled: "启用"
 hooks_disabled: "停用"
 hooks_before_tool: "工具执行前"

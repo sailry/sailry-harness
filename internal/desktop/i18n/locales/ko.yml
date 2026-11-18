@@ -994,7 +994,6 @@ settings_message_text_size: 글자 크기
 settings_messages: 메시지
 settings_name: 이름
 settings_notifications: 알림
-settings_managed_host: Execution host
 settings_notify_approval: 승인 요청 알림
 settings_notify_completed: 작업 완료 알림
 settings_notify_failed: 작업 실패 알림
@@ -1772,6 +1771,8 @@ workspace_completed: 완료됨
 workspace_restore_confirm: 이 턴 이전의 파일 버전으로 복원
 artifact_edit_prompt: '요청된 변경 사항:'
 hooks_project_required: 프로젝트 선택
+hooks_follow_current_worktree: Follow current worktree
+hooks_target_changed: 선택한 Node 또는 작업 트리가 변경되었습니다
 background_stop_failed: 중지 실패; 다시 시도
 background_stop_unknown: 명령 상태 확인
 subagent_stop: 하위 에이전트 중지

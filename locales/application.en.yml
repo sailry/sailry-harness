@@ -1372,7 +1372,6 @@ settings_connections_description: "Manage paired devices and remote Node connect
 settings_shortcuts_description: "View global commands and keyboard shortcuts"
 settings_about_description: "App version and build information"
 settings_notifications: "Notifications"
-settings_managed_host: "Execution host"
 settings_notify_system: "System notifications"
 settings_notify_approval: "Approval request notifications"
 settings_notify_completed: "Task completion notifications"

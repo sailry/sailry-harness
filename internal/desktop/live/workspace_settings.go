@@ -1,24 +1,24 @@
 package live
 
 import (
+	"cmp"
 	"reflect"
 	"slices"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type workspaceSettingsState struct {
 	worktree        protocol.WorktreeID
-	contextWorktree protocol.WorktreeID
-	chosenWorktree  protocol.WorktreeID
-	hooks           protocol.HooksSettings
+	hookTarget      settings.HookTarget
+	hookGeneration  uint64 // root's current Hooks binding
+	hookReload      bool
 	sandboxed       bool
 	sandboxRevision uint64
-	loading         bool
 	hookModels      map[protocol.WorktreeID]*settings.Stored[settings.HookSettings]
 	sandboxModel    settings.Stored[bool]
 	sandboxKnown    bool
@@ -49,32 +49,49 @@ func (r *Runtime) workspaceHooksModel(id protocol.WorktreeID) *settings.Stored[s
 	r.workspaceSettings.hookModels[id] = model
 	return model
 }
-func (r *Runtime) captureWorkspaceSettings() {
-	r.initWorkspaceSettings()
-	if r.localRuntime().workspaceSettingsOwner != r {
-		return
-	}
-	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
-		*r.workspaceHooksModel(id) = r.App.Settings.Hooks
-	}
-}
 func (r *Runtime) publishWorkspaceSettings() {
-	if r.localRuntime().workspaceSettingsOwner != r {
+	root := r.localRuntime()
+	if root.workspaceSettingsOwner != r || !root.hooksSettingsOpen() {
 		return
 	}
-	r.App.Settings.Hooks = settings.Stored[settings.HookSettings]{}
-	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
-		r.App.Settings.Hooks = *r.workspaceHooksModel(id)
+	id := r.workspaceSettings.worktree
+	model := r.workspaceHooksModel(id)
+	m := root.App.Settings
+	m.Hooks, m.HooksContext, m.HooksSandboxed = *model, r.hookContext, r.hooksSandboxed
+	generation, revision := root.workspaceSettings.hookGeneration, model.Revision
+	current := func() bool {
+		return root.workspaceSettingsOwner == r && root.workspaceSettings.hookGeneration == generation &&
+			root.hooksSettingsOpen() && r.workspaceSettings.worktree == id && model.Revision == revision
+	}
+	m.SaveHooks = func(draft settings.HookSettings) {
+		if !current() {
+			return
+		}
+		if _, available := r.hookContext(); !available {
+			r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the hooks execution host is unavailable"))
+			return
+		}
+		r.saveWorkspaceHooks(id, draft, current)
 	}
 }
-func (r *Runtime) bindWorkspaceSettings() {
+func (r *Runtime) bindWorkspaceSettings(id protocol.WorktreeID, target settings.HookTarget) {
 	root := r.localRuntime()
 	r.initWorkspaceSettings()
+	state := &r.workspaceSettings
+	m := root.App.Settings
+	entered := root.workspaceSettingsOwner != r || id != state.worktree || m.SaveHooks == nil
+	if entered {
+		root.workspaceSettings.hookGeneration++
+	}
 	root.workspaceSettingsOwner = r
-	root.App.Settings.SaveHooks = r.saveWorkspaceHooks
-	root.App.Settings.HooksContext = r.hookContext
-	root.App.Settings.HooksSandboxed = r.hooksSandboxed
-	root.App.Settings.SelectHookWorktree = r.selectHookWorktree
+	state.worktree, state.hookTarget = id, target
+	if entered {
+		state.sandboxed, state.hookReload = false, true
+	}
+	if state.hookReload && !r.workspaceHooksModel(id).Pending {
+		state.hookReload = false
+		r.readWorkspaceHooks(id)
+	}
 	r.publishWorkspaceSettings()
 }
 
@@ -83,27 +100,22 @@ func (r *Runtime) bindWorkspaceSettings() {
 func (r *Runtime) workspaceSettingsFrame() {
 	root := r.localRuntime()
 	root.sandboxFrame()
-	owner := root.selectedRuntime()
-	previous := root.workspaceSettingsOwner
-	if previous != nil {
-		previous.captureWorkspaceSettings()
-		if root.App.Settings.HooksEditing() {
-			owner = previous
+	m := root.App.Settings
+	if !root.hooksSettingsOpen() {
+		if m.HooksContext != nil {
+			root.workspaceSettings.hookGeneration++
+			m.HooksContext, m.SaveHooks, m.HooksSandboxed = nil, nil, nil
 		}
+		return
 	}
-	if owner == nil {
-		root.workspaceSettingsOwner = nil
-		m := root.App.Settings
-		m.SaveHooks, m.HooksSandboxed = nil, nil
-		m.HooksContext = func() (settings.HookTarget, bool) { return settings.HookTarget{}, false }
-		m.SelectHookWorktree = nil
-		m.Hooks = settings.Stored[settings.HookSettings]{}
-	} else {
-		if previous != owner {
-			owner.bindWorkspaceSettings()
-		}
-		owner.refreshWorkspaceSettings()
+	if m.HookTargets == nil {
+		m.HookTargets, m.SelectHookTarget = root.workspaceHookTargets, root.selectHookTarget
 	}
+	root.refreshWorkspaceHooks()
+}
+
+func (r *Runtime) hooksSettingsOpen() bool {
+	return r.App.Page == shell.SettingsPage && r.App.Settings.Section == settings.Hooks
 }
 
 func (r *Runtime) sandboxFrame() {
@@ -128,54 +140,85 @@ func (r *Runtime) sandboxFrame() {
 	owner.publishSandbox()
 }
 
-func (r *Runtime) refreshWorkspaceSettings() {
-	if r.ctx != nil && r.ctx.Err() != nil {
-		return
-	}
-	r.initWorkspaceSettings()
-	state := &r.workspaceSettings
-	// The hooks are those of the conversation shown, when it runs on this
-	// Node; a conversation on another host has its hooks on that host.
+func (r *Runtime) refreshWorkspaceHooks() {
+	m := r.App.Settings
+	previous := r.workspaceSettingsOwner
+	target := m.HookSelection
+	var owner *Runtime
 	var id protocol.WorktreeID
-	if r.localRuntime().selectedRuntime() == r {
-		session, ok := r.session(r.App.Sidebar.Selected)
-		if !ok {
-			session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
-		}
-		if ok && session.Project != nil {
-			id = session.Worktree
-		}
-	}
-	if r.App.Settings.HooksEditing() {
-		r.publishWorkspaceSettings()
-		return
-	}
-	if id != state.contextWorktree {
-		state.contextWorktree, state.chosenWorktree = id, protocol.WorktreeID{}
-	}
-	if state.chosenWorktree != (protocol.WorktreeID{}) {
-		if _, found := r.hookWorktree(state.chosenWorktree); found {
-			id = state.chosenWorktree
-		} else {
-			state.chosenWorktree = protocol.WorktreeID{}
+	switch {
+	case previous != nil && m.HooksEditing():
+		owner, id, target = previous, previous.workspaceSettings.worktree, previous.workspaceSettings.hookTarget
+	case target.Node != "":
+		owner = r.runtimeFor(target.Node)
+		id, _ = protocol.ParseWorktreeID(target.Worktree)
+	default:
+		owner = r.selectedRuntime()
+		if owner != nil {
+			id = owner.currentHookWorktree()
 		}
 	}
-	if id != state.worktree {
-		state.worktree = id
-		state.hooks = protocol.DefaultHooksSettings()
-		state.sandboxed = false
-		state.loading = false
-		if id != (protocol.WorktreeID{}) {
-			r.readWorkspaceHooks(id)
+	if owner != nil && id != (protocol.WorktreeID{}) {
+		if tree, ok := owner.hookWorktree(id); ok {
+			projects, _ := owner.hookResources()
+			name := ""
+			if i := slices.IndexFunc(projects, func(project protocol.Project) bool { return project.ID == *tree.Project }); i >= 0 {
+				name = projects[i].Name
+			}
+			target = owner.hookTarget(tree, name)
+			if owner.hookOwnerAvailable() {
+				owner.bindWorkspaceSettings(id, target)
+				return
+			}
 		}
 	}
-	r.publishWorkspaceSettings()
+	if !m.HooksEditing() && previous != nil {
+		r.workspaceSettingsOwner = nil
+		r.workspaceSettings.hookGeneration++
+	}
+	m.SaveHooks, m.HooksSandboxed = nil, nil
+	m.HooksContext = func() (settings.HookTarget, bool) { return target, false }
+	if !m.HooksEditing() {
+		m.Hooks = settings.Stored[settings.HookSettings]{}
+	}
 }
+
+func (r *Runtime) currentHookWorktree() protocol.WorktreeID {
+	session, ok := r.session(r.App.Sidebar.Selected)
+	if !ok && r.workspace != nil {
+		session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
+	}
+	if ok && session.Project != nil {
+		return session.Worktree
+	}
+	return protocol.WorktreeID{}
+}
+
+func (r *Runtime) hookOwnerAvailable() bool {
+	root, node := r.localRuntime(), r.controller.Target().String()
+	return (r.ctx == nil || r.ctx.Err() == nil) && root.runtimeFor(node) == r && r.controller.Connected() && root.resourceVisible(node)
+}
+
+// hookResources follows the same authoritative directory as project navigation
+// when it contains a newer projection than the connected Client's snapshot.
+func (r *Runtime) hookResources() ([]protocol.Project, []protocol.Worktree) {
+	snapshot := r.snapshot()
+	if catalog := r.localRuntime().resourceCatalog; catalog != nil {
+		for _, source := range catalog.Sources {
+			if source.Node == r.controller.Target() && source.Fault == nil && source.Revision >= snapshot.Cursor {
+				return source.Projects, source.Worktrees
+			}
+		}
+	}
+	return snapshot.Projects, snapshot.Worktrees
+}
+
 func (r *Runtime) hookWorktree(id protocol.WorktreeID) (protocol.Worktree, bool) {
 	if id == (protocol.WorktreeID{}) {
 		return protocol.Worktree{}, false
 	}
-	for _, tree := range r.snapshot().Worktrees {
+	_, trees := r.hookResources()
+	for _, tree := range trees {
 		if tree.ID == id {
 			return tree, tree.Project != nil
 		}
@@ -188,53 +231,60 @@ func (r *Runtime) hookWorktree(id protocol.WorktreeID) (protocol.Worktree, bool)
 }
 
 func (r *Runtime) hookContext() (settings.HookTarget, bool) {
-	tree, ok := r.hookWorktree(r.workspaceSettings.worktree)
-	if !ok {
-		return settings.HookTarget{}, false
-	}
-	target := settings.HookTarget{
-		Host: r.packageHostLabel(), Project: tree.Project.String(), Path: tree.Path, Worktree: tree.ID.String(),
-		Worktrees: []settings.HookWorktree{{ID: tree.ID.String(), Path: tree.Path}},
-	}
-	snapshot := r.snapshot()
-	for _, project := range snapshot.Projects {
-		if project.ID == *tree.Project {
-			target.Project = project.Name
-			break
-		}
-	}
-	appendTree := func(candidate protocol.Worktree) {
-		if candidate.ID != tree.ID && candidate.Project != nil && *candidate.Project == *tree.Project &&
-			!slices.ContainsFunc(target.Worktrees, func(x settings.HookWorktree) bool { return x.ID == candidate.ID.String() }) {
-			target.Worktrees = append(target.Worktrees, settings.HookWorktree{ID: candidate.ID.String(), Path: candidate.Path})
-		}
-	}
-	for _, candidate := range snapshot.Worktrees {
-		appendTree(candidate)
-	}
-	if r.workspace != nil {
-		for _, candidate := range r.workspace.admitted {
-			appendTree(candidate)
-		}
-	}
-	slices.SortFunc(target.Worktrees, func(a, b settings.HookWorktree) int { return strings.Compare(a.Path, b.Path) })
-	return target, true
+	id := r.workspaceSettings.worktree
+	_, exists := r.hookWorktree(id)
+	return r.workspaceSettings.hookTarget, exists && r.hookOwnerAvailable()
 }
 
-func (r *Runtime) selectHookWorktree(value string) {
-	if r.localRuntime().workspaceSettingsOwner != r || r.App.Settings.HooksEditing() || r.App.Settings.Hooks.Pending {
-		return
+func (r *Runtime) hookTarget(tree protocol.Worktree, name string) settings.HookTarget {
+	if name == "" {
+		name = tree.Project.String()
 	}
-	id, err := protocol.ParseWorktreeID(value)
-	if err != nil {
-		return
+	return settings.HookTarget{Node: r.controller.Target().String(), Host: r.packageHostLabel(), Project: name, Worktree: tree.ID.String(), Path: tree.Path}
+}
+
+func (r *Runtime) workspaceHookTargets() []settings.HookTarget {
+	var targets []settings.HookTarget
+	for _, owner := range runtimeOwners(r) {
+		if !owner.hookOwnerAvailable() {
+			continue
+		}
+		projects, trees := owner.hookResources()
+		names := make(map[protocol.ProjectID]string, len(projects))
+		for _, project := range projects {
+			names[project.ID] = project.Name
+		}
+		seen := make(map[protocol.WorktreeID]bool, len(trees))
+		add := func(tree protocol.Worktree) {
+			if tree.Project != nil && !seen[tree.ID] {
+				targets = append(targets, owner.hookTarget(tree, names[*tree.Project]))
+				seen[tree.ID] = true
+			}
+		}
+		for _, tree := range trees {
+			add(tree)
+		}
+		if owner.workspace != nil {
+			for _, tree := range owner.workspace.admitted {
+				add(tree)
+			}
+		}
 	}
-	base, baseValid := r.hookWorktree(r.workspaceSettings.contextWorktree)
-	chosen, chosenValid := r.hookWorktree(id)
-	if baseValid && chosenValid && *base.Project == *chosen.Project {
-		r.workspaceSettings.chosenWorktree = id
-		r.refreshWorkspaceSettings()
+	slices.SortFunc(targets, func(a, b settings.HookTarget) int {
+		return cmp.Or(cmp.Compare(a.Project, b.Project), cmp.Compare(a.Host, b.Host), cmp.Compare(a.Path, b.Path),
+			cmp.Compare(a.Node, b.Node), cmp.Compare(a.Worktree, b.Worktree))
+	})
+	return targets
+}
+
+func (r *Runtime) selectHookTarget(target settings.HookTarget) bool {
+	m := r.App.Settings
+	if !r.hooksSettingsOpen() || m.HooksEditing() || target.Node == m.HookSelection.Node && target.Worktree == m.HookSelection.Worktree {
+		return false
 	}
+	m.HookSelection = target
+	r.refreshWorkspaceHooks()
+	return true
 }
 func (r *Runtime) hooksSandboxed() bool {
 	return r.workspaceSettings.sandboxed
@@ -266,21 +316,18 @@ func (r *Runtime) readWorkspaceHooks(id protocol.WorktreeID) {
 	if model.Pending {
 		return
 	}
-	r.workspaceSettings.loading = true
 	model.Pending = true
 	r.publishWorkspaceSettings()
 	r.execute(protocol.Command{Kind: "read_hooks", Data: protocol.CommandReadHooksPayload{Worktree: id}}, func(c *ui.Context, out protocol.Output, err error) {
 		model.Pending = false
-		if id == r.workspaceSettings.worktree {
-			r.workspaceSettings.loading = false
-		}
 		defer r.publishWorkspaceSettings()
 		if err != nil {
 			r.reportKeys(c, err, "hooks_failed", "hooks_conflict", "hooks_unknown")
 			return
 		}
 		value, ok := detail[protocol.HooksState](out.Data)
-		if !ok {
+		if out.Kind != "hook_settings" || !ok || value.Worktree != id {
+			r.reportKeys(c, fileActionFault(protocol.ErrorCodeInvalidRequest, "hook settings belong to another worktree"), "hooks_failed", "hooks_conflict", "hooks_unknown")
 			return
 		}
 		draft := hookDraft(value.Settings)
@@ -289,26 +336,16 @@ func (r *Runtime) readWorkspaceHooks(id protocol.WorktreeID) {
 		}
 		model.Saved, model.Revision = draft, value.Settings.Revision
 		if id == r.workspaceSettings.worktree {
-			r.workspaceSettings.hooks = value.Settings
 			r.workspaceSettings.sandboxed = value.Sandboxed
 		}
 	})
 }
-func (r *Runtime) saveWorkspaceHooks() {
-	if r.ctx != nil && r.ctx.Err() != nil {
-		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the hooks execution host is unavailable"))
-		return
-	}
-	r.captureWorkspaceSettings()
-	id := r.workspaceSettings.worktree
-	if id == (protocol.WorktreeID{}) {
-		return
-	}
+func (r *Runtime) saveWorkspaceHooks(id protocol.WorktreeID, draft settings.HookSettings, current func() bool) {
 	m := r.workspaceHooksModel(id)
 	if m.Pending {
 		return
 	}
-	m.Pending = true
+	m.Draft, m.Pending = draft, true
 	r.publishWorkspaceSettings()
 	value := protocol.DefaultHooksSettings()
 	value.Revision = m.Revision
@@ -333,10 +370,10 @@ func (r *Runtime) saveWorkspaceHooks() {
 			value.Additional = append(value.Additional, protocol.HooksEntry{ID: entry.ID, Phase: phase, Script: script})
 		}
 	}
-	// Retry saves the draft again while the page still shows this project.
+	// Retry carries the same draft and revision while this binding is active.
 	again := func() {
-		if r.workspaceSettings.worktree == id {
-			r.saveWorkspaceHooks()
+		if _, available := r.hookContext(); current() && available && reflect.DeepEqual(m.Draft, draft) {
+			r.saveWorkspaceHooks(id, draft, current)
 		}
 	}
 	r.saveSettingRetry(protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Worktree: id, Settings: value, ExpectedRevision: m.Revision}}, settings.Messages{Done: "hooks_saved", Failed: "hooks_failed", Conflict: "hooks_conflict", Uncertain: "hooks_unknown"}, nil, again, func(out protocol.Output, ok bool) {
@@ -346,12 +383,11 @@ func (r *Runtime) saveWorkspaceHooks() {
 			return
 		}
 		state, valid := detail[protocol.HooksState](out.Data)
-		if !valid {
+		if out.Kind != "hook_settings" || !valid || state.Worktree != id {
 			return
 		}
 		m.Saved, m.Draft, m.Revision = hookDraft(state.Settings), hookDraft(state.Settings), state.Settings.Revision
 		if id == r.workspaceSettings.worktree {
-			r.workspaceSettings.hooks = state.Settings
 			r.workspaceSettings.sandboxed = state.Sandboxed
 		}
 	})

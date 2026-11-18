@@ -42,7 +42,7 @@ func permissions(c *ui.Context, m *Model) {
 	})
 	rows := m.Permissions
 	if a := m.PermissionActions; m.Live && a != nil {
-		managedNodeGroup(c, m, "host-permissions", i18n.T(c, "permission_host_title"), func() {
+		kit.Group(c, "host-permissions", i18n.T(c, "permission_host_title"), "", nil, func() {
 			switch {
 			case a.HostUnavailable:
 				settingsTargetStatus(c, "connections_offline")

@@ -1532,7 +1532,6 @@ settings_connections_description: 管理配对设备和远程节点连接
 settings_shortcuts_description: 查看应用全局命令与键盘快捷键
 settings_about_description: 应用版本与构建信息
 settings_notifications: 通知
-settings_managed_host: 执行主机
 settings_notify_system: 系统通知
 settings_notify_approval: 审批请求通知
 settings_notify_completed: 任务完成通知

@@ -219,9 +219,6 @@ func (r *Runtime) syncNetwork() {
 			if r.transferDialogOwner == bound {
 				r.transferDialogOwner = nil
 			}
-			if r.workspaceSettingsOwner == bound && !r.App.Settings.HooksEditing() {
-				r.bindWorkspaceSettings()
-			}
 			if r.shownSettings() == bound {
 				// The pages show no Node until the frame turns them to the
 				// selected host's.

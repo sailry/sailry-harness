@@ -15,7 +15,7 @@ var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settin
 // conversation is the host's command sandbox and code index, the sessions'
 // order, and how messages show.
 func conversation(c *ui.Context, m *Model) {
-	managedNodeGroup(c, m, "execution", i18n.T(c, "settings_execution"), func() {
+	kit.Group(c, "execution", i18n.T(c, "settings_execution"), "", nil, func() {
 		if m.ExecutionSettingsStatus != "" {
 			settingsTargetStatus(c, m.ExecutionSettingsStatus)
 			return

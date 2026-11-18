@@ -185,11 +185,13 @@ New sessions cannot borrow a model channel or credential from their controller.
 Roles, teams, media assignments, plugin installs and settings, connectors,
 MCP, SSH and database profiles also belong to the authenticated user on the
 Node that uses them. Desktop settings share a host selection per window.
+Pages with host settings place that selection in their headers.
 Host-owned settings and package catalogs use that Node's Client and identity.
 Settings for desktop devices use the local controller. On the Knowledge page
 the model controls follow the settings host, while the catalog spans direct
-hosts and actions follow each collection's storage Node. Hooks follow the
-selected worktree. Device monitoring has its own selection. A new task reads
+hosts and actions follow each collection's storage Node. The Hooks header
+can select an accessible project worktree directly. Its settings follow that
+worktree's Node. Device monitoring has its own selection. A new task reads
 and captures settings on its execution Node. Admitted tasks keep their package
 and settings revisions.
 

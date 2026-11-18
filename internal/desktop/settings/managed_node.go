@@ -8,10 +8,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// ManagesNode reports whether the whole page configures a selected Node.
+// ManagesNode reports whether the page exposes settings for the selected Node.
 func (section Section) ManagesNode() bool {
 	switch section {
-	case Providers, Teams, Connectors, Media, Plugins, Skills, Runtime, OCR, Decision, Backup:
+	case General, Conversation, Providers, Teams, Connectors, Media, Plugins, Skills,
+		Knowledge, Terminal, Runtime, OCR, Decision, Permissions, Backup:
 		return true
 	}
 	return false
@@ -31,18 +32,6 @@ func (m *Model) managedNodeID() string {
 		return ""
 	}
 	return hosts[0].Node
-}
-
-// managedNodeGroup scopes a block on a page that also has content of its own.
-func managedNodeGroup(c *ui.Context, m *Model, key, title string, body func()) {
-	changed := false
-	kit.Group(c, key, title, "", func() {
-		changed = managedNodeSelect(c, m, &m.ManagedNode)
-	}, func() {
-		if !changed {
-			body()
-		}
-	})
 }
 
 func settingsTargetStatus(c *ui.Context, key string) {

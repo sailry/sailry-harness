@@ -69,7 +69,7 @@ func (h *TerminalHost) SetVariable(index int, key, value string) string {
 // terminal's font.
 func terminal(c *ui.Context, m *Model) {
 	p := theme.Of(c)
-	managedNodeGroup(c, m, "terminal-host", i18n.T(c, "settings_managed_host"), func() { terminalHostSettings(c, m) })
+	terminalHostSettings(c, m)
 	kit.Group(c, "input", i18n.T(c, "terminal_input"), "", nil, func() {
 		kit.Card(c, func() {
 			kit.SwitchRow(c, "paste", i18n.T(c, "settings_paste_protection"), i18n.T(c, "settings_paste_description"), &m.PasteProtection)

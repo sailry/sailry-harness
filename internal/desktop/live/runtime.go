@@ -273,7 +273,6 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Hooks.FilePreview = r.renderFilePreview
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
-	r.bindWorkspaceSettings()
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics

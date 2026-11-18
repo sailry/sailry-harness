@@ -152,15 +152,20 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	}
 	// The library is open while a page's Available tab shows this frame.
 	s.library.open = false
-	changedHost := false
+	targetChanged := false
 	var headerActions func()
-	if s.Section.ManagesNode() {
+	switch {
+	case s.Section.ManagesNode():
 		headerActions = func() {
-			changedHost = managedNodeSelect(c, s.Model, &s.ManagedNode)
+			targetChanged = managedNodeSelect(c, s.Model, &s.ManagedNode)
+		}
+	case s.Section == Hooks:
+		headerActions = func() {
+			targetChanged = hooksTargetSelect(c, s.Model)
 		}
 	}
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
-		if changedHost {
+		if targetChanged {
 			return
 		}
 		switch s.Section {
@@ -197,9 +202,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		case OCR:
 			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
 		case Knowledge:
-			managedNodeGroup(c, s.Model, "embedding", i18n.T(c, "knowledge_settings"), func() {
-				localModels(c, s.Model, &s.Knowledge, "", "knowledge_default_model", "", "knowledge_keyword_only")
-			})
+			localModels(c, s.Model, &s.Knowledge, "knowledge_settings", "knowledge_default_model", "", "knowledge_keyword_only")
 			collections(c, s.Model)
 		case Decision:
 			localModels(c, s.Model, &s.Decision, "runtime_decision", "runtime_decision_model", "runtime_decision_enable", "local_models_none")

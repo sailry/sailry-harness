@@ -1013,7 +1013,6 @@ settings_message_text_size
 settings_messages
 settings_name
 settings_notifications
-settings_managed_host
 settings_notify_approval
 settings_notify_completed
 settings_notify_failed
@@ -1784,6 +1783,8 @@ workspace_completed
 workspace_restore_confirm
 artifact_edit_prompt
 hooks_project_required
+hooks_follow_current_worktree
+hooks_target_changed
 background_stop_failed
 background_stop_unknown
 subagent_stop

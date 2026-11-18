@@ -1,6 +1,7 @@
 hooks_settings: "Hooks"
 hooks_settings_description: "Configure scripts for this worktree"
 hooks_project_required: "Select a project"
+hooks_follow_current_worktree: "Follow current worktree"
 hooks_enabled: "Enabled"
 hooks_disabled: "Disabled"
 hooks_before_tool: "Before tool"

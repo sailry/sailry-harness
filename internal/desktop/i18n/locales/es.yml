@@ -994,7 +994,6 @@ settings_message_text_size: Tamaño del texto
 settings_messages: Mensajes
 settings_name: Nombre
 settings_notifications: Notificaciones
-settings_managed_host: Execution host
 settings_notify_approval: Notificaciones de solicitud de aprobación
 settings_notify_completed: Notificaciones de finalización de tareas
 settings_notify_failed: Notificaciones de fallo de tarea
@@ -1772,6 +1771,8 @@ workspace_completed: Completado
 workspace_restore_confirm: Restaurar las versiones anteriores de los archivos de este turno
 artifact_edit_prompt: 'Cambios solicitados:'
 hooks_project_required: Selecciona un proyecto
+hooks_follow_current_worktree: Follow current worktree
+hooks_target_changed: Cambió el Node o árbol de trabajo seleccionado
 background_stop_failed: Falló la detención; vuelva a intentarlo
 background_stop_unknown: Detener sin confirmar; comprobar el estado del comando
 subagent_stop: Detener subagente

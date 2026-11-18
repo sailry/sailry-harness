@@ -23,6 +23,74 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
+func TestManagedNodeInSettingsHeader(t *testing.T) {
+	state := NewLive()
+	state.ProviderActions.Hosts = func() []ProviderHost {
+		return []ProviderHost{
+			{Node: "local", Local: true, Connected: true},
+			{Node: "remote", Name: "Remote", Connected: true},
+		}
+	}
+	state.PermissionActions = &PermissionActions{}
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		Page(c, state, nil, Look{})
+	}, 940, 700)
+	for _, lang := range []string{"en", "zh-CN"} {
+		tester.SetLocale(lang)
+		for _, section := range []Section{General, Conversation, Knowledge, Terminal, Permissions} {
+			state.Open(section)
+			tester.Frame()
+			title, titled := tester.AccessByRole(ui.RoleText, i18n.In(lang, string(section)))
+			description, described := tester.AccessByRole(ui.RoleText, i18n.In(lang, string(section)+"_description"))
+			control, selectable := tester.AccessByRole(ui.RoleMenuButton, i18n.In(lang, "project_host"))
+			if !titled || !described || !selectable {
+				t.Fatalf("%s %s has no complete header: %q", lang, section, tester.Texts())
+			}
+			middle := control.Bounds.Y + control.Bounds.H/2
+			if control.Bounds.X <= title.Bounds.X || middle < title.Bounds.Y || middle > description.Bounds.Y+description.Bounds.H {
+				t.Errorf("%s %s: host control is outside the page header: %v", lang, section, control.Bounds)
+			}
+		}
+	}
+}
+
+func TestHooksHeaderCanSelectWithoutCurrentProject(t *testing.T) {
+	state := NewLive()
+	state.Open(Hooks)
+	local := HookTarget{Node: "local", Host: "composer_host_local", Project: "App", Worktree: "worktree", Path: "/workspace/app"}
+	remote := HookTarget{Node: "remote", Host: "Runner", Project: "App", Worktree: "worktree", Path: "/workspace/app"}
+	state.HookTargets = func() []HookTarget { return []HookTarget{local, remote} }
+	state.HooksContext = func() (HookTarget, bool) {
+		return state.HookSelection, state.HookSelection.Worktree != ""
+	}
+	state.SelectHookTarget = func(target HookTarget) bool {
+		state.HookSelection = target
+		return true
+	}
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		Page(c, state, nil, Look{})
+	}, 940, 700)
+	tester.SetLocale("zh-CN")
+	tester.Frame()
+	label := i18n.In("zh-CN", "hooks_project_required")
+	if _, found := tester.AccessByRole(ui.RoleMenuButton, label); !found {
+		t.Fatalf("hooks without a current project has no selector: %q", tester.Texts())
+	}
+	if err := tester.Click(label); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("App · Runner"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if state.HookSelection.Node != remote.Node || state.HookSelection.Worktree != remote.Worktree {
+		t.Fatalf("selected hooks target: %+v", state.HookSelection)
+	}
+}
+
 func TestKeysCapture(t *testing.T) {
 	k := NewKeys()
 	newChat := Registry[0]

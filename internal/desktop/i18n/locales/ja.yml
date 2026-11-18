@@ -994,7 +994,6 @@ settings_message_text_size: 文字サイズ
 settings_messages: メッセージ
 settings_name: 名前
 settings_notifications: 通知
-settings_managed_host: Execution host
 settings_notify_approval: 承認要求通知
 settings_notify_completed: タスク完了通知
 settings_notify_failed: タスク失敗通知
@@ -1772,6 +1771,8 @@ workspace_completed: 完了
 workspace_restore_confirm: このターンの前のファイルバージョンに戻します
 artifact_edit_prompt: '要求された変更:'
 hooks_project_required: プロジェクトを選択
+hooks_follow_current_worktree: Follow current worktree
+hooks_target_changed: 選択した Node またはワークツリーが変更されました
 background_stop_failed: 停止に失敗しました。やり直します
 background_stop_unknown: 確認なしに停止;コマンドの状態を確認
 subagent_stop: サブエージェントを停止
