@@ -821,8 +821,10 @@ visibility, confirmed source cursor and last successful synchronization time.
 It contains no provider keys, file bodies, session history or knowledge indexes.
 Startup reads these summaries before remote Clients connect. The shared
 observation follows resource and connection changes even when no resource page
-is open. Reading the catalog consumes the projection. A complete successful
-snapshot can remove absent entries. A temporary disconnect
+is open. Reading the catalog consumes the projection. Complete refreshes persist
+the latest synchronization metadata. Changes to directory content or
+availability emit invalidations.
+A complete successful snapshot can remove absent entries. A temporary disconnect
 retains the last summary as offline. Explicit connection removal or access
 revocation invalidates disk summaries, in-memory state and open projections,
 without deleting resources on their owning Node.

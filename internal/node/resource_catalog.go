@@ -501,7 +501,7 @@ func (node *Node) commitResourceProjection(ctx context.Context, state *resourceP
 	}
 	digest := blake3.Sum256(body)
 	changed := !state.known || state.digest != digest
-	if !changed {
+	if !changed && !complete {
 		state.source = source
 		return false, nil
 	}
@@ -519,6 +519,9 @@ func (node *Node) commitResourceProjection(ctx context.Context, state *resourceP
 			if err := store.RemoveResourceCatalogSource(ctx, db, source.Node); err != nil {
 				return err
 			}
+		}
+		if !changed {
+			return nil
 		}
 		_, err := store.RecordEvents(ctx, db, node.ID(), []protocol.Event{{Kind: "resource_catalog_changed"}})
 		return err

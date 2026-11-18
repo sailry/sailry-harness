@@ -219,6 +219,48 @@ func TestResourceCatalogKeepsUnavailableSources(t *testing.T) {
 	}
 }
 
+func TestResourceCatalogPersistsUnchangedRefreshWithoutInvalidation(t *testing.T) {
+	node := nodeFixture(t)
+	remoteID := protocol.NodeID{46}
+	remote := client.New(&resourceCatalogTransport{target: remoteID})
+	t.Cleanup(func() { _ = remote.Close() })
+	ctx := resourceCatalogFixture(t, node, map[protocol.NodeID]*client.Client{remoteID: remote})
+	state := new(resourceProjection)
+	source := protocol.ResourceSource{
+		Node: remoteID, Route: protocol.RouteKey{Entry: node.ID(), Target: remoteID},
+		Revision: 3, LastSyncedAtMs: new(uint64(1700)), Projects: []protocol.Project{{ID: protocol.NewProjectID(), Name: "Remote project"}},
+	}
+	commit := func() (bool, error) {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return node.commitResourceProjection(ctx, state, source, true)
+	}
+	if changed, err := commit(); !changed || err != nil {
+		t.Fatalf("initial projection: %v: %v", changed, err)
+	}
+	eventCursor := func() uint64 {
+		t.Helper()
+		var cursor uint64
+		if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			cursor, err = store.EventCursor(ctx, db)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return cursor
+	}
+	before := eventCursor()
+	source.Revision, source.LastSyncedAtMs = 4, new(uint64(2200))
+	if changed, err := commit(); changed || err != nil || eventCursor() != before {
+		t.Fatalf("unchanged directory invalidated observers: %v: %v", changed, err)
+	}
+	stored, err := node.cachedResourceSources(ctx)
+	if got := stored[remoteID]; err != nil || got.Revision != source.Revision || got.LastSyncedAtMs == nil || *got.LastSyncedAtMs != *source.LastSyncedAtMs {
+		t.Fatalf("latest refresh was not persisted: %+v: %v", got, err)
+	}
+}
+
 func TestKnowledgeTargetMustMatchOriginalRequest(t *testing.T) {
 	node := nodeFixture(t)
 	foreign := protocol.NodeID{45}
