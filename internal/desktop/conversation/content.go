@@ -144,9 +144,10 @@ func files(c *ui.Context, key string, list []File, actions Actions) {
 	})
 }
 
-// thumbnails are a message's pictures: Kit's Images, rounded, up to 240
-// DIPs, wrapping, a Skeleton while one loads; one opens the image viewer
-// on the gallery of them all.
+// thumbnails are a message's pictures: Kit's Images, rounded, wrapping, a
+// Skeleton while one loads; one opens the image viewer on the gallery of
+// them all. A single picture keeps its proportions up to 240 DIPs; several
+// are equal squares, cropped to cover, so mixed sizes form an even grid.
 func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	// A picture that cannot show is a line of text, not an empty frame.
 	shown := make([]Image, 0, len(list))
@@ -163,7 +164,17 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 		row.Justify(ui.End)
 	}
 	if len(shown) > 0 {
+		tile := float32(0)
+		switch {
+		case len(shown) == 2:
+			tile = 160
+		case len(shown) > 2:
+			tile = 112
+		}
 		kit.ImageGroup(c, row, s.viewOf(s.renderSession), shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+			if tile > 0 {
+				return im.Source, kit.ImageProps{Size: tile, Alt: im.Name}
+			}
 			w, h := float32(im.Width), float32(im.Height)
 			if w <= 0 || h <= 0 {
 				w, h = thumbMax, thumbMax

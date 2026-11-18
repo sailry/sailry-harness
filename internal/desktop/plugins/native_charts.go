@@ -3,7 +3,6 @@ package plugins
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
@@ -89,14 +88,11 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 					x := chart.Span{Lo: float32(cell.Column) / float32(source.Columns), Hi: (float32(cell.Column) + 0.8) / float32(source.Columns)}
 					y := chart.Span{Lo: 1 - (float32(cell.Row)+0.8)/float32(source.Rows), Hi: 1 - float32(cell.Row)/float32(source.Rows)}
 					mark := chart.Rect(view, x, y).Background(color).Radius(2)
-					lines := []string{cell.Tooltip.Heading}
-					if cell.Tooltip.Title != "" {
-						lines = append(lines, cell.Tooltip.Title)
-					}
+					tip := kit.ChartTip{Heading: cell.Tooltip.Heading, Title: cell.Tooltip.Title}
 					for _, row := range cell.Tooltip.Rows {
-						lines = append(lines, row.Label+" "+row.Value)
+						tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: row.Label, Value: row.Value})
 					}
-					kit.Tooltip(view, mark, strings.Join(lines, "\n"))
+					kit.ChartTooltip(view, mark, tip)
 				}
 			}).Fill()
 		})
@@ -187,6 +183,10 @@ func (binding *NativeBinding) renderStackedChart(view *ui.Context, props map[str
 			bottom = append(bottom, chart.Tick{At: (float32(index) + 0.5) / float32(len(source.Buckets)), Label: bucket.Label})
 		}
 	}
+	colors := make([]ui.Color, len(source.Series))
+	for index, series := range source.Series {
+		colors[index] = nativeChartColor(view, series.Color)
+	}
 	return chart.Plot(view, chart.Axes{Left: ticks, Bottom: bottom}, func(area ui.Element) {
 		for _, tick := range ticks {
 			chart.RuleY(view, tick.At, 1).Background(theme.Of(view).Border)
@@ -204,15 +204,14 @@ func (binding *NativeBinding) renderStackedChart(view *ui.Context, props map[str
 			middle := (float32(index) + 0.5) * band
 			x := chart.Span{Lo: middle - bar/2, Hi: middle + bar/2}
 			total := float64(0)
-			tooltip := []string{bucket.Tooltip.Heading}
-			for _, row := range bucket.Tooltip.Rows {
-				tooltip = append(tooltip, row.Label+" "+row.Value)
+			tip := kit.ChartTip{Heading: bucket.Tooltip.Heading, Footer: &kit.ChartTipRow{Label: bucket.Tooltip.Footer.Label, Value: bucket.Tooltip.Footer.Value}}
+			for column, row := range bucket.Tooltip.Rows {
+				tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: row.Label, Value: row.Value, Swatch: colors[column]})
 			}
-			tooltip = append(tooltip, bucket.Tooltip.Footer.Label+" "+bucket.Tooltip.Footer.Value)
 			for column, value := range *bucket.Values {
-				mark := chart.Rect(view, x, scale.Span(total, total+value)).Background(nativeChartColor(view, source.Series[column].Color))
+				mark := chart.Rect(view, x, scale.Span(total, total+value)).Background(colors[column])
 				mark.Label(fmt.Sprintf("%s %s", bucket.Label, bucket.Tooltip.Rows[column].Value))
-				kit.Tooltip(view, mark, strings.Join(tooltip, "\n"))
+				kit.ChartTooltip(view, mark, tip)
 				total += value
 			}
 			if total == 0 {

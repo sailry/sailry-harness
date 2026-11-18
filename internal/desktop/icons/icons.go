@@ -57,6 +57,8 @@ var (
 	Stop             = load("window-maximize") // Kit's fallback stop glyph
 	Check            = load("check")
 	CircleCheck      = load("circle-check")
+	Circle           = load("circle")
+	CircleDot        = load("circle-dot")
 	TriangleAlert    = load("triangle-alert")
 	CircleX          = load("circle-x")
 	Loader           = load("loader-circle")

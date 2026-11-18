@@ -175,3 +175,87 @@ func stepResponse(zeta, t float64) float64 {
 	wd := math.Sqrt(1 - zeta*zeta)
 	return 1 - math.Exp(-zeta*t)*(math.Cos(wd*t)+zeta/wd*math.Sin(wd*t))
 }
+
+// ChartTipRow is one figure of a ChartTip: a swatch in its series color
+// (none while Swatch is zero), its label and its value.
+type ChartTipRow struct {
+	Label, Value string
+	Swatch       ui.Color
+}
+
+// ChartTip is what a chart mark shows on hover: a muted heading such as
+// the date, an optional emphasized total, then its figures with labels and
+// right-aligned values, and an optional footer row under a divider.
+type ChartTip struct {
+	Heading, Title string
+	Rows           []ChartTipRow
+	Footer         *ChartTipRow
+}
+
+// ChartTooltip shows tip by anchor as a Tooltip does, laid out as a small
+// card rather than plain lines, so a chart's figures read as a table. The
+// tip's text also describes anchor to assistive technology.
+func ChartTooltip(c *ui.Context, anchor ui.Element, tip ChartTip) ui.Element {
+	lines := []string{tip.Heading}
+	if tip.Title != "" {
+		lines = append(lines, tip.Title)
+	}
+	for _, row := range tip.Rows {
+		lines = append(lines, row.Label+" "+row.Value)
+	}
+	if tip.Footer != nil {
+		lines = append(lines, tip.Footer.Label+" "+tip.Footer.Value)
+	}
+	text := ""
+	for i, line := range lines {
+		if i > 0 {
+			text += "\n"
+		}
+		text += line
+	}
+	if text == "" {
+		return ui.Element{}
+	}
+	anchor.Description(text)
+	if TipsHidden(c) {
+		return ui.Element{}
+	}
+	p, t := theme.Of(c), c.Theme()
+	row := func(r ChartTipRow, strong bool) {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			if r.Swatch != (ui.Color{}) {
+				ui.Box(c).Size(8, 8).Radius(2).Shrink(0).Background(r.Swatch)
+			}
+			label := ui.Text(c, r.Label).FontSize(12).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+			value := ui.Text(c, r.Value).FontSize(12).SingleLine().Shrink(0).TextColor(p.Foreground)
+			if strong {
+				label.TextColor(p.Foreground)
+				value.FontWeight(600)
+			}
+		})
+	}
+	return ui.TooltipBase(c, anchor, func(panel ui.Element) {
+		Anchored(panel, anchor, TipLayer)
+		Attach(Floating(c, panel), anchor, Top, t.Space(1.5))
+		panel.Radius(p.Radius).MinWidth(160).MaxWidth(t.Space(80)).Padding(t.Space(2), t.Space(2.5))
+		panel.Children(func() {
+			ui.Column(c.Key(text)).Gap(6).Transition(tipContent).Children(func() {
+				ui.Text(c, tip.Heading).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+				if tip.Title != "" {
+					ui.Text(c, tip.Title).FontSize(14).FontWeight(600).SingleLine().TextColor(p.Foreground)
+				}
+				if len(tip.Rows) > 0 {
+					ui.Column(c).FillWidth().Gap(4).Children(func() {
+						for _, r := range tip.Rows {
+							row(r, false)
+						}
+					})
+				}
+				if tip.Footer != nil {
+					ui.Box(c).FillWidth().Height(1).Background(p.Border)
+					row(*tip.Footer, true)
+				}
+			})
+		})
+	})
+}

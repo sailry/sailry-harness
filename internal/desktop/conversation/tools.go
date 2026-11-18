@@ -549,12 +549,15 @@ func QuietSteps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, a
 func stepRows(c *ui.Context, steps []Step, active bool, size float32, summary bool) {
 	p := theme.Of(c)
 	for i, st := range steps {
-		icon, color := icons.CircleCheck, p.MutedForeground
+		// A pending step is an empty circle, so only a settled one shows a
+		// check; the current step turns while the run does and is a marked
+		// circle otherwise, never a spinner that stands still.
+		icon, color := icons.Circle, p.MutedForeground
 		switch st.State {
 		case StepInProgress:
-			icon = icons.Loader
+			icon, color = icons.CircleDot, p.Primary
 		case StepCompleted:
-			color = p.Success
+			icon, color = icons.CircleCheck, p.Success
 		case StepSkipped:
 			icon = icons.Minus
 		case StepPaused:
@@ -571,8 +574,7 @@ func stepRows(c *ui.Context, steps []Step, active bool, size float32, summary bo
 			rowSize(row, size, true).Padding(4, 8, 4, 0)
 		}
 		row.Children(func() {
-			// The step in progress turns while the run does, and stands
-			// still once it stopped; the mark is level with the first line.
+			// The mark is level with the first line.
 			mark := ui.Box(c.Key("mark")).Shrink(0).Center()
 			if !summary {
 				mark.Height(rowHeight(size))
