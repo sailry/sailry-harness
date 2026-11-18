@@ -77,32 +77,39 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 		turn     string
 		worktree protocol.WorktreeID
 	}
-	owners := map[protocol.TurnID]owner{}
-	displayed := turnOwners(page.Runs)
-	for _, run := range page.Runs {
-		owners[run.Turn] = owner{turn: displayed[run.Turn].String(), worktree: run.Worktree}
-	}
-	positions := map[string]int{}
-	for index, turn := range cv.Turns {
-		positions[turn.ID] = index
-	}
+	var owners map[protocol.TurnID]owner
+	var positions map[string]int
 	prefetch := state.Connected && r.attachmentConversationVisible(cv.ID)
 	seen := map[string]bool{}
 	blocks := map[string][]conversation.Block{}
 	retained := map[string]bool{}
 	for ei := len(page.Entries) - 1; ei >= 0; ei-- {
 		entry := page.Entries[ei]
-		location, ok := owners[entry.Turn]
-		if !ok {
-			continue
-		}
-		if _, ok = positions[location.turn]; !ok {
-			continue
-		}
 		for pi := len(entry.Parts) - 1; pi >= 0; pi-- {
 			part := entry.Parts[pi]
+			if part.Kind != "tool_result" {
+				continue
+			}
 			result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data)
-			if part.Kind != "tool_result" || !ok || result.Summary == nil || !result.Summary.Published || !result.Summary.HasDetails {
+			if !ok || result.Summary == nil || !result.Summary.Published || !result.Summary.HasDetails {
+				continue
+			}
+			if owners == nil {
+				displayed := turnOwners(page.Runs)
+				owners = make(map[protocol.TurnID]owner, len(page.Runs))
+				for _, run := range page.Runs {
+					owners[run.Turn] = owner{turn: displayed[run.Turn].String(), worktree: run.Worktree}
+				}
+				positions = make(map[string]int, len(cv.Turns))
+				for i := range cv.Turns {
+					positions[cv.Turns[i].ID] = i
+				}
+			}
+			location, ok := owners[entry.Turn]
+			if !ok {
+				continue
+			}
+			if _, ok := positions[location.turn]; !ok {
 				continue
 			}
 			ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(pi), Call: result.ID, Revision: result.Summary.Revision}

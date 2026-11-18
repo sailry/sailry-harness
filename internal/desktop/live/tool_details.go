@@ -19,6 +19,9 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 	pending := map[string][]toolAssociation{}
 	for _, entry := range state.Snapshot.Page.Entries {
 		for index, part := range entry.Parts {
+			if part.Kind != "tool_call" && part.Kind != "tool_result" {
+				continue
+			}
 			var id *string
 			var name string
 			var summary *protocol.ToolDetailSummary
@@ -55,6 +58,9 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 			ref := protocol.ToolDetailReference{Session: state.Snapshot.Page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(index), Call: id, Revision: summary.Revision}
 			sources[key] = source{ref, summary}
 		}
+	}
+	if len(sources) == 0 {
+		return
 	}
 	for ti := range cv.Turns {
 		turn := &cv.Turns[ti]

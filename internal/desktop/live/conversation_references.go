@@ -12,7 +12,13 @@ import (
 
 func (r *Runtime) bindReferences(session string, page protocol.ConversationPage) {
 	bound := map[string][]conversation.Reference{}
-	canonical := map[protocol.TurnID]bool{}
+	fallback := map[protocol.TurnID][]protocol.ConversationReference{}
+	for i := range page.Runs {
+		run := &page.Runs[i]
+		if run.Input != nil && len(run.Input.Message.References) != 0 {
+			fallback[run.Turn] = run.Input.Message.References
+		}
+	}
 	appendReference := func(turn protocol.TurnID, ref protocol.ConversationReference) {
 		value, ok := composerReference(ref)
 		if !ok {
@@ -24,7 +30,7 @@ func (r *Runtime) bindReferences(session string, page protocol.ConversationPage)
 		if entry.Author != "user" {
 			continue
 		}
-		canonical[entry.Turn] = true
+		delete(fallback, entry.Turn)
 		for _, part := range entry.Parts {
 			if part.Kind == "reference" {
 				if ref, ok := detail[protocol.ConversationReference](part.Data); ok {
@@ -33,11 +39,9 @@ func (r *Runtime) bindReferences(session string, page protocol.ConversationPage)
 			}
 		}
 	}
-	for _, run := range page.Runs {
-		if !canonical[run.Turn] && run.Input != nil {
-			for _, ref := range run.Input.Message.References {
-				appendReference(run.Turn, ref)
-			}
+	for turn, refs := range fallback {
+		for _, ref := range refs {
+			appendReference(turn, ref)
 		}
 	}
 	r.App.Messages.SetReferences(session, bound)
