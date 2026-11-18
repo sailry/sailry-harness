@@ -19,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -188,18 +189,20 @@ func testPluginViewOwnership(t *testing.T) {
 	t.Run("revisiting a failed settings section rereads its schema", func(t *testing.T) {
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest = "settings-fixture", strings.Repeat("f", 64)
+		info.Summary.Compatibility.Kind = "compatible"
+		info.Extension = new(protocol.DefaultPluginExtension())
+		info.Extension.SettingsPage = new(protocol.DefaultPluginDesktopSettings())
+		info.Extension.SettingsPage.Navigation.Label = "Fixture settings"
 		info.Settings = new(protocol.DefaultPluginSettingsSchema())
 		snapshot := protocol.DefaultSnapshot()
-		snapshot.Node = protocol.NodeID{1}
+		snapshot.Node, snapshot.Plugins = protocol.NodeID{1}, []protocol.PluginSummary{info.Summary}
 		source := &pluginViewTestNode{snapshot: snapshot, bundle: make(chan link.Response, 1)}
 		root := pluginViewFixture(t, source)
-		scope := protocol.DefaultPluginContext()
-		scope.Package, scope.Surface.Kind = packageReference(info.Summary), "settings"
-		entry := pluginSettingsEntry{section: "plugin:fixture", owner: root, info: info, scope: scope}
-		root.pluginViews.settings[entry.section] = entry
+		root.packages.infos[info.Summary.Name] = info
+		section := pluginSettingsSection(root, info)
+		root.App.Navigate(shell.SettingsPage)
+		root.App.Settings.Open(section)
 		source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
-		failed := root.ensurePluginSchema(nil, entry)
-		root.workers.Wait()
 		tester := ui.NewTesterWith(func(view *ui.Context) {
 			theme.Apply(view, "", theme.Light)
 			root.mu.Lock()
@@ -209,27 +212,36 @@ func testPluginViewOwnership(t *testing.T) {
 			for _, apply := range queued {
 				apply(view)
 			}
-			ui.Column(view).Fill().Children(func() { root.renderPluginSchema(view, entry) })
+			root.pluginViewsFrame(view)
+			ui.Column(view).Fill().Children(func() { settings.Page(view, root.App.Settings, root.App.Data, settings.Look{}) })
 			kit.ToastHost(view)
 		}, 960, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tester.SetLocale("en")
+		tester.Frame()
+		failed := root.pluginViews.schemas[section]
+		root.workers.Wait()
 		for range 3 {
 			tester.Frame()
 		}
-		if failed.failure == nil || root.pluginViews.schemas[entry.section] != failed ||
+		if failed == nil || failed.failure == nil || root.pluginViews.schemas[section] != failed ||
 			tester.HasText(i18n.In("en", "chat_retry")) || !tester.HasText(i18n.In("en", "plugins_failed")) {
-			t.Fatalf("failed settings did not show an informational toast: %v, %q", failed.failure, tester.Texts())
+			t.Fatalf("failed settings did not show an informational toast: %q", tester.Texts())
+		}
+		root.App.Settings.Open(settings.General)
+		tester.Frame()
+		if root.pluginViews.schemas[section] != nil || failed.ctx.Err() == nil {
+			t.Fatal("leaving the failed settings section did not release its schema")
 		}
 		state := protocol.DefaultPluginSettingsState()
-		state.Package = scope.Package
+		state.Package = packageReference(info.Summary)
 		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_settings", Data: state}}
-		root.closePluginSchema(entry.section, failed)
+		root.App.Settings.Open(section)
 		tester.Frame()
 		root.workers.Wait()
 		for range 2 {
 			tester.Frame()
 		}
-		if schema := root.pluginViews.schemas[entry.section]; schema == nil || schema == failed || schema.loading || schema.failure != nil || schema.state.Package != scope.Package {
+		if schema := root.pluginViews.schemas[section]; schema == nil || schema == failed || schema.loading || schema.failure != nil || schema.state.Package != state.Package {
 			t.Fatalf("the revisited section did not read settings again: %+v", schema)
 		}
 	})

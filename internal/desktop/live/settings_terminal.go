@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -21,17 +22,27 @@ import (
 // them. shown and visible are the local runtime's: the Node whose settings
 // the page holds, and whether the page showed last frame.
 type terminalSettingsState struct {
-	model    settings.Stored[settings.TerminalHost]
-	choices  []viewmodel.Shell
-	shells   []protocol.TerminalShell
-	saved    protocol.TerminalSettings
-	observed uint64
-	known    bool
-	reading  bool
-	failed   bool
-	stale    bool
-	shown    *Runtime
-	visible  bool
+	model     settings.Stored[settings.TerminalHost]
+	choices   []viewmodel.Shell
+	shells    []protocol.TerminalShell
+	saved     protocol.TerminalSettings
+	uncertain *protocol.Request
+	released  *releasedTerminalSave
+	observed  uint64
+	known     bool
+	reading   bool
+	failed    bool
+	stale     bool
+	shown     *Runtime
+	visible   bool
+}
+
+// A released request is no longer inspectable. Neither its original proposal
+// nor the draft submitted to resolve it gets rebased by a settings reread.
+type releasedTerminalSave struct {
+	proposal protocol.TerminalSettings
+	draft    protocol.TerminalSettings
+	unknown  bool
 }
 
 // terminalSettingsFrame stores the outgoing Node's draft and displays the
@@ -161,45 +172,86 @@ func (r *Runtime) saveTerminalSettings() {
 	if !root.terminalSettings.visible || root.terminalSettings.shown != r || root.managedSettingsNode() != r {
 		return
 	}
-	r.submitTerminalSettings(terminalRequest(model.Draft, model.Revision, state.choices, state.saved))
-}
-
-// submitTerminalSettings keeps a retry on its original Node. An unconfirmed
-// save settles the original request even if a fresh read changed the revision.
-func (r *Runtime) submitTerminalSettings(request protocol.TerminalSettings) {
-	state, model := &r.terminalSettings, r.terminalModel()
-	root := r.localRuntime()
 	if model.Pending || !state.known || !r.controller.Connected() || root.runtimeFor(r.controller.Target().String()) != r {
 		return
 	}
-	model.Pending = true
-	r.execute(protocol.Command{Kind: "save_terminal_settings", Data: request}, func(c *ui.Context, output protocol.Output, err error) {
-		model := r.terminalModel()
-		model.Pending = false
-		value, valid := detail[protocol.TerminalSettings](output.Data)
-		draftMatches := func() bool {
-			draft := terminalRequest(model.Draft, model.Revision, state.choices, state.saved)
-			return draft.Shell == request.Shell && slices.Equal(draft.ShellArguments, request.ShellArguments) && maps.Equal(draft.Environment, request.Environment)
-		}
-		if err == nil && valid && output.Kind == "terminal_settings" {
-			state.observed = max(state.observed, value.Revision)
-			if draftMatches() && value.Revision >= state.saved.Revision {
-				model.Draft = model.Saved
-			}
-			r.acceptTerminalRead(value, state.shells)
-			settings.Report(c, kit.Done, settings.TerminalMessages)
-			return
-		}
-		state.stale = true
-		outcome := kit.Failed
-		switch faultCode(err) {
-		case protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeConflict:
-			outcome = kit.Conflict
-		case protocol.ErrorCodeOutcomeUnknown:
+	draft := terminalRequest(model.Draft, model.Revision, state.choices, state.saved)
+	previous := state.uncertain
+	if released := state.released; previous == nil && released != nil && (released.unknown || draft.Revision != released.proposal.Revision) &&
+		(sameTerminalValues(draft, released.proposal) || sameTerminalValues(draft, released.draft)) {
+		outcome := kit.Conflict
+		if released.unknown {
 			outcome = kit.Uncertain
 		}
-		settings.Report(c, outcome, settings.TerminalMessages)
+		r.enqueue(func(c *ui.Context) { settings.Report(c, outcome, settings.TerminalMessages) })
+		return
+	}
+	model.Pending = r.async(func() {
+		output, request, err := r.writeTerminalSettings(draft, previous)
+		r.enqueue(func(c *ui.Context) {
+			state.uncertain = nil
+			if client.Retained(err) {
+				state.uncertain = request
+			} else if client.Released(err) {
+				proposal := request.Command.Data.(protocol.TerminalSettings)
+				state.released = &releasedTerminalSave{proposal: proposal, draft: draft, unknown: faultCode(err) == protocol.ErrorCodeOutcomeUnknown}
+			}
+			model := r.terminalModel()
+			model.Pending = false
+			value, valid := detail[protocol.TerminalSettings](output.Data)
+			if err == nil && valid && output.Kind == "terminal_settings" {
+				state.released = nil
+				state.observed = max(state.observed, value.Revision)
+				if sameTerminalValues(terminalRequest(model.Draft, model.Revision, state.choices, state.saved), value) {
+					model.Draft = model.Saved
+				}
+				r.acceptTerminalRead(value, state.shells)
+				settings.Report(c, kit.Done, settings.TerminalMessages)
+				return
+			}
+			state.stale = true
+			outcome := kit.Failed
+			switch faultCode(err) {
+			case protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeConflict:
+				outcome = kit.Conflict
+			case protocol.ErrorCodeOutcomeUnknown:
+				outcome = kit.Uncertain
+			}
+			settings.Report(c, outcome, settings.TerminalMessages)
+		})
 	})
+}
+
+func (r *Runtime) writeTerminalSettings(draft protocol.TerminalSettings, previous *protocol.Request) (protocol.Output, *protocol.Request, error) {
+	if previous != nil {
+		resolution, err := r.controller.Resolve(r.ctx, *previous)
+		if err != nil {
+			return protocol.Output{}, previous, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "terminal settings outcome could not be confirmed"}
+		}
+		output, err := resolution.Result()
+		if client.Retained(err) || client.Released(err) {
+			return output, previous, err
+		}
+		saved, ok := detail[protocol.TerminalSettings](output.Data)
+		if err != nil || !ok || output.Kind != "terminal_settings" || sameTerminalValues(draft, saved) {
+			return output, nil, err
+		}
+		// A further edit may build on our confirmed save, not on another controller's revision.
+		if saved.Revision < draft.Revision {
+			return protocol.Output{}, nil, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "terminal settings changed"}
+		}
+		draft.Revision = saved.Revision
+	}
+	request := r.controller.Prepare(protocol.Command{Kind: "save_terminal_settings", Data: draft})
+	output, err := r.controller.Settle(r.ctx, request)
+	if client.Retained(err) || client.Released(err) {
+		return output, &request, err
+	}
+	return output, nil, err
+}
+
+func sameTerminalValues(a, b protocol.TerminalSettings) bool {
+	return a.Shell == b.Shell && slices.Equal(a.ShellArguments, b.ShellArguments) && maps.Equal(a.Environment, b.Environment)
 }
 
 // terminalShells are the select's choices: the host's default, the shells

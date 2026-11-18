@@ -3,6 +3,7 @@ package live
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -26,7 +28,6 @@ func TestManagedSystemSettings(t *testing.T) {
 	app.Page = shell.SettingsPage
 	var owners [2]*Runtime
 	var transports [2]*conversationTestTransport
-	var terminalSaveIDs []protocol.RequestID
 	for index := range owners {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = protocol.NodeID{byte(index + 1)}
@@ -40,26 +41,32 @@ func TestManagedSystemSettings(t *testing.T) {
 		}
 		t.Cleanup(func() { controller.Close() })
 		owners[index] = &Runtime{ctx: t.Context(), App: app, controller: controller, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		stored := protocol.TerminalSettings{Revision: uint64(index + 1)}
+		var applied protocol.Output
+		inspections := 0
 		transport.handle = func(request protocol.Request) (link.Response, bool) {
 			out := func(kind string, value any) (link.Response, bool) {
 				return link.Response{Output: protocol.Output{Kind: kind, Data: value}}, true
 			}
 			switch request.Command.Kind {
 			case "read_terminal_settings":
-				return out("terminal_settings", protocol.TerminalSettings{Revision: uint64(index + 1)})
+				return out("terminal_settings", stored)
 			case "list_shells":
 				return out("shells", []protocol.TerminalShell{{Path: []string{"/bin/local", "/bin/remote"}[index]}})
 			case "save_terminal_settings":
-				terminalSaveIDs = append(terminalSaveIDs, request.ID)
-				if len(terminalSaveIDs) == 1 {
-					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}}, true
-				}
 				value, _ := detail[protocol.TerminalSettings](request.Command.Data)
 				value.Revision++
-				return out("terminal_settings", value)
+				applied = protocol.Output{Kind: "terminal_settings", Data: value}
+				stored = protocol.TerminalSettings{Revision: value.Revision + 1, Environment: map[string]string{"OTHER": "newer"}}
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}}, true
 			case "inspect_request":
 				value, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
-				return out("request_outcome", protocol.OutputRequestOutcomePayload{ID: value.ID, Outcome: protocol.RequestOutcome{Kind: "admitted"}})
+				inspections++
+				outcome := protocol.RequestOutcome{Kind: "admitted"}
+				if inspections > 1 {
+					outcome = protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &applied}}
+				}
+				return out("request_outcome", protocol.OutputRequestOutcomePayload{ID: value.ID, Outcome: outcome})
 			case "read_backup_settings":
 				return out("backup_settings", protocol.BackupSettings{Revision: 10, Local: &protocol.BackupLocal{Directory: "/backups/local", Enabled: true}})
 			case "archive_sessions":
@@ -73,7 +80,7 @@ func TestManagedSystemSettings(t *testing.T) {
 	remoteID := remote.controller.Target().String()
 	root.bindings = map[string]*Runtime{remoteID: remote}
 	m := app.Settings
-	var actionableToast bool
+	var uncertainToast, actionableToast bool
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		root.mu.Lock()
@@ -87,7 +94,10 @@ func TestManagedSystemSettings(t *testing.T) {
 		root.backupSettingsFrame(c)
 		ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
 			for _, toast := range shown {
-				if toast.OnAction != nil {
+				if toast.Title == i18n.T(c, settings.TerminalMessages.Uncertain) && toast.Type == "warning" {
+					uncertainToast = true
+				}
+				if toast.Action != "" || toast.OnAction != nil {
 					actionableToast = true
 				}
 			}
@@ -121,8 +131,13 @@ func TestManagedSystemSettings(t *testing.T) {
 	m.Host.Draft.Env = []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}
 	m.SaveTerminal()
 	settle()
-	if actionableToast || len(terminalSaveIDs) != 1 {
-		t.Fatal("the uncertain save should produce only an informational toast")
+	saves := requests(0, "save_terminal_settings")
+	if !uncertainToast || actionableToast || len(saves) != 1 {
+		t.Fatalf("uncertain save: warning shown %t, actionable toast %t, saves %d", uncertainToast, actionableToast, len(saves))
+	}
+	newerEnv := []viewmodel.EnvVar{{Key: "OTHER", Value: "newer"}}
+	if m.Host.Revision != 3 || !slices.Equal(m.Host.Saved.Env, newerEnv) {
+		t.Fatalf("the reread did not observe the intervening controller's save: %+v", m.Host)
 	}
 	m.ManagedNode = remoteID
 	settle()
@@ -136,8 +151,17 @@ func TestManagedSystemSettings(t *testing.T) {
 	}
 	m.SaveTerminal()
 	settle()
-	if len(terminalSaveIDs) != 2 || terminalSaveIDs[0] != terminalSaveIDs[1] || len(requests(0, "save_terminal_settings")) != 2 || len(requests(1, "save_terminal_settings")) != 0 {
-		t.Fatalf("submitting the same terminal draft changed ownership or identity: %v", terminalSaveIDs)
+	inspections := requests(0, "inspect_request")
+	if len(inspections) != 2 || len(requests(0, "save_terminal_settings")) != 1 || len(requests(1, "save_terminal_settings"))+len(requests(1, "inspect_request")) != 0 {
+		t.Fatal("resubmitting the terminal draft should only inspect its original Node request")
+	}
+	first, _ := detail[protocol.CommandInspectRequestPayload](inspections[0].Command.Data)
+	second, _ := detail[protocol.CommandInspectRequestPayload](inspections[1].Command.Data)
+	if first.ID != saves[0].ID || first.Digest == "" || first != second {
+		t.Fatalf("the recovery did not inspect the original ID and payload: %+v, %+v", first, second)
+	}
+	if m.Host.Revision != 3 || !slices.Equal(m.Host.Saved.Env, newerEnv) || !slices.Equal(m.Host.Draft.Env, newerEnv) || root.terminalSettings.uncertain != nil {
+		t.Fatalf("recovering the earlier save did not preserve the newer settings: %+v", m.Host)
 	}
 	m.ManagedNode = remoteID
 	settle()
@@ -167,6 +191,138 @@ func TestManagedSystemSettings(t *testing.T) {
 	settle()
 	if m.BackupActions.Status != "" || m.Backup.Saved.Directory != "/backups/local" || m.Backup.Revision != 10 || len(requests(0, "read_backup_settings")) != 1 {
 		t.Fatalf("returning to this device loaded the wrong backup settings: %+v", m.Backup)
+	}
+}
+
+func TestReleasedTerminalSaveKeepsProposalRevision(t *testing.T) {
+	for _, tc := range []struct {
+		outcome  string
+		revision uint64
+		canRetry bool
+		edited   bool
+	}{
+		{outcome: "not_admitted", revision: 3}, {outcome: "unknown", revision: 3},
+		{outcome: "not_admitted", revision: 1, canRetry: true}, {outcome: "unknown", revision: 1},
+		{outcome: "not_admitted", revision: 3, edited: true},
+	} {
+		t.Run(fmt.Sprintf("%s/revision_%d/edited_%t", tc.outcome, tc.revision, tc.edited), func(t *testing.T) {
+			transport := &conversationTestTransport{snapshot: protocol.DefaultSnapshot()}
+			transport.snapshot.Node = protocol.NodeID{1}
+			controller := client.New(transport)
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { controller.Close() })
+			r := &Runtime{ctx: t.Context(), controller: controller, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+			r.terminalSettings.shown, r.terminalSettings.visible = r, true
+			r.acceptTerminalSettings(protocol.TerminalSettings{Revision: 1}, nil)
+			r.App.Settings.Host.Draft.Env = []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}
+			var saves []protocol.Request
+			inspections := 0
+			transport.handle = func(request protocol.Request) (link.Response, bool) {
+				switch request.Command.Kind {
+				case "save_terminal_settings":
+					saves = append(saves, request)
+					if len(saves) == 1 {
+						return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown}}, true
+					}
+					value, _ := detail[protocol.TerminalSettings](request.Command.Data)
+					value.Revision++
+					return link.Response{Output: protocol.Output{Kind: "terminal_settings", Data: value}}, true
+				case "inspect_request":
+					inspections++
+					outcome := tc.outcome
+					if inspections == 1 {
+						outcome = "admitted"
+					}
+					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: saves[0].ID, Outcome: protocol.RequestOutcome{Kind: outcome}}}}, true
+				}
+				return link.Response{}, false
+			}
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				queue := r.queue
+				r.queue = nil
+				for _, apply := range queue {
+					apply(c)
+				}
+			}, 640, 480)
+			save := func() {
+				r.saveTerminalSettings()
+				r.workers.Wait()
+				tester.Frame()
+			}
+			save()
+			if tc.revision > 1 {
+				r.acceptTerminalRead(protocol.TerminalSettings{Revision: tc.revision, Environment: map[string]string{"OTHER": "newer"}}, nil)
+			}
+			if tc.edited {
+				r.App.Settings.Host.Draft.Env[0].Value = "edited"
+			}
+			wantEnv := slices.Clone(r.App.Settings.Host.Draft.Env)
+			save()
+			if len(saves) != 1 || inspections != 2 || r.terminalSettings.uncertain != nil {
+				t.Fatal("the original save was not released by inspection alone")
+			}
+			save()
+			if inspections != 2 {
+				t.Fatal("the released request was inspected again")
+			}
+			if tc.canRetry {
+				if len(saves) != 2 || saves[0].ID == saves[1].ID || !reflect.DeepEqual(saves[0].Command, saves[1].Command) {
+					t.Fatal("an explicitly retried absent save did not keep its original payload and revision")
+				}
+			} else if len(saves) != 1 || !slices.Equal(r.App.Settings.Host.Draft.Env, wantEnv) {
+				t.Fatalf("the released proposal was rewritten or discarded: writes %d, draft %+v", len(saves), r.App.Settings.Host.Draft)
+			}
+		})
+	}
+}
+
+func TestEditedTerminalDraftAfterUncertainSave(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		revision uint64
+		conflict bool
+	}{
+		{"original revision", 1, false},
+		{"newer controller revision", 3, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &conversationTestTransport{snapshot: protocol.DefaultSnapshot()}
+			transport.snapshot.Node = protocol.NodeID{1}
+			r := &Runtime{ctx: t.Context(), controller: client.New(transport)}
+			t.Cleanup(func() { r.controller.Close() })
+			original := protocol.TerminalSettings{Revision: 1, Shell: "/bin/first"}
+			previous := r.controller.Prepare(protocol.Command{Kind: "save_terminal_settings", Data: original})
+			applied := original
+			applied.Revision++
+			edited := protocol.TerminalSettings{Revision: tc.revision, Shell: "/bin/edited"}
+			transport.handle = func(request protocol.Request) (link.Response, bool) {
+				switch request.Command.Kind {
+				case "inspect_request":
+					result := protocol.Output{Kind: "terminal_settings", Data: applied}
+					outcome := protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &result}}
+					return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: previous.ID, Outcome: outcome}}}, true
+				case "save_terminal_settings":
+					value, _ := detail[protocol.TerminalSettings](request.Command.Data)
+					if request.ID == previous.ID || value.Revision != applied.Revision || value.Shell != edited.Shell {
+						t.Fatalf("new edit did not build on the confirmed save: %+v", request)
+					}
+					value.Revision++
+					return link.Response{Output: protocol.Output{Kind: "terminal_settings", Data: value}}, true
+				}
+				return link.Response{}, false
+			}
+			_, retained, err := r.writeTerminalSettings(edited, &previous)
+			if tc.conflict {
+				if faultCode(err) != protocol.ErrorCodeRevisionConflict || retained != nil || len(transport.requests) != 1 || transport.requests[0].Command.Kind != "inspect_request" {
+					t.Fatalf("the newer revision should conflict without a write: %v, requests %+v", err, transport.requests)
+				}
+			} else if err != nil || retained != nil || len(transport.requests) != 2 || transport.requests[0].Command.Kind != "inspect_request" || transport.requests[1].Command.Kind != "save_terminal_settings" {
+				t.Fatalf("the edited draft should follow the confirmed write: %v, requests %+v", err, transport.requests)
+			}
+		})
 	}
 }
 
