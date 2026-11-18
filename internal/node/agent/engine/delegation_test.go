@@ -365,7 +365,10 @@ func TestDelegationHandoff(t *testing.T) {
 				if finished.Session != child.session || finished.Worktree != recipient.Worktree {
 					t.Fatal("successor changed the admitted child scope")
 				}
-				mustHaveText(t, f.state().Records, "Subagent "+child.session.String()+" completed: Final successor response")
+				result := mustHaveCallback(t, f.state().Records, child.session, successor, protocol.ConversationBackgroundOutcomeCompleted)
+				if result.Response == nil || *result.Response != "Final successor response" {
+					t.Fatalf("callback lost the successor response: %+v", result)
+				}
 			}
 			joined := f.waitRun(followup.ID, protocol.ConversationStatusCompleted)
 			if joined.Joined == nil || *joined.Joined != successor || language.count() != 2 {
@@ -910,7 +913,7 @@ func TestStopSingleChild(t *testing.T) {
 		f.waitRun(parent, protocol.ConversationStatusCompleted)
 		records := f.state().Records
 		for _, turn := range children {
-			mustHaveText(t, records, "Subagent "+read(turn).Session.String()+" was cancelled before it finished.")
+			mustHaveCallback(t, records, read(turn).Session, turn, protocol.ConversationBackgroundOutcomeCancelled)
 		}
 		mustHaveText(t, records, "Parent continued")
 		if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state!='consumed'") != 0 {

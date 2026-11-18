@@ -251,10 +251,6 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 			return protocol.ConversationEntry{}, nil, err
 		}
 	}
-	delivery, err := ConfirmBackground(ctx, db, session, record.Turn, record)
-	if err != nil {
-		return protocol.ConversationEntry{}, nil, err
-	}
 	entry, err := projectStoredEntry(ctx, db, record, sequence, nil)
 	if err != nil {
 		return entry, nil, err
@@ -268,7 +264,7 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 		return entry, nil, err
 	}
 	notice, err := compactionNotice(ctx, db, session, record, sequence)
-	return entry, append(append(append(events, delivery...), settled...), notice...), err
+	return entry, append(append(events, settled...), notice...), err
 }
 
 func applyCanonicalState(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record) error {

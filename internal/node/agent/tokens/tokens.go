@@ -33,7 +33,10 @@ func Chat(system string, records []canonical.Record) uint64 {
 		if records[i].Metadata.Runtime != nil && !records[i].Metadata.Runtime.AgentVisible {
 			continue
 		}
-		message := records[i].MutableMessage()
+		message, background, _ := records[i].ModelContent()
+		if background != "" {
+			count += Text(background) + 4
+		}
 		if message == nil {
 			continue
 		}

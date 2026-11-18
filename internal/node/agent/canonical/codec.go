@@ -9,6 +9,7 @@ import (
 
 var recordVariants = map[string]func() any{
 	"message": func() any { return new(Message) }, "compaction": func() any { return new(Compaction) }, "configuration": func() any { return new(Configuration) }, "notice": func() any { return new(Notice) }, "operation": func() any { return new(Operation) },
+	"background": func() any { return new(Background) },
 }
 var blockVariants = map[string]func() any{
 	"text": func() any { return new(TextContent) }, "image": func() any { return new(AssetContent) }, "document": func() any { return new(AssetContent) }, "file": func() any { return new(FileContent) }, "tool_request": func() any { return new(ToolRequest) }, "tool_response": func() any { return new(ToolResponse) }, "thinking": func() any { return new(Thinking) }, "redacted_thinking": func() any { return new(RedactedThinking) },

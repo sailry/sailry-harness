@@ -361,18 +361,26 @@ func (r *Runtime) turn(x *execution) error {
 		if err := validateInstructionContext(binding, current, inv.Session.Delegation != nil); err != nil {
 			return err
 		}
-		record := inputRecord(inv.Run.Turn, inv.Message, r)
-		if inv.Session.Delegation != nil {
-			source := canonical.InputParent
-			record.Metadata.Input.Source = &source
+		if !inv.Run.Notice {
+			record := inputRecord(inv.Run.Turn, inv.Message, r)
+			if inv.Session.Delegation != nil {
+				source := canonical.InputParent
+				record.Metadata.Input.Source = &source
+			}
+			initial = append(initial, record)
 		}
-		if err := r.bindBackground(x, &record); err != nil {
-			return err
-		}
-		initial = append(initial, record)
 	}
 	if err = r.save(x.ctx, inv.Session.ID, initial...); err != nil {
 		return err
+	}
+	if inv.Run.Kind == protocol.ConversationRunKindTask {
+		delivered, err := r.deliverBackground(x, true)
+		if err != nil {
+			return err
+		}
+		if inv.Run.Notice && !delivered {
+			return nil
+		}
 	}
 	recoveries := 0
 	compacted := false
@@ -448,6 +456,18 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			return failure
 		}
+		if !x.callbackPending && !inv.Run.Notice && inv.Run.Kind == protocol.ConversationRunKindTask {
+			delivered, err = r.deliverBackground(x, false)
+			if err != nil {
+				return err
+			}
+			if delivered {
+				state, err = r.reload(x.ctx, inv.Session.ID, state)
+				if err != nil {
+					return err
+				}
+			}
+		}
 		if !compacted && shouldCompact(binding, state, inv.CompactionPercent) {
 			if err = r.compact(x, binding, state, false); err != nil {
 				return err
@@ -457,7 +477,7 @@ func (r *Runtime) turn(x *execution) error {
 			compacted = true
 			continue
 		}
-		if last != nil && last.Role == canonical.Assistant {
+		if !x.callbackPending && last != nil && last.Role == canonical.Assistant {
 			return nil
 		}
 		limited, err := r.childTurnLimit(x, state)
@@ -486,6 +506,7 @@ func (r *Runtime) turn(x *execution) error {
 		}
 		compacted = false
 		x.foregroundSteered = false
+		x.callbackPending = false
 	}
 }
 
@@ -609,6 +630,9 @@ func (r *Runtime) guidance(x *execution) (bool, error) {
 
 func lastMessage(records []canonical.Record) *canonical.Message {
 	for i := len(records) - 1; i >= 0; i-- {
+		if background := records[i].Background(); background != nil && background.Initial {
+			return nil
+		}
 		if message := records[i].Message(); message != nil {
 			if records[i].Metadata.Runtime == nil || records[i].Metadata.Runtime.AgentVisible || message.Error != nil {
 				return message
@@ -621,7 +645,12 @@ func lastMessage(records []canonical.Record) *canonical.Message {
 func pending(records []canonical.Record) []canonical.ToolRequest {
 	start := 0
 	for i := range records {
-		if m := records[i].Message(); m != nil && m.Role == canonical.User && records[i].Provenance.Author == "user" {
+		if background := records[i].Background(); background != nil && background.Initial {
+			start = i
+			continue
+		}
+		input := records[i].Metadata.Input
+		if m := records[i].Message(); m != nil && m.Role == canonical.User && (records[i].Provenance.Author == "user" || input != nil && input.Source != nil && *input.Source == canonical.InputNotice) {
 			start = i
 		}
 	}

@@ -2,4 +2,4 @@ Delegate independent work whenever parallel execution saves time or improves qua
 
 Give each child a clear goal, relevant context, its scope and the expected result. Assign disjoint files or separate worktrees for concurrent edits. Follow team instructions and use a listed role when it fits. Omit role to use the current model, including when no named team or roles are configured. Read-only roles gather evidence in Plan mode.
 
-Collect the results you need, review and integrate the changes, then run the relevant checks. Reuse completed work. Give follow-ups to the same child by its returned session ID, or resolve small issues yourself.
+Collect the results you need, review and integrate the changes, then run the relevant checks. Reuse completed results unchanged. Before delegating a continuation, check list_subagents and verify that the user is continuing the same unfinished task; match the prior evidence, not the title. Resolve small issues yourself.

@@ -173,14 +173,8 @@ func TestStalledDelivery(t *testing.T) {
 		if written, err := stall(db, 20*time.Minute); err != nil || written {
 			return fmt.Errorf("reserved stall evidence was rewritten: %v", err)
 		}
-		// The notice turn's input confirms the delivery, as ConfirmBackground does.
-		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)
-		if err != nil {
-			return err
-		}
-		record.Task.State = protocol.ConversationBackgroundStateDelivered
-		if err = saveBackgroundRecord(ctx, db, record); err != nil {
-			return err
+		if entry, _, err := DeliverBackground(ctx, db, first.Run.Turn, true, now); err != nil || entry == nil {
+			return fmt.Errorf("notice turn did not take its reservation: %v", err)
 		}
 		if _, _, err = FinishTurn(ctx, db, first.Run.Turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 			return err
@@ -204,13 +198,17 @@ func TestStalledDelivery(t *testing.T) {
 		if _, err = queueFixtureCommand(ctx, db, storage, node, "stop_turn", &protocol.CommandStopTurnPayload{Turn: second.Run.Turn}, now); err != nil {
 			return err
 		}
+		if entry, events, err := DeliverBackground(ctx, db, second.Run.Turn, true, now); !errors.Is(err, context.Canceled) || entry != nil || len(events) != 0 {
+			return fmt.Errorf("notice appended after Stop: %v", err)
+		}
 		if _, _, err = FinishTurn(ctx, db, second.Run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
 			return err
 		}
 		if written, err := stall(db, 45*time.Minute); err != nil || !written {
 			return fmt.Errorf("stall after the stop was not recorded: %v", err)
 		}
-		if record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id); err != nil {
+		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)
+		if err != nil {
 			return err
 		}
 		if record.Task.State != protocol.ConversationBackgroundStatePending || !record.Task.Suppressed || record.Task.Delivery != nil || record.Task.Hold == nil || *record.Task.Hold != protocol.ConversationBackgroundHoldStopped {
@@ -239,28 +237,28 @@ func TestStalledDelivery(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		run, _, _, err := BindBackground(ctx, db, user)
-		if err != nil {
+		if err = queueFixtureInput(ctx, db, session.ID, user, now); err != nil {
 			return err
 		}
-		if len(run.Notices) != 1 || run.Notices[0].ID != id {
-			return fmt.Errorf("user turn did not take the held stall: %+v", run.Notices)
+		if entry, _, err := DeliverInputBackground(ctx, db, user, now); err != nil || entry == nil {
+			return fmt.Errorf("user turn did not take the held stall: %v", err)
 		}
 		if record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id); err != nil {
 			return err
 		}
-		if record.Task.Hold != nil || record.Task.Delivery == nil || *record.Task.Delivery != user {
+		if record.Task.State != protocol.ConversationBackgroundStateDelivered || record.Task.Hold != nil || record.Task.Delivery == nil || *record.Task.Delivery != user {
 			return fmt.Errorf("taken stall kept its hold: %+v", record.Task)
 		}
-		// A turn that ends without taking it leaves it held, and says why.
+		// A later model failure cannot un-deliver committed evidence.
+		revision := record.Task.Revision
 		if _, _, err = FinishTurn(ctx, db, user, protocol.ConversationStatusFailed, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "model is unavailable"}, now); err != nil {
 			return err
 		}
 		if record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id); err != nil {
 			return err
 		}
-		if !record.Task.Suppressed || record.Task.Delivery != nil || record.Task.Hold == nil || *record.Task.Hold != protocol.ConversationBackgroundHoldFailed {
-			return fmt.Errorf("held stall after its turn failed: %+v", record.Task)
+		if record.Task.Revision != revision || record.Task.State != protocol.ConversationBackgroundStateDelivered || record.Task.Delivery == nil || *record.Task.Delivery != user || record.Task.Hold != nil {
+			return fmt.Errorf("failed turn altered delivered stall: %+v", record.Task)
 		}
 		return nil
 	})

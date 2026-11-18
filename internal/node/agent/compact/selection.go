@@ -49,7 +49,7 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 		suffix := make([]uint64, len(visible)+1)
 		for i := len(visible) - 1; i >= start; i-- {
 			size := tokens.Chat("", projected[i:i+1])
-			for _, block := range visible[i].Message().Content {
+			for _, block := range selectionBlocks(visible[i]) {
 				switch value := block.Data.(type) {
 				case *canonical.Thinking:
 					size += tokens.Text(value.Text)
@@ -70,7 +70,7 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 		cuts := []int{start}
 		pending := map[string]bool{}
 		for i := start; i < len(visible); i++ {
-			for _, block := range visible[i].Message().Content {
+			for _, block := range selectionBlocks(visible[i]) {
 				switch value := block.Data.(type) {
 				case *canonical.ToolRequest:
 					if value.Error == nil {
@@ -89,7 +89,7 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 		}
 		cut = -1
 		for _, candidate := range cuts[:len(cuts)-1] {
-			if !turnContext(visible[candidate]) && kickoff(visible[candidate].Message()) && suffix[candidate] <= budget {
+			if !turnContext(visible[candidate]) && kickoff(visible[candidate]) && suffix[candidate] <= budget {
 				cut = candidate
 				break
 			}
@@ -107,7 +107,7 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 	worthwhile := false
 	for _, record := range visible[start:cut] {
 		message := record.Message()
-		if turnContext(record) || record.Metadata.Runtime != nil && !record.Metadata.Runtime.UserVisible && !hasTools(message) {
+		if message == nil || turnContext(record) || record.Metadata.Runtime != nil && !record.Metadata.Runtime.UserVisible && !hasTools(message) {
 			continue
 		}
 		for _, block := range message.Content {
@@ -141,6 +141,13 @@ func Select(records []canonical.Record, contextLimit uint64, keepRecent bool) (S
 		}
 	}
 	return selected, true
+}
+
+func selectionBlocks(record canonical.Record) []canonical.Block {
+	if message := record.Message(); message != nil {
+		return message.Content
+	}
+	return nil
 }
 
 func turnContext(record canonical.Record) bool {

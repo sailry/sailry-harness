@@ -40,8 +40,12 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	records := VisibleRecords(request.Records)
 	origins := map[int]string{}
 	active := -1
-	for i := range records {
-		if message := records[i].Message(); message != nil && message.Role == canonical.User {
+	for i := len(records) - 1; i >= 0 && active < 0; i-- {
+		runtime := records[i].Metadata.Runtime
+		if runtime != nil && runtime.TurnContext {
+			continue
+		}
+		if message, _, _ := records[i].ModelContent(); message != nil && message.Role == canonical.User {
 			for _, block := range message.Content {
 				if block.Kind != "tool_response" {
 					active = i
@@ -50,10 +54,19 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 			}
 		}
 	}
+	appendBackground := func(text string) {
+		if text != "" {
+			call.Prompt = append(call.Prompt, fantasy.Message{Role: fantasy.MessageRoleAssistant, Content: []fantasy.MessagePart{fantasy.TextPart{Text: text}}})
+		}
+	}
 	for i, record := range records {
 		record = output.Audience(record)
-		message := record.MutableMessage()
+		message, background, err := record.ModelContent()
+		if err != nil {
+			return call, err
+		}
 		if message == nil {
+			appendBackground(background)
 			continue
 		}
 		role := fantasy.MessageRoleUser
@@ -213,6 +226,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		}
 		addRedacted(message.PartCount)
 		flush()
+		appendBackground(background)
 	}
 	if cache != nil {
 		remaining := 2
@@ -248,11 +262,24 @@ func copilotHeaders(request Request, records []canonical.Record, prompt fantasy.
 	}
 	headers["openai-intent"], headers["x-initiator"], headers["x-request-id"] = "conversation-agent", "agent", protocol.NewRequestID().String()
 	for index := len(records) - 1; index >= 0; index-- {
-		message := records[index].Message()
-		if message == nil || records[index].Metadata.Runtime != nil && records[index].Metadata.Runtime.TurnContext {
+		record := records[index]
+		if record.Metadata.Runtime != nil && record.Metadata.Runtime.TurnContext {
 			continue
 		}
-		if message.Role == canonical.User && !request.Delegated && !slices.ContainsFunc(message.Content, func(block canonical.Block) bool { return block.Kind == "tool_response" }) {
+		if value := record.Background(); value != nil {
+			if value.Initial {
+				break
+			}
+			continue
+		}
+		message, evidence, _ := record.ModelContent()
+		if message == nil {
+			if evidence != "" {
+				break
+			}
+			continue
+		}
+		if message.Role == canonical.User && (record.Provenance.Author == "user" || record.Provenance.Author == "") && !request.Delegated && !slices.ContainsFunc(message.Content, func(block canonical.Block) bool { return block.Kind == "tool_response" }) {
 			headers["x-initiator"] = "user"
 		}
 		break

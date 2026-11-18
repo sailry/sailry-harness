@@ -35,6 +35,18 @@
     "pt-BR": "Aguardar subagente",
     "ru": "Ждать субагента"
   },
+  "tool_list_subagents": {
+    "en": "List subagents",
+    "zh-CN": "查看子代理",
+    "zh-TW": "檢視子代理",
+    "ja": "サブエージェントを一覧表示",
+    "ko": "하위 에이전트 목록",
+    "fr": "Lister les sous-agents",
+    "de": "Unteragenten auflisten",
+    "es": "Listar subagentes",
+    "pt-BR": "Listar subagentes",
+    "ru": "Список субагентов"
+  },
   "tool_load_skill": {
     "en": "Load skill",
     "zh-CN": "加载技能",

@@ -292,6 +292,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		continuation = "Your context was compacted at the user's request. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
 	}
 	var preserved *canonical.Record
+	var preservedInput *canonical.Message
 	retainMedia := true
 	if !manual {
 		visible := handoff.Visible(state.Records)
@@ -305,7 +306,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 			if summaries[visible[i].ID] || compactionUsage(visible[i]) || visible[i].Metadata.Runtime != nil && visible[i].Metadata.Runtime.TurnContext {
 				continue
 			}
-			candidate := visible[i].Message()
+			candidate, _, _ := visible[i].ModelContent()
 			if candidate != nil && candidate.Role == canonical.Assistant && candidate.Error == nil {
 				retainMedia = false
 			}
@@ -313,7 +314,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 				for _, block := range candidate.Content {
 					switch block.Kind {
 					case "text", "image", "document", "file":
-						preserved = &visible[i]
+						preserved, preservedInput = &visible[i], candidate
 					}
 					if preserved != nil {
 						break
@@ -334,7 +335,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	records = append(records, continued)
 	if preserved != nil {
 		var blocks []canonical.Block
-		for _, block := range preserved.Message().Content {
+		for _, block := range preservedInput.Content {
 			switch block.Kind {
 			case "text":
 			case "image", "document", "file":

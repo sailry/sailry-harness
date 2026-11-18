@@ -427,13 +427,22 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 							return errors.New("controller observation consumed command evidence")
 						}
 					}
+					collector := turn
 					if row.reserved {
-						if _, _, _, err := BindBackground(ctx, db, turn); err != nil {
+						if err := queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
 							return err
 						}
+						if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+							return err
+						}
+						notice, _, err := ClaimNext(ctx, db, now)
+						if err != nil || notice == nil || !notice.Run.Notice {
+							return fmt.Errorf("command did not reserve an automatic delivery: %v", err)
+						}
+						collector = notice.Run.Turn
 					}
 					snapshot.Info.Status.Kind = row.status
-					if _, err := ConsumeCommandBackground(ctx, db, turn, snapshot, now); err != nil {
+					if _, err := ConsumeCommandBackground(ctx, db, collector, snapshot, now); err != nil {
 						return err
 					}
 					record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "command:"+request.ID.String())
@@ -450,7 +459,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 						return errors.New("terminal tool read did not consume its exact observed result")
 					}
 					revision := record.Task.Revision
-					if _, err = ConsumeCommandBackground(ctx, db, turn, snapshot, now); err != nil {
+					if _, err = ConsumeCommandBackground(ctx, db, collector, snapshot, now); err != nil {
 						return err
 					}
 					lateElapsed := uint64(50)
@@ -465,14 +474,15 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 					if record.Task.State != protocol.ConversationBackgroundStateConsumed || record.Task.Revision != revision || timingChanged {
 						return errors.New("late completion callback or repeated tool read changed consumed evidence")
 					}
-					run, text, _, err := BindBackground(ctx, db, turn)
-					if err != nil {
-						return err
+					if entry, events, err := DeliverBackground(ctx, db, collector, row.reserved, now); err != nil || entry != nil || row.reserved && len(events) == 0 {
+						return fmt.Errorf("consumed tool output did not settle without a duplicate entry: %v", err)
 					}
-					if len(run.Notices) != 0 || text != nil {
-						return errors.New("consumed tool output was reserved for duplicate delivery")
+					if row.reserved {
+						if _, item, err := queueFixtureItem(ctx, db, session.ID, collector); err != nil || item != nil {
+							return fmt.Errorf("empty notice left queued input: %v", err)
+						}
 					}
-					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+					if _, _, err = FinishTurn(ctx, db, collector, protocol.ConversationStatusCompleted, nil, now); err != nil {
 						return err
 					}
 					if next, _, err := ScheduleBackground(ctx, db, node, session.ID, now); err != nil || next != nil {
@@ -591,67 +601,27 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			})
 		}
 	})
-	t.Run("reservation exact evidence and projection", func(t *testing.T) {
+	t.Run("legacy notice part remains hidden", func(t *testing.T) {
 		storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 		ctx := context.Background()
 		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			if _, err := backgroundFixtureRecord(ctx, db, session, turn, "fixture-completion", true, now); err != nil {
-				return err
-			}
-			run, text, _, err := BindBackground(ctx, db, turn)
-			if err != nil {
-				return err
-			}
-			if len(run.Notices) != 1 || text == nil || !strings.HasPrefix(*text, backgroundPrefix) {
-				return errors.New("background evidence was not rendered")
-			}
-			record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='fixture-completion'")
-			if err != nil {
-				return err
-			}
-			if record.Task.State != protocol.ConversationBackgroundStatePending {
-				return errors.New("reservation claimed delivery")
-			}
 			index := uint64(1)
-			event := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Visible user input"), canonical.Text(1, *text)), now)
+			event := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Visible user input"), canonical.Text(1, "Legacy notice data")), now)
 			event.Provenance.Author = "user"
-			event.Metadata.Input = &canonical.Input{Turn: &turn, NoticePart: &index, NoticeIDs: []string{"wrong-id"}}
-			if _, err = ConfirmBackground(ctx, db, session.ID, turn, event); err == nil {
-				return errors.New("wrong notice identity was delivered")
+			event.Metadata.Input = &canonical.Input{Turn: &turn, NoticePart: &index, NoticeIDs: []string{"legacy"}}
+			if _, _, err := AppendCanonical(ctx, db, session.ID, event); err != nil {
+				return err
 			}
-			event.Metadata.Input.NoticeIDs = []string{"fixture-completion"}
-			event.Message().Content[1] = canonical.Text(1, "Forged notice text")
-			if _, err = ConfirmBackground(ctx, db, session.ID, turn, event); err == nil {
-				return errors.New("wrong notice text was delivered")
-			}
-			event.Message().Content[1] = canonical.Text(1, *text)
-			entry, _, err := AppendCanonical(ctx, db, session.ID, event)
+			history, err := ReadConversation(ctx, db, session.ID, nil, 20)
 			if err != nil {
 				return err
 			}
+			if len(history.Page.Entries) != 1 {
+				return fmt.Errorf("unexpected legacy history: %+v", history.Page.Entries)
+			}
+			entry := history.Page.Entries[0]
 			if len(entry.Parts) != 1 || entry.Parts[0].Kind != "text" || entry.Parts[0].Data != "Visible user input" {
 				return errors.New("notice JSON leaked into displayed user input")
-			}
-			record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='fixture-completion'")
-			if err != nil {
-				return err
-			}
-			if record.Task.State != protocol.ConversationBackgroundStateDelivered {
-				return errors.New("canonical evidence did not confirm delivery")
-			}
-			revision := record.Task.Revision
-			if _, _, err = AppendCanonical(ctx, db, session.ID, event); err != nil {
-				return err
-			}
-			if _, err = ReleaseBackground(ctx, db, turn, nil, false); err != nil {
-				return err
-			}
-			record, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='fixture-completion'")
-			if err != nil {
-				return err
-			}
-			if record.Task.Revision != revision || record.Task.State != protocol.ConversationBackgroundStateDelivered {
-				return errors.New("idempotent append or release altered delivered evidence")
 			}
 			return nil
 		})
@@ -746,12 +716,14 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					run, text, _, err := BindBackground(ctx, db, explicit)
-					if err != nil {
+					if entry, _, err := DeliverBackground(ctx, db, explicit, false, now); err != nil || entry != nil {
+						return fmt.Errorf("normal boundary took held evidence: %v", err)
+					}
+					if err = queueFixtureInput(ctx, db, session.ID, explicit, now); err != nil {
 						return err
 					}
-					if len(run.Notices) != 1 || run.Notices[0].ID != "released-evidence" || text == nil {
-						return errors.New("suppressed completion was unavailable to explicit user input")
+					if entry, _, err := DeliverInputBackground(ctx, db, explicit, now); err != nil || entry == nil {
+						return fmt.Errorf("suppressed completion was unavailable to explicit user input: %v", err)
 					}
 					if _, err = ReleaseBackground(ctx, db, explicit, nil, false); err != nil {
 						return err
@@ -760,8 +732,8 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if !record.Task.Suppressed || record.Task.Delivery != nil || record.Task.State != protocol.ConversationBackgroundStatePending {
-						return errors.New("ordinary release cleared prior suppression or completion evidence")
+					if !record.Task.Suppressed || record.Task.Delivery == nil || *record.Task.Delivery != explicit || record.Task.State != protocol.ConversationBackgroundStateDelivered || record.Task.Hold != nil {
+						return errors.New("explicit settlement did not preserve its exact delivered evidence")
 					}
 					return nil
 				})
@@ -771,38 +743,68 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			})
 		}
 	})
-	t.Run("notice bounds and reservation release", func(t *testing.T) {
+	t.Run("running callback bounds and progress", func(t *testing.T) {
 		storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 		ctx := context.Background()
 		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			for index := 0; index < 17; index++ {
-				if _, err := backgroundFixtureRecord(ctx, db, session, turn, fmt.Sprintf("notice-%02d", index), false, now); err != nil {
+			// The oldest legacy output exceeds the budget before normalization,
+			// even without the later small results.
+			for _, id := range []string{"oversized", "oversized-second"} {
+				record, err := backgroundFixtureRecord(ctx, db, session, turn, id, true, now)
+				if err != nil {
+					return err
+				}
+				record.Stdout = new(strings.Repeat("\x01", 12*1024))
+				record.Stderr = new(strings.Repeat("\x02", 12*1024))
+				if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 					return err
 				}
 			}
-			run, text, _, err := BindBackground(ctx, db, turn)
+			for index := 0; index < 32; index++ {
+				if _, err := backgroundFixtureRecord(ctx, db, session, turn, fmt.Sprintf("notice-%02d", index), true, now); err != nil {
+					return err
+				}
+			}
+			for _, count := range []int{1, 16, 16, 1} {
+				entry, _, err := DeliverBackground(ctx, db, turn, false, now)
+				if err != nil || entry == nil {
+					return fmt.Errorf("missing running batch of %d: %v", count, err)
+				}
+				stored, err := readBody[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE session=?1 AND id=?2", session.ID.String(), entry.ID)
+				if err != nil {
+					return err
+				}
+				payload := stored.Data.(*canonical.Background)
+				if len(payload.Results) != count {
+					return fmt.Errorf("running batch contains %d results, want %d", len(payload.Results), count)
+				}
+			}
+			if entry, events, err := DeliverBackground(ctx, db, turn, false, now); err != nil || entry != nil || len(events) != 0 {
+				return fmt.Errorf("drained evidence was delivered again: %v", err)
+			}
+			state, err := LoadAgentState(ctx, db, session.ID)
 			if err != nil {
 				return err
 			}
-			if len(run.Notices) != 16 || text == nil || len(*text) > 32*1024 || run.Notices[0].ID != "notice-00" {
-				return errors.New("notice bounds or sequence changed")
+			var ordered []string
+			for _, record := range state.Records {
+				if payload, ok := record.Data.(*canonical.Background); ok {
+					body, err := encode(payload)
+					if err != nil || len(body) > backgroundBatchBytes {
+						return fmt.Errorf("background payload has %d bytes: %v", len(body), err)
+					}
+					for _, result := range payload.Results {
+						ordered = append(ordered, result.Notice.ID)
+					}
+				}
 			}
-			if _, err = ReleaseBackground(ctx, db, turn, nil, false); err != nil {
-				return err
+			if len(ordered) != 34 || ordered[0] != "oversized" || ordered[1] != "oversized-second" {
+				return fmt.Errorf("oldest result was not delivered first: %v", ordered)
 			}
-			var pending int
-			if err = db.QueryRowContext(ctx, "SELECT count(*) FROM agent_background WHERE state='pending' AND delivery IS NULL").Scan(&pending); err != nil {
-				return err
-			}
-			if pending != 17 {
-				return errors.New("release consumed undelivered evidence")
-			}
-			var suppressed bool
-			if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_background WHERE json_extract(body,'$.task.suppressed')=1)").Scan(&suppressed); err != nil {
-				return err
-			}
-			if suppressed {
-				return errors.New("ordinary reservation release suppressed completion evidence")
+			for i, id := range ordered[2:] {
+				if want := fmt.Sprintf("notice-%02d", i); id != want {
+					return fmt.Errorf("result %d is %q, want %q", i, id, want)
+				}
 			}
 			return nil
 		})

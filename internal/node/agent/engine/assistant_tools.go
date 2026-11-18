@@ -13,7 +13,7 @@ var assistantBuiltins = []string{
 	"ask_user", "set_session_title",
 	"list_sessions", "read_session", "search_session", "read_tool_output",
 	"load_skill", "read_skill_resource", "manage_skills", "manage_mcp", "manage_plugins",
-	"spawn_agent", "guide_agent", "wait_agent",
+	"spawn_agent", "guide_agent", "wait_agent", "list_subagents",
 	"list_agents", "add_agent", "edit_agent", "delete_agent", "apply_agents",
 	"list_teams", "add_team", "edit_team", "delete_team", "apply_team",
 	"inspect_image", "generate_image", "generate_video",

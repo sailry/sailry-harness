@@ -540,12 +540,25 @@ a role inherits that model and its captured scope and permission. Team selection
 supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
 
+`list_subagents` reads a bounded page of direct child sessions from durable
+delegation records across turns. The active parent uses its captured delegation
+scope; no caller-supplied session can change the scope. The page keeps exact
+session and turn IDs, status, an assigned title and a frozen role when available,
+but no task input or result text. Explicit stop evidence is reported only for
+the selected child turn, not inferred from the session queue or cancellation.
+Listing does not resume, collect or replay work. An explicit spawn using a
+listed child session starts a new child turn with its own admission receipt;
+waiting only observes a specific execution.
+
 Input received during a running task is durable guidance, consumed at a model
 boundary. Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
-evidence, reserved to one turn and consumed with its exact canonical input.
-Opted-in completions can continue an idle session through its normal queue.
+evidence. The running turn takes a bounded batch between model steps; an idle
+session can take a reserved batch through its normal automatic queue. Delivery
+and the Node-authored evidence record commit together, without changing user
+input or replaying a tool result. Foreground child results also belong to their
+original row; a real `wait_agent` call still returns its own tool result.
 Active follow-ups and automatic deliveries contribute to session activity.
 Held results remain available for the next input, and a descendant waiting for
 input or approval remains visible when background work is active.

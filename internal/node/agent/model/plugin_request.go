@@ -147,10 +147,20 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 	}
 	records := VisibleRecords(request.Records)
 	calls := map[string]string{}
+	appendBackground := func(text string) {
+		if text != "" {
+			parts := []protocol.PluginModelAdapterWirePart{{Kind: "text", Data: &protocol.PluginModelAdapterWirePartTextPayload{Text: text}}}
+			input.Messages = append(input.Messages, protocol.PluginModelAdapterWireMessage{Kind: "assistant", Data: &protocol.PluginModelAdapterWireMessageAssistantPayload{Parts: parts}})
+		}
+	}
 	for _, record := range records {
 		record = output.Audience(record)
-		message := record.MutableMessage()
+		message, background, err := record.ModelContent()
+		if err != nil {
+			return input, err
+		}
 		if message == nil {
+			appendBackground(background)
 			continue
 		}
 		role := "user"
@@ -277,6 +287,7 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 		}
 		appendRedacted(message.PartCount)
 		flush()
+		appendBackground(background)
 	}
 	return input, nil
 }

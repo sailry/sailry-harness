@@ -42,7 +42,8 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 		}
 		manager, catalog := managementLabels[name], slices.Contains(catalogToolNames, name)
 		media, shown := mediaDisplays()[name]
-		if !slices.Contains([]string{"spawn_agent", "guide_agent", "wait_agent", "load_skill", "read_skill_resource"}, name) && manager == "" && !catalog && !shown || findTool(owner.tools, name) == nil {
+		_, delegation := delegationDescriptions[name]
+		if !delegation && !slices.Contains([]string{"load_skill", "read_skill_resource"}, name) && manager == "" && !catalog && !shown || findTool(owner.tools, name) == nil {
 			continue
 		}
 		if record.Metadata.Presentation == nil {
@@ -110,11 +111,13 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			if name == "guide_agent" {
 				display.Input.Content = field("/message")
 			}
+		case "list_subagents":
+			p.Tools[name] = protocol.ToolPresentationSummary
 		default:
 			display.Input.Summary = field("/skill")
 			p.Tools[name] = protocol.ToolPresentationSummary
 		}
-		if name == "spawn_agent" || name == "guide_agent" || name == "wait_agent" {
+		if delegation {
 			display.Icon = &protocol.PluginDesktopIcon{Kind: "Name", Data: "reicon:users/users2"}
 		}
 		p.Displays[name] = display

@@ -101,10 +101,10 @@ func TestAutomaticChain(t *testing.T) {
 					if next == nil || next.Run.Turn != turn {
 						return nil, errors.New("queued automatic turn was not claimed")
 					}
-					if _, _, _, err = BindBackground(ctx, db, turn); err != nil {
+					if err = queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
 						return nil, err
 					}
-					if err = queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
+					if _, _, err = DeliverInputBackground(ctx, db, turn, now); err != nil {
 						return nil, err
 					}
 					_, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now)
@@ -141,11 +141,8 @@ func TestAutomaticChain(t *testing.T) {
 					if !next.Run.Notice {
 						return nil, errors.New("claimed turn is not a notice turn")
 					}
-					if _, _, _, err = BindBackground(ctx, db, next.Run.Turn); err != nil {
-						return nil, err
-					}
-					if err = queueFixtureInput(ctx, db, session.ID, next.Run.Turn, now); err != nil {
-						return nil, err
+					if entry, _, err := DeliverBackground(ctx, db, next.Run.Turn, true, now); err != nil || entry == nil {
+						return nil, fmt.Errorf("notice turn did not take its reservation: %v", err)
 					}
 					_, _, err = FinishTurn(ctx, db, next.Run.Turn, protocol.ConversationStatusCompleted, nil, now)
 					return next, err
@@ -159,10 +156,10 @@ func TestAutomaticChain(t *testing.T) {
 					if err != nil {
 						return turn, err
 					}
-					if _, _, _, err = BindBackground(ctx, db, turn); err != nil {
+					if err = queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
 						return turn, err
 					}
-					if err = queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
+					if _, _, err = DeliverInputBackground(ctx, db, turn, now); err != nil {
 						return turn, err
 					}
 					_, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now)
@@ -301,21 +298,18 @@ func TestAutomaticChain(t *testing.T) {
 					if err != nil || next == nil || next.Run.Turn != turn {
 						return fmt.Errorf("continuation was not claimed: %v", err)
 					}
-					bound, text, _, err := BindBackground(ctx, db, turn)
-					if err != nil {
+					if err = queueFixtureInput(ctx, db, session.ID, turn, now); err != nil {
 						return err
 					}
-					// The fixture never confirms a notice turn's input, so the
-					// earlier results are released to this turn as well.
-					if len(bound.Notices) == 0 || bound.Notices[len(bound.Notices)-1].ID != "held" || text == nil {
-						return fmt.Errorf("continuation bound %d results without the held one", len(bound.Notices))
+					if entry, _, err := DeliverInputBackground(ctx, db, turn, now); err != nil || entry == nil {
+						return fmt.Errorf("continuation did not take the held result: %v", err)
 					}
 					held, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='held'")
 					if err != nil {
 						return err
 					}
-					if held == nil || held.Task.Delivery == nil || *held.Task.Delivery != turn || held.Task.Hold != nil {
-						return errors.New("held result was not reserved for the continuation")
+					if held == nil || held.Task.Delivery == nil || *held.Task.Delivery != turn || held.Task.Hold != nil || held.Task.State != protocol.ConversationBackgroundStateDelivered {
+						return errors.New("held result was not delivered to the continuation")
 					}
 				case "refusals name their reason":
 					reason := func(want protocol.ConversationContinuationRefusal, code protocol.ErrorCode) error {

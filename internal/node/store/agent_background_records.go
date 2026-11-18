@@ -61,11 +61,17 @@ func RegisterChildBackground(ctx context.Context, db *sql.Conn, parent, child pr
 	if record != nil {
 		return nil, nil
 	}
+	// Only background children are ready at admission. Foreground children
+	// become ready later, when their parent reaches its foreground boundary.
+	var background bool
+	if err = db.QueryRowContext(ctx, "SELECT ready FROM agent_runs WHERE turn=?1", child.Turn.String()).Scan(&background); err != nil {
+		return nil, err
+	}
 	started := now.UnixMilli()
 	if child.StartedMs != nil {
 		started = *child.StartedMs
 	}
-	value := BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: id, Session: parent.Session, Turn: parent.Turn, Kind: protocol.ConversationBackgroundKind{Kind: "agent", Data: protocol.ConversationBackgroundKindAgentPayload{Session: child.Session, Turn: child.Turn}}, Title: processPreview(title, 200), State: protocol.ConversationBackgroundStateRunning, StartedMs: started}}
+	value := BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: id, Session: parent.Session, Turn: parent.Turn, Kind: protocol.ConversationBackgroundKind{Kind: "agent", Data: protocol.ConversationBackgroundKindAgentPayload{Session: child.Session, Turn: child.Turn}}, Title: processPreview(title, 200), State: protocol.ConversationBackgroundStateRunning, StartedMs: started}, FollowUp: background}
 	if err = saveBackgroundRecord(ctx, db, &value); err != nil {
 		return nil, err
 	}

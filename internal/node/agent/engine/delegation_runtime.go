@@ -345,33 +345,7 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 				pending = true
 				continue
 			}
-			text := "Subagent " + child.session.String() + " completed: "
-			notes := &canonical.OperationNotes{}
-			id := child.session.String()
-			switch state.Run.Status {
-			case protocol.ConversationStatusCompleted:
-				if state.Response != nil {
-					text += *state.Response
-				}
-				notes.DeliveredSubagent = &id
-			case protocol.ConversationStatusCancelled, protocol.ConversationStatusInterrupted:
-				text = "Subagent " + id + " was cancelled before it finished."
-				notes.CancelledSubagents = []string{id}
-			default:
-				reason := "child ended with " + string(state.Run.Status)
-				if state.Run.Error != nil {
-					reason = state.Run.Error.Message
-				}
-				text = "Subagent " + id + " failed: " + reason
-				notes.DeliveredSubagent = &id
-			}
-			record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, text)), r.clock.Now())
-			record.Provenance.Author = "user"
-			record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: notes}
-			if err := r.save(x.ctx, x.inv.Session.ID, record); err != nil {
-				return false, err
-			}
-			if err := r.consumeChild(x, child.session, &state.Run.Turn); err != nil {
+			if err := r.deliverForeground(x, state); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -402,21 +376,25 @@ func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *p
 	if err == nil {
 		// Explicit wait_agent results and automatic delivery share the same
 		// completion state. Collecting an older turn must not hide a successor.
-		r.mu.Lock()
-		for _, child := range x.foreground {
-			current := child
-			for current.successor != nil {
-				current = current.successor
-			}
-			if child.session == session && turn != nil && current.turn == *turn {
-				child.delivered = true
-			}
-		}
-		r.mu.Unlock()
+		r.markCollectedChild(x, session, turn)
 		r.publish()
 		r.RefreshCommitted(x.inv.Session.ID)
 	}
 	return err
+}
+
+func (r *Runtime) markCollectedChild(x *execution, session protocol.SessionID, turn *protocol.TurnID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, child := range x.foreground {
+		current := child
+		for current.successor != nil {
+			current = current.successor
+		}
+		if child.session == session && turn != nil && current.turn == *turn {
+			child.delivered = true
+		}
+	}
 }
 
 // stopChildren cancels every child of the turn's session, foreground or
@@ -458,16 +436,10 @@ func (r *Runtime) cancelForeground(x *execution) bool {
 		}
 	}
 	if len(ids) > 0 {
-		text := ""
-		for _, id := range ids {
-			if text != "" {
-				text += "\n"
-			}
-			text += "Subagent " + id + " was cancelled before it finished."
-		}
-		record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, text)), r.clock.Now())
-		record.Provenance.Author = "user"
-		record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
+		value := &canonical.Note{Note: canonical.OperationNote{Kind: "subagents_cancelled", Data: &canonical.SubagentsCancelled{Sessions: ids}}}
+		record := canonical.NewRecord(x.inv.Run.Turn, "operation", &canonical.Operation{Kind: "note", Data: value}, r.clock.Now())
+		record.Provenance.Author = "system"
+		record.Metadata.Runtime = &canonical.Runtime{Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
 		_ = r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
 	}
 	settled := r.settleChildren(x, stopped)

@@ -89,7 +89,7 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 	}
 	var turns [][]canonical.Record
 	for _, record := range records {
-		if len(turns) == 0 || kickoff(record.Message()) {
+		if len(turns) == 0 || kickoff(record) {
 			turns = append(turns, nil)
 		}
 		turns[len(turns)-1] = append(turns[len(turns)-1], record)
@@ -162,7 +162,8 @@ func Prepare(records []canonical.Record, contextLimit, outputLimit uint64, reque
 }
 
 // kickoff reports a message the user wrote, which starts a turn.
-func kickoff(message *canonical.Message) bool {
+func kickoff(record canonical.Record) bool {
+	message, _, _ := record.ModelContent()
 	if message == nil || message.Role != canonical.User {
 		return false
 	}
@@ -179,7 +180,7 @@ func kickoff(message *canonical.Message) bool {
 // records were left out, and the newest records that fit after it.
 func recent(turn []canonical.Record, budget uint64) (string, error) {
 	head, rest := "", turn
-	if kickoff(turn[0].Message()) {
+	if kickoff(turn[0]) {
 		head, rest = transcript(turn[:1], 1), turn[1:]
 	}
 	var parts []string
@@ -225,8 +226,11 @@ func transcript(records []canonical.Record, detail int) string {
 	}
 	var parts []string
 	for _, record := range records {
-		message := record.Message()
+		message, background, _ := record.ModelContent()
 		if message == nil {
+			if detail < 2 && background != "" {
+				parts = append(parts, "[runtime]: "+background)
+			}
 			continue
 		}
 		if detail == 2 && (message.Role != canonical.User || hasTools(message)) {
@@ -276,6 +280,9 @@ func transcript(records []canonical.Record, detail int) string {
 		}
 		if message.Error != nil {
 			parts = append(parts, "["+string(message.Role)+"]: error: "+message.Error.Message)
+		}
+		if detail < 2 && background != "" {
+			parts = append(parts, "[runtime]: "+background)
 		}
 	}
 	return strings.Join(parts, "\n")

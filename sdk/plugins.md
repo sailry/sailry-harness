@@ -1466,6 +1466,27 @@ pause unchanged.
 
 Core `spawn_agent`, `guide_agent` and `wait_agent` tools delegate in main sessions; packages may also bind `agents.delegate`, `agents.guide` and `agents.wait` with the `agents.delegate` action. Delegation is synchronous unless `background: true` is requested. Background admission returns the child session and turn; guidance takes that session and a message, and waiting observes its canonical outcome. Guidance and waiting are native tools, not callback flow steps. Only the running main session can control its children. Children keep their captured permissions and configuration, and approval remains required where that capture requires it. Main guidance can interrupt a wait at the settled tool-batch boundary without cancelling background children; explicit Stop cancels them. Initializers for delegation tools receive captured role summaries with `read_only` and `tools` booleans; `tools` reflects the frozen model override, or inheritance when no model is selected. These summaries grant no permissions and expose no provider configuration or credentials.
 
+The read-only native `list_subagents` tool lists the active parent's persisted
+direct child sessions, including earlier parent turns. It is an assistant
+`builtin` tool selector, not a package action or a callback flow step. Its
+optional `limit` is 1–50 (default 20). Pass the `next_before` string back as
+`before` until it is null. Sessions are ordered newest first by creation; later
+pages do not include children created ahead of the cursor. Each entry has an
+exact `session` and `turn` and its `status`, preferring a running or stopping
+execution, then a queued one, otherwise the latest non-joined execution. An
+assigned `title`, a frozen `role` (`id`, `name`, and `key` for keys up to 128
+bytes), and `paused` for held queued work appear when available. No prompts,
+tool receipts or answers are returned.
+
+`stop_reason: "stop_requested"` means a stop transition or a retained successful
+Stop receipt for that turn; absence is not proof that no stop occurred. Never
+resume a cancelled or separately stopped child without the user's explicit
+request to resume that child. For the same unfinished task,
+verify the original scope before reuse; title alone does not establish identity.
+Use existing `guide_agent` or `spawn_agent` with the exact child session for an
+explicit continuation, never to reopen busy work. Reuse completed results as
+recorded and use `wait_agent` with the exact session and turn to retrieve one.
+
 `requestHttp` runs on the captured Node and returns a durable request ID. It accepts UTF-8 text, a maximum 1 MiB body and a 1–60000 ms timeout (default 30000). Response headers preserve repeated values. Redirects and retries are disabled. A named credential comes from a secret schema field with `origin`, `header` and optional `prefix`; only Node injects it into that origin. An interrupted or oversized response reports an unknown outcome, and retrying the original ID never resends the request.
 
 ## Session HTML documents

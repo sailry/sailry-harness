@@ -104,6 +104,7 @@ type execution struct {
 	rolePolicy        string
 	foreground        []*delegatedChild
 	foregroundSteered bool
+	callbackPending   bool
 	stopped           []*delegatedChild // the session's children this turn cancelled; guarded by Runtime.mu
 	renewedModel      fantasy.LanguageModel
 	renewedSecret     protocol.Secret

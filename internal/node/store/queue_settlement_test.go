@@ -486,6 +486,9 @@ func TestBackgroundDelivery(t *testing.T) {
 					if !next.Run.Notice || len(next.Run.Notices) != 1 || next.Run.Notices[0].ID != key {
 						return nil, fmt.Errorf("claim was not the notice turn for %s", key)
 					}
+					if entry, _, err := DeliverBackground(ctx, db, next.Run.Turn, true, now); err != nil || entry == nil {
+						return nil, fmt.Errorf("notice turn did not take its reservation: %v", err)
+					}
 					_, _, err = FinishTurn(ctx, db, next.Run.Turn, protocol.ConversationStatusCompleted, nil, now)
 					return next, err
 				}
@@ -598,18 +601,18 @@ func TestBackgroundDelivery(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					// The fixture records no input, which is what removes the row.
-					if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", user.String()); err != nil {
+					if err = queueFixtureInput(ctx, db, session.ID, user, now); err != nil {
 						return err
 					}
-					run, _, _, err := BindBackground(ctx, db, user)
+					if entry, _, err := DeliverInputBackground(ctx, db, user, now); err != nil || entry == nil {
+						return fmt.Errorf("user turn did not receive the held result: %v", err)
+					}
+					held, err = readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id='held'")
 					if err != nil {
 						return err
 					}
-					// The fixture never confirms a notice turn's input, so the
-					// earlier results are released to this turn as well.
-					if len(run.Notices) == 0 || run.Notices[len(run.Notices)-1].ID != "held" {
-						return errors.New("user turn did not receive the held result")
+					if held.Task.State != protocol.ConversationBackgroundStateDelivered || held.Task.Delivery == nil || *held.Task.Delivery != user || held.Task.Hold != nil {
+						return errors.New("the held result was not settled by user input")
 					}
 					if _, _, err = FinishTurn(ctx, db, user, protocol.ConversationStatusCompleted, nil, now); err != nil {
 						return err

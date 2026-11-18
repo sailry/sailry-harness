@@ -191,6 +191,11 @@ func (r Record) Validate() error {
 	if r.ID == "" {
 		return fmt.Errorf("conversation record identifier is invalid")
 	}
+	if r.Kind == "background" {
+		if value := r.Background(); value == nil || len(value.Results) == 0 || r.Provenance.Author != "system" || r.Metadata.Runtime == nil || r.Metadata.Runtime.UserVisible || !r.Metadata.Runtime.AgentVisible {
+			return fmt.Errorf("invalid background result record")
+		}
+	}
 	if r.Kind == "compaction" {
 		c, ok := r.Data.(*Compaction)
 		if !ok {

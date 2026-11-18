@@ -99,11 +99,11 @@ func TestToolSelectionAndNames(t *testing.T) {
 			}
 		}
 		for _, name := range first {
-			if strings.HasPrefix(name, "plugin_") || strings.HasPrefix(name, "mcp_") || slices.Contains([]string{"delete_file", "create_goal", "list_sessions", "read_session", "search_session"}, name) {
+			if strings.HasPrefix(name, "plugin_") || strings.HasPrefix(name, "mcp_") || slices.Contains([]string{"delete_file", "create_goal", "list_sessions", "list_subagents", "read_session", "search_session"}, name) {
 				t.Errorf("first request offers %q", name)
 			}
 		}
-		if context := promptText(model.calls[0]); !strings.Contains(context, "Deferred tools\ncreate_goal, delete_file, guide_agent, list_sessions, mcp__github__run_trigger, read_session, search_session, spawn_agent, wait_agent\n") {
+		if context := promptText(model.calls[0]); !strings.Contains(context, "Deferred tools\ncreate_goal, delete_file, guide_agent, list_sessions, list_subagents, mcp__github__run_trigger, read_session, search_session, spawn_agent, wait_agent\n") {
 			t.Fatalf("deferred names are not listed:\n%s", context)
 		}
 		second := offeredNames(model.calls[1])
@@ -189,7 +189,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 		if !slices.Equal(visible, []string{"list_sessions", "read_tool_output", operations.Alias("files", "delete_file")}) || len(deferred) != 0 {
 			t.Fatalf("listed child visible=%v deferred=%v", visible, deferred)
 		}
-		for _, name := range []string{"ask_user", "set_session_title"} {
+		for _, name := range []string{"ask_user", "set_session_title", "list_subagents"} {
 			parentOnly := []protocol.PluginConversationTool{selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: name})}
 			_, _, err = capture(&protocol.RoleProfile{Tools: &parentOnly})
 			var failure *protocol.Fault

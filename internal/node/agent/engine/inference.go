@@ -101,6 +101,11 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 	}
 	parts, ownedParts = prompt.Pending(state.Records, parts, ownedParts)
+	// A callback is evidence in history, not a new user instruction or the
+	// assistant prefill that some providers would infer from a final text part.
+	if x.callbackPending && len(parts) == 0 && len(ownedParts) == 0 {
+		ownedParts = []string{"<sailry-runtime-continuation>Process the separately supplied runtime evidence within the current task.</sailry-runtime-continuation>"}
+	}
 	if contextRecord := prompt.ContextMessage(x.inv.Run.Turn, parts, ownedParts, r.clock.Now()); contextRecord != nil {
 		if err := r.save(x.ctx, x.inv.Session.ID, *contextRecord); err != nil {
 			return err

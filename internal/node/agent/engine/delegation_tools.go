@@ -15,6 +15,7 @@ import (
 )
 
 const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}}}`
+const listSubagentsSchema = `{"type":"object","additionalProperties":false,"properties":{"before":{"type":"string","pattern":"^[1-9][0-9]{0,18}$","description":"Use next_before from the preceding page"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":20}}}`
 
 func delegationAvailable(x *execution) bool {
 	return store.DelegationAvailable(x.inv.Session, x.inv.Turn)
@@ -24,6 +25,7 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 	if !delegationAvailable(x) {
 		return nil
 	}
+	deferred := x.inv.Turn.Config.Mode != protocol.WorkModeFlagship && selectedRole(x.inv.Message) == nil
 	var values []Tool
 	for _, name := range []string{"spawn_agent", "guide_agent", "wait_agent"} {
 		schema := spawnSchema
@@ -31,7 +33,7 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1}},"required":["session","message"],"additionalProperties":false}`
 		}
 		if name == "wait_agent" {
-			schema = `{"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from a completion notice; omit for the latest execution"}},"required":["session"],"additionalProperties":false}`
+			schema = `{"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from list_subagents or a completion notice; omit for the current execution"}},"required":["session"],"additionalProperties":false}`
 		}
 		tool := jsonTool(name, delegationDescriptions[name], schema, false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 			if ctx.Err() != nil || x.ctx.Err() != nil {
@@ -58,10 +60,30 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 			}
 		}
 		tool.Delegation = true
-		tool.Deferred = x.inv.Turn.Config.Mode != protocol.WorkModeFlagship && selectedRole(x.inv.Message) == nil
+		tool.Deferred = deferred
 		values = append(values, tool)
 	}
-	return values
+	list := jsonTool("list_subagents", delegationDescriptions["list_subagents"], listSubagentsSchema, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+		if ctx.Err() != nil || x.ctx.Err() != nil {
+			return invalidTool("delegation is no longer active")
+		}
+		var options store.SubagentListOptions
+		if err := protocol.DecodeObject(call.Arguments, &options, nil, true); err != nil {
+			return invalidTool("invalid subagent list arguments")
+		}
+		var page store.SubagentPage
+		if err := r.db.Read(ctx, func(db *sql.Conn) error {
+			var e error
+			page, e = store.ListSubagents(ctx, db, x.inv.Run.Turn, options)
+			return e
+		}); err != nil {
+			return toolFault(err)
+		}
+		return ToolResult{Value: page}
+	})
+	list.Deferred = deferred
+	list.SearchLabels = []string{"子代理", "查看", "续接", "恢复"}
+	return append(values, list)
 }
 
 func selectedRole(input protocol.ConversationInput) *protocol.RoleReference {
@@ -160,6 +182,12 @@ func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string 
 	text := "Omit role to create children using this turn's model."
 	if len(roster) > 0 {
 		text = "Configured delegation roles:\n" + strings.Join(roster, "\n") + "\n" + text
+	}
+	if list := findTool(x.tools, "list_subagents"); list != nil {
+		text += "\nBefore reusing earlier delegated work, inspect list_subagents for exact IDs and status. Only continue a child when the user is continuing the same unfinished task and prior calls, receipts or other reliable evidence match its original scope. A title alone is not evidence. Reuse matching completed results as recorded; if needed, collect the result with wait_agent using the exact session and turn. Do not reopen running, queued or stopping work. Never resume a cancelled or separately stopped child without an explicit request to resume that child. Require the same request if an interruption could have been a deliberate stop; a missing stop reason is not proof otherwise."
+		if list.Deferred && !slices.Contains(state.LoadedTools, "list_subagents") {
+			text += "\nLoad it with tool_search using select:list_subagents."
+		}
 	}
 	tool := findTool(x.tools, "spawn_agent")
 	if tool != nil && tool.Deferred && !slices.Contains(state.LoadedTools, "spawn_agent") {

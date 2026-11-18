@@ -68,6 +68,10 @@ func visible(records []canonical.Record, keepEmpty bool) []canonical.Record {
 		if !visible {
 			return
 		}
+		if record.Background() != nil {
+			out = append(out, record)
+			return
+		}
 		record = output.Audience(record)
 		message := record.MutableMessage()
 		if message == nil {

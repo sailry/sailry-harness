@@ -59,7 +59,7 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 		t.Fatal("foreground settlement did not finish")
 	}
 	body, err := json.Marshal(f.state().Records)
-	if err != nil || strings.Count(string(body), answer) != 1 || strings.Contains(string(body), "was cancelled before it finished") {
+	if err != nil || strings.Count(string(body), answer) != 1 || strings.Contains(string(body), `"note":"subagents_cancelled"`) {
 		t.Fatalf("collected result was lost, duplicated or cancelled: %s, %v", body, err)
 	}
 }

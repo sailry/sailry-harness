@@ -585,15 +585,13 @@ func TestStopSealsInterrupted(t *testing.T) {
 		fixture.waitRun(turn, protocol.ConversationStatusCancelled)
 		var order []string
 		for _, record := range fixture.state().Records {
+			if record.Kind == "operation" && record.Metadata.Runtime != nil && record.Metadata.Runtime.Notes != nil && len(record.Metadata.Runtime.Notes.CancelledSubagents) > 0 {
+				order = append(order, "cancellation note")
+			}
 			if message := record.Message(); message != nil {
 				for _, block := range message.Content {
-					switch value := block.Data.(type) {
-					case *canonical.ToolResponse:
+					if value, ok := block.Data.(*canonical.ToolResponse); ok {
 						order = append(order, "response "+value.ID)
-					case *canonical.TextContent:
-						if strings.Contains(value.Text, "was cancelled before it finished") {
-							order = append(order, "cancellation note")
-						}
 					}
 				}
 			}
