@@ -101,6 +101,19 @@ func (h *Hub) Reset(id protocol.SessionID) {
 	}
 }
 
+// Invalidate asks observers to refresh stored history while keeping the active
+// turn's provisional output available to their next subscription.
+func (h *Hub) Invalidate(id protocol.SessionID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if f := h.sessions[id]; f != nil && len(f.observers) > 0 {
+		f.sequence++
+		f.retained = nil
+		f.retainedBytes = 0
+		f.broadcast(protocol.Update{Kind: "reset_required"})
+	}
+}
+
 func (h *Hub) Seal(id protocol.SessionID, turn protocol.TurnID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

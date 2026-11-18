@@ -46,7 +46,7 @@ func (r *Runtime) executeOwned(x *execution) {
 			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
 			r.RefreshCommitted(run.Session)
 			if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-				r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+				r.RefreshCommitted((*x.inv.Session.Delegation).Session, run.Turn)
 			}
 		}
 	}()

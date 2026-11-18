@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"os"
@@ -21,6 +22,8 @@ import (
 
 // settlementRetry spaces repeated attempts to make a turn's end durable.
 const settlementRetry = time.Second
+
+var errSettleStoppedChildren = errors.New("settle children before finishing a stopped turn")
 
 // stoppedStatus names the end of a turn whose context was cancelled. Only a
 // Node that is shutting down interrupts; every deliberate stop, of the turn
@@ -50,6 +53,7 @@ func (r *Runtime) execute(x *execution) {
 	if err != nil || x.ctx.Err() != nil {
 		settleErr = r.settleCalls(ctx, x)
 	}
+	settledStop := x.ctx.Err() != nil
 	r.cancelForeground(x)
 	cleanupErr := r.closeTools(x)
 	status := protocol.ConversationStatusCompleted
@@ -79,7 +83,7 @@ func (r *Runtime) execute(x *execution) {
 		if status != protocol.ConversationStatusCompleted {
 			hookStatus = "failed"
 		}
-		if hookErr := x.hooks.Complete(ctx, hookStatus); hookErr != nil {
+		if hookErr := x.hooks.Complete(x.ctx, hookStatus); hookErr != nil {
 			status = protocol.ConversationStatusFailed
 			failure = model.Fault(hookErr)
 		}
@@ -118,6 +122,12 @@ func (r *Runtime) execute(x *execution) {
 			if err != nil {
 				return err
 			}
+			// A Stop committed during cleanup or the completion hook may not
+			// have reached the runtime yet. FinishTurn applies the durable
+			// decision. Roll back this write so children can finish first.
+			if run.Status == protocol.ConversationStatusCancelled && !settledStop && x.inv.Session.Delegation == nil {
+				return errSettleStoppedChildren
+			}
 			if child != nil && run.Status == protocol.ConversationStatusCompleted {
 				var guidanceEvents []protocol.Event
 				successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
@@ -140,6 +150,13 @@ func (r *Runtime) execute(x *execution) {
 		}
 		unlock()
 		unlock = nil
+		if errors.Is(err, errSettleStoppedChildren) {
+			x.cancel()
+			r.stopChildren(x)
+			r.settleChildren(x, nil)
+			settledStop = true
+			continue
+		}
 		if !reported {
 			reported = true
 			logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", "finish"),
@@ -171,7 +188,12 @@ func (r *Runtime) execute(x *execution) {
 	r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
 	r.RefreshCommitted(run.Session)
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+		parent := (*x.inv.Session.Delegation).Session
+		if successor != nil {
+			r.RefreshCommitted(parent, run.Turn, successor.Turn)
+		} else {
+			r.RefreshCommitted(parent, run.Turn)
+		}
 	}
 	// Packages observe every ended main task turn, whatever its status, once
 	// its end is stored and published. A stopping Node calls none.

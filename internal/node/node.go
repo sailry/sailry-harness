@@ -927,6 +927,11 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		return *previous, err
 	}
 	if err == nil {
+		if operationErr == nil && job.request.Command.Kind == "stop_turn" {
+			if run, ok := output.Data.(protocol.ConversationRun); ok {
+				node.agent.StopCommitted(run)
+			}
+		}
 		for _, review := range reviewChanges {
 			node.feed.Publish(review.Session, review.Change)
 		}

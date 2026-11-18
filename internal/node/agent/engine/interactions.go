@@ -60,7 +60,7 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 	r.publish()
 	r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+		r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
 	}
 	publication()
 	expired, cancel := r.deadline(x.ctx, 300*time.Second)
@@ -96,7 +96,7 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
 				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-					r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+					r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
 				}
 			}
 			publication()
@@ -161,7 +161,7 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 	r.publish()
 	r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+		r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
 	}
 	publication()
 	var expired <-chan struct{}
@@ -201,7 +201,7 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
 				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
-					r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+					r.RefreshCommitted((*x.inv.Session.Delegation).Session, x.inv.Run.Turn)
 				}
 			}
 			publication()

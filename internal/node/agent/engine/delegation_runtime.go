@@ -588,11 +588,11 @@ func (r *Runtime) finishQueued(ctx context.Context, children []*delegatedChild) 
 	}
 	r.mu.Unlock()
 	r.publish()
+	turns := make([]protocol.TurnID, 0, len(children))
 	for _, child := range children {
 		r.RefreshCommitted(child.session)
+		turns = append(turns, child.turn)
 	}
-	if len(children) > 0 {
-		r.RefreshCommitted(children[0].root)
-	}
+	r.RefreshCommitted(children[0].root, turns...)
 	return nil
 }
