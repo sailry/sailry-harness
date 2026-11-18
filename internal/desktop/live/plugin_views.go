@@ -177,8 +177,7 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 	r.projectMenuRegistries()
 	r.projectPluginViews(view)
 	for section, schema := range state.schemas {
-		// Re-entering a failed settings page is an explicit read attempt,
-		// including after the user dismissed its recovery toast.
+		// Re-entering a failed settings page is an explicit read attempt.
 		if !rootPluginSchemaCurrent(r, section, schema) || schema.failure != nil &&
 			(r.App.Page != shell.SettingsPage || r.App.Settings.Section != section) {
 			r.closePluginSchema(section, schema)
@@ -239,6 +238,9 @@ func pluginViewScopeExists(owner *Runtime, scope protocol.PluginContext) bool {
 	if scope.Session != nil {
 		session, exists := owner.session(scope.Session.String())
 		if !exists || scope.Worktree != nil && session.Worktree != *scope.Worktree {
+			return false
+		}
+		if scope.Surface.Kind == "composer" && delegated(session) && !owner.childComposerOpen(session) {
 			return false
 		}
 	}
@@ -564,29 +566,7 @@ func (r *Runtime) failPluginView(view *ui.Context, mounted *pluginMountedView, f
 		mounted.owner.reportDiagnostic(pluginDiagnostic(protocol.NotificationSystemSystemSourcePluginInitialization,
 			signature.code, mounted.scope.Package.Name, mounted.info.Summary.Version, "view_initialize", mounted.scope))
 	}
-	view.AddToast(ui.Toast{
-		Type: "error", Title: i18n.T(view, title), Description: failure.Error(), Timeout: kit.ToastDuration(view),
-		Action: i18n.T(view, "chat_retry"), OnAction: func() {
-			r.enqueue(func(current *ui.Context) {
-				if root.pluginViews != nil {
-					if active := root.pluginViews.mounts[mounted.key]; active != nil && active.scope.Package == mounted.scope.Package {
-						root.retryPluginView(current, active)
-					}
-				}
-			})
-		},
-	})
-}
-
-func (r *Runtime) retryPluginView(view *ui.Context, mounted *pluginMountedView) bool {
-	root := r.localRuntime()
-	if mounted == nil || mounted.failure == nil || !root.pluginViewCurrent(mounted) {
-		return false
-	}
-	root.dropPluginView(mounted, true)
-	delete(root.pluginViews.mounts, mounted.key)
-	delete(root.pluginViews.failures, mounted.key)
-	return root.ensurePluginView(view, mounted.owner, mounted.info, mounted.scope, mounted.key.role, mounted.registry) != nil
+	kit.Error(view, i18n.T(view, title), failure.Error())
 }
 
 func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedView) bool {
@@ -596,7 +576,7 @@ func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedVi
 	mounted.seen = true
 	if mounted.mounted == nil {
 		// A mount takes a few frames; a spinner would only flash. A failed
-		// view draws nothing either: its toast reports it and retries.
+		// view draws nothing either: its toast reports the failure.
 		return false
 	}
 	_, err := mounted.mounted.Render(view.Key(mounted.generation))

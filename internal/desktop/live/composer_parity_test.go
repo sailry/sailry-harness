@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -282,17 +283,22 @@ func composerParityCommands(t *testing.T) {
 	}
 	shot("parity-live-queue-separate")
 
-	// A failed queue command offers Retry, which sends it again.
+	// A failed queue command keeps its source row actionable.
 	failing = "remove_queued_turn"
 	press(text("queue_delete"), 1)
 	if len(sent("remove_queued_turn")) != 1 || !tester.HasText(text("chat_action_failed")) {
 		t.Fatalf("failed Remove: %d sent, texts %q", len(sent("remove_queued_turn")), tester.Texts())
 	}
+	for _, item := range tester.AccessAll() {
+		if item.Role == ui.RoleButton && item.Name == text("chat_retry") {
+			t.Fatal("queue failure added a retry button to the notification")
+		}
+	}
 	shot("parity-live-queue-retry")
-	press(text("chat_retry"), 0)
+	press(text("queue_delete"), 1)
 	removes := sent("remove_queued_turn")
 	if len(removes) != 2 {
-		t.Fatalf("Retry sent %d remove_queued_turn in all", len(removes))
+		t.Fatalf("the source row sent %d remove_queued_turn in all", len(removes))
 	}
 	if payload := removes[1].Command.Data.(protocol.CommandRemoveQueuedTurnPayload); payload.Turn != other {
 		t.Fatalf("retried remove_queued_turn payload %+v", payload)
@@ -364,7 +370,7 @@ func composerParityCommands(t *testing.T) {
 	var retry ui.AccessInfo
 	for _, e := range tester.AccessAll() {
 		if e.Role == ui.RoleButton && e.Name == text("chat_retry") {
-			retry = e // the popover's, drawn after the toast's
+			retry = e
 		}
 	}
 	if retry.Name == "" {
@@ -414,6 +420,15 @@ func composerParityCommands(t *testing.T) {
 	probe := ui.NewTester(func(c *ui.Context) { view = c }, 64, 64)
 	probe.Frame()
 	actions := &conversationActions{r: r, c: view, cv: cv, comp: comp}
+	// An accepted reply may show Stop before its queued-to-running update.
+	// Its control must never stop another turn still present in Client history.
+	queuedActions := *actions
+	queuedActions.cv = &viewmodel.Conversation{ID: cv.ID, Node: cv.Node, Turns: []conversation.Turn{{ID: other.String(), Reply: conversation.Reply{Status: conversation.Queued}}}}
+	queuedActions.Stop()
+	settle()
+	if stops = sent("stop_turn"); len(stops) != 2 || stops[1].Command.Data.(protocol.CommandStopTurnPayload).Turn != other {
+		t.Fatalf("queued reply sent incorrect stop: %+v", stops)
+	}
 	actions.outgoing(composer.Message{Text: "  Outgoing message  "}, true)
 	settle()
 	if !tester.HasText("Outgoing message") {

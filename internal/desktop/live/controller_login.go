@@ -144,11 +144,7 @@ func (r *Runtime) restoreControllerLogin(recovery *controllerLoginRecovery) {
 			if faultCode(err) != protocol.ErrorCodeOutcomeUnknown && faultCode(err) != protocol.ErrorCodeUnavailable && faultCode(err) != protocol.ErrorCodeCancelled {
 				recovery.request = nil
 			}
-			var retry func()
-			if recovery.request != nil {
-				retry = func() { r.restoreControllerLogin(recovery) }
-			}
-			kit.Recover(c, outcome, i18n.T(c, key), retry)
+			kit.Toast(c, outcome, i18n.T(c, key))
 		})
 	})
 }

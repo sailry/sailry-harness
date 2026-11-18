@@ -147,11 +147,7 @@ func (r *Runtime) saveCompaction() {
 			s.Pending = false
 		}
 		if err != nil {
-			r.reportKeysRetry(c, err, "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown", func() {
-				if current() {
-					r.saveCompaction()
-				}
-			})
+			r.reportKeys(c, err, "compaction_settings_failed", "compaction_settings_conflict", "compaction_settings_unknown")
 			return
 		}
 		if !shown {

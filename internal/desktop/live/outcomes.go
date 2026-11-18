@@ -8,12 +8,6 @@ import (
 )
 
 func (r *Runtime) reportKeys(c *ui.Context, err error, failed, conflict, unknown string) {
-	r.reportKeysRetry(c, err, failed, conflict, unknown, nil)
-}
-
-// reportKeysRetry is reportKeys whose failure and uncertain toasts offer
-// Retry, which runs again.
-func (r *Runtime) reportKeysRetry(c *ui.Context, err error, failed, conflict, unknown string, again func()) {
 	if err == nil {
 		return
 	}
@@ -27,7 +21,7 @@ func (r *Runtime) reportKeysRetry(c *ui.Context, err error, failed, conflict, un
 	if faultMessage(err) == "resource host is offline" {
 		key = "resource_offline_action"
 	}
-	kit.Recover(c, outcome, i18n.T(c, key), again)
+	kit.Toast(c, outcome, i18n.T(c, key))
 }
 
 func (r *Runtime) providerCommand(command protocol.Command, done func(protocol.Output, bool)) {

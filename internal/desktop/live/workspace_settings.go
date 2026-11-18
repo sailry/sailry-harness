@@ -76,7 +76,7 @@ func (r *Runtime) saveSandbox() {
 	}
 	m.Pending = true
 	r.publishSandbox()
-	r.saveSettingRetry(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, nil, r.saveSandbox, func(out protocol.Output, ok bool) {
+	r.saveSetting(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, func(out protocol.Output, ok bool) {
 		m.Pending = false
 		defer r.publishSandbox()
 		if !ok {

@@ -307,16 +307,7 @@ func (r *Runtime) failPluginCard(view *ui.Context, card *pluginCardInstance, err
 		return
 	}
 	card.reported = true
-	view.AddToast(ui.Toast{
-		Type: "error", Title: i18n.T(view, title), Description: err.Error(), Timeout: kit.ToastDuration(view),
-		Action: i18n.T(view, "chat_retry"), OnAction: func() {
-			r.enqueue(func(*ui.Context) {
-				if r.pluginCardEligible(card) {
-					card.attempted, card.reported, card.failure = false, false, nil
-				}
-			})
-		},
-	})
+	kit.Error(view, i18n.T(view, title), err.Error())
 }
 
 func (r *Runtime) pluginCardToast(view *ui.Context, message string, failed bool) {

@@ -11,7 +11,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -239,7 +238,7 @@ func TestNoticeChannels(t *testing.T) {
 			t.Fatalf("system %v", system)
 		}
 	})
-	t.Run("the toast body opens its destination and expiry does not navigate", func(t *testing.T) {
+	t.Run("the toast stays informational on click and expiry", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			fixture := newPluginLocationTestFixture(t)
 			root := fixture.root
@@ -264,30 +263,17 @@ func TestNoticeChannels(t *testing.T) {
 			root.PresentNotice(task)
 			window.Frame()
 			window.Advance(500 * time.Millisecond)
-			body, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "activity_failed")+" Build the index")
-			if !ok {
-				t.Fatal("no accessible toast body action")
+			if _, ok := window.AccessByRole(ui.RoleButton, i18n.In("en", "activity_failed")+" Build the index"); ok {
+				t.Fatal("the notice has a body action")
 			}
-			// The padding opens it too, not only its text or icon.
-			window.ClickAt(body.Bounds.X+body.Bounds.W/2, body.Bounds.Y+body.Bounds.H-4)
-			if root.App.Sidebar.Selected != "draft/first" || root.App.Page != shell.ConversationPage {
-				t.Fatalf("the body selected %q on page %v", root.App.Sidebar.Selected, root.App.Page)
+			for _, item := range window.AccessAll() {
+				if item.Role == ui.RoleStatus {
+					window.ClickAt(item.Bounds.X+item.Bounds.W/2, item.Bounds.Y+item.Bounds.H/2)
+					break
+				}
 			}
-			window.Advance(500 * time.Millisecond)
-			if window.HasText("Build the index") {
-				t.Fatal("the action left its toast open")
-			}
-			notice := &viewmodel.Notice{ID: "plugin", Kind: viewmodel.NoticeInfo, Title: "Index", Message: "Rebuilt"}
-			root.PresentNotice(notice)
-			window.Frame()
-			window.Advance(500 * time.Millisecond)
-			window.Key(0, ui.KeyTab)
-			if body, ok := window.AccessByRole(ui.RoleButton, "Index Rebuilt"); !ok || !body.Focused {
-				t.Fatal("Tab did not reach the toast body")
-			}
-			window.Key(0, ui.KeyEnter)
-			if root.App.Page != shell.NotificationsPage {
-				t.Fatalf("a notice without a conversation opened page %v", root.App.Page)
+			if root.App.Page != page || root.App.Sidebar.Selected != selected || !window.HasText("Build the index") {
+				t.Fatal("clicking the toast navigated or dismissed it")
 			}
 		})
 	})

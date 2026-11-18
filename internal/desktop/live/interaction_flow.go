@@ -90,15 +90,11 @@ func (r *Runtime) sendInteraction(f *interactionFlow, a *interactionAttempt) {
 					a.done(output)
 				}
 			case a.retained:
-				toast := ui.Toast{Type: "warning", Title: i18n.T(c, "chat_action_unknown"), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "chat_retry"), OnAction: func() {
-					if r.controller.Connected() {
-						r.sendInteraction(f, a)
-					}
-				}}
 				if code == protocol.ErrorCodeBusy {
-					toast.Type, toast.Title = "error", i18n.T(c, "chat_action_failed")
+					kit.Toast(c, kit.Failed, i18n.T(c, "chat_action_failed"))
+				} else {
+					kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_action_unknown"))
 				}
-				c.AddToast(toast)
 			case code == protocol.ErrorCodeConflict || code == protocol.ErrorCodeNotFound:
 				kit.Toast(c, kit.Conflict, i18n.T(c, closed))
 			case a.question && code == protocol.ErrorCodeRevisionConflict:

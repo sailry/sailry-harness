@@ -114,7 +114,7 @@ func (r *Runtime) publishHookSettings() {
 			if !canSave() || state.model.Pending {
 				return false
 			}
-			r.saveHooks(draft, canSave)
+			r.saveHooks(draft)
 			return true
 		}
 	}
@@ -174,7 +174,7 @@ func (r *Runtime) readHooks() {
 	})
 }
 
-func (r *Runtime) saveHooks(draft settings.HookSettings, current func() bool) {
+func (r *Runtime) saveHooks(draft settings.HookSettings) {
 	state := &r.hookSettings
 	m := &state.model
 	if m.Pending {
@@ -204,14 +204,9 @@ func (r *Runtime) saveHooks(draft settings.HookSettings, current func() bool) {
 			value.Additional = append(value.Additional, protocol.HooksEntry{ID: entry.ID, Phase: phase, Script: script})
 		}
 	}
-	again := func() {
-		if current() && reflect.DeepEqual(m.Draft, draft) {
-			r.saveHooks(draft, current)
-		}
-	}
 	command := protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Settings: value, ExpectedRevision: m.Revision}}
 	messages := settings.Messages{Done: "hooks_saved", Failed: "hooks_failed", Conflict: "hooks_conflict", Uncertain: "hooks_unknown"}
-	r.saveSettingRetry(command, messages, nil, again, func(output protocol.Output, ok bool) {
+	r.saveSetting(command, messages, func(output protocol.Output, ok bool) {
 		m.Pending = false
 		defer r.publishHookSettings()
 		value, valid := detail[protocol.HooksState](output.Data)

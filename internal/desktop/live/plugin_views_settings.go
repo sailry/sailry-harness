@@ -174,11 +174,7 @@ func (r *Runtime) ensurePluginSchema(view *ui.Context, entry pluginSettingsEntry
 			}
 			schema.loading, schema.failure = false, err
 			if err != nil {
-				entry.owner.reportKeysRetry(current, err, "plugins_failed", "plugins_settings_conflict", "plugins_unknown", func() {
-					if rootPluginSchemaCurrent(root, entry.section, schema) {
-						root.closePluginSchema(entry.section, schema)
-					}
-				})
+				entry.owner.reportKeys(current, err, "plugins_failed", "plugins_settings_conflict", "plugins_unknown")
 				return
 			}
 			schema.state = state

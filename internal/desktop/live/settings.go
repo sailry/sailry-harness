@@ -102,13 +102,7 @@ func (r *Runtime) savePower() {
 			r.readPower()
 		}
 	}
-	// Retry saves the switch again while the pages still hold this Node.
-	again := func() {
-		if current() {
-			r.savePower()
-		}
-	}
-	r.saveSettingRetry(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, again, func(output protocol.Output, ok bool) {
+	r.saveSettingReread(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, func(output protocol.Output, ok bool) {
 		current = r.powerSaving[request]
 		delete(r.powerSaving, request)
 		if !current() {
@@ -131,7 +125,7 @@ func (r *Runtime) saveTelemetry() {
 	}
 	m.Pending = true
 	request := protocol.TelemetryUpdate{Revision: m.Revision, Errors: m.Draft.Errors, Metrics: m.Draft.Metrics}
-	r.saveSettingRetry(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, r.readTelemetry, r.saveTelemetry, func(output protocol.Output, ok bool) {
+	r.saveSettingReread(protocol.Command{Kind: "save_telemetry_settings", Data: request}, settings.TelemetryMessages, r.readTelemetry, func(output protocol.Output, ok bool) {
 		m.Pending = false
 		if !ok {
 			return
@@ -148,16 +142,12 @@ func (r *Runtime) saveTelemetry() {
 // While the outcome is still open the toast is Uncertain and the same save,
 // sent again unchanged, carries the same request and resolves it.
 func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messages, done func(protocol.Output, bool)) {
-	r.saveSettingRetry(command, messages, nil, nil, done)
+	r.saveSettingReread(command, messages, nil, done)
 }
 
-// saveSettingRetry also reads the section again, through reread, when the
-// Node can never tell whether the save was applied: the page would otherwise
-// keep a revision that the next save may be refused for. It offers Retry on
-// the toast of a save that failed or whose outcome is unknown. again saves
-// the section's draft anew, at the revision the page then holds, rather than
-// sending this request again.
-func (r *Runtime) saveSettingRetry(command protocol.Command, messages settings.Messages, reread, again func(), done func(protocol.Output, bool)) {
+// saveSettingReread refreshes the section when the Node can no longer
+// confirm the outcome and the page could retain a stale revision.
+func (r *Runtime) saveSettingReread(command protocol.Command, messages settings.Messages, reread func(), done func(protocol.Output, bool)) {
 	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		if reread != nil && client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
 			defer reread()
@@ -172,7 +162,7 @@ func (r *Runtime) saveSettingRetry(command protocol.Command, messages settings.M
 				outcome = kit.Uncertain
 			}
 		}
-		settings.ReportRetry(c, outcome, messages, again)
+		settings.Report(c, outcome, messages)
 		done(output, err == nil)
 	})
 }

@@ -729,6 +729,7 @@ same contracts. MyGo and Kit supply shared controls, semantic themes, focus and
 keyboard behavior. CrychicUI components use the adapters where external data or
 presentation needs them. Floating surfaces remain Kit's frost; right-click menus
 and confirmation-only dialogs use the operating system. Forms remain Kit surfaces.
+Toasts display outcomes. Interactive recovery belongs to the original surface.
 
 Conversations center the messages and composer in the whole main pane. The
 transcript's scroll viewport fills that pane, with its scrollbar at the right

@@ -149,7 +149,7 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 			return
 		}
 		b := ui.ButtonBase(c.Key("dialog-close")).Label(i18n.T(c, "close")).Size(28, 28).Radius(p.Radius).Absolute().Top(12).Right(12).
-			Center().Cursor(ui.CursorPointer).Transition(toastHover)
+			Center().Cursor(ui.CursorPointer).Transition(dialogHover)
 		if b.Hovered() {
 			b.Background(p.Hover).TextColor(p.Foreground)
 		} else {
@@ -177,7 +177,9 @@ func dialog(c *ui.Context, open *bool, closer bool, o DialogOptions, fn func()) 
 type dialogState struct{ shown, closing, entered bool }
 
 var (
-	dialogIn   = ui.Animation{Duration: 220 * time.Millisecond, Ease: softEase}
-	dialogOut  = ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.CubicBezier(0.4, 0, 1, 1)}
-	dialogFade = ui.Animation{Duration: 180 * time.Millisecond, Ease: softEase}
+	dialogEase  = ui.CubicBezier(0.32, 0.72, 0, 1)
+	dialogHover = ui.ElementTransition{Duration: 160 * time.Millisecond, Ease: dialogEase, Colors: true}
+	dialogIn    = ui.Animation{Duration: 220 * time.Millisecond, Ease: dialogEase}
+	dialogOut   = ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.CubicBezier(0.4, 0, 1, 1)}
+	dialogFade  = ui.Animation{Duration: 180 * time.Millisecond, Ease: dialogEase}
 )

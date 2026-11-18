@@ -205,11 +205,7 @@ func (r *Runtime) saveConcurrency() {
 		current := state.settingsSaving[value]
 		delete(state.settingsSaving, value)
 		outcome := teamOutcome(err)
-		settings.ReportRetry(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"}, func() {
-			if current() {
-				r.saveConcurrency()
-			}
-		})
+		settings.Report(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"})
 		// The slider is this Node's only while the page shows it.
 		if !current() {
 			return

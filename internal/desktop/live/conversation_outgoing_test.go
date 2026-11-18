@@ -152,7 +152,7 @@ func TestOutgoingMessageProjection(t *testing.T) {
 	})
 }
 
-func TestOutgoingPrerequisiteFailureRestoresCapturedDraft(t *testing.T) {
+func TestOutgoingPrerequisiteFailurePreservesNewDraft(t *testing.T) {
 	for _, command := range []string{"set_session_config", "set_session_team"} {
 		t.Run(command, func(t *testing.T) {
 			node, sessionID, provider := protocol.NodeID{1}, protocol.SessionID{2}, protocol.ProviderID{3}
@@ -224,8 +224,8 @@ func TestOutgoingPrerequisiteFailureRestoresCapturedDraft(t *testing.T) {
 					buttons++
 				}
 			}
-			if buttons != 1 {
-				t.Fatalf("captured input has %d recovery actions: %v", buttons, tester.Texts())
+			if buttons != 0 {
+				t.Fatalf("a prerequisite failure shows %d toast actions: %v", buttons, tester.Texts())
 			}
 			failures := 0
 			for _, text := range tester.Texts() {
@@ -236,14 +236,7 @@ func TestOutgoingPrerequisiteFailureRestoresCapturedDraft(t *testing.T) {
 			if failures != 1 {
 				t.Fatalf("one prerequisite failure produced %d outcome toasts", failures)
 			}
-			comp.Draft = ""
-			if err := tester.Click(i18n.In("en", "chat_restore_draft")); err != nil {
-				t.Fatal(err)
-			}
-			tester.Frame()
-			if comp.Draft != message.Text || len(comp.Attachments) != 1 || comp.Attachments[0].Name != "note.txt" {
-				t.Fatal("recovery did not restore the captured text and attachment", comp.Draft, comp.Attachments)
-			}
+
 			transport.mu.Lock()
 			defer transport.mu.Unlock()
 			for _, request := range transport.requests {

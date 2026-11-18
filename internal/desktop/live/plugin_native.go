@@ -28,7 +28,6 @@ type pluginNativeState struct {
 	terminalFocus string
 	toasts        map[string]uint64
 	toastSequence uint64
-	toastEvents   chan json.RawMessage
 	composer      *pluginNativeComposer
 	// assistantTools is the package's calls in the assistants it mounts.
 	assistantTools *pluginNativeAssistantTools
@@ -56,7 +55,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		conversations: map[string]*pluginNativeConversation{},
 		artifactViews: map[string]*pluginNativeArtifact{},
 		artifactWatch: &pluginNativeArtifactWatch{changed: make(chan struct{})},
-		toasts:        map[string]uint64{}, toastEvents: make(chan json.RawMessage, 16),
+		toasts:        map[string]uint64{},
 	}
 	binding.Post = state.post
 	binding.Invalidate = r.localRuntime().wake

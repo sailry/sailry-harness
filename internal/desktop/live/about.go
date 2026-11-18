@@ -12,7 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/updater"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/telemetry"
@@ -283,18 +282,14 @@ func updateView(u *settings.Updater, state updater.State, failure *updater.Failu
 	}
 }
 
-// updateToast is a notice as a toast. An installation whose result is not
-// known warns instead of failing, and names the retained original in Details.
-func updateToast(notice updater.Notice, title, action string, timeout time.Duration, run func()) ui.Toast {
+// updateToast projects an updater notice, including uncertain installation outcomes.
+func updateToast(notice updater.Notice, title string, timeout time.Duration) ui.Toast {
 	toast := ui.Toast{Type: "success", Title: title, Timeout: timeout}
 	if notice.Error {
 		toast.Type = "error"
 		if notice.Key == "updates_install_uncertain" || notice.Key == "updates_receipt_failed" {
 			toast.Type = "warning"
 		}
-	}
-	if notice.Version != "" || notice.Error && notice.Detail != "" {
-		toast.Action, toast.OnAction = action, run
 	}
 	return toast
 }
@@ -322,27 +317,11 @@ func (r *Runtime) aboutFrame(c *ui.Context) {
 	if r.updatesFocused != nil && !r.updatesFocused() {
 		return
 	}
-	about := func() {
-		m.Open(settings.About)
-		r.App.Navigate(shell.SettingsPage)
-	}
 	for _, notice := range service.Notices() {
-		switch {
-		case notice.Version != "":
-			version := notice.Version
-			c.AddToast(updateToast(notice, i18n.T(c, "updates_ready", "version", version), i18n.T(c, "updates_view"), kit.ToastDuration(c), func() {
-				if u.State == settings.UpdateReady && u.Version == version {
-					about()
-					u.Review()
-				}
-			}))
-		default:
-			c.AddToast(updateToast(notice, i18n.T(c, notice.Key), i18n.T(c, "updates_details"), kit.ToastDuration(c), func() {
-				if u.Failure != nil {
-					about()
-					u.ShowDetails()
-				}
-			}))
+		title := i18n.T(c, notice.Key)
+		if notice.Version != "" {
+			title = i18n.T(c, "updates_ready", "version", notice.Version)
 		}
+		c.AddToast(updateToast(notice, title, kit.ToastDuration(c)))
 	}
 }

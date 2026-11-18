@@ -629,8 +629,7 @@ func interactionKinds(t *testing.T) {
 
 	// Deny takes no reason: the popover has no reason field and Deny no
 	// menu (AGENTS.md, Removed UI). The first send loses its outcome: the
-	// request stays for Retry, which sends that same request once while it
-	// travels.
+	// request stays for Retry in the approval card.
 	approvals := text("approval_live_count", "count", 1)
 	submit(session, "scenario:deny")
 	wait("the approval", func() bool { return tester.HasText(approvals) })
@@ -676,13 +675,16 @@ func interactionKinds(t *testing.T) {
 		}
 		return nil
 	})
+	if !tester.HasText(text("chat_retry")) {
+		click(approvals)
+	}
 	retry := button(text("chat_retry"))
 	tester.ClickAt(retry.Bounds.X+retry.Bounds.W/2, retry.Bounds.Y+retry.Bounds.H/2)
 	for end := time.Now().Add(10 * time.Second); len(dispatched("resolve_approval")) < 2 && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
 		frames()
 	}
 	frames()
-	if !tester.HasText(text("approval_reject")) { // the toast's Retry closed the popover
+	if !tester.HasText(text("approval_reject")) {
 		capsule := button(approvals)
 		tester.ClickAt(capsule.Bounds.X+capsule.Bounds.W/2, capsule.Bounds.Y+capsule.Bounds.H/2)
 		frames()
@@ -695,7 +697,6 @@ func interactionKinds(t *testing.T) {
 	}
 	shot("approval-busy")
 	tester.ClickAt(busy.Bounds.X+busy.Bounds.W/2, busy.Bounds.Y+busy.Bounds.H/2)
-	tester.ClickAt(retry.Bounds.X+retry.Bounds.W/2, retry.Bounds.Y+retry.Bounds.H/2)
 	frames()
 	free()
 	setHook(nil)

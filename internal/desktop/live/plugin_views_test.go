@@ -146,7 +146,7 @@ func pluginViewRejectedIntent(t *testing.T, root *Runtime, scope protocol.Plugin
 }
 
 func testPluginViewOwnership(t *testing.T) {
-	t.Run("a repeated initialization failure still offers recovery", func(t *testing.T) {
+	t.Run("initialization failure reports without actions", func(t *testing.T) {
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest, info.Summary.Enabled = "retry-fixture", strings.Repeat("f", 64), true
 		info.Summary.Compatibility.Kind = "compatible"
@@ -172,32 +172,20 @@ func testPluginViewOwnership(t *testing.T) {
 			kit.ToastHost(view)
 		}, 960, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tester.SetLocale("en")
-		for attempt := range 2 {
-			source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
-			root.workers.Wait()
-			for range 3 {
-				tester.Frame()
-			}
-			retry := i18n.In("en", "chat_retry")
-			var buttons []ui.AccessInfo
-			for _, node := range tester.AccessAll() {
-				if node.Name == retry {
-					buttons = append(buttons, node)
-				}
-			}
-			if len(buttons) != 1 || !tester.HasText(retry) || !tester.HasText(i18n.In("en", "plugin_initialization_failed")) {
-				t.Fatalf("attempt %d lost its failure recovery: %v, %q", attempt, buttons, tester.Texts())
-			}
-			if attempt == 0 {
-				tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
-				for range 2 {
-					tester.Frame()
-				}
-				tester.Advance(time.Second)
-			}
+		source.bundle <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture read failed"}}
+		root.workers.Wait()
+		for range 3 {
+			tester.Frame()
+		}
+		if tester.HasText(i18n.In("en", "chat_retry")) || !tester.HasText(i18n.In("en", "plugin_initialization_failed")) {
+			t.Fatalf("the failure toast should contain only information: %q", tester.Texts())
+		}
+		tester.Advance(6 * time.Second)
+		if root.pluginViews.mounts[key] != mounted {
+			t.Fatal("expiry unexpectedly retried the failed view")
 		}
 	})
-	t.Run("a failed settings schema recovers through its toast", func(t *testing.T) {
+	t.Run("revisiting a failed settings section rereads its schema", func(t *testing.T) {
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest = "settings-fixture", strings.Repeat("f", 64)
 		info.Settings = new(protocol.DefaultPluginSettingsSchema())
@@ -228,27 +216,21 @@ func testPluginViewOwnership(t *testing.T) {
 		for range 3 {
 			tester.Frame()
 		}
-		retry := i18n.In("en", "chat_retry")
-		var buttons []ui.AccessInfo
-		for _, node := range tester.AccessAll() {
-			if node.Name == retry {
-				buttons = append(buttons, node)
-			}
-		}
-		if failed.failure == nil || root.pluginViews.schemas[entry.section] != failed || len(buttons) != 1 || !tester.HasText(retry) {
-			t.Fatalf("failed settings did not keep one recovery toast: %v, %v, %q", failed.failure, buttons, tester.Texts())
+		if failed.failure == nil || root.pluginViews.schemas[entry.section] != failed ||
+			tester.HasText(i18n.In("en", "chat_retry")) || !tester.HasText(i18n.In("en", "plugins_failed")) {
+			t.Fatalf("failed settings did not show an informational toast: %v, %q", failed.failure, tester.Texts())
 		}
 		state := protocol.DefaultPluginSettingsState()
 		state.Package = scope.Package
 		source.bundle <- link.Response{Output: protocol.Output{Kind: "plugin_settings", Data: state}}
-		tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
+		root.closePluginSchema(entry.section, failed)
 		tester.Frame()
 		root.workers.Wait()
 		for range 2 {
 			tester.Frame()
 		}
 		if schema := root.pluginViews.schemas[entry.section]; schema == nil || schema == failed || schema.loading || schema.failure != nil || schema.state.Package != scope.Package {
-			t.Fatalf("the toast did not read settings again: %+v", schema)
+			t.Fatalf("the revisited section did not read settings again: %+v", schema)
 		}
 	})
 	t.Run("mixed surface publication retains every declared contribution", func(t *testing.T) {
@@ -416,9 +398,8 @@ func testPluginViewOwnership(t *testing.T) {
 	// provider's account status, are the context bar's with their detail
 	// rows; the composer's indicator is a toolbar ring; the header's popover
 	// is a header button the window opens, which its package never hears of.
-	// Removed UI: a failed view draws nothing in its place. Its failure is one
-	// toast, whose Retry mounts the view again.
-	t.Run("a failed view draws no retry button of its own", func(t *testing.T) {
+	// A failed view draws nothing in its place and reports one toast.
+	t.Run("a failed view has no retry controls", func(t *testing.T) {
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest, info.Summary.Enabled = "failed-fixture", strings.Repeat("e", 64), true
 		info.Summary.Compatibility.Kind = "compatible"
@@ -466,16 +447,8 @@ func testPluginViewOwnership(t *testing.T) {
 		if drawn || mounted.failure == nil || root.pluginViews.mounts[key] != mounted || !tester.HasText(i18n.In("en", "plugin_callback_failed")) {
 			t.Fatalf("the view did not fail with its toast: drawn %t, %v, %q", drawn, mounted.failure, tester.Texts())
 		}
-		// The toast's action is the one Retry: no icon button in the page.
-		if len(buttons) != 1 || !tester.HasText(retry) {
+		if len(buttons) != 0 || tester.HasText(retry) {
 			t.Fatalf("a failed view shows %d Retry controls %v: %q", len(buttons), buttons, tester.Texts())
-		}
-		tester.ClickAt(buttons[0].Bounds.X+buttons[0].Bounds.W/2, buttons[0].Bounds.Y+buttons[0].Bounds.H/2)
-		for range 2 {
-			tester.Frame()
-		}
-		if again := root.pluginViews.mounts[key]; again == nil || again == mounted || again.failure != nil || !again.loading {
-			t.Fatalf("the toast's Retry did not mount the view again: %+v", again)
 		}
 	})
 	t.Run("declared slots draw their figures, ring and header popover", func(t *testing.T) {

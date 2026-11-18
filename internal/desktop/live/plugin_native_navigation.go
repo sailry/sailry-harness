@@ -85,8 +85,8 @@ func (state *pluginNativeState) navigationOperations() {
 						}
 						root.openLiveTerminal(state.runtime, info)
 						root.App.DropWorkspaceTerminal(id.String())
+						root.App.RevealConversationPanel()
 						root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id.String()})
-						root.App.PanelOpen = true
 						return
 					}
 				}
@@ -171,8 +171,6 @@ func (state *pluginNativeState) navigationOperations() {
 			return nil, ctx.Err()
 		case <-state.native.Context.Done():
 			return nil, state.native.Context.Err()
-		case event := <-state.toastEvents:
-			return event, nil
 		}
 	}
 	operations["sailry/ui.canInvokeContribution"] = func(ctx context.Context, arguments []json.RawMessage) (json.RawMessage, error) {
@@ -271,21 +269,6 @@ func (state *pluginNativeState) showToast(_ context.Context, arguments []json.Ra
 				}
 				state.mu.Unlock()
 			},
-		}
-		if value.Action != nil {
-			toast.Action = value.Action.Label
-			toast.OnAction = func() {
-				if state.native.Context.Err() != nil {
-					return
-				}
-				body, err := pluginNativeJSON(map[string]string{"id": value.ID, "action": value.Action.ID})
-				if err == nil {
-					select {
-					case state.toastEvents <- body:
-					default:
-					}
-				}
-			}
 		}
 		view.AddToast(toast)
 	})

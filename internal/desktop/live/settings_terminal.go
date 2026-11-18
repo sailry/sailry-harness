@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -193,26 +192,13 @@ func (r *Runtime) submitTerminalSettings(request protocol.TerminalSettings) {
 		}
 		state.stale = true
 		outcome := kit.Failed
-		var again func()
 		switch faultCode(err) {
 		case protocol.ErrorCodeRevisionConflict, protocol.ErrorCodeConflict:
 			outcome = kit.Conflict
 		case protocol.ErrorCodeOutcomeUnknown:
 			outcome = kit.Uncertain
-			if client.Retained(err) {
-				again = func() { r.submitTerminalSettings(request) }
-			}
-		default:
-			if err != nil {
-				again = func() {
-					model = r.terminalModel()
-					if draftMatches() && !sameTerminalHost(model.Draft, model.Saved) {
-						r.submitTerminalSettings(terminalRequest(model.Draft, model.Revision, state.choices, state.saved))
-					}
-				}
-			}
 		}
-		settings.ReportRetry(c, outcome, settings.TerminalMessages, again)
+		settings.Report(c, outcome, settings.TerminalMessages)
 	})
 }
 

@@ -180,7 +180,7 @@ func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error)
 		}
 	}
 	if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
-		x.offerRestore(c, err)
+		x.restoreFailedDraft(c, err)
 		return
 	}
 	if missingAttachment {

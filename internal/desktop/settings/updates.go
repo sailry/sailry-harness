@@ -53,12 +53,8 @@ func (u *Updater) Attention() bool {
 	return (u.State == UpdateAvailable || u.State == UpdateReady) && u.Version != u.seen
 }
 
-// Review unfolds the ready row, as the ready toast's action does after it
-// opens About.
+// Review unfolds the ready row.
 func (u *Updater) Review() { u.deferred = "" }
-
-// ShowDetails opens the failure's details, as the failure toast's action does.
-func (u *Updater) ShowDetails() { u.details = true }
 
 // Locked reports whether the channel cannot change now.
 func (u *Updater) Locked() bool {
@@ -262,17 +258,14 @@ func updates(c *ui.Context, m *Model) {
 // megabytes is a byte count in MB with one decimal.
 func megabytes(n int64) string { return fmt.Sprintf("%.1f MB", float64(n)/(1<<20)) }
 
-// notify toasts what the updater reached, once: the ready version with
-// Install, a failure with Details.
+// notify reports the updater's latest outcome once.
 func (u *Updater) notify(c *ui.Context) {
 	if u.State == UpdateReady && u.shown != UpdateReady {
 		version := u.Version
-		c.AddToast(ui.Toast{Type: "success", Title: i18n.T(c, "updates_ready", "version", version), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_view"),
-			OnAction: func() { u.Review() }})
+		kit.Toast(c, kit.Done, i18n.T(c, "updates_ready", "version", version))
 	}
 	if f := u.Failure; f != nil && f != u.shownFailure {
-		c.AddToast(ui.Toast{Type: "error", Title: i18n.T(c, f.Key), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_details"),
-			OnAction: func() { u.details = true }})
+		kit.Toast(c, kit.Failed, i18n.T(c, f.Key))
 	}
 	u.shown, u.shownFailure = u.State, u.Failure
 }

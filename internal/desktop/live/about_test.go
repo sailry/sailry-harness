@@ -173,15 +173,14 @@ func checkSystemHelpers(t *testing.T) {
 	for _, test := range []struct {
 		notice updater.Notice
 		kind   string
-		action bool
 	}{
-		{updater.Notice{Key: "updates_ready", Version: "0.2.0"}, "success", true},
-		{updater.Notice{Key: "updates_current"}, "success", false},
-		{updater.Notice{Key: "updates_network_failed", Error: true, Detail: "refused"}, "error", true},
-		{updater.Notice{Key: "updates_install_uncertain", Error: true, Detail: "kept"}, "warning", true},
+		{updater.Notice{Key: "updates_ready", Version: "0.2.0"}, "success"},
+		{updater.Notice{Key: "updates_current"}, "success"},
+		{updater.Notice{Key: "updates_network_failed", Error: true, Detail: "refused"}, "error"},
+		{updater.Notice{Key: "updates_install_uncertain", Error: true, Detail: "kept"}, "warning"},
 	} {
-		toast := updateToast(test.notice, "title", "action", 1, func() {})
-		if toast.Type != test.kind || (toast.OnAction != nil) != test.action || toast.Timeout != 1 {
+		toast := updateToast(test.notice, "title", 1)
+		if toast.Type != test.kind || toast.Action != "" || toast.OnAction != nil || toast.Timeout != 1 {
 			t.Fatalf("toast for %+v = %+v", test.notice, toast)
 		}
 	}

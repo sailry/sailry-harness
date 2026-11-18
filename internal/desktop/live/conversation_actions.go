@@ -331,8 +331,8 @@ func (x *conversationActions) Fork(turn string) {
 	})
 }
 
-// Rewind keeps the conversation through turn. The Node saves the removed
-// history as a backup session, which the outcome's toast opens.
+// Rewind keeps the conversation through turn and saves the removed history
+// as a backup session.
 func (x *conversationActions) Rewind(turn string) {
 	s, state, ok := x.state()
 	if !ok || len(state.Page.Runs) == 0 {
@@ -350,23 +350,14 @@ func (x *conversationActions) Rewind(turn string) {
 	id := x.cv.ID
 	head := state.Page.Runs[len(state.Page.Runs)-1].Turn
 	x.r.conversationPending[id] = through
-	x.r.execute(protocol.Command{Kind: "rewind_conversation", Data: protocol.CommandRewindConversationPayload{Session: s.ID, Through: &through, ExpectedHead: head, ExpectedRevision: state.Page.Revision}}, func(c *ui.Context, out protocol.Output, err error) {
+	x.r.execute(protocol.Command{Kind: "rewind_conversation", Data: protocol.CommandRewindConversationPayload{Session: s.ID, Through: &through, ExpectedHead: head, ExpectedRevision: state.Page.Revision}}, func(c *ui.Context, _ protocol.Output, err error) {
 		delete(x.r.conversationPending, id)
 		if err != nil {
 			x.r.reportKeys(c, err, "chat_action_failed", "chat_history_changed", "chat_action_unknown")
 			return
 		}
 		_ = x.r.controller.RefreshConversation(x.r.ctx, s.ID)
-		toast := ui.Toast{ID: "rewound/" + id, Type: "success", Title: i18n.T(c, "chat_rewound"), Timeout: kit.ToastDuration(c)}
-		if rewound, valid := detail[protocol.ConversationRewind](out.Data); valid && rewound.Backup != nil {
-			backup := rewound.Backup.ID.String()
-			toast.Action = i18n.T(c, "chat_rewind_backup")
-			toast.OnAction = func() {
-				x.r.project()
-				x.r.OpenSession(backup)
-			}
-		}
-		c.AddToast(toast)
+		c.AddToast(ui.Toast{ID: "rewound/" + id, Type: "success", Title: i18n.T(c, "chat_rewound"), Timeout: kit.ToastDuration(c)})
 	})
 }
 
@@ -635,7 +626,7 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 			delete(x.r.turnRetries, id)
 		}
 		if code := faultCode(err); err != nil && x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && code != protocol.ErrorCodeOutcomeUnknown {
-			x.offerRestore(c, err)
+			x.restoreFailedDraft(c, err)
 		} else {
 			x.r.report(c, err, "session_changed")
 		}
@@ -648,32 +639,16 @@ func (x *conversationActions) turn(command protocol.Command, done func(protocol.
 	}
 }
 
-// offerRestore reports a failed send whose composer no longer holds what was
-// sent: the toast's action puts the submission back into an empty composer.
-func (x *conversationActions) offerRestore(c *ui.Context, err error) {
+// restoreFailedDraft restores a rejected submission when its composer still
+// has room for it. Input the user has entered since the submission wins.
+func (x *conversationActions) restoreFailedDraft(c *ui.Context, err error) {
 	message, comp := *x.restore, x.comp
-	toast := ui.Toast{Type: "error", Title: i18n.T(c, "chat_action_failed"), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "chat_restore_draft")}
-	switch faultCode(err) {
-	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
-		toast.Type, toast.Title = "warning", i18n.T(c, "session_changed")
-	case protocol.ErrorCodeOutcomeUnknown:
-		toast.Type, toast.Title = "warning", i18n.T(c, "chat_action_unknown")
+	if comp.Draft == "" && len(comp.References) == 0 && len(comp.Attachments) == 0 && x.owned() {
+		comp.Draft = message.Text
+		comp.References = slices.Clone(message.References)
+		comp.Attachments = slices.Clone(message.Attachments)
 	}
-	toast.OnAction = func() {
-		x.r.enqueue(func(c *ui.Context) {
-			switch {
-			case comp.Draft != "" || len(comp.References) > 0 || len(comp.Attachments) > 0:
-				kit.Toast(c, kit.Failed, i18n.T(c, "queue_draft_present"))
-			case x.readonly():
-				kit.Toast(c, kit.Failed, i18n.T(c, "chat_restore_unavailable"))
-			default:
-				comp.Draft = message.Text
-				comp.References = slices.Clone(message.References)
-				comp.Attachments = slices.Clone(message.Attachments)
-			}
-		})
-	}
-	c.AddToast(toast)
+	x.r.reportKeys(c, err, "chat_action_failed", "session_changed", "chat_action_unknown")
 }
 
 func (r *Runtime) forgetTurnRetry(id string) {

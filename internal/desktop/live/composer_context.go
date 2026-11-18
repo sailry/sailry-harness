@@ -160,22 +160,12 @@ func (x *conversationActions) outgoing(m composer.Message, guide bool) {
 	x.r.composerOutgoing[x.cv.ID] = &conversationOutgoing{Queued: composer.Queued{Text: strings.TrimSpace(m.Text), Guided: guide, Attachments: m.Attachments}}
 }
 
-// queueCommand runs a command of the queue tray. A conflict says the queue
-// changed; any other failure offers the same command again, as the row it
-// acted on is still there. Guidance the running turn could not take, because
-// the message's settings differ from the turn's, stays queued: the user is
-// told it will run separately.
+// queueCommand runs a command of the queue tray. Guidance a running turn
+// cannot take because the settings differ stays queued.
 func (x *conversationActions) queueCommand(command protocol.Command) {
 	x.r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		if err != nil {
-			switch faultCode(err) {
-			case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
-				x.r.report(c, err, "session_changed")
-			case protocol.ErrorCodeOutcomeUnknown:
-				kit.Retry(c, i18n.T(c, "chat_action_unknown"), func() { x.queueCommand(command) })
-			default:
-				kit.Retry(c, i18n.T(c, "chat_action_failed"), func() { x.queueCommand(command) })
-			}
+			x.r.reportKeys(c, err, "chat_action_failed", "session_changed", "chat_action_unknown")
 			return
 		}
 		guide, guiding := command.Data.(protocol.CommandGuideQueuedTurnPayload)

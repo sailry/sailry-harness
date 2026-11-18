@@ -21,20 +21,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 )
 
-// aboutActions excludes the shell's disabled Details toggle from the updater's
-// actionable Details buttons on its toast and page.
+// aboutActions excludes the shell's disabled Details toggle.
 func aboutActions(w *terminalUI, name string) []ui.AccessInfo {
 	return slices.DeleteFunc(w.buttons(name), func(button ui.AccessInfo) bool { return button.Disabled })
-}
-
-// topButton is the highest enabled button named name: a toast's action,
-// above the page's button of the same name.
-func topButton(w *terminalUI, name string, count int) (ui.AccessInfo, bool) {
-	found := aboutActions(w, name)
-	if len(found) != count {
-		return ui.AccessInfo{}, false
-	}
-	return found[0], true
 }
 
 // TestSystemAboutUI is the acceptance of Settings › About against the
@@ -226,41 +215,30 @@ func TestSystemAboutUI(t *testing.T) {
 	untouched("after a cancelled download")
 	t.Logf("step 5 passed: with the archive held at %d of %d bytes the page showed %s with Cancel and a locked channel; Cancel returned to the available version without a toast", copied, total, percent)
 
-	// (6) SABOUT-004, SABOUT-006, SABOUT-007: the ready toast and the
-	// install confirmation, which the test cancels.
+	// (6) The ready toast reports the completed download. The About page
+	// opens the install confirmation, which the test cancels.
 	ready := stable + " is ready to install"
 	press(window, "Download")
-	var action ui.AccessInfo
-	settle(window, "the ready toast with Install", systemUIWait, func() bool {
-		found, both := topButton(window, "Install and restart", 2)
-		action = found
-		return u.State == settings.UpdateReady && shown(window, ready) == 1 && both
+	settle(window, "the ready toast and the page's Install", systemUIWait, func() bool {
+		return u.State == settings.UpdateReady && shown(window, ready) == 1 && len(aboutActions(window, "Install and restart")) == 1
 	})
 	if hits := feed.Hits(feed.ArchivePath(stable)); hits != 2 {
 		t.Fatalf("the archive was requested %d times over a cancelled and a completed download", hits)
 	}
 	const consequence = "Drafts will be restored after restart; local tasks and terminals will stop"
-	window.clickOn(action)
-	settle(window, "the toast's Install opens the confirmation", systemUIWait, func() bool { return shown(window, consequence) == 1 })
+	press(window, "Install and restart")
+	settle(window, "the page's Install opens the confirmation", systemUIWait, func() bool { return shown(window, consequence) == 1 })
 	untouched("with the confirmation open")
 	press(window, "Cancel")
 	settle(window, "the cancelled confirmation closes", systemUIWait, func() bool { return shown(window, consequence) == 0 })
-	// The toast went with its action; no second one follows.
-	for range 60 {
-		window.frame()
-	}
+	window.tester.Advance(6 * time.Second)
 	if shown(window, ready) != 0 || u.State != settings.UpdateReady || shown(window, stable) != 1 {
 		t.Fatalf("after the ready toast ran out: %d toasts, state %v", shown(window, ready), u.State)
 	}
-	press(window, "Install and restart")
-	settle(window, "the page's Install opens the confirmation", systemUIWait, func() bool { return shown(window, consequence) == 1 })
-	press(window, "Cancel")
-	settle(window, "the cancelled confirmation closes", systemUIWait, func() bool { return shown(window, consequence) == 0 })
-	untouched("after two cancelled confirmations")
-	t.Logf("step 6 passed: the completed download showed %q once with Install and restart; the toast's action and the page's button each opened the confirmation naming the consequence; both were cancelled and nothing was installed", ready)
+	untouched("after the cancelled confirmation")
+	t.Logf("step 6 passed: the completed download showed %q once, the page opened the install confirmation, and cancelling left the installed version unchanged", ready)
 
-	// (7) SABOUT-010: a failure offers Details on its toast and page, and
-	// keeps the installed version.
+	// (7) A failed download reports a toast with Details on the page.
 	feed.Publish(damaged, true)
 	pickOption(window, "Update channel", "Experience")
 	settle(window, "the damaged release is offered", systemUIWait, func() bool {
@@ -268,30 +246,18 @@ func TestSystemAboutUI(t *testing.T) {
 	})
 	press(window, "Download")
 	settle(window, "the failed download", systemUIWait, func() bool {
-		found, both := topButton(window, "Details", 2)
-		action = found
-		return u.Failure != nil && u.State != settings.UpdateDownloading && both
+		return u.Failure != nil && u.State != settings.UpdateDownloading && len(aboutActions(window, "Details")) == 1
 	})
 	if u.Failure.Key != "updates_digest_invalid" || shown(window, "The update package is damaged") != 1 || u.State == settings.UpdateReady {
 		t.Fatalf("the damaged archive failed as %+v in state %v; visible text: %q", u.Failure, u.State, window.tester.Texts())
 	}
 	detail := u.Failure.Detail
-	action, _ = topButton(window, "Details", 2)
-	window.clickOn(action)
-	settle(window, "the toast's Details opens the failure's detail", systemUIWait, func() bool { return detail != "" && visible(window, detail) })
+	window.clickOn(aboutActions(window, "Details")[0])
+	settle(window, "the page's Details opens the failure's detail", systemUIWait, func() bool { return detail != "" && visible(window, detail) })
 	window.tester.Key(0, ui.KeyEscape)
 	settle(window, "the details close", systemUIWait, func() bool { return !visible(window, detail) })
-	settle(window, "the page's Details action", systemUIWait, func() bool {
-		var found bool
-		action, found = topButton(window, "Details", 1)
-		return found
-	})
-	window.clickOn(action)
-	settle(window, "the page's Details opens the failure's detail", systemUIWait, func() bool { return visible(window, detail) })
-	window.tester.Key(0, ui.KeyEscape)
-	settle(window, "the details close again", systemUIWait, func() bool { return !visible(window, detail) })
 	untouched("after a failed download")
-	t.Logf("step 7 passed: the damaged archive of %s failed with the toast The update package is damaged; the toast's Details and the page's Details show %q; the installed bundle is still %s", damaged, detail, link.ProductVersion)
+	t.Logf("step 7 passed: the damaged archive of %s showed a failure toast and the page's Details showed %q; the installed bundle remained %s", damaged, detail, link.ProductVersion)
 
 	// (8) SABOUT-006, SABOUT-008, SABOUT-009 as far as a fixture bundle
 	// goes: the confirmation installs; while it runs the page shows the

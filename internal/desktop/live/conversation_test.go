@@ -1499,7 +1499,7 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 				r.OpenSession(id)
 				tester.Frame()
-				// Rewinding to the first turn reports once, and its toast opens the backup session.
+				// Rewinding to the first turn reports its outcome without changing the open session.
 				if got := actions.controls(protocol.TurnID{7}); !got.NoRewind || got.NoFork || got.ReadOnly {
 					t.Fatalf("head turn controls = %+v", got)
 				}
@@ -1519,26 +1519,21 @@ func TestComposerSendRouting(t *testing.T) {
 				if !tester.HasText(i18n.In("en", "chat_rewound")) {
 					t.Fatal("a rewind showed no outcome", tester.Texts())
 				}
-				if err := tester.Click(i18n.In("en", "chat_rewind_backup")); err != nil {
-					t.Fatal(err)
+				if tester.HasText(i18n.In("en", "chat_rewind_backup")) || r.App.Sidebar.Selected != id {
+					t.Fatal("the rewind toast offered navigation or changed the open session", r.App.Sidebar.Selected)
 				}
-				tester.Frame()
-				if r.App.Sidebar.Selected != backup {
-					t.Fatal("the rewind toast did not open the backup session", r.App.Sidebar.Selected)
-				}
-				r.OpenSession(id)
-				tester.Frame()
 				// A change in the shown conversation redraws it; only a Client change projects the Node snapshot.
 				render(shown)
 				r.mu.Lock()
 				r.dirty = false
+				clear(r.conversationChanges)
 				r.mu.Unlock()
-				r.conversationsStale.Store(false)
 				_ = controller.LoadOlderConversation(t.Context(), session)
 				r.mu.Lock()
 				dirty := r.dirty
+				_, stale := r.conversationChanges[session]
 				r.mu.Unlock()
-				if !r.conversationsStale.Load() || dirty {
+				if !stale || dirty {
 					t.Fatal("a change in the shown conversation projected the Node snapshot again", dirty)
 				}
 			}
@@ -1552,19 +1547,14 @@ func TestComposerSendRouting(t *testing.T) {
 				frame = nil
 			}
 			if row.name == "failure_retains_draft" {
-				// A send that fails after its text left the composer offers it back from the toast.
+				// A send that fails after its text left an empty composer restores the draft.
 				transport.mu.Lock()
 				actions.Send(message)
 				comp.Draft = ""
 				transport.mu.Unlock()
 				settle()
-				if err := tester.Click(i18n.In("en", "chat_restore_draft")); err != nil {
-					t.Fatal(err, tester.Texts())
-				}
-				tester.Frame()
-				tester.Frame()
-				if comp.Draft != "Captured draft" {
-					t.Fatal("Restore draft did not put the failed submission back", comp.Draft)
+				if tester.HasText(i18n.In("en", "chat_restore_draft")) || comp.Draft != "Captured draft" {
+					t.Fatal("failed submission did not restore its draft without a toast action", comp.Draft, tester.Texts())
 				}
 			}
 			if row.name == "replace_references" {

@@ -73,7 +73,7 @@ func TestManagedSystemSettings(t *testing.T) {
 	remoteID := remote.controller.Target().String()
 	root.bindings = map[string]*Runtime{remoteID: remote}
 	m := app.Settings
-	var retry func()
+	var actionableToast bool
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		root.mu.Lock()
@@ -88,7 +88,7 @@ func TestManagedSystemSettings(t *testing.T) {
 		ui.ToastViewportBase(c, func(_ ui.Element, shown []ui.Toast) {
 			for _, toast := range shown {
 				if toast.OnAction != nil {
-					retry = toast.OnAction
+					actionableToast = true
 				}
 			}
 		})
@@ -121,19 +121,26 @@ func TestManagedSystemSettings(t *testing.T) {
 	m.Host.Draft.Env = []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}
 	m.SaveTerminal()
 	settle()
-	if retry == nil {
-		t.Fatal("the original save's outcome was not available for retry")
+	if actionableToast || len(terminalSaveIDs) != 1 {
+		t.Fatal("the uncertain save should produce only an informational toast")
 	}
 	m.ManagedNode = remoteID
 	settle()
 	if m.Host.Revision != 2 || m.Shells[1].Path != "/bin/remote" || len(m.Host.Draft.Env) != 0 {
 		t.Fatalf("terminal settings did not turn to the selected Host: %+v %+v", m.Host, m.Shells)
 	}
-	retry()
+	m.ManagedNode = ""
 	settle()
-	if len(terminalSaveIDs) != 2 || terminalSaveIDs[0] != terminalSaveIDs[1] || len(requests(0, "save_terminal_settings")) != 2 || len(requests(1, "save_terminal_settings")) != 0 || len(m.Host.Draft.Env) != 0 {
-		t.Fatalf("terminal retry changed ownership or identity: %v, remote draft %+v", terminalSaveIDs, m.Host.Draft)
+	if m.SaveTerminal == nil || !slices.Equal(m.Host.Draft.Env, []viewmodel.EnvVar{{Key: "LOCAL", Value: "draft"}}) {
+		t.Fatalf("returning to the original Node lost its terminal draft: %+v", m.Host.Draft)
 	}
+	m.SaveTerminal()
+	settle()
+	if len(terminalSaveIDs) != 2 || terminalSaveIDs[0] != terminalSaveIDs[1] || len(requests(0, "save_terminal_settings")) != 2 || len(requests(1, "save_terminal_settings")) != 0 {
+		t.Fatalf("submitting the same terminal draft changed ownership or identity: %v", terminalSaveIDs)
+	}
+	m.ManagedNode = remoteID
+	settle()
 
 	m.Open(settings.Backup)
 	settle()

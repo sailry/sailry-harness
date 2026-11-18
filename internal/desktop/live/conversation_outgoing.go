@@ -47,7 +47,7 @@ func (x *conversationActions) stageOutgoing(message composer.Message) {
 		if x.restore == nil || x.restoreDraft == composerFingerprint(x.comp) {
 			return false
 		}
-		x.offerRestore(c, err)
+		x.restoreFailedDraft(c, err)
 		return true
 	}}
 	x.r.projectOutgoing(x.cv, protocol.ConversationPage{})
@@ -62,8 +62,8 @@ func (r *Runtime) discardUnsubmitted(id string) {
 	}
 }
 
-// A failed prerequisite never submitted this message. Keep newer input in the
-// composer and offer the same captured message back from its failure toast.
+// A failed prerequisite never submitted this message. Restore the captured
+// draft to an empty composer or keep the newer input.
 func (r *Runtime) failUnsubmitted(c *ui.Context, id string, err error) bool {
 	pending := r.composerOutgoing[id]
 	if pending == nil || !pending.transcript || pending.request != (protocol.RequestID{}) {
