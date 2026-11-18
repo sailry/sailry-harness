@@ -9,12 +9,14 @@ class TerminalSession {
     required this.controller,
     required this.command,
     required this.resolve,
+    this.sharedEntry,
     this.terminal,
     this.worktree,
     this.createNew = false,
   });
 
-  final String controller;
+  final String? controller;
+  final String? sharedEntry;
   final CommandHandler command;
   // Asks about a retained request without sending it again.
   final Future<Map<String, dynamic>> Function(String request) resolve;
@@ -22,6 +24,9 @@ class TerminalSession {
   final bool createNew;
   String? terminal;
   String? _pending;
+  ({String terminal, int revision})? _lease;
+
+  int? get revision => _lease?.revision;
 
   Future<Map<String, dynamic>> open(
     Map<String, dynamic> launch,
@@ -48,9 +53,10 @@ class TerminalSession {
       throw StateError('A worktree is required to create a terminal');
     }
     try {
+      final creating = terminal == null;
       final response = _pending != null
           ? await resolve(_pending!)
-          : terminal == null
+          : creating
           ? await command('create_terminal', {
               ...launch,
               'access': 'unrestricted',
@@ -59,6 +65,11 @@ class TerminalSession {
           : await command('open_terminal', {'terminal': terminal, ...launch});
       final info = object(response['data']);
       terminal = text(info['id']);
+      if (creating || sharedEntry == null) {
+        _lease = _ownedLease(info);
+      } else if (lease(info) == null) {
+        forgetLease();
+      }
       _pending = null;
       return info;
     } on CommandFailure catch (error) {
@@ -67,10 +78,49 @@ class TerminalSession {
     }
   }
 
-  /// Reopening restores only this controller's lease, without claiming another's.
-  int? lease(Map<String, dynamic> info) =>
-      jsonEncode(info['owner']) == controller &&
-          object(info['status'])['kind'] == 'running'
-      ? number(info['revision']).toInt()
-      : null;
+  Future<void> claim(int expectedRevision) async {
+    final result = await command('claim_terminal', {
+      'terminal': terminal,
+      'expected_revision': expectedRevision,
+    });
+    _lease = _ownedLease(object(result['data']));
+  }
+
+  void forgetLease() => _lease = null;
+
+  void observe(Map<String, dynamic> info) {
+    final active = _lease;
+    if (active != null &&
+        number(info['revision']) >= active.revision &&
+        lease(info) == null) {
+      forgetLease();
+    }
+  }
+
+  int? lease(Map<String, dynamic> info) {
+    final active = _lease;
+    return active != null && active == _ownedLease(info)
+        ? active.revision
+        : null;
+  }
+
+  ({String terminal, int revision})? _ownedLease(Map<String, dynamic> info) {
+    final id = info['id'];
+    final revision = info['revision'];
+    if (id is! String ||
+        id.isEmpty ||
+        id != terminal ||
+        revision is! int ||
+        revision < 1 ||
+        object(info['status'])['kind'] != 'running') {
+      return null;
+    }
+    // The entry is shared with other routed controllers, so matching it only
+    // confirms a lease after this page has created or claimed the terminal.
+    final owner = info['owner'];
+    final ours = sharedEntry == null
+        ? jsonEncode(owner) == controller
+        : nodeIdHex(owner) == sharedEntry;
+    return ours ? (terminal: id, revision: revision) : null;
+  }
 }

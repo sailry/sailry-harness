@@ -54,7 +54,7 @@ class _TerminalPageState extends State<TerminalPage>
   TerminalUpdates? _updates;
   TerminalSession? _session;
   String? get _terminal => _session?.terminal ?? widget.terminalId;
-  int? _lease;
+  int? get _lease => _session?.revision;
   Map<String, dynamic> _snapshot = {};
   Map<String, dynamic>? _viewport;
   Map<String, dynamic>? _pendingViewport;
@@ -81,8 +81,7 @@ class _TerminalPageState extends State<TerminalPage>
   }
 
   bool get _running => object(_info['status'])['kind'] == 'running';
-  bool get _controlling =>
-      _connected && _running && _lease != null && _info['revision'] == _lease;
+  bool get _controlling => _connected && _session?.lease(_info) != null;
   bool get _cursorFocused =>
       _controlling && _focus.hasFocus && _foreground && _visible;
 
@@ -140,10 +139,13 @@ class _TerminalPageState extends State<TerminalPage>
     try {
       final launch = terminalLaunch(context);
       if (_session == null) {
-        final identity = await AppSession.of(context).controllerIdentity(host);
+        final identity = host.routed
+            ? null
+            : await AppSession.of(context).controllerIdentity(host);
         if (!mounted) return;
         _session = TerminalSession(
           controller: identity,
+          sharedEntry: host.routed ? host.entryId : null,
           command: host.command,
           resolve: host.check,
           terminal: widget.terminalId,
@@ -152,12 +154,8 @@ class _TerminalPageState extends State<TerminalPage>
         );
       }
       final session = _session!;
-      final info = await session.open(
-        launch,
-        objects(host.snapshot['terminals']),
-      );
+      await session.open(launch, objects(host.snapshot['terminals']));
       if (!mounted) return;
-      _lease = session.lease(info);
       final updates = await host.connection.watchTerminal(
         terminal: session.terminal!,
       );
@@ -200,9 +198,10 @@ class _TerminalPageState extends State<TerminalPage>
               : version != null
               ? context.tr(version)
               : text(object(fault)['message']);
-          if (!_connected ||
-              _lease != null && number(_info['revision']) > _lease!) {
-            _lease = null;
+          if (_connected) {
+            _session?.observe(_info);
+          } else {
+            _session?.forgetLease();
           }
         });
         _syncCursor(restart: cursor != jsonEncode(_screen['cursor']));
@@ -225,7 +224,7 @@ class _TerminalPageState extends State<TerminalPage>
         setState(() {
           _updates = null;
           _connected = false;
-          _lease = null;
+          _session?.forgetLease();
           _error = failureText(error, translate: context.tr);
         });
         _syncCursor();
@@ -236,25 +235,22 @@ class _TerminalPageState extends State<TerminalPage>
   }
 
   Future<void> _claim() async {
-    if (!_connected || !_running || _opening) return;
+    final session = _session;
+    if (!_connected || !_running || _opening || session == null) return;
     setState(() {
       _opening = true;
       _error = null;
     });
     try {
-      final result = await _host!.command('claim_terminal', {
-        'terminal': _terminal,
-        'expected_revision': _info['revision'],
-      });
+      await session.claim(_info['revision'] as int);
       if (!mounted) return;
       _cancelResize();
       setState(() {
-        _lease = number(object(result['data'])['revision']).toInt();
         _viewport = null;
         _appearance = null;
       });
       _syncCursor();
-      _focus.requestFocus();
+      if (_lease != null) _focus.requestFocus();
     } catch (error) {
       if (mounted) {
         showToast(context, failureText(error, translate: context.tr));
@@ -315,9 +311,7 @@ class _TerminalPageState extends State<TerminalPage>
           // A failed input invalidates the queued tail. Terminal keystrokes are never replayed.
           if (mounted && _lease == revision && _terminal == terminal) {
             _cancelResize();
-            setState(() {
-              _lease = null;
-            });
+            setState(() => _session?.forgetLease());
             showToast(context, failureText(error, translate: context.tr));
             _syncCursor();
             _resetInput();

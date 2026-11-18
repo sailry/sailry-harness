@@ -32,24 +32,28 @@ class Fixture {
   Map<String, dynamic> result = info();
   bool uncertain = false;
 
-  TerminalSession page({String? terminal, bool createNew = false}) =>
-      TerminalSession(
-        controller: jsonEncode(controller),
-        worktree: 'worktree-1',
-        terminal: terminal,
-        createNew: createNew,
-        command: (kind, data) async {
-          sent.add((kind, data));
-          if (uncertain) {
-            throw CommandFailure('outcome_unknown', request: 'original');
-          }
-          return {'data': result};
-        },
-        resolve: (request) async {
-          recovered.add(request);
-          return {'data': result};
-        },
-      );
+  TerminalSession page({
+    String? terminal,
+    bool createNew = false,
+    String? sharedEntry,
+  }) => TerminalSession(
+    controller: sharedEntry == null ? jsonEncode(controller) : null,
+    sharedEntry: sharedEntry,
+    worktree: 'worktree-1',
+    terminal: terminal,
+    createNew: createNew,
+    command: (kind, data) async {
+      sent.add((kind, data));
+      if (uncertain) {
+        throw CommandFailure('outcome_unknown', request: 'original');
+      }
+      return {'data': result};
+    },
+    resolve: (request) async {
+      recovered.add(request);
+      return {'data': result};
+    },
+  );
 }
 
 void main() {
@@ -105,6 +109,49 @@ void main() {
     expect(page.lease(opened), isNull);
     expect(fixture.sent.single.$1, 'open_terminal');
     expect(opened['owner'], other);
+  });
+
+  test(
+    'a routed entry lease is writable only after this page claims it',
+    () async {
+      final entry = List.filled(32, '02').join();
+      final fixture = Fixture()..result = info(owner: other);
+      final page = fixture.page(sharedEntry: entry);
+      final opened = await page.open(launch, [fixture.result]);
+      expect(page.lease(opened), isNull);
+      expect(fixture.sent.single.$1, 'open_terminal');
+
+      await page.claim(3);
+      expect(fixture.sent.last.$1, 'claim_terminal');
+      expect(fixture.sent.last.$2, {
+        'terminal': 'terminal-1',
+        'expected_revision': 3,
+      });
+      expect(page.lease(opened), 3);
+      page.observe(info(owner: controller, revision: 2));
+      expect(page.lease(opened), 3);
+      expect(page.lease(info(owner: controller)), isNull);
+      final changed = info(owner: other, revision: 4);
+      page.observe(changed);
+      expect(page.lease(changed), isNull);
+      expect(page.revision, isNull);
+
+      final returning = fixture.page(sharedEntry: entry);
+      expect(returning.lease(await returning.open(launch, [opened])), isNull);
+    },
+  );
+
+  test('a routed page can use its own reconciled creation lease', () async {
+    final fixture = Fixture()
+      ..result = info(owner: other)
+      ..uncertain = true;
+    final page = fixture.page(sharedEntry: List.filled(32, '02').join());
+    await expectLater(page.open(launch, []), throwsA(isA<CommandFailure>()));
+    expect(page.lease(fixture.result), isNull);
+    final opened = await page.open(launch, [fixture.result]);
+    expect(page.lease(opened), 3);
+    expect(fixture.sent.single.$1, 'create_terminal');
+    expect(fixture.recovered, ['original']);
   });
 
   test('stopped terminals require a new launch identity', () async {
