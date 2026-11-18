@@ -582,9 +582,10 @@ through the scoped resource services. Linux anchors the ancestor mounts of
 protected paths discovered by the command sandbox. The Node also runs native
 Git and its helpers in Bubblewrap, including Git invoked on a newly initialized
 workspace. The workspace and verified linked-worktree metadata are mounted
-read-only for local reads and writable for admitted mutations. Local Git
-operations have a private network namespace. Explicit remote operations have
-network access to perform transfers. Git receives a private home with selected
+read-only for local reads and writable for admitted mutations. A linked
+worktree from a bare repository mounts that repository at its exact path.
+Local Git operations have a private network namespace. Explicit remote commands
+have network access for transfers. Git receives a private home with selected
 commit identity, signing and standard Git LFS settings. The Node account's
 credential helpers, SSH agent and private keys stay outside the Git sandbox.
 User-created terminals use their login-shell

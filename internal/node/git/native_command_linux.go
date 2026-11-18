@@ -102,13 +102,14 @@ func prepareGitCommand(ctx context.Context, git *exec.Cmd, args []string, enviro
 	}
 	defer rootFD.Close()
 	mounts = append(mounts, gitMount{path: root, scope: root, write: writeRoot, file: rootFD})
-	common, commonFD, err := linkedGitMetadata(rootFD, root, environment["HOME"], profile)
+	metadata, err := linkedGitMetadata(rootFD, root, environment["HOME"], profile)
 	if err != nil {
 		return gitCommand{}, err
 	}
-	if commonFD != nil {
-		defer commonFD.Close()
-		mounts = append(mounts, gitMount{path: common, scope: filepath.Dir(common), write: writeRoot, file: commonFD})
+	if metadata.file != nil {
+		defer metadata.file.Close()
+		metadata.write = writeRoot
+		mounts = append(mounts, metadata)
 	}
 	if target, ok := ctx.Value(gitWorktreeKey{}).(string); ok && !pathWithin(target, root) {
 		mounts = append(mounts, gitMount{path: target, scope: target, write: true})
@@ -460,47 +461,79 @@ var gitSandboxLauncher = sync.OnceValues(func() (string, error) {
 	return "", fault(protocol.ErrorCodeUnavailable, "Git requires a trusted Linux Bubblewrap launcher with file-descriptor mounts")
 })
 
-func linkedGitMetadata(rootFD *os.File, root, home, profile string) (string, *os.File, error) {
+func linkedGitMetadata(rootFD *os.File, root, home, profile string) (gitMount, error) {
 	dot := filepath.Join(root, ".git")
 	var info unix.Stat_t
 	err := unix.Fstatat(int(rootFD.Fd()), ".git", &info, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, os.ErrNotExist) || err == nil && info.Mode&unix.S_IFMT == unix.S_IFDIR {
-		return "", nil, nil
+		return gitMount{}, nil
 	}
 	if err != nil || info.Mode&unix.S_IFMT != unix.S_IFREG {
-		return "", nil, gitSandboxDenied()
+		return gitMount{}, gitSandboxDenied()
 	}
-	pointer, ok := gitMetadataText(rootFD, ".git")
+	pointer, ok := gitMetadataText(rootFD, ".git", 4096)
 	if !ok || !strings.HasPrefix(pointer, "gitdir: ") {
-		return "", nil, gitSandboxDenied()
+		return gitMount{}, gitSandboxDenied()
 	}
 	admin := gitMetadataPath(root, strings.TrimPrefix(pointer, "gitdir: "))
 	if admin == "" {
-		return "", nil, gitSandboxDenied()
+		return gitMount{}, gitSandboxDenied()
 	}
 	if pathWithin(admin, root) {
-		return "", nil, nil
+		return gitMount{}, nil
 	}
-	// Git's linked-worktree layout has its own entry in the main Git
-	// directory and contains a reciprocal pointer. A worktree-controlled
-	// gitdir file by itself never grants a mount of a host path.
+	// Git records reciprocal pointers in the common metadata directory. A
+	// linked checkout of a bare repository uses the repository itself as the
+	// common directory. Keep that mount confined to the exact bare directory.
 	parent := filepath.Dir(admin)
 	common := filepath.Dir(parent)
-	if filepath.Base(parent) != "worktrees" || filepath.Base(common) != ".git" || !gitScopeAllowed(filepath.Dir(common), home, profile) {
-		return "", nil, gitSandboxDenied()
+	ordinary := filepath.Base(common) == ".git"
+	scope := common
+	if ordinary {
+		scope = filepath.Dir(common)
+	}
+	if filepath.Base(parent) != "worktrees" || !gitScopeAllowed(scope, home, profile) {
+		return gitMount{}, gitSandboxDenied()
 	}
 	commonFD, err := openGitScope(common)
 	if err != nil {
-		return "", nil, gitSandboxDenied()
+		return gitMount{}, gitSandboxDenied()
 	}
 	entry := filepath.Join("worktrees", filepath.Base(admin))
-	backlink, hasBacklink := gitMetadataText(commonFD, filepath.Join(entry, "gitdir"))
-	commonPointer, hasCommon := gitMetadataText(commonFD, filepath.Join(entry, "commondir"))
-	if !hasBacklink || gitMetadataPath(admin, backlink) != dot || !hasCommon || gitMetadataPath(admin, commonPointer) != common {
+	backlink, hasBacklink := gitMetadataText(commonFD, filepath.Join(entry, "gitdir"), 4096)
+	commonPointer, hasCommon := gitMetadataText(commonFD, filepath.Join(entry, "commondir"), 4096)
+	if !hasBacklink || gitMetadataPath(admin, backlink) != dot || !hasCommon || gitMetadataPath(admin, commonPointer) != common ||
+		!ordinary && !bareGitMetadata(commonFD) {
 		commonFD.Close()
-		return "", nil, gitSandboxDenied()
+		return gitMount{}, gitSandboxDenied()
 	}
-	return common, commonFD, nil
+	return gitMount{path: common, scope: scope, file: commonFD}, nil
+}
+
+func bareGitMetadata(root *os.File) bool {
+	config, ok := gitMetadataText(root, "config", 1024*1024)
+	if !ok {
+		return false
+	}
+	settings := gitconfig.New()
+	if err := gitconfig.NewDecoder(strings.NewReader(config)).Decode(settings); err != nil {
+		return false
+	}
+	switch strings.ToLower(settings.Section("core").Option("bare")) {
+	case "true", "yes", "on", "1":
+	default:
+		return false
+	}
+	if head, ok := gitMetadataText(root, "HEAD", 4096); !ok || head == "" {
+		return false
+	}
+	for _, entry := range []string{"objects", "refs"} {
+		var info unix.Stat_t
+		if unix.Fstatat(int(root.Fd()), entry, &info, unix.AT_SYMLINK_NOFOLLOW) != nil || info.Mode&unix.S_IFMT != unix.S_IFDIR {
+			return false
+		}
+	}
+	return true
 }
 
 func gitMetadataPath(parent, value string) string {
@@ -513,7 +546,7 @@ func gitMetadataPath(parent, value string) string {
 	return filepath.Join(parent, value)
 }
 
-func gitMetadataText(root *os.File, path string) (string, bool) {
+func gitMetadataText(root *os.File, path string, limit int64) (string, bool) {
 	fd, err := unix.Openat2(int(root.Fd()), path, &unix.OpenHow{
 		Flags:   unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NONBLOCK,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS,
@@ -524,11 +557,11 @@ func gitMetadataText(root *os.File, path string) (string, bool) {
 	file := os.NewFile(uintptr(fd), path)
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 4096 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return "", false
 	}
-	data, err := io.ReadAll(io.LimitReader(file, 4097))
-	if err != nil || len(data) > 4096 || strings.ContainsRune(string(data), 0) {
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(data)) > limit || bytes.IndexByte(data, 0) >= 0 {
 		return "", false
 	}
 	return strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"), true
