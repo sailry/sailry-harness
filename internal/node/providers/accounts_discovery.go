@@ -361,7 +361,7 @@ func RefreshAccountSpeed(provider protocol.ConversationProvider, model protocol.
 	}
 	current := slices.IndexFunc(capabilities.Features, speed)
 	switch {
-	case current < 0 && advertised < 0:
+	case current < 0 && (advertised < 0 || len(capabilities.Features) >= maxModelFeatures):
 		return model
 	case current < 0:
 		capabilities.Features = append(slices.Clone(capabilities.Features), discovered.Features[advertised])

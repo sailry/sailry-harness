@@ -85,7 +85,15 @@ func TestProviderLoginRefreshesAccountSpeed(t *testing.T) {
 	revoked, unmatched := *model, *model
 	revoked.ID, unmatched.ID = "revoked-tier", "unmatched-model"
 	revoked.Capabilities = &protocol.ConversationDiscoveryCapabilities{Features: []protocol.ConversationFeaturesFeature{stale}}
-	provider.Models = append(provider.Models, revoked, unmatched)
+	full := *model
+	full.ID = "fully-configured"
+	full.Capabilities = &protocol.ConversationDiscoveryCapabilities{}
+	for i := range 16 {
+		feature := other
+		feature.ID = fmt.Sprintf("option-%d", i)
+		full.Capabilities.Features = append(full.Capabilities.Features, feature)
+	}
+	provider.Models = append(provider.Models, revoked, unmatched, full)
 
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		output, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{
@@ -109,6 +117,7 @@ func TestProviderLoginRefreshesAccountSpeed(t *testing.T) {
 	catalog := protocol.ConversationDiscoveryCatalog{Models: []protocol.ConversationDiscoveryModel{
 		{ID: provider.Models[0].ID, Context: new(uint32(300000)), Capabilities: &protocol.ConversationDiscoveryCapabilities{Features: []protocol.ConversationFeaturesFeature{advertised}, Vision: new(true)}},
 		{ID: revoked.ID, Capabilities: new(protocol.DefaultConversationDiscoveryCapabilities())},
+		{ID: full.ID, Capabilities: &protocol.ConversationDiscoveryCapabilities{Features: []protocol.ConversationFeaturesFeature{advertised}}},
 	}}
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		events, err := CompleteProviderModelDiscovery(ctx, db, node, provider, catalog)

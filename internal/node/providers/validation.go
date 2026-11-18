@@ -168,6 +168,9 @@ func validateEffort(api protocol.ConversationModelApi, effort protocol.Effort, o
 	}
 	return nil
 }
+
+const maxModelFeatures = 16
+
 func ValidateFeatures(api protocol.ConversationModelApi, model protocol.ConversationModel, selected map[string]string) error {
 	var features []protocol.ConversationFeaturesFeature
 	if model.Capabilities != nil {
@@ -187,7 +190,7 @@ func ValidateFeatures(api protocol.ConversationModelApi, model protocol.Conversa
 		}
 	}
 	advertised := map[string]map[string]bool{}
-	if len(features) > 16 {
+	if len(features) > maxModelFeatures {
 		return invalid("model feature declarations must be unique and bounded")
 	}
 	validID := func(value string) bool {
