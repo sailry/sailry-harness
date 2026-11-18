@@ -14,7 +14,10 @@ import (
 	"golang.org/x/net/http/httpguts"
 )
 
-const DefaultCatalogVersion = "0.160.1"
+// DefaultCatalogVersion tracks the reviewed stable Codex release used to query
+// the ChatGPT account's model catalog.
+const DefaultCatalogVersion = "0.170.0"
+const LegacyCatalogVersion = "0.160.1"
 const DefaultClaudeAgent = "claude-cli/2.1.280 (external, cli)"
 
 // Copilot's service identifies its editor client by these values.
@@ -144,6 +147,10 @@ func OAuthFields(provider protocol.ConversationProvider) (map[string]string, err
 				fields[name] = text
 			}
 		}
+	}
+	if provider.Authentication == protocol.AuthenticationChatGptOAuth && fields["catalog_version"] == LegacyCatalogVersion {
+		// Older desktops saved this generated default in every OAuth channel.
+		fields["catalog_version"] = DefaultCatalogVersion
 	}
 	for name, value := range fields {
 		if strings.TrimSpace(value) == "" || len(value) > 256 || strings.ContainsFunc(value, unicode.IsControl) || !httpguts.ValidHeaderFieldValue(value) {

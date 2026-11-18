@@ -155,6 +155,50 @@ func TestProviderTargetsRespectAuthentication(t *testing.T) {
 	}
 }
 
+func TestProviderTargetRowsRequireSelectableHost(t *testing.T) {
+	for _, test := range []struct {
+		name                                string
+		auth                                preview.Auth
+		extra, connected, selected, visible bool
+	}{
+		{"single host", preview.AuthKey, false, false, false, false},
+		{"OAuth stays on owner", preview.AuthOAuth, true, true, false, false},
+		{"plugin stays on owner", preview.AuthPlugin, true, true, false, false},
+		{"available copy destination", preview.AuthKey, true, true, false, true},
+		{"unauthenticated copy destination", preview.AuthNone, true, true, false, true},
+		{"offline unselected destination", preview.AuthKey, true, false, false, false},
+		{"offline selected destination can be removed", preview.AuthKey, true, false, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := NewModel(preview.SettingsData())
+			hosts := []ProviderHost{{Node: "owner", Name: "Owner", Connected: true}}
+			if test.extra {
+				hosts = append(hosts, ProviderHost{Node: "other", Name: "Other", Connected: test.connected})
+			}
+			m.ProviderActions.Hosts = func() []ProviderHost { return hosts }
+			e := &providerEditor{owner: "owner", targets: []string{"owner"}, method: preview.Method{Auth: test.auth}, targetFailed: []string{"owner"}}
+			if test.selected {
+				e.targets = append(e.targets, "other")
+			}
+			tt := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Dark)
+				ui.Column(c).Fill().Children(func() { providerTargets(c, m, e) })
+			}, 640, 400)
+			tt.SetLocale("en")
+			tt.Frame()
+			text := strings.Join(tt.Texts(), "\n")
+			for _, key := range []string{"provider_host", "provider_copy_to_hosts"} {
+				if strings.Contains(text, i18n.In("en", key)) != test.visible {
+					t.Fatalf("%s visibility: %q", key, text)
+				}
+			}
+			if !strings.Contains(text, i18n.In("en", "provider_host_save_failed", "host", "Owner")) {
+				t.Fatal("hiding host selection lost the save failure")
+			}
+		})
+	}
+}
+
 func TestProviderIdentityIsNodeScopedAndGroupTargetsAreExplicit(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Channels = []preview.Channel{

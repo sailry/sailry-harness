@@ -1746,6 +1746,9 @@ provider_catalog_failed: La mise à jour du catalogue a échoué
 provider_catalog_read_failed: Modèles mis à jour; le catalogue de référence n'a pas pu être lu
 provider_key_failed: Impossible de lire la clé
 provider_query_failed: La requête a échoué; essayez à nouveau
+provider_login_models_failed: Connecté, mais les modèles ne sont pas disponibles; réessayez de mettre à jour les modèles
+authorization_callback_received: Authorization response received
+authorization_callback_return: Return to Sailry to check the sign-in result. You can close this tab.
 provider_revision_changed: Configuration modifiée; rouvrir l'éditeur
 provider_save_failed: Enregistrement échoué; réessayez
 provider_save_unconfirmed: The save could not be confirmed. Check the selected hosts before trying again.

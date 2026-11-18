@@ -3,11 +3,14 @@ package live
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/node/authorization"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -41,7 +44,7 @@ func TestAuthorizationFixedPortCallback(t *testing.T) {
 			presentation := &protocol.PluginModelAuthPresentation{Kind: "script", Data: protocol.PluginModelAuthPresentationScriptPayload{Callback: &declaration}}
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			redirect, returned, manual, err := localAuthorization(ctx, presentation)
+			redirect, returned, manual, err := localAuthorization(ctx, presentation, "zh-CN")
 			if err != nil || redirect == nil || returned == nil || manual {
 				t.Fatalf("fixed callback: redirect=%v listener=%v manual=%v error=%v", redirect, returned != nil, manual, err)
 			}
@@ -55,9 +58,14 @@ func TestAuthorizationFixedPortCallback(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			body, readErr := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != http.StatusNoContent {
+			if response.StatusCode != http.StatusOK || readErr != nil {
 				t.Fatalf("callback response: %d", response.StatusCode)
+			}
+			if response.Header.Get("Content-Type") != "text/html; charset=utf-8" || response.Header.Get("Cache-Control") != "no-store" ||
+				!strings.Contains(string(body), i18n.In("zh-CN", "authorization_callback_return")) || strings.Contains(string(body), "fixture-code") || strings.Contains(string(body), "fixture-proof") {
+				t.Fatal("callback did not return a private, localized browser landing page")
 			}
 			select {
 			case callback := <-returned:
@@ -86,7 +94,7 @@ func TestAuthorizationOccupiedCallbackPort(t *testing.T) {
 			presentation := &protocol.PluginModelAuthPresentation{Kind: "script", Data: protocol.PluginModelAuthPresentationScriptPayload{Callback: &declaration}}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			address, returned, fallback, err := localAuthorization(ctx, presentation)
+			address, returned, fallback, err := localAuthorization(ctx, presentation, "en")
 			if manual {
 				if err != nil || address != nil || returned != nil || !fallback {
 					t.Fatalf("occupied callback did not retain pasted fallback: redirect=%v listener=%v manual=%v error=%v", address, returned != nil, fallback, err)
@@ -102,7 +110,7 @@ func TestAuthorizationPasteOnlyCallback(t *testing.T) {
 	redirect := "https://accounts.example.test/returned"
 	declaration := protocol.PluginModelAuthCallback{Path: "/callback", RedirectUri: &redirect, Manual: true}
 	presentation := &protocol.PluginModelAuthPresentation{Kind: "script", Data: protocol.PluginModelAuthPresentationScriptPayload{Callback: &declaration}}
-	address, returned, manual, err := localAuthorization(t.Context(), presentation)
+	address, returned, manual, err := localAuthorization(t.Context(), presentation, "en")
 	if err != nil || address != nil || returned != nil || !manual {
 		t.Fatalf("paste-only callback changed: redirect=%v listener=%v manual=%v error=%v", address, returned != nil, manual, err)
 	}

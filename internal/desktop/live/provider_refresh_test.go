@@ -1,18 +1,107 @@
 package live
 
 import (
+	"context"
 	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
+	for _, modelFailure := range []bool{false, true} {
+		name := "models discovered"
+		if modelFailure {
+			name = "model discovery failed"
+		}
+		t.Run(name, func(t *testing.T) {
+			provider := providerRouteFixture()
+			provider.Enabled = true
+			account := provider
+			account.ID, account.Authentication, account.Credential = protocol.ProviderID{9}, protocol.AuthenticationChatGptOAuth, nil
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node, snapshot.Providers = protocol.NodeID{1}, []protocol.ConversationProvider{provider, account}
+			transport := &conversationTestTransport{snapshot: snapshot}
+			controller := client.New(transport)
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer controller.Close()
+			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			id := r.App.FocusedConversation()
+			cv, comp := r.App.Data.Find(id), r.App.Composer(id)
+			var offered *composer.Context
+			var toasts []ui.Toast
+			tester := ui.NewTester(func(c *ui.Context) {
+				r.drain(c)
+				offered, _ = r.conversation(c, cv, comp)
+				r.finishFrame()
+				ui.ToastViewportBase(c, func(_ ui.Element, values []ui.Toast) { toasts = slices.Clone(values) })
+			}, 640, 400)
+			tester.SetLocale("en")
+			settle := func() {
+				for range 6 {
+					r.workers.Wait()
+					tester.Frame()
+				}
+			}
+			settle()
+			toastCount := len(toasts)
+			comp.Draft = "Keep this draft"
+			selected := comp.Model
+			account.Credential = &protocol.CredentialRef{Node: snapshot.Node, ID: protocol.CredentialID{9}}
+			account.Revision++
+			transport.snapshot.Cursor++
+			transport.snapshot.Providers = []protocol.ConversationProvider{provider, account}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			view := r.App.Settings.ProviderAuthorization()
+			view.Open = true
+			attempt := &liveAuthorization{provider: account.ID.String(), ctx: ctx, cancel: cancel, view: view}
+			r.authorizations.provider = attempt
+			r.enqueue(func(c *ui.Context) {
+				r.applyProviderLogin(c, attempt, protocol.ConversationLoginUpdate{
+					State: protocol.ConversationLoginState{Kind: "exchanging"}, Credential: account.Credential,
+				})
+			})
+			settle()
+			if view.Open || view.Busy || ctx.Err() != nil || len(toasts) != toastCount {
+				t.Fatal("saved credential did not dismiss the dialog while keeping discovery active")
+			}
+			update := protocol.ConversationLoginUpdate{State: protocol.ConversationLoginState{Kind: "connected"}, Credential: account.Credential}
+			if modelFailure {
+				update.ModelError = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture model discovery failed"}
+			}
+			r.enqueue(func(c *ui.Context) { r.applyProviderLogin(c, attempt, update) })
+			settle()
+			if !slices.ContainsFunc(offered.Models, func(model composer.Model) bool { return model.ID == modelKey(account.ID, account.Models[0].ID) }) {
+				t.Fatal("login did not refresh credential-backed models without a subscription event")
+			}
+			if view.Open || ctx.Err() == nil || comp.Model != selected || comp.Draft != "Keep this draft" {
+				t.Fatal("login did not close cleanly or replaced the draft")
+			}
+			wantType, wantKey := "success", "authorization_connected"
+			if modelFailure {
+				wantType, wantKey = "warning", "provider_login_models_failed"
+			}
+			if len(toasts) != toastCount+1 || toasts[toastCount].Type != wantType || toasts[toastCount].Title != i18n.In("en", wantKey) {
+				t.Fatalf("login outcome toasts: %+v", toasts)
+			}
+		})
+	}
+}
 
 func TestSavedProviderRefreshesOpenDraft(t *testing.T) {
 	for _, removed := range []bool{false, true} {

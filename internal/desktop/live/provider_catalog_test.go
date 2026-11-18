@@ -124,3 +124,37 @@ func TestProviderDiscoveryCatalogFailureRetainsModels(t *testing.T) {
 		})
 	}
 }
+
+func TestOAuthDiscoveryAcceptsNativeModelsWithoutPublicMetadata(t *testing.T) {
+	t.Parallel()
+	snapshot := protocol.DefaultSnapshot()
+	snapshot.Node = protocol.NodeID{1}
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api = protocol.ProviderID{1}, protocol.ConversationModelApiResponses
+	provider.Endpoint, provider.Authentication = "https://chatgpt.com/backend-api/codex", protocol.AuthenticationChatGptOAuth
+	transport := &conversationTestTransport{snapshot: snapshot, handle: func(request protocol.Request) (link.Response, bool) {
+		if request.Command.Kind == "read_model_catalog" {
+			return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture catalog unavailable"}}, true
+		}
+		return link.Response{}, false
+	}}
+	controller := client.New(transport)
+	if err := controller.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Close()
+	r := &Runtime{ctx: t.Context(), controller: controller, providerModels: map[string]map[string]protocol.ConversationModel{}}
+	const modelID = "native-only-model"
+	known := map[string]protocol.ConversationModel{modelID: {ID: modelID, Context: 500000, Output: 16384, Vision: true}}
+	var received []viewmodel.ChannelModel
+	r.finishDiscovery(provider, []protocol.ConversationDiscoveryModel{{ID: modelID}}, known, r.providerModels, func(models []viewmodel.ChannelModel) {
+		received = models
+	})
+	r.workers.Wait()
+	for _, post := range r.queue {
+		post(nil)
+	}
+	if len(received) != 1 || received[0].ID != modelID || !received[0].Vision || received[0].Context != 500000 {
+		t.Fatalf("account catalog model missing: %+v", received)
+	}
+}

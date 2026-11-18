@@ -12,6 +12,43 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestProviderSaveTracksDefaultOAuthCatalogVersion(t *testing.T) {
+	_, node, storage := schemaFixture(t)
+	ctx := t.Context()
+	provider := providerFixture()
+	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationChatGptOAuth
+	provider.Endpoint = "https://chatgpt.com/backend-api/codex"
+	for _, version := range []string{providers.DefaultCatalogVersion, "0.171.0", providers.LegacyCatalogVersion} {
+		provider.Oauth = &protocol.ConversationOauthOptions{
+			Kind: string(provider.Authentication),
+			Data: protocol.ConversationOauthOptionsChatGptOAuthPayload{CatalogVersion: &version, UserAgent: "Fixture/1"},
+		}
+		if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			output, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{
+				Kind: "save_provider",
+				Data: protocol.CommandSaveProviderPayload{Provider: provider, ExpectedRevision: provider.Revision},
+			}}, nil)
+			if err == nil {
+				provider = output.Data.(protocol.ConversationProvider)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		options := provider.Oauth.Data.(*protocol.ConversationOauthOptionsChatGptOAuthPayload)
+		if version == "0.171.0" {
+			if options.CatalogVersion == nil || *options.CatalogVersion != version {
+				t.Fatal("save discarded the explicit catalog override")
+			}
+		} else if options.CatalogVersion != nil {
+			t.Fatal("save pinned the generated catalog default")
+		}
+		if options.UserAgent != "Fixture/1" {
+			t.Fatal("save changed the configured user agent")
+		}
+	}
+}
+
 func providerStoreFixtures(t *testing.T) {
 	providerCredentialFixtures(t)
 	t.Run("provider_inline_authorization_json", func(t *testing.T) {

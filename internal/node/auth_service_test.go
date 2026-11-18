@@ -74,9 +74,24 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	var discoveryFailure atomic.Bool
 	var modelRequests atomic.Int32
 	started := make(chan struct{}, 1)
+	releaseDiscovery := make(chan struct{})
+	defer func() {
+		// Unblock the fixture on a failed assertion as well.
+		select {
+		case <-releaseDiscovery:
+		default:
+			close(releaseDiscovery)
+		}
+	}()
 	node.auth.client = &http.Client{Transport: accountHTTP(func(request *http.Request) (*http.Response, error) {
 		if request.URL.String() == "https://api.openai.com/v1/models" && request.Method == http.MethodGet {
-			modelRequests.Add(1)
+			if modelRequests.Add(1) == 1 {
+				select {
+				case <-releaseDiscovery:
+				case <-request.Context().Done():
+					return nil, request.Context().Err()
+				}
+			}
 			if request.Header.Get("Authorization") != "Bearer private-access" {
 				return nil, errors.New("model discovery did not use the signed-in account")
 			}
@@ -131,6 +146,9 @@ func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 		}
 		if value.State.Kind == "failed" {
 			t.Fatalf("captured account authorization failed: %#v", value.State.Data)
+		}
+		if value.State.Kind == "exchanging" && value.Credential != nil {
+			close(releaseDiscovery)
 		}
 		if value.State.Kind == "connected" {
 			if value.ModelError != nil {

@@ -122,7 +122,7 @@ func (r *Runtime) beginPluginCardLogin(view *ui.Context, card *pluginCardInstanc
 	}
 	login.generation++
 	login.ctx, login.cancel = context.WithCancel(card.ctx)
-	redirect, returned, _, err := localAuthorization(login.ctx, callbackPresentation())
+	redirect, returned, _, err := localAuthorization(login.ctx, callbackPresentation(), view.Locale())
 	if err != nil || redirect == nil {
 		login.suspend()
 		login.state = "failed"

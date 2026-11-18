@@ -63,6 +63,16 @@ func TestAccountCatalogAndAuthorization(t *testing.T) {
 			request.Header.Get("originator") != "codex_cli_rs" || request.Header.Get("version") != version || request.Header.Get("User-Agent") != "CapturedAgent/1" {
 			t.Fatalf("incorrect Codex discovery identity: %s", request.URL)
 		}
+		for _, savedVersion := range []*string{nil, new(LegacyCatalogVersion)} {
+			provider.Oauth.Data = protocol.ConversationOauthOptionsChatGptOAuthPayload{CatalogVersion: savedVersion, UserAgent: "CapturedAgent/1"}
+			request, err = accountDiscoveryRequest(t.Context(), provider, secret())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request.URL.Query().Get("client_version") != DefaultCatalogVersion || request.Header.Get("version") != DefaultCatalogVersion {
+				t.Fatalf("missing current catalog version for channel options %+v", provider.Oauth.Data)
+			}
+		}
 		provider.Endpoint = "https://other.example.test"
 		if _, err := accountDiscoveryRequest(t.Context(), provider, secret()); err == nil {
 			t.Fatal("account credential escaped its authorized endpoint")

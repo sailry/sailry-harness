@@ -128,7 +128,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 		}
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		redirect, returned, manual, err := localAuthorization(ctx, callbackPresentation())
+		redirect, returned, manual, err := localAuthorization(ctx, callbackPresentation(), "en")
 		if err != nil || redirect == nil || returned == nil || manual {
 			t.Fatalf("controller callback listener: %v", err)
 		}
@@ -138,7 +138,7 @@ func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 			t.Fatal(err)
 		}
 		response.Body.Close()
-		if response.StatusCode != http.StatusNoContent {
+		if response.StatusCode != http.StatusOK {
 			t.Fatalf("valid callback was rejected: %d", response.StatusCode)
 		}
 		select {

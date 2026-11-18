@@ -106,7 +106,7 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 		previous.cancel()
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
-	redirect, returned, manual, err := localAuthorization(ctx, connectorPresentation(kind.Declaration, method, draft.Registration))
+	redirect, returned, manual, err := localAuthorization(ctx, connectorPresentation(kind.Declaration, method, draft.Registration), r.packageLocale())
 	if err != nil {
 		cancel()
 		r.enqueue(func(c *ui.Context) { r.connectorError(c, err) })

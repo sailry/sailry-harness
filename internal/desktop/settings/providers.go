@@ -1468,12 +1468,12 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				label = t("provider_querying")
 			}
 			kit.SecondaryBusy(c.Key("discover"), label, e.probing && !e.saving).Disabled(e.probing).OnClick(func() {
-				if !requireProviderCatalog(c, m, e.owner) {
+				if !e.login() && !requireProviderCatalog(c, m, e.owner) {
 					return
 				}
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), ExpectedRevision: e.revision, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
+					draft := ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), OAuth: e.oauth, ExpectedRevision: e.revision, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
 					generation := e.generation
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
@@ -1516,15 +1516,17 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 
 func providerTargets(c *ui.Context, m *Model, e *providerEditor) {
 	hosts := e.targetHosts(m)
-	for _, host := range hosts {
-		if host.Node == e.owner {
-			kit.Field(c, "owner", i18n.T(c, "provider_host"), "", func() {
-				ui.Text(c, providerHostName(c, host)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
-			})
-			break
+	if providerAuthAllowsMultipleTargets(e.auth()) && slices.ContainsFunc(hosts, func(host ProviderHost) bool {
+		return host.Node != e.owner && (host.Connected || slices.Contains(e.targets, host.Node))
+	}) {
+		for _, host := range hosts {
+			if host.Node == e.owner {
+				kit.Field(c, "owner", i18n.T(c, "provider_host"), "", func() {
+					ui.Text(c, providerHostName(c, host)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+				})
+				break
+			}
 		}
-	}
-	if len(hosts) > 1 && providerAuthAllowsMultipleTargets(e.auth()) {
 		providerCopyTargets(c, hosts, e)
 	}
 	providerTargetStatuses(c, hosts, e)

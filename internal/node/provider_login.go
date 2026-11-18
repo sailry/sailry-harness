@@ -217,6 +217,9 @@ func (node *Node) beginProviderLogin(ctx context.Context, caller protocol.NodeID
 					}
 				}
 			}
+			// Publish the saved credential before model discovery. A slow
+			// catalog request can no longer hold the sign-in dialog open.
+			_ = node.setProviderLogin(entry, protocol.ConversationLoginState{Kind: "exchanging"})
 			for _, change := range changes {
 				if change.Kind != "provider_changed" {
 					continue
@@ -275,6 +278,9 @@ func (node *Node) providerLoginInput(caller protocol.NodeID, request, attempt pr
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	if cancel && entry.provider.Credential != nil {
+		return protocol.Output{Kind: "provider_login", Data: entry.provider.Attempt}, nil
+	}
 	if entry.finished || (!cancel && entry.callback == nil) {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "authorization is not awaiting this action"}
 	}
@@ -287,6 +293,10 @@ func (node *Node) providerLoginInput(caller protocol.NodeID, request, attempt pr
 		}
 		node.auth.mu.Lock()
 		if cancel {
+			if entry.provider.Credential != nil {
+				node.auth.mu.Unlock()
+				return
+			}
 			entry.stopped = true
 			if entry.cancel != nil {
 				entry.cancel()
@@ -303,9 +313,9 @@ func (node *Node) providerLoginInput(caller protocol.NodeID, request, attempt pr
 		entry.callback = nil
 		node.auth.mu.Unlock()
 		if target != nil {
+			_ = node.setProviderLogin(entry, protocol.ConversationLoginState{Kind: "exchanging"})
 			target <- callback.Expose()
 		}
-		_ = node.setProviderLogin(entry, protocol.ConversationLoginState{Kind: "exchanging"})
 	}
 	return protocol.Output{Kind: "provider_login", Data: entry.provider.Attempt}, nil
 }

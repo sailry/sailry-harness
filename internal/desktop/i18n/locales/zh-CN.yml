@@ -1746,6 +1746,9 @@ provider_catalog_failed: 目录更新失败，请重试
 provider_catalog_read_failed: 读取模型数据失败
 provider_key_failed: 无法读取密钥
 provider_query_failed: 查询失败，请重试
+provider_login_models_failed: 已连接，但模型暂不可用，请重试更新模型
+authorization_callback_received: 已收到授权回调
+authorization_callback_return: 请返回 Sailry 查看登录结果，可以关闭此标签页。
 provider_revision_changed: 配置已变化，请重新打开编辑
 provider_save_failed: 保存失败，请重试
 provider_save_unconfirmed: 保存结果无法确认，请先在所选主机上检查，再尝试保存。

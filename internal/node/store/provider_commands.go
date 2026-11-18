@@ -294,6 +294,19 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			return protocol.Output{}, nil, err
 		}
 		provider.Endpoint = strings.TrimRight(endpoint.String(), "/")
+		if provider.Authentication == protocol.AuthenticationChatGptOAuth && provider.Oauth != nil {
+			if options, ok := provider.Oauth.Data.(*protocol.ConversationOauthOptionsChatGptOAuthPayload); ok && options.CatalogVersion != nil {
+				version := *options.CatalogVersion
+				if version == providers.DefaultCatalogVersion || version == providers.LegacyCatalogVersion {
+					// Store a version only when it overrides the Node default.
+					normalized := *options
+					normalized.CatalogVersion = nil
+					oauth := *provider.Oauth
+					oauth.Data = &normalized
+					provider.Oauth = &oauth
+				}
+			}
+		}
 		saved.Provider = &provider
 		saved.Listed = true
 		if err := saveProviderConfiguration(ctx, db, *saved); err != nil {

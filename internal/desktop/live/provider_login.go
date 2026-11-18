@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"reflect"
@@ -53,9 +54,10 @@ type liveAuthorization struct {
 	generation uint64
 	ctx        context.Context
 	recovery   *controllerLoginRecovery
+	connected  bool
 }
 
-func localAuthorization(ctx context.Context, presentation *protocol.PluginModelAuthPresentation) (*string, <-chan string, bool, error) {
+func localAuthorization(ctx context.Context, presentation *protocol.PluginModelAuthPresentation, locale string) (*string, <-chan string, bool, error) {
 	path, port, manual, needed, localhost := "/auth/callback", uint16(0), false, false, false
 	if presentation != nil {
 		switch presentation.Kind {
@@ -95,24 +97,41 @@ func localAuthorization(ctx context.Context, presentation *protocol.PluginModelA
 	returned := make(chan string, 1)
 	var once sync.Once
 	server := &http.Server{MaxHeaderBytes: 16 * 1024}
+	page := fmt.Sprintf(`<!doctype html>
+<html lang="%s">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sailry</title></head>
+<body><main><h1>%s</h1><p>%s</p></main></body>
+</html>`, html.EscapeString(i18n.Match(locale)),
+		html.EscapeString(i18n.In(locale, "authorization_callback_received")),
+		html.EscapeString(i18n.In(locale, "authorization_callback_return")))
 	server.Handler = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Referrer-Policy", "no-referrer")
+		writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if request.Method != http.MethodGet || request.URL.Path != path || len(request.URL.RawQuery) > 16*1024 {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		accepted := false
 		once.Do(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			accepted = true
+			// Deliver the landing page before the authorization can complete
+			// and cancel this listener.
+			writer.Header().Set("Content-Length", strconv.Itoa(len(page)))
+			_, _ = writer.Write([]byte(page))
+			_ = http.NewResponseController(writer).Flush()
 			select {
 			case returned <- redirect + "?" + request.URL.RawQuery:
-				accepted = true
 			case <-ctx.Done():
 			}
 		})
 		if !accepted {
 			writer.WriteHeader(http.StatusConflict)
-			return
 		}
-		writer.WriteHeader(http.StatusNoContent)
 	})
 	go func() { _ = server.Serve(listener) }()
 	go func() {
@@ -223,7 +242,7 @@ func (r *Runtime) startProviderLoginFor(id string, recovery *controllerLoginReco
 		presentation = entry.Login
 	}
 	ctx, cancel := context.WithCancel(r.ctx)
-	redirect, returned, manual, err := localAuthorization(ctx, presentation)
+	redirect, returned, manual, err := localAuthorization(ctx, presentation, r.packageLocale())
 	if err != nil {
 		cancel()
 		r.providerLoginFinished(provider.ID, false)
@@ -292,7 +311,9 @@ func (r *Runtime) watchProviderLogin(ctx context.Context, attempt *liveAuthoriza
 		stream, err := r.controller.Subscribe(ctx, protocol.Topic{Kind: "provider_login", Data: attempt.id})
 		if err != nil {
 			r.enqueue(func(c *ui.Context) {
-				r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
+				if r.authorizations.provider == attempt && ctx.Err() == nil {
+					r.reportKeys(c, err, "provider_login_failed", "provider_revision_changed", "provider_login_unknown")
+				}
 			})
 			return
 		}
@@ -351,6 +372,13 @@ func projectAuthorization(view *settings.Authorization, state protocol.Conversat
 
 func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, value protocol.ConversationLoginUpdate) {
 	view := attempt.view
+	if value.State.Kind == "exchanging" && value.Credential != nil {
+		// The sign-in is durable while model discovery is still in flight.
+		view.Open, view.Busy, view.Cancelling = false, false, false
+		r.applyProviderCredential(c, attempt, value.Credential)
+		r.refreshProviderSnapshot()
+		return
+	}
 	expiry, terminal := projectAuthorization(view, value.State)
 	if value.State.Kind == "browser" && view.URL != "" && r.App.Settings.ProviderAuthorization() == view {
 		c.OpenURL(view.URL)
@@ -369,20 +397,30 @@ func (r *Runtime) applyProviderLogin(c *ui.Context, attempt *liveAuthorization, 
 		}
 	}
 	if value.State.Kind == "connected" {
-		kit.Toast(c, kit.Done, i18n.T(c, "authorization_connected"))
-		r.authorizations.credentialKey = ""
-		r.readProviders()
-		if attempt.recovery != nil {
-			r.completeControllerLogin(c, attempt, value.Credential)
-		}
-		r.providerLoginFinished(providerIDFromString(attempt.provider), true)
 		if value.ModelError != nil {
-			r.reportKeys(c, value.ModelError, "provider_query_failed", "provider_revision_changed", "provider_login_unknown")
+			c.AddToast(ui.Toast{Type: "warning", Title: i18n.T(c, "provider_login_models_failed"), Timeout: kit.ToastDuration(c)})
+		} else {
+			kit.Toast(c, kit.Done, i18n.T(c, "authorization_connected"))
 		}
+		r.applyProviderCredential(c, attempt, value.Credential)
+		r.refreshProviderSnapshot()
 	}
 	if expiry != 0 {
 		r.authorizationCountdown(attempt, view, expiry, true)
 	}
+}
+
+func (r *Runtime) applyProviderCredential(c *ui.Context, attempt *liveAuthorization, credential *protocol.CredentialRef) {
+	if attempt.connected {
+		return
+	}
+	attempt.connected = true
+	r.authorizations.credentialKey = ""
+	r.readProviders()
+	if attempt.recovery != nil {
+		r.completeControllerLogin(c, attempt, credential)
+	}
+	r.providerLoginFinished(providerIDFromString(attempt.provider), true)
 }
 
 func (r *Runtime) authorizationCountdown(attempt *liveAuthorization, view *settings.Authorization, expiry uint64, provider bool) {
@@ -444,6 +482,12 @@ func (r *Runtime) cancelProviderLogin() {
 		return
 	}
 	view := attempt.view
+	if attempt.connected {
+		attempt.cancel()
+		view.Open, view.Cancelling = false, false
+		r.authorizations.provider = nil
+		return
+	}
 	view.Cancelling = true
 	// An attempt the Node never began or has already ended (its context is
 	// over) has nothing to cancel there: the dialog closes by itself.
