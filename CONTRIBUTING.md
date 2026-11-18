@@ -216,6 +216,20 @@ The frame budgets are Steady ≤ 0.2 ms, Hover ≤ 0.25 ms and Scroll ≤ 1.2 ms
 Record before/after numbers and their environment; a build or headless fixture
 does not prove live or cross-platform acceptance.
 
+Compare storage performance on the same reference machine. The benchmark
+runs 20 concurrent sessions with a budget of at least 2,000 committed records
+per second and a commit p99 of at most 20 ms.
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+go test -tags integration ./internal/node/store -run '^$' -bench '^BenchmarkStorageLoad$' -benchtime=1x -count=1
+```
+
+The release integration suite runs the same workload on Linux, macOS and
+Windows and verifies complete writes, successful commits, concurrent reads
+and full indexing.
+
 ## Test conventions
 
 - Test Sailry logic and contracts: mappings, state transitions, protocol fixtures,

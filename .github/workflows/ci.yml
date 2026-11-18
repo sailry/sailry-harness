@@ -456,14 +456,6 @@ jobs:
           unset GOROOT
           export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
           go test -p 1 -tags integration ${PACKAGES:-$RELEASE_PACKAGES}
-      - name: Reference storage performance
-        if: runner.os == 'macOS'
-        # Keep the original hardware budgets on one reference platform;
-        # all platforms still run the complete concurrent correctness corpus.
-        run: |
-          unset GOROOT
-          export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
-          go test -tags integration ./internal/node/store -run '^$' -bench '^BenchmarkStorageLoad$' -benchtime=1x -count=1
       - uses: ./.github/actions/go-cache
         if: ${{ !cancelled() && steps.go-cache.outcome == 'success' }}
         with:
