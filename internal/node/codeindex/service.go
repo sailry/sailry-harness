@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/odvcencio/gotreesitter"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -19,7 +20,7 @@ const (
 	maxFiles   = 50_000
 	batchFiles = 16
 	// readers bounds the read and parse workers shared by all worktrees.
-	readers   = 4
+	readers   = 2
 	maxIssues = 5
 	// maxChanged bounds the remembered changed paths of one worktree. They
 	// only order the next reconcile, so further ones are not remembered.
@@ -31,7 +32,7 @@ const (
 
 // Fingerprint identifies this engine's extraction rules in files.fingerprint.
 // Records written under any other rules are parsed again.
-var Fingerprint = Hash("code-index-v1:gotreesitter:v0.57.0:embedded-1:data-1:references-1")
+var Fingerprint = Hash("code-index-v1:gotreesitter:v0.57.0:embedded-1:data-1:references-2")
 
 // Watch subscribes to the changes of one worktree root. The subscription
 // reports that something changed; the owner also passes the changed paths to
@@ -289,7 +290,12 @@ func (w *worktree) begin(ctx context.Context) (context.Context, func(), error) {
 		end()
 		return nil, nil, cancelled()
 	}
-	return ctx, end, nil
+	return ctx, func() {
+		// Keep arenas reusable across batches in a query. The parser
+		// pool keeps strong references until drained, even while idle.
+		gotreesitter.DrainArenaPools()
+		end()
+	}, nil
 }
 
 // observed subscribes once to the worktree's file changes. Each update

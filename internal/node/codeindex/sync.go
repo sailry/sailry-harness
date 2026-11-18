@@ -6,11 +6,14 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"runtime"
+	"runtime/metrics"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/odvcencio/gotreesitter"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -399,6 +402,9 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 		if exhausted {
 			break
 		}
+		if len(changes) != 0 {
+			releaseBatchScratch()
+		}
 		committed, revisions, err := commit(ctx, index, changes, limits.deadline)
 		if err != nil {
 			return report{}, err
@@ -452,6 +458,33 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 		progress.scan = nil
 	}
 	return result, nil
+}
+
+var scratchCollection sync.Mutex
+
+// A cold scan can allocate several large parse trees before the next ordinary
+// collection. At a batch boundary the workers have released their trees, and
+// only the declarations, references and imports are needed for the write.
+func releaseBatchScratch() {
+	// The metrics and collection are process-wide. One worktree handles
+	// pressure while any other worktrees continue their scans.
+	if !scratchCollection.TryLock() {
+		return
+	}
+	defer scratchCollection.Unlock()
+	samples := [...]metrics.Sample{
+		{Name: "/memory/classes/heap/objects:bytes"},
+		{Name: "/gc/heap/live:bytes"},
+	}
+	metrics.Read(samples[:])
+	heap, live := samples[0].Value.Uint64(), samples[1].Value.Uint64()
+	const highHeap, heapGrowth = 384 << 20, 96 << 20
+	// Require fresh growth as well as pressure, so a large live heap doesn't
+	// cause repeated collections on batches that allocate little.
+	if heap > highHeap && heap > live+heapGrowth {
+		gotreesitter.DrainArenaPools()
+		runtime.GC()
+	}
 }
 
 // prune removes records absent from a complete walk in committed batches of

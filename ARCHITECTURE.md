@@ -297,7 +297,9 @@ Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
 files and configuration are independent. Worktree code indexes live under
-`cache/code-index/<WorktreeId>/index.turso`.
+`cache/code-index/<WorktreeId>/index.turso`. Code indexing bounds concurrent
+readers, parser memory and syntax query work. It reports partial results and
+drains idle parser arenas after high-allocation batches and when a query ends.
 
 Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
 excluded through Git's `info/exclude`. Command, browser and transfer staging uses

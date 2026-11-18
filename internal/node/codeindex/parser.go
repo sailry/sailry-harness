@@ -24,6 +24,12 @@ const (
 	maxNameBytes      = 512
 	maxSignatureBytes = 384
 	parseMicros       = 1_000_000
+	// Index readers parse concurrently. The library's default
+	// budget permits 512 MiB of scratch and tree memory per file.
+	parseMemoryBytes = 128 << 20
+	// The cursor can allocate while enumerating a single pattern at
+	// one node, before the caller gets a chance to check its deadline.
+	matchWorkBudget = 8_192
 )
 
 // Parser extracts one file at a time. Compiled queries are shared by every
@@ -137,6 +143,7 @@ func parse(ctx context.Context, entry *grammars.LangEntry, source string) (*gotr
 	}
 	language := entry.Language()
 	parser := gotreesitter.NewParser(language)
+	parser.SetMemoryBudgetBytes(parseMemoryBytes)
 	parser.SetTimeoutMicros(parseMicros)
 	var cancelled uint32
 	parser.SetCancellationFlag(&cancelled)
@@ -151,12 +158,10 @@ func parse(ctx context.Context, entry *grammars.LangEntry, source string) (*gotr
 		tree, err = parser.Parse(bytes)
 	}
 	if cancel := ctx.Err(); cancel != nil {
+		tree.Release()
 		return nil, cancel
 	}
-	if err != nil || tree == nil || tree.RootNode() == nil {
-		return nil, nil
-	}
-	if tree.ParseStopReason() == gotreesitter.ParseStopTimeout {
+	if err != nil || tree == nil || tree.RootNode() == nil || tree.ParseStopReason() == gotreesitter.ParseStopTimeout {
 		tree.Release()
 		return nil, nil
 	}

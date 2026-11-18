@@ -1,64 +1,37 @@
+; Sailry indexes names and references without collecting documentation.
 (
-  (comment)* @doc
-  .
   (method_definition
     name: (property_identifier) @name) @definition.method
   (#not-eq? @name "constructor")
-  (#strip! @doc "^[\\s\\*/]+|^[\\s\\*/]$")
-  (#select-adjacent! @doc @definition.method)
 )
 
-(
-  (comment)* @doc
-  .
-  [
-    (class
-      name: (_) @name)
-    (class_declaration
-      name: (_) @name)
-  ] @definition.class
-  (#strip! @doc "^[\\s\\*/]+|^[\\s\\*/]$")
-  (#select-adjacent! @doc @definition.class)
-)
+[
+  (class
+    name: (_) @name)
+  (class_declaration
+    name: (_) @name)
+] @definition.class
 
-(
-  (comment)* @doc
-  .
-  [
-    (function_expression
-      name: (identifier) @name)
-    (function_declaration
-      name: (identifier) @name)
-    (generator_function
-      name: (identifier) @name)
-    (generator_function_declaration
-      name: (identifier) @name)
-  ] @definition.function
-  (#strip! @doc "^[\\s\\*/]+|^[\\s\\*/]$")
-  (#select-adjacent! @doc @definition.function)
-)
+[
+  (function_expression
+    name: (identifier) @name)
+  (function_declaration
+    name: (identifier) @name)
+  (generator_function
+    name: (identifier) @name)
+  (generator_function_declaration
+    name: (identifier) @name)
+] @definition.function
 
-(
-  (comment)* @doc
-  .
-  (lexical_declaration
-    (variable_declarator
-      name: (identifier) @name
-      value: [(arrow_function) (function_expression)]) @definition.function)
-  (#strip! @doc "^[\\s\\*/]+|^[\\s\\*/]$")
-  (#select-adjacent! @doc @definition.function)
-)
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @name
+    value: [(arrow_function) (function_expression)]) @definition.function)
 
-(
-  (comment)* @doc
-  .
-  (variable_declaration
-    (variable_declarator
-      name: (identifier) @name
-      value: [(arrow_function) (function_expression)]) @definition.function)
-  (#strip! @doc "^[\\s\\*/]+|^[\\s\\*/]$")
-  (#select-adjacent! @doc @definition.function)
-)
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @name
+    value: [(arrow_function) (function_expression)]) @definition.function)
 
 (assignment_expression
   left: [

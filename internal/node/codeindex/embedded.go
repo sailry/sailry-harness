@@ -55,10 +55,14 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry 
 	}
 	deadline := time.Now().Add(parseMicros * time.Microsecond)
 	cursor := query.Exec(tree.RootNode(), s.language, []byte(s.source))
+	cursor.SetMatchWorkBudget(matchWorkBudget)
 	regions := 0
 	for {
 		matched, ok := cursor.NextMatch()
 		if !ok {
+			if cursor.DidExceedMatchLimit() {
+				parsed.Partial, parsed.Truncated = true, true
+			}
 			return nil
 		}
 		if err := ctx.Err(); err != nil {
@@ -111,6 +115,7 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry 
 				parsed.Partial = true
 			} else {
 				parsed.Capabilities.Embedded = true
+				parsed.Partial = parsed.Partial || guestTree.ParseStoppedEarly()
 				inner := &syntax{language: guest.Language(), source: text}
 				start := region.StartPoint()
 				parsed.collect(extract(inner, guestTree.RootNode(), guest.Name), guest.Name, text,

@@ -61,9 +61,13 @@ func (p *Parser) references(ctx context.Context, parsed *Parsed, s *syntax, entr
 	parsed.Imports = modules(entry.Name, parsed.Path, imported)
 	found := imports(imported)
 	if query := p.tags(entry); query != nil {
+		var truncated bool
 		var err error
-		if found, err = collect(ctx, query, s, tree, aliases(imported), found); err != nil {
+		if found, truncated, err = collect(ctx, query, s, tree, aliases(imported), found); err != nil {
 			return err
+		}
+		if truncated {
+			parsed.Partial, parsed.Truncated = true, true
 		}
 	}
 	type identity struct {
@@ -198,7 +202,7 @@ func imports(imported []statement) []Usage {
 	return found
 }
 
-func collect(ctx context.Context, query *gotreesitter.Query, s *syntax, tree *gotreesitter.Tree, renamed map[string]string, found []Usage) ([]Usage, error) {
+func collect(ctx context.Context, query *gotreesitter.Query, s *syntax, tree *gotreesitter.Tree, renamed map[string]string, found []Usage) ([]Usage, bool, error) {
 	type reference struct {
 		node node
 		kind string
@@ -207,15 +211,18 @@ func collect(ctx context.Context, query *gotreesitter.Query, s *syntax, tree *go
 	definitions := map[uint32]bool{}
 	var references []reference
 	cursor := query.Exec(tree.RootNode(), s.language, []byte(s.source))
+	cursor.SetMatchWorkBudget(matchWorkBudget)
+	truncated := false
 	for {
 		matched, ok := cursor.NextMatch()
 		if !ok {
 			break
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !time.Now().Before(deadline) || len(references) >= maxReferences {
+			truncated = true
 			break
 		}
 		var name node
@@ -257,7 +264,7 @@ func collect(ctx context.Context, query *gotreesitter.Query, s *syntax, tree *go
 			Receiver: receiver(s.source, int(reference.node.StartByte())),
 		})
 	}
-	return found, nil
+	return found, truncated || cursor.DidExceedMatchLimit(), nil
 }
 
 func identifier(name string) bool {
