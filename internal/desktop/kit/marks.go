@@ -38,6 +38,9 @@ func mark(c *ui.Context, size float32, cycle time.Duration, draw func(p *ui.Pain
 	now := c.Now()
 	k := ui.Local(e, markKey{}, func() markTimer { return markTimer{start: now} })
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		if visible := visibleMotionRect(p, r); visible.W <= 0 || visible.H <= 0 {
+			return
+		}
 		cycles := 0.0
 		if !still {
 			cycles = float64(p.Now().Sub(k.start)) / float64(cycle)

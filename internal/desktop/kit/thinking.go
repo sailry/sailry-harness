@@ -50,13 +50,15 @@ func Indicator(c *ui.Context, st Thinking, size float32) ui.Element {
 	o := loading.Options{Size: size, Color: theme.Of(c).MutedForeground}
 	switch st {
 	case Working:
-		return loading.Swirl(c, o)
+		// The plugin requests frames inside Draw. Clip its own ink box so
+		// MyGo's paint margin does not keep an offscreen spinner awake.
+		return loading.Swirl(c, o).ClipInset(0, 0, 0, 0, 0)
 	case Searching:
 		return Loop(c, size, o.Color)
 	case Composing:
 		return Chevrons(c, size, o.Color)
 	case Waiting:
-		return loading.Trace(c, o)
+		return loading.Trace(c, o).ClipInset(0, 0, 0, 0, 0)
 	}
 	o.Paused = true
 	return loading.Pulse(c, o)

@@ -18,6 +18,14 @@ import (
 // than built from Element.Loop, which runs at the display's rate.
 const FPS = 60
 
+const sweepPeriod = 2 * time.Second
+
+func visibleMotionRect(p *ui.Painter, r ui.Rect) ui.Rect {
+	v := p.Visible()
+	x, y := max(r.X, v.X), max(r.Y, v.Y)
+	return ui.Rect{X: x, Y: y, W: min(r.X+r.W, v.X+v.W) - x, H: min(r.Y+r.H, v.Y+v.H) - y}
+}
+
 // Fast is Kit's motion duration for small transitions (the jump button's
 // fade, popovers): 200 ms.
 const Fast = 200 * time.Millisecond
@@ -51,6 +59,14 @@ type Sweep struct {
 	used bool
 }
 
+type sweepLabelKey struct{}
+
+type sweepLabel struct {
+	text   string
+	font   ui.Font
+	layout *ui.TextLayout
+}
+
 // Frame makes row the box the band crosses. Call it on the row's element
 // after its children are built; it does nothing when no text took the
 // band.
@@ -73,7 +89,7 @@ func (s *Sweep) Frame(row ui.Element) {
 // font the ascents differ. The glyphs then sit off the band's and the
 // text looks doubled or heavier as the band passes.
 func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
-	if c.Preferences().ReduceMotion {
+	if c.Preferences().ReduceMotion || span.Text == "" {
 		return e
 	}
 	s.used = true
@@ -84,23 +100,63 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 	}
 	const layers = 12
 	span.Color = hi.Alpha(peak / layers)
+	// A plain label at the theme's size has the same strut as RichText.
+	// Reuse its geometry across the clips and paint color separately.
+	// ShapeText preserves trailing whitespace, unlike RichText.
+	font := ui.Font{Family: c.Theme().Font, Size: c.Theme().FontSize, Lang: c.Locale()}
+	var label *sweepLabel
+	if (span.Size == font.Size || span.Size == 0) && span == (ui.Span{Text: span.Text, Size: span.Size, Color: span.Color}) &&
+		strings.TrimSpace(span.Text) == span.Text && !strings.ContainsAny(span.Text, "\r\n") {
+		label = ui.Local(e, sweepLabelKey{}, func() sweepLabel { return sweepLabel{} })
+	}
 	return e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-		pt.AnimationFrameRate(FPS)
+		visible := visibleMotionRect(pt, r)
+		if visible.W <= 0 || visible.H <= 0 {
+			return
+		}
 		row := s.row
 		if row.W <= 0 {
 			row = r
 		}
-		phase := float32(pt.Now().UnixMilli()%2000) / 2000
 		spread := 0.3 * row.W
-		center := row.X - spread + phase*(row.W+2*spread)
-		if center+spread/2 < r.X || center-spread/2 > r.X+r.W {
-			return // the band is elsewhere in the row
+		origin, travel := row.X-spread, row.W+2*spread
+		// The band moves linearly. Wake when its leading edge next enters
+		// this visible text box, not at every refresh across the row's gaps.
+		crossing := func(x float32) time.Duration {
+			return time.Duration(float64((x-origin)/travel) * float64(sweepPeriod))
+		}
+		enter := max(0, crossing(visible.X-spread/2))
+		leave := min(sweepPeriod, crossing(visible.X+visible.W+spread/2))
+		if enter >= leave {
+			return
+		}
+		now := pt.Now()
+		elapsed := now.Sub(now.Truncate(sweepPeriod))
+		if elapsed < enter {
+			pt.After(enter - elapsed)
+			return
+		}
+		if elapsed >= leave {
+			pt.After(sweepPeriod - elapsed + enter)
+			return
+		}
+		pt.AnimationFrameRate(FPS)
+		center := origin + float32(elapsed)/float32(sweepPeriod)*travel
+		if label != nil && (label.text != span.Text || label.font != font) {
+			*label = sweepLabel{text: span.Text, font: font, layout: ui.ShapeText(span.Text, font, 0)}
 		}
 		pt.Clip(r, 0, func() {
 			for i := range layers {
 				half := spread / 2 * (1 - float32(i)/layers)
+				if center+half <= visible.X || center-half >= visible.X+visible.W {
+					break // all remaining clips are narrower
+				}
 				pt.Clip(ui.Rect{X: center - half, Y: r.Y, W: 2 * half, H: r.H}, 0, func() {
-					pt.RichText(r.X, r.Y, 0, span)
+					if label != nil {
+						pt.TextLayout(label.layout, r.X, r.Y, span.Color)
+					} else {
+						pt.RichText(r.X, r.Y, 0, span)
+					}
 				})
 			}
 		})
@@ -139,8 +195,19 @@ func Agent(c *ui.Context, id string, color ui.Color, turning bool, size float32)
 		return ui.Icon(c, svg).FontSize(size).TextColor(color).Shrink(0)
 	}
 	return ui.Box(c).Size(size, size).Shrink(0).Draw(func(pt *ui.Painter, r ui.Rect) {
+		if visible := visibleMotionRect(pt, r); visible.W <= 0 || visible.H <= 0 {
+			return
+		}
+		const spin = 450 * time.Millisecond
+		now := pt.Now()
+		elapsed := now.Sub(now.Truncate(time.Second))
+		if elapsed >= spin {
+			pt.Icon(svg, r, color)
+			pt.After(time.Second - elapsed)
+			return
+		}
 		pt.AnimationFrameRate(FPS)
-		t := min(float32(pt.Now().UnixMilli()%1000)/450, 1)
+		t := float32(elapsed) / float32(spin)
 		turn := t * t * (3 - 2*t) * 360
 		pt.Transform(ui.Rotation(turn), r.X+r.W/2, r.Y+r.H/2, func() { pt.Icon(svg, r, color) })
 	})

@@ -60,7 +60,11 @@ func TestSweepSharesRow(t *testing.T) {
 		sw.Frame(row)
 	}, 400, 100)
 	tt.Frame()
-	tt.Frame()
+	// Outside these two labels the sweep waits on Painter.After, which
+	// FramePending does not include. Let its own wake reach a label.
+	for elapsed := time.Duration(0); !tt.FramePending() && elapsed < sweepPeriod; elapsed += 10 * time.Millisecond {
+		tt.Advance(10 * time.Millisecond)
+	}
 	if !tt.FramePending() {
 		t.Fatal("the sweep asks for no frame")
 	}
