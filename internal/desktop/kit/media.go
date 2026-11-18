@@ -35,9 +35,9 @@ func MediaRecord(c *ui.Context, title string, tile, badge, description func()) u
 		}
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(TitleGap).Children(func() {
 			ui.Row(c).MinWidth(0).Gap(8).Children(func() {
-				ui.Text(c, title).FontSize(16).LineHeight(1.3).SingleLine().Shrink(1).TextColor(p.Foreground)
+				ui.Text(c, title).FontSize(16).LineHeight(1.3).SingleLine().Shrink(1).MinWidth(0).TextColor(p.Foreground)
 				if badge != nil {
-					ui.Row(c).Shrink(0).Children(badge)
+					ui.Row(c).Shrink(0).MaxWidthPercent(50).Children(badge)
 				}
 			})
 			if description != nil {
