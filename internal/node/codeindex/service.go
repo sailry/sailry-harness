@@ -110,16 +110,6 @@ func (d *dirty) snapshot() (uint64, map[string]uint64) {
 	return d.revision, maps.Clone(d.paths)
 }
 
-// finish forgets the changed paths a complete reconcile covered. The caller
-// holds the mutex.
-func (d *dirty) finish(generation uint64) bool {
-	if d.revision != generation {
-		return false
-	}
-	clear(d.paths)
-	return true
-}
-
 // New returns the enabled index service of a profile directory.
 func New(profile string, watch Watch) *Service {
 	closed, cancel := context.WithCancel(context.Background())
@@ -435,7 +425,14 @@ func (s *Service) Outline(ctx context.Context, id protocol.WorktreeID, root, pat
 func (s *Service) reconcile(ctx context.Context, worktree *worktree, index *index) (report, *progress, error) {
 	select {
 	case progress := <-worktree.sync:
-		found, err := s.synchronize(ctx, worktree, index, progress, defaultLimits())
+		budget := defaultLimits()
+		found, err := s.synchronize(ctx, worktree, index, progress, budget)
+		if err == nil && found.recheck && time.Now().Before(budget.deadline) {
+			// A watch event can arrive during a completed pass. Follow
+			// it once under the original deadline; continued writes
+			// leave the result partial for the next query.
+			found, err = s.synchronize(ctx, worktree, index, progress, budget)
+		}
 		if err != nil {
 			worktree.sync <- progress
 			return report{}, nil, err

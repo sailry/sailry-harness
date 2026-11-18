@@ -842,7 +842,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		if found := codeFingerprints(t, database, ""); !slices.Equal(found, []string{codeindex.Fingerprint}) {
 			t.Fatalf("the index carries fingerprints %v, want %s", found, codeindex.Fingerprint)
 		}
-		if codeindex.Fingerprint != "546f8c024848e7839e914367cbe7fc6491c37ec2c0219904c3b77ba3a34c405c" {
+		if codeindex.Fingerprint != "e8a01af683f2373e36cf68caafce413399d7f5e66cc8375ab1cb52b085447e6a" {
 			t.Fatalf("the engine fingerprint is %s", codeindex.Fingerprint)
 		}
 		// Another engine's rows: same files and hashes, other rules.

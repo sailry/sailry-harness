@@ -31,7 +31,9 @@ type report struct {
 	// partial marks a reconcile that was cut short or could not prove freshness.
 	partial   bool
 	truncated bool
-	problems  map[string]problem
+	// recheck marks a finished pass invalidated by a newer watch generation.
+	recheck  bool
+	problems map[string]problem
 }
 
 type problem struct {
@@ -435,9 +437,8 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 	if ctx.Err() != nil {
 		return report{}, cancelled()
 	}
-	current := worktree.dirty.generation() == scan.generation
 	finished := len(scan.pending) == 0
-	if finished && scan.complete && current {
+	if finished && scan.complete && worktree.dirty.generation() == scan.generation {
 		// Absence is proven only by a complete walk. Committed pruning batches
 		// also survive a budget boundary; unfinished deletions remain pending.
 		var err error
@@ -449,10 +450,12 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 	result.problems = maps.Clone(scan.report.problems)
 	worktree.dirty.mutex.Lock()
 	defer worktree.dirty.mutex.Unlock()
+	current := worktree.dirty.revision == scan.generation
 	result.partial = result.partial || worktree.dirty.watchFailed || !current || !finished
 	result.truncated = result.truncated || !finished || !current
-	if finished && scan.complete {
-		result.partial = result.partial || !worktree.dirty.finish(scan.generation)
+	result.recheck = finished && scan.complete && !current
+	if finished && scan.complete && current {
+		clear(worktree.dirty.paths)
 	}
 	if finished {
 		progress.scan = nil

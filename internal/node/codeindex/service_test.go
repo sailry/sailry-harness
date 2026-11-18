@@ -322,6 +322,38 @@ func TestGraphBounds(t *testing.T) {
 	})
 }
 
+func TestReconcileFollowsWatchChangeAfterFinishedPass(t *testing.T) {
+	f := newFixture(t)
+	f.write("old.go", "package fixture\nfunc Old() {}\n")
+	initial := f.search("Old")
+	if len(initial.Symbols) != 1 {
+		t.Fatalf("initial search = %+v", initial)
+	}
+	worktree, err := f.service.worktree(f.id, f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a pass that checked the last file just as the watch received
+	// a change. Its old directory walk cannot prove what to prune.
+	progress := <-worktree.sync
+	progress.scan = &scan{
+		generation: worktree.dirty.generation(),
+		limit:      maxFiles,
+		seen:       map[string]bool{"old.go": true},
+		complete:   true,
+	}
+	worktree.sync <- progress
+	if err := os.Remove(filepath.Join(f.root, "old.go")); err != nil {
+		t.Fatal(err)
+	}
+	f.write("current.go", "package fixture\nfunc Current() {}\n")
+	worktree.dirty.change(nil)
+	page := f.search("")
+	if page.Partial || page.Truncated || len(page.Symbols) != 1 || page.Symbols[0].Name != "Current" {
+		t.Fatalf("search after watch change = %+v", page)
+	}
+}
+
 // TestIndexRebuildable proves the index is a cache: records follow file
 // changes and deletions, rows written under other extraction rules are parsed
 // again, and a deleted database is rebuilt to the same answers.
