@@ -45,32 +45,6 @@ if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
   task_root="$task_parent/sailry"
   task_command=/usr/local/bin/sailry
 fi
-task_existing="$task_root"
-task_migrate=0
-task_had_command=0
-if test "$task_update" = 1 && test "$task_root" = /usr/local/libexec/sailry \
-  && ! test -e "$task_root" && ! test -L "$task_root" \
-  && test -L "$task_command" \
-  && test "$(readlink "$task_command")" = "$HOME/.local/lib/sailry/sailry"; then
-  task_existing="$HOME/.local/lib/sailry"
-  task_migrate=1
-fi
-if test -e "$task_command" || test -L "$task_command"; then
-  if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_existing/sailry"; then
-    echo 'The sailry command path is already in use' >&2
-    exit 1
-  fi
-  task_had_command=1
-fi
-if test "$task_update" = 0; then
-  if test -e "$task_root" || test -L "$task_root" || test -e "$task_data" || test -L "$task_data"; then
-    echo 'Host files or data already exist; inspect the existing installation' >&2
-    exit 1
-  fi
-else
-  test -x "$task_existing/sailry-host"
-  test -x "$task_existing/sailry"
-fi
 command -v curl >/dev/null
 command -v tar >/dev/null
 if test "$(uname -s)" = Linux; then
@@ -81,10 +55,37 @@ else
   launchctl print "gui/$(id -u)" >/dev/null
   task_unit="$HOME/Library/LaunchAgents/ai.sailry.host.plist"
 fi
-if test "$task_update" = 0; then
-  test ! -e "$task_unit"
-  test ! -L "$task_unit"
-fi
+task_check_paths() {
+  task_existing="$task_root"
+  task_migrate=0
+  task_had_command=0
+  if test "$task_update" = 1 && test "$task_root" = /usr/local/libexec/sailry \
+    && ! test -e "$task_root" && ! test -L "$task_root" \
+    && test -L "$task_command" \
+    && test "$(readlink "$task_command")" = "$HOME/.local/lib/sailry/sailry"; then
+    task_existing="$HOME/.local/lib/sailry"
+    task_migrate=1
+  fi
+  if test -e "$task_command" || test -L "$task_command"; then
+    if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_existing/sailry"; then
+      echo 'The sailry command path is already in use' >&2
+      exit 1
+    fi
+    task_had_command=1
+  fi
+  if test "$task_update" = 0; then
+    for task_path in "$task_root" "$task_data" "$task_unit"; do
+      if test -e "$task_path" || test -L "$task_path"; then
+        echo 'Host files or data already exist; inspect the existing installation' >&2
+        exit 1
+      fi
+    done
+  else
+    test -x "$task_existing/sailry-host"
+    test -x "$task_existing/sailry"
+  fi
+}
+task_check_paths
 umask 077
 # Shared parents such as /usr/local/libexec stay usable by other software;
 # the program directory itself is published from the private stage.
@@ -214,6 +215,18 @@ test -f "$task_stage/package/sailry"
 test -f "$task_stage/package/service.sh"
 chmod 700 "$task_stage/package/sailry" "$task_stage/package/sailry-host"
 test "$("$task_stage/package/sailry-host" --version)" = "Sailry Host $task_version"
+# Share this lock with SSH deployment. Python locks the descriptor owned by
+# this shell, which keeps it through publication, service startup and rollback.
+exec 9<> "$task_parent/.sailry-install.lock"
+"$task_stage/package/python/bin/python3.12" -I - <<'PY'
+import fcntl
+import sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit("Another Host installation or update is in progress")
+PY
+task_check_paths
 if test "$task_migrate" = 1; then
   cp -p "$task_unit" "$task_stage/previous-service"
   "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" <<'PY'

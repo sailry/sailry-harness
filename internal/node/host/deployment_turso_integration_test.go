@@ -24,12 +24,14 @@ func TestLocalDeploymentNativeRuntimePublication(t *testing.T) {
 		serviceFails  bool
 		fresh         bool
 		cleanupFails  bool
+		overlap       bool
 	}{
 		{name: "publish all runtime files"},
 		{name: "service failure restores old runtime", serviceFails: true},
 		{name: "damaged Turso is refused", corrupt: "libturso_sync_sdk_kit.so"},
 		{name: "damaged seal is refused", corrupt: shipped.SealName},
 		{name: "publish new runtime", fresh: true},
+		{name: "concurrent publication leaves the first installation intact", fresh: true, overlap: true},
 		{name: "new service failure removes owned files", fresh: true, serviceFails: true},
 		{name: "new service cleanup failure retains recovery files", fresh: true, serviceFails: true, cleanupFails: true},
 	} {
@@ -138,15 +140,23 @@ esac
 			if _, err := exec.LookPath("sha256sum"); err != nil {
 				write(filepath.Join(tools, "sha256sum"), []byte("#!/bin/sh\nexec shasum -a 256 \"$@\"\n"), 0o700)
 			}
-			command := exec.CommandContext(t.Context(), "/bin/sh", "-s")
-			command.Dir = directory
-			command.Env = []string{
-				"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH"),
-				fmt.Sprintf("SAILRY_FIXTURE_SERVICE_FAILS=%t", test.serviceFails),
-				fmt.Sprintf("SAILRY_FIXTURE_CLEANUP_FAILS=%t", test.cleanupFails),
+			command := func() *exec.Cmd {
+				value := exec.CommandContext(t.Context(), "/bin/sh", "-s")
+				value.Dir = directory
+				value.Env = []string{
+					"PATH=" + tools + string(os.PathListSeparator) + os.Getenv("PATH"),
+					fmt.Sprintf("SAILRY_FIXTURE_SERVICE_FAILS=%t", test.serviceFails),
+					fmt.Sprintf("SAILRY_FIXTURE_CLEANUP_FAILS=%t", test.cleanupFails),
+				}
+				value.Stdin = strings.NewReader(script)
+				return value
 			}
-			command.Stdin = strings.NewReader(script)
-			output, err := command.CombinedOutput()
+			var output []byte
+			if test.overlap {
+				assertHostInstallExclusive(t, directory, tools, root, command(), command())
+			} else {
+				output, err = command().CombinedOutput()
+			}
 			want := next
 			if test.serviceFails || test.corrupt != "" {
 				want = current

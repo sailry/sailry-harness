@@ -31,6 +31,18 @@ test "$("$install_stage/sailry-host" --version)" = "Sailry Host $install_version
 install_parent="$(dirname "$install_root")"
 install_backup="$install_parent/.sailry-previous"
 install_unit_name="$(basename "$install_service_path")"
+# Shared parents stay usable by other software; only the installer lock and
+# program files are private. Hold the shell's descriptor through cleanup.
+(umask 022 && mkdir -p "$install_parent" "$(dirname "$install_command")")
+exec 9<> "$install_parent/.sailry-install.lock"
+python3 -I - <<'PY'
+import fcntl
+import sys
+try:
+    fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit("Another Host installation or update is in progress")
+PY
 install_had_backup=0
 if test "$install_update" = 0; then
   for install_path in "$install_root" "$install_data" "$install_service_path" "$install_command"; do
@@ -57,9 +69,6 @@ else
     install_had_backup=1
   fi
 fi
-# Shared parents stay usable by other software; the program directory is
-# published from the private stage.
-(umask 022 && mkdir -p "$install_parent" "$(dirname "$install_command")")
 install_publish="$(mktemp -d "$install_parent/.sailry-install-XXXXXX")"
 install_changed=0
 install_complete=0

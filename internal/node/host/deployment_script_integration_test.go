@@ -4,6 +4,7 @@ package host
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 )
@@ -167,6 +169,78 @@ func TestFreshHostInstallRecovery(t *testing.T) {
 	}
 }
 
+func TestFreshHostInstallSerializesConcurrentPublication(t *testing.T) {
+	directory, home, installer, tools := freshHostInstaller(t)
+	command := func() *exec.Cmd {
+		value := exec.CommandContext(t.Context(), "/bin/bash", installer, "--version", link.ProductVersion)
+		value.Env = append(os.Environ(),
+			"PATH="+tools+string(os.PathListSeparator)+os.Getenv("PATH"),
+			"SAILRY_INSTALL_FIXTURE="+directory,
+			"SAILRY_INSTALL_FIXTURE_HOME="+home,
+			"SAILRY_INSTALL_FAIL=",
+			"SAILRY_INSTALL_RETAIN_DATA=false",
+			"SAILRY_INSTALL_CLEANUP_FAILS=false",
+		)
+		return value
+	}
+	root := filepath.Join(home, ".local", "lib", "sailry")
+	assertHostInstallExclusive(t, directory, tools, root, command(), command())
+	for _, path := range []string{filepath.Join(root, "sailry-host"), filepath.Join(home, ".local", "bin", "sailry"), filepath.Join(home, ".config", "systemd", "user", "sailry-host.service")} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("the first installation lost %s: %v", path, err)
+		}
+	}
+}
+
+func assertHostInstallExclusive(t *testing.T, directory, tools, root string, first, second *exec.Cmd) {
+	t.Helper()
+	ready, release := filepath.Join(directory, "before-publication"), filepath.Join(directory, "allow-publication")
+	move := `#!/bin/sh
+set -eu
+if test "$#" -eq 2 && test "$2" = "$SAILRY_INSTALL_OVERLAP_ROOT"; then
+  : > "$SAILRY_INSTALL_OVERLAP_READY"
+  while ! test -e "$SAILRY_INSTALL_OVERLAP_RELEASE"; do sleep 0.02; done
+fi
+exec /bin/mv "$@"
+`
+	if err := os.WriteFile(filepath.Join(tools, "mv"), []byte(move), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first.Env = append(first.Env, "SAILRY_INSTALL_OVERLAP_ROOT="+root, "SAILRY_INSTALL_OVERLAP_READY="+ready, "SAILRY_INSTALL_OVERLAP_RELEASE="+release)
+	second.Env = append(second.Env, "SAILRY_INSTALL_OVERLAP_ROOT=")
+	var firstOutput bytes.Buffer
+	first.Stdout, first.Stderr = &firstOutput, &firstOutput
+	if err := first.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waited := false
+	defer func() {
+		if !waited {
+			_ = os.WriteFile(release, nil, 0o600)
+			_ = first.Wait()
+		}
+	}()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+			_ = os.WriteFile(release, nil, 0o600)
+			waitErr := first.Wait()
+			waited = true
+			t.Fatalf("first installer did not reach publication: %v, %v, %s", err, waitErr, firstOutput.String())
+		}
+	}
+	secondOutput, secondErr := second.CombinedOutput()
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	firstErr := first.Wait()
+	waited = true
+	if firstErr != nil || secondErr == nil || !strings.Contains(string(secondOutput), "Another Host installation or update is in progress") {
+		t.Fatalf("overlapping installs returned first=%v (%s), second=%v (%s)", firstErr, firstOutput.String(), secondErr, secondOutput)
+	}
+}
+
 func freshHostInstaller(t *testing.T) (directory, home, installer, tools string) {
 	t.Helper()
 	directory = t.TempDir()
@@ -190,7 +264,8 @@ func freshHostInstaller(t *testing.T) (directory, home, installer, tools string)
 	// every service, identity and network command below is a local fixture.
 	write(installer, strings.ReplaceAll(string(script), "$HOME", "$SAILRY_INSTALL_FIXTURE_HOME"))
 	files := map[string][]byte{
-		"sailry-host": []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
+		"sailry-host":           []byte("#!/bin/sh\nprintf '%s\\n' 'Sailry Host " + link.ProductVersion + "'\n"),
+		"python/bin/python3.12": []byte("#!/bin/sh\nexec python3 \"$@\"\n"),
 	}
 	for _, name := range []string{"sailry", "service.sh"} {
 		body, err := os.ReadFile("deployment/package/" + name)
