@@ -10,12 +10,13 @@ import (
 )
 
 type PluginPage struct {
-	Section Section
-	Label   string
-	Icon    *ui.SVG
-	Group   string
-	Order   uint16
-	Render  func(*ui.Context)
+	Section     Section
+	Label       string
+	Icon        *ui.SVG
+	Group       string
+	Order       uint16
+	ContentOnly bool
+	Render      func(*ui.Context)
 }
 
 // ManagedNodeSelect renders the same setting target on built-in and mounted
@@ -92,8 +93,10 @@ func (state *State) SetPluginPages(pages []PluginPage) {
 	}
 }
 
+// PluginPages returns the pages available in settings navigation and search.
 func (state *State) PluginPages() []PluginPage {
-	return slices.Clone(state.pluginPages)
+	pages := slices.Clone(state.pluginPages)
+	return slices.DeleteFunc(pages, func(page PluginPage) bool { return page.ContentOnly })
 }
 
 func settingsNavigation(view *ui.Context, state *State, section Section, label string, icon *ui.SVG) {

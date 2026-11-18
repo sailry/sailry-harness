@@ -11,7 +11,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -106,11 +105,7 @@ func (state *pluginNativeState) navigationOperations() {
 			if root.openPluginSettings(state.runtime, info) {
 				return
 			}
-			root.selectPackageSettingsNode(state.runtime)
-			root.App.Settings.Open(settings.Plugins)
-			root.App.Navigate(shell.SettingsPage)
-			root.packagesFrame(view)
-			root.App.Settings.ShowDetails(settings.DetailPlugin, state.scope.Package.Name)
+			state.runtime.openPackageDetails(view, state.scope.Package.Name)
 		})
 	}
 	operations["sailry/ui.selectSettingsHost"] = func(_ context.Context, arguments []json.RawMessage) (json.RawMessage, error) {

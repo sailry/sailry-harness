@@ -187,6 +187,9 @@ MCP, SSH and database profiles also belong to the authenticated user on the
 Node that uses them. Desktop settings share a host selection per window.
 Pages with host settings place that selection in their headers.
 Host-owned settings and package catalogs use that Node's Client and identity.
+Settings navigation and search list the selected host's installed plugins with
+compatible settings pages. Local desktop pages follow the local installation.
+An open plugin page can show availability and the host selector through a switch.
 Settings for desktop devices use the local controller. On the Knowledge page
 the model controls follow the settings host, while the catalog spans direct
 hosts and actions follow each collection's storage Node. The Hooks header

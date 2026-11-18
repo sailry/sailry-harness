@@ -60,6 +60,7 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 		ext.Actions = []protocol.PluginAction{protocol.PluginActionReadStorage}
 		page := protocol.DefaultPluginDesktopSettings()
 		page.Navigation.Label, page.Entry = name, new(path)
+		page.Placement.Group, page.Placement.Order = protocol.PluginDesktopSettingsGroupApp, 10
 		ext.SettingsPage, info.Extension = &page, &ext
 		return info
 	}
@@ -87,7 +88,10 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 	betaVersion := plugin("search", "c", protocol.PluginScopeHost)
 	localGame := plugin("game", "d", protocol.PluginScopeDesktop)
 	alphaOnly := plugin("alpha-only", "e", protocol.PluginScopeHost)
+	alphaOnly.Extension.SettingsPage.Entry = nil
+	alphaOnly.Extension.SettingsPage.EnabledControl = true
 	betaOnly := plugin("beta-only", "f", protocol.PluginScopeHost)
+	betaOnly.Summary.Enabled = false
 	root, localSource := fixture(protocol.NodeID{1}, localVersion, localGame)
 	alpha, alphaSource := fixture(protocol.NodeID{2}, alphaVersion, alphaOnly)
 	beta, betaSource := fixture(protocol.NodeID{3}, betaVersion, betaOnly)
@@ -119,19 +123,40 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 			apply(view)
 		}
 		root.pluginViewsFrame(view)
-		settings.Page(view, root.App.Settings, nil, settings.Look{})
-	}, 760, 460)
+		ui.Row(view).Fill().Children(func() {
+			ui.Column(view.Key("test-settings-nav")).Width(216).FillHeight().Children(func() {
+				settings.Nav(view, root.App.Settings)
+			})
+			ui.Column(view.Key("test-settings-page")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+				settings.Page(view, root.App.Settings, nil, settings.Look{})
+			})
+		})
+	}, 976, 460)
 	tester.SetLocale("en")
+	selectHost := func(name string) {
+		t.Helper()
+		if err := tester.Click(i18n.In("en", "project_host")); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+		if err := tester.Click(name); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+	}
+	checkNavigation := func(owner *Runtime, info protocol.PluginInfo, want bool) {
+		t.Helper()
+		entry := pluginSettingsSection(owner, info)
+		inSearch := slices.ContainsFunc(root.App.Settings.PluginPages(), func(page settings.PluginPage) bool { return page.Section == entry })
+		_, inSidebar := tester.AccessByRole(ui.RoleButton, info.Extension.SettingsPage.Navigation.Label)
+		if inSearch != want || inSidebar != want {
+			t.Fatalf("%s in settings search = %t and sidebar = %t, want %t", entry, inSearch, inSidebar, want)
+		}
+	}
 	renderFrom := func(owner *Runtime, source *pluginViewTestNode, expected protocol.PluginInfo, text string) {
 		t.Helper()
 		if root.App.Settings.ManagedNode != owner.controller.Target().String() {
-			if err := tester.Click(i18n.In("en", "project_host")); err != nil {
-				t.Fatal(err)
-			}
-			tester.Frame()
-			if err := tester.Click("Beta"); err != nil {
-				t.Fatal(err)
-			}
+			selectHost("Beta")
 		}
 		tester.Frame()
 		select {
@@ -148,11 +173,7 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 		if !tester.HasText(text) || tester.HasText("Local search view") || root.App.Settings.Section != section {
 			t.Fatalf("active settings view did not follow its owner: %v", tester.Texts())
 		}
-		if !slices.ContainsFunc(root.App.Settings.PluginPages(), func(page settings.PluginPage) bool {
-			return page.Section == pluginSettingsSection(root, localGame)
-		}) {
-			t.Fatal("the controller's desktop-only page disappeared")
-		}
+		checkNavigation(root, localGame, true)
 
 		entry := root.pluginViews.settings[section]
 		key := pluginMountKey{scope: pluginScopeIdentity(owner.controller.Target(), entry.scope), role: "settings", name: expected.Summary.Name}
@@ -190,30 +211,41 @@ func TestPluginSettingsUseSelectedHost(t *testing.T) {
 		}
 	}
 	renderFrom(alpha, alphaSource, alphaVersion, "Alpha search view")
-	if _, exists := root.pluginViews.settings["plugin:beta-only"]; exists {
-		t.Fatal("Alpha catalog displayed Beta's installation")
-	}
+	checkNavigation(alpha, alphaOnly, true)
+	checkNavigation(beta, betaOnly, false)
 	renderFrom(beta, betaSource, betaVersion, "Beta search view")
-	if _, exists := root.pluginViews.settings["plugin:alpha-only"]; exists {
-		t.Fatal("Beta catalog displayed Alpha's installation")
-	}
+	checkNavigation(alpha, alphaOnly, false)
+	checkNavigation(beta, betaOnly, true)
 	if len(localSource.reads) != 0 {
 		t.Fatal("the local client was asked for a remote view")
 	}
 
+	root.App.Settings.Open(settings.General)
 	root.App.Settings.ManagedNode = alpha.controller.Target().String()
-	root.projectPluginSettings(nil)
-	root.App.Settings.Open("plugin:alpha-only")
-	root.App.Settings.ManagedNode = beta.controller.Target().String()
 	tester.Frame()
+	if err := tester.Click("alpha-only"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	selectHost("Beta")
 	if entry := root.pluginViews.settings["plugin:alpha-only"]; entry.owner != nil || entry.status != "plugins_not_installed_on_host" ||
 		root.App.Settings.Section != "plugin:alpha-only" || !tester.HasText("Not installed on this host") {
 		t.Fatalf("switching away from an installed-only page did not preserve its unavailable view: %+v, %v", entry, tester.Texts())
 	}
+	checkNavigation(alpha, alphaOnly, false)
+	checkNavigation(beta, betaOnly, true)
 	root.App.Settings.ManagedNode = (protocol.NodeID{4}).String()
 	tester.Frame()
 	if entry := root.pluginViews.settings["plugin:alpha-only"]; entry.owner != nil || entry.status != "plugins_view_offline" ||
 		!tester.HasText("Host disconnected") {
 		t.Fatalf("missing host did not show the offline view: %+v, %v", entry, tester.Texts())
+	}
+	checkNavigation(alpha, alphaOnly, false)
+	checkNavigation(beta, betaOnly, false)
+	checkNavigation(root, localGame, true)
+	selectHost("Alpha")
+	checkNavigation(alpha, alphaOnly, true)
+	if entry := root.pluginViews.settings["plugin:alpha-only"]; entry.owner != alpha || entry.status != "" || !tester.HasText(i18n.In("en", "plugins_enabled")) {
+		t.Fatalf("switching back did not restore the installed page: %+v, %v", entry, tester.Texts())
 	}
 }

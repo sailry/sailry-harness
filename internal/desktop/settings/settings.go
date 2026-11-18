@@ -94,12 +94,13 @@ func NewLive() *State {
 // Nav builds the settings navigation in place of the sessions.
 func Nav(c *ui.Context, s *State) {
 	p := theme.Of(c)
+	pages := s.PluginPages()
 	ui.Scroll(c.Key("settings-nav")).Grow(1).Padding(8, 12).Children(func() {
 		for _, g := range Groups {
 			ui.Column(c.Key(g.Title)).Gap(2).Margin(0, 0, 12, 0).Children(func() {
 				ui.Text(c, i18n.T(c, g.Title)).FontSize(14).Height(32).PaddingX(8).AlignSelf(ui.Stretch).
 					TextColor(p.MutedForeground.Alpha(0.7)).SingleLine()
-				for _, entry := range settingsGroupNavigation(c, g.Title, g.Items, s.pluginPages) {
+				for _, entry := range settingsGroupNavigation(c, g.Title, g.Items, pages) {
 					settingsNavigation(c, s, entry.Section, entry.Label, entry.Icon)
 				}
 			})

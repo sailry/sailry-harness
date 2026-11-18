@@ -224,6 +224,16 @@ func (r *Runtime) packageOwner() *Runtime {
 	return owner
 }
 
+// openPackageDetails opens a package on the Node that supplied the link.
+func (r *Runtime) openPackageDetails(c *ui.Context, name string) {
+	root := r.localRuntime()
+	root.selectPackageSettingsNode(r)
+	root.App.Settings.Open(settings.Plugins)
+	root.App.Navigate(shell.SettingsPage)
+	root.packagesFrame(c)
+	root.App.Settings.ShowDetails(settings.DetailPlugin, name)
+}
+
 func (r *Runtime) packagesFrame(c *ui.Context) {
 	root := r.localRuntime()
 	owner := r.packageOwner()

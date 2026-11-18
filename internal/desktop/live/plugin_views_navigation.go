@@ -178,9 +178,10 @@ func (r *Runtime) projectPluginSettings(view *ui.Context) {
 		page := entry.info.Extension.SettingsPage
 		pages = append(pages, settings.PluginPage{
 			Section: entry.section, Label: pluginNavigation(page.Navigation, locale),
-			Icon:  r.pluginNavigationIcon(view, page.Navigation.Icon),
-			Group: "settings_group_" + string(page.Placement.Group),
-			Order: page.Placement.Order,
+			Icon:        r.pluginNavigationIcon(view, page.Navigation.Icon),
+			Group:       "settings_group_" + string(page.Placement.Group),
+			Order:       page.Placement.Order,
+			ContentOnly: entry.status != "",
 			Render: func(current *ui.Context) {
 				live, exists := state.settings[entry.section]
 				if !exists || live.owner != entry.owner || live.scope.Package != entry.scope.Package || live.status != entry.status {

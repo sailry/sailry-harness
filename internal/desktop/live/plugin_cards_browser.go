@@ -13,8 +13,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/kaptinlin/jsonpointer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
-	"github.com/sailry/sailry-harness/internal/desktop/settings"
-	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -176,11 +174,7 @@ func (r *Runtime) openPluginCardSettings(card *pluginCardInstance) {
 				r.pluginCardToast(view, i18n.T(view, "plugins_failed"), true)
 				return
 			}
-			r.App.Host = card.owner.controller.Target().String()
-			r.App.Settings.Open(settings.Plugins)
-			r.App.Navigate(shell.SettingsPage)
-			r.packagesFrame(view)
-			r.App.Settings.ShowDetails(settings.DetailPlugin, info.Summary.Name)
+			card.owner.openPackageDetails(view, info.Summary.Name)
 		})
 	}) {
 		card.settings = false
