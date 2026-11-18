@@ -75,6 +75,39 @@ func TestLocalModelRuntime(t *testing.T) {
 		return ""
 	}
 
+	t.Run("embedding default requires installation", func(t *testing.T) {
+		kind := protocol.ModelsKindEmbedding
+		read := func() protocol.ModelsLocalSettings {
+			t.Helper()
+			value, valid := dispatchPayload[protocol.ModelsLocalSettings](commandFixture(t, node, protocol.Command{Kind: "read_local_model_settings"}).Data)
+			if !valid {
+				t.Fatal("local model settings were not returned")
+			}
+			return value
+		}
+		initial := read()
+		if choice := initial.Choices[kind]; choice.Enabled || choice.Model != nil {
+			t.Fatalf("new embedding defaults = %+v, want keyword only", choice)
+		}
+		draft := read()
+		draft.Choices[kind] = protocol.ModelsLocalChoice{Enabled: true, Model: new(localmodels.DefaultEmbedding)}
+		save := func() *protocol.Fault {
+			t.Helper()
+			command := protocol.Command{Kind: "save_local_model_settings", Data: draft}
+			return dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command)).Fault
+		}
+		if fault := save(); fault == nil || fault.Code != protocol.ErrorCodeNotConfigured {
+			t.Fatalf("selecting an uninstalled model failed with %v, want not configured", fault)
+		}
+		draft.Revision++
+		if fault := save(); fault == nil || fault.Code != protocol.ErrorCodeRevisionConflict {
+			t.Fatalf("saving at the wrong revision failed with %v, want revision conflict", fault)
+		}
+		if stored, applied := read(), registry.Settings(); !reflect.DeepEqual(stored, initial) || !reflect.DeepEqual(applied, initial) {
+			t.Fatalf("rejected choice changed the settings: persisted %+v, applied %+v", stored, applied)
+		}
+	})
+
 	for _, kind := range []protocol.ModelsKind{protocol.ModelsKindEmbedding, protocol.ModelsKindOcr} {
 		t.Run("unavailable "+string(kind), func(t *testing.T) {
 			err := registry.Capabilities().Ensure(kind)

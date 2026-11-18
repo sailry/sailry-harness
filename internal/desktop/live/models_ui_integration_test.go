@@ -750,6 +750,9 @@ func TestModelSettingsUI(t *testing.T) {
 	if len(app.Settings.Knowledge.Installed()) != 0 {
 		t.Fatalf("installed embedding models before installation: %+v", app.Settings.Knowledge.Installed())
 	}
+	if choice := desk.choice(protocol.ModelsKindEmbedding); choice.Enabled || choice.Model != nil || app.Settings.Knowledge.Model != -1 || app.Settings.Knowledge.Missing != "" {
+		t.Fatalf("knowledge before installing a model = %+v, want keyword only", choice)
+	}
 	press(window, "Available")
 	var graph protocol.ModelsAsset
 	for _, asset := range embedding.Definition.Assets {
@@ -796,12 +799,9 @@ func TestModelSettingsUI(t *testing.T) {
 		installed := app.Settings.Knowledge.Installed()
 		return len(installed) == 1 && installed[0].ID == embedding.ID && shown(window, embeddingRepository) == 1
 	})
-	if desk.choice(protocol.ModelsKindEmbedding).Enabled {
-		pickOption(window, "Vector model", "Keyword only")
+	if choice := desk.choice(protocol.ModelsKindEmbedding); choice.Enabled || choice.Model != nil || app.Settings.Knowledge.Model != -1 || app.Settings.Knowledge.Missing != "" {
+		t.Fatalf("installation changed the keyword-only choice: %+v", choice)
 	}
-	settle(window, "the Node saves keyword-only knowledge", modelsUIWait, func() bool {
-		return !desk.choice(protocol.ModelsKindEmbedding).Enabled && app.Settings.Knowledge.Model == -1 && !app.Settings.Knowledge.Enabled.Pending
-	})
 	clickRow(window, embeddingRepository, "Select")
 	settle(window, "the Node saves the selected embedding model", modelsUIWait, func() bool {
 		choice := desk.choice(protocol.ModelsKindEmbedding)

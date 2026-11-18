@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// DefaultEmbedding is the embedding model selected before any choice is saved.
+	// DefaultEmbedding identifies the recommended Granite Multilingual model.
 	DefaultEmbedding = "granite-multi"
 	// MaxAssets bounds the files of one definition.
 	MaxAssets = 8
@@ -219,23 +219,16 @@ func ValidateSearch(search *protocol.ModelsSearch) error {
 	return nil
 }
 
-func initial(kind protocol.ModelsKind) protocol.ModelsLocalChoice {
-	choice := protocol.ModelsLocalChoice{Enabled: true}
-	if kind == protocol.ModelsKindEmbedding {
-		model := DefaultEmbedding
-		choice.Model = &model
-	}
-	return choice
-}
-
 // FillDefaults adds the initial choice of every Node kind that has none.
 func FillDefaults(settings *protocol.ModelsLocalSettings) {
+	defaults := protocol.DefaultModelsLocalSettings().Choices
 	if settings.Choices == nil {
-		settings.Choices = map[protocol.ModelsKind]protocol.ModelsLocalChoice{}
+		settings.Choices = defaults
+		return
 	}
-	for _, kind := range NodeKinds {
+	for kind, choice := range defaults {
 		if _, present := settings.Choices[kind]; !present {
-			settings.Choices[kind] = initial(kind)
+			settings.Choices[kind] = choice
 		}
 	}
 }
@@ -245,7 +238,7 @@ func Choice(settings *protocol.ModelsLocalSettings, kind protocol.ModelsKind) pr
 	if choice, present := settings.Choices[kind]; present {
 		return choice
 	}
-	return initial(kind)
+	return protocol.DefaultModelsLocalSettings().Choices[kind]
 }
 
 // Selected is the enabled model of one kind, or "" when none is selected.

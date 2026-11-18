@@ -141,7 +141,7 @@ func defaultSearchProviders() map[SearchDriver]SearchConfig {
 
 func defaultModelsLocalChoices() map[ModelsKind]ModelsLocalChoice {
 	return map[ModelsKind]ModelsLocalChoice{
-		ModelsKindEmbedding: {Enabled: true, Model: modelPointer("granite-multi")},
+		ModelsKindEmbedding: {},
 		ModelsKindOcr:       {Enabled: true},
 		ModelsKindDecision:  {Enabled: true},
 	}

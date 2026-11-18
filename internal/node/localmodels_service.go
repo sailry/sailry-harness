@@ -289,6 +289,15 @@ func (node *Node) executeLocalModelConfiguration(db *sql.Conn, caller protocol.N
 	if err != nil {
 		return protocol.Output{}, nil, nil, err
 	}
+	if request.Command.Kind == "save_local_model_settings" {
+		kind := protocol.ModelsKindEmbedding
+		previous := registry.Settings()
+		if model := localmodels.Selected(&catalog.Settings, kind); model != "" && model != localmodels.Selected(&previous, kind) {
+			if err := registry.CheckInstalled(kind, model); err != nil {
+				return protocol.Output{}, nil, nil, err
+			}
+		}
+	}
 	prepared, err := registry.Prepare(catalog.Settings, catalog.Definitions)
 	if err != nil {
 		return protocol.Output{}, nil, nil, err

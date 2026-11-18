@@ -191,8 +191,9 @@ Settings navigation and search list the selected host's installed plugins with
 compatible settings pages. Local desktop pages follow the local installation.
 An open plugin page can show availability and the host selector through a switch.
 Settings for desktop devices use the local controller. On the Knowledge page
-the model controls follow the settings host, while the catalog spans direct
-hosts and actions follow each collection's storage Node. The Hooks header
+the model controls follow the settings host. A fresh Node uses keyword search
+until an installed embedding model is selected. The catalog spans direct hosts
+and actions follow each collection's storage Node. The Hooks header
 can select an accessible project worktree directly. Its settings follow that
 worktree's Node. Device monitoring has its own selection. A new task reads
 and captures settings on its execution Node. Admitted tasks keep their package

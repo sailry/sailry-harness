@@ -73,6 +73,16 @@ func knowledgeInstall(t *testing.T, definition *protocol.ModelsDefinition, sourc
 	}
 }
 
+func knowledgeSelectEmbedding(t *testing.T, node *Node) {
+	t.Helper()
+	kind := protocol.ModelsKindEmbedding
+	// Verify the fixture files that were placed directly into the profile.
+	knowledgeCall[protocol.ModelsCatalog](t, node, protocol.Command{Kind: "read_local_models", Data: protocol.CommandReadLocalModelsPayload{Kind: &kind}})
+	settings := knowledgeCall[protocol.ModelsLocalSettings](t, node, protocol.Command{Kind: "read_local_model_settings"})
+	settings.Choices[kind] = protocol.ModelsLocalChoice{Enabled: true, Model: new(localmodels.DefaultEmbedding)}
+	knowledgeCall[protocol.ModelsLocalSettings](t, node, protocol.Command{Kind: "save_local_model_settings", Data: settings})
+}
+
 func knowledgeCall[T any](t *testing.T, node *Node, command protocol.Command) T {
 	t.Helper()
 	accepted, err := node.Dispatch(t.Context(), node.ID(), protocol.NewRequest(node.ID(), command))
@@ -180,6 +190,7 @@ func TestKnowledgeIndexing(t *testing.T) {
 		t.Fatal(err)
 	}
 	knowledgeInstall(t, model, embeddingFiles, filepath.Join(profile, "models", "embedding", localmodels.DefaultEmbedding, model.Source.Revision))
+	knowledgeSelectEmbedding(t, node)
 
 	created := knowledgeCall[protocol.KnowledgeCollection](t, node, protocol.Command{Kind: "create_knowledge_collection", Data: &protocol.CommandCreateKnowledgeCollectionPayload{
 		Definition: protocol.KnowledgeDefinition{Name: "Notes", Globs: []string{}, Tags: []string{}, SharedWith: []string{},

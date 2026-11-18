@@ -567,6 +567,7 @@ func TestKnowledgeQuery(t *testing.T) {
 		write(t, filepath.Join(root, "vectors.md"), "# Vectors\n\n向量 search finds related text\n")
 		write(t, filepath.Join(root, "notes.md"), "plain notes about 向量\n")
 		fixture.install()
+		fixture.selectEmbedding(true)
 		collection := fixture.create("Docs", directory(root))
 		if page := fixture.query("向量", nil); !page.Indexing || len(page.Hits) != 0 {
 			t.Fatalf("pending = %+v", page)

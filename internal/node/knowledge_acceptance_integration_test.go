@@ -179,6 +179,7 @@ func TestKnowledgeAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	knowledgeInstall(t, model, embeddingFiles, filepath.Join(profile, "models", "embedding", localmodels.DefaultEmbedding, model.Source.Revision))
+	knowledgeSelectEmbedding(t, node)
 	events := knowledgeFollow(t, node)
 
 	path := func(name string) string { return filepath.Join(folder, filepath.FromSlash(name)) }

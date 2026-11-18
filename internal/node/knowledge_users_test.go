@@ -24,6 +24,7 @@ import (
 // reading every source as the Node's local maintenance principal.
 func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")
+	seedKnowledgeFixtureEmbedding(t, profile)
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	var encoded atomic.Int64
 	var node *Node
@@ -31,7 +32,6 @@ func TestKnowledgeUserAndProjectStorage(t *testing.T) {
 		t.Helper()
 		started, err := StartWithOptions(t.Context(), profile, Options{Environment: &environment, knowledge: func(options *knowledgeservice.Options) {
 			model := localmodels.DefaultEmbedding
-			options.Choice = func() protocol.ModelsLocalChoice { return protocol.ModelsLocalChoice{Enabled: true, Model: &model} }
 			options.Dimension = func(id string) (int, string, bool) { return 2, "users-fixture", id == model }
 			options.Installed = func() (map[string]bool, error) { return map[string]bool{model: true}, nil }
 			options.Offsets = func(context.Context, string, protocol.ModelsLocalChoice, string) ([][2]int, error) { return nil, nil }

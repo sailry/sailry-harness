@@ -65,6 +65,29 @@ func (script *knowledgeStorageScript) Stream(_ context.Context, call fantasy.Cal
 	}, nil
 }
 
+// seedKnowledgeFixtureEmbedding prepares a profile whose worker uses a fake
+// embedding runtime for Granite, with the same saved choice after restart.
+func seedKnowledgeFixtureEmbedding(t *testing.T, path string) {
+	t.Helper()
+	ctx := t.Context()
+	profile, err := OpenProfile(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadLocalModelSettings(ctx, db)
+		if err != nil {
+			return err
+		}
+		settings.Choices[protocol.ModelsKindEmbedding] = protocol.ModelsLocalChoice{Enabled: true, Model: new(localmodels.DefaultEmbedding)}
+		_, _, err = store.SaveLocalModelSettings(ctx, db, settings)
+		return err
+	})
+	if err := errors.Join(err, profile.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestKnowledgeStorage indexes plugin storage through a real Node with a fake
 // embedding model: the bundled memory package's own tools feed its automatic
 // semantic collection, and a fixture package owns an explicit storage
@@ -81,6 +104,7 @@ func TestKnowledgeStorage(t *testing.T) {
 	catalogGate.Store(firstBatch)
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
 	profile := filepath.Join(t.TempDir(), "profile")
+	seedKnowledgeFixtureEmbedding(t, profile)
 	ctx := t.Context()
 	var node *Node
 	start := func(t *testing.T) {
@@ -104,7 +128,6 @@ func TestKnowledgeStorage(t *testing.T) {
 					}
 				}
 				selected := localmodels.DefaultEmbedding
-				options.Choice = func() protocol.ModelsLocalChoice { return protocol.ModelsLocalChoice{Enabled: true, Model: &selected} }
 				options.Dimension = func(model string) (int, string, bool) { return 2, "fixture", model == selected }
 				options.Installed = func() (map[string]bool, error) { return map[string]bool{selected: true}, nil }
 				options.Offsets = func(context.Context, string, protocol.ModelsLocalChoice, string) ([][2]int, error) { return nil, nil }

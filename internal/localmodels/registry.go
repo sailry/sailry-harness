@@ -529,6 +529,16 @@ func (registry *Registry) Resource(kind protocol.ModelsKind, id string, choice *
 	return Resource{ID: id, Definition: definition, Directory: path, Stamp: cached, Scope: current.ctx}, nil
 }
 
+// CheckInstalled verifies that a model still has its installed files without
+// acquiring an inference engine or hashing them in a configuration write.
+func (registry *Registry) CheckInstalled(kind protocol.ModelsKind, id string) error {
+	resource, err := registry.Resource(kind, id, nil)
+	if err != nil {
+		return err
+	}
+	return registry.current(resource, true)
+}
+
 // current rejects a captured resource whose configuration, and optionally
 // whose files, changed.
 func (registry *Registry) current(resource Resource, inspect bool) error {
