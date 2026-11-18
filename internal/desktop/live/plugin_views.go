@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
 
@@ -588,30 +589,37 @@ func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedVi
 }
 
 func (r *Runtime) pluginViewCatalog(owner *Runtime) []protocol.PluginInfo {
+	return slices.Collect(owner.pluginViewInfos())
+}
+
+func (owner *Runtime) pluginViewInfos() iter.Seq[protocol.PluginInfo] {
 	if owner == nil {
-		return nil
+		return func(func(protocol.PluginInfo) bool) {}
 	}
 	if owner.packages == nil {
 		owner.packages = newPackageState()
 	}
-	var entries []protocol.PluginInfo
-	for _, summary := range owner.snapshot().Plugins {
-		if removed, exists := owner.packages.removed[summary.Name]; exists && summary.Revision <= removed {
-			continue
-		}
-		info, exists := owner.packages.infos[summary.Name]
-		if (!exists || !samePackageVersion(info.Summary, summary)) && owner.controller.Connected() && !owner.packages.reads[summary.Name] {
-			if version := packageVersion(summary); owner.packages.failures[summary.Name] != version {
-				owner.readPackage(summary.Name, version, nil)
+	summaries := owner.snapshot().Plugins
+	return func(yield func(protocol.PluginInfo) bool) {
+		for _, summary := range summaries {
+			if removed, exists := owner.packages.removed[summary.Name]; exists && summary.Revision <= removed {
+				continue
+			}
+			info, exists := owner.packages.infos[summary.Name]
+			if (!exists || !samePackageVersion(info.Summary, summary)) && owner.controller.Connected() && !owner.packages.reads[summary.Name] {
+				if version := packageVersion(summary); owner.packages.failures[summary.Name] != version {
+					owner.readPackage(summary.Name, version, nil)
+				}
+			}
+			if !exists || info.Summary.Digest != summary.Digest {
+				continue
+			}
+			info.Summary = summary
+			if !yield(info) {
+				return
 			}
 		}
-		if !exists || info.Summary.Digest != summary.Digest {
-			continue
-		}
-		info.Summary = summary
-		entries = append(entries, info)
 	}
-	return entries
 }
 
 func (r *Runtime) pluginNavigationIcon(view *ui.Context, declaration *protocol.PluginDesktopIcon) *ui.SVG {

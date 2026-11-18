@@ -17,7 +17,7 @@ import (
 // with each one's package description for the mode menu.
 func (r *Runtime) conversationModes() ([]client.ConversationMode, map[string]string) {
 	modes, descriptions := []client.ConversationMode{}, map[string]string{}
-	for _, info := range r.localRuntime().pluginViewCatalog(r) {
+	for info := range r.pluginViewInfos() {
 		if info.Extension == nil || info.Extension.Scope != protocol.PluginScopeHost {
 			continue
 		}

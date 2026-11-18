@@ -534,6 +534,10 @@ func (manager *Manager) ReadResource(ctx context.Context, reference protocol.Plu
 	if err != nil {
 		return nil, err
 	}
+	return readCapturedResource(entries, name, limit)
+}
+
+func readCapturedResource(entries []packageEntry, name string, limit int) ([]byte, error) {
 	for _, entry := range entries {
 		if entry.name != name || entry.directory {
 			continue
@@ -687,11 +691,24 @@ func releaseNotes(files map[string][]byte, version *string) *protocol.PluginCata
 
 func (manager *Manager) ReadBundle(ctx context.Context, reference protocol.PluginReference, entry string, resources []string) (map[string]string, error) {
 	result := map[string]string{}
-	for _, name := range append([]string{entry}, resources...) {
+	var entries []packageEntry
+	for i, name := range append([]string{entry}, resources...) {
 		if _, loaded := result[name]; loaded {
 			continue
 		}
-		data, err := manager.ReadResource(ctx, reference, name, MaxPackageBytes)
+		if !resourcePath(name) {
+			return nil, packageFault("invalid plugin resource request")
+		}
+		if i == 0 {
+			var err error
+			entries, err = manager.captured(ctx, reference)
+			if err != nil {
+				return nil, err
+			}
+		} else if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		data, err := readCapturedResource(entries, name, MaxPackageBytes)
 		if err != nil {
 			return nil, err
 		}

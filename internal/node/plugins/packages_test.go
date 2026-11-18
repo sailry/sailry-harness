@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
@@ -219,6 +220,89 @@ func TestPackageBoundaries(t *testing.T) {
 			t.Errorf("accepted unconfined archive entry %q", name)
 		}
 	}
+}
+
+func TestReadBundle(t *testing.T) {
+	t.Parallel()
+	const entry = "entry.js"
+	const unused = "unused.bin"
+	source := t.TempDir()
+	packageFixture(t, source, "plugin.json", `{"$schema":"`+ManifestSchema+`","name":"fixture","version":"0.1.0"}`)
+	want := map[string]string{entry: "export default 1", "lib/helper.js": "export default 2", "lib/empty.js": ""}
+	for name, text := range want {
+		packageFixture(t, source, name, text)
+	}
+	packageFixture(t, source, unused, "\xff")
+	manager := NewManager(t.TempDir())
+	ctx := t.Context()
+	info, err := manager.Install(ctx, source, "", "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := PackageReference(info)
+	resources := []string{"lib/helper.js", entry, "lib/empty.js", "lib/helper.js", "lib/empty.js"}
+	if files, err := manager.ReadBundle(ctx, reference, entry, resources); err != nil || !maps.Equal(files, want) {
+		t.Fatalf("bundle with duplicate resources = %v, %v; want %v", files, err, want)
+	}
+
+	checkFault := func(t *testing.T, err error, code protocol.ErrorCode, message string) {
+		t.Helper()
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != code || fault.Message != message {
+			t.Fatalf("want %s (%s), got %v", code, message, err)
+		}
+	}
+	checkBundleFault := func(t *testing.T, entry string, resources []string, code protocol.ErrorCode, message string) {
+		t.Helper()
+		files, err := manager.ReadBundle(t.Context(), reference, entry, resources)
+		if files != nil {
+			t.Fatalf("failed bundle returned files: %v", files)
+		}
+		checkFault(t, err, code, message)
+	}
+	for _, test := range []struct {
+		name      string
+		resources []string
+		code      protocol.ErrorCode
+		message   string
+	}{
+		{"invalid path", []string{"lib/../entry.js"}, protocol.ErrorCodeInvalidRequest, "invalid plugin resource request"},
+		{"missing before invalid path", []string{"lib/missing.js", "lib/../entry.js"}, protocol.ErrorCodeNotFound, "plugin resource is missing"},
+		{"directory", []string{"lib"}, protocol.ErrorCodeNotFound, "plugin resource is missing"},
+		{"invalid UTF-8", []string{"lib/helper.js", unused}, protocol.ErrorCodeInvalidRequest, "plugin script resources must be UTF-8"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			checkBundleFault(t, entry, test.resources, test.code, test.message)
+		})
+	}
+
+	if data, err := manager.ReadResource(ctx, reference, unused, 1); err != nil || string(data) != "\xff" {
+		t.Fatalf("single resource did not return raw bytes at the size limit: %q, %v", data, err)
+	}
+	data, err := manager.ReadResource(ctx, reference, unused, 0)
+	if data != nil {
+		t.Fatalf("oversized single resource returned bytes: %q", data)
+	}
+	checkFault(t, err, protocol.ErrorCodeInvalidRequest, "plugin resource exceeds its size limit")
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if files, err := manager.ReadBundle(canceled, reference, entry, resources); files != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled bundle = %v, %v", files, err)
+	}
+
+	directory, err := manager.PackageRoot(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageFixture(t, directory, unused, "\xfe")
+	checkBundleFault(t, "../entry.js", resources, protocol.ErrorCodeInvalidRequest, "invalid plugin resource request")
+	checkBundleFault(t, entry, resources, protocol.ErrorCodeInvalidRequest, "immutable plugin package content changed")
+	data, err = manager.ReadResource(ctx, reference, entry, MaxPackageBytes)
+	if data != nil {
+		t.Fatalf("single resource from changed package returned bytes: %q", data)
+	}
+	checkFault(t, err, protocol.ErrorCodeInvalidRequest, "immutable plugin package content changed")
 }
 
 func TestBundledPackageContracts(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 )
 
 func (state *pluginNativeState) composerOperationsAvailable(config protocol.SessionConfig) []protocol.ToolOperation {
-	catalog := state.runtime.localRuntime().pluginViewCatalog(state.runtime)
+	catalog := state.runtime.pluginViewInfos()
 	var project *protocol.ProjectID
 	if state.scope.Session != nil {
 		if session, exists := state.runtime.session(state.scope.Session.String()); exists {
@@ -23,7 +23,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 	}
 	var selected *protocol.PluginConversationDeclaration
 	if binding := config.Assistant; binding != nil {
-		for _, info := range catalog {
+		for info := range catalog {
 			if !pluginNativePackageAvailable(info) || info.Summary.Name != binding.Package.Name ||
 				info.Extension == nil || info.Extension.Desktop == nil {
 				continue
@@ -42,7 +42,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 	}
 	order := []protocol.ToolOperation{}
 	available := map[protocol.ToolOperation]bool{}
-	for _, info := range catalog {
+	for info := range catalog {
 		if info.Extension == nil {
 			continue
 		}
