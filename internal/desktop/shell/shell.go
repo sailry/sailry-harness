@@ -348,10 +348,22 @@ func (a *App) View(c *ui.Context) {
 	a.followSelection()
 	a.followPanes()
 	a.sweepOverviews()
+	if a.panels.focusMain {
+		a.panels.focusMain = false
+		if c.FocusWithin(a.panelPane) {
+			a.mainPane.Focus(c)
+		}
+	}
+	// The live workspace was resolved by BeforeFrame for the mounted session.
+	// A selection changed by a shortcut takes that binding on the next frame.
+	boundConversation := a.panels.mounted
 	if a.paged() != "" {
 		a.SetPluginWorkspace(a.feature(), 0, 260, 320)
 	}
 	p := theme.Of(c)
+	if a.Page == ConversationPage && (a.sampled() || a.panels.mounted == boundConversation) {
+		a.syncPanel()
+	}
 	// The title bar and the rail are one outer band in title_bar's color.
 	band, fill := p.TitleBar, p.Background
 	if c.Vibrancy() && theme.IsDark(c, a.Mode) == system {
@@ -579,8 +591,9 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				host.MetricsPanel(c, st, h)
 				return
 			}
-			a.syncPanel()
-			panel.View(c, a.Panel, a.project(), kit.KeyText)
+			if a.Page == ConversationPage && a.PanelOpen {
+				panel.View(c, a.Panel, a.panels.project, kit.KeyText)
+			}
 		})
 	})
 }
@@ -597,7 +610,17 @@ func (a *App) syncPanel() {
 	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
 		a.Panel.Cwd = cv.WorktreePath
 	}
-	a.Panel.Focus = func(c *ui.Context) { a.panelPane.Focus(c) }
+	if a.Page == ConversationPage {
+		a.panels.project = a.project()
+		a.Panel.BindProject(a.panels.project)
+	}
+	a.Panel.Focus = func(c *ui.Context) {
+		if a.PanelOpen {
+			a.panelPane.Focus(c)
+		} else {
+			a.mainPane.Focus(c)
+		}
+	}
 }
 
 // resize is a column's drag handle: a 6 DIP strip over the edge with the
@@ -620,25 +643,35 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 	}
 }
 
-// togglePanel opens or closes the right panel (⌘⌥B, the header button);
-// opened without a tab it shows the launcher. It is the right column's only
-// close control.
+// togglePanel handles the header button. Closing a conversation's panel here
+// removes its tabs, unlike the keyboard layout toggle.
 func (a *App) togglePanel() {
-	if a.extensionDetails() {
+	if a.togglePageDetails() || a.Page != ConversationPage || a.Sidebar.Selected != a.panels.mounted {
+		return
+	}
+	if a.PanelOpen {
+		a.Panel.Clear()
+		a.foldConversationPanel()
+	} else {
+		a.PanelOpen = true
+	}
+}
+
+// togglePageDetails handles pages with their own right column, not the
+// conversation's panel.
+func (a *App) togglePageDetails() bool {
+	switch {
+	case a.extensionDetails():
 		// The details show for a selected item: folding them deselects it.
 		a.Settings.CloseDetails()
-		return
-	}
-	if a.workspaceDetails() {
+	case a.workspaceDetails():
 		state := a.pluginWorkspacePrefs()
 		state.Folded = !state.Folded
-		return
-	}
-	if a.Page == HostPage {
+	case a.Page == HostPage:
 		a.Metrics = !a.Metrics
 		return
 	}
-	a.PanelOpen = !a.PanelOpen
+	return true
 }
 
 // openPanel shows a resource in the right panel.
@@ -646,7 +679,8 @@ func (a *App) openPanel(k panel.Kind) {
 	a.syncPanel()
 	if !a.Panel.Offers(k) {
 		// A shortcut opens only what the launcher lists.
-		return
+	default:
+		return false
 	}
 	a.RevealConversationPanel()
 	a.Panel.Open(k)
@@ -672,7 +706,10 @@ func (a *App) closeTab(c *ui.Context) {
 		a.panelPane.Focus(c)
 		return
 	}
-	a.PanelOpen = false
+	a.foldConversationPanel()
+	if a.Page != ConversationPage || !a.PanelOpen || a.Sidebar.Selected != a.panels.mounted {
+		return
+	}
 	a.mainPane.Focus(c)
 }
 

@@ -98,18 +98,18 @@ func testSessionResources(t *testing.T) {
 	}
 	// Another conversation's tabs take the strip, and come back.
 	mine, shown := slices.Clone(s.Tabs), s.Active
-	s.Mount([]Tab{{Browser, "9"}}, Tab{}, false)
+	s.Mount([]Tab{{Browser, "9"}}, Tab{})
 	if !slices.Equal(s.Tabs, []Tab{{Browser, "9"}}) || s.Active != (Tab{Browser, "9"}) {
 		t.Fatalf("mounted %v, active %v", s.Tabs, s.Active)
 	}
 	if s.New(Browser); s.Active != (Tab{Browser, "10"}) {
 		t.Fatalf("a new page beside a mounted one is %v", s.Active)
 	}
-	s.Mount(mine, shown, false)
+	s.Mount(mine, shown)
 	if !slices.Equal(s.Tabs, mine) || s.Active != shown {
 		t.Fatalf("mounted back %v, active %v", s.Tabs, s.Active)
 	}
-	s.Mount(nil, Tab{}, false)
+	s.Mount(nil, Tab{})
 	s.TerminalActions = nil
 	s.Session = true
 	if got := kinds(s); !slices.Equal(got, four) || s.Offers(History) || s.Offers(Documents) {
@@ -309,6 +309,12 @@ func testItemTabs(t *testing.T) {
 	s.Sync(two)
 	if want := []Tab{{Files, "c.go"}}; !slices.Equal(s.Tabs, want) || s.Active != want[0] {
 		t.Fatalf("project two: tabs %v, active %v", s.Tabs, s.Active)
+	}
+	s.Sync(nil)
+	s.Close(Tab{Files, "c.go"})
+	s.Sync(two)
+	if len(s.Tabs) != 0 || !slices.Equal(two.Files.Open(), []string{"c.go"}) {
+		t.Fatalf("closing an unavailable tab changed the editor or restored the tab: files %v, tabs %v", two.Files.Open(), s.Tabs)
 	}
 }
 

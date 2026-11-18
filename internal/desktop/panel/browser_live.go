@@ -45,8 +45,6 @@ type BrowserActions struct {
 	Inspect func(string)
 	// Settings opens the browser's settings.
 	Settings func()
-
-	shown map[string]string // the address each tab's field last took from its page
 }
 
 // AddBrowser opens another browser tab, shown or behind the active one, and
@@ -96,12 +94,9 @@ func (s *State) liveBrowser(c *ui.Context, t Tab) {
 	a := s.BrowserActions
 	b := s.pageOf(t.ID)
 	page := a.Page(t.ID)
-	if a.shown == nil {
-		a.shown = map[string]string{}
-	}
 	// The field follows the page, but never under the user's typing.
-	if a.shown[t.ID] != page.Address && !c.Focused(b.field) {
-		a.shown[t.ID], b.address = page.Address, page.Address
+	if b.shown != page.Address && !c.Focused(b.field) {
+		b.shown, b.address = page.Address, page.Address
 	}
 	if s.focusAddress && t == s.Active {
 		s.focusAddress = false

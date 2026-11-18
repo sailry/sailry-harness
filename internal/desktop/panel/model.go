@@ -117,21 +117,22 @@ type State struct {
 	// Worktree reports that the live conversation shown has a worktree on a
 	// connected Node, where a terminal can start: an unsent chat without a
 	// project has none, so Terminal is not offered there (lists).
-	Worktree bool
-	// closing is the live terminal tab whose closing waits to be confirmed.
-	closing Tab
-	Data    *preview.Workspace
-	Tabs    []Tab
-	Active  Tab
-	opened  []Kind // kinds of the tabs opened since TakeOpened
+	Worktree      bool
+	closing       Tab // terminal waiting for confirmation
+	closingEditor *editorCloseRequest
+	Data          *preview.Workspace
+	Tabs          []Tab
+	Active        Tab
+	opened        []Kind // kinds of the tabs opened since TakeOpened
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
-	// pr is the shown project, whose open files and diffs are the
-	// strip's file and diff tabs (sync); synced is set after the first
-	// project, which takes the tabs restored at start-up.
-	pr     *Project
-	synced bool
+	// The workspace keeps the editors, but the strip is conversation-scoped.
+	// A new mount or an explicit clear excludes the project's existing tabs
+	// from automatic import; new project items can still appear in this scope.
+	pr, bound *Project // available now, and last bound in this mount
+	isolated  bool
+	ignored   []Tab
 
 	// Cwd is the folder a new terminal starts in, the shown project's
 	// (the shell sets it).
@@ -150,6 +151,12 @@ type State struct {
 	// Focus puts the keyboard focus in the pane that hosts the panel, as
 	// the host sets it.
 	Focus func(c *ui.Context)
+	// OnEmpty is called when an explicit tab close removes the last tab.
+	OnEmpty func()
+	// OnTerminalClose is called when the user confirms ending a terminal.
+	OnTerminalClose func(Tab)
+	// SharedItem reports whether another panel still uses a project item.
+	SharedItem func(*Project, Tab) bool
 }
 
 func New(w *preview.Workspace) *State {
@@ -213,7 +220,7 @@ func (s *State) New(k Kind) {
 
 // Show shows t, opening its tab if needed.
 func (s *State) Show(t Tab) {
-	if !t.valid() {
+	if !t.Valid() {
 		return
 	}
 	// A file or diff opens in the passing tab, in the place of the one
@@ -263,13 +270,15 @@ func (s *State) Reserve(tabs ...Tab) {
 	}
 }
 
-// Mount replaces the strip with a conversation's tabs and the one it showed.
-// Restored tabs come from the saved window state: the project takes their
-// files and diffs as it does at start-up (Sync).
-func (s *State) Mount(tabs []Tab, active Tab, restored bool) {
+// Mount replaces the strip without closing the outgoing conversation's resources.
+func (s *State) Mount(tabs []Tab, active Tab) {
+	s.cancelClose()
+	s.keepProjectTabs()
+	s.pr, s.bound, s.ignored = nil, nil, nil
+	s.isolated = true
 	s.Tabs = nil
 	for _, t := range tabs {
-		if t.valid() {
+		if t.Valid() {
 			s.Tabs = Opened(s.Tabs, t)
 		}
 	}
@@ -280,14 +289,56 @@ func (s *State) Mount(tabs []Tab, active Tab, restored bool) {
 	} else if len(s.Tabs) > 0 {
 		s.Active = s.Tabs[len(s.Tabs)-1]
 	}
-	if restored {
-		s.synced = false
+}
+
+// Clear closes the strip, not the resources shared with the workspace. File
+// drafts stay in the project's editors, and terminal shells stay on the Node.
+func (s *State) Clear() {
+	s.cancelClose()
+	s.keepProjectTabs()
+	for _, t := range s.Tabs {
+		if t.Kind != Terminal || s.TerminalActions == nil || s.TerminalActions.Close == nil {
+			s.DiscardTabChrome(t)
+		}
+	}
+	s.isolated, s.ignored = true, projectTabs(s.bound)
+	s.Tabs, s.Active = nil, Tab{}
+}
+
+func (s *State) keepProjectTabs() {
+	for _, t := range s.Tabs {
+		s.keepProjectTab(t)
 	}
 }
 
-// valid reports whether the panel shows t's kind: a tab saved by an
+func (s *State) keepProjectTab(t Tab) {
+	pr := s.bound
+	if pr == nil || !item(t.Kind) || t.ID == "" {
+		return
+	}
+	if t.Kind == Files {
+		if editor := pr.Files.items[t.ID]; editor != nil {
+			pr.syncDocument(t.ID, editor)
+		}
+	}
+	pr.keep(t.Kind, t.ID)
+}
+
+func (s *State) cancelClose() {
+	s.closing = Tab{}
+	s.cancelEditorClose()
+}
+
+func (s *State) cancelEditorClose() {
+	if s.closingEditor != nil && s.pr != nil && s.pr.closing == s.closingEditor {
+		s.pr.closing = nil
+	}
+	s.closingEditor = nil
+}
+
+// Valid reports whether the panel shows t's kind: a tab saved by an
 // older build may name one it no longer opens.
-func (t Tab) valid() bool {
+func (t Tab) Valid() bool {
 	switch t.Kind {
 	case Artifact, Subagent:
 		return true
@@ -304,22 +355,48 @@ func (t Tab) valid() bool {
 // terminal's tab ends its shell, so it asks first (confirmClose): the tab
 // leaves once the Node has closed the terminal.
 func (s *State) Close(t Tab) bool {
-	if t.Kind == Terminal && s.TerminalActions != nil && s.TerminalActions.Close != nil {
-		if slices.Contains(s.Tabs, t) {
-			s.closing = t
-		}
+	if !slices.Contains(s.Tabs, t) {
 		return len(s.Tabs) > 0
 	}
-	if t.Kind == Files && t.ID != "" && s.pr != nil {
-		if s.pr.requestEditorClose(t.ID, func() { s.pr.close(t.Kind, t.ID); s.Tabs, s.Active = Closed(s.Tabs, t, s.Active) }) {
-			return len(s.Tabs) > 0
+	if t.Kind == Terminal && s.TerminalActions != nil && s.TerminalActions.Close != nil {
+		s.closing = t
+		return true
+	}
+	if pr := s.pr; item(t.Kind) && t.ID != "" {
+		switch {
+		case pr == nil || s.SharedItem != nil && s.SharedItem(pr, t):
+			s.keepProjectTab(t)
+			s.ignored = Opened(s.ignored, t)
+		case t.Kind == Files:
+			previous := pr.closing
+			if pr.requestEditorClose(t.ID, func() {
+				s.closingEditor = nil
+				pr.Files.Close(t.ID)
+				s.remove(t)
+			}) {
+				if previous == nil {
+					s.closingEditor = pr.closing
+				}
+				return true
+			}
+			pr.Files.Close(t.ID)
+		case t.Kind == Changes:
+			pr.Git.Close(t.ID)
 		}
 	}
-	if item(t.Kind) && t.ID != "" && s.pr != nil {
-		s.pr.close(t.Kind, t.ID)
+	s.remove(t)
+	return len(s.Tabs) > 0
+}
+
+func (s *State) remove(t Tab) {
+	if !slices.Contains(s.Tabs, t) {
+		return
 	}
 	s.Tabs, s.Active = Closed(s.Tabs, t, s.Active)
-	return len(s.Tabs) > 0
+	s.DiscardTabChrome(t)
+	if len(s.Tabs) == 0 && s.OnEmpty != nil {
+		s.OnEmpty()
+	}
 }
 
 // lists reports whether the launcher and the "+" menu offer k: the
@@ -373,30 +450,50 @@ func (s *State) shown(k Kind) string {
 	return s.pr.shown(k)
 }
 
-// Sync makes the strip's file and diff tabs the project's open items, as
-// the page's strip shows them: a
-// tab with no item yet takes the one shown last, items opened or closed
-// on the page are added or dropped, and another project's are swapped
-// for this one's. The first project takes the tabs restored at start-up.
-// Without a project the tabs stay and show the project prompt.
-func (s *State) Sync(pr *Project) {
+// BindProject binds the current workspace before it or the panel modifies its
+// items. A mounted strip brings its own tabs, not another conversation's.
+func (s *State) BindProject(pr *Project) {
+	if s.pr != pr {
+		s.cancelEditorClose()
+	}
 	s.pr = pr
-	if pr == nil {
+	if pr == nil || s.bound == pr {
 		return
 	}
-	if !s.synced {
-		s.synced = true
-		// Restored tabs are kept ones.
+	if s.isolated {
+		s.ignored = projectTabs(pr)
+	}
+	if s.bound == nil {
 		for _, t := range s.Tabs {
 			if item(t.Kind) && t.ID != "" {
-				pr.show(t.Kind, t.ID)
-				pr.keep(t.Kind, t.ID)
+				pr.retain(t)
 			}
 		}
-		if item(s.Active.Kind) && s.Active.ID != "" {
+		if item(s.Active.Kind) && s.Active.ID != "" && slices.Contains(s.Tabs, s.Active) {
 			pr.show(s.Active.Kind, s.Active.ID)
-			pr.keep(s.Active.Kind, s.Active.ID)
 		}
+	}
+	s.bound = pr
+}
+
+func projectTabs(pr *Project) []Tab {
+	var tabs []Tab
+	if pr != nil {
+		for _, k := range []Kind{Files, Changes} {
+			for _, id := range pr.items(k) {
+				tabs = append(tabs, Tab{k, id})
+			}
+		}
+	}
+	return tabs
+}
+
+// Sync reflects changes to project items in the mounted strip. Without a
+// project the tabs stay and show the project prompt.
+func (s *State) Sync(pr *Project) {
+	s.BindProject(pr)
+	if pr == nil {
+		return
 	}
 	var tabs []Tab
 	for _, t := range s.Tabs {
@@ -417,7 +514,9 @@ func (s *State) Sync(pr *Project) {
 	}
 	for _, k := range []Kind{Files, Changes} {
 		for _, id := range pr.items(k) {
-			tabs = Opened(tabs, Tab{k, id})
+			if t := (Tab{k, id}); !slices.Contains(s.ignored, t) {
+				tabs = Opened(tabs, t)
+			}
 		}
 	}
 	if !slices.Equal(tabs, s.Tabs) {

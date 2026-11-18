@@ -254,6 +254,19 @@ func (pr *Project) show(k Kind, path string) {
 	}
 }
 
+// retain makes a mounted tab available without replacing a passing tab or
+// changing the project's selection.
+func (pr *Project) retain(t Tab) {
+	if !slices.Contains(pr.items(t.Kind), t.ID) {
+		if t.Kind == Files {
+			pr.Files.open = append(pr.Files.open, t.ID)
+		} else {
+			pr.Git.open = append(pr.Git.open, t.ID)
+		}
+	}
+	pr.keep(t.Kind, t.ID)
+}
+
 // passingOf is k's passing item, which an edit keeps: a file with
 // unsaved changes does not pass.
 func (pr *Project) passingOf(k Kind) *string {

@@ -97,6 +97,7 @@ func (r *Runtime) browserFrame() {
 	if state == nil {
 		return
 	}
+	r.App.Panel.PruneBrowserChrome(r.App.HasPanelTab)
 	owners := []*Runtime{r}
 	for _, bound := range r.bindings {
 		owners = append(owners, bound)

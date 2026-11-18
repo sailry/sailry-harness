@@ -589,29 +589,45 @@ func TestProjectMenu(t *testing.T) {
 		a, tt := demo(t)
 		a.Sidebar.Selected = name + "/flaky-test"
 		settle(tt)
-		a.PanelOpen = true
-		settle(tt)
+		openLauncher := func() {
+			clickPanelToggle(t, tt)
+			settle(tt)
+			if !a.PanelOpen || len(a.Panel.Tabs) != 0 || a.Panel.Active != (panel.Tab{}) {
+				t.Fatalf("no empty launcher: panel open %v, tabs %v, active %v", a.PanelOpen, a.Panel.Tabs, a.Panel.Active)
+			}
+		}
+		openLauncher()
 		for _, r := range panel.Resources[4:] {
 			if tt.HasText(en(r.Label)) {
 				t.Fatalf("the launcher lists %q", en(r.Label))
 			}
 		}
 		snapshot(t, tt, "demo-launcher")
-		for _, r := range panel.Resources[:4] {
-			for len(a.Panel.Tabs) > 0 {
-				a.Panel.Close(a.Panel.Tabs[0])
+		for i, r := range panel.Resources[:4] {
+			if i != 0 {
+				for _, tab := range a.Panel.Tabs {
+					a.Panel.Close(tab)
+				}
+				settle(tt)
+				assertPanelFolded(t, a, tt)
+				openLauncher()
 			}
-			settle(tt)
 			if !tt.HasText(en(r.Label)) {
 				t.Fatalf("the launcher lacks %q: %q", en(r.Label), tt.Texts())
 			}
 			// The rail names Files and Git too: the launcher's row is in the panel.
+			var row ui.AccessInfo
 			for _, info := range tt.AccessAll() {
-				if info.Name == en(r.Label) && info.Bounds.X > 1280-a.PanelWidth {
-					tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+				if b := info.Bounds; info.Role == ui.RoleButton && info.Name == en(r.Label) && b.X > 1280-a.PanelWidth && b.Y >= HeaderHeight {
+					row = info
 					break
 				}
 			}
+			if row.Bounds.W <= 0 || row.Bounds.H <= 0 || row.Offscreen || row.Disabled {
+				t.Fatalf("the launcher has no enabled %q button: %+v", en(r.Label), row)
+			}
+			b := row.Bounds
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
 			settle(tt)
 			if a.Panel.Active.Kind != r.Kind {
 				t.Fatalf("%s opened %v", r.Label, a.Panel.Active)

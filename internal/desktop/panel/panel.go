@@ -40,15 +40,18 @@ type Shortcut func(mods ui.Modifiers, key ui.Key) string
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	s.Sync(pr)
 	s.nameDocument()
+	hadTabs := len(s.Tabs) != 0
 	s.confirmClose(c)
+	if pr != nil && len(s.Tabs) != 0 {
+		pr.promptDialog(c)
+	}
 	if len(s.Tabs) == 0 {
-		launcher(c, s, keys)
+		if !hadTabs {
+			launcher(c, s, keys)
+		}
 		return
 	}
 	t := s.Active
-	if pr != nil && t.Kind != Files && t.Kind != Changes {
-		pr.promptDialog(c)
-	}
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
 		if s.Live && t.Kind == Browser && s.BrowserActions == nil {
@@ -91,17 +94,20 @@ func (s *State) confirmClose(c *ui.Context) {
 	if t == (Tab{}) {
 		return
 	}
-	if !slices.Contains(s.Tabs, t) {
+	if !slices.Contains(s.Tabs, t) || s.TerminalActions == nil || s.TerminalActions.Close == nil {
 		// Its shell exited, or its conversation was left, meanwhile.
 		s.closing = Tab{}
 		return
 	}
 	open := true
-	if kit.Confirm(c.Key("close-terminal").Key(t), &open, kit.Confirmation{
+	if kit.Confirm(c.Key("close-terminal/"+t.ID), &open, kit.Confirmation{
 		Title: i18n.T(c, "workspace_close_terminal"), Message: s.Title(c, t),
 		Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "close")}, Default: 1, Destructive: []int{1},
 	}) == 1 {
 		s.closing = Tab{}
+		if s.OnTerminalClose != nil {
+			s.OnTerminalClose(t)
+		}
 		s.TerminalActions.Close(t.ID)
 	}
 	if !open {
@@ -320,7 +326,6 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, open func(
 		return
 	}
 	main := func() { pr.document(c, k, path, own) }
-	pr.promptDialog(c)
 	if k == Files {
 		pr.pair(c, "files", false, &pr.Files.side, filesLeast, main, func() { pr.tree(c, own, open) })
 		return

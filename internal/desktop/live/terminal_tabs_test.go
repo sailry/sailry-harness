@@ -267,13 +267,23 @@ func testTerminalTabsClose(t *testing.T) {
 			return link.Response{Output: protocol.Output{Kind: "terminal", Data: info}}
 		}
 		for _, info := range []protocol.TerminalInfo{first, second} {
-			root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: info.ID.String()})
-			root.closeLiveTerminal(info.ID.String())
+			id := info.ID.String()
+			root.App.Panel.Show(panel.Tab{Kind: panel.Terminal, ID: id})
+			root.App.Panel.Find()
+			root.closeLiveTerminal(id)
+			if !root.App.Panel.HasTerminalChrome(id) {
+				t.Fatal("a pending close lost the terminal's chrome")
+			}
 		}
 		synctest.Wait()
 		pluginViewRunQueue(root)
 		if got := terminalTabsTestTabs(root); len(got) != 0 {
 			t.Fatalf("closed terminals kept their tabs: %v", got)
+		}
+		for _, info := range []protocol.TerminalInfo{first, second} {
+			if root.App.Panel.HasTerminalChrome(info.ID.String()) {
+				t.Fatalf("permanently closed terminal %s retained its chrome", info.ID)
+			}
 		}
 		commands := source.sent("close_terminal")
 		if len(commands) != 2 {
@@ -430,6 +440,50 @@ func TestWorkspaceTerminalLifecycle(t *testing.T) {
 		root.terminalsFrame(nil)
 		if root.App.HasWorkspaceTerminal(id) || root.terminalInventory().pending[id] {
 			t.Fatal("the Node-closed terminal retained its workspace surface")
+		}
+	})
+}
+
+func TestDetachedTerminalChromeLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		info := terminalTabsTestInfo(1, protocol.WorktreeID{1}, "running")
+		root, source := terminalTabsFixture(t, info)
+		id := info.ID.String()
+		app := root.App
+		app.Panel.TerminalActions = &panel.TerminalActions{Close: root.closeLiveTerminal}
+		app.Sidebar.Selected = "draft/first"
+		root.showLiveTerminal(id)
+		if !app.Panel.Find() {
+			t.Fatal("the terminal's search bar did not open")
+		}
+		app.Sidebar.Selected = "draft/second"
+		app.MountPanel()
+		root.terminalsFrame(nil)
+		if len(app.Panel.Tabs) != 0 || !app.HasPanelTab(panel.Tab{Kind: panel.Terminal, ID: id}) || !app.Panel.HasTerminalChrome(id) {
+			t.Fatal("parking the terminal lost its tab or its chrome")
+		}
+
+		root.showWorkspaceTerminal(id)
+		app.DropWorkspaceTerminal(id)
+		root.terminalsFrame(nil)
+		root.showLiveTerminal(id)
+		if !app.Panel.HasTerminalChrome(id) {
+			t.Fatal("reopening the detached live terminal lost its chrome")
+		}
+		app.Panel.Clear()
+		root.terminalsFrame(nil)
+		if !app.Panel.HasTerminalChrome(id) || len(source.sent("close_terminal")) != 0 {
+			t.Fatal("detaching a live terminal lost its chrome or stopped its shell")
+		}
+
+		source.snapshot.Terminals = nil
+		if err := root.controller.Refresh(root.ctx); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		root.terminalsFrame(nil)
+		if app.Panel.HasTerminalChrome(id) || len(source.sent("close_terminal")) != 0 {
+			t.Fatal("the detached terminal kept its chrome or received a close command after it exited")
 		}
 	})
 }

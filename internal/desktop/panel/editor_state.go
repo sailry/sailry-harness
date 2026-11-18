@@ -87,7 +87,11 @@ func (pr *Project) fileTabLabel(path, label string) string {
 }
 func (pr *Project) requestEditorClose(path string, confirmed func()) bool {
 	item := pr.Files.items[path]
-	if pr.Actions == nil || item == nil || !item.dirty && !item.documentState().saving {
+	if pr.Actions == nil || item == nil {
+		return false
+	}
+	pr.syncDocument(path, item)
+	if !item.dirty && !item.documentState().saving {
 		return false
 	}
 	if pr.closing == nil {

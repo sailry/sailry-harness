@@ -16,7 +16,8 @@ import (
 type page struct {
 	address string
 	history []string
-	at      int // the index in history shown, -1 for none
+	at      int    // the index in history shown, -1 for none
+	shown   string // address last copied from the live page
 	// field is the live tab's address field, for its focus.
 	field ui.Handle
 }
@@ -70,6 +71,27 @@ func (s *State) pageOf(id string) *page {
 		}
 	}
 	return b
+}
+
+// DiscardTabChrome forgets the chrome of a permanently closed tab, not one
+// parked in another conversation or moved between surfaces.
+func (s *State) DiscardTabChrome(t Tab) {
+	switch t.Kind {
+	case Browser:
+		delete(s.pagesOf, t.ID)
+	case Terminal:
+		delete(s.terms, t.ID)
+	}
+}
+
+// PruneBrowserChrome releases chrome of tabs removed outside the mounted
+// strip. hasTab must include parked conversations.
+func (s *State) PruneBrowserChrome(hasTab func(Tab) bool) {
+	for id := range s.pagesOf {
+		if !hasTab(Tab{Kind: Browser, ID: id}) {
+			delete(s.pagesOf, id)
+		}
+	}
 }
 
 // sample is the dataset's own page when the tab shows its address, nil
@@ -172,6 +194,10 @@ func (s *State) termOf(id string) *term {
 	}
 	return x
 }
+
+// HasTerminalChrome reports whether a terminal has find bar or folder state
+// that should follow it if its running shell is reopened.
+func (s *State) HasTerminalChrome(id string) bool { return s.terms[id] != nil }
 
 // Find opens the active terminal's find bar, reporting whether the active tab
 // is a terminal. The window calls it for ⌘F with the focus in the panel, as

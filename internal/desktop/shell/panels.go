@@ -21,18 +21,20 @@ type ConversationPanel struct {
 	Open   bool        `json:"open,omitempty"`
 	// Width is the column's width when the conversation was left, 0 for the
 	// window's.
-	Width float32 `json:"width,omitempty"`
-	// restored is set for a panel read from the saved window state until
-	// its conversation first shows.
-	restored bool
+	Width   float32        `json:"width,omitempty"`
+	project *panel.Project // mounted workspace, when known
 }
 
 // conversationPanels are the window's panels by conversation.
 type conversationPanels struct {
 	// mounted is the conversation whose panel the State holds, "" before the
 	// first one.
-	mounted string
-	parked  map[string]*ConversationPanel
+	mounted   string
+	parked    map[string]*ConversationPanel
+	project   *panel.Project
+	focusMain bool
+	// terminalCloses holds the origin of each confirmed close waiting on the Node.
+	terminalCloses map[panel.Tab]string
 }
 
 // RevealConversationPanel shows the selected conversation's right panel.
@@ -43,7 +45,7 @@ func (a *App) RevealConversationPanel() {
 		a.Navigate(ConversationPage)
 	}
 	a.syncPanel()
-	a.Panel.Sync(a.project())
+	a.Panel.Sync(a.panels.project)
 	a.PanelOpen = true
 }
 
@@ -54,6 +56,11 @@ func (a *App) RevealConversationPanel() {
 // window: the one in the shown panel.
 func (a *App) MountPanel() {
 	p := &a.panels
+	if a.Panel.OnEmpty == nil {
+		a.Panel.OnEmpty = a.foldConversationPanel
+		a.Panel.SharedItem = a.sharedPanelItem
+		a.Panel.OnTerminalClose = a.noteTerminalClose
+	}
 	selected := a.Sidebar.Selected
 	if selected != p.mounted {
 		kept := p.parked[selected]
@@ -68,23 +75,26 @@ func (a *App) MountPanel() {
 				if active == (panel.Tab{}) {
 					active = kept.Active
 				}
-				a.Panel.Mount(tabs, active, kept.restored)
+				a.Panel.Mount(tabs, active)
 				a.PanelOpen = a.PanelOpen || kept.Open
+				if kept.Width > 0 {
+					a.PanelWidth = max(kept.Width, PanelMin)
+				}
 			}
 		} else {
 			if len(a.Panel.Tabs) > 0 || a.PanelOpen {
-				a.park(p.mounted, &ConversationPanel{Tabs: slices.Clone(a.Panel.Tabs), Active: a.Panel.Active, Open: a.PanelOpen, Width: a.PanelWidth})
+				a.park(p.mounted, &ConversationPanel{Tabs: slices.Clone(a.Panel.Tabs), Active: a.Panel.Active, Open: a.PanelOpen, Width: a.PanelWidth, project: p.project})
 			}
 			if kept == nil {
 				kept = &ConversationPanel{}
 			}
-			a.Panel.Mount(kept.Tabs, kept.Active, kept.restored)
+			a.Panel.Mount(kept.Tabs, kept.Active)
 			a.PanelOpen = kept.Open
 			if kept.Width > 0 {
 				a.PanelWidth = max(kept.Width, PanelMin)
 			}
 		}
-		p.mounted = selected
+		p.mounted, p.project, p.focusMain = selected, nil, false
 	}
 	for id, other := range p.parked {
 		other.Tabs = slices.DeleteFunc(other.Tabs, func(t panel.Tab) bool {
@@ -94,6 +104,22 @@ func (a *App) MountPanel() {
 			delete(p.parked, id)
 		}
 	}
+}
+
+func (a *App) foldConversationPanel() {
+	if a.PanelOpen {
+		a.PanelOpen = false
+		a.panels.focusMain = true
+	}
+}
+
+func (a *App) sharedPanelItem(pr *panel.Project, t panel.Tab) bool {
+	for _, kept := range a.panels.parked {
+		if (kept.project == nil || kept.project == pr) && slices.Contains(kept.Tabs, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) park(id string, kept *ConversationPanel) {
@@ -109,6 +135,11 @@ func (a *App) renamePanel(before, after string) {
 	p := &a.panels
 	if p.mounted == before {
 		p.mounted = after
+	}
+	for tab, owner := range p.terminalCloses {
+		if owner == before {
+			p.terminalCloses[tab] = after
+		}
 	}
 	if kept := p.parked[before]; kept != nil {
 		delete(p.parked, before)
@@ -180,12 +211,36 @@ func (a *App) HasPanelTab(t panel.Tab) bool {
 	return false
 }
 
-// DropPanelTab takes t out of the panel that has it, shown or not, without
-// closing what the tab shows.
+func (a *App) noteTerminalClose(t panel.Tab) {
+	if a.panels.terminalCloses == nil {
+		a.panels.terminalCloses = map[panel.Tab]string{}
+	}
+	a.panels.terminalCloses[t] = a.panels.mounted
+}
+
+// DropPanelTab takes t out of the panel that has it, shown or not. A Node
+// acknowledgment of an explicit terminal close can also fold its panel.
 func (a *App) DropPanelTab(t panel.Tab) {
-	a.Panel.Tabs, a.Panel.Active = panel.Closed(a.Panel.Tabs, t, a.Panel.Active)
+	owner, confirmed := a.panels.terminalCloses[t]
+	delete(a.panels.terminalCloses, t)
+	if confirmed && slices.Contains(a.ConversationTabs(owner), t) && len(a.ConversationTabs(owner)) == 1 {
+		if owner == a.panels.mounted {
+			a.foldConversationPanel()
+		} else {
+			a.panels.parked[owner].Open = false
+		}
+	}
+	a.dropPanelTab(t)
+}
+
+func (a *App) dropPanelTab(t panel.Tab) {
+	if slices.Contains(a.Panel.Tabs, t) {
+		a.Panel.Tabs, a.Panel.Active = panel.Closed(a.Panel.Tabs, t, a.Panel.Active)
+	}
 	for _, kept := range a.panels.parked {
-		kept.Tabs, kept.Active = panel.Closed(kept.Tabs, t, kept.Active)
+		if slices.Contains(kept.Tabs, t) {
+			kept.Tabs, kept.Active = panel.Closed(kept.Tabs, t, kept.Active)
+		}
 	}
 }
 
@@ -196,7 +251,7 @@ func (a *App) MovePanelTab(t panel.Tab, id string) {
 	if id == "" || slices.Contains(a.ConversationTabs(id), t) {
 		return
 	}
-	a.DropPanelTab(t)
+	a.dropPanelTab(t)
 	if id == a.panels.mounted {
 		a.Panel.Tabs = panel.Opened(a.Panel.Tabs, t)
 		return
@@ -217,7 +272,7 @@ func (a *App) MovePanelTab(t panel.Tab, id string) {
 func (a *App) DropPanel(id string) {
 	delete(a.panels.parked, id)
 	if id == a.panels.mounted {
-		a.Panel.Mount(nil, panel.Tab{}, false)
+		a.Panel.Mount(nil, panel.Tab{})
 	}
 }
 
@@ -232,17 +287,13 @@ func (a *App) savedPanels() map[string]ConversationPanel {
 			continue
 		}
 		tabs := keptTabs(kept.Tabs)
-		if len(tabs) == 0 {
+		if len(tabs) == 0 && !kept.Open {
 			continue
-		}
-		active := kept.Active
-		if !keeps(active) || !slices.Contains(tabs, active) {
-			active = tabs[len(tabs)-1]
 		}
 		if saved == nil {
 			saved = map[string]ConversationPanel{}
 		}
-		saved[id] = ConversationPanel{Tabs: tabs, Active: active, Open: kept.Open, Width: kept.Width}
+		saved[id] = ConversationPanel{Tabs: tabs, Active: savedPanelTab(tabs, kept.Active), Open: kept.Open, Width: kept.Width}
 	}
 	return saved
 }
@@ -257,26 +308,40 @@ func (a *App) keepsPanel(id string) bool {
 // to conversations names none, and the first conversation shown takes its
 // tabs.
 func (a *App) restorePanels(p Prefs) {
-	tabs, active := keptTabs(p.PanelTabs), p.PanelTab
+	width := max(p.PanelWidth, PanelMin)
+	if a.panels.mounted != "" || len(a.Panel.Tabs) != 0 || len(a.panels.parked) != 0 {
+		// A reload can hide a live panel, but saved tabs cannot replace or
+		// resurrect its in-memory tabs.
+		a.MountPanel()
+		if p.PanelOf == "" || p.PanelOf == a.panels.mounted {
+			a.PanelWidth, a.PanelOpen = width, p.PanelOpen
+		} else if kept := a.panels.parked[p.PanelOf]; kept != nil {
+			kept.Width, kept.Open = width, p.PanelOpen
+		}
+		return
+	}
+	a.PanelWidth, a.PanelOpen = width, p.PanelOpen
+	tabs := keptTabs(p.PanelTabs)
+	if len(p.PanelTabs) == 0 && keeps(p.PanelTab) {
+		tabs = []panel.Tab{p.PanelTab}
+	}
+	active := savedPanelTab(tabs, p.PanelTab)
 	if p.PanelOf != "" && p.PanelOf != a.Sidebar.Selected {
 		if len(tabs) > 0 || p.PanelOpen {
-			a.park(p.PanelOf, &ConversationPanel{Tabs: tabs, Active: active, Open: p.PanelOpen, restored: true})
+			a.park(p.PanelOf, &ConversationPanel{Tabs: tabs, Active: active, Open: p.PanelOpen, Width: width})
 		}
 		a.PanelOpen = false
 	} else {
-		for _, t := range tabs {
-			a.Panel.Show(t)
-		}
-		if active != (panel.Tab{}) && keeps(active) {
-			a.Panel.Show(active)
-		}
+		a.Panel.Mount(tabs, active)
+		a.panels.mounted = p.PanelOf
 	}
 	for id, saved := range p.Panels {
-		if id == p.PanelOf || len(saved.Tabs) == 0 {
+		kept := saved
+		kept.Tabs = keptTabs(saved.Tabs)
+		kept.Active = savedPanelTab(kept.Tabs, kept.Active)
+		if id == p.PanelOf || len(kept.Tabs) == 0 && !kept.Open {
 			continue
 		}
-		kept := saved
-		kept.Tabs, kept.restored = keptTabs(saved.Tabs), true
 		a.park(id, &kept)
 		a.Panel.Reserve(kept.Tabs...)
 	}

@@ -24,7 +24,8 @@ type terminalState struct {
 	// pending tabs wait for their terminal's first snapshot and are not
 	// pruned: a command's output can arrive before the Node's update.
 	pending map[string]bool
-	// nodes is the Node each tab's terminal was last seen on.
+	// nodes is the Node each terminal was last seen on; a detached terminal
+	// with chrome keeps its owner so it can be recognized when it exits.
 	nodes map[string]protocol.NodeID
 	// paned terminals showed in a split pane this frame.
 	paned      map[string]bool
@@ -243,8 +244,10 @@ func (r *Runtime) dropTerminalTab(id string) {
 		inventory.focus = ""
 	}
 	// The tab is in the panel of the conversation that opened it, shown or not.
-	root.App.DropPanelTab(panel.Tab{Kind: panel.Terminal, ID: id})
+	tab := panel.Tab{Kind: panel.Terminal, ID: id}
+	root.App.DropPanelTab(tab)
 	root.App.DropWorkspaceTerminal(id)
+	root.App.Panel.DiscardTabChrome(tab)
 }
 
 // terminalsFrame follows both main workspace surfaces and conversation panel
@@ -293,9 +296,16 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 		}
 	}
 	for id := range inventory.nodes {
-		if !tabs[id] {
-			delete(inventory.nodes, id)
+		if tabs[id] {
+			continue
 		}
+		if !inventory.pending[id] && r.App.Panel.HasTerminalChrome(id) {
+			if r.terminalTabCurrent(owners, settled, id) {
+				continue
+			}
+			r.App.Panel.DiscardTabChrome(panel.Tab{Kind: panel.Terminal, ID: id})
+		}
+		delete(inventory.nodes, id)
 	}
 	for id := range inventory.pending {
 		if !tabs[id] {

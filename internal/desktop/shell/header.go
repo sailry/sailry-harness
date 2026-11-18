@@ -390,9 +390,11 @@ func (a *App) panelHeader(c *ui.Context, seg ui.Element) {
 		// actions together; do not repeat that title in the window band.
 		return
 	}
+	if a.Page != ConversationPage || !a.PanelOpen {
+		return
+	}
 	seg.PaddingStart(8)
-	a.syncPanel()
-	panel.Strip(c, a.Panel, a.project(), kit.KeyText)
+	panel.Strip(c, a.Panel, a.panels.project, kit.KeyText)
 	// The tabs are the panel's: ⌘W with the focus on one closes the active
 	// tab, as it does inside the column. The segment itself takes no focus,
 	// so its gaps still drag the window.

@@ -120,11 +120,7 @@ func (a *App) prefs() Prefs {
 		Panes: a.panes.Saved(), Tabs: slices.Clone(a.panes.Kept), TabOrder: slices.Clone(a.panes.order), WorkspaceTerminals: append([]WorkspaceTerminal(nil), a.panes.terminals...),
 		DiffSplit: a.DiffSplit, ListShare: a.ListShare,
 	}
-	if keeps(a.Panel.Active) {
-		p.PanelTab = a.Panel.Active
-	} else if len(p.PanelTabs) > 0 {
-		p.PanelTab = p.PanelTabs[len(p.PanelTabs)-1]
-	}
+	p.PanelTab = savedPanelTab(p.PanelTabs, a.Panel.Active)
 	if a.keepsPanel(a.panels.mounted) {
 		p.PanelOf = a.panels.mounted
 	} else if a.panels.mounted != "" {
@@ -143,7 +139,6 @@ func (a *App) prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.OverviewHidden = p.OverviewHidden
-	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
 	a.pluginWorkspaces = make(map[string]*PluginWorkspacePrefs, len(p.PluginWorkspaces))
 	for key, value := range p.PluginWorkspaces {
 		value.Width = min(max(value.Width, 0), 480)
@@ -185,7 +180,19 @@ func (a *App) SetPrefs(p Prefs) {
 // keeps reports whether a panel tab comes back after a relaunch. A file's
 // preview and a subagent's session show what their conversation loaded, which
 // a new window does not have: their tabs would come back empty.
-func keeps(t panel.Tab) bool { return t.Kind != panel.Artifact && t.Kind != panel.Subagent }
+func keeps(t panel.Tab) bool {
+	return t.Valid() && t.Kind != panel.Artifact && t.Kind != panel.Subagent
+}
+
+func savedPanelTab(tabs []panel.Tab, active panel.Tab) panel.Tab {
+	if slices.Contains(tabs, active) {
+		return active
+	}
+	if len(tabs) > 0 {
+		return tabs[len(tabs)-1]
+	}
+	return panel.Tab{}
+}
 
 func keptTabs(tabs []panel.Tab) []panel.Tab {
 	var out []panel.Tab
