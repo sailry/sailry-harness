@@ -60,6 +60,12 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 			return nil, err
 		}
 		return encode(request)
+	case "refresh_conversation":
+		session, err := protocol.ParseSessionID(values.Session)
+		if err != nil {
+			return nil, invalid("invalid session identifier")
+		}
+		return nil, owner.client.RefreshConversation(ctx, session)
 	case "search_conversation":
 		session, err := protocol.ParseSessionID(values.Session)
 		if err != nil {
@@ -91,6 +97,8 @@ func (owner *connection) invoke(ctx context.Context, runtime *Runtime, handle ui
 		return runtime.add(handle, "forwarding", &forwarding{forwarder: forwarder}, lifetime, cancel)
 	case "upload_attachment", "download_attachment", "download_file":
 		return owner.transfer(ctx, runtime, handle, method, values)
+	case "open_command_detail":
+		return owner.openCommandDetail(ctx, runtime, handle, values.Query)
 	case "watch", "watch_commands", "watch_conversation", "watch_status", "watch_terminal", "watch_usage":
 		var argument json.RawMessage = json.RawMessage("null")
 		switch method {

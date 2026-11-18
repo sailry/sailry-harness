@@ -327,6 +327,10 @@ class DemoConnection implements Connection {
   }) async => _watch(() => _conversation(session));
 
   @override
+  Future<void> refreshConversation({required String session}) async =>
+      _publish();
+
+  @override
   Future<CommandUpdates> watchCommands({required String session}) async =>
       _watch(
         () => {

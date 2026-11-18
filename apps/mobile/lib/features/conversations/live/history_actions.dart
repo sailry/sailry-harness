@@ -17,58 +17,39 @@ extension _HistoryActions on _LiveConversationPageState {
       objects(object(_page['queue'])['items']).isEmpty &&
       !objects(_page['runs']).any(activeRun);
 
-  Future<bool> _historyCommand(String kind, Map<String, dynamic> data) async {
-    if (_historyBusy) return false;
-    final pending = _historyPending;
-    if (pending != null && pending.kind != kind) return false;
-    _historyBusy = true;
-    _rebuild();
+  Future<bool> _historyCommand(String kind, Map<String, dynamic> data) =>
+      _finishHistory(() => _history.submit(kind, data));
+
+  Future<bool> _checkHistory() => _finishHistory(_history.check);
+
+  Future<bool> _finishHistory(
+    Future<HistoryCompletion?> Function() operation,
+  ) async {
+    if (_closed || _ownerEnded) return false;
     try {
-      final output = pending == null
-          ? await _command(kind, data)
-          : await widget.host.check(pending.request);
-      if (!mounted) return true;
-      _historyPending = null;
+      final result = await operation();
+      if (result == null) return false;
+      final (:kind, :output) = result;
+      if (!mounted ||
+          _ownerEnded ||
+          _route?.isActive == false ||
+          _route?.animation?.status == AnimationStatus.reverse ||
+          kind == 'fork_conversation' && _route?.isCurrent == false ||
+          !_history.consume(result)) {
+        return true;
+      }
       if (kind == 'rewind_conversation' || kind == 'replace_turn') {
         _backup = historyBackup(kind, output);
       }
       _rebuild();
-      if (kind == 'fork_conversation') _openSession(object(output['data']));
-      return true;
-    } on CommandFailure catch (failure) {
-      if (mounted) {
-        if (failure.retained) {
-          _historyPending = (kind: kind, request: failure.request!);
-        } else if (failure.rejected) {
-          _historyPending = null;
-        } else {
-          _historyPending = pending;
-        }
-        _rebuild();
-        _failure(failure);
+      if (kind == 'fork_conversation') {
+        unawaited(_openSession(object(output['data'])));
       }
-      return false;
+      return true;
     } catch (failure) {
       _failure(failure);
       return false;
-    } finally {
-      if (mounted) {
-        _historyBusy = false;
-        _rebuild();
-      }
     }
-  }
-
-  void _openSession(Map<String, dynamic> session) {
-    if (session['id'] is! String) return;
-    pushPage(
-      context,
-      LiveConversationPage(
-        host: widget.host,
-        sessionId: session['id'],
-        initialSession: session,
-      ),
-    );
   }
 
   Future<void> _turnAction(String action, String turn) async {
@@ -109,13 +90,14 @@ extension _HistoryActions on _LiveConversationPageState {
           MessageEditor(
             initial: _edits[turn] ?? text(input['text']),
             onChanged: (value) => _edits[turn] = value,
-            isPending: () => _historyPending?.kind == 'replace_turn',
+            isPending: () => _historyPending == 'replace_turn',
+            onCheck: () async {
+              if (_historyPending != 'replace_turn') return false;
+              final accepted = await _checkHistory();
+              if (accepted) _edits.remove(turn);
+              return accepted;
+            },
             onSubmit: (value) async {
-              if (_historyPending?.kind == 'replace_turn') {
-                final accepted = await _historyCommand('replace_turn', {});
-                if (accepted) _edits.remove(turn);
-                return accepted;
-              }
               if (!_canChangeHistory ||
                   objects(_page['runs']).lastOrNull?['turn'] != head ||
                   _page['revision'] != revision ||

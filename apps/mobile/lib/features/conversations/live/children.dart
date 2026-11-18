@@ -5,6 +5,9 @@ import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
 import '../../../ui/identicon.dart';
 import '../../../ui/kit.dart';
+import 'background_data.dart';
+import 'connection_status.dart';
+import 'presentation.dart';
 import 'tool_row.dart';
 import 'turn_frame.dart';
 
@@ -43,21 +46,43 @@ class ChildTask extends StatelessWidget {
   Widget build(BuildContext context) {
     final run = object(child['run']);
     final running = connected && (activeRun(run) || continuing);
-    return ToolRow(
-      key: ValueKey('child-${run['session']}'),
-      leading: (_) => Identicon(seed: text(run['session']), running: running),
-      label: context.tr('conversationChild'),
-      detail: title,
-      tone: failedRun(run) ? RowTone.failed : RowTone.normal,
-      running: running,
-      action: onOpen == null
-          ? null
-          : AppIcon(
-              'chevron',
-              size: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-      onTap: onOpen,
+    final status = switch (run['status']) {
+      'queued' => 'conversationQueued',
+      'running' => 'running',
+      'stopping' => 'conversationStopping',
+      'continued' => 'conversationContinued',
+      'completed' ||
+      'failed' ||
+      'interrupted' ||
+      'cancelled' => backgroundLabel(run['status']),
+      _ => null,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ToolRow(
+          key: ValueKey('child-${run['session']}'),
+          leading: (_) =>
+              Identicon(seed: text(run['session']), running: running),
+          label: context.tr('conversationChild'),
+          detail: status == null ? title : '${context.tr(status)} · $title',
+          tone: failedRun(run) ? RowTone.failed : RowTone.normal,
+          running: running,
+          action: onOpen == null
+              ? null
+              : AppIcon(
+                  'chevron',
+                  size: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          onTap: onOpen,
+        ),
+        if (run['error'] != null)
+          ErrorDetails(
+            key: PageStorageKey('child-error-${run['turn']}'),
+            reason: runFailure(run['error'], translate: context.tr),
+          ),
+      ],
     );
   }
 }

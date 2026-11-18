@@ -1,17 +1,26 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_bridge/api.dart' show Controller;
+import 'package:sailry_bridge/api/connection.dart';
+import 'package:sailry_bridge/api/conversation.dart';
+import 'package:sailry_bridge/bridge.dart';
+import 'package:sailry_mobile/content/markdown.dart';
 import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
+import 'package:sailry_mobile/features/conversations/live/timeline.dart';
+import 'package:sailry_mobile/features/conversations/message_composer.dart';
 import 'package:sailry_mobile/features/conversations/task_row.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
 import 'package:sailry_mobile/runtime/session.dart';
+import 'package:sailry_mobile/ui/kit.dart' show pushPage;
 import 'package:sailry_mobile/ui/theme.dart';
 
 Map<String, dynamic> conversation({
@@ -68,7 +77,527 @@ Future<void> release(WidgetTester tester, AppSession session) async {
   session.dispose();
 }
 
+class _ConversationFeed extends Fake implements ConversationUpdates {
+  final _views = StreamController<String>();
+  late final _reader = StreamIterator(_views.stream);
+
+  void publish(Map<String, dynamic> view) => _views.add(jsonEncode(view));
+
+  @override
+  Future<String> next() async {
+    if (await _reader.moveNext()) return _reader.current;
+    throw StateError('conversation closed');
+  }
+
+  @override
+  Future<void> close() async => unawaited(_views.close());
+
+  @override
+  void dispose() {}
+}
+
+class _FailedConversation extends Fake implements Connection {
+  final feed = _ConversationFeed();
+  final watches = <String>[];
+  final refreshes = <String>[];
+
+  @override
+  Future<ConversationUpdates> watchConversation({
+    required String session,
+  }) async {
+    watches.add(session);
+    feed.publish({
+      'connected': false,
+      'error': {'code': 'wrong_target', 'message': 'Conversation mismatch'},
+    });
+    return feed;
+  }
+
+  @override
+  Future<void> refreshConversation({required String session}) async {
+    refreshes.add(session);
+    feed.publish({
+      'connected': true,
+      'snapshot': {'page': <String, dynamic>{}},
+    });
+  }
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  void dispose() {}
+}
+
+class _ManualConversationFeed extends Fake implements ConversationUpdates {
+  Completer<String>? _pending;
+  final toolSelections = <String>[];
+  bool lateDelivery = false;
+  int closes = 0;
+  int disposals = 0;
+
+  void publish(Map<String, dynamic> view) =>
+      _pending!.complete(jsonEncode(view));
+  void fail(Object error) => _pending!.completeError(error);
+
+  @override
+  Future<String> next() => (_pending = Completer<String>()).future;
+
+  @override
+  Future<void> trackTools({required String selection}) async {
+    toolSelections.add(selection);
+  }
+
+  @override
+  Future<void> close() async {
+    closes++;
+  }
+
+  @override
+  void dispose() {
+    disposals++;
+    final pending = _pending;
+    if (!lateDelivery && pending != null && !pending.isCompleted) {
+      pending.completeError(
+        const BridgeFailure(code: 'cancelled', message: 'Observation closed'),
+      );
+    }
+  }
+}
+
+class _LifecycleConnection extends Fake implements Connection {
+  final watches = <String>[];
+  final feeds = <_ManualConversationFeed>[];
+
+  @override
+  Future<ConversationUpdates> watchConversation({
+    required String session,
+  }) async {
+    watches.add(session);
+    final feed = _ManualConversationFeed();
+    feeds.add(feed);
+    return feed;
+  }
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  void dispose() {}
+}
+
+class _Directory extends Fake implements Controller {
+  @override
+  Future<List<String>> peers() async => [
+    jsonEncode({'id': 'target'}),
+  ];
+
+  @override
+  Future<void> close() async {}
+
+  @override
+  void dispose() {}
+}
+
+Finder _message(String text) => find.byWidgetPredicate(
+  (widget) => widget is MarkdownContent && widget.data == text,
+);
+
+Map<String, dynamic> _transcript(
+  String session,
+  String body, {
+  int count = 1,
+  String? before,
+}) {
+  final turns = List.generate(count, (index) => 'turn-$index');
+  Map<String, dynamic> part(String turn) => {
+    'kind': 'text',
+    'data': turn == turns.last ? body : 'History for $turn',
+  };
+  return {
+    'connected': true,
+    'snapshot': {
+      'statistics': {'turns': count},
+      'page': {
+        'session': session,
+        'revision': 1,
+        'next_before': before,
+        'runs': [
+          for (final turn in turns)
+            {'turn': turn, 'kind': 'task', 'status': 'completed'},
+        ],
+        'entries': [
+          for (final turn in turns)
+            {
+              'id': turn,
+              'turn': turn,
+              'author': 'assistant',
+              'parts': [part(turn)],
+            },
+        ],
+      },
+    },
+    'timeline': turns,
+    'segments': {
+      for (final turn in turns)
+        turn: [
+          {
+            'rows': [
+              {
+                'source': {'entry': turn, 'index': 0},
+                'part': part(turn),
+                'text_offset': 0,
+                'text_last': true,
+              },
+            ],
+          },
+        ],
+    },
+  };
+}
+
 void main() {
+  testWidgets('retry refreshes a non-recovering conversation in place', (
+    tester,
+  ) async {
+    final connection = _FailedConversation();
+    final initial = conversation(unread: false);
+    final host = HostConnection.test(
+      id: 'entry/target',
+      label: 'Host',
+      connection: connection,
+      snapshot: {
+        'sessions': [initial],
+      },
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(
+      screen(
+        session,
+        home: LiveConversationPage(
+          host: host,
+          sessionId: 'session',
+          initialSession: initial,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final translate = tester.element(find.byType(LiveConversationPage)).tr;
+    final retry = find.widgetWithText(FilledButton, translate('retry'));
+    MessageComposer composer() => tester.widget(find.byType(MessageComposer));
+    expect(retry, findsOneWidget);
+    expect(composer().enabled, isFalse);
+    expect(connection.watches, ['session']);
+    expect(connection.refreshes, isEmpty);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(connection.refreshes, ['session']);
+    expect(connection.watches, ['session']);
+    expect(retry, findsNothing);
+    expect(composer().enabled, isTrue);
+    await release(tester, session);
+  });
+
+  testWidgets(
+    'stacked forks release covered views and restore drafts and scroll',
+    (tester) async {
+      final connection = _LifecycleConnection();
+      final parent = conversation(unread: false);
+      final branches = [
+        for (final id in ['first-fork', 'second-fork'])
+          {...conversation(title: id, unread: false), 'id': id},
+      ];
+      var fork = 0;
+      final host = HostConnection.test(
+        id: 'entry/target',
+        label: 'Host',
+        connection: connection,
+        snapshot: {
+          'sessions': [parent, ...branches],
+        },
+        command: (kind, data) async {
+          expect(kind, 'fork_conversation');
+          expect(data?['session'], fork == 0 ? 'session' : 'first-fork');
+          return {'data': branches[fork++]};
+        },
+      );
+      final session = AppSession.test(hosts: [host]);
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        screen(
+          session,
+          navigator: navigator,
+          home: LiveConversationPage(
+            host: host,
+            sessionId: 'session',
+            initialSession: parent,
+          ),
+        ),
+      );
+      LiveTimeline timeline() => tester.widget(find.byType(LiveTimeline));
+      TextEditingController draft() => tester
+          .widget<MessageComposer>(find.byType(MessageComposer))
+          .controller;
+      Finder body(String id) =>
+          find.byKey(ValueKey((host.id, id)), skipOffstage: false);
+      Future<CupertinoPageRoute<void>> openFork(
+        String id,
+        String previousId,
+        _ManualConversationFeed previousFeed,
+      ) async {
+        timeline().onTurnAction!('fork', 'turn-23');
+        await tester.pump();
+        await tester.pump();
+        expect(connection.watches.last, id);
+        final route = ModalRoute.of<void>(
+          tester.element(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is LiveConversationPage && widget.sessionId == id,
+            ),
+          ),
+        );
+        expect(route, isA<CupertinoPageRoute<void>>());
+        final cover = route! as CupertinoPageRoute<void>;
+        expect(cover.opaque, isTrue);
+        connection.feeds.last.publish(_transcript(id, '$id body', count: 24));
+        await tester.pump(cover.transitionDuration ~/ 2);
+        expect(cover.offstage, isFalse);
+        expect(cover.animation!.status, AnimationStatus.forward);
+        expect(previousFeed.closes, 0);
+        expect(body(previousId), findsOneWidget);
+        await tester.pumpAndSettle();
+        expect(cover.animation!.status, AnimationStatus.completed);
+        expect(previousFeed.closes, 1);
+        expect(previousFeed.disposals, 1);
+        expect(body(previousId), findsNothing);
+        return cover;
+      }
+
+      Future<void> returnFromFork(
+        CupertinoPageRoute<void> cover,
+        String id,
+        int priorWatches,
+      ) async {
+        navigator.currentState!.pop();
+        await tester.pump();
+        await tester.pump(cover.reverseTransitionDuration ~/ 2);
+        expect(cover.animation!.status, AnimationStatus.reverse);
+        expect(connection.watches, hasLength(priorWatches));
+        expect(body(id), findsNothing);
+        await tester.pump(cover.reverseTransitionDuration);
+        await tester.pump();
+        await tester.pump();
+        expect(connection.watches, hasLength(priorWatches + 1));
+        expect(connection.watches.last, id);
+        expect(body(id), findsNothing);
+      }
+
+      final original = connection.feeds.single..lateDelivery = true;
+      original.publish(_transcript('session', 'Original body', count: 24));
+      await tester.pumpAndSettle();
+      final parentDraft = draft()..text = 'Unsent parent text';
+      final scroll = timeline().controller;
+      scroll.jumpTo(180);
+      await tester.pump();
+      expect(scroll.offset, 180);
+
+      final firstCover = await openFork('first-fork', 'session', original);
+      final firstFork = connection.feeds.last..lateDelivery = true;
+      final branchDraft = draft()..text = 'Unsent branch text';
+      timeline().controller.jumpTo(20);
+
+      final secondCover = await openFork(
+        'second-fork',
+        'first-fork',
+        firstFork,
+      );
+      expect(body('session'), findsNothing);
+
+      await returnFromFork(secondCover, 'first-fork', 3);
+      firstFork.publish(_transcript('first-fork', 'Late branch body'));
+      await tester.pump();
+      expect(body('first-fork'), findsNothing);
+      connection.feeds.last.publish(
+        _transcript('first-fork', 'Fresh branch body', count: 24),
+      );
+      await tester.pumpAndSettle();
+      expect(_message('Fresh branch body'), findsOneWidget);
+      expect(timeline().controller.position.extentBefore, 0);
+      expect(draft(), same(branchDraft));
+      expect(draft().text, 'Unsent branch text');
+
+      await returnFromFork(firstCover, 'session', 4);
+      final restored = connection.feeds.last;
+      restored.publish(
+        _transcript('session', 'Fresh partial body', before: 'older'),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, lessThan(180));
+      original.publish(_transcript('session', 'Delayed original callback'));
+      await tester.pump();
+      expect(_message('Fresh partial body'), findsOneWidget);
+      expect(_message('Delayed original callback'), findsNothing);
+      restored.publish(_transcript('session', 'Fresh full body', count: 24));
+      await tester.pumpAndSettle();
+      expect(_message('Delayed original callback'), findsNothing);
+      expect(scroll.offset, 180);
+      expect(draft(), same(parentDraft));
+      expect(draft().text, 'Unsent parent text');
+      await release(tester, session);
+    },
+  );
+
+  testWidgets(
+    'ordinary detail routes and sheets keep the conversation observer',
+    (tester) async {
+      final connection = _LifecycleConnection();
+      final initial = conversation(unread: false);
+      final host = HostConnection.test(
+        id: 'target',
+        label: 'Host',
+        connection: connection,
+      );
+      final session = AppSession.test(hosts: [host]);
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        screen(
+          session,
+          navigator: navigator,
+          home: LiveConversationPage(
+            host: host,
+            sessionId: 'session',
+            initialSession: initial,
+          ),
+        ),
+      );
+      final feed = connection.feeds.single;
+      feed.publish(_transcript('session', 'Initial body'));
+      await tester.pumpAndSettle();
+
+      unawaited(
+        pushPage<void>(
+          tester.element(find.byType(LiveConversationPage)),
+          const Scaffold(body: Text('Ordinary detail')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      feed.publish(_transcript('session', 'Body updated behind detail'));
+      await tester.pumpAndSettle();
+      expect(feed.closes, 0);
+      navigator.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(_message('Body updated behind detail'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('conversation-info')));
+      await tester.pumpAndSettle();
+      feed.publish(_transcript('session', 'Body updated behind sheet'));
+      await tester.pumpAndSettle();
+      expect(feed.closes, 0);
+      navigator.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(_message('Body updated behind sheet'), findsOneWidget);
+      expect(connection.watches, ['session']);
+      await release(tester, session);
+    },
+  );
+
+  for (final terminal in ['revoked', 'removed', 'terminated']) {
+    testWidgets(
+      'same owner survives unavailable but discards a $terminal view',
+      (tester) async {
+        final connection = _LifecycleConnection();
+        final initial = conversation(unread: false);
+        final host = HostConnection.test(
+          id: 'entry/target',
+          label: 'Routed host',
+          connection: connection,
+        );
+        final direct = HostConnection.test(id: 'target', label: 'Direct host');
+        final session = AppSession.test(
+          hosts: [host, direct],
+          controller: _Directory(),
+        );
+        await tester.pumpWidget(
+          screen(
+            session,
+            home: LiveConversationPage(
+              host: host,
+              sessionId: 'session',
+              initialSession: initial,
+            ),
+          ),
+        );
+        final feed = connection.feeds.single;
+        feed.publish(_transcript('session', 'Owned transcript'));
+        await tester.pumpAndSettle();
+        expect(_message('Owned transcript'), findsOneWidget);
+        expect(feed.toolSelections, isNotEmpty);
+        expect(jsonDecode(feed.toolSelections.first), {
+          'items': [],
+          'retry': [],
+        });
+        expect(find.byKey(const ValueKey('app-toast')), findsNothing);
+
+        const outage = {
+          'code': 'unavailable',
+          'message': 'Entry temporarily offline',
+        };
+        host
+          ..connected = false
+          ..error = outage
+          ..notifyListeners();
+        feed.publish({'connected': false, 'error': outage});
+        await tester.pumpAndSettle();
+        expect(_message('Owned transcript'), findsOneWidget);
+        expect(feed.closes, 0);
+
+        host
+          ..connected = true
+          ..error = null
+          ..notifyListeners();
+        feed.publish(_transcript('session', 'Recovered transcript'));
+        await tester.pumpAndSettle();
+        expect(_message('Recovered transcript'), findsOneWidget);
+        expect(connection.watches, ['session']);
+
+        feed.lateDelivery = terminal != 'terminated';
+        switch (terminal) {
+          case 'revoked':
+            host
+              ..connected = false
+              ..error = const {
+                'code': 'permission_denied',
+                'message': 'Route revoked',
+              }
+              ..notifyListeners();
+          case 'removed':
+            await session.refreshHosts(refreshConnections: false);
+            expect(session.host(host.id), isNull);
+            expect(session.host(direct.id), same(direct));
+          case 'terminated':
+            feed.fail(
+              const BridgeFailure(
+                code: 'cancelled',
+                message: 'Observation ended',
+              ),
+            );
+        }
+        await tester.pumpAndSettle();
+        expect(feed.closes, 1);
+        expect(feed.disposals, 1);
+        expect(find.byType(LiveTimeline), findsNothing);
+        if (feed.lateDelivery) {
+          feed.publish(_transcript('session', 'Late private transcript'));
+          await tester.pumpAndSettle();
+          expect(find.byType(LiveTimeline), findsNothing);
+        }
+        expect(connection.watches, ['session']);
+        await release(tester, session);
+      },
+    );
+  }
+
   testWidgets('task rows and filters use one host session lane projection', (
     tester,
   ) async {

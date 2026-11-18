@@ -18,6 +18,49 @@ Map<String, dynamic> view(
 };
 
 void main() {
+  testWidgets('queued notices remain named and removable, not editable', (
+    tester,
+  ) async {
+    final updates = ValueNotifier({
+      ...view([
+        {
+          'turn': 'callback',
+          'kind': 'task',
+          'notice': true,
+          'revision': 4,
+          'preview': 'Callback prompt for the model',
+        },
+      ]),
+      'connected': true,
+    });
+    addTearDown(updates.dispose);
+    final commands = <(String, Map<String, dynamic>)>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LiveQueue(
+            view: updates,
+            session: 'parent',
+            command: (kind, data) async {
+              commands.add((kind, data));
+              return {};
+            },
+          ),
+        ),
+      ),
+    );
+    expect(find.text(tr('backgroundNoticeTitle')), findsOneWidget);
+    expect(find.text('Callback prompt for the model'), findsNothing);
+    expect(find.text(tr('edit')), findsNothing);
+    expect(find.text(tr('send')), findsNothing);
+    expect(summarize(updates.value, null).count, 1);
+    await tester.tap(find.text(tr('delete')));
+    await tester.pumpAndSettle();
+    expect(commands, hasLength(1));
+    expect(commands.single.$1, 'remove_queued_turn');
+    expect(commands.single.$2, {'turn': 'callback', 'expected_revision': 4});
+  });
+
   testWidgets('child queue can withdraw guidance and remove retained input', (
     tester,
   ) async {

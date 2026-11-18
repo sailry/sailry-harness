@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:sailry_bridge/api/conversation.dart';
+import 'package:sailry_bridge/bridge.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
@@ -24,6 +26,7 @@ import 'turn_draft.dart';
 import 'queue.dart';
 import 'guidance.dart';
 import 'children.dart';
+import 'history_write.dart';
 import 'presentation.dart';
 import 'tool_output.dart';
 import 'timeline.dart';
@@ -58,18 +61,23 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     host: widget.host,
     session: widget.sessionId,
   );
+  late final _history = HistoryWrite.retain(widget.host, widget.sessionId);
   TextEditingController get _draft => _submission.input;
   List<PickedAttachment> get _attachments => _submission.attachments;
   bool get _sending => _submission.sending;
   PendingMessage? get _pendingSend => _submission.pending;
+  static const _followDistance = 60.0;
   final _scroll = ScrollController();
+  double? _returnOffset;
   final _view = ValueNotifier<Map<String, dynamic>>({});
+  Future<ConversationUpdates?>? _observation;
+  Future<void> _released = Future.value();
   ConversationUpdates? _updates;
   final _toolSelection = ToolSelection();
   Future<void> _trackingTools = Future.value();
   bool _closed = false;
-  bool _historyBusy = false;
-  ({String kind, String request})? _historyPending;
+  bool get _historyBusy => _history.busy;
+  String? get _historyPending => _history.pendingKind;
   Map<String, dynamic>? _backup;
   final _edits = <String, String>{};
   final _turnKeys = <String, GlobalKey>{};
@@ -80,8 +88,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     check: _checkSend,
     writable: () =>
         mounted &&
+        !_ownerEnded &&
         widget.host.connected &&
         _view.value['connected'] == true &&
+        _error == null &&
         !_historyBusy &&
         _historyPending == null &&
         !_sending &&
@@ -91,16 +101,26 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     pending: () => _pendingSend != null,
   );
   Object? _error;
-  bool _watching = false;
-  bool _restarting = false;
+  bool get _watching => _observation != null;
+  bool _retrying = false;
   bool _away = false;
   bool _current = false;
+  bool _pushingConversation = false;
+  bool _covered = false;
+  bool _ownerEnded = false;
+  AppSession? _directory;
+  bool _registeredOwner = false;
   ModalRoute<dynamic>? _route;
   late final _attention = ConversationAttention(
     host: widget.host,
     sessionId: widget.sessionId,
     session: () => _session,
-    active: () => mounted && !_closed && !_away && _route?.isCurrent != false,
+    active: () =>
+        mounted &&
+        !_closed &&
+        !_ownerEnded &&
+        !_away &&
+        _route?.isCurrent != false,
   );
   Animation<double>? _entrance;
 
@@ -128,7 +148,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scroll.addListener(_scrollChanged);
     _submission.addListener(_rebuild);
+    _history.addListener(_rebuild);
     widget.host.addListener(_hostChanged);
     unawaited(_watch());
   }
@@ -136,6 +158,16 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final directory = context
+        .getInheritedWidgetOfExactType<SessionScope>()
+        ?.notifier;
+    if (!identical(directory, _directory)) {
+      _directory?.removeListener(_directoryChanged);
+      _directory = directory;
+      directory?.addListener(_directoryChanged);
+      _directoryChanged();
+    }
+    if (_terminalFault(widget.host.error)) _endOwner(widget.host.error);
     final route = ModalRoute.of(context);
     _route = route;
     final current = route?.isCurrent ?? true;
@@ -171,11 +203,8 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       _away = false;
       _acknowledge();
       // The stream can stall in the background; resubscribe for a fresh view.
-      final updates = _updates;
-      if (updates != null) {
-        _restarting = true;
-        unawaited(updates.close());
-      } else if (!_watching && !_closed) {
+      if (!_covered && !_ownerEnded && !_closed) {
+        _stopWatching();
         unawaited(_watch());
       }
     }
@@ -184,27 +213,124 @@ class _LiveConversationPageState extends State<LiveConversationPage>
   void _acknowledge() => unawaited(_attention.observe());
 
   void _hostChanged() {
+    if (_closed || _ownerEnded) return;
+    if (_terminalFault(widget.host.error)) {
+      _endOwner(widget.host.error);
+      return;
+    }
     _acknowledge();
-    if (!_closed && mounted) setState(() {});
+    if (mounted) setState(() {});
+  }
+
+  void _directoryChanged() {
+    final directory = _directory;
+    if (directory == null) return;
+    if (identical(directory.host(widget.host.id), widget.host)) {
+      _registeredOwner = true;
+    } else if (_registeredOwner) {
+      _endOwner();
+    }
+  }
+
+  static bool _terminalFault(Object? fault) {
+    final code = fault is BridgeFailure ? fault.code : object(fault)['code'];
+    // Local close first retires the observation, so its cancellation is ignored.
+    return fault is BridgeFailure && code == 'cancelled' ||
+        const {'permission_denied', 'not_found', 'expired'}.contains(code);
+  }
+
+  void _endOwner([Object? fault]) {
+    if (_closed || _ownerEnded) return;
+    _ownerEnded = true;
+    _error = fault is Map ? fault['message'] : fault;
+    _returnOffset = null;
+    _discardView();
+    setState(() {});
+  }
+
+  void _discardView() {
+    _stopWatching();
+    _turnKeys.clear();
+    _reveal = null;
+    _view.value = const {};
+    _artifactActions.changed();
+  }
+
+  void _stopWatching() {
+    final observation = _observation;
+    if (observation == null) return;
+    _observation = null;
+    _updates = null;
+    _released = _releaseObservation(observation);
+  }
+
+  static Future<void> _releaseObservation(
+    Future<ConversationUpdates?> observation,
+  ) async {
+    final updates = await observation.then(
+      (value) => value,
+      onError: (Object _) => null,
+    );
+    if (updates == null) return;
+    try {
+      await updates.close();
+    } catch (error) {
+      debugPrint('Conversation observation cleanup failed: $error');
+    } finally {
+      updates.dispose();
+    }
   }
 
   Future<void> _watch() async {
-    if (_closed || _watching) return;
-    _watching = true;
-    ConversationUpdates? updates;
-    try {
-      updates = await widget.host.connection.watchConversation(
+    if (_closed || _covered || _ownerEnded || _watching) return;
+    // Reacquire after release, including a handle that was still opening.
+    late final Future<ConversationUpdates?> observation;
+    bool ownsObservation() => identical(_observation, observation);
+    observation = _released.then<ConversationUpdates?>((_) {
+      if (!ownsObservation()) return null;
+      return widget.host.connection.watchConversation(
         session: widget.sessionId,
       );
-      if (_closed) return;
+    });
+    _observation = observation;
+    try {
+      final updates = await observation;
+      if (!mounted || !ownsObservation() || updates == null) return;
       _updates = updates;
       _toolSelection.reset();
-      while (!_closed) {
-        final value = await _decode(await updates.next());
-        if (_closed || !mounted) break;
-        final following =
-            !_scroll.hasClients || _scroll.position.extentBefore < 60;
+      while (ownsObservation()) {
+        final payload = await updates.next();
+        if (!mounted || !ownsObservation()) return;
+        final value = await _decode(payload);
+        if (!mounted || !ownsObservation()) return;
+        final fault = value['error'];
+        if (value['removed'] == true) {
+          _endOwner(fault);
+          final route = _route;
+          if (route != null && route.isActive) {
+            Navigator.of(context).removeRoute(route);
+          }
+          return;
+        }
+        if (_terminalFault(fault)) {
+          _endOwner(fault);
+          return;
+        }
         _error = null;
+        final code = object(fault)['code'];
+        if (value['connected'] != true &&
+            value['snapshot'] == null &&
+            _snapshot.isNotEmpty &&
+            (fault == null || code == 'unavailable' || code == 'busy')) {
+          // A recovering observation can begin without a snapshot on the same owner.
+          _view.value = {..._view.value, 'connected': false, 'error': fault};
+          _artifactActions.changed();
+          continue;
+        }
+        final following =
+            _returnOffset == null &&
+            (!_scroll.hasClients ||
+                _scroll.position.extentBefore < _followDistance);
         final statisticsError = value['statistics_error'];
         final previousStatisticsError = _view.value['statistics_error'];
         final detailErrors = newDetailErrors(_view.value, value).toList();
@@ -224,38 +350,59 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             failureLabel(fault['message'], translate: context.tr),
           );
         }
-        if (value['removed'] == true) {
-          final route = ModalRoute.of(context);
-          if (route != null) Navigator.of(context).removeRoute(route);
-          break;
-        }
         _artifactActions.changed();
         final turns = {for (final run in objects(_page['runs'])) run['turn']};
         _turnKeys.removeWhere((turn, _) => !turns.contains(turn));
         _revealMessage();
-        if (following && _reveal == null) {
+        if ((following || _returnOffset != null) && _reveal == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && _scroll.hasClients) {
-              _scroll.jumpTo(_scroll.position.minScrollExtent);
-            }
+            if (ownsObservation()) _restoreScroll(following);
           });
         }
       }
     } catch (error) {
-      if (!_closed && mounted && !_restarting) {
+      if (!mounted || !ownsObservation()) return;
+      if (_terminalFault(error)) {
+        _endOwner(error);
+      } else {
         setState(() => _error = error);
+        _artifactActions.changed();
       }
     } finally {
-      _watching = false;
-      _updates = null;
-      if (updates != null) {
-        await updates.close();
-        updates.dispose();
+      if (ownsObservation()) _stopWatching();
+    }
+  }
+
+  void _scrollChanged() {
+    if (_scroll.hasClients &&
+        _scroll.position.userScrollDirection != ScrollDirection.idle) {
+      _returnOffset = null;
+    }
+  }
+
+  void _restoreScroll(bool following) {
+    if (_reveal != null) return;
+    if (!_scroll.hasClients) {
+      if (_settled &&
+          _view.value['connected'] == true &&
+          objects(_page['runs']).isEmpty &&
+          objects(_snapshot['drafts']).isEmpty) {
+        _returnOffset = null;
       }
-      if (_restarting) {
-        _restarting = false;
-        if (!_closed && mounted) unawaited(_watch());
-      }
+      return;
+    }
+    final position = _scroll.position;
+    final saved = _returnOffset;
+    if (saved == null && !following) return;
+    final desired = position.minScrollExtent + (saved ?? 0);
+    final offset = desired
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if (offset != position.pixels) position.jumpTo(offset);
+    // Client may still be recovering older pages after the first snapshot.
+    if (desired == offset ||
+        _page['next_before'] == null && objects(_snapshot['missing']).isEmpty) {
+      _returnOffset = null;
     }
   }
 
@@ -276,7 +423,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       try {
         await updates.trackTools(selection: selection);
       } catch (error) {
-        if (mounted && !_closed) {
+        if (mounted && identical(_updates, updates)) {
           showToast(context, failureLabel(error, translate: context.tr));
         }
       }
@@ -290,13 +437,28 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _artifactActions.changed();
   }
 
-  void _retry() {
+  Future<void> _retry() async {
+    if (_closed || _covered || _ownerEnded || _retrying) return;
     if (!widget.host.connected && widget.host.error != null) {
       unawaited(widget.host.watch());
     }
-    if (_watching) return;
-    unawaited(_watch());
-    setState(() {});
+    if (_updates == null) {
+      if (!_watching) {
+        unawaited(_watch());
+        setState(() {});
+      }
+      return;
+    }
+    setState(() => _retrying = true);
+    try {
+      await widget.host.connection.refreshConversation(
+        session: widget.sessionId,
+      );
+    } catch (error) {
+      _failure(error);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
   }
 
   @override
@@ -304,12 +466,14 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     _closed = true;
     WidgetsBinding.instance.removeObserver(this);
     widget.host.removeListener(_hostChanged);
+    _directory?.removeListener(_directoryChanged);
     _attention.dispose();
     _entrance?.removeStatusListener(_entered);
-    final updates = _updates;
-    if (updates != null) unawaited(updates.close());
+    _stopWatching();
     _submission.removeListener(_rebuild);
     _submission.release();
+    _history.removeListener(_rebuild);
+    _history.release();
     _scroll.dispose();
     _artifactActions.dispose();
     _view.dispose();
@@ -411,11 +575,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       delegated: _session['delegation'] != null,
       mutate: _historyCommand,
       isPending: () => _historyPending != null,
-      check: () async {
-        final pending = _historyPending;
-        if (pending == null) return true;
-        return _historyCommand(pending.kind, {});
-      },
+      check: _checkHistory,
     ),
   );
 
@@ -439,16 +599,68 @@ class _LiveConversationPageState extends State<LiveConversationPage>
       _failure(context.tr('conversationUnavailable'));
       return;
     }
-    unawaited(
-      pushPage(
-        context,
-        LiveConversationPage(
-          host: widget.host,
-          sessionId: session['id'] as String,
-          initialSession: session,
-        ),
-      ),
+    unawaited(_openSession(session));
+  }
+
+  Future<void> _openSession(Map<String, dynamic> session) async {
+    final id = session['id'];
+    if (id is! String || _closed || _ownerEnded || _pushingConversation) return;
+    _pushingConversation = true;
+    final page = LiveConversationPage(
+      host: widget.host,
+      sessionId: id,
+      initialSession: session,
     );
+    PageRoute<dynamic>? covering;
+    try {
+      await pushPage<void>(
+        context,
+        Builder(
+          builder: (context) {
+            final route = ModalRoute.of(context);
+            if (covering == null &&
+                route is PageRoute<dynamic> &&
+                route.opaque) {
+              covering = route;
+              _observeCover(route);
+            }
+            return page;
+          },
+        ),
+      );
+      // pushPage completes on pop, before the covering route stops painting.
+      await covering?.completed;
+    } finally {
+      _pushingConversation = false;
+      if (!_closed && _covered) {
+        setState(() => _covered = false);
+        unawaited(_watch());
+      }
+    }
+  }
+
+  void _observeCover(PageRoute<dynamic> route) {
+    final animation = route.animation;
+    if (animation == null) return;
+    void covered(AnimationStatus status) {
+      if (!status.isCompleted || route.offstage || _covered) return;
+      animation.removeStatusListener(covered);
+      if (_closed || _ownerEnded || !route.isActive) return;
+      final distance = _scroll.hasClients ? _scroll.position.extentBefore : 0.0;
+      _returnOffset ??= distance < _followDistance ? 0 : distance;
+      _covered = true;
+      _error = null;
+      _discardView();
+    }
+
+    // Hero lays out the incoming route offstage with a completed proxy before
+    // restoring the real entrance animation at the end of the frame.
+    animation.addStatusListener(covered);
+    if (animation.isCompleted) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => covered(animation.status),
+      );
+    }
   }
 
   bool _openReplyLink(String link) {
@@ -466,7 +678,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
     if (session == null) {
       _failure(context.tr('conversationUnavailable'));
     } else {
-      _openSession(session);
+      unawaited(_openSession(session));
     }
     return true;
   }
@@ -510,6 +722,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             widget.host.error?.toString();
         // These are the observer's retryable faults, not an application retry loop.
         final reconnecting =
+            !_ownerEnded &&
             _error == null &&
             (widget.host.error == null || hostFault.isNotEmpty) &&
             [fault, hostFault].every(
@@ -517,6 +730,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                   error.isEmpty ||
                   ['unavailable', 'busy'].contains(error['code']),
             );
+        final retry =
+            !_ownerEnded && !_retrying && (!_watching || _updates != null)
+            ? _retry
+            : null;
         final actionStyle = IconButton.styleFrom(
           fixedSize: const Size.square(36),
           minimumSize: const Size.square(36),
@@ -524,7 +741,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         );
         final loading =
-            _snapshot.isEmpty && reason == null && widget.host.connected;
+            !_ownerEnded &&
+            _snapshot.isEmpty &&
+            reason == null &&
+            widget.host.connected;
         final unavailable = !connected;
         final hasBanner =
             _historyPending != null ||
@@ -615,9 +835,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                     content: Text(context.tr('conversationUnknown')),
                     actions: [
                       TextButton(
-                        onPressed: _historyBusy
-                            ? null
-                            : () => _historyCommand(_historyPending!.kind, {}),
+                        onPressed: _historyBusy ? null : _checkHistory,
                         child: Text(context.tr('messageCheck')),
                       ),
                     ],
@@ -663,7 +881,7 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                       child: ConnectionStatus(
                         reconnecting: reconnecting,
                         reason: reason,
-                        onRetry: reconnecting ? null : _retry,
+                        onRetry: reconnecting ? null : retry,
                       ),
                     ),
                   ),
@@ -700,9 +918,9 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                                     children: [
                                       if (reason != null)
                                         ErrorDetails(reason: reason),
-                                      if (!_watching)
+                                      if (!_ownerEnded)
                                         FilledButton(
-                                          onPressed: _retry,
+                                          onPressed: retry,
                                           child: Text(context.tr('retry')),
                                         ),
                                     ],
@@ -802,13 +1020,18 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ActivityStrip(
-                  key: ValueKey(('activity', widget.host.id, widget.sessionId)),
-                  host: widget.host,
-                  session: _session,
-                  updates: _view,
-                  onOpenChild: _openChild,
-                ),
+                if (!_ownerEnded)
+                  ActivityStrip(
+                    key: ValueKey((
+                      'activity',
+                      widget.host.id,
+                      widget.sessionId,
+                    )),
+                    host: widget.host,
+                    session: _session,
+                    updates: _view,
+                    onOpenChild: _openChild,
+                  ),
                 if (delegated && queue != null)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),

@@ -8,12 +8,14 @@ class MessageEditor extends StatefulWidget {
     required this.initial,
     required this.onChanged,
     required this.onSubmit,
+    required this.onCheck,
     required this.isPending,
   });
   final String initial;
   final ValueChanged<String> onChanged;
   final bool Function() isPending;
   final Future<bool> Function(String) onSubmit;
+  final Future<bool> Function() onCheck;
   @override
   State<MessageEditor> createState() => _MessageEditorState();
 }
@@ -26,6 +28,16 @@ class _MessageEditorState extends State<MessageEditor> {
     _text.dispose();
     super.dispose();
   }
+
+  VoidCallback _submit(bool checking) => () async {
+    setState(() => _busy = true);
+    final accepted = checking
+        ? await widget.onCheck()
+        : await widget.onSubmit(_text.text);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (accepted) Navigator.pop(context);
+  };
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -48,15 +60,7 @@ class _MessageEditorState extends State<MessageEditor> {
           ),
           const SizedBox(height: 12),
           FilledButton(
-            onPressed: _busy
-                ? null
-                : () async {
-                    setState(() => _busy = true);
-                    final accepted = await widget.onSubmit(_text.text);
-                    if (!context.mounted) return;
-                    setState(() => _busy = false);
-                    if (accepted) Navigator.pop(context);
-                  },
+            onPressed: _busy ? null : _submit(widget.isPending()),
             child: Text(
               context.tr(
                 widget.isPending() ? 'messageCheck' : 'messageRegenerate',

@@ -5,6 +5,7 @@ import '../../../runtime/json.dart';
 import '../../../ui/kit.dart';
 import '../../../ui/toast.dart';
 import 'change_preview.dart';
+import 'command_detail.dart';
 import 'presentation.dart';
 import 'question.dart';
 import 'tool_display.dart';
@@ -38,6 +39,8 @@ class ToolRecord extends StatefulWidget {
   const ToolRecord({
     super.key,
     required this.call,
+    this.background,
+    this.openCommandDetail,
     required this.page,
     required this.session,
     required this.command,
@@ -49,6 +52,8 @@ class ToolRecord extends StatefulWidget {
     this.toolOutput,
   });
   final Map<String, dynamic> call;
+  final Map<String, dynamic>? background;
+  final OpenCommandDetail? openCommandDetail;
   final Map<String, dynamic> page;
   final Map<String, dynamic> session;
   final ConversationCommand command;
@@ -184,7 +189,12 @@ class _ToolRecordState extends State<ToolRecord> {
       children: [
         ToolHeading(
           call: call,
-          running: widget.continuing || call['state'] == 'running',
+          background: widget.background,
+          openCommandDetail: widget.openCommandDetail,
+          running:
+              widget.continuing ||
+              call['state'] == 'running' ||
+              widget.enabled && widget.background?['state'] == 'running',
         ),
         if (pendingApproval)
           card([

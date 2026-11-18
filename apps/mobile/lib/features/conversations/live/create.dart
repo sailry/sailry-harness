@@ -33,17 +33,15 @@ class NewConversationPage extends StatefulWidget {
 }
 
 class _NewConversationPageState extends State<NewConversationPage> {
-  final _draft = TextEditingController();
   final _inputFocus = FocusNode();
-  final _attachments = <String, List<PickedAttachment>>{};
-  late final _creation = CreationDraft(
+  late final _creation = CreationDraft.retain(
     widget.host,
     initialProject: widget.initialProject,
     initialWorktree: widget.initialWorktree,
   );
 
-  List<PickedAttachment> get _files =>
-      _attachments.putIfAbsent(text(_creation.worktree?['id']), () => []);
+  TextEditingController get _draft => _creation.input;
+  List<PickedAttachment> get _files => _creation.files;
 
   @override
   void initState() {
@@ -56,8 +54,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
   @override
   void dispose() {
     _creation.removeListener(_changed);
-    _creation.dispose();
-    _draft.dispose();
+    _creation.release();
     _inputFocus.dispose();
     super.dispose();
   }
@@ -74,15 +71,20 @@ class _NewConversationPageState extends State<NewConversationPage> {
     _inputFocus.requestFocus();
   }
 
-  Future<void> _send() async {
+  Future<void> _send() => _settle(
+    () => _creation.send(
+      message: _draft.text,
+      attachments: [for (final file in _files) text(file.attachment['id'])],
+    ),
+  );
+
+  Future<void> _check() => _settle(_creation.check);
+
+  Future<void> _settle(Future<void> Function() operation) async {
     try {
-      await _creation.send(
-        message: _draft.text,
-        attachments: [for (final file in _files) text(file.attachment['id'])],
-      );
+      await operation();
       if (mounted && _creation.unavailable) {
-        _draft.clear();
-        _attachments.clear();
+        _creation.clearInput();
         showToast(context, context.tr('conversationUnavailable'));
         await Navigator.maybePop(context);
       }
@@ -96,18 +98,18 @@ class _NewConversationPageState extends State<NewConversationPage> {
   Future<void> _attach() async {
     final tree = text(_creation.worktree?['id']);
     if (_creation.attaching || tree.isEmpty) return;
-    setState(() => _creation.attaching = true);
+    _creation.attaching = true;
     try {
       final file = await pickAttachment(widget.host, tree);
       if (mounted && file != null) {
-        setState(() => _attachments.putIfAbsent(tree, () => []).add(file));
+        _files.add(file);
       }
     } catch (error) {
       if (mounted) {
         showToast(context, failureLabel(error, translate: context.tr));
       }
     } finally {
-      if (mounted) setState(() => _creation.attaching = false);
+      _creation.attaching = false;
     }
   }
 
@@ -142,6 +144,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
   @override
   Widget build(BuildContext context) {
     if (_creation.created case final session?) {
+      if (ModalRoute.of(context)?.isCurrent != false) _creation.presented();
       return LiveConversationPage(
         key: ValueKey(session['id']),
         host: widget.host,
@@ -207,7 +210,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
                         : FilledButton(
                             onPressed: _creation.busy || !widget.host.connected
                                 ? null
-                                : _send,
+                                : _check,
                             child: Text(context.tr('conversationCheckResult')),
                           ),
                   )

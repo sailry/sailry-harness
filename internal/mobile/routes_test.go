@@ -238,22 +238,26 @@ func TestMobileRemovedEntryClosesBeforeItsFirstCatalog(t *testing.T) {
 func TestMobileSourceFaultSurvivesCatalogAndEntryOutage(t *testing.T) {
 	entry, target := protocol.NodeID{1}, protocol.NodeID{2}
 	address := link.EndpointAddress{ID: entry, Addrs: []json.RawMessage{}}
-	catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{{Node: target, Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "offline"}}}}
-	routes, err := catalogPeerRoutes(address, catalog)
-	if err != nil || len(routes) != 1 {
-		t.Fatalf("source route: %v: %v", routes, err)
-	}
-	for _, encoded := range []string{routes[0], unavailablePeerRoutes(routes)[0]} {
-		var metadata struct {
-			Fault *protocol.Fault `json:"source_fault"`
-		}
-		if err := json.Unmarshal([]byte(encoded), &metadata); err != nil || metadata.Fault == nil || metadata.Fault.Code != protocol.ErrorCodeUnavailable {
-			t.Fatalf("source outage was discarded: %s: %v", encoded, err)
-		}
-		route, err := decodePeerRoute(encoded)
-		if err != nil || route.Entry.ID != entry || route.Target.ID != target {
-			t.Fatalf("offline metadata changed the route: %+v: %v", route, err)
-		}
+	for _, code := range []protocol.ErrorCode{protocol.ErrorCodeUnavailable, protocol.ErrorCodePermissionDenied, protocol.ErrorCodeNotFound, protocol.ErrorCodeExpired} {
+		t.Run(string(code), func(t *testing.T) {
+			catalog := protocol.ResourceCatalog{Entry: entry, Sources: []protocol.ResourceSource{{Node: target, Fault: &protocol.Fault{Code: code}}}}
+			routes, err := catalogPeerRoutes(address, catalog)
+			if err != nil || len(routes) != 1 {
+				t.Fatalf("source route: %v: %v", routes, err)
+			}
+			for _, encoded := range []string{routes[0], unavailablePeerRoutes(routes)[0]} {
+				var metadata struct {
+					Fault *protocol.Fault `json:"source_fault"`
+				}
+				if err := json.Unmarshal([]byte(encoded), &metadata); err != nil || metadata.Fault == nil || metadata.Fault.Code != code {
+					t.Fatalf("source fault did not survive the entry outage: %s: %v", encoded, err)
+				}
+				route, err := decodePeerRoute(encoded)
+				if err != nil || route.Entry.ID != entry || route.Target.ID != target {
+					t.Fatalf("offline metadata changed the route: %+v: %v", route, err)
+				}
+			}
+		})
 	}
 }
 

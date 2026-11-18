@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
@@ -24,7 +26,6 @@ import 'tool_row.dart';
 import 'turn_frame.dart';
 import 'children.dart';
 import 'connection_status.dart';
-import 'background.dart';
 import 'background_data.dart';
 import 'sources.dart';
 import 'references.dart';
@@ -116,7 +117,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
     final canRestore = widget.canRestore;
     final canChangeHistory = widget.canChangeHistory;
     final page = transcript.page;
-    final children = transcript.children;
     final runs = transcript.timeline;
     final colors = Theme.of(context).colorScheme;
     final connected = host.connected && view['connected'] == true;
@@ -249,6 +249,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
         case 'tool_result':
           final call = transcript.call(entry['id'], index);
           if (call == null) return const SizedBox.shrink();
+          final commandDetail = object(call['command_detail']);
           return ToolRecord(
             key: ValueKey((
               'tool',
@@ -257,6 +258,13 @@ class _LiveTimelineState extends State<LiveTimeline> {
               interactive ? 'card' : 'row',
             )),
             call: call,
+            background: transcript.backgroundOf(call),
+            openCommandDetail:
+                connected && !host.isDemo && commandDetail.isNotEmpty
+                ? () => host.connection.openCommandDetail(
+                    reference: jsonEncode(commandDetail),
+                  )
+                : null,
             page: page,
             session: session,
             command: command,
@@ -505,11 +513,6 @@ class _LiveTimelineState extends State<LiveTimeline> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          BackgroundNotices(
-            items: objects(run['notices']),
-            children: children,
-            onOpenChild: onOpenChild,
-          ),
           if (continuationMarker(run) case final marker?)
             Padding(
               key: ValueKey('continuation-${run['turn']}'),

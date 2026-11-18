@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -194,6 +195,70 @@ func (transport topicTransport) Subscribe(_ context.Context, topic protocol.Topi
 		stream.updates <- update
 	}
 	return stream, nil
+}
+
+type refreshConversationTransport struct {
+	topicTransport
+	failed bool
+}
+
+func (transport *refreshConversationTransport) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "conversation" && !transport.failed {
+		transport.failed = true
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "test conversation mismatch"}
+	}
+	return transport.topicTransport.Subscribe(ctx, topic)
+}
+
+func TestMobileConversationRefresh(t *testing.T) {
+	t.Parallel()
+	node := protocol.NodeID{1}
+	session := protocol.NewSessionID()
+	page := protocol.DefaultConversationPage()
+	page.Session, page.Revision = session, 1
+	shared := client.New(&refreshConversationTransport{topicTransport: topicTransport{
+		noticeTransport: noticeTransport{node: node},
+		topics: map[string][]protocol.Update{
+			"conversation": {{Kind: "conversation_snapshot", Data: protocol.ConversationSnapshot{Node: node, Page: page}}},
+		},
+	}})
+	runtime := New(nil)
+	t.Cleanup(func() { runtime.Close(1); _ = shared.Close() })
+	owner := &connection{client: shared}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	argument, _ := json.Marshal(map[string]string{"session": session.String()})
+	if _, err := owner.invoke(ctx, runtime, 0, "watch_conversation", argument); err != nil {
+		t.Fatal(err)
+	}
+	runtime.mu.Lock()
+	updates := runtime.handles[1].object
+	runtime.mu.Unlock()
+
+	wait := func(connected bool, fault protocol.ErrorCode) {
+		t.Helper()
+		for {
+			value, err := updates.invoke(ctx, runtime, 1, "next", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var view struct {
+				Connected bool            `json:"connected"`
+				Error     *protocol.Fault `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(value.(string)), &view); err != nil {
+				t.Fatal(err)
+			}
+			if view.Connected == connected && (view.Error == nil && fault == "" || view.Error != nil && view.Error.Code == fault) {
+				return
+			}
+		}
+	}
+	wait(false, protocol.ErrorCodeWrongTarget)
+	if _, err := owner.invoke(ctx, runtime, 0, "refresh_conversation", argument); err != nil {
+		t.Fatal(err)
+	}
+	wait(true, "")
 }
 
 // The terminal observer reaches Dart as a handle of the kind its API names and

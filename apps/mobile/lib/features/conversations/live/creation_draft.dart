@@ -1,9 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show TextEditingController;
 
 import '../../../runtime/json.dart';
 import '../../../runtime/session.dart';
+import 'attachments.dart';
 import 'team.dart';
 
 /// Captures a new session's resources until Node admission is resolved.
@@ -17,7 +19,34 @@ class CreationDraft extends ChangeNotifier {
     host.addListener(_changed);
   }
 
+  static final _drafts = Expando<CreationDraft>();
+
+  static CreationDraft retain(
+    HostConnection host, {
+    String? initialProject,
+    String? initialWorktree,
+  }) {
+    final draft = _drafts[host] ??= CreationDraft(
+      host,
+      initialProject: initialProject,
+      initialWorktree: initialWorktree,
+    );
+    draft._retained = true;
+    draft._views++;
+    return draft;
+  }
+
   final HostConnection host;
+  final input = TextEditingController();
+  final _attachments = <String, List<PickedAttachment>>{};
+
+  List<PickedAttachment> get files =>
+      _attachments.putIfAbsent(text(worktree?['id']), () => []);
+
+  void clearInput() {
+    input.clear();
+    _attachments.clear();
+  }
 
   /// Generic conversations start outside projects; explicit IDs retain their scope.
   String? _projectId;
@@ -46,10 +75,13 @@ class CreationDraft extends ChangeNotifier {
   bool _busy = false;
   bool _unavailable = false;
   bool _missingReceipt = false;
-  bool attaching = false;
+  bool _attaching = false;
   bool _defaultsCaptured = false;
   bool _configChosen = false;
   bool _disposed = false;
+  bool _retained = false;
+  bool _presented = false;
+  int _views = 0;
 
   Map<String, dynamic>? get created => _created;
   String? get pendingRequest => _pendingRequest;
@@ -61,6 +93,13 @@ class CreationDraft extends ChangeNotifier {
   bool get uncertain => canCheck || _missingReceipt;
   bool get locationEditable =>
       _admitted == null && !busy && !uncertain && !attaching;
+
+  bool get attaching => _attaching;
+  set attaching(bool value) {
+    if (_disposed || _attaching == value) return;
+    _attaching = value;
+    notifyListeners();
+  }
 
   void selectWorktree(Map<String, dynamic> value) {
     if (!locationEditable) return;
@@ -259,6 +298,14 @@ class CreationDraft extends ChangeNotifier {
   Future<void> send({
     required String message,
     List<String> attachments = const [],
+  }) => _settle(message: message, attachments: attachments);
+
+  Future<void> check() => _settle(checkOnly: true);
+
+  Future<void> _settle({
+    String message = '',
+    List<String> attachments = const [],
+    bool checkOnly = false,
   }) async {
     if (_disposed ||
         busy ||
@@ -266,6 +313,7 @@ class CreationDraft extends ChangeNotifier {
         created != null ||
         unavailable ||
         !host.connected ||
+        (checkOnly && !canCheck) ||
         (_missingReceipt && !canCheck)) {
       return;
     }
@@ -353,14 +401,39 @@ class CreationDraft extends ChangeNotifier {
       if (!_disposed) {
         _busy = false;
         notifyListeners();
+        _releaseIfSettled();
       }
     }
+  }
+
+  void presented() {
+    if (created == null) return;
+    _presented = true;
+    if (identical(_drafts[host], this)) _drafts[host] = null;
+  }
+
+  void release() {
+    _views--;
+    _releaseIfSettled();
+  }
+
+  void _releaseIfSettled() {
+    if (!_retained ||
+        _views != 0 ||
+        busy ||
+        uncertain ||
+        (created != null && !_presented)) {
+      return;
+    }
+    dispose();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    if (identical(_drafts[host], this)) _drafts[host] = null;
     host.removeListener(_changed);
+    input.dispose();
     super.dispose();
   }
 }

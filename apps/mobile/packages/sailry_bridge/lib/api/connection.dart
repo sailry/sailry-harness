@@ -83,12 +83,24 @@ class Connection extends NativeHandle {
     return CommandUpdates.internal(bridge, nativeHandle(value, 'command_updates'));
   }
 
+  Future<CommandDetail> openCommandDetail({required String reference}) async {
+    final value = await invoke('open_command_detail', {'query': reference});
+    return CommandDetail.internal(
+      bridge,
+      nativeHandle(value, 'command_detail'),
+    );
+  }
+
   Future<ConversationUpdates> watchConversation({required String session}) async {
     final value = await invoke('watch_conversation', {'session': session});
     return ConversationUpdates.internal(
       bridge,
       nativeHandle(value, 'conversation_updates'),
     );
+  }
+
+  Future<void> refreshConversation({required String session}) async {
+    await invoke('refresh_conversation', {'session': session});
   }
 
   Future<StatusUpdates> watchStatus({required String scope}) async {

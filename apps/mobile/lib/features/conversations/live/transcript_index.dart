@@ -24,6 +24,14 @@ class TranscriptIndex {
     latest = timeline.where((run) => run['kind'] != 'compaction').lastOrNull;
     for (final run in runs) {
       _runs.putIfAbsent(run['turn'], () => run);
+      for (final notice in objects(run['notices'])) {
+        if (notice['id'] case final String id) {
+          _background.putIfAbsent(id, () => notice);
+        }
+      }
+    }
+    for (final task in objects(page['background'])) {
+      if (task['id'] case final String id) _background[id] = task;
     }
     for (final entry in objects(page['entries'])) {
       _entries[entry['id']] = entry;
@@ -77,6 +85,7 @@ class TranscriptIndex {
   final _turnCalls = <Object?, List<Map<String, dynamic>>>{};
   final _activeChildTurns = <Object?>{};
   final _images = <(Object?, Object?), Map<String, dynamic>>{};
+  final _background = <String, Map<String, dynamic>>{};
 
   /// The conversation image Client resolved for a reply's reference.
   Map<String, dynamic>? image(ImageReference reference) =>
@@ -85,6 +94,20 @@ class TranscriptIndex {
   /// The call whose source is the given entry part.
   Map<String, dynamic>? call(Object? entry, Object? index) =>
       _sources[(entry, index)];
+
+  /// The task ID on the Client-paired result names the command this row started.
+  /// Historical notices supply evidence only if the activity record is absent.
+  Map<String, dynamic>? backgroundOf(Map<String, dynamic> call) {
+    final response = object(call['response']);
+    final index = response['index'];
+    final parts = _entries[response['entry']]?['parts'];
+    if (parts is! List || index is! int || index < 0 || index >= parts.length) {
+      return null;
+    }
+    final part = object(parts[index]);
+    if (part['kind'] != 'tool_result') return null;
+    return _background[object(object(part['data'])['summary'])['task']];
+  }
 
   List<Map<String, dynamic>> callsOf(Object? turn) => _turnCalls[turn] ?? [];
 

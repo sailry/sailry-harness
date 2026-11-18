@@ -7,3 +7,9 @@ class CommandUpdates extends NativeHandle {
 
   Future<String> next() async => await nextValue() as String;
 }
+
+class CommandDetail extends NativeHandle {
+  CommandDetail.internal(super.bridge, super.handle);
+
+  Future<String> read() async => await invoke('read') as String;
+}

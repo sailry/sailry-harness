@@ -41,7 +41,7 @@ class UserBubble extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        MessageBubble(
+        _MessageBubble(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -102,12 +102,10 @@ class UserBubble extends StatelessWidget {
   );
 }
 
-/// The right-aligned message bubble shared by prompts and background results.
-class MessageBubble extends StatelessWidget {
-  const MessageBubble({super.key, required this.child, this.onTap});
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({required this.child});
 
   final Widget child;
-  final VoidCallback? onTap;
 
   static const _padding = EdgeInsets.symmetric(horizontal: 15, vertical: 10);
 
@@ -126,12 +124,7 @@ class MessageBubble extends StatelessWidget {
             bottomRight: Radius.circular(5),
           ),
           clipBehavior: Clip.antiAlias,
-          child: onTap == null
-              ? Padding(padding: _padding, child: child)
-              : InkWell(
-                  onTap: onTap,
-                  child: Padding(padding: _padding, child: child),
-                ),
+          child: Padding(padding: _padding, child: child),
         ),
       ),
     ),

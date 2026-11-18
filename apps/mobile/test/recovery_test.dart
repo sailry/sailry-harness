@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/attachments.dart';
 import 'package:sailry_mobile/features/conversations/live/creation_draft.dart';
+import 'package:sailry_mobile/features/conversations/live/history_write.dart';
 import 'package:sailry_mobile/features/conversations/live/turn_draft.dart';
 import 'package:sailry_mobile/runtime/session.dart';
 
@@ -82,13 +83,15 @@ void main() {
         );
         expect(draft.uncertain, isTrue);
         expect(draft.pendingRequest, 'original');
-        await expectLater(
-          draft.send(message: 'First message'),
-          throwsA(isA<CommandFailure>()),
-        );
+        await expectLater(draft.check(), throwsA(isA<CommandFailure>()));
         expect(connection.requests, ['original']);
         expect(draft.uncertain, !rejected);
         expect(draft.pendingRequest, rejected ? isNull : 'original');
+        if (rejected) {
+          await draft.check();
+          expect(submissions, 1);
+          expect(connection.requests, ['original']);
+        }
         await expectLater(
           draft.send(message: 'First message'),
           throwsA(isA<CommandFailure>()),
@@ -198,19 +201,23 @@ void main() {
         return sessionReceipt({'id': 'created', 'revision': 2});
       },
     );
-    final draft = CreationDraft(host);
+    final draft = CreationDraft.retain(host);
     addTearDown(host.dispose);
-    addTearDown(draft.dispose);
-    await expectLater(
+    final reading = expectLater(
       draft.send(message: 'First message'),
       throwsA(isA<CommandFailure>()),
     );
-    expect(draft.uncertain, isTrue);
-    expect(draft.canCheck, isTrue);
-    expect(draft.pendingRequest, isNull);
-    await draft.send(message: 'Must not be sent');
-    expect(draft.created?['revision'], 2);
+    draft.release();
+    await reading;
+    final reopened = CreationDraft.retain(host);
+    expect(reopened.uncertain, isTrue);
+    expect(reopened.canCheck, isTrue);
+    expect(reopened.pendingRequest, isNull);
+    await reopened.check();
+    expect(reopened.created?['revision'], 2);
     expect(commands, ['start_session', 'read_session', 'read_session']);
+    reopened.presented();
+    reopened.release();
   });
 
   for (final code in ['not_found', 'permission_denied']) {
@@ -446,4 +453,153 @@ void main() {
     expect(clean.pending, isNull);
     clean.release();
   });
+
+  test('reopened creation checks the original unfinished admission', () async {
+    final reply = Completer<Map<String, dynamic>>();
+    final connection = RecoveryConnection()..result = startReceipt();
+    final commands = <String>[];
+    final host = HostConnection.test(
+      id: 'entry/target',
+      label: 'Host',
+      snapshot: snapshot('a'),
+      connection: connection,
+      command: (kind, data) {
+        commands.add(kind);
+        if (kind == 'start_session') return reply.future;
+        expect(kind, 'read_session');
+        expect(data, {'session': 'created'});
+        return Future.value(sessionReceipt({'id': 'created', 'revision': 1}));
+      },
+    );
+    final other = HostConnection.test(id: 'other/target', label: 'Other');
+    final replacement = HostConnection.test(id: host.id, label: 'Replacement');
+    addTearDown(host.dispose);
+    addTearDown(other.dispose);
+    addTearDown(replacement.dispose);
+
+    final draft = CreationDraft.retain(host, initialProject: 'project-a');
+    draft.input.text = 'Original';
+    draft.files.add(attachment('file'));
+    final rejected = expectLater(
+      draft.send(message: draft.input.text, attachments: ['file']),
+      throwsA(isA<CommandFailure>()),
+    );
+    draft.release();
+    final reopened = CreationDraft.retain(host);
+    expect(reopened.busy, isTrue);
+    await reopened.check();
+    reopened.release();
+    reply.completeError(
+      const CommandFailure('outcome_unknown', request: 'creation-original'),
+    );
+    await rejected;
+
+    for (final separate in [other, replacement]) {
+      final clean = CreationDraft.retain(separate);
+      expect(clean.canCheck, isFalse);
+      clean.release();
+    }
+    final pending = CreationDraft.retain(host);
+    expect(pending.input.text, 'Original');
+    expect(pending.files.single.attachment['id'], 'file');
+    expect(pending.project?['id'], 'project-a');
+    expect(pending.canCheck, isTrue);
+    expect(connection.requests, isEmpty);
+    await pending.check();
+    expect(connection.requests, ['creation-original']);
+    expect(commands, ['start_session', 'read_session']);
+    expect(pending.created?['id'], 'created');
+    pending.presented();
+    pending.release();
+    final clean = CreationDraft.retain(host);
+    expect(clean.created, isNull);
+    expect(clean.input.text, isEmpty);
+    clean.release();
+  });
+
+  for (final kind in ['fork_conversation', 'rewind_conversation']) {
+    test('reopened conversation checks its original $kind request', () async {
+      final reply = Completer<Map<String, dynamic>>();
+      final connection = RecoveryConnection()..code = 'unavailable';
+      final host = HostConnection.test(
+        id: 'entry/target',
+        label: 'Host',
+        connection: connection,
+        command: (command, _) {
+          expect(command, kind);
+          return reply.future;
+        },
+      );
+      final other = HostConnection.test(id: 'other/target', label: 'Other');
+      addTearDown(host.dispose);
+      addTearDown(other.dispose);
+
+      final first = HistoryWrite.retain(host, 'session');
+      final failure = expectLater(
+        first.submit(kind, {}),
+        throwsA(isA<CommandFailure>()),
+      );
+      first.release();
+      final waiting = HistoryWrite.retain(host, 'session');
+      expect(waiting.busy, isTrue);
+      expect(await waiting.check(), isNull);
+      waiting.release();
+      reply.completeError(
+        const CommandFailure('outcome_unknown', request: 'history-original'),
+      );
+      await failure;
+
+      for (final write in [
+        HistoryWrite.retain(other, 'session'),
+        HistoryWrite.retain(host, 'other-session'),
+      ]) {
+        expect(write.pendingKind, isNull);
+        write.release();
+      }
+      final reopened = HistoryWrite.retain(host, 'session');
+      expect(reopened.pendingKind, kind);
+      expect(connection.requests, isEmpty);
+      expect(await reopened.submit(kind, {}), isNull);
+      await expectLater(reopened.check(), throwsA(isA<CommandFailure>()));
+      expect(reopened.pendingKind, kind);
+
+      connection.code = null;
+      connection.result = {
+        'data': {'id': 'resulting-session'},
+      };
+      final completed = (await reopened.check())!;
+      expect(completed.kind, kind);
+      expect(completed.output, connection.result);
+      expect(reopened.consume(completed), isTrue);
+      expect(await reopened.check(), isNull);
+      expect(connection.requests, ['history-original', 'history-original']);
+      reopened.release();
+    });
+  }
+
+  test(
+    'a completed fork can be opened after its original page closes',
+    () async {
+      final reply = Completer<Map<String, dynamic>>();
+      final host = HostConnection.test(
+        id: 'host',
+        label: 'Host',
+        command: (_, _) => reply.future,
+      );
+      addTearDown(host.dispose);
+      final first = HistoryWrite.retain(host, 'session');
+      final writing = first.submit('fork_conversation', {});
+      first.release();
+      reply.complete({
+        'data': {'id': 'fork'},
+      });
+      final settled = await writing;
+
+      final reopened = HistoryWrite.retain(host, 'session');
+      expect(reopened.pendingKind, 'fork_conversation');
+      expect(await reopened.check(), settled);
+      expect(reopened.consume(settled!), isTrue);
+      reopened.release();
+    },
+  );
 }

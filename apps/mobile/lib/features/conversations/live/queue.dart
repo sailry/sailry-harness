@@ -214,12 +214,13 @@ class _LiveQueueState extends State<LiveQueue> {
             ? SelectableText(draft)
             : StatefulBuilder(
                 builder: (context, update) {
+                  final checking = _pending;
                   return Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       TextFormField(
                         initialValue: draft,
-                        enabled: !pending && !_pending,
+                        enabled: !pending && !checking,
                         onChanged: (value) => draft = value,
                         autofocus: true,
                         minLines: 3,
@@ -232,7 +233,7 @@ class _LiveQueueState extends State<LiveQueue> {
                             : () async {
                                 update(() => pending = true);
                                 try {
-                                  final accepted = _pending
+                                  final accepted = checking
                                       ? await widget.check!()
                                       : await _mutate('edit_queued_turn', {
                                           'turn': item['turn'],
@@ -259,7 +260,7 @@ class _LiveQueueState extends State<LiveQueue> {
                               },
                         child: Text(
                           context.tr(
-                            _pending ? 'conversationCheckResult' : 'save',
+                            checking ? 'conversationCheckResult' : 'save',
                           ),
                         ),
                       ),

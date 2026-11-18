@@ -157,7 +157,7 @@ func (owner *controller) commitPeerCatalogs(generation uint64, catalogs []peerCa
 	for _, catalog := range catalogs {
 		children := catalog.children
 		if failure := catalog.failure; failure != nil {
-			if failure.Code == protocol.ErrorCodePermissionDenied || failure.Code == protocol.ErrorCodeNotFound || failure.Code == protocol.ErrorCodeExpired {
+			if terminalPeerFault(failure.Code) {
 				continue
 			}
 			children = unavailablePeerRoutes(owner.directories[catalog.entry])
@@ -221,11 +221,21 @@ func catalogPeerRoutes(entry link.EndpointAddress, catalog protocol.ResourceCata
 	return result, nil
 }
 
+func terminalPeerFault(code protocol.ErrorCode) bool {
+	return code == protocol.ErrorCodePermissionDenied || code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeExpired
+}
+
 func unavailablePeerRoutes(routes []string) []string {
 	result := make([]string, 0, len(routes))
 	for _, route := range routes {
 		var metadata map[string]any
 		if json.Unmarshal([]byte(route), &metadata) != nil {
+			continue
+		}
+		fault, _ := metadata["source_fault"].(map[string]any)
+		code, _ := fault["code"].(string)
+		if terminalPeerFault(protocol.ErrorCode(code)) {
+			result = append(result, route)
 			continue
 		}
 		metadata["source_fault"] = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource entry Node is unavailable"}
