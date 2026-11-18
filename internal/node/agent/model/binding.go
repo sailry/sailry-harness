@@ -332,6 +332,10 @@ func transportBinding(binding Binding) (transportConfig, error) {
 		if provider.Authentication == protocol.AuthenticationChatGptOAuth {
 			config.JSON["store"] = false
 			config.Remove = append(config.Remove, "max_output_tokens", "temperature")
+			if config.Kind == "responses" && binding.Session != (protocol.SessionID{}) {
+				// ChatGPT's Responses route uses its session ID for cache affinity.
+				config.Headers["Session-Id"] = binding.Session.String()
+			}
 		}
 		remove := config.RemoveHeaders[:0]
 		for _, name := range config.RemoveHeaders {

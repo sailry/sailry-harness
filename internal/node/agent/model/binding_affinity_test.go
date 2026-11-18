@@ -179,6 +179,65 @@ func TestAnthropicOAuthAffinityPreservesIdentity(t *testing.T) {
 	}
 }
 
+func TestChatGPTOAuthAffinityOnTheWire(t *testing.T) {
+	response := string(fixture(t, "responses-text.sse"))
+	server := serverFixture(t, response, response, response, response)
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Api = protocol.NewProviderID(), protocol.ConversationModelApiResponses
+	provider.Authentication, provider.Endpoint = protocol.AuthenticationChatGptOAuth, "https://chatgpt.com/backend-api/codex"
+	account := "fixture-account"
+	raw, err := json.Marshal(providers.AccountGrant{Kind: provider.Authentication, Access: "fixture-access", AccountID: &account})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := protocol.NewSecret(string(raw))
+	selection := protocol.DefaultSessionConfig()
+	selection.Provider, selection.Model = provider.ID, "fixture-model"
+	first, other := protocol.NewSessionID(), protocol.NewSessionID()
+	sessions := []protocol.SessionID{first, first, other, {}}
+	for _, session := range sessions {
+		binding := Binding{Provider: provider, Config: selection, Secret: &secret, Session: session}
+		transport, err := transportBinding(binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if transport.Endpoint != provider.Endpoint {
+			t.Fatal("OAuth binding changed its service endpoint")
+		}
+		// Capture the actual request locally after the destination check.
+		transport.Endpoint = server.URL + "/backend-api/codex"
+		language, err := newSDK(t.Context(), transport)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call, err := BuildCall(binding, Request{System: systemText})
+		if err != nil {
+			t.Fatal(err)
+		}
+		collect(t, language, call)
+	}
+	requests := server.captured()
+	if len(requests) != len(sessions) {
+		t.Fatalf("captured %d requests, want %d", len(requests), len(sessions))
+	}
+	for i, request := range requests {
+		want := ""
+		var key any
+		if sessions[i] != (protocol.SessionID{}) {
+			want = sessions[i].String()
+			key = want
+		}
+		if request.Path != "/backend-api/codex/responses" ||
+			request.Headers.Get("Authorization") != "Bearer fixture-access" ||
+			request.Headers.Get("ChatGPT-Account-ID") != account ||
+			request.Headers.Get("Session-Id") != want {
+			t.Fatalf("request %d did not preserve the OAuth route, account and session", i)
+		}
+		checkValue(t, request.Body, "prompt_cache_key", key)
+		checkValue(t, request.Body, "store", false)
+	}
+}
+
 func TestAPIKeyAffinityHeadersAcrossProtocols(t *testing.T) {
 	for _, api := range []protocol.ConversationModelApi{
 		protocol.ConversationModelApiAnthropic,

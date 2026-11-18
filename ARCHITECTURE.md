@@ -184,6 +184,8 @@ New sessions cannot borrow a model channel or credential from their controller.
 The ChatGPT OAuth channel discovers the signed-in account's model list using
 the Node's reviewed Codex catalog version unless the channel specifies an
 override. The public model catalog can supplement the account's metadata.
+ChatGPT OAuth Responses requests use the captured session ID for prompt
+cache routing.
 
 Roles, teams, media assignments, plugin installs and settings, connectors,
 MCP, SSH and database profiles also belong to the authenticated user on the
