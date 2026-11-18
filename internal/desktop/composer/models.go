@@ -394,13 +394,14 @@ func (s *State) features(c *ui.Context, m Model) {
 	}
 	for _, f := range m.Features {
 		features := s.controlFeatures()
-		current, set := features[f.ID]
+		current := features[f.ID]
 		var opt *FeatureOption
 		for i := range f.Options {
 			if f.Options[i].ID == current {
 				opt = &f.Options[i]
 			}
 		}
+		set := opt != nil
 		cycles := f.ID == "speed" || len(f.Options) == 1
 		name := func(o FeatureOption) string {
 			if f.ID == "speed" && o.ID == "fast" {

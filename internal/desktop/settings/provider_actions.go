@@ -29,6 +29,7 @@ type ProviderDraft struct {
 	Channel          viewmodel.Channel
 	Key              string
 	ExpectedRevision uint64
+	EditorGeneration uint64 `json:"-"`
 	OAuth            [4]string
 	Group            string
 	Targets          []string

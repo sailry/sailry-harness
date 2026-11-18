@@ -31,7 +31,7 @@ func (r *Runtime) initProviders() {
 		r.providerPresets = map[string]protocol.ConversationPresetsEntry{}
 	}
 	if r.providerModels == nil {
-		r.providerModels = map[string]map[string]protocol.ConversationModel{}
+		r.providerModels = map[string]providerDiscovery{}
 	}
 	if r.providerDraftBases == nil {
 		r.providerDraftBases = map[string]protocol.ConversationProvider{}
@@ -742,6 +742,11 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 	}
 	old := p.Models
 	p.Models = nil
+	discovery := r.providerModels[d.Channel.ID]
+	if discovery.generation != d.EditorGeneration || discovery.revision != d.ExpectedRevision ||
+		discovery.endpoint != p.Endpoint || discovery.authentication != p.Authentication || discovery.api != p.Api {
+		discovery = providerDiscovery{}
+	}
 	if len(d.Channel.Models) == 0 && d.ExpectedRevision == 0 {
 		p.Models = old
 	}
@@ -749,20 +754,23 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		m := protocol.DefaultConversationModel()
 		m.Context, m.Output, m.Tools, m.Vision = 128000, 16384, true, true
 		m.ID = model.ID
-		if known, ok := r.providerModels[d.Channel.ID][model.ID]; ok {
+		known, discovered := discovery.models[model.ID]
+		if discovered {
 			m = known
 		}
 		if i := slices.IndexFunc(old, func(v protocol.ConversationModel) bool { return v.ID == model.ID }); i >= 0 {
 			m = old[i]
-			// What a later discovery recorded for the model's adapter replaces
-			// the saved record; the rest of the saved model stays.
-			if known, ok := r.providerModels[d.Channel.ID][model.ID]; ok && known.Capabilities != nil && known.Capabilities.Options != nil {
-				capabilities := protocol.DefaultConversationDiscoveryCapabilities()
-				if m.Capabilities != nil {
-					capabilities = *m.Capabilities
+			if discovered && known.Capabilities != nil {
+				m = nodeproviders.RefreshAccountSpeed(p, m, known.Capabilities)
+				// Refresh discovered adapter options alongside account speed.
+				if known.Capabilities.Options != nil {
+					capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+					if m.Capabilities != nil {
+						capabilities = *m.Capabilities
+					}
+					capabilities.Options = known.Capabilities.Options
+					m.Capabilities = &capabilities
 				}
-				capabilities.Options = known.Capabilities.Options
-				m.Capabilities = &capabilities
 			}
 		}
 		if model.Name != "" && model.Name != model.ID {

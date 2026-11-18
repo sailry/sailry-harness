@@ -1055,7 +1055,7 @@ func (e *providerEditor) save(m *Model) string {
 		if e.resumeSave != nil {
 			save = e.resumeSave
 		}
-		save(ProviderDraft{Channel: channel, Key: e.keyUpdate(), ExpectedRevision: e.revision, OAuth: e.oauth, Group: e.group, Targets: slices.Clone(targets), TargetRevisions: maps.Clone(e.targetRevisions)}, func(result ProviderSaveResult) {
+		save(ProviderDraft{Channel: channel, Key: e.keyUpdate(), ExpectedRevision: e.revision, EditorGeneration: generation, OAuth: e.oauth, Group: e.group, Targets: slices.Clone(targets), TargetRevisions: maps.Clone(e.targetRevisions)}, func(result ProviderSaveResult) {
 			if e.generation != generation || !e.open {
 				return
 			}
@@ -1473,8 +1473,8 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 				}
 				if m.Live && m.ProviderActions.Discover != nil {
 					e.probing = true
-					draft := ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), OAuth: e.oauth, ExpectedRevision: e.revision, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
 					generation := e.generation
+					draft := ProviderDraft{Channel: preview.Channel{Node: e.owner, Group: e.group, Targets: slices.Clone(e.targets), TargetIDs: maps.Clone(e.targetIDs), TargetRevisions: maps.Clone(e.targetRevisions), ID: e.id, API: e.current().API, Endpoint: e.endpoint, Method: e.current().ID, APIVersion: strings.TrimSpace(e.apiVersion)}, Key: e.keyUpdate(), OAuth: e.oauth, ExpectedRevision: e.revision, EditorGeneration: generation, Group: e.group, Targets: slices.Clone(e.targets), TargetRevisions: maps.Clone(e.targetRevisions)}
 					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
 						if e.generation != generation || !e.open {
 							return

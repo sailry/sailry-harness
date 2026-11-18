@@ -11,18 +11,24 @@ import (
 
 func TestModelFeatureTooltips(t *testing.T) {
 	for _, test := range []struct {
-		name    string
-		feature Feature
-		label   string
-		tip     string
+		name     string
+		feature  Feature
+		selected string
+		label    string
+		tip      string
 	}{
 		{name: "cycling feature", feature: Feature{ID: "speed", Name: "Speed", Options: []FeatureOption{{ID: "fast"}, {ID: "normal", Name: "Normal"}}},
 			label: i18n.In("en", "composer_feature_fast"), tip: i18n.In("en", "composer_feature_off") + " · " + i18n.In("en", "composer_feature_fast")},
+		{name: "withdrawn speed option", feature: Feature{ID: "speed", Options: []FeatureOption{{ID: "fast"}}}, selected: "ultrafast",
+			label: i18n.In("en", "composer_feature_fast"), tip: i18n.In("en", "composer_feature_fast") + " · " + i18n.In("en", "composer_feature_description")},
 		{name: "feature menu", feature: Feature{ID: "format", Name: "Format", Options: []FeatureOption{{ID: "json", Name: "JSON"}, {ID: "text", Name: "Text"}}},
 			label: "Format", tip: "Format · " + i18n.In("en", "composer_feature_description")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := New("fixture")
+			if test.selected != "" {
+				state.Features = map[string]string{test.feature.ID: test.selected}
+			}
 			model := Model{Features: []Feature{test.feature}}
 			tester := ui.NewTester(func(c *ui.Context) {
 				theme.Apply(c, "", theme.Dark)

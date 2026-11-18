@@ -12,7 +12,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discovered []protocol.ConversationDiscoveryModel, known map[string]protocol.ConversationModel, draftModels map[string]map[string]protocol.ConversationModel, done func([]viewmodel.ChannelModel)) {
+type providerDiscovery struct {
+	generation, revision uint64
+	endpoint             string
+	authentication       protocol.Authentication
+	api                  protocol.ConversationModelApi
+	models               map[string]protocol.ConversationModel
+}
+
+func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, generation uint64, discovered []protocol.ConversationDiscoveryModel, known map[string]protocol.ConversationModel, draftModels map[string]providerDiscovery, done func([]viewmodel.ChannelModel)) {
 	r.async(func() {
 		ctx, cancel := context.WithTimeout(r.ctx, 10*time.Second)
 		defer cancel()
@@ -72,7 +80,10 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, discov
 				known[model.ID] = model
 				models = append(models, channelModel(model))
 			}
-			draftModels[provider.ID.String()] = known
+			if key := provider.ID.String(); draftModels[key].generation <= generation {
+				draftModels[key] = providerDiscovery{generation: generation, revision: provider.Revision,
+					endpoint: provider.Endpoint, authentication: provider.Authentication, api: provider.Api, models: known}
+			}
 			done(models)
 		})
 	})

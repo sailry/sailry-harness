@@ -123,7 +123,7 @@ func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done
 				known[model.ID] = model
 				models = append(models, channelModel(model))
 			}
-			r.finishDiscovery(draft, result.Models, known, editor.providerModels, done)
+			r.finishDiscovery(draft, d.EditorGeneration, result.Models, known, editor.providerModels, done)
 			return
 		}
 		done(models)

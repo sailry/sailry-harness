@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -344,4 +345,32 @@ func accountFeatures(raw json.RawMessage) ([]protocol.ConversationFeaturesFeatur
 		result = append(result, feature)
 	}
 	return result, nil
+}
+
+// RefreshAccountSpeed applies the matched model's native OAuth service tiers
+// without replacing other configured model capabilities.
+func RefreshAccountSpeed(provider protocol.ConversationProvider, model protocol.ConversationModel, discovered *protocol.ConversationDiscoveryCapabilities) protocol.ConversationModel {
+	if provider.Authentication != protocol.AuthenticationChatGptOAuth || provider.Api != protocol.ConversationModelApiResponses || discovered == nil {
+		return model
+	}
+	speed := func(feature protocol.ConversationFeaturesFeature) bool { return feature.ID == "speed" }
+	advertised := slices.IndexFunc(discovered.Features, speed)
+	capabilities := protocol.DefaultConversationDiscoveryCapabilities()
+	if model.Capabilities != nil {
+		capabilities = *model.Capabilities
+	}
+	current := slices.IndexFunc(capabilities.Features, speed)
+	switch {
+	case current < 0 && advertised < 0:
+		return model
+	case current < 0:
+		capabilities.Features = append(slices.Clone(capabilities.Features), discovered.Features[advertised])
+	case advertised < 0:
+		capabilities.Features = slices.Delete(slices.Clone(capabilities.Features), current, current+1)
+	default:
+		capabilities.Features = slices.Clone(capabilities.Features)
+		capabilities.Features[current] = discovered.Features[advertised]
+	}
+	model.Capabilities = &capabilities
+	return model
 }

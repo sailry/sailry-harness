@@ -734,8 +734,9 @@ options: [{id, name?}]}` descriptors. IDs are stable parameter values; display
 names do not affect requests. Selected choices arrive in `prepare` as
 `features: Record<string, string>`, independently of reasoning. An empty map
 means no feature is selected. A translation maps only its own advertised choices
-to the upstream protocol. Native Responses currently maps `speed: "fast"` to
-`service_tier: "priority"` when that choice is advertised by the model catalog.
+to the upstream protocol. Native Responses maps an advertised `speed: "fast"`
+choice to `service_tier: "priority"` and `speed: "ultrafast"` to
+`service_tier: "ultrafast"`.
 
 `prepare`, `prepare_discovery` and `decode_discovery` receive `settings`: the
 installed package's resolved non-secret settings, read when the request is
