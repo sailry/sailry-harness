@@ -72,3 +72,57 @@ func TestImageHistoryModelSwitch(t *testing.T) {
 		}
 	}
 }
+
+func TestOmittedImageAttachmentUsesCapturedInspection(t *testing.T) {
+	for _, test := range []struct {
+		name                   string
+		vision, tools, inspect bool
+		wantInspection         bool
+	}{
+		{name: "inline", vision: true, tools: true, inspect: true},
+		{name: "assigned inspection", tools: true, inspect: true, wantInspection: true},
+		{name: "no inspection route", tools: true},
+		{name: "model cannot call tools", inspect: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id, mime := protocol.NewAttachmentID(), "application/octet-stream"
+			pixels := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("pixel", 64))
+			file := canonical.FileRef{URI: attachmentPrefix + id.String(), Mime: &mime}
+			message := canonical.NewMessage(canonical.User, canonical.Text(0, "Describe my image"),
+				canonical.Block{Index: 1, Kind: "file", Data: &canonical.FileContent{File: file}})
+			records := []canonical.Record{{ID: "image-input", Kind: "message", Data: message}}
+			provider := protocol.DefaultConversationProvider()
+			provider.Models = []protocol.ConversationModel{{ID: "fixture", Vision: test.vision, Tools: test.tools}}
+			x := &execution{ctx: t.Context(), inv: &store.AgentInvocation{Provider: &provider}}
+			x.inv.Turn.Config.Model = "fixture"
+			if test.inspect {
+				operation := protocol.ToolOperationInspectMedia
+				inspection := Tool{Deferred: true, Binding: &store.ApprovalBinding{Operation: &operation}}
+				inspection.Definition.Name = "inspect_image"
+				x.tools = []Tool{inspection}
+			}
+			r := &Runtime{
+				attachment: func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error) {
+					return protocol.Attachment{ID: id, Spec: protocol.AttachmentSpec{Name: "photo.png", MediaType: mime, Size: uint64(len(pixels))}}, true, nil
+				},
+				attachmentBytes: func(context.Context, protocol.Attachment) ([]byte, error) { return pixels, nil },
+			}
+			request, assets, err := r.hydrateAttachments(x, records)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blocks := request[0].Message().Content
+			note := blocks[len(blocks)-1].Data.(*canonical.TextContent).Text
+			if test.vision != (len(assets) == 1) || strings.Contains(note, "read_office") {
+				t.Fatalf("image assets = %d, note = %q", len(assets), note)
+			}
+			if test.wantInspection {
+				if !strings.Contains(note, `"attachment":"`+id.String()+`"`) || !strings.Contains(note, "select:inspect_image") {
+					t.Fatalf("image inspection did not use the attachment ID: %q", note)
+				}
+			} else if strings.Contains(note, "inspect_image") || strings.Contains(note, "lacks image input") != !test.vision {
+				t.Fatalf("image note overstates capabilities: %q", note)
+			}
+		})
+	}
+}

@@ -35,7 +35,11 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 	request := slices.Clone(records)
 	assets := map[string][]byte{}
 	remaining := uint64(64 << 20)
-	vision := model.ReadsImages(model.Binding{Provider: *x.inv.Provider, Config: x.inv.Turn.Config})
+	binding := model.Binding{Provider: *x.inv.Provider, Config: x.inv.Turn.Config}
+	vision := model.ReadsImages(binding)
+	inspect := findTool(x.tools, "inspect_image")
+	canInspect := inspect != nil && inspect.Binding != nil && inspect.Binding.Owner.Name == "" &&
+		inspect.Binding.Operation != nil && *inspect.Binding.Operation == protocol.ToolOperationInspectMedia && capturedModel(binding).Tools
 	if x.attachments == nil {
 		x.attachments = map[protocol.AttachmentID]*attachmentMaterial{}
 	}
@@ -91,6 +95,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 				return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "attachment media type mismatch"}
 			}
 			included := false
+			image := strings.HasPrefix(strings.ToLower(attachment.Spec.MediaType), "image/")
 			if attachment.Spec.Size <= remaining {
 				if !entry.loaded {
 					entry.data, entry.err = r.attachmentBytes(x.ctx, attachment)
@@ -109,8 +114,9 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					continue
 				}
 				mime := strings.Split(mimetype.Detect(entry.data).String(), ";")[0]
+				image = strings.HasPrefix(mime, "image/")
 				switch {
-				case strings.HasPrefix(mime, "image/") && vision:
+				case image && vision:
 					digest := blake3.Sum256(entry.data)
 					key := hex.EncodeToString(digest[:])
 					assets[key] = entry.data
@@ -131,7 +137,16 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 			descriptor, _ := json.Marshal(map[string]any{"id": id, "name": attachment.Spec.Name, "media_type": attachment.Spec.MediaType, "size": attachment.Spec.Size})
 			note := "Attachment reference: " + string(descriptor)
 			if !included {
-				note += "\n" + attachmentReadNote
+				switch {
+				case !image:
+					note += "\n" + attachmentReadNote
+				case canInspect && attachment.Spec.Size <= protocol.MAX_IMAGE_BYTES:
+					note += "\nImage contents are omitted from this request. Use inspect_image with {\"attachment\":\"" + id.String() + "\",\"prompt\":\"<question about the image>\"}. If needed, load it with tool_search and query \"select:inspect_image\"."
+				case !vision:
+					note += "\nThe conversation model lacks image input, and image inspection is unavailable for this attachment."
+				default:
+					note += "\nThe image exceeds the remaining inline attachment budget, and image inspection is unavailable for this attachment."
+				}
 			}
 			content = append(content, canonical.Text(uint64(len(content)), note))
 		}

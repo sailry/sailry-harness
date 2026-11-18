@@ -24,6 +24,7 @@ type CatalogDownload struct {
 	Bytes     uint64
 	Providers uint32
 	Fault     *protocol.Fault
+	endpoints map[string]string
 }
 
 func downloadCatalog(ctx context.Context) (*CatalogDownload, error) {
@@ -46,16 +47,26 @@ func ParseCatalog(raw []byte) (*CatalogDownload, error) {
 		return nil, unavailable("model catalog exceeds its size limit")
 	}
 	var document map[string]struct {
+		API    json.RawMessage            `json:"api"`
 		Models map[string]json.RawMessage `json:"models"`
 	}
 	if err := json.Unmarshal(raw, &document); err != nil || len(document) == 0 || len(document) > 1000 {
 		return nil, unavailable("model catalog providers are invalid")
 	}
-	download := &CatalogDownload{Bytes: uint64(len(raw)), Providers: uint32(len(document))}
+	download := &CatalogDownload{Bytes: uint64(len(raw)), Providers: uint32(len(document)), endpoints: map[string]string{}}
 	seen := map[string]bool{}
 	for provider, data := range document {
 		if !identifier(provider, 128) || data.Models == nil {
 			return nil, unavailable("model catalog models are invalid")
+		}
+		var endpoint string
+		if json.Unmarshal(data.API, &endpoint) == nil && endpoint != "" {
+			endpoint = strings.TrimRight(endpoint, "/")
+			if _, shared := download.endpoints[endpoint]; shared {
+				download.endpoints[endpoint] = ""
+			} else {
+				download.endpoints[endpoint] = provider
+			}
 		}
 		for _, body := range data.Models {
 			model, err := CatalogModel(body)

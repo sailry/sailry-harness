@@ -285,7 +285,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if provider == nil {
 		return empty, nil, fault(protocol.ErrorCodeNotConfigured, "captured child provider is unavailable")
 	}
-	captured, err := CaptureProvider(ctx, db, *provider)
+	captured, err := captureTurnProvider(ctx, db, *provider, session.Config.Model)
 	if err != nil {
 		return empty, nil, err
 	}

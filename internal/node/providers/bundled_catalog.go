@@ -2,6 +2,7 @@ package providers
 
 import (
 	_ "embed"
+	"strings"
 	"sync"
 )
 
@@ -16,4 +17,14 @@ var bundledCatalog = sync.OnceValues(func() (*CatalogDownload, error) {
 // Its returned entries and bodies are shared and must not be modified.
 func BundledCatalog() (*CatalogDownload, error) {
 	return bundledCatalog()
+}
+
+// BundledCatalogProvider resolves an unambiguous catalog endpoint from the
+// pinned snapshot independently of which model metadata snapshot is active.
+func BundledCatalogProvider(endpoint string) (string, error) {
+	catalog, err := BundledCatalog()
+	if err != nil {
+		return "", err
+	}
+	return catalog.endpoints[strings.TrimRight(endpoint, "/")], nil
 }

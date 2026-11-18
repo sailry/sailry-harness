@@ -210,3 +210,71 @@ func TestSaveProviderUsesBundledReasoningAndPreservesCustomChoices(t *testing.T)
 	}
 
 }
+
+func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
+	t.Parallel()
+	_, _, storage := schemaFixture(t)
+	ctx := t.Context()
+	const modelID = "fixture-vision"
+	download, err := providers.ParseCatalog([]byte(`{
+		"openai":{"models":{"fixture-vision":{"id":"fixture-vision","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text","image"]}}}},
+		"deepseek":{"models":{"fixture-vision":{"id":"fixture-vision","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text"]}}}},
+		"another":{"models":{"fixture-ambiguous":{"id":"fixture-ambiguous","canonical_model_id":"other/fixture-ambiguous","modalities":{"input":["text"]}}}},
+		"other":{"models":{"fixture-ambiguous":{"id":"fixture-ambiguous","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text"]}}}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		_, _, err := applyProviderCatalog(ctx, db, &providers.Prepared{Catalog: download})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range []struct {
+		name, endpoint, model string
+		auth                  protocol.Authentication
+		manual, nativeDeny    bool
+		want                  bool
+	}{
+		{name: "exact canonical model on a custom gateway", endpoint: "https://custom.invalid/v1", model: modelID, want: true},
+		{name: "explicit text-only channel", endpoint: "https://api.deepseek.com/v1", model: modelID},
+		{name: "authenticated official namespace", endpoint: "https://chatgpt.com/backend-api/codex", auth: protocol.AuthenticationChatGptOAuth, model: modelID, want: true},
+		{name: "native capability overrides catalog", endpoint: "https://custom.invalid/v1", model: modelID, nativeDeny: true},
+		{name: "manual capability overrides catalog", endpoint: "https://custom.invalid/v1", model: modelID, manual: true},
+		{name: "conflicting model identities", endpoint: "https://custom.invalid/v1", model: "fixture-ambiguous"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			provider := providerFixture()
+			provider.Endpoint, provider.DefaultModel = row.endpoint, row.model
+			if row.auth != "" {
+				provider.Authentication = row.auth
+			}
+			entry := &provider.Models[0]
+			entry.ID, entry.Vision, entry.CustomCapabilities = row.model, false, row.manual
+			if row.nativeDeny {
+				entry.Capabilities = &protocol.ConversationDiscoveryCapabilities{Vision: new(false)}
+			}
+			err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+				captured, err := captureTurnProvider(ctx, db, provider, row.model)
+				if err != nil {
+					return err
+				}
+				if captured.Models[0].Vision != row.want {
+					return fmt.Errorf("captured vision = %v, want %v", captured.Models[0].Vision, row.want)
+				}
+				if err = fillProviderMetadata(ctx, db, &provider); err != nil {
+					return err
+				}
+				if provider.Models[0].Vision != row.want {
+					return fmt.Errorf("completed vision = %v, want %v", provider.Models[0].Vision, row.want)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

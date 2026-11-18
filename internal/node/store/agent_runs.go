@@ -237,7 +237,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	captured, err := CaptureProvider(ctx, db, *selectedProvider)
+	captured, err := captureTurnProvider(ctx, db, *selectedProvider, value.Config.Model)
 	if err != nil {
 		return value, err
 	}
