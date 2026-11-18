@@ -639,16 +639,10 @@ func (node *Node) notifyResourceCatalog(source protocol.NodeID, remote *client.C
 				state.mu.Unlock()
 				return
 			}
-			if err := node.saveResourceProjection(ctx, state, projected, complete, generation); err != nil {
-				state.mu.Lock()
-				state.running = false
-				state.mu.Unlock()
-				return
-			}
-			if complete && projected.Fault != nil && resourceObservationTransient(projected.Fault) {
-				// The Node snapshot may remain healthy while a knowledge
-				// read fails. Recover that projection without waiting for an
-				// unrelated event or another controller to read the catalog.
+			saveErr := node.saveResourceProjection(ctx, state, projected, complete, generation)
+			if saveErr != nil || complete && projected.Fault != nil && resourceObservationTransient(projected.Fault) {
+				// A failed local write or knowledge read may be the last
+				// event this observer sees until the catalog is recovered.
 				timer := time.NewTimer(retry)
 				select {
 				case <-ctx.Done():
