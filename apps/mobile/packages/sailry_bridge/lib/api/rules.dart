@@ -21,3 +21,7 @@ String? selectMode({
 
 String? sessionLink({required String link}) =>
     nativeBridge.invokeSync('session_link', {'link': link}) as String?;
+
+Map<String, String> sessionLanes(List<Object?> sessions) =>
+    (nativeBridge.invokeSync('session_lanes', {'sessions': sessions}) as Map)
+        .cast<String, String>();

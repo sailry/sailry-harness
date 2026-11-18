@@ -754,7 +754,11 @@ An unfinished send retains its request on the connection's conversation draft
 while a page is closed. Reopening queries the original Node outcome.
 Mobile preserves the covered task catalog during navigation, resumes preview
 reads after the return transition, and bounds list previews without changing
-canonical history.
+canonical history. Desktop and Mobile use Client's activity lanes for task
+status. Mobile projects the full host session list through the synchronous Dart
+FFI bridge and caches the lanes for that snapshot before filtering out delegated
+sessions or applying project and status filters. The local demo supplies fixture
+lanes with its simulated sessions.
 Mobile registers saved direct hosts from local pairing metadata before completing
 startup, then refreshes remote directories in the background. Directory reads
 run outside the pairing-change queue, and reads spanning a pairing change cannot

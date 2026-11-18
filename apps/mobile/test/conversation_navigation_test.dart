@@ -7,6 +7,7 @@ import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
+import 'package:sailry_mobile/features/conversations/task_row.dart';
 import 'package:sailry_mobile/features/conversations/tasks_page.dart';
 import 'package:sailry_mobile/features/resources/resources_page.dart';
 import 'package:sailry_mobile/l10n/strings.dart';
@@ -68,6 +69,67 @@ Future<void> release(WidgetTester tester, AppSession session) async {
 }
 
 void main() {
+  testWidgets('task rows and filters use one host session lane projection', (
+    tester,
+  ) async {
+    final child = {
+      ...conversation(title: 'Delegated child'),
+      'id': 'child',
+      'delegation': {'session': 'session'},
+    };
+    final initial = [conversation(), child];
+    final projected = <List<Object?>>[];
+    var lane = 'running';
+    final host = HostConnection.test(
+      id: 'host',
+      label: 'Host',
+      snapshot: {'sessions': initial},
+      projectSessionLanes: (sessions) {
+        projected.add(sessions);
+        return {'session': lane};
+      },
+      command: (_, _) async => preview('Preview'),
+    );
+    final session = AppSession.test(hosts: [host]);
+    await tester.pumpWidget(screen(session));
+    await tester.pump();
+
+    TaskRow row() => tester.widget(find.byType(TaskRow));
+    final translate = tester.element(find.byType(TaskRow)).tr;
+    expect(projected.single, same(initial));
+    expect(find.text('Delegated child'), findsNothing);
+    expect(find.text(translate('tasksActive')), findsOneWidget);
+    expect(row().tone, StatusTone.running);
+    expect(row().status, translate('running'));
+    await tester.tap(find.text(translate('running')));
+    await tester.pump();
+    expect(find.text('Conversation'), findsOneWidget);
+    await tester.tap(find.text(translate('all')));
+    host.snapshot = {...host.snapshot, 'projects': []};
+    host.notifyListeners();
+    await tester.pump();
+    expect(projected, hasLength(1));
+
+    for (final (unread, next, tone) in [
+      (true, 'failed', StatusTone.danger),
+      (false, 'idle', null),
+    ]) {
+      lane = next;
+      final record = conversation(unread: unread);
+      final activity = record['activity'] as Map<String, dynamic>;
+      (activity['run'] as Map<String, dynamic>)['status'] = 'failed';
+      host.snapshot = {
+        'sessions': [record],
+      };
+      host.notifyListeners();
+      await tester.pump();
+      expect(row().tone, tone);
+    }
+    expect(find.byKey(const ValueKey('task-status-dot')), findsNothing);
+    expect(projected, hasLength(3));
+    await release(tester, session);
+  });
+
   testWidgets('read acknowledgements and titles do not reload history', (
     tester,
   ) async {

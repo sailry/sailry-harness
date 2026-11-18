@@ -7,6 +7,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/connection.dart';
+import 'package:sailry_bridge/api/rules.dart' as rules;
 import 'package:sailry_bridge/bridge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,6 +23,8 @@ typedef CommandHandler =
       Map<String, dynamic>? data,
     );
 
+typedef SessionLaneProjection = Map<String, String> Function(List<Object?>);
+
 String _addressRouteKey(Map<String, dynamic> address) {
   final target = text(address['id']);
   final entry = text(object(address['route'])['entry'], target);
@@ -34,6 +37,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     : _initialize = initializeBridge,
       _openController = _open,
       _savedPeers = _hasSavedPeers,
+      _projectSessionLanes = rules.sessionLanes,
       _demoPreferences = SharedPreferencesAsync();
 
   @visibleForTesting
@@ -45,6 +49,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     Future<Controller> Function(String, bool)? openController,
     Future<bool> Function(String)? savedPeers,
     SharedPreferencesAsync? preferences,
+    this._projectSessionLanes,
   }) : _initialize = initialize ?? initializeBridge,
        _openController = openController ?? _open,
        _savedPeers = savedPeers ?? ((_) async => true),
@@ -59,6 +64,7 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
   final Future<void> Function() _initialize;
   final Future<Controller> Function(String, bool) _openController;
   final Future<bool> Function(String) _savedPeers;
+  final SessionLaneProjection? _projectSessionLanes;
   final SharedPreferencesAsync? _demoPreferences;
   static const _demoEnabledKey = 'hosts.demo.enabled';
   static const _demoSelectedKey = 'hosts.demo.selected';
@@ -417,8 +423,12 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
       if (select) selectHost(id);
       return registered;
     }
-    final connected = HostConnection._(id, address, connection)
-      .._applyPeerMetadata(decoded);
+    final connected = HostConnection._(
+      id,
+      address,
+      connection,
+      projectSessionLanes: _projectSessionLanes,
+    ).._applyPeerMetadata(decoded);
     connected.addListener(_changed);
     _hosts.add(connected);
     unawaited(connected.watch());
@@ -678,17 +688,23 @@ class SessionScope extends InheritedNotifier<AppSession> {
 }
 
 class HostConnection extends ChangeNotifier {
-  HostConnection._(this.id, this.address, this._connection);
+  HostConnection._(
+    this.id,
+    this.address,
+    this._connection, {
+    this._projectSessionLanes,
+  });
 
   @visibleForTesting
   // Public test arguments keep widget fixtures independent of native handles.
   HostConnection.test({
     required this.id,
     required String this._label,
-    this.snapshot = const {},
+    this._snapshot = const {},
     this.childTargets = const {},
     this.connected = true,
     CommandHandler? command,
+    this._projectSessionLanes,
     this._connection,
     this.address = '',
     Map<String, dynamic> metadata = const {},
@@ -802,7 +818,38 @@ class HostConnection extends ChangeNotifier {
     return translate('hostOriginSource').replaceAll('{name}', names);
   }
 
-  Map<String, dynamic> snapshot = {};
+  Map<String, dynamic> _snapshot = {};
+  Map<String, dynamic> get snapshot => _snapshot;
+  set snapshot(Map<String, dynamic> value) {
+    if (!identical(value['sessions'], _snapshot['sessions'])) {
+      _sessionLanes = null;
+    }
+    _snapshot = value;
+  }
+
+  final SessionLaneProjection? _projectSessionLanes;
+  Map<String, String>? _sessionLanes;
+
+  // Project the full host snapshot once before the list filters out children.
+  Map<String, String> get sessionLanes => _sessionLanes ??= _loadSessionLanes();
+
+  Map<String, String> _loadSessionLanes() {
+    if (isDemo) {
+      return Map.unmodifiable(object(snapshot['session_lanes']));
+    }
+    final sessions = snapshot['sessions'];
+    final project = _projectSessionLanes;
+    if (project == null || sessions is! List || sessions.isEmpty) {
+      return const {};
+    }
+    try {
+      return Map.unmodifiable(project(sessions));
+    } on BridgeFailure catch (error) {
+      debugPrint('Session lane projection unavailable: $error');
+      return const {};
+    }
+  }
+
   Map<String, dynamic> info = {};
   List<Map<String, dynamic>> notifications = [];
   Map<String, dynamic> childTargets = {};

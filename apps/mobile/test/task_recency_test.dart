@@ -10,15 +10,11 @@ Map<String, dynamic> _session(
   String? status, {
   int? started,
   int? finished,
-  String? waiting,
-  bool unread = false,
 }) => {
   'activity': {
     'run': status == null
         ? null
         : {'status': status, 'started_ms': started, 'finished_ms': finished},
-    'waiting': waiting,
-    'attention': {'unread': unread},
   },
 };
 
@@ -177,20 +173,16 @@ void main() {
           "keep active sessions first",
           (caseName) {
             final today = DateTime(2026, 10, 28, 9).millisecondsSinceEpoch;
-            for (final session in [
-              _session('running', started: today),
-              _session('queued'),
-              _session('stopping', started: today),
-              _session('completed', finished: today, waiting: 'approval'),
-            ]) {
+            final session = _session('completed', finished: today);
+            for (final lane in ['running', 'waiting']) {
               expect(
-                sessionGroup(session, now),
+                sessionGroup(session, now, lane: lane),
                 TaskGroup.active,
                 reason: caseName,
               );
             }
             expect(
-              sessionGroup(_session('failed', finished: today), now),
+              sessionGroup(session, now, lane: 'idle'),
               TaskGroup.today,
               reason: caseName,
             );
@@ -225,47 +217,17 @@ void main() {
     });
   });
 
-  group('status dot', () {
-    test("derives active attention and terminal tones", () {
-      for (final (actual, expected, reason) in <(Object?, Object?, String)>[
-        (
-          listTone(_session('running')),
-          StatusTone.running,
-          "follows run state",
-        ),
-        (listTone(_session('queued')), StatusTone.running, "follows run state"),
-        (
-          listTone(_session('stopping')),
-          StatusTone.running,
-          "follows run state",
-        ),
-        (
-          listTone(_session('running', waiting: 'input')),
-          StatusTone.warning,
-          "follows run state",
-        ),
-        (listTone(_session('failed')), StatusTone.danger, "follows run state"),
-        (
-          listTone(_session('interrupted')),
-          StatusTone.danger,
-          "follows run state",
-        ),
-        (listTone(_session(null)), isNull, "follows run state"),
-        (listTone(_session('cancelled')), isNull, "follows run state"),
-        (
-          listTone(_session('completed', unread: true)),
-          StatusTone.success,
-          "shows completion only while unread",
-        ),
-        (
-          listTone(_session('completed')),
-          isNull,
-          "shows completion only while unread",
-        ),
-      ]) {
-        expect(actual, expected, reason: reason);
-      }
-    });
+  test('maps projected session lanes to status dots and labels', () {
+    for (final (lane, tone, key) in [
+      ('running', StatusTone.running, 'running'),
+      ('waiting', StatusTone.warning, 'waiting'),
+      ('completed', StatusTone.success, 'completed'),
+      ('failed', StatusTone.danger, 'conversationFailedStatus'),
+      ('idle', null, 'idle'),
+    ]) {
+      expect(listTone(lane), tone);
+      expect(laneLabel(lane, translate: (key) => key), key);
+    }
   });
 
   test('maps traditional Chinese to a dated locale', () {

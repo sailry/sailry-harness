@@ -227,6 +227,9 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     final projectId = widget.session.selectedProjectId;
     final projects = hostRecords(widget.session.resourceHosts, 'projects');
     final sessions = hostRecords(hosts, 'sessions');
+    final lanes = selected?.sessionLanes ?? const <String, String>{};
+    String laneOf(Map<String, dynamic> session) =>
+        lanes[text(session['id'])] ?? 'idle';
     final allTerminals = hostRecords(hosts, 'terminals');
     final creationHost = selected;
     final selectedProject = projects
@@ -242,7 +245,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             (session['archived'] == true) == (_filter == 'archived') &&
             (_filter == 'all' ||
                 _filter == 'archived' ||
-                status(session) == _filter) &&
+                laneOf(session) == _filter) &&
             title(
               session,
               translate: context.tr,
@@ -251,7 +254,10 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
     ];
     final colors = Theme.of(context).colorScheme;
     final now = DateTime.now();
-    final groups = groupTasks(tasks, (task) => sessionGroup(task.$2, now));
+    final groups = groupTasks(
+      tasks,
+      (task) => sessionGroup(task.$2, now, lane: laneOf(task.$2)),
+    );
     Object? terminalProject(
       HostConnection host,
       Map<String, dynamic> terminal,
@@ -492,6 +498,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
                     key: ValueKey(('preview', host.id, session['id'])),
                     host: host,
                     session: session,
+                    lane: laneOf(session),
                     now: now,
                     previewActive: () => _previewActive,
                     divider: index < items.length - 1,

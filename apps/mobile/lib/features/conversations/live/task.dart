@@ -61,6 +61,7 @@ class ConversationTask extends StatefulWidget {
     super.key,
     required this.host,
     required this.session,
+    required this.lane,
     required this.project,
     required this.now,
     this.divider = true,
@@ -68,6 +69,7 @@ class ConversationTask extends StatefulWidget {
   });
   final HostConnection host;
   final Map<String, dynamic> session;
+  final String lane;
   final Map<String, dynamic> project;
 
   /// Shared page clock so row times and list sections agree.
@@ -192,7 +194,7 @@ class _ConversationTaskState extends State<ConversationTask> {
   Widget build(BuildContext context) {
     final connected = widget.host.connected;
     final session = widget.session;
-    final tone = connected ? listTone(session) : null;
+    final tone = connected ? listTone(widget.lane) : null;
     final time = runTime(session);
     return TaskRow(
       icon: ProjectIcon(project: widget.project, size: 26),
@@ -214,7 +216,7 @@ class _ConversationTaskState extends State<ConversationTask> {
               locale: dateLocale(Localizations.localeOf(context)),
               yesterday: context.tr('yesterday'),
             ),
-      status: label(session, translate: context.tr),
+      status: laneLabel(widget.lane, translate: context.tr),
       tone: tone,
       dim:
           tone == null &&

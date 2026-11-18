@@ -57,6 +57,7 @@ class DemoConnection implements Connection {
   final Translator translate;
   final _feeds = <_DemoUpdates>{};
   final _sessions = <Map<String, dynamic>>[];
+  final _sessionLanes = <String, String>{};
   final _pages = <String, Map<String, dynamic>>{};
   final _files = <String, String>{};
   final _fileRevisions = <String, int>{};
@@ -156,6 +157,7 @@ class DemoConnection implements Connection {
       },
     ],
     'sessions': _sessions,
+    'session_lanes': Map<String, String>.of(_sessionLanes),
     'providers': [_provider],
     'terminals': [_terminal],
     'roles': <dynamic>[],
@@ -238,7 +240,17 @@ class DemoConnection implements Connection {
     page['revision'] = number(page['revision']).toInt() + 1;
     session['revision'] = number(session['revision']).toInt() + 1;
     session['activity'] = {...object(session['activity']), 'run': run};
+    if (running) _sessionLanes[session['id'] as String] = 'running';
     return run;
+  }
+
+  void _finishTurn(Map<String, dynamic> run, String status) {
+    run['status'] = status;
+    run['finished_ms'] = DateTime.now().millisecondsSinceEpoch;
+    final session = _session(run['session']);
+    if (identical(object(session['activity'])['run'], run)) {
+      _sessionLanes.remove(session['id']);
+    }
   }
 
   Map<String, dynamic> _conversation(String id) {
@@ -509,8 +521,7 @@ class DemoConnection implements Connection {
             {'kind': 'text', 'data': answer.substring(0, length)},
           ];
           if (length == answer.length) {
-            run['status'] = 'completed';
-            run['finished_ms'] = DateTime.now().millisecondsSinceEpoch;
+            _finishTurn(run, 'completed');
             session['revision'] = number(session['revision']).toInt() + 1;
             timer.cancel();
             _timers.remove(timer);
@@ -523,8 +534,7 @@ class DemoConnection implements Connection {
         for (final page in _pages.values) {
           for (final run in page['runs'] as List<Map<String, dynamic>>) {
             if (run['turn'] == data['turn']) {
-              run['status'] = 'stopped';
-              run['finished_ms'] = DateTime.now().millisecondsSinceEpoch;
+              _finishTurn(run, 'stopped');
             }
           }
         }

@@ -17,6 +17,8 @@ import (
 	"unsafe"
 
 	"github.com/sailry/sailry-harness/internal/mobile"
+	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
 var bridges = struct {
@@ -48,11 +50,19 @@ func sailry_invoke(bridge, handle C.uint64_t, method *C.char, input *C.uint8_t, 
 		return 0
 	}
 	*immediate, *immediateLength = nil, 0
-	data, valid := copyInput(input, length)
-	if !valid || method == nil {
+	if method == nil {
 		return 0
 	}
 	name := C.GoString(method)
+	limit := C.uint64_t(protocol.MAX_FRAME_BYTES)
+	if handle == 0 && name == mobile.SessionLanesMethod {
+		// A session list comes from a paged snapshot and can exceed one frame.
+		limit = wire.MaxSnapshotBytes
+	}
+	data, valid := copyInput(input, length, limit)
+	if !valid {
+		return 0
+	}
 	if uint64(handle) == 0 {
 		if encoded, synchronous := mobile.Sync(name, data); synchronous {
 			*immediate = (*C.uint8_t)(C.CBytes(encoded))
@@ -69,7 +79,7 @@ func sailry_invoke(bridge, handle C.uint64_t, method *C.char, input *C.uint8_t, 
 
 //export sailry_subscribe
 func sailry_subscribe(bridge, handle C.uint64_t, method *C.char, input *C.uint8_t, length, request C.uint64_t) C.uint64_t {
-	data, valid := copyInput(input, length)
+	data, valid := copyInput(input, length, protocol.MAX_FRAME_BYTES)
 	runtime := getBridge(bridge)
 	if !valid || runtime == nil || method == nil || !runtime.Invoke(uint64(handle), C.GoString(method), data, uint64(request)) {
 		return 0
@@ -106,8 +116,8 @@ func getBridge(handle C.uint64_t) *mobile.Runtime {
 	return bridges.values[uint64(handle)]
 }
 
-func copyInput(data *C.uint8_t, length C.uint64_t) ([]byte, bool) {
-	if uint64(length) > 16*1024*1024 || data == nil && length != 0 {
+func copyInput(data *C.uint8_t, length, limit C.uint64_t) ([]byte, bool) {
+	if length > limit || data == nil && length != 0 {
 		return nil, false
 	}
 	return C.GoBytes(unsafe.Pointer(data), C.int(length)), true

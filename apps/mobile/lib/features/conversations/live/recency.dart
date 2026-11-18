@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:intl/intl.dart';
 
 import '../../../runtime/json.dart';
-import 'presentation.dart';
 
 /// Task list sections in display order, with their localization keys.
 enum TaskGroup {
@@ -45,12 +44,15 @@ TaskGroup dayGroup(DateTime? time, DateTime now) {
   };
 }
 
-/// Running, queued, stopping and waiting sessions stay above dated sections.
-TaskGroup sessionGroup(Map<String, dynamic> session, DateTime now) =>
-    switch (status(session)) {
-      'running' || 'waiting' => TaskGroup.active,
-      _ => dayGroup(runTime(session), now),
-    };
+/// Active session lanes stay above dated sections.
+TaskGroup sessionGroup(
+  Map<String, dynamic> session,
+  DateTime now, {
+  required String lane,
+}) => switch (lane) {
+  'running' || 'waiting' => TaskGroup.active,
+  _ => dayGroup(runTime(session), now),
+};
 
 /// Groups [items] by [group], keeping the incoming order inside each section.
 List<(TaskGroup, List<T>)> groupTasks<T>(
