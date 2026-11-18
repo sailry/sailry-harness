@@ -3,7 +3,7 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
-## [0.2.0](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0) — 2026-11-17
+## [0.2.0](https://github.com/sailry/sailry-harness/releases/tag/v0.2.0) — 2026-11-18
 
 This is the first stable release of Sailry's Go runtime, shared Client and Link
 layers, and rebuilt Desktop and Mobile controllers.
@@ -16,12 +16,11 @@ layers, and rebuilt Desktop and Mobile controllers.
 - Persist remote project, worktree and knowledge directory summaries for offline
   display and cold-start recovery. Preserve drafts and selection across reconnects;
   clear restricted projections after access revocation or connection removal.
-- Keep credential renewal on the controller and share only execution credentials.
-  Add explicit same-account login recovery for waiting tasks without replaying
-  completed tools or restarting stopped work.
-- Synchronize personal configuration and plugin KV with exact source identities,
-  durable write groups and revision checks. Preserve captured credentials and
-  package versions for admitted tasks.
+- Configure each host's own models, credentials, plugins, plugin settings, KV
+  data and hooks. Desktop settings follow the selected host and show its
+  installed settings panels. Credentials renew on their owning Node, with
+  same-account recovery for waiting tasks. Admitted tasks keep their captured
+  credentials and package versions.
 - Select the highest compatible plugin release on the execution Node. Add
   official version history, per-version release notes, compatible version
   switching and version pinning. Exclude withdrawn and unsupported releases
@@ -32,6 +31,13 @@ layers, and rebuilt Desktop and Mobile controllers.
 - Load document images through their captured host and worktree file routes on
   Desktop and Mobile, with confined relative paths, bitmap and SVG support,
   offline caches and dependency refresh.
+- Create conversations when their first message is accepted. Stage desktop
+  attachments in the draft and send uploaded images with the conversation
+  model when it supports vision. Fill model capabilities from the catalog
+  when adding a model.
+- Keep Files and Git scoped to their selected project and worktree across
+  conversation changes. Support linked worktrees on Linux. Use the shared
+  Client to classify conversation activity on Desktop and Mobile.
 - Support custom API-key channel headers. Bundle model metadata for offline
   capability and reasoning controls, refresh missing datasets when opening model
   settings, and maintain the bundled snapshot through scheduled repository updates.

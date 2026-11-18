@@ -788,11 +788,14 @@ another host changes both together. Open conversation, file and terminal routes
 retain their captured owner. General resource pickers list registered project
 worktrees; explicit conversation routes retain access to their own scratch
 directories. A missing workspace does not hide the project selection entry.
-An open project resources page can switch between its worktrees without changing
-the top-level selection. Project forms retain unresolved writes on the original
-host connection and inspect the captured request when reopened.
-An unfinished send retains its request on the connection's conversation draft
-while a page is closed. Reopening queries the original Node outcome.
+Opening a project resources page and switching between its worktrees leaves the
+top-level chat selection in place. Project forms retain unresolved writes on the
+original host connection and inspect the captured request when reopened.
+Desktop and Mobile admit the first message, its attachments and the new
+conversation's configuration in one Node transaction. Once admission is
+confirmed, opening the conversation uses its returned ID. An unfinished send
+in an existing conversation retains its request on the connection while its
+page is closed. Reopening queries the original Node outcome.
 Mobile preserves the covered task catalog during navigation, resumes preview
 reads after the return transition, and bounds list previews without changing
 canonical history. Desktop and Mobile use Client's activity lanes for task
@@ -801,7 +804,8 @@ FFI bridge and caches the lanes for that snapshot before filtering out delegated
 sessions or applying project and status filters. The local demo supplies fixture
 lanes with its simulated sessions.
 Android system alerts reconcile posted notices against the Client inbox for
-their original entry and target, including after the app restarts.
+their original entry and target, including after the app restarts. Each route's
+first confirmed inbox establishes which notices are already present.
 Mobile registers saved direct hosts from local pairing metadata before completing
 startup, then refreshes remote directories in the background. Directory reads
 run outside the pairing-change queue, and reads spanning a pairing change cannot
@@ -917,6 +921,8 @@ socket and never create another storage owner.
 Both published-package and local-artifact installers roll back the program,
 command link and service they created when a fresh installation fails. Only an
 empty newly created profile is removed; written data remains for inspection.
+SSH updates compare the verified installed version again under the shared
+installation lock before replacing the running Host.
 Uncertain service cleanup retains recovery files and reports an unknown outcome.
 
 Host metrics use one Node sampler for local and remote reads. macOS disk rates map
