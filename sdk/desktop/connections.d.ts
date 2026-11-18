@@ -10,5 +10,5 @@ export function prepareSsh(input:{profile:unknown;credential?:{kind:'password'|'
 export function browseDatabase(profile:string,revision:number,database?:string):Promise<unknown>;
 export function browseSshDirectory(input:{profile:string;expected_revision:number;path:string;after?:unknown}):Promise<unknown>;
 /** Observe the original request only. Does not submit or replay it. */
-export function requestOutcome(id:string):Promise<{kind:'not_admitted'|'admitted'|'unknown'|'completed';data?:unknown}>;
+export function requestOutcome(id:string):Promise<{kind:'not_admitted'|'unrecorded'|'admitted'|'unknown'|'completed'|'replayable';data?:unknown}>;
 /** Database integer cell values and affected_rows are exact decimal strings in controller results. */

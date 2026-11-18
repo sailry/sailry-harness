@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -240,49 +241,88 @@ func TestPreviouslyAdmittedImportReplayUsesTargetLedger(t *testing.T) {
 func TestUncertainForwardReplayKeepsFrozenImport(t *testing.T) {
 	t.Parallel()
 	a, b := nodeFixture(t), nodeFixture(t)
+	controller := client.New(link.NewLocal(a.ID(), a.ID(), a))
+	t.Cleanup(func() { _ = controller.Close() })
+	want := sessionFixture(t, b)
+	sent := make(chan protocol.Request, 3)
+	a.forward = func(_ context.Context, request protocol.Request) (link.Admission, error) {
+		sent <- request
+		completion := make(chan link.Response, 1)
+		completion <- link.Response{Output: protocol.Output{Kind: "session", Data: want}}
+		close(completion)
+		return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: true}, Completion: completion}, nil
+	}
 	config := protocol.DefaultSessionConfig()
 	config.Provider, config.Model = protocol.NewProviderID(), "captured-model"
 	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionProject
-	request := protocol.NewRequest(a.ID(), protocol.Command{Kind: "create_session_at", Data: &protocol.CommandCreateSessionAtPayload{
-		Target: b.ID(), Config: &config, ProviderRevision: 1,
-	}})
-	caller := a.ID()
 	bundle := protocol.DefaultSessionImport()
 	bundle.Source, bundle.Config = a.ID(), config
 	bundle.Provider = protocol.DefaultConversationProvider()
 	bundle.Provider.ID = config.Provider
 	bundle.Provider.Api, bundle.Provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
 	bundle.Roles = protocol.DefaultRoleSnapshot()
-	frozen := protocol.Request{Version: request.Version, ID: request.ID, Target: b.ID(), Command: protocol.Command{Kind: "import_session", Data: &bundle}}
-	body, err := json.Marshal(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(frozen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := a.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-		if _, err := admission.Admit(t.Context(), db, a.ID(), request, body); err != nil {
-			return err
-		}
-		if _, err := db.ExecContext(t.Context(), "INSERT INTO session_forwards(caller,request,body) VALUES(?1,?2,?3)", caller[:], request.ID.String(), encoded); err != nil {
-			return err
-		}
-		replayed, err := store.PrepareSessionForward(t.Context(), db, a.ID(), a.ID(), request)
-		if err != nil {
-			return err
-		}
-		replayedBody, err := json.Marshal(replayed)
-		if err != nil {
-			return err
-		}
-		if string(replayedBody) != string(encoded) {
-			return errors.New("uncertain request did not reuse its frozen import")
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
+	caller := a.ID()
+	for _, name := range []string{"recorded", "interrupted", "no frozen import"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			request := controller.Prepare(protocol.Command{Kind: "create_session_at", Data: &protocol.CommandCreateSessionAtPayload{
+				Target: b.ID(), Config: &config, ProviderRevision: 1,
+			}})
+			request.ID = protocol.NewRequestID() // A historical forward has an opaque ID.
+			frozen := protocol.Request{Version: request.Version, ID: request.ID, Target: b.ID(), Command: protocol.Command{Kind: "import_session", Data: &bundle}}
+			body, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(frozen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := a.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+				if _, err := admission.Admit(ctx, db, caller, request, body); err != nil {
+					return err
+				}
+				if name != "no frozen import" {
+					if _, err := db.ExecContext(ctx, "INSERT INTO session_forwards(caller,request,body) VALUES(?1,?2,?3)", caller[:], request.ID.String(), encoded); err != nil {
+						return err
+					}
+				}
+				if name == "interrupted" {
+					return admission.Recover(ctx, db)
+				}
+				return admission.Complete(ctx, db, caller, request.ID, link.Response{Fault: forwardUnknown()})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			resolution, err := controller.Resolve(ctx, request)
+			if err != nil || len(sent) != 0 {
+				t.Fatalf("inspection sent a forward or failed: %#v, %v", resolution, err)
+			}
+			_, failure := resolution.Result()
+			if name == "no frozen import" {
+				if resolution.State != client.RequestUnknown || !client.Released(failure) {
+					t.Fatalf("request without a frozen import stayed recoverable: %#v, %v", resolution, failure)
+				}
+				return
+			}
+			if resolution.State != client.RequestReplayable || !client.Retained(failure) {
+				t.Fatalf("recoverable request was released: %#v, %v", resolution, failure)
+			}
+			for range 2 {
+				output, err := controller.Settle(ctx, request)
+				session, ok := dispatchPayload[protocol.Session](output.Data)
+				if err != nil || output.Kind != "session" || !ok || session.ID != want.ID {
+					t.Fatalf("original request did not recover the target result: %#v, %v", output, err)
+				}
+			}
+			if len(sent) != 1 {
+				t.Fatalf("same request forwarded %d times", len(sent))
+			}
+			replayed, err := json.Marshal(<-sent)
+			if err != nil || !bytes.Equal(replayed, encoded) {
+				t.Fatalf("replay did not reuse the frozen import: %v", err)
+			}
+		})
 	}
 }
 

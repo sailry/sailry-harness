@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"unicode"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"lukechampine.com/blake3"
 )
 
 func (node *Node) dispatchPluginMessageCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, bool, error) {
@@ -27,14 +25,14 @@ func (node *Node) dispatchPluginMessageCommand(ctx context.Context, caller proto
 	var resolution error
 	handled := false
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		outcome, err := admission.Inspect(ctx, db, caller, request.ID, fmt.Sprintf("%x", blake3.Sum256(body)))
+		var err error
+		previous, err = admission.Existing(ctx, db, caller, request, body)
 		if err != nil {
 			return err
 		}
-		if outcome.Kind != "not_admitted" {
+		if previous != nil {
 			handled = true
-			previous, err = admission.Admit(ctx, db, caller, request, body)
-			return err
+			return nil
 		}
 		child, resolution = store.ResolvePluginMessageCommand(ctx, db, node.ID(), request)
 		handled = child != nil || resolution != nil

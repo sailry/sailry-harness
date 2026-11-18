@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS node (
     storage_generation INTEGER NOT NULL DEFAULT 1,
     plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1)),
     tool_defaults INTEGER NOT NULL DEFAULT 0 CHECK(tool_defaults IN (0,1)),
-    tool_metadata_names INTEGER NOT NULL DEFAULT 0 CHECK(tool_metadata_names IN (0,1))
+    tool_metadata_names INTEGER NOT NULL DEFAULT 0 CHECK(tool_metadata_names IN (0,1)),
+    request_pruned_through TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE counters (
     namespace TEXT PRIMARY KEY,

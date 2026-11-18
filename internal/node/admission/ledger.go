@@ -18,9 +18,8 @@ import (
 
 const credentialPrefix = "credential-v1:"
 
-// Retention is how long a settled request answers a replay or an inspection.
-// A retry later than this is a new request.
-const Retention = 7 * 24 * time.Hour
+// Retention is the ledger window for settled requests and new ordered IDs.
+const Retention = protocol.RequestRetention
 
 // PruneInterval is how often a running Node removes expired requests.
 const PruneInterval = 24 * time.Hour
@@ -80,10 +79,9 @@ func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request pr
 	return nil, err
 }
 
-// Existing answers a request that was admitted before: its stored result, or
-// OutcomeUnknown while it runs and after a restart interrupted it. It never
-// runs the request again; InspectRequest tells the two unknown cases apart.
-
+// Existing answers a retained request from its receipt, or rejects a missing
+// ordered ID that may have been admitted and pruned. A nil response and error
+// mean the request can be admitted within the same transaction.
 func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request, encoded []byte) (*link.Response, error) {
 	body := Body(request.Command, encoded)
 	var previous []byte
@@ -100,14 +98,49 @@ func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request
 			return decode(result)
 		}
 		if status == "unknown" {
-			return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request was interrupted by a Node restart; its outcome is unknown and will not change"}}, nil
+			return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request was interrupted by a Node restart; its outcome is unknown"}}, nil
 		}
 		return &link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "request is still running; inspect it using the same request identifier"}}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
+	missing, err := classifyMissing(ctx, db, request.ID)
+	if err != nil {
+		return nil, err
+	}
+	if missing == missingUncertain {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the request identifier is outside the admission window; its original outcome cannot be confirmed"}
+	}
 	return nil, nil
+}
+
+type missingRequest uint8
+
+const (
+	missingLegacy missingRequest = iota
+	missingFresh
+	missingUncertain
+)
+
+func classifyMissing(ctx context.Context, db *sql.Conn, id protocol.RequestID) (missingRequest, error) {
+	created, ordered := id.CreatedAt()
+	if !ordered {
+		return missingLegacy, nil
+	}
+	// The future bound keeps a caller's clock from moving the prune watermark
+	// beyond the history window. Retained receipts are looked up before this check.
+	if age := time.Since(created); age >= Retention || age < -Retention {
+		return missingUncertain, nil
+	}
+	var through string
+	if err := db.QueryRowContext(ctx, "SELECT request_pruned_through FROM node WHERE singleton=1").Scan(&through); err != nil {
+		return missingUncertain, err
+	}
+	if id.String()[:13] <= through {
+		return missingUncertain, nil
+	}
+	return missingFresh, nil
 }
 
 // Complete stores the result of a running request inside the caller's
@@ -178,7 +211,7 @@ func settle(ctx context.Context, write func(context.Context, func(*sql.Conn) err
 }
 
 // Recover runs once at startup, before any command. A request still admitted
-// was interrupted by the previous stop: it becomes unknown, for good.
+// was interrupted by the previous stop: its outcome becomes unknown.
 func Recover(ctx context.Context, db *sql.Conn) error {
 	_, err := db.ExecContext(ctx, "UPDATE requests SET status='unknown' WHERE status='admitted'")
 	return err
@@ -194,11 +227,21 @@ func Prune(ctx context.Context, db *sql.Conn, now time.Time) (int64, error) {
 	if _, err := db.ExecContext(ctx, "UPDATE requests SET at=?1 WHERE at=0", now.Unix()); err != nil {
 		return 0, err
 	}
-	removed, err := db.ExecContext(ctx, `DELETE FROM requests WHERE status IN ('completed','unknown') AND at<?1
+	const expired = `status IN ('completed','unknown') AND at<?1
 		AND id NOT IN (SELECT request FROM turns)
 		AND id NOT IN (SELECT request FROM agent_pending)
 		AND id NOT IN (SELECT request FROM agent_approvals)
-		AND id NOT IN (SELECT json_extract(body,'$.request') FROM dispatch_jobs WHERE json_extract(body,'$.request') IS NOT NULL)`, now.Add(-Retention).Unix())
+		AND id NOT IN (SELECT json_extract(body,'$.request') FROM dispatch_jobs WHERE json_extract(body,'$.request') IS NOT NULL)`
+	cutoff := now.Add(-Retention).Unix()
+	// IDs from newer requests are time-ordered. Advance a single watermark over
+	// the actual deletions, in the same transaction as the prune. Neither clock
+	// differences between peers nor a clock rollback can make a pruned ID absent.
+	if _, err := db.ExecContext(ctx, `UPDATE node SET request_pruned_through=max(request_pruned_through,coalesce((
+		SELECT max(substr(id,1,13)) FROM requests WHERE `+expired+` AND substr(id,15,1)='7' AND substr(id,20,1) IN ('8','9','a','b')
+	),'')) WHERE singleton=1`, cutoff); err != nil {
+		return 0, err
+	}
+	removed, err := db.ExecContext(ctx, `DELETE FROM requests WHERE `+expired, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -213,10 +256,8 @@ func Digest(encoded []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// Inspect reports what became of a request without running it: not_admitted
-// (it never arrived), admitted (running), completed (with the stored success
-// or fault) or unknown (final).
-
+// Inspect reports the retained outcome without running the request. Only a
+// missing ordered ID within the admission window proves non-admission.
 func Inspect(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, digest string) (protocol.RequestOutcome, error) {
 	if len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
 		return protocol.RequestOutcome{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid request digest"}
@@ -226,7 +267,14 @@ func Inspect(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id proto
 	var result sql.NullString
 	err := db.QueryRowContext(ctx, "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2", caller[:], id.String()).Scan(&body, &status, &result)
 	if errors.Is(err, sql.ErrNoRows) {
-		return protocol.RequestOutcome{Kind: "not_admitted"}, nil
+		missing, err := classifyMissing(ctx, db, id)
+		if err != nil {
+			return protocol.RequestOutcome{}, err
+		}
+		if missing == missingFresh {
+			return protocol.RequestOutcome{Kind: "not_admitted"}, nil
+		}
+		return protocol.RequestOutcome{Kind: "unrecorded"}, nil
 	}
 	if err != nil {
 		return protocol.RequestOutcome{}, err

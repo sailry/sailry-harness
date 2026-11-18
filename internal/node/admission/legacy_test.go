@@ -41,6 +41,7 @@ func TestLegacySecretRequestReplay(t *testing.T) {
 					return protocol.Command{Kind: "save_plugin_settings", Data: &payload}
 				}
 				request := protocol.NewRequest(node, command(secretText))
+				request.ID = protocol.NewRequestID()
 				body, err := json.Marshal(request)
 				if err != nil {
 					t.Fatal(err)

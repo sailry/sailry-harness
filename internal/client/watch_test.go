@@ -366,21 +366,32 @@ func TestRecoverAfterReset(t *testing.T) {
 			state    Settled
 			code     protocol.ErrorCode // "" for success
 			released bool
+			opaqueID bool
 		}{
-			{"applied", completed(protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}), RequestApplied, "", false},
-			{"failed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &conflict}), RequestFailed, protocol.ErrorCodeConflict, false},
-			{"recorded as unconfirmed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &unconfirmed}), RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true},
-			{"interrupted by a restart", &protocol.RequestOutcome{Kind: "unknown"}, RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true},
-			{"never admitted", &protocol.RequestOutcome{Kind: "not_admitted"}, RequestAbsent, protocol.ErrorCodeUnavailable, true},
-			{"still running", &protocol.RequestOutcome{Kind: "admitted"}, RequestPending, protocol.ErrorCodeOutcomeUnknown, false},
-			{"Node unreachable", nil, RequestPending, protocol.ErrorCodeOutcomeUnknown, false},
+			{"applied", completed(protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}), RequestApplied, "", false, false},
+			{"failed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &conflict}), RequestFailed, protocol.ErrorCodeConflict, false, false},
+			{"recorded as unconfirmed", completed(protocol.Result[protocol.Output, protocol.Fault]{Err: &unconfirmed}), RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true, false},
+			{"interrupted by a restart", &protocol.RequestOutcome{Kind: "unknown"}, RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true, false},
+			{"no retained record", &protocol.RequestOutcome{Kind: "unrecorded"}, RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true, false},
+			{"never admitted", &protocol.RequestOutcome{Kind: "not_admitted"}, RequestAbsent, protocol.ErrorCodeUnavailable, true, false},
+			{"legacy missing record", &protocol.RequestOutcome{Kind: "not_admitted"}, RequestUnknown, protocol.ErrorCodeOutcomeUnknown, true, true},
+			{"still running", &protocol.RequestOutcome{Kind: "admitted"}, RequestPending, protocol.ErrorCodeOutcomeUnknown, false, false},
+			{"forward can be replayed", &protocol.RequestOutcome{Kind: "replayable", Data: &unconfirmed}, RequestReplayable, protocol.ErrorCodeOutcomeUnknown, false, false},
+			{"Node unreachable", nil, RequestPending, protocol.ErrorCodeOutcomeUnknown, false, false},
 		} {
 			// The reply is lost, or the Node answers a duplicate that it will not run again.
 			for _, loss := range []string{"lost reply", "duplicate retry"} {
 				t.Run(test.name+"/"+loss, func(t *testing.T) {
 					transport := &clientTransport{}
 					controller := New(transport)
-					request := controller.Prepare(protocol.Command{Kind: "rename_session", Data: &protocol.CommandRenameSessionPayload{Session: protocol.SessionID{1}, Title: "Changed"}})
+					command := protocol.Command{Kind: "rename_session", Data: &protocol.CommandRenameSessionPayload{Session: protocol.SessionID{1}, Title: "Changed"}}
+					if test.state == RequestReplayable {
+						command = protocol.Command{Kind: "create_session_at", Data: &protocol.CommandCreateSessionAtPayload{Target: protocol.NodeID{2}}}
+					}
+					request := controller.Prepare(command)
+					if test.opaqueID {
+						request.ID = protocol.NewRequestID()
+					}
 					mutations := 0
 					transport.dispatch = func(actual protocol.Request) (link.Admission, error) {
 						completion := make(chan link.Response, 1)

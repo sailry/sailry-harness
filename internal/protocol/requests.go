@@ -1,8 +1,26 @@
 package protocol
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const RequestRetention = 7 * 24 * time.Hour
+
 // NewRequest captures one command identity for dispatch and later reconciliation.
 func NewRequest(target NodeID, command Command) Request {
-	return Request{Version: VERSION, ID: NewRequestID(), Target: target, Command: command}
+	return Request{Version: VERSION, ID: RequestID(uuid.Must(uuid.NewV7())), Target: target, Command: command}
+}
+
+// CreatedAt reports the capture time encoded in new request identifiers.
+// Opaque identifiers remain valid for dispatch and exact replay.
+func (id RequestID) CreatedAt() (time.Time, bool) {
+	value := uuid.UUID(id)
+	if value.Variant() != uuid.RFC4122 || value.Version() != 7 {
+		return time.Time{}, false
+	}
+	return time.Unix(value.Time().UnixTime()), true
 }
 
 // Durable follows the v1 admission classification shared by Node and controllers.

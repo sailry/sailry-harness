@@ -15,7 +15,14 @@ import (
 // access has changed it returns a completed permission fault, never retries an
 // effect or discloses a previously authorized private result.
 func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, outcome protocol.RequestOutcome) (protocol.RequestOutcome, error) {
-	if outcome.Kind != "completed" {
+	result, _ := dispatchPayload[protocol.Result[protocol.Output, protocol.Fault]](outcome.Data)
+	var frozenForward bool
+	if caller == node.ID() && (outcome.Kind == "unknown" || outcome.Kind == "completed" && result.Err != nil && result.Err.Code == protocol.ErrorCodeOutcomeUnknown) {
+		if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM session_forwards WHERE caller=?1 AND request=?2)", caller[:], id.String()).Scan(&frozenForward); err != nil {
+			return outcome, err
+		}
+	}
+	if outcome.Kind != "completed" && !frozenForward {
 		return outcome, nil
 	}
 	var body, captured []byte
@@ -80,14 +87,10 @@ func (node *Node) inspectOutcomeAccess(ctx context.Context, db *sql.Conn, caller
 			}
 		}
 	}
-	var output *protocol.Output
-	switch value := outcome.Data.(type) {
-	case protocol.Result[protocol.Output, protocol.Fault]:
-		output = value.Ok
-	case *protocol.Result[protocol.Output, protocol.Fault]:
-		output = value.Ok
+	if frozenForward && remoteOutput && original.Command.Kind == "create_session_at" {
+		return protocol.RequestOutcome{Kind: "replayable", Data: forwardUnknown()}, nil
 	}
-	if output != nil && !remoteOutput {
+	if output := result.Ok; output != nil && !remoteOutput {
 		if protocol.KnowledgeCommand(original.Command.Kind) {
 			if err := store.CheckKnowledgeOutcome(ctx, db, original, *output); err != nil {
 				return deniedOutcome(), nil

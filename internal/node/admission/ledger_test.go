@@ -65,6 +65,37 @@ func TestLedger(t *testing.T) {
 	applied := link.Response{Output: protocol.Output{Kind: "notifications_updated"}}
 	failed := link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}}
 
+	t.Run("ordered ID outside the age window", func(t *testing.T) {
+		for name, id := range map[string]string{
+			"too old":    "00000000-0001-7000-8000-000000000001",
+			"too future": "ffffffff-ffff-7000-8000-000000000001",
+		} {
+			t.Run(name, func(t *testing.T) {
+				value, _ := request()
+				var err error
+				value.ID, err = protocol.ParseRequestID(id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := json.Marshal(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = write(ctx, func(db *sql.Conn) error {
+					_, err := admission.Admit(ctx, db, caller, value, body)
+					return err
+				})
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown {
+					t.Fatalf("admitting out-of-window request = %v", err)
+				}
+				if outcome := inspect(value, body); outcome.Kind != "unrecorded" {
+					t.Fatalf("out-of-window inspection = %#v", outcome)
+				}
+			})
+		}
+	})
+
 	t.Run("lost reply and duplicate retry", func(t *testing.T) {
 		value, body := request()
 		if outcome := inspect(value, body); outcome.Kind != "not_admitted" {
@@ -240,12 +271,33 @@ func TestLedger(t *testing.T) {
 		type row struct {
 			request protocol.Request
 			body    []byte
-			kept    bool
+			outcome string
 		}
-		rows := map[string]*row{"completed": {}, "unknown": {}, "running": {kept: true}, "recent": {kept: true}, "unstamped": {kept: true}, "dispatch job": {kept: true}}
+		rows := map[string]*row{
+			"completed":        {outcome: "unrecorded"},
+			"legacy completed": {outcome: "unrecorded"},
+			"unknown":          {outcome: "unrecorded"},
+			"running":          {outcome: "admitted"},
+			"recent":           {outcome: "completed"},
+			"unstamped":        {outcome: "completed"},
+			"dispatch job":     {outcome: "completed"},
+		}
 		for name, row := range rows {
 			row.request, row.body = request()
-			admit(row.request, row.body)
+			if name == "legacy completed" {
+				row.request.ID = protocol.NewRequestID()
+				body, err := json.Marshal(row.request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				row.body = body
+				if outcome := inspect(row.request, row.body); outcome.Kind != "unrecorded" {
+					t.Fatalf("missing opaque ID = %#v", outcome)
+				}
+			}
+			if previous := admit(row.request, row.body); previous != nil {
+				t.Fatalf("first admission for %s = %#v", name, previous)
+			}
 			if name != "running" && name != "unknown" {
 				if err := admission.Settle(ctx, write, caller, row.request.ID, applied); err != nil {
 					t.Fatal(err)
@@ -269,7 +321,11 @@ func TestLedger(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference) VALUES('job','package','queue','completed',?1,X'',X'')", body); err != nil {
+					sequence, err := store.NextCounter(ctx, db, store.CounterDispatchJobs)
+					if err != nil {
+						return err
+					}
+					if _, err := db.ExecContext(ctx, "INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference,sequence) VALUES('job','package','queue','completed',?1,X'',X'',?2)", body, sequence); err != nil {
 						return err
 					}
 				}
@@ -279,7 +335,7 @@ func TestLedger(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		for pass, want := range []int64{2, 0} {
+		for pass, want := range []int64{3, 0} {
 			var removed int64
 			if err := write(ctx, func(db *sql.Conn) error {
 				var err error
@@ -291,8 +347,8 @@ func TestLedger(t *testing.T) {
 		}
 		for name, row := range rows {
 			outcome := inspect(row.request, row.body)
-			if kept := outcome.Kind != "not_admitted"; kept != row.kept {
-				t.Fatalf("%s kept = %t (%s)", name, kept, outcome.Kind)
+			if outcome.Kind != row.outcome {
+				t.Fatalf("%s outcome = %s, want %s", name, outcome.Kind, row.outcome)
 			}
 		}
 		// The row written without a time now has one and expires a Retention later.
@@ -304,11 +360,31 @@ func TestLedger(t *testing.T) {
 		}); err != nil || removed != 2 {
 			t.Fatalf("later pass removed %d, %v", removed, err)
 		}
-		if outcome := inspect(rows["unstamped"].request, rows["unstamped"].body); outcome.Kind != "not_admitted" {
+		if outcome := inspect(rows["unstamped"].request, rows["unstamped"].body); outcome.Kind != "unrecorded" {
 			t.Fatalf("unstamped after its retention = %#v", outcome)
 		}
 		if outcome := inspect(rows["dispatch job"].request, rows["dispatch job"].body); outcome.Kind != "completed" {
 			t.Fatalf("request of a dispatch job = %#v", outcome)
+		}
+		if err := storage.Close(); err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := store.Open(ctx, storage.Profile, node)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storage = reopened
+		pruned := rows["completed"]
+		var fault *protocol.Fault
+		err = storage.Node.Write(ctx, func(db *sql.Conn) error {
+			_, err := admission.Admit(ctx, db, caller, pruned.request, pruned.body)
+			return err
+		})
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown {
+			t.Fatalf("pruned request admitted after reopening: %v", err)
+		}
+		if outcome := inspect(pruned.request, pruned.body); outcome.Kind != "unrecorded" {
+			t.Fatalf("pruned row after reopening = %#v", outcome)
 		}
 	})
 }

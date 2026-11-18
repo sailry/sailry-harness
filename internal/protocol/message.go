@@ -9851,9 +9851,11 @@ type RequestOutcome struct {
 }
 
 var requestOutcomeVariants = variantFactories{"not_admitted": nil,
-	"admitted":  nil,
-	"completed": func() any { return new(Result[Output, Fault]) },
-	"unknown":   nil}
+	"unrecorded": nil,
+	"admitted":   nil,
+	"completed":  func() any { return new(Result[Output, Fault]) },
+	"unknown":    nil,
+	"replayable": func() any { return new(Fault) }}
 
 func (value RequestOutcome) MarshalJSON() ([]byte, error) {
 	return MarshalUnion("kind", "data", value.Kind, value.Data, requestOutcomeVariants)

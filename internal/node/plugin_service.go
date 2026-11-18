@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -19,7 +18,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"lukechampine.com/blake3"
 )
 
 type pluginInvocation struct {
@@ -219,11 +217,11 @@ func (node *Node) validatePluginRequest(ctx context.Context, caller protocol.Nod
 			if err != nil {
 				return err
 			}
-			outcome, err := admission.Inspect(ctx, db, caller, request.ID, fmt.Sprintf("%x", blake3.Sum256(body)))
+			previous, err := admission.Existing(ctx, db, caller, request, body)
 			if err != nil {
 				return err
 			}
-			if outcome.Kind != "not_admitted" {
+			if previous != nil {
 				return nil
 			}
 		}
