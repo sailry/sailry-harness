@@ -101,7 +101,7 @@ func run() error {
 		},
 		save:   func(entry *desktopWindow) { entry.live.SaveDocuments() },
 		saving: func(entry *desktopWindow) bool { return entry.live != nil && entry.live.SavingDocuments() },
-		work:   func() bool { return active != nil && active.live != nil && active.live.LocalWork() },
+		work:   func(entry *desktopWindow) bool { return entry.live != nil && entry.live.LocalWork() },
 		raise: func(entry *desktopWindow) {
 			entry.window.Show()
 			entry.window.Focus()
@@ -239,7 +239,7 @@ func run() error {
 			runtime.SetPreferencesChanged(applyPreferences)
 			runtime.SetRestartProfile(func(restored string, refused func(error)) {
 				restart.run(restored, refused, func(proceed func()) {
-					if !guard.ask(entry, windows, true, proceed) {
+					if !guard.ask(entry, windows, restartProfile, proceed) {
 						proceed()
 					}
 				})

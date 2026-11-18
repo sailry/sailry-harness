@@ -32,7 +32,7 @@ func newGuardTest(documents ...[]string) *guardTest {
 		documents: func(window *desktopWindow) []string { return g.unsaved[window] },
 		save:      func(*desktopWindow) {},
 		saving:    func(*desktopWindow) bool { return false },
-		work:      func() bool { return g.work },
+		work:      func(*desktopWindow) bool { return g.work },
 		raise:     func(window *desktopWindow) { g.raised = append(g.raised, window) },
 		shut:      func(window *desktopWindow) { g.shut = append(g.shut, window) },
 		quit:      func() { g.quits++ },
@@ -41,13 +41,20 @@ func newGuardTest(documents ...[]string) *guardTest {
 }
 
 func TestExitGuard(t *testing.T) {
-	t.Run("nothing to lose closes and quits without a prompt", func(t *testing.T) {
+	t.Run("a clean non-last window closes without a prompt", func(t *testing.T) {
 		g := newGuardTest(nil, nil)
 		if g.guard.closing(g.windows[0]) || g.windows[0].app.Closing() {
 			t.Fatal("a clean window asked before closing")
 		}
-		if g.guard.beforeQuit(false) || !g.guard.passing || len(g.raised) != 0 {
-			t.Fatal("a clean quit asked")
+	})
+	t.Run("a clean quit asks in the active window", func(t *testing.T) {
+		g := newGuardTest(nil, nil)
+		if !g.guard.beforeQuit(false) || g.guard.passing || !g.windows[1].app.Closing() || g.quits != 0 {
+			t.Fatal("a clean quit did not wait for confirmation")
+		}
+		g.guard.active = func() *desktopWindow { return g.windows[0] }
+		if !g.guard.beforeQuit(false) || len(g.raised) != 1 || g.windows[0].app.Closing() {
+			t.Fatal("a change of active window opened a second quit prompt")
 		}
 	})
 	t.Run("a window with drafts asks for itself only", func(t *testing.T) {
@@ -76,9 +83,23 @@ func TestExitGuard(t *testing.T) {
 	})
 	t.Run("the last window closes as a quit", func(t *testing.T) {
 		g := newGuardTest(nil)
-		g.work = true
 		if !g.guard.closing(g.windows[0]) || !g.windows[0].app.Closing() {
-			t.Fatal("closing the last window over local work did not ask")
+			t.Fatal("closing the last window did not wait for confirmation")
+		}
+		if !g.guard.beforeQuit(false) || len(g.raised) != 1 {
+			t.Fatal("quitting while waiting for the last window did not reuse its prompt")
+		}
+	})
+	t.Run("a profile restart only asks when there is something to protect", func(t *testing.T) {
+		g := newGuardTest(nil)
+		entry := g.windows[0]
+		proceed := func() { t.Fatal("asked before deciding whether a prompt is needed") }
+		if g.guard.ask(entry, g.windows, restartProfile, proceed) || entry.app.Closing() {
+			t.Fatal("an idle profile restart added a quit prompt")
+		}
+		g.work = true
+		if !g.guard.ask(entry, g.windows, restartProfile, proceed) || !entry.app.Closing() {
+			t.Fatal("a profile restart over local work did not ask")
 		}
 	})
 	t.Run("a quit asks once for every window's documents", func(t *testing.T) {
@@ -113,6 +134,13 @@ func TestExitGuard(t *testing.T) {
 		g.work = true
 		if g.guard.beforeQuit(true) || !g.guard.passing || g.windows[0].app.Closing() {
 			t.Fatal("a session end was held back")
+		}
+	})
+	t.Run("a startup failure can quit without a window", func(t *testing.T) {
+		g := newGuardTest()
+		g.guard.active = func() *desktopWindow { return nil }
+		if g.guard.beforeQuit(false) || !g.guard.passing {
+			t.Fatal("quit without windows was blocked")
 		}
 	})
 }

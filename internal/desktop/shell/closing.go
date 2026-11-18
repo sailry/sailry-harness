@@ -9,14 +9,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
 
-// CloseRequest is a window close or an application quit that would lose
-// something. With unsaved Documents the prompt names them and offers Save
-// all, Discard changes and Cancel; without any it confirms the quit that
-// stops local work. Proceed closes the window or quits; the owner
-// (cmd/sailry-desktop) lets that close pass.
+// CloseRequest asks to close a window or quit the application. With unsaved
+// documents the prompt offers Save all, Discard and Cancel. Otherwise it
+// confirms the quit and warns about any local work that will stop.
 type CloseRequest struct {
 	// Documents are the unsaved documents now, read again after a save.
-	Documents func() []string
+	Documents      func() []string
+	StopsLocalWork bool
 	// Save starts saving every unsaved document; Saving reports whether a
 	// save is still under way. A failed save tells its own toast.
 	Save    func()
@@ -73,8 +72,12 @@ func (a *App) closeDialog(c *ui.Context) {
 		return
 	}
 	if len(st.names) == 0 {
+		message := ""
+		if st.StopsLocalWork {
+			message = i18n.T(c, "app_exit_description")
+		}
 		if kit.Confirm(c.Key("close-guard").Key(st), &st.open, kit.Confirmation{
-			Title: i18n.T(c, "app_exit_confirm"), Message: i18n.T(c, "app_exit_description"),
+			Title: i18n.T(c, "app_exit_confirm"), Message: message,
 			Buttons: []string{i18n.T(c, "settings_cancel"), i18n.T(c, "app_exit")}, Default: 1, Destructive: []int{1},
 		}) == 1 {
 			a.finishClose(st)
