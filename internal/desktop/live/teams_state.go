@@ -20,6 +20,7 @@ type teamState struct {
 	creates         map[string]protocol.Command
 	observed        uint64
 	reading         bool
+	settingsSaving  map[protocol.TeamSettings]func() bool
 	settingsUnknown *protocol.TeamSettings
 	composers       map[string]*teamComposer
 	childParents    map[string]protocol.SessionID
@@ -140,10 +141,17 @@ func (r *Runtime) readTeamSettings() {
 	}
 	r.teams.reading = true
 	r.teams.observed = r.snapshot().TeamSettingsRevision
+	current := r.settingsCurrent()
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_team_settings"})
 		r.enqueue(func(c *ui.Context) {
 			r.teams.reading = false
+			if !current() {
+				if r.showsSettings() {
+					r.readTeamSettings()
+				}
+				return
+			}
 			value, valid := detail[protocol.TeamSettings](out.Data)
 			if err == nil && (out.Kind != "team_settings" || !valid) {
 				err = fmt.Errorf("unexpected team settings response")
@@ -162,10 +170,10 @@ func (r *Runtime) readTeamSettings() {
 // answered before a save whose result was accepted since.
 func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
 	field := &r.App.Settings.Concurrency
-	r.App.Settings.ConcurrencyReadOnly = value.Source != nil
 	if !r.showsSettings() || field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
 		return
 	}
+	r.App.Settings.ConcurrencyReadOnly = value.Source != nil
 	if field.Draft == field.Saved {
 		field.Draft = float64(value.ChildConcurrency)
 	}
@@ -184,15 +192,26 @@ func (r *Runtime) saveConcurrency() {
 		m.Draft = float64(value.ChildConcurrency)
 	}
 	m.Pending = true
+	state := r.teams
+	if state.settingsSaving == nil {
+		state.settingsSaving = map[protocol.TeamSettings]func() bool{}
+	}
+	_, pending := state.settingsSaving[value]
+	state.settingsSaving[value] = r.settingsCurrent()
+	if pending {
+		return
+	}
 	r.executeScoped("teams/settings", protocol.Command{Kind: "save_team_settings", Data: value}, func(c *ui.Context, out protocol.Output, err error) {
+		current := state.settingsSaving[value]
+		delete(state.settingsSaving, value)
 		outcome := teamOutcome(err)
 		settings.ReportRetry(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"}, func() {
-			if r.showsSettings() {
+			if current() {
 				r.saveConcurrency()
 			}
 		})
 		// The slider is this Node's only while the page shows it.
-		if !r.showsSettings() {
+		if !current() {
 			return
 		}
 		m.Pending = false
@@ -202,7 +221,7 @@ func (r *Runtime) saveConcurrency() {
 			r.teams.settingsUnknown = nil
 		}
 		if err == nil {
-			if saved, ok := detail[protocol.TeamSettings](out.Data); ok {
+			if saved, ok := detail[protocol.TeamSettings](out.Data); ok && saved.Revision >= m.Revision {
 				m.Saved, m.Draft, m.Revision = float64(saved.ChildConcurrency), float64(saved.ChildConcurrency), saved.Revision
 				r.teams.observed = saved.Revision
 			}

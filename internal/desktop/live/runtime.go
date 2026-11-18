@@ -127,6 +127,7 @@ type Runtime struct {
 	lastFeatures              string
 	lastKeys                  string
 	powerObservedRevision     uint64
+	powerSaving               map[protocol.PowerSettings]func() bool
 	compactionObserved        uint64
 	updates                   *Updates
 	updatesFocused            func() bool

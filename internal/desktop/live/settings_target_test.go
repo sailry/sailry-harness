@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -565,6 +566,110 @@ func TestSettingsTarget(t *testing.T) {
 		root.nodeSettingsFrame()
 		if root.shownSettings() != nil || root.settingsGeneration == generation || m.ProviderActions.Available() {
 			t.Fatal("permission loss retained the editor binding")
+		}
+	})
+}
+
+type heldSettingsCommand struct {
+	request protocol.Request
+	done    chan link.Response
+}
+
+type heldSettingsTransport struct {
+	*conversationTestTransport
+	writes chan heldSettingsCommand
+}
+
+func (t *heldSettingsTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
+	switch request.Command.Kind {
+	case "save_power_settings", "save_team_settings":
+		done := make(chan link.Response, 1)
+		t.writes <- heldSettingsCommand{request: request, done: done}
+		return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: done}, nil
+	default:
+		return t.conversationTestTransport.Dispatch(ctx, request)
+	}
+}
+
+func TestPowerAndTeamSettingsFollowSaveBinding(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{1}
+		transport := &heldSettingsTransport{conversationTestTransport: &conversationTestTransport{snapshot: snapshot}, writes: make(chan heldSettingsCommand, 2)}
+		controller := client.New(transport)
+		defer controller.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		app := &shell.App{Data: &viewmodel.Data{}, Settings: settings.NewLive()}
+		r := &Runtime{ctx: ctx, controller: controller, App: app, teams: newTeamState(), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		tester := ui.NewTester(func(c *ui.Context) {
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, complete := range queue {
+				complete(c)
+			}
+		}, 1, 1)
+		returnToHost := func() {
+			r.settingsShown = &Runtime{}
+			r.settingsGeneration++
+			r.settingsShown = r
+			r.settingsGeneration++
+		}
+		write := func(kind string, submit func()) heldSettingsCommand {
+			t.Helper()
+			submit()
+			synctest.Wait()
+			select {
+			case pending := <-transport.writes:
+				if pending.request.Command.Kind != kind {
+					t.Fatalf("sent %q, want %q", pending.request.Command.Kind, kind)
+				}
+				return pending
+			default:
+				t.Fatalf("%s was not dispatched", kind)
+				return heldSettingsCommand{}
+			}
+		}
+		complete := func(pending heldSettingsCommand, kind string, data any) {
+			pending.done <- link.Response{Output: protocol.Output{Kind: kind, Data: data}}
+			synctest.Wait()
+			tester.Frame()
+		}
+
+		m := app.Settings
+		powerDraft := settings.Stored[bool]{Revision: 1, Draft: true}
+		m.Power = powerDraft
+		power := write("save_power_settings", r.savePower)
+		returnToHost()
+		m.Power = powerDraft
+		r.savePower()
+		synctest.Wait()
+		if !m.Power.Pending || len(transport.writes) != 0 {
+			t.Fatal("a repeated Power save did not wait for the original request")
+		}
+		complete(power, "power_settings", protocol.PowerSettings{Revision: 2, PreventSleep: true})
+		if m.Power.Pending || !m.Power.Saved || m.Power.Revision != 2 {
+			t.Fatalf("the original reply did not settle Power settings: %+v", m.Power)
+		}
+
+		m.Concurrency = settings.Stored[float64]{Revision: 3, Saved: 4, Draft: 5}
+		old := write("save_team_settings", r.saveConcurrency)
+		returnToHost()
+		m.Concurrency = settings.Stored[float64]{Revision: 4, Saved: 5, Draft: 7}
+		newer := write("save_team_settings", r.saveConcurrency)
+		complete(newer, "team_settings", protocol.TeamSettings{Revision: 5, ChildConcurrency: 7})
+		complete(old, "team_settings", protocol.TeamSettings{Revision: 4, ChildConcurrency: 5})
+		if m.Concurrency.Pending || m.Concurrency.Saved != 7 || m.Concurrency.Draft != 7 || m.Concurrency.Revision != 5 {
+			t.Fatalf("an earlier binding rolled back Teams settings: %+v", m.Concurrency)
+		}
+
+		r.settingsShown = &Runtime{}
+		r.settingsGeneration++
+		r.acceptTeamRead(protocol.TeamSettings{Revision: 6, ChildConcurrency: 5, Source: &protocol.ConfigurationOrigin{}})
+		if m.ConcurrencyReadOnly {
+			t.Fatal("a previous host made the current Teams slider read-only")
 		}
 	})
 }

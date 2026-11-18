@@ -86,6 +86,14 @@ func (r *Runtime) savePower() {
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
 	current := r.settingsCurrent()
+	if r.powerSaving == nil {
+		r.powerSaving = map[protocol.PowerSettings]func() bool{}
+	}
+	_, pending := r.powerSaving[request]
+	r.powerSaving[request] = current
+	if pending {
+		return
+	}
 	// A save in doubt reads the section again only while the pages still
 	// hold this Node: they share one model, and a read for a Node they left
 	// would mark the shown Node's switch pending and never clear it.
@@ -101,6 +109,8 @@ func (r *Runtime) savePower() {
 		}
 	}
 	r.saveSettingRetry(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, reread, again, func(output protocol.Output, ok bool) {
+		current = r.powerSaving[request]
+		delete(r.powerSaving, request)
 		if !current() {
 			return
 		}
@@ -108,7 +118,7 @@ func (r *Runtime) savePower() {
 		if !ok {
 			return
 		}
-		if value, valid := detail[protocol.PowerSettings](output.Data); valid && output.Kind == "power_settings" {
+		if value, valid := detail[protocol.PowerSettings](output.Data); valid && output.Kind == "power_settings" && value.Revision >= m.Revision {
 			m.Saved, m.Revision = value.PreventSleep, value.Revision
 			r.powerObservedRevision = value.Revision
 		}

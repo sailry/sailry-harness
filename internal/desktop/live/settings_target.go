@@ -307,6 +307,7 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	// Without a Node the controls wait, as the other host pages do.
 	waiting := owner == nil
 	m.Power, m.Compaction, m.Concurrency = settings.Stored[bool]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}, settings.Stored[float64]{Pending: waiting}
+	m.ConcurrencyReadOnly = false
 	m.Media, m.MediaOptions, m.MediaUnavailable = settings.Stored[[4]string]{Pending: waiting}, nil, [4]bool{}
 	m.CodeIndex = settings.Stored[bool]{Pending: waiting}
 	m.Roles, m.Teams = nil, nil
