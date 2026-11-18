@@ -257,31 +257,31 @@ func (s *Service) refresh(ctx context.Context, worktree *worktree, index *index,
 	var changes []Parsed
 	for index, path := range paths {
 		switch found := results[index]; {
-		case found.err == nil:
+		case found.err == nil && found.file == nil:
 			result.checked[path] = true
-			if found.file != nil {
-				changes = append(changes, *found.file)
-			}
+		case found.err == nil:
+			changes = append(changes, *found.file)
 		case code(found.err) == protocol.ErrorCodeCancelled || code(found.err) == protocol.ErrorCodeNotConfigured:
 			return result, found.err
 		case code(found.err) == protocol.ErrorCodeBusy:
 			// The scan resumes files left by the refresh budget.
 		default:
-			result.checked[path] = true
 			changes = append(changes, Omitted(path, StatusInvalid))
 		}
 	}
-	revision, committed, err := index.replace(ctx, changes, Fingerprint)
+	committed, revisions, err := commit(ctx, index, changes, deadline)
 	if err != nil {
 		return result, err
 	}
-	if committed {
-		for index := range changes {
-			progress.records.insert(&changes[index], Fingerprint)
-		}
+	for index := range changes[:committed] {
+		file := &changes[index]
+		progress.records.insert(file, Fingerprint)
+		result.checked[file.Path] = true
+	}
+	for _, revision := range revisions {
 		progress.records.advance(revision)
 	}
-	result.changed = committed
+	result.changed = committed > 0
 	return result, nil
 }
 

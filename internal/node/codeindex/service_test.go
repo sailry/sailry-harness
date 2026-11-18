@@ -354,6 +354,42 @@ func TestReconcileFollowsWatchChangeAfterFinishedPass(t *testing.T) {
 	}
 }
 
+func TestSearchRefreshBatchesChangedFiles(t *testing.T) {
+	f := newFixture(t)
+	for index, path := range []string{"first.go", "second.go"} {
+		var source strings.Builder
+		source.WriteString("package fixture\n")
+		for symbol := range batchSymbols/2 + 1 {
+			source.WriteString("func Symbol" + strconv.Itoa(index) + "_" + strconv.Itoa(symbol) + "() {}\n")
+		}
+		f.write(path, source.String())
+	}
+	worktree, err := f.service.worktree(f.id, f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := worktree.opened(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := <-worktree.sync
+	defer func() { worktree.sync <- progress }()
+	before, err := index.revision(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"first.go", "second.go"}
+	found, err := f.service.refresh(t.Context(), worktree, index, progress, paths, time.Now().Add(10*time.Second))
+	if err != nil || !found.changed || !found.checked[paths[0]] || !found.checked[paths[1]] {
+		t.Fatalf("refresh should check both committed files: %+v, %v", found, err)
+	}
+	after, err := index.revision(t.Context())
+	if err != nil || after != before+2 || progress.records.revision != after {
+		t.Fatalf("revisions should advance across both batches: before=%d after=%d cached=%d, %v",
+			before, after, progress.records.revision, err)
+	}
+}
+
 func TestCachedMetadataOwnsItsValues(t *testing.T) {
 	cache := records{entries: map[string]cached{}}
 	file := Parsed{Path: "main.go", Hash: "content-hash", Language: "go", Status: StatusParsed}
