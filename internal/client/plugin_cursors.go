@@ -16,6 +16,21 @@ type pluginChangeCursors struct {
 	reads    [5]uint64
 }
 
+// PluginSettingsSnapshot reads the selected package and connection from the
+// same projection without copying unrelated Node state.
+func (client *Client) PluginSettingsSnapshot(name string) (summary *protocol.PluginSummary, connected bool) {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	if snapshot := client.project.snapshot; snapshot != nil && client.connected {
+		for _, entry := range snapshot.Plugins {
+			if entry.Name == name {
+				return new(copyValue(entry)), true
+			}
+		}
+	}
+	return nil, client.connected
+}
+
 func (client *Client) PluginCursors(name string, actions []protocol.PluginAction, worktree *protocol.WorktreeID) PluginCursors {
 	client.mu.RLock()
 	defer client.mu.RUnlock()

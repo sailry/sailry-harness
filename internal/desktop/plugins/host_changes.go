@@ -41,14 +41,25 @@ func (changes *hostChanges) start() {
 		var observing sync.Mutex
 		observing.Lock()
 		defer observing.Unlock()
+		scope := owner.binding.Scope
+		settingsSurface := scope.Surface.Kind == "settings"
 		observe := func(initial bool) {
-			snapshot := owner.binding.Client.Snapshot()
-			cursors := owner.binding.Client.PluginCursors(owner.binding.Scope.Package.Name, owner.binding.Actions, owner.binding.Scope.Worktree)
-			connected := owner.binding.Client.Connected()
+			cursors := owner.binding.Client.PluginCursors(scope.Package.Name, owner.binding.Actions, scope.Worktree)
+			var rows []protocol.PluginSummary
+			var connected bool
+			if settingsSurface {
+				var summary *protocol.PluginSummary
+				summary, connected = owner.binding.Client.PluginSettingsSnapshot(scope.Package.Name)
+				if summary != nil {
+					rows = []protocol.PluginSummary{*summary}
+				}
+			} else {
+				connected = owner.binding.Client.Connected()
+			}
 			owner.Observe(cursors.Cursor, cursors.Package, cursors.Settled, connected)
 			owner.ObserveTerminalTools(cursors.TerminalTools)
-			if !initial || connected {
-				owner.ObserveSettings(snapshot.Plugins, connected)
+			if settingsSurface && (!initial || connected) {
+				owner.ObserveSettings(rows, connected)
 			}
 		}
 		changes.release = owner.binding.Client.OnChange(func() {
