@@ -78,6 +78,7 @@ type Service struct {
 	// Replaced by tests.
 	release   func(channel Channel, version string) (Config, error)
 	installed func() (string, error)
+	exchange  func(staged, installed string) error
 	relaunch  func(executable string, arguments []string) error
 	client    func(*Config) *http.Client
 }
@@ -93,7 +94,7 @@ func New(options Options) *Service {
 		channel := InitialChannel(options.Version)
 		options.Channel = func() Channel { return channel }
 	}
-	return &Service{options: options, stop: func() {}, done: make(chan struct{}), release: ReleaseConfig, installed: installedBundle, relaunch: relaunch, client: newClient}
+	return &Service{options: options, stop: func() {}, done: make(chan struct{}), release: ReleaseConfig, installed: installedBundle, exchange: exchangeBundles, relaunch: relaunch, client: newClient}
 }
 
 // Snapshot is the current state and the last failure.
@@ -445,7 +446,7 @@ func (s *Service) install(update *staged, config *Config, installed, root string
 	if err := s.options.Stop(); err != nil {
 		return true, failure("updates_shutdown_failed", err.Error())
 	}
-	backup, err := replace(update, config, installed)
+	backup, err := replace(update, config, installed, s.exchange)
 	if err != nil {
 		f := asFailure(err)
 		uncertain := f.Key == "updates_install_uncertain"

@@ -53,7 +53,7 @@ func inside(root, path string) bool {
 // a complete, independent copy of the original beside it, and returns that
 // copy's directory. A failure after the copy exists is an uncertain outcome
 // naming where the original is retained.
-func replace(update *staged, config *Config, installed string) (string, error) {
+func replace(update *staged, config *Config, installed string, exchange func(string, string) error) (string, error) {
 	if err := config.revalidate(update.selection); err != nil {
 		return "", err
 	}
@@ -70,15 +70,15 @@ func replace(update *staged, config *Config, installed string) (string, error) {
 		_ = os.RemoveAll(backup)
 		return "", err
 	}
-	if err := swap(update, installed, parent); err != nil {
+	if err := swap(update, installed, parent, exchange); err != nil {
 		return "", failure("updates_install_uncertain", fmt.Sprintf("application installation failed; original retained at %s: %v", backup, err))
 	}
 	return backup, nil
 }
 
-// swap extracts and validates the bundle on the installed volume, then
-// exchanges the two by rename and restores the original if that fails.
-func swap(update *staged, installed, parent string) error {
+// swap extracts and validates the bundle on the installed volume before
+// atomically exchanging it with the installed bundle.
+func swap(update *staged, installed, parent string, exchange func(string, string) error) error {
 	work, err := os.MkdirTemp(parent, ".sailry-update-")
 	if err != nil {
 		return err
@@ -88,17 +88,7 @@ func swap(update *staged, installed, parent string) error {
 	if err != nil {
 		return err
 	}
-	previous := filepath.Join(work, "previous")
-	if err := os.Rename(installed, previous); err != nil {
-		return err
-	}
-	if err := os.Rename(bundle, installed); err != nil {
-		if restore := os.Rename(previous, installed); restore != nil {
-			return fmt.Errorf("%w; the original could not be restored: %v", err, restore)
-		}
-		return err
-	}
-	return nil
+	return exchange(bundle, installed)
 }
 
 func copyTree(source, destination string) error {

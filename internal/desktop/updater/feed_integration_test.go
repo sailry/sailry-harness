@@ -47,6 +47,7 @@ func TestUpdaterLocalFeed(t *testing.T) {
 			Stop: func() error { calls.stops++; return calls.stopErr }, Quit: func() { calls.quits++ }})
 		service.release = func(channel Channel, version string) (Config, error) { return source.config(channel, version), nil }
 		service.installed = func() (string, error) { return installed, nil }
+		service.exchange = exchangeFixtureBundles
 		service.relaunch = func(executable string, _ []string) error {
 			calls.launched = append(calls.launched, executable)
 			return nil

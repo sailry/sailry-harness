@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -171,6 +172,7 @@ func (f *FixtureFeed) Bind(s *Service, installed string, relaunched func(executa
 			Keys: []ed25519.PublicKey{f.public}, Target: FixtureTarget, Version: version, System: "14.2", local: true}, nil
 	}
 	s.installed = func() (string, error) { return installed, nil }
+	s.exchange = exchangeFixtureBundles
 	s.relaunch = func(executable string, _ []string) error {
 		relaunched(executable)
 		return nil
@@ -178,6 +180,22 @@ func (f *FixtureFeed) Bind(s *Service, installed string, relaunched func(executa
 	previous := verifyCodeSignature
 	verifyCodeSignature = func(string) error { return nil }
 	return func() { verifyCodeSignature = previous }
+}
+
+func exchangeFixtureBundles(staged, installed string) error {
+	if runtime.GOOS == "darwin" {
+		return exchangeBundles(staged, installed)
+	}
+	// Portable integration fixtures simulate installing a macOS bundle in a
+	// test directory. Only Darwin exercises the production exchange.
+	previous := filepath.Join(filepath.Dir(staged), "previous")
+	if err := os.Rename(installed, previous); err != nil {
+		return err
+	}
+	if err := os.Rename(staged, installed); err != nil {
+		return errors.Join(err, os.Rename(previous, installed))
+	}
+	return nil
 }
 
 // WriteFixtureBundle writes an unsigned application bundle of a version.

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // installedBundle is the application bundle the running executable belongs to.
@@ -25,4 +27,8 @@ func installedBundle() (string, error) {
 		return root, nil
 	}
 	return "", failure("updates_bundle_required", "updates require a packaged macOS application")
+}
+
+func exchangeBundles(staged, installed string) error {
+	return unix.RenamexNp(staged, installed, unix.RENAME_SWAP)
 }
