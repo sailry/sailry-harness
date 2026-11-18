@@ -116,6 +116,7 @@ func validateRecords(ctx context.Context, connection *sql.Conn, archives bool) e
 		{"team_settings", "body", func() any { return new(protocol.TeamSettings) }},
 		{"user_team_settings", "body", func() any { return new(protocol.TeamSettings) }},
 		{"hook_settings", "body", func() any { return new(protocol.HooksSettings) }},
+		{"node_hook_settings", "body", func() any { return new(protocol.HooksSettings) }},
 		{"roles", "body", func() any { return new(protocol.RoleProfile) }},
 		{"teams", "body", func() any { return new(protocol.TeamProfile) }},
 		{"artifacts", "body", func() any { return new(protocol.ArtifactSummary) }},

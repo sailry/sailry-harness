@@ -859,7 +859,7 @@ hooks_before_tool: 工具执行前
 hooks_command: 命令
 hooks_configure: 配置钩子
 hooks_conflict: 钩子已更改，请重新加载后保存
-hooks_consent: 在此工作区的后续任务中运行这些脚本
+hooks_consent: 这些脚本会在「%{host}」上所有会话的后续回合中运行。每个脚本都在其任务的工作树中执行。
 hooks_empty: 暂无钩子
 hooks_enable: 启用钩子
 hooks_enabled: 启用
@@ -869,10 +869,10 @@ hooks_name: 名称
 hooks_phase: 阶段
 hooks_remove: 移除钩子
 hooks_saved: 钩子已保存
-hooks_scope_workspace: 脚本可写入此工作区，网络访问被阻止
+hooks_scope_workspace: 脚本可写入任务的工作树。网络访问被阻止。
 hooks_scripts: 脚本
 hooks_settings: 钩子
-hooks_settings_description: 配置此工作区的脚本
+hooks_settings_description: 配置此执行主机的脚本
 hooks_timeout: 超时（ms）
 hooks_turn_end: 回合结束
 hooks_unknown: 保存结果不确定，请重试原请求
@@ -1771,9 +1771,6 @@ files_overwrite: 覆盖
 workspace_completed: 已完成
 workspace_restore_confirm: 恢复此轮操作前的文件版本
 artifact_edit_prompt: 修改要求：
-hooks_project_required: 选择项目
-hooks_follow_current_worktree: 跟随当前工作树
-hooks_target_changed: 所选节点或工作区已更改
 background_stop_failed: 停止失败，请重试
 background_stop_unknown: 停止结果未确认，请查看命令状态
 subagent_stop: 停止子代理

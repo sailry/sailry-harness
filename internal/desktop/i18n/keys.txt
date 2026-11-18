@@ -1783,9 +1783,6 @@ files_overwrite
 workspace_completed
 workspace_restore_confirm
 artifact_edit_prompt
-hooks_project_required
-hooks_follow_current_worktree
-hooks_target_changed
 background_stop_failed
 background_stop_unknown
 subagent_stop

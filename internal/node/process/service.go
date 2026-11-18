@@ -93,6 +93,9 @@ func (launch Launch) Validate() error {
 	if launch.Pty && !launch.Background {
 		return invalid("interactive commands require background execution")
 	}
+	if launch.Background && launch.Stdin != "" {
+		return invalid("one-shot input requires foreground execution")
+	}
 	return nil
 }
 
@@ -232,6 +235,7 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		}()
 		return run(ctx, entry.launch, func(kind protocol.ProcessOutputOutputStream, value []byte) { s.append(entry, kind, value) }, entry.input)
 	}()
+	entry.launch.Stdin = ""
 	// The runner flags a stream it stopped reading before that stream closed.
 	if completion.Stdout.Truncated {
 		entry.stdout.cut()

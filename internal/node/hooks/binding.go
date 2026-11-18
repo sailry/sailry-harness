@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -16,15 +17,31 @@ import (
 // run outside that transaction and retain its own native process ownership.
 type Capture struct {
 	Node     protocol.NodeID
+	Project  protocol.ProjectID
 	Worktree protocol.WorktreeID
 	Session  protocol.SessionID
 	Turn     protocol.TurnID
+	Cwd      string
 	Settings protocol.HooksSettings
 	Admitted bool
 	Stop     context.Context
 	Claim    func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64) error
 	Finish   func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error
-	Launch   func(context.Context, string, uint64, map[string]string) (protocol.ProcessCompletion, error)
+	Launch   func(ctx context.Context, command string, timeoutMs uint64, environment map[string]string, stdin string) (protocol.ProcessCompletion, error)
+}
+
+type eventInput struct {
+	Version  int                 `json:"schema_version"`
+	Event    protocol.HooksPhase `json:"hook_event_name"`
+	Node     string              `json:"node_id"`
+	Project  string              `json:"project_id,omitempty"`
+	Worktree string              `json:"worktree_id"`
+	Session  string              `json:"session_id"`
+	Turn     string              `json:"turn_id"`
+	Cwd      string              `json:"cwd"`
+	Tool     string              `json:"tool_name,omitempty"`
+	ToolUse  string              `json:"tool_use_id,omitempty"`
+	Status   string              `json:"status,omitempty"`
 }
 
 type Binding struct {
@@ -60,13 +77,13 @@ func New(input Capture) *Binding {
 func (b *Binding) WrapsTools() bool {
 	return b != nil && (len(Scripts(b.captured.Settings, protocol.HooksPhaseBeforeTool)) > 0 || len(Scripts(b.captured.Settings, protocol.HooksPhaseAfterTool)) > 0)
 }
-func (b *Binding) Before(ctx context.Context, tool string) error {
+func (b *Binding) Before(ctx context.Context, tool, call string) error {
 	if b == nil {
 		return nil
 	}
-	return b.execute(ctx, protocol.HooksPhaseBeforeTool, b.before.Add(1)-1, tool, "")
+	return b.execute(ctx, b.before.Add(1)-1, eventInput{Event: protocol.HooksPhaseBeforeTool, Tool: tool, ToolUse: call})
 }
-func (b *Binding) After(ctx context.Context, tool string, success bool) {
+func (b *Binding) After(ctx context.Context, tool, call string, success bool) {
 	if b == nil {
 		return
 	}
@@ -74,7 +91,7 @@ func (b *Binding) After(ctx context.Context, tool string, success bool) {
 	if success {
 		status = "succeeded"
 	}
-	if err := b.execute(ctx, protocol.HooksPhaseAfterTool, b.after.Add(1)-1, tool, status); err != nil {
+	if err := b.execute(ctx, b.after.Add(1)-1, eventInput{Event: protocol.HooksPhaseAfterTool, Tool: tool, ToolUse: call, Status: status}); err != nil {
 		b.remember(err)
 	}
 }
@@ -87,7 +104,7 @@ func (b *Binding) Complete(ctx context.Context, status string) error {
 		status = "failed"
 	}
 	b.mu.Unlock()
-	if err := b.execute(ctx, protocol.HooksPhaseTurnEnd, 0, "", status); err != nil {
+	if err := b.execute(ctx, 0, eventInput{Event: protocol.HooksPhaseTurnEnd, Status: status}); err != nil {
 		b.remember(err)
 	}
 	b.mu.Lock()
@@ -125,13 +142,14 @@ func hookMessage(err error) string {
 	}
 	return err.Error()
 }
-func (b *Binding) execute(ctx context.Context, phase protocol.HooksPhase, ordinal uint64, tool, status string) (executionErr error) {
+func (b *Binding) execute(ctx context.Context, ordinal uint64, input eventInput) (executionErr error) {
 	// The hook boundary retains the source's uncertain outcome after unwinding.
 	defer func() {
 		if recover() != nil {
 			executionErr = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "hook execution failed; side effects were not replayed"}
 		}
 	}()
+	phase := input.Event
 	scripts := Scripts(b.captured.Settings, phase)
 	if len(scripts) == 0 || b.captured.Stop.Err() != nil {
 		return nil
@@ -139,18 +157,29 @@ func (b *Binding) execute(ctx context.Context, phase protocol.HooksPhase, ordina
 	if b.captured.Claim == nil || b.captured.Finish == nil || b.captured.Launch == nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeInternal, Message: "hook execution owner is unavailable"}
 	}
+	input.Version = 1
+	input.Node, input.Worktree = b.captured.Node.String(), b.captured.Worktree.String()
+	input.Session, input.Turn, input.Cwd = b.captured.Session.String(), b.captured.Turn.String(), b.captured.Cwd
+	if b.captured.Project != (protocol.ProjectID{}) {
+		input.Project = b.captured.Project.String()
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	stdin := string(body) + "\n"
 	if err := b.captured.Claim(ctx, b.captured.Turn, phase, ordinal); err != nil {
 		return err
 	}
 	metadata := map[string]string{
-		"SAILRY_HOOK_EVENT": string(phase), "SAILRY_HOOK_NODE": b.captured.Node.String(),
-		"SAILRY_HOOK_WORKTREE": b.captured.Worktree.String(), "SAILRY_HOOK_SESSION": b.captured.Session.String(), "SAILRY_HOOK_TURN": b.captured.Turn.String(),
+		"SAILRY_HOOK_EVENT": string(phase), "SAILRY_HOOK_NODE": input.Node,
+		"SAILRY_HOOK_WORKTREE": input.Worktree, "SAILRY_HOOK_SESSION": input.Session, "SAILRY_HOOK_TURN": input.Turn,
 	}
-	if tool != "" {
-		metadata["SAILRY_HOOK_TOOL"] = tool
+	if input.Tool != "" {
+		metadata["SAILRY_HOOK_TOOL"] = input.Tool
 	}
-	if status != "" {
-		metadata["SAILRY_HOOK_STATUS"] = status
+	if input.Status != "" {
+		metadata["SAILRY_HOOK_STATUS"] = input.Status
 	}
 	outcome := protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}
 	var result error
@@ -161,7 +190,7 @@ func (b *Binding) execute(ctx context.Context, phase protocol.HooksPhase, ordina
 			}
 			break
 		}
-		completion, err := b.captured.Launch(ctx, entry.Script.Command, entry.Script.TimeoutMs, metadata)
+		completion, err := b.captured.Launch(ctx, entry.Script.Command, entry.Script.TimeoutMs, metadata, stdin)
 		if !success(completion.Outcome, err) {
 			uncertain := isUnknown(err) || completion.Outcome.Kind == "unknown"
 			if success(outcome, result) || uncertain {

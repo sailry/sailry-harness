@@ -859,7 +859,7 @@ hooks_before_tool: 工具執行前
 hooks_command: 命令
 hooks_configure: 設定 Hook
 hooks_conflict: Hook 已變更，請重新載入後儲存
-hooks_consent: 在此工作樹的後續任務中執行這些指令碼
+hooks_consent: 這些指令碼會在「%{host}」上所有會話的後續回合中執行。每個指令碼都在其任務的工作樹中執行。
 hooks_empty: 尚無 Hook
 hooks_enable: 啟用 Hook
 hooks_enabled: 啟用
@@ -869,10 +869,10 @@ hooks_name: 名稱
 hooks_phase: 階段
 hooks_remove: 移除 Hook
 hooks_saved: Hook 已儲存
-hooks_scope_workspace: 指令碼可寫入此工作樹，網路存取已封鎖
+hooks_scope_workspace: 指令碼可寫入任務的工作樹。網路存取已封鎖。
 hooks_scripts: 指令碼
 hooks_settings: Hook
-hooks_settings_description: 設定此工作樹的指令碼
+hooks_settings_description: 設定此執行主機的指令碼
 hooks_timeout: 逾時（ms）
 hooks_turn_end: 回合結束
 hooks_unknown: 儲存結果不確定，請重試原請求
@@ -1771,9 +1771,6 @@ files_overwrite: 覆寫
 workspace_completed: 已完成
 workspace_restore_confirm: 還原此輪操作前的檔案版本
 artifact_edit_prompt: 修改要求：
-hooks_project_required: 選擇專案
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: 所選 Node 或工作樹已變更
 background_stop_failed: 停止失敗，請重試
 background_stop_unknown: 停止結果未確認，請檢視命令狀態
 subagent_stop: 停止子代理

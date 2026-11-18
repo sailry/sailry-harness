@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -52,6 +53,96 @@ func (m *workspaceScript) Stream(ctx context.Context, call fantasy.Call) (fantas
 	}, nil
 }
 
+func TestNodeHooksCapture(t *testing.T) {
+	node := nodeFixture(t)
+	ctx := t.Context()
+	config := sessionConfigFixture(t, node)
+	newProject := func(name string) protocol.ProjectID {
+		draft := protocol.DefaultProjectsDraft()
+		draft.Name, draft.Path, draft.Source = name, t.TempDir(), protocol.ProjectsSource{Kind: "local"}
+		return commandFixture(t, node, protocol.Command{Kind: "create_project", Data: draft}).Data.(protocol.Project).ID
+	}
+	newSession := func(project *protocol.ProjectID) protocol.Session {
+		return commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: project, Config: &config}}).Data.(protocol.Session)
+	}
+	first, second := newProject("First"), newProject("Second")
+	sessions := []protocol.Session{newSession(&first), newSession(&second), newSession(nil)}
+	queue := func(session protocol.Session) protocol.TurnID {
+		return commandFixture(t, node, protocol.Command{Kind: "queue_turn", Data: protocol.CommandQueueTurnPayload{
+			Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Keep the admitted hook settings"},
+		}}).Data.(protocol.QueuedTurn).ID
+	}
+	checkCapture := func(session protocol.Session, turn protocol.TurnID, want protocol.HooksSettings) {
+		t.Helper()
+		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			run, err := store.ReadAgentRun(ctx, db, turn)
+			if err != nil {
+				return err
+			}
+			settings, err := store.FrozenHooks(ctx, db, turn)
+			if err != nil {
+				return err
+			}
+			if run.Worktree != session.Worktree || !reflect.DeepEqual(settings, want) {
+				return fmt.Errorf("turn %s: captured worktree %s and settings %+v, want %s and %+v", turn, run.Worktree, settings, session.Worktree, want)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	defaults := protocol.DefaultHooksSettings()
+	settings := defaults
+	settings.Enabled = true
+	settings.TurnEnd = &protocol.HooksScript{Name: "Legacy", Enabled: true, Command: "legacy hook", TimeoutMs: 1234}
+	legacy, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(ctx, "INSERT INTO hook_settings(worktree,body) VALUES(?1,?2)", sessions[0].Worktree.String(), legacy)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	read := func() protocol.HooksState {
+		return commandFixture(t, node, protocol.Command{Kind: "read_hooks"}).Data.(protocol.HooksState)
+	}
+	if state := read(); !reflect.DeepEqual(state.Settings, defaults) || state.Sandboxed != process.SandboxSupported() {
+		t.Fatalf("fresh Node settings: %+v", state)
+	}
+	beforeSave := queue(sessions[0])
+	save := func(settings protocol.HooksSettings) protocol.HooksSettings {
+		command := protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Settings: settings, ExpectedRevision: settings.Revision}}
+		return commandFixture(t, node, command).Data.(protocol.HooksState).Settings
+	}
+	settings.TurnEnd = &protocol.HooksScript{Name: "Node", Enabled: true, Command: "first Node hook", TimeoutMs: 1234}
+	saved := save(settings)
+	if saved.Revision != 1 || !reflect.DeepEqual(read().Settings, saved) {
+		t.Fatalf("first Node save: %+v", saved)
+	}
+	var queued []protocol.TurnID
+	for _, session := range sessions {
+		queued = append(queued, queue(session))
+	}
+	stale := protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Settings: defaults}}
+	if response := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), stale)); response.Fault == nil || response.Fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("stale Node save: %+v", response)
+	}
+	settings = saved
+	settings.TurnEnd = &protocol.HooksScript{Name: "Node", Enabled: true, Command: "second Node hook", TimeoutMs: 1234}
+	updated := save(settings)
+	if updated.Revision != 2 || !reflect.DeepEqual(read().Settings, updated) {
+		t.Fatalf("second Node save: %+v", updated)
+	}
+	checkCapture(sessions[0], beforeSave, defaults)
+	for index, session := range sessions {
+		checkCapture(session, queued[index], saved)
+		checkCapture(session, queue(session), updated)
+	}
+}
+
 func TestWorkspaceNativeTurn(t *testing.T) {
 	catalog, err := operations.Bundled()
 	if err != nil {
@@ -76,14 +167,35 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hookCalls atomic.Int32
+	type event struct {
+		Version  int    `json:"schema_version"`
+		Phase    string `json:"hook_event_name"`
+		Node     string `json:"node_id"`
+		Project  string `json:"project_id"`
+		Worktree string `json:"worktree_id"`
+		Session  string `json:"session_id"`
+		Turn     string `json:"turn_id"`
+		Cwd      string `json:"cwd"`
+		Tool     string `json:"tool_name"`
+		Call     string `json:"tool_use_id"`
+		Status   string `json:"status"`
+	}
+	hookCalls := make(chan event, 5)
 	processOptions := process.Options{
 		After: func(time.Duration) <-chan time.Time { return make(chan time.Time) },
 		Run: func(_ context.Context, launch process.Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			if launch.Access != protocol.ProcessAccessWorkspace || launch.Root != root || launch.TimeoutMs != 1234 || launch.Background || launch.Pty {
 				return protocol.ProcessCompletion{}, errors.New("hook escaped captured workspace policy")
 			}
-			hookCalls.Add(1)
+			var input event
+			if err := json.Unmarshal([]byte(launch.Stdin), &input); err != nil {
+				return protocol.ProcessCompletion{}, err
+			}
+			select {
+			case hookCalls <- input:
+			default:
+				return protocol.ProcessCompletion{}, errors.New("unexpected extra hook execution")
+			}
 			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		},
 	}
@@ -131,7 +243,8 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	settings := protocol.DefaultHooksSettings()
 	settings.Enabled = true
 	settings.BeforeTool = &protocol.HooksScript{Name: "Fixture", Enabled: true, Command: "fixture hook", TimeoutMs: 1234}
-	commandFixture(t, node, protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Worktree: session.Worktree, Settings: settings, ExpectedRevision: 0}})
+	settings.AfterTool, settings.TurnEnd = settings.BeforeTool, settings.BeforeTool
+	commandFixture(t, node, protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Settings: settings}})
 
 	subscription, err := node.Subscribe(t.Context(), node.ID(), protocol.Topic{Kind: "node"})
 	if err != nil {
@@ -184,8 +297,23 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 	if !approved || script.step.Load() != 3 {
 		t.Fatal("native approval/tool loop did not complete", approved, script.step.Load())
 	}
-	if hookCalls.Load() == 0 {
-		t.Fatal("captured before-tool hook did not execute")
+	wantEvents := []struct{ phase, tool, call, status string }{
+		{"before_tool", "tool_search", "discover", ""},
+		{"after_tool", "tool_search", "discover", "succeeded"},
+		{"before_tool", script.name, "write", ""},
+		{"after_tool", script.name, "write", "succeeded"},
+		{"turn_end", "", "", "completed"},
+	}
+	if len(hookCalls) != len(wantEvents) {
+		t.Fatalf("received %d hook events, want %d", len(hookCalls), len(wantEvents))
+	}
+	for _, want := range wantEvents {
+		got := <-hookCalls
+		expected := event{Version: 1, Phase: want.phase, Node: node.ID().String(), Project: project.ID.String(), Worktree: session.Worktree.String(),
+			Session: session.ID.String(), Turn: turn.String(), Cwd: root, Tool: want.tool, Call: want.call, Status: want.status}
+		if got != expected {
+			t.Fatalf("hook input %+v, want %+v", got, expected)
+		}
 	}
 	if commands := node.processes.List(session.ID); len(commands) != 0 {
 		t.Fatal("foreground hooks leaked into background command inventory", commands)

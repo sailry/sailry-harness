@@ -859,7 +859,7 @@ hooks_before_tool: До инструмента
 hooks_command: Команда
 hooks_configure: Настроить Hook
 hooks_conflict: Hooks изменились; перезагрузите перед сохранением
-hooks_consent: Выполнять эти скрипты в будущих задачах этого рабочего дерева
+hooks_consent: Выполнять эти скрипты в последующих ходах всех диалогов на %{host}. Каждый скрипт выполняется в рабочем дереве своей задачи.
 hooks_empty: Нет Hooks
 hooks_enable: Включить Hooks
 hooks_enabled: Включено
@@ -869,10 +869,10 @@ hooks_name: Имя
 hooks_phase: Этап
 hooks_remove: Удалить Hook
 hooks_saved: Hooks сохранены
-hooks_scope_workspace: Скрипты могут изменять это рабочее дерево; доступ к сети заблокирован
+hooks_scope_workspace: Скрипты могут записывать данные в рабочее дерево задачи. Доступ к сети заблокирован.
 hooks_scripts: Скрипты
 hooks_settings: Hooks
-hooks_settings_description: Настроить скрипты для этого рабочего дерева
+hooks_settings_description: Настроить скрипты для этого хоста выполнения
 hooks_timeout: Тайм-аут (ms)
 hooks_turn_end: Завершение хода
 hooks_unknown: Результат сохранения Hook неизвестен; повторите исходный запрос
@@ -1771,9 +1771,6 @@ files_overwrite: Перезаписать
 workspace_completed: Завершено
 workspace_restore_confirm: Восстановить версии файлов до этого хода
 artifact_edit_prompt: 'Испрашиваемые изменения:'
-hooks_project_required: Выберите проект
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: Выбранный Node или рабочее дерево изменились
 background_stop_failed: Остановка не удалась; повторите попытку
 background_stop_unknown: Остановка не подтверждена; проверить статус команды
 subagent_stop: Остановить субагента

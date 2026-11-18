@@ -88,10 +88,6 @@ func commandWorktree(command protocol.Command) (protocol.WorktreeID, bool) {
 		return input.Worktree, true
 	case *protocol.CommandGraphCodePayload:
 		return input.Worktree, true
-	case *protocol.CommandReadHooksPayload:
-		return input.Worktree, true
-	case *protocol.CommandSaveHooksPayload:
-		return input.Worktree, true
 	case *protocol.CommandReadFileLinesPayload:
 		return input.Worktree, true
 	case *protocol.CommandReadImagePayload:

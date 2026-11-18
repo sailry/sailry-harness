@@ -155,14 +155,9 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	s.library.open = false
 	targetChanged := false
 	var headerActions func()
-	switch {
-	case s.Section.ManagesNode():
+	if s.Section.ManagesNode() {
 		headerActions = func() {
 			targetChanged = managedNodeSelect(c, s.Model, &s.ManagedNode)
-		}
-	case s.Section == Hooks:
-		headerActions = func() {
-			targetChanged = hooksTargetSelect(c, s.Model)
 		}
 	}
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {

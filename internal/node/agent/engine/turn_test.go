@@ -1241,7 +1241,7 @@ func TestTurnEndHookStatus(t *testing.T) {
 					Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
 						return nil
 					},
-					Launch: func(_ context.Context, _ string, _ uint64, environment map[string]string) (protocol.ProcessCompletion, error) {
+					Launch: func(_ context.Context, _ string, _ uint64, environment map[string]string, _ string) (protocol.ProcessCompletion, error) {
 						mu.Lock()
 						statuses = append(statuses, environment["SAILRY_HOOK_STATUS"])
 						mu.Unlock()

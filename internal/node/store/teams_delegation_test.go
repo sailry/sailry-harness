@@ -239,6 +239,13 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 	storage, node, session, parent, now := agentHistoryFixture(t, protocol.WorkModeCode)
 	ctx := context.Background()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		settings := protocol.DefaultHooksSettings()
+		settings.Enabled = true
+		settings.TurnEnd = &protocol.HooksScript{Enabled: true, Command: "fixture hook", TimeoutMs: 1000}
+		settings, err := SaveHooks(ctx, db, settings, settings.Revision)
+		if err != nil {
+			return err
+		}
 		call, err := delegationFixtureCall(ctx, db, parent, "spawn_agent", map[string]any{"task": "Original child"}, now)
 		if err != nil {
 			return err
@@ -256,8 +263,12 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 		if _, err = ReleaseChildren(ctx, db, parent, []protocol.TurnID{child.Run.Turn}); err != nil {
 			return err
 		}
-		if inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now); err != nil || inv == nil {
+		if inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now); err != nil || inv == nil || inv.Hooks.Revision != settings.Revision {
 			return fmt.Errorf("released child was not claimed: %v", err)
+		}
+		updated, err := SaveHooks(ctx, db, settings, settings.Revision)
+		if err != nil {
+			return err
 		}
 		nested, err := delegationFixtureCall(ctx, db, child.Run.Turn, "spawn_agent", map[string]any{"task": "Forbidden nested child"}, now)
 		if err != nil {
@@ -279,6 +290,10 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 		}
 		if receipt.Run.Turn == child.Run.Turn || receipt.Recipient == nil || *receipt.Recipient != child.Run.Turn || receipt.Run.Status != protocol.ConversationStatusQueued {
 			return errors.New("guidance receipt lost the queued turn or active recipient")
+		}
+		guidanceHooks, err := FrozenHooks(ctx, db, receipt.Run.Turn)
+		if err != nil || guidanceHooks.Revision != settings.Revision {
+			return fmt.Errorf("active guidance lost the child's frozen hooks: %v", err)
 		}
 		pending, err := PendingGuidance(ctx, db, child.Run.Turn)
 		if err != nil || !pending {
@@ -334,7 +349,7 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 		if _, err = ReleaseChildren(ctx, db, parent, []protocol.TurnID{next.Run.Turn}); err != nil {
 			return err
 		}
-		if inv, _, err := ClaimChild(ctx, db, next.Run.Turn, now); err != nil || inv == nil {
+		if inv, _, err := ClaimChild(ctx, db, next.Run.Turn, now); err != nil || inv == nil || inv.Hooks.Revision != updated.Revision {
 			return fmt.Errorf("idle guidance was not released: %v", err)
 		}
 		if _, _, err = FinishTurn(ctx, db, next.Run.Turn, protocol.ConversationStatusCompleted, nil, now); err != nil {

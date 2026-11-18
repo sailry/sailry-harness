@@ -537,13 +537,13 @@ func (node *Node) workspaceSettings(ctx context.Context, command protocol.Comman
 	operation := func(ctx context.Context, db *sql.Conn) error {
 		switch command.Kind {
 		case "read_hooks":
-			value, err := store.ReadHooks(ctx, db, command.Data.(*protocol.CommandReadHooksPayload).Worktree)
-			output = protocol.Output{Kind: "hook_settings", Data: protocol.HooksState{Worktree: command.Data.(*protocol.CommandReadHooksPayload).Worktree, Settings: value, Sandboxed: process.SandboxSupported()}}
+			value, err := store.ReadHooks(ctx, db)
+			output = protocol.Output{Kind: "hook_settings", Data: protocol.HooksState{Settings: value, Sandboxed: process.SandboxSupported()}}
 			return err
 		case "save_hooks":
 			v := command.Data.(*protocol.CommandSaveHooksPayload)
-			value, err := store.SaveHooks(ctx, db, v.Worktree, v.Settings, v.ExpectedRevision)
-			output = protocol.Output{Kind: "hook_settings", Data: protocol.HooksState{Worktree: v.Worktree, Settings: value, Sandboxed: process.SandboxSupported()}}
+			value, err := store.SaveHooks(ctx, db, v.Settings, v.ExpectedRevision)
+			output = protocol.Output{Kind: "hook_settings", Data: protocol.HooksState{Settings: value, Sandboxed: process.SandboxSupported()}}
 			return err
 		case "read_sandbox_settings":
 			value, err := store.ReadSandboxSettings(ctx, db)

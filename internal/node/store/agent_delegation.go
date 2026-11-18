@@ -324,26 +324,33 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	}
 	turn := protocol.DefaultQueuedTurn()
 	turn.ID, turn.Kind, turn.Session, turn.Request, turn.Revision, turn.Config, turn.Roles, turn.Plugins = protocol.NewTurnID(), protocol.ConversationRunKindTask, session.ID, capture.Request, session.Revision, session.Config, session.Roles, capture.Plugins
+	var hooks []byte
 	if guidance != nil {
+		// Guidance can join an already-admitted turn using its frozen settings.
 		saved, e := readTurnCapture(ctx, db, guidance.Turn)
 		if e != nil {
 			return empty, nil, e
 		}
 		turn.Config, turn.Roles, turn.Plugins, turn.Revision = saved.Config, saved.Roles, saved.Plugins, saved.Revision
-		if e = db.QueryRowContext(ctx, "SELECT provider FROM agent_runs WHERE turn=?1", guidance.Turn.String()).Scan(&providerBody); e != nil {
+		if e = db.QueryRowContext(ctx, "SELECT provider,hooks FROM agent_runs WHERE turn=?1", guidance.Turn.String()).Scan(&providerBody, &hooks); e != nil {
 			return empty, nil, e
 		}
 		if e = json.Unmarshal(providerBody, &provider); e != nil {
 			return empty, nil, e
+		}
+	} else {
+		hooks, err = captureHooks(ctx, db)
+		if err != nil {
+			return empty, nil, err
 		}
 	}
 	seq, err := NextCounter(ctx, db, CounterTurns)
 	if err != nil {
 		return empty, nil, err
 	}
-	var caller, instructions, hooks []byte
+	var caller, instructions []byte
 	var percent uint8
-	if err = db.QueryRowContext(ctx, "SELECT t.caller,t.instructions,a.hooks,a.compaction_percent FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1", inherit.String()).Scan(&caller, &instructions, &hooks, &percent); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT t.caller,t.instructions,a.compaction_percent FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1", inherit.String()).Scan(&caller, &instructions, &percent); err != nil {
 		return empty, nil, err
 	}
 	if guidance != nil {

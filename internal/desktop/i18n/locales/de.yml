@@ -859,7 +859,7 @@ hooks_before_tool: Vor dem Werkzeug
 hooks_command: Befehl
 hooks_configure: Hook konfigurieren
 hooks_conflict: Hooks wurden geändert; vor dem Speichern neu laden
-hooks_consent: Diese Skripte für zukünftige Durchläufe in diesem Worktree ausführen
+hooks_consent: Diese Skripte in künftigen Runden aller Unterhaltungen auf %{host} ausführen. Jedes Skript läuft im Worktree der jeweiligen Aufgabe.
 hooks_empty: Keine Hooks
 hooks_enable: Hooks aktivieren
 hooks_enabled: Aktiviert
@@ -869,10 +869,10 @@ hooks_name: Name
 hooks_phase: Phase
 hooks_remove: Hook entfernen
 hooks_saved: Hooks gespeichert
-hooks_scope_workspace: Skripte können diesen Worktree ändern; Netzwerkzugriff ist gesperrt
+hooks_scope_workspace: Skripte können in den Worktree der Aufgabe schreiben. Der Netzwerkzugriff ist gesperrt.
 hooks_scripts: Skripte
 hooks_settings: Hooks
-hooks_settings_description: Skripte für diesen Worktree konfigurieren
+hooks_settings_description: Skripte für diesen Ausführungshost konfigurieren
 hooks_timeout: Zeitlimit (ms)
 hooks_turn_end: Rundenende
 hooks_unknown: Speichern des Hooks ungewiss; ursprüngliche Anfrage erneut versuchen
@@ -1771,9 +1771,6 @@ files_overwrite: Überschreiben
 workspace_completed: Abgeschlossen
 workspace_restore_confirm: Dateiversionen von vor diesem Durchgang wiederherstellen
 artifact_edit_prompt: 'Angeforderte Änderungen:'
-hooks_project_required: Projekt auswählen
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: Ausgewählter Node oder Worktree wurde geändert
 background_stop_failed: Stopp fehlgeschlagen; erneut versuchen
 background_stop_unknown: Stopp unbestätigt; Befehlsstatus überprüfen
 subagent_stop: Unteragent stoppen

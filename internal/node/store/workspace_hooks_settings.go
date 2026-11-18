@@ -11,23 +11,24 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func ReadHooks(ctx context.Context, db *sql.Conn, worktree protocol.WorktreeID) (protocol.HooksSettings, error) {
-	var exists bool
-	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM worktrees WHERE id=?1)", worktree.String()).Scan(&exists); err != nil {
-		return protocol.HooksSettings{}, err
-	}
-	if !exists {
-		return protocol.HooksSettings{}, fault(protocol.ErrorCodeNotFound, "worktree does not exist on this Node")
-	}
-	value, err := readBody[protocol.HooksSettings](ctx, db, "SELECT body FROM hook_settings WHERE worktree=?1", worktree.String())
+func ReadHooks(ctx context.Context, db *sql.Conn) (protocol.HooksSettings, error) {
+	value, err := readBody[protocol.HooksSettings](ctx, db, "SELECT body FROM node_hook_settings WHERE singleton=1")
 	if value == nil {
 		return protocol.DefaultHooksSettings(), err
 	}
 	return *value, err
 }
 
-func SaveHooks(ctx context.Context, db *sql.Conn, worktree protocol.WorktreeID, input protocol.HooksSettings, expected uint64) (protocol.HooksSettings, error) {
-	current, err := ReadHooks(ctx, db, worktree)
+func captureHooks(ctx context.Context, db *sql.Conn) ([]byte, error) {
+	value, err := ReadHooks(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return encode(value)
+}
+
+func SaveHooks(ctx context.Context, db *sql.Conn, input protocol.HooksSettings, expected uint64) (protocol.HooksSettings, error) {
+	current, err := ReadHooks(ctx, db)
 	if err != nil {
 		return protocol.HooksSettings{}, err
 	}
@@ -45,7 +46,7 @@ func SaveHooks(ctx context.Context, db *sql.Conn, worktree protocol.WorktreeID, 
 	if err != nil {
 		return protocol.HooksSettings{}, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO hook_settings(worktree,body) VALUES(?1,?2) ON CONFLICT(worktree) DO UPDATE SET body=excluded.body", worktree.String(), body)
+	_, err = db.ExecContext(ctx, "INSERT INTO node_hook_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
 	return input, err
 }
 

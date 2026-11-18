@@ -859,7 +859,7 @@ hooks_before_tool: Antes de la herramienta
 hooks_command: Comando
 hooks_configure: Configurar hook
 hooks_conflict: Los hooks cambiaron; recarga antes de guardar
-hooks_consent: Ejecutar estos scripts en futuras tareas de este árbol de trabajo
+hooks_consent: Ejecutar estos scripts en futuros turnos de todas las conversaciones de %{host}. Cada script se ejecuta en el árbol de trabajo de su tarea.
 hooks_empty: Sin hooks
 hooks_enable: Activar hooks
 hooks_enabled: Activado
@@ -869,10 +869,10 @@ hooks_name: Nombre
 hooks_phase: Fase
 hooks_remove: Quitar hook
 hooks_saved: Hooks guardados
-hooks_scope_workspace: Los scripts pueden escribir en este árbol; el acceso a la red está bloqueado
+hooks_scope_workspace: Los scripts pueden escribir en el árbol de trabajo de la tarea. El acceso a la red está bloqueado.
 hooks_scripts: Scripts
 hooks_settings: Hooks
-hooks_settings_description: Configurar scripts para este árbol de trabajo
+hooks_settings_description: Configurar los scripts de este host de ejecución
 hooks_timeout: Tiempo límite (ms)
 hooks_turn_end: Fin del turno
 hooks_unknown: Guardado del hook incierto; reintenta la solicitud original
@@ -1771,9 +1771,6 @@ files_overwrite: Sobrescribir
 workspace_completed: Completado
 workspace_restore_confirm: Restaurar las versiones anteriores de los archivos de este turno
 artifact_edit_prompt: 'Cambios solicitados:'
-hooks_project_required: Selecciona un proyecto
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: Cambió el Node o árbol de trabajo seleccionado
 background_stop_failed: Falló la detención; vuelva a intentarlo
 background_stop_unknown: Detener sin confirmar; comprobar el estado del comando
 subagent_stop: Detener subagente

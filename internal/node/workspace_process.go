@@ -15,15 +15,19 @@ import (
 )
 
 func (node *Node) turnHooks(ctx context.Context, inv *store.AgentInvocation) *hooks.Binding {
-	return hooks.New(hooks.Capture{Node: node.ID(), Worktree: inv.Run.Worktree, Session: inv.Session.ID, Turn: inv.Run.Turn, Settings: inv.Hooks, Admitted: inv.Run.Kind == protocol.ConversationRunKindTask && inv.Turn.Config.Mode != protocol.WorkModePlan, Stop: ctx,
+	var project protocol.ProjectID
+	if inv.Worktree.Project != nil {
+		project = *inv.Worktree.Project
+	}
+	return hooks.New(hooks.Capture{Node: node.ID(), Project: project, Worktree: inv.Run.Worktree, Session: inv.Session.ID, Turn: inv.Run.Turn, Cwd: inv.Worktree.Path, Settings: inv.Hooks, Admitted: inv.Run.Kind == protocol.ConversationRunKindTask && inv.Turn.Config.Mode != protocol.WorkModePlan, Stop: ctx,
 		Claim: func(ctx context.Context, turn protocol.TurnID, phase protocol.HooksPhase, ordinal uint64) error {
 			return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.ClaimHook(ctx, db, turn, phase, ordinal) })
 		},
 		Finish: func(ctx context.Context, turn protocol.TurnID, phase protocol.HooksPhase, ordinal uint64, outcome protocol.ProcessOutcome, err error) error {
 			return node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error { return store.FinishHook(ctx, db, turn, phase, ordinal, outcome, err) })
 		},
-		Launch: func(ctx context.Context, command string, timeout uint64, environment map[string]string) (protocol.ProcessCompletion, error) {
-			return node.processes.Execute(ctx, process.Launch{ID: protocol.NewRequestID(), Session: inv.Session.ID, Turn: inv.Run.Turn, Worktree: inv.Run.Worktree, Root: inv.Worktree.Path, Profile: node.profile.Ownership.Path, Command: command, Access: protocol.ProcessAccessWorkspace, Cwd: "", TimeoutMs: timeout, Environment: environment})
+		Launch: func(ctx context.Context, command string, timeout uint64, environment map[string]string, stdin string) (protocol.ProcessCompletion, error) {
+			return node.processes.Execute(ctx, process.Launch{ID: protocol.NewRequestID(), Session: inv.Session.ID, Turn: inv.Run.Turn, Worktree: inv.Run.Worktree, Root: inv.Worktree.Path, Profile: node.profile.Ownership.Path, Command: command, Access: protocol.ProcessAccessWorkspace, TimeoutMs: timeout, Environment: environment, Stdin: stdin})
 		},
 	})
 }

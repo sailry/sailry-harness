@@ -164,11 +164,9 @@ type Model struct {
 	SavePower           func()
 	SaveSandbox         func()
 	SaveCodeIndex       func()
-	SaveHooks           func(HookSettings)
+	SaveHooks           func(HookSettings) bool
 	HooksContext        func() (HookTarget, bool)
 	HooksSandboxed      func() bool
-	HookTargets         func() []HookTarget
-	SelectHookTarget    func(HookTarget) bool
 	ConcurrencyReadOnly bool
 	TeamActions         *TeamActions
 	SaveTelemetry       func()
@@ -338,10 +336,10 @@ type Model struct {
 	connectionGeneration uint64
 
 	// Hooks (hooks/*).
-	Hooks         Stored[HookSettings]
-	HookSelection HookTarget // Empty follows the worktree currently in use.
-	hook          hookEditor
-	consent       consent
+	Hooks       Stored[HookSettings]
+	HooksStatus string
+	hook        hookEditor
+	consent     consent
 
 	// Runtime and OCR (runtime/*, models/*).
 	PythonVersion string

@@ -16,6 +16,7 @@ type Launch struct {
 	Root           string
 	Profile        string
 	Command        string
+	Stdin          string // Foreground input, written verbatim and followed by EOF.
 	Access         protocol.ProcessAccess
 	Cwd            string
 	TimeoutMs      uint64

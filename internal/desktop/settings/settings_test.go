@@ -38,7 +38,7 @@ func TestManagedNodeInSettingsHeader(t *testing.T) {
 	}, 940, 700)
 	for _, lang := range []string{"en", "zh-CN"} {
 		tester.SetLocale(lang)
-		for _, section := range []Section{General, Conversation, Knowledge, Terminal, Permissions} {
+		for _, section := range []Section{General, Conversation, Knowledge, Terminal, Hooks, Permissions} {
 			state.Open(section)
 			tester.Frame()
 			title, titled := tester.AccessByRole(ui.RoleText, i18n.In(lang, string(section)))
@@ -55,26 +55,32 @@ func TestManagedNodeInSettingsHeader(t *testing.T) {
 	}
 }
 
-func TestHooksHeaderCanSelectWithoutCurrentProject(t *testing.T) {
+func TestHooksUseManagedNodeWithoutProject(t *testing.T) {
 	state := NewLive()
 	state.Open(Hooks)
-	local := HookTarget{Node: "local", Host: "composer_host_local", Project: "App", Worktree: "worktree", Path: "/workspace/app"}
-	remote := HookTarget{Node: "remote", Host: "Runner", Project: "App", Worktree: "worktree", Path: "/workspace/app"}
-	state.HookTargets = func() []HookTarget { return []HookTarget{local, remote} }
+	local := HookTarget{Node: "local", Host: "composer_host_local"}
+	remote := HookTarget{Node: "remote", Host: "Runner"}
+	state.ProviderActions.Hosts = func() []ProviderHost {
+		return []ProviderHost{
+			{Node: local.Node, Local: true, Connected: true},
+			{Node: remote.Node, Name: remote.Host, Connected: true},
+		}
+	}
 	state.HooksContext = func() (HookTarget, bool) {
-		return state.HookSelection, state.HookSelection.Worktree != ""
+		if state.ManagedNode == remote.Node {
+			return remote, true
+		}
+		return local, true
 	}
-	state.SelectHookTarget = func(target HookTarget) bool {
-		state.HookSelection = target
-		return true
-	}
+	saves := 0
+	state.SaveHooks = func(HookSettings) bool { saves++; return true }
 	tester := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
 		Page(c, state, nil, Look{})
 	}, 940, 700)
 	tester.SetLocale("zh-CN")
 	tester.Frame()
-	label := i18n.In("zh-CN", "hooks_project_required")
+	label := i18n.In("zh-CN", "project_host")
 	if _, found := tester.AccessByRole(ui.RoleMenuButton, label); !found {
 		t.Fatalf("hooks without a current project has no selector: %q", tester.Texts())
 	}
@@ -82,12 +88,38 @@ func TestHooksHeaderCanSelectWithoutCurrentProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if err := tester.Click("App · Runner"); err != nil {
+	if err := tester.Click(remote.Host); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if state.HookSelection.Node != remote.Node || state.HookSelection.Worktree != remote.Worktree {
-		t.Fatalf("selected hooks target: %+v", state.HookSelection)
+	tester.Frame()
+	if state.ManagedNode != remote.Node || !tester.HasText(i18n.In("zh-CN", "hooks_empty")) {
+		t.Fatalf("the selected host did not show its empty hooks: %q", tester.Texts())
+	}
+	if err := tester.Click(i18n.In("zh-CN", "hooks_add")); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !state.hook.open || state.hook.binding.target != remote {
+		t.Fatal("the empty host did not open its own hook editor")
+	}
+	state.hook.script.Command = "make"
+	state.Hooks.Revision++
+	tester.Frame()
+	closeLabel := i18n.In("zh-CN", "close")
+	var submit ui.AccessInfo
+	for _, element := range tester.AccessAll() {
+		if element.Name == closeLabel && element.Role == ui.RoleButton && element.Bounds.Y > submit.Bounds.Y {
+			submit = element
+		}
+	}
+	if submit.Bounds.W == 0 {
+		t.Fatal("the hook editor has no submit button")
+	}
+	tester.ClickAt(submit.Bounds.X+submit.Bounds.W/2, submit.Bounds.Y+submit.Bounds.H/2)
+	tester.Frame()
+	if saves != 0 || !state.hook.open {
+		t.Fatal("the stale hook editor submitted or discarded its draft")
 	}
 }
 

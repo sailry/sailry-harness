@@ -82,6 +82,19 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 			t.Fatalf("administrator code index write: %+v", response)
 		}
 	})
+	t.Run("only administrators manage Node hooks", func(t *testing.T) {
+		for _, command := range []protocol.Command{
+			{Kind: "read_hooks"},
+			{Kind: "save_hooks", Data: protocol.DefaultCommandSaveHooksPayload()},
+		} {
+			if response := send(other, command); response.Fault == nil || response.Fault.Code != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("non-administrator %s: %+v", command.Kind, response)
+			}
+			if response := send(owner, command); response.Fault != nil {
+				t.Fatalf("administrator %s: %+v", command.Kind, response)
+			}
+		}
+	})
 	tree := own.Worktrees[0].ID
 	denied := send(other, protocol.Command{Kind: "read_worktree_catalog", Data: protocol.CommandReadWorktreeCatalogPayload{Worktree: tree}})
 	if denied.Fault == nil || denied.Fault.Code != protocol.ErrorCodePermissionDenied {

@@ -547,10 +547,6 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionReadTerminals, true
 	case "create_terminal", "open_tool_terminal", "open_terminal", "close_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance":
 		return protocol.PluginActionControlTerminals, true
-	case "read_hooks":
-		return protocol.PluginActionReadCodeSettings, true
-	case "save_hooks":
-		return protocol.PluginActionSaveCodeSettings, true
 	case "read_artifact", "list_artifacts", "list_artifact_revisions":
 		return protocol.PluginActionReadArtifacts, true
 	case "write_artifact":

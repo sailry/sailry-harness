@@ -148,7 +148,7 @@ func launchNative(launch Launch, environment Environment, _ func(string) (string
 		}
 		owned = append(owned, errReader, errWriter)
 		var inReader *os.File
-		if launch.Background {
+		if launch.Background || launch.Stdin != "" {
 			var inWriter *os.File
 			inReader, inWriter, err = os.Pipe()
 			if err != nil {
@@ -224,4 +224,8 @@ func launchNative(launch Launch, environment Environment, _ func(string) (string
 
 func nativeReadEnd(err error, _ bool) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_OPERATION_ABORTED)
+}
+
+func nativeInputClosed(err error) bool {
+	return errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_NO_DATA) || errors.Is(err, windows.ERROR_PIPE_NOT_CONNECTED)
 }

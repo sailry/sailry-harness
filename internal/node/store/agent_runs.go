@@ -249,11 +249,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	frozenHooks, err := ReadHooks(ctx, db, session.Worktree)
-	if err != nil {
-		return value, err
-	}
-	hooks, err := encode(frozenHooks)
+	hooks, err := captureHooks(ctx, db)
 	if err != nil {
 		return value, err
 	}

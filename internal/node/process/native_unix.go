@@ -79,7 +79,7 @@ func launchNative(launch Launch, environment Environment, captureManaged func(st
 		owned = append(owned, errReader, errWriter)
 		command.Stdout, command.Stderr = outWriter, errWriter
 		stdout, stderr = outReader, errReader
-		if launch.Background {
+		if launch.Background || launch.Stdin != "" {
 			inReader, inWriter, err := os.Pipe()
 			if err != nil {
 				return nil, err
@@ -135,3 +135,5 @@ func (close closerFunc) Close() error { return close() }
 func nativeReadEnd(err error, terminal bool) bool {
 	return errors.Is(err, os.ErrClosed) || terminal && errors.Is(err, syscall.EIO)
 }
+
+func nativeInputClosed(err error) bool { return errors.Is(err, syscall.EPIPE) }

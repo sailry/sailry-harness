@@ -582,6 +582,7 @@ CREATE TABLE hook_settings (
     worktree TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
     body BLOB NOT NULL
 );
+CREATE TABLE node_hook_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 CREATE TABLE hook_executions (
     turn TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
     phase TEXT NOT NULL CHECK(phase IN ('before_tool','after_tool','turn_end')),

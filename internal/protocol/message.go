@@ -4,6 +4,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
 )
 
 type ErrorCode string
@@ -6969,50 +6970,31 @@ func (value CommandCancelCodeIndexQueryPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-type CommandReadHooksPayload struct {
-	Worktree WorktreeID `json:"worktree"`
-}
-
-func DefaultCommandReadHooksPayload() CommandReadHooksPayload {
-	return CommandReadHooksPayload{
-		Worktree: WorktreeID{},
-	}
-}
-func (value *CommandReadHooksPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandReadHooksPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"worktree"}, false); err != nil {
-		return err
-	}
-	*value = CommandReadHooksPayload(decoded)
-	return nil
-}
-func (value CommandReadHooksPayload) MarshalJSON() ([]byte, error) {
-	type plain CommandReadHooksPayload
-	encoded := plain(value)
-	return json.Marshal(encoded)
-}
-
 type CommandSaveHooksPayload struct {
-	Worktree         WorktreeID    `json:"worktree"`
 	Settings         HooksSettings `json:"settings"`
 	ExpectedRevision uint64        `json:"expected_revision"`
 }
 
 func DefaultCommandSaveHooksPayload() CommandSaveHooksPayload {
 	return CommandSaveHooksPayload{
-		Worktree:         WorktreeID{},
 		Settings:         DefaultHooksSettings(),
 		ExpectedRevision: 0,
 	}
 }
 func (value *CommandSaveHooksPayload) UnmarshalJSON(data []byte) error {
-	type plain CommandSaveHooksPayload
-	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"worktree", "settings", "expected_revision"}, false); err != nil {
+	var decoded struct {
+		Settings         HooksSettings   `json:"settings"`
+		ExpectedRevision uint64          `json:"expected_revision"`
+		Worktree         json.RawMessage `json:"worktree"`
+	}
+	if err := DecodeObject(data, &decoded, []string{"settings", "expected_revision"}, false); err != nil {
 		return err
 	}
-	*value = CommandSaveHooksPayload(decoded)
+	// A legacy write cannot promote a worktree script to Node-wide execution.
+	if len(decoded.Worktree) != 0 {
+		return errors.New("worktree-scoped hook settings are unsupported")
+	}
+	*value = CommandSaveHooksPayload{Settings: decoded.Settings, ExpectedRevision: decoded.ExpectedRevision}
 	return nil
 }
 func (value CommandSaveHooksPayload) MarshalJSON() ([]byte, error) {
@@ -8664,7 +8646,7 @@ var commandVariants = variantFactories{"write_artifact": func() any { return new
 	"graph_code":                       func() any { return new(CommandGraphCodePayload) },
 	"cancel_code_index_query":          func() any { return new(CommandCancelCodeIndexQueryPayload) },
 	"read_code_index_settings":         nil,
-	"read_hooks":                       func() any { return new(CommandReadHooksPayload) },
+	"read_hooks":                       nil,
 	"save_hooks":                       func() any { return new(CommandSaveHooksPayload) },
 	"save_code_index_settings":         func() any { return new(CommandSaveCodeIndexSettingsPayload) },
 	"read_file_lines":                  func() any { return new(CommandReadFileLinesPayload) },

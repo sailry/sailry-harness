@@ -103,14 +103,12 @@ func (value HooksSettings) MarshalJSON() ([]byte, error) {
 }
 
 type HooksState struct {
-	Worktree  WorktreeID    `json:"worktree"`
 	Settings  HooksSettings `json:"settings"`
 	Sandboxed bool          `json:"sandboxed"`
 }
 
 func DefaultHooksState() HooksState {
 	return HooksState{
-		Worktree:  WorktreeID{},
 		Settings:  DefaultHooksSettings(),
 		Sandboxed: false,
 	}
@@ -118,7 +116,7 @@ func DefaultHooksState() HooksState {
 func (value *HooksState) UnmarshalJSON(data []byte) error {
 	type plain HooksState
 	decoded := plain{}
-	if err := DecodeObject(data, &decoded, []string{"worktree", "settings", "sandboxed"}, true); err != nil {
+	if err := DecodeObject(data, &decoded, []string{"settings", "sandboxed"}, true); err != nil {
 		return err
 	}
 	*value = HooksState(decoded)

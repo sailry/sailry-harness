@@ -193,11 +193,11 @@ An open plugin page can show availability and the host selector through a switch
 Settings for desktop devices use the local controller. On the Knowledge page
 the model controls follow the settings host. A fresh Node uses keyword search
 until an installed embedding model is selected. The catalog spans direct hosts
-and actions follow each collection's storage Node. The Hooks header
-can select an accessible project worktree directly. Its settings follow that
-worktree's Node. Device monitoring has its own selection. A new task reads
-and captures settings on its execution Node. Admitted tasks keep their package
-and settings revisions.
+and actions follow each collection's storage Node. Host administrators manage
+one hooks configuration per Node through the shared settings host selector.
+New host-wide configurations start disabled. A new task captures settings on its
+execution Node, including tasks from sessions without a project. Admitted tasks
+keep their package and settings revisions. Device monitoring has its own selection.
 
 New sessions are created on the Node that owns the selected model. Existing
 durable request ledgers continue to bind recovery to the original identity.
@@ -531,8 +531,19 @@ Opted-in completions can continue an idle session through its normal queue.
 | Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
 | Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |
 | Session documents | Immutable bounded HTML revisions, rendered in an opaque-origin sandbox |
-| Hooks | Captured worktree scripts; launched groups are not replayed after cancellation or a crash |
+| Hooks | Node scripts captured at admission and executed in the task's worktree under its workspace process policy. Recovery preserves launch claims. |
 | Dispatch | Durable schedules driven by Sailry's calendar on standard timers |
+
+Hook commands receive one UTF-8 JSON object on standard input followed by EOF.
+The fields are `schema_version` (currently 1), `hook_event_name`, `node_id`,
+`session_id`, `turn_id`, `worktree_id`, `cwd` and, for a project worktree,
+`project_id`. Tool events (`before_tool` and `after_tool`) carry `tool_name` and
+the same `tool_use_id` for the two sides of one call. `after_tool` reports
+`status` as `succeeded` or `failed`. `turn_end` reports `completed` or `failed`
+for task turns that finish without a stop. Tool arguments, tool output, prompts
+and credentials are outside this contract. The `SAILRY_HOOK_*` environment
+variables remain available. Exit zero signals success, and a failed
+`before_tool` hook blocks the call.
 
 Dispatch handlers, schedules and jobs expose their owning `execution_node`.
 New independent reminders and scheduled tasks offer a host choice from the

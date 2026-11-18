@@ -22,6 +22,7 @@ func testPluginControllerAuthority(t *testing.T) {
 			protocol.PluginActionReadModels, protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage,
 			protocol.PluginActionReadActivity, protocol.PluginActionReadUsage, protocol.PluginActionReadSearchSettings,
 			protocol.PluginActionReadTerminals, protocol.PluginActionControlTerminals,
+			protocol.PluginActionReadCodeSettings, protocol.PluginActionSaveCodeSettings,
 		}
 		info.Extension.SettingsPage = new(protocol.DefaultPluginDesktopSettings())
 		scope := protocol.DefaultPluginContext()
@@ -37,6 +38,12 @@ func testPluginControllerAuthority(t *testing.T) {
 			{"disabled private storage", "read_plugin_value", nil, ""},
 			{"read models alternative", "list_plugin_models", nil, ""},
 			{"disabled search settings", "read_search_settings", nil, ""},
+			{"code settings capability cannot read Node hooks", "read_hooks", func(_ *protocol.PluginContext, info *protocol.PluginInfo) {
+				info.Summary.Enabled = true
+			}, protocol.ErrorCodePermissionDenied},
+			{"code settings capability cannot save Node hooks", "save_hooks", func(_ *protocol.PluginContext, info *protocol.PluginInfo) {
+				info.Summary.Enabled = true
+			}, protocol.ErrorCodePermissionDenied},
 			{"disabled mutation remains refused", "call_plugin", nil, protocol.ErrorCodeNotConfigured},
 			{"missing settings declaration", "read_plugin_settings", func(_ *protocol.PluginContext, info *protocol.PluginInfo) {
 				info.Extension.SettingsPage = nil

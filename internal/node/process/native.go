@@ -119,8 +119,22 @@ func (s *Service) executeNative(ctx context.Context, launch Launch, emit func(pr
 	inputContext, stopInput := context.WithCancel(ctx)
 	inputErrors := make(chan error, 1)
 	inputDone := make(chan struct{})
+	oneShotInput := launch.Stdin != ""
 	go func() {
 		defer close(inputDone)
+		if oneShotInput {
+			defer child.stdin.Close()
+			if inputContext.Err() != nil {
+				return
+			}
+			// Scripts that do not consume stdin can close their end early.
+			_, err := io.WriteString(child.stdin, launch.Stdin)
+			stopped := inputContext.Err() != nil && nativeReadEnd(err, false)
+			if err != nil && !nativeInputClosed(err) && !stopped {
+				inputErrors <- err
+			}
+			return
+		}
 		for input != nil && child.stdin != nil {
 			select {
 			case <-inputContext.Done():
@@ -230,6 +244,13 @@ running:
 	deadline.Stop()
 	child.close()
 	<-inputDone
+	if oneShotInput && (completion.Outcome.Kind == "exited" || completion.Outcome.Kind == "signal") {
+		select {
+		case failure := <-inputErrors:
+			completion.Outcome = unknownOutcome("command input failed", failure)
+		default:
+		}
+	}
 	select {
 	case failure := <-drainErrors:
 		completion.Outcome = unknownOutcome("command output failed", failure)

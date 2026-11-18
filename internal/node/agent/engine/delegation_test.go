@@ -212,7 +212,7 @@ func TestDelegationHandoff(t *testing.T) {
 					Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
 						return nil
 					},
-					Launch: func(context.Context, string, uint64, map[string]string) (protocol.ProcessCompletion, error) {
+					Launch: func(context.Context, string, uint64, map[string]string, string) (protocol.ProcessCompletion, error) {
 						boundary <- inv.Run
 						select {
 						case <-release:

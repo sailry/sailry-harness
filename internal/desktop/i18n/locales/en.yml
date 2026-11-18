@@ -859,7 +859,7 @@ hooks_before_tool: Before tool
 hooks_command: Command
 hooks_configure: Configure hook
 hooks_conflict: Hooks changed; reload before saving
-hooks_consent: Run these scripts for future turns in this worktree
+hooks_consent: Run these scripts for future turns in every conversation on %{host}. Each script runs in the task's worktree.
 hooks_empty: No hooks
 hooks_enable: Enable hooks
 hooks_enabled: Enabled
@@ -869,10 +869,10 @@ hooks_name: Name
 hooks_phase: Phase
 hooks_remove: Remove hook
 hooks_saved: Hooks saved
-hooks_scope_workspace: Scripts can write this worktree; network access is blocked
+hooks_scope_workspace: Scripts can write within the task's worktree. Network access is blocked.
 hooks_scripts: Scripts
 hooks_settings: Hooks
-hooks_settings_description: Configure scripts for this worktree
+hooks_settings_description: Configure scripts for this execution host
 hooks_timeout: Timeout (ms)
 hooks_turn_end: Turn end
 hooks_unknown: Hook save is uncertain; retry the original request
@@ -1771,9 +1771,6 @@ files_overwrite: Overwrite
 workspace_completed: Completed
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Requested changes: '
-hooks_project_required: Select a project
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: Selected Node or worktree changed
 background_stop_failed: Stop failed; retry
 background_stop_unknown: Stop unconfirmed; check command status
 subagent_stop: Stop subagent

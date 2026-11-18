@@ -406,15 +406,16 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 						results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call failed unexpectedly"}}
 					}
 				}()
-				if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
+				call := calls[i]
+				if err := x.hooks.Before(x.ctx, call.Name, call.ID); err != nil {
 					results[i] = toolFault(err)
 					return
 				}
-				tool := findTool(x.tools, calls[i].Name)
-				finished := x.timeline.tool(calls[i], tool.Delegation)
-				results[i] = tool.Execute(x.ctx, calls[i])
+				tool := findTool(x.tools, call.Name)
+				finished := x.timeline.tool(call, tool.Delegation)
+				results[i] = tool.Execute(x.ctx, call)
 				finished()
-				x.hooks.After(x.ctx, calls[i].Name, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
+				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 			}(i)
 		}
 		workers.Wait()

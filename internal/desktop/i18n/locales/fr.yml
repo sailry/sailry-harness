@@ -859,7 +859,7 @@ hooks_before_tool: Avant l’outil
 hooks_command: Commande
 hooks_configure: Configurer le hook
 hooks_conflict: Les hooks ont changé ; rechargez avant d’enregistrer
-hooks_consent: Exécuter ces scripts pour les prochaines tâches de cet arbre de travail
+hooks_consent: Exécuter ces scripts pour les prochains tours de toutes les conversations sur %{host}. Chaque script s’exécute dans l’arbre de travail de sa tâche.
 hooks_empty: Aucun hook
 hooks_enable: Activer les hooks
 hooks_enabled: Activé
@@ -869,10 +869,10 @@ hooks_name: Nom
 hooks_phase: Phase
 hooks_remove: Retirer le hook
 hooks_saved: Hooks enregistrés
-hooks_scope_workspace: Les scripts peuvent écrire dans cet arbre de travail ; l’accès réseau est bloqué
+hooks_scope_workspace: Les scripts peuvent écrire dans l’arbre de travail de la tâche. L’accès réseau est bloqué.
 hooks_scripts: Scripts
 hooks_settings: Hooks
-hooks_settings_description: Configurer les scripts de cet arbre de travail
+hooks_settings_description: Configurer les scripts de cet hôte d’exécution
 hooks_timeout: Délai (ms)
 hooks_turn_end: Fin du tour
 hooks_unknown: Enregistrement du hook incertain ; réessayez la requête initiale
@@ -1771,9 +1771,6 @@ files_overwrite: Écraser
 workspace_completed: Terminé
 workspace_restore_confirm: Restaurer les versions des fichiers d’avant ce tour
 artifact_edit_prompt: 'Changements demandés :'
-hooks_project_required: Sélectionner un projet
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: Le Node ou l’arbre de travail sélectionné a changé
 background_stop_failed: Arrêt échoué; réessayer
 background_stop_unknown: Arrêt non confirmé; vérifier l'état de la commande
 subagent_stop: Arrêter le sous-agent

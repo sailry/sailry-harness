@@ -61,7 +61,7 @@ type Runtime struct {
 	workspace                *workspaceState
 	resourcePage             resourcePageState
 	workspaceSettings        workspaceSettingsState
-	workspaceSettingsOwner   *Runtime
+	hookSettings             hookSettingsState
 	codeIndexSettings        settings.Stored[bool]
 	settingsShown            *Runtime
 	settingsGeneration       uint64

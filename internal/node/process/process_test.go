@@ -15,6 +15,28 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestForegroundStdin(t *testing.T) {
+	var received string
+	var interactive bool
+	service, err := New(Options{Profile: t.TempDir(), Run: func(_ context.Context, launch Launch, _ func(protocol.ProcessOutputOutputStream, []byte), input <-chan []byte) (protocol.ProcessCompletion, error) {
+		received, interactive = launch.Stdin, input != nil
+		return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	launch := Launch{ID: protocol.NewRequestID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000, Stdin: "{\"event\":\"fixture\"}\n"}
+	if result, err := service.Execute(t.Context(), launch); err != nil || result.Outcome.Kind != "exited" || received != launch.Stdin || interactive {
+		t.Fatalf("foreground runner received input %q, interactive=%v, outcome=%+v, error=%v", received, interactive, result.Outcome, err)
+	}
+	launch.ID, launch.Pty = protocol.NewRequestID(), true
+	var fault *protocol.Fault
+	if _, err := service.Start(launch); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("background PTY accepted one-shot input: %v", err)
+	}
+}
+
 func TestOutputBudget(t *testing.T) {
 	t.Parallel()
 	t.Run("retained tool previews freeze ranges and background head", func(t *testing.T) {

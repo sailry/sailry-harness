@@ -859,7 +859,7 @@ hooks_before_tool: ツール実行前
 hooks_command: コマンド
 hooks_configure: Hook を設定
 hooks_conflict: Hook が変更されました。再読み込みして保存してください
-hooks_consent: このワークツリーで今後のタスクにこれらのスクリプトを実行します
+hooks_consent: '%{host} 上のすべての会話で、今後のターンにこれらのスクリプトを実行します。各スクリプトはタスクのワークツリーで実行されます。'
 hooks_empty: Hook はありません
 hooks_enable: Hook を有効化
 hooks_enabled: 有効
@@ -869,10 +869,10 @@ hooks_name: 名前
 hooks_phase: タイミング
 hooks_remove: Hook を削除
 hooks_saved: Hook を保存しました
-hooks_scope_workspace: スクリプトはこのワークツリーに書き込めます。ネットワークアクセスはブロックされます
+hooks_scope_workspace: スクリプトはタスクのワークツリーに書き込めます。ネットワークアクセスはブロックされます。
 hooks_scripts: スクリプト
 hooks_settings: Hook
-hooks_settings_description: このワークツリーのスクリプトを設定
+hooks_settings_description: この実行ホストのスクリプトを設定
 hooks_timeout: タイムアウト（ms）
 hooks_turn_end: ターン終了
 hooks_unknown: 保存結果が不明です。元の要求を再試行してください
@@ -1771,9 +1771,6 @@ files_overwrite: 上書き
 workspace_completed: 完了
 workspace_restore_confirm: このターンの前のファイルバージョンに戻します
 artifact_edit_prompt: '要求された変更:'
-hooks_project_required: プロジェクトを選択
-hooks_follow_current_worktree: Follow current worktree
-hooks_target_changed: 選択した Node またはワークツリーが変更されました
 background_stop_failed: 停止に失敗しました。やり直します
 background_stop_unknown: 確認なしに停止;コマンドの状態を確認
 subagent_stop: サブエージェントを停止

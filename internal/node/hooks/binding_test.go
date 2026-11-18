@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -15,16 +16,31 @@ func TestHooksCapturedAtAdmission(t *testing.T) {
 	settings.BeforeTool = &protocol.HooksScript{Command: "captured", Enabled: true, TimeoutMs: 30000}
 	settings.Additional = []protocol.HooksEntry{{ID: "second", Phase: protocol.HooksPhaseBeforeTool, Script: protocol.HooksScript{Command: "second", Enabled: true, TimeoutMs: 100}}}
 	var calls []string
-	binding := New(Capture{Settings: settings, Admitted: true, Claim: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64) error {
+	project := protocol.NewProjectID()
+	const cwd = `workspace with "quotes"`
+	binding := New(Capture{Project: project, Cwd: cwd, Settings: settings, Admitted: true, Claim: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64) error {
 		calls = append(calls, "claim")
 		return nil
 	}, Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
 		calls = append(calls, "finish")
 		return nil
-	}, Launch: func(_ context.Context, command string, timeout uint64, env map[string]string) (protocol.ProcessCompletion, error) {
+	}, Launch: func(_ context.Context, command string, timeout uint64, env map[string]string, stdin string) (protocol.ProcessCompletion, error) {
 		calls = append(calls, command)
 		if env["SAILRY_HOOK_TOOL"] != "read_file" {
 			t.Fatal(env)
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(stdin), &event); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]any{
+			"schema_version": float64(1), "hook_event_name": "before_tool", "cwd": cwd, "project_id": project.String(),
+			"node_id": env["SAILRY_HOOK_NODE"], "worktree_id": env["SAILRY_HOOK_WORKTREE"],
+			"session_id": env["SAILRY_HOOK_SESSION"], "turn_id": env["SAILRY_HOOK_TURN"],
+			"tool_name": "read_file", "tool_use_id": "call-read",
+		}
+		if !reflect.DeepEqual(event, want) {
+			t.Fatalf("hook input = %v, want %v", event, want)
 		}
 		if command == "captured" && timeout != 30000 {
 			t.Fatal(timeout)
@@ -33,7 +49,7 @@ func TestHooksCapturedAtAdmission(t *testing.T) {
 	}})
 	settings.BeforeTool.Command = "changed"
 	settings.Additional[0].Script.Command = "changed too"
-	if err := binding.Before(context.Background(), "read_file"); err != nil {
+	if err := binding.Before(context.Background(), "read_file", "call-read"); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(calls, []string{"claim", "captured", "second", "finish"}) {
@@ -50,12 +66,12 @@ func TestUncertainHookClaimNeverLaunches(t *testing.T) {
 		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "already admitted"}
 	}, Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
 		return nil
-	}, Launch: func(context.Context, string, uint64, map[string]string) (protocol.ProcessCompletion, error) {
+	}, Launch: func(context.Context, string, uint64, map[string]string, string) (protocol.ProcessCompletion, error) {
 		launched = true
 		return protocol.ProcessCompletion{}, nil
 	}})
 	var fault *protocol.Fault
-	if err := binding.Before(context.Background(), "write_file"); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || launched {
+	if err := binding.Before(context.Background(), "write_file", "call-write"); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeOutcomeUnknown || launched {
 		t.Fatal(err, launched)
 	}
 }
@@ -72,8 +88,18 @@ func TestTurnEndHooks(t *testing.T) {
 			return nil
 		}, Finish: func(context.Context, protocol.TurnID, protocol.HooksPhase, uint64, protocol.ProcessOutcome, error) error {
 			return nil
-		}, Launch: func(_ context.Context, command string, _ uint64, env map[string]string) (protocol.ProcessCompletion, error) {
+		}, Launch: func(_ context.Context, command string, _ uint64, env map[string]string, stdin string) (protocol.ProcessCompletion, error) {
 			launches = append(launches, launch{command, env["SAILRY_HOOK_EVENT"], env["SAILRY_HOOK_STATUS"], env["SAILRY_HOOK_TOOL"]})
+			var event eventInput
+			if err := json.Unmarshal([]byte(stdin), &event); err != nil {
+				t.Fatal(err)
+			}
+			if event.Project != "" || event.Status != env["SAILRY_HOOK_STATUS"] || event.Tool != env["SAILRY_HOOK_TOOL"] {
+				t.Fatalf("hook input = %+v, environment = %v", event, env)
+			}
+			if event.Event == protocol.HooksPhaseAfterTool && event.ToolUse != "call-write" || event.Event == protocol.HooksPhaseTurnEnd && event.ToolUse != "" {
+				t.Fatalf("unexpected tool invocation on %s: %q", event.Event, event.ToolUse)
+			}
 			code := int32(0)
 			if command == fail {
 				code = 1
@@ -84,7 +110,7 @@ func TestTurnEndHooks(t *testing.T) {
 	}
 	t.Run("a finished turn reports completed", func(t *testing.T) {
 		binding, launches := bind(context.Background(), "")
-		binding.After(context.Background(), "write_file", true)
+		binding.After(context.Background(), "write_file", "call-write", true)
 		if err := binding.Complete(context.Background(), "completed"); err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +129,7 @@ func TestTurnEndHooks(t *testing.T) {
 	})
 	t.Run("an After Tool failure fails the turn", func(t *testing.T) {
 		binding, launches := bind(context.Background(), "after")
-		binding.After(context.Background(), "write_file", false)
+		binding.After(context.Background(), "write_file", "call-write", false)
 		var fault *protocol.Fault
 		if err := binding.Complete(context.Background(), "completed"); !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
 			t.Fatal(err)
@@ -120,7 +146,7 @@ func TestTurnEndHooks(t *testing.T) {
 		if err := binding.Complete(context.WithoutCancel(stop), "failed"); err != nil {
 			t.Fatal(err)
 		}
-		binding.After(context.WithoutCancel(stop), "write_file", true)
+		binding.After(context.WithoutCancel(stop), "write_file", "call-write", true)
 		if len(*launches) != 0 {
 			t.Fatal(*launches)
 		}
@@ -130,7 +156,7 @@ func TestTurnEndHooks(t *testing.T) {
 			t.Fatal("hooks bound a turn that was not admitted")
 		}
 		var binding *Binding
-		if binding.WrapsTools() || binding.Before(context.Background(), "write_file") != nil || binding.Complete(context.Background(), "completed") != nil {
+		if binding.WrapsTools() || binding.Before(context.Background(), "write_file", "call-write") != nil || binding.Complete(context.Background(), "completed") != nil {
 			t.Fatal("an absent binding ran")
 		}
 	})

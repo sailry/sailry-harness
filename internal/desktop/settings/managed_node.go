@@ -12,7 +12,7 @@ import (
 func (section Section) ManagesNode() bool {
 	switch section {
 	case General, Conversation, Providers, Teams, Connectors, Media, Plugins, Skills,
-		Knowledge, Terminal, Runtime, OCR, Decision, Permissions, Backup:
+		Knowledge, Terminal, Hooks, Runtime, OCR, Decision, Permissions, Backup:
 		return true
 	}
 	return false
