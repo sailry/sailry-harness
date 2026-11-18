@@ -71,7 +71,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	for _, declaration := range info.Extension.Tools {
 		if declaration.Handler != nil && availablePluginTool(invocation, declaration) {
 			if operation := declaration.Handler.Operation; operation != nil && (*operation == protocol.ToolOperationDelegateAgent || *operation == protocol.ToolOperationGuideAgent) &&
-				(invocation.Session.Delegation != nil || invocation.Turn.Config.Resource != nil && invocation.Turn.Config.Assistant == nil || invocation.Turn.Roles.Execution != protocol.ConversationExecutionTeam) {
+				!store.DelegationAvailable(invocation.Session, invocation.Turn) {
 				continue
 			}
 			// The media tools are the Node's own: a package's declaration of a

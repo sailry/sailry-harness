@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -487,6 +488,77 @@ func (f *engineFixture) childTurns() []protocol.TurnID {
 		f.t.Fatal(err)
 	}
 	return turns
+}
+
+func TestCollaborateWithOneModelRunsChildrenInParallel(t *testing.T) {
+	started := make(chan fantasy.Call, 2)
+	release := make(chan struct{})
+	child := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		started <- request
+		select {
+		case <-ctx.Done():
+			return
+		case <-release:
+			response(text("Delegated result"), finish())(ctx, request, yield)
+		}
+	}
+	language := &scriptedModel{scripts: []script{
+		response(
+			call("first", "spawn_agent", `{"task":"Investigate the first question"}`),
+			call("second", "spawn_agent", `{"task":"Investigate the second question"}`),
+			call("missing-role", "spawn_agent", `{"task":"Refuse unknown role","role":"reviewer"}`),
+			finish(),
+		),
+		child,
+		child,
+		response(text("Integrated results"), finish()),
+	}}
+	f := newFixture(t, language)
+	var bindingMutex sync.Mutex
+	bindings := make(map[protocol.SessionID]model.Binding)
+	f.r.model = func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		bindingMutex.Lock()
+		defer bindingMutex.Unlock()
+		bindings[binding.Session] = binding
+		return language, nil
+	}
+	config := f.session.Config
+	config.Mode = protocol.WorkModeFlagship
+	input := protocol.DefaultConversationStart()
+	input.Config, input.Execution, input.Message.Text = &config, protocol.ConversationExecutionModel, "Answer two independent questions"
+	turn := f.command("start_session", &input).Data.(protocol.QueuedTurn)
+	if turn.Roles.Execution != protocol.ConversationExecutionModel || len(turn.Roles.Profiles) != 0 {
+		t.Fatalf("the turn changed the selected single-model execution: %+v", turn.Roles)
+	}
+	f.start()
+	for range 2 {
+		select {
+		case request := <-started:
+			if slices.Contains(offeredNames(request), "spawn_agent") {
+				t.Fatal("a child was allowed to delegate")
+			}
+		case <-f.ctx.Done():
+			t.Fatal("both inherited-model children did not start together")
+		}
+	}
+	close(release)
+	f.waitRun(turn.ID, protocol.ConversationStatusCompleted)
+	children := f.childTurns()
+	f.r.workers.Wait()
+	if len(children) != 2 {
+		t.Fatalf("expected two anonymous children without admitting the unknown role, got %d", len(children))
+	}
+	if !slices.Contains(offeredNames(language.calls[0]), "spawn_agent") {
+		t.Fatal("the parent did not receive the delegation tool")
+	}
+	if len(bindings) != 3 {
+		t.Fatalf("expected the parent and two distinct child sessions, got %d", len(bindings))
+	}
+	for session, binding := range bindings {
+		if binding.Config.Provider != config.Provider || binding.Config.Model != config.Model || binding.Config.Permission != config.Permission {
+			t.Fatalf("session %s did not inherit the chosen model and permission", session)
+		}
+	}
 }
 
 func TestParentEndSettlesChildren(t *testing.T) {

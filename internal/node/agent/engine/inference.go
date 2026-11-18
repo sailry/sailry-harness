@@ -65,10 +65,16 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		}
 		languageModel = x.renewedModel
 	}
+	hasTools := capturedModel(binding).Tools
+	var delegation string
+	if hasTools {
+		delegation = r.delegationContext(x, state)
+	}
+	canDelegate := hasTools && findTool(x.tools, "spawn_agent") != nil
 	parts := []prompt.Part{
-		{Key: "workflow", Text: prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)},
+		{Key: "workflow", Text: prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil, canDelegate)},
 		{Key: "execution_identity", Text: fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)},
-		{Key: "delegation", Text: r.delegationContext(x, state)},
+		{Key: "delegation", Text: delegation},
 		{Key: "skills", Text: x.skillContext},
 		{Key: "deferred_tools", Text: r.deferredContext(x, state)},
 		{Key: "child_budget", Text: childBudgetContext(x, state)},
@@ -76,7 +82,7 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	if state.Context.Environment != nil {
 		parts = append(parts, prompt.Part{Key: "environment", Text: *state.Context.Environment})
 	}
-	if title := prompt.TitleInstruction(state.Context.Title, capturedModel(binding).Tools, x.inv.Session.Delegation != nil); title != nil {
+	if title := prompt.TitleInstruction(state.Context.Title, hasTools, x.inv.Session.Delegation != nil); title != nil {
 		parts = append(parts, prompt.Part{Key: "title", Text: *title})
 	}
 	var instructions []string

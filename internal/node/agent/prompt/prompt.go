@@ -49,12 +49,16 @@ func Policy(mode protocol.WorkMode, permission protocol.Permission, child bool) 
 	}
 	panic("invalid captured permission")
 }
-func Workflow(mode protocol.WorkMode, child bool) string {
+func Workflow(mode protocol.WorkMode, child, delegation bool) string {
 	instruction := text("direct")
 	if child {
 		instruction = "Complete the delegated scope and report to the parent. Delegated children cannot create or control other agents."
 	} else if mode == protocol.WorkModeFlagship {
-		instruction = "Active work mode: Flagship\n" + text("flagship")
+		collaborate := "Delegation is unavailable in this turn. Complete the task directly within the available capabilities."
+		if delegation {
+			collaborate = text("flagship")
+		}
+		instruction = "Active work mode: Flagship\n" + collaborate
 	}
 	return "Work mode\n" + instruction + "\nMode instructions do not grant tool authority. Follow the captured mode and tool permissions, including read-only restrictions inherited by delegated tasks."
 }

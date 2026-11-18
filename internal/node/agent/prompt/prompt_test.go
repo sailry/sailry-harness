@@ -38,6 +38,22 @@ func TestSystemPromptByteStable(t *testing.T) {
 	}
 }
 
+func TestCollaborateWorkflowUsesAvailableDelegation(t *testing.T) {
+	t.Parallel()
+	available := Workflow(protocol.WorkModeFlagship, false, true)
+	unavailable := Workflow(protocol.WorkModeFlagship, false, false)
+	child := Workflow(protocol.WorkModeFlagship, true, false)
+	if !strings.Contains(available, "spawn_agent") || !strings.Contains(available, "use the current model") {
+		t.Fatalf("missing collaboration instructions: %q", available)
+	}
+	if !strings.Contains(unavailable, "Delegation is unavailable") || strings.Contains(unavailable, "spawn_agent") {
+		t.Fatalf("unavailable delegation was advertised: %q", unavailable)
+	}
+	if !strings.Contains(child, "report to the parent") || strings.Contains(child, "spawn_agent") {
+		t.Fatalf("workflow did not retain the child boundary: %q", child)
+	}
+}
+
 func TestPendingContextTracksRollingBoundary(t *testing.T) {
 	turn, now := protocol.NewTurnID(), time.Unix(1, 0)
 	user := func(text string) canonical.Record {

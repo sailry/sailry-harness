@@ -21,6 +21,15 @@ type delegationArguments struct {
 	Background bool                 `json:"background"`
 }
 
+// DelegationAvailable uses the captured turn. A team supplies a roster, while
+// Collaborate also supports children that inherit the parent's model.
+func DelegationAvailable(session protocol.Session, turn protocol.QueuedTurn) bool {
+	return session.Delegation == nil &&
+		(turn.Config.Resource == nil || turn.Config.Assistant != nil) &&
+		(turn.Roles.Execution == protocol.ConversationExecutionTeam ||
+			turn.Roles.Execution == protocol.ConversationExecutionModel && turn.Config.Mode == protocol.WorkModeFlagship)
+}
+
 func readDelegation(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*protocol.Delegation, error) {
 	return readBody[protocol.Delegation](ctx, db, "SELECT body FROM agent_delegations WHERE turn=?1", turn.String())
 }
@@ -145,8 +154,8 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if err != nil {
 		return empty, nil, err
 	}
-	if capture.Roles.Execution != protocol.ConversationExecutionTeam {
-		return empty, nil, fault(protocol.ErrorCodePermissionDenied, "model execution cannot delegate")
+	if !DelegationAvailable(previous, capture) {
+		return empty, nil, fault(protocol.ErrorCodePermissionDenied, "delegation is unavailable for the captured conversation configuration")
 	}
 	var role *protocol.RoleProfile
 	session := previous
