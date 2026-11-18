@@ -441,7 +441,7 @@ func (r *Runtime) stopChildren(x *execution) {
 // Undelivered foreground children are cancelled and noted. A stopped or failed
 // turn has also cancelled every other child of its session. The turn waits
 // until all of them have settled, so it never finishes ahead of its children.
-func (r *Runtime) cancelForeground(x *execution) {
+func (r *Runtime) cancelForeground(x *execution) bool {
 	if x.ctx.Err() != nil {
 		r.stopChildren(x)
 	}
@@ -470,17 +470,19 @@ func (r *Runtime) cancelForeground(x *execution) {
 		record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
 		_ = r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
 	}
-	r.settleChildren(x, stopped)
+	settled := r.settleChildren(x, stopped)
 	r.Wake()
+	return settled
 }
 
 // settleChildren waits for the session's cancelled children to finish, then
 // consumes their completion records: the stopped work is never reported again
-// with a later message or by a notice turn. Node shutdown settles children
-// through its own path and is not waited for.
-func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) {
-	ctx := context.WithoutCancel(r.ctx)
-	for r.ctx.Err() == nil {
+// with a later message or by a notice turn. Only the storage work is retried.
+// It returns false on Node shutdown, which settles children separately.
+func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) bool {
+	ctx := r.ctx
+	reported := false
+	for ctx.Err() == nil {
 		changed := r.activitySignal()
 		r.mu.Lock()
 		for _, child := range x.stopped {
@@ -494,45 +496,51 @@ func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) {
 			}
 		}
 		var queued []*delegatedChild
+		var turns []protocol.TurnID
 		running := false
 		for _, child := range stopped {
 			last := child.last()
-			if r.children[last.turn] != last {
-				continue
-			}
-			if last.started {
+			switch {
+			case r.children[last.turn] != last:
+				if !slices.Contains(turns, last.turn) {
+					turns = append(turns, last.turn)
+				}
+			case last.started:
 				running = true
-			} else {
+			case !slices.Contains(queued, last):
 				queued = append(queued, last)
 			}
 		}
 		r.mu.Unlock()
-		if len(queued) > 0 {
-			if r.finishQueued(ctx, queued) != nil {
-				return
+		var err error
+		switch {
+		case len(queued) > 0:
+			err = r.finishQueued(ctx, queued)
+		case running:
+			select {
+			case <-changed:
+			case <-ctx.Done():
 			}
-			continue
+		case len(turns) == 0:
+			return true
+		default:
+			err = r.consumeStoppedChildren(ctx, x, turns)
+			if err == nil {
+				return true
+			}
 		}
-		if !running {
+		if err != nil && !r.waitSettlementRetry(x, "settle_children", err, &reported) {
 			break
 		}
-		select {
-		case <-changed:
-		case <-r.ctx.Done():
-		}
 	}
-	if r.ctx.Err() != nil || len(stopped) == 0 {
-		return
-	}
-	r.mu.Lock()
-	turns := make([]protocol.TurnID, 0, len(stopped))
-	for _, child := range stopped {
-		turns = append(turns, child.last().turn)
-	}
-	r.mu.Unlock()
+	return false
+}
+
+func (r *Runtime) consumeStoppedChildren(ctx context.Context, x *execution, turns []protocol.TurnID) error {
 	unlock := r.LockPublication()
 	defer unlock()
 	err := r.db.Write(ctx, func(db *sql.Conn) error {
+		// Only still-pending records are changed if an earlier commit was uncertain.
 		events, err := store.ConsumeStoppedChildren(ctx, db, x.inv.Run.Turn, turns)
 		if err != nil {
 			return err
@@ -544,6 +552,7 @@ func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) {
 		r.publish()
 		r.RefreshCommitted(x.inv.Session.ID)
 	}
+	return err
 }
 
 // last is the end of the child's successor chain. The caller holds r.mu.
@@ -570,6 +579,8 @@ func (r *Runtime) finishQueued(ctx context.Context, children []*delegatedChild) 
 	err := r.db.Write(ctx, func(db *sql.Conn) error {
 		var events []protocol.Event
 		for _, child := range children {
+			// FinishQueuedChild checks the stored finish time before writing, so
+			// an uncertain commit is not applied twice.
 			changed, err := store.FinishQueuedChild(ctx, db, child.turn, protocol.ConversationStatusCancelled, nil, r.clock.Now())
 			if err != nil {
 				return err
@@ -582,11 +593,9 @@ func (r *Runtime) finishQueued(ctx context.Context, children []*delegatedChild) 
 	if err != nil {
 		return err
 	}
-	r.mu.Lock()
 	for _, child := range children {
-		delete(r.children, child.turn)
+		r.releaseQueuedChild(child)
 	}
-	r.mu.Unlock()
 	r.publish()
 	turns := make([]protocol.TurnID, 0, len(children))
 	for _, child := range children {
@@ -595,4 +604,20 @@ func (r *Runtime) finishQueued(ctx context.Context, children []*delegatedChild) 
 	}
 	r.RefreshCommitted(children[0].root, turns...)
 	return nil
+}
+
+// releaseQueuedChild drops a settled owner under publication ownership, before
+// another turn can reuse its session's background command scope.
+func (r *Runtime) releaseQueuedChild(child *delegatedChild) {
+	r.mu.Lock()
+	if r.children[child.turn] != child {
+		r.mu.Unlock()
+		return
+	}
+	child.cancel()
+	delete(r.children, child.turn)
+	r.mu.Unlock()
+	if child.commandsInherited && r.stopCommands != nil && r.ctx.Err() == nil {
+		r.stopCommands(child.session)
+	}
 }

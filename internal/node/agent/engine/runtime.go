@@ -231,13 +231,7 @@ func (r *Runtime) run() {
 			changedChildren := make(map[protocol.SessionID][]protocol.TurnID)
 			for _, child := range ended {
 				changedChildren[child.root] = append(changedChildren[child.root], child.turn)
-				child.cancel()
-				r.mu.Lock()
-				delete(r.children, child.turn)
-				r.mu.Unlock()
-				if child.commandsInherited && r.stopCommands != nil && r.ctx.Err() == nil {
-					r.stopCommands(child.session)
-				}
+				r.releaseQueuedChild(child)
 			}
 			if inv != nil || len(changes) > 0 {
 				r.publish()

@@ -10,8 +10,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// executeOwned finishes the run even when its finishing code panics, so a
-// defect in one run never ends the Node or strands the durable slot.
+// executeOwned handles an unexpected panic without ending the Node. If the
+// Node is shutting down before settlement completes, recovery owns the run.
 func (r *Runtime) executeOwned(x *execution) {
 	defer func() {
 		value := recover()
@@ -21,8 +21,11 @@ func (r *Runtime) executeOwned(x *execution) {
 		logPanic(x, "run", "", value)
 		x.cancel()
 		r.drainOperations(x)
-		r.cancelForeground(x)
+		settled := r.cancelForeground(x)
 		_ = r.closeTools(x)
+		if !settled {
+			return
+		}
 		ctx := context.WithoutCancel(r.ctx)
 		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "execution failed unexpectedly; calls were not replayed"}
 		if x.inv.Session.Delegation != nil {

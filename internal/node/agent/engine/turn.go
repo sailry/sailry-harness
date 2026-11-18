@@ -53,8 +53,9 @@ func (r *Runtime) execute(x *execution) {
 	if err != nil || x.ctx.Err() != nil {
 		settleErr = r.settleCalls(ctx, x)
 	}
-	settledStop := x.ctx.Err() != nil
-	r.cancelForeground(x)
+	stoppedBeforeSettling := x.ctx.Err() != nil
+	childrenSettled := r.cancelForeground(x)
+	settledStop := stoppedBeforeSettling && childrenSettled
 	cleanupErr := r.closeTools(x)
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
@@ -100,70 +101,93 @@ func (r *Runtime) execute(x *execution) {
 	var successor *protocol.ConversationRun
 	var reviewEntry *protocol.ConversationEntry
 	var reviewQuestion *protocol.ConversationQuestion
-	// The turn keeps its owner until its end is durable. Only this write is
-	// repeated: the model, tools, hooks and cleanup have already ended.
+	// The turn keeps its owner until its end is durable. Retries do not run
+	// the model, tools, hooks or cleanup again.
 	reported := false
+	finishUnknown := false
 	var unlock func()
 	defer func() {
 		if unlock != nil {
 			unlock()
 		}
 	}()
+	finish := func(db *sql.Conn) error {
+		successor, reviewEntry, reviewQuestion = nil, nil, nil
+		var changes []protocol.Event
+		var err error
+		finishStatus := status
+		if !childrenSettled {
+			finishStatus = protocol.ConversationStatusInterrupted
+		} else if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
+			finishStatus = r.stoppedStatus()
+		}
+		run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, finishStatus, failure, r.clock.Now())
+		if err != nil {
+			return err
+		}
+		// A Stop committed during cleanup or the completion hook may not
+		// have reached the runtime yet. FinishTurn applies the durable
+		// decision. Roll back this write so children can finish first.
+		if run.Status == protocol.ConversationStatusCancelled && !settledStop && x.inv.Session.Delegation == nil {
+			return errSettleStoppedChildren
+		}
+		if child != nil && run.Status == protocol.ConversationStatusCompleted {
+			var guidanceEvents []protocol.Event
+			successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
+			if err != nil {
+				return err
+			}
+			changes = append(changes, guidanceEvents...)
+		}
+		var reviewEvents []protocol.Event
+		reviewEntry, reviewQuestion, reviewEvents, err = store.PublishPlanReview(ctx, db, x.inv.Run.Turn, r.clock.Now())
+		if err != nil {
+			return err
+		}
+		changes = append(changes, reviewEvents...)
+		_, err = store.RecordEvents(ctx, db, r.node, changes)
+		return err
+	}
 	for {
 		unlock = r.LockPublication()
-		err = r.db.Write(ctx, func(db *sql.Conn) error {
-			successor, reviewEntry, reviewQuestion = nil, nil, nil
-			var changes []protocol.Event
-			var err error
-			if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
-				status = r.stoppedStatus()
-			}
-			run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, status, failure, r.clock.Now())
-			if err != nil {
+		if finishUnknown {
+			// An uncertain commit may already have ended this turn, including
+			// its guidance and review changes. Inspect it before another write.
+			var current protocol.ConversationRun
+			err = r.db.Read(r.ctx, func(db *sql.Conn) error {
+				var err error
+				current, err = store.ReadAgentRun(r.ctx, db, x.inv.Run.Turn)
 				return err
-			}
-			// A Stop committed during cleanup or the completion hook may not
-			// have reached the runtime yet. FinishTurn applies the durable
-			// decision. Roll back this write so children can finish first.
-			if run.Status == protocol.ConversationStatusCancelled && !settledStop && x.inv.Session.Delegation == nil {
-				return errSettleStoppedChildren
-			}
-			if child != nil && run.Status == protocol.ConversationStatusCompleted {
-				var guidanceEvents []protocol.Event
-				successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
-				if err != nil {
-					return err
+			})
+			if err == nil {
+				if current.FinishedMs != nil {
+					run = current
+					break
 				}
-				changes = append(changes, guidanceEvents...)
+				finishUnknown = false
 			}
-			var reviewEvents []protocol.Event
-			reviewEntry, reviewQuestion, reviewEvents, err = store.PublishPlanReview(ctx, db, x.inv.Run.Turn, r.clock.Now())
-			if err != nil {
-				return err
+		}
+		if !finishUnknown {
+			err = r.db.Write(ctx, finish)
+			if err == nil {
+				break
 			}
-			changes = append(changes, reviewEvents...)
-			_, err = store.RecordEvents(ctx, db, r.node, changes)
-			return err
-		})
-		if err == nil {
-			break
+			fault, ok := errors.AsType[*protocol.Fault](err)
+			finishUnknown = ok && fault.Code == protocol.ErrorCodeOutcomeUnknown
 		}
 		unlock()
 		unlock = nil
 		if errors.Is(err, errSettleStoppedChildren) {
 			x.cancel()
 			r.stopChildren(x)
-			r.settleChildren(x, nil)
+			if !r.settleChildren(x, nil) {
+				return
+			}
 			settledStop = true
 			continue
 		}
-		if !reported {
-			reported = true
-			logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", "finish"),
-				slog.String("session", x.inv.Session.ID.String()), slog.String("turn", x.inv.Run.Turn.String()), slog.String("exception", err.Error()))
-		}
 		// A stopping Node leaves the run to restart recovery.
-		if r.clock.Sleep(r.ctx, settlementRetry) != nil {
+		if !r.waitSettlementRetry(x, "finish", err, &reported) {
 			return
 		}
 	}
@@ -205,6 +229,18 @@ func (r *Runtime) execute(x *execution) {
 		x.observedMu.Unlock()
 		r.afterTurn(r.ctx, x.inv, run, observed)
 	}
+}
+
+func (r *Runtime) waitSettlementRetry(x *execution, operation string, err error, reported *bool) bool {
+	if r.ctx.Err() != nil {
+		return false
+	}
+	if !*reported {
+		*reported = true
+		logging.Emit(slog.LevelError, slog.String("area", "agent"), slog.String("phase", logging.Failed), slog.String("operation", operation),
+			slog.String("session", x.inv.Session.ID.String()), slog.String("turn", x.inv.Run.Turn.String()), slog.String("exception", err.Error()))
+	}
+	return r.clock.Sleep(r.ctx, settlementRetry) == nil
 }
 
 func inputRecord(turn protocol.TurnID, input protocol.ConversationInput, nowClock *Runtime) canonical.Record {

@@ -55,7 +55,9 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 	if delivered, err := f.r.foregroundStep(parent); err != nil || delivered {
 		t.Fatalf("collected foreground result was delivered again: %t, %v", delivered, err)
 	}
-	f.r.cancelForeground(parent)
+	if !f.r.cancelForeground(parent) {
+		t.Fatal("foreground settlement did not finish")
+	}
 	body, err := json.Marshal(f.state().Records)
 	if err != nil || strings.Count(string(body), answer) != 1 || strings.Contains(string(body), "was cancelled before it finished") {
 		t.Fatalf("collected result was lost, duplicated or cancelled: %s, %v", body, err)
