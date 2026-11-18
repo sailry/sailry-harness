@@ -60,4 +60,11 @@ func (r *Runtime) recoverFailedReads(refresh bool) {
 		state.connectionsFailed = false
 		r.initConnectorUI()
 	}
+	if refresh {
+		// The open settings page can belong to a different Node than Refresh.
+		root := r.localRuntime()
+		if mounted := root.activeFailedPluginSettingsView(); mounted != nil {
+			delete(root.pluginViews.mounts, mounted.key)
+		}
+	}
 }

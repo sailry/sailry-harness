@@ -209,8 +209,13 @@ func (r *Runtime) pluginViewsFrame(view *ui.Context) {
 				r.failPluginView(view, mounted, err, "plugin_callback_failed")
 			}
 		}
-		if mounted.failure != nil && !mounted.reported {
-			r.failPluginView(view, mounted, mounted.failure, mounted.failureTitle)
+		if mounted.failure != nil {
+			if !mounted.reported {
+				r.failPluginView(view, mounted, mounted.failure, mounted.failureTitle)
+			}
+			if key.role == "settings" && r.activeFailedPluginSettingsView() != mounted {
+				delete(state.mounts, key)
+			}
 		}
 	}
 }

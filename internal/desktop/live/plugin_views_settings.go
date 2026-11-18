@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -28,6 +29,23 @@ type pluginSchemaSettings struct {
 	loading   bool
 	pending   bool
 	failure   error
+}
+
+func (r *Runtime) activeFailedPluginSettingsView() *pluginMountedView {
+	state := r.pluginViews
+	if state == nil || state.closed || r.App.Page != shell.SettingsPage {
+		return nil
+	}
+	entry := state.settings[r.App.Settings.Section]
+	if !r.pluginSettingsTargetCurrent(entry) || !entry.owner.controller.Connected() {
+		return nil
+	}
+	key := pluginMountKey{scope: pluginScopeIdentity(entry.owner.controller.Target(), entry.scope), role: "settings", name: entry.scope.Package.Name}
+	mounted := state.mounts[key]
+	if mounted != nil && mounted.failure != nil && mounted.owner == entry.owner && mounted.scope.Package == entry.scope.Package {
+		return mounted
+	}
+	return nil
 }
 
 func (r *Runtime) renderPluginSettings(view *ui.Context, entry pluginSettingsEntry) {
