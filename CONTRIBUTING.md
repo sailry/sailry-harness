@@ -649,9 +649,9 @@ locally built Host instead, place `sailry-host` and its iroh library under
 `internal/node/host.ArtifactRoot` at build time; when that directory holds
 `sailry-host` the execution Node verifies and uploads those artifacts through
 authenticated SSH after exact host-key trust. Isolated deployments need local
-artifacts. Updates preserve the managed profile and paired Node identity. An
-uncertain install or update must be inspected with its original request before
-any new operation.
+artifacts. Local and SSH installers serialize changes to the same program
+location. Updates preserve the managed profile and paired Node identity. Inspect
+an uncertain install or update with its original request before any new operation.
 
 ## Licensing
 
