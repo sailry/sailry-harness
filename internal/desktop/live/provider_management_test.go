@@ -214,11 +214,13 @@ func TestManagedProviderRowWritesOnlyItsNode(t *testing.T) {
 }
 
 func TestPartialProviderSaveInspectsOriginalRequest(t *testing.T) {
-	t.Run("selected destination", func(t *testing.T) { testPartialProviderSave(t, false) })
-	t.Run("deselected destination", func(t *testing.T) { testPartialProviderSave(t, true) })
+	t.Run("selected destination", func(t *testing.T) { testPartialProviderSave(t, false, "") })
+	t.Run("deselected destination", func(t *testing.T) { testPartialProviderSave(t, true, "") })
+	t.Run("terminal result at first save", func(t *testing.T) { testPartialProviderSave(t, true, "first save") })
+	t.Run("terminal result during recovery", func(t *testing.T) { testPartialProviderSave(t, true, "recovery") })
 }
 
-func testPartialProviderSave(t *testing.T, deselectDestination bool) {
+func testPartialProviderSave(t *testing.T, deselectDestination bool, terminalAt string) {
 	t.Helper()
 	nodes := []protocol.NodeID{{1}, {2}}
 	controllers := make([]*client.Client, len(nodes))
@@ -227,7 +229,10 @@ func testPartialProviderSave(t *testing.T, deselectDestination bool) {
 	var inspected []protocol.RequestID
 	var discoveredOn []protocol.NodeID
 	var stored protocol.Output
-	confirmed := false
+	remoteOutcome := "admitted"
+	if terminalAt == "first save" {
+		remoteOutcome = "unknown"
+	}
 	for i, node := range nodes {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
@@ -251,9 +256,9 @@ func testPartialProviderSave(t *testing.T, deselectDestination bool) {
 			case "inspect_request":
 				input, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
 				inspected = append(inspected, input.ID)
-				outcome := protocol.RequestOutcome{Kind: "admitted"}
-				if confirmed {
-					outcome = protocol.RequestOutcome{Kind: "completed", Data: protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}}
+				outcome := protocol.RequestOutcome{Kind: remoteOutcome}
+				if remoteOutcome == "completed" {
+					outcome.Data = protocol.Result[protocol.Output, protocol.Fault]{Ok: &stored}
 				}
 				return link.Response{Output: protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: input.ID, Outcome: outcome}}}, true
 			}
@@ -297,26 +302,124 @@ func testPartialProviderSave(t *testing.T, deselectDestination bool) {
 	}
 	root.saveManagedProvider(draft, done)
 	settle()
-	if !slices.Equal(result.Succeeded, draft.Targets[:1]) || !slices.Equal(result.Uncertain, draft.Targets[1:]) || result.Resume == nil {
-		t.Fatalf("partial save: successes %v, uncertain %v, failed %v", result.Succeeded, result.Uncertain, result.Failed)
+	wantUncertain, wantUnconfirmed := draft.Targets[1:], []string(nil)
+	if terminalAt == "first save" {
+		wantUncertain, wantUnconfirmed = nil, draft.Targets[1:]
 	}
-	confirmed = true
+	if !slices.Equal(result.Succeeded, draft.Targets[:1]) || !slices.Equal(result.Uncertain, wantUncertain) ||
+		!slices.Equal(result.Unconfirmed, wantUnconfirmed) || len(result.Failed) != 0 || result.Resume == nil {
+		t.Fatalf("partial save: successes %v, uncertain %v, unconfirmed %v, failed %v", result.Succeeded, result.Uncertain, result.Unconfirmed, result.Failed)
+	}
 	draft.TargetRevisions = result.TargetRevisions
 	draft.ExpectedRevision = result.TargetRevisions[nodes[0].String()]
 	draft.Channel.TargetIDs = result.TargetIDs
+	if terminalAt != "first save" {
+		delete(root.bindings, nodes[1].String())
+		result.Resume(draft, done)
+		root.bindings[nodes[1].String()] = remote
+		if !slices.Equal(result.Succeeded, draft.Targets[:1]) || !slices.Equal(result.Uncertain, draft.Targets[1:]) || len(result.Failed) != 0 || result.Resume == nil {
+			t.Fatalf("offline retry lost a confirmed save: successes %v, uncertain %v, failed %v", result.Succeeded, result.Uncertain, result.Failed)
+		}
+	}
 	if deselectDestination {
 		draft.Targets = draft.Targets[:1]
 	}
+	if terminalAt == "recovery" {
+		remoteOutcome = "unknown"
+		result.Resume(draft, done)
+		settle()
+		if !slices.Equal(result.Succeeded, draft.Targets) || !slices.Equal(result.Unconfirmed, []string{nodes[1].String()}) ||
+			len(result.Failed)+len(result.Uncertain) != 0 || result.Resume == nil || !slices.Equal(saves, []int{1, 1}) {
+			t.Fatalf("terminal receipt started another save: result %+v, saves %v", result, saves)
+		}
+	}
+	remoteOutcome = "completed"
 	result.Resume(draft, done)
 	settle()
-	if !slices.Equal(saves, []int{1, 1}) || original == (protocol.RequestID{}) || !slices.Equal(inspected, []protocol.RequestID{original, original}) {
+	wantInspected := []protocol.RequestID{original, original}
+	if terminalAt == "first save" {
+		wantInspected = wantInspected[:1]
+	}
+	if !slices.Equal(saves, []int{1, 1}) || original == (protocol.RequestID{}) || !slices.Equal(inspected, wantInspected) {
 		t.Fatalf("retry issued %v saves and inspected %v, original %v", saves, inspected, original)
 	}
-	if !slices.Equal(result.Succeeded, draft.Targets) || len(result.Failed)+len(result.Uncertain) != 0 || result.Group == "" {
-		t.Fatalf("recovered save: successes %v, uncertain %v, failed %v, group %q", result.Succeeded, result.Uncertain, result.Failed, result.Group)
+	if !slices.Equal(result.Succeeded, draft.Targets) || len(result.Failed)+len(result.Uncertain)+len(result.Unconfirmed) != 0 ||
+		(result.Group == "") != (terminalAt != "") {
+		t.Fatalf("recovered save: successes %v, uncertain %v, unconfirmed %v, failed %v, group %q", result.Succeeded, result.Uncertain, result.Unconfirmed, result.Failed, result.Group)
 	}
-	if groups := root.Preferences.Data.ProviderGroups; len(groups) != 1 || len(groups[0].Members) != 2 || result.TargetIDs[nodes[1].String()] == "" {
+	if groups := root.Preferences.Data.ProviderGroups; terminalAt == "" && (len(groups) != 1 || len(groups[0].Members) != 2 || result.TargetIDs[nodes[1].String()] == "") {
 		t.Fatalf("the confirmed copy was missing from the association: %+v", groups)
+	}
+}
+
+func TestProviderCopyFinishesWhenDestinationDetaches(t *testing.T) {
+	local, remote := protocol.NodeID{1}, protocol.NodeID{2}
+	source := protocol.DefaultConversationProvider()
+	source.ID, source.Revision, source.Name = protocol.ProviderID{3}, 1, "Original channel"
+	source.Authentication = protocol.AuthenticationApiKey
+	source.Credential = &protocol.CredentialRef{Node: local, ID: protocol.CredentialID{4}}
+	key := protocol.NewSecret("fixture-key")
+	localTransport := &conversationTestTransport{snapshot: protocol.DefaultSnapshot()}
+	localTransport.snapshot.Node = local
+	localTransport.snapshot.Providers = []protocol.ConversationProvider{source}
+	localTransport.handle = func(request protocol.Request) (link.Response, bool) {
+		switch request.Command.Kind {
+		case "read_provider_key":
+			return link.Response{Output: protocol.Output{Kind: "provider_key", Data: &key}}, true
+		case "save_provider":
+			input, _ := detail[protocol.CommandSaveProviderPayload](request.Command.Data)
+			saved := input.Provider
+			saved.Revision = input.ExpectedRevision + 1
+			return link.Response{Output: protocol.Output{Kind: "provider", Data: saved}}, true
+		}
+		return link.Response{}, false
+	}
+	remoteTransport := &conversationTestTransport{snapshot: protocol.DefaultSnapshot()}
+	remoteTransport.snapshot.Node = remote
+	controller, peer := client.New(localTransport), client.New(remoteTransport)
+	for _, c := range []*client.Client{controller, peer} {
+		t.Cleanup(func() { _ = c.Close() })
+		if err := c.Start(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := NewWithPreferences(t.Context(), controller, preferences.Open(filepath.Join(t.TempDir(), "preferences.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	bound := root.newBinding(peer)
+	root.bindings = map[string]*Runtime{remote.String(): bound}
+	targets := []string{local.String(), remote.String()}
+	draft := settings.ProviderDraft{ExpectedRevision: source.Revision, Targets: targets, Channel: viewmodel.Channel{
+		Node: local.String(), ID: source.ID.String(), Name: "Updated channel", API: "responses",
+	}}
+	var result settings.ProviderSaveResult
+	root.saveManagedProvider(draft, func(value settings.ProviderSaveResult) { result = value })
+	root.workers.Wait()
+	localTransport.mu.Lock()
+	readKey := slices.ContainsFunc(localTransport.requests, func(request protocol.Request) bool { return request.Command.Kind == "read_provider_key" })
+	localTransport.mu.Unlock()
+	if !readKey {
+		t.Fatal("the copy did not read the existing source key")
+	}
+	// The source read has answered, but its frame has not started the copies.
+	if err := bound.Close(); err != nil {
+		t.Fatal(err)
+	}
+	delete(root.bindings, remote.String())
+	window := ui.NewTester(func(c *ui.Context) { root.drain(c) }, 320, 240)
+	for range 5 {
+		root.workers.Wait()
+		window.Frame()
+	}
+	if !slices.Equal(result.Succeeded, targets[:1]) || !slices.Equal(result.Failed, targets[1:]) || result.Resume == nil {
+		t.Fatalf("detached copy did not settle: successes %v, failed %v", result.Succeeded, result.Failed)
+	}
+	remoteTransport.mu.Lock()
+	defer remoteTransport.mu.Unlock()
+	if slices.ContainsFunc(remoteTransport.requests, func(request protocol.Request) bool { return request.Command.Kind == "save_provider" }) {
+		t.Fatal("a provider write escaped to the detached binding")
 	}
 }
 

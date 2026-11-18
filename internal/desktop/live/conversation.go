@@ -360,11 +360,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	outgoing := r.composerOutgoing[cv.ID]
 	ctx.SendBlocked = ctx.SendBlocked || !comp.Running && (err != nil || r.conversationCreating[cv.ID] || outgoing != nil && outgoing.transcript)
 	ctx.SelectModel = func() {
-		// The providers are those of the Node this conversation runs on.
-		root := r.localRuntime()
-		root.App.Host = r.controller.Target().String()
-		root.App.Settings.Open(settings.Providers)
-		root.App.Navigate(shell.SettingsPage)
+		r.openNodeSettings(settings.Providers)
 	}
 	if err == nil && !ctx.Readonly && !teamUnsettled {
 		encoded, _ := json.Marshal(config)
@@ -893,10 +889,7 @@ func (x *conversationActions) AddProject() {
 }
 func (x *conversationActions) ManageTeams() {
 	if !x.readonly() {
-		// The teams are those of the Node this conversation runs on.
-		x.r.App.Host = x.r.controller.Target().String()
-		x.r.App.Settings.Open(settings.Teams)
-		x.r.App.Navigate(shell.SettingsPage)
+		x.r.openNodeSettings(settings.Teams)
 	}
 }
 func (x *conversationActions) OpenChange(path string) {

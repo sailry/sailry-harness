@@ -1724,6 +1724,7 @@ session_changed: Session changed; try again
 project_changed: Project changed; reopen the editor
 chat_action_failed: Operation failed; try again
 chat_action_unknown: Result unconfirmed; retry the original request
+chat_first_send_unconfirmed: The first message could not be confirmed. Check conversation history before sending again.
 chat_config_unavailable: Session configuration unavailable; check the provider
 notification_update_failed: Notifications could not be updated; retry
 session_archive_named: Archive “%{name}” and hide it from active conversations
@@ -1746,6 +1747,7 @@ provider_key_failed: Could not read key
 provider_query_failed: Query failed; try again
 provider_revision_changed: Configuration changed; reopen the editor
 provider_save_failed: Save failed; try again
+provider_save_unconfirmed: The save could not be confirmed. Check the selected hosts before trying again.
 provider_save_unknown: Result unconfirmed; keep content unchanged and retry
 question_closed: Question closed; draft kept
 files_upload_failed: Upload failed

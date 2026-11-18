@@ -1724,6 +1724,7 @@ session_changed: 会话已变化，请重新操作
 project_changed: 项目已变化，请重新打开编辑
 chat_action_failed: 操作失败，请重试
 chat_action_unknown: 结果未确认，可重试原请求
+chat_first_send_unconfirmed: 无法确认首条消息是否发出，请先查看会话记录
 chat_config_unavailable: 会话配置不可用，请检查供应商
 notification_update_failed: 通知更新失败，请重试
 session_archive_named: 归档“%{name}”并从活动会话中隐藏
@@ -1746,6 +1747,7 @@ provider_key_failed: 无法读取密钥
 provider_query_failed: 查询失败，请重试
 provider_revision_changed: 配置已变化，请重新打开编辑
 provider_save_failed: 保存失败，请重试
+provider_save_unconfirmed: 保存结果无法确认，请先在所选主机上检查，再尝试保存。
 provider_save_unknown: 结果未确认，请保持内容不变后重试
 question_closed: 问题已结束，草稿已保留
 files_upload_failed: 上传失败，请检查文件和连接后重试

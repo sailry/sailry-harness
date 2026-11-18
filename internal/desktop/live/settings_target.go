@@ -20,6 +20,17 @@ func (r *Runtime) managedSettingsNode() *Runtime {
 	return nil
 }
 
+func (r *Runtime) openNodeSettings(section settings.Section) {
+	root := r.localRuntime()
+	target := ""
+	if r != root {
+		target = r.controller.Target().String()
+	}
+	root.App.Settings.ManagedNode = target
+	root.App.Settings.Open(section)
+	root.App.Navigate(shell.SettingsPage)
+}
+
 // machineSettingsStatus follows the Node's administrator boundary for
 // settings shared by every user of that machine.
 func (r *Runtime) machineSettingsStatus() string {
@@ -42,9 +53,22 @@ func (r *Runtime) nodeSettingsOwner() *Runtime {
 	if root.App.Page != shell.SettingsPage {
 		return root
 	}
-	switch root.App.Settings.Section {
+	section := root.App.Settings.Section
+	switch section {
 	case settings.General, settings.Conversation, settings.Providers, settings.Teams, settings.Connectors, settings.Media:
-		return root.managedSettingsNode()
+		owner := root.managedSettingsNode()
+		if owner == nil && section == settings.Providers {
+			bound := root.shownSettings()
+			// A temporary outage of the same host leaves the editor and its
+			// pending save in place. Other bindings must open their own drafts.
+			if bound != nil && root.runtimeFor(root.App.Settings.ManagedNode) == bound {
+				switch faultCode(bound.controller.Err()) {
+				case protocol.ErrorCodeUnavailable, protocol.ErrorCodeBusy:
+					return bound
+				}
+			}
+		}
+		return owner
 	}
 	return root
 }
@@ -246,7 +270,7 @@ func (r *Runtime) nodeSettingsFrame() {
 	status := owner.machineSettingsStatus()
 	allowedNow := status == "" && m.ExecutionSettingsStatus != ""
 	m.ExecutionSettingsStatus = status
-	if owner == nil {
+	if owner == nil || owner != root && !owner.controller.Connected() {
 		return
 	}
 	owner.teamsFrame()

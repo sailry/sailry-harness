@@ -204,6 +204,8 @@ durable request ledgers continue to bind recovery to the original identity.
 Desktop stages a draft's attachments on its selected Node, scoped to the
 authenticated user and device. Admission of the first message creates the
 session and binds those attachments to its worktree in one transaction.
+After a lost acknowledgement, Desktop adopts the admitted session from the
+original request receipt or a matching task observation.
 
 Model providers, channels and credentials belong to their authenticated user.
 Machine administrators do not gain another user's configuration access. Legacy

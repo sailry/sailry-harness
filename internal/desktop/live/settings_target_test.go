@@ -8,6 +8,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -502,16 +503,89 @@ func TestSettingsTarget(t *testing.T) {
 			t.Fatal("collection writes did not preserve owner and access scope")
 		}
 	})
+	t.Run("conversation settings links use the execution Node", func(t *testing.T) {
+		cv := &viewmodel.Conversation{Node: nodes[1].String(), ID: "draft/settings-target"}
+		comp := root.App.Composer(cv.ID)
+		comp.Host = cv.Node
+		var ctx *composer.Context
+		var actions shell.ConversationActions
+		conversationView := ui.NewTester(func(c *ui.Context) { ctx, actions = root.conversation(c, cv, comp) }, 320, 240)
+		conversationView.Frame()
+		if liveActions, ok := actions.(*conversationActions); !ok || liveActions.r != remote {
+			t.Fatal("the fixture draft did not execute on the remote host")
+		}
+		for _, link := range []struct {
+			section settings.Section
+			open    func()
+		}{{settings.Providers, ctx.SelectModel}, {settings.Teams, actions.ManageTeams}} {
+			root.App.Navigate(shell.ConversationPage)
+			root.App.Host, m.ManagedNode = nodes[2].String(), nodes[2].String()
+			link.open()
+			root.nodeSettingsFrame()
+			settle()
+			if root.App.Page != shell.SettingsPage || m.Section != link.section || m.ManagedNode != nodes[1].String() || root.shownSettings() != remote {
+				t.Fatalf("%s opened with settings host %q", link.section, m.ManagedNode)
+			}
+			if root.App.Host != nodes[2].String() {
+				t.Fatal("a settings link changed the monitored host")
+			}
+		}
+	})
+	t.Run("temporary provider outage keeps the editor binding", func(t *testing.T) {
+		root.App.Navigate(shell.SettingsPage)
+		m.Open(settings.Providers)
+		m.ManagedNode = nodes[1].String()
+		root.nodeSettingsFrame()
+		settle()
+		generation := root.settingsGeneration
+		refresh := func(code protocol.ErrorCode) error {
+			reporting[1].mu.Lock()
+			reporting[1].nodeFault = code
+			reporting[1].mu.Unlock()
+			return controllers[1].Refresh(t.Context())
+		}
+		if err := refresh(protocol.ErrorCodeUnavailable); faultCode(err) != protocol.ErrorCodeUnavailable {
+			t.Fatalf("could not simulate a provider host outage: %v", err)
+		}
+		root.nodeSettingsFrame()
+		if root.shownSettings() != remote || root.settingsGeneration != generation || m.ProviderActions.Available() {
+			t.Fatal("the outage reset the editor binding or left its actions available")
+		}
+		if err := refresh(""); err != nil {
+			t.Fatal(err)
+		}
+		root.nodeSettingsFrame()
+		if root.shownSettings() != remote || root.settingsGeneration != generation || !m.ProviderActions.Available() {
+			t.Fatal("the same returning host did not retain its editor binding")
+		}
+		settle()
+		if err := refresh(protocol.ErrorCodePermissionDenied); faultCode(err) != protocol.ErrorCodePermissionDenied {
+			t.Fatalf("could not simulate permission loss: %v", err)
+		}
+		root.nodeSettingsFrame()
+		if root.shownSettings() != nil || root.settingsGeneration == generation || m.ProviderActions.Available() {
+			t.Fatal("permission loss retained the editor binding")
+		}
+	})
 }
 
 // settingsTestTransport keeps a fixture Node's subscriptions, so a test can
 // send what the Node reports after its first snapshot.
 type settingsTestTransport struct {
 	*conversationTestTransport
-	streams []*conversationTestSubscription
+	streams   []*conversationTestSubscription
+	nodeFault protocol.ErrorCode
 }
 
 func (t *settingsTestTransport) Subscribe(ctx context.Context, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "node" {
+		t.mu.Lock()
+		code := t.nodeFault
+		t.mu.Unlock()
+		if code != "" {
+			return settingsTestFaultSubscription{code: code}, nil
+		}
+	}
 	subscription, err := t.conversationTestTransport.Subscribe(ctx, topic)
 	if stream, ok := subscription.(*conversationTestSubscription); ok && topic.Kind == "node" {
 		t.mu.Lock()
@@ -520,6 +594,14 @@ func (t *settingsTestTransport) Subscribe(ctx context.Context, topic protocol.To
 	}
 	return subscription, err
 }
+
+type settingsTestFaultSubscription struct{ code protocol.ErrorCode }
+
+func (s settingsTestFaultSubscription) Next(context.Context) (protocol.Update, error) {
+	return protocol.Update{}, &protocol.Fault{Code: s.code, Message: "fixture observation unavailable"}
+}
+
+func (settingsTestFaultSubscription) Close() error { return nil }
 
 // report sends a later snapshot to every subscription of the Node.
 func (t *settingsTestTransport) report(snapshot protocol.Snapshot) {

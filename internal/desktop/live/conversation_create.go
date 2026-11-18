@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -154,6 +155,10 @@ func (x *conversationActions) start(m composer.Message, config protocol.SessionC
 
 func (r *Runtime) failCreation(c *ui.Context, x *conversationActions, err error) {
 	r.discardOutgoing(x.cv.ID)
+	if client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+		kit.Toast(c, kit.Uncertain, i18n.T(c, "chat_first_send_unconfirmed"))
+		return
+	}
 	if x.restore != nil && x.restoreDraft != composerFingerprint(x.comp) && faultCode(err) != protocol.ErrorCodeOutcomeUnknown {
 		x.offerRestore(c, err)
 		return
@@ -167,6 +172,9 @@ func (p *conversationCreation) resume() {
 	x := p.actions
 	r, before := x.r, x.cv.ID
 	if r.conversationCreating[before] {
+		return
+	}
+	if p.dispatched && p.observe(r.snapshot()) {
 		return
 	}
 	if p.transcript {
@@ -201,21 +209,57 @@ func (p *conversationCreation) resume() {
 				return
 			}
 			if err == nil || faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
-				for _, observed := range r.snapshot().Turns {
-					if observed.Request == request.ID {
-						p.turn = protocol.QueuedTurn{ID: observed.ID, Session: observed.Session, Request: observed.Request}
-						p.readSession()
-						return
-					}
+				if p.observe(r.snapshot()) {
+					return
 				}
-				err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
-			} else {
+				if p.turn.Session != (protocol.SessionID{}) {
+					p.readSession()
+					return
+				}
+				if err == nil {
+					err = fileActionFault(protocol.ErrorCodeOutcomeUnknown, "first message outcome is unavailable")
+				}
+			}
+			if !client.Retained(err) {
 				delete(r.conversationCreations, before)
 			}
 			delete(r.conversationCreating, before)
 			r.failCreation(c, x, err)
 		})
 	})
+}
+
+func (r *Runtime) observeConversationCreations() {
+	if len(r.conversationCreations) == 0 {
+		return
+	}
+	snapshot := r.snapshot()
+	for draft, pending := range r.conversationCreations {
+		if pending.dispatched && !r.conversationCreating[draft] {
+			pending.observe(snapshot)
+		}
+	}
+}
+
+// The task event or replacement snapshot proves admission by immutable request ID.
+func (p *conversationCreation) observe(snapshot protocol.Snapshot) bool {
+	if p.turn.Session == (protocol.SessionID{}) {
+		for _, turn := range snapshot.Turns {
+			if turn.Request == p.request.ID && turn.ID != (protocol.TurnID{}) && turn.Session != (protocol.SessionID{}) {
+				p.turn = protocol.QueuedTurn{ID: turn.ID, Session: turn.Session, Request: turn.Request}
+				break
+			}
+		}
+	}
+	if p.turn.Session != (protocol.SessionID{}) {
+		for _, session := range snapshot.Sessions {
+			if session.ID == p.turn.Session && session.Revision >= p.turn.Revision {
+				p.adopt(session)
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *conversationCreation) readSession() {
@@ -229,6 +273,9 @@ func (p *conversationCreation) readSession() {
 	r.executeScoped("open-created/"+before, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: id}}, func(c *ui.Context, out protocol.Output, err error) {
 		session, ok := detail[protocol.Session](out.Data)
 		if err != nil || out.Kind != "session" || !ok || session.ID != id || session.Revision < p.turn.Revision {
+			if p.observe(r.snapshot()) {
+				return
+			}
 			delete(r.conversationCreating, before)
 			r.failCreation(c, x, fileActionFault(protocol.ErrorCodeOutcomeUnknown, "admitted conversation is unavailable"))
 			return
@@ -240,6 +287,9 @@ func (p *conversationCreation) readSession() {
 func (p *conversationCreation) adopt(session protocol.Session) {
 	x := p.actions
 	r, before, after := x.r, x.cv.ID, session.ID.String()
+	if p.transcript {
+		x.stageOutgoing(*x.restore)
+	}
 	delete(r.conversationCreating, before)
 	delete(r.conversationCreations, before)
 	r.admittedSessions[after] = session

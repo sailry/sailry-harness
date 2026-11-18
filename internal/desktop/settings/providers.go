@@ -520,6 +520,7 @@ type providerEditor struct {
 	targetSucceeded     []string
 	targetFailed        []string
 	targetUncertain     []string
+	targetUnconfirmed   []string
 	open                bool
 	step                providerStep
 	editing             string
@@ -830,7 +831,10 @@ func providerTargetList(targets []string) []string {
 func completeProviderSaveResult(targets []string, result ProviderSaveResult) ProviderSaveResult {
 	wanted := providerTargetList(targets)
 	result.Uncertain = providerTargetList(result.Uncertain)
-	uncertain := func(node string) bool { return slices.Contains(result.Uncertain, node) }
+	result.Unconfirmed = providerTargetList(result.Unconfirmed)
+	uncertain := func(node string) bool {
+		return slices.Contains(result.Uncertain, node) || slices.Contains(result.Unconfirmed, node)
+	}
 	failed := map[string]bool{}
 	var extraFailed []string
 	for _, node := range result.Failed {
@@ -875,6 +879,7 @@ func (e *providerEditor) toggleCopyTarget(node string) {
 		e.targets = append(e.targets, node)
 	}
 	e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
+	e.targetUnconfirmed = nil
 }
 
 func (e *providerEditor) targetHosts(m *Model) []ProviderHost {
@@ -1048,6 +1053,7 @@ func (e *providerEditor) save(m *Model) string {
 		signIn := e.login() && e.editing == ""
 		signInNode, id := e.owner, e.id
 		e.targetSucceeded, e.targetFailed, e.targetUncertain = nil, nil, nil
+		e.targetUnconfirmed = nil
 		save := m.ProviderActions.Save
 		if e.resumeSave != nil {
 			save = e.resumeSave
@@ -1061,6 +1067,7 @@ func (e *providerEditor) save(m *Model) string {
 			result = completeProviderSaveResult(targets, result)
 			e.targetSucceeded, e.targetFailed = slices.Clone(result.Succeeded), slices.Clone(result.Failed)
 			e.targetUncertain = slices.Clone(result.Uncertain)
+			e.targetUnconfirmed = slices.Clone(result.Unconfirmed)
 			if result.Group != "" || result.TargetIDs != nil {
 				e.group = result.Group
 			}
@@ -1079,7 +1086,7 @@ func (e *providerEditor) save(m *Model) string {
 			if revision, ok := result.TargetRevisions[e.owner]; ok {
 				e.revision = revision
 			}
-			if len(result.Failed) > 0 || len(result.Uncertain) > 0 {
+			if len(result.Failed)+len(result.Uncertain)+len(result.Unconfirmed) > 0 {
 				if signIn && slices.Contains(result.Succeeded, signInNode) {
 					if targetID := result.TargetIDs[signInNode]; targetID != "" {
 						id = targetID
@@ -1568,6 +1575,9 @@ func providerTargetStatuses(c *ui.Context, hosts []ProviderHost, e *providerEdit
 		}
 		if slices.Contains(e.targetUncertain, host.Node) {
 			ui.Text(c, providerHostName(c, host)+" · "+i18n.T(c, "provider_save_unknown")).FontSize(12).TextColor(theme.Of(c).Warning)
+		}
+		if slices.Contains(e.targetUnconfirmed, host.Node) {
+			ui.Text(c, providerHostName(c, host)+" · "+i18n.T(c, "provider_save_unconfirmed")).FontSize(12).TextColor(theme.Of(c).Warning)
 		}
 	}
 }

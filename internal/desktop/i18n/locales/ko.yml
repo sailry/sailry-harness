@@ -1724,6 +1724,7 @@ session_changed: 세션이 변경되었습니다. 다시 시도하십시오
 project_changed: 프로젝트 변경; 편집기 다시 열기
 chat_action_failed: 작업 실패, 다시 시도하십시오
 chat_action_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십시오
+chat_first_send_unconfirmed: The first message could not be confirmed. Check conversation history before sending again.
 chat_config_unavailable: 세션 구성을 사용할 수 없습니다. 공급자 확인
 notification_update_failed: 알림을 업데이트하지 못했습니다. 다시 시도하세요
 session_archive_named: “%{name}”을(를) 보관하고 활성 대화에서 숨기기
@@ -1746,6 +1747,7 @@ provider_key_failed: 키를 읽을 수 없음
 provider_query_failed: 쿼리 실패; 다시 시도하십시오
 provider_revision_changed: 설정이 변경되었습니다. 편집기를 다시 엽니다
 provider_save_failed: 저장 실패; 다시 시도하십시오
+provider_save_unconfirmed: The save could not be confirmed. Check the selected hosts before trying again.
 provider_save_unknown: 결과 확인되지 않음; 콘텐츠를 변경하지 않고 다시 시도하십시오
 question_closed: 질문 닫기; 초안 유지
 files_upload_failed: 업로드 실패

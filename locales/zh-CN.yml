@@ -946,6 +946,7 @@ provider_api_key: API 密钥
 provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
 provider_save: 保存
 chat_action_unknown: 结果未确认，可重试原请求
+chat_first_send_unconfirmed: 无法确认首条消息是否发出，请先查看会话记录
 chat_action_failed: 操作失败，请重试
 chat_response_invalid: 无法解析模型响应
 chat_subscription_limit: ChatGPT 共享用量已达上限
@@ -999,6 +1000,7 @@ provider_key_failed: 无法读取密钥
 provider_capability_pending: 尚未接入
 provider_remove_effect: 移除后，会话需重新选择供应商
 provider_save_failed: 保存失败，请重试
+provider_save_unconfirmed: 保存结果无法确认，请先在所选主机上检查，再尝试保存。
 provider_save_unknown: 结果未确认，请保持内容不变后重试
 provider_revision_changed: 配置已变化，请重新打开编辑
 connector_consent_effect: 允许更改后的连接权限

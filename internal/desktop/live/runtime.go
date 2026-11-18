@@ -459,6 +459,12 @@ func (r *Runtime) drain(c *ui.Context) {
 	for _, f := range queue {
 		f(c)
 	}
+	if dirty {
+		r.observeConversationCreations()
+		for _, bound := range r.bindings {
+			bound.observeConversationCreations()
+		}
+	}
 	r.resumeReadsOnReconnect()
 	for _, bound := range r.bindings {
 		bound.resumeReadsOnReconnect()

@@ -159,14 +159,35 @@ func (r *Runtime) saveManagedProvider(d settings.ProviderDraft, done func(settin
 }
 
 func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, finished func(settings.ProviderSaveResult)) {
+	sourceNode := d.Channel.Node
+	if sourceNode == "" {
+		sourceNode = root.providerDefaultTarget()
+	}
+	d.Channel.Node = sourceNode
+	nodes := uniqueProviderNodes(d.Targets)
+	if len(nodes) == 0 {
+		nodes = []string{sourceNode}
+	}
+	intent := providerSaveIntent(d)
 	done := func(result settings.ProviderSaveResult) {
-		for _, node := range result.Failed {
-			if target := batch[node]; target != nil && target.request != nil {
+		for node, target := range batch {
+			if target.request != nil {
 				result.Uncertain = append(result.Uncertain, node)
 			}
 		}
-		result.Failed = slices.DeleteFunc(result.Failed, func(node string) bool { return slices.Contains(result.Uncertain, node) })
-		if len(result.Failed) != 0 || len(result.Uncertain) != 0 {
+		for _, node := range nodes {
+			if target := batch[node]; target != nil && target.saved != nil && target.intent == intent &&
+				!slices.Contains(result.Uncertain, node) && !slices.Contains(result.Unconfirmed, node) {
+				result.Succeeded = append(result.Succeeded, node)
+			}
+		}
+		result.Succeeded = uniqueProviderNodes(result.Succeeded)
+		result.Uncertain = uniqueProviderNodes(result.Uncertain)
+		result.Unconfirmed = uniqueProviderNodes(result.Unconfirmed)
+		result.Failed = slices.DeleteFunc(result.Failed, func(node string) bool {
+			return slices.Contains(result.Succeeded, node) || slices.Contains(result.Uncertain, node) || slices.Contains(result.Unconfirmed, node)
+		})
+		if len(result.Failed)+len(result.Uncertain)+len(result.Unconfirmed) != 0 {
 			result.Resume = func(next settings.ProviderDraft, callback func(settings.ProviderSaveResult)) {
 				batch.save(root, next, callback)
 			}
@@ -185,20 +206,29 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 			return
 		}
 		request := *target.request
-		owner.async(func() {
+		if !owner.async(func() {
 			resolution, err := owner.controller.Resolve(owner.ctx, request)
 			owner.enqueue(func(c *ui.Context) {
+				result := providerSaveFailure([]string{node})
+				unknown := "provider_save_unknown"
 				if err == nil {
 					output, outcome := resolution.Result()
+					err = outcome
 					switch resolution.State {
 					case client.RequestApplied:
 						saved, ok := detail[protocol.ConversationProvider](output.Data)
-						if ok && saved.ID == target.id {
+						if ok && output.Kind == "provider" && saved.ID == target.id {
 							target.request, target.saved, target.intent = nil, &saved, target.requestIntent
 							owner.refreshProviderSnapshot()
 							batch.save(root, d, finished)
 							return
 						}
+						err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider save returned no matching channel"}
+						fallthrough
+					case client.RequestUnknown:
+						target.request, target.intent = nil, [sha256.Size]byte{}
+						result = settings.ProviderSaveResult{Unconfirmed: []string{node}}
+						unknown = "provider_save_unconfirmed"
 					case client.RequestAbsent:
 						target.request = nil
 						batch.save(root, d, finished)
@@ -206,38 +236,27 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 					case client.RequestFailed:
 						target.request = nil
 					}
-					err = outcome
-					if resolution.State == client.RequestApplied {
-						err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider save returned no matching channel"}
-					}
 				}
-				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", "provider_save_unknown")
-				done(providerSaveFailure([]string{node}))
+				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
+				done(result)
 			})
-		})
+		}) {
+			done(providerSaveFailure([]string{node}))
+		}
 		return
-	}
-	sourceNode := d.Channel.Node
-	if sourceNode == "" {
-		sourceNode = root.providerDefaultTarget()
 	}
 	source := root.providerOwner(sourceNode)
 	if source == nil {
-		done(providerSaveFailure(d.Targets))
+		done(providerSaveFailure(nodes))
 		return
 	}
-	d.Channel.Node = sourceNode
 	provider := source.providerDraft(d)
 	if provider.ID == (protocol.ProviderID{}) {
-		done(providerSaveFailure(d.Targets))
+		done(providerSaveFailure(nodes))
 		return
 	}
 	if d.TargetRevisions == nil {
 		d.TargetRevisions = d.Channel.TargetRevisions
-	}
-	nodes := uniqueProviderNodes(d.Targets)
-	if len(nodes) == 0 {
-		nodes = []string{sourceNode}
 	}
 	if provider.Authentication != protocol.AuthenticationApiKey && provider.Authentication != "" && len(nodes) != 1 {
 		done(providerSaveFailure(nodes))
@@ -319,14 +338,14 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 	}
 
 	save := func(sourceKey string) {
-		root.saveProviderTargets(batch, providerSaveIntent(d), provider, group, oldMembers, oldByNode, nodes, targets, targetIDs, sourceNode, d.ExpectedRevision, d.TargetRevisions, d.Key, sourceKey, done)
+		root.saveProviderTargets(batch, intent, provider, group, oldMembers, oldByNode, nodes, targets, targetIDs, sourceNode, d.ExpectedRevision, d.TargetRevisions, d.Key, sourceKey, done)
 	}
 	location := oldByNode[sourceNode]
 	if provider.Authentication == protocol.AuthenticationApiKey && strings.TrimSpace(d.Key) == "" && location.provider.Credential != nil {
 		for index, node := range nodes {
 			if targets[index] != nil && oldByNode[node].provider.Credential == nil {
 				source.readProviderKeyForSave(location.provider, func(key string, ok bool) {
-					if !ok {
+					if !ok || root.providerOwner(sourceNode) != source {
 						done(providerSaveFailure(nodes))
 						return
 					}
@@ -362,14 +381,15 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 	for _, member := range oldMembers {
 		members[member.Node] = member
 	}
-	succeeded := make([]string, 0, len(nodes))
-	failed := make([]string, 0, len(nodes))
-	savedRevisions := make(map[string]uint64, len(nodes))
+	result := settings.ProviderSaveResult{TargetRevisions: make(map[string]uint64, len(nodes))}
 	var pending int
+	finish := func() {
+		root.finishManagedProviderSave(batch, groupID, members, nodes, ids, oldMembers, oldByNode, provider.Authentication, result, done)
+	}
 	for index, node := range nodes {
 		owner := targets[index]
-		if owner == nil {
-			failed = append(failed, node)
+		if owner == nil || root.providerOwner(node) != owner {
+			result.Failed = append(result.Failed, node)
 			continue
 		}
 		id := ids[node]
@@ -398,48 +418,56 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 			expected = target.saved.Revision
 			if target.intent == intent {
 				members[member.Node] = member
-				savedRevisions[node] = expected
-				succeeded = append(succeeded, node)
+				result.TargetRevisions[node] = expected
+				result.Succeeded = append(result.Succeeded, node)
 				continue
 			}
 		}
-		pending++
 		secret := providerSaveKey(changedKey, sourceKey, copy.Credential)
 		command := protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: copy, ExpectedRevision: expected, Secret: secret}}
 		request := owner.controller.Prepare(command)
-		owner.async(func() {
+		if owner.async(func() {
 			output, err := owner.controller.Settle(owner.ctx, request)
 			owner.enqueue(func(c *ui.Context) {
 				saved, valid := detail[protocol.ConversationProvider](output.Data)
-				if err == nil && (!valid || saved.ID != id) {
+				if err == nil && (!valid || output.Kind != "provider" || saved.ID != id) {
 					err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "provider save returned no matching channel"}
 				}
-				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", "provider_save_unknown")
-				if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+				unknown := "provider_save_unknown"
+				switch {
+				case client.Retained(err):
 					target.request, target.requestIntent = &request, intent
-				}
-				if err != nil {
-					failed = append(failed, node)
-				} else {
+				case faultCode(err) == protocol.ErrorCodeOutcomeUnknown:
+					target.intent = [sha256.Size]byte{}
+					result.Unconfirmed = append(result.Unconfirmed, node)
+					unknown = "provider_save_unconfirmed"
+				case err != nil:
+					result.Failed = append(result.Failed, node)
+				default:
 					if owner.authorizations == nil {
 						owner.initAuthorization()
 					}
 					target.saved, target.intent = &saved, intent
 					owner.authorizations.savedProviders[id.String()] = saved
 					members[member.Node] = member
-					savedRevisions[node] = saved.Revision
-					succeeded = append(succeeded, node)
+					result.TargetRevisions[node] = saved.Revision
+					result.Succeeded = append(result.Succeeded, node)
 					owner.refreshProviderSnapshot()
 				}
+				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
 				pending--
 				if pending == 0 {
-					root.finishManagedProviderSave(batch, groupID, members, nodes, succeeded, failed, ids, savedRevisions, oldMembers, oldByNode, provider.Authentication, done)
+					finish()
 				}
 			})
-		})
+		}) {
+			pending++
+		} else {
+			result.Failed = append(result.Failed, node)
+		}
 	}
 	if pending == 0 {
-		root.finishManagedProviderSave(batch, groupID, members, nodes, succeeded, failed, ids, savedRevisions, oldMembers, oldByNode, provider.Authentication, done)
+		finish()
 	}
 }
 
@@ -456,11 +484,11 @@ func providerSaveKey(changed, inherited string, existing *protocol.CredentialRef
 }
 
 func (r *Runtime) finishManagedProviderSave(batch providerSaveBatch, groupID protocol.RequestID, members map[protocol.NodeID]preferences.ProviderMember,
-	nodes, succeeded, failed []string, ids map[string]protocol.ProviderID, savedRevisions map[string]uint64,
+	nodes []string, ids map[string]protocol.ProviderID,
 	oldMembers []preferences.ProviderMember, oldByNode map[string]providerLocation,
-	auth protocol.Authentication, done func(settings.ProviderSaveResult)) {
+	auth protocol.Authentication, result settings.ProviderSaveResult, done func(settings.ProviderSaveResult)) {
 	root := r.localRuntime()
-	if auth != protocol.AuthenticationApiKey && auth != "" && len(nodes) == 1 && len(succeeded) == 1 {
+	if auth != protocol.AuthenticationApiKey && auth != "" && len(nodes) == 1 && len(result.Succeeded) == 1 {
 		selected := nodes[0]
 		var stale []providerLocation
 		var staleUnknown []preferences.ProviderMember
@@ -478,37 +506,36 @@ func (r *Runtime) finishManagedProviderSave(batch providerSaveBatch, groupID pro
 		if len(stale) > 0 || len(staleUnknown) > 0 {
 			id := ids[selected]
 			target := r.providerOwner(selected)
-			if target != nil && id != (protocol.ProviderID{}) && savedRevisions[selected] > 0 {
+			if target != nil && id != (protocol.ProviderID{}) && result.TargetRevisions[selected] > 0 {
 				if root.providerMoves == nil {
 					root.providerMoves = map[string]providerMove{}
 				}
-				root.providerMoves[providerMoveKey(selected, id)] = providerMove{id: id, target: target, created: savedRevisions[selected], old: stale}
+				root.providerMoves[providerMoveKey(selected, id)] = providerMove{id: id, target: target, created: result.TargetRevisions[selected], old: stale}
 			}
 			for _, member := range staleUnknown {
-				failed = append(failed, member.Node.String())
+				result.Failed = append(result.Failed, member.Node.String())
 			}
 		}
-		r.finishManagedProviderGroup(protocol.RequestID{}, nil, members, succeeded, failed, savedRevisions, done)
+		r.finishManagedProviderGroup(protocol.RequestID{}, nil, members, result, done)
 		return
 	}
 	// The destinations are explicit writes. Existing copies elsewhere remain
 	// independent and keep their identities when omitted from the save.
-	root.finishManagedProviderGroup(groupID, batch, members, succeeded, failed, savedRevisions, done)
+	root.finishManagedProviderGroup(groupID, batch, members, result, done)
 }
 
 func (r *Runtime) finishManagedProviderGroup(groupID protocol.RequestID, batch providerSaveBatch, members map[protocol.NodeID]preferences.ProviderMember,
-	succeeded, failed []string, savedRevisions map[string]uint64, done func(settings.ProviderSaveResult)) {
+	result settings.ProviderSaveResult, done func(settings.ProviderSaveResult)) {
 	root := r.localRuntime()
 	group, _ := providerGroup(root.Preferences.Data, groupID.String())
 	if len(batch) > 1 {
 		group.Members = root.recordProviderCopies(groupID, group.Members, batch)
 	}
-	result := settings.ProviderSaveResult{Succeeded: uniqueProviderNodes(succeeded), Failed: uniqueProviderNodes(failed)}
+	result.Failed = uniqueProviderNodes(result.Failed)
 	if len(group.Members) > 1 {
 		result.Group = groupID.String()
 	}
 	result.TargetIDs = make(map[string]string, len(members))
-	result.TargetRevisions = maps.Clone(savedRevisions)
 	for _, member := range members {
 		result.TargetIDs[member.Node.String()] = member.Provider.String()
 	}

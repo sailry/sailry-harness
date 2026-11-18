@@ -51,6 +51,7 @@ type ProviderSaveResult struct {
 	Succeeded       []string
 	Failed          []string
 	Uncertain       []string
+	Unconfirmed     []string // The original outcome can no longer be resolved.
 	Group           string
 	TargetIDs       map[string]string
 	TargetRevisions map[string]uint64

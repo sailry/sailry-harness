@@ -1724,6 +1724,7 @@ session_changed: Sesión cambiada; inténtelo de nuevo
 project_changed: Proyecto cambiado; vuelva a abrir el editor
 chat_action_failed: La operación falló; inténtelo de nuevo
 chat_action_unknown: Resultado no confirmado; reintentar la solicitud original
+chat_first_send_unconfirmed: The first message could not be confirmed. Check conversation history before sending again.
 chat_config_unavailable: Configuración de sesión no disponible; compruebe el proveedor
 notification_update_failed: No se pudieron actualizar las notificaciones; reintentar
 session_archive_named: Archivar “%{name}” y ocultarla de las conversaciones activas
@@ -1746,6 +1747,7 @@ provider_key_failed: No se pudo leer la clave
 provider_query_failed: La consulta falló; inténtelo de nuevo
 provider_revision_changed: Configuración cambiada; vuelva a abrir el editor
 provider_save_failed: No se pudo guardar; inténtelo de nuevo
+provider_save_unconfirmed: The save could not be confirmed. Check the selected hosts before trying again.
 provider_save_unknown: Resultado no confirmado; mantenga el contenido sin cambios y vuelva a intentarlo
 question_closed: Cuestión cerrada; proyecto conservado
 files_upload_failed: La subida falló

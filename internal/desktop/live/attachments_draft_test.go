@@ -21,12 +21,17 @@ import (
 )
 
 func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
-	for _, withProject := range []bool{false, true} {
-		name := "projectless"
-		if withProject {
-			name = "in project"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, test := range []struct {
+		name, receipt string
+		withProject   bool
+	}{
+		{name: "projectless"},
+		{name: "in project", withProject: true},
+		{name: "late snapshot proves first admission", receipt: "admitted"},
+		{name: "terminal unknown releases the draft", receipt: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withProject := test.withProject
 			node, provider := protocol.NodeID{1}, protocol.ProviderID{2}
 			project, worktree := protocol.ProjectID{3}, protocol.WorktreeID{4}
 			snapshot := protocol.DefaultSnapshot()
@@ -57,6 +62,7 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 			base.conversation.Node, base.conversation.Page.Session = node, protocol.SessionID{9}
 			transport := &draftAttachmentTransport{conversationTestTransport: base, image: pngBytes.Bytes()}
 			attachment := protocol.Attachment{ID: protocol.AttachmentID{7}}
+			var admitted protocol.QueuedTurn
 			base.handle = func(request protocol.Request) (link.Response, bool) {
 				var output protocol.Output
 				switch request.Command.Kind {
@@ -67,6 +73,18 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 					output = protocol.Output{Kind: "attachment", Data: attachment}
 				case "download_attachment":
 					output = protocol.Output{Kind: "attachment_download", Data: protocol.AttachmentDownload{Stream: protocol.StreamID{2}, Attachment: attachment}}
+				case "start_session":
+					if test.receipt == "" {
+						return link.Response{}, false
+					}
+					if test.receipt == "admitted" {
+						admitted = base.admitStart(request).Data.(protocol.QueuedTurn)
+					}
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "first acknowledgement was lost"}}, true
+				case "inspect_request":
+					query, _ := detail[protocol.CommandInspectRequestPayload](request.Command.Data)
+					result := protocol.RequestOutcome{Kind: test.receipt}
+					output = protocol.Output{Kind: "request_outcome", Data: protocol.OutputRequestOutcomePayload{ID: query.ID, Outcome: result}}
 				default:
 					return link.Response{}, false
 				}
@@ -147,6 +165,22 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 				t.Fatal("a later upload slipped into the in-flight draft")
 			}
 			settle()
+			if test.receipt == "admitted" {
+				if cv.ID != draft || !actions.attachmentsLocked() {
+					t.Fatal("unconfirmed admission released the draft prematurely")
+				}
+				base.mu.Lock()
+				session := base.sessions[admitted.Session]
+				base.snapshot.Cursor++
+				base.snapshot.Sessions = []protocol.Session{session}
+				base.snapshot.Worktrees = []protocol.Worktree{{ID: session.Worktree}}
+				base.snapshot.Turns = []protocol.TurnSummary{{ID: admitted.ID, Session: admitted.Session, Request: admitted.Request}}
+				base.mu.Unlock()
+				if err := controller.Refresh(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				settle()
+			}
 			base.mu.Lock()
 			requests := slices.Clone(base.requests)
 			base.mu.Unlock()
@@ -171,6 +205,12 @@ func TestDraftAttachmentStartsConversationOnlyOnSend(t *testing.T) {
 			if withProject && (input.Project == nil || *input.Project != project || input.Worktree == nil || *input.Worktree != worktree) ||
 				!withProject && (input.Project != nil || input.Worktree != nil) {
 				t.Fatalf("first Send changed project or worktree: %+v", input)
+			}
+			if test.receipt == "unknown" {
+				if cv.ID != draft || actions.attachmentsLocked() || len(comp.Attachments) != 1 || comp.Attachments[0].Status != composer.Ready {
+					t.Fatal("a terminal unknown result did not unlock the original draft and attachment")
+				}
+				return
 			}
 			session, exists := r.session(cv.ID)
 			preview, found := r.attachmentDescriptor(cv.ID, attachment.ID.String())

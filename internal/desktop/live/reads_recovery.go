@@ -15,6 +15,9 @@ func (r *Runtime) retryFailedReads() {
 	if !r.controller.Connected() || r.ctx.Err() != nil {
 		return
 	}
+	for _, pending := range r.conversationCreations {
+		pending.resume()
+	}
 	if r.workspace != nil {
 		node, projectID, overview := r.localRuntime().App.ProjectOwner()
 		for _, project := range r.workspace.projects {
