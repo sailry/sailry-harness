@@ -9,6 +9,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+const (
+	turnHistoryPageLimit    uint16 = 500
+	fullHistoryRestoreLimit uint16 = 1000
+)
+
 func (c *Client) ReadConversation(ctx context.Context, session protocol.SessionID, before *protocol.TurnID) (protocol.ConversationHistory, error) {
 	out, err := c.Do(ctx, protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session, Before: before, Limit: 20}})
 	if err != nil {
@@ -32,8 +37,8 @@ func (c *Client) ReadConversation(ctx context.Context, session protocol.SessionI
 	return h, nil
 }
 
-func (c *Client) readConversationTurn(ctx context.Context, session protocol.SessionID, turn protocol.TurnID, revision uint64, before *uint64) (protocol.ConversationTurnHistory, error) {
-	out, err := c.Do(ctx, protocol.Command{Kind: "read_turn", Data: protocol.CommandReadTurnPayload{Session: session, Turn: turn, ExpectedRevision: revision, Before: before, Limit: 500}})
+func (c *Client) readConversationTurn(ctx context.Context, session protocol.SessionID, turn protocol.TurnID, revision uint64, before *uint64, limit uint16) (protocol.ConversationTurnHistory, error) {
+	out, err := c.Do(ctx, protocol.Command{Kind: "read_turn", Data: protocol.CommandReadTurnPayload{Session: session, Turn: turn, ExpectedRevision: revision, Before: before, Limit: limit}})
 	if err != nil {
 		return protocol.ConversationTurnHistory{}, err
 	}
@@ -65,9 +70,16 @@ func (c *Client) readConversationTurn(ctx context.Context, session protocol.Sess
 // LoadOlderConversation coalesces repeated requests and completes the oldest
 // partial turn before requesting the next twenty logical turns.
 func (c *Client) LoadOlderConversation(ctx context.Context, session protocol.SessionID) error {
+	return c.loadOlderConversation(ctx, session, turnHistoryPageLimit)
+}
+
+func (c *Client) loadOlderConversation(ctx context.Context, session protocol.SessionID, turnLimit uint16) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	c.conversationMu.Lock()
 	w := c.conversations[session]
-	if w == nil || w.projection.snapshot == nil {
+	if w == nil || w.projection.snapshot == nil || w.ctx.Err() != nil {
 		c.conversationMu.Unlock()
 		return fault(protocol.ErrorCodeUnavailable, "conversation is not loaded")
 	}
@@ -78,35 +90,51 @@ func (c *Client) LoadOlderConversation(ctx context.Context, session protocol.Ses
 	w.state.LoadingOlder = true
 	w.state.OlderErr = nil
 	generation := w.projection.generation
-	snapshot := copyValue(*w.projection.snapshot)
+	snapshot := w.projection.snapshot
+	partial := oldestMissing(*snapshot)
+	revision := snapshot.Page.Revision
+	var beforeEntry *uint64
+	var beforeTurn *protocol.TurnID
+	var beforeRunSequence uint64
+	var missing []protocol.TurnID
+	if partial != nil {
+		beforeEntry = earliestEntry(*snapshot, *partial)
+		missing = slices.Clone(snapshot.Missing)
+	} else if next := snapshot.Page.NextBefore; next != nil {
+		beforeTurn = new(*next)
+		for _, run := range snapshot.Page.Runs {
+			if run.Turn == *next {
+				beforeRunSequence = run.Sequence
+				break
+			}
+		}
+	}
 	c.conversationMu.Unlock()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(w.ctx, cancel)
+	defer stop()
 	c.conversationChanged(w)
 	var incoming protocol.ConversationPage
-	var missing []protocol.TurnID
 	var sequence uint64
 	var err error
-	partial := oldestMissing(snapshot)
 	if partial != nil {
-		before := earliestEntry(snapshot, *partial)
 		var h protocol.ConversationTurnHistory
-		h, err = c.readConversationTurn(ctx, session, *partial, snapshot.Page.Revision, before)
+		h, err = c.readConversationTurn(ctx, session, *partial, revision, beforeEntry, turnLimit)
 		if err == nil {
 			incoming = protocol.ConversationPage{Session: session, Revision: h.Revision, Entries: h.Entries, Runs: []protocol.ConversationRun{h.Run}, Approvals: h.Approvals, Questions: h.Questions, Children: h.Children}
 			sequence = h.Sequence
-			missing = slices.Clone(snapshot.Missing)
 			if h.NextBefore == nil {
 				missing = slices.DeleteFunc(missing, func(t protocol.TurnID) bool { return t == *partial })
 			}
 		}
-	} else if snapshot.Page.NextBefore != nil {
+	} else if beforeTurn != nil {
 		var h protocol.ConversationHistory
-		h, err = c.ReadConversation(ctx, session, snapshot.Page.NextBefore)
+		h, err = c.ReadConversation(ctx, session, beforeTurn)
 		if err == nil {
 			incoming, missing, sequence = h.Page, h.Missing, h.Sequence
-			for _, run := range snapshot.Page.Runs {
-				if run.Turn == *snapshot.Page.NextBefore && slices.ContainsFunc(incoming.Runs, func(older protocol.ConversationRun) bool { return older.Sequence >= run.Sequence }) {
-					err = fault(protocol.ErrorCodeInvalidRequest, "history page crossed its turn boundary")
-				}
+			if beforeRunSequence != 0 && slices.ContainsFunc(incoming.Runs, func(older protocol.ConversationRun) bool { return older.Sequence >= beforeRunSequence }) {
+				err = fault(protocol.ErrorCodeInvalidRequest, "history page crossed its turn boundary")
 			}
 		}
 	} else {
@@ -120,7 +148,7 @@ func (c *Client) LoadOlderConversation(ctx context.Context, session protocol.Ses
 		err = c.waitConversationSequence(ctx, w, generation, sequence)
 	}
 	c.conversationMu.Lock()
-	if c.conversations[session] != w || generation != w.projection.generation {
+	if c.conversations[session] != w || generation != w.projection.generation || w.projection.snapshot != snapshot || w.projection.recovering {
 		if err == nil {
 			err = fault(protocol.ErrorCodeBusy, "conversation reconnected during history read")
 		}
@@ -138,7 +166,7 @@ func (c *Client) LoadOlderConversation(ctx context.Context, session protocol.Ses
 			slices.SortFunc(current.Missing, func(a, b protocol.TurnID) int { return slices.Compare(a[:], b[:]) })
 			current.Missing = slices.Compact(current.Missing)
 			w.projection.settle()
-			w.extent = conversationExtentOf(*current)
+			w.rememberExtent()
 		}
 	}
 	w.state.LoadingOlder = false
@@ -191,42 +219,14 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 	// Merge into private lists so a rejected page leaves current unchanged.
 	// Entries and their payloads stay shared and are never written.
 	merged := *current
-	merged.Entries, merged.Runs = slices.Clone(current.Entries), slices.Clone(current.Runs)
+	var err error
+	merged.Entries, err = mergeHistoryEntries(current.Entries, incoming.Entries, hidden)
+	if err != nil {
+		return err
+	}
+	merged.Runs = slices.Clone(current.Runs)
 	merged.Approvals, merged.Questions = slices.Clone(current.Approvals), slices.Clone(current.Questions)
 	merged.Children, merged.Background = slices.Clone(current.Children), slices.Clone(current.Background)
-	// An incoming entry is the one already held with its sequence or its ID,
-	// whichever comes first in the list. The positions are indexed once: an
-	// export merges every page of a conversation.
-	bySequence, byID := make(map[uint64]int, len(merged.Entries)), make(map[string]int, len(merged.Entries))
-	held := func(i int) {
-		if _, known := bySequence[merged.Entries[i].Sequence]; !known {
-			bySequence[merged.Entries[i].Sequence] = i
-		}
-		if _, known := byID[merged.Entries[i].ID]; !known {
-			byID[merged.Entries[i].ID] = i
-		}
-	}
-	for i := range merged.Entries {
-		held(i)
-	}
-	for _, e := range incoming.Entries {
-		if hidden[e.ID] {
-			continue
-		}
-		i, found := bySequence[e.Sequence]
-		if j, same := byID[e.ID]; same && (!found || j < i) {
-			i, found = j, true
-		}
-		if found {
-			if !reflect.DeepEqual(merged.Entries[i], e) {
-				return fault(protocol.ErrorCodeInvalidRequest, "canonical event changed during pagination")
-			}
-		} else {
-			merged.Entries = append(merged.Entries, e)
-			held(len(merged.Entries) - 1)
-		}
-	}
-	slices.SortFunc(merged.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
 	byTurn := make(map[protocol.TurnID]int, len(merged.Runs))
 	for i := len(merged.Runs) - 1; i >= 0; i-- {
 		byTurn[merged.Runs[i].Turn] = i
@@ -287,6 +287,32 @@ func mergeConversationPage(current *protocol.ConversationPage, incoming protocol
 	}
 	*current = merged
 	return nil
+}
+
+// Both inputs follow canonical sequence order. The merged page's validation
+// still rejects an ID reused at another sequence.
+func mergeHistoryEntries(held, incoming []protocol.ConversationEntry, hidden map[string]bool) ([]protocol.ConversationEntry, error) {
+	if len(incoming) == 0 {
+		return held, nil
+	}
+	merged := make([]protocol.ConversationEntry, 0, len(held)+len(incoming))
+	for _, entry := range incoming {
+		if hidden[entry.ID] {
+			continue
+		}
+		for len(held) > 0 && held[0].Sequence < entry.Sequence {
+			merged = append(merged, held[0])
+			held = held[1:]
+		}
+		if len(held) > 0 && held[0].Sequence == entry.Sequence {
+			if !reflect.DeepEqual(held[0], entry) {
+				return nil, fault(protocol.ErrorCodeInvalidRequest, "canonical event changed during pagination")
+			}
+			entry, held = held[0], held[1:]
+		}
+		merged = append(merged, entry)
+	}
+	return append(merged, held...), nil
 }
 
 func oldestMissing(s protocol.ConversationSnapshot) *protocol.TurnID {

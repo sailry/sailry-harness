@@ -1,6 +1,8 @@
 package client
 
 import (
+	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -72,4 +74,153 @@ func TestCommandOutputOwnerRecovery(t *testing.T) {
 			t.Fatal("unobserved replacement command output was retained")
 		}
 	})
+}
+
+func TestHistoricalCommandOutsideActivityWindow(t *testing.T) {
+	t.Parallel()
+	page := protocol.DefaultConversationPage()
+	page.Session = protocol.NewSessionID()
+	turn, origin := protocol.NewTurnID(), protocol.NewSessionID()
+	page.Runs = []protocol.ConversationRun{{Session: page.Session, Turn: turn, Origin: &origin}}
+	for i := 1; i <= 21; i++ {
+		id := fmt.Sprintf("call-%d", i)
+		command := protocol.RequestID{byte(i)}
+		task := "command:" + command.String()
+		page.Entries = append(page.Entries,
+			protocol.ConversationEntry{ID: id, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{
+				ID: &id, Name: "run_command", Presentation: "summary",
+			}}}},
+			protocol.ConversationEntry{ID: "result-" + id, Turn: turn, Author: "tool", Parts: []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{
+				ID: &id, Name: "run_command", Summary: &protocol.ToolDetailSummary{Revision: "launch-" + id, Task: &task},
+			}}}},
+		)
+		if i > 1 {
+			page.Background = append(page.Background, protocol.ConversationBackgroundTask{ID: task, Session: page.Session, Turn: turn, State: "consumed"})
+		}
+	}
+	calls := ToolCalls(page)
+	if len(calls) != 21 || len(page.Background) != 20 {
+		t.Fatalf("history gained rows or changed the activity window: %d calls, %d tasks", len(calls), len(page.Background))
+	}
+	for i, call := range calls {
+		reference := projectToolCall(page, call)["command_detail"]
+		if i != 0 {
+			if reference != nil {
+				t.Errorf("recent row %s was given another detail reader", call.Source.Entry)
+			}
+			continue
+		}
+		ref, ok := reference.(*HistoricalCommandReference)
+		if !ok || call.Source.Entry != "call-1" || ref.Detail.Entry != "result-call-1" || ref.Detail.Turn != turn ||
+			ref.Detail.Session != page.Session || ref.Session != origin || ref.Command != (protocol.RequestID{1}) {
+			t.Fatalf("the old result lost its canonical row or captured identity: %+v, %+v", call, ref)
+		}
+		call.Name = "wait_agent"
+		if got := projectToolCall(page, call)["command_detail"]; got != nil {
+			t.Fatal("wait_agent acquired a process detail")
+		}
+		call.Name = "run_command"
+		call.Approval = &protocol.ConversationApproval{State: "denied"}
+		if got := projectToolCall(page, call)["command_detail"]; got != nil {
+			t.Fatal("an unapproved row acquired a process detail")
+		}
+	}
+}
+
+func TestReadHistoricalCommandBinding(t *testing.T) {
+	t.Parallel()
+	ref := HistoricalCommandReference{Detail: toolDetailReferenceFixture(), Command: protocol.RequestID{3}, Session: protocol.SessionID{4}}
+	for _, tc := range []struct {
+		name       string
+		change     func(map[string]any)
+		result     func(*protocol.ProcessSnapshot)
+		readError  protocol.ErrorCode
+		wantError  protocol.ErrorCode
+		wantReads  int
+		wantStatus protocol.ConversationBackgroundOutcome
+		wantExit   *int32
+	}{
+		{name: "legacy with both IDs", change: func(data map[string]any) { delete(data, "turn") }, wantReads: 1, wantStatus: "failed", wantExit: new(int32(7))},
+		{name: "legacy without session", change: func(data map[string]any) { delete(data, "session") }, wantError: protocol.ErrorCodeOutcomeUnknown},
+		{name: "wrong launch session", change: func(data map[string]any) { data["session"] = ref.Detail.Session }, wantError: protocol.ErrorCodeOutcomeUnknown},
+		{name: "wrong launch command", change: func(data map[string]any) { data["id"] = protocol.RequestID{9} }, wantError: protocol.ErrorCodeOutcomeUnknown},
+		{name: "wrong launch turn", change: func(data map[string]any) { data["turn"] = protocol.TurnID{9} }, wantError: protocol.ErrorCodeOutcomeUnknown},
+		{name: "wrong returned session", result: func(out *protocol.ProcessSnapshot) { out.Info.Session = ref.Detail.Session }, wantReads: 1, wantError: protocol.ErrorCodeInvalidRequest},
+		{name: "wrong returned command", result: func(out *protocol.ProcessSnapshot) { out.Info.ID = protocol.RequestID{9} }, wantReads: 1, wantError: protocol.ErrorCodeInvalidRequest},
+		{name: "wrong returned turn", result: func(out *protocol.ProcessSnapshot) { out.Info.Turn = protocol.TurnID{9} }, wantReads: 1, wantError: protocol.ErrorCodeInvalidRequest},
+		{name: "not retained", readError: protocol.ErrorCodeNotFound, wantReads: 1, wantError: protocol.ErrorCodeNotFound},
+		{name: "not authorized", readError: protocol.ErrorCodePermissionDenied, wantReads: 1, wantError: protocol.ErrorCodePermissionDenied},
+		{name: "uncertain completion", result: func(out *protocol.ProcessSnapshot) {
+			out.Info.Status.Data = protocol.ProcessOutcome{Kind: "unknown", Data: "uncertain"}
+		}, wantReads: 1, wantStatus: "unknown"},
+		{name: "actual success", result: func(out *protocol.ProcessSnapshot) {
+			out.Info.Status.Data = protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}
+		}, wantReads: 1, wantStatus: "completed", wantExit: new(int32(0))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := map[string]any{"id": ref.Command, "session": ref.Session, "turn": ref.Detail.Turn}
+			if tc.change != nil {
+				tc.change(data)
+			}
+			raw, err := json.Marshal(map[string]any{"kind": "command_started", "data": data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			detail := protocol.DefaultToolDetail()
+			detail.Result = new(json.RawMessage(raw))
+			body, err := json.Marshal(detail)
+			if err != nil {
+				t.Fatal(err)
+			}
+			details, reads := 0, 0
+			transport := toolDetailTransportFixture(t, ref.Detail, func(protocol.CommandReadToolDetailPayload) protocol.ToolDetailPage {
+				details++
+				return protocol.ToolDetailPage{Reference: ref.Detail, Text: string(body), TotalBytes: uint64(len(body))}
+			})
+			readDetail := transport.dispatch
+			transport.dispatch = func(request protocol.Request) (link.Admission, error) {
+				if request.Command.Kind != "read_command" {
+					return readDetail(request)
+				}
+				reads++
+				q, err := payload[protocol.CommandReadCommandPayload](request.Command.Data)
+				if err != nil || q.ID != ref.Command || q.Session != ref.Session || q.WaitMs != 0 || request.Command.Durable() {
+					t.Fatalf("read did not use the original pair once: %+v, %v", q, err)
+				}
+				snapshot := protocol.DefaultProcessSnapshot()
+				snapshot.Info.ID, snapshot.Info.Session, snapshot.Info.Turn = q.ID, q.Session, ref.Detail.Turn
+				snapshot.Info.Status = protocol.ProcessStatus{Kind: "finished", Data: &protocol.ProcessOutcome{Kind: "exited", Data: new(int32(7))}}
+				snapshot.Stdout.Text, snapshot.Stderr.Text = "retained output", "retained error"
+				if tc.result != nil {
+					tc.result(&snapshot)
+				}
+				response := link.Response{Output: protocol.Output{Kind: "command_output", Data: snapshot}}
+				if tc.readError != "" {
+					response = link.Response{Fault: &protocol.Fault{Code: tc.readError, Message: "fixture command fault"}}
+				}
+				completion := make(chan link.Response, 1)
+				completion <- response
+				return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
+			}
+			controller := New(transport)
+			defer controller.Close()
+			got, err := controller.ReadHistoricalCommand(t.Context(), ref)
+			if details != 1 || reads != tc.wantReads {
+				t.Fatalf("request counts = %d tool details, %d process reads", details, reads)
+			}
+			if tc.wantError != "" {
+				if faultCode(err) != tc.wantError || got.ExitCode != nil || got.Stdout.Text != "" || got.Outcome != "" {
+					t.Fatalf("invalid or unavailable read became a result: %+v, %v", got, err)
+				}
+				return
+			}
+			if err != nil || got.Outcome != tc.wantStatus || (got.ExitCode == nil) != (tc.wantExit == nil) || got.ExitCode != nil && *got.ExitCode != *tc.wantExit ||
+				got.Stdout.Text != "retained output" || got.Stderr.Text != "retained error" {
+				t.Fatalf("read lost retained command evidence: %+v, %v", got, err)
+			}
+			if _, ok := controller.CommandOutput(ref.Session, ref.Command); ok {
+				t.Fatal("one historical read left an activity watch alive")
+			}
+		})
+	}
 }

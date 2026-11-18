@@ -24,6 +24,34 @@ func conversationFrame(s protocol.ConversationSnapshot, kind string, data any) p
 	return protocol.Update{Kind: "conversation_frame", Data: protocol.ConversationFrame{Node: s.Node, Session: s.Page.Session, Sequence: s.Sequence + 1, Change: protocol.ConversationChange{Kind: kind, Data: data}}}
 }
 
+func TestConversationHistoryMergePreservesCanonicalOrder(t *testing.T) {
+	page := conversationFixture().Page
+	entry := func(sequence uint64, id string) protocol.ConversationEntry {
+		return protocol.ConversationEntry{ID: id, Turn: page.Runs[0].Turn, Sequence: sequence, Author: "assistant"}
+	}
+	page.Entries = []protocol.ConversationEntry{entry(4, "four"), entry(8, "eight")}
+	older := protocol.DefaultConversationPage()
+	older.Session, older.Revision = page.Session, page.Revision
+	older.Entries = []protocol.ConversationEntry{entry(1, "one"), entry(2, "hidden"), entry(4, "four"), entry(6, "six")}
+	if err := mergeConversationPage(&page, older, true, map[string]bool{"hidden": true}); err != nil {
+		t.Fatal(err)
+	}
+	want := []protocol.ConversationEntry{entry(1, "one"), entry(4, "four"), entry(6, "six"), entry(8, "eight")}
+	if !reflect.DeepEqual(page.Entries, want) {
+		t.Fatalf("merged canonical records: %+v", page.Entries)
+	}
+	before := copyValue(page)
+	for _, bad := range []protocol.ConversationEntry{entry(3, "eight"), entry(4, "collision")} {
+		older.Entries = []protocol.ConversationEntry{entry(2, "new"), bad}
+		if err := mergeConversationPage(&page, older, true, nil); faultCode(err) != protocol.ErrorCodeInvalidRequest {
+			t.Fatalf("invalid record %+v: %v", bad, err)
+		}
+		if !reflect.DeepEqual(page, before) {
+			t.Fatal("rejected page changed loaded history")
+		}
+	}
+}
+
 func testConversationProjectionOrder(t *testing.T) {
 	t.Run("bounded_search_and_large_turn_reveal", testConversationSearchAndContinuation)
 	for _, row := range []struct {

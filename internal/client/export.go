@@ -88,7 +88,7 @@ func (c *Client) exportSelection(ctx context.Context, session protocol.SessionID
 				if ctx.Err() != nil {
 					return exportCancelled()
 				}
-				older, e := c.readConversationTurn(ctx, session, id, page.Revision, before)
+				older, e := c.readConversationTurn(ctx, session, id, page.Revision, before, turnHistoryPageLimit)
 				if e != nil {
 					if ctx.Err() != nil {
 						return exportCancelled()

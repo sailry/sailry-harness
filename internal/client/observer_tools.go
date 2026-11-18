@@ -172,6 +172,36 @@ func toolHasDetails(call ToolCall) bool {
 	return (call.Approval == nil || call.Approval.State != "denied") && call.Summary != nil && call.Summary.HasDetails
 }
 
+// HistoricalCommandDetail selects a result outside the activity window. The
+// revision identifies the result to inspect, not permission to read a process.
+func HistoricalCommandDetail(page protocol.ConversationPage, ref protocol.ToolDetailReference, name string, summary *protocol.ToolDetailSummary) *HistoricalCommandReference {
+	if name == "wait_agent" || summary == nil || summary.Failure != nil || summary.Task == nil || ref.Revision == "" || ref.Session == (protocol.SessionID{}) {
+		return nil
+	}
+	id, ok := strings.CutPrefix(*summary.Task, "command:")
+	if !ok {
+		return nil
+	}
+	command, err := protocol.ParseRequestID(id)
+	if err != nil || command == (protocol.RequestID{}) {
+		return nil
+	}
+	taskID := "command:" + command.String()
+	for _, task := range page.Background {
+		if task.ID == taskID {
+			return nil
+		}
+	}
+	session := ref.Session
+	for _, run := range page.Runs {
+		if run.Turn == ref.Turn && run.Origin != nil {
+			session = *run.Origin
+			break
+		}
+	}
+	return &HistoricalCommandReference{Detail: ref, Command: command, Session: session}
+}
+
 func projectToolCall(page protocol.ConversationPage, call ToolCall) map[string]any {
 	value := map[string]any{
 		"turn": call.Turn, "id": call.ID, "name": call.Name, "terminal_interaction": terminalInteraction(call.Name),
@@ -182,6 +212,11 @@ func projectToolCall(page protocol.ConversationPage, call ToolCall) map[string]a
 	}
 	if call.Reference != nil {
 		value["revision"], value["detail_key"] = call.Reference.Revision, detailKey(*call.Reference)
+		if call.Response != nil && !toolHidden(call) && (call.Approval == nil || call.Approval.State == "approved") {
+			if ref := HistoricalCommandDetail(page, *call.Reference, call.Name, call.Summary); ref != nil {
+				value["command_detail"] = ref
+			}
+		}
 	}
 	if call.Summary != nil {
 		summary := call.Summary

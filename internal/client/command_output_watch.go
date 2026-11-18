@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -16,6 +17,113 @@ type CommandOutputState struct {
 	Known    bool
 	Err      error
 }
+
+type HistoricalCommandReference struct {
+	Detail  protocol.ToolDetailReference `json:"detail"`
+	Command protocol.RequestID           `json:"command"`
+	Session protocol.SessionID           `json:"session"`
+}
+
+type HistoricalCommandOutput struct {
+	Running  bool                                   `json:"running"`
+	Outcome  protocol.ConversationBackgroundOutcome `json:"outcome,omitempty"`
+	ExitCode *int32                                 `json:"exit_code,omitempty"`
+	Stdout   protocol.ProcessCapture                `json:"stdout"`
+	Stderr   protocol.ProcessCapture                `json:"stderr"`
+	Failure  string                                 `json:"failure,omitempty"`
+}
+
+func (c *Client) ReadHistoricalCommand(ctx context.Context, ref HistoricalCommandReference) (HistoricalCommandOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return HistoricalCommandOutput{}, err
+	}
+	detail, ok := c.ConversationDetail(ref.Detail)
+	if !ok {
+		var err error
+		detail, err = c.ReadToolDetail(ctx, ref.Detail)
+		if err != nil {
+			return HistoricalCommandOutput{}, err
+		}
+	}
+	var started struct {
+		Kind string `json:"kind"`
+		Data struct {
+			ID      protocol.RequestID `json:"id"`
+			Session protocol.SessionID `json:"session"`
+			Turn    *protocol.TurnID   `json:"turn"`
+		} `json:"data"`
+	}
+	// The activity ID and visible conversation are not a process binding. An
+	// inherited or legacy row must still carry the original pair in its result.
+	if detail.Result == nil || json.Unmarshal(*detail.Result, &started) != nil || started.Kind != "command_started" ||
+		started.Data.ID == (protocol.RequestID{}) || started.Data.ID != ref.Command ||
+		started.Data.Session == (protocol.SessionID{}) || started.Data.Session != ref.Session ||
+		started.Data.Turn != nil && *started.Data.Turn != ref.Detail.Turn {
+		return HistoricalCommandOutput{}, fault(protocol.ErrorCodeOutcomeUnknown, "the tool result has no matching command binding")
+	}
+	if err := ctx.Err(); err != nil {
+		return HistoricalCommandOutput{}, err
+	}
+	snapshot, err := c.readCommandOutput(ctx, started.Data.Session, started.Data.ID, 0)
+	if err != nil {
+		return HistoricalCommandOutput{}, err
+	}
+	if snapshot.Info.Turn != (protocol.TurnID{}) && snapshot.Info.Turn != ref.Detail.Turn {
+		return HistoricalCommandOutput{}, fault(protocol.ErrorCodeInvalidRequest, "command output belongs to another turn")
+	}
+	return historicalCommandOutcome(snapshot), nil
+}
+
+func historicalCommandOutcome(snapshot protocol.ProcessSnapshot) HistoricalCommandOutput {
+	result := HistoricalCommandOutput{Stdout: snapshot.Stdout, Stderr: snapshot.Stderr}
+	switch status := snapshot.Info.Status; status.Kind {
+	case "running", "stopping":
+		result.Running = true
+		return result
+	case "failed":
+		result.Outcome = protocol.ConversationBackgroundOutcomeFailed
+		result.Failure, _ = payload[string](status.Data)
+		return result
+	case "finished":
+		if outcome, err := payload[protocol.ProcessOutcome](status.Data); err == nil {
+			switch outcome.Kind {
+			case "exited":
+				if code, err := payload[int32](outcome.Data); err == nil {
+					result.ExitCode = &code
+					result.Outcome = protocol.ConversationBackgroundOutcomeCompleted
+					if code != 0 {
+						result.Outcome = protocol.ConversationBackgroundOutcomeFailed
+					}
+					return result
+				}
+			case "signal":
+				result.Outcome = protocol.ConversationBackgroundOutcomeFailed
+				return result
+			case "timed_out":
+				result.Outcome = protocol.ConversationBackgroundOutcomeTimedOut
+				return result
+			case "cancelled":
+				result.Outcome = protocol.ConversationBackgroundOutcomeCancelled
+				return result
+			}
+		}
+	}
+	result.Outcome = protocol.ConversationBackgroundOutcomeUnknown
+	return result
+}
+
+func (c *Client) readCommandOutput(ctx context.Context, session protocol.SessionID, id protocol.RequestID, wait uint64) (protocol.ProcessSnapshot, error) {
+	output, err := c.Do(ctx, protocol.Command{Kind: "read_command", Data: protocol.CommandReadCommandPayload{Session: session, ID: id, WaitMs: wait}})
+	if err != nil {
+		return protocol.ProcessSnapshot{}, err
+	}
+	snapshot, err := payload[protocol.ProcessSnapshot](output.Data)
+	if err != nil || output.Kind != "command_output" || snapshot.Info.ID != id || snapshot.Info.Session != session {
+		return protocol.ProcessSnapshot{}, fault(protocol.ErrorCodeInvalidRequest, "unexpected command output")
+	}
+	return snapshot, nil
+}
+
 type commandOutputWatch struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -83,14 +191,7 @@ func (c *Client) observeCommandOutput(w *commandOutputWatch) {
 	defer w.cancel()
 	wait := uint64(0)
 	for w.ctx.Err() == nil {
-		output, err := c.Do(w.ctx, protocol.Command{Kind: "read_command", Data: protocol.CommandReadCommandPayload{Session: w.key.session, ID: w.key.command, WaitMs: wait}})
-		var snapshot protocol.ProcessSnapshot
-		if err == nil {
-			snapshot, err = payload[protocol.ProcessSnapshot](output.Data)
-			if err == nil && (output.Kind != "command_output" || snapshot.Info.ID != w.key.command || snapshot.Info.Session != w.key.session) {
-				err = fault(protocol.ErrorCodeInvalidRequest, "unexpected command output")
-			}
-		}
+		snapshot, err := c.readCommandOutput(w.ctx, w.key.session, w.key.command, wait)
 		if w.ctx.Err() != nil {
 			return
 		}

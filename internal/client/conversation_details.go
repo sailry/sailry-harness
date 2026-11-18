@@ -144,19 +144,27 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 		delete(c.conversationDetails, key)
 		c.conversationDetailOrder = slices.DeleteFunc(c.conversationDetailOrder, func(s string) bool { return s == key })
 	}
+	w := c.conversations[ref.Session]
+	var evictedWatches []*conversationWatch
 	for (c.conversationDetailBytes+allocation > conversationDetailLimit || len(c.conversationDetailOrder) >= 64) && len(c.conversationDetailOrder) > 0 {
-		old := c.conversationDetailOrder[0]
+		oldKey := c.conversationDetailOrder[0]
 		c.conversationDetailOrder = c.conversationDetailOrder[1:]
-		c.conversationDetailBytes -= c.conversationDetails[old].bytes
-		delete(c.conversationDetails, old)
+		old := c.conversationDetails[oldKey]
+		c.conversationDetailBytes -= old.bytes
+		delete(c.conversationDetails, oldKey)
+		if affected := c.conversations[old.reference.Session]; affected != nil && affected != w && !slices.Contains(evictedWatches, affected) {
+			evictedWatches = append(evictedWatches, affected)
+		}
 	}
 	c.conversationDetailOrder = append(c.conversationDetailOrder, key)
 	c.conversationDetails[key] = conversationDetail{ref, copyValue(value), allocation}
 	c.conversationDetailBytes += allocation
-	w := c.conversations[ref.Session]
 	c.conversationMu.Unlock()
 	if w != nil {
 		c.conversationChanged(w)
+	}
+	for _, affected := range evictedWatches {
+		c.conversationChanged(affected)
 	}
 	return value, nil
 }

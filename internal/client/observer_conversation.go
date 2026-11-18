@@ -19,8 +19,7 @@ type historyRequest struct {
 }
 
 type detailRead struct {
-	reference protocol.ToolDetailReference
-	cancel    context.CancelFunc
+	cancel context.CancelFunc
 }
 
 type conversationObserver struct {
@@ -30,7 +29,7 @@ type conversationObserver struct {
 	history  chan historyRequest
 	mu       sync.Mutex
 	selected map[toolReference]bool
-	reads    map[string]detailRead
+	reads    map[string]*detailRead
 	failures map[string]*protocol.Fault
 	sent     map[string]bool
 }
@@ -39,7 +38,7 @@ func (client *Client) watchConversationView(ctx context.Context, session protoco
 	observer := newObserver(ctx)
 	owner := &conversationObserver{
 		client: client, observer: observer, session: session, history: make(chan historyRequest, 8),
-		selected: map[toolReference]bool{}, reads: map[string]detailRead{}, failures: map[string]*protocol.Fault{}, sent: map[string]bool{},
+		selected: map[toolReference]bool{}, reads: map[string]*detailRead{}, failures: map[string]*protocol.Fault{}, sent: map[string]bool{},
 	}
 	release, err := client.WatchConversation(observer.ctx, session, observer.notify)
 	if err != nil {
@@ -123,24 +122,34 @@ func (owner *conversationObserver) readHistory() {
 				owner.client.conversationMu.Unlock()
 				break
 			}
-			snapshot := watch.projection.Snapshot()
-			signal := watch.signal
+			snapshot := watch.projection.snapshot
+			loaded := snapshot != nil
+			if !loaded && watch.state.Err != nil && !retryConversation(watch.state.Err) {
+				owner.client.conversationMu.Unlock()
+				break
+			}
+			atTarget := loaded && request.through != 0 && conversationContainsThrough(*snapshot, request.through)
+			hasOlder := loaded && (snapshot.Page.NextBefore != nil || len(snapshot.Missing) != 0)
+			waitForPage := request.through != 0 && !atTarget && hasOlder && watch.state.LoadingOlder
+			signal, closed := watch.signal, watch.ctx.Done()
 			owner.client.conversationMu.Unlock()
-			if snapshot == nil {
+			if !loaded || waitForPage {
 				select {
 				case <-owner.observer.ctx.Done():
 					return
+				case <-closed:
 				case <-signal:
 					continue
 				}
+				break
 			}
-			if request.through != 0 && conversationContainsThrough(*snapshot, request.through) {
+			if atTarget {
 				break
 			}
 			if err := owner.client.LoadOlderConversation(owner.observer.ctx, owner.session); err != nil {
 				break
 			}
-			if request.through == 0 || snapshot.Page.NextBefore == nil && len(snapshot.Missing) == 0 {
+			if request.through == 0 || !hasOlder {
 				break
 			}
 		}
@@ -186,6 +195,10 @@ func (owner *conversationObserver) view() (any, error) {
 		"owners": map[string]protocol.TurnID{}, "segments": map[string]any{}, "images": []any{},
 	}
 	if snapshot == nil {
+		owner.syncDetails(nil)
+		owner.mu.Lock()
+		clear(owner.sent)
+		owner.mu.Unlock()
 		return value, nil
 	}
 	calls := ToolCalls(snapshot.Page)
@@ -271,11 +284,12 @@ func (owner *conversationObserver) syncDetails(calls []ToolCall) {
 			continue
 		}
 		ctx, cancel := context.WithCancel(owner.observer.ctx)
-		owner.reads[key] = detailRead{reference: reference, cancel: cancel}
+		read := &detailRead{cancel: cancel}
+		owner.reads[key] = read
 		if !owner.observer.run(func() {
 			_, err := owner.client.ReadConversationDetail(ctx, reference)
 			owner.mu.Lock()
-			if active, exists := owner.reads[key]; exists && active.reference == reference {
+			if owner.reads[key] == read {
 				delete(owner.reads, key)
 				if err != nil && ctx.Err() == nil {
 					owner.failures[key] = observerFault(err)

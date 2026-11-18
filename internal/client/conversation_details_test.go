@@ -115,6 +115,86 @@ func TestReadToolDetailRejectsInvalidPages(t *testing.T) {
 	}
 }
 
+func TestReadConversationDetailNotifiesEvictedConversations(t *testing.T) {
+	t.Parallel()
+	ref := toolDetailReferenceFixture()
+	detail := protocol.DefaultToolDetail()
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := toolDetailTransportFixture(t, ref, func(protocol.CommandReadToolDetailPayload) protocol.ToolDetailPage {
+		return protocol.ToolDetailPage{Reference: ref, TotalBytes: uint64(len(encoded)), Text: string(encoded)}
+	})
+	controller := New(transport)
+	defer controller.Close()
+	controller.conversations = map[protocol.SessionID]*conversationWatch{}
+	defer func() { controller.conversations = nil }()
+	controller.conversationDetails = map[string]conversationDetail{}
+
+	other, another := protocol.SessionID{3}, protocol.SessionID{4}
+	retained := ref
+	retained.Session, retained.Entry = protocol.SessionID{5}, "retained"
+	changes := map[protocol.SessionID]int{}
+	// Simulate a full byte budget without allocating large detail payloads.
+	for _, fixture := range []struct {
+		session protocol.SessionID
+		entry   string
+		bytes   uint64
+	}{
+		{other, "old-1", 1},
+		{other, "old-2", 1},
+		{ref.Session, "old-3", 1},
+		{another, "old-4", conversationDetailLimit / 2},
+		{retained.Session, retained.Entry, conversationDetailLimit/2 - 3},
+		{ref.Session, ref.Entry, 0},
+	} {
+		card := ref
+		card.Session, card.Entry = fixture.session, fixture.entry
+		w := controller.conversations[card.Session]
+		if w == nil {
+			snapshot := protocol.DefaultConversationSnapshot()
+			snapshot.Page.Session = card.Session
+			projection := NewConversationProjection(controller.Target(), card.Session, 1)
+			projection.snapshot = &snapshot
+			w = &conversationWatch{
+				session:    card.Session,
+				projection: projection,
+				signal:     make(chan struct{}),
+				callbacks: map[uint64]func(){1: func() {
+					changes[card.Session]++
+					if _, ok := controller.ConversationDetail(ref); !ok {
+						t.Error("conversation changed before the new detail was cached")
+					}
+				}},
+			}
+			controller.conversations[card.Session] = w
+		}
+		summary := protocol.DefaultToolDetailSummary()
+		summary.Revision, summary.HasDetails = card.Revision, true
+		call := protocol.DefaultConversationPartToolCallPayload()
+		call.ID, call.Name, call.Summary = card.Call, "run_command", &summary
+		page := &w.projection.snapshot.Page
+		page.Entries = append(page.Entries, protocol.ConversationEntry{ID: card.Entry, Turn: card.Turn, Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: call}}})
+		if fixture.bytes != 0 {
+			key := detailKey(card)
+			controller.conversationDetailOrder = append(controller.conversationDetailOrder, key)
+			controller.conversationDetails[key] = conversationDetail{card, detail, fixture.bytes}
+			controller.conversationDetailBytes += fixture.bytes
+		}
+	}
+	if _, err := controller.ReadConversationDetail(t.Context(), ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := controller.ConversationDetail(retained); !ok || len(controller.conversationDetails) != 2 {
+		t.Fatalf("expected the retained and newly read details, cache size %d, retained %t", len(controller.conversationDetails), ok)
+	}
+	want := map[protocol.SessionID]int{ref.Session: 1, other: 1, another: 1}
+	if !reflect.DeepEqual(changes, want) {
+		t.Fatalf("conversation callbacks = %v, want %v", changes, want)
+	}
+}
+
 func toolDetailReferenceFixture() protocol.ToolDetailReference {
 	return protocol.ToolDetailReference{Session: protocol.SessionID{1}, Turn: protocol.TurnID{2}, Entry: "pending-tool", Call: new("pending-call"), Revision: strings.Repeat("a", 64)}
 }

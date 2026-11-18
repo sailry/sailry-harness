@@ -45,16 +45,17 @@ type Client struct {
 	callback                uint64
 	dispatched              func(kind string)
 
-	lifecycle          sync.Mutex
-	closing            context.Context
-	abort              context.CancelFunc
-	context            context.Context
-	stop               context.CancelFunc
-	watch              *observation
-	closed             bool
-	conversationMu     sync.Mutex
-	conversations      map[protocol.SessionID]*conversationWatch
-	conversationOwners sync.WaitGroup
+	lifecycle             sync.Mutex
+	closing               context.Context
+	abort                 context.CancelFunc
+	context               context.Context
+	stop                  context.CancelFunc
+	watch                 *observation
+	closed                bool
+	conversationMu        sync.Mutex
+	conversations         map[protocol.SessionID]*conversationWatch
+	conversationBookmarks []conversationBookmark
+	conversationOwners    sync.WaitGroup
 }
 
 func New(transport link.Transport) *Client {
