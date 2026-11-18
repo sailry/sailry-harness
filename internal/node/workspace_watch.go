@@ -42,8 +42,8 @@ type workspaceEvents struct {
 	node       protocol.NodeID
 	worktree   protocol.WorktreeID
 	repository bool
-	// paths, when set, receives every batch of changed absolute paths
-	// before the debounced update.
+	// paths receives every batch before the debounced update. An empty
+	// batch means changes cannot be attributed to individual paths.
 	paths   func([]string)
 	wake    chan struct{}
 	closed  chan struct{}
@@ -197,7 +197,7 @@ func (w *workspaceWatch) notify(paths []string, failure error, managed bool) {
 		w.owner.git.Invalidate(w.root)
 	}
 	for observer := range w.observers {
-		if observer.paths != nil && len(paths) != 0 {
+		if observer.paths != nil {
 			observer.paths(paths)
 		}
 		if observer.repository && !relevant {

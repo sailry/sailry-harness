@@ -22,8 +22,7 @@ const (
 	// readers bounds the read and parse workers shared by all worktrees.
 	readers   = 2
 	maxIssues = 5
-	// maxChanged bounds the remembered changed paths of one worktree. They
-	// only order the next reconcile, so further ones are not remembered.
+	// Overflow falls back to a full content check.
 	maxChanged = 4096
 	// idleRelease is how long an unused worktree keeps its open index and
 	// its file watch.
@@ -34,19 +33,20 @@ const (
 // Records written under any other rules are parsed again.
 var Fingerprint = Hash("code-index-v1:gotreesitter:v0.57.0:embedded-1:data-1:references-2")
 
-// Watch subscribes to the changes of one worktree root. The subscription
-// reports that something changed; the owner also passes the changed paths to
-// Service.Observed.
+// Watch subscribes to changes of one worktree root. Its owner delivers every
+// batch to Observed (empty for unknown changes) before waking the subscription.
+// Successful wakes may coalesce; subscription errors report loss of the watch.
 type Watch func(ctx context.Context, root string, worktree protocol.WorktreeID) (link.Subscription, error)
 
 // Service owns the code indexes of a profile, one per worktree.
 type Service struct {
-	profile string
-	watch   Watch
-	parser  *Parser
-	parsing chan struct{}
-	closed  context.Context
-	close   context.CancelFunc
+	profile     string
+	watch       Watch
+	parser      *Parser
+	inspectText func(*core.Files, context.Context, string, int, core.FileStamp, func(*string) error) (core.FileStamp, error)
+	parsing     chan struct{}
+	closed      context.Context
+	close       context.CancelFunc
 
 	mutex     sync.Mutex
 	enabled   bool
@@ -76,18 +76,27 @@ type dirty struct {
 	mutex       sync.Mutex
 	revision    uint64
 	paths       map[string]uint64
+	full        bool
 	watchFailed bool
 }
 
 func (d *dirty) change(path *string) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	d.revision++
 	if path == nil {
+		d.revision++
+		d.full = true
 		return
 	}
-	if _, known := d.paths[*path]; known || len(d.paths) < maxChanged {
-		d.paths[*path] = d.revision
+	d.markPathLocked(*path)
+}
+
+func (d *dirty) markPathLocked(path string) {
+	d.revision++
+	if _, known := d.paths[path]; known || len(d.paths) < maxChanged {
+		d.paths[path] = d.revision
+	} else {
+		d.full = true
 	}
 }
 
@@ -113,7 +122,7 @@ func (d *dirty) snapshot() (uint64, map[string]uint64) {
 // New returns the enabled index service of a profile directory.
 func New(profile string, watch Watch) *Service {
 	closed, cancel := context.WithCancel(context.Background())
-	service := &Service{profile: profile, watch: watch, parser: &Parser{}, parsing: make(chan struct{}, readers), closed: closed, close: cancel, enabled: true, worktrees: map[protocol.WorktreeID]*worktree{}}
+	service := &Service{profile: profile, watch: watch, parser: &Parser{}, inspectText: (*core.Files).InspectText, parsing: make(chan struct{}, readers), closed: closed, close: cancel, enabled: true, worktrees: map[protocol.WorktreeID]*worktree{}}
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -220,9 +229,10 @@ func (s *Service) Changed(id protocol.WorktreeID, path *string) {
 	}
 }
 
-// Observed records the absolute paths of one watch batch. Indexable files
-// below the worktree move to the front of its next reconcile; everything
-// else is covered by the watch's own invalidation.
+// Observed invalidates the walk for one batch and marks exactly named source
+// files for content checks. Empty batches and root/unknown paths require a full
+// check. A directory or ignore-rule change still invalidates the walk even if
+// none of its paths are index candidates.
 func (s *Service) Observed(id protocol.WorktreeID, paths []string) {
 	s.mutex.Lock()
 	worktree := s.worktrees[id]
@@ -230,9 +240,17 @@ func (s *Service) Observed(id protocol.WorktreeID, paths []string) {
 	if worktree == nil {
 		return
 	}
+	d := &worktree.dirty
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	before := d.revision
+	if len(paths) == 0 {
+		d.full = true
+	}
 	for _, path := range paths {
 		relative, err := filepath.Rel(worktree.root, path)
 		if err != nil || relative == "." || !filepath.IsLocal(relative) {
+			d.full = true
 			continue
 		}
 		relative = filepath.ToSlash(relative)
@@ -240,7 +258,10 @@ func (s *Service) Observed(id protocol.WorktreeID, paths []string) {
 		if relative == ".git" || strings.HasPrefix(relative, ".git/") || strings.Contains(relative, "/.git/") || !Candidate(relative) {
 			continue
 		}
-		worktree.dirty.change(&relative)
+		d.markPathLocked(relative)
+	}
+	if d.revision == before {
+		d.revision++
 	}
 }
 
@@ -288,20 +309,18 @@ func (w *worktree) begin(ctx context.Context) (context.Context, func(), error) {
 	}, nil
 }
 
-// observed subscribes once to the worktree's file changes. Each update
-// invalidates the whole worktree; Observed adds the paths that changed.
+// observed owns the subscription lifetime. Observed has already recorded
+// every change represented by a successful (possibly coalesced) update.
 func (w *worktree) observed(s *Service, id protocol.WorktreeID) {
 	w.observe.Do(func() {
 		events, err := s.watch(w.stopped, w.root, id)
 		if err != nil {
-			w.dirty.mutex.Lock()
-			w.dirty.watchFailed = true
-			w.dirty.mutex.Unlock()
+			w.dirty.fail()
 			return
 		}
 		go func() {
 			defer events.Close()
-			for initial := true; ; initial = false {
+			for {
 				_, err := events.Next(w.stopped)
 				if w.stopped.Err() != nil {
 					return
@@ -309,9 +328,6 @@ func (w *worktree) observed(s *Service, id protocol.WorktreeID) {
 				if err != nil {
 					w.dirty.fail()
 					return
-				}
-				if !initial {
-					w.dirty.change(nil)
 				}
 			}
 		}()
@@ -394,7 +410,7 @@ func (s *Service) Outline(ctx context.Context, id protocol.WorktreeID, root, pat
 	if err := progress.records.load(ctx, index); err != nil {
 		return outline, err
 	}
-	results, err := s.read(ctx, files, []string{path}, progress.records.entries, time.Now().Add(10*time.Second))
+	results, err := s.read(ctx, files, []string{path}, inputs{entries: progress.records.entries}, time.Now().Add(10*time.Second))
 	if err != nil {
 		return outline, err
 	}

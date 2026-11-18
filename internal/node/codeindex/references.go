@@ -45,7 +45,8 @@ type Usage struct {
 	Start  uint32
 	// Receiver marks a name written through self or this.
 	Receiver bool
-	Scope    *Scope
+	// Parsed references in the same declaration share a read-only Scope.
+	Scope *Scope
 }
 
 // Scope is the innermost indexed declaration containing a reference.
@@ -303,32 +304,39 @@ func receiver(source string, start int) bool {
 // to its function rather than to x.
 func enclose(symbols []Symbol, found []Usage) {
 	slices.SortStableFunc(found, func(left, right Usage) int { return int(left.Start) - int(right.Start) })
+	type frame struct {
+		symbol *Symbol
+		scope  *Scope
+	}
 	for _, declarations := range []bool{true, false} {
-		var candidates, open []*Symbol
-		for index := range symbols {
-			if kind := symbols[index].Kind; declarations && container(kind) || !declarations && (kind == "variable" || kind == "constant") {
-				candidates = append(candidates, &symbols[index])
-			}
-		}
+		var open []frame
 		next := 0
 		for index := range found {
 			usage := &found[index]
-			for next < len(candidates) && candidates[next].Range.StartByte <= usage.Start {
-				for len(open) > 0 && open[len(open)-1].Range.EndByte <= candidates[next].Range.StartByte {
+			for next < len(symbols) && symbols[next].Range.StartByte <= usage.Start {
+				symbol := &symbols[next]
+				next++
+				if kind := symbol.Kind; declarations && !container(kind) || !declarations && kind != "variable" && kind != "constant" {
+					continue
+				}
+				for len(open) > 0 && open[len(open)-1].symbol.Range.EndByte <= symbol.Range.StartByte {
 					open = open[:len(open)-1]
 				}
-				open = append(open, candidates[next])
-				next++
+				open = append(open, frame{symbol: symbol})
 			}
-			for len(open) > 0 && open[len(open)-1].Range.EndByte <= usage.Start {
+			for len(open) > 0 && open[len(open)-1].symbol.Range.EndByte <= usage.Start {
 				open = open[:len(open)-1]
 			}
 			if usage.Scope == nil && len(open) > 0 {
-				symbol := open[len(open)-1]
-				usage.Scope = &Scope{
-					Name: symbol.Name, Kind: symbol.Kind,
-					StartLine: symbol.Range.StartLine, EndLine: symbol.Range.EndLine,
+				top := &open[len(open)-1]
+				if top.scope == nil {
+					symbol := top.symbol
+					top.scope = &Scope{
+						Name: symbol.Name, Kind: symbol.Kind,
+						StartLine: symbol.Range.StartLine, EndLine: symbol.Range.EndLine,
+					}
 				}
+				usage.Scope = top.scope
 			}
 		}
 	}

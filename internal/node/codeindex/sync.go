@@ -94,13 +94,18 @@ func defaultLimits() limits {
 
 // progress is the reconcile state a worktree keeps under its sync lock.
 type progress struct {
-	scan    *scan
-	records records
+	scan     *scan
+	records  records
+	verified map[string]verified
 }
 
-// records are the file records kept between reconciles. Every content check
-// still reads and hashes the file; this only avoids reloading the whole table
-// per query.
+// A stamp is only a shortcut for comparing this specific content hash.
+type verified struct {
+	stamp core.FileStamp
+	hash  string
+}
+
+// records are the committed file records kept between reconciles.
 type records struct {
 	// revision is the index revision entries reflect; it is unknown once
 	// another writer may have committed in between.
@@ -145,9 +150,49 @@ type scan struct {
 	limit      int
 	pending    []string
 	versions   map[string]uint64
-	seen       map[string]bool
-	complete   bool
-	report     report
+	verified   map[string]verified
+	// ready holds at most one batch parsed before the writer budget ran out.
+	// The next segment checks the current bytes before using those parses.
+	ready    map[string]*Parsed
+	seen     map[string]bool
+	complete bool
+	report   report
+}
+
+// Stage only changed proofs. An unchanged hot scan must not allocate a second
+// full table just to publish the same stamps at the end of the walk.
+func (s *scan) remember(path string, hash *string, stamp core.FileStamp, previous map[string]verified) {
+	var value verified
+	if hash != nil && stamp != (core.FileStamp{}) {
+		value = verified{stamp: stamp, hash: *hash}
+	}
+	if value == previous[path] {
+		delete(s.verified, path)
+		return
+	}
+	if s.verified == nil {
+		s.verified = make(map[string]verified)
+	}
+	s.verified[path] = value
+}
+
+func (s *scan) publish(previous map[string]verified) map[string]verified {
+	if previous == nil {
+		return s.verified
+	}
+	for path := range previous {
+		if !s.seen[path] {
+			delete(previous, path)
+		}
+	}
+	for path, value := range s.verified {
+		if value.hash == "" {
+			delete(previous, path)
+		} else {
+			previous[path] = value
+		}
+	}
+	return previous
 }
 
 // changed moves exactly invalidated files to the front of the cursor.
@@ -167,65 +212,82 @@ func (s *scan) changed(paths map[string]uint64) {
 // inspected is one file's refresh: a new parse, nothing when the record is
 // current, or the fault that prevented reading it.
 type inspected struct {
-	file *Parsed
-	err  error
+	file  *Parsed
+	stamp core.FileStamp
+	err   error
 }
 
-func prior(entries map[string]cached, path string) *cached {
-	if entry, ok := entries[path]; ok {
-		return &entry
-	}
-	return nil
+type inputs struct {
+	entries  map[string]cached
+	verified map[string]verified
+	dirty    map[string]uint64
+	ready    map[string]*Parsed
 }
 
-// read reads, fully hashes and, when changed, parses files in order while
-// holding one shared parsing permit.
-func (s *Service) read(ctx context.Context, files *core.Files, paths []string, entries map[string]cached, deadline time.Time) ([]inspected, error) {
-	timer := time.NewTimer(time.Until(deadline))
-	defer timer.Stop()
+// read checks files in order while holding one shared parsing permit.
+func (s *Service) read(ctx context.Context, files *core.Files, paths []string, in inputs, deadline time.Time) ([]inspected, error) {
+	bounded, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	select {
-	case <-ctx.Done():
-		return nil, cancelled()
-	case <-timer.C:
-		return nil, fault(protocol.ErrorCodeBusy, "code indexing budget exhausted")
+	case <-bounded.Done():
+		if ctx.Err() != nil {
+			return nil, cancelled()
+		}
+		return nil, failure(bounded.Err())
 	case s.parsing <- struct{}{}:
 	}
 	defer func() { <-s.parsing }()
-	bounded, cancel := context.WithDeadline(ctx, deadline)
-	defer cancel()
 	results := make([]inspected, 0, len(paths))
 	for _, path := range paths {
 		if ctx.Err() != nil {
 			return nil, cancelled()
 		}
-		file, err := s.inspect(ctx, bounded, files, path, prior(entries, path))
-		results = append(results, inspected{file, err})
+		prior := in.entries[path]
+		var stamp core.FileStamp
+		if known, ok := in.verified[path]; ok && in.dirty[path] == 0 && prior.fingerprint == Fingerprint && prior.hash != nil && known.hash == *prior.hash {
+			stamp = known.stamp
+		}
+		result := s.inspect(bounded, files, path, prior, stamp, in.ready[path])
+		if ctx.Err() != nil {
+			return nil, cancelled()
+		}
+		results = append(results, result)
 	}
 	return results, nil
 }
 
-func (s *Service) inspect(ctx, bounded context.Context, files *core.Files, path string, prior *cached) (*Parsed, error) {
-	source, err := files.BoundedText(bounded, path, MaxFileBytes)
-	if err != nil {
-		return nil, err
-	}
-	if source == nil {
-		// A fresh size check proves the same omitted state. There are no
-		// symbols or source revision to replace while the file is oversized.
-		if prior != nil && prior.fingerprint == Fingerprint && prior.state.Status == StatusTooLarge {
-			return nil, nil
+func (s *Service) inspect(bounded context.Context, files *core.Files, path string, prior cached, previous core.FileStamp, ready *Parsed) inspected {
+	var result inspected
+	result.stamp, result.err = s.inspectText(files, bounded, path, MaxFileBytes, previous, func(source *string) error {
+		if source == nil {
+			if prior.fingerprint != Fingerprint || prior.state.Status != StatusTooLarge {
+				file := Omitted(path, StatusTooLarge)
+				result.file = &file
+			}
+			return nil
 		}
-		file := Omitted(path, StatusTooLarge)
-		return &file, nil
-	}
-	if prior != nil && prior.hash != nil && *prior.hash == Hash(*source) && prior.fingerprint == Fingerprint {
-		return nil, nil
-	}
-	file, err := s.parser.Parse(ctx, path, *source)
-	if err != nil {
-		return nil, cancelled()
-	}
-	return &file, nil
+		var file Parsed
+		var err error
+		if prior.hash != nil && prior.fingerprint == Fingerprint || ready != nil {
+			hash := Hash(*source)
+			switch {
+			case prior.hash != nil && prior.fingerprint == Fingerprint && *prior.hash == hash:
+				return nil
+			case ready != nil && ready.Hash == hash:
+				result.file = ready
+				return nil
+			}
+			file, err = s.parser.parseHashed(bounded, path, *source, hash)
+		} else {
+			file, err = s.parser.Parse(bounded, path, *source)
+		}
+		if err == nil {
+			result.file = &file
+		}
+		return err
+	})
+	result.err = failure(result.err)
+	return result
 }
 
 // refreshed is the outcome of re-reading the files named by a result page.
@@ -250,8 +312,11 @@ func (s *Service) refresh(ctx context.Context, worktree *worktree, index *index,
 		return result, err
 	}
 	defer files.Close()
-	results, err := s.read(ctx, files, paths, progress.records.entries, deadline)
+	results, err := s.read(ctx, files, paths, inputs{entries: progress.records.entries}, deadline)
 	if err != nil {
+		if code(err) == protocol.ErrorCodeBusy {
+			return result, nil
+		}
 		return result, err
 	}
 	var changes []Parsed
@@ -263,16 +328,13 @@ func (s *Service) refresh(ctx context.Context, worktree *worktree, index *index,
 			changes = append(changes, *found.file)
 		case code(found.err) == protocol.ErrorCodeCancelled || code(found.err) == protocol.ErrorCodeNotConfigured:
 			return result, found.err
-		case code(found.err) == protocol.ErrorCodeBusy:
+		case code(found.err) == protocol.ErrorCodeBusy || code(found.err) == protocol.ErrorCodeRevisionConflict:
 			// The scan resumes files left by the refresh budget.
 		default:
 			changes = append(changes, Omitted(path, StatusInvalid))
 		}
 	}
 	committed, revisions, err := commit(ctx, index, changes, deadline)
-	if err != nil {
-		return result, err
-	}
 	for index := range changes[:committed] {
 		file := &changes[index]
 		progress.records.insert(file, Fingerprint)
@@ -282,7 +344,7 @@ func (s *Service) refresh(ctx context.Context, worktree *worktree, index *index,
 		progress.records.advance(revision)
 	}
 	result.changed = committed > 0
-	return result, nil
+	return result, err
 }
 
 // list lists the worktree's files with the ignore rules of file discovery.
@@ -361,9 +423,24 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 		}
 		// Root invalidations can come from ignored build output. Finish this
 		// cursor before reconciling them; exact writes still move to its front.
-		_, changed := worktree.dirty.snapshot()
+		in := inputs{entries: records.entries, ready: scan.ready, dirty: scan.versions}
+		worktree.dirty.mutex.Lock()
+		var changed map[string]uint64
+		if worktree.dirty.revision != scan.generation && len(scan.ready) == 0 {
+			changed = maps.Clone(worktree.dirty.paths)
+		}
+		if !worktree.dirty.full && !worktree.dirty.watchFailed && len(scan.ready) == 0 {
+			in.verified = progress.verified
+		}
+		worktree.dirty.mutex.Unlock()
 		scan.changed(changed)
-		batch := slices.Clone(scan.pending[:min(len(scan.pending), batchFiles)])
+		length := min(len(scan.pending), batchFiles)
+		if len(scan.ready) != 0 {
+			// Commit revalidated parses before admitting the slow file that
+			// exhausted the previous segment. Otherwise it can starve this prefix.
+			length = len(scan.ready)
+		}
+		batch := slices.Clone(scan.pending[:length])
 		// Shared permits bound all worktrees; no writer is held while parsing.
 		// Each permit covers a short ordered run, not one task per file.
 		results := make([]inspected, len(batch))
@@ -371,7 +448,7 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 		for start := 0; start < len(batch); start += batchFiles / readers {
 			run := batch[start:min(start+batchFiles/readers, len(batch))]
 			group.Go(func() {
-				found, err := s.read(ctx, files, run, records.entries, limits.deadline)
+				found, err := s.read(ctx, files, run, in, limits.deadline)
 				for index := range run {
 					if err != nil {
 						results[start+index] = inspected{err: err}
@@ -383,56 +460,66 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 		}
 		group.Wait()
 		var changes []Parsed
-		var states []string
+		completed := map[string]bool{}
 		exhausted := false
 		for index, path := range batch {
 			switch found := results[index]; {
 			case found.err == nil && found.file != nil:
 				changes = append(changes, *found.file)
 			case found.err == nil:
-				if _, ok := records.entries[path]; ok {
-					states = append(states, path)
-				}
+				completed[path] = true
 			case code(found.err) == protocol.ErrorCodeCancelled || code(found.err) == protocol.ErrorCodeNotConfigured:
 				return report{}, found.err
-			case code(found.err) == protocol.ErrorCodeBusy:
+			case code(found.err) == protocol.ErrorCodeBusy || code(found.err) == protocol.ErrorCodeRevisionConflict:
 				exhausted = true
 			default:
 				changes = append(changes, Omitted(path, StatusInvalid))
 			}
 		}
-		if exhausted {
-			break
-		}
 		if len(changes) != 0 {
 			releaseBatchScratch()
 		}
 		committed, revisions, err := commit(ctx, index, changes, limits.deadline)
-		if err != nil {
-			return report{}, err
-		}
-		completed := map[string]bool{}
 		for index := range changes[:committed] {
-			state := records.insert(&changes[index], Fingerprint)
-			scan.report.record(changes[index].Path, &state)
+			records.insert(&changes[index], Fingerprint)
 			completed[changes[index].Path] = true
 		}
 		for _, revision := range revisions {
 			records.advance(revision)
 		}
-		for _, path := range states {
-			state := records.entries[path].state
-			scan.report.record(path, &state)
-			completed[path] = true
+		for i, path := range batch {
+			if !completed[path] {
+				continue
+			}
+			delete(scan.ready, path)
+			entry := records.entries[path]
+			scan.report.record(path, &entry.state)
+			scan.remember(path, entry.hash, results[i].stamp, progress.verified)
+		}
+		for _, file := range changes[committed:] {
+			if file.Hash != "" {
+				if scan.ready == nil {
+					scan.ready = make(map[string]*Parsed)
+				}
+				scan.ready[file.Path] = &file
+			}
 		}
 		// Keep unfinished files queued at the front without copying the
 		// unprocessed tail on every batch.
 		kept := slices.DeleteFunc(batch, func(path string) bool { return completed[path] })
+		if len(scan.ready) != 0 {
+			slices.SortStableFunc(kept, func(left, right string) int {
+				return cmp.Compare(truth(scan.ready[left] == nil), truth(scan.ready[right] == nil))
+			})
+		}
 		advance := len(batch) - len(kept)
 		copy(scan.pending[advance:len(batch)], kept)
 		clear(scan.pending[:advance])
 		scan.pending = scan.pending[advance:]
-		if committed < len(changes) {
+		if err != nil {
+			return report{}, err
+		}
+		if exhausted || committed < len(changes) {
 			break
 		}
 	}
@@ -451,13 +538,19 @@ func (s *Service) synchronize(ctx context.Context, worktree *worktree, index *in
 	result := scan.report
 	result.problems = maps.Clone(scan.report.problems)
 	worktree.dirty.mutex.Lock()
-	defer worktree.dirty.mutex.Unlock()
 	current := worktree.dirty.revision == scan.generation
 	result.partial = result.partial || worktree.dirty.watchFailed || !current || !finished
 	result.truncated = result.truncated || !finished || !current
 	result.recheck = finished && scan.complete && !current
-	if finished && scan.complete && current {
+	clean := finished && scan.complete && current
+	if clean {
 		clear(worktree.dirty.paths)
+		worktree.dirty.full = false
+	}
+	publish := clean && !worktree.dirty.watchFailed
+	worktree.dirty.mutex.Unlock()
+	if publish {
+		progress.verified = scan.publish(progress.verified)
 	}
 	if finished {
 		progress.scan = nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -117,6 +118,49 @@ func TestWorkspaceWatch(t *testing.T) {
 		}
 		if _, open := <-active.native.Events; open {
 			t.Fatal("native watch stayed open")
+		}
+	})
+
+	t.Run("path observers receive broad and precise batches before coalesced wakes", func(t *testing.T) {
+		watches, root := setup(t)
+		filter, err := workspacegit.NewWatchFilter(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Inject only the managed batches here; a native stream can also
+		// report the watched root independently of these requests.
+		watches.roots[root] = &workspaceWatch{owner: watches, root: root, started: true, filter: filter, observers: map[*workspaceEvents]struct{}{}}
+		var events link.Subscription
+		defer func() {
+			delete(watches.roots, root)
+			if events != nil {
+				_ = events.Close()
+			}
+		}()
+		var batches [][]string
+		events, err = watches.observe(t.Context(), root, protocol.NodeID{}, protocol.WorktreeID{1}, false, func(paths []string) {
+			batches = append(batches, slices.Clone(paths))
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := []string{filepath.Join(root, "first.go")}
+		second := []string{filepath.Join(root, "second.go")}
+		// An initial update can already cover a pending wake. Later, several
+		// batches can share just one wake, in either order around an unknown.
+		watches.changed(root, nil)
+		watches.changed(root, first)
+		if _, err := next(t, events); err != nil {
+			t.Fatal(err)
+		}
+		watches.changed(root, first)
+		watches.changed(root, nil)
+		watches.changed(root, second)
+		if _, err := next(t, events); err != nil {
+			t.Fatal(err)
+		}
+		if want := [][]string{nil, first, first, nil, second}; !reflect.DeepEqual(batches, want) {
+			t.Fatalf("observer received %v, want %v", batches, want)
 		}
 	})
 

@@ -84,11 +84,18 @@ func Hash(source string) string {
 // Parse extracts the declarations, references and imports of one source. It
 // fails only when ctx is cancelled.
 func (p *Parser) Parse(ctx context.Context, file, source string) (Parsed, error) {
+	return p.parseHashed(ctx, file, source, "")
+}
+
+func (p *Parser) parseHashed(ctx context.Context, file, source, hash string) (Parsed, error) {
 	if err := ctx.Err(); err != nil {
 		return Parsed{}, err
 	}
+	if hash == "" {
+		hash = Hash(source)
+	}
 	parsed := Omitted(file, StatusUnsupported)
-	parsed.Hash = Hash(source)
+	parsed.Hash = hash
 	entry := detect(file, source)
 	if entry == nil {
 		return parsed, nil
