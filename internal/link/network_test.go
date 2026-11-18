@@ -202,14 +202,19 @@ func (store *fixturePeerStore) pair(peer protocol.NodeID, direction PeerDirectio
 	store.trusted[peer] = true
 }
 
-func (store *fixturePeerStore) SavePairing(_ context.Context, address EndpointAddress, direction PeerDirection, _ InvitationScope, _ *bool) error {
+func (store *fixturePeerStore) SavePairing(_ context.Context, address EndpointAddress, direction PeerDirection, _ InvitationScope, _ *bool, resume bool) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if resume && (!store.trusted[address.ID] || store.directions[address.ID] == DirectionHost) {
+		return pairingRejected()
+	}
 	err := errors.Join(store.trustOutcome, store.rememberOutcome)
 	if err != nil && faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown {
 		return err
 	}
-	store.pair(address.ID, direction)
+	if !resume {
+		store.pair(address.ID, direction)
+	}
 	store.addresses[address.ID] = cloneAddress(address)
 	return err
 }

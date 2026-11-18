@@ -22,7 +22,9 @@ type PeerStore interface {
 	SetTrust(context.Context, protocol.NodeID, bool) error
 	Directions(context.Context) ([]PeerTrust, error)
 	PairPeer(context.Context, protocol.NodeID, PeerDirection) error
-	SavePairing(context.Context, EndpointAddress, PeerDirection, InvitationScope, *bool) error
+	// A resumed invitation can refresh an existing inbound peer's address, but
+	// cannot grant access again or change its membership.
+	SavePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool, resume bool) error
 	SetDirection(context.Context, protocol.NodeID, PeerDirection) error
 }
 
@@ -268,15 +270,15 @@ func (store *controllerStore) ClassifyPeer(ctx context.Context, id protocol.Node
 }
 
 func (store *controllerStore) PairMember(ctx context.Context, id protocol.NodeID, direction PeerDirection, scope InvitationScope) error {
-	return store.pair(ctx, id, direction, scope, nil, nil)
+	return store.pair(ctx, id, direction, scope, nil, nil, false)
 }
 
-func (store *controllerStore) SavePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool) error {
+func (store *controllerStore) SavePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool, resume bool) error {
 	saved := cloneAddress(address)
-	return store.pair(ctx, address.ID, direction, scope, &saved, hasNode)
+	return store.pair(ctx, address.ID, direction, scope, &saved, hasNode, resume)
 }
 
-func (store *controllerStore) pair(ctx context.Context, id protocol.NodeID, direction PeerDirection, scope InvitationScope, address *EndpointAddress, hasNode *bool) error {
+func (store *controllerStore) pair(ctx context.Context, id protocol.NodeID, direction PeerDirection, scope InvitationScope, address *EndpointAddress, hasNode *bool, resume bool) error {
 	if !direction.Valid() {
 		return invalidLink("invalid peer direction")
 	}
@@ -285,6 +287,13 @@ func (store *controllerStore) pair(ctx context.Context, id protocol.NodeID, dire
 			peer := &(*peers)[index]
 			if peer.ID != id {
 				continue
+			}
+			if resume {
+				if peer.Removed || peer.DirectoryOnly || !peer.Direction.AllowsInbound() {
+					return pairingRejected()
+				}
+				peer.Address = address
+				return nil
 			}
 			if hasNode != nil {
 				if peer.HasNode != nil && *peer.HasNode != *hasNode {
@@ -310,6 +319,9 @@ func (store *controllerStore) pair(ctx context.Context, id protocol.NodeID, dire
 			peer.Removed = false
 			peer.MyDevice = peer.MyDevice || scope.Kind == protocol.InvitationMyDevice
 			return nil
+		}
+		if resume {
+			return pairingRejected()
 		}
 		peer := controllerPeer{ID: id, Address: address, Direction: direction, Direct: true, DirectDirection: direction, MyDevice: scope.Kind == protocol.InvitationMyDevice}
 		if hasNode != nil {

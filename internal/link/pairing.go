@@ -124,15 +124,16 @@ func (result *pairingResult) UnmarshalJSON(encoded []byte) error {
 }
 
 type pairingOffer struct {
-	scope    InvitationScope
-	token    pairingToken
-	deadline time.Time
-	stop     chan struct{}
-	paired   chan struct{}
-	peer     *protocol.NodeID
-	claims   int // connections being served for this offer; guarded by offerMu
-	close    sync.Once
-	accept   sync.Once
+	scope       InvitationScope
+	token       pairingToken
+	deadline    time.Time
+	stop        chan struct{}
+	paired      chan struct{}
+	peer        *protocol.NodeID
+	peerHasNode *bool
+	claims      int // connections being served for this offer; guarded by offerMu
+	close       sync.Once
+	accept      sync.Once
 }
 
 func (offer *pairingOffer) cancel() {
@@ -429,29 +430,41 @@ func (link *Link) acceptPairingIdentity(ctx context.Context, token pairingToken,
 	if address.ID != peer || len(address.Addrs) > 16 {
 		return InvitationScope{}, nil, pairingRejected()
 	}
+	// Serialize claiming and saving with other claims and Link trust updates.
+	// A retained claim may resume only its already granted inbound pairing.
+	link.trustUpdate.Lock()
+	defer link.trustUpdate.Unlock()
 	link.offerMu.Lock()
 	offer := link.offer
 	if offer == nil || subtle.ConstantTimeCompare(offer.token[:], token[:]) != 1 ||
 		channelClosed(offer.stop) || !link.now().Before(offer.deadline) ||
-		offer.peer != nil && *offer.peer != peer ||
-		channelClosed(offer.paired) && !link.isTrusted(peer) {
+		offer.peer != nil && *offer.peer != peer {
 		link.offerMu.Unlock()
 		return InvitationScope{}, nil, pairingRejected()
 	}
-	claimed := peer
-	offer.peer = &claimed
+	resume := offer.peer != nil
+	if resume && ((offer.peerHasNode == nil) != (hasNode == nil) || hasNode != nil && *offer.peerHasNode != *hasNode) {
+		link.offerMu.Unlock()
+		return InvitationScope{}, nil, pairingRejected()
+	}
+	if !resume {
+		offer.peer = &peer
+		if hasNode != nil {
+			offer.peerHasNode = new(*hasNode)
+		}
+	}
 	link.offerMu.Unlock()
 	scope := offer.scope
 	if hasNode != nil {
 		scope = InvitationScope{Kind: protocol.InvitationOtherUser}
 	}
-	if err := link.savePairing(ctx, address, DirectionController, scope, hasNode); err != nil {
-		// A claimant that gained no trust leaves the invitation to the others.
-		link.offerMu.Lock()
-		if offer.peer == &claimed && !link.isTrusted(peer) && faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown {
+	if err := link.savePairingLocked(ctx, address, DirectionController, scope, hasNode, resume); err != nil {
+		if !resume && faultValue(err).Code != protocol.ErrorCodeOutcomeUnknown {
+			link.offerMu.Lock()
 			offer.peer = nil
+			offer.peerHasNode = nil
+			link.offerMu.Unlock()
 		}
-		link.offerMu.Unlock()
 		return InvitationScope{}, nil, err
 	}
 	return scope, offer, nil
@@ -468,9 +481,15 @@ func (link *Link) confirmPairing(offer *pairingOffer) {
 func (link *Link) savePairing(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool) error {
 	link.trustUpdate.Lock()
 	defer link.trustUpdate.Unlock()
+	return link.savePairingLocked(ctx, address, direction, scope, hasNode, false)
+}
+
+func (link *Link) savePairingLocked(ctx context.Context, address EndpointAddress, direction PeerDirection, scope InvitationScope, hasNode *bool, resume bool) error {
 	if err := link.updateTrustLocked(ctx, address.ID, func() error {
-		link.cancelHostRemoval(address.ID)
-		return link.store.SavePairing(ctx, address, direction, scope, hasNode)
+		if !resume {
+			link.cancelHostRemoval(address.ID)
+		}
+		return link.store.SavePairing(ctx, address, direction, scope, hasNode, resume)
 	}); err != nil {
 		return err
 	}

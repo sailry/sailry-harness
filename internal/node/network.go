@@ -65,11 +65,20 @@ func (peers nodePeerStore) SetDirection(ctx context.Context, peer protocol.NodeI
 	return nodeFault(peers.handle.Write(ctx, func(db *sql.Conn) error { return store.SetIdentityPeerDirection(ctx, db, peer, direction) }))
 }
 
-func (peers nodePeerStore) SavePairing(ctx context.Context, address link.EndpointAddress, direction link.PeerDirection, scope link.InvitationScope, hasNode *bool) error {
+func (peers nodePeerStore) SavePairing(ctx context.Context, address link.EndpointAddress, direction link.PeerDirection, scope link.InvitationScope, hasNode *bool, resume bool) error {
 	var user protocol.User
 	initialize := peers.owner != nil && direction.AllowsInbound() && (hasNode == nil || *hasNode)
 	err := peers.handle.Write(ctx, func(db *sql.Conn) error {
 		var err error
+		if resume {
+			// Device revocation can commit before Link refreshes its live trust.
+			// Check the persisted inbound user in this same address write.
+			user, err = store.CallerUser(ctx, db, peers.node, address.ID)
+			if err != nil {
+				return err
+			}
+			return store.RememberLinkPeer(ctx, db, address)
+		}
 		if hasNode == nil {
 			err = store.PairIdentityPeer(ctx, db, peers.node, address.ID, direction, scope)
 		} else {

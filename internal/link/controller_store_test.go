@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -67,6 +68,55 @@ func TestControllerStorePersistsIdentityAndPairedAddresses(t *testing.T) {
 	addresses, err = reopened.Addresses(t.Context())
 	if err != nil || len(addresses) != 0 {
 		t.Fatal("revocation retained its authenticated address")
+	}
+}
+
+func TestPairingResumeRequiresPersistedInboundAccess(t *testing.T) {
+	t.Parallel()
+	for _, outbound := range []bool{false, true} {
+		name := "device removed"
+		if outbound {
+			name = "only outbound access remains"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			link := newFixtureLink(t)
+			_, store, err := openControllerStore(filepath.Join(t.TempDir(), "controller"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			link.store = store
+			offer := &pairingOffer{scope: InvitationScope{Kind: protocol.InvitationOtherUser}, token: pairingToken{7},
+				deadline: link.now().Add(invitationLifetime), stop: make(chan struct{}), paired: make(chan struct{})}
+			link.offer = offer
+			peer := EndpointAddress{ID: protocol.NodeID{8}}
+			hasNode := true
+			if _, accepted, err := link.acceptPairingIdentity(ctx, offer.token, peer.ID, peer, &hasNode); err != nil || accepted != offer || channelClosed(offer.paired) {
+				t.Fatalf("initial pairing was not awaiting confirmation: %v", err)
+			}
+
+			// Revoke the persisted pairing before Link refreshes its cached trust.
+			if outbound {
+				err = store.SetDirection(ctx, peer.ID, DirectionHost)
+			} else {
+				err = store.SetTrust(ctx, peer.ID, false)
+			}
+			if err != nil || !link.Direction(peer.ID).AllowsInbound() {
+				t.Fatalf("revocation did not leave the expected stale Link state: %v", err)
+			}
+			if _, _, err := link.acceptPairingIdentity(ctx, offer.token, peer.ID, peer, &hasNode); faultValue(err).Code != protocol.ErrorCodePermissionDenied {
+				t.Fatalf("revoked invitation did not fail with permission denied: %v", err)
+			}
+			var want []PeerTrust
+			if outbound {
+				want = []PeerTrust{{ID: peer.ID, Direction: DirectionHost}}
+			}
+			stored, err := store.Directions(ctx)
+			if err != nil || !slices.Equal(stored, want) {
+				t.Fatalf("old invitation changed persisted access: %v, %v", stored, err)
+			}
+		})
 	}
 }
 
