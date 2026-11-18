@@ -105,6 +105,7 @@ type Channel struct {
 	Headers                   map[string]string
 	Auth                      Auth
 	Enabled, KeySet, SignedIn bool
+	AccountPending            bool // Saved OAuth credential whose metadata is being resolved.
 	Account                   string
 	Models                    []ChannelModel
 	Default                   int

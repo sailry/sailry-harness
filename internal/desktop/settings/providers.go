@@ -35,7 +35,7 @@ func ProviderStatus(ch *preview.Channel) string {
 	switch {
 	case ch.Auth == preview.AuthKey && !ch.KeySet:
 		return "provider_status_missing_key"
-	case ch.Auth == preview.AuthOAuth && !ch.SignedIn:
+	case ch.Auth == preview.AuthOAuth && !ch.SignedIn && !ch.AccountPending:
 		return "provider_status_signed_out"
 	}
 	return ""
@@ -392,7 +392,7 @@ func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 		}
 		if ch.Auth == preview.AuthOAuth && (!ch.ConfigurationReadOnly || ch.Source != "") {
 			key := "provider_connect"
-			if ch.Account != "" || ch.SignedIn {
+			if ch.Account != "" || ch.SignedIn || ch.AccountPending {
 				key = "provider_reconnect"
 			}
 			if menu.Item(i18n.T(c, key)).Icon(icons.CircleUser).Chosen() {

@@ -504,6 +504,7 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 	snapshot := r.snapshot()
 	now := uint64(time.Now().UnixMilli())
 	r.refreshQuotaReset(now, snapshot.ProviderQuotas)
+	credentialsKnown := r.authorizations != nil && r.authorizations.credentialKey == r.providerCredentialKey(snapshot.Providers)
 	var channels []viewmodel.Channel
 	node := r.controller.Target().String()
 	for _, p := range snapshot.Providers {
@@ -517,12 +518,11 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 			ch.Auth = viewmodel.AuthKey
 		default:
 			ch.Auth = viewmodel.AuthOAuth
-			if p.Credential != nil && r.authorizations != nil {
-				if credential, ok := r.authorizations.credentials[p.Credential.ID]; ok {
-					ch.SignedIn = !credential.Revoked
-					if credential.ExpiresAtMs != nil && *credential.ExpiresAtMs <= uint64(time.Now().UnixMilli()) {
-						ch.SignedIn = false
-					}
+			if p.Credential != nil {
+				ch.AccountPending = !credentialsKnown
+				if credentialsKnown {
+					credential, ok := r.authorizations.credentials[p.Credential.ID]
+					ch.SignedIn = ok && !credential.Revoked && (credential.ExpiresAtMs == nil || *credential.ExpiresAtMs > now)
 					if credential.AccountLabel != nil {
 						ch.Account = *credential.AccountLabel
 					}

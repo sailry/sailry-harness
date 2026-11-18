@@ -158,6 +158,14 @@ func (client *Client) Revision() uint64 {
 	return client.revision
 }
 
+// CredentialMetadataRevision advances on accepted snapshots and
+// credential_changed events so controllers can invalidate list_credentials.
+func (client *Client) CredentialMetadataRevision() uint64 {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	return client.project.credential
+}
+
 // sessionKnown reads the Node projection in place; conversationMu may be held.
 func (client *Client) sessionKnown(id protocol.SessionID) bool {
 	client.mu.RLock()

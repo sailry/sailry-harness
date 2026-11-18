@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -15,6 +16,86 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestProviderStartupWaitsForCredentialMetadata(t *testing.T) {
+	for _, test := range []struct {
+		name                          string
+		revoked, expired, missing     bool
+		readFailed, signedIn, pending bool
+	}{
+		{name: "connected", signedIn: true},
+		{name: "revoked", revoked: true},
+		{name: "expired", expired: true},
+		{name: "missing", missing: true},
+		{name: "read unavailable", readFailed: true, pending: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node = protocol.NodeID{1}
+			account := providerRouteFixture()
+			account.Authentication = protocol.AuthenticationChatGptOAuth
+			account.Credential = &protocol.CredentialRef{Node: snapshot.Node, ID: protocol.CredentialID{3}}
+			snapshot.Providers = []protocol.ConversationProvider{account}
+			expires := uint64(time.Now().Add(time.Hour).UnixMilli())
+			if test.expired {
+				expires = 1
+			}
+			values := []protocol.Credential{}
+			if !test.missing {
+				values = append(values, protocol.Credential{ID: account.Credential.ID, Provider: account.ID,
+					Authentication: account.Authentication, Revoked: test.revoked, ExpiresAtMs: &expires})
+			}
+			transport := &conversationTestTransport{snapshot: snapshot}
+			transport.handle = func(request protocol.Request) (link.Response, bool) {
+				if request.Command.Kind != "list_credentials" {
+					return link.Response{}, false
+				}
+				if test.readFailed {
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "credential metadata temporarily unavailable"}}, true
+				}
+				return link.Response{Output: protocol.Output{Kind: "credentials", Data: values}}, true
+			}
+			controller := client.New(transport)
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer controller.Close()
+			r, err := NewWithPreferences(t.Context(), controller, preferences.Open(t.TempDir()+"/preferences.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			var toasts []ui.Toast
+			tester := ui.NewTester(func(c *ui.Context) {
+				r.drain(c)
+				r.finishFrame()
+				ui.ToastViewportBase(c, func(_ ui.Element, values []ui.Toast) { toasts = slices.Clone(values) })
+			}, 640, 400)
+			tester.SetLocale("en")
+			r.workers.Wait()
+			tester.Frame()
+			baseline := len(toasts)
+			r.readProviderCredentials()
+			pending := r.projectNodeProviders()[0]
+			if !pending.AccountPending || pending.SignedIn || settings.ProviderStatus(&pending) != "" {
+				t.Fatal("first projection reported sign-out before credential metadata arrived")
+			}
+			r.workers.Wait()
+			tester.Frame()
+			channel := r.projectNodeProviders()[0]
+			wantStatus := ""
+			if !test.signedIn && !test.pending {
+				wantStatus = "provider_status_signed_out"
+			}
+			if channel.SignedIn != test.signedIn || channel.AccountPending != test.pending || settings.ProviderStatus(&channel) != wantStatus {
+				t.Fatalf("unexpected account state after metadata response: %+v", channel)
+			}
+			if len(toasts) != baseline {
+				t.Fatalf("background account metadata read produced an action toast: %+v", toasts)
+			}
+		})
+	}
+}
 
 func TestProviderLoginRefreshesOpenDraft(t *testing.T) {
 	for _, modelFailure := range []bool{false, true} {
