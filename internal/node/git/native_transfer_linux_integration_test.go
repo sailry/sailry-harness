@@ -6,6 +6,7 @@ import (
 	"net/http/cgi"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -35,7 +36,11 @@ func TestLinuxSandboxGitTransfer(t *testing.T) {
 	defer server.Close()
 	ctx := t.Context()
 	s := New(Options{})
-	for _, sourceURL := range []string{source, (&url.URL{Scheme: "file", Path: source}).String()} {
+	alias := filepath.Join(t.TempDir(), "repository alias")
+	if err := os.Symlink(source, alias); err != nil {
+		t.Fatal(err)
+	}
+	for _, sourceURL := range []string{source, (&url.URL{Scheme: "file", Path: source}).String(), alias, (&url.URL{Scheme: "file", Path: alias}).String()} {
 		target := filepath.Join(t.TempDir(), "local-checkout")
 		if path, err := s.Clone(ctx, sourceURL, target, nil); err != nil || path != target {
 			t.Fatalf("local clone to %s: %v\n%s", path, err, s.Output(filepath.Dir(target)))

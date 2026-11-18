@@ -74,12 +74,20 @@ func prepareGitCommand(ctx context.Context, git *exec.Cmd, args []string, enviro
 			return gitCommand{}, invalid("Git clone requires a source and destination")
 		}
 		root = args[len(args)-1]
-		if source := localGitCloneSource(args[len(args)-2]); source != "" {
+		sourceIndex := len(args) - 2
+		if source, uri := localGitCloneSource(args[sourceIndex]); source != "" {
 			real, err := filepath.EvalSymlinks(source)
 			if err != nil {
 				return gitCommand{}, mapError(err)
 			}
 			mounts = append(mounts, gitMount{path: real, scope: real})
+			// Git must address the same path that is visible in the sandbox.
+			args = slices.Clone(args)
+			args[sourceIndex] = real
+			if uri != nil {
+				uri.Path, uri.RawPath = real, ""
+				args[sourceIndex] = uri.String()
+			}
 		}
 	}
 	if gitWritesObject(args) {
@@ -389,15 +397,15 @@ func gitWritesObject(args []string) bool {
 	return gitOperation(args) == "hash-object" && slices.Contains(args, "-w")
 }
 
-func localGitCloneSource(value string) string {
+func localGitCloneSource(value string) (string, *url.URL) {
 	if filepath.IsAbs(value) {
-		return value
+		return value, nil
 	}
 	parsed, err := url.Parse(value)
 	if err == nil && parsed.Scheme == "file" && (parsed.Host == "" || parsed.Host == "localhost") && filepath.IsAbs(parsed.Path) {
-		return parsed.Path
+		return parsed.Path, parsed
 	}
-	return ""
+	return "", nil
 }
 
 func gitSandboxDenied() error {
