@@ -16,7 +16,9 @@ type hookSettingsState struct {
 	reload    bool
 	sandboxed bool
 	status    string
-	// The window uses these fields to identify the active binding.
+	// The selected binding survives temporary loss of the connection. The
+	// shown binding reopens with a fresh read when the connection returns.
+	selected   *Runtime
 	shown      *Runtime
 	generation uint64
 }
@@ -28,22 +30,27 @@ func (r *Runtime) hooksSettingsOpen() bool {
 func (r *Runtime) hooksSettingsFrame() {
 	root := r.localRuntime()
 	m := root.App.Settings
-	var owner *Runtime
+	var selected, owner *Runtime
 	status := ""
 	visible := root.hooksSettingsOpen()
 	if visible {
-		owner = root.managedSettingsNode()
-		status = owner.machineSettingsStatus()
-		if status == "" && !owner.controller.Connected() {
-			status = "connections_offline"
-		}
-		if status != "" {
-			owner = nil
+		selected = root.runtimeFor(m.ManagedNode)
+		status = selected.machineSettingsStatus()
+		if status == "" {
+			if selected.controller.Connected() {
+				owner = selected
+			} else {
+				status = "connections_offline"
+			}
 		}
 	}
-	if binding := &root.hookSettings; binding.shown != owner {
-		binding.shown = owner
+	binding := &root.hookSettings
+	if binding.selected != selected {
+		binding.selected = selected
 		binding.generation++
+	}
+	if binding.shown != owner {
+		binding.shown = owner
 		if owner != nil {
 			owner.hookSettings.reload = true
 		}
@@ -54,7 +61,7 @@ func (r *Runtime) hooksSettingsFrame() {
 		if visible {
 			m.Hooks = settings.Stored[settings.HookSettings]{}
 			target := settings.HookTarget{Node: m.ManagedNode}
-			if selected := root.runtimeFor(m.ManagedNode); selected != nil {
+			if selected != nil {
 				target = selected.hooksTarget()
 			}
 			m.HooksContext = func() (settings.HookTarget, bool) { return target, false }
@@ -78,6 +85,13 @@ func (r *Runtime) hooksSettingsCurrent() bool {
 		r.controller.Connected() && r.machineSettingsStatus() == ""
 }
 
+func (r *Runtime) hooksUser() protocol.UserID {
+	if user := r.snapshot().User; user != nil {
+		return user.ID
+	}
+	return protocol.UserID{}
+}
+
 func (r *Runtime) publishHookSettings() {
 	if !r.hooksSettingsCurrent() {
 		return
@@ -86,8 +100,11 @@ func (r *Runtime) publishHookSettings() {
 	m, state := root.App.Settings, &r.hookSettings
 	m.Hooks, m.HooksStatus = state.model, state.status
 	target := r.hooksTarget()
+	user := r.hooksUser()
 	generation, revision := root.hookSettings.generation, state.model.Revision
-	current := func() bool { return root.hookSettings.generation == generation && r.hooksSettingsCurrent() }
+	current := func() bool {
+		return root.hookSettings.generation == generation && r.hooksSettingsCurrent() && r.hooksUser() == user
+	}
 	m.HooksContext = func() (settings.HookTarget, bool) { return target, current() }
 	m.HooksSandboxed = func() bool { return state.sandboxed }
 	m.SaveHooks = nil

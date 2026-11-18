@@ -1,8 +1,10 @@
 package live
 
 import (
+	"context"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -10,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -344,6 +347,97 @@ func TestMediaSettings(t *testing.T) {
 		})
 		if m.Media.Revision != revision || m.Media.Saved != saved {
 			t.Errorf("an older answer left revision %d, saved %q; want %d, %q", m.Media.Revision, m.Media.Saved, revision, saved)
+		}
+	})
+}
+
+type heldMediaSave struct {
+	value protocol.MediaSettings
+	done  chan link.Response
+}
+
+type heldMediaSaveTransport struct {
+	*conversationTestTransport
+	saves chan heldMediaSave
+}
+
+func (t *heldMediaSaveTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
+	if request.Command.Kind != "save_media_settings" {
+		return t.conversationTestTransport.Dispatch(ctx, request)
+	}
+	value, _ := detail[protocol.MediaSettings](request.Command.Data)
+	done := make(chan link.Response, 1)
+	t.saves <- heldMediaSave{value: value, done: done}
+	return link.Admission{Receipt: protocol.Receipt{ID: request.ID, Durable: request.Command.Durable()}, Completion: done}, nil
+}
+
+func TestMediaSaveCompletionFollowsSettingsBinding(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{1}
+		transport := &heldMediaSaveTransport{conversationTestTransport: &conversationTestTransport{snapshot: snapshot}, saves: make(chan heldMediaSave, 2)}
+		controller := client.New(transport)
+		defer controller.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		app := &shell.App{Data: &viewmodel.Data{}, Settings: settings.NewLive()}
+		r := &Runtime{ctx: ctx, controller: controller, App: app, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		tester := ui.NewTester(func(c *ui.Context) {
+			r.mu.Lock()
+			queue := r.queue
+			r.queue = nil
+			r.mu.Unlock()
+			for _, complete := range queue {
+				complete(c)
+			}
+		}, 1, 1)
+		provider := protocol.ProviderID{2}
+		candidates := []protocol.MediaCandidate{{Provider: provider, Model: "first"}, {Provider: provider, Model: "second"}}
+		field := &r.App.Settings.Media
+		save := func(model string) heldMediaSave {
+			t.Helper()
+			field.Draft[0] = modelKey(provider, model)
+			r.saveMedia()
+			synctest.Wait()
+			select {
+			case pending := <-transport.saves:
+				binding := pending.value.Bindings[protocol.MediaKindVision]
+				if pending.value.Revision != field.Revision || binding == nil || binding.Model != model {
+					t.Fatalf("the save used unexpected settings: %+v", pending.value)
+				}
+				pending.value.Revision++
+				return pending
+			default:
+				t.Fatal("the media save was not dispatched")
+				return heldMediaSave{}
+			}
+		}
+		complete := func(pending heldMediaSave) {
+			pending.done <- link.Response{Output: protocol.Output{Kind: "media_settings", Data: pending.value}}
+			synctest.Wait()
+			tester.Frame()
+		}
+		r.projectMedia(protocol.MediaSettings{Revision: 1}, candidates, true)
+		first := save("first")
+		// The page switches to another host and back. The newly read value
+		// includes the save the Node already applied, with its reply still held.
+		r.settingsShown, r.settingsGeneration = &Runtime{}, 1
+		*field = settings.Stored[[4]string]{}
+		r.settingsShown, r.settingsGeneration = r, 2
+		r.projectMedia(first.value, candidates, true)
+		second := save("second")
+		before := *field
+		complete(first)
+		if *field != before || !field.Pending {
+			t.Fatalf("the old host binding overwrote the current draft: %+v", *field)
+		}
+		// A later read can also overtake this save within its own binding.
+		newer := first.value
+		newer.Revision = second.value.Revision + 1
+		r.projectMedia(newer, candidates, true)
+		complete(second)
+		if field.Pending || field.Revision != newer.Revision || field.Draft != field.Saved || field.Saved[0] != modelKey(provider, "first") {
+			t.Fatalf("an older acknowledgement replaced the current settings: %+v", *field)
 		}
 	})
 }

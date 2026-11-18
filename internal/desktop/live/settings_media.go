@@ -48,6 +48,7 @@ func (r *Runtime) followMedia(snapshot protocol.Snapshot) {
 // snapshot that carries the newer revision is read for in its turn.
 func (r *Runtime) readMedia() {
 	state := &r.media
+	current := r.settingsCurrent()
 	state.seen = state.wanted
 	state.reading = r.async(func() {
 		saved, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_media_settings"})
@@ -57,9 +58,12 @@ func (r *Runtime) readMedia() {
 		}
 		r.enqueue(func(c *ui.Context) {
 			state.reading = false
-			if !r.showsSettings() {
-				// The page turned to another Node: this one is read again
-				// when the page returns.
+			if !current() {
+				// A return to this Node may have waited for the earlier read.
+				if r.showsSettings() {
+					state.seen = ""
+					r.followMedia(r.snapshot())
+				}
 				return
 			}
 			if err != nil {
@@ -164,8 +168,9 @@ func (r *Runtime) saveMedia() {
 		}
 	}
 	field.Pending = true
+	current := r.settingsCurrent()
 	r.saveSetting(protocol.Command{Kind: "save_media_settings", Data: request}, settings.MediaMessages, func(output protocol.Output, ok bool) {
-		if !r.showsSettings() {
+		if !current() {
 			return
 		}
 		field.Pending = false
@@ -176,6 +181,8 @@ func (r *Runtime) saveMedia() {
 			return
 		}
 		field.Draft = field.Saved
-		r.projectMedia(value, nil, false)
+		if value.Revision >= field.Revision {
+			r.projectMedia(value, nil, false)
+		}
 	})
 }

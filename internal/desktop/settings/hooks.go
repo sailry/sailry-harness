@@ -187,7 +187,7 @@ func hooks(c *ui.Context, m *Model) {
 	} else {
 		m.hook.removing = ""
 	}
-	hookDialog(c, m, true)
+	hookDialog(c, m, !m.Live || m.SaveHooks != nil && !h.Pending)
 	consentDialog(c, m)
 }
 

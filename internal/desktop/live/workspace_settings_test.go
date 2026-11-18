@@ -35,14 +35,14 @@ func TestWorkspaceHookSettings(t *testing.T) {
 
 func testHostHooksSettings(t *testing.T) {
 	app := shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
-	fixture := func(index byte, administrator bool) (*Runtime, *conversationTestTransport) {
+	fixture := func(index byte, administrator bool) (*Runtime, *settingsTestTransport) {
 		t.Helper()
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = protocol.NodeID{index}
 		snapshot.User = &protocol.User{ID: protocol.UserID{index}, Administrator: administrator}
 		stored := protocol.DefaultHooksSettings()
 		stored.Revision = uint64(index + 6)
-		transport := &conversationTestTransport{snapshot: snapshot}
+		transport := &settingsTestTransport{conversationTestTransport: &conversationTestTransport{snapshot: snapshot}}
 		transport.handle = func(request protocol.Request) (link.Response, bool) {
 			switch request.Command.Kind {
 			case "read_hooks":
@@ -146,6 +146,44 @@ func testHostHooksSettings(t *testing.T) {
 	settle()
 	assertHost(remoteNode, 9)
 
+	// The script editor retains its original save action while the same
+	// authenticated host goes offline. It can save after a fresh read at
+	// the draft's revision, but not once that revision changes.
+	draftSave := m.SaveHooks
+	refresh := func(code protocol.ErrorCode) error {
+		remoteSource.mu.Lock()
+		remoteSource.nodeFault = code
+		remoteSource.mu.Unlock()
+		return remote.controller.Refresh(t.Context())
+	}
+	if err := refresh(protocol.ErrorCodeUnavailable); faultCode(err) != protocol.ErrorCodeUnavailable {
+		t.Fatalf("could not simulate a hook host outage: %v", err)
+	}
+	local.hooksSettingsFrame()
+	if m.HooksStatus != "connections_offline" || draftSave(settingsDraft) {
+		t.Fatal("the hook editor was writable while its host was offline")
+	}
+	if err := refresh(""); err != nil {
+		t.Fatal(err)
+	}
+	local.hooksSettingsFrame()
+	if !m.Hooks.Pending || draftSave(settingsDraft) {
+		t.Fatal("the editor did not wait for its host's current hook revision")
+	}
+	settle()
+	assertHost(remoteNode, 9)
+	retained := settings.HookSettings{Scripts: []viewmodel.Hook{{
+		ID: "fixture", Name: "Edited while offline", Command: "printf edit", Phase: viewmodel.BeforeTool, TimeoutMS: 500, Enabled: true,
+	}}}
+	if !draftSave(retained) {
+		t.Fatal("the unsaved script draft could not save after its host recovered")
+	}
+	settle()
+	assertHost(remoteNode, 10)
+	if len(m.Hooks.Saved.Scripts) != 1 || m.Hooks.Saved.Scripts[0].Name != retained.Scripts[0].Name || draftSave(settingsDraft) {
+		t.Fatal("the returning host lost the edit or accepted a stale revision")
+	}
+
 	for _, blocked := range []struct{ node, status string }{{viewerNode, "permission_denied"}, {"offline-host", "connections_offline"}} {
 		show(blocked.node)
 		target, allowed := m.HooksContext()
@@ -164,14 +202,14 @@ func testHostHooksSettings(t *testing.T) {
 		case "save_hooks":
 			saves++
 			input, valid := detail[protocol.CommandSaveHooksPayload](request.Command.Data)
-			if !valid || request.Target != remote.controller.Target() || input.ExpectedRevision != 8 {
+			if !valid || request.Target != remote.controller.Target() || input.ExpectedRevision != uint64(7+saves) {
 				t.Fatalf("hook save used the wrong host or revision: %+v", request)
 			}
 		default:
 			t.Fatalf("the hooks page sent %q", request.Command.Kind)
 		}
 	}
-	if saves != 1 || len(viewerSource.requests) != 0 {
+	if saves != 2 || len(viewerSource.requests) != 0 {
 		t.Fatalf("unexpected hook writes or unauthorized reads: %d %d", saves, len(viewerSource.requests))
 	}
 	for _, request := range localSource.requests {
