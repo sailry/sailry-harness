@@ -22,7 +22,8 @@ import (
 )
 
 func TestMain(suite *testing.M) {
-	if name := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe"); name == "codex" {
+	name := filepath.Base(os.Args[0])
+	if name == "codex" || runtime.GOOS == "windows" && strings.EqualFold(name, "codex.exe") {
 		fmt.Print("\x1b]2;ready\x07\x1b]133;A\x07fixture 中文\r\n")
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
@@ -160,7 +161,7 @@ func TestTerminalControllerIntegration(test *testing.T) {
 			if _, err := controller.Do(ctx, protocol.Command{Kind: "resize_terminal", Data: protocol.CommandResizeTerminalPayload{Terminal: info.ID, Revision: info.Revision, Viewport: protocol.TerminalViewport{Columns: 53, Rows: 18}}}); err != nil {
 				test.Fatal(err)
 			}
-			if _, err := controller.Do(ctx, protocol.Command{Kind: "input_terminal", Data: protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte("ordered 中文\n")}}); err != nil {
+			if _, err := controller.Do(ctx, protocol.Command{Kind: "input_terminal", Data: protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte("ordered 中文\r")}}); err != nil {
 				test.Fatal(err)
 			}
 			wait("received ordered 中文", 53)
