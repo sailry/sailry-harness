@@ -102,6 +102,7 @@ func (c *Client) observeCommands(w *commandsWatch) {
 	}()
 	delay := 250 * time.Millisecond
 	for w.ctx.Err() == nil {
+		wake := c.retried()
 		subscription, err := c.transport.Subscribe(w.ctx, protocol.Topic{Kind: "commands", Data: w.session})
 		if err == nil {
 			for w.ctx.Err() == nil {
@@ -152,6 +153,10 @@ func (c *Client) observeCommands(w *commandsWatch) {
 		case <-w.ctx.Done():
 			timer.Stop()
 			return
+		case <-wake:
+			timer.Stop()
+			delay = 250 * time.Millisecond
+			continue
 		case <-wait:
 		}
 		delay = min(delay*2, 5*time.Second)

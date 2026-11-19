@@ -46,7 +46,7 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 	observer.run(func() {
 		scoped, release := client.interruptible(observer.ctx)
 		defer release()
-		err := reconnecting(scoped, func() (bool, error) {
+		err := client.reconnecting(scoped, func() (bool, error) {
 			observer.mu.Lock()
 			projection.reconnect()
 			taken := resume
@@ -102,10 +102,11 @@ func (client *Client) watchTerminalView(ctx context.Context, terminal protocol.T
 
 // reconnecting runs attempt until it fails with anything but a transient
 // fault, and returns that failure, or nil once ctx ends. Attempts are 250 ms
-// apart, doubling to 5 s; one that made progress starts over at 250 ms.
-func reconnecting(ctx context.Context, attempt func() (progressed bool, err error)) error {
+// apart, doubling to 5 s; one that made progress or a Retry starts over at 250 ms.
+func (client *Client) reconnecting(ctx context.Context, attempt func() (progressed bool, err error)) error {
 	delay := 250 * time.Millisecond
 	for {
+		wake := client.retried()
 		progressed, err := attempt()
 		if ctx.Err() != nil {
 			return nil
@@ -121,6 +122,10 @@ func reconnecting(ctx context.Context, attempt func() (progressed bool, err erro
 		case <-ctx.Done():
 			timer.Stop()
 			return nil
+		case <-wake:
+			timer.Stop()
+			delay = 250 * time.Millisecond
+			continue
 		case <-timer.C:
 		}
 		delay = min(delay*2, 5*time.Second)

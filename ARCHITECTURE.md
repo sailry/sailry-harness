@@ -1026,6 +1026,11 @@ Mobile registers saved direct hosts from local pairing metadata before completin
 startup, then refreshes remote directories in the background. Directory reads
 run outside the pairing-change queue, and reads spanning a pairing change cannot
 replace the current directory or close newer Clients.
+On a network change or return to the foreground, Link verifies each cached
+connection with one inspection and drops any that does not answer within three
+seconds, then each Client ends its reconnect waits and redials at once. A reply
+to a snapshot or history read lost with its connection is Unavailable and is
+retried; it never ends observation as an unknown outcome.
 
 ## Pairing and operations
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"runtime"
 	"sort"
 	"strings"
@@ -21,6 +22,12 @@ const maxConnections = 16
 const maxTasks = 64
 const maxStreams = 64
 const ioTimeout = 10 * time.Second
+
+// livenessTimeout bounds the one inspection that verifies a cached connection
+// after a network change. A connection left half-open by device sleep or NAT
+// rebinding still reports itself open and would otherwise hold its streams
+// until the QUIC idle timeout.
+const livenessTimeout = 3 * time.Second
 
 type EndpointAddress = iroh.Address
 
@@ -235,10 +242,61 @@ func (link *Link) Online(ctx context.Context) error {
 	return linkNetwork(link.endpoint.Online(scoped))
 }
 
+// NetworkChanged rebinds the endpoint, then verifies each cached outgoing
+// connection with one inspection. A connection that does not answer within
+// livenessTimeout is dropped, so its streams fail now and the next use redials.
 func (link *Link) NetworkChanged(ctx context.Context) error {
 	scoped, cancel := link.operation(ctx, true)
+	err := linkNetwork(link.endpoint.NetworkChange(scoped))
+	cancel()
+	link.mu.RLock()
+	slots := maps.Clone(link.outgoing)
+	link.mu.RUnlock()
+	var checks sync.WaitGroup
+	for peer, slot := range slots {
+		slot.mu.Lock()
+		connection := slot.connection
+		slot.mu.Unlock()
+		if connection == nil {
+			continue
+		}
+		checks.Go(func() {
+			open := func(ctx context.Context) (contextStream, error) {
+				stream, err := connection.OpenBi(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return stream, nil
+			}
+			if link.answers(ctx, open) != nil && ctx.Err() == nil {
+				link.drop(peer, connection, "peer did not answer")
+			}
+		})
+	}
+	checks.Wait()
+	return err
+}
+
+// answers sends one inspection on a new stream and waits livenessTimeout for
+// a reply. Any reply frame, including a rejection, shows the peer is reachable.
+func (link *Link) answers(ctx context.Context, open func(context.Context) (contextStream, error)) error {
+	scoped, cancel := link.operation(ctx, false)
 	defer cancel()
-	return linkNetwork(link.endpoint.NetworkChange(scoped))
+	bounded, expire := link.timeoutContext(scoped, livenessTimeout)
+	defer expire()
+	stream, err := open(bounded)
+	if err != nil {
+		return linkNetwork(err)
+	}
+	defer stream.Close()
+	if err := link.writeCall(bounded, stream, wire.Call{Kind: wire.CallInspect}, false); err != nil {
+		return err
+	}
+	if err := stream.CloseWrite(); err != nil {
+		return linkNetwork(err)
+	}
+	var reply wire.Reply
+	return link.readFrame(bounded, stream, &reply, false)
 }
 
 func (link *Link) Peers(ctx context.Context) ([]EndpointAddress, error) {
@@ -276,6 +334,12 @@ func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bo
 // a connection to a process that is gone is otherwise noticed only when an
 // operation on it times out.
 func (link *Link) Disconnect(peer protocol.NodeID) {
+	link.drop(peer, nil, "peer restarted")
+}
+
+// drop closes the peer's cached connection so the next use redials. With an
+// expected connection it leaves a newer one that replaced it in place.
+func (link *Link) drop(peer protocol.NodeID, expected *iroh.Connection, reason string) {
 	link.mu.RLock()
 	slot := link.outgoing[peer]
 	link.mu.RUnlock()
@@ -283,6 +347,10 @@ func (link *Link) Disconnect(peer protocol.NodeID) {
 		return
 	}
 	slot.mu.Lock()
+	if expected != nil && slot.connection != expected {
+		slot.mu.Unlock()
+		return
+	}
 	connection, telemetry := slot.connection, slot.telemetry
 	slot.connection, slot.telemetry = nil, nil
 	slot.mu.Unlock()
@@ -291,7 +359,7 @@ func (link *Link) Disconnect(peer protocol.NodeID) {
 		<-telemetry.done
 	}
 	if connection != nil {
-		_ = connection.Close(0, "peer restarted")
+		_ = connection.Close(0, reason)
 	}
 }
 

@@ -112,6 +112,7 @@ func (c *Client) observeWorkspace(w *workspaceWatch) {
 	}
 	delay := 250 * time.Millisecond
 	for w.ctx.Err() == nil {
+		wake := c.retried()
 		subscription, err := c.transport.Subscribe(w.ctx, protocol.Topic{Kind: topic, Data: w.key.worktree})
 		var previous *uint64
 		if err == nil {
@@ -161,6 +162,10 @@ func (c *Client) observeWorkspace(w *workspaceWatch) {
 		case <-w.ctx.Done():
 			timer.Stop()
 			return
+		case <-wake:
+			timer.Stop()
+			delay = 250 * time.Millisecond
+			continue
 		case <-wait:
 		}
 		delay = min(delay*2, 5*time.Second)

@@ -920,3 +920,63 @@ func TestConnectionTelemetrySharesSampler(t *testing.T) {
 		}
 	})
 }
+
+type silentStream struct{ *fixtureContextStream }
+
+func (stream silentStream) ReadContext(ctx context.Context, _ []byte) (int, error) {
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+
+func TestLivenessCheckBoundsOneInspection(t *testing.T) {
+	link := newFixtureLink(t)
+	var bounded atomic.Int32
+	link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+		if duration == livenessTimeout {
+			bounded.Add(1)
+			// The silent peer below outlasts the liveness deadline.
+			return context.WithTimeout(ctx, time.Millisecond)
+		}
+		return context.WithCancel(ctx)
+	}
+	answering := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyEndpoint, Endpoint: &wire.Endpoint{}}))
+	if err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return answering, nil }); err != nil {
+		t.Fatalf("answering peer = %v", err)
+	}
+	var call wire.Envelope
+	if err := wire.Read(bytes.NewReader(answering.written()), &call, false); err != nil || call.Call.Kind != wire.CallInspect || !answering.finished || !answering.closed {
+		t.Fatalf("liveness check sent %#v, %v; finished %v, closed %v", call.Call.Kind, err, answering.finished, answering.closed)
+	}
+	rejecting := newFixtureStream(fixtureFrames(t, wire.Reply{Kind: wire.ReplyRejected, Rejected: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "denied"}}))
+	if err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return rejecting, nil }); err != nil {
+		t.Fatalf("a rejection is still an answer: %v", err)
+	}
+	silent := silentStream{newFixtureStream(nil)}
+	err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
+	if faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
+		t.Fatalf("silent peer = %v, closed %v", err, silent.closed)
+	}
+	unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, iroh.ErrClosed })
+	if faultValue(unreachable).Code != protocol.ErrorCodeUnavailable {
+		t.Fatalf("closed connection = %v", unreachable)
+	}
+	if bounded.Load() != 4 {
+		t.Fatalf("liveness deadlines = %d, want one per check", bounded.Load())
+	}
+}
+
+func TestFailedLivenessCheckKeepsReplacementConnection(t *testing.T) {
+	link := newFixtureLink(t)
+	peer := protocol.NodeID{9}
+	ctx, cancel := context.WithCancel(link.ctx)
+	defer cancel()
+	// The peer redialed while the check of its previous connection ran.
+	checked, replacement := &iroh.Connection{}, &iroh.Connection{}
+	telemetry := &connectionTelemetry{changed: make(chan struct{}), done: make(chan struct{}), cancel: func() {}}
+	slot := &outgoingSlot{ctx: ctx, cancel: cancel, dial: make(chan struct{}, 1), connection: replacement, telemetry: telemetry}
+	link.outgoing[peer] = slot
+	link.drop(peer, checked, "peer did not answer")
+	if slot.connection != replacement || slot.telemetry != telemetry {
+		t.Fatal("a failed check dropped the connection that replaced the checked one")
+	}
+}

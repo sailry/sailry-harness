@@ -334,6 +334,7 @@ func (c *Client) observeConversation(w *conversationWatch) {
 		w.projection.recovering = true
 		desired := w.extent
 		c.conversationMu.Unlock()
+		wake := c.retried()
 		sub, err := c.transport.Subscribe(w.ctx, protocol.Topic{Kind: "conversation", Data: w.session})
 		if err == nil {
 			err = c.consumeConversation(w, sub, generation, desired)
@@ -382,6 +383,10 @@ func (c *Client) observeConversation(w *conversationWatch) {
 			return
 		case <-w.refresh:
 			timer.Stop()
+		case <-wake:
+			timer.Stop()
+			delay = 250 * time.Millisecond
+			continue
 		case <-timer.C:
 		}
 		delay = min(delay*2, 5*time.Second)

@@ -553,6 +553,60 @@ func (transport *clientTransport) Open(ctx context.Context, id protocol.StreamID
 	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
 }
 
+func TestObservationSurvivesLostConnection(t *testing.T) {
+	t.Run("lost_snapshot_reply_is_retried", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			first := testSubscription(projectionSnapshot(1))
+			transport := &clientTransport{subscriptions: []*clientSubscription{first, testSubscription(projectionSnapshot(4))}}
+			// The connection drops after the recovery read was sent.
+			transport.dispatch = func(request protocol.Request) (link.Admission, error) {
+				completion := make(chan link.Response)
+				close(completion)
+				return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
+			}
+			controller := New(transport)
+			defer controller.Close()
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			first.updates <- protocol.Update{Kind: "reset_required"}
+			synctest.Wait()
+			if controller.Connected() || faultCode(controller.Err()) != protocol.ErrorCodeUnavailable {
+				t.Fatalf("lost snapshot reply = %v, connected %v", controller.Err(), controller.Connected())
+			}
+			time.Sleep(250 * time.Millisecond)
+			synctest.Wait()
+			if !controller.Connected() || controller.Err() != nil || controller.Snapshot().Cursor != 4 {
+				t.Fatalf("observation did not reconnect: %v, cursor %d", controller.Err(), controller.Snapshot().Cursor)
+			}
+		})
+	})
+	t.Run("retry_ends_the_reconnect_wait", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			first := testSubscription(projectionSnapshot(1))
+			first.failures = make(chan error, 1)
+			transport := &clientTransport{subscriptions: []*clientSubscription{first}}
+			controller := New(transport)
+			defer controller.Close()
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			first.failures <- fault(protocol.ErrorCodeUnavailable, "Link connection is unavailable")
+			// Failed redials while away raise the backoff to its 5 s ceiling.
+			time.Sleep(20 * time.Second)
+			synctest.Wait()
+			transport.mu.Lock()
+			transport.subscriptions = []*clientSubscription{testSubscription(projectionSnapshot(3))}
+			transport.mu.Unlock()
+			controller.Retry()
+			synctest.Wait()
+			if !controller.Connected() || controller.Snapshot().Cursor != 3 {
+				t.Fatalf("Retry did not redial at once: %v, cursor %d", controller.Err(), controller.Snapshot().Cursor)
+			}
+		})
+	})
+}
+
 func TestRefreshRetriesAfterObservationEnded(t *testing.T) {
 	for _, failedRefresh := range []bool{false, true} {
 		name := "ended_stream"

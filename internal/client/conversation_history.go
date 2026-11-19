@@ -15,7 +15,7 @@ const (
 )
 
 func (c *Client) ReadConversation(ctx context.Context, session protocol.SessionID, before *protocol.TurnID) (protocol.ConversationHistory, error) {
-	out, err := c.Do(ctx, protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session, Before: before, Limit: 20}})
+	out, err := c.read(ctx, protocol.Command{Kind: "read_conversation", Data: protocol.CommandReadConversationPayload{Session: session, Before: before, Limit: 20}})
 	if err != nil {
 		return protocol.ConversationHistory{}, err
 	}
@@ -38,7 +38,7 @@ func (c *Client) ReadConversation(ctx context.Context, session protocol.SessionI
 }
 
 func (c *Client) readConversationTurn(ctx context.Context, session protocol.SessionID, turn protocol.TurnID, revision uint64, before *uint64, limit uint16) (protocol.ConversationTurnHistory, error) {
-	out, err := c.Do(ctx, protocol.Command{Kind: "read_turn", Data: protocol.CommandReadTurnPayload{Session: session, Turn: turn, ExpectedRevision: revision, Before: before, Limit: limit}})
+	out, err := c.read(ctx, protocol.Command{Kind: "read_turn", Data: protocol.CommandReadTurnPayload{Session: session, Turn: turn, ExpectedRevision: revision, Before: before, Limit: limit}})
 	if err != nil {
 		return protocol.ConversationTurnHistory{}, err
 	}

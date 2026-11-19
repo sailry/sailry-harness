@@ -44,6 +44,8 @@ type Client struct {
 	callbacks               map[uint64]func()
 	callback                uint64
 	dispatched              func(kind string)
+	retryMu                 sync.Mutex
+	retry                   chan struct{}
 
 	lifecycle             sync.Mutex
 	closing               context.Context
@@ -110,6 +112,17 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) (pr
 
 func (client *Client) Do(ctx context.Context, command protocol.Command) (protocol.Output, error) {
 	return client.Execute(ctx, client.Prepare(command))
+}
+
+// read runs a snapshot or history read. A read has no effect to recover, so a
+// reply lost with its connection is Unavailable, which observation retries,
+// rather than an unknown outcome, which would end it.
+func (client *Client) read(ctx context.Context, command protocol.Command) (protocol.Output, error) {
+	output, err := client.Do(ctx, command)
+	if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+		return output, fault(protocol.ErrorCodeUnavailable, "Link connection was lost before the reply")
+	}
+	return output, err
 }
 
 // Outcome inspects a captured durable request without replaying its command.

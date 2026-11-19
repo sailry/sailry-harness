@@ -3,7 +3,9 @@ package mobile
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
+	"slices"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/client"
@@ -141,7 +143,14 @@ func (owner *controller) invoke(ctx context.Context, runtime *Runtime, handle ui
 		}
 		return nil, err
 	case "network_changed":
-		return nil, owner.endpoint.NetworkChanged(ctx)
+		err := owner.endpoint.NetworkChanged(ctx)
+		owner.mu.Lock()
+		clients := slices.Collect(maps.Values(owner.clients))
+		owner.mu.Unlock()
+		for _, client := range clients {
+			client.Retry()
+		}
+		return nil, err
 	case "connect":
 		route, err := decodePeerRoute(values.Address)
 		if err != nil {

@@ -236,7 +236,7 @@ func (client *Client) apply(ctx context.Context, generation uint64, update proto
 		return applied, err
 	}
 	if applied == Recover {
-		output, err := client.Do(ctx, protocol.Command{Kind: "snapshot"})
+		output, err := client.read(ctx, protocol.Command{Kind: "snapshot"})
 		if err != nil {
 			return applied, err
 		}
@@ -279,6 +279,7 @@ func (client *Client) observe(watch *observation) {
 		client.mu.Unlock()
 	}()
 	delay := 250 * time.Millisecond
+	wake := client.retried()
 	for {
 		var err error
 		if subscription == nil {
@@ -287,9 +288,13 @@ func (client *Client) observe(watch *observation) {
 			case <-watch.context.Done():
 				timer.Stop()
 				return
+			case <-wake:
+				timer.Stop()
+				delay = 250 * time.Millisecond
 			case <-timer.C:
+				delay = min(delay*2, 5*time.Second)
 			}
-			delay = min(delay*2, 5*time.Second)
+			wake = client.retried()
 			var reconnected *observation
 			if reconnected, err = client.openObservation(watch.context); err == nil {
 				// Retain this observation's cancellation and completion ownership.
@@ -303,6 +308,7 @@ func (client *Client) observe(watch *observation) {
 				return
 			}
 		} else {
+			wake = client.retried()
 			var update protocol.Update
 			if update, err = subscription.Next(watch.context); err == nil {
 				var applied Apply
@@ -331,6 +337,29 @@ func (client *Client) observe(watch *observation) {
 			subscription = nil
 		}
 	}
+}
+
+// Retry ends every current reconnect wait of this Client, so each lost
+// observation redials now with its backoff reset. Controllers call it after
+// Link has verified its connections on a network change or foreground return.
+func (client *Client) Retry() {
+	client.retryMu.Lock()
+	defer client.retryMu.Unlock()
+	if client.retry != nil {
+		close(client.retry)
+	}
+	client.retry = make(chan struct{})
+}
+
+// retried returns the channel the next Retry closes. Reconnect loops take it
+// before an attempt, so a Retry during that attempt also ends the next wait.
+func (client *Client) retried() <-chan struct{} {
+	client.retryMu.Lock()
+	defer client.retryMu.Unlock()
+	if client.retry == nil {
+		client.retry = make(chan struct{})
+	}
+	return client.retry
 }
 
 func transient(err error) bool {
