@@ -594,7 +594,7 @@ allow roleless delegation. Code Review requires a tool-capable captured role for
 new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
 selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
-In Flagship, a model's `spawn_agent` call overlaps foreground work with the
+In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
 parent by default. A model's `guide_agent` call does the same when it starts a
 new task in an idle child; package tools bound to delegation keep the
 foreground wait. Both tools accept an explicit `overlap` setting for a new
