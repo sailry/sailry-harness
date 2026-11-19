@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -246,6 +247,35 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 					t.Fatal("readonly batch did not run concurrently")
 				}
 			}
+			checkActive := func(want string) {
+				t.Helper()
+				reservation := f.r.feed.Reserve(f.session.ID, f.ctx.Done())
+				defer reservation.Close()
+				var ids []string
+				for _, draft := range reservation.Drafts {
+					for _, part := range draft.Parts {
+						if part.Kind != "resource" {
+							continue
+						}
+						var activity struct{ Type, ID, Name string }
+						raw := part.Data.(*json.RawMessage)
+						if err := json.Unmarshal(*raw, &activity); err != nil {
+							t.Fatal(err)
+						}
+						if activity.Type == "tool_started" {
+							if draft.Turn != turn || activity.Name != "read" {
+								t.Fatalf("unexpected tool activity %+v", draft)
+							}
+							ids = append(ids, activity.ID)
+						}
+					}
+				}
+				slices.Sort(ids)
+				if strings.Join(ids, "") != want {
+					t.Fatalf("active calls %v, want %q", ids, want)
+				}
+			}
+			checkActive("abcdefgh"[:min(count, 8)])
 			if count > 8 {
 				// One finished call frees its slot: the ninth starts while the
 				// other seven, the first included, are still running.
@@ -258,6 +288,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 				case <-f.ctx.Done():
 					t.Fatal("a slow call delayed the start of the ninth")
 				}
+				checkActive("acdefghi")
 			}
 			for id, done := range release {
 				if count <= 8 || id != "b" {
@@ -265,6 +296,7 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 				}
 			}
 			f.waitRun(turn, protocol.ConversationStatusCompleted)
+			checkActive("")
 			if maxRunning.Load() != int32(min(count, 8)) {
 				t.Fatalf("concurrency=%d", maxRunning.Load())
 			}

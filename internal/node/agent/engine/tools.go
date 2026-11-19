@@ -420,10 +420,12 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					return
 				}
 				tool := findTool(x.tools, call.Name)
-				finished := x.timeline.tool(call, tool.Delegation)
-				startedCalls[i] = true
-				results[i] = tool.Execute(x.ctx, call)
-				finished()
+				func() {
+					defer r.toolActivity(x, call)()
+					defer x.timeline.tool(call, tool.Delegation)()
+					startedCalls[i] = true
+					results[i] = tool.Execute(x.ctx, call)
+				}()
 				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 			}(i)
 		}
@@ -492,6 +494,25 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	return nil
 }
+
+// Each worker owns a provisional activity independently of the ordered batch
+// result. Finishing one call clears its indicator while its siblings still run.
+func (r *Runtime) toolActivity(x *execution, call canonical.ToolRequest) func() {
+	draftID := protocol.NewRequestID().String()
+	data, _ := json.Marshal(struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}{"tool_started", call.ID, call.Name})
+	draft := protocol.ConversationDraft{ID: draftID, Turn: x.inv.Run.Turn, Author: "sailry", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(data)}}}
+	if err := r.feed.Delta(x.inv.Session.ID, draft); err != nil {
+		return func() {}
+	}
+	return func() {
+		r.feed.Publish(x.inv.Session.ID, protocol.ConversationChange{Kind: "hidden", Data: protocol.ConversationChangeHiddenPayload{Turn: draft.Turn, ID: draftID}})
+	}
+}
+
 func (r *Runtime) executableRecord(x *execution, call canonical.ToolRequest, allowed bool) canonical.Record {
 	patch, _ := json.Marshal(map[string]bool{canonical.ExecutableKey: allowed})
 	record := canonical.NewRecord(x.inv.Run.Turn, "operation", canonical.Operation{Kind: "tool_meta", Data: &canonical.ToolMeta{Call: call.ID, Patch: patch}}, r.clock.Now())
