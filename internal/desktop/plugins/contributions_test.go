@@ -12,7 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func contributionFixture(t *testing.T, declarations string) (*Registry, protocol.PluginReference, ContributionHooks) {
+func contributionFixture(t testing.TB, declarations string) (*Registry, protocol.PluginReference, ContributionHooks) {
 	t.Helper()
 	scope := protocol.DefaultPluginContext()
 	scope.Surface = protocol.PluginDesktopSurface{Kind: "composer"}
@@ -32,7 +32,7 @@ func contributionFixture(t *testing.T, declarations string) (*Registry, protocol
 	return registry, reference, hooks
 }
 
-func contributionPublish(t *testing.T, hooks ContributionHooks, body string) {
+func contributionPublish(t testing.TB, hooks ContributionHooks, body string) {
 	t.Helper()
 	if err := hooks.Publish(json.RawMessage(body)); err != nil {
 		t.Fatal(err)
@@ -426,4 +426,40 @@ func TestContributionSlots(t *testing.T) {
 			t.Fatal("another target invoked a captured contribution")
 		}
 	})
+}
+
+func BenchmarkRegistryMetricEntries(b *testing.B) {
+	const declarations = `[{"id":"tokens","slot":"statistics","kind":"metric","label":{"label":"Tokens","locales":{"en":"Tokens"}}},{"id":"usage","slot":"footer","kind":"metric","label":{"label":"Usage","locales":{"en":"Usage"}}}]`
+	registry, reference, hooks := contributionFixture(b, declarations)
+	contributionPublish(b, hooks, `[{"id":"tokens","value":"54k","details":[{"label":{"label":"Input"},"value":"51k"}]},{"id":"usage","value":"70%"}]`)
+	if err := registry.SetActivity(reference, true, false); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if len(registry.Entries("statistics")) != 1 || len(registry.Entries("footer")) != 1 {
+			b.Fatal("missing metrics")
+		}
+	}
+}
+
+func TestContributionSnapshotDetachesPublishedValues(t *testing.T) {
+	var entry ContributionEntry
+	body := `{"declaration":{"id":"menu","slot":"context","kind":"menu","label":{"label":"Menu"},"choices":[{"id":"parent","label":{"label":"Parent"},"children":[{"id":"child","label":{"label":"Child","icon":"book"}}]}]},"state":{"id":"menu","value":"selected","choices":[],"details":[{"label":{"label":"Detail","locales":{"en":"Original"}},"value":"50%","progress":50}],"segments":[{"label":{"label":"Segment","locales":{"en":"Active"}},"tone":"accent"}]}}`
+	if err := json.Unmarshal([]byte(body), &entry); err != nil {
+		t.Fatal(err)
+	}
+	session := protocol.NewSessionID()
+	entry.Key.Session = &session
+	cloned := entry.snapshot()
+	*cloned.Key.Session = protocol.SessionID{}
+	*cloned.Declaration.Choices[0].Children[0].Label.Icon.Data.(*string) = "changed"
+	(*cloned.State.Choices) = append(*cloned.State.Choices, protocol.PluginUiChoice{})
+	cloned.State.Value[1] = 'X'
+	cloned.State.Details[0].Label.Locales["en"] = "changed"
+	*cloned.State.Details[0].Progress = "99"
+	cloned.State.Segments[0].Label.Locales["en"] = "changed"
+	if *entry.Key.Session == (protocol.SessionID{}) || *entry.Declaration.Choices[0].Children[0].Label.Icon.Data.(*string) != "book" || len(*entry.State.Choices) != 0 || string(entry.State.Value) != `"selected"` || entry.State.Details[0].Label.Locales["en"] != "Original" || *entry.State.Details[0].Progress != "50" || entry.State.Segments[0].Label.Locales["en"] != "Active" {
+		t.Fatal("snapshot shares mutable contribution state")
+	}
 }

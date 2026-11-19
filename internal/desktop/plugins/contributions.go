@@ -215,9 +215,9 @@ func (registry *Registry) Entries(slot protocol.PluginUiSlot) []ContributionEntr
 			}
 			state.Enabled = state.Enabled && mount.active && !state.Loading
 			if state.Visible {
-				entries = append(entries, contributionCopy(ContributionEntry{
+				entries = append(entries, ContributionEntry{
 					Key: registry.key(mount, declaration.ID), Declaration: declaration, State: state, Retry: mount.failed,
-				}))
+				}.snapshot())
 			}
 		}
 	}
@@ -273,7 +273,7 @@ func (registry *Registry) Intent(intent string) (ContributionEntry, bool) {
 		}
 		state, exists := mount.states[selected.ID]
 		if exists && mount.published[selected.ID] && state.Enabled && !state.Loading {
-			return contributionCopy(ContributionEntry{Key: registry.key(mount, selected.ID), Declaration: *selected, State: state}), true
+			return ContributionEntry{Key: registry.key(mount, selected.ID), Declaration: *selected, State: state}.snapshot(), true
 		}
 	}
 	return ContributionEntry{}, false
@@ -324,7 +324,7 @@ func (registry *Registry) ProviderEntries(scope protocol.PluginUiProviderScope) 
 				if declaration.ID == state.ID && declaration.Slot == "provider" {
 					key := registry.key(mount, state.ID)
 					key.Worktree, key.Session = nil, nil
-					entries = append(entries, contributionCopy(ContributionEntry{Key: key, Declaration: declaration, State: state}))
+					entries = append(entries, ContributionEntry{Key: key, Declaration: declaration, State: state}.snapshot())
 				}
 			}
 		}
