@@ -167,16 +167,19 @@ func parseEffort(s string) protocol.Effort {
 
 func (r *Runtime) session(id string) (protocol.Session, bool) {
 	pending, admitted := r.admittedSessions[id]
+	sessionID, err := protocol.ParseSessionID(id)
+	if err != nil {
+		return pending, admitted
+	}
 	for _, s := range r.snapshot().Sessions {
-		if s.ID.String() == id {
+		if s.ID == sessionID {
 			if admitted && pending.Revision > s.Revision {
 				return pending, true
 			}
 			return s, true
 		}
 	}
-	value, ok := r.admittedSessions[id]
-	return value, ok
+	return pending, admitted
 }
 
 func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *composer.State) (*composer.Context, shell.ConversationActions) {
@@ -214,7 +217,12 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if state, ok := r.conversationState(id); ok {
 			page = state.Snapshot.Page
 			unsynced = !state.Connected
-			r.projectConversation(cv, id, state, c.Now(), c.Locale())
+			if r.projectConversation(cv, id, state, c.Now(), c.Locale()) {
+				r.bindReferences(cv.ID, page)
+				r.enrichDetails(cv, state, c.Locale())
+				r.enrichQueue(cv, page.Queue)
+				r.bindAttachmentSources(cv.ID, page)
+			}
 			if state.Connected {
 				// Elapsed labels need a rebuilt frame, including in plugin panels;
 				// paint-only activity animations cannot update projected text.
@@ -229,12 +237,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 				}
 			}
 			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
-			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
-			r.enrichDetails(cv, state, c.Locale())
-			r.enrichQueue(cv, state.Snapshot.Page.Queue)
 			r.projectConversationAssets(cv, state)
-			r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
 			r.projectAttachmentImages(cv)
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}

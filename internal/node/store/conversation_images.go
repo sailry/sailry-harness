@@ -17,7 +17,7 @@ func agentImageAssets(response *canonical.ToolResponse) []canonical.AssetRef {
 	for _, a := range response.Attachments {
 		assets = append(assets, a.Asset)
 	}
-	if response.Format != canonical.JSON {
+	if response.Format != canonical.JSON || len(response.Result.Assets) == 0 {
 		return assets
 	}
 	envelope := agentObject(agentJSON(response.Result.Value))

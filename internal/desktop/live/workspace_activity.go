@@ -150,11 +150,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 		if !loaded {
 			continue
 		}
-		projected := &conversation.Changes{Undone: p.undone(turn.ID)}
-		for _, file := range changes {
-			projected.Files = append(projected.Files, conversation.ChangedFile{Path: file.Path, Added: file.Added, Removed: file.Removed})
-		}
-		turn.Reply.Changes = projected
+		turn.Reply.Changes = &conversation.Changes{Files: changes, Undone: p.undone(turn.ID)}
 	}
 }
 
@@ -288,7 +284,7 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 			return
 		}
 		changes := workspaceTurnFiles(value)
-		p.turnChanges[turn] = changes
+		p.turnChanges[turn] = workspaceTurnSummary(value)
 		p.turnView = &id
 		for _, file := range value.Files {
 			p.panel.SetGitDiffState(file.Path, "all", panel.GitDiffState{Binary: file.Binary, Partial: file.Truncated})
@@ -310,19 +306,21 @@ func (r *Runtime) reviewWorkspaceTurn(x *conversationActions, turn, path string)
 		r.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: target})
 	})
 }
+
+// The transcript keeps only the path and totals. The review tab owns diff lines.
+func workspaceTurnSummary(value protocol.ConversationCheckpointTurnDiff) []conversation.ChangedFile {
+	changes := make([]conversation.ChangedFile, 0, len(value.Files))
+	for _, file := range value.Files {
+		changes = append(changes, conversation.ChangedFile{Path: file.Path, Added: int(file.Additions), Removed: int(file.Deletions)})
+	}
+	return changes
+}
 func workspaceTurnFiles(value protocol.ConversationCheckpointTurnDiff) []viewmodel.FileChange {
 	changes := make([]viewmodel.FileChange, 0, len(value.Files))
 	for _, file := range value.Files {
-		change := viewmodel.FileChange{Path: file.Path, Status: "M", Unstaged: "M", Hunks: workspaceHunks(file.Text)}
-		for _, hunk := range change.Hunks {
-			for _, line := range hunk.Lines {
-				if line.Kind == viewmodel.Added {
-					change.Added++
-				}
-				if line.Kind == viewmodel.Removed {
-					change.Removed++
-				}
-			}
+		change := viewmodel.FileChange{
+			Path: file.Path, Status: "M", Unstaged: "M", Hunks: workspaceHunks(file.Text),
+			Added: int(file.Additions), Removed: int(file.Deletions),
 		}
 		changes = append(changes, change)
 	}

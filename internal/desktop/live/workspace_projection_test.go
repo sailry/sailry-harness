@@ -228,8 +228,13 @@ func TestPanelProjection(t *testing.T) {
 		}
 	})
 	t.Run("turn changes retain captured paths and counts", func(t *testing.T) {
-		projected := workspaceTurnFiles(protocol.ConversationCheckpointTurnDiff{Files: []protocol.GitDiff{{Path: "captured.go", Text: "@@ -1,2 +1,3 @@\n same\n-old\n+new\n+extra\n"}}})
-		if len(projected) != 1 || projected[0].Path != "captured.go" || projected[0].Added != 2 || projected[0].Removed != 1 {
+		diff := protocol.ConversationCheckpointTurnDiff{Files: []protocol.GitDiff{{Path: "captured.go", Additions: 5, Deletions: 1, Text: "@@ -1,2 +1,3 @@\n same\n-old\n+new\n+extra\n"}}}
+		projected := workspaceTurnFiles(diff)
+		summary := workspaceTurnSummary(diff)
+		if len(summary) != 1 || summary[0].Added != 5 || summary[0].Removed != 1 || summary[0].Path != "captured.go" {
+			t.Fatalf("turn summary = %#v", summary)
+		}
+		if len(projected) != 1 || projected[0].Path != "captured.go" || projected[0].Added != 5 || projected[0].Removed != 1 || len(projected[0].Hunks) != 1 {
 			t.Fatalf("turn changes = %#v", projected)
 		}
 	})

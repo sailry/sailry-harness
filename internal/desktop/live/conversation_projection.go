@@ -205,7 +205,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		positions[r.Turn] = len(turns)
 		turns = append(turns, t)
 	}
-	associations := map[string][]toolAssociation{}
+	associations := map[toolPendingKey][]toolAssociation{}
 	// Unlike composer activity, the transcript keeps every execution of a
 	// reused session at its own delegation call.
 	launches := map[string][]conversation.Child{}
@@ -626,7 +626,7 @@ func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn pr
 			return 0
 		}
 	}
-	pending := map[string][]toolAssociation{}
+	pending := map[toolPendingKey][]toolAssociation{}
 	settled := map[string]bool{}
 	for _, entry := range page.Entries {
 		if entry.Turn != turn || entry.Author == "user" {
@@ -636,12 +636,12 @@ func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn pr
 			switch part.Kind {
 			case "tool_call":
 				if call, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok && call.ID != nil {
-					key := toolPendingKey(turn, entry.Branch, *call.ID)
+					key := toolPendingKey{turn, entry.Branch, *call.ID}
 					pending[key] = append(pending[key], toolAssociation{ID: toolCallKey(entry.ID, uint64(index)), Name: call.Name})
 				}
 			case "tool_result":
 				if result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok && result.ID != nil {
-					key := toolPendingKey(turn, entry.Branch, *result.ID)
+					key := toolPendingKey{turn, entry.Branch, *result.ID}
 					matches := pending[key]
 					delete(pending, key)
 					if len(matches) == 1 && matches[0].Name == result.Name {
@@ -781,9 +781,12 @@ type toolAssociation struct {
 func toolCallKey(entry string, index uint64) string {
 	return entry + "/" + strconv.FormatUint(index, 10)
 }
-func toolPendingKey(turn protocol.TurnID, branch, id string) string {
-	return turn.String() + "\x00" + branch + "\x00" + id
+
+type toolPendingKey struct {
+	turn       protocol.TurnID
+	branch, id string
 }
+
 func (association toolAssociation) projectedCall(reply *conversation.Reply) *conversation.Call {
 	if association.Block < len(reply.Blocks) {
 		calls := reply.Blocks[association.Block].Calls
@@ -802,7 +805,7 @@ func segmentFrom(turn *conversation.Turn) int {
 	return turn.Segments[len(turn.Segments)-1].From
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int) time.Time {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int) time.Time {
 	var compacting time.Time
 	for index, part := range parts {
 		switch part.Kind {
@@ -835,7 +838,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 				progress := len(children) == 0 && source.Summary != nil && source.Summary.Progress != nil
 				hidden := source.Presentation == protocol.ToolPresentationHidden && !toolDiagnostics(source.Summary)
 				if source.ID != nil {
-					key := toolPendingKey(turn, branch, *source.ID)
+					key := toolPendingKey{turn, branch, *source.ID}
 					pending[key] = append(pending[key], toolAssociation{ID: id, Name: source.Name, Hidden: hidden, Progress: progress, Standalone: source.Grouping == protocol.ToolGroupingStandalone, Block: len(reply.Blocks)})
 				}
 				if hidden {
@@ -867,7 +870,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 				var call *conversation.Call
 				id, standalone := toolCallKey(entry, uint64(index)), false
 				if result.ID != nil {
-					key := toolPendingKey(turn, branch, *result.ID)
+					key := toolPendingKey{turn, branch, *result.ID}
 					matches := pending[key]
 					delete(pending, key)
 					if len(matches) == 1 && matches[0].Name == result.Name {
@@ -929,7 +932,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 			if raw, ok := detail[json.RawMessage](part.Data); ok {
 				var started struct{ Type, ID, Name string }
 				if json.Unmarshal(raw, &started) == nil && started.Type == "tool_started" {
-					matches := pending[toolPendingKey(turn, branch, started.ID)]
+					matches := pending[toolPendingKey{turn, branch, started.ID}]
 					if len(matches) == 1 && matches[0].Name == started.Name {
 						if reply.Status == conversation.Running {
 							matches[0].Executing = reply

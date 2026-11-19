@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -53,7 +54,7 @@ type workspaceProject struct {
 	statusKnown              bool
 	worktrees                protocol.GitWorktrees
 	locationsLoaded          bool
-	turnChanges              map[string][]viewmodel.FileChange
+	turnChanges              map[string][]conversation.ChangedFile
 	reviewTurns              map[string]protocol.TurnID
 	turnView                 *protocol.TurnID
 	reviewTarget             *workspaceTurnReview
@@ -186,7 +187,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		project.documents = map[string]uint32{}
 		project.hunks = map[string]protocol.ConversationCheckpointHunkReview{}
 		project.resourceSignature = ""
-		project.turnChanges = map[string][]viewmodel.FileChange{}
+		project.turnChanges = map[string][]conversation.ChangedFile{}
 		project.reviewTurns = map[string]protocol.TurnID{}
 		project.turnView = nil
 		project.reviewTarget = nil
@@ -231,7 +232,7 @@ func (r *Runtime) workspaceFor(worktree protocol.Worktree) *workspaceProject {
 	if project := r.workspace.projects[worktree.ID]; project != nil {
 		return project
 	}
-	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]viewmodel.FileChange{}, reviewTurns: map[string]protocol.TurnID{}}
+	project := &workspaceProject{runtime: r, owner: worktree, data: &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: path.Base(worktree.Path), Children: []*viewmodel.FileNode{}}}, files: map[string]protocol.FileContent{}, directories: map[string]bool{}, loading: map[string]bool{}, diffs: map[string]bool{}, checkpoints: map[string]protocol.ConversationCheckpointFile{}, checkpointOrder: map[string][]protocol.ConversationCheckpointFile{}, documents: map[string]uint32{}, artifacts: map[string]protocol.ArtifactSummary{}, hunks: map[string]protocol.ConversationCheckpointHunkReview{}, turnChanges: map[string][]conversation.ChangedFile{}, reviewTurns: map[string]protocol.TurnID{}}
 	project.panel = panel.NewLiveProject(worktree.ID.String(), project.data, project.actions())
 	project.panel.DocumentsLocked = r.documentsLocked
 	r.workspace.projects[worktree.ID] = project

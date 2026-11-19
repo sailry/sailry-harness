@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -354,6 +355,7 @@ func testWorkspaceUploads(t *testing.T) {
 	t.Run("session resources are read once per finished run", func(t *testing.T) {
 		transport := &workspaceUploadTransport{node: protocol.NodeID{1}}
 		r := &Runtime{ctx: t.Context(), controller: client.New(transport), busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		r.App = &shell.App{Page: shell.ConversationPage, Panel: &panel.State{Active: panel.Tab{Kind: panel.History}}}
 		worktree, session := protocol.NewWorktreeID(), protocol.SessionID{5}
 		p := &workspaceProject{runtime: r, owner: protocol.Worktree{ID: worktree}, session: session}
 		tester := ui.NewTester(func(c *ui.Context) {
@@ -379,6 +381,7 @@ func testWorkspaceUploads(t *testing.T) {
 			sent := len(transport.requests)
 			transport.mu.Unlock()
 			p.readPageResources(page)
+			p.readCheckpointHistory(page)
 			for range 4 {
 				r.workers.Wait()
 				tester.Frame()
@@ -392,8 +395,12 @@ func testWorkspaceUploads(t *testing.T) {
 			sort.Strings(kinds)
 			return strings.Join(kinds, ",")
 		}
-		if sent := read(); sent != "list_file_checkpoints,read_conversation" {
+		if sent := read(); sent != "list_file_checkpoints" {
 			t.Fatal("first read of the page =", sent)
+		}
+		r.App.PanelOpen = true
+		if sent := read(); sent != "read_conversation" {
+			t.Fatal("opening history =", sent)
 		}
 		if sent := read(); sent != "" {
 			t.Fatal("an unchanged page was read again:", sent)

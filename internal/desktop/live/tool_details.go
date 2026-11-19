@@ -18,7 +18,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 	}
 	page := state.Snapshot.Page
 	sources := map[string]source{}
-	pending := map[string][]toolAssociation{}
+	pending := map[toolPendingKey][]toolAssociation{}
 	for _, entry := range page.Entries {
 		for index, part := range entry.Parts {
 			if part.Kind != "tool_call" && part.Kind != "tool_result" {
@@ -33,7 +33,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				if p, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok {
 					id, name, summary = p.ID, p.Name, p.Summary
 					if id != nil {
-						k := toolPendingKey(entry.Turn, entry.Branch, *id)
+						k := toolPendingKey{entry.Turn, entry.Branch, *id}
 						pending[k] = append(pending[k], toolAssociation{ID: key, Name: name})
 					}
 				}
@@ -41,7 +41,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				if p, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
 					id, name, summary = p.ID, p.Name, p.Summary
 					if id != nil {
-						k := toolPendingKey(entry.Turn, entry.Branch, *id)
+						k := toolPendingKey{entry.Turn, entry.Branch, *id}
 						matches := pending[k]
 						delete(pending, k)
 						if len(matches) == 1 && matches[0].Name == name {

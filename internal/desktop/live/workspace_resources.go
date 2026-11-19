@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -115,18 +116,26 @@ func (p *workspaceProject) readSessionResources() {
 	}
 	p.resourceRuns, p.resourceOlder = map[protocol.TurnID]protocol.ConversationStatus{}, false
 	p.readArtifacts(p.session, nil, nil)
-	if state, ok := p.runtime.controller.Conversation(p.session); ok {
+	if state, ok := p.runtime.conversationState(p.session); ok {
 		p.readPageResources(state.Snapshot.Page)
 	}
 }
 
-// readPageResources reads what the page shows for the first time: each
-// finished run once, and the history before the page once per reload.
+// readPageResources loads checkpoint summaries for newly observed completed runs.
 func (p *workspaceProject) readPageResources(page protocol.ConversationPage) {
 	for _, run := range page.Runs {
 		p.readRunResources(p.session, run)
 	}
-	if page.NextBefore != nil && !p.resourceOlder {
+}
+
+// The conversation only needs checkpoint badges for loaded turns. A full
+// historical inventory belongs to the history and changes views.
+func (p *workspaceProject) readCheckpointHistory(page protocol.ConversationPage) {
+	app := p.runtime.App
+	if page.NextBefore == nil || p.resourceOlder {
+		return
+	}
+	if app.Page == shell.GitPage || app.Page == shell.ConversationPage && app.PanelOpen && (app.Panel.Active.Kind == panel.History || app.Panel.Active.Kind == panel.Changes) {
 		p.resourceOlder = true
 		p.readOlderResources(p.session, page.NextBefore)
 	}
@@ -156,6 +165,7 @@ func (p *workspaceProject) sessionResourcesFrame() {
 	if !ok {
 		return
 	}
+	p.readCheckpointHistory(state.Snapshot.Page)
 	var signature strings.Builder
 	for _, run := range state.Snapshot.Page.Runs {
 		signature.WriteString(run.Turn.String())
@@ -463,19 +473,12 @@ func (p *workspaceProject) readCheckpointFigures(session protocol.SessionID, tur
 		if !ok || p.session != session {
 			return
 		}
-		p.turnChanges[turn.String()] = workspaceTurnFiles(value)
+		changes := workspaceTurnSummary(value)
+		p.turnChanges[turn.String()] = changes
 		added, removed := 0, 0
-		for _, file := range value.Files {
-			for _, hunk := range workspaceHunks(file.Text) {
-				for _, line := range hunk.Lines {
-					if line.Kind == viewmodel.Added {
-						added++
-					}
-					if line.Kind == viewmodel.Removed {
-						removed++
-					}
-				}
-			}
+		for _, file := range changes {
+			added += file.Added
+			removed += file.Removed
 		}
 		for i := range p.data.Checkpoints {
 			if p.data.Checkpoints[i].ID == turn.String() {

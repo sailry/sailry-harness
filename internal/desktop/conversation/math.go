@@ -7,6 +7,7 @@ import (
 
 	"github.com/caelyreth/untie"
 	untiemygo "github.com/caelyreth/untie/contrib/mygo"
+	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
@@ -40,24 +41,24 @@ var mathRenderer = sync.OnceValue(func() *untiemygo.Renderer {
 	return r
 })
 
-// bindMath has o typeset $…$, $$…$$, \(…\) and \[…\]. Formulas take the
-// text size and the theme's text color at paint time, so a theme switch
-// lays nothing out. A formula still being written is the Markdown
-// stream's: it closes the open formula and each partial source is typeset
-// as it stands; one Untie cannot read shows its source. With no usable
-// font nothing is bound and formulas keep their source text.
-//
-// Untie adds its math flags to o.Extensions, where zero means MyGo's
-// Default: the default is written out first, so adding to it keeps tables,
-// task lists, strikethrough, autolinks, footnotes and alerts.
+// Register the Markdown syntax without loading the math font until a formula
+// actually enters the layout. Most coding transcripts never need the font.
 func bindMath(o *markdown.Options) {
 	if o.Math != nil {
 		return
 	}
-	if r := mathRenderer(); r != nil {
-		if o.Extensions == 0 {
-			o.Extensions = parser.Default
+	if o.Extensions == 0 {
+		o.Extensions = parser.Default
+	}
+	o.Extensions |= parser.ExtMath | parser.ExtDollarMath
+	o.Math = func(c *ui.Context, source string) {
+		if renderer := mathRenderer(); renderer != nil {
+			renderer.DisplayMath(c, source)
+		} else {
+			ui.Text(c, source)
 		}
-		r.BindMarkdown(o)
+	}
+	o.InlineMath = func(source string, size float32) (markdown.InlineObject, bool) {
+		return mathRenderer().InlineMath(source, size)
 	}
 }

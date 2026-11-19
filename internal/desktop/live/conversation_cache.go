@@ -116,7 +116,7 @@ func (r *Runtime) invalidateConversationPresentation(cv *viewmodel.Conversation)
 	r.saveConversationPresentation(cv, conversationPresentation{mounted: r.conversationPresentations[cv].mounted})
 }
 
-func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState, now time.Time, language string) {
+func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState, now time.Time, language string) bool {
 	copy := r.conversationCopies[id]
 	cacheable := copy.generation != 0 && r.composerOutgoing[cv.ID] == nil
 	saved := r.conversationPresentations[cv]
@@ -127,7 +127,7 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 		saved.clocks.advance(cv.Turns, now)
 		saved.mounted = true
 		r.conversationPresentations[cv] = saved
-		return
+		return false
 	}
 	var clocks transcriptClocks
 	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
@@ -138,4 +138,5 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 		presentation.connection, presentation.clocks = cv.Session.Connection, clocks
 	}
 	r.saveConversationPresentation(cv, presentation)
+	return true
 }

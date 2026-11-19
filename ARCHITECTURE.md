@@ -793,7 +793,9 @@ the transcript's render payload without resetting its scroll position. Command
 admission reads current Client state independently of rendering. Old background
 commands open on their original tool row: the controller resolves the stored
 call revision and reads bounded output for that exact session and command.
-Closing the disclosure releases the read, not the process.
+Closing the disclosure releases the read, not the process. The transcript retains
+checkpoint paths and change counts for loaded turns. Opening the history or
+changes view requests the older checkpoint inventory; review owns the diff lines.
 
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses
