@@ -182,6 +182,7 @@ const switchFromScale = 0.96
 // whose Copy, Save and Open call act with the picture. Escape closes it.
 func ImageViewer[T any](c *ui.Context, v *Viewer[T], item func(T) ViewerItem, act func(ImageAction, T)) {
 	if !v.Open || len(v.Images) == 0 {
+		v.Images = nil
 		v.Open = false
 		return
 	}

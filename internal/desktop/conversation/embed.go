@@ -17,7 +17,7 @@ import (
 // file fallback. Ordinary links retain Markdown's inline click behavior.
 
 // embed builds paragraph i of d as its cards and reports whether it did.
-func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, actions Actions) bool {
+func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, actions Actions, resolve func(string, string, string, bool) (Embed, bool)) bool {
 	if d.Block(i).Kind != parser.Paragraph {
 		return false
 	}
@@ -39,7 +39,7 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 	}
 	embeds := make([]Embed, len(images))
 	for n, in := range images {
-		e, ok := s.Embed(session, in.Dest, "", true)
+		e, ok := resolve(session, in.Dest, "", true)
 		if !ok && webLink(in.Dest) {
 			return false
 		}
@@ -66,7 +66,7 @@ func (s *State) embed(c *ui.Context, session string, d *parser.Document, i int, 
 			case e.Missing:
 				ui.Text(c.Key(n), i18n.T(c, "chat_image_missing")).FontSize(textSize(c)).TextColor(p.MutedForeground)
 			case e.File != nil:
-				fileCard(c, fmt.Sprintf("embed-file-%d-%s", n, e.File.ID), *e.File, actions)
+				s.fileCard(c, fmt.Sprintf("embed-file-%d-%s", n, e.File.ID), *e.File, actions)
 			default:
 				ui.ButtonBase(c.Key(n)).AlignSelf(ui.Start).MaxWidthPercent(100).Cursor(ui.CursorPointer).Children(func() {
 					ui.Text(c, dest).FontSize(textSize(c)).SingleLine().TextColor(p.Primary)

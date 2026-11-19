@@ -47,6 +47,7 @@ type attachmentImageState struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	images  map[string]*ui.Bitmap
+	visible map[string]bool
 	loading map[string]bool
 	failed  map[string]bool // transient reads wait for a refresh or a reconnected Node
 	missing map[string]bool // pictures that cannot show: gone or past the limits

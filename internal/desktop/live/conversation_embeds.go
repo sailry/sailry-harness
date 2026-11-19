@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/net/html"
 )
@@ -41,18 +42,11 @@ func imageReference(dest string) (string, bool) {
 
 // chatEmbed resolves image markup: a tool's image reference, a workspace
 // picture or its file fallback. Markdown file links do not publish outputs.
-func (r *Runtime) chatEmbed(session, dest, _ string, image bool) (conversation.Embed, bool) {
-	if !image {
+func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool) (conversation.Embed, bool) {
+	if !image || r.attachments == nil {
 		return conversation.Embed{}, false
 	}
-	cv := r.App.Data.Find(session)
-	if cv == nil {
-		return conversation.Embed{}, false
-	}
-	owner := r.conversationRuntime(cv, nil)
-	if owner == nil || owner.attachments == nil {
-		return conversation.Embed{}, false
-	}
+	session := cv.ID
 	if reference, ok := imageReference(dest); ok && image {
 		for ti := range cv.Turns {
 			for _, block := range cv.Turns[ti].Reply.Blocks {
@@ -76,12 +70,12 @@ func (r *Runtime) chatEmbed(session, dest, _ string, image bool) (conversation.E
 	if strings.ContainsAny(dest, "#?") {
 		return conversation.Embed{}, false
 	}
-	current, ok := owner.session(session)
+	current, ok := r.session(session)
 	if !ok {
 		return conversation.Embed{}, false
 	}
 	root := ""
-	for _, candidate := range owner.snapshot().Worktrees {
+	for _, candidate := range r.snapshot().Worktrees {
 		if candidate.ID == current.Worktree {
 			root = candidate.Path
 		}
@@ -92,12 +86,12 @@ func (r *Runtime) chatEmbed(session, dest, _ string, image bool) (conversation.E
 	}
 	kind := attachmentFileKind(target.path, "")
 	id := "link/" + target.path
-	owner.registerWorkspaceFile(session, id, current.Worktree, target.path, nil)
-	if image && kind == conversation.ImageFile && owner.attachmentConversationVisible(session) {
-		cache := owner.attachmentImages(session)
+	r.registerWorkspaceFile(session, id, current.Worktree, target.path, nil)
+	if image && kind == conversation.ImageFile && r.attachmentConversationVisible(session) {
+		cache := r.attachmentImages(session)
 		key := attachmentKey(session, id)
 		picture := conversation.Image{ID: id, Name: path.Base(target.path)}
-		if source := owner.projectAttachmentImage(cache, key); source != nil {
+		if source := r.projectAttachmentImage(cache, key); source != nil {
 			picture.Source = source
 			picture.Width, picture.Height = source.Size()
 		}

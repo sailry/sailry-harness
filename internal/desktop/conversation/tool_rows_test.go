@@ -142,3 +142,31 @@ func TestOpenToolDetailLifetime(t *testing.T) {
 		t.Fatalf("unmount cancels = %d", cancels)
 	}
 }
+
+func TestFoldedToolImageIsResolvedOnlyWhenShown(t *testing.T) {
+	call := Call{ID: "image-tool", Name: "read_file", Label: "Read file", Output: &Output{Images: []Image{{ID: "attachment", Name: "result.png"}}}}
+	state := New()
+	var reads int
+	state.resolveImage = func(session string, image Image) Image { reads++; return image }
+	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); state.row(c, call) }, 640, 400)
+	tester.Frame()
+	if reads != 0 {
+		t.Fatal("folded tool requested its bitmap")
+	}
+	if err := tester.Click("Read file"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if reads == 0 {
+		t.Fatal("open tool did not request its bitmap")
+	}
+	if err := tester.Click("Read file"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	before := reads
+	tester.Frame()
+	if reads != before {
+		t.Fatal("closed tool kept requesting its bitmap")
+	}
+}

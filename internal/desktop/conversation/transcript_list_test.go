@@ -168,3 +168,30 @@ func TestFinishFramePreservesPixelAnchorAndRailKeys(t *testing.T) {
 		t.Errorf("End on the rail should build and show the last row, got row %d", last)
 	}
 }
+
+func TestSplitTranscriptImagesUseTheirOwningSession(t *testing.T) {
+	s := New()
+	reads := map[string]int{}
+	makeSession := func(owner string) *Session {
+		return &Session{ResolveImage: func(session string, image Image) Image {
+			if session != owner || image.ID != "same-image" {
+				t.Fatalf("%s resolver received %s/%s", owner, session, image.ID)
+			}
+			reads[owner]++
+			return image
+		}}
+	}
+	left, right := makeSession("parent"), makeSession("child")
+	turns := []Turn{{ID: "turn", InputOnly: true, User: "image", Images: []Image{{ID: "same-image", Name: "source.png"}}}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Row(c).Fill().Children(func() {
+			ui.Column(c.Key("left")).Grow(1).FillHeight().Children(func() { View(c, s, "parent", turns, left, &still{}) })
+			ui.Column(c.Key("right")).Grow(1).FillHeight().Children(func() { View(c, s, "child", turns, right, &still{}) })
+		})
+	}, 1200, 600)
+	tt.Frame()
+	if reads["parent"] == 0 || reads["child"] == 0 {
+		t.Fatalf("resolved images = %v", reads)
+	}
+}

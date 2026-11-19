@@ -594,6 +594,9 @@ const (
 // connection, a diagnostic of what failed, and its usage. nil is a loaded,
 // connected session at its start.
 type Session struct {
+	// ResolveImage belongs to the Node that owns this transcript, including child panes.
+	ResolveImage func(session string, image Image) Image
+	Embed        func(session, dest, label string, image bool) (Embed, bool)
 	// Older is how many turns come before the first one shown, 0 at the
 	// start; LoadingOlder while the page before loads, OlderFailed when it
 	// did not.

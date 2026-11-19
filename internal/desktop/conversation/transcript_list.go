@@ -91,12 +91,19 @@ func (l *transcriptList) buildRow(i int) {
 		return
 	}
 	s := f.state
+	resolveImage := s.resolveImage
+	s.resolveImage = nil
+	if f.session != nil {
+		s.resolveImage = f.session.ResolveImage
+	}
 	session, block, link := s.renderSession, s.md.Block, s.md.OnLink
 	s.renderSession, s.md.Block, s.md.OnLink = f.id, nil, l.link
-	if s.Embed != nil {
+	if s.Embed != nil || f.session != nil && f.session.Embed != nil {
 		s.md.Block = l.block
 	}
-	defer func() { s.renderSession, s.md.Block, s.md.OnLink = session, block, link }()
+	defer func() {
+		s.renderSession, s.md.Block, s.md.OnLink, s.resolveImage = session, block, link, resolveImage
+	}()
 	// Row actions can keep a turn, but must not keep the whole slice alive
 	// through a pointer into its backing array.
 	t := f.turns[i]
@@ -112,5 +119,12 @@ func (l *transcriptList) openLink(link string) {
 
 func (l *transcriptList) embedBlock(c *ui.Context, d *parser.Document, i int) bool {
 	f := &l.frame
-	return f.state != nil && f.state.Embed != nil && f.state.embed(c, f.id, d, i, f.actions)
+	if f.state == nil {
+		return false
+	}
+	resolve := f.state.Embed
+	if f.session != nil && f.session.Embed != nil {
+		resolve = f.session.Embed
+	}
+	return resolve != nil && f.state.embed(c, f.id, d, i, f.actions, resolve)
 }

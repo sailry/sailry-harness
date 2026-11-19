@@ -65,7 +65,6 @@ func (r *Runtime) projectConversations() {
 					owner.enrichQueue(cv, state.Snapshot.Page.Queue)
 					owner.projectConversationAssets(cv, state)
 					owner.bindAttachmentSources(cv.ID, state.Snapshot.Page)
-					owner.projectAttachmentImages(cv)
 					cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 				}
 			} else {
@@ -239,10 +238,11 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.projectConversationAssets(cv, state)
-			r.projectAttachmentImages(cv)
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
 	}
+	cv.Session.ResolveImage = r.resolveConversationImage
+	cv.Session.Embed = func(_, dest, _ string, image bool) (conversation.Embed, bool) { return r.chatEmbed(cv, dest, image) }
 	r.projectOutgoing(cv, page)
 	r.projectControls(c, cv, comp)
 	for ti := range cv.Turns {

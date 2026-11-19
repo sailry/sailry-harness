@@ -12,7 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/tiff"
@@ -222,43 +221,24 @@ func (r *Runtime) draftImageAction(x *conversationActions, action kit.ImageActio
 	}
 	r.report(x.c, fileActionFault(protocol.ErrorCodeBusy, "image upload is still preparing"), "workspace_changed")
 }
-func (r *Runtime) projectAttachmentImages(cv *viewmodel.Conversation) {
-	if r.attachments == nil || !r.attachmentConversationVisible(cv.ID) {
-		return
+
+// The transcript resolves only image rows it actually builds. History keeps
+// attachment references, while the session cache owns visible decoded bitmaps.
+func (r *Runtime) resolveConversationImage(session string, image conversation.Image) conversation.Image {
+	if image.Source != nil || image.Missing || image.ID == "" {
+		return image
 	}
-	cache := r.attachmentImages(cv.ID)
-	project := func(image *conversation.Image) {
-		key := attachmentKey(cv.ID, image.ID)
-		if source := r.projectAttachmentImage(cache, key); source != nil {
-			image.Source = source
-			image.Width, image.Height = source.Size()
-		}
-		image.Missing = cache.missing[key]
+	if r.attachments == nil || !r.attachmentConversationVisible(session) {
+		return image
 	}
-	for ti := range cv.Turns {
-		turn := &cv.Turns[ti]
-		for index := range turn.Images {
-			project(&turn.Images[index])
-		}
-		for index := range turn.Reply.Blocks {
-			block := &turn.Reply.Blocks[index]
-			for image := range block.Images {
-				project(&block.Images[image])
-			}
-			for file := range block.Files {
-				if block.Files[file].Image != nil {
-					project(block.Files[file].Image)
-				}
-			}
-			for call := range block.Calls {
-				if output := block.Calls[call].Output; output != nil {
-					for image := range output.Images {
-						project(&output.Images[image])
-					}
-				}
-			}
-		}
+	cache := r.attachmentImages(session)
+	key := attachmentKey(session, image.ID)
+	if source := r.projectAttachmentImage(cache, key); source != nil {
+		image.Source = source
+		image.Width, image.Height = source.Size()
 	}
+	image.Missing = cache.missing[key]
+	return image
 }
 
 func (r *Runtime) attachmentImages(session string) *attachmentImageState {
@@ -290,6 +270,10 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 	return cache
 }
 func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string) *ui.Bitmap {
+	if cache.visible == nil {
+		cache.visible = map[string]bool{}
+	}
+	cache.visible[key] = true
 	if source := cache.images[key]; source != nil {
 		return source
 	}
@@ -379,6 +363,12 @@ func (r *Runtime) pruneAttachmentImages() {
 	for session, cache := range r.attachments.imageSessions {
 		id, err := protocol.ParseSessionID(session)
 		if err == nil && r.conversationSeen[id] || r.localRuntime().draftsShown[session] {
+			for key := range cache.images {
+				if !cache.visible[key] {
+					delete(cache.images, key)
+				}
+			}
+			clear(cache.visible)
 			continue
 		}
 		cache.cancel()

@@ -793,7 +793,11 @@ the transcript's render payload without resetting its scroll position. Command
 admission reads current Client state independently of rendering. Old background
 commands open on their original tool row: the controller resolves the stored
 call revision and reads bounded output for that exact session and command.
-Closing the disclosure releases the read, not the process. The transcript retains
+Closing the disclosure releases the read, not the process. Historical tool rows retain
+revision-scoped summaries. Their open disclosure owns the formatted result and
+cancels outstanding reads when it closes or leaves the virtualized list. Visible
+image rows share decoded bitmaps across panes on their owning Node, and the
+transcript releases the bitmaps after their last visible use. The transcript retains
 checkpoint paths and change counts for loaded turns. Opening the history or
 changes view requests the older checkpoint inventory; review owns the diff lines.
 

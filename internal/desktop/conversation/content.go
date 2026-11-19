@@ -65,7 +65,7 @@ func FileIcon(f File) *ui.SVG {
 // fileCard is a 2xl-rounded group box, a 40 DIP icon tile, the name over its
 // kind, Open and the More menu (Preview, Open in another app, Save as,
 // Request edit). A document with a picture shows it on top.
-func fileCard(c *ui.Context, key string, f File, actions Actions) {
+func (s *State) fileCard(c *ui.Context, key string, f File, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	// A click opens the file in the right panel; with the platform
@@ -80,6 +80,10 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 	card := ui.Column(c.Key(key)).FillWidth().MinWidth(0).Radius(p.Radius2xl()).Border(1, p.Border).
 		Background(p.Surface.Alpha(0.8)).Clip()
 	card.Children(func() {
+		if f.Image != nil && f.Kind != ImageFile && s.resolveImage != nil {
+			image := s.resolveImage(s.renderSession, *f.Image)
+			f.Image = &image
+		}
 		if f.Image != nil && f.Image.Source != nil && f.Kind != ImageFile {
 			w, h := float32(f.Image.Width), float32(f.Image.Height)
 			t := kit.Image(c.Key("thumb"), f.Image.Source, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless,
@@ -136,10 +140,10 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 }
 
 // files lays file cards out one under another, the gap Kit's lg spacing.
-func files(c *ui.Context, key string, list []File, actions Actions) {
+func (s *State) files(c *ui.Context, key string, list []File, actions Actions) {
 	ui.Column(c.Key(key)).FillWidth().Gap(12).Children(func() {
 		for i, f := range list {
-			fileCard(c, fmt.Sprintf("%s-%d", key, i), f, actions)
+			s.fileCard(c, fmt.Sprintf("%s-%d", key, i), f, actions)
 		}
 	})
 }
@@ -153,6 +157,9 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	shown := make([]Image, 0, len(list))
 	missing := 0
 	for _, im := range list {
+		if s.resolveImage != nil {
+			im = s.resolveImage(s.renderSession, im)
+		}
 		if im.Missing && im.Source == nil {
 			missing++
 			continue

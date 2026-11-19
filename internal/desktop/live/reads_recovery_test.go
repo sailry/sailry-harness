@@ -254,6 +254,16 @@ func TestReadRecovery(t *testing.T) {
 			if reads != 3 || !cache.missing[missing] || cache.images[key] == nil {
 				t.Fatal("refresh repeated a permanently missing or already loaded picture")
 			}
+			r.conversationSeen = map[protocol.SessionID]bool{{1}: true}
+			r.pruneAttachmentImages()
+			if cache.images[key] == nil {
+				t.Fatal("visible bitmap released")
+			}
+			r.pruneAttachmentImages()
+			if cache.images[key] != nil || !cache.missing[missing] {
+				t.Fatal("hidden bitmap or missing-image state retained incorrectly")
+			}
+
 		})
 	})
 }
