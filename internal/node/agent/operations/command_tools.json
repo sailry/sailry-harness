@@ -3,7 +3,7 @@
     {
       "name": "run_command",
       "operation": "process.run",
-      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Output reports truncation. Timeout defaults to 120000 ms. Set background=true for a process that should survive the turn; it returns an ID and has no timeout. Background completion is recorded. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. When the user stops the turn, the session's commands are stopped except those started with service=true, and no completion continues the conversation; their results are shown with the user's next message. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
+      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Do not use it for cat, head, grep, find, ls or sed when a file, search or edit tool can do the work. Output reports truncation. Timeout defaults to 120000 ms. A command that does not exit on its own, such as a development or HTTP server, file watcher, tail -f or REPL, must use background=true: in the foreground it blocks until the timeout and is killed. Also set service=true for a server or watcher the user keeps using after the turn, never for builds or tests. A background command returns an ID immediately, has no timeout and records its completion. Confirm that a server is ready with read_command, its ID, until set to its readiness text and wait_ms, not with sleep or curl loops. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. A follow_up command, or a foreground command moved to the background when the user sends guidance, that produces no output for 15 minutes continues the conversation once with a stall notice and keeps running. A command that listens or waits for an event must enforce its own timeout. When the user stops the turn, the session's commands are stopped except those started with service=true, and no completion continues the conversation; their results are shown with the user's next message. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -18,7 +18,7 @@
               "unrestricted"
             ],
             "default": "workspace",
-            "description": "Workspace access confines writes to the admitted worktree and temporary directory, blocks network, and protects existing Git metadata and managed child worktrees on macOS/Linux; macOS also blocks new .git paths. Request unrestricted access for Git writes, including git init, git add and git commit, network access or paths outside the worktree. Confined commands run without approval. Full mode permits unrestricted commands automatically; Ask and Project require fresh approval for each unrestricted command. Windows uses the selected permission mode."
+            "description": "With the workspace sandbox on macOS/Linux, workspace access confines writes to the admitted worktree and temporary directory, blocks network, and protects existing Git metadata and managed child worktrees; macOS also blocks new .git paths. Confined commands run without approval. Request unrestricted access for Git writes, including git init, git add and git commit, network access or paths outside the worktree; Ask and Project require fresh approval for each unrestricted command. When the sandbox setting is off, on Windows, or in Full mode, every command runs unrestricted whatever this field says and follows the permission mode."
           },
           "description": {
             "type": [
@@ -39,7 +39,7 @@
           "follow_up": {
             "type": "boolean",
             "default": false,
-            "description": "Continue the conversation automatically when this background command finishes. Required when you wait for its result; otherwise status and output are only retained."
+            "description": "Continue the conversation automatically when this background command finishes or stalls (no output for 15 minutes, reported once). Required when you wait for its result; otherwise status and output are only retained."
           },
           "service": {
             "type": "boolean",
@@ -231,13 +231,15 @@
     {
       "name": "stop_command",
       "operation": "process.stop",
-      "description": "Stop a background command and its process group in this session. Pass the id returned by run_command.",
+      "description": "Stop a background command and its process group in this session. Pass the exact UUID returned as data.id by run_command or a listed command id; never a PID, filename or command text.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$",
+            "description": "Exact background command UUID from run_command data.id or a listed command id"
           }
         },
         "required": [
@@ -265,13 +267,15 @@
     {
       "name": "write_command",
       "operation": "process.write",
-      "description": "Send input to a running background command in this session. Pass its id and input exactly, including a newline when submitting a line. Accepts at most 64 KiB of UTF-8 input. A success acknowledges queued input; use read_command to inspect the response. Cannot write to another session or a finished command. Writing input has side effects and follows the current permission policy.",
+      "description": "Send input to a running background command in this session. Pass the exact UUID returned as data.id by run_command or a listed command id (never a PID, filename or command text) and the input exactly, including a newline when submitting a line. Accepts at most 64 KiB of UTF-8 input. A success acknowledges queued input; use read_command to inspect the response. Cannot write to another session or a finished command. Writing to a command running with workspace access needs no approval; otherwise it follows the current permission policy.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$",
+            "description": "Exact background command UUID from run_command data.id or a listed command id"
           },
           "input": {
             "type": "string",

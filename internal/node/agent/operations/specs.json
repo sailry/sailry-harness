@@ -1413,7 +1413,7 @@
             "unrestricted",
             null
           ],
-          "description": "Workspace access is confined and has no network on macOS/Linux. Unrestricted access needs fresh approval in Ask/Project and runs automatically in Full."
+          "description": "With the workspace sandbox on macOS/Linux, workspace access is confined and has no network. Unrestricted access needs fresh approval in Ask/Project. With the sandbox off, on Windows or in Full, every command runs unrestricted."
         },
         "description": {
           "type": [
@@ -1431,7 +1431,7 @@
         },
         "background": {
           "type": "boolean",
-          "description": "Keep running after this turn without a timeout and return an ID. A listener or waiter must enforce its own timeout and exit with a failure status when it expires. After 15 minutes without output, a stall notice is recorded; then stop the command, inspect its output, or deliberately keep waiting."
+          "description": "Keep running after this turn without a timeout and return an ID. A listener or waiter must enforce its own timeout and exit with a failure status when it expires. After 15 minutes without output, a follow-up or promoted command records one stall notice; then stop the command, inspect its output, or deliberately keep waiting."
         },
         "follow_up": {
           "type": "boolean",
