@@ -151,6 +151,7 @@ type Runtime struct {
 	providerCatalogBrands     []viewmodel.Brand
 	providerPresetsLoaded     bool
 	providerPresetsLoading    bool
+	providerPresetPackages    []protocol.PluginSummary
 	providerModels            map[string]providerDiscovery
 	providerDraftBases        map[string]protocol.ConversationProvider
 	modelCatalogEntered       bool

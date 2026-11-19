@@ -90,14 +90,23 @@ func (r *Runtime) readProviders() {
 
 func (r *Runtime) readProviderPresets() {
 	root := r.localRuntime()
-	if r.providerPresetsLoading || r.providerPresetsLoaded || !r.controller.Connected() {
+	if r.providerPresetsLoading || !r.controller.Connected() {
 		return
 	}
+	packages := r.snapshot().Plugins
+	if r.providerPresetsLoaded && samePresetPackages(r.providerPresetPackages, packages) {
+		return
+	}
+	r.providerPresetsLoaded = false
 	r.providerPresetsLoading = true
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
 		r.enqueue(func(c *ui.Context) {
 			r.providerPresetsLoading = false
+			if !samePresetPackages(packages, r.snapshot().Plugins) {
+				r.readProviderPresets()
+				return
+			}
 			if err != nil {
 				if root.shownSettings() == r && root.App.Page == shell.SettingsPage && root.App.Settings.Section == settings.Providers {
 					r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
@@ -107,6 +116,7 @@ func (r *Runtime) readProviderPresets() {
 			if listing, ok := detail[protocol.ConversationPresetsListing](out.Data); ok {
 				r.applyPresets(listing)
 				r.providerPresetsLoaded = true
+				r.providerPresetPackages = packages
 				root.projectProviderSnapshot()
 				return
 			}
@@ -114,6 +124,15 @@ func (r *Runtime) readProviderPresets() {
 				r.reportKeys(c, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model preset catalog response is invalid"), "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
 			}
 		})
+	})
+}
+
+// A preset captures its package and settings revision. Transient MCP status
+// changes also publish plugin summaries but do not change the directory.
+func samePresetPackages(a, b []protocol.PluginSummary) bool {
+	return slices.EqualFunc(a, b, func(x, y protocol.PluginSummary) bool {
+		return x.Name == y.Name && x.Digest == y.Digest && x.SettingsRevision == y.SettingsRevision &&
+			x.Enabled == y.Enabled && x.Compatibility.Kind == y.Compatibility.Kind
 	})
 }
 
