@@ -15,7 +15,7 @@ import (
 	"lukechampine.com/blake3"
 )
 
-func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol.NodeID, protocol.Session, protocol.TurnID, time.Time) {
+func agentHistoryFixture(t testing.TB, mode protocol.WorkMode) (*Store, protocol.NodeID, protocol.Session, protocol.TurnID, time.Time) {
 	t.Helper()
 	profile, node, storage := schemaFixture(t)
 	ctx := context.Background()

@@ -17,7 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/turso"
 )
 
-func schemaFixture(t *testing.T) (string, protocol.NodeID, *Store) {
+func schemaFixture(t testing.TB) (string, protocol.NodeID, *Store) {
 	t.Helper()
 	profile := t.TempDir()
 	var node protocol.NodeID
