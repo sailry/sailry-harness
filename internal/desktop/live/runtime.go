@@ -100,6 +100,9 @@ type Runtime struct {
 	delivered uint64
 	// composerCatalogs are the composer catalogs by conversation.
 	composerCatalogs map[string]*composerCatalog
+	// pluginCatalog is pluginViewInfos as of pluginCatalogKey.
+	pluginCatalog    []protocol.PluginInfo
+	pluginCatalogKey pluginCatalogKey
 
 	controller *client.Client
 	ctx        context.Context
@@ -463,11 +466,12 @@ func (r *Runtime) drain(c *ui.Context) {
 	for _, bound := range r.bindings {
 		bound.beginConversationFrame()
 	}
+	delivered := false
 	if revision := r.Preferences.Revision(); revision != r.prefsRevision {
 		r.applyPreferences()
 		r.prefsRevision = revision
 		r.project()
-		r.delivered++
+		delivered = true
 	}
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: r.Preferences.Data.ToastSeconds, MessageTextSize: uint8(r.App.Settings.TextSize)})
 	r.App.Messages.CompactDisplay = r.App.Settings.MessageDisplay == 1
@@ -476,14 +480,15 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.dirty = false
 	r.queue = nil
 	r.mu.Unlock()
-	if dirty || len(queue) > 0 {
-		r.delivered++
-	}
 	if dirty {
 		r.project()
 	}
 	for _, f := range queue {
 		f(c)
+	}
+	// After the results, which may write what an earlier one derived from.
+	if delivered || dirty || len(queue) > 0 {
+		r.delivered++
 	}
 	if dirty {
 		r.observeConversationCreations()

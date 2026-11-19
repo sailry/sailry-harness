@@ -593,38 +593,58 @@ func (r *Runtime) renderMountedPlugin(view *ui.Context, mounted *pluginMountedVi
 	return true
 }
 
+// pluginViewCatalog is the owner's package catalog. Callers share it and
+// must not modify it.
 func (r *Runtime) pluginViewCatalog(owner *Runtime) []protocol.PluginInfo {
-	return slices.Collect(owner.pluginViewInfos())
+	return owner.pluginViewList()
 }
 
+// pluginViewInfos are the installed packages whose information this Runtime
+// has read, at the Node's current version; it reads those it lacks.
 func (owner *Runtime) pluginViewInfos() iter.Seq[protocol.PluginInfo] {
+	return slices.Values(owner.pluginViewList())
+}
+
+// pluginCatalogKey is what the package catalog is derived from: package
+// information only changes by delivered results.
+type pluginCatalogKey struct {
+	packages            *packageState
+	revision, delivered uint64
+	connected           bool
+}
+
+// pluginViewList builds the catalog once per change: views, menus and
+// composer projections read it several times a frame.
+func (owner *Runtime) pluginViewList() []protocol.PluginInfo {
 	if owner == nil {
-		return func(func(protocol.PluginInfo) bool) {}
+		return nil
 	}
 	if owner.packages == nil {
 		owner.packages = newPackageState()
 	}
-	summaries := owner.snapshot().Plugins
-	return func(yield func(protocol.PluginInfo) bool) {
-		for _, summary := range summaries {
-			if removed, exists := owner.packages.removed[summary.Name]; exists && summary.Revision <= removed {
-				continue
-			}
-			info, exists := owner.packages.infos[summary.Name]
-			if (!exists || !samePackageVersion(info.Summary, summary)) && owner.controller.Connected() && !owner.packages.reads[summary.Name] {
-				if version := packageVersion(summary); owner.packages.failures[summary.Name] != version {
-					owner.readPackage(summary.Name, version, nil)
-				}
-			}
-			if !exists || info.Summary.Digest != summary.Digest {
-				continue
-			}
-			info.Summary = summary
-			if !yield(info) {
-				return
+	key := pluginCatalogKey{owner.packages, owner.controller.Revision(), owner.localRuntime().delivered, owner.controller.Connected()}
+	if owner.pluginCatalogKey == key {
+		return owner.pluginCatalog
+	}
+	var catalog []protocol.PluginInfo
+	for _, summary := range owner.snapshot().Plugins {
+		if removed, exists := owner.packages.removed[summary.Name]; exists && summary.Revision <= removed {
+			continue
+		}
+		info, exists := owner.packages.infos[summary.Name]
+		if (!exists || !samePackageVersion(info.Summary, summary)) && owner.controller.Connected() && !owner.packages.reads[summary.Name] {
+			if version := packageVersion(summary); owner.packages.failures[summary.Name] != version {
+				owner.readPackage(summary.Name, version, nil)
 			}
 		}
+		if !exists || info.Summary.Digest != summary.Digest {
+			continue
+		}
+		info.Summary = summary
+		catalog = append(catalog, info)
 	}
+	owner.pluginCatalog, owner.pluginCatalogKey = slices.Clip(catalog), key
+	return owner.pluginCatalog
 }
 
 func (r *Runtime) pluginNavigationIcon(view *ui.Context, declaration *protocol.PluginDesktopIcon) *ui.SVG {

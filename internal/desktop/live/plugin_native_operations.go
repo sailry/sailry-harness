@@ -6,8 +6,59 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// pluginOperationsKey is what a composer's operations are derived from: the
+// package catalog, by its identity, the session's project and the
+// configuration's resource and assistant.
+type pluginOperationsKey struct {
+	valid             bool
+	catalog           *protocol.PluginInfo
+	count             int
+	project           protocol.ProjectID
+	projected         bool
+	resourceKind      string
+	resource          any
+	assistant         protocol.PluginConversationBinding
+	assistantSelected bool
+}
+
+// composerOperationsAvailable are the tool operations the composer's
+// packages offer it. The composer projection reads them on every frame, so
+// they are kept until their key changes.
 func (state *pluginNativeState) composerOperationsAvailable(config protocol.SessionConfig) []protocol.ToolOperation {
-	catalog := state.runtime.pluginViewInfos()
+	catalog := state.runtime.pluginViewList()
+	project := state.composerProject()
+	key := pluginOperationsKey{valid: true, count: len(catalog)}
+	if len(catalog) > 0 {
+		key.catalog = &catalog[0]
+	}
+	if project != nil {
+		key.project, key.projected = *project, true
+	}
+	if resource := config.Resource; resource != nil {
+		key.resourceKind = resource.Kind
+		switch id := resource.Data.(type) {
+		case *protocol.DatabaseID:
+			key.resource = *id
+		case *protocol.SshID:
+			key.resource = *id
+		case protocol.DatabaseID, protocol.SshID:
+			key.resource = id
+		default:
+			key.valid = false // not comparable as a key
+		}
+	}
+	if config.Assistant != nil {
+		key.assistant, key.assistantSelected = *config.Assistant, true
+	}
+	if key.valid && state.operationsKey == key {
+		return state.operations
+	}
+	operations := pluginNativeOperations(catalog, project, config)
+	state.operations, state.operationsKey = slices.Clip(operations), key
+	return state.operations
+}
+
+func (state *pluginNativeState) composerProject() *protocol.ProjectID {
 	var project *protocol.ProjectID
 	if state.scope.Session != nil {
 		if session, exists := state.runtime.session(state.scope.Session.String()); exists {
@@ -21,9 +72,13 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 			}
 		}
 	}
+	return project
+}
+
+func pluginNativeOperations(catalog []protocol.PluginInfo, project *protocol.ProjectID, config protocol.SessionConfig) []protocol.ToolOperation {
 	var selected *protocol.PluginConversationDeclaration
 	if binding := config.Assistant; binding != nil {
-		for info := range catalog {
+		for _, info := range catalog {
 			if !pluginNativePackageAvailable(info) || info.Summary.Name != binding.Package.Name ||
 				info.Extension == nil || info.Extension.Desktop == nil {
 				continue
@@ -42,7 +97,7 @@ func (state *pluginNativeState) composerOperationsAvailable(config protocol.Sess
 	}
 	order := []protocol.ToolOperation{}
 	available := map[protocol.ToolOperation]bool{}
-	for info := range catalog {
+	for _, info := range catalog {
 		if info.Extension == nil {
 			continue
 		}

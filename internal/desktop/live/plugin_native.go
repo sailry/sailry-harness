@@ -32,6 +32,9 @@ type pluginNativeState struct {
 	// assistantTools is the package's calls in the assistants it mounts.
 	assistantTools *pluginNativeAssistantTools
 	providers      *pluginNativeProviders
+	// operations are composerOperationsAvailable as of operationsKey.
+	operations    []protocol.ToolOperation
+	operationsKey pluginOperationsKey
 }
 
 func (r *Runtime) pluginNativeBinding(ctx context.Context, scope protocol.PluginContext, presentation string) *plugins.NativeBinding {
