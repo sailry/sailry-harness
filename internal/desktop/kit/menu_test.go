@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"image/color"
 	"slices"
 	"testing"
 	"time"
@@ -282,29 +283,50 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	})
 }
 
-// A focused full-width select stays inside the field, including its outline.
+// The select uses the text input's border for pointer and keyboard feedback.
 func TestSelectFocusFitsField(t *testing.T) {
-	chosen := "Alpha"
+	chosen, text := "Alpha", ""
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Dark)
-		ui.Column(c).Fill().Padding(20).Children(func() {
+		ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
 			b, _ := Select(c.Key("select"), "select", "Pick", &chosen, []string{"Alpha"}, false)
 			b.FillWidth()
+			ui.TextInput(c.Key("input"), &text).Label("Name").FillWidth()
 		})
-	}, 240, 100)
+	}, 240, 150)
 	tt.Frame()
-	control, ok := tt.Access("Pick")
-	if !ok {
-		t.Fatal("missing select")
+	edge := func(label string) [6]color.RGBA {
+		t.Helper()
+		control, ok := tt.Access(label)
+		if !ok {
+			t.Fatalf("missing %s", label)
+		}
+		x, y := int(control.Bounds.X), int(control.Bounds.Y+control.Bounds.H/2)
+		img := tt.Image()
+		var pixels [6]color.RGBA
+		for i := range pixels {
+			pixels[i] = img.RGBAAt(x-3+i, y)
+		}
+		return pixels
 	}
-	x := int(control.Bounds.X)
-	y := int(control.Bounds.Y + control.Bounds.H/2)
-	rest := tt.Image()
-	outside, inside := rest.RGBAAt(x-2, y), rest.RGBAAt(x+1, y)
+	hover := func(label string) [6]color.RGBA {
+		control, _ := tt.Access(label)
+		tt.Move(control.Bounds.X+10, control.Bounds.Y+5)
+		tt.Frame()
+		return edge(label)
+	}
+	rest := edge("Pick")
+	if got, want := hover("Pick"), hover("Name"); got != want || got == rest {
+		t.Fatalf("hovered select edge %v, input %v, resting %v", got, want, rest)
+	}
+	tt.Move(0, 0)
 	tt.Key(0, ui.KeyTab)
-	focused := tt.Image()
-	if focused.RGBAAt(x-2, y) != outside || focused.RGBAAt(x+1, y) == inside {
-		t.Fatal("keyboard focus must paint inside the field")
+	tt.Frame()
+	focused := edge("Pick")
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if want := edge("Name"); focused != want || focused[3] == rest[3] {
+		t.Fatalf("focused select edge %v, input %v, resting %v", focused, want, rest)
 	}
 }
 
