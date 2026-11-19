@@ -164,6 +164,59 @@ func TestExitGuard(t *testing.T) {
 			t.Fatal("the saved window did not close")
 		}
 	})
+	t.Run("a session end closes a window during its save", func(t *testing.T) {
+		g := newGuardTest(nil, nil)
+		var settle func(bool)
+		g.guard.flush = func(_ *desktopWindow, done func(bool)) bool {
+			if done != nil {
+				settle = done
+			}
+			return true
+		}
+		window := g.windows[0]
+		if !g.guard.closing(window) {
+			t.Fatal("a window closed with a pending save")
+		}
+		if g.guard.beforeQuit(true) || g.guard.closing(window) {
+			t.Fatal("the window's save held back the session end")
+		}
+		settle(true)
+		if len(g.shut) != 0 || !g.guard.passing {
+			t.Fatal("the late save outcome changed the ending session")
+		}
+	})
+	t.Run("a repeated close stops waiting for a save", func(t *testing.T) {
+		g := newGuardTest(nil, nil)
+		var settle func(bool)
+		g.guard.flush = func(_ *desktopWindow, done func(bool)) bool {
+			settle = done
+			return true
+		}
+		window := g.windows[0]
+		if !g.guard.closing(window) || g.guard.closing(window) || window.closeSaving {
+			t.Fatal("a repeated close kept waiting for the save")
+		}
+		settle(true)
+		if len(g.shut) != 0 {
+			t.Fatal("a superseded save closed the window again")
+		}
+	})
+	t.Run("a repeated quit stops waiting for a save", func(t *testing.T) {
+		g := newGuardTest(nil)
+		g.guard.passing = true
+		var settle func(bool)
+		g.guard.flush = func(_ *desktopWindow, done func(bool)) bool {
+			settle = done
+			return true
+		}
+		if !g.guard.beforeQuit(false) || g.guard.beforeQuit(false) || g.guard.quitSaving {
+			t.Fatal("a repeated confirmed quit kept waiting for the save")
+		}
+		settle(false)
+		if g.quits != 0 || !g.guard.passing {
+			t.Fatal("a superseded save changed the quit")
+		}
+	})
 	t.Run("a window with drafts asks for itself only", func(t *testing.T) {
 		g := newGuardTest([]string{"a.go"}, []string{"b.go"})
 		first := g.windows[0]

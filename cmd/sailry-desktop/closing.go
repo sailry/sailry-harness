@@ -100,13 +100,16 @@ func (g *exitGuard) beforeQuit(sessionEnding bool) bool {
 		return false
 	}
 	if g.quitSaving {
-		return true
+		// A repeated quit stops waiting for a host that does not answer.
+		// Closing the windows cancels their save requests.
+		g.quitSaving = false
+	} else {
+		g.quitSaving = true
+		if g.flushWindows(windows) {
+			return true
+		}
+		g.quitSaving = false
 	}
-	g.quitSaving = true
-	if g.flushWindows(windows) {
-		return true
-	}
-	g.quitSaving = false
 	if g.passing {
 		return false
 	}
@@ -130,6 +133,9 @@ func (g *exitGuard) flushWindows(windows []*desktopWindow) bool {
 	remaining := len(windows)
 	ready, waiting, started := true, false, false
 	resume := func() {
+		if !g.quitSaving {
+			return // a repeated quit or a session end no longer waits
+		}
 		g.quitSaving = false
 		if ready {
 			g.quit()
@@ -159,17 +165,24 @@ func (g *exitGuard) flushWindows(windows []*desktopWindow) bool {
 }
 
 // closing reports whether a close waits for settings saves or a prompt.
-// Closing the last window quits, so it asks as a quit does.
+// Closing the last window quits, so it asks as a quit does. A session end or
+// a confirmed quit passes even while the window waits for its own save, and a
+// repeated close stops that wait; closing the window cancels the request.
 func (g *exitGuard) closing(entry *desktopWindow) bool {
-	if g.quitSaving || entry.closeSaving {
+	if g.quitSaving {
 		return true
 	}
 	if g.passing {
 		return false
 	}
-	if g.flush != nil {
+	if entry.closeSaving {
+		entry.closeSaving = false
+	} else if g.flush != nil {
 		entry.closeSaving = true
 		if g.flush(entry, func(saved bool) {
+			if !entry.closeSaving {
+				return // a repeated close no longer waits
+			}
 			entry.closeSaving = false
 			if saved && !g.quitSaving && !g.passing {
 				g.shut(entry)

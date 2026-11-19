@@ -1,6 +1,7 @@
 package live
 
 import (
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -73,6 +74,101 @@ func TestPersonalInstructionsFlushBeforeClosing(t *testing.T) {
 		drain()
 		if !finished || e.Saved != e.Draft || r.FlushEdits(nil) || len(source.sent("save_personal_instructions")) != 2 {
 			t.Fatalf("close did not proceed once the latest write settled: %+v", e)
+		}
+	})
+}
+
+// instructionsCloseFixture is a Runtime whose window delivers updates only
+// when drain runs them.
+func instructionsCloseFixture(t *testing.T) (*Runtime, *terminalTabsTestNode, *settings.PersonalInstructions, func()) {
+	r, source := terminalTabsFixture(t)
+	e := &r.personalInstructions.editor
+	e.Known = true
+	r.App.Settings.PersonalInstructions = e
+	updates := make(chan func(), 8)
+	r.SetUpdate(func(f func()) { updates <- f })
+	return r, source, e, func() {
+		synctest.Wait()
+		for len(updates) > 0 {
+			(<-updates)()
+			synctest.Wait()
+		}
+	}
+}
+
+func queuedReports(r *Runtime) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.queue)
+}
+
+// A failed save keeps its draft and holds only the close that waited for it.
+func TestPersonalInstructionsFailedSaveAllowsAnotherClose(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, e, drain := instructionsCloseFixture(t)
+		e.Draft = "Unsaved prompt"
+		r.queuePersonalInstructionsSave()
+		var settled []bool
+		if !r.FlushEdits(func(saved bool) { settled = append(settled, saved) }) {
+			t.Fatal("close did not wait for the save in flight")
+		}
+		drain()
+		if !slices.Equal(settled, []bool{false}) || !e.Failed || e.Draft != "Unsaved prompt" {
+			t.Fatalf("the failed save did not resume the close with its draft: %v, %+v", settled, e)
+		}
+		if r.FlushEdits(func(bool) { t.Fatal("the repeated close waited again") }) {
+			t.Fatal("a failed save kept the window from closing")
+		}
+		if len(source.sent("save_personal_instructions")) != 1 {
+			t.Fatal("the repeated close sent the failed save again")
+		}
+	})
+}
+
+// A draft that cannot be saved holds one close to report it, then lets the
+// next close go through.
+func TestPersonalInstructionsUnsavableDraftReportsOnce(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, e, _ := instructionsCloseFixture(t)
+		// The instructions could not be read, so no save can run.
+		e.Known, e.Draft = false, "Unsaved prompt"
+		before := queuedReports(r)
+		held := false
+		if !r.FlushEdits(func(saved bool) { held = !saved }) || !held || queuedReports(r) == before {
+			t.Fatal("the first close did not report the unsaved draft")
+		}
+		if r.FlushEdits(func(bool) { t.Fatal("the repeated close waited again") }) {
+			t.Fatal("an unsaved draft kept the window from closing")
+		}
+		if len(source.sent("save_personal_instructions")) != 0 || e.Draft != "Unsaved prompt" {
+			t.Fatalf("close changed the draft or saved without instructions: %+v", e)
+		}
+	})
+}
+
+// A save that outlives its window's context still resumes the waiting close.
+func TestPersonalInstructionsCloseSettlesAfterCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, e, drain := instructionsCloseFixture(t)
+		// The host answers nothing until the window's context ends.
+		source.respond = func(protocol.Request) link.Response {
+			<-r.ctx.Done()
+			return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "host is not answering"}}
+		}
+		e.Draft = "Unsaved prompt"
+		r.queuePersonalInstructionsSave()
+		var settled []bool
+		if !r.FlushEdits(func(saved bool) { settled = append(settled, saved) }) {
+			t.Fatal("close did not wait for the save in flight")
+		}
+		drain()
+		if settled != nil {
+			t.Fatal("close resumed before the save settled")
+		}
+		r.cancel()
+		drain()
+		if !slices.Equal(settled, []bool{false}) || len(r.personalInstructions.flushed) != 0 {
+			t.Fatalf("a cancelled save left its close waiting: %v", settled)
 		}
 	})
 }

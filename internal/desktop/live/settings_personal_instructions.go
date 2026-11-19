@@ -20,6 +20,9 @@ type personalInstructionsState struct {
 	writing  bool
 	retained *protocol.CommandSavePersonalInstructionsPayload
 	flushed  []func(bool) // close or quit continuations for this window's editors
+	// reported is a close that was held to report an unsaved draft. The
+	// window's next close goes through until the user edits again.
+	reported bool
 }
 
 func (r *Runtime) readPersonalInstructions() {
@@ -52,6 +55,7 @@ func (r *Runtime) readPersonalInstructions() {
 func (r *Runtime) queuePersonalInstructionsSave() {
 	s := &r.personalInstructions
 	s.editor.Failed, s.queued = false, true
+	r.localRuntime().personalInstructions.reported = false
 	if s.timer != nil {
 		s.timer.Stop()
 	}
@@ -71,15 +75,42 @@ func (r *Runtime) queuePersonalInstructionsSave() {
 // A false return allows the window to close immediately. A true return keeps
 // it open until done receives the settled save outcome. A nil callback just
 // starts the saves, for a session end the operating system cannot defer.
+//
+// Only a save in flight holds the close. A draft that cannot be saved now
+// (offline host, refused or unconfirmed save, unread instructions) holds one
+// close to report it; the editor keeps the draft for retry, and the next close
+// goes through because a closed window cannot retain it.
 func (r *Runtime) FlushEdits(done func(bool)) bool {
 	root := r.localRuntime()
+	s := &root.personalInstructions
 	pending, clean := root.flushEdits()
-	if pending && done != nil {
-		root.personalInstructions.flushed = append(root.personalInstructions.flushed, done)
-	} else if !clean && done != nil {
-		done(false)
+	switch {
+	case pending:
+		if done != nil {
+			s.flushed = append(s.flushed, done)
+		}
+		return true
+	case clean || done == nil || s.reported:
+		return false
 	}
-	return pending || !clean
+	s.reported = true
+	outcome := kit.Failed
+	for _, owner := range root.instructionRuntimes() {
+		if owner.personalInstructions.editor.Uncertain {
+			outcome = kit.Uncertain
+		}
+	}
+	root.reportSetting(nil, outcome, settings.PersonalInstructionsMessages)
+	done(false)
+	return true
+}
+
+func (r *Runtime) instructionRuntimes() []*Runtime {
+	owners := []*Runtime{r}
+	for _, bound := range r.bindings {
+		owners = append(owners, bound)
+	}
+	return owners
 }
 
 func (r *Runtime) flushEdits() (pending, clean bool) {
@@ -87,7 +118,7 @@ func (r *Runtime) flushEdits() (pending, clean bool) {
 		r.instructionsOwner.queuePersonalInstructionsSave()
 	}
 	clean = true
-	flush := func(owner *Runtime) {
+	for _, owner := range r.instructionRuntimes() {
 		s := &owner.personalInstructions
 		// The text binding can change before a frame observes the edit.
 		if s.editor.Draft != s.editor.Saved && !s.editor.Failed && !s.editor.Uncertain {
@@ -101,23 +132,26 @@ func (r *Runtime) flushEdits() (pending, clean bool) {
 		pending = pending || s.writing || s.editor.Pending && s.queued
 		clean = clean && s.editor.Draft == s.editor.Saved && !s.editor.Uncertain
 	}
-	flush(r)
-	for _, bound := range r.bindings {
-		flush(bound)
-	}
 	return pending, clean
 }
 
+// finishEditFlush resumes the waiting closes once no save is in flight. The
+// failed save has already reported its outcome, so the next close goes through.
 func (r *Runtime) finishEditFlush() {
-	waiters := r.personalInstructions.flushed
-	if len(waiters) == 0 {
+	if len(r.personalInstructions.flushed) == 0 {
 		return
 	}
 	if pending, clean := r.flushEdits(); !pending {
-		r.personalInstructions.flushed = nil
-		for _, done := range waiters {
-			done(clean)
-		}
+		r.personalInstructions.reported = !clean
+		r.releaseEditFlush(clean)
+	}
+}
+
+func (r *Runtime) releaseEditFlush(saved bool) {
+	waiters := r.personalInstructions.flushed
+	r.personalInstructions.flushed = nil
+	for _, done := range waiters {
+		done(saved)
 	}
 }
 
@@ -138,6 +172,9 @@ func (r *Runtime) deliverInstructions(apply func(*ui.Context)) {
 	}
 	update(func() {
 		if root.ctx.Err() != nil {
+			// The closed window's saves cannot settle any more. Its waiting
+			// closes resume without a saved outcome.
+			root.releaseEditFlush(false)
 			return
 		}
 		if r.ctx.Err() == nil {

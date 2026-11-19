@@ -515,8 +515,11 @@ failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
 Edits save when the editor loses focus, using that Node's revision.
-Window close and application quit flush pending edits and wait for their save
-results. A failed save keeps the draft in the editor for retry.
+Window close and application quit flush pending edits and wait for a save in
+flight. A failed save, or a draft that cannot be saved, reports its outcome
+and keeps the draft in the editor for retry; the next close or quit goes
+through. Repeating the close or quit stops the wait, and the window's closing
+runtime cancels the request. A session end never waits.
 The Node captures that file for each new turn, including turns in existing
 sessions. Each turn retains the instructions it ran with.
 
