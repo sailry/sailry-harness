@@ -148,6 +148,10 @@ type BackupLast struct {
 const DefaultTextSize = 14
 
 type Model struct {
+	PersonalInstructions     *PersonalInstructions
+	SavePersonalInstructions func()
+	ReadPersonalInstructions func()
+
 	// ManagedNode is the shared target for Node-owned settings in this window.
 	ManagedNode string
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
@@ -392,9 +396,10 @@ func NewModel(d *preview.Settings) *Model {
 		Teams: td.Teams, Roles: td.Roles, Concurrency: stored(td.Concurrency),
 		Packages: ex.Packages, MarketPlugins: ex.Catalog, SkillList: ex.Skills, MarketSkills: ex.Market, Themes: ex.Themes, Library: ex.Library,
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
-		Power:     stored(d.PreventSleep),
-		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
-		Sandbox:   stored(d.Sandbox), CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
+		Power:                stored(d.PreventSleep),
+		Telemetry:            stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
+		PersonalInstructions: &PersonalInstructions{Known: true},
+		Sandbox:              stored(d.Sandbox), CodeIndex: stored(true), TextSize: DefaultTextSize, SessionOrder: 1,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
 		Host:   stored(TerminalHost{Env: d.Env}),

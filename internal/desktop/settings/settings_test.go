@@ -55,6 +55,32 @@ func TestManagedNodeInSettingsHeader(t *testing.T) {
 	}
 }
 
+func TestConversationCustomPrompt(t *testing.T) {
+	state := NewLive()
+	state.Open(Conversation)
+	editor := &PersonalInstructions{Known: true}
+	state.PersonalInstructions = editor
+	var submitted string
+	state.SavePersonalInstructions = func() { submitted = editor.Draft }
+	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); Page(c, state, nil, Look{}) }, 920, 800)
+	tester.SetLocale("en")
+	tester.Frame()
+	field, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "settings_custom_prompt"))
+	if !ok || field.Disabled {
+		t.Fatal("custom prompt field unavailable")
+	}
+	tester.ClickAt(field.Bounds.X+10, field.Bounds.Y+10)
+	tester.Type("Use the project formatter.")
+	tester.Frame()
+	if err := tester.Click(i18n.In("en", "settings_save")); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if submitted != "Use the project formatter." {
+		t.Fatalf("submitted %q", submitted)
+	}
+}
+
 func TestHooksUseManagedNodeWithoutProject(t *testing.T) {
 	state := NewLive()
 	state.Open(Hooks)

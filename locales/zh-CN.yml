@@ -1499,6 +1499,11 @@ message_text_extra_large: 特大
 settings_appearance: 外观
 settings_conversation: 会话
 settings_conversation_description: 调整会话消息的显示方式
+settings_custom_prompt: "自定义提示词"
+settings_custom_prompt_description: "应用于此主机上所有会话的后续轮次。"
+settings_custom_prompt_failed: "无法读取或保存自定义提示词"
+settings_custom_prompt_conflict: "主机上的自定义提示词已更改，已保留你的草稿"
+settings_custom_prompt_unknown: "无法确认自定义提示词是否已保存"
 settings_messages: 消息
 settings_message_display: 消息显示
 settings_message_display_description: 简洁模式隐藏思考过程并合并相邻工具

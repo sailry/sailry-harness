@@ -12,8 +12,12 @@ var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_faile
 // live action adapter.
 var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settings_failed", "code_index_settings_conflict", "code_index_settings_unknown"}
 
-// conversation is the host's command sandbox and code index, the sessions'
-// order, and how messages show.
+// PersonalInstructions holds the editor draft for one settings host.
+type PersonalInstructions struct {
+	Saved, Draft              string
+	Known, Pending, Uncertain bool
+}
+
 func conversation(c *ui.Context, m *Model) {
 	kit.Group(c, "execution", i18n.T(c, "settings_execution"), "", nil, func() {
 		if m.ExecutionSettingsStatus != "" {
@@ -37,6 +41,7 @@ func conversation(c *ui.Context, m *Model) {
 			}
 		})
 	})
+	personalInstructions(c, m)
 	kit.Group(c, "messages", i18n.T(c, "settings_messages"), "", nil, func() {
 		kit.Card(c, func() {
 			kit.SegmentedRow(c, "display", i18n.T(c, "settings_message_display"), i18n.T(c, "settings_message_display_description"),
@@ -47,5 +52,36 @@ func conversation(c *ui.Context, m *Model) {
 				ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
 			})
 		})
+	})
+}
+
+func personalInstructions(c *ui.Context, m *Model) {
+	if m.ExecutionSettingsStatus != "" {
+		return
+	}
+	e := m.PersonalInstructions
+	label := i18n.T(c, "settings_custom_prompt")
+	kit.Group(c, "personal-instructions", label, i18n.T(c, "settings_custom_prompt_description"), func() {
+		if e != nil && !e.Known && !e.Pending && m.ReadPersonalInstructions != nil {
+			kit.Secondary(c.Key("reload"), i18n.T(c, "settings_retry")).OnClick(m.ReadPersonalInstructions)
+			return
+		}
+		action := "settings_save"
+		if e != nil && e.Uncertain {
+			action = "files_check_result"
+		}
+		kit.Primary(c.Key("save"), i18n.T(c, action), e == nil || !e.Known || e.Pending || !e.Uncertain && e.Saved == e.Draft || m.Live && m.SavePersonalInstructions == nil).OnClick(func() {
+			if m.Live {
+				m.SavePersonalInstructions()
+				return
+			}
+			e.Saved = e.Draft
+			kit.Toast(c, kit.Done, i18n.T(c, "workspace_saved"))
+		})
+	}, func() {
+		if e == nil {
+			return
+		}
+		ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Disabled(!e.Known || e.Pending || e.Uncertain).FillWidth().Height(100)
 	})
 }

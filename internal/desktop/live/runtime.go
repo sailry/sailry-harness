@@ -61,6 +61,7 @@ type Runtime struct {
 	workspaceSettings    workspaceSettingsState
 	hookSettings         hookSettingsState
 	codeIndexSettings    settings.Stored[bool]
+	personalInstructions personalInstructionsState
 	settingsShown        *Runtime
 	settingsGeneration   uint64
 	providerMoves        map[string]providerMove

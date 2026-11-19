@@ -967,6 +967,11 @@ settings_command_sandbox_description: Gilt für nachfolgende Befehle in allen Si
 settings_connections_description: Verwalten von gekoppelten Geräten und Remote-Node-Verbindungen
 settings_connectors_description: Dienstverbindungen verwalten
 settings_conversation_description: Anpassen der Anzeige von Unterhaltungsnachrichten
+settings_custom_prompt: Eigene Anweisungen
+settings_custom_prompt_description: Gelten für künftige Anfragen in allen Sitzungen auf diesem Host.
+settings_custom_prompt_failed: Eigene Anweisungen konnten nicht gelesen oder gespeichert werden.
+settings_custom_prompt_conflict: Die Anweisungen auf diesem Host wurden geändert. Der Entwurf wurde beibehalten.
+settings_custom_prompt_unknown: Das Speichern der Anweisungen konnte nicht bestätigt werden.
 settings_decision: Entscheidungen
 settings_decision_description: Lokale Entscheidungsmodelle konfigurieren
 settings_dictation_description: Lokal in den Nachrichtenentwurf transkribieren

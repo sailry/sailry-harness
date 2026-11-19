@@ -967,6 +967,11 @@ settings_command_sandbox_description: Aplica-se aos próximos comandos de todas 
 settings_connections_description: Gerenciar dispositivos emparelhados e conexões remotas Node
 settings_connectors_description: Gerenciar conexões de serviços
 settings_conversation_description: Ajustar como as mensagens de conversa são exibidas
+settings_custom_prompt: Instruções personalizadas
+settings_custom_prompt_description: Aplicam-se às próximas interações de todas as sessões neste host.
+settings_custom_prompt_failed: Não foi possível ler ou salvar as instruções personalizadas.
+settings_custom_prompt_conflict: As instruções neste host mudaram. Seu rascunho foi mantido.
+settings_custom_prompt_unknown: Não foi possível confirmar se as instruções foram salvas.
 settings_decision: Decisões
 settings_decision_description: Configurar modelos de decisão locais
 settings_dictation_description: Transcrever localmente no rascunho da mensagem

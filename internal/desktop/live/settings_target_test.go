@@ -31,6 +31,7 @@ func TestSettingsTarget(t *testing.T) {
 	// external is the compaction revision another controller saved on a
 	// Node, 0 for none; the Node's transport guards it.
 	external := make([]uint64, len(nodes))
+	prompts := make([]protocol.PersonalInstructions, len(nodes))
 	// doubt, when set, holds the local Node's next prevent sleep save until
 	// it is closed; the Node then answers that it can never tell what the
 	// save did.
@@ -55,6 +56,15 @@ func TestSettingsTarget(t *testing.T) {
 				return link.Response{Output: protocol.Output{Kind: kind, Data: data}}, true
 			}
 			switch request.Command.Kind {
+			case "read_personal_instructions":
+				return output("personal_instructions", prompts[index])
+			case "save_personal_instructions":
+				input, _ := detail[protocol.CommandSavePersonalInstructionsPayload](request.Command.Data)
+				if current := prompts[index].Revision; (current == nil) != (input.ExpectedRevision == nil) || current != nil && *current != *input.ExpectedRevision {
+					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict}}, true
+				}
+				prompts[index] = protocol.PersonalInstructions{Text: input.Text, Revision: &input.Text}
+				return output("personal_instructions", prompts[index])
 			case "read_power_settings":
 				return output("power_settings", protocol.PowerSettings{Revision: revision, PreventSleep: index == 1})
 			case "save_power_settings":
@@ -530,6 +540,42 @@ func TestSettingsTarget(t *testing.T) {
 			if root.App.Host != nodes[2].String() {
 				t.Fatal("a settings link changed the monitored host")
 			}
+		}
+	})
+	t.Run("custom prompt is loaded on demand and scoped to the selected host", func(t *testing.T) {
+		root.App.Page = shell.SettingsPage
+		m.Open(settings.Conversation)
+		showHost := func(host string) { m.ManagedNode = host; root.nodeSettingsFrame(); settle() }
+		showHost("")
+		if e := m.PersonalInstructions; e == nil || !e.Known || e.Draft != "" {
+			t.Fatalf("first prompt = %+v", e)
+		}
+		m.PersonalInstructions.Draft = "Local draft"
+		showHost(nodes[1].String())
+		if e := m.PersonalInstructions; e == nil || !e.Known || e.Draft != "" {
+			t.Fatalf("remote inherited another host's draft: %+v", e)
+		}
+		m.PersonalInstructions.Draft = "Remote\nprompt"
+		m.SavePersonalInstructions()
+		settle()
+		if prompts[1].Text != "Remote\nprompt" || prompts[0].Text != "" {
+			t.Fatalf("saved prompts = %+v", prompts)
+		}
+		other := "remote change"
+		prompts[1] = protocol.PersonalInstructions{Revision: &other, Text: other}
+		m.PersonalInstructions.Draft = "Edited draft"
+		m.SavePersonalInstructions()
+		settle()
+		if e := m.PersonalInstructions; e.Saved != other || e.Draft != "Edited draft" || prompts[1].Text != other {
+			t.Fatalf("conflict overwrote a draft or file: %+v", e)
+		}
+		showHost("")
+		if m.PersonalInstructions.Draft != "Local draft" {
+			t.Fatal("host switch discarded the local prompt")
+		}
+		showHost(nodes[2].String())
+		if m.PersonalInstructions != nil || count(2, "read_personal_instructions") != 0 {
+			t.Fatal("machine instructions exposed without permission")
 		}
 	})
 	t.Run("temporary provider outage keeps the editor binding", func(t *testing.T) {

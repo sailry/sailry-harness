@@ -122,6 +122,9 @@ func (r *Runtime) initNodeSettings() {
 		}
 		return r.runtimeFor(draft.Channel.Node), r.providerOwner(node)
 	}
+	m.PersonalInstructions = nil
+	m.ReadPersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.readPersonalInstructions() }) }
+	m.SavePersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.savePersonalInstructions() }) }
 	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
 	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
@@ -270,6 +273,14 @@ func (r *Runtime) nodeSettingsFrame() {
 	status := owner.machineSettingsStatus()
 	allowedNow := status == "" && m.ExecutionSettingsStatus != ""
 	m.ExecutionSettingsStatus = status
+	if status == "" && root.App.Page == shell.SettingsPage && m.Section == settings.Conversation {
+		if m.PersonalInstructions != &owner.personalInstructions.editor {
+			m.PersonalInstructions = &owner.personalInstructions.editor
+			owner.readPersonalInstructions()
+		}
+	} else {
+		m.PersonalInstructions = nil
+	}
 	if owner == nil || owner != root && !owner.controller.Connected() {
 		return
 	}

@@ -967,6 +967,11 @@ settings_command_sandbox_description: Se aplica a los siguientes comandos de tod
 settings_connections_description: Administrar dispositivos emparejados y conexiones remotas Node
 settings_connectors_description: Gestionar conexiones a servicios
 settings_conversation_description: Ajustar cómo se muestran los mensajes de conversación
+settings_custom_prompt: Instrucciones personalizadas
+settings_custom_prompt_description: Se aplican a los próximos turnos de todas las sesiones de este equipo.
+settings_custom_prompt_failed: No se pudieron leer o guardar las instrucciones personalizadas.
+settings_custom_prompt_conflict: Las instrucciones cambiaron en este equipo. Se conservó el borrador.
+settings_custom_prompt_unknown: No se pudo confirmar que se guardaron las instrucciones.
 settings_decision: Decisiones
 settings_decision_description: Configurar modelos de decisión locales
 settings_dictation_description: Transcribir localmente en el borrador del mensaje

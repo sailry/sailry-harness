@@ -967,6 +967,11 @@ settings_command_sandbox_description: 套用至所有會話的後續命令
 settings_connections_description: 管理配對裝置和遠端 Node 連線
 settings_connectors_description: 管理服務連線
 settings_conversation_description: 調整會話訊息的顯示方式
+settings_custom_prompt: 自訂提示詞
+settings_custom_prompt_description: 套用至此主機上所有對話的後續回合。
+settings_custom_prompt_failed: 無法讀取或儲存自訂提示詞
+settings_custom_prompt_conflict: 主機上的自訂提示詞已變更，已保留你的草稿
+settings_custom_prompt_unknown: 無法確認是否已儲存自訂提示詞
 settings_decision: 決策
 settings_decision_description: 設定本機決策模型
 settings_dictation_description: 在本機識別語音，結果填入訊息草稿

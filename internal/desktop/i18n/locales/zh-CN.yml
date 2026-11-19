@@ -967,6 +967,11 @@ settings_command_sandbox_description: 应用于所有会话的后续命令
 settings_connections_description: 管理配对设备和远程节点连接
 settings_connectors_description: 管理服务连接
 settings_conversation_description: 调整会话消息的显示方式
+settings_custom_prompt: 自定义提示词
+settings_custom_prompt_description: 应用于此主机上所有会话的后续轮次。
+settings_custom_prompt_failed: 无法读取或保存自定义提示词
+settings_custom_prompt_conflict: 主机上的自定义提示词已更改，已保留你的草稿
+settings_custom_prompt_unknown: 无法确认自定义提示词是否已保存
 settings_decision: 决策
 settings_decision_description: 配置本地决策模型
 settings_dictation_description: 在本机识别语音，结果填入消息草稿

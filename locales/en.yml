@@ -22,6 +22,11 @@ skills_repository: Git repository
 skills_repository_hint: Repository URL
 settings_conversation: Conversation
 settings_conversation_description: Adjust how conversation messages are displayed
+settings_custom_prompt: "Custom prompt"
+settings_custom_prompt_description: "Applies to future turns in all sessions on this host."
+settings_custom_prompt_failed: "Could not read or save the custom prompt."
+settings_custom_prompt_conflict: "The custom prompt changed on this host. Your draft was kept."
+settings_custom_prompt_unknown: "The custom prompt save could not be confirmed."
 settings_messages: Messages
 settings_message_display: Message display
 settings_message_display_description: Compact mode hides reasoning and groups adjacent tools

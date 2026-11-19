@@ -967,6 +967,11 @@ settings_command_sandbox_description: すべてのセッションの次のコマ
 settings_connections_description: ペアリング済みのデバイスとリモート Node 接続を管理
 settings_connectors_description: サービスへの接続を管理
 settings_conversation_description: 会話メッセージの表示方法を調整します
+settings_custom_prompt: カスタム指示
+settings_custom_prompt_description: このホスト上のすべてのセッションの次のターンから適用されます。
+settings_custom_prompt_failed: カスタム指示を読み込むか保存することができませんでした。
+settings_custom_prompt_conflict: このホストのカスタム指示が変更されました。下書きは保持されています。
+settings_custom_prompt_unknown: カスタム指示が保存されたか確認できませんでした。
 settings_decision: 判断
 settings_decision_description: ローカル判断モデルを設定
 settings_dictation_description: メッセージの草稿にローカルに書き込む

@@ -967,6 +967,11 @@ settings_command_sandbox_description: S’applique aux prochaines commandes de t
 settings_connections_description: Gérer les périphériques jumelés et les connexions distantes Node
 settings_connectors_description: Gérer les connexions aux services
 settings_conversation_description: Ajuster l’affichage des messages de conversation
+settings_custom_prompt: Instructions personnalisées
+settings_custom_prompt_description: S’appliquent aux prochains échanges de toutes les sessions sur cet hôte.
+settings_custom_prompt_failed: Impossible de lire ou d’enregistrer les instructions personnalisées.
+settings_custom_prompt_conflict: Les instructions ont changé sur cet hôte. Votre brouillon a été conservé.
+settings_custom_prompt_unknown: L’enregistrement des instructions n’a pas pu être confirmé.
 settings_decision: Décisions
 settings_decision_description: Configurer les modèles de décision locaux
 settings_dictation_description: Transcrire localement dans le brouillon du message
