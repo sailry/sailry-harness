@@ -611,8 +611,9 @@ func TestProviderEditor(t *testing.T) {
 		tester := ui.NewTester(func(c *ui.Context) { brandPicker(c, m, "", nil, nil) }, 900, 900)
 		tester.SetLocale("en")
 		tester.Frame()
-		if !tester.HasText(i18n.In("en", "provider_access_no_key")) || tester.HasText(i18n.In("en", "provider_access_key")) {
-			t.Fatalf("keyless provider offered under wrong heading: %v", tester.Texts())
+		labels := tester.Texts()
+		if !slices.Contains(labels, i18n.In("en", "provider_access_no_key")) || slices.Contains(labels, i18n.In("en", "provider_access_key")) {
+			t.Fatalf("keyless provider offered under wrong heading: %v", labels)
 		}
 		brand := m.Brands[0]
 		brand.Methods = append(brand.Methods, preview.Method{ID: "key", Auth: preview.AuthKey})
