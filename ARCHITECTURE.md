@@ -787,8 +787,8 @@ delivers them on the same ordered feed.
 Desktop reuses read-only conversation source copies until a Client observation
 changes, including pagination and connection state. Across history pages the
 read-only view shares its already detached canonical entries. Node stream updates
-invalidate that reuse, and mutable action reads always get independent copies. An unchanged visible
-transcript projection is reused even for active runs; elapsed labels update
+invalidate that reuse, and mutable action reads always get independent copies.
+An unchanged visible transcript projection is reused even for active runs; elapsed labels update
 without rebuilding its history. Controls and mutable presentation overlays still
 refresh. Leaving a conversation releases its presentation cache and unbinds
 the transcript's render payload without resetting its scroll position. Command
@@ -798,8 +798,8 @@ call revision and reads bounded output for that exact session and command.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
 cancels outstanding reads when it closes or leaves the virtualized list. Visible
-image rows share decoded bitmaps across panes on their owning Node, and the
-transcript releases the bitmaps after their last visible use. The transcript retains
+image rows and published document cards resolve bitmaps when displayed. Panes
+share them on their owning Node and release them after their last visible use. The transcript retains
 checkpoint paths and change counts for loaded turns. Opening the history or
 changes view requests the older checkpoint inventory; review owns the diff lines.
 

@@ -140,8 +140,8 @@ func (r *Runtime) projectConversationAssets(cv *viewmodel.Conversation, state cl
 				}
 				seen[dedupe] = true
 				r.attachments.files[attachmentKey(cv.ID, item.file.ID)] = item.descriptor
-				if item.descriptor.artifact != nil && prefetch {
-					item.file.Image = r.projectDocumentThumbnail(cv.ID, item.file.ID, item.descriptor)
+				if artifact := item.descriptor.artifact; artifact != nil && artifact.Kind == protocol.ArtifactKindPreview {
+					item.file.Image = &conversation.Image{ID: item.file.ID, Name: item.file.Name()}
 				}
 				block := conversation.Block{Kind: conversation.FilesBlock, Label: key, Files: []conversation.File{item.file}}
 				if item.image {
@@ -177,7 +177,11 @@ func (r *Runtime) loadAttachmentPublication(ctx context.Context, key string, ref
 			}
 			publication.items = projectPublishedItems(ref, worktree, loaded)
 			publication.ready = true
-			r.projectConversations()
+			for cv := range r.conversationPresentations {
+				if cv.ID == ref.Session.String() {
+					r.invalidateConversationPresentation(cv)
+				}
+			}
 		})
 	})
 }

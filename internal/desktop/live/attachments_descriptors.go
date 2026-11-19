@@ -233,6 +233,12 @@ func (r *Runtime) resolveConversationImage(session string, image conversation.Im
 	}
 	cache := r.attachmentImages(session)
 	key := attachmentKey(session, image.ID)
+	if descriptor := r.attachments.files[key]; descriptor.artifact != nil {
+		if thumbnail := r.projectDocumentThumbnail(session, image.ID, descriptor); thumbnail != nil {
+			image.Source, image.Width, image.Height = thumbnail.Source, thumbnail.Width, thumbnail.Height
+		}
+		return image
+	}
 	if source := r.projectAttachmentImage(cache, key); source != nil {
 		image.Source = source
 		image.Width, image.Height = source.Size()
@@ -360,6 +366,16 @@ func (r *Runtime) pruneAttachmentImages() {
 	if r.attachments == nil {
 		return
 	}
+	for key, document := range r.attachments.documents {
+		if document.visible {
+			document.visible = false
+			continue
+		}
+		if document.cancel != nil {
+			document.cancel()
+		}
+		delete(r.attachments.documents, key)
+	}
 	for session, cache := range r.attachments.imageSessions {
 		id, err := protocol.ParseSessionID(session)
 		if err == nil && r.conversationSeen[id] || r.localRuntime().draftsShown[session] {
@@ -376,11 +392,6 @@ func (r *Runtime) pruneAttachmentImages() {
 		for key, publication := range r.attachments.publications {
 			if publication.session.String() == session {
 				delete(r.attachments.publications, key)
-			}
-		}
-		for key := range r.attachments.documents {
-			if strings.HasPrefix(key, session+"/") {
-				delete(r.attachments.documents, key)
 			}
 		}
 	}

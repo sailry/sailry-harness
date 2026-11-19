@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"image"
 	"image/png"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -265,6 +267,35 @@ func TestReadRecovery(t *testing.T) {
 			}
 
 		})
+	})
+}
+
+func TestVisibleDocumentThumbnailLifetime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, _, _ := readRecoveryFixture(t)
+		session := protocol.SessionID{1}
+		r.conversationSeen = map[protocol.SessionID]bool{session: true}
+		r.attachments.native.RenderDocument = func(context.Context, protocol.ArtifactSummary, string, func([]byte, error)) {
+			t.Fatal("cached preview rendered again")
+		}
+		artifact := protocol.ArtifactSummary{Kind: protocol.ArtifactKindPreview, Revision: 1}
+		id := "published-preview"
+		r.attachments.files[attachmentKey(session.String(), id)] = attachmentDescriptor{artifact: &artifact}
+		key := fmt.Sprintf("%s/%s/%d", session, artifact.ID, artifact.Revision)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		r.attachments.documents[key] = &attachmentDocumentImage{cancel: cancel, image: &conversation.Image{Width: 42}}
+		if got := r.resolveConversationImage(session.String(), conversation.Image{ID: id}); got.Width != 42 {
+			t.Fatal("visible file card did not resolve its published preview")
+		}
+		r.pruneAttachmentImages()
+		if ctx.Err() != nil {
+			t.Fatal("visible preview was released")
+		}
+		r.pruneAttachmentImages()
+		if ctx.Err() == nil || len(r.attachments.documents) != 0 {
+			t.Fatal("offscreen preview retained its renderer or bitmap")
+		}
 	})
 }
 

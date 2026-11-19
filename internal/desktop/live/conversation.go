@@ -221,6 +221,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 				r.enrichDetails(cv, state, c.Locale())
 				r.enrichQueue(cv, page.Queue)
 				r.bindAttachmentSources(cv.ID, page)
+				r.projectConversationAssets(cv, state)
 			}
 			if state.Connected {
 				// Elapsed labels need a rebuilt frame, including in plugin panels;
@@ -237,7 +238,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			}
 			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
-			r.projectConversationAssets(cv, state)
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
 	}

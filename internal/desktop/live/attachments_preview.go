@@ -21,8 +21,9 @@ import (
 const attachmentPreviewMaximum = 2 << 20
 
 type attachmentDocumentImage struct {
-	image           *conversation.Image
-	loading, failed bool
+	image                    *conversation.Image
+	cancel                   context.CancelFunc
+	visible, loading, failed bool
 }
 
 func (r *Runtime) openCapturedFilePreview(session string, file conversation.File, descriptor attachmentDescriptor) {
@@ -323,11 +324,12 @@ func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attach
 		image = &attachmentDocumentImage{}
 		r.attachments.documents[key] = image
 	}
-	if image.image != nil || image.loading || image.failed {
+	image.visible = true
+	if image.image != nil || image.loading || image.failed || !r.controller.Connected() {
 		return image.image
 	}
-	image.loading = true
-	ctx := r.attachmentImages(session).ctx
+	ctx, cancel := context.WithCancel(r.attachmentImages(session).ctx)
+	image.loading, image.cancel = true, cancel
 	r.async(func() {
 		content, err := r.readPublishedArtifact(ctx, descriptor)
 		r.enqueue(func(*ui.Context) {
@@ -340,6 +342,9 @@ func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attach
 			}
 			native.RenderDocument(ctx, *artifact, content.Html, func(data []byte, err error) {
 				r.async(func() {
+					if ctx.Err() != nil {
+						return
+					}
 					var bitmap *ui.Bitmap
 					if err == nil && len(data) > 8*1024*1024 {
 						err = fileActionFault(protocol.ErrorCodeInvalidRequest, "document thumbnail exceeds its byte limit")
@@ -355,7 +360,6 @@ func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attach
 						if err == nil {
 							width, height := bitmap.Size()
 							image.image = &conversation.Image{ID: id, Name: descriptor.name, Width: width, Height: height, Source: bitmap}
-							r.projectConversations()
 						}
 					})
 				})

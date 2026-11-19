@@ -14,8 +14,8 @@ import (
 )
 
 // A presentation belongs to one view model and one observed source copy.
-// Turns keep their UI enrichment between frames; controls, images,
-// publications and outgoing input are still refreshed by the ordinary pipeline.
+// Turns retain their publication metadata between frames. Visible image rows,
+// controls and outgoing input still update independently.
 type conversationPresentation struct {
 	generation uint64
 	language   string
