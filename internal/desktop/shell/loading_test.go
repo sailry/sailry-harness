@@ -172,6 +172,8 @@ func testLoadingMarks(t *testing.T) {
 				for k := range b.Calls {
 					if call := &b.Calls[k]; call.Pending {
 						call.Label, call.Detail, call.Code = shown[0].label, shown[0].detail, true
+						// Measured as rows of their own, not folded into their run's group.
+						call.Standalone = true
 						pending++
 					}
 				}

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -59,8 +60,10 @@ func textCount(tt *ui.Tester, text string) int {
 	return n
 }
 
-// A group initially hides the individual headers. Opening it reveals the
-// original call order and each row still opens straight onto its own result.
+// A group initially hides the individual headers, whatever their calls'
+// states: a running call and a failure fold with the settled ones, and the
+// header names the tools the run used. Opening it reveals the original call
+// order and each row still opens straight onto its own result.
 func TestConsecutiveToolRowsFold(t *testing.T) {
 	calls := []Call{
 		{ID: "r1", Name: "read", Label: "Read file", Icon: "file-text", Detail: "a.go", Code: true, Output: &Output{Text: "out a"}},
@@ -70,8 +73,9 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 		runningCall("r4", "read", "current.go", false),
 		{ID: "err", Name: "command", Label: "Command", Code: true, Failed: true, Error: "Command failed"},
 	}
-	details := []string{"a.go", "b.go", "c.go", "d.go"}
+	details := []string{"a.go", "b.go", "c.go", "d.go", "current.go"}
 	label := i18n.In("en", "meter_tool_calls")
+	const kinds = "Read file ×3 · Search · read · Command"
 	for _, size := range []uint8{12, 14, 18} {
 		for _, width := range []int{480, 900} {
 			t.Run(fmt.Sprintf("size_%d_width_%d", size, width), func(t *testing.T) {
@@ -93,10 +97,10 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 				tt.Frame()
 				groups := rowButtons(tt, label)
-				if len(groups) != 1 || groups[0].Expanded || !tt.HasText("current.go") || !tt.HasText("Command") {
-					t.Fatalf("settled calls should be grouped while the active and failed calls are visible: %q", tt.Texts())
+				if len(groups) != 1 || groups[0].Expanded || textCount(tt, kinds) != 1 || textCount(tt, "Command") != 0 || tt.HasText("Command failed") {
+					t.Fatalf("every call of the run, active and failed ones included, should fold into one group: %q", tt.Texts())
 				}
-				if tt.HasText("4") {
+				if tt.HasText("6") {
 					t.Fatalf("the folded group shows its call count: %q", tt.Texts())
 				}
 				for _, detail := range details {
@@ -123,8 +127,13 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 					}
 					rows = append(rows, r)
 				}
+				// The failure is the run's last row, in its place after the running call.
+				if failure, ok := tt.Find("Command"); !ok || failure.Y <= rows[len(rows)-1].Y {
+					t.Fatalf("the failed call is not the last row of the open group: %q", tt.Texts())
+				}
+				// The calls with a result open; the running one has none yet.
 				buttons := append(rowButtons(tt, "Read file"), rowButtons(tt, "Search")...)
-				if len(buttons) != len(details) {
+				if len(buttons) != len(details)-1 {
 					t.Fatalf("%d tool row buttons, want one per grouped call: %+v", len(buttons), buttons)
 				}
 				for _, b := range buttons {
@@ -170,6 +179,14 @@ func TestToolRowPathList(t *testing.T) {
 		s.tools(c, calls, true)
 	}, 900, 600)
 	tt.SetLocale("en")
+	tt.Frame()
+	// The two calls fold together, the failure included, under one header.
+	if textCount(tt, "Find files") != 0 || tt.HasText("b/three.go") || textCount(tt, "Find files · Find more") != 1 {
+		t.Fatalf("the calls did not fold into one group: %q", tt.Texts())
+	}
+	if err := tt.Click(i18n.In("en", "meter_tool_calls")); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if tt.HasText("a/one.go") || tt.HasText("aggregate") {
 		t.Fatalf("closed rows show their paths: %q", tt.Texts())
@@ -319,4 +336,124 @@ func TestHistoryToolRowsStill(t *testing.T) {
 	turns := []Turn{{ID: "turn", User: "Inspect", Reply: Reply{Status: Completed, Blocks: []Block{{Kind: ToolsBlock, Calls: calls}, {Kind: TextBlock, Text: "Done"}}}}}
 	lit := sweeps(t, turns, []string{i18n.In("en", "turn_completed"), i18n.In("en", "meter_tool_calls")}, "a.go", "b.go")
 	expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": false})
+}
+
+// While a run streams, its calls start, settle and fail in one closed group
+// whose header stays where it first appeared; the task's progress card keeps
+// its place below it instead of splitting the run.
+func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
+	read := func(id, path string) Call {
+		return Call{ID: id, Name: "read_file", Label: "Read file", Icon: "file-text", Detail: path, Code: true, Output: &Output{Text: "out " + path}}
+	}
+	progress := Block{Kind: ProgressBlock, Steps: []Step{{Text: "Inspect", State: StepInProgress}, {Text: "Report"}}}
+	a, b, c := read("a", "a.go"), read("b", "b.go"), read("c", "c.go")
+	d := Call{ID: "d", Name: "command", Label: "Command", Detail: "make", Code: true}
+	running := func(call Call) Call { call.Running, call.Output = true, nil; return call }
+	awaiting := func(call Call) Call { call.AwaitingModel = true; return call }
+	failed := func(call Call) Call { call.Failed, call.Error = true, "exit 2"; return call }
+	steps := [][]Block{
+		callBlocks(a, running(b)),
+		append(callBlocks(a, awaiting(b)), progress),
+		append(append(callBlocks(a, b), progress), callBlocks(running(c))...),
+		append(append(callBlocks(a, b), progress), callBlocks(awaiting(c), failed(d))...),
+	}
+	label, plan := i18n.In("en", "meter_tool_calls"), i18n.In("en", "task_progress")
+	s := New()
+	turns := sweepTurn(ExecutingTool, steps[0]...)
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Background(theme.Of(c).Background).Children(func() { View(c, s, "session", turns, nil, still{}) })
+	}, 900, 700)
+	tt.SetLocale("en")
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	var header, card ui.Rect
+	for i, blocks := range steps {
+		turns[0].Reply.Blocks = blocks
+		tt.Frame()
+		groups := rowButtons(tt, label)
+		if len(groups) != 1 || groups[0].Expanded {
+			t.Fatalf("step %d: want one closed group, got %+v: %q", i, groups, tt.Texts())
+		}
+		for _, path := range []string{"a.go", "b.go", "c.go", "make"} {
+			if tt.HasText(path) {
+				t.Fatalf("step %d: %q shows outside the closed group: %q", i, path, tt.Texts())
+			}
+		}
+		if i == 0 {
+			header = groups[0].Bounds
+			continue
+		}
+		// Its width follows the summary of the tools it names.
+		if g := groups[0].Bounds; g.X != header.X || g.Y != header.Y || g.H != header.H {
+			t.Fatalf("step %d: the group moved from %v to %v", i, header, g)
+		}
+		r, ok := tt.Find(plan)
+		if !ok || r.Y <= header.Y {
+			t.Fatalf("step %d: the progress card is not below the group: %q", i, tt.Texts())
+		}
+		if card.H == 0 {
+			card = r
+		} else if r != card {
+			t.Fatalf("step %d: the progress card moved from %v to %v", i, card, r)
+		}
+	}
+	if !tt.HasText("Read file ×3 · Command") {
+		t.Fatalf("the header does not name the run's tools: %q", tt.Texts())
+	}
+	flatRowsShot(t, tt, "streaming-closed")
+	if err := tt.Click(label); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	var last float32
+	for _, path := range []string{"a.go", "b.go", "c.go", "make"} {
+		r, ok := tt.Find(path)
+		if !ok || r.Y <= last {
+			t.Fatalf("%q is missing or out of order in the open group: %q", path, tt.Texts())
+		}
+		last = r.Y
+	}
+	flatRowsShot(t, tt, "streaming-open")
+}
+
+// A call joining an open group comes in below the others, growing from
+// nothing; while the system asks for less motion it is whole at once.
+func TestToolJoiningOpenGroupEnters(t *testing.T) {
+	for _, reduce := range []bool{false, true} {
+		calls := []Call{
+			{ID: "a", Name: "read", Label: "Read file", Detail: "a.go", Code: true},
+			{ID: "b", Name: "read", Label: "Read file", Detail: "b.go", Code: true},
+		}
+		s := New()
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			s.tools(c, calls, true)
+		}, 600, 400)
+		tt.SetLocale("en")
+		tt.SetPreferences(ui.Preferences{ReduceMotion: reduce})
+		tt.Frame()
+		if err := tt.Click(i18n.In("en", "meter_tool_calls")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		before, _ := tt.Find("b.go")
+		calls = append(calls, Call{ID: "c", Name: "grep", Label: "Search", Detail: "c.go", Code: true, Running: true})
+		tt.Frame()
+		tt.Advance(30 * time.Millisecond)
+		tt.Frame()
+		// Find reports the row's text as its clip shows it.
+		mid, _ := tt.Find("c.go")
+		if b, _ := tt.Find("b.go"); b != before {
+			t.Fatalf("reduce %v: an earlier row moved from %v to %v", reduce, before, b)
+		}
+		tt.Advance(time.Second)
+		tt.Frame()
+		end, ok := tt.Find("c.go")
+		if !ok || end.Y <= before.Y || end.H != before.H {
+			t.Fatalf("reduce %v: the new call is not a whole row below the others at %v: %q", reduce, end, tt.Texts())
+		}
+		if growing := mid.H < end.H; growing == reduce {
+			t.Fatalf("reduce %v: the new row was %v high during the entry and %v after it", reduce, mid.H, end.H)
+		}
+	}
 }

@@ -8,24 +8,23 @@ import "strings"
 // groupable reports a call that joins the calls around it into one block.
 func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 
-// foldableTool leaves active calls, interactions, and diagnostics visible.
-func foldableTool(c Call) bool {
-	return groupable(c) && !c.Running && !c.AwaitingModel && !c.Pending &&
-		!c.Failed && !c.Warning && c.State == StateNone && c.Error == "" &&
-		c.Background == nil && c.BackgroundDetail == nil &&
-		(c.Output == nil || c.Output.Failure == "")
-}
-
 // Compact prepares a reply's blocks for display: blank text goes, calls
 // that never group get blocks of their own, and adjacent tool blocks, and
-// adjacent children blocks, join. Failures stay at the end of the answer,
-// outside the work region even when later work or children were projected.
+// adjacent children blocks, join. The task's progress card keeps its place
+// without splitting the run of calls around it: later calls join the block
+// before it, so a growing run never adds a second block below the card.
+// Failures stay at the end of the answer, outside the work region even when
+// later work or children were projected.
 func Compact(blocks []Block) []Block {
 	var out []Block
 	var failures []Block
 	joinFrom := 0
 	pushCall := func(c Call) {
-		if n := len(out); n > joinFrom {
+		n := len(out)
+		for n > joinFrom && out[n-1].Kind == ProgressBlock {
+			n--
+		}
+		if n > joinFrom {
 			last := &out[n-1]
 			if last.Kind == ToolsBlock && groupable(c) && groupable(last.Calls[len(last.Calls)-1]) {
 				last.Calls = append(last.Calls, c)

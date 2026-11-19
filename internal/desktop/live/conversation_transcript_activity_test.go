@@ -243,7 +243,8 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	entry("tools", "assistant", transcriptTool("r", "read_fixture"), transcriptTool("s", "search_fixture"))
 	entry("results", "tool", transcriptResult("s", "search_fixture"), transcriptResult("r", "read_fixture"))
 	show()
-	order(count(10, 10), text.Data.(string), "search_fixture", thinking)
+	// The returned batch folds into one group whose header names its tools.
+	order(count(10, 10), text.Data.(string), "read_fixture · search_fixture", thinking)
 	transcriptActivityShot(t, tester, "transcript-child-batch-idle")
 	second := batch("reuse", 2, 12)
 	entry("after", "assistant", transcriptTool("last", "check_fixture"))
@@ -253,7 +254,7 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	show()
 	toolGroup := i18n.In("zh-CN", "meter_tool_calls")
 	order(count(10, 10), text.Data.(string), toolGroup, count(1, 2), "check_fixture", thinking)
-	if tester.HasText("search_fixture") {
+	if _, shown := tester.Find("search_fixture"); shown {
 		t.Fatal("settled tools did not collapse into their group")
 	}
 	if err := tester.Click(toolGroup); err != nil {

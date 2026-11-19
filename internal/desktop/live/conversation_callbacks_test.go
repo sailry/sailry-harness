@@ -278,6 +278,8 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 	}
 	show()
 	click(i18n.In("en", "turn_completed"))
+	// The command and the call after it fold into one group.
+	click(commandLabel + " · " + nextLabel)
 	click(nextLabel)
 	click(commandLabel)
 	if !tester.HasText(commandInput) || !tester.HasText(commandReceipt) || !tester.HasText(i18n.In("en", "background_running")) || !tester.HasText("log.txt") {

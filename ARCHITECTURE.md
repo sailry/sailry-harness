@@ -899,8 +899,11 @@ on demand when the captured result was truncated.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
 cancels outstanding reads when it closes or leaves the virtualized list.
-Consecutive settled tool calls share a folded group, with active calls and
-failures visible in their own rows. A failed call displays its error message
+Consecutive tool calls share one folded group until text, a subagent, an
+interaction or a standalone call breaks the run; the task's progress card keeps
+its place without splitting it. Calls keep their rows as they start, settle or
+fail, and the closed group's header names the tools and carries the run's
+activity and most severe outcome. A failed call displays its error message
 when one is available and falls back to its original result. Visible
 conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane

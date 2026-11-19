@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -279,8 +280,8 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 	ui.Column(c).Gap(railGap).Children(func() {
 		for first := 0; first < len(calls); {
 			end := first + 1
-			if foldableTool(calls[first]) {
-				for end < len(calls) && foldableTool(calls[end]) {
+			if groupable(calls[first]) {
+				for end < len(calls) && groupable(calls[end]) {
 					end++
 				}
 			}
@@ -294,16 +295,75 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 	})
 }
 
+// toolRowEnter brings a call that joins an open group in below the rows
+// already there. MyGo shows it in place while the system asks for less motion.
+// Only the entry moves: selecting Colors alone keeps later layout changes,
+// as a row above opening, instant like the disclosures themselves.
+var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: kit.EaseOut, Colors: true, Enter: &ui.Motion{Collapse: true}}
+
 // A group discloses call headers. Individual rows still own their outputs.
+// Every call of a run joins it whatever its state, so a call that starts,
+// settles or fails stays in its place; the closed group's header carries the
+// run's activity and its most severe outcome. The group is keyed by its first
+// call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
-	head := Call{LabelKey: "meter_tool_calls"}
+	head := groupHead(c, calls)
 	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func() {
 		for _, call := range calls {
-			s.row(c, call)
+			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call) })
 		}
 	})
+}
+
+// groupHead is a group's header: the tools it ran, each with its count, and
+// the state a closed group must not hide. An approval request outranks
+// activity, which outranks a failure, which outranks a warning.
+func groupHead(c *ui.Context, calls []Call) Call {
+	head := Call{LabelKey: "meter_tool_calls"}
+	var labels []string
+	counts := map[string]int{}
+	var running, awaiting, pending, failed bool
+	warning := -1
+	for i, call := range calls {
+		label := call.Label
+		if label == "" && call.LabelKey != "" {
+			label = i18n.T(c, call.LabelKey)
+		}
+		label = cmp.Or(label, call.Name)
+		if counts[label] == 0 {
+			labels = append(labels, label)
+		}
+		counts[label]++
+		running = running || call.Running
+		awaiting = awaiting || awaitingModel(call)
+		pending = pending || call.Pending
+		failed = failed || call.Failed
+		if warning < 0 && flagged(call) {
+			warning = i
+		}
+	}
+	for i, label := range labels {
+		if n := counts[label]; n > 1 {
+			labels[i] = i18n.T(c, "tool_group_repeat", "label", label, "count", n)
+		}
+	}
+	head.Detail = strings.Join(labels, " · ")
+	switch {
+	case pending:
+		head.Pending = true
+	case running:
+		head.Running = true
+	case awaiting:
+		head.AwaitingModel = true
+	case failed:
+		head.Failed = true
+	case warning >= 0:
+		// A background command that ended badly has no row state of its own.
+		head.Warning, head.State = true, cmp.Or(calls[warning].State, StateInterrupted)
+	}
+	return head
 }
 
 // row is one call: its body is its output.

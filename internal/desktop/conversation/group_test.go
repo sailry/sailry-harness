@@ -312,6 +312,29 @@ func testCompact(t *testing.T) {
 	if len(got[0].Calls) != 3 || len(got[1].Calls) != 1 || len(got[4].Children) != 2 {
 		t.Errorf("not joined: %d calls, %d terminal, %d children", len(got[0].Calls), len(got[1].Calls), len(got[4].Children))
 	}
+	// The progress card keeps its place without splitting the run around
+	// it; a card before any call, text and children still bound runs.
+	progress := Block{Kind: ProgressBlock, Steps: []Step{{Text: "Inspect"}}}
+	got = Compact([]Block{
+		progress,
+		{Kind: ToolsBlock, Calls: named("read", 1)},
+		progress,
+		{Kind: ToolsBlock, Calls: named("grep", 2)},
+		{Kind: ChildrenBlock, Children: []Child{{ID: "a"}}},
+		{Kind: ToolsBlock, Calls: named("edit", 1)},
+	})
+	kinds = []BlockKind{ProgressBlock, ToolsBlock, ProgressBlock, ChildrenBlock, ToolsBlock}
+	if len(got) != len(kinds) {
+		t.Fatalf("%d blocks around progress: %+v", len(got), got)
+	}
+	for i, k := range kinds {
+		if got[i].Kind != k {
+			t.Errorf("around progress, block %d is %d, want %d", i, got[i].Kind, k)
+		}
+	}
+	if len(got[1].Calls) != 3 || len(got[4].Calls) != 1 {
+		t.Errorf("progress split the run: %d calls before it, %d after the children", len(got[1].Calls), len(got[4].Calls))
+	}
 }
 
 // A row's color is its own call's state alone.

@@ -85,3 +85,22 @@ func TestLoadedToolLabelTracksLocaleWithoutMutatingSource(t *testing.T) {
 		t.Fatal("tool label localization mutated the captured text")
 	}
 }
+
+// An empty captured title or resolved label does not blank a row: it keeps
+// the tool's name, or a built-in tool's own label.
+func TestEmptyToolLabelsKeepTheirFallback(t *testing.T) {
+	empty, blank := "", " "
+	for _, row := range []struct {
+		name, label, key string
+		summary          *protocol.ToolDetailSummary
+	}{
+		{"code_review_scope", "code_review_scope", "", &protocol.ToolDetailSummary{Title: &empty}},
+		{"code_review_scope", "code_review_scope", "", &protocol.ToolDetailSummary{Resolved: &protocol.ToolDetailResolved{Label: &protocol.ToolResultLocalText{Label: blank}}}},
+		{"load_skill", "", "tool_load_skill", &protocol.ToolDetailSummary{Title: &empty}},
+	} {
+		call := projectCall(row.name, row.summary, "en")
+		if call.Label != row.label || call.LabelKey != row.key {
+			t.Errorf("%s: label %q key %q, want %q %q", row.name, call.Label, call.LabelKey, row.label, row.key)
+		}
+	}
+}

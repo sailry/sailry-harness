@@ -110,12 +110,15 @@ func TestRunningToolRowsSweep(t *testing.T) {
 		expectSweeps(t, sweeps(t, sweepTurn(ExecutingTool, blocks...), nil, "a.go", "b.go", "c.go"), map[string]bool{"a.go": true, "b.go": true, "c.go": true})
 	})
 	t.Run("concurrent block", func(t *testing.T) {
-		// One block of calls of one name and of another, nothing opened:
-		// every row is its own, the running ones sweep.
+		// One block of calls of one name and of another folds into one
+		// group whose closed header sweeps; opened, every row is its own and
+		// the running ones sweep.
 		calls := []Call{runningCall("a", "read", "a.go", false), runningCall("b", "read", "b.go", false), runningCall("c", "read", "c.go", false), runningCall("d", "grep", "d.go", false)}
 		calls[1].Running = false
 		turns := sweepTurn(ExecutingTool, Block{Kind: ToolsBlock, Calls: calls})
-		lit := sweeps(t, turns, nil, "a.go", "b.go", "c.go", "d.go")
+		group, kinds := i18n.In("en", "meter_tool_calls"), "read ×3 · grep"
+		expectSweeps(t, sweeps(t, turns, nil, group, kinds), map[string]bool{group: true, kinds: true})
+		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go", "d.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": true, "b.go": false, "c.go": true, "d.go": true})
 	})
 	t.Run("with progress", func(t *testing.T) {
@@ -141,7 +144,10 @@ func TestAwaitingModelRowsSweep(t *testing.T) {
 	})
 	t.Run("batch block", func(t *testing.T) {
 		calls := []Call{settledCall("a", "read", "a.go", false, false), settledCall("b", "read", "b.go", false, true), settledCall("c", "grep", "c.go", false, true)}
-		lit := sweeps(t, sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls}), nil, "a.go", "b.go", "c.go")
+		turns := sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls})
+		group := i18n.In("en", "meter_tool_calls")
+		expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: true})
+		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": true, "c.go": true})
 	})
 	t.Run("with progress", func(t *testing.T) {
@@ -168,6 +174,7 @@ func TestAwaitingModelRowsSweep(t *testing.T) {
 
 // A block's calls keep their own guards: a background job, an approval
 // and a denial stay still among calls that sweep while the model is awaited.
+// The closed group's header takes the approval's color and stays still.
 func TestAwaitingModelBlockGuards(t *testing.T) {
 	background := settledCall("bg", "read", "bg.go", false, true)
 	background.Background = &Background{Outcome: OutcomeCompleted}
@@ -176,6 +183,37 @@ func TestAwaitingModelBlockGuards(t *testing.T) {
 	denied := settledCall("d", "grep", "d.go", false, true)
 	denied.Warning, denied.State = true, Denied
 	calls := []Call{settledCall("a", "read", "a.go", false, true), background, pending, denied}
-	lit := sweeps(t, sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls}), nil, "a.go", "bg.go", "p.go", "d.go")
+	turns := sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls})
+	group := i18n.In("en", "meter_tool_calls")
+	expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: false})
+	lit := sweeps(t, turns, []string{group}, "a.go", "bg.go", "p.go", "d.go")
 	expectSweeps(t, lit, map[string]bool{"a.go": true, "bg.go": false, "p.go": false, "d.go": false})
+}
+
+// A closed group's header carries the state its rows would show: an
+// approval outranks activity, activity a failure, a failure a warning.
+func TestToolGroupHeadState(t *testing.T) {
+	read := Call{ID: "r", Name: "read", Label: "Read file"}
+	for _, row := range []struct {
+		name  string
+		calls []Call
+		check func(Call) bool
+	}{
+		{"settled", []Call{read, read}, func(h Call) bool { return !h.Running && !h.Failed && !h.Pending && !flagged(h) }},
+		{"running", []Call{read, {Label: "Search", Running: true}, {Label: "Command", Failed: true}}, func(h Call) bool { return h.Running && !h.Failed }},
+		{"pending", []Call{{Label: "Command", Pending: true, State: Pending}, {Label: "Search", Running: true}}, func(h Call) bool { return h.Pending && !h.Running }},
+		{"failed", []Call{read, {Label: "Command", Failed: true}, {Label: "Edit", Warning: true, State: Denied}}, func(h Call) bool { return h.Failed }},
+		{"background failure", []Call{read, {Label: "Command", Background: &Background{Outcome: OutcomeFailed}}}, func(h Call) bool { return flagged(h) && !h.Failed }},
+		{"tool error", []Call{read, {Label: "Command", Warning: true}}, func(h Call) bool { return !flagged(h) && !h.Failed }},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			var head Call
+			tt := ui.NewTester(func(c *ui.Context) { head = groupHead(c, row.calls) }, 100, 100)
+			tt.SetLocale("en")
+			tt.Frame()
+			if !row.check(head) || head.LabelKey != "meter_tool_calls" || head.Detail == "" {
+				t.Fatalf("header %+v for %+v", head, row.calls)
+			}
+		})
+	}
 }

@@ -1191,7 +1191,8 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	if summary == nil {
 		return call
 	}
-	if summary.Title != nil {
+	// An empty title or label keeps the name or built-in label before it.
+	if summary.Title != nil && strings.TrimSpace(*summary.Title) != "" {
 		call.Label = *summary.Title
 	}
 	if summary.Path != nil {
@@ -1213,7 +1214,9 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	}
 	if resolved := summary.Resolved; resolved != nil {
 		if resolved.Label != nil {
-			call.Label = toolLocalText(*resolved.Label, language)
+			if label := toolLocalText(*resolved.Label, language); strings.TrimSpace(label) != "" {
+				call.Label = label
+			}
 		}
 		if resolved.Input.Summary != nil {
 			call.Detail = resolved.Input.Summary.Text
