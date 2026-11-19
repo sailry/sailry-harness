@@ -117,6 +117,7 @@ func (value *ToolDetailSummary) DecodeJSON(decoder *Decoder) error {
 	*value = ToolDetailSummary(decoded)
 	return nil
 }
+
 type ToolDetailDelegation struct {
 	Session    *SessionID  `json:"session,omitempty"`
 	Worktree   *WorktreeID `json:"worktree,omitempty"`

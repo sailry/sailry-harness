@@ -3,6 +3,30 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.3](https://github.com/sailry/sailry-harness/releases/tag/v0.2.3) — 2026-11-19
+
+- Reduce memory and CPU use in long conversations through paged history,
+  visibility-scoped tool results and images, and reused transcript projections.
+  Release detached histories, subscriptions and completed index batches.
+- Cancel foreground work and child agents promptly, preserve durable stop
+  receipts, and recover uncertain operations through their original requests.
+- Route collaborative work by team responsibilities. Add six role presets with
+  model guidance, refresh Code Review rules, and strengthen coding instructions.
+- Add host-specific custom instructions to conversation settings. Refresh
+  knowledge collection progress reliably after indexing and host switches.
+- Restore tool execution sweeps, keep thinking indicators aligned with visible
+  activity, reveal requested detail panes, and confirm application quits.
+  Keep toast notifications informational.
+- Measure token throughput from the first model output and show per-step
+  throughput, time to first token and connection timing in conversation details.
+- Refresh model features without losing configured choices. Correct keyless
+  plugin channel status and grouping, refresh channel presets after package
+  changes, and support Antigravity xhigh model variants.
+- Recover Desktop and Mobile drafts, terminal operations and history actions
+  without repeating writes, and retain host-scoped state across reconnects.
+
+Desktop, Host and Mobile continue to use Link protocol 2.
+
 ## [0.2.1](https://github.com/sailry/sailry-harness/releases/tag/v0.2.1) — 2026-11-18
 
 - Refresh available ChatGPT OAuth models and resolve sign-in status from the
