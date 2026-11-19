@@ -94,12 +94,13 @@ func AnswerFrom(blocks []Block) int {
 // Runs splits calls into runs of the same name, as tool_groups does.
 func Runs(calls []Call) [][]Call {
 	var out [][]Call
-	for i, c := range calls {
-		if i > 0 && calls[i-1].Name == c.Name {
-			out[len(out)-1] = append(out[len(out)-1], c)
-			continue
+	for len(calls) > 0 {
+		end := 1
+		for end < len(calls) && calls[end].Name == calls[0].Name {
+			end++
 		}
-		out = append(out, []Call{c})
+		out = append(out, calls[:end:end])
+		calls = calls[end:]
 	}
 	return out
 }
@@ -107,7 +108,12 @@ func Runs(calls []Call) [][]Call {
 // Sequence reports calls that go under one outer disclosure: more than one,
 // not all of the same name.
 func Sequence(calls []Call) bool {
-	return len(calls) > 1 && len(Runs(calls)) > 1
+	for i := 1; i < len(calls); i++ {
+		if calls[i].Name != calls[0].Name {
+			return true
+		}
+	}
+	return false
 }
 
 // pathList reports a call whose body lists the paths it touched: two or

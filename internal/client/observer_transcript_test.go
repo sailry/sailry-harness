@@ -42,3 +42,20 @@ func TestTranscriptRetriesUseModelRequestIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestObserverToolDetailContentPaths(t *testing.T) {
+	for _, root := range []string{`{"sailry_content":[],"a/b":["first","second"]}`, `{"structuredContent":{"sailry_content":[],"a/b":["first","second"]}}`, `{"output":{"a/b":["first","second"]}}`} {
+		result := json.RawMessage(root)
+		detail := protocol.DefaultToolDetail()
+		detail.Result = &result
+		detail.Content = &protocol.ToolContent{}
+		for _, path := range []string{"/a~1b/1", "/a~1b/0", "/missing"} {
+			detail.Content.Blocks = append(detail.Content.Blocks, protocol.ToolContentBlock{Kind: "text", Data: protocol.ToolContentText{Path: path}})
+		}
+		packet := toolDetailPacket(detail, ToolCall{})
+		texts := packet["texts"].([]any)
+		if len(texts) != 3 || texts[0].(*string) == nil || *texts[0].(*string) != "second" || texts[1].(*string) == nil || *texts[1].(*string) != "first" || texts[2].(*string) != nil {
+			t.Fatalf("unexpected content paths for %s: %v", root, texts)
+		}
+	}
+}

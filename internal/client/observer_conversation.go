@@ -90,8 +90,11 @@ func (owner *conversationObserver) control(_ context.Context, method string, arg
 		for _, reference := range selected.Items {
 			owner.selected[reference] = true
 		}
-		state, _ := owner.client.Conversation(owner.session)
-		calls := ToolCalls(state.Snapshot.Page)
+		var calls []ToolCall
+		if len(selected.Items) > 0 {
+			state, _ := owner.client.Conversation(owner.session)
+			calls = ToolCalls(state.Snapshot.Page)
+		}
 		for _, call := range calls {
 			for _, retry := range selected.Retry {
 				if call.Source == retry && call.Reference != nil {
@@ -210,7 +213,7 @@ func (owner *conversationObserver) view() (any, error) {
 		display := projectToolCall(snapshot.Page, call)
 		if call.Reference != nil {
 			key := detailKey(*call.Reference)
-			if detail, ok := owner.client.ConversationDetail(*call.Reference); ok {
+			if detail, ok := owner.client.cachedConversationDetail(key, *call.Reference); ok {
 				ready[key] = true
 				display["detail_state"] = map[string]any{"kind": "ready"}
 				if !owner.sent[key] {
@@ -277,7 +280,7 @@ func (owner *conversationObserver) syncDetails(calls []ToolCall) {
 		}
 	}
 	for key, reference := range wanted {
-		if _, loaded := owner.client.ConversationDetail(reference); loaded {
+		if _, loaded := owner.client.cachedConversationDetail(key, reference); loaded {
 			continue
 		}
 		if _, pending := owner.reads[key]; pending || owner.failures[key] != nil {

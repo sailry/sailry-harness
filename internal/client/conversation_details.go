@@ -32,13 +32,23 @@ type conversationDetailRead struct {
 func detailKey(ref protocol.ToolDetailReference) string { b, _ := json.Marshal(ref); return string(b) }
 
 func (c *Client) ConversationDetail(ref protocol.ToolDetailReference) (protocol.ToolDetail, bool) {
+	value, ok := c.cachedConversationDetail(detailKey(ref), ref)
+	if !ok {
+		return value, false
+	}
+	return copyValue(value), true
+}
+
+// Cached details are immutable. Internal observers may project this value
+// directly; exported methods detach it before handing it to the caller.
+func (c *Client) cachedConversationDetail(key string, ref protocol.ToolDetailReference) (protocol.ToolDetail, bool) {
 	c.conversationMu.Lock()
 	defer c.conversationMu.Unlock()
-	v, ok := c.conversationDetails[detailKey(ref)]
+	v, ok := c.conversationDetails[key]
 	if !ok || !c.currentConversationDetail(ref) {
 		return protocol.ToolDetail{}, false
 	}
-	return copyValue(v.value), true
+	return v.value, true
 }
 
 // ReadConversationDetail validates bounded pages against the captured revision.

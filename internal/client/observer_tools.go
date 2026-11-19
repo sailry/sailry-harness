@@ -349,8 +349,21 @@ func toolDetailPacket(detail protocol.ToolDetail, call ToolCall) map[string]any 
 	if resolved != nil {
 		output = resolved.Output
 	}
-	if output == nil && detail.Result != nil {
-		if text := literalToolResult(*detail.Result); text != nil {
+	var result any
+	resultDecoded := false
+	decodeResult := func() any {
+		if !resultDecoded {
+			decoder := json.NewDecoder(bytes.NewReader(*detail.Result))
+			decoder.UseNumber()
+			if decoder.Decode(&result) != nil {
+				result = nil
+			}
+			resultDecoded = true
+		}
+		return result
+	}
+	if output == nil && detail.Result != nil && !bytes.HasPrefix(bytes.TrimSpace(*detail.Result), []byte("{")) {
+		if text := literalToolResult(decodeResult()); text != nil {
 			value := protocol.DefaultToolDetailOutput()
 			value.Preview = *text
 			output = &value
@@ -365,7 +378,7 @@ func toolDetailPacket(detail protocol.ToolDetail, call ToolCall) map[string]any 
 			var text *string
 			if block.Kind == "text" && detail.Result != nil {
 				if value, err := payload[protocol.ToolContentText](block.Data); err == nil {
-					text = toolContentText(*detail.Result, value.Path)
+					text = toolContentText(decodeResult(), value.Path)
 				}
 			}
 			texts = append(texts, text)
@@ -376,13 +389,7 @@ func toolDetailPacket(detail protocol.ToolDetail, call ToolCall) map[string]any 
 	}
 }
 
-func literalToolResult(data json.RawMessage) *string {
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if decoder.Decode(&value) != nil {
-		return nil
-	}
+func literalToolResult(value any) *string {
 	var text string
 	switch value := value.(type) {
 	case string:
@@ -408,13 +415,7 @@ func literalToolResult(data json.RawMessage) *string {
 	return &text
 }
 
-func toolContentText(data json.RawMessage, path string) *string {
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if decoder.Decode(&value) != nil {
-		return nil
-	}
+func toolContentText(value any, path string) *string {
 	if object, ok := value.(map[string]any); ok {
 		if _, found := object["sailry_content"]; !found {
 			if structured, ok := object["structuredContent"].(map[string]any); ok && structured["sailry_content"] != nil {

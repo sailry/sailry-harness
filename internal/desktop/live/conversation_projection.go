@@ -302,16 +302,20 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			continue
 		}
 		textOffset := 0
-		for _, block := range t.Reply.Blocks {
-			if block.Kind == conversation.TextBlock {
-				textOffset += utf8.RuneCountInString(block.Text)
+		if len(entry.Citations) > 0 {
+			for _, block := range t.Reply.Blocks {
+				if block.Kind == conversation.TextBlock {
+					textOffset += utf8.RuneCountInString(block.Text)
+				}
 			}
 		}
 		var entryText strings.Builder
-		for _, part := range entry.Parts {
-			if part.Kind == "text" {
-				if value, ok := detail[string](part.Data); ok {
-					entryText.WriteString(value)
+		if entry.SearchSuggestions != nil || len(entry.Citations) > 0 {
+			for _, part := range entry.Parts {
+				if part.Kind == "text" {
+					if value, ok := detail[string](part.Data); ok {
+						entryText.WriteString(value)
+					}
 				}
 			}
 		}
@@ -780,12 +784,11 @@ func toolCallKey(entry string, index uint64) string {
 func toolPendingKey(turn protocol.TurnID, branch, id string) string {
 	return turn.String() + "\x00" + branch + "\x00" + id
 }
-func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
-	for bi := range reply.Blocks {
-		for ci := range reply.Blocks[bi].Calls {
-			if reply.Blocks[bi].Calls[ci].ID == id {
-				return &reply.Blocks[bi].Calls[ci]
-			}
+func (association toolAssociation) projectedCall(reply *conversation.Reply) *conversation.Call {
+	if association.Block < len(reply.Blocks) {
+		calls := reply.Blocks[association.Block].Calls
+		if len(calls) == 1 && calls[0].ID == association.ID {
+			return &calls[0]
 		}
 	}
 	return nil
@@ -888,7 +891,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 							block.Calls = []conversation.Call{{ID: id, Standalone: standalone}}
 							call = &block.Calls[0]
 						} else {
-							call = projectedCall(reply, id)
+							call = matches[0].projectedCall(reply)
 						}
 					}
 				}
@@ -931,7 +934,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						if reply.Status == conversation.Running {
 							matches[0].Executing = reply
 						}
-						if call := projectedCall(reply, matches[0].ID); call != nil {
+						if call := matches[0].projectedCall(reply); call != nil {
 							call.Running = reply.Status.Active() && reply.Status != conversation.Unsynced
 							call.State = conversation.StateNone
 							call.Warning = false
