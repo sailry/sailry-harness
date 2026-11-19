@@ -37,7 +37,7 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 		}
 	}
 	last := promptText(m.calls[len(m.calls)-1])
-	for _, section := range []string{"Active work mode: Flagship", "Omit role to create children using this turn's model.", "Session environment"} {
+	for _, section := range []string{"Active work mode: Flagship", "Follow the team instructions and choose the exact key of the role whose responsibilities fit.", "Session environment"} {
 		if count := strings.Count(last, section); count != 1 {
 			t.Errorf("stable section %q occurs %d times, want 1", section, count)
 		}

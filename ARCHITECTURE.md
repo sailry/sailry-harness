@@ -543,8 +543,10 @@ coordination under the same permission model. Package modes map to a core mode
 without escalating access.
 `spawn_agent`, `guide_agent` and `wait_agent` use the same execution and history
 path. Collaborate can delegate with a single selected model. A child without
-a role inherits that model and its captured scope and permission. Team selection
-supplies named roles and optional model overrides. Read-only roles use Plan.
+a role inherits that model and its captured scope and permission when team instructions
+allow roleless delegation. Code Review requires a tool-capable captured role for
+new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
+selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
 
 `list_subagents` reads a bounded page of direct child sessions from durable

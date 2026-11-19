@@ -1006,3 +1006,16 @@ func TestChildWorkspacePreflight(t *testing.T) {
 		}
 	})
 }
+
+func TestTeamRosterDescribesRolesAndAllowsGenericSpawn(t *testing.T) {
+	f, x := delegationFixture(t)
+	call := saveDelegationCall(t, f, x, "team-child", false)
+	x.inv.Turn.Roles.Profiles = []protocol.RoleProfile{{Key: "reviewer", Name: "Reviewer", ReadOnly: true, Description: "Review code"}}
+	roster := f.r.delegationRoster(x, store.AgentState{})
+	if !strings.Contains(roster, "reviewer (Reviewer) [read only]: Review code") {
+		t.Fatalf("unexpected team routing guidance: %s", roster)
+	}
+	if result := f.r.spawnChild(x, call, call.Arguments); result.Failure != nil {
+		t.Fatalf("roleless team spawn: %+v", result)
+	}
+}

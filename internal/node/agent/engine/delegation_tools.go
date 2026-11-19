@@ -181,7 +181,9 @@ func (r *Runtime) delegationRoster(x *execution, state store.AgentState) string 
 	}
 	text := "Omit role to create children using this turn's model."
 	if len(roster) > 0 {
-		text = "Configured delegation roles:\n" + strings.Join(roster, "\n") + "\n" + text
+		text = "Follow the team instructions and choose the exact key of the role whose responsibilities fit. Available roles:\n" + strings.Join(roster, "\n") + "\nIf the team instructions allow delegation without a role, omit role to use this turn's model."
+	} else if len(x.inv.Turn.Roles.Profiles) > 0 {
+		text = "The captured team has no available roles for new children. Follow the team instructions for work outside role responsibilities."
 	}
 	if list := findTool(x.tools, "list_subagents"); list != nil {
 		text += "\nBefore reusing earlier delegated work, inspect list_subagents for exact IDs and status. Only continue a child when the user is continuing the same unfinished task and prior calls, receipts or other reliable evidence match its original scope. A title alone is not evidence. Reuse matching completed results as recorded; if needed, collect the result with wait_agent using the exact session and turn. Do not reopen running, queued or stopping work. Never resume a cancelled or separately stopped child without an explicit request to resume that child. Require the same request if an interruption could have been a deliberate stop; a missing stop reason is not proof otherwise."
