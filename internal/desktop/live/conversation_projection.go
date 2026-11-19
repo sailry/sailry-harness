@@ -1209,6 +1209,11 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 		if call.Failed {
 			call.State = conversation.StateFailed
 		}
+	} else if summary.Failure != nil && summary.Failure.Code != nil && *summary.Failure.Code == protocol.ErrorCodeOutcomeUnknown {
+		// An interrupted call or an unrecorded completion is not a success.
+		// The row state says so; the body keeps only the tool's own content.
+		call.Warning = true
+		call.State = conversation.StateInterrupted
 	}
 	if summary.Icon != nil && summary.Icon.Kind == "Name" {
 		if name, ok := detail[string](summary.Icon.Data); ok {

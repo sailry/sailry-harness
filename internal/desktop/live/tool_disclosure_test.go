@@ -128,7 +128,6 @@ func TestNeutralToolOutcomesDoNotBecomeFailures(t *testing.T) {
 		expected *protocol.ToolResultExpected
 	}{
 		{code: protocol.ErrorCodeCancelled},
-		{code: protocol.ErrorCodeOutcomeUnknown},
 		{code: protocol.ErrorCodeNotFound, expected: new(protocol.ToolResultExpectedFileNotFound)},
 	} {
 		t.Run(string(sample.code), func(t *testing.T) {
@@ -145,5 +144,25 @@ func TestNeutralToolOutcomesDoNotBecomeFailures(t *testing.T) {
 				t.Fatalf("tool detail treated the outcome as a failure: %+v", call)
 			}
 		})
+	}
+}
+
+func TestUnknownToolOutcomeMarksRowInterrupted(t *testing.T) {
+	code := protocol.ErrorCodeOutcomeUnknown
+	message := "Tool call was interrupted before completing"
+	summary := &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Code: &code, Origin: protocol.ToolFailureOriginRuntime},
+		Error: &message, HasDetails: true}
+	call := projectCall("run_command", summary, "en")
+	if call.Failed || !call.Warning || call.State != conversation.StateInterrupted || call.Error != "" || call.Output != nil {
+		t.Fatalf("interrupted call read as a success or a failure: %+v", call)
+	}
+	raw := json.RawMessage(`{"message":"partial tool output"}`)
+	ProjectToolDetail(&call, summary, protocol.ToolDetail{Result: &raw}, "en")
+	if call.Failed || !call.Warning || call.State != conversation.StateInterrupted || call.Error != "" {
+		t.Fatalf("tool detail lost the interrupted state: %+v", call)
+	}
+	// The body is the tool's own result, not a written failure line.
+	if call.Output == nil || call.Output.Failure != "" || call.Output.Text == "" {
+		t.Fatalf("interrupted detail replaced the tool result: %+v", call.Output)
 	}
 }

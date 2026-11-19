@@ -928,7 +928,9 @@ interaction or a standalone call breaks the run; the task's progress card keeps
 its place without splitting it. Calls keep their rows as they start, settle or
 fail, and the group's header shows the latest call as that call's own row
 would. A failed call displays its error message
-when one is available and falls back to its original result. Visible
+when one is available and falls back to its original result. A cancelled call
+is a plain row; a call whose outcome is unknown is marked interrupted and its
+body keeps only the tool's own result. Visible
 conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane
 previews release images after their last visible use. Installed themes validate
