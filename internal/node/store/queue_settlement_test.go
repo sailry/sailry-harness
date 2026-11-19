@@ -634,6 +634,33 @@ func TestBackgroundDelivery(t *testing.T) {
 	}
 }
 
+// TestDetachedGuidanceCaptureFaults keeps the recipient's settings only for a
+// configuration the session cannot run with; other faults fail the write.
+func TestDetachedGuidanceCaptureFaults(t *testing.T) {
+	t.Parallel()
+	for _, row := range []struct {
+		err  error
+		keep bool
+	}{
+		{protocol.NewConfigurationFault(protocol.ConfigurationProviderDisabled, "model provider is unavailable"), true},
+		{fmt.Errorf("capture: %w", invalid("selected model is not configured on provider")), true},
+		{fault(protocol.ErrorCodePermissionDenied, "credential belongs to another Node"), true},
+		{fault(protocol.ErrorCodeExpired, "runtime credential expired"), true},
+		{fault(protocol.ErrorCodeBusy, "storage is busy"), false},
+		{fault(protocol.ErrorCodeConflict, "conflict"), false},
+		{fault(protocol.ErrorCodeRevisionConflict, "revision changed"), false},
+		{fault(protocol.ErrorCodeUnavailable, "storage is unavailable"), false},
+		{fault(protocol.ErrorCodeOutcomeUnknown, "commit is uncertain"), false},
+		{fault(protocol.ErrorCodeInternal, "internal"), false},
+		{errors.New("database is locked"), false},
+		{nil, false},
+	} {
+		if uncapturableSettings(row.err) != row.keep {
+			t.Errorf("capture fault %v keeps the recipient's settings: %v", row.err, !row.keep)
+		}
+	}
+}
+
 // TestGuidanceQueue covers the queue and guidance transitions that
 // TestQueueSettlement does not.
 func TestGuidanceQueue(t *testing.T) {

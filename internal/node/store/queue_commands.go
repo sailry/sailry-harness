@@ -487,7 +487,9 @@ func releaseGuidance(ctx context.Context, db *sql.Conn, recipient protocol.Conve
 // recaptureDetachedGuidance replaces the recipient's settings when a direct
 // guidance input becomes its own turn. An ordinary queued message keeps the
 // settings it captured on submission even if it was later offered as guidance.
-// Call before clearing the pending recipient.
+// Settings that cannot be captured now, such as a removed model, keep the
+// recipient's capture so the input is not lost; it settles by the claim rules
+// for that configuration. Call before clearing the pending recipient.
 func recaptureDetachedGuidance(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
 	var inherited bool
 	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_pending p
@@ -519,13 +521,27 @@ func recaptureDetachedGuidance(ctx context.Context, db *sql.Conn, turn protocol.
 	}
 	session.Worktree = run.Worktree
 	settings, err := captureTurnSettings(WithCapturedUser(WithUser(ctx, user), origin.ID), db, node, session, run.Kind)
-	if _, unavailable := errors.AsType[*protocol.Fault](err); unavailable {
+	if uncapturableSettings(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	return saveTurnSettings(ctx, db, turn, settings)
+}
+
+// uncapturableSettings reports a configuration the session cannot run with
+// now. Storage, revision and availability faults are not configuration.
+func uncapturableSettings(err error) bool {
+	failure, ok := errors.AsType[*protocol.Fault](err)
+	if !ok {
+		return false
+	}
+	switch failure.Code {
+	case protocol.ErrorCodeNotConfigured, protocol.ErrorCodeInvalidRequest, protocol.ErrorCodePermissionDenied, protocol.ErrorCodeExpired:
+		return true
+	}
+	return false
 }
 
 func pendingTurns(ctx context.Context, db *sql.Conn, query string, args ...any) ([]protocol.TurnID, error) {
