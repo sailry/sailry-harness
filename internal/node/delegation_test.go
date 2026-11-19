@@ -391,26 +391,7 @@ func reviewDelegation(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(root, "source.go"), []byte("package source\n\nfunc Value() int { return 2 }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	project := commandFixture(t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: "Review", Path: root, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance()}}).Data.(protocol.Project)
-	provider := protocol.DefaultConversationProvider()
-	provider.ID, provider.Revision, provider.Enabled, provider.Name = protocol.NewProviderID(), 1, true, "Fixture"
-	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, "http://fixture.invalid/v1", "fixture"
-	selected := protocol.DefaultConversationModel()
-	selected.ID, selected.Context, selected.Output, selected.Tools = "fixture", 32000, 8000, true
-	provider.Models = []protocol.ConversationModel{selected}
-	if err = node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-		body, err := json.Marshal(map[string]any{"id": provider.ID, "provider": provider, "listed": true, "authorizations": map[string]any{}, "quota": nil})
-		if err != nil {
-			return err
-		}
-		_, err = db.ExecContext(t.Context(), "INSERT INTO providers(id,body) VALUES(?1,?2)", provider.ID.String(), body)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	config := protocol.DefaultSessionConfig()
-	config.Provider, config.Model, config.Permission, config.Mode = provider.ID, "fixture", protocol.PermissionAsk, protocol.WorkModeCode
-	session := commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
+	session := reviewSession(t, node, root, protocol.PermissionAsk)
 	script.mu.Lock()
 	script.parent = session.ID
 	script.mu.Unlock()
@@ -487,4 +468,28 @@ func reviewDelegation(t *testing.T) {
 	if !strings.Contains(script.children[1], "prepared:Check the edge") {
 		t.Fatalf("guided task = %q", script.children[1])
 	}
+}
+
+func reviewSession(t *testing.T, node *Node, root string, permission protocol.Permission) protocol.Session {
+	t.Helper()
+	project := commandFixture(t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: "Review", Path: root, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance()}}).Data.(protocol.Project)
+	provider := protocol.DefaultConversationProvider()
+	provider.ID, provider.Revision, provider.Enabled, provider.Name = protocol.NewProviderID(), 1, true, "Fixture"
+	provider.Api, provider.Authentication, provider.Endpoint, provider.DefaultModel = protocol.ConversationModelApiChatCompletions, protocol.AuthenticationApiKey, "http://fixture.invalid/v1", "fixture"
+	selected := protocol.DefaultConversationModel()
+	selected.ID, selected.Context, selected.Output, selected.Tools = "fixture", 32000, 8000, true
+	provider.Models = []protocol.ConversationModel{selected}
+	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+		body, err := json.Marshal(map[string]any{"id": provider.ID, "provider": provider, "listed": true, "authorizations": map[string]any{}, "quota": nil})
+		if err != nil {
+			return err
+		}
+		_, err = db.ExecContext(t.Context(), "INSERT INTO providers(id,body) VALUES(?1,?2)", provider.ID.String(), body)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	config := protocol.DefaultSessionConfig()
+	config.Provider, config.Model, config.Permission, config.Mode = provider.ID, "fixture", permission, protocol.WorkModeCode
+	return commandFixture(t, node, protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Project: &project.ID, Config: &config}}).Data.(protocol.Session)
 }
