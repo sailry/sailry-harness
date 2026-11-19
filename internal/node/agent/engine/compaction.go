@@ -287,10 +287,15 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		// summary before it, so no copied messages or synthetic reply is needed.
 		return r.save(x.ctx, x.inv.Session.ID, records...)
 	}
-	continuation := "Your context was compacted. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nContinue calling tools as necessary to complete the task."
+	// The continuation is a runtime notice, not an assistant statement or user
+	// input. Automatic compaction interrupts work in progress, so it always
+	// asks the model to keep working; only a user-requested compaction ends at
+	// a natural conversation boundary.
+	continuation := "Context was compacted. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue calling tools as necessary to complete the task."
 	if manual {
-		continuation = "Your context was compacted at the user's request. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
+		continuation = "Context was compacted at the user's request. The preceding summary covers the earlier conversation. Do not mention the summary or compaction. Continue from the summarized context."
 	}
+	continuation = "<sailry-runtime-continuation>" + continuation + "</sailry-runtime-continuation>"
 	var preserved *canonical.Record
 	var preservedInput *canonical.Message
 	retainMedia := true
@@ -321,17 +326,16 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 					}
 				}
 				if preserved != nil {
-					if visible[i].ID == boundary.ID {
-						continuation = "Your context was compacted. The previous message contains a summary of the conversation so far.\nDo not mention that you read a summary or that conversation summarization occurred.\nJust continue the conversation naturally based on the summarized context."
-					}
 					break
 				}
 			}
 		}
 	}
-	continued := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, continuation)), r.clock.Now())
+	continued := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, continuation)), r.clock.Now())
 	continued.Provenance.Author = "assistant"
-	continued.Metadata.Runtime = &runtime
+	notice := runtime
+	notice.TurnContext = true
+	continued.Metadata.Runtime = &notice
 	records = append(records, continued)
 	if preserved != nil {
 		var blocks []canonical.Block

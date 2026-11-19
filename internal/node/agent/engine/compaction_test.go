@@ -407,8 +407,8 @@ func TestCompactionHandoff(t *testing.T) {
 				if len(added) != 2 || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Continue calling tools") {
 					t.Fatal("an earlier summary or reinjected context was carried as user input")
 				}
-			} else if len(added) != 3 || added[2].Message().Role != canonical.User || added[2].Message().Content[0].Data.(*canonical.TextContent).Text != "Original task" || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Just continue") {
-				t.Fatal("latest automatic input or natural continuation was lost")
+			} else if len(added) != 3 || added[2].Message().Role != canonical.User || added[2].Message().Content[0].Data.(*canonical.TextContent).Text != "Original task" || added[1].Message().Role != canonical.User || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "<sailry-runtime-continuation>Context was compacted.") || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Continue calling tools") {
+				t.Fatal("latest automatic input or the working continuation notice was lost")
 			}
 		}
 	})
