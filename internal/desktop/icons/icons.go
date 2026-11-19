@@ -141,10 +141,13 @@ var (
 	FlipVertical   = load("flip-vertical")
 
 	// The composer's (queue, modes, model controls, file picker).
-	Replace    = load("replace")
-	Map        = load("map")
-	Crown      = load("crown")
-	Zap        = load("zap")
+	Replace = load("replace")
+	Map     = load("map")
+	Crown   = load("crown")
+	Zap     = load("zap")
+	// ZapDouble is two of Lucide's zap, scaled side by side: Lucide has no
+	// double bolt for the faster speed tier.
+	ZapDouble  = load("zap-double")
 	House      = load("house")
 	Download   = load("download")
 	Star       = load("star")

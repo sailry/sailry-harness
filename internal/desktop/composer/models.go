@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"math"
@@ -263,6 +264,10 @@ func (s *State) chosenFeatures(c *ui.Context, m Model) (fast, other []featureBad
 				fast = append(fast, featureBadge{i18n.T(c, "composer_feature_fast"), icons.Zap})
 				continue
 			}
+			if f.ID == "speed" && o.ID == "ultrafast" {
+				fast = append(fast, featureBadge{cmp.Or(o.Name, o.ID), icons.ZapDouble})
+				continue
+			}
 			other = append(other, featureBadge{o.Name, o.Icon})
 		}
 	}
@@ -423,6 +428,9 @@ func (s *State) features(c *ui.Context, m Model) {
 			}
 			if f.ID == "speed" {
 				icon = icons.Zap
+				if opt != nil && opt.ID == "ultrafast" {
+					icon = icons.ZapDouble
+				}
 			} else if opt != nil && opt.Icon != nil {
 				icon = opt.Icon
 			}
@@ -436,6 +444,12 @@ func (s *State) features(c *ui.Context, m Model) {
 		}
 		if cycles {
 			b := kit.IconButton(c.Key(f.ID), icon, tip, 28, set).Label(label).Radius(14)
+			if set {
+				// A chosen option is marked in the brand color, not the
+				// ghost's faint fill alone.
+				p := theme.Of(c)
+				b.Background(p.Primary.Alpha(0.14)).TextColor(p.Primary)
+			}
 			b.AccessSelected(set).OnClick(func() {
 				s.markMemberFeatureOverride()
 				// off, then each option in turn.
@@ -458,6 +472,10 @@ func (s *State) features(c *ui.Context, m Model) {
 		}
 		kit.MenuButton(c.Key(f.ID), s.menuID("feature-"+f.ID), func(b ui.Element) {
 			kit.IconLook(c, b, icon, tip, "", 28, set).Label(label).Radius(14)
+			if set {
+				p := theme.Of(c)
+				b.Background(p.Primary.Alpha(0.14)).TextColor(p.Primary)
+			}
 		}, func(menu *kit.Menu) {
 			if menu.Item(i18n.T(c, "composer_feature_off")).Checked(!set).Chosen() {
 				delete(features, f.ID)
