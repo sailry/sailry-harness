@@ -22,13 +22,17 @@ import (
 
 var concurrencyMessages = Messages{"", "teams_settings_failed", "teams_settings_conflict", "teams_settings_unknown"}
 
-// rolePresets are the role editor's presets: label, description and prompt
-// keys.
-var rolePresets = [][3]string{
-	{"role_preset_review", "role_review_description", "role_prompt_review"},
-	{"role_preset_implement", "role_implement_description", "role_prompt_implement"},
-	{"role_preset_test", "role_test_description", "role_prompt_test"},
-	{"role_preset_docs", "role_docs_description", "role_prompt_docs"},
+type rolePreset struct {
+	key, label, description, prompt, modelHint string
+}
+
+var rolePresets = []rolePreset{
+	{"review", "role_preset_review", "role_review_description", "role_prompt_review", "role_model_hint_review"},
+	{"implement", "role_preset_implement", "role_implement_description", "role_prompt_implement", "role_model_hint_implement"},
+	{"test", "role_preset_test", "role_test_description", "role_prompt_test", "role_model_hint_test"},
+	{"plan", "role_preset_plan", "role_plan_description", "role_prompt_plan", "role_model_hint_plan"},
+	{"frontend", "role_preset_frontend", "role_frontend_description", "role_prompt_frontend", "role_model_hint_frontend"},
+	{"troubleshoot", "role_preset_troubleshoot", "role_troubleshoot_description", "role_prompt_troubleshoot", "role_model_hint_troubleshoot"},
 }
 
 // teamEditor edits a team: the Default team (default), a new one
@@ -45,8 +49,22 @@ type teamEditor struct {
 type roleEditor struct {
 	open            bool
 	role            preview.Role
+	preset          rolePreset
+	readOnlyEdited  bool
 	pending, locked bool
 	request         *bool
+}
+
+func (e *roleEditor) modelHint() string {
+	if e.preset.key != "" {
+		return e.preset.modelHint
+	}
+	for _, preset := range rolePresets {
+		if preset.key == e.role.Key {
+			return preset.modelHint
+		}
+	}
+	return ""
 }
 
 func (m *Model) channelsAt(node string) []preview.Channel {
@@ -557,13 +575,17 @@ func roleDialog(c *ui.Context, m *Model) {
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
 			if e.role.ID == "" {
 				kit.Field(c, "presets", t("role_presets"), "", func() {
-					ui.Row(c).Wrap().Gap(6).Children(func() {
+					ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
 						for _, pr := range rolePresets {
-							kit.Secondary(c.Key(pr[0]), t(pr[0])).Height(28).Disabled(e.pending || e.locked).OnClick(func() {
-								e.role.Name, e.role.Description, e.role.Instructions = t(pr[0]), t(pr[1]), t(pr[2])
-								if e.role.Key == "" {
-									e.role.Key = strings.TrimPrefix(pr[0], "role_preset_")
+							kit.Secondary(c.Key(pr.key), t(pr.label)).Height(28).Disabled(locked).OnClick(func() {
+								e.role.Name, e.role.Description, e.role.Instructions = t(pr.label), t(pr.description), t(pr.prompt)
+								if e.role.Key == "" || e.role.Key == e.preset.key {
+									e.role.Key = pr.key
 								}
+								if !e.readOnlyEdited {
+									e.role.ReadOnly = pr.key == "plan"
+								}
+								e.preset = pr
 							})
 						}
 					})
@@ -585,12 +607,17 @@ func roleDialog(c *ui.Context, m *Model) {
 			kit.Field(c, "description", t("teams_description"), "", func() {
 				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
 			})
-			ui.Column(c.Key("model-wrap")).Disabled(e.pending || e.locked).Children(func() {
+			ui.Column(c.Key("model-wrap")).Gap(8).Disabled(locked).Children(func() {
 				modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort, &e.role.Features)
+				if hint := e.modelHint(); hint != "" {
+					ui.Text(c, t(hint)).FontSize(12).TextColor(theme.Of(c).MutedForeground)
+				}
 			})
 			ui.Row(c.Key("read-only")).Gap(8).Children(func() {
 				ui.Text(c, t("teams_read_only")).FontSize(14).Grow(1)
-				ui.Switch(c.Key("switch"), &e.role.ReadOnly).Label(t("teams_read_only")).Disabled(locked)
+				if ui.Switch(c.Key("switch"), &e.role.ReadOnly).Label(t("teams_read_only")).Disabled(locked).Changed() {
+					e.readOnlyEdited = true
+				}
 			})
 			kit.Field(c, "instructions", t("role_instructions"), "", func() {
 				ui.TextArea(c.Key("input"), &e.role.Instructions).Label(t("role_instructions")).FillWidth().MinHeight(120).Disabled(locked)
