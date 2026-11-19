@@ -388,7 +388,7 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 		if !childPending(state.Run) {
 			value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status, "response": state.Response, "error": state.Run.Error}
 			if state.TurnLimit {
-				value["turn_limit"] = childTurnLimitSummary
+				value["turn_limit"] = store.ChildTurnLimitSummary
 			}
 			return ToolResult{Value: value, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
 		}

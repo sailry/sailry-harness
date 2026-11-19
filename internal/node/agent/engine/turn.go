@@ -422,10 +422,9 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			continue
 		}
-		// Every input waiting for this turn joins here as one batch: after tool
-		// results or a finished reply, before the next model step. A failed step
-		// takes none; the turn ends and its guidance returns to the queue.
-		if failed := lastMessage(state.Records); failed == nil || failed.Error == nil {
+		// One batch joins after tool results or a finished reply, before the
+		// next inference. A failed step leaves its guidance in the queue.
+		if failed := lastMessage(state.Records); !x.foregroundSteered && (failed == nil || failed.Error == nil) {
 			joined, err := r.guidance(x)
 			if err != nil {
 				return err

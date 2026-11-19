@@ -278,7 +278,7 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 		if err != nil {
 			return state, err
 		}
-		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.metadata.runtime.notes.turn_limit')=1)", state.Run.Turn.String()).Scan(&state.TurnLimit); err != nil {
+		if state.TurnLimit, err = childTurnLimitReached(ctx, db, state.Run.Turn); err != nil {
 			return state, err
 		}
 	}
@@ -291,6 +291,16 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 	state.Paused = queue.Paused
 	return state, err
 }
+
+// ChildTurnLimitSummary accompanies the potentially partial child response.
+const ChildTurnLimitSummary = "Stopped at its action limit before finishing; guide_agent can continue it."
+
+func childTurnLimitReached(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (bool, error) {
+	var reached bool
+	err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.metadata.runtime.notes.turn_limit')=1)", turn.String()).Scan(&reached)
+	return reached, err
+}
+
 func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*string, error) {
 	rows, err := db.QueryContext(ctx, "SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.kind')='message' AND json_extract(body,'$.role')='assistant' ORDER BY sequence DESC", turn.String())
 	if err != nil {

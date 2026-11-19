@@ -336,7 +336,7 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 	}()
 	for {
 		changed := r.activitySignal()
-		if acceptGuidance {
+		if acceptGuidance && !x.foregroundSteered {
 			var guidance bool
 			err := r.db.Read(x.ctx, func(db *sql.Conn) error {
 				var err error

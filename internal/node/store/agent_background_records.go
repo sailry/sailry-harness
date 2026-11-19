@@ -139,6 +139,13 @@ func FinishChildBackground(ctx context.Context, db *sql.Conn, child protocol.Con
 	if err != nil {
 		return nil, err
 	}
+	var limited bool
+	if len(records) != 0 && child.Status == protocol.ConversationStatusCompleted {
+		limited, err = childTurnLimitReached(ctx, db, child.Turn)
+		if err != nil {
+			return nil, err
+		}
+	}
 	owners := map[protocol.SessionID]bool{}
 	for _, record := range records {
 		record.Task.Kind = protocol.ConversationBackgroundKind{Kind: "agent", Data: protocol.ConversationBackgroundKindAgentPayload{Session: child.Session, Turn: child.Turn}}
@@ -163,7 +170,9 @@ func FinishChildBackground(ctx context.Context, db *sql.Conn, child protocol.Con
 			outcome = protocol.ConversationBackgroundOutcomeCancelled
 		}
 		summary := record.Response
-		if summary == nil && child.Error != nil {
+		if limited {
+			summary = new(ChildTurnLimitSummary)
+		} else if summary == nil && child.Error != nil {
 			summary = &child.Error.Message
 		}
 		if err = terminalCommandRecord(ctx, db, &record, outcome, summary, now); err != nil {

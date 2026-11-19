@@ -33,7 +33,7 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 	case protocol.ConversationStatusCompleted:
 		result.Notice.Outcome = protocol.ConversationBackgroundOutcomeCompleted
 		if state.TurnLimit {
-			result.Notice.Summary = new(childTurnLimitSummary)
+			result.Notice.Summary = new(store.ChildTurnLimitSummary)
 		}
 		if state.Response != nil {
 			result.ChildResponse(*state.Response, uint64(len(*state.Response)), 4096)

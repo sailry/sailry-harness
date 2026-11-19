@@ -114,10 +114,6 @@ func (r *Runtime) childTurnLimit(x *execution, state store.AgentState) (bool, er
 	return true, r.save(x.ctx, x.inv.Session.ID, record)
 }
 
-// childTurnLimitSummary tells the parent that a child stopped at its role's
-// action limit rather than finishing; its last reply may be partial.
-const childTurnLimitSummary = "Stopped at its action limit before finishing; guide_agent can continue it."
-
 func childBudgetContext(x *execution, state store.AgentState) string {
 	if x.childRole == nil || x.childRole.MaxTurns == nil {
 		return ""
