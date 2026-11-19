@@ -24,7 +24,7 @@ func TestDeclaredTableUsesCommonToolContent(t *testing.T) {
 		call := conversation.Call{Name: "fixture_query"}
 		summary := protocol.ToolDetailSummary{HasDetails: true}
 		ProjectToolDetail(&call, &summary, loaded, "en")
-		if call.Output == nil || call.Output.Table == nil || !call.Output.Partial || call.Output.Text != "" {
+		if call.Output == nil || call.Output.Table == nil || call.Output.Text != "" {
 			t.Fatalf("table declaration became raw output: %+v", call.Output)
 		}
 		outputs = append(outputs, call.Output)
@@ -50,30 +50,41 @@ func TestDeclaredEmptyOutputDoesNotFallBackToJSON(t *testing.T) {
 	}
 }
 
-func TestToolNoticesKeepTheirLocalizedText(t *testing.T) {
-	notice := protocol.PluginDesktopNavigation{Label: "Partial result", Locales: map[string]string{"fr": "Résultat partiel"}}
-	result := json.RawMessage(`{"sailry_content":{},"text":""}`)
+func TestToolNoticesKeepSpecificDiagnostics(t *testing.T) {
+	notices := []protocol.PluginDesktopNavigation{
+		{Label: "Partial results", Locales: map[string]string{"fr": "Résultats partiels"}},
+		{Label: "Partial content"},
+		{Label: "Output was truncated"},
+		{Label: "Some output could not be decoded", Locales: map[string]string{"fr": "Une partie de la sortie est illisible"}},
+	}
+	var resolved []protocol.ToolResultLocalText
+	var blocks []protocol.ToolContentBlock
+	for _, notice := range notices {
+		resolved = append(resolved, protocol.ToolResultLocalText{Label: notice.Label, Locales: notice.Locales})
+		blocks = append(blocks, protocol.ToolContentBlock{Kind: "notice", Data: protocol.ToolContentBlockNoticePayload{Message: notice}})
+	}
+	result := json.RawMessage(`{"sailry_content":{},"text":"Partial results"}`)
 	for name, loaded := range map[string]protocol.ToolDetail{
-		"declared": {Resolved: &protocol.ToolDetailResolved{Output: &protocol.ToolDetailOutput{
-			Notices: []protocol.ToolResultLocalText{{Label: notice.Label, Locales: notice.Locales}},
-		}}},
+		"declared": {Resolved: &protocol.ToolDetailResolved{Output: &protocol.ToolDetailOutput{Notices: resolved}}},
 		"text": {Result: &result, Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{
-			{Kind: "text", Data: protocol.ToolContentText{Path: "/text", Notices: []protocol.PluginDesktopNavigation{notice}}},
+			{Kind: "text", Data: protocol.ToolContentText{Path: "/text", Notices: notices}},
 		}}},
-		"notice": {Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{
-			{Kind: "notice", Data: protocol.ToolContentBlockNoticePayload{Message: notice}},
-		}}},
+		"notice": {Content: &protocol.ToolContent{Version: 1, Blocks: blocks}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, locale := range []string{"fr", "en"} {
 				call := conversation.Call{Name: "fixture_tool"}
 				summary := protocol.ToolDetailSummary{HasDetails: true}
 				ProjectToolDetail(&call, &summary, loaded, locale)
-				want := "Partial result"
+				want := "Some output could not be decoded"
 				if locale == "fr" {
-					want = "Résultat partiel"
+					want = "Une partie de la sortie est illisible"
 				}
-				if call.Output == nil || !reflect.DeepEqual(call.Output.Notices, []string{want}) || call.Output.Text != "" {
+				body := ""
+				if name == "text" {
+					body = "Partial results"
+				}
+				if call.Output == nil || !reflect.DeepEqual(call.Output.Notices, []string{want}) || call.Output.Text != body {
 					t.Fatalf("%s notices changed: %+v", locale, call.Output)
 				}
 			}

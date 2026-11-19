@@ -139,8 +139,6 @@ tool_not_found: 未找到目标
 tool_invalid: 参数无效
 tool_denied: 无法访问目标
 tool_unavailable: 工具暂不可用
-tool_partial: 仅显示部分结果
-tool_output_earlier: 已省略前 %{count} 行
 task_progress: 任务进度
 turn_cancelled: 已停止
 turn_queued: 等待处理
@@ -968,7 +966,8 @@ settings_connections_description: 管理配对设备和远程节点连接
 settings_connectors_description: 管理服务连接
 settings_conversation_description: 调整会话消息的显示方式
 settings_custom_prompt: 自定义提示词
-settings_custom_prompt_description: 应用于此主机上所有会话的后续轮次。
+settings_custom_prompt_description: 适用于此主机上的所有后续对话轮次
+settings_custom_prompt_placeholder: 输入希望助手遵循的指令
 settings_custom_prompt_failed: 无法读取或保存自定义提示词
 settings_custom_prompt_conflict: 主机上的自定义提示词已更改，已保留你的草稿
 settings_custom_prompt_unknown: 无法确认自定义提示词是否已保存
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: 代码工具
 settings_code_index_description: 按需搜索和分析项目代码
 settings_code_index_persistent: 完整代码索引
-settings_code_index_persistent_description: 将所选项目的索引保存在磁盘上
-settings_code_index_project: 项目
+settings_code_index_persistent_description: 在此主机上保存完整代码索引
 code_index_settings_saved: 已保存
 code_index_settings_failed: 无法读取或保存代码索引设置
 code_index_settings_conflict: 代码索引设置已更改，请重试

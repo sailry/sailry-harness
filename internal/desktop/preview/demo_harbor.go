@@ -160,11 +160,11 @@ func (b *demo) flakyTest() *Conversation {
 		lines = append(lines, "ok  \tgithub.com/harbor/harbor-api/internal/"+pkg+"\t0.412s")
 	}
 	suite := b.call(fix.ID, "command", "command", "go test ./... -race -count=20")
-	suite.Output = &cv.Output{Text: strings.Join(lines, "\n"), Command: true}
+	suite.Output = &cv.Output{Text: strings.Join(lines, "\n"), Command: true, Notices: []string{b.t("flaky.suite.encoding")}}
 	query := b.call(fix.ID, "query", "tasks", "SELECT status, count(*) FROM reservations GROUP BY status")
 	query.Output = &cv.Output{Table: &cv.Table{Columns: []string{"status", "count"}, Rows: [][]string{
 		{"confirmed", "18 204"}, {"held", "312"}, {"expired", "2 951"},
-	}}, Partial: true, Notices: []string{b.t("flaky.table.notice")}}
+	}}}
 	fix.Reply = done(cv.Completed, 98)
 	fix.Reply.Blocks = []cv.Block{tools(edit, suite, query), text(b.t("flaky.1.answer"))}
 	fix.Reply.Changes = &cv.Changes{Files: []cv.ChangedFile{

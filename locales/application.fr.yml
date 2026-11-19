@@ -865,8 +865,6 @@ tool_browser_unavailable: "Page indisponible"
 tool_browser_load_failed: "La page n'a pas pu être trouvée"
 tool_not_executed: "Approbation interrompue; non exécutée"
 chat_execution_unknown: "Certains résultats d'exécution ne sont pas confirmés"
-tool_partial: "Résultats partiels"
-tool_output_earlier: "%{count} lignes précédentes masquées"
 tool_binary: "Fichier binaire"
 tool_empty: "Aucune sortie"
 tool_not_found: "Cible non trouvée"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "URL du dépôt"
 settings_conversation: "Conversation"
 settings_conversation_description: "Ajuster l’affichage des messages de conversation"
 settings_custom_prompt: "Instructions personnalisées"
-settings_custom_prompt_description: "S’appliquent aux prochains échanges de toutes les sessions sur cet hôte."
+settings_custom_prompt_description: "S’appliquent aux prochains échanges de toutes les sessions sur cet hôte"
+settings_custom_prompt_placeholder: "Saisissez les instructions destinées à l’assistant"
 settings_custom_prompt_failed: "Impossible de lire ou d’enregistrer les instructions personnalisées."
 settings_custom_prompt_conflict: "Les instructions ont changé sur cet hôte. Votre brouillon a été conservé."
 settings_custom_prompt_unknown: "L’enregistrement des instructions n’a pas pu être confirmé."
@@ -2824,8 +2823,7 @@ settings_experimental_description: Paramètres de développement et de débogage
 settings_code_index: Outils de code
 settings_code_index_description: Rechercher et analyser le code du projet à la demande
 settings_code_index_persistent: Index complet du code
-settings_code_index_persistent_description: Conserver un index sur disque pour le projet sélectionné
-settings_code_index_project: Projet
+settings_code_index_persistent_description: Conserver les index complets sur cet hôte
 code_index_settings_saved: Enregistré
 code_index_settings_failed: Impossible de charger ou d’enregistrer les paramètres de l’index du code
 code_index_settings_conflict: Paramètres de l’index du code modifiés ; réessayez

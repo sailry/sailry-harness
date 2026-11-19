@@ -66,9 +66,6 @@ func CommandContent(output protocol.Output) *protocol.ToolContent {
 		capture protocol.ProcessCapture
 	}{{"stdout", stdout}, {"stderr", stderr}} {
 		line := protocol.ToolContentText{Path: "/data/" + stream.name + "/text"}
-		if stream.capture.Truncated {
-			line.Notices = append(line.Notices, catalog.Notices["truncated"])
-		}
 		if stream.capture.InvalidUtf8 {
 			line.Notices = append(line.Notices, catalog.Notices["encoding"])
 		}

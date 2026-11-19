@@ -865,8 +865,6 @@ tool_browser_unavailable: "Página não encontrada"
 tool_browser_load_failed: "Página não encontrada"
 tool_not_executed: "Aprovação interrompida; não executada"
 chat_execution_unknown: "Alguns resultados de execução não estão confirmados"
-tool_partial: "Resultados parciais"
-tool_output_earlier: "%{count} linhas anteriores ocultas"
 tool_binary: "Arquivo binário"
 tool_empty: "Nenhuma saída"
 tool_not_found: "Página não encontrada"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "URL do repositório"
 settings_conversation: "Conversa"
 settings_conversation_description: "Ajustar como as mensagens de conversa são exibidas"
 settings_custom_prompt: "Instruções personalizadas"
-settings_custom_prompt_description: "Aplicam-se às próximas interações de todas as sessões neste host."
+settings_custom_prompt_description: "Aplicam-se às próximas interações de todas as sessões neste host"
+settings_custom_prompt_placeholder: "Insira instruções para o assistente"
 settings_custom_prompt_failed: "Não foi possível ler ou salvar as instruções personalizadas."
 settings_custom_prompt_conflict: "As instruções neste host mudaram. Seu rascunho foi mantido."
 settings_custom_prompt_unknown: "Não foi possível confirmar se as instruções foram salvas."
@@ -2824,8 +2823,7 @@ settings_experimental_description: Configurações de desenvolvimento e depuraç
 settings_code_index: Ferramentas de código
 settings_code_index_description: Buscar e analisar o código do projeto sob demanda
 settings_code_index_persistent: Índice completo de código
-settings_code_index_persistent_description: Manter um índice em disco para o projeto selecionado
-settings_code_index_project: Projeto
+settings_code_index_persistent_description: Salvar índices completos neste host
 code_index_settings_saved: Salvo
 code_index_settings_failed: Não foi possível carregar ou salvar as configurações do índice de código
 code_index_settings_conflict: As configurações do índice de código mudaram; tente novamente

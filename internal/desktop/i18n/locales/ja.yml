@@ -139,8 +139,6 @@ tool_not_found: ターゲットが見つかりません
 tool_invalid: 無効な引数
 tool_denied: ターゲットにアクセスできません
 tool_unavailable: ツールが利用できません
-tool_partial: 部分結果
-tool_output_earlier: 前の %{count} 行を省略
 task_progress: タスクの進<0xE6><0x8D><0x97>
 turn_cancelled: 停止済み
 turn_queued: キュー
@@ -968,7 +966,8 @@ settings_connections_description: ペアリング済みのデバイスとリモ�
 settings_connectors_description: サービスへの接続を管理
 settings_conversation_description: 会話メッセージの表示方法を調整します
 settings_custom_prompt: カスタム指示
-settings_custom_prompt_description: このホスト上のすべてのセッションの次のターンから適用されます。
+settings_custom_prompt_description: このホスト上のすべてのセッションの次のターンから適用されます
+settings_custom_prompt_placeholder: アシスタントへの指示を入力
 settings_custom_prompt_failed: カスタム指示を読み込むか保存することができませんでした。
 settings_custom_prompt_conflict: このホストのカスタム指示が変更されました。下書きは保持されています。
 settings_custom_prompt_unknown: カスタム指示が保存されたか確認できませんでした。
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: コードツール
 settings_code_index_description: 必要に応じてプロジェクトのコードを検索・分析
 settings_code_index_persistent: 完全なコードインデックス
-settings_code_index_persistent_description: 選択したプロジェクトのインデックスをディスクに保存
-settings_code_index_project: プロジェクト
+settings_code_index_persistent_description: このホストに完全なインデックスを保存
 code_index_settings_saved: 保存しました
 code_index_settings_failed: コードインデックスの設定を読み込みまたは保存できませんでした
 code_index_settings_conflict: コードインデックスの設定が変更されました。再試行してください

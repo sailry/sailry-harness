@@ -59,22 +59,31 @@ func textCount(tt *ui.Tester, text string) int {
 	return n
 }
 
-// A block's calls, of one name or several, are one row each in their order,
-// none a summary of others: one click opens a row straight onto its result,
-// at each supported text size and at a narrow and a wide window.
-func TestToolRowsAreFlat(t *testing.T) {
+// A group initially hides the individual headers. Opening it reveals the
+// original call order and each row still opens straight onto its own result.
+func TestConsecutiveToolRowsFold(t *testing.T) {
 	calls := []Call{
 		{ID: "r1", Name: "read", Label: "Read file", Icon: "file-text", Detail: "a.go", Code: true, Output: &Output{Text: "out a"}},
 		{ID: "r2", Name: "read", Label: "Read file", Icon: "file-text", Detail: "b.go", Code: true, Output: &Output{Text: "out b"}},
 		{ID: "g1", Name: "grep", Label: "Search", Icon: "search", Detail: "c.go", Code: true, Output: &Output{Text: "out c"}},
 		{ID: "r3", Name: "read", Label: "Read file", Icon: "file-text", Detail: "d.go", Code: true, Output: &Output{Text: "out d"}},
+		runningCall("r4", "read", "current.go", false),
+		{ID: "err", Name: "command", Label: "Command", Code: true, Failed: true, Error: "Command failed"},
 	}
 	details := []string{"a.go", "b.go", "c.go", "d.go"}
+	label := i18n.In("en", "meter_tool_calls")
 	for _, size := range []uint8{12, 14, 18} {
 		for _, width := range []int{480, 900} {
 			t.Run(fmt.Sprintf("size_%d_width_%d", size, width), func(t *testing.T) {
 				s := New()
-				turns := []Turn{{ID: "turn", User: "Inspect", Reply: Reply{Status: Running, Phase: AwaitingResponse, Blocks: []Block{{Kind: ToolsBlock, Calls: calls}}}}}
+				running := slices.Clone(calls)
+				loads := 0
+				running[1].Load = func(apply func(*Output)) func() {
+					loads++
+					apply(&Output{Text: "out b"})
+					return nil
+				}
+				turns := []Turn{{ID: "turn", User: "Inspect", Reply: Reply{Status: Running, Phase: ExecutingTool, Blocks: callBlocks(running...)}}}
 				tt := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Light)
 					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
@@ -83,6 +92,23 @@ func TestToolRowsAreFlat(t *testing.T) {
 				tt.SetLocale("en")
 				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 				tt.Frame()
+				groups := rowButtons(tt, label)
+				if len(groups) != 1 || groups[0].Expanded || !tt.HasText("current.go") || !tt.HasText("Command") {
+					t.Fatalf("settled calls should be grouped while the active and failed calls are visible: %q", tt.Texts())
+				}
+				for _, detail := range details {
+					if tt.HasText(detail) {
+						t.Fatalf("the folded group displays %q: %q", detail, tt.Texts())
+					}
+				}
+				flatRowsShot(t, tt, fmt.Sprintf("closed-%d-%d", size, width))
+				if err := tt.Click(label); err != nil {
+					t.Fatal(err)
+				}
+				tt.Frame()
+				if loads != 0 {
+					t.Fatal("opening a group fetched a call's details")
+				}
 				var rows []ui.Rect
 				for i, detail := range details {
 					if n := textCount(tt, detail); n != 1 {
@@ -95,21 +121,20 @@ func TestToolRowsAreFlat(t *testing.T) {
 					rows = append(rows, r)
 				}
 				buttons := append(rowButtons(tt, "Read file"), rowButtons(tt, "Search")...)
-				if len(buttons) != len(calls) {
-					t.Fatalf("%d tool row buttons, want one per call: %+v", len(buttons), buttons)
+				if len(buttons) != len(details) {
+					t.Fatalf("%d tool row buttons, want one per grouped call: %+v", len(buttons), buttons)
 				}
 				for _, b := range buttons {
 					if b.Bounds.X != buttons[0].Bounds.X || b.Expanded {
 						t.Fatalf("row %q at %v is not a closed row on the first one's level %v", b.Name, b.Bounds, buttons[0].Bounds)
 					}
 				}
-				flatRowsShot(t, tt, fmt.Sprintf("closed-%d-%d", size, width))
 				if err := tt.Click("b.go"); err != nil {
 					t.Fatal(err)
 				}
 				tt.Frame()
-				if !tt.HasText("out b") || tt.HasText("out a") || tt.HasText("out c") || tt.HasText("out d") || len(s.open) != 1 {
-					t.Fatalf("one click did not open its own result alone: %q, %d open", tt.Texts(), len(s.open))
+				if !tt.HasText("out b") || tt.HasText("out a") || tt.HasText("out c") || tt.HasText("out d") || loads != 1 {
+					t.Fatalf("one click did not open its own result alone: %q, %d detail loads", tt.Texts(), loads)
 				}
 				for _, detail := range details {
 					if n := textCount(tt, detail); n != 1 {
@@ -135,7 +160,7 @@ func TestToolRowPathList(t *testing.T) {
 	s.OpenLink = func(_ *ui.Context, _, link string) bool { links = append(links, link); return true }
 	calls := []Call{
 		{ID: "find", Name: "find", Label: "Find files", Icon: "search", Output: &Output{Text: "aggregate", Paths: []string{"a/one.go", "a/two.go", "a/one.go"}}},
-		{ID: "find2", Name: "find", Label: "Find more", Icon: "search", Output: &Output{Failure: "partial listing", Paths: []string{"b/three.go", "b/four.go"}, Notices: []string{"One folder was skipped"}, Partial: true}},
+		{ID: "find2", Name: "find", Label: "Find more", Icon: "search", Output: &Output{Failure: "partial listing", Paths: []string{"b/three.go", "b/four.go"}, Notices: []string{"One folder was skipped"}}},
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
@@ -146,12 +171,15 @@ func TestToolRowPathList(t *testing.T) {
 	if tt.HasText("a/one.go") || tt.HasText("aggregate") {
 		t.Fatalf("closed rows show their paths: %q", tt.Texts())
 	}
+	if !tt.HasText("b/three.go") || !tt.HasText("partial listing") || !tt.HasText("One folder was skipped") || tt.HasText("Partial results") {
+		t.Fatalf("a failed path list lost its default details: %q", tt.Texts())
+	}
 	if err := tt.Click("Find files"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	// A path row is a button labelled with its path.
-	if len(rowButtons(tt, "a/one.go")) != 1 || len(rowButtons(tt, "a/two.go")) != 1 || tt.HasText("aggregate") || tt.HasText("b/three.go") {
+	if len(rowButtons(tt, "a/one.go")) != 1 || len(rowButtons(tt, "a/two.go")) != 1 || tt.HasText("aggregate") {
 		t.Fatalf("the path row: %q", tt.Texts())
 	}
 	if _, shown := tt.AccessByRole(ui.RoleButton, i18n.In("en", "tool_copy")); shown {
@@ -168,8 +196,8 @@ func TestToolRowPathList(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if !tt.HasText("b/three.go") || !tt.HasText("partial listing") || !tt.HasText("One folder was skipped") || !tt.HasText(i18n.In("en", "tool_partial")) {
-		t.Fatalf("a failed path list: %q", tt.Texts())
+	if tt.HasText("b/three.go") || tt.HasText("partial listing") || !tt.HasText("a/one.go") {
+		t.Fatalf("closing a failed path list changed a neighboring result: %q", tt.Texts())
 	}
 }
 
@@ -184,8 +212,8 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	text := strings.Join(lines, "\n")
 	s := New()
 	calls := []Call{
-		{ID: "cmd", Name: "command", Label: "Run", Icon: "square-terminal", Detail: "make", Code: true, Output: &Output{Text: text, Command: true}},
-		{ID: "cmd2", Name: "command", Label: "Run", Icon: "square-terminal", Detail: "make test", Code: true, Output: &Output{Text: "ok", Command: true}},
+		{ID: "cmd", Name: "command", Label: "Run", Icon: "square-terminal", Detail: "make", Code: true, Standalone: true, Output: &Output{Text: text, Command: true}},
+		{ID: "cmd2", Name: "command", Label: "Run", Icon: "square-terminal", Detail: "make test", Code: true, Standalone: true, Output: &Output{Text: "ok", Command: true}},
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
@@ -286,6 +314,6 @@ func TestPendingToolCopyYieldsToLaterCopy(t *testing.T) {
 func TestHistoryToolRowsStill(t *testing.T) {
 	calls := []Call{runningCall("a", "read", "a.go", false), settledCall("b", "grep", "b.go", false, true)}
 	turns := []Turn{{ID: "turn", User: "Inspect", Reply: Reply{Status: Completed, Blocks: []Block{{Kind: ToolsBlock, Calls: calls}, {Kind: TextBlock, Text: "Done"}}}}}
-	lit := sweeps(t, turns, []string{i18n.In("en", "turn_completed")}, "a.go", "b.go")
+	lit := sweeps(t, turns, []string{i18n.In("en", "turn_completed"), i18n.In("en", "meter_tool_calls")}, "a.go", "b.go")
 	expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": false})
 }

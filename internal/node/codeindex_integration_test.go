@@ -519,10 +519,11 @@ func TestCodeIndexCommands(t *testing.T) {
 	}
 	configure := func(projects ...protocol.ProjectID) {
 		current := settings()
+		current.Persistent = nil // The old client's request shape.
 		current.PersistentProjects = new(append([]protocol.ProjectID{}, projects...))
 		acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: current, ExpectedRevision: current.Revision}})
 	}
-	if found := settings(); !found.Enabled || found.Revision != 0 || found.PersistentProjects == nil || len(*found.PersistentProjects) != 0 {
+	if found := settings(); !found.Enabled || found.Revision != 0 || found.Persistent == nil || *found.Persistent || found.PersistentProjects == nil || len(*found.PersistentProjects) != 0 {
 		t.Fatalf("default settings %+v", found)
 	}
 
@@ -862,15 +863,33 @@ func TestCodeIndexCommands(t *testing.T) {
 		}
 	})
 
-	t.Run("project opt out", func(t *testing.T) {
-		configure()
-		defer configure(project.ID)
-		if current := settings(); current.PersistentProjects == nil || len(*current.PersistentProjects) != 0 {
-			t.Fatalf("project opt-out settings %+v", current)
+	t.Run("host persistence supersedes legacy choices", func(t *testing.T) {
+		otherRoot, _ := codeProject(t, codeFixture)
+		other := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
+			Name: "Another code fixture", Path: otherRoot, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance(),
+		}})
+		otherMain := codeMain(t, node, other.ID)
+		current := settings()
+		if current.Persistent == nil || !*current.Persistent || current.PersistentProjects == nil || !slices.Equal(*current.PersistentProjects, []protocol.ProjectID{project.ID}) {
+			t.Fatalf("legacy opt-in settings %+v", current)
 		}
-		page := codeSearch(t, node, main, protocol.CodeIndexSearch{Query: "Serve"})
-		if page.IndexRevision != 0 || len(page.Symbols) == 0 {
-			t.Fatalf("query after opting out returned %+v", page)
+		query := protocol.CodeIndexSearch{Query: "Serve"}
+		if page := codeSearch(t, node, otherMain, query); page.IndexRevision != 0 || len(page.Symbols) == 0 {
+			t.Fatalf("legacy choices affected a second project: %+v", page)
+		}
+		for _, enabled := range []bool{false, true} {
+			current = acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{
+				Settings: protocol.CodeIndexSettings{Revision: current.Revision, Enabled: true, Persistent: new(enabled)}, ExpectedRevision: current.Revision,
+			}})
+			if current.Persistent == nil || *current.Persistent != enabled || current.PersistentProjects == nil || !slices.Equal(*current.PersistentProjects, []protocol.ProjectID{project.ID}) {
+				t.Fatalf("host persistence settings %+v", current)
+			}
+			for _, worktree := range []protocol.WorktreeID{main, otherMain} {
+				page := codeSearch(t, node, worktree, query)
+				if (page.IndexRevision != 0) != enabled || len(page.Symbols) == 0 {
+					t.Fatalf("host persistence %v returned %+v", enabled, page)
+				}
+			}
 		}
 	})
 

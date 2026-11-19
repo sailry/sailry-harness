@@ -989,8 +989,6 @@ tool_browser_unavailable: 网页不可用
 tool_browser_load_failed: 网页加载失败
 tool_not_executed: 审批已中断，未执行
 chat_execution_unknown: 部分执行结果未确认
-tool_partial: 仅显示部分结果
-tool_output_earlier: 已省略前 %{count} 行
 tool_binary: 二进制文件
 tool_empty: 无输出
 tool_not_found: 未找到目标
@@ -1508,7 +1506,8 @@ settings_appearance: 外观
 settings_conversation: 会话
 settings_conversation_description: 调整会话消息的显示方式
 settings_custom_prompt: "自定义提示词"
-settings_custom_prompt_description: "应用于此主机上所有会话的后续轮次。"
+settings_custom_prompt_description: "适用于此主机上的所有后续对话轮次"
+settings_custom_prompt_placeholder: "输入希望助手遵循的指令"
 settings_custom_prompt_failed: "无法读取或保存自定义提示词"
 settings_custom_prompt_conflict: "主机上的自定义提示词已更改，已保留你的草稿"
 settings_custom_prompt_unknown: "无法确认自定义提示词是否已保存"
@@ -2816,8 +2815,7 @@ settings_demo_mode_description: 显示示例会话，用于验收与截图
 settings_code_index: 代码工具
 settings_code_index_description: 按需搜索和分析项目代码
 settings_code_index_persistent: 完整代码索引
-settings_code_index_persistent_description: 将所选项目的索引保存在磁盘上
-settings_code_index_project: 项目
+settings_code_index_persistent_description: 在此主机上保存完整代码索引
 code_index_settings_saved: 已保存
 code_index_settings_failed: 无法读取或保存代码索引设置
 code_index_settings_conflict: 代码索引设置已更改，请重试

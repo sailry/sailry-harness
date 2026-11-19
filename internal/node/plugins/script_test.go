@@ -181,6 +181,21 @@ func TestScriptControls(t *testing.T) {
 			t.Fatalf("outcome = %v; calls = %d", fault, calls)
 		}
 	})
+	t.Run("cancelled dispatch stays cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		bundle := scriptTestBundle(`import {getValue} from 'sailry/sdk';export async function run(){return await getValue('counter')}`)
+		_, err := RunCallback(ctx, bundle, "run", nil, scriptTestEnvironment(), false, func(dispatchCtx context.Context, _ protocol.Request) (protocol.Output, error) {
+			cancel()
+			<-dispatchCtx.Done()
+			return protocol.Output{}, fmt.Errorf("read interrupted: %w", dispatchCtx.Err())
+		})
+		fault := scriptTestFault(t, err, protocol.ErrorCodeCancelled)
+		if fault.Details == nil || fault.Details.Kind != "system_diagnostic" ||
+			fault.Details.Data.(protocol.NotificationSystemSystemDiagnostic).Reason != protocol.NotificationSystemDiagnosticReasonCancelled {
+			t.Fatalf("cancelled dispatch was reported as a service failure: %#v", fault)
+		}
+	})
 }
 
 func TestScriptSDK(t *testing.T) {

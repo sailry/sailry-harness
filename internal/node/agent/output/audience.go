@@ -44,7 +44,11 @@ func filterAudience(record *canonical.Record, filterResults bool) {
 		}
 		if filterResults {
 			if tool := response(&block); tool != nil {
-				slotProjection{audience: filterResultAudience(tool)}.apply(tool)
+				slots := slotProjection{audience: filterResultAudience(tool)}
+				if projectToolFailure(tool) {
+					slots.clear, slots.clearAttachments = true, true
+				}
+				slots.apply(tool)
 			}
 		}
 		content = append(content, block)
@@ -83,9 +87,13 @@ type slotProjection struct {
 	audience, bounded []int
 	removedField      string
 	clear             bool
+	clearAttachments  bool
 }
 
 func (p slotProjection) apply(tool *canonical.ToolResponse) {
+	if p.clearAttachments {
+		tool.Attachments = nil
+	}
 	if p.clear {
 		tool.Result.Assets = nil
 		return

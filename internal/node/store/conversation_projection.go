@@ -81,6 +81,9 @@ func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
 			}
 		}
 	}
+	if response, ok := block.Data.(*canonical.ToolResponse); ok && raw.Failure == nil && response.Status == canonical.ToolErrorStatus {
+		raw.Failure = new(agentToolFailure(response))
+	}
 	return raw
 }
 func (raw *rawAgentTool) revision(args any) (string, uint64, error) {

@@ -865,8 +865,6 @@ tool_browser_unavailable: "Diese Seite ist nicht verfügbar"
 tool_browser_load_failed: "Die Seite konnte nicht gefunden werden"
 tool_not_executed: "Genehmigung unterbrochen; nicht ausgeführt"
 chat_execution_unknown: "Einige Ausführungsergebnisse sind nicht bestätigt"
-tool_partial: "Teilergebnisse"
-tool_output_earlier: "%{count} frühere Zeilen ausgeblendet"
 tool_binary: "Binärdatei"
 tool_empty: "Keine Ausgabe"
 tool_not_found: "Ziel nicht gefunden"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "Repository-URL"
 settings_conversation: "Unterhaltung"
 settings_conversation_description: "Anpassen der Anzeige von Unterhaltungsnachrichten"
 settings_custom_prompt: "Eigene Anweisungen"
-settings_custom_prompt_description: "Gelten für künftige Anfragen in allen Sitzungen auf diesem Host."
+settings_custom_prompt_description: "Gelten für künftige Anfragen in allen Sitzungen auf diesem Host"
+settings_custom_prompt_placeholder: "Anweisungen für den Assistenten eingeben"
 settings_custom_prompt_failed: "Eigene Anweisungen konnten nicht gelesen oder gespeichert werden."
 settings_custom_prompt_conflict: "Die Anweisungen auf diesem Host wurden geändert. Der Entwurf wurde beibehalten."
 settings_custom_prompt_unknown: "Das Speichern der Anweisungen konnte nicht bestätigt werden."
@@ -2824,8 +2823,7 @@ settings_experimental_description: Entwicklungs- und Debugging-Einstellungen
 settings_code_index: Code-Werkzeuge
 settings_code_index_description: Projektcode bei Bedarf durchsuchen und analysieren
 settings_code_index_persistent: Vollständiger Codeindex
-settings_code_index_persistent_description: Einen Index für das ausgewählte Projekt auf dem Datenträger speichern
-settings_code_index_project: Projekt
+settings_code_index_persistent_description: Vollständige Indizes auf diesem Host speichern
 code_index_settings_saved: Gespeichert
 code_index_settings_failed: Codeindex-Einstellungen konnten nicht geladen oder gespeichert werden
 code_index_settings_conflict: Codeindex-Einstellungen geändert; erneut versuchen

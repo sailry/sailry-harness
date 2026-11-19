@@ -89,8 +89,6 @@ class _CommandDetailBodyState extends State<CommandDetailBody> {
             CodeBlock(text),
           if (stderr['text'] case final String text when text.isNotEmpty)
             CodeBlock(text),
-          if (stdout['truncated'] == true || stderr['truncated'] == true)
-            Text(context.tr('resourcePartial')),
         ],
       );
     },

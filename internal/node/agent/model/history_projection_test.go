@@ -39,6 +39,59 @@ func TestVisibleRecordsCanBeProjectedAgain(t *testing.T) {
 	}
 }
 
+func TestToolFailureRequestUsesMessageAndKeepsRawFallback(t *testing.T) {
+	provider := protocol.DefaultConversationProvider()
+	provider.Api = protocol.ConversationModelApiChatCompletions
+	binding := Binding{Provider: provider, Config: protocol.DefaultSessionConfig()}
+	const reason = "Review is unavailable"
+	for _, row := range []struct {
+		name, body, want, omitted string
+		format                    canonical.ToolFormat
+		status                    canonical.ToolStatus
+	}{
+		{"runtime", `{"code":-32000,"message":"Review is unavailable","data":{"code":"unavailable","details":"internal detail"}}`, "Tool error: " + reason, "internal detail", canonical.MCPError, canonical.ToolErrorStatus},
+		{"mcp", `{"isError":true,"content":[{"type":"text","text":"Private note","annotations":{"audience":["user"]}},{"type":"text","text":"{\"error\":{\"message\":\"Review is unavailable\"},\"details\":\"internal detail\"}"}]}`, "Tool error: " + reason, "internal detail", canonical.MCP, canonical.ToolErrorStatus},
+		{"unknown", `{"code":-32000,"data":{"status":"busy"}}`, `{"code":-32000,"data":{"status":"busy"}}`, "", canonical.MCPError, canonical.ToolErrorStatus},
+		{"success", `{"message":"A business field","data":{"value":7}}`, `{"message":"A business field","data":{"value":7}}`, "", canonical.JSON, canonical.ToolSuccess},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			result := canonical.ToolResponse{ID: "call", Name: "review_scope", Format: row.format, Status: row.status,
+				Revision: strings.Repeat("a", 64), Result: canonical.Payload{Value: json.RawMessage(row.body)}}
+			record := canonical.NewRecord(protocol.NewTurnID(), "message", canonical.NewMessage(canonical.User,
+				canonical.Block{Kind: "tool_response", Data: &result}), time.Time{})
+			records := []canonical.Record{record}
+			cache := output.Cache{}
+			calls := []struct {
+				build   func(Binding, Request) (fantasy.Call, error)
+				records []canonical.Record
+			}{{BuildCall, records}, {BuildProjectedCall, cache.Project(records)}, {BuildProjectedCall, cache.Project(records)}}
+			for _, check := range calls {
+				call, err := check.build(binding, Request{Records: check.records})
+				if err != nil {
+					t.Fatal(err)
+				}
+				tool := call.Prompt[0].Content[0].(fantasy.ToolResultPart)
+				if got := toolText(tool.Output); got != row.want {
+					t.Fatalf("tool result = %q, want %q", got, row.want)
+				}
+			}
+			projected, err := pluginRequest(binding, Request{Records: records})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tool := projected.Messages[0].Data.(*protocol.PluginModelAdapterWireMessageToolPayload)
+			wire := string(tool.Parts[0].Data.(*protocol.PluginModelAdapterWirePartJsonPayload).Value)
+			if tool.IsError != (row.status == canonical.ToolErrorStatus) || row.omitted != "" && (!strings.Contains(wire, reason) || strings.Contains(wire, row.omitted)) ||
+				strings.Contains(wire, "Private note") {
+				t.Fatalf("unexpected plugin adapter result: %s", wire)
+			}
+			if string(result.Result.Value) != row.body {
+				t.Fatal("model projection changed the canonical payload")
+			}
+		})
+	}
+}
+
 func TestRollingSummaryRetainsTailAndResetsReadProjection(t *testing.T) {
 	turn := protocol.NewTurnID()
 	message := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {

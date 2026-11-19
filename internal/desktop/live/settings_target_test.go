@@ -137,21 +137,25 @@ func TestSettingsTarget(t *testing.T) {
 				value.ID, value.Node, value.OwnerUser, value.Revision, value.Paused = input.ID, node, snapshot.User.ID, input.ExpectedRevision+1, input.Paused
 				return output("knowledge_collection", value)
 			case "read_code_index_settings":
-				return output("code_index_settings", protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0, PersistentProjects: &[]protocol.ProjectID{}})
+				value := protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0}
+				if index == 1 {
+					value.Persistent = new(false)
+				}
+				return output("code_index_settings", value)
 			case "save_code_index_settings":
 				input, _ := detail[protocol.CommandSaveCodeIndexSettingsPayload](request.Command.Data)
 				// A second machine switch save finds the original revision,
-				// as after another controller's edit. A project save uses
+				// as after another controller's edit. A persistence save uses
 				// the revision returned by the first switch save.
 				expected := revision
-				if input.Settings.PersistentProjects != nil {
+				if input.Settings.Persistent != nil {
 					expected++
 				}
 				if input.ExpectedRevision != expected {
 					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "code index settings changed before saving"}}, true
 				}
-				if input.Settings.PersistentProjects == nil {
-					input.Settings.PersistentProjects = &[]protocol.ProjectID{}
+				if index == 1 && input.Settings.Persistent == nil {
+					input.Settings.Persistent = new(false)
 				}
 				input.Settings.Revision++
 				return output("code_index_settings", input.Settings)
@@ -490,15 +494,15 @@ func TestSettingsTarget(t *testing.T) {
 		if count(1, "save_sandbox_settings") != 1 || count(1, "save_code_index_settings") != 1 {
 			t.Fatal("conversation settings save did not reach the selected host")
 		}
-		if len(m.CodeIndexProjects) != 1 || m.CodeIndexProjects[0].Value != projects[1].String() {
-			t.Fatalf("project choices are outside the selected host: %+v", m.CodeIndexProjects)
+		if m.PersistentCodeIndex == nil || *m.PersistentCodeIndex {
+			t.Fatalf("persistence was unavailable or enabled by default: %+v", m.PersistentCodeIndex)
 		}
 		beforeCodeIndex := count(0, "save_code_index_settings")
-		m.SaveProjectCodeIndex(projects[1], true)
+		m.SavePersistentCodeIndex(true)
 		settle()
 		if count(1, "save_code_index_settings") != 2 || count(0, "save_code_index_settings") != beforeCodeIndex ||
-			!slices.Equal(m.PersistentCodeIndexProjects, []protocol.ProjectID{projects[1]}) || m.CodeIndex.Revision != 4 {
-			t.Fatalf("remote project selection did not save: %+v, %v", m.CodeIndex, m.PersistentCodeIndexProjects)
+			m.PersistentCodeIndex == nil || !*m.PersistentCodeIndex || m.CodeIndex.Revision != 4 {
+			t.Fatalf("remote persistence did not save: %+v, %v", m.CodeIndex, m.PersistentCodeIndex)
 		}
 		m.Open(settings.Decision)
 		root.localModelsFrame()

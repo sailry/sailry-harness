@@ -8,6 +8,14 @@ import "strings"
 // groupable reports a call that joins the calls around it into one block.
 func groupable(c Call) bool { return !c.Terminal && !c.Standalone }
 
+// foldableTool leaves active calls, interactions, and diagnostics visible.
+func foldableTool(c Call) bool {
+	return groupable(c) && !c.Running && !c.AwaitingModel && !c.Pending &&
+		!c.Failed && !c.Warning && c.State == StateNone && c.Error == "" &&
+		c.Background == nil && c.BackgroundDetail == nil &&
+		(c.Output == nil || c.Output.Failure == "")
+}
+
 // Compact prepares a reply's blocks for display: blank text goes, calls
 // that never group get blocks of their own, and adjacent tool blocks, and
 // adjacent children blocks, join. Failures stay at the end of the answer,

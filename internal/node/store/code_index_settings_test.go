@@ -22,8 +22,8 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 			return fmt.Errorf("default code index settings = %+v, %v", initial, err)
 		}
 		view, err := ViewCodeIndexSettings(ctx, db)
-		if err != nil || !view.Enabled || view.PersistentProjects == nil || len(*view.PersistentProjects) != 0 {
-			return fmt.Errorf("default settings do not advertise project indexing: %+v, %v", view, err)
+		if err != nil || !view.Enabled || view.Persistent == nil || *view.Persistent || view.PersistentProjects == nil || len(*view.PersistentProjects) != 0 {
+			return fmt.Errorf("default settings do not advertise disabled persistence: %+v, %v", view, err)
 		}
 		local, err := LocalUser(ctx, db)
 		if err != nil {
@@ -64,8 +64,11 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 		}
 		selected := []protocol.ProjectID{private, shared}
 		got, err := save(ctx, 0, true, &selected)
-		if err != nil || got.Revision != 1 || !matches(got, private, shared) {
+		if err != nil || got.Revision != 1 || got.Persistent == nil || !*got.Persistent || !matches(got, private, shared) {
 			return fmt.Errorf("selected project settings = %+v, %v", got, err)
+		}
+		if stored, err := ReadCodeIndexSettings(ctx, db); err != nil || stored.Persistent != nil {
+			return fmt.Errorf("legacy project selections broadened to a host-wide preference: %+v, %v", stored, err)
 		}
 		got, err = save(ctx, 1, false, nil)
 		if err != nil || got.Revision != 2 || got.Enabled || !matches(got, private, shared) {
@@ -77,7 +80,7 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 			return fmt.Errorf("administrator sees incorrect project selections: %+v, %v", got, err)
 		}
 		got, err = ViewCodeIndexSettings(WithUser(ctx, member), db)
-		if err != nil || got.Enabled || got.PersistentProjects != nil {
+		if err != nil || got.Enabled || got.Persistent != nil || got.PersistentProjects != nil {
 			return fmt.Errorf("member sees incorrect code tool settings: %+v, %v", got, err)
 		}
 		for _, ids := range [][]protocol.ProjectID{{private}, {shared, shared}, {protocol.NewProjectID()}} {
@@ -105,6 +108,18 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 		if err != nil || got.Revision != 4 || !matches(got) {
 			return fmt.Errorf("owner could not clear their selection: %+v, %v", got, err)
 		}
+		_, err = SaveCodeIndexSettings(WithUser(ctx, member), db, protocol.CodeIndexSettings{Revision: 4, Enabled: true, Persistent: new(true)}, 4)
+		if !errors.As(err, &failure) || failure.Code != protocol.ErrorCodePermissionDenied {
+			return fmt.Errorf("member set host-wide persistence: %v", err)
+		}
+		got, err = SaveCodeIndexSettings(adminCtx, db, protocol.CodeIndexSettings{Revision: 4, Enabled: true, Persistent: new(true)}, 4)
+		if err != nil || got.Revision != 5 || got.Persistent == nil || !*got.Persistent {
+			return fmt.Errorf("administrator could not enable host-wide indexes: %+v, %v", got, err)
+		}
+		got, err = save(ctx, 5, false, &selected)
+		if err != nil || got.Enabled || got.Persistent == nil || !*got.Persistent || !matches(got, private, shared) {
+			return fmt.Errorf("legacy update changed the host-wide preference: %+v, %v", got, err)
+		}
 		return nil
 	})
 	if err != nil {
@@ -113,13 +128,13 @@ func TestCodeIndexProjectSettings(t *testing.T) {
 }
 
 func TestCodeIndexSettingsProjectListJSON(t *testing.T) {
-	for _, field := range []string{"", `,"persistent_projects":[]`} {
+	for _, field := range []string{"", `,"persistent":false`, `,"persistent":true`, `,"persistent_projects":[]`} {
 		expected := `{"revision":0,"enabled":true` + field + "}"
 		var settings protocol.CodeIndexSettings
 		if err := json.Unmarshal([]byte(expected), &settings); err != nil {
 			t.Fatal(err)
 		}
-		if (settings.PersistentProjects == nil) != (field == "") {
+		if (settings.PersistentProjects != nil) != (field == `,"persistent_projects":[]`) {
 			t.Fatalf("incorrect project list presence in %s", expected)
 		}
 		body, err := json.Marshal(settings)

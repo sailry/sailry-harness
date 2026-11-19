@@ -173,16 +173,18 @@ func (node *Node) dispatchCallbackResult(ctx context.Context, request protocol.R
 	}
 	select {
 	case response, open := <-accepted.Completion:
-		if !open {
-			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "callback result was not received"}
+		if open {
+			if response.Fault != nil {
+				return protocol.Output{}, response.Fault
+			}
+			return response.Output, nil
 		}
-		if response.Fault != nil {
-			return protocol.Output{}, response.Fault
-		}
-		return response.Output, nil
 	case <-ctx.Done():
-		return protocol.Output{}, ctx.Err()
+		if !accepted.Receipt.Durable {
+			return protocol.Output{}, ctx.Err()
+		}
 	}
+	return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "callback result was not received; inspect the same request before retrying"}
 }
 
 func (node *Node) waitDispatchTurn(ctx context.Context, turn protocol.QueuedTurn) error {

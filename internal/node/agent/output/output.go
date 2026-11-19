@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
 
@@ -225,6 +226,10 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 
 func projectResponse(response *canonical.ToolResponse, visible bool, reads *fileReads, slots *slotProjection) {
 	original := response.Result.Value
+	if projectToolFailure(response) {
+		slots.clear, slots.clearAttachments = true, true
+		return
+	}
 	source := map[string]any{"call": response.ID, "revision": response.Revision}
 	if response.Format == canonical.MCPError {
 		projectError(response, source)
@@ -261,6 +266,33 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 	slots.clear = response.Format != canonical.MCP
 	response.Format = canonical.MCP
 	response.Result.Value = body
+}
+
+// projectToolFailure keeps the actionable reason and the failure marker in
+// model requests. The stored response remains available for inspection.
+func projectToolFailure(response *canonical.ToolResponse) bool {
+	if response.Status != canonical.ToolErrorStatus && response.Format != canonical.MCPError {
+		return false
+	}
+	message := protocol.ToolErrorMessage(response.Result.Value)
+	if message == "" {
+		return false
+	}
+	source := map[string]any{"call": response.ID, "revision": response.Revision}
+	if response.Format == canonical.MCPError {
+		value := object(decode(response.Result.Value))
+		response.Result.Value = json.RawMessage(encoded(map[string]any{"code": value["code"], "message": message}))
+		projectError(response, source)
+	} else {
+		envelope := map[string]any{
+			"isError": true,
+			"content": []any{map[string]any{"type": "text", "text": message}},
+		}
+		bound(envelope, source, false, false)
+		response.Format = canonical.MCP
+		response.Result.Value = json.RawMessage(encoded(envelope))
+	}
+	return true
 }
 func preview(envelope map[string]any, source map[string]any, reads *fileReads, call string) {
 	original := envelope["structuredContent"]

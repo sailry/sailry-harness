@@ -147,8 +147,6 @@ tool_not_found
 tool_invalid
 tool_denied
 tool_unavailable
-tool_partial
-tool_output_earlier
 task_progress
 turn_cancelled
 turn_queued
@@ -988,6 +986,7 @@ settings_connectors_description
 settings_conversation_description
 settings_custom_prompt
 settings_custom_prompt_description
+settings_custom_prompt_placeholder
 settings_custom_prompt_failed
 settings_custom_prompt_conflict
 settings_custom_prompt_unknown
@@ -2308,7 +2307,6 @@ settings_code_index
 settings_code_index_description
 settings_code_index_persistent
 settings_code_index_persistent_description
-settings_code_index_project
 code_index_settings_saved
 code_index_settings_failed
 code_index_settings_conflict

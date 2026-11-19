@@ -59,3 +59,45 @@ func TestObserverToolDetailContentPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestObserverToolFailureSeparatesMessageAndDetail(t *testing.T) {
+	const path = "src/review.go"
+	const message = "The reviewed path is missing"
+	summary := &protocol.ToolDetailSummary{
+		HasDetails: true,
+		Path:       new(path),
+		Error:      new(message),
+		Failure:    &protocol.ToolFailure{Origin: protocol.ToolFailureOriginTool},
+	}
+	call := ToolCall{State: "returned", Summary: summary}
+	value := projectToolCall(protocol.ConversationPage{}, call)
+	row := value["row"].(map[string]any)
+	detail, _ := row["detail"].(*protocol.ToolDetailText)
+	if detail == nil || detail.Text != path || value["error"] != message || value["error_detail"] != nil {
+		t.Fatalf("known tool failure changed its input or requested the original result: %+v", value)
+	}
+
+	summary.Error = nil
+	value = projectToolCall(protocol.ConversationPage{}, call)
+	if value["error"] != nil || value["error_detail"] != true {
+		t.Fatalf("unexplained tool failure did not expose the original result: %+v", value)
+	}
+	for _, code := range []protocol.ErrorCode{
+		protocol.ErrorCodeCancelled, protocol.ErrorCodeOutcomeUnknown, protocol.ErrorCodePermissionDenied,
+	} {
+		summary.Failure.Code = &code
+		if toolNeedsErrorDetail(call) {
+			t.Errorf("%s requested an original result", code)
+		}
+	}
+	summary.Failure.Code = new(protocol.ErrorCodeNotFound)
+	summary.Expected = new(protocol.ToolResultExpectedFileNotFound)
+	if toolNeedsErrorDetail(call) {
+		t.Fatal("an expected result requested details")
+	}
+	summary.Failure.Code, summary.Expected = nil, nil
+	call.Approval = &protocol.ConversationApproval{State: "denied"}
+	if toolNeedsErrorDetail(call) {
+		t.Fatal("a denied call requested details")
+	}
+}

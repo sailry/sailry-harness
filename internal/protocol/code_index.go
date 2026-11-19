@@ -291,8 +291,11 @@ func (value CodeIndexOutline) MarshalJSON() ([]byte, error) {
 type CodeIndexSettings struct {
 	Revision uint64 `json:"revision"`
 	Enabled  bool   `json:"enabled"`
+	// Persistent sets the selected Node's full index policy. Nil preserves
+	// the saved policy on update.
+	Persistent *bool `json:"persistent,omitempty"`
 	// PersistentProjects opts specific projects into the full on-disk index.
-	// An omitted list leaves the saved preference in place on update.
+	// The list applies to older settings until Persistent is set.
 	PersistentProjects *[]ProjectID `json:"persistent_projects,omitempty"`
 }
 

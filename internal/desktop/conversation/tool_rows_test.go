@@ -8,19 +8,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-func TestToolRowsKeepExecutionInputWithoutResultText(t *testing.T) {
+func TestToolRowsKeepExecutionInput(t *testing.T) {
 	const command = "go test ./internal/node/agent/..."
 	const raw = `{"error":"process exited with code 2","stdout":"original output"}`
 	for _, test := range []struct {
 		name string
 		call Call
+		open bool
 	}{
-		{"failed", Call{Failed: true}},
-		{"denied", Call{State: Denied, Warning: true}},
-		{"interrupted", Call{State: StateInterrupted, Warning: true}},
-		{"not_executed", Call{State: NotExecuted, Warning: true}},
-		{"tool_failure", Call{Warning: true}},
-		{"background", Call{Background: &Background{Outcome: OutcomeFailed, Waiting: true}}},
+		{"failed", Call{Failed: true}, true},
+		{"denied", Call{State: Denied, Warning: true}, false},
+		{"interrupted", Call{State: StateInterrupted, Warning: true}, false},
+		{"not_executed", Call{State: NotExecuted, Warning: true}, false},
+		{"tool_failure", Call{Warning: true}, true},
+		{"background", Call{Background: &Background{Outcome: OutcomeFailed, Waiting: true}}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call := test.call
@@ -39,8 +40,8 @@ func TestToolRowsKeepExecutionInputWithoutResultText(t *testing.T) {
 			}, 900, 300)
 			tester.SetLocale("zh-CN")
 			tester.Frame()
-			if !tester.HasText("Command") || !tester.HasText(command) || tester.HasText(raw) {
-				t.Fatalf("collapsed row lost its execution input or displayed the result: %q", tester.Texts())
+			if !tester.HasText("Command") || !tester.HasText(command) || tester.HasText(raw) != test.open {
+				t.Fatalf("row lost its execution input or has the wrong default disclosure: %q", tester.Texts())
 			}
 			for _, key := range []string{"tool_failed", "approval_rejected", "tool_interrupted", "tool_not_executed", "background_result_waiting"} {
 				if tester.HasText(i18n.In("zh-CN", key)) {
@@ -50,10 +51,12 @@ func TestToolRowsKeepExecutionInputWithoutResultText(t *testing.T) {
 			if call.Failed && status != danger || (call.State != StateNone || call.Background != nil) && status != warning {
 				t.Fatal("hiding status text changed the failure or warning color")
 			}
-			if err := tester.Click("Command"); err != nil {
-				t.Fatal(err)
+			if !test.open {
+				if err := tester.Click("Command"); err != nil {
+					t.Fatal(err)
+				}
+				tester.Frame()
 			}
-			tester.Frame()
 			if !tester.HasText(raw) || !tester.HasText(command) || tester.HasText(call.Error) {
 				t.Fatalf("expanded output changed the original result or replaced the execution input: %q", tester.Texts())
 			}
@@ -70,8 +73,15 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 		state.row(c, call)
 	}, 900, 300)
 	tester.Frame()
+	if !tester.HasText(failure) || !tester.HasText(call.Detail) {
+		t.Fatalf("failed row did not open onto its message: %q", tester.Texts())
+	}
+	if err := tester.Click("Command"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
 	if tester.HasText(failure) || !tester.HasText(call.Detail) {
-		t.Fatalf("collapsed row shows a failure in place of the command: %q", tester.Texts())
+		t.Fatalf("collapsing the failure changed its command: %q", tester.Texts())
 	}
 	if err := tester.Click("Command"); err != nil {
 		t.Fatal(err)

@@ -246,7 +246,7 @@ func pluginRequest(binding Binding, request Request) (protocol.PluginModelAdapte
 					name = captured
 				}
 				input.Messages = append(input.Messages, protocol.PluginModelAdapterWireMessage{Kind: "tool", Data: &protocol.PluginModelAdapterWireMessageToolPayload{
-					CallID: content.ID, Name: name, IsError: content.Status == canonical.ToolErrorStatus,
+					CallID: content.ID, Name: name, IsError: content.Status == canonical.ToolErrorStatus || content.Format == canonical.MCPError,
 					Parts: []protocol.PluginModelAdapterWirePart{{Kind: "json", Data: &protocol.PluginModelAdapterWirePartJsonPayload{Value: raw}}},
 				}})
 			case *canonical.AssetContent:

@@ -262,7 +262,7 @@ func (owner *conversationObserver) syncDetails(calls []ToolCall) {
 	wanted := map[string]protocol.ToolDetailReference{}
 	for _, call := range calls {
 		if !owner.selected[call.Source] || call.Reference == nil || call.Summary == nil ||
-			!(call.Approval != nil && call.Approval.State == "pending" || call.Summary.Published) {
+			!(call.Approval != nil && call.Approval.State == "pending" || call.Summary.Published || toolNeedsErrorDetail(call)) {
 			continue
 		}
 		key := detailKey(*call.Reference)

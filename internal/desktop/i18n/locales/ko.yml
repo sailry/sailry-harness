@@ -139,8 +139,6 @@ tool_not_found: 대상을 찾을 수 없습니다
 tool_invalid: 잘못된 인자
 tool_denied: 대상에 접근할 수 없음
 tool_unavailable: 사용할 수 없는 도구
-tool_partial: 부분 결과
-tool_output_earlier: 이전 %{count}줄 생략
 task_progress: 작업 진행 상태
 turn_cancelled: 중지됨
 turn_queued: 대기열
@@ -968,7 +966,8 @@ settings_connections_description: 페어링된 장치 및 원격 Node 연결 관
 settings_connectors_description: 서비스 연결 관리
 settings_conversation_description: 대화 메시지 표시 방법 조절하기
 settings_custom_prompt: 사용자 지정 지침
-settings_custom_prompt_description: 이 호스트의 모든 세션에서 다음 대화 차례부터 적용됩니다.
+settings_custom_prompt_description: 이 호스트의 모든 세션에서 다음 대화 차례부터 적용됩니다
+settings_custom_prompt_placeholder: 어시스턴트가 따를 지침 입력
 settings_custom_prompt_failed: 사용자 지정 지침을 읽거나 저장할 수 없습니다.
 settings_custom_prompt_conflict: 이 호스트의 지침이 변경되었습니다. 초안은 유지되었습니다.
 settings_custom_prompt_unknown: 사용자 지정 지침의 저장 여부를 확인할 수 없습니다.
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: 코드 도구
 settings_code_index_description: 필요할 때 프로젝트 코드 검색 및 분석
 settings_code_index_persistent: 전체 코드 색인
-settings_code_index_persistent_description: 선택한 프로젝트의 색인을 디스크에 저장
-settings_code_index_project: 프로젝트
+settings_code_index_persistent_description: 이 호스트에 전체 색인 저장
 code_index_settings_saved: 저장됨
 code_index_settings_failed: 코드 색인 설정을 불러오거나 저장할 수 없음
 code_index_settings_conflict: 코드 색인 설정이 변경되었습니다. 다시 시도하세요

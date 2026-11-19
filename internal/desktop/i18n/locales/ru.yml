@@ -139,8 +139,6 @@ tool_not_found: Цель не найдена
 tool_invalid: Неправильные аргументы
 tool_denied: Не удается получить доступ к объекту
 tool_unavailable: Инструмент недоступен
-tool_partial: Частичные результаты
-tool_output_earlier: 'Скрыто предыдущих строк: %{count}'
 task_progress: Ход выполнения задачи
 turn_cancelled: Остановлено
 turn_queued: В очереди
@@ -968,7 +966,8 @@ settings_connections_description: Управление сопряженными 
 settings_connectors_description: Управление подключениями к сервисам
 settings_conversation_description: Настройка отображения сообщений в разговоре
 settings_custom_prompt: Пользовательские инструкции
-settings_custom_prompt_description: Применяются к следующим запросам во всех сеансах на этом узле.
+settings_custom_prompt_description: Применяются к следующим запросам во всех сеансах на этом узле
+settings_custom_prompt_placeholder: Введите инструкции для помощника
 settings_custom_prompt_failed: Не удалось прочитать или сохранить пользовательские инструкции.
 settings_custom_prompt_conflict: Инструкции на узле изменились. Черновик сохранён.
 settings_custom_prompt_unknown: Не удалось подтвердить сохранение инструкций.
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: Инструменты для кода
 settings_code_index_description: Искать и анализировать код проекта по запросу
 settings_code_index_persistent: Полный индекс кода
-settings_code_index_persistent_description: Хранить индекс выбранного проекта на диске
-settings_code_index_project: Проект
+settings_code_index_persistent_description: Хранить полные индексы на этом узле
 code_index_settings_saved: Сохранено
 code_index_settings_failed: Не удалось загрузить или сохранить настройки индекса кода
 code_index_settings_conflict: Настройки индекса кода изменились; повторите

@@ -502,7 +502,7 @@ func TestConversationProjection(t *testing.T) {
 		loaded := protocol.ToolDetail{Result: &raw, Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{{Kind: "text", Data: protocol.ToolContentText{Path: "/text"}}, {Kind: "table", Data: protocol.ToolContentTable{Columns: []string{"Key"}, Rows: [][]string{{"Value"}}}}, {Kind: "diff", Data: protocol.ToolContentDiff{Path: "notes.txt", Text: "+new\n-old", Truncated: true}}}}}
 		call := conversation.Call{Output: &conversation.Output{Text: "Preview"}}
 		projectToolContent(&call, loaded)
-		if call.Output.Text != "Full output" || call.Output.Table == nil || len(call.Output.Table.Rows) != 1 || call.Output.Diff == nil || call.Output.Diff.Added != 1 || call.Output.Diff.Removed != 1 || !call.Output.Partial {
+		if call.Output.Text != "Full output" || call.Output.Table == nil || len(call.Output.Table.Rows) != 1 || call.Output.Diff == nil || call.Output.Diff.Added != 1 || call.Output.Diff.Removed != 1 {
 			t.Fatalf("structured detail=%#v", call.Output)
 		}
 	})

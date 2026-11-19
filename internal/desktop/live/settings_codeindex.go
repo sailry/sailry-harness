@@ -1,19 +1,14 @@
 package live
 
 import (
-	"slices"
-
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type codeIndexSettingsState struct {
 	settings.Stored[bool]
-	projects        []protocol.ProjectID
-	projectOptions  []kit.SelectOption
-	projectRevision uint64
+	persistent *bool
 }
 
 func (r *Runtime) readCodeIndex() {
@@ -51,31 +46,21 @@ func (r *Runtime) saveCodeIndex() {
 	r.saveCodeIndexSettings(nil)
 }
 
-func (r *Runtime) saveProjectCodeIndex(project protocol.ProjectID, enabled bool) {
+func (r *Runtime) savePersistentCodeIndex(enabled bool) {
 	m := &r.codeIndexSettings
-	if m.Pending || !m.Saved {
+	if m.Pending || !m.Saved || m.persistent == nil || *m.persistent == enabled {
 		return
 	}
-	projects := slices.Clone(m.projects)
-	index := slices.Index(projects, project)
-	switch {
-	case enabled && index < 0:
-		projects = append(projects, project)
-	case !enabled && index >= 0:
-		projects = slices.Delete(projects, index, index+1)
-	default:
-		return
-	}
-	r.saveCodeIndexSettings(&projects)
+	r.saveCodeIndexSettings(new(enabled))
 }
 
-func (r *Runtime) saveCodeIndexSettings(projects *[]protocol.ProjectID) {
+func (r *Runtime) saveCodeIndexSettings(persistent *bool) {
 	m := &r.codeIndexSettings
 	m.Pending = true
 	r.publishCodeIndex()
 	command := protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{
 		Settings: protocol.CodeIndexSettings{
-			Revision: m.Revision, Enabled: m.Draft, PersistentProjects: projects,
+			Revision: m.Revision, Enabled: m.Draft, Persistent: persistent,
 		},
 		ExpectedRevision: m.Revision,
 	}}
@@ -97,28 +82,12 @@ func (r *Runtime) saveCodeIndexSettings(projects *[]protocol.ProjectID) {
 
 func (m *codeIndexSettingsState) load(value protocol.CodeIndexSettings) {
 	m.Saved, m.Revision = value.Enabled, value.Revision
-	m.projects = nil
-	if value.PersistentProjects != nil {
-		m.projects = *value.PersistentProjects
-	}
+	m.persistent = value.Persistent
 }
 
 func (r *Runtime) publishCodeIndex() {
 	if r.showsSettings() {
 		r.App.Settings.CodeIndex = r.codeIndexSettings.Stored
-		r.App.Settings.PersistentCodeIndexProjects = r.codeIndexSettings.projects
+		r.App.Settings.PersistentCodeIndex = r.codeIndexSettings.persistent
 	}
-}
-
-func (r *Runtime) publishCodeIndexProjects() {
-	m := &r.codeIndexSettings
-	snapshot, revision := r.snapshotAt()
-	if m.projectOptions == nil || m.projectRevision != revision {
-		m.projectOptions = make([]kit.SelectOption, 0, len(snapshot.Projects))
-		m.projectRevision = revision
-		for _, project := range snapshot.Projects {
-			m.projectOptions = append(m.projectOptions, kit.SelectOption{Value: project.ID.String(), Label: project.Name})
-		}
-	}
-	r.App.Settings.CodeIndexProjects = m.projectOptions
 }

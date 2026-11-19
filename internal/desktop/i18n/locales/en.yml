@@ -139,8 +139,6 @@ tool_not_found: Target not found
 tool_invalid: Invalid arguments
 tool_denied: Cannot access target
 tool_unavailable: Tool unavailable
-tool_partial: Partial results
-tool_output_earlier: '%{count} earlier lines hidden'
 task_progress: Task progress
 turn_cancelled: Stopped
 turn_queued: Queued
@@ -968,7 +966,8 @@ settings_connections_description: Manage paired devices and remote Node connecti
 settings_connectors_description: Manage service connections
 settings_conversation_description: Adjust how conversation messages are displayed
 settings_custom_prompt: Custom prompt
-settings_custom_prompt_description: Applies to future turns in all sessions on this host.
+settings_custom_prompt_description: Applies to future turns in all sessions on this host
+settings_custom_prompt_placeholder: Enter instructions for the assistant
 settings_custom_prompt_failed: Could not read or save the custom prompt.
 settings_custom_prompt_conflict: The custom prompt changed on this host. Your draft was kept.
 settings_custom_prompt_unknown: The custom prompt save could not be confirmed.
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: Code tools
 settings_code_index_description: Search and analyze project code on demand
 settings_code_index_persistent: Full code index
-settings_code_index_persistent_description: Keep an on-disk index for the selected project
-settings_code_index_project: Project
+settings_code_index_persistent_description: Keep full indexes on this host
 code_index_settings_saved: Saved
 code_index_settings_failed: Could not load or save code index settings
 code_index_settings_conflict: Code index settings changed; try again

@@ -865,8 +865,6 @@ tool_browser_unavailable: "ページが利用できません"
 tool_browser_load_failed: "ページを読み込めませんでした"
 tool_not_executed: "承認が中断されました。実行されません"
 chat_execution_unknown: "いくつかの実行結果は確認されていません"
-tool_partial: "部分結果"
-tool_output_earlier: "前の %{count} 行を省略"
 tool_binary: "バイナリファイル"
 tool_empty: "出力なし"
 tool_not_found: "ターゲットが見つかりません"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "リポジトリ URL"
 settings_conversation: "会話"
 settings_conversation_description: "会話メッセージの表示方法を調整します"
 settings_custom_prompt: "カスタム指示"
-settings_custom_prompt_description: "このホスト上のすべてのセッションの次のターンから適用されます。"
+settings_custom_prompt_description: "このホスト上のすべてのセッションの次のターンから適用されます"
+settings_custom_prompt_placeholder: "アシスタントへの指示を入力"
 settings_custom_prompt_failed: "カスタム指示を読み込むか保存することができませんでした。"
 settings_custom_prompt_conflict: "このホストのカスタム指示が変更されました。下書きは保持されています。"
 settings_custom_prompt_unknown: "カスタム指示が保存されたか確認できませんでした。"
@@ -2824,8 +2823,7 @@ settings_experimental_description: 開発とデバッグの設定
 settings_code_index: コードツール
 settings_code_index_description: 必要に応じてプロジェクトのコードを検索・分析
 settings_code_index_persistent: 完全なコードインデックス
-settings_code_index_persistent_description: 選択したプロジェクトのインデックスをディスクに保存
-settings_code_index_project: プロジェクト
+settings_code_index_persistent_description: このホストに完全なインデックスを保存
 code_index_settings_saved: 保存しました
 code_index_settings_failed: コードインデックスの設定を読み込みまたは保存できませんでした
 code_index_settings_conflict: コードインデックスの設定が変更されました。再試行してください

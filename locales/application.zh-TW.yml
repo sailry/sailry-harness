@@ -1062,8 +1062,6 @@ tool_browser_unavailable: "網頁不可用"
 tool_browser_load_failed: "網頁載入失敗"
 tool_not_executed: "審批已中斷，未執行"
 chat_execution_unknown: "部分執行結果未確認"
-tool_partial: "僅顯示部分結果"
-tool_output_earlier: "已省略前 %{count} 行"
 tool_binary: "二進位制檔案"
 tool_empty: "無輸出"
 tool_not_found: "未找到目標"
@@ -1565,7 +1563,8 @@ settings_appearance: "外觀"
 settings_conversation: "會話"
 settings_conversation_description: "調整會話訊息的顯示方式"
 settings_custom_prompt: "自訂提示詞"
-settings_custom_prompt_description: "套用至此主機上所有對話的後續回合。"
+settings_custom_prompt_description: "適用於此主機上的所有後續對話回合"
+settings_custom_prompt_placeholder: "輸入希望助理遵循的指示"
 settings_custom_prompt_failed: "無法讀取或儲存自訂提示詞"
 settings_custom_prompt_conflict: "主機上的自訂提示詞已變更，已保留你的草稿"
 settings_custom_prompt_unknown: "無法確認是否已儲存自訂提示詞"
@@ -2824,8 +2823,7 @@ settings_experimental_description: 開發與除錯設定
 settings_code_index: 程式碼工具
 settings_code_index_description: 按需搜尋和分析專案程式碼
 settings_code_index_persistent: 完整程式碼索引
-settings_code_index_persistent_description: 將所選專案的索引儲存在磁碟上
-settings_code_index_project: 專案
+settings_code_index_persistent_description: 在此主機上儲存完整程式碼索引
 code_index_settings_saved: 已儲存
 code_index_settings_failed: 無法讀取或儲存程式碼索引設定
 code_index_settings_conflict: 程式碼索引設定已變更，請重試

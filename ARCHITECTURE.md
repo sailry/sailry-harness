@@ -313,8 +313,9 @@ The live scan bounds the number of files parsed, source bytes examined, result
 rows and elapsed scan time. Results report incomplete coverage when bounds or
 graph selection leave part of the worktree unchecked.
 
-A machine administrator can enable persistent search and graph indexes per
-project. The first such query opens the derived worktree index under
+A machine administrator can enable persistent search and graph indexes for the
+Node. Saved project-specific selections keep their existing scope until that
+switch is changed. The first such query opens the derived worktree index under
 `cache/code-index/<WorktreeId>/index.turso`. Version 2 keeps typed declaration
 fields and uses numeric file IDs for declaration, reference and import rows.
 Recognized version 1 caches are rebuilt on first persistent use. Data, lock,
@@ -628,7 +629,7 @@ input or approval remains visible when background work is active.
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
-| Code index | On-demand gotreesitter queries with optional per-project persistence and bounded name-based graph resolution |
+| Code index | On-demand gotreesitter queries with optional Node-wide persistence and bounded name-based graph resolution |
 | Local models | Verified explicit installation, one CPU inference at a time, interactive priority and idle engine release |
 | Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
 | Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |
@@ -853,7 +854,10 @@ cards show the last 100 retained lines. Copy reads the full retained output
 on demand when the captured result was truncated.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
-cancels outstanding reads when it closes or leaves the virtualized list. Visible
+cancels outstanding reads when it closes or leaves the virtualized list.
+Consecutive settled tool calls share a folded group, with active calls and
+failures visible in their own rows. A failed call displays its error message
+when one is available and falls back to its original result. Visible
 conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane
 previews release images after their last visible use. Installed themes validate

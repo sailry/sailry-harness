@@ -188,27 +188,33 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 		if exists {
 			continue
 		}
-		failure := protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime}
-		if response.Format == canonical.MCP || response.Format == canonical.MCPError {
-			failure.Origin = protocol.ToolFailureOriginTool
-		}
-		if response.Format == canonical.MCPError {
-			value := agentObject(agentJSON(response.Result.Value))
-			body, _ := json.Marshal(value["data"])
-			var fault protocol.Fault
-			if json.Unmarshal(body, &fault) == nil {
-				failure.Origin = protocol.ToolFailureOriginRuntime
-				failure.Code = &fault.Code
-				// The call ran and the tool refused what it was asked, as
-				// reading a folder as a file: the tool's own error, not a
-				// call that did not run.
-				switch fault.Code {
-				case protocol.ErrorCodeInvalidRequest, protocol.ErrorCodeNotFound, protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
-					failure.Origin = protocol.ToolFailureOriginTool
-				}
-			}
-		}
-		presentation.Failures = append(presentation.Failures, canonical.ToolFailure{Index: block.Index, ID: response.ID, Name: response.Name, Failure: failure})
+		presentation.Failures = append(presentation.Failures, canonical.ToolFailure{
+			Index: block.Index, ID: response.ID, Name: response.Name, Failure: agentToolFailure(response),
+		})
 	}
 	return nil
+}
+
+func agentToolFailure(response *canonical.ToolResponse) protocol.ToolFailure {
+	switch response.Format {
+	case canonical.MCP:
+		return protocol.ToolFailure{Origin: protocol.ToolFailureOriginTool}
+	case canonical.MCPError:
+		var envelope struct {
+			Data json.RawMessage `json:"data"`
+		}
+		var fault protocol.Fault
+		if json.Unmarshal(response.Result.Value, &envelope) != nil || json.Unmarshal(envelope.Data, &fault) != nil {
+			return protocol.ToolFailure{Origin: protocol.ToolFailureOriginTool}
+		}
+		failure := protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime, Code: &fault.Code}
+		switch fault.Code {
+		case protocol.ErrorCodeInvalidRequest, protocol.ErrorCodeNotFound, protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
+			// The call ran and the tool refused what it was asked.
+			failure.Origin = protocol.ToolFailureOriginTool
+		}
+		return failure
+	default:
+		return protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime}
+	}
 }

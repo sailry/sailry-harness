@@ -172,6 +172,38 @@ func toolHasDetails(call ToolCall) bool {
 	return (call.Approval == nil || call.Approval.State != "denied") && call.Summary != nil && call.Summary.HasDetails
 }
 
+func displayToolFailure(summary *protocol.ToolDetailSummary) *protocol.ToolFailure {
+	if summary == nil || summary.Failure == nil {
+		return nil
+	}
+	failure := summary.Failure
+	if failure.Code != nil {
+		switch *failure.Code {
+		case protocol.ErrorCodeCancelled, protocol.ErrorCodeOutcomeUnknown:
+			return nil
+		case protocol.ErrorCodeNotFound:
+			if summary.Expected != nil {
+				return nil
+			}
+		}
+	}
+	return failure
+}
+
+// toolNeedsErrorDetail is shared by the observer view and detail admission.
+// A recognized permission failure can be rendered directly from its code.
+func toolNeedsErrorDetail(call ToolCall) bool {
+	if call.State != "returned" || !toolHasDetails(call) || toolHidden(call) {
+		return false
+	}
+	failure := displayToolFailure(call.Summary)
+	if failure == nil || failure.Origin != protocol.ToolFailureOriginRuntime && failure.Origin != protocol.ToolFailureOriginTool ||
+		failure.Code != nil && *failure.Code == protocol.ErrorCodePermissionDenied {
+		return false
+	}
+	return call.Summary.Error == nil || strings.TrimSpace(*call.Summary.Error) == ""
+}
+
 // HistoricalCommandDetail selects a result outside the activity window. The
 // revision identifies the result to inspect, not permission to read a process.
 func HistoricalCommandDetail(page protocol.ConversationPage, ref protocol.ToolDetailReference, name string, summary *protocol.ToolDetailSummary) *HistoricalCommandReference {
@@ -233,6 +265,12 @@ func projectToolCall(page protocol.ConversationPage, call ToolCall) map[string]a
 		value["published"] = summary.Published
 		if summary.Failure != nil {
 			value["failure"] = summary.Failure
+			if summary.Error != nil {
+				value["error"] = *summary.Error
+			}
+			if toolNeedsErrorDetail(call) {
+				value["error_detail"] = true
+			}
 		}
 		if summary.Progress != nil {
 			value["progress"] = summary.Progress
@@ -254,18 +292,14 @@ func toolRow(call ToolCall) map[string]any {
 	var state any
 	summary := call.Summary
 	var code *protocol.ErrorCode
-	var failure *protocol.ToolFailure
+	failure := displayToolFailure(summary)
 	if summary != nil {
 		icon = summary.Icon
 		if summary.Resolved != nil {
 			label, detail = summary.Resolved.Label, summary.Resolved.Input.Summary
 		}
-		failure = summary.Failure
-		if failure != nil {
-			code = failure.Code
-		}
-		if code != nil && *code == "not_found" && summary.Expected != nil || code != nil && (*code == "cancelled" || *code == "outcome_unknown") {
-			failure = nil
+		if summary.Failure != nil {
+			code = summary.Failure.Code
 		}
 		if detail == nil && summary.Path != nil {
 			detail = &protocol.ToolDetailText{Text: *summary.Path}
@@ -292,9 +326,6 @@ func toolRow(call ToolCall) map[string]any {
 	running := call.State == "running" && !denied && failure == nil && !pending
 	if running {
 		state = nil
-	}
-	if (failed || warning) && !denied && summary != nil && summary.Error != nil && strings.TrimSpace(*summary.Error) != "" {
-		detail = &protocol.ToolDetailText{Text: *summary.Error}
 	}
 	return map[string]any{
 		"label": label, "icon": icon, "detail": detail, "state": state, "failed": !denied && failed,

@@ -439,12 +439,15 @@ void main() {
         jsonEncode({
           'outcome': 'failed',
           'exit_code': 7,
-          'stdout': {'text': 'old output'},
+          'failure': _commandFailure,
+          'stdout': {'text': 'old output', 'truncated': true},
           'stderr': {'text': 'old error'},
         }),
       );
       await tester.pumpAndSettle();
       expect(find.text('${tr('backgroundFailed')} (7)'), findsOneWidget);
+      expect(find.text(_commandFailure), findsOneWidget);
+      expect(find.text(tr('resourcePartial')), findsNothing);
       expect(
         tester.widgetList<CodeBlock>(find.byType(CodeBlock)).map((w) => w.text),
         ['old output', 'old error'],

@@ -489,6 +489,12 @@ func scriptFault(err error) *protocol.Fault {
 	if errors.As(err, &fault) {
 		return fault
 	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "plugin callback cancelled"}
+	case errors.Is(err, context.DeadlineExceeded):
+		return &protocol.Fault{Code: protocol.ErrorCodeExpired, Message: "plugin callback response timed out"}
+	}
 	return &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "plugin host service failed"}
 }
 

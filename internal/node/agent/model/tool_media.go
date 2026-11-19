@@ -96,28 +96,29 @@ func responseContent(binding Binding, response canonical.ToolResponse, assets ma
 	}
 	var content toolContent
 	var value map[string]json.RawMessage
+	failed := response.Status == canonical.ToolErrorStatus || response.Format == canonical.MCPError
+	if failed {
+		if message := protocol.ToolErrorMessage(json.RawMessage(raw)); message != "" {
+			return "Tool error: " + message, nil, nil
+		}
+	}
 	switch response.Format {
 	case canonical.JSON:
 		content.texts = []string{raw}
 	case canonical.MCPError:
-		if err := json.Unmarshal([]byte(raw), &value); err != nil {
-			return "", nil, err
-		}
-		var message string
-		json.Unmarshal(value["message"], &message)
-		var code any
-		json.Unmarshal(value["code"], &code)
-		failure := fmt.Sprintf("Mcp error: %v: %s", code, message)
-		if data := value["data"]; len(data) > 0 && string(data) != "null" {
-			failure += " data: " + string(data)
-		}
-		return "The tool call returned the following error:\n" + failure, nil, nil
+		return raw, nil, nil
 	default:
 		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			if failed {
+				return raw, nil, nil
+			}
 			return "", nil, err
 		}
 		var parts []map[string]json.RawMessage
 		if err := json.Unmarshal(value["content"], &parts); err != nil {
+			if failed {
+				return raw, nil, nil
+			}
 			return "", nil, err
 		}
 		for _, part := range parts {
@@ -178,6 +179,9 @@ func responseContent(binding Binding, response canonical.ToolResponse, assets ma
 	if response.Format == canonical.MCP && len(content.texts) == 0 && len(content.media) == 0 {
 		if structured := value["structuredContent"]; len(structured) > 0 {
 			return string(structured), nil, nil
+		}
+		if failed {
+			return raw, nil, nil
 		}
 	}
 	return strings.Join(content.texts, " "), content.media, nil

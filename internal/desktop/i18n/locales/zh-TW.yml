@@ -139,8 +139,6 @@ tool_not_found: 未找到目標
 tool_invalid: 引數無效
 tool_denied: 無法訪問目標
 tool_unavailable: 工具暫不可用
-tool_partial: 僅顯示部分結果
-tool_output_earlier: 已省略前 %{count} 行
 task_progress: 任務進度
 turn_cancelled: 已停止
 turn_queued: 等待處理
@@ -968,7 +966,8 @@ settings_connections_description: 管理配對裝置和遠端 Node 連線
 settings_connectors_description: 管理服務連線
 settings_conversation_description: 調整會話訊息的顯示方式
 settings_custom_prompt: 自訂提示詞
-settings_custom_prompt_description: 套用至此主機上所有對話的後續回合。
+settings_custom_prompt_description: 適用於此主機上的所有後續對話回合
+settings_custom_prompt_placeholder: 輸入希望助理遵循的指示
 settings_custom_prompt_failed: 無法讀取或儲存自訂提示詞
 settings_custom_prompt_conflict: 主機上的自訂提示詞已變更，已保留你的草稿
 settings_custom_prompt_unknown: 無法確認是否已儲存自訂提示詞
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: 程式碼工具
 settings_code_index_description: 按需搜尋和分析專案程式碼
 settings_code_index_persistent: 完整程式碼索引
-settings_code_index_persistent_description: 將所選專案的索引儲存在磁碟上
-settings_code_index_project: 專案
+settings_code_index_persistent_description: 在此主機上儲存完整程式碼索引
 code_index_settings_saved: 已儲存
 code_index_settings_failed: 無法讀取或儲存程式碼索引設定
 code_index_settings_conflict: 程式碼索引設定已變更，請重試

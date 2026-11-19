@@ -298,12 +298,6 @@
     }
   ],
   "notices": {
-    "truncated": {
-      "label": "Output was truncated",
-      "locales": {
-        "zh-CN": "输出已截断"
-      }
-    },
     "encoding": {
       "label": "Some output could not be decoded",
       "locales": {

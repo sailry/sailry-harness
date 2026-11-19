@@ -73,7 +73,6 @@ flaky.0.answer: |-
 
   `Reserve` 先检查座位是否被占用，再插入预订记录，这是**两条独立的语句**。两个同时到达的请求都会看到座位空闲。测试没有问题，是代码存在竞态。
 flaky.1.user: "修掉它，然后跑一遍完整的测试。"
-flaky.table.notice: "显示 12 行中的 3 行"
 flaky.1.answer: |-
   已修复。检查和插入现在处于同一个可串行化事务中，第二个请求会以 `ErrSeatTaken` 失败。
 
@@ -578,3 +577,4 @@ controller_login.title: 登录后继续
 controller_login.0.user: 总结一下部署检查结果。
 controller_login.0.partial: 部署检查结果已收集，可以开始总结。
 controller_login.1.user: 继续总结。
+flaky.suite.encoding: "部分输出无法解码"

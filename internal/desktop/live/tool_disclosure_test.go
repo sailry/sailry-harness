@@ -71,18 +71,51 @@ func TestHiddenToolFailuresRetainDetails(t *testing.T) {
 				t.Fatalf("hidden failure lost its row: %#v", turns[0].Reply.Blocks)
 			}
 			cv := &viewmodel.Conversation{Turns: turns}
-			// An empty detail cache must bind the original request's identity to
-			// the result's lazy loader, rather than quietly dropping the error.
+			// A captured message is enough to display the original failure
+			// without requesting the raw result.
 			root := &Runtime{controller: new(client.Client)}
 			root.enrichDetails(cv, state)
 			call := &cv.Turns[0].Reply.Blocks[1].Calls[0]
-			if call.ID != "request/0" || !call.Standalone || call.Load == nil || call.Output == nil || call.Error != *summary.Error {
-				t.Fatalf("failure lost identity or detail access: %+v", call)
+			if call.ID != "request/0" || !call.Standalone || call.Load != nil || call.Output == nil || call.Output.Failure != *summary.Error {
+				t.Fatalf("failure lost its identity or original message: %+v", call)
 			}
 			raw := json.RawMessage(`{"error":"original maintenance failure"}`)
 			ProjectToolDetail(call, &summary, protocol.ToolDetail{Result: &raw})
-			if call.Output == nil || call.Output.Text == "" || call.Failed != (origin == protocol.ToolFailureOriginRuntime) || call.Warning != (origin == protocol.ToolFailureOriginTool) {
+			if call.Output == nil || call.Output.Text != "" || call.Output.Failure != *summary.Error || call.Failed != (origin == protocol.ToolFailureOriginRuntime) || call.Warning != (origin == protocol.ToolFailureOriginTool) {
 				t.Fatalf("original failure output or status lost: %+v", call)
+			}
+		})
+	}
+}
+
+func TestToolFailureMessageOrOriginalResult(t *testing.T) {
+	const message = "plugin host service failed"
+	envelope := json.RawMessage(`{"code":-32000,"data":{"code":"unavailable","details":{"id":"fixture"},"message":"plugin host service failed"},"message":"plugin host service failed"}`)
+	unstructured := json.RawMessage(`{"code":-32000,"data":{"code":"unavailable"}}`)
+	failure := &protocol.ToolFailure{Origin: protocol.ToolFailureOriginRuntime}
+	for _, sample := range []struct {
+		name    string
+		raw     json.RawMessage
+		failure *protocol.ToolFailure
+		want    string
+	}{
+		{"historical RPC failure", envelope, failure, message},
+		{"failure without message", unstructured, failure, ""},
+		{"success with a message field", envelope, nil, ""},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			call := projectCall("review_scope", &protocol.ToolDetailSummary{Failure: sample.failure, HasDetails: true}, "en")
+			ProjectToolDetail(&call, &protocol.ToolDetailSummary{Failure: sample.failure, HasDetails: true}, protocol.ToolDetail{Result: &sample.raw}, "en")
+			if call.Output == nil || call.Output.Failure != sample.want {
+				t.Fatalf("wrong error display: %+v", call.Output)
+			}
+			if sample.want == "" {
+				want, err := json.MarshalIndent(sample.raw, "", "  ")
+				if err != nil || call.Output.Text != string(want) {
+					t.Fatalf("original output changed: %q", call.Output.Text)
+				}
+			} else if call.Output.Text != "" {
+				t.Fatalf("original envelope was repeated: %q", call.Output.Text)
 			}
 		})
 	}

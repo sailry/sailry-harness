@@ -62,9 +62,28 @@ func TestConversationCustomPrompt(t *testing.T) {
 	state.PersonalInstructions = editor
 	var submitted string
 	state.SavePersonalInstructions = func() { submitted = editor.Draft }
+	state.CodeIndex = stored(true)
+	state.SavePersistentCodeIndex = func(enabled bool) { state.PersistentCodeIndex = new(enabled) }
+	state.PersistentCodeIndex = new(false)
 	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); Page(c, state, nil, Look{}) }, 920, 800)
 	tester.SetLocale("en")
 	tester.Frame()
+	toggle, ok := tester.AccessByRole(ui.RoleSwitch, i18n.In("en", "settings_code_index_persistent"))
+	if !ok || toggle.Disabled {
+		t.Fatal("full code index switch unavailable")
+	}
+	if _, ok := tester.AccessByRole(ui.RoleMenuButton, "Project"); ok {
+		t.Fatal("full code index still uses a project selector")
+	}
+	tester.ClickAt(toggle.Bounds.X+10, toggle.Bounds.Y+10)
+	tester.Frame()
+	if !*state.PersistentCodeIndex {
+		t.Fatal("full code index switch did not save")
+	}
+	save, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save"))
+	if !ok || !save.Disabled || save.Bounds.W <= 24 {
+		t.Fatal("unchanged custom prompt does not show a labeled disabled Save button")
+	}
 	field, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "settings_custom_prompt"))
 	if !ok || field.Disabled {
 		t.Fatal("custom prompt field unavailable")

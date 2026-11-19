@@ -25,10 +25,9 @@ func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail, loc
 		}
 		if table := declared.Table; table != nil {
 			call.Output.Table = &conversation.Table{Columns: table.Columns, Rows: table.Rows}
-			call.Output.Partial = call.Output.Partial || table.Truncated
 		}
 		for _, notice := range declared.Notices {
-			call.Output.Notices = append(call.Output.Notices, toolLocalText(notice, language))
+			appendToolNotice(call.Output, notice, language)
 		}
 		if body := declared.Body; body != nil {
 			if body.Diff != nil && *body.Diff == protocol.ToolDisplayProjectionFormatUnified {
@@ -108,28 +107,33 @@ func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail, loc
 					}
 				}
 				for _, notice := range text.Notices {
-					if call.Output.Command && (text.Path == "/data/stdout/text" || text.Path == "/data/stderr/text") && notice.Label == "Output was truncated" {
-						continue
-					}
-					call.Output.Notices = append(call.Output.Notices, toolLocalText(protocol.ToolResultLocalText{Label: notice.Label, Locales: notice.Locales}, language))
+					appendToolNotice(call.Output, protocol.ToolResultLocalText{Label: notice.Label, Locales: notice.Locales}, language)
 				}
 			}
 		case "notice":
 			if notice, ok := detail[protocol.ToolContentBlockNoticePayload](block.Data); ok {
-				call.Output.Notices = append(call.Output.Notices, toolLocalText(protocol.ToolResultLocalText{Label: notice.Message.Label, Locales: notice.Message.Locales}, language))
+				appendToolNotice(call.Output, protocol.ToolResultLocalText{Label: notice.Message.Label, Locales: notice.Message.Locales}, language)
 			}
 		case "table":
 			if table, ok := detail[protocol.ToolContentTable](block.Data); ok {
 				call.Output.Table = &conversation.Table{Columns: table.Columns, Rows: table.Rows}
-				call.Output.Partial = call.Output.Partial || table.Truncated
 			}
 		case "diff":
 			if diff, ok := detail[protocol.ToolContentDiff](block.Data); ok {
 				call.Output.Diff = projectOutputDiff(diff.Path, diff.Text)
-				call.Output.Partial = call.Output.Partial || diff.Truncated
 			}
 		}
 	}
+}
+
+// Captured results can still contain the generic preview notices emitted by
+// older tool versions. Keep their raw result and any specific diagnostics.
+func appendToolNotice(output *conversation.Output, notice protocol.ToolResultLocalText, language string) {
+	switch notice.Label {
+	case "Partial result", "Partial results", "Partial content", "Output was truncated":
+		return
+	}
+	output.Notices = append(output.Notices, toolLocalText(notice, language))
 }
 
 func projectOutputDiff(path, text string) *conversation.Diff {

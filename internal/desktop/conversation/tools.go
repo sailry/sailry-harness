@@ -231,19 +231,28 @@ func (s *State) pathRow(c *ui.Context, path string) {
 // head builds the row's content; texts it gives the row's sweep shimmer
 // as one band across the row.
 func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
-	s.wrapping(c, key, false, head, top, bottom, func(ui.Element) { body() })
+	s.wrapping(c, key, false, false, head, top, bottom, func(ui.Element) { body() })
 }
 
 // wrapping is a disclosure whose row may wrap its label (rowSize).
-func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element)) {
-	open := s.opened(key)
+func (s *State) wrapping(c *ui.Context, key string, wrap, defaultOpen bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element)) {
+	open, chosen := s.open[key]
+	if !chosen {
+		open = defaultOpen
+	}
 	size := textSize(c)
 	ui.Column(c.Key(key)).Children(func() {
 		t := rowSize(ui.ButtonBase(c), size, wrap).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
 			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
-		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
+		t.Children(func() { head(hovered, open, sw) }).OnClick(func() {
+			if open == defaultOpen {
+				s.open[key] = !open
+			} else {
+				delete(s.open, key)
+			}
+		})
 		sw.Frame(t)
 		if open {
 			rail := Rail(c).Padding(top, 0, bottom, railPad(size))
@@ -267,10 +276,30 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 			calls[index].Running, calls[index].AwaitingModel = false, false
 		}
 	}
-	// Every call is one row of its own, in order, a rail's 8 DIPs apart:
-	// no fold over the block or over calls of one name, so each row opens
-	// straight onto its own result.
 	ui.Column(c).Gap(railGap).Children(func() {
+		for first := 0; first < len(calls); {
+			end := first + 1
+			if foldableTool(calls[first]) {
+				for end < len(calls) && foldableTool(calls[end]) {
+					end++
+				}
+			}
+			if end-first == 1 {
+				s.row(c, calls[first])
+			} else {
+				s.toolGroup(c, calls[first:end])
+			}
+			first = end
+		}
+	})
+}
+
+// A group discloses call headers. Individual rows still own their outputs.
+func (s *State) toolGroup(c *ui.Context, calls []Call) {
+	head := Call{LabelKey: "meter_tool_calls", Detail: fmt.Sprint(len(calls))}
+	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+		summary(c, head, hovered, true, open, sw)
+	}, 8, 8, func() {
 		for _, call := range calls {
 			s.row(c, call)
 		}
@@ -293,7 +322,8 @@ func (s *State) row(c *ui.Context, call Call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	s.wrapping(c, "tools-"+call.ID, false, func(hovered, open bool, sw *kit.Sweep) {
+	failed := !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
+	s.wrapping(c, "tools-"+call.ID, false, failed, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func(rail ui.Element) {
 		if call.Load != nil {
@@ -330,7 +360,7 @@ func (s *State) row(c *ui.Context, call Call) {
 			}
 		}
 		paths := pathList(call)
-		if call.Output != nil && (paths || call.Background == nil || !bare(call)) {
+		if call.Output != nil && (paths || !bare(call)) {
 			s.output(c, call.Output, paths)
 		}
 		if card != nil {
@@ -393,7 +423,7 @@ func backgroundStatus(c *ui.Context, b *Background) string {
 // bare reports an output with nothing to display below its row.
 func bare(call Call) bool {
 	o := call.Output
-	if o.Table != nil || o.Diff != nil || o.Text != "" || o.Copy != nil || len(o.Images) > 0 || len(o.Notices) > 0 || o.Partial {
+	if o.Table != nil || o.Diff != nil || o.Text != "" || o.Copy != nil || len(o.Images) > 0 || len(o.Notices) > 0 {
 		return false
 	}
 	return o.Failure == ""
@@ -448,9 +478,6 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 		}
 		for _, n := range o.Notices {
 			notice(c, n, p.MutedForeground)
-		}
-		if o.Partial {
-			notice(c, i18n.T(c, "tool_partial"), p.MutedForeground)
 		}
 		if paths {
 			return
@@ -681,7 +708,7 @@ func (s *State) question(c *ui.Context, q *Question) {
 		plain(c, "question-"+q.CallID, head)
 		return
 	}
-	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func(ui.Element) {
+	s.wrapping(c, "question-"+q.CallID, true, false, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func(ui.Element) {
 		ui.Scroll(c).MaxHeight(outputMax(size)).Gap(4).Children(func() {
 			for _, a := range q.Answers {
 				ui.Text(c, a).FontSize(size).Selectable().TextColor(p.Foreground)

@@ -30,7 +30,17 @@ func ViewCodeIndexSettings(ctx context.Context, db *sql.Conn) (protocol.CodeInde
 		return value, err
 	}
 	value.PersistentProjects, err = visibleCodeIndexProjects(ctx, db, value.PersistentProjects)
-	return value, err
+	return codeIndexSettingsView(value), err
+}
+
+func codeIndexSettingsView(value protocol.CodeIndexSettings) protocol.CodeIndexSettings {
+	if value.PersistentProjects == nil {
+		value.Persistent = nil
+	} else if value.Persistent == nil {
+		// Report the existing project-specific opt-in without broadening it.
+		value.Persistent = new(len(*value.PersistentProjects) != 0)
+	}
+	return value
 }
 
 func visibleCodeIndexProjects(ctx context.Context, db *sql.Conn, projects *[]protocol.ProjectID) (*[]protocol.ProjectID, error) {
@@ -67,6 +77,17 @@ func SaveCodeIndexSettings(ctx context.Context, db *sql.Conn, input protocol.Cod
 	if expected >= math.MaxInt64 {
 		return protocol.CodeIndexSettings{}, invalid("code index revision is exhausted")
 	}
+	if input.Persistent == nil {
+		input.Persistent = current.Persistent
+	} else {
+		user, err := CurrentUser(ctx, db)
+		if err != nil {
+			return protocol.CodeIndexSettings{}, err
+		}
+		if !user.Administrator {
+			return protocol.CodeIndexSettings{}, fault(protocol.ErrorCodePermissionDenied, "persistent code indexing requires a machine administrator")
+		}
+	}
 	visible := input.PersistentProjects
 	if visible == nil {
 		input.PersistentProjects = current.PersistentProjects
@@ -84,7 +105,7 @@ func SaveCodeIndexSettings(ctx context.Context, db *sql.Conn, input protocol.Cod
 	}
 	_, err = db.ExecContext(ctx, "INSERT INTO code_index_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body)
 	input.PersistentProjects = visible
-	return input, err
+	return codeIndexSettingsView(input), err
 }
 
 const maxPersistentCodeIndexProjects = 128

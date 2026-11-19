@@ -1197,8 +1197,6 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	if summary.Path != nil {
 		call.Detail = *summary.Path
 	}
-	// Failure status belongs to the row; expanded output keeps the tool's
-	// original content without adding another failure notice.
 	call.Error = toolFailure(language, summary)
 	if summary.Failure != nil {
 		call.Failed = summary.Failure.Origin == "runtime"
@@ -1242,6 +1240,9 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 				call.Output.Text = output.Body.Text
 			}
 		}
+	}
+	if message := capturedToolError(summary); message != "" {
+		call.Output = toolErrorOutput(message, summary.Failure)
 	}
 	return call
 }

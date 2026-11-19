@@ -8,7 +8,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
-	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // The settings' view model: the boundary between the pages and their
@@ -199,10 +198,8 @@ type Model struct {
 	MessageDisplay int     // 0 detailed, 1 compact
 	TextSize       float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
 
-	CodeIndexProjects           []kit.SelectOption
-	PersistentCodeIndexProjects []protocol.ProjectID
-	CodeIndexProject            string
-	SaveProjectCodeIndex        func(protocol.ProjectID, bool)
+	PersistentCodeIndex     *bool
+	SavePersistentCodeIndex func(bool)
 
 	// Shortcuts.
 	Keys Keys

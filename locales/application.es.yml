@@ -865,8 +865,6 @@ tool_browser_unavailable: "Página no disponible"
 tool_browser_load_failed: "Error al cargar la página"
 tool_not_executed: "Aprobación interrumpida; no ejecutada"
 chat_execution_unknown: "Algunos resultados de ejecución no están confirmados"
-tool_partial: "Resultados parciales"
-tool_output_earlier: "%{count} líneas anteriores ocultas"
 tool_binary: "Archivo binario"
 tool_empty: "No hay salida"
 tool_not_found: "Objetivo no encontrado"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "URL del repositorio"
 settings_conversation: "Conversación"
 settings_conversation_description: "Ajustar cómo se muestran los mensajes de conversación"
 settings_custom_prompt: "Instrucciones personalizadas"
-settings_custom_prompt_description: "Se aplican a los próximos turnos de todas las sesiones de este equipo."
+settings_custom_prompt_description: "Se aplican a los próximos turnos de todas las sesiones de este equipo"
+settings_custom_prompt_placeholder: "Escribe las instrucciones para el asistente"
 settings_custom_prompt_failed: "No se pudieron leer o guardar las instrucciones personalizadas."
 settings_custom_prompt_conflict: "Las instrucciones cambiaron en este equipo. Se conservó el borrador."
 settings_custom_prompt_unknown: "No se pudo confirmar que se guardaron las instrucciones."
@@ -2824,8 +2823,7 @@ settings_experimental_description: Ajustes de desarrollo y depuración
 settings_code_index: Herramientas de código
 settings_code_index_description: Buscar y analizar el código del proyecto bajo demanda
 settings_code_index_persistent: Índice completo de código
-settings_code_index_persistent_description: Guardar un índice en disco para el proyecto seleccionado
-settings_code_index_project: Proyecto
+settings_code_index_persistent_description: Guardar índices completos en este equipo
 code_index_settings_saved: Guardado
 code_index_settings_failed: No se pudieron cargar o guardar los ajustes del índice de código
 code_index_settings_conflict: Los ajustes del índice de código cambiaron; inténtalo de nuevo

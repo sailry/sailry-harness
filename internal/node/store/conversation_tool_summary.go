@@ -138,10 +138,15 @@ func (raw *rawAgentTool) errorText(metadata *protocol.ToolResultResultDisplay) *
 		return nil
 	}
 	if raw.Error != nil {
-		return raw.Error
+		text := strings.TrimSpace(*raw.Error)
+		if text != "" && !json.Valid([]byte(text)) {
+			return &text
+		}
+		if message := protocol.ToolErrorMessage(json.RawMessage(text)); message != "" {
+			return &message
+		}
 	}
-	value := raw.value()
-	object := agentObject(value)
+	object := agentObject(raw.value())
 	for _, v := range []any{object["error"], object["data"]} {
 		body, _ := json.Marshal(v)
 		var fault protocol.Fault
@@ -149,41 +154,10 @@ func (raw *rawAgentTool) errorText(metadata *protocol.ToolResultResultDisplay) *
 			return nil
 		}
 	}
-	if v := agentString(agentPointer(value, "/error/message")); v != nil {
-		return v
-	}
-	if v := agentString(object["error"]); v != nil {
-		return v
-	}
-	switch raw.Format {
-	case canonical.MCPError:
-		return agentString(object["message"])
-	case canonical.MCP:
-		contents, _ := agentObject(raw.result())["content"].([]any)
-		texts := []string{}
-		for _, v := range contents {
-			o := agentObject(v)
-			if o["type"] == "text" {
-				if t := agentString(o["text"]); t != nil {
-					texts = append(texts, *t)
-				}
-			}
+	if raw.Result != nil {
+		if message := protocol.ToolErrorMessage(*raw.Result); message != "" {
+			return &message
 		}
-		text := strings.Join(texts, "\n")
-		if text == "" {
-			return nil
-		}
-		parsed := agentJSON(json.RawMessage(text))
-		if o, ok := parsed.(map[string]any); ok {
-			if v := agentString(agentPointer(o, "/error/message")); v != nil {
-				return v
-			}
-			if v := agentString(o["message"]); v != nil {
-				return v
-			}
-			return agentString(o["error"])
-		}
-		return &text
 	}
 	return nil
 }

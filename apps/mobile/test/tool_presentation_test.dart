@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sailry_mobile/features/conversations/live/message_data.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_record.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_output.dart';
 import 'package:sailry_mobile/features/conversations/live/tool_display.dart';
+import 'package:sailry_mobile/features/conversations/live/tool_row.dart';
 
 void main() {
   test('renders Client rows with their citation offsets', () {
@@ -83,6 +85,58 @@ void main() {
         isFalse,
       );
     }
+  });
+
+  testWidgets('tool errors show the message or load the original result', (
+    tester,
+  ) async {
+    const message = 'The reviewed path is missing';
+    const path = 'src/review.dart';
+    const raw = {'provider_reply': 'original result'};
+    final selections = <List<Map<String, dynamic>>>[];
+    Future<void> show({String? error, bool loaded = false}) =>
+        tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: ToolRecord(
+                call: {
+                  'name': 'fixture_tool',
+                  'state': 'returned',
+                  'source': {'entry': 'call', 'index': 0},
+                  'response': {'entry': 'result', 'index': 0},
+                  'failure': {'origin': 'tool'},
+                  'error': ?error,
+                  if (error == null) 'error_detail': true,
+                  'row': {
+                    'warning': true,
+                    'detail': {'text': path},
+                  },
+                  if (loaded) 'detail': {'result': raw},
+                },
+                page: const {},
+                session: const {'id': 'session'},
+                command: (kind, _) async => fail('Unexpected command: $kind'),
+                enabled: true,
+                toolOutput: (_, calls, _) => selections.add(calls),
+              ),
+            ),
+          ),
+        );
+    final rawText = const JsonEncoder.withIndent('  ').convert(raw);
+
+    await show(error: message, loaded: true);
+    expect(find.text(message), findsOneWidget);
+    expect(tester.widget<ToolRow>(find.byType(ToolRow)).detail, path);
+    expect(find.text(rawText), findsNothing);
+    expect(selections, isEmpty);
+
+    await show();
+    expect(selections.single, hasLength(1));
+    expect(find.text(rawText), findsNothing);
+
+    await show(loaded: true);
+    expect(find.text(rawText), findsOneWidget);
+    expect(find.text(message), findsNothing);
   });
 
   test("reads captured approval arguments and summarized question inputs", () {

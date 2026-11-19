@@ -865,8 +865,6 @@ tool_browser_unavailable: "Страница недоступна"
 tool_browser_load_failed: "Страница не загружена"
 tool_not_executed: "Утверждение прервано; не выполнено"
 chat_execution_unknown: "Некоторые результаты исполнения не подтверждены"
-tool_partial: "Частичные результаты"
-tool_output_earlier: "Скрыто предыдущих строк: %{count}"
 tool_binary: "Двоичный файл"
 tool_empty: "Никаких мероприятий не проводилось"
 tool_not_found: "Цель не найдена"
@@ -2444,7 +2442,8 @@ skills_repository_hint: "URL репозитория"
 settings_conversation: "Разговор"
 settings_conversation_description: "Настройка отображения сообщений в разговоре"
 settings_custom_prompt: "Пользовательские инструкции"
-settings_custom_prompt_description: "Применяются к следующим запросам во всех сеансах на этом узле."
+settings_custom_prompt_description: "Применяются к следующим запросам во всех сеансах на этом узле"
+settings_custom_prompt_placeholder: "Введите инструкции для помощника"
 settings_custom_prompt_failed: "Не удалось прочитать или сохранить пользовательские инструкции."
 settings_custom_prompt_conflict: "Инструкции на узле изменились. Черновик сохранён."
 settings_custom_prompt_unknown: "Не удалось подтвердить сохранение инструкций."
@@ -2824,8 +2823,7 @@ settings_experimental_description: Настройки разработки и о
 settings_code_index: Инструменты для кода
 settings_code_index_description: Искать и анализировать код проекта по запросу
 settings_code_index_persistent: Полный индекс кода
-settings_code_index_persistent_description: Хранить индекс выбранного проекта на диске
-settings_code_index_project: Проект
+settings_code_index_persistent_description: Хранить полные индексы на этом узле
 code_index_settings_saved: Сохранено
 code_index_settings_failed: Не удалось загрузить или сохранить настройки индекса кода
 code_index_settings_conflict: Настройки индекса кода изменились; повторите

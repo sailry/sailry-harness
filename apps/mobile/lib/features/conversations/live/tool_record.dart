@@ -86,13 +86,26 @@ class _ToolRecordState extends State<ToolRecord> {
     _select();
   }
 
-  // Approval decisions need the loaded arguments before they can be allowed.
+  bool get _failed {
+    if (widget.call['state'] != 'returned') return false;
+    final row = object(widget.call['row']);
+    return row['failed'] == true ||
+        row['warning'] == true && row['state'] == null;
+  }
+
+  bool get _permissionDenied =>
+      object(widget.call['failure'])['code'] == 'permission_denied';
+
+  // Approvals use loaded arguments. A failed call only needs a detail read
+  // when its summary cannot explain the failure.
   void _select({bool retry = false}) {
-    final pending = object(widget.call['approval'])['state'] == 'pending';
+    final call = widget.call;
+    final pending = object(call['approval'])['state'] == 'pending';
+    final needsResult = call['error_detail'] == true;
     final selected =
         widget.enabled &&
         widget.interactive &&
-        pending &&
+        (pending || needsResult) &&
         TickerMode.valuesOf(context).enabled;
     if (!selected && !_tracking) return;
     _tracking = selected;
@@ -142,6 +155,11 @@ class _ToolRecordState extends State<ToolRecord> {
     final approvalView = object(call['approval_view']);
     final enabled = widget.enabled && !_busy;
     final colors = Theme.of(context).colorScheme;
+    final failed = _failed;
+    final failure = failed ? text(call['error']).trim() : '';
+    final rawFailure = failed && failure.isEmpty && !_permissionDenied
+        ? rawToolResult(call)
+        : '';
     // One glass card; code reads as plain monospace text inside it rather
     // than a second framed block.
     Widget card(List<Widget> children) => Padding(
@@ -196,6 +214,26 @@ class _ToolRecordState extends State<ToolRecord> {
               call['state'] == 'running' ||
               widget.enabled && widget.background?['state'] == 'running',
         ),
+        if (failed)
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 4, bottom: 8),
+            child: rawFailure.isNotEmpty
+                ? code(rawFailure)
+                : SelectableText(
+                    failure.isNotEmpty
+                        ? failure
+                        : context.tr(
+                            _permissionDenied ? 'failureDenied' : 'toolFailed',
+                          ),
+                    style: TextStyle(
+                      fontSize: transcriptFontSize,
+                      color: rowColor(
+                        context,
+                        toolFailed(call) ? RowTone.failed : RowTone.pending,
+                      ),
+                    ),
+                  ),
+          ),
         if (pendingApproval)
           card([
             // The validated file list replaces the package's generic prompt.

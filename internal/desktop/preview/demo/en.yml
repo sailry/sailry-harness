@@ -74,7 +74,6 @@ flaky.0.answer: |-
 
   `Reserve` checks whether the seat is taken and then inserts the reservation in **two separate statements**. Two requests that arrive together both see the seat as free. The test is right; the code has a race.
 flaky.1.user: "Fix it and run the whole suite."
-flaky.table.notice: "3 of 12 rows shown"
 flaky.1.answer: |-
   Fixed. The check and the insert now share one serializable transaction, so the second request fails with `ErrSeatTaken`.
 
@@ -580,3 +579,4 @@ controller_login.title: Continue after sign-in
 controller_login.0.user: Summarize the deployment checks.
 controller_login.0.partial: The deployment checks are collected and ready to summarize.
 controller_login.1.user: Continue with the summary.
+flaky.suite.encoding: "Some output could not be decoded"

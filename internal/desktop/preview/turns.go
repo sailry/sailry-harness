@@ -133,7 +133,7 @@ func refused(id string) cv.Turn {
 	return cv.Turn{User: "Rename `rowHeight` to `estimate` everywhere.", Reply: r}
 }
 
-// sessions: built-in tools, a table, notices and a partial result.
+// sessions shows built-in tools and a table.
 func sessions(id string) cv.Turn {
 	l := cv.Call{ID: id + "/list", Name: "list_sessions", LabelKey: "tool_list_sessions", Icon: "tasks", Detail: "sailry-go", Code: true}
 	l.Output = &cv.Output{Table: &cv.Table{Columns: []string{"Session", "Updated", "Turns"}, Rows: [][]string{
@@ -143,9 +143,9 @@ func sessions(id string) cv.Turn {
 		{"Tester coverage for the composer", "2 days ago", "5"},
 		{"Settings providers list", "3 days ago", "2"},
 		{"Icon tiles for plugins", "5 days ago", "2"},
-	}}, Partial: true}
+	}}}
 	s := cv.Call{ID: id + "/search", Name: "search_session", LabelKey: "tool_search_session", Icon: "search", Detail: `"benchmark"`, Code: true}
-	s.Output = &cv.Output{Text: "Turn 12: BenchmarkScroll-1   2000   412 µs/op\nTurn 31: BenchmarkJump-1   800   1.79 ms/op", Notices: []string{"2 of 9 matches shown"}}
+	s.Output = &cv.Output{Text: "Turn 12: BenchmarkScroll-1   2000   412 µs/op\nTurn 31: BenchmarkJump-1   800   1.79 ms/op"}
 	k := cv.Call{ID: id + "/skill", Name: "load_skill", LabelKey: "tool_load_skill", Icon: "book-open", Detail: "go-benchmarks"}
 	o := cv.Call{ID: id + "/out", Name: "read_output", LabelKey: "tool_read_output", Icon: "file-text", Detail: "bench.txt", Code: true}
 	o.Output = output("BenchmarkScroll-1   2000   412 µs/op   0 B/op")

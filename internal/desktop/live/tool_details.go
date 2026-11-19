@@ -2,6 +2,8 @@ package live
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -96,7 +98,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 						return r.historicalCommandDetail(*ref)
 					}
 				}
-				if !source.summary.HasDetails {
+				if !source.summary.HasDetails || call.Output != nil && call.Output.Failure != "" {
 					continue
 				}
 				if call.Output == nil {
@@ -117,7 +119,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 						if err == nil && ctx.Err() == nil {
 							projected.Name = name
 							ProjectToolDetail(&projected, summary, value, locales...)
-							if binding, ok := toolCommand(value, source.owner, ref.Turn); ok && connected && projected.Output != nil {
+							if binding, ok := toolCommand(value, source.owner, ref.Turn); ok && connected && projected.Output != nil && projected.Output.Failure == "" {
 								r.loadRetainedCommand(ctx, binding, projected.Output)
 							}
 						}
@@ -174,7 +176,16 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 		projected.Failed = false
 		projected.Running = false
 	}
-	projectToolContent(&projected, loaded, language)
+	if projected.Output == nil || projected.Output.Failure == "" {
+		if value.Failure != nil && loaded.Result != nil {
+			if message := protocol.ToolErrorMessage(*loaded.Result); message != "" {
+				projected.Output = toolErrorOutput(message, value.Failure)
+			}
+		}
+		if projected.Output == nil || projected.Output.Failure == "" {
+			projectToolContent(&projected, loaded, language)
+		}
+	}
 	if call.Output != nil && len(call.Output.Images) > 0 {
 		if projected.Output == nil {
 			projected.Output = &conversation.Output{}
@@ -182,4 +193,19 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 		projected.Output.Images = call.Output.Images
 	}
 	*call = projected
+}
+
+func capturedToolError(summary *protocol.ToolDetailSummary) string {
+	if summary.Failure == nil || summary.Error == nil {
+		return ""
+	}
+	text := strings.TrimSpace(*summary.Error)
+	if strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[{") || strings.HasPrefix(text, "[\n") {
+		return protocol.ToolErrorMessage(json.RawMessage(text))
+	}
+	return text
+}
+
+func toolErrorOutput(message string, failure *protocol.ToolFailure) *conversation.Output {
+	return &conversation.Output{Failure: message, ToolFailure: failure.Origin == protocol.ToolFailureOriginTool}
 }

@@ -139,8 +139,6 @@ tool_not_found: Cible non trouvée
 tool_invalid: Arguments non valides
 tool_denied: Impossible d'accéder à la cible
 tool_unavailable: Outil non disponible
-tool_partial: Résultats partiels
-tool_output_earlier: '%{count} lignes précédentes masquées'
 task_progress: Progrès de la tâche
 turn_cancelled: Arrêté
 turn_queued: En file d'attente
@@ -968,7 +966,8 @@ settings_connections_description: Gérer les périphériques jumelés et les con
 settings_connectors_description: Gérer les connexions aux services
 settings_conversation_description: Ajuster l’affichage des messages de conversation
 settings_custom_prompt: Instructions personnalisées
-settings_custom_prompt_description: S’appliquent aux prochains échanges de toutes les sessions sur cet hôte.
+settings_custom_prompt_description: S’appliquent aux prochains échanges de toutes les sessions sur cet hôte
+settings_custom_prompt_placeholder: Saisissez les instructions destinées à l’assistant
 settings_custom_prompt_failed: Impossible de lire ou d’enregistrer les instructions personnalisées.
 settings_custom_prompt_conflict: Les instructions ont changé sur cet hôte. Votre brouillon a été conservé.
 settings_custom_prompt_unknown: L’enregistrement des instructions n’a pas pu être confirmé.
@@ -2295,8 +2294,7 @@ provider_deepseek: DeepSeek
 settings_code_index: Outils de code
 settings_code_index_description: Rechercher et analyser le code du projet à la demande
 settings_code_index_persistent: Index complet du code
-settings_code_index_persistent_description: Conserver un index sur disque pour le projet sélectionné
-settings_code_index_project: Projet
+settings_code_index_persistent_description: Conserver les index complets sur cet hôte
 code_index_settings_saved: Enregistré
 code_index_settings_failed: Impossible de charger ou d’enregistrer les paramètres de l’index du code
 code_index_settings_conflict: Paramètres de l’index du code modifiés ; réessayez

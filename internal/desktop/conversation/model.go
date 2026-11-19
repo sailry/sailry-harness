@@ -351,7 +351,7 @@ const (
 // detail are already resolved from the tool's declaration.
 type Call struct {
 	ID   string
-	Name string // calls of the same name group together
+	Name string
 	// Label is the tool's label from its declaration; LabelKey, used when
 	// Label is empty, is the i18n key of a built-in tool's (tool_load_skill).
 	Label, LabelKey string
@@ -423,7 +423,6 @@ type Output struct {
 	Failure     string
 	ToolFailure bool
 	Notices     []string
-	Partial     bool // a table or diff was cut short
 	// Images are the pictures the tool returned, as thumbnails that open the
 	// image viewer.
 	Images []Image

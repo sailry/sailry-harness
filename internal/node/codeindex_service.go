@@ -247,8 +247,15 @@ func (node *Node) persistentCodeIndex(ctx context.Context, worktree protocol.Wor
 	var allowed bool
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		settings, err := store.ReadCodeIndexSettings(ctx, db)
-		if err != nil || settings.PersistentProjects == nil || len(*settings.PersistentProjects) == 0 {
+		if err != nil {
 			return err
+		}
+		if settings.Persistent != nil {
+			allowed = *settings.Persistent
+			return nil
+		}
+		if settings.PersistentProjects == nil || len(*settings.PersistentProjects) == 0 {
+			return nil
 		}
 		var project sql.NullString
 		err = db.QueryRowContext(ctx, "SELECT project FROM worktrees WHERE id=?1", worktree.String()).Scan(&project)

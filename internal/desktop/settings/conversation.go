@@ -1,12 +1,9 @@
 package settings
 
 import (
-	"slices"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
@@ -60,30 +57,14 @@ func conversation(c *ui.Context, m *Model) {
 }
 
 func persistentCodeIndex(c *ui.Context, m *Model) {
-	if len(m.CodeIndexProjects) == 0 || m.PersistentCodeIndexProjects == nil {
+	if m.PersistentCodeIndex == nil {
 		return
 	}
-	if !slices.ContainsFunc(m.CodeIndexProjects, func(choice kit.SelectOption) bool { return choice.Value == m.CodeIndexProject }) {
-		m.CodeIndexProject = m.CodeIndexProjects[0].Value
+	enabled := *m.PersistentCodeIndex
+	disabled := m.CodeIndex.Pending || !m.CodeIndex.Saved || m.SavePersistentCodeIndex == nil
+	if settingSwitch(c, "persistent-code-index", i18n.T(c, "settings_code_index_persistent"), i18n.T(c, "settings_code_index_persistent_description"), &enabled, disabled) {
+		m.SavePersistentCodeIndex(enabled)
 	}
-	title := i18n.T(c, "settings_code_index_persistent")
-	disabled := m.CodeIndex.Pending || !m.CodeIndex.Saved || m.SaveProjectCodeIndex == nil
-	kit.WideRow(c, "persistent-code-index", title, i18n.T(c, "settings_code_index_persistent_description"), func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			selectProject, _ := kit.SelectField(c.Key("project"), "code-index-project", &m.CodeIndexProject, kit.SelectProps{
-				Label: i18n.T(c, "settings_code_index_project"), Options: m.CodeIndexProjects, Disabled: disabled,
-			})
-			selectProject.Width(180)
-			project, err := protocol.ParseProjectID(m.CodeIndexProject)
-			if err != nil {
-				return
-			}
-			enabled := slices.Contains(m.PersistentCodeIndexProjects, project)
-			if ui.Switch(c.Key(project), &enabled).Label(title).Disabled(disabled).Changed() && !disabled {
-				m.SaveProjectCodeIndex(project, enabled)
-			}
-		})
-	})
 }
 
 func personalInstructions(c *ui.Context, m *Model) {
@@ -101,7 +82,8 @@ func personalInstructions(c *ui.Context, m *Model) {
 		if e != nil && e.Uncertain {
 			action = "files_check_result"
 		}
-		kit.Primary(c.Key("save"), i18n.T(c, action), e == nil || !e.Known || e.Pending || !e.Uncertain && e.Saved == e.Draft || m.Live && m.SavePersonalInstructions == nil).OnClick(func() {
+		disabled := e == nil || !e.Known || !e.Uncertain && e.Saved == e.Draft || m.Live && m.SavePersonalInstructions == nil
+		kit.PrimaryBusy(c.Key("save"), i18n.T(c, action), disabled, e != nil && e.Pending).OnClick(func() {
 			if m.Live {
 				m.SavePersonalInstructions()
 				return
@@ -113,6 +95,7 @@ func personalInstructions(c *ui.Context, m *Model) {
 		if e == nil {
 			return
 		}
-		ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Disabled(!e.Known || e.Pending || e.Uncertain).FillWidth().Height(100)
+		ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Placeholder(i18n.T(c, "settings_custom_prompt_placeholder")).
+			Disabled(!e.Known || e.Pending || e.Uncertain).FillWidth().Height(100)
 	})
 }
