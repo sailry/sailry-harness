@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -65,23 +66,10 @@ func hydratePublicRun(ctx context.Context, db *sql.Conn, run protocol.Conversati
 	}
 	return run, nil
 }
-func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionID, turns []protocol.TurnID, before *uint64, limit uint16) ([]protocol.ConversationEntry, bool, error) {
-	ids := []string{}
-	for _, id := range turns {
-		ids = append(ids, id.String())
-	}
-	members, err := encode(ids)
-	if err != nil {
-		return nil, false, err
-	}
+func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionID, turns []protocol.TurnID, before *uint64, limit uint16, byTurn bool) ([]protocol.ConversationEntry, bool, error) {
 	boundary := uint64(math.MaxInt64)
 	if before != nil {
 		boundary = *before
-	}
-	// Ordering by the membership key walks its index backwards and stops at the limit.
-	rows, err := db.QueryContext(ctx, "SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND "+visibleCanonical+" ORDER BY h.sequence DESC LIMIT ?4", session.String(), string(members), boundary, int(limit)+1)
-	if err != nil {
-		return nil, false, err
 	}
 	type rowValue struct {
 		sequence uint64
@@ -91,34 +79,66 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	records := []rowValue{}
 	size := 0
 	more := false
-	for rows.Next() {
-		var seq uint64
-		var body sql.RawBytes
-		if err = rows.Scan(&seq, &body); err != nil {
-			rows.Close()
-			return nil, false, err
+	read := func(query string, selector string) error {
+		rows, err := db.QueryContext(ctx, query, session.String(), selector, boundary, int(limit)-len(records)+1)
+		if err != nil {
+			return err
 		}
-		if len(records) >= int(limit) || len(records) > 0 && size+len(body) > 3*1024*1024 {
-			more = true
-			break
+		defer rows.Close()
+		for rows.Next() {
+			var seq uint64
+			var body sql.RawBytes
+			if err = rows.Scan(&seq, &body); err != nil {
+				return err
+			}
+			if len(records) >= int(limit) || len(records) > 0 && size+len(body) > 3*1024*1024 {
+				more = true
+				break
+			}
+			var record canonical.Record
+			if err = json.Unmarshal(body, &record); err != nil {
+				return err
+			}
+			requests.include(record)
+			records = append(records, rowValue{seq, record})
+			size += len(body)
 		}
-		var record canonical.Record
-		if err = json.Unmarshal(body, &record); err != nil {
-			rows.Close()
-			return nil, false, err
-		}
-		requests.include(record)
-		records = append(records, rowValue{seq, record})
-		size += len(body)
+		return errors.Join(rows.Err(), rows.Close())
 	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, false, err
+	if byTurn || len(turns) == 1 {
+		// Backward browsing uses a turn cursor. Fill the page in that same order
+		// so a long earlier turn cannot strand newer, short turns behind individual reads.
+		const query = "SELECT e.sequence,e.body FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND e.sequence<?3 AND " + visibleCanonical + " ORDER BY e.sequence DESC LIMIT ?4"
+		for i := len(turns) - 1; i >= 0 && !more; i-- {
+			if err := read(query, turns[i].String()); err != nil {
+				return nil, false, err
+			}
+		}
+	} else {
+		// The live head needs the newest events across all interleaved turns.
+		ids := make([]string, len(turns))
+		for i, id := range turns {
+			ids[i] = id.String()
+		}
+		members, err := encode(ids)
+		if err != nil {
+			return nil, false, err
+		}
+		const query = "SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3 AND " + visibleCanonical + " ORDER BY h.sequence DESC LIMIT ?4"
+		if err = read(query, string(members)); err != nil {
+			return nil, false, err
+		}
+	}
+	if byTurn && len(turns) > 1 {
+		slices.SortFunc(records, func(a, b rowValue) int { return cmp.Compare(a.sequence, b.sequence) })
+	} else {
+		slices.Reverse(records)
 	}
 	out := make([]protocol.ConversationEntry, 0, len(records))
-	for i := len(records) - 1; i >= 0; i-- {
-		entry, e := projectStoredEntry(ctx, db, records[i].record, records[i].sequence, requests)
-		if e != nil {
-			return nil, false, e
+	for i := range records {
+		entry, err := projectStoredEntry(ctx, db, records[i].record, records[i].sequence, requests)
+		if err != nil {
+			return nil, false, err
 		}
 		records[i] = rowValue{}
 		out = append(out, entry)
@@ -231,7 +251,7 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 		}
 		ids = append(ids, runs[i].Turn)
 	}
-	entries, _, err := historyEntries(ctx, db, session, ids, nil, 100)
+	entries, _, err := historyEntries(ctx, db, session, ids, nil, 100, before != nil)
 	if err != nil {
 		return value, err
 	}
@@ -314,7 +334,7 @@ func ReadConversationTurn(ctx context.Context, db *sql.Conn, session protocol.Se
 	if err != nil {
 		return value, err
 	}
-	entries, more, err := historyEntries(ctx, db, session, []protocol.TurnID{turn}, before, min(limit, 1000))
+	entries, more, err := historyEntries(ctx, db, session, []protocol.TurnID{turn}, before, min(limit, 1000), true)
 	if err != nil {
 		return value, err
 	}
