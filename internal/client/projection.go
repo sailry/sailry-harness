@@ -27,6 +27,7 @@ type Projection struct {
 	resources  uint64
 	directory  uint64
 	credential uint64
+	providers  uint64
 }
 
 func NewProjection(node protocol.NodeID, generation uint64) *Projection {
@@ -79,6 +80,9 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			!reflect.DeepEqual(previous.Worktrees, snapshot.Worktrees) {
 			projection.resources++
 		}
+		if previous := projection.snapshot; previous == nil || !reflect.DeepEqual(previous.Providers, snapshot.Providers) {
+			projection.providers++
+		}
 		projection.snapshot, projection.recovery = &snapshot, false
 		projection.credential++
 		return Applied, nil
@@ -124,8 +128,11 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			return Ignored, err
 		}
 		projection.snapshot.Cursor = envelope.Cursor
-		if envelope.Event.Kind == "credential_changed" {
+		switch envelope.Event.Kind {
+		case "credential_changed":
 			projection.credential++
+		case "provider_changed", "provider_removed":
+			projection.providers++
 		}
 		return Applied, nil
 	default:

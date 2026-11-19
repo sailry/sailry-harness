@@ -169,8 +169,8 @@ type Runtime struct {
 	providerDraftBases        map[string]protocol.ConversationProvider
 	modelCatalogEntered       bool
 	modelCatalogLoading       bool
-	modelScores               map[string][]protocol.ConversationCatalogScoresEffortScore
-	modelScoreKey             string
+	modelScores               modelScoreState
+	modelProjection           modelProjection
 	snapshotMu                sync.Mutex
 	snapshotCopy              protocol.Snapshot
 	snapshotRevision          uint64
@@ -586,9 +586,11 @@ func (r *Runtime) afterFrame() {
 	for _, bound := range r.bindings {
 		bound.finishFrame()
 		bound.finishConversationFrame()
+		bound.releaseComposerCatalogs()
 	}
 	r.finishFrame()
 	r.finishConversationFrame()
+	r.releaseComposerCatalogs()
 	r.countFrame()
 	r.pluginViewsAfterFrame()
 	r.pruneDrafts()

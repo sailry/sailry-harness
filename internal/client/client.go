@@ -167,6 +167,14 @@ func (client *Client) CredentialMetadataRevision() uint64 {
 	return client.project.credential
 }
 
+// ProviderRevision changes with the provider projection, including model
+// metadata backfilled in an authoritative snapshot at the same saved revision.
+func (client *Client) ProviderRevision() uint64 {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	return client.project.providers
+}
+
 // sessionKnown reads the Node projection in place; conversationMu may be held.
 func (client *Client) sessionKnown(id protocol.SessionID) bool {
 	client.mu.RLock()

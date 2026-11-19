@@ -2,8 +2,10 @@ package live
 
 import (
 	"testing"
+	"testing/synctest"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -41,11 +43,67 @@ func TestModelScoresReadAgain(t *testing.T) {
 		return total
 	}
 	for attempt := 1; attempt <= 2; attempt++ {
-		r.readModelScores()
+		snapshot, source := r.modelInputs()
+		r.readModelScores(source, snapshot.Providers)
 		r.workers.Wait()
 		pluginViewRunQueue(r)
 		if got := reads(); got != attempt {
 			t.Fatalf("after projection %d the scores were read %d times", attempt, got)
 		}
 	}
+}
+
+func TestModelProjectionReusesCatalog(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		snapshot := protocol.DefaultSnapshot()
+		snapshot.Node = protocol.NodeID{1}
+		provider := protocol.DefaultConversationProvider()
+		provider.ID, provider.Revision, provider.Enabled = protocol.ProviderID{4}, 1, true
+		provider.Name, provider.Api, provider.Authentication = "Fixture", "responses", "api_key"
+		provider.Models = []protocol.ConversationModel{{ID: "first"}}
+		snapshot.Providers = []protocol.ConversationProvider{provider}
+		r, source := snapshotFixture(t, snapshot)
+		source.respond = func(protocol.Request) link.Response {
+			return link.Response{Output: protocol.Output{Kind: "model_scores", Data: protocol.DefaultConversationCatalogScores()}}
+		}
+		tester := pluginUpdateQueueTester(r)
+		project := func() {
+			t.Helper()
+			r.projectModels()
+			synctest.Wait()
+			tester.Frame()
+			synctest.Wait()
+			if len(r.nodeModels) != 1 || len(r.App.Data.Models) != 1 {
+				t.Fatalf("expected one projected model, got %v", r.App.Data.Models)
+			}
+		}
+		refresh := func() {
+			t.Helper()
+			if err := r.controller.Refresh(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+		}
+		project()
+		first := &r.nodeModels[0]
+		source.snapshot.Cursor++
+		refresh()
+		r.App.Data = &viewmodel.Data{}
+		project()
+		if &r.App.Data.Models[0] != first || len(source.sent("read_model_scores")) != 1 {
+			t.Fatal("an unchanged catalog rebuilt its model list or reread scores")
+		}
+
+		// The snapshot can backfill model metadata at the saved provider's
+		// existing revision.
+		changed := provider
+		changed.Models = []protocol.ConversationModel{{ID: "second"}}
+		source.snapshot.Providers = []protocol.ConversationProvider{changed}
+		source.snapshot.Cursor++
+		refresh()
+		project()
+		if r.nodeModels[0].ID != modelKey(provider.ID, "second") || len(source.sent("read_model_scores")) != 2 {
+			t.Fatal("a changed model catalog was reused at the same provider revision")
+		}
+	})
 }

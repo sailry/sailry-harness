@@ -256,6 +256,7 @@ func (r *Runtime) pruneDrafts() {
 func (r *Runtime) releaseDraftComposer(id string) {
 	comp := r.App.DropComposer(id)
 	release := func(owner *Runtime) {
+		delete(owner.composerCatalogs, id)
 		delete(owner.composerInitialized, id)
 		delete(owner.composerObserved, id)
 		delete(owner.composerBases, comp)

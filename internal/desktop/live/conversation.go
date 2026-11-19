@@ -93,62 +93,6 @@ func modelKey(provider protocol.ProviderID, model string) string {
 	return provider.String() + "/" + model
 }
 
-func (r *Runtime) projectModels() {
-	var models []composer.Model
-	var providers []viewmodel.Provider
-	own := len(r.snapshot().Providers)
-	for i, p := range r.composerProviders() {
-		if i < own {
-			providers = append(providers, viewmodel.Provider{ID: p.ID.String(), Name: p.Name})
-		}
-		if !p.Enabled || !r.hasLocalProviderCredential(p) {
-			continue
-		}
-		for _, m := range p.Models {
-			name := m.ID
-			if m.DisplayName != nil {
-				name = *m.DisplayName
-			}
-			v := composer.Model{ID: modelKey(p.ID, m.ID), Name: name, Provider: p.Name, Reasoning: m.Reasoning, Family: modelFamily(p.Api), DefaultEffort: effortName(m.DefaultEffort), Score: r.measuredScore(modelKey(p.ID, m.ID), m.DefaultEffort)}
-			for _, e := range m.Efforts {
-				v.Efforts = append(v.Efforts, effortName(e))
-			}
-			if m.Reasoning && !slices.Contains(v.Efforts, v.DefaultEffort) {
-				v.Efforts = append(v.Efforts, v.DefaultEffort)
-			}
-			v.Scores = map[string]*composer.Score{}
-			for _, effort := range v.Efforts {
-				if score := r.measuredScore(v.ID, parseEffort(effort)); score != nil {
-					v.Scores[effort] = score
-				}
-			}
-			if m.Capabilities != nil {
-				for _, feature := range m.Capabilities.Features {
-					f := composer.Feature{ID: feature.ID, Name: feature.ID}
-					if feature.Name != nil {
-						f.Name = *feature.Name
-					}
-					for _, option := range feature.Options {
-						o := composer.FeatureOption{ID: option.ID, Name: option.ID}
-						if option.Name != nil {
-							o.Name = *option.Name
-						}
-						f.Options = append(f.Options, o)
-					}
-					v.Features = append(v.Features, f)
-				}
-			}
-			models = append(models, v)
-		}
-	}
-	r.nodeModels = models
-	if r.parent == nil {
-		r.App.Data.Models = models
-		r.App.Data.Providers = providers
-	}
-	r.readModelScores()
-}
-
 func effortName(e protocol.Effort) string {
 	if e.Kind == "budget" {
 		if v, ok := detail[int32](e.Data); ok {

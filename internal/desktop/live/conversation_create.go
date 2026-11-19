@@ -39,10 +39,19 @@ func (r *Runtime) hasLocalProviderCredential(provider protocol.ConversationProvi
 // immutable provider captured by an existing session.
 func (r *Runtime) composerProviders() []protocol.ConversationProvider {
 	snapshot := r.snapshot()
-	providers := slices.Clone(snapshot.Providers)
+	return slices.Concat(snapshot.Providers, r.privateComposerProviders(snapshot))
+}
+
+func (r *Runtime) privateComposerProviders(snapshot protocol.Snapshot) []protocol.ConversationProvider {
+	var providers []protocol.ConversationProvider
 	private := func(session protocol.Session) {
-		if session.Profile != nil && !slices.ContainsFunc(providers, func(p protocol.ConversationProvider) bool { return p.ID == session.Profile.Provider.ID }) {
-			providers = append(providers, session.Profile.Provider)
+		if session.Profile == nil {
+			return
+		}
+		provider := session.Profile.Provider
+		same := func(p protocol.ConversationProvider) bool { return p.ID == provider.ID }
+		if !slices.ContainsFunc(snapshot.Providers, same) && !slices.ContainsFunc(providers, same) {
+			providers = append(providers, provider)
 		}
 	}
 	for _, session := range snapshot.Sessions {

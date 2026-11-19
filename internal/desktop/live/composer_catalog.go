@@ -15,6 +15,7 @@ import (
 // frames and clipped, so a frame's additions reallocate instead of writing
 // into them.
 type composerCatalog struct {
+	seen                 bool
 	modelsKey            composerCatalogKey
 	models, members      []composer.Model
 	families             []composer.Family
@@ -65,7 +66,18 @@ func (r *Runtime) composerCatalog(id string) *composerCatalog {
 		catalog = &composerCatalog{}
 		r.composerCatalogs[id] = catalog
 	}
+	catalog.seen = true
 	return catalog
+}
+
+func (r *Runtime) releaseComposerCatalogs() {
+	for id, catalog := range r.composerCatalogs {
+		if !catalog.seen {
+			delete(r.composerCatalogs, id)
+		} else {
+			catalog.seen = false
+		}
+	}
 }
 
 // projectComposerModels offers the conversation's models, named by their
