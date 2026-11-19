@@ -3,6 +3,29 @@
 Release entries supply the corresponding GitHub Release notes. A version is
 released only after its entry is here.
 
+## [0.2.4](https://github.com/sailry/sailry-harness/releases/tag/v0.2.4) — 2026-11-20
+
+- Page conversation turns with their consumed guidance, recover earlier pages
+  on scroll, and preserve a small scroll bookmark when releasing a transcript.
+  Reuse unchanged model lists and scores and limit decoded transcript images.
+- Fold completed conversation activity and group consecutive tool calls. Show
+  readable tool errors and include fault codes and actionable details in model
+  results. Display command output in the regular result style for any exit code.
+- Preserve a running turn's configuration for guidance and capture current
+  settings for queued messages. Retain the latest output of promoted commands
+  and settle completed commands when storage temporarily refuses a write.
+- Query code on demand by default and give each host a switch for persistent
+  indexing. Batch checkpoints in the bundled Code Review plugin.
+- Restore the community plugin catalog and browse skills by source with
+  scrolling pagination. Save custom instructions through settings autosave.
+- Show host connectivity in Mobile conversations and recover conversation,
+  workspace and terminal observations after a connection drops.
+- Improve native library discovery and validate existing database identity
+  during startup. Preserve cached input details in usage aggregation.
+
+Desktop, Host and Mobile use Link protocol 2. Upgrade connected components
+together for history pages that include guidance across turn boundaries.
+
 ## [0.2.3](https://github.com/sailry/sailry-harness/releases/tag/v0.2.3) — 2026-11-19
 
 - Reduce memory and CPU use in long conversations through paged history,
