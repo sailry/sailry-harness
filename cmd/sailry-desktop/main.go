@@ -34,7 +34,8 @@ type desktopWindow struct {
 	live   *live.Runtime
 	save   func()
 	// passing is a confirmed close of this window (exitGuard).
-	passing bool
+	passing     bool
+	closeSaving bool
 }
 
 func main() {
@@ -116,7 +117,10 @@ func run() error {
 		},
 		save:   func(entry *desktopWindow) { entry.live.SaveDocuments() },
 		saving: func(entry *desktopWindow) bool { return entry.live != nil && entry.live.SavingDocuments() },
-		work:   func(entry *desktopWindow) bool { return entry.live != nil && entry.live.LocalWork() },
+		flush: func(entry *desktopWindow, done func(bool)) bool {
+			return entry.live != nil && !backend.stopped.Load() && entry.live.FlushEdits(done)
+		},
+		work: func(entry *desktopWindow) bool { return entry.live != nil && entry.live.LocalWork() },
 		raise: func(entry *desktopWindow) {
 			entry.window.Show()
 			entry.window.Focus()
@@ -313,9 +317,6 @@ func run() error {
 		entry.window.OnBlur(entry.save)
 		entry.window.OnClose(func(e *mygo.CloseEvent) {
 			entry.save()
-			if entry.live != nil {
-				entry.live.FlushEdits()
-			}
 			if guard.closing(entry) {
 				e.PreventDefault()
 			}
@@ -433,11 +434,6 @@ func run() error {
 			}
 		})
 		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-			for _, entry := range windows {
-				if entry.live != nil {
-					entry.live.FlushEdits()
-				}
-			}
 			if guard.beforeQuit(e.SessionEnding) {
 				e.PreventDefault()
 			}

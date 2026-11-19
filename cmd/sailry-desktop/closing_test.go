@@ -120,6 +120,50 @@ func TestExitGuard(t *testing.T) {
 			t.Fatal("a change of active window opened a second quit prompt")
 		}
 	})
+	t.Run("a confirmed quit waits for every settings save", func(t *testing.T) {
+		g := newGuardTest(nil, nil)
+		g.guard.passing = true
+		waiting := map[*desktopWindow]func(bool){}
+		g.guard.flush = func(window *desktopWindow, done func(bool)) bool {
+			waiting[window] = done
+			return true
+		}
+		if !g.guard.beforeQuit(false) || len(waiting) != 2 || !g.guard.closing(g.windows[0]) {
+			t.Fatal("quit allowed an open window to close during its save")
+		}
+		waiting[g.windows[0]](true)
+		if g.quits != 0 {
+			t.Fatal("quit resumed with another save pending")
+		}
+		waiting[g.windows[1]](true)
+		g.guard.flush = nil
+		if g.quits != 1 || g.guard.beforeQuit(false) || g.guard.closing(g.windows[1]) {
+			t.Fatal("quit did not proceed after both saves settled")
+		}
+	})
+	t.Run("a settings failure leaves the closing window open", func(t *testing.T) {
+		g := newGuardTest(nil, nil)
+		var settle func(bool)
+		g.guard.flush = func(_ *desktopWindow, done func(bool)) bool {
+			settle = done
+			return true
+		}
+		window := g.windows[0]
+		if !g.guard.closing(window) || settle == nil || !window.closeSaving {
+			t.Fatal("a window closed with a pending save")
+		}
+		settle(false)
+		if len(g.shut) != 0 || window.closeSaving {
+			t.Fatal("a failed save closed or kept waiting on the window")
+		}
+		if !g.guard.closing(window) {
+			t.Fatal("the window did not wait for a new save")
+		}
+		settle(true)
+		if !slices.Equal(g.shut, []*desktopWindow{window}) {
+			t.Fatal("the saved window did not close")
+		}
+	})
 	t.Run("a window with drafts asks for itself only", func(t *testing.T) {
 		g := newGuardTest([]string{"a.go"}, []string{"b.go"})
 		first := g.windows[0]

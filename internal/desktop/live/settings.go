@@ -158,8 +158,8 @@ func (r *Runtime) saveSettingReread(command protocol.Command, messages settings.
 
 // saveSettingResult exposes the settled fault to editors that retain drafts
 // and need to distinguish a refused save from one whose outcome is open.
-func (r *Runtime) saveSettingResult(command protocol.Command, messages settings.Messages, done func(*ui.Context, protocol.Output, error)) {
-	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+func (r *Runtime) saveSettingResult(command protocol.Command, messages settings.Messages, done func(*ui.Context, protocol.Output, error), delivery ...func(func(*ui.Context))) {
+	r.executeScoped("", command, func(c *ui.Context, output protocol.Output, err error) {
 		outcome := kit.Done
 		if err != nil {
 			outcome = kit.Failed
@@ -170,9 +170,19 @@ func (r *Runtime) saveSettingResult(command protocol.Command, messages settings.
 				outcome = kit.Uncertain
 			}
 		}
-		settings.Report(c, outcome, messages)
+		r.reportSetting(c, outcome, messages)
 		done(c, output, err)
-	})
+	}, delivery...)
+}
+
+// reportSetting also supports outcomes delivered on the main thread before
+// the next frame, for an editor that a window close is waiting on.
+func (r *Runtime) reportSetting(c *ui.Context, outcome kit.Outcome, messages settings.Messages) {
+	if c != nil {
+		settings.Report(c, outcome, messages)
+	} else {
+		r.enqueue(func(c *ui.Context) { settings.Report(c, outcome, messages) })
+	}
 }
 
 func (r *Runtime) readNotices(ids []string) {

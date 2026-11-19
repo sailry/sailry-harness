@@ -13,11 +13,13 @@ type exitGuard struct {
 	documents  func(*desktopWindow) []shell.CloseDocument
 	save       func(*desktopWindow)
 	saving     func(*desktopWindow) bool
-	work       func(*desktopWindow) bool // the local Node runs a task or a terminal
-	raise      func(*desktopWindow)      // shows the window that asks
-	shut       func(*desktopWindow)      // closes one window again
-	quit       func()                    // quits again
+	flush      func(*desktopWindow, func(bool)) bool // settles pending settings saves
+	work       func(*desktopWindow) bool             // the local Node runs a task or a terminal
+	raise      func(*desktopWindow)                  // shows the window that asks
+	shut       func(*desktopWindow)                  // closes one window again
+	quit       func()                                // quits again
 	quitPrompt *desktopWindow
+	quitSaving bool
 	// passing is a quit that was confirmed, needs no prompt or cannot be
 	// cancelled: its closes go through.
 	passing bool
@@ -83,14 +85,31 @@ func (g *exitGuard) ask(entry *desktopWindow, action closeAction, proceed func()
 	return true
 }
 
-// beforeQuit reports whether the quit must wait for the prompt. A session
-// that ends cannot wait: its quit passes as it is.
+// beforeQuit reports whether the quit waits for settings saves or a prompt.
+// An operating-system session end starts the saves and passes immediately.
 func (g *exitGuard) beforeQuit(sessionEnding bool) bool {
-	if sessionEnding || g.passing {
+	windows := g.windows()
+	if sessionEnding {
 		g.passing = true
+		g.quitSaving = false
+		if g.flush != nil {
+			for _, window := range windows {
+				g.flush(window, nil)
+			}
+		}
 		return false
 	}
-	windows := g.windows()
+	if g.quitSaving {
+		return true
+	}
+	g.quitSaving = true
+	if g.flushWindows(windows) {
+		return true
+	}
+	g.quitSaving = false
+	if g.passing {
+		return false
+	}
 	entry := g.active()
 	if entry == nil && len(windows) > 0 {
 		entry = windows[0]
@@ -102,10 +121,67 @@ func (g *exitGuard) beforeQuit(sessionEnding bool) bool {
 	return false
 }
 
-// closing reports whether the window's close must wait for the prompt.
+// flushWindows keeps the windows alive until every editor has settled its
+// saves. A failed save leaves the draft and its existing retry UI available.
+func (g *exitGuard) flushWindows(windows []*desktopWindow) bool {
+	if g.flush == nil {
+		return false
+	}
+	remaining := len(windows)
+	ready, waiting, started := true, false, false
+	resume := func() {
+		g.quitSaving = false
+		if ready {
+			g.quit()
+		} else {
+			g.passing = false
+		}
+	}
+	done := func(saved bool) {
+		ready = ready && saved
+		remaining--
+		if started && remaining == 0 {
+			resume()
+		}
+	}
+	for _, window := range windows {
+		if g.flush(window, done) {
+			waiting = true
+		} else {
+			remaining--
+		}
+	}
+	started = true
+	if waiting && remaining == 0 {
+		resume()
+	}
+	return waiting
+}
+
+// closing reports whether a close waits for settings saves or a prompt.
 // Closing the last window quits, so it asks as a quit does.
 func (g *exitGuard) closing(entry *desktopWindow) bool {
-	if g.passing || entry.passing {
+	if g.quitSaving || entry.closeSaving {
+		return true
+	}
+	if g.passing {
+		return false
+	}
+	if g.flush != nil {
+		entry.closeSaving = true
+		if g.flush(entry, func(saved bool) {
+			entry.closeSaving = false
+			if saved && !g.quitSaving && !g.passing {
+				g.shut(entry)
+			} else if !saved {
+				entry.passing = false
+			}
+		}) {
+			return true
+		}
+		entry.closeSaving = false
+	}
+	if entry.passing {
 		return false
 	}
 	if len(g.windows()) == 1 {

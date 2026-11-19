@@ -800,16 +800,20 @@ func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, p
 	r.executeScoped("", command, finished)
 }
 
-func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) protocol.RequestID {
+func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error), delivery ...func(func(*ui.Context))) protocol.RequestID {
+	deliver := r.enqueue
+	if len(delivery) != 0 {
+		deliver = delivery[0]
+	}
 	if r.parent != nil && !r.controller.Connected() {
-		r.enqueue(func(c *ui.Context) {
+		deliver(func(c *ui.Context) {
 			finished(c, protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "resource host is offline"})
 		})
 		return protocol.RequestID{}
 	}
 	b, err := json.Marshal(command)
 	if err != nil {
-		r.enqueue(func(c *ui.Context) { finished(c, protocol.Output{}, err) })
+		deliver(func(c *ui.Context) { finished(c, protocol.Output{}, err) })
 		return protocol.RequestID{}
 	}
 	key := scope + "\x00" + string(b)
@@ -823,7 +827,7 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 	}
 	r.async(func() {
 		output, err := r.controller.Settle(r.ctx, request)
-		r.enqueue(func(c *ui.Context) {
+		deliver(func(c *ui.Context) {
 			delete(r.busy, key)
 			code := faultCode(err)
 			if client.Retained(err) || code == protocol.ErrorCodeUnavailable && !client.Released(err) && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {

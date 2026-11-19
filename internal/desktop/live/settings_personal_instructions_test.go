@@ -10,32 +10,69 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Closing the window or quitting saves an edit still within its delay.
+// A close waits for the latest draft and the revision from the preceding
+// write even when the window builds no frames.
 func TestPersonalInstructionsFlushBeforeClosing(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
 		e := &r.personalInstructions.editor
 		e.Known = true
 		r.App.Settings.PersonalInstructions = e
+		updates := make(chan func(), 8)
+		r.SetUpdate(func(f func()) { updates <- f })
+		drain := func() {
+			synctest.Wait()
+			for len(updates) > 0 {
+				(<-updates)()
+				synctest.Wait()
+			}
+		}
+		first, latest := make(chan struct{}), make(chan struct{})
+		release := func(ready chan struct{}) {
+			select {
+			case <-ready:
+			default:
+				close(ready)
+			}
+		}
+		defer release(first)
+		defer release(latest)
 		source.respond = func(request protocol.Request) link.Response {
 			input, _ := detail[protocol.CommandSavePersonalInstructionsPayload](request.Command.Data)
+			switch input.Text {
+			case "First prompt":
+				<-first
+			case "Latest prompt":
+				<-latest
+			}
 			return link.Response{Output: protocol.Output{Kind: "personal_instructions", Data: protocol.PersonalInstructions{Text: input.Text, Revision: &input.Text}}}
 		}
-		e.Draft = "Closing prompt"
+		e.Draft = "First prompt"
 		r.queuePersonalInstructionsSave()
-		r.FlushEdits()
-		synctest.Wait()
+		finished := false
+		if !r.FlushEdits(func(saved bool) { finished = saved }) {
+			t.Fatal("close proceeded before the edit was saved")
+		}
+		drain()
+		if len(source.sent("save_personal_instructions")) != 1 || r.personalInstructions.timer != nil || finished {
+			t.Fatal("close did not flush the debounced edit and wait for its result")
+		}
+		// The next frame has not yet observed this edit.
+		e.Draft = "Latest prompt"
+		release(first)
+		drain()
 		commands := source.sent("save_personal_instructions")
-		if len(commands) != 1 || r.personalInstructions.timer != nil {
-			t.Fatalf("the pending edit was not saved before closing: %d writes", len(commands))
+		if len(commands) != 2 || finished || e.Saved != "First prompt" {
+			t.Fatalf("close did not take the latest draft: %d writes, finished=%v, editor=%+v", len(commands), finished, e)
 		}
-		if input, _ := detail[protocol.CommandSavePersonalInstructionsPayload](commands[0].Data); input.Text != "Closing prompt" {
-			t.Fatalf("the flushed save wrote %q", input.Text)
+		next, _ := detail[protocol.CommandSavePersonalInstructionsPayload](commands[1].Data)
+		if next.Text != "Latest prompt" || next.ExpectedRevision == nil || *next.ExpectedRevision != "First prompt" {
+			t.Fatalf("latest write used the wrong capture: %+v", next)
 		}
-		r.FlushEdits()
-		synctest.Wait()
-		if len(source.sent("save_personal_instructions")) != 1 {
-			t.Fatal("flushing again repeated the save")
+		release(latest)
+		drain()
+		if !finished || e.Saved != e.Draft || r.FlushEdits(nil) || len(source.sent("save_personal_instructions")) != 2 {
+			t.Fatalf("close did not proceed once the latest write settled: %+v", e)
 		}
 	})
 }
