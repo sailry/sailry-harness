@@ -573,17 +573,6 @@ artifact_preview_loading: Cargando la vista previa
 files_open_failed: No se pudo abrir el archivo
 artifact_request_edit: Solicitud de edición
 background_notice_title: Resultados en segundo plano
-background_outcome_cancelled: Cancelado
-background_outcome_completed: Completado
-background_outcome_failed: Error
-background_outcome_interrupted: Interrumpido
-background_outcome_stalled: Sin salida reciente
-background_outcome_stopped: Detenido
-background_outcome_timed_out: Tiempo agotado
-background_outcome_unknown: Resultado incierto
-background_running: En segundo plano
-background_exit: Código de salida %{code}
-background_result_waiting: Resultado no entregado
 chat_compact_cancelled: Compactación cancelada
 chat_compact_failed: Falló la compactación
 chat_compact_failed_paused: La compactación falló; compactación automática en pausa
@@ -2381,7 +2370,6 @@ meter_assistant: Historial del asistente
 meter_results: Resultados de herramientas
 meter_reply: Respuesta
 meter_tool_calls: Llamadas a herramientas
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: Uso de subagentes
 meter_wait: Espera
 meter_tools_time: Herramientas

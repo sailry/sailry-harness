@@ -573,17 +573,6 @@ artifact_preview_loading: Vorschau wird geladen
 files_open_failed: Die Datei konnte nicht geöffnet werden
 artifact_request_edit: Bearbeiten anfordern
 background_notice_title: Hintergrundergebnisse
-background_outcome_cancelled: Abgebrochen
-background_outcome_completed: Abgeschlossen
-background_outcome_failed: Fehlgeschlagen
-background_outcome_interrupted: Unterbrochen
-background_outcome_stalled: Keine neue Ausgabe
-background_outcome_stopped: Gestoppt
-background_outcome_timed_out: Zeitüberschreitung
-background_outcome_unknown: Ergebnis ungewiss
-background_running: Läuft im Hintergrund
-background_exit: Exitcode %{code}
-background_result_waiting: Ergebnis nicht zugestellt
 chat_compact_cancelled: Verdichtung abgebrochen
 chat_compact_failed: Die Verdichtung ist fehlgeschlagen
 chat_compact_failed_paused: Komprimierung fehlgeschlagen, automatische Komprimierung pausiert
@@ -2381,7 +2370,6 @@ meter_assistant: Assistentenverlauf
 meter_results: Werkzeugergebnisse
 meter_reply: Antwort
 meter_tool_calls: Werkzeugaufrufe
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: Unteragentennutzung
 meter_wait: Warten
 meter_tools_time: Werkzeuge

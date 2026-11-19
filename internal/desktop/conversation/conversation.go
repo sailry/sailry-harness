@@ -713,6 +713,16 @@ func showPhase(r *Reply, parts replySections) bool {
 		if (last.Kind == TextBlock && r.Phase == Generating || last.Kind == ReasoningBlock && r.Phase == Thinking) && last.Text != "" {
 			return false
 		}
+		// The latest call's own sweep already shows the model being awaited;
+		// the task's progress card below it does not count as later output.
+		for i := n - 1; i >= 0; i-- {
+			if b := visibleTail[i]; b.Kind != ProgressBlock {
+				if b.Kind == ToolsBlock && len(b.Calls) > 0 && awaitingModel(b.Calls[len(b.Calls)-1]) {
+					return false
+				}
+				break
+			}
+		}
 	}
 	for _, blocks := range [][]Block{parts.work, parts.answer} {
 		for _, b := range blocks {

@@ -277,11 +277,10 @@ func checkTranscript(t *testing.T) {
 		t.Fatal("a disabled Edit acted")
 	}
 	r.turns[0].Controls = conversation.Controls{}
-	// The failed call folds with the call before it; the closed group names both.
-	if !tt.HasText(T("tool_load_skill")+" · "+T("tool_read_session")) || tt.HasText(T("tool_denied")) {
+	// The failed call folds with the call before it; the closed group shows the latest.
+	if !tt.HasText(T("tool_read_session")) || tt.HasText(T("tool_load_skill")) || tt.HasText(T("tool_denied")) {
 		t.Fatalf("the closed tool group: %q", tt.Texts())
 	}
-	click(T("meter_tool_calls"))
 	click(T("tool_read_session")) // the sequence opens on its calls
 	// The tool's label is its built-in key in Chinese; its picture shows under the output and opens the viewer.
 	if !tt.HasText(T("tool_load_skill")) || !tt.HasText(T("tool_read_session")) || tt.HasText(T("tool_denied")) || tt.HasText("load_skill") {

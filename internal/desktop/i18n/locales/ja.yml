@@ -573,17 +573,6 @@ artifact_preview_loading: プレビューを読み込み中
 files_open_failed: ファイルを開けません
 artifact_request_edit: 編集依頼
 background_notice_title: バックグラウンドの結果
-background_outcome_cancelled: キャンセル済み
-background_outcome_completed: 完了
-background_outcome_failed: 失敗
-background_outcome_interrupted: 中断
-background_outcome_stalled: 最近の出力なし
-background_outcome_stopped: 停止済み
-background_outcome_timed_out: タイムアウト
-background_outcome_unknown: 結果は不確定
-background_running: バックグラウンドで実行中
-background_exit: 終了コード %{code}
-background_result_waiting: 結果は未配信です
 chat_compact_cancelled: 圧縮中止
 chat_compact_failed: 圧縮に失敗しました
 chat_compact_failed_paused: 圧縮に失敗したため、自動圧縮を一時停止しました
@@ -2381,7 +2370,6 @@ meter_assistant: アシスタント履歴
 meter_results: ツール結果
 meter_reply: 応答
 meter_tool_calls: ツール呼び出し
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: サブエージェント使用量
 meter_wait: 待機
 meter_tools_time: ツール

@@ -243,8 +243,8 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	entry("tools", "assistant", transcriptTool("r", "read_fixture"), transcriptTool("s", "search_fixture"))
 	entry("results", "tool", transcriptResult("s", "search_fixture"), transcriptResult("r", "read_fixture"))
 	show()
-	// The returned batch folds into one group whose header names its tools.
-	order(count(10, 10), text.Data.(string), "read_fixture · search_fixture", thinking)
+	// The returned batch folds into one group whose header shows its latest call.
+	order(count(10, 10), text.Data.(string), "search_fixture")
 	transcriptActivityShot(t, tester, "transcript-child-batch-idle")
 	second := batch("reuse", 2, 12)
 	entry("after", "assistant", transcriptTool("last", "check_fixture"))
@@ -252,16 +252,16 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	second[1].Run.Status = "completed"
 	frame("child", second[1])
 	show()
-	toolGroup := i18n.In("zh-CN", "meter_tool_calls")
-	order(count(10, 10), text.Data.(string), toolGroup, count(1, 2), "check_fixture", thinking)
-	if _, shown := tester.Find("search_fixture"); shown {
+	toolGroup := "search_fixture"
+	order(count(10, 10), text.Data.(string), toolGroup, count(1, 2), "check_fixture")
+	if _, shown := tester.Find("read_fixture"); shown {
 		t.Fatal("settled tools did not collapse into their group")
 	}
 	if err := tester.Click(toolGroup); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	order(count(10, 10), text.Data.(string), "search_fixture", count(1, 2), "check_fixture", thinking)
+	order(count(10, 10), text.Data.(string), "search_fixture", count(1, 2), "check_fixture")
 	transcriptActivityShot(t, tester, "transcript-child-reuse")
 	if err := tester.Click(count(1, 2)); err != nil {
 		t.Fatal(err)
@@ -273,7 +273,7 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	second[0].Run.Status = "completed"
 	frame("child", second[0])
 	show()
-	order(count(10, 10), count(2, 2), "reuse-0", "check_fixture", thinking)
+	order(count(10, 10), count(2, 2), "reuse-0", "check_fixture")
 	run.Status = "completed"
 	frame("run", run)
 	show()
@@ -369,13 +369,14 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 		t.Fatalf("started tool did not report only execution: %+v", call)
 	}
 	entry("done", "tool", transcriptResult("inspect", "inspect_fixture"))
-	check("after tool", idle)
+	// The returned call's own sweep stands in for the waiting phase.
+	check("after tool", "")
 	if call := turns[0].Reply.Blocks[0].Calls[0]; call.Running || !call.AwaitingModel {
 		t.Fatalf("returned tool did not report only model wait: %+v", call)
 	}
 	for range 3 {
 		tester.Advance(500 * time.Millisecond)
-		check("no new frame", idle)
+		check("no new frame", "")
 	}
 	transcriptActivityShot(t, tester, "transcript-after-tool")
 	text := protocol.ConversationPart{Kind: "text", Data: "Partial reply"}

@@ -2717,9 +2717,6 @@ project_visibility_private: Privado
 project_visibility_shared: Compartilhado no host
 git_cherry_pick_confirm: Aplicar este commit ao branch atual
 git_copy_commit_id: Copiar ID do commit
-background_running: Em segundo plano
-background_exit: Código de saída %{code}
-background_result_waiting: Resultado não entregue
 chat_compact_failed_paused: A compactação falhou; compactação automática pausada
 composer_execution_host: Host de execução
 connections_bidirectional: Bidirecional

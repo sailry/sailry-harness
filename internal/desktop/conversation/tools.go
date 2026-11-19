@@ -299,11 +299,10 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 
 // A group discloses call headers. Individual rows still own their outputs.
 // Every call of a run joins it whatever its state, so a call that starts,
-// settles or fails stays in its place; the closed group's header carries the
-// run's activity and its most severe outcome. The group is keyed by its first
+// settles or fails stays in its place. The group is keyed by its first
 // call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
-	head := groupHead(c, calls)
+	head := groupHead(calls)
 	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func() {
@@ -313,52 +312,11 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	})
 }
 
-// groupHead is a group's header: the tools it ran, each with its count, and
-// the state a closed group must not hide. An approval request outranks
-// activity, which outranks a failure, which outranks a warning.
-func groupHead(c *ui.Context, calls []Call) Call {
-	head := Call{LabelKey: "meter_tool_calls"}
-	var labels []string
-	counts := map[string]int{}
-	var running, awaiting, pending, failed bool
-	warning := -1
-	for i, call := range calls {
-		label := call.Label
-		if label == "" && call.LabelKey != "" {
-			label = i18n.T(c, call.LabelKey)
-		}
-		label = cmp.Or(label, call.Name)
-		if counts[label] == 0 {
-			labels = append(labels, label)
-		}
-		counts[label]++
-		running = running || call.Running
-		awaiting = awaiting || awaitingModel(call)
-		pending = pending || call.Pending
-		failed = failed || call.Failed
-		if warning < 0 && flagged(call) {
-			warning = i
-		}
-	}
-	for i, label := range labels {
-		if n := counts[label]; n > 1 {
-			labels[i] = i18n.T(c, "tool_group_repeat", "label", label, "count", n)
-		}
-	}
-	head.Detail = strings.Join(labels, " · ")
-	switch {
-	case pending:
-		head.Pending = true
-	case running:
-		head.Running = true
-	case awaiting:
-		head.AwaitingModel = true
-	case failed:
-		head.Failed = true
-	case warning >= 0:
-		// A background command that ended badly has no row state of its own.
-		head.Warning, head.State = true, cmp.Or(calls[warning].State, StateInterrupted)
-	}
+// groupHead is a group's header: its latest call, shown and coloured as
+// that call's own row, so the run reads as the work it is doing now.
+func groupHead(calls []Call) Call {
+	head := calls[len(calls)-1]
+	head.wrap = false
 	return head
 }
 
@@ -396,24 +354,12 @@ func (s *State) row(c *ui.Context, call Call) {
 		if call.BackgroundDetail != nil {
 			detail = call.BackgroundDetail()
 		}
-		if b := call.Background; b != nil {
-			backgroundNotice(c, b, rowColor(theme.Of(c), call))
-			if detail.Output == nil && b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
-				s.output(c, &Output{Text: b.Preview, Command: true}, false)
-			}
+		// The body is the command's own output; its state is the row's.
+		if b := call.Background; b != nil && detail.Output == nil && b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
+			s.output(c, &Output{Text: b.Preview, Command: true}, false)
 		}
-		if call.BackgroundDetail != nil {
-			if detail.Denied {
-				notice(c, i18n.T(c, "permission_denied"), theme.Of(c).Warning)
-			}
-			if detail.Status != nil && call.Background == nil {
-				withStatus := call
-				withStatus.Background = detail.Status
-				backgroundNotice(c, detail.Status, rowColor(theme.Of(c), withStatus))
-			}
-			if detail.Output != nil {
-				s.output(c, detail.Output, false)
-			}
+		if detail.Output != nil {
+			s.output(c, detail.Output, false)
 		}
 		paths := pathList(call)
 		if call.Output != nil && (paths || !bare(call)) {
@@ -457,24 +403,6 @@ func (d *disclosureDetail) Close() error {
 	}
 	*d = disclosureDetail{}
 	return nil
-}
-
-func backgroundNotice(c *ui.Context, b *Background, color ui.Color) {
-	if b.Running {
-		notice(c, i18n.T(c, "background_running"), color)
-		return
-	}
-	if b.Outcome == OutcomeCompleted || b.Exit != nil {
-		return
-	}
-	keys := [...]string{"", "background_outcome_failed", "background_outcome_cancelled",
-		"background_outcome_stopped", "background_outcome_timed_out", "background_outcome_interrupted",
-		"background_outcome_unknown", "background_outcome_stalled"}
-	label := i18n.T(c, keys[b.Outcome])
-	if b.Waiting {
-		label += " · " + i18n.T(c, "background_result_waiting")
-	}
-	notice(c, label, color)
 }
 
 // bare reports an output with nothing to display below its row.

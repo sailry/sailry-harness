@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -111,13 +112,13 @@ func TestRunningToolRowsSweep(t *testing.T) {
 	})
 	t.Run("concurrent block", func(t *testing.T) {
 		// One block of calls of one name and of another folds into one
-		// group whose closed header sweeps; opened, every row is its own and
-		// the running ones sweep.
+		// group whose closed header, the latest call, sweeps; opened, every
+		// row is its own and the running ones sweep.
 		calls := []Call{runningCall("a", "read", "a.go", false), runningCall("b", "read", "b.go", false), runningCall("c", "read", "c.go", false), runningCall("d", "grep", "d.go", false)}
 		calls[1].Running = false
 		turns := sweepTurn(ExecutingTool, Block{Kind: ToolsBlock, Calls: calls})
-		group, kinds := i18n.In("en", "meter_tool_calls"), "read ×3 · grep"
-		expectSweeps(t, sweeps(t, turns, nil, group, kinds), map[string]bool{group: true, kinds: true})
+		group := "d.go"
+		expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: true})
 		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go", "d.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": true, "b.go": false, "c.go": true, "d.go": true})
 	})
@@ -131,21 +132,21 @@ func TestRunningToolRowsSweep(t *testing.T) {
 }
 
 // While the model's next output is awaited, every call of the returned batch
-// (Call.AwaitingModel) sweeps its row beside the waiting phase; an earlier
+// (Call.AwaitingModel) sweeps its row, and the latest one's sweep stands in
+// for the waiting phase; an earlier
 // batch, and a batch call that failed, awaits approval or was denied, stay
 // still, and the task's progress keeps its own sweep.
 func TestAwaitingModelRowsSweep(t *testing.T) {
-	waiting := i18n.In("en", "turn_awaiting_response")
 	earlier := []Call{settledCall("a", "read", "a.go", true, false), settledCall("b", "grep", "b.go", true, false)}
 	batch := []Call{settledCall("c", "read", "c.go", true, true), settledCall("d", "grep", "d.go", true, true), settledCall("e", "list", "e.go", true, true)}
 	t.Run("batch rows", func(t *testing.T) {
-		lit := sweeps(t, sweepTurn(AwaitingResponse, callBlocks(append(earlier, batch...)...)...), nil, "a.go", "b.go", "c.go", "d.go", "e.go", waiting)
-		expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": false, "c.go": true, "d.go": true, "e.go": true, waiting: true})
+		lit := sweeps(t, sweepTurn(AwaitingResponse, callBlocks(append(earlier, batch...)...)...), nil, "a.go", "b.go", "c.go", "d.go", "e.go")
+		expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": false, "c.go": true, "d.go": true, "e.go": true})
 	})
 	t.Run("batch block", func(t *testing.T) {
 		calls := []Call{settledCall("a", "read", "a.go", false, false), settledCall("b", "read", "b.go", false, true), settledCall("c", "grep", "c.go", false, true)}
 		turns := sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls})
-		group := i18n.In("en", "meter_tool_calls")
+		group := "c.go"
 		expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: true})
 		lit := sweeps(t, turns, []string{group}, "a.go", "b.go", "c.go")
 		expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": true, "c.go": true})
@@ -174,7 +175,7 @@ func TestAwaitingModelRowsSweep(t *testing.T) {
 
 // A block's calls keep their own guards: a background job, an approval
 // and a denial stay still among calls that sweep while the model is awaited.
-// The closed group's header takes the approval's color and stays still.
+// The closed group's header is the latest call, a denial, and stays still.
 func TestAwaitingModelBlockGuards(t *testing.T) {
 	background := settledCall("bg", "read", "bg.go", false, true)
 	background.Background = &Background{Outcome: OutcomeCompleted}
@@ -184,35 +185,56 @@ func TestAwaitingModelBlockGuards(t *testing.T) {
 	denied.Warning, denied.State = true, Denied
 	calls := []Call{settledCall("a", "read", "a.go", false, true), background, pending, denied}
 	turns := sweepTurn(AwaitingResponse, Block{Kind: ToolsBlock, Calls: calls})
-	group := i18n.In("en", "meter_tool_calls")
+	group := "d.go"
 	expectSweeps(t, sweeps(t, turns, nil, group), map[string]bool{group: false})
 	lit := sweeps(t, turns, []string{group}, "a.go", "bg.go", "p.go", "d.go")
 	expectSweeps(t, lit, map[string]bool{"a.go": true, "bg.go": false, "p.go": false, "d.go": false})
 }
 
-// A closed group's header carries the state its rows would show: an
-// approval outranks activity, activity a failure, a failure a warning.
+// A group's header is its latest call, label and state alike.
 func TestToolGroupHeadState(t *testing.T) {
 	read := Call{ID: "r", Name: "read", Label: "Read file"}
+	for _, last := range []Call{
+		{ID: "s", Label: "Search", Running: true},
+		{ID: "c", Label: "Command", Pending: true, State: Pending},
+		{ID: "f", Label: "Command", Failed: true},
+		{ID: "w", Label: "Edit", Warning: true, State: Denied, wrap: true},
+	} {
+		head := groupHead([]Call{read, {Label: "Other", Failed: true}, last})
+		want := last
+		want.wrap = false
+		if !reflect.DeepEqual(head, want) {
+			t.Fatalf("header %+v, want %+v", head, want)
+		}
+	}
+}
+
+// The waiting phase shows only while no awaited call sweeps last: after a
+// batch whose latest call failed it remains.
+func TestAwaitingPhaseBehindSweep(t *testing.T) {
+	waiting := i18n.In("en", "turn_awaiting_response")
+	awaited := settledCall("a", "read", "a.go", true, true)
+	failed := settledCall("b", "grep", "b.go", true, true)
+	failed.Failed = true
+	progress := Block{Kind: ProgressBlock, Steps: []Step{{Text: "Inspect", State: StepInProgress}}}
 	for _, row := range []struct {
-		name  string
-		calls []Call
-		check func(Call) bool
+		name   string
+		blocks []Block
+		shown  bool
 	}{
-		{"settled", []Call{read, read}, func(h Call) bool { return !h.Running && !h.Failed && !h.Pending && !flagged(h) }},
-		{"running", []Call{read, {Label: "Search", Running: true}, {Label: "Command", Failed: true}}, func(h Call) bool { return h.Running && !h.Failed }},
-		{"pending", []Call{{Label: "Command", Pending: true, State: Pending}, {Label: "Search", Running: true}}, func(h Call) bool { return h.Pending && !h.Running }},
-		{"failed", []Call{read, {Label: "Command", Failed: true}, {Label: "Edit", Warning: true, State: Denied}}, func(h Call) bool { return h.Failed }},
-		{"background failure", []Call{read, {Label: "Command", Background: &Background{Outcome: OutcomeFailed}}}, func(h Call) bool { return flagged(h) && !h.Failed }},
-		{"tool error", []Call{read, {Label: "Command", Warning: true}}, func(h Call) bool { return !flagged(h) && !h.Failed }},
+		{"awaited", callBlocks(awaited), false},
+		{"awaited above progress", append(callBlocks(awaited), progress), false},
+		{"failed", callBlocks(awaited, failed), true},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			var head Call
-			tt := ui.NewTester(func(c *ui.Context) { head = groupHead(c, row.calls) }, 100, 100)
+			turns := sweepTurn(AwaitingResponse, row.blocks...)
+			s := New()
+			tt := ui.NewTester(func(c *ui.Context) { View(c, s, "session", turns, nil, still{}) }, 900, 600)
 			tt.SetLocale("en")
+			tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 			tt.Frame()
-			if !row.check(head) || head.LabelKey != "meter_tool_calls" || head.Detail == "" {
-				t.Fatalf("header %+v for %+v", head, row.calls)
+			if tt.HasText(waiting) != row.shown {
+				t.Fatalf("waiting phase shown %v, want %v: %q", !row.shown, row.shown, tt.Texts())
 			}
 		})
 	}

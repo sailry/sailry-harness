@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,11 +279,19 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 	}
 	show()
 	click(i18n.In("en", "turn_completed"))
-	// The command and the call after it fold into one group.
-	click(commandLabel + " · " + nextLabel)
+	// The command and the call after it fold into one group, shown by the
+	// latter; its own row is the lower one.
 	click(nextLabel)
+	var nextRow ui.AccessInfo
+	for _, a := range tester.AccessAll() {
+		if a.Role == ui.RoleButton && strings.HasPrefix(a.Name, nextLabel) && a.Bounds.Y > nextRow.Bounds.Y {
+			nextRow = a
+		}
+	}
+	tester.ClickAt(nextRow.Bounds.X+nextRow.Bounds.W/2, nextRow.Bounds.Y+nextRow.Bounds.H/2)
+	tester.Frame()
 	click(commandLabel)
-	if !tester.HasText(commandInput) || !tester.HasText(commandReceipt) || !tester.HasText(i18n.In("en", "background_running")) || !tester.HasText("log.txt") {
+	if !tester.HasText(commandInput) || !tester.HasText(commandReceipt) || tester.HasText(i18n.In("en", "background_running")) || !tester.HasText("log.txt") {
 		t.Fatalf("the grouped command cannot be inspected: %q", tester.Texts())
 	}
 	click(i18n.In("en", "subagent_count", "completed", 0, "total", 2))

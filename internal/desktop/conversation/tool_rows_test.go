@@ -93,7 +93,9 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	}
 }
 
-func TestExitedToolCommandShowsOnlyOutput(t *testing.T) {
+// An open command row shows the command's own output and nothing the
+// application wrote about its state, whatever that state is.
+func TestToolCommandShowsOnlyOutput(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		status     Background
@@ -103,13 +105,18 @@ func TestExitedToolCommandShowsOnlyOutput(t *testing.T) {
 		{"nonzero exit", Background{Outcome: OutcomeFailed, Exit: new(1), Waiting: true}, false},
 		{"historical completion", Background{Outcome: OutcomeCompleted, Exit: new(0)}, true},
 		{"historical nonzero exit", Background{Outcome: OutcomeFailed, Exit: new(1)}, true},
+		{"running", Background{Running: true}, false},
+		{"failed, result waiting", Background{Outcome: OutcomeFailed, Waiting: true}, false},
+		{"timed out", Background{Outcome: OutcomeTimedOut}, false},
+		{"stopped", Background{Outcome: OutcomeStopped}, false},
+		{"unknown", Background{Outcome: OutcomeUnknown}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call := Call{ID: "command", Label: "Command"}
 			const text = "command result"
 			if test.historical {
 				call.BackgroundDetail = func() BackgroundDetail {
-					return BackgroundDetail{Status: &test.status, Output: &Output{Text: text, Command: true}}
+					return BackgroundDetail{Output: &Output{Text: text, Command: true}}
 				}
 			} else {
 				test.status.Preview = text

@@ -590,17 +590,6 @@ artifact_preview_loading
 files_open_failed
 artifact_request_edit
 background_notice_title
-background_outcome_cancelled
-background_outcome_completed
-background_outcome_failed
-background_outcome_interrupted
-background_outcome_stalled
-background_outcome_stopped
-background_outcome_timed_out
-background_outcome_unknown
-background_running
-background_exit
-background_result_waiting
 chat_compact_cancelled
 chat_compact_failed
 chat_compact_failed_paused
@@ -2394,7 +2383,6 @@ meter_assistant
 meter_results
 meter_reply
 meter_tool_calls
-tool_group_repeat
 meter_child_usage
 meter_wait
 meter_tools_time

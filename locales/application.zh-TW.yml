@@ -2717,9 +2717,6 @@ project_visibility_private: 私人
 project_visibility_shared: 主機共用
 git_cherry_pick_confirm: 將此提交套用到目前分支
 git_copy_commit_id: 複製提交 ID
-background_running: 背景執行中
-background_exit: 結束代碼 %{code}
-background_result_waiting: 結果尚未送達
 chat_compact_failed_paused: 壓縮失敗，已暫停自動壓縮
 composer_execution_host: 執行主機
 connections_bidirectional: 雙向

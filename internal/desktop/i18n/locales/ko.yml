@@ -573,17 +573,6 @@ artifact_preview_loading: 미리 보기 불러오는 중
 files_open_failed: 파일을 열 수 없음
 artifact_request_edit: 편집 요청
 background_notice_title: 백그라운드 결과
-background_outcome_cancelled: 취소됨
-background_outcome_completed: 완료
-background_outcome_failed: 실패
-background_outcome_interrupted: 중단됨
-background_outcome_stalled: 최근 출력 없음
-background_outcome_stopped: 중지됨
-background_outcome_timed_out: 시간 초과
-background_outcome_unknown: 결과 불확실
-background_running: 백그라운드에서 실행 중
-background_exit: 종료 코드 %{code}
-background_result_waiting: 결과가 전달되지 않음
 chat_compact_cancelled: 압축 취소됨
 chat_compact_failed: 압축 실패
 chat_compact_failed_paused: 압축에 실패하여 자동 압축이 일시 중지됨
@@ -2381,7 +2370,6 @@ meter_assistant: 어시스턴트 기록
 meter_results: 도구 결과
 meter_reply: 응답
 meter_tool_calls: 도구 호출
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: 하위 에이전트 사용량
 meter_wait: 대기
 meter_tools_time: 도구

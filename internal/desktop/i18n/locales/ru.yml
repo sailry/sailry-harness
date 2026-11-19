@@ -573,17 +573,6 @@ artifact_preview_loading: Загрузить предварительный пр
 files_open_failed: Не удалось открыть файл
 artifact_request_edit: Запрос на редактирование
 background_notice_title: Фоновые результаты
-background_outcome_cancelled: Отменено
-background_outcome_completed: Завершено
-background_outcome_failed: Ошибка
-background_outcome_interrupted: Прервано
-background_outcome_stalled: Нет нового вывода
-background_outcome_stopped: Остановлено
-background_outcome_timed_out: Время истекло
-background_outcome_unknown: Результат неизвестен
-background_running: Выполняется в фоне
-background_exit: Код выхода %{code}
-background_result_waiting: Результат не доставлен
 chat_compact_cancelled: Уплотнение отменено
 chat_compact_failed: Уплотнение не удалось
 chat_compact_failed_paused: Сжатие не удалось, автоматическое сжатие приостановлено
@@ -2381,7 +2370,6 @@ meter_assistant: История ассистента
 meter_results: Результаты инструментов
 meter_reply: Ответ
 meter_tool_calls: Вызовы инструментов
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: Использование субагентов
 meter_wait: Ожидание
 meter_tools_time: Инструменты

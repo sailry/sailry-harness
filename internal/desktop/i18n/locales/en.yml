@@ -573,17 +573,6 @@ artifact_preview_loading: Loading preview
 files_open_failed: Could not open the file
 artifact_request_edit: Request edit
 background_notice_title: Background results
-background_outcome_cancelled: Cancelled
-background_outcome_completed: Completed
-background_outcome_failed: Failed
-background_outcome_interrupted: Interrupted
-background_outcome_stalled: No recent output
-background_outcome_stopped: Stopped
-background_outcome_timed_out: Timed out
-background_outcome_unknown: Outcome uncertain
-background_running: Running in background
-background_exit: Exit code %{code}
-background_result_waiting: Result not delivered
 chat_compact_cancelled: Compaction cancelled
 chat_compact_failed: Compaction failed
 chat_compact_failed_paused: Compaction failed, automatic compaction paused
@@ -2381,7 +2370,6 @@ meter_assistant: Assistant history
 meter_results: Tool results
 meter_reply: Reply
 meter_tool_calls: Tool calls
-tool_group_repeat: '%{label} ×%{count}'
 meter_child_usage: Subagent usage
 meter_wait: Wait
 meter_tools_time: Tools

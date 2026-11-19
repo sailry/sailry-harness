@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -63,12 +62,13 @@ func TestReplyContentSpacing(t *testing.T) {
 				}, 900, 700)
 				tester.SetLocale("en")
 				tester.Frame()
-				if err := tester.Click(i18n.In("en", "meter_tool_calls")); err != nil {
+				if err := tester.Click("Command"); err != nil {
 					t.Fatal(err)
 				}
 				tester.Frame()
 				var rows []ui.Rect
-				for index, call := range calls {
+				// The header repeats the latest call, so its row is left out.
+				for index, call := range calls[:len(calls)-1] {
 					row := spacingRow(t, tester, call.Label)
 					rows = append(rows, row)
 					if row.X != rows[0].X {

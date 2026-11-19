@@ -2717,9 +2717,6 @@ project_visibility_private: 비공개
 project_visibility_shared: 호스트 공유
 git_cherry_pick_confirm: 이 커밋을 현재 브랜치에 적용
 git_copy_commit_id: 커밋 ID 복사
-background_running: 백그라운드에서 실행 중
-background_exit: 종료 코드 %{code}
-background_result_waiting: 결과가 전달되지 않음
 chat_compact_failed_paused: 압축에 실패하여 자동 압축이 일시 중지됨
 composer_execution_host: 실행 호스트
 connections_bidirectional: 양방향

@@ -186,18 +186,12 @@ func (r *Runtime) historicalCommandDetail(ref client.HistoricalCommandReference)
 }
 
 func projectHistoricalCommand(value client.HistoricalCommandOutput, err error) conversation.BackgroundDetail {
+	// A row shows the command's own output only; an unreadable one shows none.
 	if err != nil {
-		if faultCode(err) == protocol.ErrorCodePermissionDenied {
-			return conversation.BackgroundDetail{Denied: true}
-		}
-		return conversation.BackgroundDetail{Status: &conversation.Background{Outcome: conversation.OutcomeUnknown}}
-	}
-	status := &conversation.Background{Running: value.Running, Outcome: backgroundOutcome(value.Outcome)}
-	if value.ExitCode != nil {
-		status.Exit = new(int(*value.ExitCode))
+		return conversation.BackgroundDetail{}
 	}
 	text := joinCommandText(value.Stdout.Text, value.Stderr.Text)
-	detail := conversation.BackgroundDetail{Status: status}
+	var detail conversation.BackgroundDetail
 	if text != "" || value.Failure != "" || value.Stdout.Truncated || value.Stderr.Truncated {
 		detail.Output = &conversation.Output{Command: true, Text: text, Failure: value.Failure}
 	}

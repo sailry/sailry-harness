@@ -903,8 +903,8 @@ cancels outstanding reads when it closes or leaves the virtualized list.
 Consecutive tool calls share one folded group until text, a subagent, an
 interaction or a standalone call breaks the run; the task's progress card keeps
 its place without splitting it. Calls keep their rows as they start, settle or
-fail, and the closed group's header names the tools and carries the run's
-activity and most severe outcome. A failed call displays its error message
+fail, and the group's header shows the latest call as that call's own row
+would. A failed call displays its error message
 when one is available and falls back to its original result. Visible
 conversation image rows resolve bounded thumbnails. The viewer loads the selected
 original on demand and releases it when that image leaves the viewer. Pane

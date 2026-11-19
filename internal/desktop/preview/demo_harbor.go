@@ -248,7 +248,6 @@ func (b *demo) invoices() *Conversation {
 	batch := b.call(only.ID, "command", "command", "go run ./cmd/backfill --year 2024")
 	batch.BackgroundDetail = func() cv.BackgroundDetail {
 		return cv.BackgroundDetail{
-			Status: &cv.Background{Outcome: cv.OutcomeStopped},
 			Output: &cv.Output{Text: "batch 01: 5000 rows ok\nbatch 02: 5000 rows ok\nbatch 03: 5000 rows ok", Command: true},
 		}
 	}

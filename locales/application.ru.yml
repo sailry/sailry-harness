@@ -2717,9 +2717,6 @@ project_visibility_private: Личный
 project_visibility_shared: Общий на хосте
 git_cherry_pick_confirm: Применить этот коммит к текущей ветке
 git_copy_commit_id: Копировать ID коммита
-background_running: Выполняется в фоне
-background_exit: Код выхода %{code}
-background_result_waiting: Результат не доставлен
 chat_compact_failed_paused: Сжатие не удалось, автоматическое сжатие приостановлено
 composer_execution_host: Хост выполнения
 connections_bidirectional: Двусторонний

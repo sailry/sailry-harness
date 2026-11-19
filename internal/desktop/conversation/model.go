@@ -402,9 +402,7 @@ type Background struct {
 }
 
 type BackgroundDetail struct {
-	Status *Background
 	Output *Output
-	Denied bool
 }
 
 // Output is a call's result, one or more of its parts.

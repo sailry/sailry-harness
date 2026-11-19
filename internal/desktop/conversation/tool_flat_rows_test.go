@@ -50,6 +50,18 @@ func rowButtons(tt *ui.Tester, label string) []ui.AccessInfo {
 	return out
 }
 
+// clickRow clicks the lowest button named label: the row of an open group
+// rather than the group's header, which repeats its latest call.
+func clickRow(t *testing.T, tt *ui.Tester, label string) {
+	t.Helper()
+	rows := rowButtons(tt, label)
+	if len(rows) == 0 {
+		t.Fatalf("no row %q: %q", label, tt.Texts())
+	}
+	r := rows[len(rows)-1].Bounds
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+}
+
 func textCount(tt *ui.Tester, text string) int {
 	n := 0
 	for _, s := range tt.Texts() {
@@ -62,7 +74,7 @@ func textCount(tt *ui.Tester, text string) int {
 
 // A group initially hides the individual headers, whatever their calls'
 // states: a running call and a failure fold with the settled ones, and the
-// header names the tools the run used. Opening it reveals the original call
+// header shows the run's latest call. Opening it reveals the original call
 // order and each row still opens straight onto its own result.
 func TestConsecutiveToolRowsFold(t *testing.T) {
 	calls := []Call{
@@ -74,8 +86,7 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 		{ID: "err", Name: "command", Label: "Command", Code: true, Failed: true, Error: "Command failed"},
 	}
 	details := []string{"a.go", "b.go", "c.go", "d.go", "current.go"}
-	label := i18n.In("en", "meter_tool_calls")
-	const kinds = "Read file ×3 · Search · read · Command"
+	const label = "Command"
 	for _, size := range []uint8{12, 14, 18} {
 		for _, width := range []int{480, 900} {
 			t.Run(fmt.Sprintf("size_%d_width_%d", size, width), func(t *testing.T) {
@@ -97,7 +108,7 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 				tt.Frame()
 				groups := rowButtons(tt, label)
-				if len(groups) != 1 || groups[0].Expanded || textCount(tt, kinds) != 1 || textCount(tt, "Command") != 0 || tt.HasText("Command failed") {
+				if len(groups) != 1 || groups[0].Expanded || textCount(tt, label) != 1 || tt.HasText("Command failed") {
 					t.Fatalf("every call of the run, active and failed ones included, should fold into one group: %q", tt.Texts())
 				}
 				if tt.HasText("6") {
@@ -127,8 +138,11 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 					}
 					rows = append(rows, r)
 				}
-				// The failure is the run's last row, in its place after the running call.
-				if failure, ok := tt.Find("Command"); !ok || failure.Y <= rows[len(rows)-1].Y {
+				// The failure is the run's last row, in its place after the
+				// running call; the header above repeats it.
+				texts := tt.Texts()
+				at := slices.Index(texts, "current.go")
+				if textCount(tt, label) != 2 || slices.Index(texts, label) > slices.Index(texts, "a.go") || at < 0 || !slices.Contains(texts[at:], label) {
 					t.Fatalf("the failed call is not the last row of the open group: %q", tt.Texts())
 				}
 				// The calls with a result open; the running one has none yet.
@@ -181,10 +195,10 @@ func TestToolRowPathList(t *testing.T) {
 	tt.SetLocale("en")
 	tt.Frame()
 	// The two calls fold together, the failure included, under one header.
-	if textCount(tt, "Find files") != 0 || tt.HasText("b/three.go") || textCount(tt, "Find files · Find more") != 1 {
+	if textCount(tt, "Find files") != 0 || tt.HasText("b/three.go") || textCount(tt, "Find more") != 1 {
 		t.Fatalf("the calls did not fold into one group: %q", tt.Texts())
 	}
-	if err := tt.Click(i18n.In("en", "meter_tool_calls")); err != nil {
+	if err := tt.Click("Find more"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -212,9 +226,7 @@ func TestToolRowPathList(t *testing.T) {
 	if len(links) != 1 || !strings.Contains(links[0], "a/two.go") {
 		t.Fatalf("the path opened %q", links)
 	}
-	if err := tt.Click("Find more"); err != nil {
-		t.Fatal(err)
-	}
+	clickRow(t, tt, "Find more")
 	tt.Frame()
 	if tt.HasText("b/three.go") || tt.HasText("partial listing") || !tt.HasText("a/one.go") {
 		t.Fatalf("closing a failed path list changed a neighboring result: %q", tt.Texts())
@@ -334,13 +346,13 @@ func TestPendingToolCopyYieldsToLaterCopy(t *testing.T) {
 func TestHistoryToolRowsStill(t *testing.T) {
 	calls := []Call{runningCall("a", "read", "a.go", false), settledCall("b", "grep", "b.go", false, true)}
 	turns := []Turn{{ID: "turn", User: "Inspect", Reply: Reply{Status: Completed, Blocks: []Block{{Kind: ToolsBlock, Calls: calls}, {Kind: TextBlock, Text: "Done"}}}}}
-	lit := sweeps(t, turns, []string{i18n.In("en", "turn_completed"), i18n.In("en", "meter_tool_calls")}, "a.go", "b.go")
+	lit := sweeps(t, turns, []string{i18n.In("en", "turn_completed"), "b.go"}, "a.go", "b.go")
 	expectSweeps(t, lit, map[string]bool{"a.go": false, "b.go": false})
 }
 
 // While a run streams, its calls start, settle and fail in one closed group
-// whose header stays where it first appeared; the task's progress card keeps
-// its place below it instead of splitting the run.
+// whose header, showing the latest call, stays where it first appeared; the
+// task's progress card keeps its place below it instead of splitting the run.
 func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 	read := func(id, path string) Call {
 		return Call{ID: id, Name: "read_file", Label: "Read file", Icon: "file-text", Detail: path, Code: true, Output: &Output{Text: "out " + path}}
@@ -357,7 +369,8 @@ func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 		append(append(callBlocks(a, b), progress), callBlocks(running(c))...),
 		append(append(callBlocks(a, b), progress), callBlocks(awaiting(c), failed(d))...),
 	}
-	label, plan := i18n.In("en", "meter_tool_calls"), i18n.In("en", "task_progress")
+	plan := i18n.In("en", "task_progress")
+	latest := []Call{b, b, c, d}
 	s := New()
 	turns := sweepTurn(ExecutingTool, steps[0]...)
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -370,12 +383,12 @@ func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 	for i, blocks := range steps {
 		turns[0].Reply.Blocks = blocks
 		tt.Frame()
-		groups := rowButtons(tt, label)
+		groups := rowButtons(tt, latest[i].Label)
 		if len(groups) != 1 || groups[0].Expanded {
 			t.Fatalf("step %d: want one closed group, got %+v: %q", i, groups, tt.Texts())
 		}
 		for _, path := range []string{"a.go", "b.go", "c.go", "make"} {
-			if tt.HasText(path) {
+			if tt.HasText(path) != (path == latest[i].Detail) {
 				t.Fatalf("step %d: %q shows outside the closed group: %q", i, path, tt.Texts())
 			}
 		}
@@ -383,7 +396,7 @@ func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 			header = groups[0].Bounds
 			continue
 		}
-		// Its width follows the summary of the tools it names.
+		// Its width follows the latest call's summary.
 		if g := groups[0].Bounds; g.X != header.X || g.Y != header.Y || g.H != header.H {
 			t.Fatalf("step %d: the group moved from %v to %v", i, header, g)
 		}
@@ -397,21 +410,21 @@ func TestStreamingToolRunKeepsItsPlace(t *testing.T) {
 			t.Fatalf("step %d: the progress card moved from %v to %v", i, card, r)
 		}
 	}
-	if !tt.HasText("Read file ×3 · Command") {
-		t.Fatalf("the header does not name the run's tools: %q", tt.Texts())
-	}
 	flatRowsShot(t, tt, "streaming-closed")
-	if err := tt.Click(label); err != nil {
+	if err := tt.Click("make"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	var last float32
+	// Below the header, which repeats the latest call, the rows keep the run's order.
+	texts := tt.Texts()
+	rows := texts[slices.Index(texts, "make")+1:]
+	last := -1
 	for _, path := range []string{"a.go", "b.go", "c.go", "make"} {
-		r, ok := tt.Find(path)
-		if !ok || r.Y <= last {
-			t.Fatalf("%q is missing or out of order in the open group: %q", path, tt.Texts())
+		at := slices.Index(rows, path)
+		if at <= last {
+			t.Fatalf("%q is missing or out of order in the open group: %q", path, texts)
 		}
-		last = r.Y
+		last = at
 	}
 	flatRowsShot(t, tt, "streaming-open")
 }
@@ -432,19 +445,21 @@ func TestToolJoiningOpenGroupEnters(t *testing.T) {
 		tt.SetLocale("en")
 		tt.SetPreferences(ui.Preferences{ReduceMotion: reduce})
 		tt.Frame()
-		if err := tt.Click(i18n.In("en", "meter_tool_calls")); err != nil {
+		if err := tt.Click("b.go"); err != nil {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		before, _ := tt.Find("b.go")
-		calls = append(calls, Call{ID: "c", Name: "grep", Label: "Search", Detail: "c.go", Code: true, Running: true})
+		before, _ := tt.Find("a.go")
+		// d follows c, so the header repeats d and c.go names c's row alone.
+		calls = append(calls, Call{ID: "c", Name: "grep", Label: "Search", Detail: "c.go", Code: true, Running: true},
+			Call{ID: "d", Name: "grep", Label: "Search", Detail: "d.go", Code: true, Running: true})
 		tt.Frame()
 		tt.Advance(30 * time.Millisecond)
 		tt.Frame()
 		// Find reports the row's text as its clip shows it.
 		mid, _ := tt.Find("c.go")
-		if b, _ := tt.Find("b.go"); b != before {
-			t.Fatalf("reduce %v: an earlier row moved from %v to %v", reduce, before, b)
+		if a, _ := tt.Find("a.go"); a != before {
+			t.Fatalf("reduce %v: an earlier row moved from %v to %v", reduce, before, a)
 		}
 		tt.Advance(time.Second)
 		tt.Frame()

@@ -2717,9 +2717,6 @@ project_visibility_private: プライベート
 project_visibility_shared: ホスト共有
 git_cherry_pick_confirm: このコミットを現在のブランチに適用
 git_copy_commit_id: コミット ID をコピー
-background_running: バックグラウンドで実行中
-background_exit: 終了コード %{code}
-background_result_waiting: 結果は未配信です
 chat_compact_failed_paused: 圧縮に失敗したため、自動圧縮を一時停止しました
 composer_execution_host: 実行ホスト
 connections_bidirectional: 双方向
