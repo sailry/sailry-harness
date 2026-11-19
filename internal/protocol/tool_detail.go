@@ -58,7 +58,7 @@ type ToolDetailSummary struct {
 	Title       *string                    `json:"title,omitempty"`
 	Resource    *string                    `json:"resource,omitempty"`
 	SummaryID   *string                    `json:"summary_id,omitempty"`
-	Delegation  ToolDetailDelegation       `json:"delegation"`
+	Delegation  ToolDetailDelegation       `json:"delegation,omitzero"`
 	Question    **ConversationQuestionSpec `json:"question,omitempty"`
 	Progress    *ConversationProgress      `json:"progress,omitempty"`
 	// Task is the id of the background task the call started: a command
@@ -117,23 +117,6 @@ func (value *ToolDetailSummary) DecodeJSON(decoder *Decoder) error {
 	*value = ToolDetailSummary(decoded)
 	return nil
 }
-func (value ToolDetailSummary) MarshalJSON() ([]byte, error) {
-	type plain ToolDetailSummary
-	encoded := plain(value)
-	data, err := json.Marshal(encoded)
-	if err != nil {
-		return nil, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return nil, err
-	}
-	if encoded.Delegation.Session == nil && encoded.Delegation.Worktree == nil && !encoded.Delegation.Invalid && !encoded.Delegation.Background {
-		delete(fields, "delegation")
-	}
-	return json.Marshal(fields)
-}
-
 type ToolDetailDelegation struct {
 	Session    *SessionID  `json:"session,omitempty"`
 	Worktree   *WorktreeID `json:"worktree,omitempty"`

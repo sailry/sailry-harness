@@ -1,11 +1,13 @@
 package store
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 func TestToolSummaryOmitsUndisclosedOutput(t *testing.T) {
@@ -143,5 +145,38 @@ func TestFailureOverridesSuccessPreview(t *testing.T) {
 				t.Fatal("failure projection changed the original result")
 			}
 		})
+	}
+}
+
+func TestToolSummaryPreservesRevisionAndNormalizedSize(t *testing.T) {
+	result := json.RawMessage(`{ "z": [9007199254740999, "<b>"], "a": 1, "a": 2 }`)
+	for _, output := range []*json.RawMessage{nil, &result} {
+		raw := rawAgentTool{Name: "test", Arguments: json.RawMessage(`{"path":"a&b"}`), Result: output, Presentation: protocol.ToolPresentationSummary}
+		args := raw.displayData().args
+		original, err := encode([]any{raw.ID, raw.Name, args, raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := blake3.Sum256(original)
+		summary, err := raw.summary()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Revision != hex.EncodeToString(sum[:]) {
+			t.Fatal("tool detail revision changed")
+		}
+		if output == nil {
+			if summary.Bytes != nil {
+				t.Fatal("request has a result size")
+			}
+		} else {
+			encoded, err := json.Marshal(raw.result())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.Bytes == nil || *summary.Bytes != uint64(len(encoded)) {
+				t.Fatal("normalized result size changed")
+			}
+		}
 	}
 }

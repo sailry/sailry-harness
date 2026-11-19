@@ -154,7 +154,7 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 	}
 
 	data := raw.displayData()
-	revision, err := raw.revision(data.args)
+	revision, _, err := raw.revision(data.args)
 	if err != nil {
 		return value, err
 	}

@@ -83,13 +83,27 @@ func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
 	}
 	return raw
 }
-func (raw *rawAgentTool) revision(args any) (string, error) {
-	body, err := encode([]any{raw.ID, raw.Name, args, raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
+func (raw *rawAgentTool) revision(args any) (string, uint64, error) {
+	before, err := encode([]any{raw.ID, raw.Name, args})
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
-	sum := blake3.Sum256(body)
-	return hex.EncodeToString(sum[:]), nil
+	result, err := encode(raw.result())
+	if err != nil {
+		return "", 0, err
+	}
+	after, err := encode([]any{raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
+	if err != nil {
+		return "", 0, err
+	}
+	// The revision covers one compact JSON array. Hash its three pieces so the
+	// result can supply its byte count without encoding or copying it again.
+	before[len(before)-1], after[0] = ',', ','
+	h := blake3.New(32, nil)
+	h.Write(before)
+	h.Write(result)
+	h.Write(after)
+	return hex.EncodeToString(h.Sum(nil)), uint64(len(result)), nil
 }
 func (raw *rawAgentTool) part() (protocol.ConversationPart, error) {
 	summary, err := raw.summary()

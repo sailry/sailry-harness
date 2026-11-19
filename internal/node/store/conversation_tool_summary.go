@@ -272,7 +272,7 @@ func (raw *rawAgentTool) task() *string {
 }
 func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	data := raw.displayData()
-	revision, err := raw.revision(data.args)
+	revision, resultBytes, err := raw.revision(data.args)
 	if err != nil {
 		return nil, err
 	}
@@ -326,9 +326,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 	}
 	value.Images = uint64(len(raw.Images))
 	if raw.Result != nil {
-		body, _ := json.Marshal(raw.result())
-		n := uint64(len(body))
-		value.Bytes = &n
+		value.Bytes = &resultBytes
 	}
 	if text := agentString(agentObject(result)["text"]); text != nil {
 		n := uint64(strings.Count(*text, "\n"))
