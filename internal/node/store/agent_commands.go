@@ -133,15 +133,19 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err = validateAgentReferences(ctx, db, session, v.Message, nil); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		// Guidance joins the running turn, so it is admitted with the session
-		// revision that turn captured: a model or mode chosen since applies to
-		// the next queued turn, not to the reply being guided.
-		recipient, err := readTurnCapture(ctx, db, target.Turn)
+		if session.Delegation != nil {
+			return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
+		}
+		// Guidance joins the running turn, so it freezes every setting that
+		// turn captured and is compatible with it by construction: a model or
+		// mode chosen since applies to the next queued turn, and a model removed
+		// since does not reject the guidance. Guidance that ends up as its own
+		// turn is captured again from the session (releaseGuidance).
+		settings, err := readTurnSettings(ctx, db, target.Turn)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
-		session.Revision, session.Config, session.Roles = recipient.Revision, recipient.Config, recipient.Roles
-		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)
+		turn, err := insertAgentTurn(ctx, db, caller, request, session, settings, true)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}

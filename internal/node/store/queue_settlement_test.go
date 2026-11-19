@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -637,7 +638,7 @@ func TestBackgroundDelivery(t *testing.T) {
 // TestQueueSettlement does not.
 func TestGuidanceQueue(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"pending guidance is taken together", "changed settings apply after guidance", "outlived guidance starts one turn", "queue commands"} {
+	for _, scenario := range []string{"pending guidance is taken together", "changed settings apply after guidance", "released guidance takes current settings", "unavailable model keeps guidance", "guidance batches are bounded", "outlived guidance starts one turn", "queue commands"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -810,6 +811,89 @@ func TestGuidanceQueue(t *testing.T) {
 					}
 					if got := captured(queued); got != changed {
 						return fmt.Errorf("queued input captured permission %v, want %v", got, changed)
+					}
+				case "released guidance takes current settings":
+					// Guidance the turn never joined becomes its own turn and
+					// runs with the session's settings when it was released.
+					guided, err := send("guide_turn", "Guidance")
+					if err != nil {
+						return err
+					}
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					config := current.Config
+					changed := protocol.PermissionProject
+					if config.Permission == changed {
+						changed = protocol.PermissionAsk
+					}
+					config.Permission = changed
+					if _, err = command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: current.Revision, Config: config}); err != nil {
+						return err
+					}
+					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{guided}, nil); err != nil {
+						return err
+					}
+					next, _, err := ClaimNext(ctx, db, now)
+					if err != nil {
+						return err
+					}
+					if next == nil || next.Run.Turn != guided || next.Turn.Config.Permission != changed || next.Run.Revision != current.Revision+1 {
+						return fmt.Errorf("released guidance did not start with the current settings: %+v", next)
+					}
+				case "unavailable model keeps guidance":
+					// The guided turn already runs on its captured model; guidance
+					// joins it even when that model is no longer available.
+					if _, err := db.ExecContext(ctx, "UPDATE providers SET body=json_set(body,'$.provider.enabled',json('false'))"); err != nil {
+						return err
+					}
+					if _, err := send("queue_turn", "Queued"); err == nil {
+						return errors.New("input was queued for a disabled model")
+					}
+					guided, err := send("guide_turn", "Guidance")
+					if err != nil {
+						return fmt.Errorf("guidance for the running turn was rejected: %w", err)
+					}
+					if err = order([]protocol.TurnID{guided}, &turn); err != nil {
+						return err
+					}
+					// Released unjoined, it keeps its capture rather than being lost.
+					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+						return err
+					}
+					if err = order([]protocol.TurnID{guided}, nil); err != nil {
+						return err
+					}
+				case "guidance batches are bounded":
+					ids := []protocol.TurnID{}
+					for i := range backgroundBatch + 1 {
+						id, err := send("guide_turn", fmt.Sprintf("Guidance %d", i))
+						if err != nil {
+							return err
+						}
+						ids = append(ids, id)
+					}
+					batch, _, err := TakeGuidance(ctx, db, turn)
+					if err != nil || len(batch) != backgroundBatch || batch[0].Turn.ID != ids[0] {
+						return fmt.Errorf("first batch took %d items: %v", len(batch), err)
+					}
+					if batch, _, err = TakeGuidance(ctx, db, turn); err != nil || len(batch) != 1 || batch[0].Turn.ID != ids[backgroundBatch] {
+						return fmt.Errorf("the remaining item was not taken next: %v", err)
+					}
+					large := strings.Repeat("x", backgroundBatchBytes*2/3)
+					for range 2 {
+						if _, err = send("guide_turn", large); err != nil {
+							return err
+						}
+					}
+					for range 2 {
+						if batch, _, err = TakeGuidance(ctx, db, turn); err != nil || len(batch) != 1 {
+							return fmt.Errorf("a byte-bounded batch took %d items: %v", len(batch), err)
+						}
 					}
 				case "outlived guidance starts one turn":
 					waiting, err := send("queue_turn", "Ordinary")

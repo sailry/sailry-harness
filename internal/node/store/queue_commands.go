@@ -382,6 +382,9 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
 			return err
 		}
+		if err = recaptureQueued(ctx, db, turn); err != nil {
+			return err
+		}
 		_, err = startQueued(ctx, db, turn)
 		return err
 	}
@@ -451,16 +454,81 @@ func addressSuccessors(ctx context.Context, db *sql.Conn, primary protocol.Conve
 // ordinary queue. It keeps its place and readiness, so it starts by the queue
 // rules: at once after a turn that left the queue running, or on Send now or
 // Resume after a stop.
+// Released guidance becomes its own turn, so it runs with the session's current
+// settings rather than those of the turn it never joined.
 func releaseGuidance(ctx context.Context, db *sql.Conn, recipient protocol.ConversationRun) error {
-	result, err := db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String())
+	released, err := pendingTurns(ctx, db, "SELECT p.turn FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient=?1 ORDER BY p.position,t.rowid", recipient.Turn.String())
+	if err != nil || len(released) == 0 {
+		return err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String()); err != nil {
+		return err
+	}
+	for _, turn := range released {
+		if err = recaptureQueued(ctx, db, turn); err != nil {
+			return err
+		}
+	}
+	return bumpQueue(ctx, db, recipient.Session)
+}
+
+// recaptureQueued freezes the session's current settings for a queued input
+// that will start its own turn, as its original user. A child session keeps
+// the capture its parent assigned, and settings that cannot be captured now,
+// such as a removed model, leave the earlier capture in place so the input is
+// not lost; it settles by the claim rules for its captured configuration.
+func recaptureQueued(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+	run, err := ReadAgentRun(ctx, db, turn)
+	if err != nil || run.Status != protocol.ConversationStatusQueued {
+		return err
+	}
+	session, err := ReadSession(ctx, db, run.Session)
+	if err != nil || session.Delegation != nil {
+		return err
+	}
+	origin, err := OriginalTurnUser(ctx, db, turn)
 	if err != nil {
 		return err
 	}
-	released, err := result.RowsAffected()
-	if err != nil || released == 0 {
+	user, err := ResolveUser(ctx, db, origin.ID)
+	if err != nil {
 		return err
 	}
-	return bumpQueue(ctx, db, recipient.Session)
+	node, err := storageNode(ctx, db)
+	if err != nil {
+		return err
+	}
+	session.Worktree = run.Worktree
+	settings, err := captureTurnSettings(WithCapturedUser(WithUser(ctx, user), origin.ID), db, node, session, run.Kind)
+	if _, unavailable := errors.AsType[*protocol.Fault](err); unavailable {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return saveTurnSettings(ctx, db, turn, settings)
+}
+
+func pendingTurns(ctx context.Context, db *sql.Conn, query string, args ...any) ([]protocol.TurnID, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	ids := []protocol.TurnID{}
+	for rows.Next() {
+		var text string
+		if err = rows.Scan(&text); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		id, e := protocol.ParseTurnID(text)
+		if e != nil {
+			rows.Close()
+			return nil, e
+		}
+		ids = append(ids, id)
+	}
+	return ids, errors.Join(rows.Err(), rows.Close())
 }
 func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) ([]AgentGuidance, []protocol.Event, error) {
 	target, err := ReadAgentRun(ctx, db, recipient)
@@ -470,32 +538,26 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 	if target.Status != protocol.ConversationStatusRunning {
 		return nil, nil, fault(protocol.ErrorCodeConflict, "guidance recipient is no longer running")
 	}
-	rows, err := db.QueryContext(ctx, "SELECT p.turn FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient=?1 ORDER BY p.position,t.rowid", recipient.String())
+	// One boundary takes a bounded batch, like background results; the rest
+	// stays addressed to the turn and joins at its next model step.
+	ids, err := pendingTurns(ctx, db, "SELECT p.turn FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE p.recipient=?1 ORDER BY p.position,t.rowid LIMIT ?2", recipient.String(), backgroundBatch)
 	if err != nil {
 		return nil, nil, err
 	}
-	ids := []protocol.TurnID{}
-	for rows.Next() {
-		var text string
-		if err = rows.Scan(&text); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		id, e := protocol.ParseTurnID(text)
-		if e != nil {
-			rows.Close()
-			return nil, nil, e
-		}
-		ids = append(ids, id)
-	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return nil, nil, err
-	}
 	out := []AgentGuidance{}
+	size := 0
 	for _, id := range ids {
 		message, e := queuedInvocationInput(ctx, db, id)
 		if e != nil {
 			return nil, nil, e
+		}
+		body, e := encode(message.Message)
+		if e != nil {
+			return nil, nil, e
+		}
+		// A single message larger than the budget still joins alone.
+		if size += len(body); size > backgroundBatchBytes && len(out) > 0 {
+			break
 		}
 		run, e := ReadAgentRun(ctx, db, id)
 		if e != nil {
@@ -511,10 +573,6 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 		if e = putAgentRun(ctx, db, run); e != nil {
 			return nil, nil, e
 		}
-		body, e := encode(message.Message)
-		if e != nil {
-			return nil, nil, e
-		}
 		if _, e = db.ExecContext(ctx, "UPDATE agent_runs SET input=coalesce(input,?2),ready=0 WHERE turn=?1", id.String(), body); e != nil {
 			return nil, nil, e
 		}
@@ -523,7 +581,7 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 		}
 		out = append(out, AgentGuidance{Turn: message.Turn, Message: message.Message})
 	}
-	if len(ids) == 0 {
+	if len(out) == 0 {
 		return out, nil, nil
 	}
 	if err = bumpQueue(ctx, db, target.Session); err != nil {

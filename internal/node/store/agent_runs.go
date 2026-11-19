@@ -126,50 +126,62 @@ func readTurnCapture(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (p
 	}
 	return value, nil
 }
+
+// turnSettings is everything a turn freezes when it is admitted.
+type turnSettings struct {
+	turn       protocol.QueuedTurn
+	provider   []byte
+	hooks      []byte
+	compaction uint8
+	media      []byte
+}
+
 func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, session protocol.Session, kind protocol.ConversationRunKind, ready bool) (protocol.QueuedTurn, error) {
+	settings, err := captureTurnSettings(ctx, db, node, session, kind)
+	if err != nil {
+		return settings.turn, err
+	}
+	return insertAgentTurn(ctx, db, caller, request, session, settings, ready)
+}
+
+// captureTurnSettings validates and freezes the session's current settings.
+func captureTurnSettings(ctx context.Context, db *sql.Conn, node protocol.NodeID, session protocol.Session, kind protocol.ConversationRunKind) (turnSettings, error) {
 	value := protocol.DefaultQueuedTurn()
-	value.ID = protocol.NewTurnID()
 	value.Session = session.ID
-	value.Request = request.ID
 	value.Revision = session.Revision
 	value.Config = session.Config
 	value.Roles = session.Roles
+	settings := turnSettings{turn: value}
 	// A forwarded session keeps the roles its source Node captured.
 	if session.Profile == nil {
 		if err := RefreshTurnRoles(ctx, db, node, &value.Roles); err != nil {
-			return value, err
+			return settings, err
 		}
 	}
 	value.Kind = kind
 	var err error
 	if value.Plugins, err = captureTurnPlugins(ctx, db, session.Config.Assistant); err != nil {
-		return value, err
+		return settings, err
 	}
 	if err = bindTurnAssistant(&value); err != nil {
-		return value, err
+		return settings, err
 	}
+	settings.turn = value
 	if err = validateAssistant(ctx, db, session.Project, value.Config); err != nil {
-		return value, err
+		return settings, err
 	}
 	if session.Delegation != nil {
-		return value, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
+		return settings, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 	}
 	if hasRemoteModelCapture(session, node) {
-		return value, fault(protocol.ErrorCodeNotConfigured, "new turns require a model channel configured on this Node")
+		return settings, fault(protocol.ErrorCodeNotConfigured, "new turns require a model channel configured on this Node")
 	}
 	if session.Profile == nil {
 		if err := validateConfig(ctx, db, node, session.Config); err != nil {
-			return value, err
+			return settings, err
 		}
 	} else if err := validateCapturedConfig(ctx, db, node, *session.Profile, session.Config); err != nil {
-		return value, err
-	}
-	var count uint64
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1", session.ID.String()).Scan(&count); err != nil {
-		return value, err
-	}
-	if count >= 256 {
-		return value, fault(protocol.ErrorCodeBusy, "session queue is full")
+		return settings, err
 	}
 	var selectedProvider *protocol.ConversationProvider
 	if session.Profile != nil {
@@ -178,20 +190,20 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	} else {
 		config, err := readProviderConfiguration(ctx, db, session.Config.Provider)
 		if err != nil {
-			return value, err
+			return settings, err
 		}
 		if config != nil && config.Provider != nil {
 			if !config.Listed {
-				return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "model provider is unavailable")
+				return settings, protocol.NewConfigurationFault(protocol.ConfigurationProviderRemoved, "model provider is unavailable")
 			}
 			selectedProvider = config.Provider
 		}
 	}
 	if selectedProvider == nil {
-		return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model provider is unavailable")
+		return settings, protocol.NewConfigurationFault(protocol.ConfigurationProviderMissing, "model provider is unavailable")
 	}
 	if !selectedProvider.Enabled {
-		return value, protocol.NewConfigurationFault(protocol.ConfigurationProviderDisabled, "model provider is unavailable")
+		return settings, protocol.NewConfigurationFault(protocol.ConfigurationProviderDisabled, "model provider is unavailable")
 	}
 	var selected bool
 	for _, model := range selectedProvider.Models {
@@ -201,7 +213,79 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		}
 	}
 	if !selected {
-		return value, invalid("selected model is not configured on provider")
+		return settings, invalid("selected model is not configured on provider")
+	}
+	captured, err := captureTurnProvider(ctx, db, *selectedProvider, value.Config.Model)
+	if err != nil {
+		return settings, err
+	}
+	if settings.provider, err = encode(captured); err != nil {
+		return settings, err
+	}
+	compaction, err := ReadCompaction(ctx, db)
+	if err != nil {
+		return settings, err
+	}
+	settings.compaction = compaction.Percent
+	if settings.hooks, err = captureHooks(ctx, db); err != nil {
+		return settings, err
+	}
+	// Media assignments are frozen here; later settings changes reach only
+	// turns admitted after them.
+	assignments, err := CaptureMedia(ctx, db)
+	if err != nil {
+		return settings, err
+	}
+	settings.media, err = encode(assignments)
+	return settings, err
+}
+
+// readTurnSettings reads the settings an admitted turn froze.
+func readTurnSettings(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (turnSettings, error) {
+	value, err := readTurnCapture(ctx, db, turn)
+	settings := turnSettings{turn: value}
+	if err != nil {
+		return settings, err
+	}
+	err = db.QueryRowContext(ctx, "SELECT provider,hooks,compaction_percent,media FROM agent_runs WHERE turn=?1", turn.String()).Scan(&settings.provider, &settings.hooks, &settings.compaction, &settings.media)
+	return settings, err
+}
+
+// saveTurnSettings replaces the frozen settings of a turn that has not started.
+func saveTurnSettings(ctx context.Context, db *sql.Conn, turn protocol.TurnID, settings turnSettings) error {
+	plugins, err := encode(settings.turn.Plugins)
+	if err != nil {
+		return err
+	}
+	roles, err := encode(settings.turn.Roles)
+	if err != nil {
+		return err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE turns SET revision=?2,plugins=?3,roles=?4 WHERE id=?1", turn.String(), settings.turn.Revision, plugins, roles); err != nil {
+		return err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET provider=?2,hooks=?3,compaction_percent=?4,media=?5 WHERE turn=?1", turn.String(), settings.provider, settings.hooks, settings.compaction, settings.media); err != nil {
+		return err
+	}
+	run, err := ReadAgentRun(ctx, db, turn)
+	if err != nil {
+		return err
+	}
+	run.Revision = settings.turn.Revision
+	return putAgentRun(ctx, db, run)
+}
+
+func insertAgentTurn(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request, session protocol.Session, settings turnSettings, ready bool) (protocol.QueuedTurn, error) {
+	value := settings.turn
+	value.ID = protocol.NewTurnID()
+	value.Session = session.ID
+	value.Request = request.ID
+	var count uint64
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1", session.ID.String()).Scan(&count); err != nil {
+		return value, err
+	}
+	if count >= 256 {
+		return value, fault(protocol.ErrorCodeBusy, "session queue is full")
 	}
 	seq, err := NextCounter(ctx, db, CounterTurns)
 	if err != nil {
@@ -219,7 +303,7 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid,user) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", value.ID.String(), session.ID.String(), session.Revision, request.ID.String(), caller[:], string(kind), plugins, roles, seq, user.ID.String()); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles,rowid,user) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", value.ID.String(), session.ID.String(), value.Revision, request.ID.String(), caller[:], string(value.Kind), plugins, roles, seq, user.ID.String()); err != nil {
 		return value, err
 	}
 	if err = retainTurnOrigin(ctx, db, value.ID); err != nil {
@@ -229,41 +313,15 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	run.Turn = value.ID
 	run.Session = value.Session
 	run.Worktree = session.Worktree
-	run.Kind = kind
+	run.Kind = value.Kind
 	run.Sequence = seq
-	run.Revision = session.Revision
+	run.Revision = value.Revision
 	run.Status = protocol.ConversationStatusQueued
 	body, err := encode(run)
 	if err != nil {
 		return value, err
 	}
-	captured, err := captureTurnProvider(ctx, db, *selectedProvider, value.Config.Model)
-	if err != nil {
-		return value, err
-	}
-	provider, err := encode(captured)
-	if err != nil {
-		return value, err
-	}
-	settings, err := ReadCompaction(ctx, db)
-	if err != nil {
-		return value, err
-	}
-	hooks, err := captureHooks(ctx, db)
-	if err != nil {
-		return value, err
-	}
-	// Media assignments are frozen here; later settings changes reach only
-	// turns admitted after them.
-	assignments, err := CaptureMedia(ctx, db)
-	if err != nil {
-		return value, err
-	}
-	media, err := encode(assignments)
-	if err != nil {
-		return value, err
-	}
-	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,media) VALUES(?1,?2,?3,?4,?5,?6,?7)", value.ID.String(), ready, body, provider, hooks, settings.Percent, media); err != nil {
+	if _, err = db.ExecContext(ctx, "INSERT INTO agent_runs(turn,ready,body,provider,hooks,compaction_percent,media) VALUES(?1,?2,?3,?4,?5,?6,?7)", value.ID.String(), ready, body, settings.provider, settings.hooks, settings.compaction, settings.media); err != nil {
 		return value, err
 	}
 	if _, err = db.ExecContext(ctx, "INSERT INTO conversation_turns(session,turn) VALUES(?1,?2)", session.ID.String(), value.ID.String()); err != nil {

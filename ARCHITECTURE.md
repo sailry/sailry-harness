@@ -617,8 +617,13 @@ listed child session starts a new child turn with its own admission receipt;
 waiting only observes a specific execution.
 
 Input received during a running task is durable guidance, consumed at a model
-boundary. Guidance is admitted with the session revision its running turn
-captured, so a model or mode chosen meanwhile applies to later queued turns.
+boundary. Guidance is admitted with every setting its running turn captured,
+so a model or mode chosen meanwhile applies to later queued turns, and a model
+removed meanwhile does not reject it. Each boundary takes up to 16 messages or
+32 KiB, at least one message; the rest joins at the next boundary. Guidance its
+turn settles without joining becomes an ordinary queued turn captured again with
+the session's current settings, keeping the earlier capture only when the
+current settings are unavailable.
 Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
