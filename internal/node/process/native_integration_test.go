@@ -40,7 +40,7 @@ func TestNativeCommandLifecycle(t *testing.T) {
 	if _, err = service.Write(info.Session, info.ID, "fixture\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err = service.Wait(ctx, info.Session, info.ID, 30000, "received:fixture"); err != nil {
+	if _, err = service.Wait(ctx, info.Session, info.ID, 30000, "received:fixture"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := service.Read(info.Session, info.ID)

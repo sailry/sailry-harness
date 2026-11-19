@@ -291,7 +291,7 @@ func TestBackgroundCompletionEvidence(t *testing.T) {
 			t.Fatal("promoted completion published before durable evidence", snapshot, err)
 		}
 		persistOnce.Do(func() { close(persisted) })
-		if err := service.Wait(context.Background(), launch.Session, launch.ID, 30000, "missing"); err != nil {
+		if _, err := service.Wait(context.Background(), launch.Session, launch.ID, 30000, "missing"); err != nil {
 			t.Fatal(err)
 		}
 		if launches != 1 {
@@ -344,7 +344,7 @@ func TestBackgroundCompletionEvidence(t *testing.T) {
 				t.Fatal("completion published before durable evidence", snapshot, err)
 			}
 			releaseOnce.Do(func() { close(release) })
-			if err := service.Wait(ctx, launch.Session, launch.ID, 30000, "missing"); err != nil {
+			if _, err := service.Wait(ctx, launch.Session, launch.ID, 30000, "missing"); err != nil {
 				t.Fatal(err)
 			}
 			snapshot, err = service.Read(launch.Session, launch.ID)
@@ -399,7 +399,7 @@ func TestBackgroundCompletionRetriesUncommittedWrite(t *testing.T) {
 		t.Fatal("failed settlement was published as durable", before, err)
 	}
 	retry <- time.Now()
-	if err := service.Wait(t.Context(), launch.Session, launch.ID, 30000, "missing"); err != nil {
+	if _, err := service.Wait(t.Context(), launch.Session, launch.ID, 30000, "missing"); err != nil {
 		t.Fatal(err)
 	}
 	after, err := service.Read(launch.Session, launch.ID)
@@ -411,6 +411,58 @@ func TestBackgroundCompletionRetriesUncommittedWrite(t *testing.T) {
 		if evidence.Snapshot.Info.ID != launch.ID || evidence.Snapshot.Stdout.Text != "completed once" {
 			t.Fatal("settlement retried different evidence", evidence)
 		}
+	}
+}
+
+func TestWaitReportsItsOutcome(t *testing.T) {
+	lines, release, deadline := make(chan string), make(chan struct{}), make(chan time.Time)
+	service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
+		// Only the read deadline is scripted; output coalescing keeps real time.
+		if delay == 5*time.Second {
+			return deadline
+		}
+		return time.After(delay)
+	}, Run: func(ctx context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		for {
+			select {
+			case line := <-lines:
+				emit(protocol.ProcessOutputOutputStreamStdout, []byte(line))
+			case <-release:
+				return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+			case <-ctx.Done():
+				return protocol.ProcessCompletion{}, ctx.Err()
+			}
+		}
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 60000}
+	if _, err := service.Start(launch); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Wait(t.Context(), launch.Session, launch.ID, 0, "ready"); err == nil {
+		t.Fatal("until without a wait was accepted")
+	}
+	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 0, ""); err != nil || wait != "" {
+		t.Fatal("a read without a wait reported an outcome", wait, err)
+	}
+	go func() { lines <- "booting\n"; lines <- "ready on :3000\n" }()
+	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, "ready"); err != nil || wait != protocol.ProcessWaitMatched {
+		t.Fatal(wait, err)
+	}
+	go func() { lines <- "request\n" }()
+	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, ""); err != nil || wait != protocol.ProcessWaitOutput {
+		t.Fatal(wait, err)
+	}
+	go func() { deadline <- time.Now() }()
+	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, "missing"); err != nil || wait != protocol.ProcessWaitDeadline {
+		t.Fatal(wait, err)
+	}
+	close(release)
+	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, "missing"); err != nil || wait != protocol.ProcessWaitExited {
+		t.Fatal(wait, err)
 	}
 }
 
@@ -449,7 +501,7 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
-			if err := service.Wait(ctx, launch.Session, launch.ID, 30000, "missing"); err != nil {
+			if _, err := service.Wait(ctx, launch.Session, launch.ID, 30000, "missing"); err != nil {
 				t.Fatal("completion failure kept the process running", err)
 			}
 			snapshot, err := service.Read(launch.Session, launch.ID)

@@ -188,10 +188,37 @@ func (value ProcessInfo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+// ProcessWait says why a requested output wait ended.
+type ProcessWait string
+
+const (
+	ProcessWaitMatched  ProcessWait = "matched"
+	ProcessWaitOutput   ProcessWait = "output"
+	ProcessWaitExited   ProcessWait = "exited"
+	ProcessWaitDeadline ProcessWait = "deadline"
+)
+
+func (value ProcessWait) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
+func (value *ProcessWait) UnmarshalJSON(data []byte) error {
+	var decoded string
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	switch ProcessWait(decoded) {
+	case ProcessWaitMatched, ProcessWaitOutput, ProcessWaitExited, ProcessWaitDeadline:
+		*value = ProcessWait(decoded)
+		return nil
+	default:
+		return unknownEnum(data, value, decoded)
+	}
+}
+
 type ProcessSnapshot struct {
 	Info   ProcessInfo    `json:"info"`
 	Stdout ProcessCapture `json:"stdout"`
 	Stderr ProcessCapture `json:"stderr"`
+	// Wait is set only when the read waited.
+	Wait ProcessWait `json:"wait,omitempty"`
 }
 
 func DefaultProcessSnapshot() ProcessSnapshot {

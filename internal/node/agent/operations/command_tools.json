@@ -149,7 +149,7 @@
     {
       "name": "read_command",
       "operation": "process.read",
-      "description": "Read retained output; this does not start a process or read a file directly. Pass the exact UUID returned as data.id by run_command with background=true, a listed command id, or the sailry_command.id in a foreground result. Never substitute a PID, filename, command text or invented ID. Omit id or use null to list commands. Use run_command to start a new command. With id, set wait_ms up to 30000 for an event-driven wait: return on new output, command exit or deadline. Add until to wait for a new occurrence of that text in either output stream after this read begins; command exit or deadline still returns. Omitted or zero wait_ms reads immediately. To page complete command output, pass id, stream (stdout or stderr), offset=0 and limit up to 32768 bytes, then continue with next_offset. To read an original tool result omitted from model context, pass its output object unchanged, offset and limit; add stream only for a retained command stream. Command streams last while their Node owner retains them; canonical tool results survive restart.",
+      "description": "Read retained output; this does not start a process or read a file directly. Pass the exact UUID returned as data.id by run_command with background=true, a listed command id, or the sailry_command.id in a foreground result. Never substitute a PID, filename, command text or invented ID. Omit id or use null to list commands. Use run_command to start a new command. With id, set wait_ms up to 30000 for an event-driven wait: return on new output, command exit or deadline. Add until to wait for a new occurrence of that text in either output stream after this read begins; command exit or deadline still returns. until requires wait_ms greater than 0 and is rejected without it. A waited read reports data.wait: matched (until text appeared), output (new output arrived), exited (the command ended) or deadline (wait_ms elapsed first). Omitted or zero wait_ms reads immediately. To page complete command output, pass id, stream (stdout or stderr), offset=0 and limit up to 32768 bytes, then continue with next_offset. To read an original tool result omitted from model context, pass its output object unchanged, offset and limit; add stream only for a retained command stream. Command streams last while their Node owner retains them; canonical tool results survive restart.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -205,7 +205,7 @@
           "until": {
             "type": "string",
             "minLength": 1,
-            "description": "With id and a positive wait_ms, wait for a new occurrence of this substring in either stream after this read begins, command exit or deadline."
+            "description": "Requires id and wait_ms greater than 0. Wait for a new occurrence of this substring in either stream after this read begins, command exit or deadline; data.wait reports which ended the wait."
           }
         },
         "required": []

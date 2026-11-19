@@ -1670,7 +1670,9 @@ The `read_command` operation accepts `wait_ms` with a command `id`, capped at
 30000 milliseconds. Zero or omission reads immediately. Without `until`, waiting
 ends when new output arrives. With `until`, waiting ends when that substring
 occurs in either output stream with at least one byte written after the read
-began. Exit and the deadline also end the wait. These reads use output
+began. Exit and the deadline also end the wait. `until` requires a positive
+`wait_ms`; without one the read is rejected as an invalid request. A waited read
+reports `wait` as `matched`, `output`, `exited` or `deadline`. These reads use output
 notifications and return a nondurable receipt before waiting. The same optional
 fields are supported by the v1 `read_command` and `read_command_page` commands;
 page reads preserve their selected stream, offset and limit. Listing commands

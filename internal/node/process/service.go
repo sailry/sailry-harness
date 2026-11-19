@@ -573,7 +573,13 @@ func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input
 	}
 }
 
-func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id protocol.RequestID, waitMs uint64, until string) error {
+// Wait blocks a read until new output, a match of until, the command's exit
+// or the bounded deadline, and reports which one ended it. until requires a
+// positive wait; a zero wait returns no outcome.
+func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id protocol.RequestID, waitMs uint64, until string) (protocol.ProcessWait, error) {
+	if until != "" && waitMs == 0 {
+		return "", invalid("until requires wait_ms greater than 0")
+	}
 	s.mu.Lock()
 	entry, err := s.entryLocked(session, id)
 	var stdoutStart, stderrStart uint64
@@ -586,7 +592,7 @@ func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id proto
 	}
 	s.mu.Unlock()
 	if err != nil || waitMs == 0 {
-		return err
+		return "", err
 	}
 	deadline := s.options.After(time.Duration(min(waitMs, 30000)) * time.Millisecond)
 	for {
@@ -594,27 +600,30 @@ func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id proto
 		entry, err := s.entryLocked(session, id)
 		if err != nil {
 			s.mu.Unlock()
-			return err
+			return "", err
 		}
 		active, changes, output := commandActive(entry.info), entry.changed, entry.outputChanged
 		s.mu.Unlock()
-		if !active {
-			return nil
+		if until != "" && (entry.stdout.matchesAfter(stdoutStart, until) || entry.stderr.matchesAfter(stderrStart, until)) {
+			return protocol.ProcessWaitMatched, nil
 		}
-		if until == "" && output != initialOutput || until != "" && (entry.stdout.matchesAfter(stdoutStart, until) || entry.stderr.matchesAfter(stderrStart, until)) {
-			return nil
+		if !active {
+			return protocol.ProcessWaitExited, nil
+		}
+		if until == "" && output != initialOutput {
+			return protocol.ProcessWaitOutput, nil
 		}
 		select {
 		case <-ctx.Done():
-			return unavailable("command output wait closed")
+			return "", unavailable("command output wait closed")
 		case <-s.ctx.Done():
-			return unavailable("command output wait closed")
+			return "", unavailable("command output wait closed")
 		case <-deadline:
-			return nil
+			return protocol.ProcessWaitDeadline, nil
 		case <-changes:
 		case <-output:
 			if until == "" {
-				return nil
+				return protocol.ProcessWaitOutput, nil
 			}
 		}
 	}

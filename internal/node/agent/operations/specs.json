@@ -1470,7 +1470,7 @@
   },
   {
     "operation": "process.read",
-    "description": "Read command output, optionally waiting up to 30 seconds for new output or until text appears; return early on exit. Also reads original tool results or lists background commands in the captured session",
+    "description": "Read command output, optionally waiting up to 30 seconds for new output or until text appears (until requires wait_ms greater than 0); return early on exit and report the wait outcome. Also reads original tool results or lists background commands in the captured session",
     "parameters": {
       "type": "object",
       "additionalProperties": false,

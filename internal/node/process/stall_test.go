@@ -146,7 +146,7 @@ func TestStallMonitor(t *testing.T) {
 		}
 		armed(t, value)
 		close(value.output)
-		if err := value.service.Wait(context.Background(), info.Session, info.ID, 30000, "missing"); err != nil {
+		if _, err := value.service.Wait(context.Background(), info.Session, info.ID, 30000, "missing"); err != nil {
 			t.Fatal(err)
 		}
 		value.clock.Advance(2 * StallWindow)

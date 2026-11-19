@@ -50,6 +50,8 @@ type ProcessOutputOutputPage struct {
 	Text        string                    `json:"text"`
 	Truncated   bool                      `json:"truncated"`
 	InvalidUtf8 bool                      `json:"invalid_utf8"`
+	// Wait is set only when the read waited.
+	Wait ProcessWait `json:"wait,omitempty"`
 }
 
 func DefaultProcessOutputOutputPage() ProcessOutputOutputPage {
