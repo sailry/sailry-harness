@@ -723,9 +723,12 @@ with Desktop contributions. The loader checks those requirements again for
 remote UI code. Bundled installation also honors withdrawals in the embedded
 catalog, including offline fallback and default initialization.
 
-Desktop's Skills market queries skills.sh and SkillHub through the selected
-Node and pages each directory independently. Package-owned skills appear in
-their plugin details.
+The selected Node searches the community catalog from the [Agent Plugins
+Directory verified index](https://agentpluginsdirectory.com/for-agents) (CC BY
+4.0), and searches skills through skills.sh and SkillHub. Desktop loads the
+next page near the end of the list. Package-owned skills appear in their
+plugin details. Skill detail reads resolve the selected document at a captured
+source revision and preserve the source's error for retry.
 
 Installations keep exact content provenance separately from their ongoing update
 source and pinned preference. Official updates continue following the official

@@ -285,11 +285,12 @@ type Model struct {
 	// MarketLoad is the catalog's load: the cards' skeleton shows while
 	// it runs, from the market's first frame.
 	MarketLoad preview.Fetch
-	// MarketMore marks a live skill search with a further page, which Load
-	// more reads; MarketFailed a live search whose catalog failed, which
-	// Retry runs again while the cards it did read stay.
-	MarketMore   bool
-	MarketFailed bool
+	// MarketMore marks a live catalog search with a further page. Pagination
+	// keeps the loaded cards and pauses on failure until the page is retried.
+	MarketMore         bool
+	MarketPaging       bool
+	MarketPagingFailed bool
+	MarketFailed       bool // a first page or plugin catalog failed
 	// LibraryLoad is the model library's search: placeholder rows before
 	// its first page, a spinner over the results after. LibraryMore marks
 	// a hub with a further page and LibraryFailed a search that failed,

@@ -25,9 +25,6 @@ var libraryHubs = []string{"model_library_huggingface", "model_library_modelscop
 // Enter searches at once.
 const searchDelay = 400 * time.Millisecond
 
-// moreDistance is how near the page's end the hub's next page loads.
-const moreDistance = 320
-
 // library is the hub, the query as typed and as searched, and the model whose
 // details or removal show. It is open while a page's Available tab shows
 // (Page clears it each frame), for that page's kind, and counts the
@@ -37,7 +34,7 @@ type library struct {
 	hub             int
 	query, searched string
 	typed           time.Time // when the query last changed
-	rows            int       // the hub's rows the page last laid out
+	end             scrollEnd
 	info, removing  string
 	kind            string
 	serial          uint64
@@ -193,19 +190,30 @@ func hubModels(c *ui.Context, m *Model, repos map[string]bool) {
 // end, or does not fill its height, as the frame laid it out with the rows
 // shown: a page whose rows just arrived waits for the next layout.
 func moreLibrary(c *ui.Context, m *Model, rows int) {
-	e := &m.library
-	if rows != e.rows {
-		e.rows = rows
-		c.After(time.Millisecond)
-		return
-	}
-	s := &m.pageScroll
-	if !m.Live || !m.LibraryMore || m.LibraryLoad.Loading || s.MaxY-s.Y > moreDistance {
+	nearEnd := m.library.end.reached(c, &m.pageScroll, rows)
+	if !nearEnd || !m.Live || !m.LibraryMore || m.LibraryLoad.Loading {
 		return
 	}
 	if m.ModelActions != nil && m.ModelActions.LibraryMore != nil {
 		m.ModelActions.LibraryMore()
 	}
+}
+
+// scrollEnd checks the scroll extent after MyGo has laid out newly added rows.
+// A short page can load its next page without a scroll gesture.
+type scrollEnd struct {
+	rows  int
+	ready bool
+}
+
+func (end *scrollEnd) reached(c *ui.Context, scroll *ui.ScrollState, rows int) bool {
+	if !end.ready || rows != end.rows {
+		*end = scrollEnd{rows: rows, ready: true}
+		c.After(time.Millisecond)
+		return false
+	}
+	const preloadDistance = 320
+	return scroll.MaxY-scroll.Y <= preloadDistance
 }
 
 // libraryRows are the hub's models, with the recommended rows' details

@@ -6,10 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -19,7 +17,6 @@ import (
 
 const OfficialRepository = "https://github.com/sailry/sailry-plugins"
 const OfficialCatalogURL = "https://sailry.dev/plugins/catalog.json"
-const ThirdPartyCatalogURL = "https://pluginsmp.com"
 
 type DefaultPackage struct {
 	Name    string
@@ -296,53 +293,14 @@ func (manager *Manager) Catalog(ctx context.Context, source protocol.PluginCatal
 	if source != protocol.PluginCatalogSourceThirdParty {
 		return result, packageFault("invalid catalog source")
 	}
-	root := strings.TrimSuffix(manager.ThirdPartyURL, "/")
-	if root == "" {
-		root = ThirdPartyCatalogURL
-	}
-	parameters := url.Values{"protocol": {"agent-plugins"}, "q": {query}, "page": {strconv.FormatUint(uint64(page), 10)}, "per_page": {"12"}}
-	var response struct {
-		Data []struct {
-			Slug        string   `json:"slug"`
-			Name        string   `json:"name"`
-			Description *string  `json:"description"`
-			Repository  string   `json:"repoUrl"`
-			Protocols   []string `json:"protocols"`
-		} `json:"data"`
-		Meta *struct {
-			Page  uint32 `json:"page"`
-			Pages uint32 `json:"total_pages"`
-		} `json:"meta"`
-	}
-	if err := manager.catalogJSON(ctx, root+"/api/v1/plugins?"+parameters.Encode(), &response); err != nil {
-		return result, err
-	}
-	if response.Meta == nil || response.Meta.Page == 0 {
-		return result, packageFault("catalog pagination is missing")
-	}
-	result.Page, result.Pages = response.Meta.Page, response.Meta.Pages
-	for _, item := range response.Data {
-		if !slices.Contains(item.Protocols, "agent-plugins") {
-			continue
-		}
-		if !declarationIdentifier(item.Slug) || len(item.Name) > 256 || item.Description != nil && len(*item.Description) > 8192 {
-			return result, packageFault("invalid catalog entry")
-		}
-		if _, err := ParseRepositorySource(protocol.PluginSkillsSource{Repository: item.Repository}); err != nil {
-			return result, err
-		}
-		entry := protocol.DefaultPluginCatalogEntry()
-		entry.ID, entry.Name, entry.Description, entry.Repository = item.Slug, item.Name, item.Description, &item.Repository
-		result.Entries = append(result.Entries, entry)
-	}
-	return result, nil
+	return manager.communityCatalogPage(ctx, query, page, force)
 }
 
 func (manager *Manager) CatalogSource(ctx context.Context, source protocol.PluginCatalogSource, id string) (protocol.PluginSkillsSource, error) {
-	if !declarationIdentifier(id) {
-		return protocol.PluginSkillsSource{}, packageFault("invalid catalog identifier")
-	}
 	if source == protocol.PluginCatalogSourceOfficial {
+		if !declarationIdentifier(id) {
+			return protocol.PluginSkillsSource{}, packageFault("invalid catalog identifier")
+		}
 		entries, err := manager.OfficialEntries(ctx, true)
 		if err != nil {
 			return protocol.PluginSkillsSource{}, err
@@ -361,27 +319,8 @@ func (manager *Manager) CatalogSource(ctx context.Context, source protocol.Plugi
 		}
 		return protocol.PluginSkillsSource{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "official plugin is unavailable"}
 	}
-	root := strings.TrimSuffix(manager.ThirdPartyURL, "/")
-	if root == "" {
-		root = ThirdPartyCatalogURL
+	if source != protocol.PluginCatalogSourceThirdParty {
+		return protocol.PluginSkillsSource{}, packageFault("invalid catalog source")
 	}
-	var response struct {
-		Data struct {
-			Repository string `json:"repoUrl"`
-			Path       string `json:"plugin_path"`
-			Manifests  map[string]struct {
-				Path string `json:"path"`
-			} `json:"manifests"`
-		} `json:"data"`
-	}
-	if err := manager.catalogJSON(ctx, root+"/api/v1/plugins/"+url.PathEscape(id), &response); err != nil {
-		return protocol.PluginSkillsSource{}, err
-	}
-	selectedPath := response.Data.Path
-	if manifest, exists := response.Data.Manifests["agent-plugins"]; exists && strings.HasSuffix(manifest.Path, "/plugin.json") {
-		selectedPath = strings.TrimSuffix(manifest.Path, "/plugin.json")
-	}
-	selected := protocol.PluginSkillsSource{Repository: response.Data.Repository, Path: &selectedPath}
-	_, err := ParseRepositorySource(selected)
-	return selected, err
+	return manager.communityCatalogSource(ctx, id)
 }

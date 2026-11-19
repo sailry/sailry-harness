@@ -41,6 +41,7 @@ type Manager struct {
 	repositories       map[string][]packageEntry
 	skillPages         map[string]cachedSkillCatalog
 	skillPageUse       uint64
+	communityCatalog   communityCatalogCache
 }
 
 type packageEntry struct {

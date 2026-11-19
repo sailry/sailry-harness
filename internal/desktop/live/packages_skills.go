@@ -90,7 +90,7 @@ func (r *Runtime) reimportSkill(id string) {
 	}
 }
 
-func (r *Runtime) loadSkillDocument(id string, done func()) {
+func (r *Runtime) loadSkillDocument(id string, done func(string)) {
 	name := r.packageID(id)
 	if info, exists := r.packages.infos[name]; exists {
 		skillName := strings.TrimPrefix(id, name+":")
@@ -100,7 +100,7 @@ func (r *Runtime) loadSkillDocument(id string, done func()) {
 	}
 	entry, exists := r.packages.skillCatalog[id]
 	if !exists {
-		done()
+		done("the skill is no longer in the catalog")
 		return
 	}
 	if entry.Bundled && entry.Package != nil {
@@ -108,10 +108,11 @@ func (r *Runtime) loadSkillDocument(id string, done func()) {
 		return
 	}
 	if entry.Source == nil {
-		done()
+		done("the catalog does not provide a skill document source")
 		return
 	}
-	r.async(func() {
+	detailView := r.App.Settings.Details
+	if !r.async(func() {
 		var source protocol.PluginSkillsDocumentSource
 		var err error
 		if entry.Source.Kind == "git" {
@@ -122,7 +123,7 @@ func (r *Runtime) loadSkillDocument(id string, done func()) {
 				out, operationErr := r.controller.Do(r.ctx, protocol.Command{Kind: "discover_skills", Data: protocol.CommandDiscoverSkillsPayload{Source: input}})
 				err = operationErr
 				value, valid := detail[protocol.PluginSkillsDiscovery](out.Data)
-				if err == nil && !valid {
+				if err == nil && (!valid || out.Kind != "skill_discovery") {
 					err = errors.New("unexpected skill discovery response")
 				}
 				for _, candidate := range value.Skills {
@@ -140,47 +141,67 @@ func (r *Runtime) loadSkillDocument(id string, done func()) {
 				out, operationErr := r.controller.Do(r.ctx, protocol.Command{Kind: "discover_registry_skill", Data: protocol.CommandDiscoverRegistrySkillPayload{Source: input}})
 				err = operationErr
 				value, valid := detail[protocol.PluginSkillsRegistryDiscovery](out.Data)
-				if err == nil && !valid {
+				if err == nil && (!valid || out.Kind != "registry_skill_discovery") {
 					err = errors.New("unexpected registry skill response")
 				}
 				source = protocol.PluginSkillsDocumentSource{Kind: "registry", Data: value.Source}
 			}
 		}
-		r.enqueue(func(c *ui.Context) {
-			if err != nil || source.Kind == "" {
-				if err == nil {
-					err = errors.New("the catalog skill document is unavailable")
-				}
-				r.packageReport(c, err)
-				done()
+		r.enqueue(func(*ui.Context) {
+			if r.App.Settings.Details != detailView {
+				return
+			}
+			if r.packageOwner() != r {
+				done("the skill source host changed")
+				return
+			}
+			if err != nil {
+				done(faultDetail(err))
+				return
+			}
+			if source.Kind == "" {
+				done("the catalog skill document is unavailable")
 				return
 			}
 			r.readSkillDocument(id, source, done)
 		})
-	})
+	}) {
+		done("resource host is offline")
+	}
 }
 
-func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocumentSource, done func()) {
-	r.async(func() {
+func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocumentSource, done func(string)) {
+	detailView := r.App.Settings.Details
+	if !r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_skill_document", Data: protocol.CommandReadSkillDocumentPayload{Source: source}})
 		document, valid := detail[protocol.PluginSkillsDocument](out.Data)
 		if err == nil && (!valid || out.Kind != "skill_document") {
 			err = errors.New("unexpected skill document response")
 		}
-		r.enqueue(func(c *ui.Context) {
-			if err == nil {
-				body := skillBody(document.Content)
-				r.packages.documents[id] = body
-				for _, list := range [][]viewmodel.Skill{r.App.Settings.SkillList, r.App.Settings.MarketSkills} {
-					if index := slices.IndexFunc(list, func(row viewmodel.Skill) bool { return row.ID == id }); index >= 0 {
-						list[index].Content = body
-					}
+		r.enqueue(func(*ui.Context) {
+			if r.App.Settings.Details != detailView {
+				return
+			}
+			if r.packageOwner() != r {
+				done("the skill source host changed")
+				return
+			}
+			if err != nil {
+				done(faultDetail(err))
+				return
+			}
+			body := skillBody(document.Content)
+			r.packages.documents[id] = body
+			for _, list := range [][]viewmodel.Skill{r.App.Settings.SkillList, r.App.Settings.MarketSkills} {
+				if index := slices.IndexFunc(list, func(row viewmodel.Skill) bool { return row.ID == id }); index >= 0 {
+					list[index].Content = body
 				}
 			}
-			r.packageReport(c, err)
-			done()
+			done("")
 		})
-	})
+	}) {
+		done("resource host is offline")
+	}
 }
 
 // skillBody is a skill document without its YAML frontmatter: the name,

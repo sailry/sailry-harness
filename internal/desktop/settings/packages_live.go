@@ -21,7 +21,7 @@ type PackageActions struct {
 	Browse         func(string, string, func() bool, func(string)) // a package file of this machine, where Install reads it: the local host's name, the directory first shown, whether the form still wants it, the chosen path
 	Download       func(string, string, string, func(bool))
 	CancelDownload func()
-	LoadDetails    func(DetailKind, string, func())
+	LoadDetails    func(DetailKind, string, func(message string))
 	RetryMarket    func()
 	MoreMarket     func()
 	MarketPlugin   func(string)

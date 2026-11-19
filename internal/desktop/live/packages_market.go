@@ -37,16 +37,15 @@ func (r *Runtime) cancelMarketSearch() {
 		cancel()
 		r.packages.marketCancel = nil
 	}
+	r.App.Settings.MarketPaging = false
 	r.App.Settings.SetBusy(settings.BusyMarket, false)
 }
 
 func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool) {
 	owner := r.packageOwner()
-	if kind != 1 {
-		r.App.Settings.MarketMore = false
-	}
 	if kind == 2 {
-		r.App.Settings.MarketFailed = false
+		m := r.App.Settings.Model
+		m.MarketMore, m.MarketFailed, m.MarketPagingFailed = false, false, false
 		if owner != nil && owner.packages.marketKey != "" {
 			owner.packages.marketKey = ""
 			owner.packages.marketGeneration++
@@ -71,6 +70,7 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool
 	if key != state.marketKey {
 		// Another search's cards are not this one's results, even if it fails.
 		clear(state.skillMarketPages[:])
+		state.pluginMarketNext = 0
 		if kind == 0 {
 			r.App.Settings.MarketPlugins = nil
 		}
@@ -79,63 +79,95 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool
 	state.marketGeneration++
 	generation := state.marketGeneration
 	r.App.Settings.MarketLoad.Loading, r.App.Settings.MarketLoad.Loaded = true, false
-	r.App.Settings.MarketFailed = false
+	r.App.Settings.MarketMore, r.App.Settings.MarketFailed, r.App.Settings.MarketPagingFailed = false, false, false
 	if kind == 1 {
 		owner.searchSkillMarket(source, query, force, generation)
 		return
 	}
-	ctx, cancel := context.WithCancel(owner.ctx)
-	state.marketCancel = cancel
-	catalogSource := packageCatalogSource(source)
-	owner.async(func() {
-		var entries []protocol.PluginCatalogEntry
-		var err error
-		unavailable := false
-		for page := uint32(1); ; page++ {
-			var out protocol.Output
-			out, err = owner.controller.Do(ctx, protocol.Command{Kind: "search_plugin_catalog", Data: protocol.CommandSearchPluginCatalogPayload{Source: catalogSource, Query: query, Page: page, Force: force}})
-			if err != nil {
-				break
-			}
-			value, valid := detail[protocol.PluginCatalogPage](out.Data)
-			if !valid || out.Kind != "plugin_catalog" || value.Page != page {
-				err = errors.New("unexpected plugin catalog response")
-				break
-			}
-			entries = append(entries, value.Entries...)
-			unavailable = unavailable || value.Unavailable
-			if value.Unavailable || page >= value.Pages {
-				break
-			}
+	owner.readPluginMarketPage(source, query, 1, force, generation)
+}
+
+// loadMoreMarket pages the search that is still shown, once per turn of the
+// cursor. The same action can retry a failed continuation.
+func (r *Runtime) loadMoreMarket() {
+	m, state := r.App.Settings.Model, r.packages
+	if state.marketCancel != nil || packageMarketKey(m.MarketKind, marketSource(m), m.MarketQuery) != state.marketKey {
+		return
+	}
+	switch m.MarketKind {
+	case 0:
+		if state.pluginMarketNext != 0 {
+			r.readPluginMarketPage(m.MarketSource, m.MarketQuery, state.pluginMarketNext, false, state.marketGeneration)
 		}
-		owner.enqueue(func(c *ui.Context) {
-			if ctx.Err() != nil || state.marketGeneration != generation || owner.localRuntime().packageOwner() != owner {
+	case 1:
+		if pages := r.skillMarketNextPages(); pages != [len(skillMarketSources)]uint32{} {
+			m.MarketPaging, m.MarketPagingFailed = true, false
+			r.readSkillMarketPages(m.MarketQuery, false, state.marketGeneration, pages)
+		}
+	}
+}
+
+func (r *Runtime) readPluginMarketPage(source int, query string, page uint32, force bool, generation uint64) {
+	ctx, cancel := context.WithCancel(r.ctx)
+	m, state := r.App.Settings.Model, r.packages
+	state.marketCancel = cancel
+	paging := page > 1
+	m.MarketPaging, m.MarketPagingFailed = paging, false
+	m.SetBusy(settings.BusyMarket, true)
+	catalogSource := packageCatalogSource(source)
+	r.async(func() {
+		out, err := r.controller.Do(ctx, protocol.Command{Kind: "search_plugin_catalog", Data: protocol.CommandSearchPluginCatalogPayload{Source: catalogSource, Query: query, Page: page, Force: force}})
+		value, valid := detail[protocol.PluginCatalogPage](out.Data)
+		if err == nil && (!valid || out.Kind != "plugin_catalog" || value.Page != page) {
+			err = errors.New("unexpected plugin catalog response")
+		}
+		r.enqueue(func(c *ui.Context) {
+			if ctx.Err() != nil || state.marketGeneration != generation || r.localRuntime().packageOwner() != r {
 				return
 			}
-			owner.cancelMarketSearch()
-			m := owner.App.Settings.Model
-			m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
-			m.MarketFailed = err != nil || unavailable
+			r.cancelMarketSearch()
+			failed := err != nil || value.Unavailable
+			if paging {
+				m.MarketPagingFailed = failed
+			} else {
+				m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
+				m.MarketFailed = failed
+			}
 			if err != nil {
 				kit.Error(c, i18n.T(c, "market_plugins"), faultDetail(err))
-			} else if unavailable {
+			} else if value.Unavailable {
 				kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
 			}
-			if m.MarketFailed && len(entries) == 0 {
+			if failed && (paging || len(value.Entries) == 0) {
 				return
 			}
-			m.MarketPlugins = nil
-			for _, entry := range entries {
+			state.pluginMarketNext = 0
+			if !failed && page < value.Pages {
+				state.pluginMarketNext = page + 1
+			}
+			m.MarketMore = state.pluginMarketNext != 0
+			if !paging {
+				m.MarketPlugins = nil
+			}
+			seen := make(map[string]bool, len(m.MarketPlugins)+len(value.Entries))
+			for _, row := range m.MarketPlugins {
+				seen[row.ID] = true
+			}
+			for _, entry := range value.Entries {
+				if seen[entry.ID] {
+					continue
+				}
+				seen[entry.ID] = true
 				if state.catalogSources[entry.ID] != catalogSource {
 					delete(state.catalogInfos, entry.ID)
 				}
 				state.catalog[entry.ID] = entry
 				state.catalogSources[entry.ID] = catalogSource
-				row := catalogPackageView(entry, owner.packageLocale(), source)
-				row.Host = owner.packageHostLabel()
+				row := catalogPackageView(entry, r.packageLocale(), source)
+				row.Host = r.packageHostLabel()
 				m.MarketPlugins = append(m.MarketPlugins, row)
 			}
-			owner.projectPackages()
+			r.projectPackages()
 		})
 	})
 }
@@ -178,28 +210,29 @@ func catalogPackageView(entry protocol.PluginCatalogEntry, locale string, source
 	return row
 }
 
-func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done func()) {
+func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done func(string)) {
 	switch kind {
 	case settings.DetailTheme:
-		done()
+		done("")
 	case settings.DetailSkill:
 		r.loadSkillDocument(id, done)
 	default:
+		finish := func() { done("") }
 		name := id
 		if info, known := r.packages.catalogInfos[id]; known {
 			name = info.Summary.Name
 		}
 		if info, installed := r.packages.infos[name]; installed {
 			r.readPackageUpdates([]string{name})
-			r.readInstalledPackageDetails(info, done)
+			r.readInstalledPackageDetails(info, finish)
 			return
 		}
 		entry, exists := r.packages.catalog[id]
 		if !exists {
-			done()
+			finish()
 			return
 		}
-		r.readCatalogInformation(entry, done)
+		r.readCatalogInformation(entry, finish)
 	}
 }
 

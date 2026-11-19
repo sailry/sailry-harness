@@ -12,9 +12,12 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)
 		m := r.App.Settings.Model
+		m.MarketSource, m.MarketQuery = 1, "fixture"
+		failPage := true
 		source.respond = func(request protocol.Request) link.Response {
 			input, _ := detail[protocol.CommandSearchPluginCatalogPayload](request.Command.Data)
-			if input.Page == 2 && !input.Force {
+			if input.Page == 2 && failPage {
+				failPage = false
 				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "catalog page unavailable"}}
 			}
 			entry := protocol.DefaultPluginCatalogEntry()
@@ -29,15 +32,29 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 		r.searchPackageMarket(0, 1, "fixture", false)
 		synctest.Wait()
 		tester.Frame()
-		if !m.MarketFailed || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" || !tester.HasText("catalog page unavailable") {
+		if len(source.sent("search_plugin_catalog")) != 1 || !m.MarketMore || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" {
+			t.Fatalf("the initial search must show the first page and offer a continuation: %+v", m.MarketPlugins)
+		}
+		r.loadMoreMarket()
+		synctest.Wait()
+		tester.Frame()
+		if !m.MarketPagingFailed || m.MarketFailed || len(m.MarketPlugins) != 1 || m.MarketPlugins[0].ID != "first" || !tester.HasText("catalog page unavailable") {
 			t.Fatalf("a later page failure should keep the loaded plugin and report the reason: %+v, %v", m.MarketPlugins, tester.Texts())
+		}
+
+		r.loadMoreMarket()
+		r.loadMoreMarket()
+		synctest.Wait()
+		tester.Frame()
+		if m.MarketPagingFailed || m.MarketMore || len(m.MarketPlugins) != 2 || m.MarketPlugins[1].ID != "second" {
+			t.Fatalf("retry did not append the failed page: %+v, failed %v", m.MarketPlugins, m.MarketPagingFailed)
 		}
 
 		r.searchPackageMarket(0, 1, "fixture", true)
 		synctest.Wait()
 		tester.Frame()
-		if m.MarketFailed || len(m.MarketPlugins) != 2 || m.MarketPlugins[1].ID != "second" {
-			t.Fatalf("retry did not fetch both pages: %+v, failed %v", m.MarketPlugins, m.MarketFailed)
+		if m.MarketFailed || !m.MarketMore || len(m.MarketPlugins) != 1 {
+			t.Fatalf("refresh did not replace the first page: %+v, failed %v", m.MarketPlugins, m.MarketFailed)
 		}
 		requests := source.sent("search_plugin_catalog")
 		if len(requests) != 4 {
@@ -45,7 +62,7 @@ func TestPluginMarketRetryAndPartialResults(t *testing.T) {
 		}
 		for index, request := range requests {
 			input, ok := detail[protocol.CommandSearchPluginCatalogPayload](request.Data)
-			if !ok || input.Source != protocol.PluginCatalogSourceThirdParty || input.Query != "fixture" || input.Page != uint32(index%2+1) || input.Force != (index >= 2) {
+			if !ok || input.Source != protocol.PluginCatalogSourceThirdParty || input.Query != "fixture" || input.Page != [...]uint32{1, 2, 2, 1}[index] || input.Force != (index == 3) {
 				t.Fatalf("request %d: %+v", index, input)
 			}
 		}

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -14,12 +15,11 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 	for _, width := range []int{640, 1200} {
 		s := NewLive()
 		var calls []string
-		s.PackageActions = &PackageActions{RetryMarket: func() { calls = append(calls, "retry") }, MoreMarket: func() { calls = append(calls, "more") }}
+		s.PackageActions = &PackageActions{RetryMarket: func() { calls = append(calls, "retry") }}
 		s.MarketKind, s.MarketQuery, s.MarketLoad = 1, "pdf", preview.Fetch{Loaded: true}
 		// The Node matched both on content the cards do not show, and ranked
 		// Zeta first.
 		s.MarketSkills = []preview.Skill{{ID: "hub/zeta", Name: "Zeta", Description: "Reads documents", Origin: "Hub"}, {ID: "hub/alpha", Name: "Alpha", Description: "Writes reports", Origin: "Hub"}}
-		s.MarketMore = true
 		tt := ui.NewTesterWith(func(c *ui.Context) { MarketPage(c, s) }, width, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 		tt.SetLocale("en")
 		tt.Frame()
@@ -32,17 +32,7 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		if _, exists := tt.AccessByRole(ui.RoleButton, retry); exists {
 			t.Fatalf("%v: a search that read every source offers Retry", width)
 		}
-		if b := findButton(t, tt, more); b.Bounds.X < 0 || int(b.Bounds.X+b.Bounds.W) > width {
-			t.Fatalf("%v: Load more lies outside the window: %+v", width, b.Bounds)
-		}
-		clickButton(t, tt, more)
-		s.SetBusy(BusyMarket, true)
-		tt.Frame()
-		if b := findButton(t, tt, more); !b.Disabled || !b.Busy {
-			t.Fatalf("%v: Load more takes presses while the search reads", width)
-		}
-		s.SetBusy(BusyMarket, false)
-		// A source failed: its cards stay with Retry beside Load more.
+		// A source failed: its cards stay with Retry.
 		s.MarketFailed = true
 		tt.Frame()
 		if !tt.HasText("Zeta") {
@@ -59,7 +49,7 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 			t.Fatalf("%v: a failed search offers Load more", width)
 		}
 		clickButton(t, tt, retry)
-		if !slices.Equal(calls, []string{"more", "retry", "retry"}) {
+		if !slices.Equal(calls, []string{"retry", "retry"}) {
 			t.Fatalf("%v: actions ran %q", width, calls)
 		}
 		s.MarketFailed = false
@@ -70,12 +60,91 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		if _, exists := tt.AccessByRole(ui.RoleButton, retry); exists {
 			t.Fatalf("%v: an empty search offers Retry", width)
 		}
-		s.MarketMore = true
-		tt.Frame()
-		clickButton(t, tt, more)
-		if !slices.Equal(calls, []string{"more", "retry", "retry", "more"}) {
-			t.Fatalf("%v: an empty page with a continuation did not page: %q", width, calls)
-		}
+	}
+}
+
+func TestSkillMarketPagesAtScrollEnd(t *testing.T) {
+	s := NewLive()
+	s.MarketKind, s.MarketMore, s.MarketLoad = 1, true, preview.Fetch{Loaded: true}
+	for i := range 26 {
+		id := fmt.Sprintf("Skill %02d", i)
+		s.MarketSkills = append(s.MarketSkills, preview.Skill{ID: id, Name: id})
+	}
+	calls := 0
+	s.PackageActions = &PackageActions{MoreMarket: func() {
+		calls++
+		s.MarketPaging, s.MarketPagingFailed = true, false
+		s.SetBusy(BusyMarket, true)
+	}}
+	tt := ui.NewTesterWith(func(c *ui.Context) { MarketPage(c, s) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	tt.SetLocale("en")
+	tt.Advance(time.Second)
+	if calls != 0 || s.marketScroll.MaxY <= 320 {
+		t.Fatalf("near-end load before scrolling: %d requests, scroll %+v", calls, s.marketScroll)
+	}
+	more := i18n.In("en", "market_load_more")
+	if _, exists := tt.AccessByRole(ui.RoleButton, more); exists {
+		t.Fatal("skill market still has a Load more button")
+	}
+	tt.Scroll(450, 400, 0, 10_000)
+	tt.Advance(time.Second)
+	if calls != 1 {
+		t.Fatalf("scrolling to the bottom requested %d pages", calls)
+	}
+	mark := i18n.In("en", "activity_running")
+	if info, ok := tt.AccessByRole(ui.RoleProgress, mark); !ok || info.Offscreen || info.Bounds.W != 16 || info.Bounds.H != 16 {
+		t.Fatalf("no visible list loader: %+v", info)
+	}
+	s.MarketPaging, s.MarketPagingFailed = false, true
+	s.SetBusy(BusyMarket, false)
+	tt.Frame()
+	tt.Advance(time.Second)
+	if calls != 1 || !tt.HasText("Skill 25") {
+		t.Fatalf("failed page retried automatically or hid existing cards: %d requests", calls)
+	}
+	// The shorter idle footer may leave the retry below the current view.
+	tt.Scroll(450, 400, 0, 10_000)
+	clickButton(t, tt, i18n.In("en", "settings_retry"))
+	if calls != 2 {
+		t.Fatalf("page retry left %d requests", calls)
+	}
+	s.MarketPaging, s.MarketMore = false, false
+	s.SetBusy(BusyMarket, false)
+	s.MarketSkills = append(s.MarketSkills, preview.Skill{ID: "last", Name: "Last skill"})
+	tt.Frame()
+	tt.Advance(time.Second)
+	if _, ok := tt.AccessByRole(ui.RoleProgress, mark); ok || calls != 2 {
+		t.Fatalf("finished list is still loading, %d requests", calls)
+	}
+}
+
+func TestSkillMarketContinuesAnEmptyPage(t *testing.T) {
+	s := NewLive()
+	s.MarketKind, s.MarketMore, s.MarketLoad = 1, true, preview.Fetch{Loaded: true}
+	s.PackageActions = &PackageActions{MoreMarket: func() {
+		s.MarketPaging = true
+		s.SetBusy(BusyMarket, true)
+	}}
+	tt := ui.NewTesterWith(func(c *ui.Context) { MarketPage(c, s) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.HasText(i18n.In("en", "skills_no_matches")) {
+		t.Fatal("the market reported an empty search before the last page")
+	}
+	if _, ok := tt.AccessByRole(ui.RoleProgress, i18n.In("en", "activity_running")); !ok || !s.MarketPaging {
+		t.Fatal("an empty page with a continuation did not start loading")
+	}
+}
+
+func TestThemeMarketHasNoHostLabel(t *testing.T) {
+	s := New()
+	s.MarketKind, s.MarketLoad = 2, preview.Fetch{Loaded: true}
+	tt := ui.NewTesterWith(func(c *ui.Context) { MarketPage(c, s) }, 900, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	if !tt.HasText(i18n.In("en", "market_search_themes")) || tt.HasText(i18n.In("en", "market_local")) {
+		t.Fatalf("unexpected theme market controls: %q", tt.Texts())
 	}
 }
 

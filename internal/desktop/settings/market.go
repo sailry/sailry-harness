@@ -70,7 +70,7 @@ func MarketPage(c *ui.Context, s *State) {
 	if !m.Live && m.MarketLoad.Advance(c.Now()) {
 		c.After(preview.Tick)
 	}
-	ui.Scroll(c.Key("market")).Fill().Children(func() {
+	ui.Scroll(c.Key("market")).Fill().TrackScroll(&s.marketScroll).Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(20).Children(func() {
 			changedHost := false
 			ui.Row(c.Key("heading")).Gap(12).AlignItems(ui.Center).Children(func() {
@@ -97,18 +97,21 @@ func MarketPage(c *ui.Context, s *State) {
 					pick(c, "source", t("market_details_source"), &m.MarketSource, []string{t("market_source_official"), t("market_source_community")}, false).Width(140)
 				case 1:
 					pick(c, "skill-source", t("market_details_source"), &m.MarketSkillSource, []string{t("market_all"), t("skill_source_skills"), t("skill_source_hub")}, false).Width(140)
-				case 2:
-					ui.Text(c, t("market_local")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 				}
 			})
 			marketFilters(c, m)
+			if m.MarketKind == 2 || m.MarketLoad.Loading {
+				s.marketEnd = scrollEnd{}
+			}
 			switch {
 			case m.MarketLoad.Loading:
 				marketSkeleton(c)
 			case m.MarketKind == 0:
-				marketPlugins(c, s)
+				rows := marketPlugins(c, s)
+				marketPagination(c, s, rows)
 			case m.MarketKind == 1:
-				marketSkills(c, s)
+				rows := marketSkills(c, s)
+				marketPagination(c, s, rows)
 			default:
 				marketThemes(c, s)
 			}
@@ -165,42 +168,52 @@ func (m *Model) retryMarket() {
 	}
 }
 
-// marketEmpty keeps paging available when a source has later pages but
-// the pages read so far have no matches.
+// marketEmpty shows the empty state or a retry when the catalog failed.
 func marketEmpty(c *ui.Context, m *Model, icon *ui.SVG, none, failed string) {
 	props := kit.ResultProps{Icon: icon, Title: i18n.T(c, none), Card: true}
-	if m.Live && m.MarketFailed {
-		props.Icon, props.Status, props.Title = nil, kit.ResultError, i18n.T(c, failed)
-	}
-	if m.Live && (m.MarketFailed || m.MarketMore) {
-		props.Extra = func() { marketActions(c, m) }
+	if m.Live {
+		switch {
+		case m.MarketFailed || m.MarketPagingFailed:
+			props.Icon, props.Status, props.Title = nil, kit.ResultError, i18n.T(c, failed)
+			props.Extra = func() { marketRetry(c, m) }
+		case m.MarketMore || m.MarketPaging:
+			return
+		}
 	}
 	kit.Result(c, props)
 }
 
-// marketMore follows a live search's cards: Retry once a source failed, the
-// cards read kept, and Load more while a source has a further page; a page
-// that failed stays next, for Load more again.
-func marketMore(c *ui.Context, m *Model) {
-	if !m.Live || !m.MarketFailed && !m.MarketMore {
-		return
+func marketRetry(c *ui.Context, m *Model) {
+	retry := m.retryMarket
+	if m.MarketPagingFailed {
+		retry = m.loadMoreMarket
 	}
-	marketActions(c, m)
+	ui.Row(c.Key("market-retry")).Justify(ui.Center).Children(func() {
+		kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).Disabled(m.Busy[BusyMarket]).OnClick(retry)
+	})
 }
 
-func marketActions(c *ui.Context, m *Model) {
-	ui.Row(c.Key("more")).Justify(ui.Center).Gap(12).Children(func() {
-		if m.MarketFailed {
-			kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(m.retryMarket)
-		}
-		if m.MarketMore {
-			kit.SecondaryBusy(c.Key("load-more"), i18n.T(c, "market_load_more"), m.Busy[BusyMarket]).OnClick(func() {
-				if m.PackageActions != nil && m.PackageActions.MoreMarket != nil {
-					m.PackageActions.MoreMarket()
-				}
-			})
-		}
-	})
+func (m *Model) loadMoreMarket() {
+	if m.PackageActions != nil && m.PackageActions.MoreMarket != nil {
+		m.PackageActions.MoreMarket()
+	}
+}
+
+func marketPagination(c *ui.Context, s *State, rows int) {
+	m := s.Model
+	if !m.Live {
+		return
+	}
+	if m.MarketMore && !m.MarketPagingFailed && !m.Busy[BusyMarket] && s.marketEnd.reached(c, &s.marketScroll, rows) {
+		m.loadMoreMarket()
+	}
+	if m.MarketPaging || m.MarketMore && !m.MarketPagingFailed {
+		ui.Row(c.Key("more")).Height(24).Center().Busy(m.MarketPaging).Children(func() {
+			if m.MarketPaging {
+				kit.Loader(c, 16)
+			}
+		})
+	}
 }
 
 // marketCard is a 76 DIP bordered card of the item's summary and its action.
@@ -254,7 +267,7 @@ func marketSkeleton(c *ui.Context) {
 	}).Busy(true)
 }
 
-func marketPlugins(c *ui.Context, s *State) {
+func marketPlugins(c *ui.Context, s *State) int {
 	m := s.Model
 	source := []string{"market_details_source_official", "market_details_source_community"}[m.MarketSource]
 	var shown []*preview.Package
@@ -269,7 +282,7 @@ func marketPlugins(c *ui.Context, s *State) {
 	}
 	if len(shown) == 0 {
 		marketEmpty(c, m, icons.Puzzle, "plugins_none", "unavailable")
-		return
+		return 0
 	}
 	kit.Grid(c, func() {
 		for _, x := range shown {
@@ -291,10 +304,13 @@ func marketPlugins(c *ui.Context, s *State) {
 				func() { s.ShowDetails(DetailPlugin, x.ID) }, install)
 		}
 	})
-	marketMore(c, m)
+	if m.Live && (m.MarketFailed || m.MarketPagingFailed) {
+		marketRetry(c, m)
+	}
+	return len(shown)
 }
 
-func marketSkills(c *ui.Context, s *State) {
+func marketSkills(c *ui.Context, s *State) int {
 	m := s.Model
 	// Preview fixtures use catalog URLs as origins. Live sources are selected
 	// by the request, since a live origin names the repository or publisher.
@@ -319,7 +335,7 @@ func marketSkills(c *ui.Context, s *State) {
 	}
 	if len(shown) == 0 {
 		marketEmpty(c, m, icons.Bot, "skills_no_matches", "skill_catalog_load_failed")
-		return
+		return 0
 	}
 	kit.Grid(c, func() {
 		for _, x := range shown {
@@ -337,7 +353,10 @@ func marketSkills(c *ui.Context, s *State) {
 				})
 		}
 	})
-	marketMore(c, m)
+	if m.Live && (m.MarketFailed || m.MarketPagingFailed) {
+		marketRetry(c, m)
+	}
+	return len(shown)
 }
 
 // themeAction is a theme's action: Apply an installed theme, Install or

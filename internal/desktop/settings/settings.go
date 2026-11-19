@@ -77,8 +77,10 @@ type State struct {
 	Query   string // the providers' search
 	// Details is the extension details page shown in the right column, nil for
 	// none.
-	Details     *Detail
-	pluginPages []PluginPage
+	Details      *Detail
+	pluginPages  []PluginPage
+	marketScroll ui.ScrollState
+	marketEnd    scrollEnd
 	*Model
 }
 

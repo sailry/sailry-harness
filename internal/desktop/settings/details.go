@@ -31,7 +31,8 @@ type Detail struct {
 	Tab  int
 	// Load is the details' fetch: the content's skeleton shows under the
 	// summary while it runs.
-	Load preview.Fetch
+	Load    preview.Fetch
+	failure string
 }
 
 // ShowDetails opens an item's details, replacing those shown, and loads
@@ -41,9 +42,10 @@ func (s *State) ShowDetails(kind DetailKind, id string) {
 	s.Details.Load.Start()
 	if s.Live && s.PackageActions != nil && s.PackageActions.LoadDetails != nil {
 		detail := s.Details
-		s.PackageActions.LoadDetails(kind, id, func() {
+		s.PackageActions.LoadDetails(kind, id, func(message string) {
 			if s.Details == detail {
-				detail.Load.Loading, detail.Load.Loaded = false, true
+				detail.Load.Loading, detail.Load.Loaded = false, message == ""
+				detail.failure = message
 			}
 		})
 	}
@@ -83,17 +85,7 @@ func DetailsPanel(c *ui.Context, s *State) {
 						pluginDetails(c, s, pk, d)
 					}
 				case DetailSkill:
-					if sk := s.skill(d.ID); sk != nil {
-						summary(c, sk.Name, sk.Description, func() { kit.Tile(c, sk.Name, icons.Bot) }, nil)
-						if d.Load.Loading {
-							detailsSkeleton(c)
-							return
-						}
-						facts(c, [][2]string{{t("market_details_source"), skillSource(c, sk)}})
-						if sk.Content != "" {
-							kit.Markdown(c.Key("document"), sk.Content, kit.MarkdownProps{})
-						}
-					}
+					skillDetails(c, s, d)
 				case DetailTheme:
 					if th := s.theme(d.ID); th != nil {
 						summary(c, th.Name, th.Description, func() { kit.Tile(c, th.Name, icons.Palette) }, func() { themeAction(c, s.Model, th) })
@@ -114,6 +106,28 @@ func DetailsPanel(c *ui.Context, s *State) {
 			})
 		})
 	}).TextColor(p.Foreground)
+}
+
+func skillDetails(c *ui.Context, s *State, d *Detail) {
+	skill := s.skill(d.ID)
+	if skill != nil {
+		summary(c, skill.Name, skill.Description, func() { kit.Tile(c, skill.Name, icons.Bot) }, nil)
+	}
+	if d.Load.Loading {
+		detailsSkeleton(c)
+		return
+	}
+	if skill != nil {
+		facts(c, [][2]string{{i18n.T(c, "market_details_source"), skillSource(c, skill)}})
+	}
+	if d.failure != "" {
+		kit.Result(c.Key("document-failed"), kit.ResultProps{Status: kit.ResultError, Title: d.failure, Card: true, Extra: func() {
+			kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(func() { s.ShowDetails(DetailSkill, d.ID) })
+		}})
+	}
+	if skill != nil && skill.Content != "" {
+		kit.Markdown(c.Key("document"), skill.Content, kit.MarkdownProps{})
+	}
 }
 
 // detailsSkeleton holds the details' content while they load: a two-thirds

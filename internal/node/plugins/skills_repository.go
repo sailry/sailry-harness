@@ -98,6 +98,10 @@ func (manager *Manager) DiscoverRepositorySkills(ctx context.Context, source pro
 		source.Repository = "https://github.com/" + parts[0] + "/" + parts[1]
 		selectedSkill = parts[2]
 	}
+	return discoverRepositorySkills(ctx, source, selectedSkill)
+}
+
+func discoverRepositorySkills(ctx context.Context, source protocol.PluginSkillsSource, selectedSkill string) (protocol.PluginSkillsDiscovery, error) {
 	selected, err := ParseRepositorySource(source)
 	if err != nil {
 		return protocol.PluginSkillsDiscovery{}, err
@@ -131,13 +135,18 @@ func (manager *Manager) DiscoverRepositorySkills(ctx context.Context, source pro
 				return protocol.PluginSkillsDiscovery{}, packageFault("selected skill directory is a symbolic link")
 			}
 		}
-		skill, err := ParseSkill(entry.data, "")
-		if err != nil {
-			return protocol.PluginSkillsDiscovery{}, err
-		}
 		fullPath := path.Join(selected.Path, directory)
 		if fullPath == "." {
 			fullPath = ""
+		}
+		skill, err := ParseSkill(entry.data, "")
+		if err != nil {
+			// A catalog slug selects one skill. Keep validation errors for
+			// its named directory while continuing past unrelated documents.
+			if selectedSkill != "" && path.Base(fullPath) != selectedSkill {
+				continue
+			}
+			return protocol.PluginSkillsDiscovery{}, err
 		}
 		if selectedSkill == "" || selectedSkill == skill.Name {
 			candidates = append(candidates, protocol.PluginSkillsCandidate{Name: StandaloneSkillName(resolved.Repository, fullPath), Path: fullPath, Skill: skill})

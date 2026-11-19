@@ -36,26 +36,12 @@ func (r *Runtime) searchSkillMarket(selection int, query string, force bool, gen
 }
 
 func (r *Runtime) skillMarketNextPages() (pages [len(skillMarketSources)]uint32) {
-	if r.App.Settings.MarketKind == 1 && r.packages.marketCancel == nil {
-		for index, page := range r.packages.skillMarketPages {
-			if page.Next != nil && *page.Next > page.Page {
-				pages[index] = *page.Next
-			}
+	for index, page := range r.packages.skillMarketPages {
+		if page.Next != nil && *page.Next > page.Page {
+			pages[index] = *page.Next
 		}
 	}
 	return pages
-}
-
-// loadMoreSkillMarket reads the next page of each source with one, for the
-// search the cards show; a query the Node has not searched yet pages nothing.
-func (r *Runtime) loadMoreSkillMarket() {
-	m := r.App.Settings.Model
-	if packageMarketKey(m.MarketKind, marketSource(m), m.MarketQuery) != r.packages.marketKey {
-		return
-	}
-	if pages := r.skillMarketNextPages(); pages != [len(skillMarketSources)]uint32{} {
-		r.readSkillMarketPages(m.MarketQuery, false, r.packages.marketGeneration, pages)
-	}
 }
 
 func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint64, pages [len(skillMarketSources)]uint32) {
@@ -63,7 +49,10 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 	state := r.packages
 	state.marketCancel = cancel
 	m := r.App.Settings.Model
-	m.MarketLoad.Loading, m.MarketLoad.Loaded = len(m.MarketSkills) == 0, len(m.MarketSkills) > 0
+	paging := m.MarketPaging
+	if !paging {
+		m.MarketLoad.Loading, m.MarketLoad.Loaded = len(m.MarketSkills) == 0, len(m.MarketSkills) > 0
+	}
 	m.SetBusy(settings.BusyMarket, true)
 	remaining := 0
 	available := false
@@ -81,6 +70,11 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 			}
 			if err == nil {
 				page.Entries = slices.DeleteFunc(slices.Clone(page.Entries), pluginMarketSkill)
+				// A page-scoped query filters a leaderboard page locally. Stop
+				// on an empty page instead of scanning the leaderboard.
+				if page.QueryScope == protocol.PluginSkillcatalogQueryScopePage && len(page.Entries) == 0 {
+					page.Next = nil
+				}
 			}
 			r.enqueue(func(c *ui.Context) {
 				if ctx.Err() != nil || state.marketGeneration != generation || r.localRuntime().packageOwner() != r || m.MarketKind != 1 {
@@ -89,8 +83,10 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 				remaining--
 				if err == nil {
 					available = available || !page.Unavailable
-					if !page.Unavailable || len(page.Entries) > 0 {
-						if number > 1 {
+					// An unavailable continuation must leave its cursor on
+					// the failed page even if the Node has cached cards for it.
+					if !page.Unavailable || !paging && len(page.Entries) > 0 {
+						if paging {
 							page.Entries = append(state.skillMarketPages[index].Entries, page.Entries...)
 						}
 						state.skillMarketPages[index] = page
@@ -98,17 +94,21 @@ func (r *Runtime) readSkillMarketPages(query string, force bool, generation uint
 					}
 				}
 				if err != nil || page.Unavailable {
-					// A first page that failed is offered again by Retry; a
-					// later one stays the source's next page, for Load more.
-					m.MarketFailed = m.MarketFailed || number == 1
+					if paging {
+						m.MarketPagingFailed = true
+					} else {
+						m.MarketFailed = true
+					}
 					reason := i18n.T(c, "unavailable")
 					if err != nil {
 						reason = faultDetail(err)
 					}
 					kit.Error(c, i18n.T(c, source.label), reason)
 				}
-				m.MarketLoad.Loading = len(m.MarketSkills) == 0 && remaining > 0
-				m.MarketLoad.Loaded = available || len(m.MarketSkills) > 0
+				if !paging {
+					m.MarketLoad.Loading = len(m.MarketSkills) == 0 && remaining > 0
+					m.MarketLoad.Loaded = available || len(m.MarketSkills) > 0
+				}
 				if remaining == 0 {
 					r.cancelMarketSearch()
 				}

@@ -65,28 +65,31 @@ func TestSkillMarketLoadsSourcesIndependently(t *testing.T) {
 			t.Fatalf("browse should read only the first page of each source: %+v", m.MarketSkills)
 		}
 		if !m.MarketMore || m.MarketFailed || m.Busy[settings.BusyMarket] {
-			t.Fatalf("a finished search must offer Load more for its next page: more %v, failed %v, busy %v", m.MarketMore, m.MarketFailed, m.Busy)
+			t.Fatalf("a finished search must have a next page: more %v, failed %v, busy %v", m.MarketMore, m.MarketFailed, m.Busy)
 		}
 		m.MarketQuery = "draft"
-		r.loadMoreSkillMarket()
+		r.loadMoreMarket()
 		synctest.Wait()
 		m.MarketQuery = ""
 		if len(source.sent("search_skill_catalog")) != 2 {
 			t.Fatal("a query the Node has not searched paged the previous results")
 		}
 		failPage = true
-		r.loadMoreSkillMarket()
-		synctest.Wait()
-		tester.Frame()
-		if len(source.sent("search_skill_catalog")) != 3 || len(m.MarketSkills) != 2 || !m.MarketMore || m.Busy[settings.BusyMarket] || !tester.HasText("invalid fixture page") {
-			t.Fatalf("a failed page must keep the cards and stay next: %+v, more %v, busy %v", m.MarketSkills, m.MarketMore, m.Busy)
+		r.loadMoreMarket()
+		if !m.MarketPaging || m.MarketPagingFailed || !m.Busy[settings.BusyMarket] {
+			t.Fatalf("a continuation must enter the loading state: paging %v, failed %v, busy %v", m.MarketPaging, m.MarketPagingFailed, m.Busy)
 		}
-		r.loadMoreSkillMarket()
-		r.loadMoreSkillMarket()
 		synctest.Wait()
 		tester.Frame()
-		if len(source.sent("search_skill_catalog")) != 4 || len(m.MarketSkills) != 3 || m.MarketSkills[2].ID != "skillhub/next" || m.MarketMore {
-			t.Fatalf("explicit continuation should fetch only the pending source once: %+v", m.MarketSkills)
+		if len(source.sent("search_skill_catalog")) != 3 || len(m.MarketSkills) != 2 || !m.MarketMore || m.MarketPaging || !m.MarketPagingFailed || m.MarketFailed || m.Busy[settings.BusyMarket] || !tester.HasText("invalid fixture page") {
+			t.Fatalf("a failed page must keep its cursor and pause pagination: %+v, more %v, paging %v, failed %v, busy %v", m.MarketSkills, m.MarketMore, m.MarketPaging, m.MarketPagingFailed, m.Busy)
+		}
+		r.loadMoreMarket()
+		r.loadMoreMarket()
+		synctest.Wait()
+		tester.Frame()
+		if len(source.sent("search_skill_catalog")) != 4 || len(m.MarketSkills) != 3 || m.MarketSkills[2].ID != "skillhub/next" || m.MarketMore || m.MarketPaging || m.MarketPagingFailed {
+			t.Fatalf("retry should fetch only the pending source once: %+v", m.MarketSkills)
 		}
 		r.searchPackageMarket(1, 0, "", true)
 		synctest.Wait()
@@ -116,11 +119,17 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 		m := r.App.Settings.Model
 		m.MarketKind, m.MarketSkillSource = 1, settings.SkillMarketSkillsSh
 		var requests []protocol.CommandSearchSkillCatalogPayload
+		unavailable := true
 		source.respond = func(request protocol.Request) link.Response {
 			input, _ := detail[protocol.CommandSearchSkillCatalogPayload](request.Command.Data)
 			requests = append(requests, input)
 			page := protocol.DefaultPluginSkillcatalogPage()
 			page.Page, page.QueryScope = input.Page, protocol.PluginSkillcatalogQueryScopeCatalog
+			if input.Query == "x" {
+				page.QueryScope = protocol.PluginSkillcatalogQueryScopePage
+				page.Next = new(uint32(2))
+				return link.Response{Output: protocol.Output{Kind: "skill_catalog", Data: page}}
+			}
 			if input.Source == protocol.PluginSkillcatalogSourceSkillsSh {
 				page.Entries = []protocol.PluginSkillcatalogEntry{
 					{ID: "owned", Name: "Bundled review", Package: new("code-review")},
@@ -129,6 +138,8 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 				if input.Page == 1 {
 					page.Next = new(uint32(2))
 				} else {
+					page.Unavailable = unavailable
+					unavailable = false
 					page.Entries = []protocol.PluginSkillcatalogEntry{{ID: "code-review", Name: "Community review", Origin: "another/team"}}
 				}
 			} else {
@@ -146,16 +157,30 @@ func TestSkillMarketSelectedSourceExcludesPluginSkills(t *testing.T) {
 		if len(requests) != 1 || requests[0].Source != protocol.PluginSkillcatalogSourceSkillsSh || len(m.MarketSkills) != 0 || !m.MarketMore {
 			t.Fatalf("selected source did not preserve paging through filtered entries: %+v, %+v", requests, m.MarketSkills)
 		}
-		r.loadMoreSkillMarket()
+		r.loadMoreMarket()
+		if m.MarketLoad.Loading || !m.MarketPaging {
+			t.Fatalf("an empty page needs a pagination footer, not the first-page skeleton: %+v, paging %v", m.MarketLoad, m.MarketPaging)
+		}
 		synctest.Wait()
 		tester.Frame()
-		if len(requests) != 2 || requests[1].Source != protocol.PluginSkillcatalogSourceSkillsSh || requests[1].Page != 2 || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "code-review" {
+		if len(requests) != 2 || requests[1].Page != 2 || len(m.MarketSkills) != 0 || !m.MarketMore || !m.MarketPagingFailed {
+			t.Fatalf("an unavailable page with cached cards must keep its cursor for retry: %+v, %+v", requests, m.MarketSkills)
+		}
+		r.loadMoreMarket()
+		synctest.Wait()
+		tester.Frame()
+		if len(requests) != 3 || requests[2].Source != protocol.PluginSkillcatalogSourceSkillsSh || requests[2].Page != 2 || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "code-review" {
 			t.Fatalf("selected source lost an independent skill on its next page: %+v, %+v", requests, m.MarketSkills)
 		}
 		m.MarketSkillSource = settings.SkillMarketSkillhub
 		search()
-		if len(requests) != 3 || requests[2].Source != protocol.PluginSkillcatalogSourceSkillhub || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "hub" || m.MarketMore {
+		if len(requests) != 4 || requests[3].Source != protocol.PluginSkillcatalogSourceSkillhub || len(m.MarketSkills) != 1 || m.MarketSkills[0].ID != "hub" || m.MarketMore {
 			t.Fatalf("changing sources retained earlier cards or pagination: %+v, %+v", requests, m.MarketSkills)
+		}
+		m.MarketSkillSource, m.MarketQuery = settings.SkillMarketSkillsSh, "x"
+		search()
+		if len(requests) != 5 || m.MarketMore || len(m.MarketSkills) != 0 {
+			t.Fatalf("an empty page-scoped result must stop automatic paging: %+v, %+v", requests, m.MarketSkills)
 		}
 	})
 }

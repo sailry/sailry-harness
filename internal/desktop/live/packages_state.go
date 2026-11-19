@@ -41,6 +41,7 @@ type packageState struct {
 	marketKey          string
 	marketGeneration   uint64
 	marketCancel       context.CancelFunc
+	pluginMarketNext   uint32
 	skillMarketPages   [len(skillMarketSources)]protocol.PluginSkillcatalogPage
 	requests           map[string]protocol.Request
 	pending            map[string]protocol.Request
@@ -140,11 +141,13 @@ func (r *Runtime) initB8Packages() {
 				owner.packages.downloadCancel()
 			}
 		},
-		LoadDetails: func(kind settings.DetailKind, id string, done func()) {
+		LoadDetails: func(kind settings.DetailKind, id string, done func(string)) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.loadPackageDetails(kind, id, done)
+			} else if kind == settings.DetailSkill {
+				done("resource host is offline")
 			} else {
-				done()
+				done("")
 			}
 		},
 		RetryMarket: func() {
@@ -157,7 +160,7 @@ func (r *Runtime) initB8Packages() {
 		},
 		MoreMarket: func() {
 			if owner := r.packageOwner(); owner != nil {
-				owner.loadMoreSkillMarket()
+				owner.loadMoreMarket()
 			}
 		},
 		MarketPlugin: func(id string) {
@@ -260,6 +263,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		root.packages.selectedNode = node
 		root.packages.configuration++
 		m.MarketPlugins, m.MarketSkills = nil, nil
+		m.MarketPaging, m.MarketPagingFailed = false, false
 		m.CloseDetails()
 		m.CloseManagedPackageDialogs()
 	}
