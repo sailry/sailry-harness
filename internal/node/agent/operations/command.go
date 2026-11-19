@@ -150,8 +150,12 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 		defaultValue("attachments", []protocol.AttachmentID{})
 		defaultValue("follow_up", false)
 		defaultValue("pty", false)
+		defaultValue("service", false)
 		if values["pty"] == true && values["background"] != true {
 			return protocol.Command{}, invalidCommand("interactive commands require background execution")
+		}
+		if values["service"] == true && values["background"] != true {
+			return protocol.Command{}, invalidCommand("service commands require background execution")
 		}
 		if description, ok := values["description"].(string); ok && (strings.TrimSpace(description) == "" || strings.ContainsRune(description, 0)) {
 			return protocol.Command{}, invalidCommand("invalid command description")

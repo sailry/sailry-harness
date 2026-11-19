@@ -41,7 +41,7 @@ func readActivity(ctx context.Context, db *sql.Conn, session protocol.SessionID)
 	// Count active follow-up work and results on their way to an automatic
 	// turn. Held results stay available for the next user message.
 	err = db.QueryRowContext(ctx, `SELECT count(*) FROM agent_background WHERE session=?1 AND (
-		state='running' AND `+backgroundFollowUp+` OR `+backgroundReady+`
+		state='running' AND `+backgroundFollowUp+` AND json_extract(body,'$.task.suppressed')=0 OR `+backgroundReady+`
 		AND NOT EXISTS(SELECT 1 FROM agent_queues WHERE session=?1 AND paused=1))`, session.String()).Scan(&value.Background)
 	if err != nil {
 		return value, err

@@ -930,6 +930,11 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		if operationErr == nil && job.request.Command.Kind == "stop_turn" {
 			if run, ok := output.Data.(protocol.ConversationRun); ok {
 				node.agent.StopCommitted(run)
+				// A user stop ends the session's command work too; declared
+				// services keep running. The store already held their evidence.
+				if run.Status == protocol.ConversationStatusStopping {
+					node.processes.StopTransient(run.Session)
+				}
 			}
 		}
 		for _, review := range reviewChanges {

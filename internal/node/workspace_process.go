@@ -128,7 +128,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	if input.Description != nil && (strings.TrimSpace(*input.Description) == "" || strings.ContainsRune(*input.Description, 0)) {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command description"}
 	}
-	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background, FollowUp: followUp}
+	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background, FollowUp: followUp, Service: input.Service}
 	if err = launch.Validate(); err != nil {
 		return protocol.Output{}, err
 	}

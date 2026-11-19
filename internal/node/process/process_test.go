@@ -37,6 +37,45 @@ func TestForegroundStdin(t *testing.T) {
 	}
 }
 
+func TestStopTransientKeepsServices(t *testing.T) {
+	stopped := make(chan string, 2)
+	service, err := New(Options{Profile: t.TempDir(), Run: func(ctx context.Context, launch Launch, _ func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		<-ctx.Done()
+		stopped <- launch.Command
+		return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "cancelled"}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+	session := protocol.NewSessionID()
+	for _, launch := range []Launch{{Command: "tests"}, {Command: "server", Service: true}} {
+		launch.ID, launch.Session, launch.Root, launch.TimeoutMs = protocol.NewRequestID(), session, t.TempDir(), 1000
+		if _, err := service.Start(launch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := (Launch{ID: protocol.NewRequestID(), Root: t.TempDir(), Command: "server", TimeoutMs: 1000, Service: true}).Validate(); err == nil {
+		t.Fatal("a foreground service launch was accepted")
+	}
+	service.StopTransient(session)
+	if command := <-stopped; command != "tests" {
+		t.Fatalf("StopTransient stopped %s", command)
+	}
+	running := 0
+	for _, info := range service.List(session) {
+		if info.Status.Kind == "running" {
+			if info.Command != "server" {
+				t.Fatalf("%s is still running", info.Command)
+			}
+			running++
+		}
+	}
+	if running != 1 {
+		t.Fatalf("the service is not the only running command: %+v", service.List(session))
+	}
+}
+
 func TestOutputBudget(t *testing.T) {
 	t.Parallel()
 	t.Run("retained tool previews freeze ranges and background head", func(t *testing.T) {

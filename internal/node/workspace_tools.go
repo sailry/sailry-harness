@@ -76,7 +76,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		}
 		if inv.Session.Delegation != nil && declaration.Operation == protocol.ToolOperationRunCommand {
 			if properties, ok := schema["properties"].(map[string]any); ok {
+				// Child commands end with the delegated task.
 				delete(properties, "follow_up")
+				delete(properties, "service")
 			}
 			declaration.Parameters, err = json.Marshal(schema)
 			if err != nil {

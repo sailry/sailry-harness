@@ -9,20 +9,22 @@ import (
 )
 
 type Launch struct {
-	ID             protocol.RequestID
-	Session        protocol.SessionID
-	Turn           protocol.TurnID
-	Worktree       protocol.WorktreeID
-	Root           string
-	Profile        string
-	Command        string
-	Stdin          string // Foreground input, written verbatim and followed by EOF.
-	Access         protocol.ProcessAccess
-	Cwd            string
-	TimeoutMs      uint64
-	Pty            bool
-	Background     bool
-	FollowUp       bool // Report background progress for this launch, including after promotion.
+	ID         protocol.RequestID
+	Session    protocol.SessionID
+	Turn       protocol.TurnID
+	Worktree   protocol.WorktreeID
+	Root       string
+	Profile    string
+	Command    string
+	Stdin      string // Foreground input, written verbatim and followed by EOF.
+	Access     protocol.ProcessAccess
+	Cwd        string
+	TimeoutMs  uint64
+	Pty        bool
+	Background bool
+	FollowUp   bool // Report background progress for this launch, including after promotion.
+	// Service keeps a background command running through a user stop.
+	Service        bool
 	Scratch        string
 	Inputs         string
 	Environment    map[string]string

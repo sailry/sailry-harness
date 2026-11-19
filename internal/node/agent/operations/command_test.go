@@ -16,8 +16,12 @@ func TestCommandProcessToolArguments(t *testing.T) {
 		t.Fatal(err)
 	}
 	launch := command.Data.(*protocol.CommandRunCommandPayload)
-	if launch.Turn != turn || launch.TimeoutMs != 120000 || launch.Background || launch.Pty || launch.FollowUp || launch.Cwd != "" || launch.Description != nil || len(launch.Attachments) != 0 {
+	if launch.Turn != turn || launch.TimeoutMs != 120000 || launch.Background || launch.Pty || launch.FollowUp || launch.Service || launch.Cwd != "" || launch.Description != nil || len(launch.Attachments) != 0 {
 		t.Fatalf("unexpected launch defaults: %+v", launch)
+	}
+	command, err = Command(protocol.ToolOperationRunCommand, json.RawMessage(`{"command":"serve","background":true,"service":true}`), worktree, session, turn, nil, true)
+	if err != nil || !command.Data.(*protocol.CommandRunCommandPayload).Service {
+		t.Fatalf("a background service launch is %+v, %v", command.Data, err)
 	}
 	id := protocol.NewRequestID()
 	for _, arguments := range []struct {
@@ -25,6 +29,7 @@ func TestCommandProcessToolArguments(t *testing.T) {
 		value     string
 	}{
 		{protocol.ToolOperationRunCommand, `{"command":"pwd","pty":true}`},
+		{protocol.ToolOperationRunCommand, `{"command":"pwd","service":true}`},
 		{protocol.ToolOperationRunCommand, `{"command":"pwd","description":" "}`},
 		{protocol.ToolOperationReadCommand, `{"wait_ms":100}`},
 		{protocol.ToolOperationReadCommand, `{"offset":12}`},

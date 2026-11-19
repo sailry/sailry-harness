@@ -94,6 +94,9 @@ func (launch Launch) Validate() error {
 	if launch.Pty && !launch.Background {
 		return invalid("interactive commands require background execution")
 	}
+	if launch.Service && !launch.Background {
+		return invalid("service commands require background execution")
+	}
 	if launch.Background && launch.Stdin != "" {
 		return invalid("one-shot input requires foreground execution")
 	}
@@ -529,6 +532,23 @@ func (s *Service) StopAll(session protocol.SessionID) []protocol.ProcessInfo {
 		}
 	}
 	return items
+}
+
+// StopTransient stops a session's active background commands, promoted ones
+// included, except those launched as services. Foreground commands follow
+// their caller's cancellation.
+func (s *Service) StopTransient(session protocol.SessionID) {
+	s.mu.Lock()
+	var ids []protocol.RequestID
+	for id, entry := range s.entries {
+		if entry.info.Session == session && entry.background && commandActive(entry.info) && !entry.launch.Service {
+			ids = append(ids, id)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		_, _ = s.Stop(session, id)
+	}
 }
 
 func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input string) (uint64, error) {

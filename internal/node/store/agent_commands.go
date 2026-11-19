@@ -164,6 +164,11 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if run.Status == protocol.ConversationStatusStopping {
+			if err = HoldStoppedCommands(ctx, db, run.Session); err != nil {
+				return protocol.Output{}, nil, err
+			}
+		}
 		events, err := activityEvent(ctx, db, run.Session)
 		return protocol.Output{Kind: "run", Data: run}, events, err
 	case "start_queued_turn":

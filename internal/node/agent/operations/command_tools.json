@@ -3,7 +3,7 @@
     {
       "name": "run_command",
       "operation": "process.run",
-      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Output reports truncation. Timeout defaults to 120000 ms. Set background=true for a process that should survive the turn; it returns an ID and has no timeout. Background completion is recorded. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
+      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Output reports truncation. Timeout defaults to 120000 ms. Set background=true for a process that should survive the turn; it returns an ID and has no timeout. Background completion is recorded. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. When the user stops the turn, the session's commands are stopped except those started with service=true, and no completion continues the conversation; their results are shown with the user's next message. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -40,6 +40,11 @@
             "type": "boolean",
             "default": false,
             "description": "Continue the conversation automatically when this background command finishes. Required when you wait for its result; otherwise status and output are only retained."
+          },
+          "service": {
+            "type": "boolean",
+            "default": false,
+            "description": "Keep this background command running when the user stops the turn. Use only for long-lived services such as development or HTTP servers and file watchers, never for builds or tests. Requires background=true."
           },
           "timeout_ms": {
             "type": "integer",

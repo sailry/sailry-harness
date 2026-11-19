@@ -110,6 +110,11 @@ func registerProcessRecord(ctx context.Context, db *sql.Conn, id protocol.Reques
 		title = *input.Description
 	}
 	record := BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: identity, Session: run.Session, Turn: input.Turn, Kind: protocol.ConversationBackgroundKind{Kind: "command", Data: protocol.ConversationBackgroundKindCommandPayload{ID: id}}, Title: processPreview(title, 200), State: protocol.ConversationBackgroundStateRunning, StartedMs: now.UnixMilli()}, FollowUp: followUp}
+	// A receipt that commits after the user stopped its turn is held like
+	// the commands HoldStoppedCommands found.
+	if run.Status == protocol.ConversationStatusStopping || run.Status == protocol.ConversationStatusCancelled {
+		record.Task.Suppressed, record.Task.Hold = true, new(protocol.ConversationBackgroundHoldStopped)
+	}
 	if err := saveBackgroundRecord(ctx, db, &record); err != nil {
 		return nil, err
 	}
@@ -227,7 +232,8 @@ func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, no
 	if command.Task.Session != snapshot.Info.Session || command.Task.Turn != snapshot.Info.Turn {
 		return nil, false, errors.New("background command ownership changed")
 	}
-	if command.Task.State != protocol.ConversationBackgroundStateRunning || !command.FollowUp {
+	// A command held by a user stop, such as a service, reports no stall.
+	if command.Task.State != protocol.ConversationBackgroundStateRunning || !command.FollowUp || command.Task.Suppressed {
 		return nil, false, nil
 	}
 	id := "stall:" + snapshot.Info.ID.String()

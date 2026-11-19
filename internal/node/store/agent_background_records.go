@@ -242,6 +242,24 @@ func ReleaseBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	return backgroundOwnerEvents(ctx, db, owners)
 }
 
+// HoldStoppedCommands keeps a user stop from being undone by command evidence:
+// the session's running and undelivered command results start no notice turn
+// and join the user's next message instead. The Node stops the non-service
+// commands after the stop commits; their completion finds a held record.
+func HoldStoppedCommands(ctx context.Context, db *sql.Conn, session protocol.SessionID) error {
+	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE session=?1 AND kind='command' AND state IN ('running','pending') AND delivery IS NULL AND json_extract(body,'$.task.suppressed')=0", session.String())
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		record.Task.Suppressed, record.Task.Hold = true, new(protocol.ConversationBackgroundHoldStopped)
+		if err = saveBackgroundRecord(ctx, db, &record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func backgroundOwnerEvents(ctx context.Context, db *sql.Conn, owners map[protocol.SessionID]bool) ([]protocol.Event, error) {
 	events := []protocol.Event{}
 	for owner := range owners {
