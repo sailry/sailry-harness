@@ -372,10 +372,10 @@ type Call struct {
 	// Background is the command the call sent to the background; nil for a
 	// call that ran in place. Its outcome contributes to the row's status color.
 	Background       *Background
-	BackgroundDetail func() BackgroundDetail
+	BackgroundDetail func() BackgroundDetail `json:"-"`
 	// Load requests revision-scoped details when this disclosure first opens.
 	DetailRevision string
-	Load           func(apply func(*Output)) (cancel func())
+	Load           func(apply func(*Output)) (cancel func()) `json:"-"`
 
 	wrap bool // view-only: the label wraps rather than truncates
 }
@@ -595,8 +595,8 @@ const (
 // connected session at its start.
 type Session struct {
 	// ResolveImage belongs to the Node that owns this transcript, including child panes.
-	ResolveImage func(session string, image Image) Image
-	Embed        func(session, dest, label string, image bool) (Embed, bool)
+	ResolveImage func(session string, image Image) Image                     `json:"-"`
+	Embed        func(session, dest, label string, image bool) (Embed, bool) `json:"-"`
 	// Older is how many turns come before the first one shown, 0 at the
 	// start; LoadingOlder while the page before loads, OlderFailed when it
 	// did not.
