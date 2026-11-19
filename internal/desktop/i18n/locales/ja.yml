@@ -1153,8 +1153,6 @@ provider_api_key: API キー
 provider_get_key: APIキーを取得
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
-provider_host_saved: Saved on {host}
-provider_host_save_failed: Could not save on {host}
 provider_on_host: on {host}
 provider_oauth_advanced: 詳細設定
 provider_oauth_catalog_version: カタログ版

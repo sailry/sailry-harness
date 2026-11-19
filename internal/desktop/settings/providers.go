@@ -605,7 +605,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	e.oauth = ch.OAuth
 	e.apiVersion = ch.APIVersion
 	e.headers = headerRows(ch.Headers)
-	if m.Live && !ch.ConfigurationReadOnly && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
+	if m.Live && !ch.ConfigurationReadOnly && (ch.Auth == preview.AuthKey || ch.Auth == viewmodel.AuthOptionalKey && ch.KeySet) && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
 		m.ProviderActions.ReadKey(ch.Node, id, func(value string) {
@@ -637,7 +637,7 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 		}
 	}
 	if e.brand == nil {
-		e.method = preview.Method{Node: ch.Node, ID: ch.Method, Name: ch.Name, API: ch.API, Auth: ch.Auth, Keyed: ch.Auth == preview.AuthKey, Custom: ch.Endpoint != ""}
+		e.method = preview.Method{Node: ch.Node, ID: ch.Method, Name: ch.Name, API: ch.API, Auth: ch.Auth, Keyed: ch.Auth == preview.AuthKey || ch.Auth == viewmodel.AuthOptionalKey, Custom: ch.Endpoint != ""}
 		if ch.Auth == preview.AuthOAuth {
 			e.method.Login = "provider_access_login"
 		}
@@ -798,7 +798,7 @@ func (e *providerEditor) usesKey() bool {
 }
 
 func (e *providerEditor) auth() preview.Auth {
-	if e.method.Auth == preview.AuthOAuth || e.method.Auth == preview.AuthPlugin {
+	if e.method.Auth == preview.AuthOAuth || e.method.Auth == preview.AuthPlugin || e.method.Auth == viewmodel.AuthOptionalKey {
 		return e.method.Auth
 	}
 	if e.login() {
@@ -811,7 +811,7 @@ func (e *providerEditor) auth() preview.Auth {
 }
 
 func providerAuthAllowsMultipleTargets(auth preview.Auth) bool {
-	return auth == preview.AuthKey || auth == preview.AuthNone
+	return auth == preview.AuthKey || auth == viewmodel.AuthOptionalKey || auth == preview.AuthNone
 }
 
 func providerTargetList(targets []string) []string {
@@ -926,7 +926,7 @@ func (e *providerEditor) Check() string {
 	if e.current().Custom && !strings.HasPrefix(e.endpoint, "http://") && !strings.HasPrefix(e.endpoint, "https://") {
 		return "provider_endpoint_required"
 	}
-	if e.usesKey() && !e.keySet && strings.TrimSpace(e.key) == "" {
+	if e.usesKey() && e.method.Auth != viewmodel.AuthOptionalKey && !e.keySet && strings.TrimSpace(e.key) == "" {
 		return "provider_key_required"
 	}
 	if e.azure() && strings.TrimSpace(e.apiVersion) == "" {
@@ -1526,7 +1526,6 @@ func providerTargets(c *ui.Context, m *Model, e *providerEditor) {
 	}) {
 		providerHostSelect(c, hosts, e)
 	}
-	providerTargetStatuses(c, hosts, e)
 }
 
 func providerHostSelect(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
@@ -1557,23 +1556,6 @@ func providerHostSelect(c *ui.Context, hosts []ProviderHost, e *providerEditor) 
 			}
 		}, kit.MenuOptions{CheckRight: true, MaxHeight: 320, Match: true})
 	})
-}
-
-func providerTargetStatuses(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
-	for _, host := range hosts {
-		if slices.Contains(e.targetSucceeded, host.Node) {
-			ui.Text(c, i18n.T(c, "provider_host_saved", "host", providerHostName(c, host))).FontSize(12).TextColor(theme.Of(c).Success)
-		}
-		if slices.Contains(e.targetFailed, host.Node) {
-			ui.Text(c, i18n.T(c, "provider_host_save_failed", "host", providerHostName(c, host))).FontSize(12).TextColor(theme.Of(c).Warning)
-		}
-		if slices.Contains(e.targetUncertain, host.Node) {
-			ui.Text(c, providerHostName(c, host)+" · "+i18n.T(c, "provider_save_unknown")).FontSize(12).TextColor(theme.Of(c).Warning)
-		}
-		if slices.Contains(e.targetUnconfirmed, host.Node) {
-			ui.Text(c, providerHostName(c, host)+" · "+i18n.T(c, "provider_save_unconfirmed")).FontSize(12).TextColor(theme.Of(c).Warning)
-		}
-	}
 }
 
 func providerHostName(c *ui.Context, host ProviderHost) string {

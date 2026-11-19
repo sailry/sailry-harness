@@ -10,17 +10,40 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
+
+func TestCompatibleEndpointSavesWithoutKey(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	var saved []ProviderDraft
+	m.ProviderActions.Save = func(draft ProviderDraft, done func(ProviderSaveResult)) {
+		saved = append(saved, draft)
+		done(ProviderSaveResult{Succeeded: draft.Targets})
+	}
+	e := &m.provider
+	e.addOn(m, "node")
+	e.configure(preview.Method{Name: "Gateway", Access: "provider_access_endpoint", Auth: viewmodel.AuthOptionalKey, Keyed: true,
+		Routes: []preview.Route{{ID: "compatible/0", API: "responses", Custom: true}}})
+	e.endpoint = "http://localhost:3425/v1"
+	e.models = []modelDraft{{id: "local-model", context: "128000"}}
+	if problem := e.save(m); problem != "" || len(saved) != 1 || e.open {
+		t.Fatalf("save returned %q, writes %d, editor open %t", problem, len(saved), e.open)
+	}
+	if saved[0].Key != "" || saved[0].Channel.Auth != viewmodel.AuthOptionalKey || ProviderStatus(&saved[0].Channel) != "" {
+		t.Fatal("the keyless gateway acquired a credential requirement")
+	}
+}
 
 func TestSavedProviderProtocolAndKey(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.Live = true
-	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", Access: "provider_access_endpoint", Keyed: true,
+	m.Brands = []preview.Brand{{ID: "fixture", Methods: []preview.Method{{ID: "compatible", Access: "provider_access_endpoint", Auth: viewmodel.AuthOptionalKey, Keyed: true,
 		Routes: []preview.Route{{ID: "compatible/0", API: "responses", Custom: true}, {ID: "compatible/1", API: "chat_completions", Custom: true}},
 	}}}}
 	models := []preview.ChannelModel{{ID: "model-a", Name: "model-a", Context: 128000, DefaultEffort: "default"}, {ID: "model-b", Name: "model-b", Context: 200000, DefaultEffort: "default"}}
 	m.Channels = []preview.Channel{{ID: "saved", Revision: 7, Name: "Saved", Brand: "fixture", Method: "compatible/1", API: "chat_completions",
-		Endpoint: "https://provider.example/v1", Auth: preview.AuthKey, KeySet: true, Models: models, Default: 1}}
+		Endpoint: "https://provider.example/v1", Auth: viewmodel.AuthOptionalKey, KeySet: true, Models: models, Default: 1}}
 	var read func(string)
 	m.ProviderActions.ReadKey = func(_, _ string, done func(string)) { read = done }
 	var saved []ProviderDraft
@@ -192,8 +215,8 @@ func TestProviderTargetRowsRequireSelectableHost(t *testing.T) {
 					t.Fatalf("%s visibility: %q", key, text)
 				}
 			}
-			if !strings.Contains(text, i18n.In("en", "provider_host_save_failed", "host", "Owner")) {
-				t.Fatal("hiding host selection lost the save failure")
+			if strings.Contains(text, "Could not save on Owner") {
+				t.Fatal("save failure was repeated inside the form")
 			}
 		})
 	}

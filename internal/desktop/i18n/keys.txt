@@ -1172,8 +1172,6 @@ provider_api_key
 provider_get_key
 provider_hosts
 provider_host_required
-provider_host_saved
-provider_host_save_failed
 provider_on_host
 provider_oauth_advanced
 provider_oauth_catalog_version

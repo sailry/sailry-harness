@@ -10,6 +10,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -169,6 +171,13 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 		nodes = []string{sourceNode}
 	}
 	intent := providerSaveIntent(d)
+	reported := false
+	report := func(c *ui.Context, err error, unknown string) {
+		if err != nil {
+			reported = true
+			root.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
+		}
+	}
 	done := func(result settings.ProviderSaveResult) {
 		for node, target := range batch {
 			if target.request != nil {
@@ -188,6 +197,17 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 			return slices.Contains(result.Succeeded, node) || slices.Contains(result.Uncertain, node) || slices.Contains(result.Unconfirmed, node)
 		})
 		if len(result.Failed)+len(result.Uncertain)+len(result.Unconfirmed) != 0 {
+			// A target can disappear before a request is sent. Report the final
+			// outcome when no command or credential error has already reached UI.
+			if !reported {
+				outcome, key := kit.Failed, "provider_save_failed"
+				if len(result.Unconfirmed) > 0 {
+					outcome, key = kit.Uncertain, "provider_save_unconfirmed"
+				} else if len(result.Uncertain) > 0 {
+					outcome, key = kit.Uncertain, "provider_save_unknown"
+				}
+				root.enqueue(func(c *ui.Context) { kit.Toast(c, outcome, i18n.T(c, key)) })
+			}
 			result.Resume = func(next settings.ProviderDraft, callback func(settings.ProviderSaveResult)) {
 				batch.save(root, next, callback)
 			}
@@ -237,7 +257,7 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 						target.request = nil
 					}
 				}
-				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
+				report(c, err, unknown)
 				done(result)
 			})
 		}) {
@@ -338,7 +358,7 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 	}
 
 	save := func(sourceKey string) {
-		root.saveProviderTargets(batch, intent, provider, group, oldMembers, oldByNode, nodes, targets, targetIDs, sourceNode, d.ExpectedRevision, d.TargetRevisions, d.Key, sourceKey, done)
+		root.saveProviderTargets(batch, intent, provider, group, oldMembers, oldByNode, nodes, targets, targetIDs, sourceNode, d.ExpectedRevision, d.TargetRevisions, d.Key, sourceKey, report, done)
 	}
 	location := oldByNode[sourceNode]
 	if provider.Authentication == protocol.AuthenticationApiKey && strings.TrimSpace(d.Key) == "" && location.provider.Credential != nil {
@@ -346,6 +366,7 @@ func (batch providerSaveBatch) save(root *Runtime, d settings.ProviderDraft, fin
 			if targets[index] != nil && oldByNode[node].provider.Credential == nil {
 				source.readProviderKeyForSave(location.provider, func(key string, ok bool) {
 					if !ok || root.providerOwner(sourceNode) != source {
+						reported = !ok // The credential read presents its own failure.
 						done(providerSaveFailure(nodes))
 						return
 					}
@@ -370,7 +391,7 @@ func providerSaveFailure(nodes []string) settings.ProviderSaveResult {
 func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Size]byte, provider protocol.ConversationProvider, oldGroup preferences.ProviderGroup, oldMembers []preferences.ProviderMember,
 	oldByNode map[string]providerLocation, nodes []string, targets []*Runtime, ids map[string]protocol.ProviderID,
 	sourceNode string, sourceRevision uint64, targetRevisions map[string]uint64, changedKey, sourceKey string,
-	done func(settings.ProviderSaveResult)) {
+	report func(*ui.Context, error, string), done func(settings.ProviderSaveResult)) {
 	root := r.localRuntime()
 	groupID := oldGroup.ID
 	if groupID == (protocol.RequestID{}) && (len(nodes) > 1 || len(batch) > 1) {
@@ -454,7 +475,7 @@ func (r *Runtime) saveProviderTargets(batch providerSaveBatch, intent [sha256.Si
 					result.Succeeded = append(result.Succeeded, node)
 					owner.refreshProviderSnapshot()
 				}
-				owner.reportKeys(c, err, "provider_save_failed", "provider_revision_changed", unknown)
+				report(c, err, unknown)
 				pending--
 				if pending == 0 {
 					finish()

@@ -1,6 +1,8 @@
 package live
 
 import (
+	"errors"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -34,13 +36,12 @@ func (r *Runtime) readProviderKeyForSave(p protocol.ConversationProvider, done f
 		return
 	}
 	r.execute(protocol.Command{Kind: "read_provider_key", Data: protocol.CommandReadProviderKeyPayload{Provider: p.ID, ExpectedRevision: p.Revision}}, func(c *ui.Context, out protocol.Output, err error) {
+		key, valid := detail[*protocol.Secret](out.Data)
+		if err == nil && !valid {
+			err = errors.New("invalid provider key response")
+		}
 		if err != nil {
 			r.reportKeys(c, err, "provider_key_failed", "provider_revision_changed", "provider_save_unknown")
-			done("", false)
-			return
-		}
-		key, valid := detail[*protocol.Secret](out.Data)
-		if !valid {
 			done("", false)
 			return
 		}

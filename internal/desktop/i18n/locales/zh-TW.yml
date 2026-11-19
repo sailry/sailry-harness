@@ -1153,8 +1153,6 @@ provider_api_key: API 金鑰
 provider_get_key: 取得 API 金鑰
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
-provider_host_saved: Saved on {host}
-provider_host_save_failed: Could not save on {host}
 provider_on_host: on {host}
 provider_oauth_advanced: 高階設定
 provider_oauth_catalog_version: 模型目錄相容版本

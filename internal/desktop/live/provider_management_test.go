@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -15,6 +16,32 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestOfflineProviderSaveShowsOneToast(t *testing.T) {
+	controller := client.New(&conversationTestTransport{snapshot: protocol.DefaultSnapshot()})
+	defer controller.Close()
+	root := &Runtime{controller: controller}
+	node := protocol.NodeID{2}.String()
+	var result settings.ProviderSaveResult
+	root.saveManagedProvider(settings.ProviderDraft{Channel: viewmodel.Channel{Node: node}}, func(value settings.ProviderSaveResult) { result = value })
+	if !slices.Equal(result.Failed, []string{node}) || result.Resume == nil {
+		t.Fatalf("offline save result: %+v", result)
+	}
+	var shown []ui.Toast
+	window := ui.NewTester(func(c *ui.Context) {
+		for _, deliver := range root.queue {
+			deliver(c)
+		}
+		root.queue = nil
+		ui.ToastViewportBase(c, func(_ ui.Element, toasts []ui.Toast) { shown = slices.Clone(toasts) })
+	}, 320, 240)
+	window.SetLocale("en")
+	window.Frame()
+	window.Frame()
+	if len(shown) != 1 || shown[0].Title != i18n.In("en", "provider_save_failed") {
+		t.Fatalf("offline save toasts: %+v", shown)
+	}
+}
 
 func TestProviderGroupForSaveDistinguishesCreationFromMove(t *testing.T) {
 	nodeA, nodeB := protocol.NodeID{1}, protocol.NodeID{2}

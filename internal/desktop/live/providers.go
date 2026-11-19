@@ -247,6 +247,24 @@ func (r *Runtime) providerPresetForMethod(method string) (protocol.ConversationP
 	return entry, exists
 }
 
+// The built-in compatible routes leave the endpoint and its credentials to
+// the operator. Hosted services and packages keep their declared key policy.
+func presetKeyAuth(entry protocol.ConversationPresetsEntry) viewmodel.Auth {
+	if entry.Source.Kind == "builtin" && entry.Preset.Auth.Kind == "api_key" && len(entry.Preset.Routes) > 0 {
+		for _, route := range entry.Preset.Routes {
+			if route.Endpoint != "" || !supportsOptionalKey(apiForProtocol(route.Protocol)) {
+				return viewmodel.AuthKey
+			}
+		}
+		return viewmodel.AuthOptionalKey
+	}
+	return viewmodel.AuthKey
+}
+
+func supportsOptionalKey(api protocol.ConversationModelApi) bool {
+	return api == protocol.ConversationModelApiResponses || api == protocol.ConversationModelApiChatCompletions || api == protocol.ConversationModelApiAnthropic
+}
+
 // applyPresets projects the Node's preset directory as the brands the
 // editor and the family filter offer. An entry is one method of its brand,
 // and its routes (protocol, product, region) are that method's variants,
@@ -339,6 +357,7 @@ func (r *Runtime) applyPresets(listing protocol.ConversationPresetsListing) {
 			// An API key for an address the user gives.
 			if len(p.Routes) > 0 && p.Routes[0].Endpoint == "" {
 				method.Access, method.Keyed = "provider_access_endpoint", true
+				method.Auth = presetKeyAuth(entry)
 			}
 		}
 		if p.KeyUrl != nil {
@@ -548,7 +567,9 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 		}
 		switch p.Authentication {
 		case protocol.AuthenticationApiKey:
-			ch.Auth = viewmodel.AuthKey
+			if p.Preset == nil && (p.Binding == nil || *p.Binding == nil) && supportsOptionalKey(p.Api) {
+				ch.Auth = viewmodel.AuthOptionalKey
+			}
 		default:
 			ch.Auth = viewmodel.AuthOAuth
 			if p.Credential != nil {
@@ -612,7 +633,7 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 					switch entry.Preset.Auth.Kind {
 					case "api_key", "builtin":
 						if p.Authentication == protocol.AuthenticationApiKey {
-							ch.Auth = viewmodel.AuthKey
+							ch.Auth = presetKeyAuth(entry)
 						}
 					case "none":
 						ch.Auth = viewmodel.AuthNone

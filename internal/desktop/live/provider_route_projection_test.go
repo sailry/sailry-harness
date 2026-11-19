@@ -41,6 +41,52 @@ func TestProviderRouteProjection(t *testing.T) {
 	}
 }
 
+func TestCustomProviderWithoutPresetCanOmitKey(t *testing.T) {
+	provider := providerRouteFixture()
+	provider.Preset, provider.Credential = nil, nil
+	provider.Endpoint = "http://localhost:3425/v1"
+	listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
+	channel, _ := projectProviderRouteFixture(t, provider, listing)
+	if channel.Auth != viewmodel.AuthOptionalKey || settings.ProviderStatus(&channel) == "provider_status_missing_key" {
+		t.Fatalf("custom endpoint auth = %v, status = %q", channel.Auth, settings.ProviderStatus(&channel))
+	}
+}
+
+func TestCompatiblePresetCredentialStatus(t *testing.T) {
+	listing := providers.Listing(protocol.ConversationPresetsCatalog{}, false)
+	for _, tc := range []struct {
+		id   string
+		api  protocol.ConversationModelApi
+		auth viewmodel.Auth
+	}{
+		{"compatible-responses", protocol.ConversationModelApiResponses, viewmodel.AuthOptionalKey},
+		{"compatible-anthropic", protocol.ConversationModelApiAnthropic, viewmodel.AuthOptionalKey},
+		{"openai", protocol.ConversationModelApiResponses, viewmodel.AuthKey},
+		{"compatible-gemini", protocol.ConversationModelApiGemini, viewmodel.AuthKey},
+	} {
+		p := providerRouteFixture()
+		p.Preset.ID, p.Api, p.Credential = tc.id, tc.api, nil
+		ch, brands := projectProviderRouteFixture(t, p, listing)
+		if ch.Auth != tc.auth || (settings.ProviderStatus(&ch) == "provider_status_missing_key") != (tc.auth == viewmodel.AuthKey) {
+			t.Fatalf("%s credential status = %v, %q", tc.id, ch.Auth, settings.ProviderStatus(&ch))
+		}
+		var found bool
+		for _, brand := range brands {
+			for _, method := range brand.Methods {
+				if method.Icon == tc.id {
+					found = true
+					if method.Auth != tc.auth {
+						t.Fatalf("%s editor authentication = %v, want %v", tc.id, method.Auth, tc.auth)
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("missing editor method %s", tc.id)
+		}
+	}
+}
+
 func TestProviderProjectionKeepsNoAuthAndRevision(t *testing.T) {
 	provider := providerRouteFixture()
 	provider.Credential = nil
