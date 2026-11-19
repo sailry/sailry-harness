@@ -10,7 +10,7 @@ import (
 
 // assistantBuiltins are the native tools an assistant declaration may name.
 var assistantBuiltins = []string{
-	"ask_user", "set_session_title",
+	"ask_user", "set_session_title", operations.UpdatePlanTool,
 	"list_sessions", "read_session", "search_session", "read_tool_output",
 	"load_skill", "read_skill_resource", "manage_skills", "manage_mcp", "manage_plugins",
 	"spawn_agent", "guide_agent", "wait_agent", "list_subagents",
@@ -34,7 +34,7 @@ func (r *Runtime) applyAssistant(x *execution) error {
 	for _, tool := range declaration.Tools {
 		switch value := tool.Data.(type) {
 		case *protocol.PluginConversationToolBuiltinPayload:
-			if !slices.Contains(assistantBuiltins, value.Name) {
+			if !slices.Contains(assistantBuiltins, value.Name) && !operations.IsCommandTool(value.Name) {
 				return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin assistant references an unknown native tool"}
 			}
 			initial[value.Name] = true
@@ -45,7 +45,11 @@ func (r *Runtime) applyAssistant(x *execution) error {
 				initial[operations.Alias(binding.Package.Name, value.Name)] = true
 			}
 		case *protocol.PluginConversationToolPackagePayload:
-			initial[operations.Alias(value.Package, value.Name)] = true
+			name := operations.Alias(value.Package, value.Name)
+			if core := operations.LegacyCommandTool(name); core != "" {
+				name = core
+			}
+			initial[name] = true
 		}
 	}
 	for index := range x.tools {

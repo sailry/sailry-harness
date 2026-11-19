@@ -56,6 +56,28 @@ func promptText(call fantasy.Call) string {
 	return text.String()
 }
 
+func TestCoreCommandAliases(t *testing.T) {
+	t.Parallel()
+	const name = "write_command"
+	legacy := operations.Alias("commands", name)
+	other := operations.Alias("other", name)
+	operation := protocol.ToolOperationWriteCommand
+	native := objectTool(name, false, false, nil)
+	native.Binding = &store.ApprovalBinding{Tool: name, Operation: &operation}
+	tools := []Tool{native, packageTool("other", name, operation, false, nil)}
+	names := captureExposure(tools, []string{legacy})
+	if names.name(legacy) != name || names.alias(legacy) != name || names.alias(name) != name || names.name(other) != other {
+		t.Fatalf("unexpected tool alias mapping: %v %v", names.forward, names.reverse)
+	}
+	selector := protocol.PluginConversationTool{Kind: "package", Data: &protocol.PluginConversationToolPackagePayload{Package: "commands", Name: name}}
+	if !roleToolMatches(selector, native) || roleToolMatches(selector, tools[1]) {
+		t.Fatal("the legacy role selector did not bind exclusively to the core command tool")
+	}
+	if !toolWasLoaded([]string{legacy}, name) || toolWasLoaded([]string{other}, name) {
+		t.Fatal("the core command did not preserve the saved discovery state")
+	}
+}
+
 func TestToolSelectionAndNames(t *testing.T) {
 	t.Parallel()
 	done := func(context.Context, canonical.ToolRequest) ToolResult {
@@ -175,7 +197,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 		}
 		// A declared initial tool starts visible only to the main agent.
 		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), "tool_search"}) ||
-			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
+			!slices.Equal(deferred, []string{operations.UpdatePlanTool, "list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
 			t.Fatalf("standard child visible=%v deferred=%v", visible, deferred)
 		}
 		selection := func(kind string, data any) protocol.PluginConversationTool {
@@ -188,6 +210,11 @@ func TestToolSelectionAndNames(t *testing.T) {
 		}
 		if !slices.Equal(visible, []string{"list_sessions", "read_tool_output", operations.Alias("files", "delete_file")}) || len(deferred) != 0 {
 			t.Fatalf("listed child visible=%v deferred=%v", visible, deferred)
+		}
+		legacyPlan := []protocol.PluginConversationTool{selection("package", &protocol.PluginConversationToolPackagePayload{Package: "progress", Name: operations.UpdatePlanTool})}
+		visible, deferred, err = capture(&protocol.RoleProfile{Tools: &legacyPlan})
+		if err != nil || !slices.Equal(visible, []string{operations.UpdatePlanTool, "read_tool_output"}) || len(deferred) != 0 {
+			t.Fatalf("legacy plan selector visible=%v deferred=%v error=%v", visible, deferred, err)
 		}
 		for _, name := range []string{"ask_user", "set_session_title", "list_subagents"} {
 			parentOnly := []protocol.PluginConversationTool{selection("builtin", &protocol.PluginConversationToolBuiltinPayload{Name: name})}

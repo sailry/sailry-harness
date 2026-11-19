@@ -59,10 +59,14 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 		var grouping protocol.ToolGrouping
 		var display *protocol.ToolDisplay
 		declared := false
-		for _, tool := range catalog.Tools {
-			if tool.Name == name && slices.Contains(capture.Plugins, tool.Owner) {
-				presentation, grouping, display, declared = tool.Presentation, tool.Grouping, tool.Display, true
-				break
+		if name == operations.UpdatePlanTool {
+			presentation, grouping, declared = protocol.ToolPresentationProgress, protocol.ToolGroupingStandalone, true
+		} else {
+			for _, tool := range catalog.Tools {
+				if tool.Name == name && slices.Contains(capture.Plugins, tool.Owner) {
+					presentation, grouping, display, declared = tool.Presentation, tool.Grouping, tool.Display, true
+					break
+				}
 			}
 		}
 		for _, reference := range capture.Plugins {
@@ -88,6 +92,27 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 				if alias == name {
 					presentation, grouping, display, declared = tool.Presentation, tool.Grouping, tool.Display, true
 					break
+				}
+			}
+		}
+		if !declared && name == operations.LegacyUpdatePlanTool {
+			presentation, grouping, declared = protocol.ToolPresentationProgress, protocol.ToolGroupingStandalone, true
+		}
+		if !declared {
+			command := name
+			if !operations.IsCommandTool(command) {
+				command = operations.LegacyCommandTool(name)
+			}
+			if command != "" {
+				specs, err := operations.CommandSpecs()
+				if err != nil {
+					return err
+				}
+				for _, spec := range specs {
+					if spec.Name == command {
+						presentation, grouping, display, declared = spec.Presentation, protocol.ToolGroupingSequence, &spec.Display, true
+						break
+					}
 				}
 			}
 		}

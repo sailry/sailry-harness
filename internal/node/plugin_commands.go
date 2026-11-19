@@ -174,7 +174,11 @@ func (node *Node) preparePluginCommand(ctx context.Context, caller protocol.Node
 		prepared.mcpTargets, err = node.pluginMCPTargets(ctx, input.Package)
 		return prepared, err
 	case *protocol.CommandInstallBundledPluginPayload:
-		info, err = manager.InstallBundled(ctx, input.Name)
+		if slices.Contains(plugins.RetiredBundled(), input.Name) {
+			err = connectionFault(protocol.ErrorCodeNotFound, "the package's tools are now provided by the application")
+		} else {
+			info, err = manager.InstallBundled(ctx, input.Name)
+		}
 	case *protocol.CommandInstallCatalogPluginPayload:
 		info, err = node.prepareCatalogPlugin(ctx, *input)
 		if err == nil && len(info.Mcp) != 0 {

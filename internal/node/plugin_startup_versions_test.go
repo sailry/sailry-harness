@@ -13,11 +13,50 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestRetiredProgressKeepsCapturedPackage(t *testing.T) {
+	node := nodeFixture(t)
+	ctx := t.Context()
+	info, err := node.plugins.manager.InstallBundled(ctx, "progress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var user protocol.User
+	var reference protocol.PluginReference
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		user, err = store.LocalUser(ctx, db)
+		if err != nil {
+			return err
+		}
+		saved, err := store.InstallPlugin(ctx, db, info, 0, true)
+		reference = plugins.PackageReference(saved)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.InitializeUserPlugins(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadPlugin(ctx, db, "progress")
+		if err != nil || current != nil {
+			return fmt.Errorf("progress remained installed after retirement: %v, %v", current != nil, err)
+		}
+		captured, err := store.ResolvePluginInfo(ctx, db, reference)
+		if err != nil || captured.Summary.Digest != reference.Digest {
+			return fmt.Errorf("retirement lost the captured progress manifest: %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPinnedBundledVersionSurvivesInitialization(t *testing.T) {
 	node := nodeFixture(t)
 	ctx := t.Context()
 	const name = "memory"
-	const removedName = "progress"
+	const removedName = "brief"
 	source := t.TempDir()
 	manifest := `{"$schema":"` + plugins.ManifestSchema + `","name":"` + name + `","version":"0.0.0"}`
 	if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(manifest), 0o600); err != nil {

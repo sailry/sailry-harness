@@ -68,7 +68,14 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	host := info.Extension.Host
 	declarations := []protocol.ToolDeclaration{}
 	names := []string{}
+	// A directly bound resource still uses the captured package's scoped host tools.
+	coreCommands := invocation.Turn.Config.Resource == nil || invocation.Turn.Config.Assistant != nil
 	for _, declaration := range info.Extension.Tools {
+		if info.Summary.Name == "progress" && declaration.Name == operations.UpdatePlanTool ||
+			coreCommands && info.Summary.Name == "commands" && operations.IsCommandTool(declaration.Name) {
+			// Core replacements handle these reserved historical aliases.
+			continue
+		}
 		if declaration.Handler != nil && availablePluginTool(invocation, declaration) {
 			if operation := declaration.Handler.Operation; operation != nil && (*operation == protocol.ToolOperationDelegateAgent || *operation == protocol.ToolOperationGuideAgent) &&
 				!store.DelegationAvailable(invocation.Session, invocation.Turn) {
@@ -215,16 +222,16 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				_, concurrent := operations.Policy(operation)
 				tool.Concurrent = tool.Concurrent && concurrent
 			}
-		} else if tool.Hosted && readOnly && len(info.Extension.Actions) == 0 && host.Turn == nil &&
-			info.Summary.Name == "progress" && declaration.Name == "update_plan" && info.Origin != nil &&
-			(info.Origin.Kind == "bundled" || info.Origin.Kind == "official") {
-			// This callback validates a snapshot. The engine persists it in
-			// source order with the rest of the model's tool results.
-			tool.Concurrent = true
 		}
 		tool.ContextParts = contextParts
 		if host.Turn != nil && host.Turn.BeforeModel != nil {
 			tool.BeforeModel = owner.beforeModel(*host.Turn.BeforeModel)
+		}
+		if execute := node.coreGoalExecutor(invocation, info, declaration.Name); execute != nil {
+			tool.Execute = execute
+			tool.Concurrent = tool.ReadOnly
+			tools = append(tools, tool)
+			continue
 		}
 		if handler.Operation != nil {
 			// A package tool bound to agents.delegate or agents.guide runs

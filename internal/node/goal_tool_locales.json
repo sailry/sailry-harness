@@ -1,0 +1,8 @@
+{
+  "running": {"label": "Running", "locales": {"zh-CN": "执行中"}},
+  "verifying": {"label": "Verifying", "locales": {"zh-CN": "核验中"}},
+  "waiting": {"label": "Waiting", "locales": {"zh-CN": "等待中"}},
+  "paused": {"label": "Paused", "locales": {"zh-CN": "已暂停"}},
+  "blocked": {"label": "Blocked", "locales": {"zh-CN": "受阻"}},
+  "completed": {"label": "Completed", "locales": {"zh-CN": "已完成"}}
+}

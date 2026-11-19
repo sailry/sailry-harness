@@ -478,11 +478,10 @@ admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
 context. Named context sections append changed values, with execution IDs
 separate from stable instructions. New user input refreshes the current deferred
-tool catalog and last successfully recorded unfinished plan. The plan section
-names the admitted progress tool or its exact discovery query. Collaborate
-offers that plugin tool on the first request so the parent can record progress
-alongside delegation. Compaction or visibility changes restore sections no
-longer present in model-visible history.
+tool catalog and last successfully recorded unfinished plan. The core
+`update_plan` tool records progress alongside delegation or independent reads.
+Earlier plans use the same history projection. Compaction or visibility changes
+restore sections no longer present in model-visible history.
 Automatic compaction uses the captured model and defaults to 80% of its context
 window. Summaries preserve original records and raw tool output. Context-length
 failures allow up to two reactive compactions.
@@ -544,11 +543,19 @@ final output and usage have arrived; a later HTTP disconnect does not restart
 that completed step. Other stream formats retain their required trailing usage
 and termination handling.
 
-Tools come from the captured enabled declarations. Everyday file, command, Git,
-code and web tools are initially exposed; `tool_search` discovers other declared
-tools without granting permission. Approvals settle before execution. Adjacent
-read-only concurrent calls run in groups of at most eight and retain result order.
-Node owns approval and question deadlines.
+The Node supplies core conversation tools and captures enabled package tool
+declarations. Session commands use the Node's process service and workspace
+permission rules. The Commands package provides desktop terminal controls.
+Command input is discoverable on demand. Everyday file,
+Git, code and web tools are initially exposed when their packages are enabled.
+`tool_search` discovers other declared tools under the captured permission.
+Approvals settle before execution. Adjacent read-only concurrent calls run in
+groups of at most eight and retain result order. Node owns approval and question
+deadlines.
+
+Goal reads and updates execute in the Node. The Goals surface and continuation
+policy use the same conversation values and revision fences, including the
+separate confirmation turn for completion. Goals do not grant tool authority.
 
 Standard mode (`code` on the wire) runs ordinary work. Plan is read-only with a
 reviewed transition to Standard. Collaborate (`flagship` on the wire) adds autonomous

@@ -213,7 +213,7 @@ func (bridge *scriptBridge) prepare(operation, body string) (any, error) {
 		if bridge.execution.CallID == nil {
 			return nil, scriptInvalid("durable writes require a tool identity")
 		}
-		request.ID = scriptWriteIdentity(*bridge.execution.CallID, bridge.execution.Writes)
+		request.ID = ToolWriteIdentity(*bridge.execution.CallID, bridge.execution.Writes)
 		bridge.execution.Writes++
 	}
 	draft := scriptDraft{request: request, kind: command.Kind}
@@ -373,7 +373,9 @@ func scriptModelCommand(operation string, body []byte) (any, error) {
 	return scriptJSONValue(command)
 }
 
-func scriptWriteIdentity(call protocol.RequestID, sequence uint64) protocol.RequestID {
+// ToolWriteIdentity preserves the request identity of each durable write made
+// by one recorded tool call, including when a core executor replaces a script.
+func ToolWriteIdentity(call protocol.RequestID, sequence uint64) protocol.RequestID {
 	material := []byte(call.String())
 	material = binary.LittleEndian.AppendUint64(material, sequence)
 	var identity protocol.RequestID

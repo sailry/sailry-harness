@@ -61,12 +61,7 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 				if declaration.Server != nil {
 					name = mcp.Alias(info.Summary.Name, *declaration.Server, declaration.Name)
 				}
-				values := []string{declaration.Display.Label}
-				for _, label := range declaration.Display.Locales {
-					values = append(values, label)
-				}
-				slices.Sort(values)
-				labels[name] = slices.Compact(values)
+				labels[name] = toolSearchLabels(*declaration.Display)
 			}
 		}
 		if info.Extension != nil && info.Extension.Host != nil {
@@ -113,7 +108,9 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 	mcpTools, err := node.bindMCPTools(ctx, invocation, candidates)
 	tools = append(tools, mcpTools...)
 	for index := range tools {
-		tools[index].SearchLabels = labels[tools[index].Definition.Name]
+		if names, ok := labels[tools[index].Definition.Name]; ok {
+			tools[index].SearchLabels = names
+		}
 	}
 	return tools, err
 }

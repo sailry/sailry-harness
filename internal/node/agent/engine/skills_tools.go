@@ -144,7 +144,16 @@ func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool 
 		return json.Unmarshal(raw, &value) == nil && (tool.Binding == nil || tool.Binding.Owner.Name == "") && tool.Definition.Name == value.Name
 	case "package":
 		var value protocol.PluginConversationToolPackagePayload
-		return json.Unmarshal(raw, &value) == nil && tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == operations.Alias(value.Package, value.Name)
+		if json.Unmarshal(raw, &value) != nil {
+			return false
+		}
+		if value.Package == "progress" && value.Name == operations.UpdatePlanTool && tool.Definition.Name == operations.UpdatePlanTool {
+			return tool.Binding == nil
+		}
+		if value.Package == "commands" && operations.IsCommandTool(value.Name) {
+			return tool.Binding != nil && tool.Binding.Owner.Name == "" && tool.Definition.Name == value.Name
+		}
+		return tool.Binding != nil && tool.Binding.Owner.Name == value.Package && tool.Definition.Name == operations.Alias(value.Package, value.Name)
 	}
 	return false
 }
@@ -161,7 +170,7 @@ func roleAllowsTool(role *protocol.RoleProfile, tool Tool) bool {
 		return slices.ContainsFunc(*role.Tools, func(selection protocol.PluginConversationTool) bool { return roleToolMatches(selection, tool) })
 	}
 	if tool.Binding == nil {
-		return slices.Contains([]string{"list_sessions", "read_session", "search_session", "load_skill", "read_skill_resource"}, tool.Definition.Name)
+		return slices.Contains([]string{"list_sessions", "read_session", "search_session", "load_skill", "read_skill_resource", operations.UpdatePlanTool}, tool.Definition.Name)
 	}
 	if tool.Hosted {
 		return tool.ReadOnly

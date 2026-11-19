@@ -113,6 +113,17 @@ func captureExposure(tools []Tool, historical []string) *exposure {
 			result.reverse[value.name] = value.alias
 		}
 	}
+	if slices.Contains(historical, operations.LegacyUpdatePlanTool) {
+		result.forward[operations.LegacyUpdatePlanTool] = operations.UpdatePlanTool
+	}
+	for _, tool := range tools {
+		name := tool.Definition.Name
+		if operations.IsCommandTool(name) {
+			legacy := operations.Alias("commands", name)
+			result.forward[legacy] = name
+			result.reverse[legacy] = name
+		}
+	}
 	return result
 }
 

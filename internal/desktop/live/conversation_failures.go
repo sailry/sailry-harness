@@ -133,6 +133,8 @@ func coreTool(name string) (label, icon string) {
 		return "tool_read_output", "file-text"
 	case "compact_context":
 		return "chat_compact", "file-text"
+	case "update_plan":
+		return "task_progress", "reicon:ui/grid"
 	case "plan_review":
 		return "composer_mode_plan", ""
 	}

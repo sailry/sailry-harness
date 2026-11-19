@@ -143,14 +143,45 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 		} else if values["access"] == nil {
 			set("access", "workspace")
 		}
+		defaultValue("description", nil)
+		defaultValue("cwd", "")
+		defaultValue("timeout_ms", 120000)
+		defaultValue("background", false)
+		defaultValue("attachments", []protocol.AttachmentID{})
 		defaultValue("follow_up", false)
 		defaultValue("pty", false)
+		if values["pty"] == true && values["background"] != true {
+			return protocol.Command{}, invalidCommand("interactive commands require background execution")
+		}
+		if description, ok := values["description"].(string); ok && (strings.TrimSpace(description) == "" || strings.ContainsRune(description, 0)) {
+			return protocol.Command{}, invalidCommand("invalid command description")
+		}
 	case "process.read":
 		set("session", session)
-		if values["id"] == nil {
+		paged := values["stream"] != nil || values["offset"] != nil || values["limit"] != nil
+		wait, _ := values["wait_ms"].(float64)
+		if values["id"] == nil && (wait > 0 || values["until"] != nil) {
+			return protocol.Command{}, invalidCommand("waiting requires a command ID")
+		}
+		if values["output"] != nil {
+			if values["id"] != nil {
+				return protocol.Command{}, invalidCommand("provide either a command ID or an output reference")
+			}
+			kind = "read_tool_output"
+			values = map[string]any{"turn": turn, "output": values["output"], "stream": values["stream"], "offset": values["offset"], "limit": values["limit"]}
+			if values["offset"] == nil {
+				set("offset", 0)
+			}
+			if values["limit"] == nil {
+				set("limit", 32768)
+			}
+		} else if values["id"] == nil {
+			if paged {
+				return protocol.Command{}, invalidCommand("paging requires a command ID or an output reference")
+			}
 			kind = "list_commands"
 			values = map[string]any{"session": session}
-		} else if values["stream"] != nil || values["offset"] != nil || values["limit"] != nil {
+		} else if paged {
 			kind = "read_command_page"
 			defaultValue("stream", "stdout")
 			defaultValue("offset", 0)
@@ -163,6 +194,9 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 		set("session", session)
 	case "process.write":
 		kind = "write_command"
+		if input, ok := values["input"].(string); ok && len(input) > 65536 {
+			return protocol.Command{}, invalidCommand("command input exceeds the size limit")
+		}
 		set("session", session)
 	case "web.fetch":
 		kind = "fetch_web"

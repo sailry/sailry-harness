@@ -53,7 +53,7 @@ func CountedTool(tools []Tool, name string) (telemetry.Tool, bool) {
 	case tool == nil:
 		return telemetry.Tool{}, false
 	case tool.Binding == nil:
-		return telemetry.BuiltinTool(name)
+		return telemetry.BuiltinTool(tool.Definition.Name)
 	case strings.HasPrefix(name, "mcp_"):
 		return telemetry.MCPTool(), true
 	}

@@ -43,9 +43,21 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
+	commands, err := operations.CommandSpecs()
+	if err != nil {
+		return nil, err
+	}
+	declarations := slices.Clone(catalog.Tools)
+	for _, command := range commands {
+		declarations = append(declarations, operations.Declaration{Spec: command.Spec, Name: command.Name, Initial: command.Name != "write_command", Display: &command.Display})
+	}
 	var tools []engine.Tool
-	for _, declaration := range catalog.Tools {
-		if !availableOperationTool(inv, declaration) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
+	for _, declaration := range declarations {
+		packaged := declaration.Owner.Name != ""
+		if declaration.Owner.Name == "commands" && operations.LegacyCommandTool(declaration.Name) != "" {
+			continue
+		}
+		if !availableOperationTool(inv, declaration) || packaged && !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) || storageOperation(declaration.Operation) || operations.ScopedOperation(declaration.Operation) {
 			continue
 		}
 		// A connection conversation without an assistant offers only tools that name a context.
@@ -63,6 +75,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		if !packaged && declaration.Display != nil {
+			tool.SearchLabels = toolSearchLabels(*declaration.Display)
+		}
 		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		var observed workspaceRevisions
 		if declaration.Operation == protocol.ToolOperationApplyChanges {
@@ -121,7 +136,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 				}
 			}
 			request := protocol.NewRequest(node.ID(), command)
-			request.Plugin = &protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
+			if packaged {
+				request.Plugin = &protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
+			}
 			current := &workspaceToolCall{request: request}
 			if fileTextMutation(command.Kind) {
 				current.prepared, err = files.Prepare(ctx, inv.Worktree.Path, command, core.RestrictedFiles)
@@ -194,7 +211,13 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			}
 			effect := &workspaceCompletion{}
 			defer effect.close()
-			output, effectErr := node.workspaceIO(ctx, inv.Caller, request, current.prepared, effect)
+			var output protocol.Output
+			var effectErr error
+			if request.Command.Kind == "read_tool_output" {
+				output, effectErr = node.agentRequest(ctx, inv, request, "command output read was interrupted")
+			} else {
+				output, effectErr = node.workspaceIO(ctx, inv.Caller, request, current.prepared, effect)
+			}
 			if !declaration.ReadOnly {
 				output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(ctx), inv.Caller, request, output, effectErr, effect)
 			}
@@ -223,7 +246,17 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					node.agent.Committed()
 				}
 			}
-			value := node.workspaceToolValue(ctx, request, output)
+			value := node.workspaceToolValue(inv.Session.ID, request, output)
+			if !packaged {
+				if content := operations.CommandContent(output); content != nil {
+					shaped, ok := value.(map[string]any)
+					if !ok {
+						shaped = map[string]any{"kind": output.Kind, "data": output.Data}
+					}
+					shaped["sailry_content"] = content
+					value = shaped
+				}
+			}
 			return engine.ToolResult{Value: value, ReturnedError: workspaceOutputFailed(output), ReturnedFailure: workspaceOutputFailure(output)}
 		}
 		tools = append(tools, tool)
@@ -266,6 +299,16 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	bound, err := node.pluginTools(ctx, inv, append(append(append(tools, connections...), browsers...), managedBrowsers...))
 	return append(append(bound, media...), managed...), err
 }
+
+func toolSearchLabels(display protocol.ToolDisplay) []string {
+	labels := []string{display.Label}
+	for _, label := range display.Locales {
+		labels = append(labels, label)
+	}
+	slices.Sort(labels)
+	return slices.Compact(labels)
+}
+
 func workspaceToolFault(err error) engine.ToolResult {
 	return engine.ToolResult{Failure: nodeFault(err).(*protocol.Fault)}
 }
@@ -312,7 +355,7 @@ func workspaceOutputFailure(output protocol.Output) *protocol.ToolFailure {
 	}
 	return failure
 }
-func (node *Node) workspaceToolValue(ctx context.Context, request protocol.Request, output protocol.Output) any {
+func (node *Node) workspaceToolValue(session protocol.SessionID, request protocol.Request, output protocol.Output) any {
 	if value, shaped := codeToolValue(output); shaped {
 		return value
 	}
@@ -336,10 +379,6 @@ func (node *Node) workspaceToolValue(ctx context.Context, request protocol.Reque
 	}
 	if output.Kind == "command_result" || output.Kind == "command_output" {
 		value["sailry_command"] = map[string]any{"id": id}
-		var session protocol.SessionID
-		if request.Plugin != nil && request.Plugin.Session != nil {
-			session = *request.Plugin.Session
-		}
 		if snapshot, ok := output.Data.(protocol.ProcessSnapshot); ok {
 			session = snapshot.Info.Session
 			id = snapshot.Info.ID

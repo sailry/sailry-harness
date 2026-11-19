@@ -28,7 +28,7 @@ type DefaultPackage struct {
 
 func BundledDefaults() []DefaultPackage {
 	return []DefaultPackage{
-		{"reminders", true}, {"scheduled-tasks", true}, {"web-search", true}, {"progress", true}, {"goals", true},
+		{"reminders", true}, {"scheduled-tasks", true}, {"web-search", true}, {"goals", true},
 		{"commands", true}, {"external-browser", false}, {"browser", true}, {"computer", false},
 		{"brief", true}, {"memory", true}, {"files", true}, {"code", true}, {"statistics", true}, {"provider-status", true},
 		{"openai-auth", true}, {"claude-auth", true}, {"copilot-auth", true}, {"workbuddy", true}, {"databases", true}, {"ssh", true}, {"worktrees", true},
@@ -39,7 +39,7 @@ func BundledDefaults() []DefaultPackage {
 // RetiredBundled names packages the application once bundled and now provides
 // itself. Startup removes a bundled installation of one; the removal record
 // and the captured versions stay, so earlier turns still resolve.
-func RetiredBundled() []string { return []string{"media"} }
+func RetiredBundled() []string { return []string{"media", "progress"} }
 
 func manifestCatalogEntry(manifest Manifest) protocol.PluginCatalogEntry {
 	entry := protocol.DefaultPluginCatalogEntry()
@@ -116,6 +116,7 @@ func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogE
 		return nil, err
 	}
 	entries := make([]protocol.PluginCatalogEntry, 0, len(names))
+	retired := RetiredBundled()
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -127,6 +128,9 @@ func bundledEntries(ctx context.Context, files fs.FS) ([]protocol.PluginCatalogE
 		manifest, err := ValidateManifest(data)
 		if err != nil {
 			return nil, err
+		}
+		if slices.Contains(retired, manifest.Name) {
+			continue
 		}
 		entry := manifestCatalogEntry(manifest)
 		if manifest.Extension != nil && manifest.Extension.Icon != nil {
@@ -212,9 +216,10 @@ func (manager *Manager) OfficialEntries(ctx context.Context, force bool) ([]prot
 	}
 	entries := []protocol.PluginCatalogEntry{}
 	seen := map[string]bool{}
+	retired := RetiredBundled()
 	for _, item := range feed.Packages {
 		manifest, err := ValidateManifest(item.Manifest)
-		if err != nil || item.ID != manifest.Name || seen[item.ID] {
+		if err != nil || item.ID != manifest.Name || seen[item.ID] || slices.Contains(retired, item.ID) {
 			continue
 		}
 		entry := manifestCatalogEntry(manifest)

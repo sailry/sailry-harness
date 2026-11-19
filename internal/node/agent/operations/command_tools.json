@@ -1,0 +1,314 @@
+{
+  "tools": [
+    {
+      "name": "run_command",
+      "operation": "process.run",
+      "description": "Run a command on the Node. Provide description to explain its purpose. Invoke the tool directly; its approval card obtains consent when needed. The working directory defaults to the admitted worktree. Use bundled skill paths only when they are accessible in the workspace, or request unrestricted access. Output reports truncation. Timeout defaults to 120000 ms. Set background=true for a process that should survive the turn; it returns an ID and has no timeout. Background completion is recorded. Set follow_up=true whenever you wait for the result or tell the user you are monitoring it; without it the conversation does not continue when the command finishes. Use read_command with wait_ms to wait for output without sleep. Read output with read_command, send input with write_command, and stop it with stop_command. Set pty=true with background=true when the command needs a terminal (prompts, REPLs or debuggers); PTY output combines stdout and stderr. Ordinary background commands also accept stdin. A successful write acknowledges queued input; read output to confirm the application accepted it. Don't append &; use background=true. Foreground commands stop on exit, cancellation or timeout.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "workspace",
+              "unrestricted"
+            ],
+            "default": "workspace",
+            "description": "Workspace access confines writes to the admitted worktree and temporary directory, blocks network, and protects existing Git metadata and managed child worktrees on macOS/Linux; macOS also blocks new .git paths. Request unrestricted access for Git writes, including git init, git add and git commit, network access or paths outside the worktree. Confined commands run without approval. Full mode permits unrestricted commands automatically; Ask and Project require fresh approval for each unrestricted command. Windows uses the selected permission mode."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional concise explanation shown with the command before approval"
+          },
+          "cwd": {
+            "type": "string",
+            "default": "",
+            "description": "Working directory on the Node. Omit or use a relative path for the admitted worktree. Workspace access cannot select a directory outside that worktree."
+          },
+          "background": {
+            "type": "boolean",
+            "default": false
+          },
+          "follow_up": {
+            "type": "boolean",
+            "default": false,
+            "description": "Continue the conversation automatically when this background command finishes. Required when you wait for its result; otherwise status and output are only retained."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 120000,
+            "maximum": 600000
+          },
+          "attachments": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Attachment IDs to read at SAILRY_ATTACHMENTS/<id> using the shell's environment-variable and path syntax. Copies last for this command; edits do not modify the originals."
+          },
+          "pty": {
+            "type": "boolean",
+            "default": false,
+            "description": "Allocate a PTY for a background command that requires a terminal. Requires background=true."
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "presentation": "content",
+      "display": {
+        "label": "Command",
+        "locales": {
+          "zh-CN": "命令",
+          "zh-TW": "命令",
+          "ja": "コマンド",
+          "ko": "명령",
+          "fr": "Commande",
+          "de": "Befehl",
+          "es": "Comando",
+          "pt-BR": "Comando",
+          "ru": "Команда",
+          "en": "Command"
+        },
+        "icon": "reicon:it/terminal-square",
+        "approval": [
+          {
+            "message": {
+              "label": "%{command}",
+              "locales": {
+                "zh-CN": "%{command}"
+              }
+            },
+            "values": {
+              "command": {
+                "source": "arguments",
+                "path": "/command"
+              }
+            }
+          },
+          {
+            "message": {
+              "label": "%{description}",
+              "locales": {
+                "zh-CN": "%{description}"
+              }
+            },
+            "values": {
+              "description": {
+                "source": "arguments",
+                "path": "/description"
+              }
+            },
+            "when": {
+              "all": [
+                {
+                  "value": {
+                    "source": "arguments",
+                    "path": "/description"
+                  },
+                  "equals": null,
+                  "negate": true
+                }
+              ]
+            }
+          }
+        ],
+        "input": {
+          "summary": {
+            "path": "/command",
+            "code": true,
+            "format": "command"
+          },
+          "context": {
+            "path": "/cwd",
+            "omit": [
+              "."
+            ]
+          },
+          "content": {
+            "path": "/command"
+          }
+        }
+      }
+    },
+    {
+      "name": "read_command",
+      "operation": "process.read",
+      "description": "Read retained output; this does not start a process or read a file directly. Pass the exact UUID returned as data.id by run_command with background=true, a listed command id, or the sailry_command.id in a foreground result. Never substitute a PID, filename, command text or invented ID. Omit id or use null to list commands. Use run_command to start a new command. With id, set wait_ms up to 30000 for an event-driven wait: return on new output, command exit or deadline. Add until to wait for that text in either output preview instead of any new output; command exit or deadline still returns. Omitted or zero wait_ms reads immediately. To page complete command output, pass id, stream (stdout or stderr), offset=0 and limit up to 32768 bytes, then continue with next_offset. To read an original tool result omitted from model context, pass its output object unchanged, offset and limit; add stream only for a retained command stream. Command streams last while their Node owner retains them; canonical tool results survive restart.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$",
+            "description": "Exact background command UUID from run_command data.id or a listed command id; omit or null to list commands"
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "call": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              }
+            },
+            "required": [
+              "call",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          "stream": {
+            "type": "string",
+            "enum": [
+              "stdout",
+              "stderr"
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32768
+          },
+          "wait_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000,
+            "description": "Wait up to this many milliseconds for output or exit. Omit or use 0 for an immediate read. Waiting requires id."
+          },
+          "until": {
+            "type": "string",
+            "minLength": 1,
+            "description": "With id and a positive wait_ms, wait for this substring in either output preview, command exit or deadline."
+          }
+        },
+        "required": []
+      },
+      "presentation": "content",
+      "display": {
+        "label": "Read command",
+        "locales": {
+          "zh-CN": "读取命令",
+          "zh-TW": "讀取命令",
+          "ja": "コマンドを読む",
+          "ko": "명령 읽기",
+          "fr": "Lire la commande",
+          "de": "Befehl lesen",
+          "es": "Leer comando",
+          "pt-BR": "Ler comando",
+          "ru": "Прочитать команду",
+          "en": "Read command"
+        },
+        "icon": "reicon:it/terminal-square"
+      }
+    },
+    {
+      "name": "stop_command",
+      "operation": "process.stop",
+      "description": "Stop a background command and its process group in this session. Pass the id returned by run_command.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "presentation": "content",
+      "display": {
+        "label": "Stop command",
+        "locales": {
+          "zh-CN": "停止命令",
+          "zh-TW": "停止命令",
+          "ja": "コマンドを停止",
+          "ko": "명령 중지",
+          "fr": "Arrêter la commande",
+          "de": "Befehl stoppen",
+          "es": "Detener comando",
+          "pt-BR": "Parar comando",
+          "ru": "Остановить команду",
+          "en": "Stop command"
+        },
+        "icon": "reicon:it/terminal-square"
+      }
+    },
+    {
+      "name": "write_command",
+      "operation": "process.write",
+      "description": "Send input to a running background command in this session. Pass its id and input exactly, including a newline when submitting a line. Accepts at most 64 KiB of UTF-8 input. A success acknowledges queued input; use read_command to inspect the response. Cannot write to another session or a finished command. Writing input has side effects and follows the current permission policy.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string",
+            "description": "Input queued atomically; at most 65536 UTF-8 bytes per write"
+          }
+        },
+        "required": [
+          "id",
+          "input"
+        ]
+      },
+      "presentation": "summary",
+      "display": {
+        "label": "Write command",
+        "locales": {
+          "zh-CN": "输入命令",
+          "zh-TW": "寫入命令",
+          "ja": "コマンドに入力",
+          "ko": "명령에 입력",
+          "fr": "Écrire dans la commande",
+          "de": "In Befehl schreiben",
+          "es": "Escribir en el comando",
+          "pt-BR": "Escrever no comando",
+          "ru": "Ввод в команду",
+          "en": "Write command"
+        },
+        "icon": "reicon:it/terminal-square"
+      }
+    }
+  ],
+  "notices": {
+    "truncated": {
+      "label": "Output was truncated",
+      "locales": {
+        "zh-CN": "输出已截断"
+      }
+    },
+    "encoding": {
+      "label": "Some output could not be decoded",
+      "locales": {
+        "zh-CN": "部分输出无法解码"
+      }
+    }
+  }
+}

@@ -6,14 +6,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-var agentPlanTool = operations.Alias("progress", "update_plan")
-
 // LatestAgentPlan returns the last successful plan in chronological session
 // history unless all its steps are completed or skipped.
 func LatestAgentPlan(records []canonical.Record) *protocol.ConversationProgress {
 	type callKey struct {
-		turn       protocol.TurnID
-		branch, id string
+		turn             protocol.TurnID
+		branch, id, name string
 	}
 	type receipt struct {
 		record int
@@ -36,10 +34,10 @@ func LatestAgentPlan(records []canonical.Record) *protocol.ConversationProgress 
 			for j := len(message.Content) - 1; j >= 0; j-- {
 				block := message.Content[j]
 				response, ok := block.Data.(*canonical.ToolResponse)
-				if !ok || response == nil || response.Name != agentPlanTool || response.ID == "" {
+				if !ok || response == nil || !operations.IsUpdatePlanTool(response.Name) || response.ID == "" {
 					continue
 				}
-				key := callKey{record.Turn, record.Provenance.Branch, response.ID}
+				key := callKey{record.Turn, record.Provenance.Branch, response.ID, response.Name}
 				// An earlier receipt consumes this request before a duplicate can.
 				if latest != nil || response.Status != canonical.ToolSuccess || response.Format != canonical.JSON {
 					delete(pending, key)
@@ -53,10 +51,10 @@ func LatestAgentPlan(records []canonical.Record) *protocol.ConversationProgress 
 		case record.Provenance.Author == "assistant" && message.Role == canonical.Assistant:
 			for _, block := range message.Content {
 				request, ok := block.Data.(*canonical.ToolRequest)
-				if !ok || request == nil || request.Name != agentPlanTool {
+				if !ok || request == nil || !operations.IsUpdatePlanTool(request.Name) {
 					continue
 				}
-				key := callKey{record.Turn, record.Provenance.Branch, request.ID}
+				key := callKey{record.Turn, record.Provenance.Branch, request.ID, request.Name}
 				result, ok := pending[key]
 				if !ok {
 					continue

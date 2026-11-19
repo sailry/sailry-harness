@@ -25,8 +25,6 @@ import (
 	"lukechampine.com/blake3"
 )
 
-var progressToolName = operations.Alias("progress", "update_plan")
-
 // Tool is one captured declaration and executor. Concurrency and authority are
 // properties of the captured registration, never arguments supplied by a model.
 type Tool struct {
@@ -209,7 +207,6 @@ func (r *Runtime) deferTools(x *execution) error {
 		}
 	}
 	role := selectedRole(x.inv.Message) != nil
-	collaborate := !child && x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
 	for index := range x.tools {
 		tool := &x.tools[index]
 		switch {
@@ -221,9 +218,6 @@ func (r *Runtime) deferTools(x *execution) error {
 			if slices.Contains([]string{"list_sessions", "read_session", "search_session"}, tool.Definition.Name) {
 				tool.Deferred = true
 			}
-		case collaborate && tool.Definition.Name == progressToolName:
-			// The coordinator can record its plan in the same batch as dispatch.
-			tool.Deferred = false
 		default:
 			// A declared initial tool starts visible only to the main agent.
 			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred && !child)
@@ -268,7 +262,7 @@ func (r *Runtime) deferredContext(x *execution, state store.AgentState) string {
 	names := r.exposure(x, state)
 	var deferred []string
 	for _, tool := range x.tools {
-		if tool.Deferred && !slices.Contains(state.LoadedTools, tool.Definition.Name) {
+		if tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
 			deferred = append(deferred, names.name(tool.Definition.Name))
 		}
 	}
@@ -287,13 +281,27 @@ func (r *Runtime) declarations(x *execution, binding model.Binding, state store.
 	// The request renames these canonical declarations at the model boundary.
 	r.exposure(x, state)
 	for _, tool := range x.tools {
-		if !tool.Deferred || slices.Contains(state.LoadedTools, tool.Definition.Name) {
+		if !tool.Deferred || toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
 			values = append(values, tool.Definition)
 		}
 	}
 	return values
 }
+
+func toolWasLoaded(loaded []string, name string) bool {
+	if slices.Contains(loaded, name) {
+		return true
+	}
+	if operations.IsCommandTool(name) {
+		return slices.Contains(loaded, operations.Alias("commands", name))
+	}
+	return false
+}
+
 func findTool(tools []Tool, name string) *Tool {
+	if name == operations.LegacyUpdatePlanTool {
+		name = operations.UpdatePlanTool
+	}
 	for i := range tools {
 		if tools[i].Definition.Name == name {
 			return &tools[i]

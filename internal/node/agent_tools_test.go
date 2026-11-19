@@ -635,7 +635,13 @@ func TestAgentManagementTools(t *testing.T) {
 		}
 	})
 
-	t.Run("full access commands bypass the workspace sandbox", func(t *testing.T) {
+	t.Run("core commands work with the terminal package disabled", func(t *testing.T) {
+		setTerminalPackage := func(enabled bool) {
+			info := commandFixture(t, node, protocol.Command{Kind: "read_plugin", Data: protocol.CommandReadPluginPayload{Name: "commands"}}).Data.(protocol.PluginInfo)
+			commandFixture(t, node, protocol.Command{Kind: "set_plugin_enabled", Data: protocol.CommandSetPluginEnabledPayload{Name: info.Summary.Name, ExpectedRevision: info.Summary.Revision, Enabled: enabled}})
+		}
+		setTerminalPackage(false)
+		defer setTerminalPackage(true)
 		current := commandFixture(t, node, protocol.Command{Kind: "read_sandbox_settings"}).Data.(protocol.SandboxSettings)
 		if !current.Enabled {
 			t.Fatal("fixture requires the default enabled sandbox")
@@ -656,6 +662,14 @@ func TestAgentManagementTools(t *testing.T) {
 			}
 			return nil
 		})
+		for _, name := range []string{"run_command", "read_command", "stop_command"} {
+			if !slices.Contains(script.offered[0], name) {
+				t.Errorf("the first model request lacks %q: %v", name, script.offered[0])
+			}
+		}
+		if !strings.Contains(strings.Join(script.prompts, "\n"), "write_command") {
+			t.Error("the disabled terminal package hid command input from tool discovery")
+		}
 		if len(approvals) != 3 {
 			t.Fatalf("command approvals = %d, want 3", len(approvals))
 		}

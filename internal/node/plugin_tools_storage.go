@@ -35,7 +35,7 @@ func storageOperation(operation protocol.ToolOperation) bool {
 func (node *Node) storageTools(inv *store.AgentInvocation, catalog *operations.Catalog) ([]engine.Tool, error) {
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
-		if !storageOperation(declaration.Operation) || declaration.Script || !slices.Contains(inv.Turn.Plugins, declaration.Owner) ||
+		if declaration.Name == operations.LegacyUpdatePlanTool || !storageOperation(declaration.Operation) || declaration.Script || !slices.Contains(inv.Turn.Plugins, declaration.Owner) ||
 			!availableOperationTool(inv, declaration) ||
 			inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil && len(declaration.Contexts) == 0 {
 			continue

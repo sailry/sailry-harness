@@ -43,10 +43,8 @@ func requireAgentPlan(t *testing.T, records []canonical.Record, expected string)
 
 func TestLatestAgentPlanPreservesHistoryAcrossGuidance(t *testing.T) {
 	oldTurn := protocol.NewTurnID()
-	// Historical progress.update and the current handler use the same package alias.
-	name := operations.Alias("progress", "update_plan")
-	oldCall, oldResult := agentPlanRecords(oldTurn, "main", "plan", name, pendingAgentPlan, pendingAgentPlan)
-	planCall, planResult := agentPlanRecords(oldTurn, "main", "update", name, activeAgentPlan, activeAgentPlan)
+	oldCall, oldResult := agentPlanRecords(oldTurn, "main", "plan", operations.LegacyUpdatePlanTool, pendingAgentPlan, pendingAgentPlan)
+	planCall, planResult := agentPlanRecords(oldTurn, "main", "update", operations.UpdatePlanTool, activeAgentPlan, activeAgentPlan)
 	readCall, readResult := agentPlanRecords(oldTurn, "main", "read", operations.Alias("files", "read_file"), `{"path":"fixture"}`, `{}`)
 	callBlock := planCall.Message().Content[0]
 	callBlock.Index = 1
@@ -82,7 +80,7 @@ func TestLatestAgentPlanIgnoresInvalidUpdates(t *testing.T) {
 	turn := protocol.NewTurnID()
 	oldCall, oldResult := agentPlanRecords(turn, "main", "previous", name, pendingAgentPlan, pendingAgentPlan)
 	for _, scenario := range []string{
-		"error status", "error format", "captured failure", "invalid request", "receipt mismatch", "wrong ID", "wrong name", "wrong branch", "wrong turn", "wrong author", "receipt before request", "third-party plan", "third-party progress operation",
+		"error status", "error format", "captured failure", "invalid request", "receipt mismatch", "wrong ID", "wrong name", "mixed native and legacy identity", "wrong branch", "wrong turn", "wrong author", "receipt before request", "third-party plan", "third-party progress operation",
 	} {
 		t.Run(scenario, func(t *testing.T) {
 			call, result := agentPlanRecords(turn, "main", "update", name, activeAgentPlan, activeAgentPlan)
@@ -103,6 +101,8 @@ func TestLatestAgentPlanIgnoresInvalidUpdates(t *testing.T) {
 				response.ID = "different"
 			case "wrong name":
 				request.Name = operations.Alias("other", "update_plan")
+			case "mixed native and legacy identity":
+				request.Name = operations.UpdatePlanTool
 			case "wrong branch":
 				result.Provenance.Branch = "elsewhere"
 			case "wrong turn":
@@ -128,7 +128,7 @@ func TestLatestAgentPlanSettledUpdateClearsOlderPlan(t *testing.T) {
 	name := operations.Alias("progress", "update_plan")
 	turn := protocol.NewTurnID()
 	olderCall, olderResult := agentPlanRecords(turn, "main", "earlier", name, pendingAgentPlan, pendingAgentPlan)
-	call, result := agentPlanRecords(turn, "main", "update", name, finishedAgentPlan, finishedAgentPlan)
+	call, result := agentPlanRecords(turn, "main", "update", operations.UpdatePlanTool, finishedAgentPlan, finishedAgentPlan)
 	_, duplicate := agentPlanRecords(turn, "main", "earlier", name, pendingAgentPlan, pendingAgentPlan)
 	failedCall, failedResult := agentPlanRecords(turn, "main", "broken", name, activeAgentPlan, activeAgentPlan)
 	failedResult.Message().Content[0].Data.(*canonical.ToolResponse).Status = canonical.ToolErrorStatus
