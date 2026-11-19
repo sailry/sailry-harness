@@ -2026,6 +2026,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get hostConnecting => '연결 중';
 
   @override
+  String get hostConnected => '연결됨';
+
+  @override
+  String get hostNotConnected => '연결 안 됨';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return '호스트 $connected/$total대 연결됨';
+  }
+
+  @override
   String get hostInfo => '호스트 정보';
 
   @override

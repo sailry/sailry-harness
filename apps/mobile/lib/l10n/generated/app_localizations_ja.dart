@@ -2025,6 +2025,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get hostConnecting => '接続中';
 
   @override
+  String get hostConnected => '接続済み';
+
+  @override
+  String get hostNotConnected => '未接続';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return '$connected/$total 台のホストに接続済み';
+  }
+
+  @override
   String get hostInfo => 'ホスト情報';
 
   @override

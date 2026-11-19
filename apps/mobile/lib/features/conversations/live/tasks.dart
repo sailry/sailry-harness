@@ -17,6 +17,7 @@ import '../../resources/project_form.dart';
 import '../../resources/workspace.dart';
 import '../../terminal/terminal_page.dart';
 import 'create.dart';
+import 'host_status_bar.dart';
 import 'task.dart';
 import 'presentation.dart';
 import 'project_bar.dart';
@@ -138,6 +139,12 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       _error(error);
     }
   }
+
+  void _pair() => showAppSheet<void>(
+    context,
+    context.tr('pairTitle'),
+    child: PairForm(session: widget.session),
+  );
 
   void _error(Object error) {
     if (!mounted) return;
@@ -284,6 +291,11 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
         sessions.isNotEmpty ||
         allTerminals.isNotEmpty;
     final connected = hosts.any((host) => host.connected);
+    // A project belongs to the selected host; the unscoped filters summarize
+    // every paired host.
+    final statusHosts = projectId == null || projectId == unassignedProject
+        ? widget.session.hosts
+        : hosts;
     // Search uses the list's scroll view so its focused field stays mounted.
     final controls = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -370,6 +382,13 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
             ),
           ),
         ),
+        if (statusHosts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          HostStatusBar(
+            hosts: statusHosts,
+            onTap: () => showHostSheet(context, onPair: _pair),
+          ),
+        ],
         const SizedBox(height: 10),
         if (taskFilters.contains(_filter))
           TaskFilters(
@@ -396,13 +415,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
               // The first screen offers pairing, so an offline or missing
               // host is not a dead end.
               action: FilledButton(
-                onPressed: widget.session.ready
-                    ? () => showAppSheet<void>(
-                        context,
-                        context.tr('pairTitle'),
-                        child: PairForm(session: widget.session),
-                      )
-                    : null,
+                onPressed: widget.session.ready ? _pair : null,
                 child: Text(context.tr('pair')),
               ),
             )

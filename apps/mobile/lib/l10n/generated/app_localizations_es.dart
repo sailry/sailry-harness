@@ -2061,6 +2061,17 @@ class AppLocalizationsEs extends AppLocalizations {
   String get hostConnecting => 'Conectando';
 
   @override
+  String get hostConnected => 'Conectado';
+
+  @override
+  String get hostNotConnected => 'Desconectado';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return '$connected/$total hosts conectados';
+  }
+
+  @override
   String get hostInfo => 'Información del host';
 
   @override

@@ -2056,6 +2056,17 @@ class AppLocalizationsRu extends AppLocalizations {
   String get hostConnecting => 'Подключение';
 
   @override
+  String get hostConnected => 'Подключено';
+
+  @override
+  String get hostNotConnected => 'Не подключено';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return 'Подключено хостов: $connected/$total';
+  }
+
+  @override
   String get hostInfo => 'О хосте';
 
   @override

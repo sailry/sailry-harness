@@ -2020,6 +2020,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hostConnecting => '连接中';
 
   @override
+  String get hostConnected => '已连接';
+
+  @override
+  String get hostNotConnected => '未连接';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return '$connected/$total 台主机已连接';
+  }
+
+  @override
   String get hostInfo => '主机信息';
 
   @override
@@ -4279,6 +4290,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostConnecting => '連線中';
+
+  @override
+  String get hostConnected => '已連線';
+
+  @override
+  String get hostNotConnected => '未連線';
+
+  @override
+  String hostsConnected(String connected, String total) {
+    return '$connected/$total 台主機已連線';
+  }
 
   @override
   String get hostInfo => '主機資訊';

@@ -4020,6 +4020,24 @@ abstract class AppLocalizations {
   /// **'Connecting'**
   String get hostConnecting;
 
+  /// No description provided for @hostConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get hostConnected;
+
+  /// No description provided for @hostNotConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Disconnected'**
+  String get hostNotConnected;
+
+  /// No description provided for @hostsConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'{connected}/{total} hosts connected'**
+  String hostsConnected(String connected, String total);
+
   /// No description provided for @hostInfo.
   ///
   /// In en, this message translates to:

@@ -122,7 +122,7 @@ class TaskRow extends StatelessWidget {
                             const SizedBox(width: 8),
                             Semantics(
                               label: status,
-                              child: _StatusDot(
+                              child: PulseDot(
                                 key: const ValueKey('task-status-dot'),
                                 color: accent,
                                 pulse: tone == StatusTone.running,
@@ -155,16 +155,17 @@ class TaskRow extends StatelessWidget {
   }
 }
 
-class _StatusDot extends StatefulWidget {
-  const _StatusDot({super.key, required this.color, required this.pulse});
+/// Status dot that breathes while [pulse] holds and animations are enabled.
+class PulseDot extends StatefulWidget {
+  const PulseDot({super.key, required this.color, required this.pulse});
   final Color color;
   final bool pulse;
 
   @override
-  State<_StatusDot> createState() => _StatusDotState();
+  State<PulseDot> createState() => _PulseDotState();
 }
 
-class _StatusDotState extends State<_StatusDot>
+class _PulseDotState extends State<PulseDot>
     with SingleTickerProviderStateMixin {
   late final _controller = AnimationController(
     vsync: this,
@@ -179,7 +180,7 @@ class _StatusDotState extends State<_StatusDot>
   }
 
   @override
-  void didUpdateWidget(_StatusDot oldWidget) {
+  void didUpdateWidget(PulseDot oldWidget) {
     super.didUpdateWidget(oldWidget);
     _animate();
   }

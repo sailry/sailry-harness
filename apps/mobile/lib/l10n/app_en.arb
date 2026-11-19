@@ -868,6 +868,19 @@
   "activityBackground": "Background tasks",
   "activityPorts": "Ports",
   "hostConnecting": "Connecting",
+  "hostConnected": "Connected",
+  "hostNotConnected": "Disconnected",
+  "hostsConnected": "{connected}/{total} hosts connected",
+  "@hostsConnected": {
+    "placeholders": {
+      "connected": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
   "hostInfo": "Host info",
   "hostLatency": "Latency",
   "hostLatencySummary": "Avg {average}  Max {peak}",
