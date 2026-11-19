@@ -236,6 +236,7 @@ func (r *Runtime) retryInstallation(entry transfers.Entry) {
 			if err == nil {
 				if info, valid := detail[protocol.PluginInfo](out.Data); valid {
 					owner.packages.infos[info.Summary.Name] = info
+					owner.projectPackages()
 				}
 				owner.dismissInstallation(entry)
 			} else if !client.Retained(err) {

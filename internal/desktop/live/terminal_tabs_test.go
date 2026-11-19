@@ -66,6 +66,13 @@ func terminalTabsFixture(t *testing.T, terminals ...protocol.TerminalInfo) (*Run
 	snapshot.Node, snapshot.Projects = protocol.NodeID{1}, []protocol.Project{project}
 	snapshot.Worktrees = []protocol.Worktree{{ID: protocol.WorktreeID{1}, Project: &project.ID, Path: project.Path, Main: true}}
 	snapshot.Terminals = terminals
+	return snapshotFixture(t, snapshot)
+}
+
+// snapshotFixture is a started Runtime on a Node that delivers snapshot and
+// fails every command until the test sets its responses.
+func snapshotFixture(t *testing.T, snapshot protocol.Snapshot) (*Runtime, *terminalTabsTestNode) {
+	t.Helper()
 	source := &terminalTabsTestNode{pluginViewTestNode: pluginViewTestNode{snapshot: snapshot}}
 	source.respond = func(request protocol.Request) link.Response {
 		return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture command is unavailable"}}
