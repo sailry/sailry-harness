@@ -227,8 +227,8 @@ notification_delete_read: Gelesene löschen
 notifications_empty: Keine Benachrichtigungen
 notifications_time_now: Gerade eben
 notifications_time_minutes: vor %{count} Min.
-notifications_time_hours: vor %{count} h
-notifications_time_days: vor %{count} d
+notifications_time_hours: vor %{count} Std.
+notifications_time_days: vor %{count} T.
 knowledge_source: Quelle
 knowledge_previous: Zurück
 knowledge_next: Weiter

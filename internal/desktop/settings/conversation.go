@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
@@ -18,6 +19,9 @@ var PersonalInstructionsMessages = Messages{Failed: "settings_custom_prompt_fail
 type PersonalInstructions struct {
 	Saved, Draft                      string
 	Known, Pending, Failed, Uncertain bool
+	// focus is the editor's focus binding; edited is an edit not yet
+	// handed to the save, which leaving the editor does (SettleEdits).
+	focus, edited bool
 }
 
 func conversation(c *ui.Context, m *Model) {
@@ -92,14 +96,33 @@ func personalInstructions(c *ui.Context, m *Model) {
 		if e == nil {
 			return
 		}
-		changed := ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Placeholder(i18n.T(c, "settings_custom_prompt_placeholder")).
-			Disabled(!e.Known || e.Uncertain || m.Live && m.EditPersonalInstructions == nil).FillWidth().Height(100).Changed()
-		if changed {
+		// A Kit surface like the settings cards: their frost, border and
+		// corners, with the input's focus and hover borders.
+		p := theme.Of(c)
+		area := ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Placeholder(i18n.T(c, "settings_custom_prompt_placeholder")).
+			Disabled(!e.Known || e.Uncertain || m.Live && m.EditPersonalInstructions == nil).FillWidth().Height(120).
+			FontSize(14).Padding(12, 16).Radius(p.RadiusLg).Border(1, p.Border).Background(ui.Color{}).
+			TextColor(p.SurfaceForeground).FocusBind(&e.focus, true)
+		if kit.Frost(c, area, p.Surface, kit.CardTint).Changed() {
 			if m.Live {
-				m.EditPersonalInstructions()
+				e.edited = true
 			} else {
 				e.Saved = e.Draft
 			}
 		}
 	})
+}
+
+// SettleEdits hands the custom prompt's edit to its save once the editor
+// loses focus: another control, another window, or another page that no
+// longer builds it. The shell calls it every frame, whichever page shows.
+func SettleEdits(c *ui.Context, m *Model) {
+	e := m.PersonalInstructions
+	if e == nil || !e.edited || ui.FocusedValue(c, &e.focus) {
+		return
+	}
+	e.edited = false
+	if m.EditPersonalInstructions != nil {
+		m.EditPersonalInstructions()
+	}
 }

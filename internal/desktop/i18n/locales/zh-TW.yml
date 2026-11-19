@@ -226,9 +226,9 @@ notifications_read_all: 全部已讀
 notification_delete_read: 刪除已讀
 notifications_empty: 暫無通知
 notifications_time_now: 剛剛
-notifications_time_minutes: '%{count} min 前'
-notifications_time_hours: '%{count} h 前'
-notifications_time_days: '%{count} d 前'
+notifications_time_minutes: '%{count} 分鐘前'
+notifications_time_hours: '%{count} 小時前'
+notifications_time_days: '%{count} 天前'
 knowledge_source: 來源
 knowledge_previous: 上一頁
 knowledge_next: 下一頁

@@ -101,11 +101,19 @@ func (a *App) notificationCenter(c *ui.Context) {
 		kit.Card(c.Key("list"), func() {
 			for _, n := range shown {
 				kit.Bleed(c, n.ID, func() {
+					// An open notice's row and details share one fill, so they
+					// read as one item.
 					expanded := a.noticeDetail == n.ID
-					a.notificationRow(c, n, expanded)
+					item := ui.Column(c.Key("item")).Margin(0, -16)
 					if expanded {
-						a.notificationDetails(c, n)
+						item.Background(theme.Of(c).Hover)
 					}
+					item.Children(func() {
+						a.notificationRow(c, n, expanded)
+						if expanded {
+							a.notificationDetails(c, n)
+						}
+					})
 				})
 			}
 		})
@@ -113,13 +121,14 @@ func (a *App) notificationCenter(c *ui.Context) {
 }
 
 // notificationRow is a notice in the centre's card, at the row metrics: the
-// kind's glyph in the lead slot, the title (medium while unread) over its
-// message on one muted line, the age, then the unread dot and the quiet
-// actions. A notice without a message, and the open one, whose message is
-// whole in its details, has its kind and host on that line. The row's box fills to the card's edges under the pointer,
-// whichever part it is over. The button that opens the notice's details
-// takes all of it before the actions, which are its siblings: MyGo does not
-// expose a button built inside a button to assistive technology.
+// kind's glyph in a tinted circle, the title (medium while unread) with its
+// age at the line's end over its message on one muted line, then the unread
+// dot and the quiet actions. A notice without a message, and the open one,
+// whose message is whole in its details, has its kind and host on that line.
+// The row's box fills to the card's edges under the pointer, whichever part
+// it is over. The button that opens the notice's details takes all of it
+// before the actions, which are its siblings: MyGo does not expose a button
+// built inside a button to assistive technology.
 func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool) {
 	p := theme.Of(c)
 	title := noticeTitle(c, n)
@@ -131,26 +140,28 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 			line = i18n.T(c, kind) + " · " + line
 		}
 	}
-	row := ui.Row(c.Key("row")).Margin(0, -16).PaddingEnd(16).Gap(kit.RowIconGap).AlignItems(ui.Center).TextColor(p.SurfaceForeground)
-	if row.Hovered() {
+	row := ui.Row(c.Key("row")).PaddingEnd(12).Gap(8).AlignItems(ui.Center).TextColor(p.SurfaceForeground)
+	if row.Hovered() && !expanded {
 		row.Background(p.Hover)
 	}
 	row.Children(func() {
 		ui.ButtonBase(c.Key("details")).Label(title).Expanded(expanded).Grow(1).Shrink(1).MinWidth(0).Padding(kit.RowPad, 0, kit.RowPad, 16).
 			Gap(kit.RowIconGap).MinHeight(kit.RowMinHeight).Justify(ui.Start).Cursor(ui.CursorPointer).Children(func() {
-			ui.Row(c.Key("lead")).Size(kit.RowIcon, kit.RowIcon).Shrink(0).Center().Children(func() {
-				ui.Icon(c, glyph).FontSize(18).TextColor(color)
+			ui.Row(c.Key("lead")).Size(noticeLead, noticeLead).Shrink(0).Radius(noticeLead / 2).Center().Background(color.Alpha(0.14)).Children(func() {
+				ui.Icon(c, glyph).FontSize(16).TextColor(color)
 			})
 			ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
-				text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine()
-				if !n.Read {
-					text.FontWeight(500)
-				}
-				ui.Text(c, line).FontSize(kit.RowFont).SingleLine().TextColor(p.Description())
+				ui.Row(c.Key("title")).Gap(12).AlignItems(ui.Center).Children(func() {
+					text := ui.Text(c, title).FontSize(kit.RowFont).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+					if !n.Read {
+						text.FontWeight(500)
+					}
+					if !n.Time.IsZero() {
+						ui.Text(c, a.noticeAge(c, n)).FontSize(12).FontFeatures("tnum").SingleLine().Shrink(0).TextColor(p.MutedForeground)
+					}
+				})
+				ui.Text(c, line).FontSize(13).SingleLine().TextColor(p.Description())
 			})
-			if !n.Time.IsZero() {
-				ui.Text(c, a.noticeAge(c, n)).FontSize(12).SingleLine().Shrink(0).TextColor(p.MutedForeground)
-			}
 		}).OnClick(func() {
 			if expanded {
 				a.noticeDetail = ""
@@ -159,9 +170,9 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 			a.noticeDetail = n.ID
 			a.readNotice(n)
 		})
-		ui.Row(c.Key("actions")).Shrink(0).Gap(4).Children(func() {
+		ui.Row(c.Key("actions")).Shrink(0).Gap(2).AlignItems(ui.Center).Children(func() {
 			// The dot's room stays when read, so the actions line up.
-			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0).Margin(0, 6)
+			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0).Margin(0, 4)
 			if !n.Read {
 				dot.Background(p.Primary)
 			}
@@ -182,14 +193,15 @@ func (a *App) notificationRow(c *ui.Context, n *viewmodel.Notice, expanded bool)
 }
 
 // notificationDetails is an open notice's text, facts and report under its
-// row, in line with the row's title. The facts are a muted label column
-// beside their values, without those the row's line already shows: the
+// row, in line with the row's title. The facts are muted labels before
+// their values on one line, without those the row's line already shows: the
 // kind and the host, and the conversation when it is the title. The report
 // is folded under Technical details, a tinted code block that scrolls past
-// reportHeight, with Copy at its header's end.
+// reportHeight, with Copy at its header's end. The details start under the
+// row's title.
 func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 	p := theme.Of(c)
-	body := ui.Column(c.Key("body")).Padding(0, 0, kit.RowPad, kit.RowIcon+kit.RowIconGap).Gap(12)
+	body := ui.Column(c.Key("body")).Padding(0, 16, kit.RowPad+4, 16+noticeLead+kit.RowIconGap).Gap(10)
 	report := ui.Local(body, "report", func() bool { return false })
 	body.Children(func() {
 		for _, text := range []string{n.Message, n.DetailText} {
@@ -228,11 +240,12 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 			}
 		}
 		if len(facts) > 0 {
-			ui.Column(c.Key("facts")).Gap(6).Children(func() {
+			// The facts are one wrapping line of muted labels and values.
+			ui.Row(c.Key("facts")).Wrap().Gap(16).Children(func() {
 				for i, fact := range facts {
-					ui.Row(c.Key(i)).Gap(16).AlignItems(ui.Start).Children(func() {
-						ui.Text(c, fact[0]).FontSize(13).Width(factLabel).Shrink(0).SingleLine().TextColor(p.MutedForeground)
-						ui.Text(c, fact[1]).FontSize(13).Grow(1).Shrink(1).MinWidth(0).Selectable().TextColor(p.SurfaceForeground)
+					ui.Row(c.Key(i)).Gap(6).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, fact[0]).FontSize(12).SingleLine().TextColor(p.MutedForeground)
+						ui.Text(c, fact[1]).FontSize(12).FontFeatures("tnum").Selectable().TextColor(p.SurfaceForeground)
 					})
 				}
 			})
@@ -243,10 +256,10 @@ func (a *App) notificationDetails(c *ui.Context, n *viewmodel.Notice) {
 	})
 }
 
-// factLabel is the width of a notice's fact labels; reportHeight bounds
-// its open report, which scrolls past it.
+// noticeLead is a notice's glyph circle; reportHeight bounds its open
+// report, which scrolls past it.
 const (
-	factLabel    = 72
+	noticeLead   = 32
 	reportHeight = 240
 )
 
@@ -255,7 +268,7 @@ const (
 // messages looks (kit.CodeBlock).
 func noticeReport(c *ui.Context, report string, open *bool) {
 	p := theme.Of(c)
-	ui.Column(c.Key("report")).Background(p.Background.Mix(p.Foreground, 0.035)).Border(1, p.Border).
+	ui.Column(c.Key("report")).Background(p.Muted.Alpha(0.5)).Border(1, p.Border).
 		Radius(p.Radius).Clip().Children(func() {
 		ui.Row(c.Key("header")).AlignItems(ui.Center).Padding(2, 6, 2, 4).Children(func() {
 			label := i18n.T(c, "notification_technical")

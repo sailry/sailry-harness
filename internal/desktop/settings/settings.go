@@ -81,6 +81,10 @@ type State struct {
 	pluginPages  []PluginPage
 	marketScroll ui.ScrollState
 	marketEnd    scrollEnd
+	// marketScope is the market's kind and sources last shown, nil before
+	// the market shows.
+	marketScope *[3]int
+	marketWidth float32 // the market page's content width in the last frame
 	*Model
 }
 

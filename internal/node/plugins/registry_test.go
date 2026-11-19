@@ -68,3 +68,25 @@ func TestRegistryVerification(t *testing.T) {
 		t.Fatalf("registry URL did not resolve: %#v %v", source, err)
 	}
 }
+
+func TestRegistrySkillTakesItsSlug(t *testing.T) {
+	source := protocol.PluginSkillsRegistryResolved{Namespace: "team", Slug: "acme-analyzing-feedback", Version: "1.0.0"}
+	for name, document := range map[string]string{
+		"republished": "---\nname: analyzing-feedback\ndescription: Analyze feedback\n---\nBody\n",
+		"display":     "---\nname: Analyzing Feedback\ndescription: Analyze feedback\n---\nBody\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, err := normalizeRegistrySkill([]byte(document), source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			skill, err := ParseSkill(data, source.Slug)
+			if err != nil || skill.Name != source.Slug {
+				t.Fatalf("skill %+v, %v", skill, err)
+			}
+		})
+	}
+	if _, err := normalizeRegistrySkill([]byte("---\nname: x\nslug: other\ndescription: d\n---\n"), source); err == nil {
+		t.Fatal("a document naming another slug is accepted")
+	}
+}

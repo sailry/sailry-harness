@@ -226,9 +226,9 @@ notifications_read_all: すべてを既読としてマーク
 notification_delete_read: 既読を削除
 notifications_empty: 通知なし
 notifications_time_now: たった今
-notifications_time_minutes: '%{count} min 前'
-notifications_time_hours: '%{count} h 前'
-notifications_time_days: '%{count} d 前'
+notifications_time_minutes: '%{count} 分前'
+notifications_time_hours: '%{count} 時間前'
+notifications_time_days: '%{count} 日前'
 knowledge_source: ソース
 knowledge_previous: 前へ
 knowledge_next: 次へ

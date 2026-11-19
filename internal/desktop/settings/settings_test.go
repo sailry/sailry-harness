@@ -65,7 +65,11 @@ func TestConversationCustomPrompt(t *testing.T) {
 	state.CodeIndex = stored(true)
 	state.SavePersistentCodeIndex = func(enabled bool) { state.PersistentCodeIndex = new(enabled) }
 	state.PersistentCodeIndex = new(false)
-	tester := ui.NewTester(func(c *ui.Context) { theme.Apply(c, "", theme.Light); Page(c, state, nil, Look{}) }, 920, 800)
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		SettleEdits(c, state.Model)
+		Page(c, state, nil, Look{})
+	}, 920, 800)
 	tester.SetLocale("en")
 	tester.Frame()
 	toggle, ok := tester.AccessByRole(ui.RoleSwitch, i18n.In("en", "settings_code_index_persistent"))
@@ -89,6 +93,14 @@ func TestConversationCustomPrompt(t *testing.T) {
 	}
 	tester.ClickAt(field.Bounds.X+10, field.Bounds.Y+10)
 	tester.Type("Use the project formatter.")
+	tester.Frame()
+	tester.Frame()
+	// Typing keeps the draft; leaving the editor saves it.
+	if submitted != "" {
+		t.Fatalf("submitted %q while editing", submitted)
+	}
+	tester.ClickAt(toggle.Bounds.X+10, toggle.Bounds.Y+10)
+	tester.Frame()
 	tester.Frame()
 	if submitted != "Use the project formatter." {
 		t.Fatalf("submitted %q", submitted)

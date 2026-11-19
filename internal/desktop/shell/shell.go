@@ -727,6 +727,7 @@ func adjacent(a *App, forward bool) string {
 // page is the main panel: the conversation, the settings page, or a
 // feature's page.
 func (a *App) page(c *ui.Context) {
+	settings.SettleEdits(c, a.Settings.Model)
 	switch a.Page {
 	case NotificationsPage:
 		a.notificationCenter(c)

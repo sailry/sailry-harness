@@ -226,9 +226,9 @@ notifications_read_all: 읽지 않은 편지 선택( c)
 notification_delete_read: 읽은 알림 삭제
 notifications_empty: 알림 없음
 notifications_time_now: 방금
-notifications_time_minutes: '%{count} min 전'
-notifications_time_hours: '%{count} h 전'
-notifications_time_days: '%{count} d 전'
+notifications_time_minutes: '%{count}분 전'
+notifications_time_hours: '%{count}시간 전'
+notifications_time_days: '%{count}일 전'
 knowledge_source: 소스
 knowledge_previous: 이전
 knowledge_next: 다음

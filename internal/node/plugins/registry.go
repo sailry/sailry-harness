@@ -385,9 +385,10 @@ func normalizeRegistrySkill(data []byte, source protocol.PluginSkillsRegistryRes
 	if document.Decode(&fields) != nil || fields == nil {
 		return nil, packageFault("invalid registry skill metadata")
 	}
+	// The signed archive is the slug's, which names the skill. A skill
+	// republished under another slug keeps its own name in its document.
 	title, ok := fields["name"].(string)
-	if !ok || strings.TrimSpace(title) == "" || len(title) > 256 || strings.ContainsFunc(title, unicode.IsControl) ||
-		skillName(title) && title != source.Slug || !skillName(source.Slug) {
+	if !ok || strings.TrimSpace(title) == "" || len(title) > 256 || strings.ContainsFunc(title, unicode.IsControl) || !skillName(source.Slug) {
 		return nil, packageFault("registry skill identity does not match")
 	}
 	if slug, exists := fields["slug"]; exists && slug != source.Slug {

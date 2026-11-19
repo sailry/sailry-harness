@@ -72,7 +72,10 @@ func MarketPage(c *ui.Context, s *State) {
 		c.After(preview.Tick)
 	}
 	ui.Scroll(c.Key("market")).Fill().TrackScroll(&s.marketScroll).Children(func() {
-		ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(20).Children(func() {
+		page := ui.Column(c.Key("page")).FillWidth().MaxWidth(marketWidth).Margin(0, ui.Auto).Padding(24).Gap(20)
+		// The cards' columns follow the width the page had in the last frame.
+		s.marketWidth = page.LayoutBounds().W - 48
+		page.Children(func() {
 			changedHost := false
 			ui.Row(c.Key("heading")).Gap(12).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t("market_title")).FontSize(20).FontWeight(600).Grow(1)
@@ -86,6 +89,13 @@ func MarketPage(c *ui.Context, s *State) {
 				return
 			}
 			kit.Segmented(c, "kind", &m.MarketKind, []string{t("market_plugins"), t("market_skills"), t("market_themes")}, kit.SegmentedProps{}).Label(t("market_kind")).AlignSelf(ui.Start)
+			// Another kind or source replaces the cards, so the details of one
+			// shown before would stand over nothing; they close.
+			scope := [3]int{m.MarketKind, m.MarketSource, m.MarketSkillSource}
+			if s.marketScope != nil && *s.marketScope != scope && s.Details != nil {
+				s.CloseDetails()
+			}
+			s.marketScope = &scope
 			if m.MarketKind != 2 && m.packageTargetOffline() {
 				settingsTargetStatus(c, "connections_offline")
 				return
@@ -106,7 +116,7 @@ func MarketPage(c *ui.Context, s *State) {
 			}
 			switch {
 			case m.MarketLoad.Loading:
-				marketSkeleton(c)
+				marketSkeleton(c, s)
 			case m.MarketKind == 0:
 				rows := marketPlugins(c, s)
 				marketPagination(c, s, rows)
@@ -217,6 +227,25 @@ func marketPagination(c *ui.Context, s *State, rows int) {
 	}
 }
 
+// The market is up to marketWidth wide, room for three cards of at least
+// marketCardWidth or four theme previews of at least marketThemeWidth.
+const (
+	marketWidth      = 1120
+	marketCardWidth  = 320
+	marketThemeWidth = 240
+	marketGap        = 12
+)
+
+// marketGrid lays cards in as many columns of at least least DIP as the
+// page's width holds, one at the least.
+func marketGrid(c *ui.Context, s *State, least float32, cards func()) ui.Element {
+	columns := 2
+	if s.marketWidth > 0 {
+		columns = max(1, int((s.marketWidth+marketGap)/(least+marketGap)))
+	}
+	return ui.Grid(c.Key("cards")).Columns(columns).Gap(marketGap).FillWidth().Children(cards)
+}
+
 // marketCard is a 76 DIP bordered card of the item's summary and its action.
 func marketCard(c *ui.Context, key, title, desc string, tile func(), action string, busy bool, open, act func()) {
 	p := theme.Of(c)
@@ -253,9 +282,9 @@ func marketCard(c *ui.Context, key, title, desc string, tile func(), action stri
 
 // marketSkeleton holds the cards' place while the catalog loads: six bordered
 // 76 DIP cards of a 40 DIP tile, a half-width title and a full-width line.
-func marketSkeleton(c *ui.Context) {
+func marketSkeleton(c *ui.Context, s *State) {
 	p := theme.Of(c)
-	kit.Grid(c, func() {
+	marketGrid(c, s, marketCardWidth, func() {
 		for i := range 6 {
 			ui.Row(c.Key(i)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border).Children(func() {
 				kit.Skeleton(c, kit.SkeletonProps{Width: 40, Height: 40})
@@ -285,7 +314,7 @@ func marketPlugins(c *ui.Context, s *State) int {
 		marketEmpty(c, m, icons.Puzzle, "plugins_none", "unavailable")
 		return 0
 	}
-	kit.Grid(c, func() {
+	marketGrid(c, s, marketCardWidth, func() {
 		for _, x := range shown {
 			inst := m.installedPackage(x.ID)
 			action := MarketAction(inst != nil, inst != nil && Update(inst))
@@ -338,7 +367,7 @@ func marketSkills(c *ui.Context, s *State) int {
 		marketEmpty(c, m, icons.Bot, "skills_no_matches", "skill_catalog_load_failed")
 		return 0
 	}
-	kit.Grid(c, func() {
+	marketGrid(c, s, marketCardWidth, func() {
 		for _, x := range shown {
 			installed := x.Installed
 			for _, y := range m.SkillList {
@@ -492,15 +521,40 @@ func marketThemes(c *ui.Context, s *State) {
 		kit.Result(c, kit.ResultProps{Icon: icons.Palette, Title: i18n.T(c, "market_no_themes"), Card: true})
 		return
 	}
-	ui.Grid(c.Key("themes")).Columns(3).Gap(12).FillWidth().Children(func() {
+	marketGrid(c, s, marketThemeWidth, func() {
 		for _, x := range shown {
 			marketThemeCard(c, s, x)
 		}
 	})
 }
 
-// marketThemeCard is a catalog theme as its preview over its name, its
-// description and its action, like the Appearance gallery. A theme the Desktop
+// themeIconAction is a theme card's action as an icon: Install, Update or
+// Apply, the spinner while it runs, and a disabled check for the theme in use.
+func themeIconAction(c *ui.Context, m *Model, x *preview.MarketTheme) {
+	icon, action := icons.Palette, "market_theme_apply"
+	switch {
+	case m.Busy[BusyPackage+x.ID]:
+		kit.BusyAction(c.Key("theme-action"), i18n.T(c, MarketAction(x.Installed, x.Update)))
+		return
+	case x.Current:
+		kit.Action(c.Key("theme-action"), icons.CircleCheck, i18n.T(c, "market_theme_current"), true).TextColor(theme.Of(c).Success)
+		return
+	case !x.Installed:
+		icon, action = icons.Download, "market_install"
+	case x.Update:
+		icon, action = icons.ArrowUp, "market_update"
+	}
+	kit.Action(c.Key("theme-action"), icon, i18n.T(c, action), false).OnClick(func() {
+		if m.PackageActions != nil && m.PackageActions.Theme != nil {
+			m.PackageActions.Theme(x.ID)
+			return
+		}
+		notice(c)
+	})
+}
+
+// marketThemeCard is a catalog theme as its preview over its name with its
+// icon action, one line of description and its tags, like the Appearance gallery. A theme the Desktop
 // holds no package of yet previews as a placeholder. A theme of one mode
 // previews in that mode, else in the current one.
 func marketThemeCard(c *ui.Context, s *State, x *preview.MarketTheme) {
@@ -526,23 +580,22 @@ func marketThemeCard(c *ui.Context, s *State, x *preview.MarketTheme) {
 				})
 			}
 		})
-		ui.Column(c.Key("body")).FillWidth().MinWidth(0).Padding(12).Gap(8).Children(func() {
+		ui.Column(c.Key("body")).FillWidth().MinWidth(0).Padding(10, 12, 12, 12).Gap(6).Children(func() {
 			ui.Row(c).FillWidth().MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, x.Name).FontSize(14).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-				if x.Builtin {
-					kit.Tag(c, t("market_theme_builtin")).Shrink(0)
-				}
+				themeIconAction(c, m, x)
 			})
-			ui.Text(c, x.Description).FontSize(12).TextColor(p.MutedForeground).MaxLines(2).Height(32).FillWidth()
-			ui.Row(c.Key("footer")).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, x.Description).FontSize(12).TextColor(p.MutedForeground).SingleLine().FillWidth()
+			ui.Row(c.Key("tags")).Gap(6).Children(func() {
+				if x.Builtin {
+					kit.Tag(c, t("market_theme_builtin"))
+				}
 				if x.Dark {
 					kit.Tag(c, t("market_theme_dark"))
 				}
 				if x.Light {
 					kit.Tag(c, t("market_theme_light"))
 				}
-				ui.Spacer(c)
-				themeAction(c, m, x)
 			})
 		})
 	})

@@ -512,7 +512,7 @@ window. Summaries preserve original records and raw tool output. Context-length
 failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
-Edits save automatically after typing pauses, using that Node's revision.
+Edits save when the editor loses focus, using that Node's revision.
 The Node captures that file for each new turn, including turns in existing
 sessions. Each turn retains the instructions it ran with.
 
