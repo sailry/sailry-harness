@@ -215,6 +215,12 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				_, concurrent := operations.Policy(operation)
 				tool.Concurrent = tool.Concurrent && concurrent
 			}
+		} else if tool.Hosted && readOnly && len(info.Extension.Actions) == 0 && host.Turn == nil &&
+			info.Summary.Name == "progress" && declaration.Name == "update_plan" && info.Origin != nil &&
+			(info.Origin.Kind == "bundled" || info.Origin.Kind == "official") {
+			// This callback validates a snapshot. The engine persists it in
+			// source order with the rest of the model's tool results.
+			tool.Concurrent = true
 		}
 		tool.ContextParts = contextParts
 		if host.Turn != nil && host.Turn.BeforeModel != nil {

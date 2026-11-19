@@ -162,19 +162,24 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 }
 
 func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *testing.T) {
-	const childAnswer = "Result from the overlapping child"
+	const (
+		slowTask   = "Check the slow independent area"
+		fastTask   = "Check the fast independent area"
+		slowAnswer = "Result from the slow child"
+		fastAnswer = "Result from the fast child"
+	)
 	childStarted := make(chan struct{}, 2)
-	finishChildren := make(chan struct{})
+	finishSlow, finishFast := make(chan struct{}), make(chan struct{})
 	localDone, parentReady := make(chan struct{}), make(chan struct{})
-	integration := make(chan fantasy.Call, 1)
+	integration := make(chan fantasy.Call, 2)
 	local := objectTool("local_check", true, true, func(context.Context, canonical.ToolRequest) ToolResult {
 		close(localDone)
 		return ToolResult{Value: map[string]bool{"checked": true}}
 	})
 	parent := &scriptedModel{scripts: []script{
 		response(
-			call("first", "spawn_agent", `{"task":"Check the first independent area"}`),
-			call("second", "spawn_agent", `{"task":"Check the second independent area"}`),
+			call("first", "spawn_agent", `{"task":"`+slowTask+`"}`),
+			call("second", "spawn_agent", `{"task":"`+fastTask+`"}`),
 			finish(),
 		),
 		response(call("local", "local_check", `{}`), finish()),
@@ -184,15 +189,23 @@ func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *t
 		},
 		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
 			integration <- request
+			response(text("Integrated the fast check"), finish())(ctx, request, yield)
+		},
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			integration <- request
 			response(text("Integrated the local check and both child results"), finish())(ctx, request, yield)
 		},
 	}}
 	check := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		release, answer := finishSlow, slowAnswer
+		if strings.Contains(promptText(request), fastTask) {
+			release, answer = finishFast, fastAnswer
+		}
 		childStarted <- struct{}{}
 		select {
 		case <-ctx.Done():
-		case <-finishChildren:
-			response(text(childAnswer), finish())(ctx, request, yield)
+		case <-release:
+			response(text(answer), finish())(ctx, request, yield)
 		}
 	}
 	children := &scriptedModel{scripts: []script{check, check}}
@@ -221,18 +234,27 @@ func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *t
 	wait(childStarted, "the second child")
 	wait(localDone, "the parent's local tool")
 	wait(parentReady, "the parent's next model step")
-	close(finishChildren)
+	close(finishFast)
+	select {
+	case request := <-integration:
+		if prompt := promptText(request); strings.Count(prompt, fastAnswer) != 1 || strings.Contains(prompt, slowAnswer) {
+			t.Fatal("the parent did not receive the fast result independently")
+		}
+	case <-f.ctx.Done():
+		t.Fatal("the parent waited for the slow child before processing the fast result")
+	}
+	close(finishSlow)
 	f.waitRun(turn.ID, protocol.ConversationStatusCompleted)
 	select {
 	case request := <-integration:
-		if got := strings.Count(promptText(request), childAnswer); got != 2 {
-			t.Fatalf("integration received %d children, want two", got)
+		if prompt := promptText(request); strings.Count(prompt, fastAnswer) != 1 || strings.Count(prompt, slowAnswer) != 1 {
+			t.Fatal("final integration did not receive both results exactly once")
 		}
 	default:
 		t.Fatal("the parent finished without integrating its child results")
 	}
-	if count := parent.count(); count != 4 {
-		t.Fatalf("parent made %d requests, want four", count)
+	if count := parent.count(); count != 5 {
+		t.Fatalf("parent made %d requests, want five", count)
 	}
 }
 

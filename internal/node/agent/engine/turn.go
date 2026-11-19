@@ -435,7 +435,8 @@ func (r *Runtime) turn(x *execution) error {
 		}
 		last := lastMessage(state.Records)
 		finishing := last != nil && last.Role == canonical.Assistant && last.Error == nil
-		delivered, err := r.foregroundStep(x, finishing)
+		// A completed child can reopen a reply while its siblings are running.
+		delivered, err := r.foregroundStep(x, finishing && !x.callbackPending)
 		if err != nil {
 			return err
 		}

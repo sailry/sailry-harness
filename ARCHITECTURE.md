@@ -564,9 +564,10 @@ Team settings control child concurrency, with a default of eight per root sessio
 In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
 parent by default. A dependent next step can use `overlap: false` to wait before
 continuing. Standard, user-selected and package delegation keep their existing
-wait defaults. An overlapping child remains owned by its parent turn and joins
-before it settles. Waiting for a child is accounted for separately from active
-tool execution.
+wait defaults. A completed overlapping child can reopen a reply at the next
+model boundary while other children are still running. The parent settles after
+collecting all its foreground children. Waiting for a child is accounted for
+separately from active tool execution.
 
 `list_subagents` reads a bounded page of direct child sessions from durable
 delegation records across turns. The active parent uses its captured delegation

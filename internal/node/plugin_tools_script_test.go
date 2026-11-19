@@ -13,6 +13,26 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestBundledProgressCanJoinReadBatch(t *testing.T) {
+	node := nodeFixture(t)
+	ctx := t.Context()
+	info, err := node.plugins.manager.InstallBundled(ctx, "progress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation := &store.AgentInvocation{Turn: protocol.DefaultQueuedTurn(), Run: protocol.DefaultConversationRun()}
+	for _, origin := range []string{"bundled", "local"} {
+		info.Origin = &protocol.PluginOrigin{Kind: origin}
+		tools, err := node.scriptTools(ctx, invocation, info, nil)
+		if err != nil || len(tools) != 1 {
+			t.Fatalf("%s progress tool: %d tools, %v", origin, len(tools), err)
+		}
+		if tool := tools[0]; !tool.ReadOnly || tool.Approval || tool.Concurrent != (origin == "bundled") {
+			t.Fatalf("%s progress registration has the wrong execution policy: read-only %v, approval %v, concurrent %v", origin, tool.ReadOnly, tool.Approval, tool.Concurrent)
+		}
+	}
+}
+
 func TestBeforeModelResultsKeepRecentCompleteResultsOfThisTurn(t *testing.T) {
 	current, earlier := protocol.NewTurnID(), protocol.NewTurnID()
 	result := func(turn protocol.TurnID, id, name, body string) canonical.Record {
