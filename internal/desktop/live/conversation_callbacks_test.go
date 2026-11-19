@@ -298,8 +298,8 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 	frame("child", second)
 	state := show()
 	exit := i18n.In("en", "background_exit", "code", 7)
-	pending := exit + " · " + i18n.In("en", "background_result_waiting")
-	if state.Snapshot.Page.Revision != snapshot.Page.Revision || !tester.HasText(pending) || !tester.HasText(stderr) || !tester.HasText(commandReceipt) || tester.HasText(i18n.In("en", "background_running")) {
+	waiting := i18n.In("en", "background_result_waiting")
+	if state.Snapshot.Page.Revision != snapshot.Page.Revision || tester.HasText(exit) || tester.HasText(waiting) || !tester.HasText(stderr) || !tester.HasText(commandReceipt) || tester.HasText(i18n.In("en", "background_running")) {
 		t.Fatalf("activity did not update the open command in place: %q", tester.Texts())
 	}
 	button, ok := tester.AccessByRole(ui.RoleButton, "First worker")
@@ -309,19 +309,17 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 	task.State, task.Revision = protocol.ConversationBackgroundStateConsumed, 3
 	frame("background", task)
 	state = show()
-	if !tester.HasText(exit) || tester.HasText(pending) || !tester.HasText(stderr) {
+	if tester.HasText(exit) || tester.HasText(waiting) || !tester.HasText(stderr) {
 		t.Fatalf("delivery did not preserve the command's terminal details: %q", tester.Texts())
 	}
-	for _, want := range []string{exit, stderr} {
-		count := 0
-		for _, text := range tester.Texts() {
-			if text == want {
-				count++
-			}
+	count := 0
+	for _, text := range tester.Texts() {
+		if text == stderr {
+			count++
 		}
-		if count != 1 {
-			t.Fatalf("%q appeared %d times: %q", want, count, tester.Texts())
-		}
+	}
+	if count != 1 {
+		t.Fatalf("%q appeared %d times: %q", stderr, count, tester.Texts())
 	}
 	blocks := conversation.Compact(cv.Turns[0].Reply.Blocks)
 	if len(blocks) != 3 || blocks[0].Kind != conversation.ToolsBlock || len(blocks[0].Calls) != 2 ||

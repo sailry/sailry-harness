@@ -182,7 +182,7 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	render()
 	render()
 	wantRequests := []string{"read_tool_detail", "read_command", "read_command_page", "read_command_page", "read_command_page"}
-	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(tail) || tester.HasText(prefix) || tester.HasText("Partial results") || !tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
+	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(tail) || tester.HasText(prefix) || tester.HasText("Partial results") || tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
 		t.Fatalf("opening did not render the real old result once: %v; %q", got, tester.Texts())
 	}
 	copyLabel := i18n.In("en", "tool_copy")

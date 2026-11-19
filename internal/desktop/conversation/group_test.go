@@ -374,7 +374,7 @@ func testBackground(t *testing.T) {
 	}{
 		{Background{Running: true}, "Running in background", "后台运行中", false},
 		{Background{Outcome: OutcomeCompleted, Waiting: true}, "Completed · Result not delivered", "已完成 · 结果待送达", false},
-		{Background{Outcome: OutcomeFailed, Exit: &exit, Waiting: true}, "Exit code 2 · Result not delivered", "退出码 2 · 结果待送达", true},
+		{Background{Outcome: OutcomeFailed, Exit: &exit, Waiting: true}, "Exit code 2 · Result not delivered", "退出码 2 · 结果待送达", false},
 		{Background{Outcome: OutcomeFailed, Waiting: true}, "Failed · Result not delivered", "失败 · 结果待送达", true},
 		{Background{Outcome: OutcomeTimedOut}, "Timed out", "超时", true},
 		{Background{Outcome: OutcomeStopped}, "Stopped", "已停止", false},

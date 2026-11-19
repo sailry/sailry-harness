@@ -72,20 +72,16 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 	return p.MutedForeground
 }
 
-// flagged is whether a row takes the warning color: a denied,
-// interrupted or unexecuted call, or one whose background command ended
-// badly. Only a failed call (Failed: the call itself did not run) is red;
-// an error the tool returned from a call that ran (Warning without a state)
-// reads as a plain row.
+// flagged gives denied, interrupted and unexecuted calls and background
+// execution faults the warning color. A command exit uses the plain row.
 func flagged(call Call) bool {
 	return call.Warning && call.State != StateNone || backgroundFailed(call.Background)
 }
 
-// backgroundFailed is a background command that did not end well: it
-// failed, timed out, was lost or ended unconfirmed. One the user stopped
-// reads plain.
+// backgroundFailed reports a fault, timeout, interruption or uncertain
+// outcome of a background command. An exit code records a process result.
 func backgroundFailed(b *Background) bool {
-	if b == nil || b.Running {
+	if b == nil || b.Running || b.Exit != nil {
 		return false
 	}
 	switch b.Outcome {
@@ -468,16 +464,13 @@ func backgroundNotice(c *ui.Context, b *Background, color ui.Color) {
 		notice(c, i18n.T(c, "background_running"), color)
 		return
 	}
-	if b.Outcome == OutcomeCompleted {
+	if b.Outcome == OutcomeCompleted || b.Exit != nil {
 		return
 	}
 	keys := [...]string{"", "background_outcome_failed", "background_outcome_cancelled",
 		"background_outcome_stopped", "background_outcome_timed_out", "background_outcome_interrupted",
 		"background_outcome_unknown", "background_outcome_stalled"}
 	label := i18n.T(c, keys[b.Outcome])
-	if b.Exit != nil {
-		label = i18n.T(c, "background_exit", "code", *b.Exit)
-	}
 	if b.Waiting {
 		label += " · " + i18n.T(c, "background_result_waiting")
 	}

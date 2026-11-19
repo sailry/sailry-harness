@@ -393,7 +393,7 @@ type Background struct {
 	Running bool
 	// Outcome is how the command ended, once it is not running.
 	Outcome BackgroundOutcome
-	// Exit is the exit code of a command that ran to its end and failed.
+	// Exit holds a recorded process exit code.
 	Exit *int
 	// Waiting is a result no turn has taken yet: it joins the next one.
 	Waiting bool

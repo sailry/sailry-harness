@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -92,34 +93,46 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	}
 }
 
-func TestCompletedToolCommandShowsOnlyOutput(t *testing.T) {
-	for _, historical := range []bool{false, true} {
-		call := Call{ID: "command", Label: "Command"}
-		status := &Background{Outcome: OutcomeCompleted}
-		const text = "command result"
-		if historical {
-			status.Exit = new(0)
-			call.BackgroundDetail = func() BackgroundDetail {
-				return BackgroundDetail{Status: status, Output: &Output{Text: text, Command: true}}
+func TestExitedToolCommandShowsOnlyOutput(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		status     Background
+		historical bool
+	}{
+		{"completed", Background{Outcome: OutcomeCompleted}, false},
+		{"nonzero exit", Background{Outcome: OutcomeFailed, Exit: new(1), Waiting: true}, false},
+		{"historical completion", Background{Outcome: OutcomeCompleted, Exit: new(0)}, true},
+		{"historical nonzero exit", Background{Outcome: OutcomeFailed, Exit: new(1)}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			call := Call{ID: "command", Label: "Command"}
+			const text = "command result"
+			if test.historical {
+				call.BackgroundDetail = func() BackgroundDetail {
+					return BackgroundDetail{Status: &test.status, Output: &Output{Text: text, Command: true}}
+				}
+			} else {
+				test.status.Preview = text
+				call.Background = &test.status
 			}
-		} else {
-			status.Preview = text
-			call.Background = status
-		}
-		state := New()
-		tester := ui.NewTester(func(c *ui.Context) {
-			theme.Apply(c, "", theme.Light)
-			state.row(c, call)
-		}, 900, 300)
-		tester.SetLocale("en")
-		tester.Frame()
-		if err := tester.Click("Command"); err != nil {
-			t.Fatal(err)
-		}
-		tester.Frame()
-		if !tester.HasText(text) || tester.HasText(i18n.In("en", "background_outcome_completed")) || tester.HasText(i18n.In("en", "background_exit", "code", 0)) {
-			t.Fatalf("expanded successful command added status text or lost output: %q", tester.Texts())
-		}
+			state := New()
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				state.row(c, call)
+			}, 900, 300)
+			tester.SetLocale("zh-CN")
+			tester.Frame()
+			if tester.HasText(text) {
+				t.Fatalf("a command that exited opened on its own: %q", tester.Texts())
+			}
+			if err := tester.Click("Command"); err != nil {
+				t.Fatal(err)
+			}
+			tester.Frame()
+			if got := tester.Texts(); !slices.Equal(got, []string{"Command", text, i18n.In("zh-CN", "tool_copy")}) {
+				t.Fatalf("expanded command should show only its output: %q", got)
+			}
+		})
 	}
 }
 

@@ -894,7 +894,8 @@ lifetimes. Command
 admission reads current Client state independently of rendering. Old background
 commands open on their original tool row: the controller resolves the stored
 call revision and reads output for that exact session and command. Command
-cards show the last 100 retained lines. Copy reads the full retained output
+cards show the last 100 retained lines. A process exit uses the standard tool
+row and shows its captured output on expansion. Copy reads the full retained output
 on demand when the captured result was truncated.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
