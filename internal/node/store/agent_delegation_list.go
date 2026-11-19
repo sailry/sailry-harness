@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"math"
 	"strconv"
 
@@ -76,107 +75,82 @@ func ListSubagents(ctx context.Context, db *sql.Conn, parent protocol.TurnID, op
 		return page, fault(protocol.ErrorCodePermissionDenied, "delegation is unavailable for the captured conversation configuration")
 	}
 
-	rows, err := db.QueryContext(ctx, `SELECT s.id,s.rowid,d.body,json_extract(title.body,'$'),coalesce(q.paused,0)
+	rows, err := db.QueryContext(ctx, `WITH children AS (
+		SELECT s.id AS session,s.rowid AS sequence,json_extract(d.body,'$.role') AS role,p.id AS parent_turn,
+			json_extract(title.body,'$') AS title,coalesce(q.paused,0) AS paused
 		FROM turns p JOIN agent_delegations d ON d.parent_turn=p.id JOIN turns t ON t.id=d.turn
 		JOIN sessions s ON s.id=t.session LEFT JOIN agent_state title ON title.owner=s.id AND title.key=?3
 		LEFT JOIN agent_queues q ON q.session=s.id
 		WHERE p.session=?1 AND s.rowid<=?2 AND s.state!='removed' AND json_extract(d.body,'$.session')=?1
 		AND d.turn=(SELECT initial.id FROM turns initial JOIN agent_delegations seed ON seed.turn=initial.id
 			WHERE initial.session=s.id ORDER BY initial.rowid LIMIT 1)
-		ORDER BY s.rowid DESC LIMIT ?4`, run.Session.String(), upper, sessionTitleKey, int(limit)+1)
+		ORDER BY s.rowid DESC LIMIT ?4
+	)
+	SELECT c.session,c.sequence,c.title,c.paused,a.turn,json_extract(a.body,'$.status'),
+		coalesce(json_extract(a.body,'$.session')=c.session AND json_extract(a.body,'$.turn')=a.turn
+			AND json_extract(origin.body,'$.session')=?1 AND json_extract(origin.body,'$.role') IS c.role,0),
+		coalesce(origin.stop_requested,0),c.role,
+		CASE WHEN c.role IS NOT NULL THEN
+			(SELECT json_object('key',json_extract(r.value,'$.key'),'name',json_extract(r.value,'$.name'))
+			 FROM turns p,json_each(p.roles,'$.profiles') r WHERE p.id=c.parent_turn AND json_extract(r.value,'$.id')=c.role LIMIT 1) END
+	FROM children c LEFT JOIN agent_runs a ON a.turn=(SELECT t.id FROM turns t JOIN agent_runs a ON a.turn=t.id
+		WHERE t.session=c.session AND json_extract(a.body,'$.joined') IS NULL ORDER BY `+childRunOrder+` LIMIT 1)
+	LEFT JOIN agent_delegations origin ON origin.turn=a.turn ORDER BY c.sequence DESC`, run.Session.String(), upper, sessionTitleKey, int(limit)+1)
 	if err != nil {
 		return page, err
 	}
-	type candidate struct {
-		session  string
-		sequence int64
-		origin   []byte
-		title    sql.NullString
-		paused   bool
-	}
-	children := make([]candidate, 0, int(limit))
+	defer rows.Close()
+	var last int64
 	for rows.Next() {
-		if len(children) == int(limit) {
-			page.NextBefore = new(strconv.FormatInt(children[len(children)-1].sequence, 10))
+		if len(page.Subagents) == int(limit) {
+			page.NextBefore = new(strconv.FormatInt(last, 10))
 			break
 		}
-		var child candidate
-		if err = rows.Scan(&child.session, &child.sequence, &child.origin, &child.title, &child.paused); err != nil {
-			return page, errors.Join(err, rows.Close())
-		}
-		children = append(children, child)
-	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return page, err
-	}
-
-	for _, child := range children {
-		session, err := protocol.ParseSessionID(child.session)
-		if err != nil {
+		var session string
+		var title, turn, status, role sql.NullString
+		var paused, owned, stopped bool
+		var roleBody []byte
+		if err = rows.Scan(&session, &last, &title, &paused, &turn, &status, &owned, &stopped, &role, &roleBody); err != nil {
 			return page, err
 		}
-		current, err := ownedChild(ctx, db, parent, session, nil)
-		if err != nil {
+		if !turn.Valid {
+			return page, sql.ErrNoRows
+		}
+		if !owned {
+			return page, fault(protocol.ErrorCodePermissionDenied, "child execution belongs to another owner")
+		}
+		summary := SubagentSummary{Title: shortTitle(title.String)}
+		if summary.Session, err = protocol.ParseSessionID(session); err != nil {
 			return page, err
 		}
-		summary := SubagentSummary{Session: session, Turn: current.Turn, Status: current.Status, Title: shortTitle(child.title.String), Paused: child.paused && current.Status == protocol.ConversationStatusQueued}
-		var founding protocol.Delegation
-		if err = json.Unmarshal(child.origin, &founding); err != nil {
+		if summary.Turn, err = protocol.ParseTurnID(turn.String); err != nil {
 			return page, err
 		}
-		role, err := roleFromDelegation(ctx, db, founding)
-		if err != nil {
+		if err = summary.Status.UnmarshalText([]byte(status.String)); err != nil {
 			return page, err
 		}
-		if role != nil {
-			summary.Role = &subagentRole{ID: role.ID, Name: shortTitle(role.Name)}
-			if len(role.Key) <= 128 {
-				summary.Role.Key = role.Key
+		summary.Paused = paused && summary.Status == protocol.ConversationStatusQueued
+		if role.Valid {
+			if roleBody == nil {
+				return page, invalid("frozen child role is missing")
 			}
+			id, err := protocol.ParseRoleID(role.String)
+			if err != nil {
+				return page, err
+			}
+			summary.Role = &subagentRole{ID: id}
+			if err = json.Unmarshal(roleBody, summary.Role); err != nil {
+				return page, err
+			}
+			summary.Role.Name = shortTitle(summary.Role.Name)
+			if len(summary.Role.Key) > 128 {
+				summary.Role.Key = ""
+			}
+		}
+		if summary.Status == protocol.ConversationStatusStopping || stopped && (summary.Status == protocol.ConversationStatusInterrupted || summary.Status == protocol.ConversationStatusCancelled) {
+			summary.StopReason = "stop_requested"
 		}
 		page.Subagents = append(page.Subagents, summary)
 	}
-	return page, markSubagentStops(ctx, db, page.Subagents)
-}
-
-// A queue pause is not turn-specific and every cancellation can set it. Only
-// expose a stop transition or a successful Stop receipt for this exact turn.
-func markSubagentStops(ctx context.Context, db *sql.Conn, entries []SubagentSummary) error {
-	const requested = "stop_requested"
-	indices := map[string]int{}
-	var turns []string
-	for i := range entries {
-		switch entries[i].Status {
-		case protocol.ConversationStatusStopping:
-			entries[i].StopReason = requested
-		case protocol.ConversationStatusCancelled, protocol.ConversationStatusInterrupted:
-			turn := entries[i].Turn.String()
-			indices[turn] = i
-			turns = append(turns, turn)
-		}
-	}
-	if len(turns) == 0 {
-		return nil
-	}
-	body, err := encode(turns)
-	if err != nil {
-		return err
-	}
-	rows, err := db.QueryContext(ctx, `SELECT DISTINCT json_extract(result,'$.Ok.data.turn') FROM requests
-		WHERE status='completed' AND json_extract(result,'$.Ok.kind')='run'
-		AND json_extract(result,'$.Ok.data.status') IN ('stopping','cancelled')
-		AND json_extract(result,'$.Ok.data.turn') IN (SELECT value FROM json_each(?1))
-		AND CASE WHEN json_valid(body) THEN json_extract(body,'$.command.kind')='stop_turn'
-			AND json_extract(body,'$.command.data.turn')=json_extract(result,'$.Ok.data.turn') END`, string(body))
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var turn string
-		if err = rows.Scan(&turn); err != nil {
-			return errors.Join(err, rows.Close())
-		}
-		entries[indices[turn]].StopReason = requested
-	}
-	return errors.Join(rows.Err(), rows.Close())
+	return page, rows.Err()
 }

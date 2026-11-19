@@ -193,6 +193,16 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 			return err
 		}
 	}
+	if definition.plan.added[schemaObject{"agent_delegations", "stop_requested"}] {
+		// Older stores recorded explicit child stops only in the expiring request ledger.
+		if _, err := connection.ExecContext(ctx, `UPDATE agent_delegations SET stop_requested=1 WHERE turn IN (
+			SELECT json_extract(result,'$.Ok.data.turn') FROM requests WHERE status='completed'
+			AND json_extract(result,'$.Ok.kind')='run' AND json_extract(result,'$.Ok.data.status') IN ('stopping','cancelled')
+			AND CASE WHEN json_valid(body) THEN json_extract(body,'$.command.kind')='stop_turn'
+				AND json_extract(body,'$.command.data.turn')=json_extract(result,'$.Ok.data.turn') END)`); err != nil {
+			return err
+		}
+	}
 	if definition.state == schemaUpdate && definition.plan.added[schemaObject{"database_profiles", "password_target"}] {
 		if err := reconcileDatabaseTargets(ctx, connection); err != nil {
 			return err

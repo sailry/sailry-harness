@@ -177,6 +177,9 @@ func ConsumeStoppedChildren(ctx context.Context, db *sql.Conn, parent protocol.T
 	}
 	return nil, nil
 }
+
+const childRunOrder = `CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC`
+
 func ownedChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child protocol.SessionID, exact *protocol.TurnID) (protocol.ConversationRun, error) {
 	parentRun, err := activeAgentRun(ctx, db, parent)
 	if err != nil {
@@ -198,7 +201,7 @@ func ownedChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child
 		run, err = ReadAgentRun(ctx, db, *exact)
 	} else {
 		var body []byte
-		err = db.QueryRowContext(ctx, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.joined') IS NULL ORDER BY CASE json_extract(a.body,'$.status') WHEN 'running' THEN 0 WHEN 'stopping' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,t.rowid DESC LIMIT 1", child.String()).Scan(&body)
+		err = db.QueryRowContext(ctx, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 AND json_extract(a.body,'$.joined') IS NULL ORDER BY "+childRunOrder+" LIMIT 1", child.String()).Scan(&body)
 		if err == nil {
 			err = json.Unmarshal(body, &run)
 		}

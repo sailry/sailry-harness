@@ -168,7 +168,8 @@ CREATE TABLE IF NOT EXISTS agent_delegations (
     parent_turn TEXT NOT NULL REFERENCES turns(id),
     entry TEXT NOT NULL,
     part INTEGER NOT NULL,
-    body BLOB NOT NULL
+    body BLOB NOT NULL,
+    stop_requested INTEGER NOT NULL DEFAULT 0 CHECK(stop_requested IN (0,1))
 );
 CREATE INDEX IF NOT EXISTS agent_delegations_call ON agent_delegations(parent_turn,entry,part);
 CREATE TABLE users (

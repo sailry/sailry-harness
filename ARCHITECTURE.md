@@ -548,8 +548,8 @@ Team settings control child concurrency, with a default of eight per root sessio
 delegation records across turns. The active parent uses its captured delegation
 scope; no caller-supplied session can change the scope. The page keeps exact
 session and turn IDs, status, an assigned title and a frozen role when available,
-but no task input or result text. Explicit stop evidence is reported only for
-the selected child turn, not inferred from the session queue or cancellation.
+but no task input or result text. An explicit stop is recorded with the exact
+child delegation and remains available after request receipts expire.
 Listing does not resume, collect or replay work. An explicit spawn using a
 listed child session starts a new child turn with its own admission receipt;
 waiting only observes a specific execution.

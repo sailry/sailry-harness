@@ -146,7 +146,13 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		activity, err := readActivity(ctx, db, target.Session)
 		return protocol.Output{Kind: "queued_turn", Data: turn}, []protocol.Event{{Kind: "turn_queued", Data: protocol.EventTurnQueuedPayload{Activity: &activity, Turn: turn}}}, err
 	case "stop_turn":
-		run, err := stopAgentTurn(ctx, db, request.Command.Data.(*protocol.CommandStopTurnPayload).Turn, now)
+		turn := request.Command.Data.(*protocol.CommandStopTurnPayload).Turn
+		// A late click on an already cancelled child is not evidence for how it ended.
+		if _, err := db.ExecContext(ctx, `UPDATE agent_delegations SET stop_requested=1 WHERE turn=?1
+			AND EXISTS (SELECT 1 FROM agent_runs WHERE turn=?1 AND json_extract(body,'$.status') IN ('queued','running','stopping'))`, turn.String()); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		run, err := stopAgentTurn(ctx, db, turn, now)
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
