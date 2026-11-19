@@ -67,47 +67,71 @@ func runLane(activity protocol.ActivitySummary) Lane {
 	return LaneIdle
 }
 
-// AggregateLane includes owned descendants without changing a run's status.
-func AggregateLane(session protocol.Session, sessions []protocol.Session) Lane {
-	own := runLane(session.Activity)
-	if own == LaneRunning || own == LaneWaiting {
-		return own
-	}
-	if session.Activity.Background > 0 {
-		own = LaneRunning
-	}
-	scoped := make(map[protocol.SessionID]protocol.Session)
-	for _, candidate := range sessions {
-		if candidate.Project == nil && session.Project == nil || candidate.Project != nil && session.Project != nil && *candidate.Project == *session.Project {
-			scoped[candidate.ID] = candidate
+// AggregateLanes returns the display lane of each catalog session in input order.
+func AggregateLanes(sessions []protocol.Session) []Lane {
+	const (
+		background = 1 + iota
+		waiting
+		running
+	)
+	lanes := make([]Lane, len(sessions))
+	var indices map[protocol.SessionID]int
+	var descendants []uint8
+	for i := range sessions {
+		s := &sessions[i]
+		own := runLane(s.Activity)
+		lanes[i] = own
+		if s.Activity.Background > 0 && own != LaneWaiting {
+			lanes[i] = LaneRunning
 		}
-	}
-	for _, child := range scoped {
-		activity := runLane(child.Activity)
-		if activity != LaneRunning && activity != LaneWaiting && child.Activity.Background == 0 {
+		if s.Delegation == nil {
 			continue
 		}
-		for steps := 0; steps < len(scoped) && child.Delegation != nil; steps++ {
-			parent := (*child.Delegation).Session
-			if parent == session.ID {
-				switch activity {
-				case LaneRunning:
-					return LaneRunning
-				case LaneWaiting:
-					own = LaneWaiting
-				default:
-					if own != LaneWaiting {
-						own = LaneRunning
-					}
-				}
+		var strength uint8
+		switch {
+		case own == LaneRunning:
+			strength = running
+		case own == LaneWaiting:
+			strength = waiting
+		case s.Activity.Background > 0:
+			strength = background
+		default:
+			continue
+		}
+		if indices == nil {
+			indices = make(map[protocol.SessionID]int, len(sessions))
+			for j := range sessions {
+				indices[sessions[j].ID] = j
+			}
+			descendants = make([]uint8, len(sessions))
+		}
+		// A stronger signal has already reached every ancestor above this one.
+		// Each edge is visited at most three times successfully, even in a cycle.
+		for s.Delegation != nil {
+			parent, ok := indices[(*s.Delegation).Session]
+			if !ok || descendants[parent] >= strength {
 				break
 			}
-			var exists bool
-			child, exists = scoped[parent]
-			if !exists {
+			project := sessions[parent].Project
+			if s.Project != project && (s.Project == nil || project == nil || *s.Project != *project) {
 				break
 			}
+			descendants[parent] = strength
+			s = &sessions[parent]
 		}
 	}
-	return own
+	for i, strength := range descendants {
+		if strength == 0 {
+			continue
+		}
+		if own := runLane(sessions[i].Activity); own == LaneRunning || own == LaneWaiting {
+			continue
+		}
+		if strength == waiting {
+			lanes[i] = LaneWaiting
+		} else {
+			lanes[i] = LaneRunning
+		}
+	}
+	return lanes
 }

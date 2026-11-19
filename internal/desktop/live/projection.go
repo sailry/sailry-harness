@@ -43,7 +43,8 @@ func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data
 	}
 	// Projects and sessions keep the Node's order; the sidebar sorts them by
 	// the session order preference (sidebar.Sorted).
-	for _, s := range snapshot.Sessions {
+	lanes := client.AggregateLanes(snapshot.Sessions)
+	for i, s := range snapshot.Sessions {
 		if s.Delegation != nil {
 			continue
 		}
@@ -54,7 +55,7 @@ func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data
 		if last := lastRun(s); last != nil {
 			cv.Updated = time.UnixMilli(*last)
 		}
-		switch client.AggregateLane(s, snapshot.Sessions) {
+		switch lanes[i] {
 		case client.LaneRunning:
 			cv.Status = viewmodel.Running
 		case client.LaneWaiting:

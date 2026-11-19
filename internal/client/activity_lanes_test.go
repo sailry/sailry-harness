@@ -88,25 +88,25 @@ func testActivityLanes(t *testing.T) {
 		intermediate := activityChild(2, parent, protocol.ConversationStatusCompleted)
 		child := activityChild(3, intermediate, protocol.ConversationStatusRunning)
 		graph := []protocol.Session{parent, intermediate, child}
-		if AggregateLane(parent, graph) != LaneRunning || activityLane(LaneOf(parent)) != ActivityCompleted {
+		if AggregateLanes(graph)[0] != LaneRunning || activityLane(LaneOf(parent)) != ActivityCompleted {
 			t.Fatal("nested child changed the parent's canonical result or lost its activity")
 		}
 		child.Activity.Waiting = new(protocol.ActivityWaitingInput)
 		graph[2] = child
-		if AggregateLane(parent, graph) != LaneWaiting {
+		if AggregateLanes(graph)[0] != LaneWaiting {
 			t.Fatal("nested waiting input did not project to its owner")
 		}
 		parent.Activity.Background, intermediate.Activity.Background = 1, 1
-		if LaneOf(parent) != LaneRunning || AggregateLane(parent, []protocol.Session{parent, intermediate, child}) != LaneWaiting {
+		if LaneOf(parent) != LaneRunning || AggregateLanes([]protocol.Session{parent, intermediate, child})[0] != LaneWaiting {
 			t.Fatal("background activity hid a descendant waiting for input")
 		}
-		if AggregateLane(parent, []protocol.Session{parent, intermediate}) != LaneRunning {
+		if AggregateLanes([]protocol.Session{parent, intermediate})[0] != LaneRunning {
 			t.Fatal("background follow-up did not keep the parent active")
 		}
 		parent.Activity.Run.Status = protocol.ConversationStatusRunning
 		parent.Activity.Waiting = new(protocol.ActivityWaitingApproval)
 		child.Activity.Waiting = nil
-		if AggregateLane(parent, []protocol.Session{parent, intermediate, child}) != LaneWaiting {
+		if AggregateLanes([]protocol.Session{parent, intermediate, child})[0] != LaneWaiting {
 			t.Fatal("child overrode its owner's active lane")
 		}
 		parent = activitySession(1, protocol.ConversationStatusCompleted)
@@ -115,12 +115,12 @@ func testActivityLanes(t *testing.T) {
 		cyclic := activityChild(5, parent, protocol.ConversationStatusRunning)
 		(*cyclic.Delegation).Session = cyclic.ID
 		stranger := activityChild(6, activitySession(7, protocol.ConversationStatusRunning), protocol.ConversationStatusRunning)
-		if AggregateLane(parent, []protocol.Session{parent, misplaced, cyclic, stranger}) != LaneIdle {
+		if AggregateLanes([]protocol.Session{parent, misplaced, cyclic, stranger})[0] != LaneIdle {
 			t.Fatal("unrelated or cyclic ancestry escaped the supplied project graph")
 		}
 		archived := activityChild(8, parent, protocol.ConversationStatusRunning)
 		archived.Archived = true
-		if AggregateLane(parent, []protocol.Session{parent, archived}) != LaneRunning {
+		if AggregateLanes([]protocol.Session{parent, archived})[0] != LaneRunning {
 			t.Fatal("controller navigation filtering changed the Node's owned descendant activity")
 		}
 	})
@@ -167,4 +167,39 @@ func testActivityLanes(t *testing.T) {
 			t.Fatalf("captured Node unread terminal identities: %v", unread)
 		}
 	})
+}
+
+func TestAggregateLanesAcrossActiveSiblings(t *testing.T) {
+	root := activitySession(1, "")
+	owner := activityChild(2, root, protocol.ConversationStatusRunning)
+	owner.Activity.Waiting = new(protocol.ActivityWaitingApproval)
+	worker := activityChild(3, owner, protocol.ConversationStatusRunning)
+	background := activityChild(4, root, protocol.ConversationStatusCompleted)
+	background.Activity.Background = 1
+	for _, sessions := range [][]protocol.Session{{root, background, owner, worker}, {worker, owner, background, root}} {
+		lanes := AggregateLanes(sessions)
+		for i, session := range sessions {
+			want := LaneRunning
+			if session.ID == owner.ID {
+				want = LaneWaiting
+			}
+			if lanes[i] != want {
+				t.Fatalf("session %v: got %v, want %v", session.ID, lanes[i], want)
+			}
+		}
+	}
+}
+
+func BenchmarkProjectActivityReview(b *testing.B) {
+	var catalog protocol.ActivityCatalog
+	for i := range 160 {
+		catalog.Sessions = append(catalog.Sessions, activitySession(byte(i), protocol.ConversationStatusCompleted))
+	}
+	for i := range 16 {
+		catalog.Sessions = append(catalog.Sessions, activityChild(byte(160+i), catalog.Sessions[i], protocol.ConversationStatusRunning))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		ProjectActivity(catalog, nil)
+	}
 }

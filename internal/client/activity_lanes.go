@@ -56,14 +56,14 @@ func ActivityPrecedence(lane ActivityLane) uint8 {
 	}
 }
 
-func ActivityOrder(sessions []protocol.Session, terminals []TerminalActivityLane) []NoticeTarget {
+func activityOrder(sessions []protocol.Session, lanes []Lane, terminals []TerminalActivityLane) []NoticeTarget {
 	type item struct {
 		precedence uint8
 		recent     *int64
 		target     NoticeTarget
 	}
 	items := make([]item, 0, len(sessions)+len(terminals))
-	for _, session := range sessions {
+	for i, session := range sessions {
 		var recent *int64
 		if run := session.Activity.Run; run != nil {
 			recent = run.FinishedMs
@@ -72,7 +72,7 @@ func ActivityOrder(sessions []protocol.Session, terminals []TerminalActivityLane
 			}
 		}
 		items = append(items, item{
-			precedence: ActivityPrecedence(activityLane(AggregateLane(session, sessions))), recent: recent,
+			precedence: ActivityPrecedence(activityLane(lanes[i])), recent: recent,
 			target: NoticeTarget{Kind: "session", Session: session.ID},
 		})
 	}
@@ -150,8 +150,9 @@ func ProjectActivity(catalog protocol.ActivityCatalog, unread []protocol.Termina
 		SessionLanes: map[string]ActivityLane{}, TerminalLanes: map[string]ActivityLane{},
 		ActivityOrder: []string{},
 	}
-	for _, session := range catalog.Sessions {
-		projection.SessionLanes[session.ID.String()] = activityLane(AggregateLane(session, catalog.Sessions))
+	lanes := AggregateLanes(catalog.Sessions)
+	for i, session := range catalog.Sessions {
+		projection.SessionLanes[session.ID.String()] = activityLane(lanes[i])
 	}
 	terminals := make([]TerminalActivityLane, 0, len(catalog.Terminals))
 	for _, terminal := range catalog.Terminals {
@@ -165,7 +166,7 @@ func ProjectActivity(catalog protocol.ActivityCatalog, unread []protocol.Termina
 		}
 		terminals = append(terminals, TerminalActivityLane{Terminal: terminal.ID, Lane: lane})
 	}
-	for _, target := range ActivityOrder(catalog.Sessions, terminals) {
+	for _, target := range activityOrder(catalog.Sessions, lanes, terminals) {
 		if target.Kind == "session" {
 			projection.ActivityOrder = append(projection.ActivityOrder, "session:"+target.Session.String())
 		} else if target.Kind == "terminal" {

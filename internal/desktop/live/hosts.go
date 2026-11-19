@@ -267,11 +267,12 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	// The lanes follow from the Node snapshot alone and are found once for each.
 	if state.activeOwner != state.owner || state.activeRevision != revision {
 		state.active, state.activeOwner, state.activeRevision = nil, state.owner, revision
-		for _, session := range snapshot.Sessions {
+		lanes := client.AggregateLanes(snapshot.Sessions)
+		for i, session := range snapshot.Sessions {
 			if session.Delegation != nil || session.Archived {
 				continue
 			}
-			if lane := client.AggregateLane(session, snapshot.Sessions); lane == client.LaneRunning || lane == client.LaneWaiting {
+			if lane := lanes[i]; lane == client.LaneRunning || lane == client.LaneWaiting {
 				state.active = append(state.active, hostActivity{session: session, waiting: lane == client.LaneWaiting})
 			}
 		}
