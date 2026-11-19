@@ -178,6 +178,7 @@ func TestSaveProviderUsesBundledReasoningAndPreservesCustomChoices(t *testing.T)
 	custom.Efforts = []protocol.Effort{{Kind: "high"}}
 	custom.DefaultEffort = custom.Efforts[0]
 	provider.Models = append(provider.Models, custom)
+	custom.Outputs = []string{"text"} // Read-only catalog metadata accompanies the manual choices.
 	var saved protocol.ConversationProvider
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		out, _, err := ExecuteProviderCommand(ctx, db, node, protocol.Request{Command: protocol.Command{Kind: "put_provider", Data: protocol.CommandPutProviderPayload{Provider: provider}}}, nil)

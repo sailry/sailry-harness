@@ -76,7 +76,7 @@ func (script *delegationScript) Stream(_ context.Context, _ fantasy.Call) (fanta
 	return func(yield func(fantasy.StreamPart) bool) {
 		if request == 1 {
 			for _, title := range []string{"First", "Second"} {
-				args, _ := json.Marshal(map[string]any{"title": title, "task": "Write your result to your own file"})
+				args, _ := json.Marshal(map[string]any{"title": title, "task": "Write your result to your own file", "overlap": false})
 				if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: title, ToolCallName: "spawn_agent", ToolCallInput: string(args)}) {
 					return
 				}

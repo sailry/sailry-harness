@@ -963,8 +963,15 @@ func TestProviderEditor(t *testing.T) {
 		tt.SetLocale("en")
 		tt.Frame()
 		tt.Advance(time.Second)
-		if !tt.HasText(i18n.In("en", "provider_cap_output")) || !tt.HasText("Text, Audio") || !tt.HasText(i18n.In("en", "host_unknown")) {
-			t.Fatalf("native output capability metadata was omitted: %q", tt.Texts())
+		outputs := i18n.In("en", "provider_cap_output")
+		texts, outputGroups := tt.Texts(), 0
+		for _, text := range texts {
+			if text == outputs {
+				outputGroups++
+			}
+		}
+		if outputGroups != 1 || !slices.Contains(texts, "Text, Audio") {
+			t.Fatalf("native outputs for hosted and unknown models were wrong: %q", texts)
 		}
 		// boxes are a model's six, in the form's order.
 		in := func(group, name string) string { return i18n.In("en", group) + " " + i18n.In("en", name) }

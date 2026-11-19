@@ -1860,21 +1860,20 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 						input(kind)
 					}
 				})
-				group("provider_cap_output", "", func() {
-					var labels []string
-					id := strings.TrimSpace(d.id)
-					if x.ID == id || d.catalog != nil && d.catalog.ID == id {
-						for _, kind := range x.Outputs {
-							if key := inputLabels[kind]; key != "" {
-								labels = append(labels, t(key))
-							}
+				var outputs []string
+				id := strings.TrimSpace(d.id)
+				if x.ID == id || d.catalog != nil && d.catalog.ID == id {
+					for _, kind := range x.Outputs {
+						if key := inputLabels[kind]; key != "" {
+							outputs = append(outputs, t(key))
 						}
 					}
-					if len(labels) == 0 {
-						labels = append(labels, t("host_unknown"))
-					}
-					ui.Text(c.Key("native"), strings.Join(labels, ", ")).FontSize(14).TextColor(p.PopoverForeground)
-				})
+				}
+				if len(outputs) != 0 {
+					group("provider_cap_output", "", func() {
+						ui.Text(c.Key("native"), strings.Join(outputs, ", ")).FontSize(14).TextColor(p.PopoverForeground)
+					})
+				}
 				group("provider_cap_functions", "", func() {
 					check("provider_cap_functions", "tools", "provider_cap_tools", &x.Tools)
 					check("provider_cap_functions", "reasoning", "provider_cap_reasoning", &x.Reasoning)
