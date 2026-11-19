@@ -458,7 +458,7 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 	session := s.renderSession
 	all := ch.Undone[""]
 	ui.Column(c.Key("changes")).FillWidth().Radius(p.Radius2xl()).Border(1, p.Border).Background(p.Muted.Alpha(0.2)).Clip().Children(func() {
-		ui.Row(c).FillWidth().MinWidth(0).Padding(12).Gap(12).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().MinWidth(0).Padding(12).Gap(12).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 			ui.Box(c).Size(40, 40).Shrink(0).Radius(p.Radius2xl()).Background(p.MutedForeground.Alpha(0.12)).Center().Children(func() {
 				ui.Icon(c, icons.FileText).FontSize(20).TextColor(p.MutedForeground)
 			})
