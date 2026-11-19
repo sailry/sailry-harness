@@ -267,14 +267,16 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 	response.Result.Value = body
 }
 
-// projectToolFailure keeps the actionable reason and the failure marker in
-// model requests. The stored response remains available for inspection.
+// projectToolFailure replaces a diagnostic-only failure with its readable
+// reason and the failure marker in model requests. A failure with other
+// content keeps its bounded original body and attachments. The stored
+// response remains available for inspection.
 func projectToolFailure(response *canonical.ToolResponse) bool {
 	if response.Status != canonical.ToolErrorStatus && response.Format != canonical.MCPError {
 		return false
 	}
 	message := toolFailureText(response.Result.Value)
-	if message == "" {
+	if message == "" || !failureOnly(response) {
 		return false
 	}
 	source := map[string]any{"call": response.ID, "revision": response.Revision}

@@ -443,8 +443,10 @@ private reasoning is replayed only to its producing provider and model. Reviewed
 capability lookup corrections recognize supported model aliases without renaming
 the provider's requested model or changing stored records.
 Repeated provider call IDs are disambiguated by their message occurrence before
-execution. Model requests render tool failures as readable messages with their
-code and applicable details. Canonical responses retain the original evidence.
+execution. Model requests render diagnostic-only tool failures as readable
+messages with their code and applicable details; a failure with other fields,
+parts or attachments keeps its bounded original body. Canonical responses
+retain the original evidence.
 Package hooks observe a bounded set of their own recent, complete tool results
 from the active turn.
 
