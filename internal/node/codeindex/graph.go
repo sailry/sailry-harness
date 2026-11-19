@@ -75,30 +75,34 @@ type reader struct {
 	limited bool
 }
 
-func (r *reader) candidates(statement string, values ...any) ([]candidate, error) {
+func (r *reader) scanCandidates(visit func(candidate) bool, statement string, values ...any) error {
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
 	rows, err := r.db.QueryContext(r.ctx, statement, values...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var found []candidate
 	for rows.Next() {
 		var body string
 		if err := rows.Scan(&body); err != nil {
-			return nil, err
+			return err
 		}
 		var symbol Symbol
 		if err := json.Unmarshal([]byte(body), &symbol); err != nil {
-			return nil, err
+			return err
 		}
-		found = append(found, candidate{
+		if !visit(candidate{
 			path: symbol.Path, name: symbol.Name, kind: symbol.Kind,
 			startLine: symbol.Range.StartLine, endLine: symbol.Range.EndLine,
 			start: symbol.Range.StartByte, end: symbol.Range.EndByte,
 			depth: symbol.Depth, signature: symbol.Signature,
-		})
+		}) {
+			break
+		}
 	}
-	return found, rows.Err()
+	return rows.Err()
 }
 
 func placeholders(values []string) (string, []any) {
@@ -114,26 +118,21 @@ func (r *reader) definitions(names []string) (map[string][]candidate, error) {
 	found := map[string][]candidate{}
 	seen := map[key]bool{}
 	for part := range slices.Chunk(names, chunk) {
-		if err := r.ctx.Err(); err != nil {
-			return nil, err
-		}
 		list, values := placeholders(part)
-		candidates, err := r.candidates("SELECT body FROM symbols WHERE name IN ("+list+") ORDER BY path,id", values...)
+		err := r.scanCandidates(func(c candidate) bool {
+			if !definition(c.kind) || seen[c.key()] {
+				return true
+			}
+			if len(found[c.name]) >= maxCandidates {
+				r.limited = true
+				return len(part) > 1
+			}
+			seen[c.key()] = true
+			found[c.name] = append(found[c.name], c)
+			return true
+		}, "SELECT body FROM symbols WHERE name IN ("+list+") ORDER BY path,id", values...)
 		if err != nil {
 			return nil, err
-		}
-		for _, candidate := range candidates {
-			if !definition(candidate.kind) {
-				continue
-			}
-			if len(found[candidate.name]) >= maxCandidates {
-				r.limited = true
-				continue
-			}
-			if !seen[candidate.key()] {
-				seen[candidate.key()] = true
-				found[candidate.name] = append(found[candidate.name], candidate)
-			}
 		}
 	}
 	return found, nil
@@ -141,34 +140,46 @@ func (r *reader) definitions(names []string) (map[string][]candidate, error) {
 
 // outline returns every indexed declaration in one file, in source order.
 func (r *reader) outline(path string) ([]candidate, error) {
-	if err := r.ctx.Err(); err != nil {
-		return nil, err
-	}
-	return r.candidates("SELECT body FROM symbols WHERE path=?1 ORDER BY id LIMIT ?2", path, maxSymbols)
+	var found []candidate
+	err := r.scanCandidates(func(c candidate) bool {
+		found = append(found, c)
+		return true
+	}, "SELECT body FROM symbols WHERE path=?1 ORDER BY id LIMIT ?2", path, maxSymbols)
+	return found, err
 }
 
-// within returns definitions in files equal to or below the given paths.
-func (r *reader) within(paths []string, limit int) ([]candidate, error) {
+// within returns definitions in the selected paths. Filter by name in SQL so
+// unrelated same-name declarations cannot exhaust the target budget first.
+func (r *reader) within(paths []string, name *string, limit int) ([]candidate, error) {
 	var found []candidate
 	seen := map[key]bool{}
 	for _, path := range paths {
-		if err := r.ctx.Err(); err != nil {
-			return nil, err
+		// BINARY path order places every descendant between prefix/ and prefix0.
+		statement := "SELECT body FROM symbols WHERE (path=?1 OR (path>=?2 AND path<?3))"
+		values := []any{path, path + "/", path + "0"}
+		if name != nil {
+			statement += " AND name=?4"
+			values = append(values, *name)
 		}
-		candidates, err := r.candidates("SELECT body FROM symbols WHERE path=?1 OR substr(path,1,length(?1)+1)=?1||'/' ORDER BY path,id", path)
+		more := false
+		err := r.scanCandidates(func(c candidate) bool {
+			if !definition(c.kind) || seen[c.key()] {
+				return true
+			}
+			if len(found) == limit {
+				more = true
+				return false
+			}
+			seen[c.key()] = true
+			found = append(found, c)
+			return true
+		}, statement+" ORDER BY path,id", values...)
 		if err != nil {
 			return nil, err
 		}
-		for _, candidate := range candidates {
-			if !definition(candidate.kind) || seen[candidate.key()] {
-				continue
-			}
-			seen[candidate.key()] = true
-			if len(found) == limit {
-				r.limited = true
-				return found, nil
-			}
-			found = append(found, candidate)
+		if more {
+			r.limited = true
+			break
 		}
 	}
 	return found, nil

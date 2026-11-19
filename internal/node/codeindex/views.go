@@ -127,28 +127,22 @@ func within(path, prefix string) bool {
 func selected(reader *reader, query *protocol.CodeIndexGraph, limit int) ([]candidate, error) {
 	var found []candidate
 	switch {
-	case query.Name != nil:
-		named, err := reader.definitions([]string{*query.Name})
-		if err != nil {
-			return nil, err
-		}
-		found = named[*query.Name]
-		if len(query.Paths) != 0 {
-			found = slices.DeleteFunc(found, func(c candidate) bool {
-				return !slices.ContainsFunc(query.Paths, func(path string) bool { return within(c.path, path) })
-			})
-		}
 	case query.Line != nil:
 		outline, err := reader.outline(query.Paths[0])
 		if err != nil {
 			return nil, err
 		}
-		found = slices.DeleteFunc(outline, func(c candidate) bool { return !definition(c.kind) })
+		found = slices.DeleteFunc(outline, func(c candidate) bool {
+			return !definition(c.kind) || query.Name != nil && c.name != *query.Name
+		})
+	case len(query.Paths) != 0:
+		return reader.within(query.Paths, query.Name, limit)
 	default:
-		var err error
-		if found, err = reader.within(query.Paths, limit+1); err != nil {
+		named, err := reader.definitions([]string{*query.Name})
+		if err != nil {
 			return nil, err
 		}
+		found = named[*query.Name]
 	}
 	if query.Line != nil {
 		line := *query.Line

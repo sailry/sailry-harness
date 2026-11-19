@@ -209,6 +209,34 @@ func TestGraphBounds(t *testing.T) {
 		}
 		equal(t, "callees", resolved, [][3]string{{"open", "local", "src/app.rs"}, {"helper", "directory", "src/store.rs"}})
 	})
+	t.Run("scoped targets survive the global candidate cap", func(t *testing.T) {
+		f := newFixture(t)
+		f.write("z/target.go", "package z\nfunc Common() {}\n")
+		f.search("Common")
+		worktree, err := f.service.worktree(f.id, f.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := context.Background()
+		// Many declarations elsewhere sort before the exact requested file.
+		many := Parsed{Path: "a/many.go", Language: "go", Status: StatusParsed}
+		for n := range maxCandidates + 1 {
+			many.Symbols = append(many.Symbols, Symbol{Path: many.Path, Name: "Common", Kind: "method", Range: Range{StartLine: uint32(n)}})
+		}
+		if _, _, err := worktree.index.replace(ctx, []Parsed{many}, Fingerprint); err != nil {
+			t.Fatal(err)
+		}
+		for _, queryPath := range []string{"z", "z/target.go"} {
+			query := graphQuery("callees", "Common", queryPath)
+			if queryPath == "z/target.go" {
+				query.Line = new(uint32(1))
+			}
+			page, err := worktree.index.graph(ctx, &query)
+			if err != nil || len(page.Targets) != 1 || page.Targets[0].Path != "z/target.go" || page.Truncated {
+				t.Errorf("%s targets %v truncated %t error %v", queryPath, page.Targets, page.Truncated, err)
+			}
+		}
+	})
 	t.Run("impact depth is capped and paged", func(t *testing.T) {
 		f := newFixture(t)
 		f.chain()
@@ -310,7 +338,7 @@ func TestGraphBounds(t *testing.T) {
 				t.Errorf("inside %+v limited %v", inside, reader.limited)
 			}
 			reader.limited = false
-			within, err3 := reader.within([]string{"many"}, 3)
+			within, err3 := reader.within([]string{"many"}, nil, 3)
 			if len(within) != 3 || !reader.limited {
 				t.Errorf("within %+v limited %v", within, reader.limited)
 			}
