@@ -44,20 +44,12 @@ func Find(turns []Turn, query string) []Match {
 		for n := range strings.Count(strings.ToLower(turns[i].User), q) {
 			out = append(out, Match{Turn: i, User: true, N: n})
 		}
-		answer := searchable(turns[i].Reply.Blocks)
-		if len(turns[i].Segments) > 0 {
-			answer = segmentedText(&turns[i])
-		}
+		answer := replyText(&turns[i])
 		for n := range strings.Count(strings.ToLower(answer), q) {
 			out = append(out, Match{Turn: i, N: n})
 		}
 	}
 	return out
-}
-
-// searchable is the answer text search looks in.
-func searchable(blocks []Block) string {
-	return AnswerText(Compact(blocks))
 }
 
 // Mark wraps each occurrence of query in Markdown src with <mark>, outside

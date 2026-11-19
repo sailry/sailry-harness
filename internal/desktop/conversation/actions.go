@@ -20,13 +20,26 @@ import (
 
 // AnswerText is what Copy copies of a reply: its answer's text blocks.
 func AnswerText(blocks []Block) string {
-	var parts []string
+	var first string
+	var rest strings.Builder
 	for _, b := range blocks[AnswerFrom(blocks):] {
-		if b.Kind == TextBlock {
-			parts = append(parts, b.Text)
+		if b.Kind != TextBlock || strings.TrimSpace(b.Text) == "" {
+			continue
 		}
+		if first == "" {
+			first = b.Text
+			continue
+		}
+		if rest.Len() == 0 {
+			rest.WriteString(first)
+		}
+		rest.WriteString("\n\n")
+		rest.WriteString(b.Text)
 	}
-	return strings.Join(parts, "\n\n")
+	if rest.Len() == 0 {
+		return first
+	}
+	return rest.String()
 }
 
 // Resendable reports a run that can run again: one that failed, stopped or
@@ -119,12 +132,9 @@ func quiet(c *ui.Context, b ui.Element) ui.Element {
 // Rewind, New worktree), Retry where the run can run again, the export
 // menu (Markdown, HTML, Image), and the time it finished while the pointer
 // is over the reply (over) or the row.
-func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, over bool, actions Actions) {
+func (s *State) footer(c *ui.Context, t *Turn, over bool, actions Actions) {
 	p := theme.Of(c)
-	text := AnswerText(blocks)
-	if len(t.Segments) > 0 {
-		text = segmentedText(t)
-	}
+	text := replyText(t)
 	session := s.renderSession
 	row := ui.Row(c.Key("footer")).FillWidth().Gap(8).AlignItems(ui.Center).TextColor(p.Description())
 	hovered := over || row.Hovered()
@@ -188,16 +198,19 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, over bool, action
 	})
 }
 
-// segmentedText keeps the answer of every exchange when guidance interrupted
+// replyText keeps the answer of every exchange when guidance interrupted
 // a task; work in a later segment does not hide an earlier answer from Copy.
-func segmentedText(t *Turn) string {
+func replyText(t *Turn) string {
+	if len(t.Segments) == 0 {
+		return AnswerText(t.Reply.Blocks)
+	}
 	var texts []string
 	for index, segment := range t.Segments {
 		end := len(t.Reply.Blocks)
 		if index+1 < len(t.Segments) {
 			end = t.Segments[index+1].From
 		}
-		if text := AnswerText(Compact(t.Reply.Blocks[segment.From:end])); text != "" {
+		if text := AnswerText(t.Reply.Blocks[segment.From:end]); text != "" {
 			texts = append(texts, text)
 		}
 	}

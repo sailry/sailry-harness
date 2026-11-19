@@ -615,7 +615,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 			})
 		}
 		if latest && !active {
-			s.footer(c, t, Compact(r.Blocks), over, actions)
+			s.footer(c, t, over, actions)
 		}
 	})
 }
