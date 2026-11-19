@@ -162,8 +162,8 @@ func (r *Runtime) pluginCardEligible(card *pluginCardInstance) bool {
 	if !exists || session.Delegation != nil || session.Worktree != card.summary.Worktree {
 		return false
 	}
-	history, exists := card.owner.controller.Conversation(card.summary.Receipt.Session)
-	if !exists || history.Removed {
+	status, exists := card.owner.controller.LatestLocalTurnStatus(card.summary.Receipt.Session, card.summary.Receipt.Turn)
+	if !exists {
 		return false
 	}
 	for _, summary := range card.owner.snapshot().Plugins {
@@ -172,15 +172,7 @@ func (r *Runtime) pluginCardEligible(card *pluginCardInstance) bool {
 			break
 		}
 	}
-	var latest *protocol.ConversationRun
-	for index := range history.Snapshot.Page.Runs {
-		run := &history.Snapshot.Page.Runs[index]
-		if latest == nil || run.Sequence > latest.Sequence {
-			latest = run
-		}
-	}
-	return latest != nil && latest.Turn == card.summary.Receipt.Turn && latest.Origin == nil &&
-		slices.Contains([]protocol.ConversationStatus{protocol.ConversationStatusRunning, protocol.ConversationStatusCompleted, protocol.ConversationStatusFailed}, latest.Status)
+	return slices.Contains([]protocol.ConversationStatus{protocol.ConversationStatusRunning, protocol.ConversationStatusCompleted, protocol.ConversationStatusFailed}, status)
 }
 
 func (r *Runtime) pluginCardLive(card *pluginCardInstance, generation uint64) bool {

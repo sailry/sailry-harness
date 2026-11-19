@@ -462,3 +462,33 @@ func TestConversationHistoryResumesOriginalRangeAfterInterruptedRestore(t *testi
 		return !state.LoadingOlder && state.OlderErr == nil && len(state.Snapshot.Missing) == 0 && len(page.Entries) == 4 && page.Entries[0].ID == "Current prefix"
 	})
 }
+
+func TestLatestLocalTurnStatus(t *testing.T) {
+	session, turn := protocol.SessionID{1}, protocol.TurnID{2}
+	snapshot := conversationFixture()
+	snapshot.Page.Runs = []protocol.ConversationRun{
+		{Sequence: 2, Turn: turn, Status: protocol.ConversationStatusRunning},
+		{Sequence: 1, Turn: protocol.TurnID{1}, Status: protocol.ConversationStatusCompleted},
+	}
+	watch := &conversationWatch{projection: &ConversationProjection{snapshot: &snapshot}}
+	c := &Client{conversations: map[protocol.SessionID]*conversationWatch{session: watch}}
+	if n := testing.AllocsPerRun(10, func() {
+		if status, ok := c.LatestLocalTurnStatus(session, turn); !ok || status != protocol.ConversationStatusRunning {
+			t.Fatal(status, ok)
+		}
+	}); n != 0 {
+		t.Fatalf("reading turn status allocated %v times", n)
+	}
+	if _, ok := c.LatestLocalTurnStatus(session, protocol.TurnID{1}); ok {
+		t.Fatal("older turn returned")
+	}
+	snapshot.Page.Runs[0].Origin = new(protocol.SessionID{9})
+	if _, ok := c.LatestLocalTurnStatus(session, turn); ok {
+		t.Fatal("inherited turn returned")
+	}
+	snapshot.Page.Runs[0].Origin = nil
+	watch.state.Removed = true
+	if _, ok := c.LatestLocalTurnStatus(session, turn); ok {
+		t.Fatal("removed watch returned")
+	}
+}

@@ -68,6 +68,28 @@ func (c *Client) Conversation(session protocol.SessionID) (ConversationState, bo
 	return c.readConversationState(session, nil)
 }
 
+// LatestLocalTurnStatus reports the status when turn is the latest run in the
+// watched session and originated there. It reads only run metadata.
+func (c *Client) LatestLocalTurnStatus(session protocol.SessionID, turn protocol.TurnID) (protocol.ConversationStatus, bool) {
+	c.conversationMu.Lock()
+	defer c.conversationMu.Unlock()
+	w := c.conversations[session]
+	if w == nil || w.state.Removed || w.projection.snapshot == nil {
+		return "", false
+	}
+	runs := w.projection.snapshot.Page.Runs
+	var latest *protocol.ConversationRun
+	for i := range runs {
+		if latest == nil || runs[i].Sequence > latest.Sequence {
+			latest = &runs[i]
+		}
+	}
+	if latest == nil || latest.Turn != turn || latest.Origin != nil {
+		return "", false
+	}
+	return latest.Status, true
+}
+
 // ConversationView returns a detached snapshot for a read-only presentation.
 // Passing its previous unmodified result reuses canonical entries across pages.
 // Ordinary Conversation callers continue to receive independently mutable copies.
