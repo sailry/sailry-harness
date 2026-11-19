@@ -281,6 +281,14 @@ func testCompact(t *testing.T) {
 			t.Fatal("citation rendering changed canonical copy or answer grouping", blocks)
 		}
 	})
+	t.Run("unmatched citations leave the original blocks in place", func(t *testing.T) {
+		blocks := []Block{{Kind: TextBlock, Text: "First"}, {Kind: ToolsBlock}, {Kind: TextBlock, Text: "Last"}}
+		for _, citations := range [][]Citation{nil, {{URI: "unused", End: -100}}} {
+			if got := cited(blocks, citations); &got[0] != &blocks[0] {
+				t.Error("copied blocks without inserting a citation")
+			}
+		}
+	})
 	read, grep := named("read", 2), named("grep", 1)
 	ask := Call{ID: "ask", Name: "ask_user", Terminal: true}
 	got := Compact([]Block{

@@ -48,9 +48,14 @@ func Resendable(st RunStatus) bool {
 	return st == Failed || st == Interrupted || st == Cancelled
 }
 
+var citationURIEscaper = strings.NewReplacer("<", "%3C", ">", "%3E", "\\", "%5C", "\n", "%0A", "\r", "%0D")
+
 // cited places turn-relative rune endpoints across all text blocks without
 // changing canonical text, copy/export output or citation numbering.
 func cited(blocks []Block, cites []Citation) []Block {
+	if len(cites) == 0 {
+		return blocks
+	}
 	last := -1
 	for i := len(blocks) - 1; i >= 0; i-- {
 		if blocks[i].Kind == TextBlock {
@@ -58,22 +63,18 @@ func cited(blocks []Block, cites []Citation) []Block {
 			break
 		}
 	}
-	if last < 0 || len(cites) == 0 {
+	if last < 0 {
 		return blocks
 	}
-	out := append([]Block(nil), blocks...)
+	out := blocks
+	cloned := false
 	offset := 0
 	for i := range out {
 		if out[i].Kind != TextBlock {
 			continue
 		}
 		text := out[i].Text
-		boundaries := make([]int, 0, utf8.RuneCountInString(text)+1)
-		for position := range text {
-			boundaries = append(boundaries, position)
-		}
-		boundaries = append(boundaries, len(text))
-		length := len(boundaries) - 1
+		length := utf8.RuneCountInString(text)
 		marks := map[int][]int{}
 		for number, citation := range cites {
 			position := -1
@@ -83,12 +84,12 @@ func cited(blocks []Block, cites []Citation) []Block {
 				// remains the existing model's unpositioned-source sentinel.
 				start := -(citation.End + 1)
 				if start >= offset && start < offset+length {
-					position = boundaries[start-offset]
+					position = start - offset
 				}
 			case citation.End > offset && citation.End <= offset+length:
-				position = boundaries[citation.End-offset]
+				position = citation.End - offset
 			case i == last && (citation.End == 0 || citation.End > offset+length):
-				position = len(text)
+				position = length
 			}
 			if position >= 0 {
 				marks[position] = append(marks[position], number)
@@ -101,16 +102,30 @@ func cited(blocks []Block, cites []Citation) []Block {
 			}
 			slices.Sort(positions)
 			var result strings.Builder
-			copied := 0
+			// Convert only requested rune offsets, walking each byte at most once.
+			runeOffset, byteOffset := 0, 0
 			for _, position := range positions {
-				result.WriteString(text[copied:position])
+				start := byteOffset
+				if position == length {
+					byteOffset = len(text)
+				} else {
+					for runeOffset < position {
+						_, width := utf8.DecodeRuneInString(text[byteOffset:])
+						byteOffset += width
+						runeOffset++
+					}
+				}
+				result.WriteString(text[start:byteOffset])
 				for _, number := range marks[position] {
-					uri := strings.NewReplacer("<", "%3C", ">", "%3E", "\\", "%5C", "\n", "%0A", "\r", "%0D").Replace(cites[number].URI)
+					uri := citationURIEscaper.Replace(cites[number].URI)
 					fmt.Fprintf(&result, " [%d](<%s>)", number+1, uri)
 				}
-				copied = position
 			}
-			result.WriteString(text[copied:])
+			result.WriteString(text[byteOffset:])
+			if !cloned {
+				out = slices.Clone(blocks)
+				cloned = true
+			}
 			out[i].Text = result.String()
 		}
 		offset += length
