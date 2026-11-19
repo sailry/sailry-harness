@@ -45,6 +45,9 @@ func (r *Runtime) executeOwned(x *execution) {
 			return err
 		})
 		if err == nil {
+			if run.Status == protocol.ConversationStatusCancelled && x.inv.Session.Delegation == nil {
+				r.stopTurnCommands(run.Session, x)
+			}
 			r.publish()
 			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
 			r.RefreshCommitted(run.Session)

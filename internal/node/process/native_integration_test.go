@@ -37,7 +37,7 @@ func TestNativeCommandLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Write(info.Session, info.ID, "fixture\n"); err != nil {
+	if _, err = service.Write(info.Session, info.ID, "fixture\n", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = service.Wait(ctx, info.Session, info.ID, 30000, "received:fixture"); err != nil {

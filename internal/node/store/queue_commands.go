@@ -391,10 +391,10 @@ func tagGuidance(ctx context.Context, db *sql.Conn, turn, recipient protocol.Tur
 		return err
 	}
 	if !compatible {
-		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
+		if err = recaptureDetachedGuidance(ctx, db, turn); err != nil {
 			return err
 		}
-		if err = recaptureQueued(ctx, db, turn); err != nil {
+		if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", turn.String()); err != nil {
 			return err
 		}
 		_, err = startQueued(ctx, db, turn)
@@ -473,23 +473,30 @@ func releaseGuidance(ctx context.Context, db *sql.Conn, recipient protocol.Conve
 	if err != nil || len(released) == 0 {
 		return err
 	}
-	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String()); err != nil {
-		return err
-	}
 	for _, turn := range released {
-		if err = recaptureQueued(ctx, db, turn); err != nil {
+		if err = recaptureDetachedGuidance(ctx, db, turn); err != nil {
 			return err
 		}
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE recipient=?1", recipient.Turn.String()); err != nil {
+		return err
 	}
 	return bumpQueue(ctx, db, recipient.Session)
 }
 
-// recaptureQueued freezes the session's current settings for a queued input
-// that will start its own turn, as its original user. A child session keeps
-// the capture its parent assigned, and settings that cannot be captured now,
-// such as a removed model, leave the earlier capture in place so the input is
-// not lost; it settles by the claim rules for its captured configuration.
-func recaptureQueued(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+// recaptureDetachedGuidance replaces the recipient's settings when a direct
+// guidance input becomes its own turn. An ordinary queued message keeps the
+// settings it captured on submission even if it was later offered as guidance.
+// Call before clearing the pending recipient.
+func recaptureDetachedGuidance(ctx context.Context, db *sql.Conn, turn protocol.TurnID) error {
+	var inherited bool
+	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_pending p
+		JOIN turns t ON t.id=p.turn JOIN requests r ON r.id=t.request AND r.caller=t.caller
+		WHERE p.turn=?1 AND p.recipient IS NOT NULL AND
+		CASE WHEN json_valid(r.body) THEN json_extract(r.body,'$.command.kind')='guide_turn' ELSE 0 END)`, turn.String()).Scan(&inherited)
+	if err != nil || !inherited {
+		return err
+	}
 	run, err := ReadAgentRun(ctx, db, turn)
 	if err != nil || run.Status != protocol.ConversationStatusQueued {
 		return err

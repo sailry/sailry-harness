@@ -638,7 +638,7 @@ func TestBackgroundDelivery(t *testing.T) {
 // TestQueueSettlement does not.
 func TestGuidanceQueue(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"pending guidance is taken together", "changed settings apply after guidance", "released guidance takes current settings", "unavailable model keeps guidance", "guidance batches are bounded", "outlived guidance starts one turn", "queue commands"} {
+	for _, scenario := range []string{"pending guidance is taken together", "changed settings apply after guidance", "released guidance takes current settings", "manual detachment takes current settings", "unavailable model keeps guidance", "guidance batches are bounded", "outlived guidance starts one turn", "queue commands"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -844,6 +844,57 @@ func TestGuidanceQueue(t *testing.T) {
 					}
 					if next == nil || next.Run.Turn != guided || next.Turn.Config.Permission != changed || next.Run.Revision != current.Revision+1 {
 						return fmt.Errorf("released guidance did not start with the current settings: %+v", next)
+					}
+				case "manual detachment takes current settings":
+					ordinary, err := send("queue_turn", "Ordinary")
+					if err != nil {
+						return err
+					}
+					if _, err = command("guide_queued_turn", &protocol.CommandGuideQueuedTurnPayload{Turn: ordinary, Recipient: turn, ExpectedRevision: revision(ordinary)}); err != nil {
+						return err
+					}
+					var guidance []protocol.TurnID
+					for _, text := range []string{"Withdrawn", "Edited", "Paused"} {
+						id, err := send("guide_turn", text)
+						if err != nil {
+							return err
+						}
+						guidance = append(guidance, id)
+					}
+					current, err := ReadSession(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					config := current.Config
+					config.Permission = protocol.PermissionProject
+					if current.Config.Permission == config.Permission {
+						config.Permission = protocol.PermissionAsk
+					}
+					if _, err = command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: current.Revision, Config: config}); err != nil {
+						return err
+					}
+					if _, err = command("withdraw_guidance", &protocol.CommandWithdrawGuidancePayload{Turn: guidance[0], ExpectedRevision: revision(guidance[0])}); err != nil {
+						return err
+					}
+					if _, err = command("edit_queued_turn", &protocol.CommandEditQueuedTurnPayload{Turn: guidance[1], ExpectedRevision: revision(guidance[1]), Message: protocol.ConversationInput{Text: "Updated"}}); err != nil {
+						return err
+					}
+					queue, err := ReadQueue(ctx, db, session.ID)
+					if err != nil {
+						return err
+					}
+					if _, err = command("set_queue_paused", &protocol.CommandSetQueuePausedPayload{Session: session.ID, ExpectedRevision: queue.Revision, Paused: true}); err != nil {
+						return err
+					}
+					for _, id := range guidance {
+						capture, err := readTurnCapture(ctx, db, id)
+						if err != nil || capture.Config.Permission != config.Permission {
+							return fmt.Errorf("detached guidance kept the recipient's settings: %v, %v", capture.Config.Permission, err)
+						}
+					}
+					capture, err := readTurnCapture(ctx, db, ordinary)
+					if err != nil || capture.Config.Permission != current.Config.Permission {
+						return fmt.Errorf("ordinary queued input lost its submitted settings: %v, %v", capture.Config.Permission, err)
 					}
 				case "unavailable model keeps guidance":
 					// The guided turn already runs on its captured model; guidance

@@ -39,6 +39,11 @@ func (node *Node) workspaceProcess(ctx context.Context, caller protocol.NodeID, 
 		if err := node.requireWorkspaceSession(ctx, input.Session); err != nil {
 			return protocol.Output{}, err
 		}
+		for _, command := range node.processes.List(input.Session) {
+			if command.Status.Kind == "failed" {
+				node.processes.ReconcileFinished(ctx, input.Session, command.ID)
+			}
+		}
 		return protocol.Output{Kind: "commands", Data: node.processes.List(input.Session)}, nil
 	case *protocol.CommandReadCommandPayload:
 		until := ""
@@ -49,6 +54,7 @@ func (node *Node) workspaceProcess(ctx context.Context, caller protocol.NodeID, 
 		if err != nil {
 			return protocol.Output{}, err
 		}
+		node.processes.ReconcileFinished(ctx, input.Session, input.ID)
 		value, err := node.processes.Read(input.Session, input.ID)
 		value.Wait = wait
 		return protocol.Output{Kind: "command_output", Data: value}, err
@@ -61,16 +67,17 @@ func (node *Node) workspaceProcess(ctx context.Context, caller protocol.NodeID, 
 		if err != nil {
 			return protocol.Output{}, err
 		}
+		node.processes.ReconcileFinished(ctx, input.Session, input.ID)
 		value, err := node.processes.Page(input.Session, input.ID, input.Stream, input.Offset, input.Limit)
 		value.Wait = wait
 		return protocol.Output{Kind: "command_output_page", Data: value}, err
 	case *protocol.CommandStopCommandPayload:
-		value, err := node.processes.Stop(input.Session, input.ID)
+		value, err := node.processes.Stop(input.Session, input.ID, effect.commandControl)
 		return protocol.Output{Kind: "command_output", Data: value}, err
 	case *protocol.CommandStopCommandsPayload:
 		return protocol.Output{Kind: "commands", Data: node.processes.StopAll(input.Session)}, nil
 	case *protocol.CommandWriteCommandPayload:
-		value, err := node.processes.Write(input.Session, input.ID, input.Input)
+		value, err := node.processes.Write(input.Session, input.ID, input.Input, effect.commandControl)
 		return protocol.Output{Kind: "command_input_accepted", Data: protocol.OutputCommandInputAcceptedPayload{ID: input.ID, Bytes: value}}, err
 	}
 	return protocol.Output{}, errors.New("process command required")
@@ -217,7 +224,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 func (node *Node) startTurnCommand(operation context.Context, launch process.Launch) (protocol.ProcessInfo, error) {
 	value, err := node.processes.Start(launch)
 	if err == nil && operation.Err() != nil && !launch.Service {
-		_, _ = node.processes.Stop(launch.Session, launch.ID)
+		_, _ = node.processes.Stop(launch.Session, launch.ID, nil)
 	}
 	return value, err
 }

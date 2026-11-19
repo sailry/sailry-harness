@@ -226,7 +226,7 @@ func TestCrashedNodeGroups(t *testing.T) {
 		if len(found) != 1 || filepath.Base(found[0]) != groupPrefix+launch.ID.String() {
 			t.Fatal("running command has no group record", found)
 		}
-		if _, err := service.Stop(launch.Session, launch.ID); err != nil {
+		if _, err := service.Stop(launch.Session, launch.ID, nil); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := service.Wait(context.Background(), launch.Session, launch.ID, 30000, "missing"); err != nil {

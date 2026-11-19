@@ -246,6 +246,9 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 				return protocol.Output{}, nil, fault(protocol.ErrorCodeConflict, "turn input is no longer editable")
 			}
 		}
+		if err = recaptureDetachedGuidance(ctx, db, v.Turn); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		queued, err := readTurnCapture(ctx, db, v.Turn)
 		if err != nil {
 			return protocol.Output{}, nil, err
@@ -277,6 +280,7 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, err
 		}
 		session = run.Session
+		run.Revision = queued.Revision
 		changed = append(changed, run)
 		if err = bumpQueue(ctx, db, session); err != nil {
 			return protocol.Output{}, nil, err
@@ -346,6 +350,9 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		if err != nil {
 			return protocol.Output{}, nil, err
 		}
+		if err = recaptureDetachedGuidance(ctx, db, v.Turn); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		result, err := db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn=?1 AND recipient IS NOT NULL", v.Turn.String())
 		if err != nil {
 			return protocol.Output{}, nil, err
@@ -362,6 +369,10 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 		}
 		session = run.Session
 		if err = bumpQueue(ctx, db, session); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		run, err = ReadAgentRun(ctx, db, v.Turn)
+		if err != nil {
 			return protocol.Output{}, nil, err
 		}
 		changed = append(changed, run)
@@ -395,6 +406,13 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, err
 		}
 		if v.Paused {
+			for _, item := range queue.Items {
+				if item.Guidance != nil {
+					if err = recaptureDetachedGuidance(ctx, db, item.Turn); err != nil {
+						return protocol.Output{}, nil, err
+					}
+				}
+			}
 			if _, err = db.ExecContext(ctx, "UPDATE agent_pending SET recipient=NULL,revision=revision+1 WHERE turn IN (SELECT id FROM turns WHERE session=?1) AND recipient IS NOT NULL", session.String()); err != nil {
 				return protocol.Output{}, nil, err
 			}

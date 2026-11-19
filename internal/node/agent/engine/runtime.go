@@ -115,6 +115,7 @@ type execution struct {
 	renewedSecret     protocol.Secret
 	childBudget       uint64
 	finishing         bool
+	commandsStopped   bool // guarded by Runtime.publication
 	operations        uint64
 	operationsDone    chan struct{}
 	attachments       map[protocol.AttachmentID]*attachmentMaterial
@@ -360,19 +361,24 @@ func (r *Runtime) StopCommitted(run protocol.ConversationRun) {
 	r.mu.Lock()
 	x := r.active[run.Turn]
 	r.mu.Unlock()
-	if x != nil {
-		if x.ctx.Err() != nil {
-			return
-		}
+	if x != nil && x.ctx.Err() == nil {
 		x.cancel()
 		r.stopChildren(x)
 		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
 	}
-	// Every stop of a running turn ends the session's command work; declared
-	// services keep running. The stop transaction already held their evidence.
-	if r.stopTransient != nil {
-		r.stopTransient(run.Session)
+	r.stopTurnCommands(run.Session, x)
+}
+
+// stopTurnCommands ends a session's transient command work once for the turn.
+// Call under publication, before a successor can claim the session.
+func (r *Runtime) stopTurnCommands(session protocol.SessionID, x *execution) {
+	if r.stopTransient == nil || x != nil && x.commandsStopped {
+		return
 	}
+	if x != nil {
+		x.commandsStopped = true
+	}
+	r.stopTransient(session)
 }
 
 // Committed wakes owners only after a controller transaction has committed.

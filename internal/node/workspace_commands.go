@@ -20,10 +20,11 @@ import (
 )
 
 type workspaceCompletion struct {
-	external bool
-	commit   func(context.Context, *sql.Conn, protocol.Output) (protocol.Output, []protocol.Event, error)
-	release  func()
-	after    func()
+	external       bool
+	commit         func(context.Context, *sql.Conn, protocol.Output) (protocol.Output, []protocol.Event, error)
+	release        func()
+	after          func()
+	commandControl *process.ControlTarget
 }
 
 func (effect *workspaceCompletion) close() {

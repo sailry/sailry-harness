@@ -3,10 +3,15 @@ package process
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// ErrCompletionStorageFull marks a refused completion write that needs space
+// before it can be attempted again.
+var ErrCompletionStorageFull = errors.New("command completion storage is full")
 
 type Launch struct {
 	ID         protocol.RequestID

@@ -28,6 +28,8 @@ type commandEntry struct {
 	stdout        *retainedStream
 	stderr        *retainedStream
 	completion    protocol.ProcessCompletion
+	unrecorded    *Finished
+	recording     bool
 	failure       error
 	background    bool
 	promoted      bool
@@ -44,6 +46,11 @@ type commandEntry struct {
 type commandSubscriber struct {
 	session protocol.SessionID
 	updates chan []protocol.ProcessInfo
+}
+
+// ControlTarget binds implicit sandbox consent to one live process.
+type ControlTarget struct {
+	entry *commandEntry
 }
 
 type Service struct {
@@ -278,6 +285,7 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		case <-s.ctx.Done():
 		}
 	}
+	var unrecorded *Finished
 	if background && s.options.Finished != nil {
 		elapsed := completion.ElapsedMs
 		var timing *uint64
@@ -293,12 +301,16 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 			if errors.As(err, &fault) {
 				reason = fault.Message
 			}
+			if refusedCompletion(err) {
+				unrecorded = &finished
+			}
 			failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "command completion could not be recorded; side effects were not replayed: " + reason}
 			info.Status = protocol.ProcessStatus{Kind: "failed", Data: failure.Error()}
 		}
 	}
 	s.mu.Lock()
 	entry.info, entry.completion, entry.failure = info, completion, failure
+	entry.unrecorded = unrecorded
 	entry.accessed, entry.pending = s.options.Now(), false
 	s.changeLocked(entry)
 	close(entry.done)
@@ -314,8 +326,7 @@ func (s *Service) persistFinished(finished Finished) error {
 	const attempts = 3
 	for attempt := 1; ; attempt++ {
 		err := s.options.Finished(ctx, finished)
-		var fault *protocol.Fault
-		if attempt == attempts || !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy && fault.Code != protocol.ErrorCodeUnavailable {
+		if attempt == attempts || !refusedCompletion(err) || errors.Is(err, ErrCompletionStorageFull) {
 			return err
 		}
 		// A refused write can repeat for the same completed command. An
@@ -326,6 +337,42 @@ func (s *Service) persistFinished(finished Finished) error {
 		case <-s.options.After(time.Second):
 		}
 	}
+}
+
+func refusedCompletion(err error) bool {
+	var fault *protocol.Fault
+	return errors.As(err, &fault) && (fault.Code == protocol.ErrorCodeBusy || fault.Code == protocol.ErrorCodeUnavailable)
+}
+
+// ReconcileFinished retries a known-uncommitted completion when the command is
+// inspected. The process has already ended; only its original evidence is
+// written, once per inspection while storage refuses it.
+func (s *Service) ReconcileFinished(ctx context.Context, session protocol.SessionID, id protocol.RequestID) {
+	s.mu.Lock()
+	entry, err := s.entryLocked(session, id)
+	if err != nil || entry.unrecorded == nil || entry.recording {
+		s.mu.Unlock()
+		return
+	}
+	finished := *entry.unrecorded
+	entry.recording = true
+	s.mu.Unlock()
+
+	err = s.options.Finished(ctx, finished)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry.recording = false
+	if err != nil {
+		if !refusedCompletion(err) && !errors.Is(err, ctx.Err()) {
+			entry.unrecorded = nil
+		}
+		return
+	}
+	entry.unrecorded = nil
+	entry.info.Status = finished.Snapshot.Info.Status
+	s.changeLocked(entry)
+	s.publishLocked(session)
 }
 
 func (s *Service) append(entry *commandEntry, kind protocol.ProcessOutputOutputStream, value []byte) {
@@ -500,12 +547,29 @@ func (s *Service) Page(session protocol.SessionID, id protocol.RequestID, kind p
 	return stream.page(info, kind, offset, limit)
 }
 
-func (s *Service) Stop(session protocol.SessionID, id protocol.RequestID) (protocol.ProcessSnapshot, error) {
+// SandboxedControl returns evidence for automatic consent at the tool boundary.
+func (s *Service) SandboxedControl(session protocol.SessionID, id protocol.RequestID) *ControlTarget {
+	if !SandboxSupported() {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, err := s.entryLocked(session, id)
+	if err != nil || entry.info.Access != protocol.ProcessAccessWorkspace || !commandActive(entry.info) {
+		return nil
+	}
+	return &ControlTarget{entry: entry}
+}
+
+func (s *Service) Stop(session protocol.SessionID, id protocol.RequestID, target *ControlTarget) (protocol.ProcessSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, err := s.entryLocked(session, id)
 	if err != nil {
 		return protocol.ProcessSnapshot{}, err
+	}
+	if target != nil && target.entry != entry {
+		return protocol.ProcessSnapshot{}, changedControlTarget()
 	}
 	if entry.info.Status.Kind == "running" {
 		entry.info.Status.Kind = "stopping"
@@ -520,7 +584,7 @@ func (s *Service) Stop(session protocol.SessionID, id protocol.RequestID) (proto
 func (s *Service) StopAll(session protocol.SessionID) []protocol.ProcessInfo {
 	items := s.List(session)
 	for i := range items {
-		if snapshot, err := s.Stop(session, items[i].ID); err == nil {
+		if snapshot, err := s.Stop(session, items[i].ID, nil); err == nil {
 			items[i] = snapshot.Info
 		}
 	}
@@ -540,11 +604,11 @@ func (s *Service) StopTransient(session protocol.SessionID) {
 	}
 	s.mu.Unlock()
 	for _, id := range ids {
-		_, _ = s.Stop(session, id)
+		_, _ = s.Stop(session, id, nil)
 	}
 }
 
-func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input string) (uint64, error) {
+func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input string, target *ControlTarget) (uint64, error) {
 	if len(input) > 64*1024 {
 		return 0, invalid("command input exceeds the size limit")
 	}
@@ -553,6 +617,9 @@ func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input
 	entry, err := s.entryLocked(session, id)
 	if err != nil {
 		return 0, err
+	}
+	if target != nil && target.entry != entry {
+		return 0, changedControlTarget()
 	}
 	if entry.info.Status.Kind != "running" {
 		return 0, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command input is closed"}
@@ -573,6 +640,10 @@ func (s *Service) Write(session protocol.SessionID, id protocol.RequestID, input
 	}
 }
 
+func changedControlTarget() error {
+	return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command changed since its sandbox approval"}
+}
+
 // Wait blocks a read until new output, a match of until, the command's exit
 // or the bounded deadline, and reports which one ended it. until requires a
 // positive wait; a zero wait returns no outcome.
@@ -583,12 +654,8 @@ func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id proto
 	s.mu.Lock()
 	entry, err := s.entryLocked(session, id)
 	var stdoutStart, stderrStart uint64
-	var initialOutput <-chan struct{}
 	if err == nil && waitMs > 0 {
-		initialOutput = entry.outputChanged
-		if until != "" {
-			stdoutStart, stderrStart = entry.stdout.position(), entry.stderr.position()
-		}
+		stdoutStart, stderrStart = entry.stdout.position(), entry.stderr.position()
 	}
 	s.mu.Unlock()
 	if err != nil || waitMs == 0 {
@@ -610,7 +677,7 @@ func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id proto
 		if !active {
 			return protocol.ProcessWaitExited, nil
 		}
-		if until == "" && output != initialOutput {
+		if until == "" && (entry.stdout.position() > stdoutStart || entry.stderr.position() > stderrStart) {
 			return protocol.ProcessWaitOutput, nil
 		}
 		select {
@@ -622,9 +689,6 @@ func (s *Service) Wait(ctx context.Context, session protocol.SessionID, id proto
 			return protocol.ProcessWaitDeadline, nil
 		case <-changes:
 		case <-output:
-			if until == "" {
-				return protocol.ProcessWaitOutput, nil
-			}
 		}
 	}
 }

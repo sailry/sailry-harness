@@ -676,7 +676,9 @@ each stream. Command evidence carries truncation flags and omitted byte counts
 when the retained text can be compared with the byte totals. Background commands
 in child sessions support polling during the child turn and stop when it settles.
 The process service bounds retries for rejected completion writes and retains
-the final output in memory when it cannot commit the result.
+the final output in memory when it cannot commit the result. Inspecting the
+command can record its original completion after a refused write. Sandbox
+approval for command input and stopping follows the live process identity.
 
 ## Tools and resource services
 

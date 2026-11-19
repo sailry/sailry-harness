@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"runtime"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -52,19 +51,15 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 				value.Choice = nil
 			}
 		}
-	} else if supported && (operation == protocol.ToolOperationStopCommand || operation == protocol.ToolOperationWriteCommand) {
-		// Stopping or writing to a command that runs in the workspace sandbox
-		// stays within that sandbox, so it is settled like its launch was.
-		sandboxed, err := sandboxedSessionCommand(ctx, db, command)
-		if err != nil {
-			return value, err
-		}
-		if sandboxed {
-			value.Source = protocol.ConversationApprovalSourceSandbox
-			value.State = protocol.ConversationApprovalStateApproved
-			value.CanRemember = false
-			value.Prefix = nil
-		}
+	} else if supported && (operation == protocol.ToolOperationStopCommand || operation == protocol.ToolOperationWriteCommand) &&
+		value.Access != nil && *value.Access == protocol.ProcessAccessWorkspace {
+		// The process service supplied an access capture for this tool's
+		// live command. Execution must use the same process.
+		value.Source = protocol.ConversationApprovalSourceSandbox
+		value.State = protocol.ConversationApprovalStateApproved
+		value.CanRemember = false
+		value.Prefix = nil
+		value.Choice = nil
 	} else if operation == protocol.ToolOperationSetValue || operation == protocol.ToolOperationDeleteValue || operation == protocol.ToolOperationStorageTransaction {
 		// A plugin writes only its own namespace, so the write is authorized
 		// by the storage scope instead of a user prompt.
@@ -82,56 +77,6 @@ func ConfigureWorkspaceApproval(ctx context.Context, db *sql.Conn, turn protocol
 		return value, err
 	}
 	return value, nil
-}
-
-// sandboxedSessionCommand reports whether the target of a stop or write was
-// admitted in the same session with workspace access. The admitted launch
-// request records the access the command actually runs with.
-func sandboxedSessionCommand(ctx context.Context, db *sql.Conn, command protocol.Command) (bool, error) {
-	var session protocol.SessionID
-	var id protocol.RequestID
-	switch input := command.Data.(type) {
-	case *protocol.CommandStopCommandPayload:
-		session, id = input.Session, input.ID
-	case *protocol.CommandWriteCommandPayload:
-		session, id = input.Session, input.ID
-	default:
-		return false, nil
-	}
-	rows, err := db.QueryContext(ctx, "SELECT body FROM requests WHERE id=?1", id.String())
-	if err != nil {
-		return false, err
-	}
-	var launches []protocol.CommandRunCommandPayload
-	for rows.Next() {
-		var body []byte
-		if err := rows.Scan(&body); err != nil {
-			rows.Close()
-			return false, err
-		}
-		// A body that does not decode as a launch leaves the ordinary prompt.
-		var request protocol.Request
-		if json.Unmarshal(body, &request) != nil || request.ID != id {
-			continue
-		}
-		if launch, ok := processCommandPayload(request.Command); ok && launch.Access == protocol.ProcessAccessWorkspace {
-			launches = append(launches, launch)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, err
-	}
-	for _, launch := range launches {
-		run, err := ReadAgentRun(ctx, db, launch.Turn)
-		if err != nil {
-			return false, err
-		}
-		if run.Session == session {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // storageApproval settles an approval by the scope its write is confined to.

@@ -125,8 +125,8 @@ func testCommandApprovalRules(t *testing.T) {
 	}
 }
 
-// testCommandTargetApprovals settles stop and write approvals by the access
-// their target command was admitted with in the same session.
+// testCommandTargetApprovals settles stop and write using the live process
+// evidence supplied by the runtime.
 func testCommandTargetApprovals(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("workspace sandbox is unavailable on this platform")
@@ -144,7 +144,7 @@ func testCommandTargetApprovals(t *testing.T) {
 		return request.ID, err
 	}
 	sequence := 0
-	settle := func(db *sql.Conn, operation protocol.ToolOperation, target protocol.SessionID, id protocol.RequestID) (protocol.ConversationApproval, error) {
+	settle := func(db *sql.Conn, operation protocol.ToolOperation, target protocol.SessionID, id protocol.RequestID, verified bool) (protocol.ConversationApproval, error) {
 		sequence++
 		call := fmt.Sprintf("target-%d", sequence)
 		name, command := "stop_command", protocol.Command{Kind: "stop_command", Data: &protocol.CommandStopCommandPayload{Session: target, ID: id}}
@@ -164,6 +164,9 @@ func testCommandTargetApprovals(t *testing.T) {
 		if err != nil {
 			return value, err
 		}
+		if verified {
+			value.Access = new(protocol.ProcessAccessWorkspace)
+		}
 		return ConfigureWorkspaceApproval(ctx, db, turn, value, operation, command, nil)
 	}
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
@@ -176,7 +179,7 @@ func testCommandTargetApprovals(t *testing.T) {
 			return err
 		}
 		for _, operation := range []protocol.ToolOperation{protocol.ToolOperationStopCommand, protocol.ToolOperationWriteCommand} {
-			value, err := settle(db, operation, session.ID, confined)
+			value, err := settle(db, operation, session.ID, confined, true)
 			if err != nil || value.Source != protocol.ConversationApprovalSourceSandbox || value.State != protocol.ConversationApprovalStateApproved {
 				return fmt.Errorf("%s of a sandboxed command asked: %+v, %v", operation, value, err)
 			}
@@ -184,8 +187,8 @@ func testCommandTargetApprovals(t *testing.T) {
 				name    string
 				session protocol.SessionID
 				id      protocol.RequestID
-			}{{"unrestricted", session.ID, unrestricted}, {"other session", protocol.NewSessionID(), confined}, {"unknown", session.ID, protocol.NewRequestID()}} {
-				value, err := settle(db, operation, row.session, row.id)
+			}{{"unrestricted", session.ID, unrestricted}, {"admitted receipt only", session.ID, confined}, {"other session", protocol.NewSessionID(), confined}, {"unknown", session.ID, protocol.NewRequestID()}} {
+				value, err := settle(db, operation, row.session, row.id, false)
 				if err != nil || value.State != protocol.ConversationApprovalStatePending || value.Source != protocol.ConversationApprovalSourceUser {
 					return fmt.Errorf("%s of an %s command was settled without the user: %+v, %v", operation, row.name, value, err)
 				}

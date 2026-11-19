@@ -76,6 +76,33 @@ func TestStopTransientKeepsServices(t *testing.T) {
 	}
 }
 
+func TestSandboxedControlFollowsTheLiveProcess(t *testing.T) {
+	if !SandboxSupported() {
+		t.Skip("workspace sandbox is unavailable on this platform")
+	}
+	session, id := protocol.NewSessionID(), protocol.NewRequestID()
+	info := protocol.ProcessInfo{ID: id, Session: session, Access: protocol.ProcessAccessWorkspace, Status: protocol.ProcessStatus{Kind: "running"}}
+	service := &Service{options: Options{Now: time.Now}, entries: map[protocol.RequestID]*commandEntry{id: {info: info}}}
+	target := service.SandboxedControl(session, id)
+	if target == nil || service.SandboxedControl(protocol.NewSessionID(), id) != nil {
+		t.Fatal("sandbox control lost the process's session binding")
+	}
+	info.Access = protocol.ProcessAccessUnrestricted
+	service.entries[id] = &commandEntry{info: info}
+	if service.SandboxedControl(session, id) != nil {
+		t.Fatal("unrestricted command supplied sandbox evidence")
+	}
+	for _, err := range []error{
+		func() error { _, err := service.Stop(session, id, target); return err }(),
+		func() error { _, err := service.Write(session, id, "input", target); return err }(),
+	} {
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeConflict {
+			t.Fatalf("old sandbox approval controlled a new process: %v", err)
+		}
+	}
+}
+
 func TestOutputBudget(t *testing.T) {
 	t.Parallel()
 	t.Run("retained tool previews freeze ranges and background head", func(t *testing.T) {
@@ -416,9 +443,11 @@ func TestBackgroundCompletionRetriesUncommittedWrite(t *testing.T) {
 
 func TestWaitReportsItsOutcome(t *testing.T) {
 	lines, release, deadline := make(chan string), make(chan struct{}), make(chan time.Time)
+	waitArmed := make(chan struct{}, 1)
 	service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
 		// Only the read deadline is scripted; output coalescing keeps real time.
 		if delay == 5*time.Second {
+			waitArmed <- struct{}{}
 			return deadline
 		}
 		return time.After(delay)
@@ -448,15 +477,15 @@ func TestWaitReportsItsOutcome(t *testing.T) {
 	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 0, ""); err != nil || wait != "" {
 		t.Fatal("a read without a wait reported an outcome", wait, err)
 	}
-	go func() { lines <- "booting\n"; lines <- "ready on :3000\n" }()
+	go func() { <-waitArmed; lines <- "booting\n"; lines <- "ready on :3000\n" }()
 	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, "ready"); err != nil || wait != protocol.ProcessWaitMatched {
 		t.Fatal(wait, err)
 	}
-	go func() { lines <- "request\n" }()
+	go func() { <-waitArmed; lines <- "request\n" }()
 	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, ""); err != nil || wait != protocol.ProcessWaitOutput {
 		t.Fatal(wait, err)
 	}
-	go func() { deadline <- time.Now() }()
+	go func() { <-waitArmed; deadline <- time.Now() }()
 	if wait, err := service.Wait(t.Context(), launch.Session, launch.ID, 5000, "missing"); err != nil || wait != protocol.ProcessWaitDeadline {
 		t.Fatal(wait, err)
 	}
@@ -471,12 +500,15 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 		name     string
 		code     protocol.ErrorCode
 		attempts int
+		full     bool
 	}{
-		{"refused write", protocol.ErrorCodeBusy, 3},
-		{"unconfirmed write", protocol.ErrorCodeOutcomeUnknown, 1},
+		{"refused write", protocol.ErrorCodeBusy, 3, false},
+		{"storage full", protocol.ErrorCodeBusy, 1, true},
+		{"unconfirmed write", protocol.ErrorCodeOutcomeUnknown, 1, false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			attempts := 0
+			var recovered Finished
 			retry := make(chan time.Time)
 			close(retry)
 			service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
@@ -486,10 +518,18 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 				return time.After(delay)
 			}, Run: func(_ context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 				emit(protocol.ProcessOutputOutputStreamStdout, []byte("retained result"))
-				return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
-			}, Finished: func(_ context.Context, _ Finished) error {
+				return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(7)}, ElapsedMs: 12}, nil
+			}, Finished: func(_ context.Context, finished Finished) error {
 				attempts++
-				return &protocol.Fault{Code: row.code, Message: "fixture completion write failed"}
+				if attempts > row.attempts {
+					recovered = finished
+					return nil
+				}
+				fault := &protocol.Fault{Code: row.code, Message: "fixture completion write failed"}
+				if row.full {
+					return errors.Join(fault, ErrCompletionStorageFull)
+				}
+				return fault
 			}})
 			if err != nil {
 				t.Fatal(err)
@@ -509,6 +549,20 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 			if err != nil || snapshot.Info.Status.Kind != "failed" || !strings.Contains(message, "fixture completion write failed") ||
 				snapshot.Stdout.Text != "retained result" || attempts != row.attempts {
 				t.Fatal("completion failure was not visible with command output", snapshot, err, attempts)
+			}
+			service.ReconcileFinished(ctx, launch.Session, launch.ID)
+			service.ReconcileFinished(ctx, launch.Session, launch.ID)
+			if row.code == protocol.ErrorCodeOutcomeUnknown {
+				if attempts != row.attempts {
+					t.Fatal("inspection retried an unconfirmed completion write")
+				}
+				return
+			}
+			snapshot, err = service.Read(launch.Session, launch.ID)
+			outcome, _ := snapshot.Info.Status.Data.(protocol.ProcessOutcome)
+			if err != nil || attempts != row.attempts+1 || snapshot.Info.Status.Kind != "finished" || outcome.Data != int32(7) ||
+				recovered.Snapshot.Stdout.Text != "retained result" || recovered.ElapsedMs == nil || *recovered.ElapsedMs != 12 {
+				t.Fatalf("inspection lost the original completion: %+v, %+v, attempts %d, error %v", snapshot, recovered, attempts, err)
 			}
 		})
 	}

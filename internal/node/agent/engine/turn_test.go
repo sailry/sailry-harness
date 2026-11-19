@@ -685,6 +685,24 @@ func TestStopSealsInterrupted(t *testing.T) {
 		}
 	})
 }
+func TestCommittedStopCleansCommandsAfterContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	run := protocol.ConversationRun{Turn: protocol.NewTurnID(), Session: protocol.NewSessionID(), Status: protocol.ConversationStatusStopping}
+	var stopped []protocol.SessionID
+	r := &Runtime{
+		active:        map[protocol.TurnID]*execution{run.Turn: {ctx: ctx}},
+		stopTransient: func(session protocol.SessionID) { stopped = append(stopped, session) },
+	}
+	unlock := r.LockPublication()
+	defer unlock()
+	r.StopCommitted(run)
+	r.StopCommitted(run)
+	if len(stopped) != 1 || stopped[0] != run.Session {
+		t.Fatalf("committed stop did not clean its commands once: %v", stopped)
+	}
+}
+
 func TestRestartNoReplay(t *testing.T) {
 	m := &scriptedModel{}
 	f := newFixture(t, m)
