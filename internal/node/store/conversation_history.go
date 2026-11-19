@@ -213,8 +213,12 @@ func historyOwners(runs []protocol.ConversationRun) map[protocol.TurnID]protocol
 	return owners
 }
 
+const historyEligible = `json_extract(a.body,'$.status')!='queued'
+AND (json_extract(a.body,'$.status')!='cancelled' OR a.input IS NOT NULL OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))`
+
 const historyUnjoined = `NOT EXISTS(SELECT 1 FROM conversation_turns recipient
-WHERE recipient.session=h.session AND recipient.turn=json_extract(a.body,'$.joined'))`
+WHERE recipient.session=h.session AND recipient.turn=json_extract(a.body,'$.joined')
+AND EXISTS(SELECT 1 FROM agent_runs a WHERE a.turn=recipient.turn AND ` + historyEligible + `))`
 
 // historyRuns selects the page's recipients before reading their guidance.
 // A recipient's admission sequence is the exclusive page boundary for its
@@ -230,8 +234,7 @@ func historyRuns(ctx context.Context, db *sql.Conn, session protocol.SessionID, 
 		boundary, cursor = run.Sequence, run.Turn.String()
 	}
 	runs, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn
-WHERE h.session=?1 AND t.rowid<?2 AND json_extract(a.body,'$.status')!='queued'
-AND (json_extract(a.body,'$.status')!='cancelled' OR a.input IS NOT NULL OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))
+WHERE h.session=?1 AND t.rowid<?2 AND `+historyEligible+`
 AND `+historyUnjoined+` ORDER BY t.rowid DESC LIMIT ?3`, session.String(), boundary, int(limit)+1)
 	if err != nil {
 		return nil, nil, err
@@ -241,6 +244,16 @@ AND `+historyUnjoined+` ORDER BY t.rowid DESC LIMIT ?3`, session.String(), bound
 		runs = runs[:limit]
 		next = new(runs[len(runs)-1].Turn)
 	}
+	ids := make([]protocol.TurnID, 0, len(runs))
+	listed := make(map[protocol.TurnID]bool, len(runs))
+	standalone := map[protocol.TurnID]bool{}
+	for _, run := range runs {
+		ids = append(ids, run.Turn)
+		listed[run.Turn] = true
+		if run.Joined != nil {
+			standalone[*run.Joined] = true
+		}
+	}
 	if before == nil {
 		active, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn
 WHERE h.session=?1 AND (json_extract(a.body,'$.status') IN ('running','stopping','queued') OR (json_extract(a.body,'$.status')='cancelled' AND a.input IS NULL AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn)))
@@ -249,31 +262,32 @@ AND `+historyUnjoined+` ORDER BY (json_extract(a.body,'$.status') IN ('running',
 			return nil, nil, err
 		}
 		for _, run := range active {
-			if !slices.ContainsFunc(runs, func(candidate protocol.ConversationRun) bool { return candidate.Turn == run.Turn }) {
-				runs = append(runs, run)
+			// Standalone guidance already has a row. An ineligible recipient
+			// brought in only for the live head must leave that row alone.
+			if listed[run.Turn] || standalone[run.Turn] {
+				continue
+			}
+			runs = append(runs, run)
+			if run.Status == protocol.ConversationStatusRunning || run.Status == protocol.ConversationStatusStopping {
+				ids = append(ids, run.Turn)
 			}
 		}
 	}
-	if len(runs) == 0 {
-		return runs, next, nil
-	}
-	ids := make([]protocol.TurnID, len(runs))
-	for i, run := range runs {
-		ids[i] = run.Turn
-	}
-	selected, err := encode(ids)
-	if err != nil {
-		return nil, nil, err
-	}
-	// A page from an older Node could already include a guidance run as
-	// its cursor. Fill in that run's recipient without repeating the cursor.
-	guidance, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM conversation_turns h CROSS JOIN agent_runs a ON a.turn=h.turn
+	if len(ids) > 0 {
+		selected, err := encode(ids)
+		if err != nil {
+			return nil, nil, err
+		}
+		// A page from an older Node could already include a guidance run as
+		// its cursor. Fill in that run's recipient without repeating the cursor.
+		guidance, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM conversation_turns h CROSS JOIN agent_runs a ON a.turn=h.turn
 WHERE h.session=?1 AND json_extract(a.body,'$.joined') IN (SELECT value FROM json_each(?2))
 AND h.turn!=?3`, session.String(), string(selected), cursor)
-	if err != nil {
-		return nil, nil, err
+		if err != nil {
+			return nil, nil, err
+		}
+		runs = append(runs, guidance...)
 	}
-	runs = append(runs, guidance...)
 	slices.SortFunc(runs, func(a, b protocol.ConversationRun) int { return cmp.Compare(a.Sequence, b.Sequence) })
 	for i := range runs {
 		if runs[i].Session != session {

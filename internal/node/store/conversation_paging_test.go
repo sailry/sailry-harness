@@ -153,3 +153,70 @@ func TestHistoryPagesKeepGuidanceWithItsRecipient(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestHistoryPagesKeepGuidanceFromAnEmptyCancelledRecipient(t *testing.T) {
+	storage, node, session, recipient, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		output, err := queueFixtureCommand(ctx, db, storage, node, "guide_turn", &protocol.CommandGuideTurnPayload{
+			Recipient: recipient, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Visible guidance"},
+		}, now)
+		if err != nil {
+			return err
+		}
+		guidance := output.Data.(protocol.QueuedTurn).ID
+		if joined, _, e := TakeGuidance(ctx, db, recipient); e != nil || len(joined) != 1 || joined[0].Turn.ID != guidance {
+			return fmt.Errorf("guidance was not consumed: %v", e)
+		}
+		record := canonical.NewRecord(guidance, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Visible guidance")), now)
+		record.Provenance.Author = "user"
+		if _, _, err = AppendCanonical(ctx, db, session.ID, record); err != nil {
+			return err
+		}
+		if _, _, err = FinishTurn(ctx, db, recipient, protocol.ConversationStatusCancelled, nil, now); err != nil {
+			return err
+		}
+		// Older records can leave a cancelled recipient without captured input.
+		if _, err = db.ExecContext(ctx, "UPDATE agent_runs SET input=NULL WHERE turn=?1", recipient.String()); err != nil {
+			return err
+		}
+		newer, err := admitCredentialClaim(ctx, db, storage, node, node, session, now)
+		if err != nil {
+			return err
+		}
+		if err = setQueuePaused(ctx, db, session.ID, false); err != nil {
+			return err
+		}
+		if invocation, _, e := ClaimNext(ctx, db, now); e != nil || invocation == nil || invocation.Run.Turn != newer.ID {
+			return fmt.Errorf("newer task was not claimed: %v", e)
+		}
+
+		head, err := ReadConversation(ctx, db, session.ID, nil, 20)
+		if err != nil {
+			return err
+		}
+		if len(head.Page.Runs) != 2 || head.Page.Runs[0].Turn != guidance || head.Page.Runs[1].Turn != newer.ID {
+			return fmt.Errorf("head duplicated or reattached the standalone guidance: %+v", head.Page.Runs)
+		}
+		head, err = ReadConversation(ctx, db, session.ID, nil, 1)
+		if err != nil {
+			return err
+		}
+		if head.Page.NextBefore == nil || *head.Page.NextBefore != newer.ID ||
+			slices.ContainsFunc(head.Page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == guidance }) {
+			return fmt.Errorf("head brought in guidance through the cancelled skeleton: %+v", head.Page)
+		}
+		older, err := ReadConversation(ctx, db, session.ID, head.Page.NextBefore, 1)
+		if err != nil {
+			return err
+		}
+		if len(older.Page.Runs) != 1 || older.Page.Runs[0].Turn != guidance || older.Page.NextBefore != nil ||
+			len(older.Page.Entries) != 1 || older.Page.Entries[0].Turn != guidance {
+			return fmt.Errorf("older page lost standalone guidance: %+v", older.Page)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
