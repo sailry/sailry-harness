@@ -66,7 +66,11 @@ func (r *Runtime) beginConversationFrame() {
 	}
 	r.mu.Lock()
 	for id := range r.conversationChanges {
-		delete(r.conversationCache, id)
+		if cached, ok := r.conversationCache[id]; ok {
+			cached.generation = 0
+			cached.composer = nil
+			r.conversationCache[id] = cached
+		}
 	}
 	clear(r.conversationChanges)
 	r.mu.Unlock()

@@ -19,11 +19,13 @@ type ConversationState struct {
 	// StatisticsErr is the fault of the Node's last statistics refresh, until
 	// statistics or a snapshot arrive.
 	StatisticsErr error
+	entryEpoch    *byte
 }
 
 type conversationWatch struct {
 	session         protocol.SessionID
 	projection      *ConversationProjection
+	entryEpoch      *byte
 	state           ConversationState
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -44,6 +46,7 @@ type conversationBookmark struct {
 
 func (w *conversationWatch) discardHistory() {
 	w.projection.snapshot = nil
+	w.entryEpoch = nil
 	w.projection.liveStart = nil
 	w.projection.statisticsErr = nil
 	w.projection.hidden, w.projection.revealed = nil, nil
@@ -60,6 +63,17 @@ func (w *conversationWatch) rememberExtent() {
 }
 
 func (c *Client) Conversation(session protocol.SessionID) (ConversationState, bool) {
+	return c.readConversationState(session, nil)
+}
+
+// ConversationView returns a detached snapshot for a read-only presentation.
+// Passing its previous unmodified result reuses canonical entries across pages.
+// Ordinary Conversation callers continue to receive independently mutable copies.
+func (c *Client) ConversationView(session protocol.SessionID, previous ConversationState) (ConversationState, bool) {
+	return c.readConversationState(session, &previous)
+}
+
+func (c *Client) readConversationState(session protocol.SessionID, previous *ConversationState) (ConversationState, bool) {
 	c.conversationMu.Lock()
 	defer c.conversationMu.Unlock()
 	w := c.conversations[session]
@@ -68,10 +82,47 @@ func (c *Client) Conversation(session protocol.SessionID) (ConversationState, bo
 	}
 	s := w.state
 	s.StatisticsErr = w.projection.statisticsErr
-	if w.projection.snapshot != nil {
-		s.Snapshot = copyValue(*w.projection.snapshot)
+	snapshot := w.projection.snapshot
+	if snapshot == nil {
+		return s, true
 	}
+	if previous != nil {
+		if w.entryEpoch == nil {
+			w.entryEpoch = new(byte)
+		}
+		s.entryEpoch = w.entryEpoch
+		if previous.entryEpoch == w.entryEpoch {
+			s.Snapshot = copyPagedSnapshot(*snapshot, previous.Snapshot.Page.Entries)
+			return s, true
+		}
+	}
+	s.Snapshot = copyValue(*snapshot)
 	return s, true
+}
+
+// Between stream updates pagination only inserts records in canonical sequence
+// order. Existing records were checked for equality by mergeHistoryEntries.
+func copyPagedSnapshot(snapshot protocol.ConversationSnapshot, previous []protocol.ConversationEntry) protocol.ConversationSnapshot {
+	entries := snapshot.Page.Entries
+	snapshot.Page.Entries = nil
+	result := copyValue(snapshot)
+	if len(entries) == 0 {
+		result.Page.Entries = slices.Clone(entries)
+		return result
+	}
+	if len(previous) == len(entries) {
+		result.Page.Entries = previous
+		return result
+	}
+	result.Page.Entries = make([]protocol.ConversationEntry, len(entries))
+	for i, entry := range entries {
+		if len(previous) > 0 && previous[0].Sequence == entry.Sequence {
+			result.Page.Entries[i], previous = previous[0], previous[1:]
+		} else {
+			result.Page.Entries[i] = copyValue(entry)
+		}
+	}
+	return result
 }
 
 // WatchConversation shares a single subscription and reduction owner per session.
@@ -374,6 +425,7 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 	}
 	applied, err := w.projection.Apply(generation, update)
 	if err == nil && applied == Applied {
+		w.entryEpoch = nil
 		w.state.Loading = false
 		w.state.Connected = true
 		w.state.Err = nil

@@ -218,8 +218,8 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 		return r.controller.Conversation(id)
 	}
 	copied, ok := r.conversationCopies[id]
-	if !ok {
-		copied.state, copied.ok = r.controller.Conversation(id)
+	if !ok || copied.generation == 0 {
+		copied.state, copied.ok = r.controller.ConversationView(id, copied.state)
 		r.conversationVersion++
 		copied.generation = r.conversationVersion
 		r.conversationCopies[id] = copied

@@ -785,7 +785,9 @@ first. Node computes conversation statistics outside the publication lock and
 delivers them on the same ordered feed.
 
 Desktop reuses read-only conversation source copies until a Client observation
-changes, including pagination and connection state. An unchanged visible
+changes, including pagination and connection state. Across history pages the
+read-only view shares its already detached canonical entries. Node stream updates
+invalidate that reuse, and mutable action reads always get independent copies. An unchanged visible
 transcript projection is reused even for active runs; elapsed labels update
 without rebuilding its history. Controls and mutable presentation overlays still
 refresh. Leaving a conversation releases its presentation cache and unbinds

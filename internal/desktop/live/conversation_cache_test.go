@@ -98,6 +98,9 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		go func() { loaded <- r.controller.LoadOlderConversation(t.Context(), id) }()
 		<-started
 		loading := cacheTestFrame(t, r, cv, id)
+		if &loading.Snapshot.Page.Entries[0] != &first.Snapshot.Page.Entries[0] {
+			t.Fatal("a pending history read recopied unchanged entries")
+		}
 		if !loading.LoadingOlder || !cv.Session.LoadingOlder {
 			t.Fatal("history loading did not invalidate the presentation")
 		}
@@ -107,6 +110,13 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		}
 		synctest.Wait()
 		after := cacheTestFrame(t, r, cv, id)
+		if &after.Snapshot.Page.Entries[2].Parts[0] != &first.Snapshot.Page.Entries[0].Parts[0] {
+			t.Fatal("prepending history recopied an existing message body")
+		}
+		independent, _ := r.controller.Conversation(id)
+		if &independent.Snapshot.Page.Entries[2].Parts[0] == &after.Snapshot.Page.Entries[2].Parts[0] {
+			t.Fatal("a mutable action read shared presentation data")
+		}
 		if after.Snapshot.Sequence != first.Snapshot.Sequence || after.Snapshot.Page.Revision != first.Snapshot.Page.Revision ||
 			len(cv.Turns) != 2 || cv.Turns[0].User != "Older input" || cv.Session.LoadingOlder {
 			t.Fatalf("same-revision pagination stayed stale: %#v", cv)
@@ -115,6 +125,24 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		r.finishConversationFrame()
 		if len(r.conversationCache) != 0 || len(r.conversationPresentations) != 0 || r.conversationCopies != nil || cv.Turns != nil {
 			t.Fatal("leaving the conversation retained its frame caches or view history")
+		}
+	})
+}
+
+func TestConversationViewRefreshReplacesSameLengthHistory(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		first := cacheTestFrame(t, r, cv, id)
+		updated := source.conversations[id]
+		updated.Page = cacheTestPage(id, 2, "Refreshed input")
+		source.conversations[id] = updated
+		if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		after := cacheTestFrame(t, r, cv, id)
+		if first.Snapshot.Page.Entries[0].Parts[0].Data != "Latest input" || after.Snapshot.Page.Entries[0].Parts[0].Data != "Refreshed input" {
+			t.Fatal("views shared entries across authoritative snapshots")
 		}
 	})
 }
