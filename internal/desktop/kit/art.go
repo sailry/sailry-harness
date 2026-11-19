@@ -16,7 +16,15 @@ import (
 
 // Picture paints a decoration into r.
 func Picture(pt *ui.Painter, d *theme.Decoration, r ui.Rect) {
-	b := d.Bitmap()
+	paintPicture(pt, d, d.Bitmap(), r)
+}
+
+// PreviewPicture paints a decoration using its gallery-sized bitmap.
+func PreviewPicture(pt *ui.Painter, d *theme.Decoration, r ui.Rect) {
+	paintPicture(pt, d, d.PreviewBitmap(), r)
+}
+
+func paintPicture(pt *ui.Painter, d *theme.Decoration, b *ui.Bitmap, r ui.Rect) {
 	if b == nil || r.W <= 0 || r.H <= 0 {
 		return
 	}

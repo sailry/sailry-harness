@@ -211,9 +211,10 @@ type Decoration struct {
 	pic *picture
 }
 
-// picture retains one decoded resource from the verified package snapshot.
+// picture decodes a verified resource on first use.
 type picture struct {
-	bitmap func() *ui.Bitmap
+	bitmap  func() *ui.Bitmap
+	preview func() *ui.Bitmap
 }
 
 // UnmarshalJSON applies the defaults to the omitted fields.
@@ -243,6 +244,14 @@ func (d *Decoration) Bitmap() *ui.Bitmap {
 		return nil
 	}
 	return d.pic.bitmap()
+}
+
+// PreviewBitmap returns the lighter copy used in the Appearance gallery.
+func (d *Decoration) PreviewBitmap() *ui.Bitmap {
+	if d != nil && d.pic != nil && d.pic.preview != nil {
+		return d.pic.preview()
+	}
+	return d.Bitmap()
 }
 
 // Kind is an effect's motion.

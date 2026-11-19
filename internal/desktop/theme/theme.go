@@ -4,8 +4,10 @@
 package theme
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -202,6 +204,11 @@ type look struct {
 	widget  *ui.Theme
 }
 
+type retiredLook struct {
+	palette *Palette
+	neutral *ui.Theme
+}
+
 // registry is the themes in use. It is replaced whole, never changed, so
 // every window's frame reads one consistent set.
 type registry struct {
@@ -212,9 +219,17 @@ type registry struct {
 	neutral map[*ui.Theme]*ui.Theme
 }
 
+func (r *registry) appearance(id string, dark bool) look {
+	if selected, ok := r.looks[key{id, dark}]; ok {
+		return selected
+	}
+	return r.looks[key{BuiltinID, dark}]
+}
+
 var (
 	current  atomic.Pointer[registry]
 	changing sync.Mutex
+	retired  sync.Map // weak.Pointer[ui.Theme] to retiredLook
 )
 
 func init() { SetInstalled(nil) }
@@ -245,43 +260,69 @@ func SetInstalled(installed []*Package) {
 		}
 	}
 	previous := current.Load()
-	if previous != nil {
-		for widget, value := range previous.byWidget {
-			next.byWidget[widget] = value
-		}
-		for widget, value := range previous.neutral {
-			next.neutral[widget] = value
-		}
-	}
 	for _, pkg := range next.packages {
 		for _, dark := range []bool{false, true} {
 			id := key{pkg.ID, dark}
-			if previous != nil && previous.looks[id].palette != nil && previous.looks[id].palette.Package == pkg {
-				next.looks[id] = previous.looks[id]
-				continue
+			var styles look
+			var neutral *ui.Theme
+			if previous != nil {
+				styles = previous.looks[id]
 			}
-			value := palette(pkg, dark)
-			widget := build(value)
-			next.looks[id] = look{value, widget}
-			next.byWidget[widget] = value
-			neutral := *widget
-			neutral.Accent, neutral.AccentHover, neutral.AccentPressed = value.Selected(), value.Selected(), value.Selected()
-			neutral.InactiveAccent, neutral.AccentText = value.Selected(), value.Foreground
-			next.neutral[widget] = &neutral
-			next.byWidget[&neutral] = value
+			if styles.palette == nil || styles.palette.Package != pkg {
+				value := palette(pkg, dark)
+				styles = look{value, build(value)}
+				alternate := *styles.widget
+				alternate.Accent, alternate.AccentHover, alternate.AccentPressed = value.Selected(), value.Selected(), value.Selected()
+				alternate.InactiveAccent, alternate.AccentText = value.Selected(), value.Foreground
+				neutral = &alternate
+			} else {
+				neutral = previous.neutral[styles.widget]
+			}
+			next.looks[id] = styles
+			next.byWidget[styles.widget], next.byWidget[neutral] = styles.palette, styles.palette
+			next.neutral[styles.widget] = neutral
+		}
+	}
+	if previous != nil {
+		for id, styles := range previous.looks {
+			if next.looks[id].widget != styles.widget {
+				neutral := previous.neutral[styles.widget]
+				rememberRetired(styles.widget, styles.palette, neutral)
+				rememberRetired(neutral, styles.palette, nil)
+			}
 		}
 	}
 	current.Store(next)
 }
 
+func rememberRetired(widget *ui.Theme, palette *Palette, neutral *ui.Theme) {
+	// A window may still paint with the replaced widget. Retain its palette
+	// only for the widget's lifetime, without rooting the widget itself.
+	key := weak.Make(widget)
+	retired.Store(key, retiredLook{palette, neutral})
+	runtime.AddCleanup(widget, func(key weak.Pointer[ui.Theme]) { retired.Delete(key) }, key)
+}
+
+func retiredAppearance(widget *ui.Theme) retiredLook {
+	value, ok := retired.Load(weak.Make(widget))
+	runtime.KeepAlive(widget)
+	if ok {
+		return value.(retiredLook)
+	}
+	return retiredLook{}
+}
+
 // Of returns the palette of the frame's theme, or of the Themed subtree
 // being built.
 func Of(c *ui.Context) *Palette {
-	themes := current.Load()
-	if p := themes.byWidget[c.Theme()]; p != nil {
+	themes, widget := current.Load(), c.Theme()
+	if p := themes.byWidget[widget]; p != nil {
 		return p
 	}
-	return themes.looks[key{BuiltinID, c.Theme().Dark}].palette
+	if old := retiredAppearance(widget); old.palette != nil {
+		return old.palette
+	}
+	return themes.looks[key{BuiltinID, widget.Dark}].palette
 }
 
 // Neutral returns the frame's theme with MyGo's accent replaced by the
@@ -290,15 +331,19 @@ func Of(c *ui.Context) *Palette {
 // neutral selections are, not in the emphasis color. Of gives the same
 // palette inside it; the focus ring is unchanged.
 func Neutral(c *ui.Context) *ui.Theme {
-	if neutral := current.Load().neutral[c.Theme()]; neutral != nil {
+	widget := c.Theme()
+	if neutral := current.Load().neutral[widget]; neutral != nil {
 		return neutral
 	}
-	return c.Theme()
+	if old := retiredAppearance(widget); old.neutral != nil {
+		return old.neutral
+	}
+	return widget
 }
 
 // Look returns the palette of a package in a mode, as previews show it.
 func Look(id string, dark bool) *Palette {
-	return current.Load().looks[key{Find(id).ID, dark}].palette
+	return current.Load().appearance(id, dark).palette
 }
 
 func Preview(pkg *Package, dark bool) *Palette {
@@ -310,7 +355,7 @@ func Preview(pkg *Package, dark bool) *Palette {
 
 // Widget returns the MyGo theme of a package in a mode, for ui.Themed.
 func Widget(id string, dark bool) *ui.Theme {
-	return current.Load().looks[key{Find(id).ID, dark}].widget
+	return current.Load().appearance(id, dark).widget
 }
 
 // IsDark resolves the mode against the system's appearance.

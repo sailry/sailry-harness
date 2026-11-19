@@ -1,10 +1,42 @@
 package theme
 
 import (
+	"bytes"
+	"encoding/json"
+	"image"
+	"image/png"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
 )
+
+func TestGalleryBitmapKeepsFullSizeArtworkSeparate(t *testing.T) {
+	manifest, files := themeFixture(t)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 1024, 256))); err != nil {
+		t.Fatal(err)
+	}
+	files["assets/light.png"].Data = encoded.Bytes()
+	pkg, err := Parse(data, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	art := pkg.Light.Asset("background.content")
+	preview := art.PreviewBitmap()
+	if width, height := preview.Size(); width != 768 || height != 192 {
+		t.Fatalf("gallery bitmap is %dx%d", width, height)
+	}
+	if width, height := art.Bitmap().Size(); width != 1024 || height != 256 {
+		t.Fatalf("full artwork is %dx%d", width, height)
+	}
+	if pkg.Light.Asset("brand").PreviewBitmap() != preview {
+		t.Fatal("two slots sharing an asset decoded it twice")
+	}
+}
 
 // Parse reads the built-in packages whole and refuses a package without both
 // variants, malformed JSON and a color that is not a hex value.
@@ -95,7 +127,7 @@ func TestSetInstalled(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				if Look("ink-dragon", true) == nil || Widget(BuiltinID, false) == nil || len(Packages()) < len(embeddedPackages) {
+				if Look("ink-dragon", true) == nil || Widget("added", false) == nil || len(Packages()) < len(embeddedPackages) {
 					panic("a reader saw an incomplete set")
 				}
 			}
@@ -112,7 +144,8 @@ func TestSetInstalled(t *testing.T) {
 		t.Fatalf("installed set %v", got)
 	}
 	replaced, kept := Widget("ink-dragon", true), Widget("added", false)
-	if replaced == shipped || current.Load().byWidget[shipped] == nil {
+	old := retiredAppearance(shipped)
+	if replaced == shipped || current.Load().byWidget[shipped] != nil || old.palette == nil || old.palette.Package.ID != "ink-dragon" {
 		t.Fatal("the replaced look is not known to the window showing it")
 	}
 	SetInstalled([]*Package{added})

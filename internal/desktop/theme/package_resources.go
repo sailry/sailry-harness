@@ -20,6 +20,7 @@ const (
 	themeFileLimit     = 8 * 1024 * 1024
 	themePackageLimit  = 32 * 1024 * 1024
 	themeDecodeLimit   = 32 * 1024 * 1024
+	themePreviewEdge   = 768
 )
 
 func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) error {
@@ -90,18 +91,23 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) 
 			if configuration.Width < 1 || configuration.Height < 1 || configuration.Width > 4096 || configuration.Height > 4096 || max(allocation, decoderBytes) > themeDecodeLimit-decoded {
 				return errors.New("theme image exceeds decoded resource limit")
 			}
-			decode := sync.OnceValues(func() (*ui.Bitmap, error) { return ui.DecodeBitmap(data) })
-			// Installed packages must pass a full decode before admission. Shipped
-			// images are immutable and tested; allocate pixels on first use.
+			// Validate installed resources at admission without retaining their
+			// pixels. The renderer decodes only the pictures it actually uses.
 			if !embedded {
-				if _, err := decode(); err != nil {
+				if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
 					return fmt.Errorf("%s: %w", asset.Path, err)
 				}
 			}
-			picture := &picture{bitmap: func() *ui.Bitmap {
-				bitmap, _ := decode()
+			picture := &picture{bitmap: sync.OnceValue(func() *ui.Bitmap {
+				bitmap, _ := ui.DecodeBitmap(data)
 				return bitmap
-			}}
+			})}
+			if max(configuration.Width, configuration.Height) > themePreviewEdge {
+				picture.preview = sync.OnceValue(func() *ui.Bitmap {
+					bitmap, _ := ui.DecodeBitmapScaled(data, themePreviewEdge)
+					return bitmap
+				})
+			}
 			seen[asset.Path], asset.pic = picture, picture
 			encoded += len(data)
 			decoded += allocation

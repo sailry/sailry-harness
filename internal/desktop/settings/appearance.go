@@ -95,6 +95,9 @@ func appearance(c *ui.Context, look Look) {
 				details(c, imported.details, look)
 				imported.Open = imported.details.open
 			}
+			if !imported.Open {
+				look.Actions.Preview = nil
+			}
 		}
 	})
 }
@@ -209,7 +212,7 @@ func miniature(c *ui.Context, pkg *theme.Package, dark bool) {
 	}
 	box := ui.Row(c).FillWidth().Height(previewHeight).Background(t.Background).AlignItems(ui.Stretch).PassThrough()
 	if art != nil {
-		box.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Picture(pt, art, r) })
+		box.Draw(func(pt *ui.Painter, r ui.Rect) { kit.PreviewPicture(pt, art, r) })
 	}
 	box.Children(func() {
 		ui.Column(c).Width(48).Padding(8).Gap(8).Background(t.Sidebar).Children(func() {
