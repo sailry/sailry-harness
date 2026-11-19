@@ -340,7 +340,7 @@ func deliverBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 		events, err := activityEvent(ctx, db, run.Session)
 		return nil, append(released, events...), err
 	}
-	record := canonical.NewRecord(turn, "background", &canonical.Background{Initial: initialNotice, Results: results}, now)
+	record := canonical.NewRecord(turn, "background", &canonical.Background{Initial: initialNotice, CompactSummary: true, Results: results}, now)
 	record.Provenance.Author = "system"
 	record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
 	entry, events, err := AppendCanonical(ctx, db, run.Session, record)

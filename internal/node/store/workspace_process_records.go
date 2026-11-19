@@ -60,6 +60,14 @@ func RegisterPromotedCommand(ctx context.Context, db *sql.Conn, request protocol
 	return registerProcessRecord(ctx, db, request.ID, input, true, now)
 }
 
+// CommandFollowUpAllowed gates automatic delivery from commands owned by a
+// conversation. A delegated session polls its commands within the child turn.
+func CommandFollowUpAllowed(ctx context.Context, db *sql.Conn, session protocol.SessionID) (bool, error) {
+	var allowed bool
+	err := db.QueryRowContext(ctx, "SELECT NOT EXISTS(SELECT 1 FROM agent_delegations d JOIN turns t ON t.id=d.turn WHERE t.session=?1)", session.String()).Scan(&allowed)
+	return allowed, err
+}
+
 func processCommandPayload(command protocol.Command) (protocol.CommandRunCommandPayload, bool) {
 	if command.Kind != "run_command" {
 		return protocol.CommandRunCommandPayload{}, false
@@ -90,6 +98,12 @@ func registerProcessRecord(ctx context.Context, db *sql.Conn, id protocol.Reques
 			return nil, fault(protocol.ErrorCodeConflict, "command identity belongs to another execution")
 		}
 		return nil, nil
+	}
+	if followUp {
+		followUp, err = CommandFollowUpAllowed(ctx, db, run.Session)
+		if err != nil {
+			return nil, err
+		}
 	}
 	title := input.Command
 	if input.Description != nil {
@@ -174,6 +188,21 @@ func FinishCommand(ctx context.Context, db *sql.Conn, finished process.Finished,
 	}
 	if err := terminalCommandRecord(ctx, db, record, outcome, summary, now); err != nil {
 		return nil, err
+	}
+	if reservation != nil && record.Task.Delivery == nil {
+		notice, err := ReadAgentRun(ctx, db, *reservation)
+		if err != nil {
+			return nil, err
+		}
+		if notice.Notice && notice.Status == protocol.ConversationStatusQueued {
+			var pending bool
+			if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_background WHERE state='pending' AND delivery=?1)", reservation.String()).Scan(&pending); err != nil {
+				return nil, err
+			}
+			if !pending {
+				return cancelAutomaticInput(ctx, db, notice, nil, now)
+			}
+		}
 	}
 	return activityEvent(ctx, db, record.Task.Session)
 }

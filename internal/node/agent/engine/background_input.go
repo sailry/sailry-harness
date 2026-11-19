@@ -55,7 +55,7 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 		if parent.Status != protocol.ConversationStatusRunning {
 			return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "turn cannot take a foreground child result"}
 		}
-		record := canonical.NewRecord(turn, "background", &canonical.Background{Results: []canonical.BackgroundResult{result}}, r.clock.Now())
+		record := canonical.NewRecord(turn, "background", &canonical.Background{CompactSummary: true, Results: []canonical.BackgroundResult{result}}, r.clock.Now())
 		record.Provenance.Author = "system"
 		record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
 		entry, events, err := store.AppendCanonical(x.ctx, db, x.inv.Session.ID, record)

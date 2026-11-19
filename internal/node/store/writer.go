@@ -241,9 +241,14 @@ func uncommitted(cause error) error {
 	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage transaction was rolled back; retry the operation"}, cause)
 }
 
+// IsStorageFull reports when the storage engine could not write for lack of space.
+func IsStorageFull(err error) bool {
+	return errors.Is(err, turso.ErrTursoDatabaseFull)
+}
+
 // storageFull names the disk when the native engine cannot store a change.
 func storageFull(cause error) error {
-	if !errors.Is(cause, turso.ErrTursoDatabaseFull) {
+	if !IsStorageFull(cause) {
 		return cause
 	}
 	return errors.Join(&protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "storage is full; free disk space and retry the operation"}, cause)

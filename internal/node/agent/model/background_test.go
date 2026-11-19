@@ -141,6 +141,14 @@ func TestBackgroundProjectionKeepsLossWithoutRepeatingSummary(t *testing.T) {
 			Outcome: protocol.ConversationBackgroundOutcomeFailed, Summary: new(summary)},
 		Stderr: new("earlier lines\n" + summary), StderrTruncated: true, StderrOmittedBytes: new(uint64(52000)),
 	}}}, time.Unix(100, 0))
+	storedJSON, err := json.Marshal(record.Background().Results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, evidence, err := record.ModelContent(); err != nil || evidence != canonical.BackgroundLabel+string(storedJSON) {
+		t.Fatalf("legacy record projection changed: %q, %v", evidence, err)
+	}
+	record.Background().CompactSummary = true
 	_, evidence, err := record.ModelContent()
 	if err != nil || strings.Count(evidence, summary) != 1 || !strings.Contains(evidence, `"stderr_omitted_bytes":52000`) || !strings.Contains(evidence, `"stderr_truncated":true`) {
 		t.Fatalf("incorrect background evidence: %q, %v", evidence, err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -283,7 +284,13 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		finished := Finished{Snapshot: protocol.ProcessSnapshot{Info: info, Stdout: completion.Stdout, Stderr: completion.Stderr},
 			ElapsedMs: timing, Explicit: explicit, StdoutBytes: stdoutBytes, StderrBytes: stderrBytes}
 		if err := s.persistFinished(finished); err != nil {
-			failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "command completion could not be recorded; side effects were not replayed: " + err.Error()}
+			slog.Error("command completion could not be recorded", "command_id", info.ID.String(), "session", info.Session.String(), "error", err)
+			reason := err.Error()
+			var fault *protocol.Fault
+			if errors.As(err, &fault) {
+				reason = fault.Message
+			}
+			failure = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "command completion could not be recorded; side effects were not replayed: " + reason}
 			info.Status = protocol.ProcessStatus{Kind: "failed", Data: failure.Error()}
 		}
 	}
@@ -301,10 +308,11 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 
 func (s *Service) persistFinished(finished Finished) error {
 	ctx := context.WithoutCancel(s.ctx)
-	for {
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
 		err := s.options.Finished(ctx, finished)
 		var fault *protocol.Fault
-		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy && fault.Code != protocol.ErrorCodeUnavailable {
+		if attempt == attempts || !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy && fault.Code != protocol.ErrorCodeUnavailable {
 			return err
 		}
 		// A refused write can repeat for the same completed command. An
@@ -379,15 +387,24 @@ func (s *Service) promoteLocked(entry *commandEntry) {
 	s.watchStallLocked(entry)
 }
 
-// watchStallLocked reports each silent period of a running background command
-// once. Output after a report starts the next period.
+// watchStallLocked tracks the first reported silent period of a follow-up
+// command. If recording fails, another silent period can still report it.
 func (s *Service) watchStallLocked(entry *commandEntry) {
-	if s.options.Stalled == nil || s.closed {
+	if !entry.launch.FollowUp || s.options.Stalled == nil || s.closed {
 		return
 	}
 	s.workers.Add(1)
 	go func() {
 		defer s.workers.Done()
+		if gate := entry.launch.CompletionGate; gate != nil {
+			select {
+			case <-entry.done:
+				return
+			case <-s.ctx.Done():
+				return
+			case <-gate:
+			}
+		}
 		wait := StallWindow
 		for {
 			select {
@@ -416,8 +433,9 @@ func (s *Service) watchStallLocked(entry *commandEntry) {
 				StdoutBytes: stdoutBytes, StderrBytes: stderrBytes}
 			resumed := entry.outputChanged
 			s.mu.Unlock()
-			// The command keeps running whether or not its session hears of the silence.
-			_ = s.options.Stalled(context.WithoutCancel(s.ctx), stalled)
+			if s.options.Stalled(context.WithoutCancel(s.ctx), stalled) == nil {
+				return
+			}
 			select {
 			case <-entry.done:
 				return

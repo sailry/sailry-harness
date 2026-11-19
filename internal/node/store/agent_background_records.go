@@ -9,15 +9,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// CommandBackgroundPending avoids taking the writer for an output read that
-// cannot consume any more evidence.
+// CommandBackgroundPending checks for committed evidence. A process with a
+// failed completion write exposes its retained output without another write.
 func CommandBackgroundPending(ctx context.Context, db *sql.Conn, snapshot protocol.ProcessSnapshot) (bool, error) {
 	if snapshot.Info.Status.Kind == "running" || snapshot.Info.Status.Kind == "stopping" {
 		return false, nil
 	}
 	var pending bool
 	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_background
-		WHERE id=?1 AND session=?2 AND turn=?3 AND state IN ('running','pending'))`,
+		WHERE id=?1 AND session=?2 AND turn=?3 AND state='pending')`,
 		"command:"+snapshot.Info.ID.String(), snapshot.Info.Session.String(), snapshot.Info.Turn.String()).Scan(&pending)
 	return pending, err
 }

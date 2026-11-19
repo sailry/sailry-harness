@@ -10,8 +10,9 @@ import (
 )
 
 type Background struct {
-	Initial bool               `json:"initial,omitempty"`
-	Results []BackgroundResult `json:"results"`
+	Initial        bool               `json:"initial,omitempty"`
+	CompactSummary bool               `json:"compact_summary,omitempty"`
+	Results        []BackgroundResult `json:"results"`
 }
 
 type BackgroundResult struct {
@@ -47,14 +48,19 @@ func (r Record) Background() *Background {
 // records that stored a reserved notice part alongside actual input.
 func (r Record) ModelContent() (*Message, string, error) {
 	if value := r.Background(); value != nil {
-		results := slices.Clone(value.Results)
-		for i := range results {
-			result := &results[i]
-			if summary := result.Notice.Summary; summary != nil && result.ErrorCode == nil &&
-				(result.Stdout != nil && strings.HasSuffix(*result.Stdout, *summary) ||
-					result.Stderr != nil && strings.HasSuffix(*result.Stderr, *summary) ||
-					result.Response != nil && strings.HasPrefix(*result.Response, *summary)) {
-				result.Notice.Summary = nil
+		results := value.Results
+		// Choose the model-facing format when recording the result so older
+		// history keeps its projection when the runtime changes.
+		if value.CompactSummary {
+			results = slices.Clone(results)
+			for i := range results {
+				result := &results[i]
+				if summary := result.Notice.Summary; summary != nil && result.ErrorCode == nil &&
+					(result.Stdout != nil && strings.HasSuffix(*result.Stdout, *summary) ||
+						result.Stderr != nil && strings.HasSuffix(*result.Stderr, *summary) ||
+						result.Response != nil && strings.HasPrefix(*result.Response, *summary)) {
+					result.Notice.Summary = nil
+				}
 			}
 		}
 		raw, err := json.Marshal(results)

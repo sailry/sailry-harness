@@ -250,7 +250,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 					}
 				}
 			}
-			value := node.workspaceToolValue(inv.Session.ID, request, output)
+			value := node.workspaceToolValue(inv.Session, request, output)
 			if !packaged {
 				if content := operations.CommandContent(output); content != nil {
 					shaped, ok := value.(map[string]any)
@@ -395,7 +395,7 @@ func workspaceOutputFailure(output protocol.Output) *protocol.ToolFailure {
 	}
 	return failure
 }
-func (node *Node) workspaceToolValue(session protocol.SessionID, request protocol.Request, output protocol.Output) any {
+func (node *Node) workspaceToolValue(session protocol.Session, request protocol.Request, output protocol.Output) any {
 	if value, shaped := codeToolValue(output); shaped {
 		return value
 	}
@@ -419,17 +419,24 @@ func (node *Node) workspaceToolValue(session protocol.SessionID, request protoco
 	}
 	if output.Kind == "command_result" || output.Kind == "command_output" {
 		value["sailry_command"] = map[string]any{"id": id}
+		sessionID := session.ID
 		if snapshot, ok := output.Data.(protocol.ProcessSnapshot); ok {
-			session = snapshot.Info.Session
+			sessionID = snapshot.Info.Session
 			id = snapshot.Info.ID
 		}
-		if preview, err := node.processes.Preview(session, id, output.Kind == "command_output"); err == nil {
+		if preview, err := node.processes.Preview(sessionID, id, output.Kind == "command_output"); err == nil {
 			value["sailry_command"] = preview
 		}
 	}
 	if input, ok := request.Command.Data.(*protocol.CommandRunCommandPayload); ok && output.Kind == "command_started" && !input.Background {
 		if data, ok := value["data"].(map[string]any); ok {
-			data["notice"] = "The user sent a new message while this command was running. The command was moved to the background and is still running; use the command read and stop tools with this id to check it. Its completion is reported automatically."
+			notice := "New guidance arrived while this command was running. It moved to the background. Use read_command or stop_command with this id."
+			if session.Delegation != nil {
+				notice += " Read the result before returning to the parent. The command stops when this delegated task ends."
+			} else {
+				notice += " Its completion is reported automatically."
+			}
+			data["notice"] = notice
 		}
 	}
 	if workspaceOutputFailed(output) {

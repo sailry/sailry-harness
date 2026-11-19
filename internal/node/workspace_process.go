@@ -80,6 +80,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	var run protocol.ConversationRun
 	var root string
 	var attachments []protocol.Attachment
+	followUp := input.FollowUp
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		var err error
 		run, err = store.ReadAgentRun(ctx, db, input.Turn)
@@ -89,14 +90,15 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		if run.Status != protocol.ConversationStatusRunning || run.Kind != protocol.ConversationRunKindTask {
 			return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "task turn is not running"}
 		}
-		if input.FollowUp {
-			session, err := store.ReadSession(ctx, db, run.Session)
+		if input.FollowUp || !input.Background {
+			allowed, err := store.CommandFollowUpAllowed(ctx, db, run.Session)
 			if err != nil {
 				return err
 			}
-			if session.Delegation != nil {
+			if input.FollowUp && !allowed {
 				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "delegated commands do not support automatic follow-up; read the result before returning to the parent"}
 			}
+			followUp = allowed
 		}
 		root, err = store.ReadWorkspaceRoot(ctx, db, run.Worktree, false)
 		if err != nil {
@@ -126,7 +128,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	if input.Description != nil && (strings.TrimSpace(*input.Description) == "" || strings.ContainsRune(*input.Description, 0)) {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command description"}
 	}
-	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background}
+	launch := process.Launch{ID: request.ID, Session: run.Session, Turn: input.Turn, Worktree: run.Worktree, Root: root, Profile: node.profile.Ownership.Path, Command: input.Command, Access: input.Access, Cwd: input.Cwd, TimeoutMs: input.TimeoutMs, Pty: input.Pty, Background: input.Background, FollowUp: followUp}
 	if err = launch.Validate(); err != nil {
 		return protocol.Output{}, err
 	}

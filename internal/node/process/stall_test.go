@@ -42,7 +42,7 @@ func TestStallMonitor(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = service.Close() })
 		value.service = service
-		value.launch = Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", Access: protocol.ProcessAccessWorkspace, TimeoutMs: 1}
+		value.launch = Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", Access: protocol.ProcessAccessWorkspace, TimeoutMs: 1, FollowUp: true}
 		return value
 	}
 	// armed waits until the monitor sleeps on the clock again.
@@ -69,7 +69,7 @@ func TestStallMonitor(t *testing.T) {
 			return Stalled{}
 		}
 	}
-	t.Run("each silent period of a background command is reported once", func(t *testing.T) {
+	t.Run("the first silent period of a follow-up command is reported once", func(t *testing.T) {
 		t.Parallel()
 		value := start(t)
 		info, err := value.service.Start(value.launch)
@@ -77,40 +77,31 @@ func TestStallMonitor(t *testing.T) {
 			t.Fatal(err)
 		}
 		armed(t, value)
-		value.clock.Advance(StallWindow - time.Second)
-		armed(t, value)
-		if len(value.stalls) != 0 {
-			t.Fatal("command was reported before a full silent window")
-		}
-		value.clock.Advance(time.Second)
-		first := stalled(t, value)
-		if first.Snapshot.Info.ID != info.ID || first.Snapshot.Info.Session != info.Session || first.Snapshot.Info.Status.Kind != "running" || first.Snapshot.Stdout.Text != "" || first.ElapsedMs != uint64(StallWindow.Milliseconds()) {
-			t.Fatal("unexpected first stall", first)
-		}
-		// A reported period waits for output, however long the silence lasts.
-		value.clock.Advance(4 * StallWindow)
-		write(value, "resumed\n")
-		armed(t, value)
-		if len(value.stalls) != 0 {
-			t.Fatal("one silent period was reported twice")
-		}
 		// Output inside a window restarts it.
 		value.clock.Advance(10 * time.Minute)
-		write(value, "more\n")
+		write(value, "working\n")
 		value.clock.Advance(5 * time.Minute)
 		armed(t, value)
 		if len(value.stalls) != 0 {
 			t.Fatal("output did not restart the silent window")
 		}
 		value.clock.Advance(10 * time.Minute)
-		second := stalled(t, value)
-		if second.Snapshot.Info.ID != info.ID || second.Snapshot.Stdout.Text != "resumed\nmore\n" || second.Snapshot.Info.Status.Kind != "running" ||
-			second.ElapsedMs <= second.SilenceMs || second.SilenceMs != uint64(StallWindow.Milliseconds()) ||
-			second.StdoutBytes == nil || *second.StdoutBytes != uint64(len(second.Snapshot.Stdout.Text)) {
-			t.Fatal("unexpected second stall", second)
+		first := stalled(t, value)
+		if first.Snapshot.Info.ID != info.ID || first.Snapshot.Info.Session != info.Session || first.Snapshot.Info.Status.Kind != "running" ||
+			first.Snapshot.Stdout.Text != "working\n" || first.ElapsedMs <= first.SilenceMs || first.SilenceMs != uint64(StallWindow.Milliseconds()) ||
+			first.StdoutBytes == nil || *first.StdoutBytes != uint64(len(first.Snapshot.Stdout.Text)) {
+			t.Fatal("unexpected first stall", first)
 		}
 		if snapshot, err := value.service.Read(info.Session, info.ID); err != nil || snapshot.Info.Status.Kind != "running" {
 			t.Fatal("a stall changed the command", snapshot, err)
+		}
+		write(value, "resumed\n")
+		value.clock.Advance(4 * StallWindow)
+		if err := value.service.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if len(value.stalls) != 0 {
+			t.Fatal("command was reported after its first recorded stall")
 		}
 	})
 	t.Run("a finished command is never reported", func(t *testing.T) {

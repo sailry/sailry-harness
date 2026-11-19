@@ -161,6 +161,76 @@ func TestRemovedSessionDismissesCommandEvidence(t *testing.T) {
 	}
 }
 
+func TestPromotedChildCommandUsesPolling(t *testing.T) {
+	t.Parallel()
+	storage, node, _, parent, now := agentHistoryFixture(t, protocol.WorkModeFlagship)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		child, err := listFixtureChild(ctx, db, node, parent, now, map[string]any{"task": "Collect the result before returning"})
+		if err != nil {
+			return err
+		}
+		if err := claimListFixtureChild(ctx, db, child, now); err != nil {
+			return err
+		}
+		allowed, err := CommandFollowUpAllowed(ctx, db, child.Session.ID)
+		if err != nil || allowed {
+			return fmt.Errorf("delegated session allows command follow-up: %v, %v", allowed, err)
+		}
+		input := protocol.DefaultCommandRunCommandPayload()
+		input.Turn, input.Command = child.Run.Turn, "fixture"
+		request := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+		if _, err := RegisterPromotedCommand(ctx, db, request, now); err != nil {
+			return err
+		}
+		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "command:"+request.ID.String())
+		if err != nil || record == nil || record.FollowUp || record.Task.Session != child.Session.ID {
+			return fmt.Errorf("promoted command did not stay with the delegated session for polling: %+v, %v", record, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStoppedCommandWithdrawsEmptyStallNotice(t *testing.T) {
+	t.Parallel()
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		input := protocol.DefaultCommandRunCommandPayload()
+		input.Turn, input.Command, input.Background, input.FollowUp = turn, "fixture", true, true
+		request := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+		if _, err := RegisterCommand(ctx, db, request, now); err != nil {
+			return err
+		}
+		if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		snapshot := protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: request.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "running"}}}
+		silent := now.Add(process.StallWindow)
+		_, written, err := StallCommand(ctx, db, process.Stalled{Snapshot: snapshot}, silent)
+		if err != nil || !written {
+			return fmt.Errorf("stall evidence was not recorded: %v", err)
+		}
+		queued, _, err := ScheduleBackground(ctx, db, node, session.ID, silent)
+		if err != nil || queued == nil {
+			return fmt.Errorf("stall notice was not queued: %v", err)
+		}
+		snapshot.Info.Status = protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "cancelled"}}
+		if _, err = FinishCommand(ctx, db, process.Finished{Snapshot: snapshot, Explicit: true}, silent.Add(time.Second)); err != nil {
+			return err
+		}
+		run, err := ReadAgentRun(ctx, db, queued.ID)
+		if err != nil || run.Status != protocol.ConversationStatusCancelled || run.StartedMs != nil {
+			return fmt.Errorf("empty notice should leave the queue without starting: %+v, %v", run, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStalledCommandEvidence(t *testing.T) {
 	t.Parallel()
 	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)

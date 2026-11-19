@@ -375,6 +375,54 @@ func TestBackgroundCompletionRetriesUncommittedWrite(t *testing.T) {
 	}
 }
 
+func TestBackgroundCompletionStopsRetrying(t *testing.T) {
+	for _, row := range []struct {
+		name     string
+		code     protocol.ErrorCode
+		attempts int
+	}{
+		{"refused write", protocol.ErrorCodeBusy, 3},
+		{"unconfirmed write", protocol.ErrorCodeOutcomeUnknown, 1},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			attempts := 0
+			retry := make(chan time.Time)
+			close(retry)
+			service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
+				if delay == time.Second {
+					return retry
+				}
+				return time.After(delay)
+			}, Run: func(_ context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+				emit(protocol.ProcessOutputOutputStreamStdout, []byte("retained result"))
+				return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+			}, Finished: func(_ context.Context, _ Finished) error {
+				attempts++
+				return &protocol.Fault{Code: row.code, Message: "fixture completion write failed"}
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = service.Close() })
+			launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000}
+			if _, err := service.Start(launch); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			if err := service.Wait(ctx, launch.Session, launch.ID, 30000, "missing"); err != nil {
+				t.Fatal("completion failure kept the process running", err)
+			}
+			snapshot, err := service.Read(launch.Session, launch.ID)
+			message, _ := snapshot.Info.Status.Data.(string)
+			if err != nil || snapshot.Info.Status.Kind != "failed" || !strings.Contains(message, "fixture completion write failed") ||
+				snapshot.Stdout.Text != "retained result" || attempts != row.attempts {
+				t.Fatal("completion failure was not visible with command output", snapshot, err, attempts)
+			}
+		})
+	}
+}
+
 func TestCommandOutputMatchesAfterWaitBoundary(t *testing.T) {
 	stream := newRetained(t.TempDir(), &outputBudget{}, true, false)
 	defer stream.evict()

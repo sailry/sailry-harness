@@ -118,5 +118,10 @@ func (node *Node) commandFinished(ctx context.Context, finished process.Finished
 	if err == nil {
 		node.agent.Committed()
 	}
+	if store.IsStorageFull(err) {
+		// A completion retry cannot free storage. Publish the process's
+		// recording failure using its retained output and stop waiting.
+		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "storage is full; free disk space to record command completions"}
+	}
 	return err
 }

@@ -22,6 +22,7 @@ type Launch struct {
 	TimeoutMs      uint64
 	Pty            bool
 	Background     bool
+	FollowUp       bool // Report background progress for this launch, including after promotion.
 	Scratch        string
 	Inputs         string
 	Environment    map[string]string
@@ -62,8 +63,8 @@ type Options struct {
 	Now         func() time.Time
 	After       func(time.Duration) <-chan time.Time
 	Finished    func(context.Context, Finished) error
-	// Stalled, when set, receives each silent period of a running background
-	// command once; output starts the next period.
+	// Stalled, when set, records prolonged silence for a follow-up command.
+	// A successful report ends observation for that command.
 	Stalled        func(context.Context, Stalled) error
 	Changed        func(protocol.WorktreeID)
 	CaptureManaged func(string) (string, error)

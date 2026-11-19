@@ -2,12 +2,33 @@ package node
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestPromotedCommandNoticeRespectsDelegation(t *testing.T) {
+	t.Parallel()
+	node := &Node{}
+	request := protocol.Request{Command: protocol.Command{Kind: "run_command", Data: &protocol.CommandRunCommandPayload{}}}
+	info := protocol.DefaultProcessInfo()
+	info.Status.Kind = "running"
+	output := protocol.Output{Kind: "command_started", Data: info}
+	var delegation *protocol.Delegation
+	for _, session := range []protocol.Session{{}, {Delegation: &delegation}} {
+		value, _ := node.workspaceToolValue(session, request, output).(map[string]any)
+		data, _ := value["data"].(map[string]any)
+		notice, _ := data["notice"].(string)
+		child := session.Delegation != nil
+		if !strings.Contains(notice, "read_command") || strings.Contains(notice, "returning to the parent") != child ||
+			strings.Contains(notice, "reported automatically") == child {
+			t.Fatalf("delegated=%v received notice %q", child, notice)
+		}
+	}
+}
 
 func TestRemovedSessionStopsCommands(t *testing.T) {
 	t.Parallel()
