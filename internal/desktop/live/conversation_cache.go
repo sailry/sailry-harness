@@ -136,11 +136,12 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	var clocks transcriptClocks
 	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
 	clocks.advance(cv.Turns, now)
-	// A first page the Node fitted to its frame lists turns whose entries it
-	// left out. Such a turn would show as an empty reply until the user
-	// scrolled to the top, so its history loads now; each load re-projects,
-	// and the next blank turn follows until none is left or a load fails.
-	if blankMissingTurn(state.Snapshot) && !state.LoadingOlder && state.OlderErr == nil {
+	// A first page the Node fitted to its frame can leave out a turn's
+	// entries, or the run that guidance joined. Either would show as an empty
+	// reply until the user scrolled to the top, so the history loads now;
+	// each load re-projects, and the next one follows until the page is whole
+	// there or a load fails.
+	if (blankMissingTurn(state.Snapshot) || unloadedOwner(state.Snapshot)) && !state.LoadingOlder && state.OlderErr == nil {
 		r.async(func() { _ = r.controller.LoadOlderConversation(r.ctx, id) })
 	}
 	presentation := conversationPresentation{mounted: true}
@@ -150,6 +151,16 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	}
 	r.saveConversationPresentation(cv, presentation)
 	return true
+}
+
+// unloadedOwner reports guidance joined to a run the page does not list.
+func unloadedOwner(s protocol.ConversationSnapshot) bool {
+	for _, r := range s.Page.Runs {
+		if r.Joined != nil && !slices.ContainsFunc(s.Page.Runs, func(o protocol.ConversationRun) bool { return o.Turn == *r.Joined }) {
+			return true
+		}
+	}
+	return false
 }
 
 // blankMissingTurn reports a listed turn the page carries none of the

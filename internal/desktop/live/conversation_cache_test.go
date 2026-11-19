@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -483,6 +484,45 @@ func TestBlankMissingTurnLoadsOnOpen(t *testing.T) {
 		r.workers.Wait()
 		if reads != 1 || len(cv.Turns) != 2 || cv.Turns[0].User != "Older input" || len(cv.Turns[0].Reply.Blocks) == 0 {
 			t.Fatalf("the blank turn did not load once on open: %d reads, %#v", reads, cv.Turns)
+		}
+	})
+}
+
+// Guidance whose run the fitted first page left out shows inside that run once
+// the earlier page loads, which it does as the conversation opens; it is never
+// drawn as an empty turn of its own.
+func TestGuidanceWithUnloadedOwnerLoadsOnOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		owner := cacheTestPage(id, 1, "Long task")
+		accepted := source.conversations[id]
+		guided := &accepted.Page.Runs[0]
+		guided.Joined = &owner.Runs[0].Turn
+		// The cursor names the oldest listed run, as a fitted page's does.
+		accepted.Page.NextBefore = &guided.Turn
+		source.conversations[id] = accepted
+		if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		release := make(chan struct{})
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			if request.Command.Kind != "read_conversation" {
+				return link.Response{}, false
+			}
+			<-release
+			return link.Response{Output: protocol.Output{Kind: "conversation", Data: protocol.ConversationHistory{Sequence: accepted.Sequence, Page: owner}}}, true
+		}
+		cacheTestFrame(t, r, cv, id)
+		if len(cv.Turns) != 0 {
+			t.Fatalf("guidance without its run showed as a turn: %#v", cv.Turns)
+		}
+		close(release)
+		r.workers.Wait()
+		synctest.Wait()
+		cacheTestFrame(t, r, cv, id)
+		if len(cv.Turns) != 1 || !strings.HasPrefix(cv.Turns[0].User, "Long task") || !strings.Contains(cv.Turns[0].User, "Latest input") {
+			t.Fatalf("the guidance did not join its loaded run: %#v", cv.Turns)
 		}
 	})
 }
