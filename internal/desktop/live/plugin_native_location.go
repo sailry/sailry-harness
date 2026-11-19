@@ -188,6 +188,9 @@ func (location *pluginNativeLocation) current() (map[string]any, error) {
 }
 
 func (location *pluginNativeLocation) refresh() {
+	if !location.read {
+		return
+	}
 	value, failure := location.current()
 	body, err := json.Marshal(value)
 	if failure == nil {

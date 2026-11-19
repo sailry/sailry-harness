@@ -441,39 +441,32 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 }
 
 func (r *Runtime) composerConfig(comp *composer.State, m composer.Message) (protocol.SessionConfig, uint64, error) {
-	for _, p := range r.composerProviders() {
-		if !p.Enabled || !r.hasLocalProviderCredential(p) {
-			continue
-		}
-		for _, model := range p.Models {
-			if modelKey(p.ID, model.ID) != m.Model {
-				continue
+	p, model, ok := r.composerModel(m.Model)
+	if !ok {
+		return protocol.SessionConfig{}, 0, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Select a configured model"}}
+	}
+	config := protocol.DefaultSessionConfig()
+	if base, ok := r.composerBases[comp]; ok {
+		config = base
+	}
+	config.Provider = p.ID
+	config.Model = model.ID
+	config.Credential = p.Credential
+	config.Effort = parseEffort(m.Effort)
+	config.Mode = []protocol.WorkMode{"code", "plan", "flagship"}[min(max(int(m.Mode), 0), 2)]
+	config.Permission = []protocol.Permission{"ask", "project", "full"}[min(max(int(m.Permission), 0), 2)]
+	if m.Effort == "" || m.Effort == "composer_effort_unavailable" {
+		config.Effort = model.DefaultEffort
+	}
+	config.Features = map[string]string{}
+	if model.Capabilities != nil {
+		for _, f := range model.Capabilities.Features {
+			if value, ok := m.Features[f.ID]; ok && slices.ContainsFunc(f.Options, func(o protocol.ConversationFeaturesFeatureOption) bool { return o.ID == value }) {
+				config.Features[f.ID] = value
 			}
-			config := protocol.DefaultSessionConfig()
-			if base, ok := r.composerBases[comp]; ok {
-				config = base
-			}
-			config.Provider = p.ID
-			config.Model = model.ID
-			config.Credential = p.Credential
-			config.Effort = parseEffort(m.Effort)
-			config.Mode = []protocol.WorkMode{"code", "plan", "flagship"}[min(max(int(m.Mode), 0), 2)]
-			config.Permission = []protocol.Permission{"ask", "project", "full"}[min(max(int(m.Permission), 0), 2)]
-			if m.Effort == "" || m.Effort == "composer_effort_unavailable" {
-				config.Effort = model.DefaultEffort
-			}
-			config.Features = map[string]string{}
-			if model.Capabilities != nil {
-				for _, f := range model.Capabilities.Features {
-					if value, ok := m.Features[f.ID]; ok && slices.ContainsFunc(f.Options, func(o protocol.ConversationFeaturesFeatureOption) bool { return o.ID == value }) {
-						config.Features[f.ID] = value
-					}
-				}
-			}
-			return config, p.Revision, nil
 		}
 	}
-	return protocol.SessionConfig{}, 0, &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Select a configured model"}}
+	return config, p.Revision, nil
 }
 
 func (r *Runtime) rememberConfig(config protocol.SessionConfig, team string) {

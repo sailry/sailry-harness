@@ -328,7 +328,7 @@ func (state *pluginNativeState) composerBusy(source string) bool {
 		if state.scope.Session == nil {
 			return false
 		}
-		history, exists := runtime.controller.Conversation(*state.scope.Session)
+		history, exists := runtime.conversationState(*state.scope.Session)
 		if !exists {
 			return false
 		}

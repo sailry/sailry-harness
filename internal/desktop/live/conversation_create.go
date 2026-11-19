@@ -54,6 +54,43 @@ func (r *Runtime) composerProviders() []protocol.ConversationProvider {
 	return providers
 }
 
+// Find the selection without expanding the complete picker catalog on every frame.
+func (r *Runtime) composerModel(key string) (protocol.ConversationProvider, protocol.ConversationModel, bool) {
+	providerKey, modelID, ok := strings.Cut(key, "/")
+	if ok {
+		p, found := r.composerProvider(providerKey)
+		if found && p.Enabled && r.hasLocalProviderCredential(p) {
+			for _, model := range p.Models {
+				if model.ID == modelID {
+					return p, model, true
+				}
+			}
+		}
+	}
+	return protocol.ConversationProvider{}, protocol.ConversationModel{}, false
+}
+
+func (r *Runtime) composerProvider(key string) (protocol.ConversationProvider, bool) {
+	snapshot := r.snapshot()
+	for i := range snapshot.Providers {
+		if snapshot.Providers[i].ID.String() == key {
+			return snapshot.Providers[i], true
+		}
+	}
+	for i := range snapshot.Sessions {
+		profile := snapshot.Sessions[i].Profile
+		if profile != nil && profile.Provider.ID.String() == key {
+			return profile.Provider, true
+		}
+	}
+	for _, session := range r.admittedSessions {
+		if session.Profile != nil && session.Profile.Provider.ID.String() == key {
+			return session.Profile.Provider, true
+		}
+	}
+	return protocol.ConversationProvider{}, false
+}
+
 // offeredModels are this Node's provider models for a draft, or the captured
 // provider model for an existing session.
 func (r *Runtime) offeredModels(id string, models []composer.Model) []composer.Model {

@@ -22,6 +22,7 @@ func TestComposerProvidersStayOnTheirExecutionNode(t *testing.T) {
 	executorSnapshot.Providers = []protocol.ConversationProvider{provider(shared, "Execution copy"), provider(executorOnly, "Execution only")}
 	captured := protocol.DefaultSessionProfile()
 	captured.Provider = provider(private, "Captured")
+	captured.Provider.Models = append(captured.Provider.Models, protocol.ConversationModel{ID: "org/model"})
 	executorSnapshot.Sessions = []protocol.Session{{ID: protocol.SessionID{1}, Profile: &captured}}
 	controller := client.New(&conversationTestTransport{snapshot: controllerSnapshot})
 	executor := client.New(&conversationTestTransport{snapshot: executorSnapshot})
@@ -49,6 +50,16 @@ func TestComposerProvidersStayOnTheirExecutionNode(t *testing.T) {
 	}
 	if !slices.Equal(ids, []protocol.ProviderID{shared, executorOnly, private}) || providers[0].Name != "Execution copy" {
 		t.Fatalf("composer exposed a provider not owned or captured by the execution Node: %+v", providers)
+	}
+	for _, id := range []protocol.ProviderID{shared, executorOnly, private} {
+		config, _, err := r.composerConfig(composer.New(""), composer.Message{Model: modelKey(id, "gpt-6-sol")})
+		if err != nil || config.Provider != id || config.Model != "gpt-6-sol" {
+			t.Fatalf("selected model lost provider %s: %+v, %v", id, config, err)
+		}
+	}
+
+	if _, m, ok := r.composerModel(modelKey(private, "org/model")); !ok || m.ID != "org/model" {
+		t.Fatal("model selection dropped a path segment")
 	}
 	if len(r.snapshot().Providers) != 2 || len(root.snapshot().Providers) != 2 {
 		t.Fatal("merging channels modified a source snapshot")

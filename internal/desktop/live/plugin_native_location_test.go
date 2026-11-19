@@ -84,6 +84,9 @@ func testPluginLocationOwnership(t *testing.T) {
 		restricted.Operations = map[string]desktopplugins.HostOperation{}
 		denied := &pluginNativeState{runtime: root, scope: scope, native: &restricted}
 		denied.locationOperations()
+		// This package cannot observe location. Even a redraw must not read runtime state.
+		denied.runtime = nil
+		restricted.Frame(nil)
 		if _, err := restricted.Operations["sailry/ui.readLocation"](root.ctx, nil); faultCode(err) != protocol.ErrorCodePermissionDenied {
 			t.Fatalf("location read did not require its declared worktree action: %v", err)
 		}
