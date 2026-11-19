@@ -40,17 +40,21 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 	if !ok {
 		return
 	}
+	snapshot := r.snapshot()
 	runs := map[string]protocol.ConversationRun{}
+	models := map[string]conversation.Child{}
 	for _, child := range client.LatestConversationChildren(state.Snapshot.Page.Children) {
-		childSession, valid := client.ConversationChildSession(r.snapshot(), session.ID, child)
+		childSession, valid := client.ConversationChildSession(snapshot, session.ID, child)
 		if !valid {
 			continue
 		}
-		runs[childSession.ID.String()] = child.Run
+		id := childSession.ID.String()
+		runs[id] = child.Run
+		models[id] = conversation.Child{Model: childSession.Config.Model, Effort: effortName(childSession.Config.Effort), Avatar: childAvatar(snapshot.Roles, child)}
 		if child.Run.Status == "queued" || child.Run.Status == "running" || child.Run.Status == "stopping" {
 			if child.Run.Status == protocol.ConversationStatusRunning {
 				view := childView(&state.Snapshot.Page, child, childSession, language)
-				view.Avatar = childAvatar(r.snapshot().Roles, child)
+				view.Avatar = models[id].Avatar
 				view.Unsynced = !state.Connected
 				ctx.Activity.Children = append(ctx.Activity.Children, view)
 			}
@@ -91,7 +95,7 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 			r.stopChild(session.ID, run)
 		}
 	}
-	enrichChildModels(cv, state.Snapshot.Page, r.snapshot(), language)
+	enrichChildModels(cv, models)
 }
 
 // childApproval reports whether the parent's conversation decides a child's
@@ -167,18 +171,9 @@ func transcriptChild(page *protocol.ConversationPage, child protocol.Conversatio
 	return view
 }
 
-func enrichChildModels(cv *viewmodel.Conversation, page protocol.ConversationPage, snapshot protocol.Snapshot, locale string) {
-	parent, err := protocol.ParseSessionID(cv.ID)
-	if err != nil {
+func enrichChildModels(cv *viewmodel.Conversation, views map[string]conversation.Child) {
+	if len(views) == 0 {
 		return
-	}
-	views := map[string]conversation.Child{}
-	for _, child := range client.LatestConversationChildren(page.Children) {
-		if session, ok := client.ConversationChildSession(snapshot, parent, child); ok {
-			view := childView(&page, child, session, locale)
-			view.Avatar = childAvatar(snapshot.Roles, child)
-			views[session.ID.String()] = view
-		}
 	}
 	for ti := range cv.Turns {
 		for bi := range cv.Turns[ti].Reply.Blocks {
