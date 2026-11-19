@@ -288,6 +288,20 @@ type UsageGeneration struct {
 	Responses    uint64 `json:"responses"`
 }
 
+// DecodeGeneration pairs measured output counts with time after first output.
+// When supplied, hidden reasoning tokens precede that window. Providers that
+// omit the breakdown contribute their reported completion count.
+func (tokens *ConversationUsage) DecodeGeneration(elapsed, first *uint64, reasoningStreamed bool) *UsageGeneration {
+	if tokens == nil || elapsed == nil || first == nil || *elapsed <= *first {
+		return nil
+	}
+	output := tokens.Output
+	if !reasoningStreamed {
+		output -= min(output, tokens.Reasoning)
+	}
+	return &UsageGeneration{ElapsedUs: *elapsed - *first, OutputTokens: output, Responses: 1}
+}
+
 func DefaultUsageGeneration() UsageGeneration {
 	return UsageGeneration{
 		ElapsedUs:    0,

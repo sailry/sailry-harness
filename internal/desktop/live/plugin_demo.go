@@ -181,7 +181,8 @@ func demoStatistics(view *viewmodel.Conversation, model string) *protocol.Conver
 		response = first * 2 / 5
 		elapsed = first + generating/turns
 		statistics.FirstTokenUs = &first
-		observed.Latency = protocol.ConversationObservationLatency{ResponseUs: &response, FirstTokenUs: &first, WaitingUs: &first, ElapsedUs: &elapsed}
+		wait := first - response
+		observed.Latency = protocol.ConversationObservationLatency{ResponseUs: &response, PairedResponseUs: &response, FirstTokenUs: &first, WaitingUs: &wait, ElapsedUs: &elapsed}
 	}
 
 	var replies []conversation.Turn

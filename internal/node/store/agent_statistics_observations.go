@@ -48,7 +48,7 @@ func (m agentStatisticMean) finish() *uint64 {
 	return &value
 }
 
-type agentStatisticLatency struct{ response, first, waiting, elapsed agentStatisticMean }
+type agentStatisticLatency struct{ response, pairedResponse, first, waiting, elapsed agentStatisticMean }
 
 func (l *agentStatisticLatency) observe(a protocol.ConversationObservationAttempt) {
 	response := a.ResponseUs
@@ -62,6 +62,7 @@ func (l *agentStatisticLatency) observe(a protocol.ConversationObservationAttemp
 	l.first.observe(a.FirstTokenUs)
 	l.elapsed.observe(a.ElapsedUs)
 	if response != nil && a.FirstTokenUs != nil && *a.FirstTokenUs >= *response {
+		l.pairedResponse.observe(response)
 		waiting := *a.FirstTokenUs - *response
 		l.waiting.observe(&waiting)
 	}
@@ -258,12 +259,10 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 			if attempt.ElapsedUs != nil {
 				result.ModelUs = addAgentStatistic(result.ModelUs, *attempt.ElapsedUs)
 			}
-			if attempt.Usage != nil {
-				if generation := decodeGeneration(attempt.ElapsedUs, attempt.FirstTokenUs, *attempt.Usage, attempt.ReasoningStreamed); generation != nil {
-					result.OutputUs = addAgentStatistic(result.OutputUs, generation.ElapsedUs)
-					result.OutputTokens = addAgentStatistic(result.OutputTokens, generation.OutputTokens)
-					result.OutputSamples++
-				}
+			if generation := attempt.Usage.DecodeGeneration(attempt.ElapsedUs, attempt.FirstTokenUs, attempt.ReasoningStreamed); generation != nil {
+				result.OutputUs = addAgentStatistic(result.OutputUs, generation.ElapsedUs)
+				result.OutputTokens = addAgentStatistic(result.OutputTokens, generation.OutputTokens)
+				result.OutputSamples++
 			}
 			for _, row := range attempt.Categories {
 				total, exists := composition[row.Kind]
@@ -277,7 +276,7 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 			}
 		}
 	}
-	result.Latency = protocol.ConversationObservationLatency{ResponseUs: latency.response.finish(), FirstTokenUs: latency.first.finish(), WaitingUs: latency.waiting.finish(), ElapsedUs: latency.elapsed.finish()}
+	result.Latency = protocol.ConversationObservationLatency{ResponseUs: latency.response.finish(), PairedResponseUs: latency.pairedResponse.finish(), FirstTokenUs: latency.first.finish(), WaitingUs: latency.waiting.finish(), ElapsedUs: latency.elapsed.finish()}
 	for _, kind := range []protocol.ConversationObservationCategoryKind{"system", "tools", "user", "skills", "injected", "assistant", "results"} {
 		if category, exists := composition[kind]; exists {
 			result.Composition = append(result.Composition, category)

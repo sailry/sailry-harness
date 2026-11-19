@@ -72,3 +72,36 @@ func TestContextStatsModelChanged(t *testing.T) {
 		t.Errorf("without statistics: %+v", empty)
 	}
 }
+
+func TestContextStatsPairedLatency(t *testing.T) {
+	s := meterStatistics()
+	latency := &s.Observations.Latency
+	latency.ResponseUs = pointer(uint64(19))
+	latency.FirstTokenUs = pointer(uint64(100))
+	latency.PairedResponseUs = pointer(uint64(37))
+	latency.WaitingUs = pointer(uint64(0))
+	d := contextStats(s, "sonnet", 200_000, false)
+	if d.Response != latency.ResponseUs || d.FirstToken != latency.FirstTokenUs || d.PairedResponse != latency.PairedResponseUs || d.WaitingAfterResponse != latency.WaitingUs {
+		t.Fatalf("latency projection differs from observations: %+v", d)
+	}
+}
+
+func TestContextStepTimingUsesSelectedAttempt(t *testing.T) {
+	s := meterStatistics()
+	old := &s.Observations.Recent[0].Attempts[0]
+	old.FirstTokenUs, old.ElapsedUs = pointer(uint64(3)), pointer(uint64(8))
+	request := &s.Observations.Recent[2]
+	latest := request.Attempts[0]
+	latest.FirstTokenUs, latest.ElapsedUs = pointer(uint64(500_000)), pointer(uint64(2_500_000))
+	latest.Usage = &protocol.ConversationUsage{Output: 150, Reasoning: 30}
+	request.Attempts = []protocol.ConversationObservationAttempt{*old, latest}
+	steps := contextSteps(s.Observations.Recent)
+	if steps[0].Speed != nil || steps[0].FirstTokenUs != nil || steps[1].Speed == nil || *steps[1].Speed != 60 || steps[1].FirstTokenUs == nil || *steps[1].FirstTokenUs != 500_000 {
+		t.Fatalf("per-step request timing = %+v", steps)
+	}
+	request.Attempts[1].Usage = nil
+	steps = contextSteps(s.Observations.Recent)
+	if steps[1].Speed != nil || steps[1].FirstTokenUs == nil || *steps[1].FirstTokenUs != 500_000 {
+		t.Fatal("first-token measurement must survive missing usage without borrowing speed from a retry")
+	}
+}

@@ -203,7 +203,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			}
 		}
 		elapsed, first := usageTime(row.elapsed), usageTime(row.first)
-		generation := decodeGeneration(elapsed, first, row.tokens, row.reasoningStreamed)
+		generation := row.tokens.DecodeGeneration(elapsed, first, row.reasoningStreamed)
 		if e = addUsageMetrics(&report.Totals, row.tokens, cost, generation); e != nil {
 			return report, e
 		}
@@ -346,20 +346,6 @@ func usageTime(value sql.NullInt64) *uint64 {
 	}
 	us := uint64(value.Int64)
 	return &us
-}
-
-// Decode throughput uses matched output counts and time after first output.
-// When supplied, hidden reasoning tokens precede that window. Providers that
-// omit the breakdown contribute their reported completion count.
-func decodeGeneration(elapsed, first *uint64, tokens protocol.ConversationUsage, reasoningStreamed bool) *protocol.UsageGeneration {
-	if elapsed == nil || first == nil || *elapsed <= *first {
-		return nil
-	}
-	output := tokens.Output
-	if !reasoningStreamed {
-		output -= min(output, tokens.Reasoning)
-	}
-	return &protocol.UsageGeneration{ElapsedUs: *elapsed - *first, OutputTokens: output, Responses: 1}
 }
 
 func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.ConversationUsage, cost *protocol.UsageCost, generation *protocol.UsageGeneration) error {

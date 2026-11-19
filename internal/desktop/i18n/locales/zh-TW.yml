@@ -2338,6 +2338,8 @@ meter_title: 上下文
 meter_session_usage: 會話用量
 meter_session_time: 會話耗時
 meter_connection: 連線平均值
+meter_execution_node: 執行主機
+meter_first_output: 首次輸出
 meter_details: 明細
 meter_compactions: 壓縮 %{count} 次
 meter_turns: '%{count} 輪'
@@ -2361,7 +2363,7 @@ meter_other: 其他
 meter_api_response: API 回應
 meter_first_response: TTFT
 meter_request_time: 請求耗時
-meter_output_speed: 會話平均速度
+meter_output_speed: 生成速度
 meter_cache_hit: 快取命中
 meter_cache_read: 快取讀取
 meter_input_note: 累計輸入包含快取讀取

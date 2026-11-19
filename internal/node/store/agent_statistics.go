@@ -126,7 +126,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 		if row.delegated {
 			total = &delegated
 		}
-		generation := decodeGeneration(usageTime(row.elapsed), usageTime(row.first), tokens, row.reasoningStreamed)
+		generation := tokens.DecodeGeneration(usageTime(row.elapsed), usageTime(row.first), row.reasoningStreamed)
 		if err = addUsageMetrics(total, tokens, cost, generation); err != nil {
 			return result, delegated, err
 		}

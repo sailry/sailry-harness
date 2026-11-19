@@ -1261,6 +1261,13 @@ composer. The host validates the current Node/session/package scope and reuses
 Client's history loading. This read-only navigation never changes session
 configuration or starts compression.
 
+In `statistics.observations.latency`, `response_us` averages the available
+response latencies. `paired_response_us` averages response latency only for
+attempts that also recorded a subsequent or simultaneous first token. For
+those same attempts, `waiting_us` averages the interval from response to first
+token. Older hosts can omit `paired_response_us`. Treat an absent or null
+measurement as unknown and preserve a measured zero.
+
 The `footer` slot accepts passive `metric` contributions for the current model
 account, independently of Sailry session statistics. Desktop displays them in a
 separate sidebar row above host performance while that conversation is selected.

@@ -2338,6 +2338,8 @@ meter_title: コンテキスト
 meter_session_usage: セッション使用量
 meter_session_time: 稼働時間
 meter_connection: 接続平均
+meter_execution_node: 実行ホスト
+meter_first_output: 最初の出力
 meter_details: 詳細
 meter_compactions: 圧縮 %{count} 回
 meter_turns: '%{count} ターン'
@@ -2361,7 +2363,7 @@ meter_other: その他
 meter_api_response: API 応答
 meter_first_response: TTFT
 meter_request_time: リクエスト時間
-meter_output_speed: セッション平均速度
+meter_output_speed: 生成速度
 meter_cache_hit: キャッシュ命中
 meter_cache_read: キャッシュ読み取り
 meter_input_note: 入力にはキャッシュ読み取りを含みます

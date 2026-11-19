@@ -64,10 +64,12 @@ func (value ConversationObservationSummary) MarshalJSON() ([]byte, error) {
 }
 
 type ConversationObservationLatency struct {
-	ResponseUs   *uint64 `json:"response_us"`
-	FirstTokenUs *uint64 `json:"first_token_us"`
-	WaitingUs    *uint64 `json:"waiting_us"`
-	ElapsedUs    *uint64 `json:"elapsed_us"`
+	// PairedResponseUs and WaitingUs cover the same attempts with ordered response and first output.
+	PairedResponseUs *uint64 `json:"paired_response_us,omitempty"`
+	ResponseUs       *uint64 `json:"response_us"`
+	FirstTokenUs     *uint64 `json:"first_token_us"`
+	WaitingUs        *uint64 `json:"waiting_us"`
+	ElapsedUs        *uint64 `json:"elapsed_us"`
 }
 
 func DefaultConversationObservationLatency() ConversationObservationLatency {

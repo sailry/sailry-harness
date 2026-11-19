@@ -147,6 +147,7 @@ func contextStats(s *protocol.ConversationStatistics, model string, limit uint32
 		speed := float64(g.OutputTokens) * 1_000_000 / float64(g.ElapsedUs)
 		d.Speed = &speed
 	}
+	d.PairedResponse, d.WaitingAfterResponse = o.Latency.PairedResponseUs, o.Latency.WaitingUs
 	d.Response, d.FirstToken, d.Elapsed = o.Latency.ResponseUs, o.Latency.FirstTokenUs, o.Latency.ElapsedUs
 	return d
 }
@@ -183,6 +184,11 @@ func contextSteps(recent []protocol.ConversationObservationRequest) []conversati
 		if len(request.Attempts) > 0 {
 			attempt := request.Attempts[len(request.Attempts)-1]
 			step.Complete = attempt.CompleteContext
+			step.FirstTokenUs = attempt.FirstTokenUs
+			if generation := attempt.Usage.DecodeGeneration(attempt.ElapsedUs, attempt.FirstTokenUs, attempt.ReasoningStreamed); generation != nil {
+				rate := float64(generation.OutputTokens) * 1_000_000 / float64(generation.ElapsedUs)
+				step.Speed = &rate
+			}
 			whole, known := uint64(0), true
 			for _, category := range contextCategories {
 				part := conversation.ContextPart{Key: category.key, Chart: category.chart}

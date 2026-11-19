@@ -20,7 +20,7 @@ func meterStats() *conversation.ContextStats {
 	return &conversation.ContextStats{
 		Model: "claude-sonnet-5-5", Tokens: amount(47_200), Limit: 1_000_000, Threshold: 800_000, Reserve: 128_000,
 		Steps: []conversation.ContextStep{
-			{ID: "a", Step: 1, Tokens: amount(20_000), Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(5_000), Chart: 4}}},
+			{ID: "a", Step: 1, Speed: &speed, FirstTokenUs: amount(120_000), Tokens: amount(20_000), Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(5_000), Chart: 4}}},
 			{ID: "b", Step: 2, Tokens: amount(47_200), Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(6_000), Chart: 4}}},
 		},
 		Parts: []conversation.ContextPart{{Key: "meter_system", Tokens: amount(11_000), Chart: 4}},
@@ -161,13 +161,16 @@ func TestContextMeterStep(t *testing.T) {
 	s := &conversation.ContextMeterState{Open: true, Expanded: true}
 	tt := meterTester(t, s, meterStats())
 	meterSettle(tt)
-	step := "Step 1 · 20k"
+	step := "Step 1  20k  TPS 18.8  TTFT 120.0 ms"
 	bar, ok := tt.Access(step)
 	if !ok {
 		t.Fatalf("no step bar %q: %q", step, tt.Texts())
 	}
 	tt.ClickAt(bar.Bounds.X+bar.Bounds.W/2, bar.Bounds.Y+bar.Bounds.H-1)
 	meterSettle(tt)
+	if !tt.HasText("TPS 18.8") || !tt.HasText("TTFT 120.0 ms") {
+		t.Fatalf("missing selected step measurements: %q", tt.Texts())
+	}
 	if s.Selected != "a" {
 		t.Fatalf("the step chosen is %q, want a", s.Selected)
 	}
@@ -175,5 +178,30 @@ func TestContextMeterStep(t *testing.T) {
 	meterSettle(tt)
 	if s.Selected != "" {
 		t.Errorf("a second click kept step %q", s.Selected)
+	}
+}
+
+func TestContextMeterConnectionPath(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		response, waiting *uint64
+		visible           bool
+	}{
+		{"zero duration", amount(0), amount(5_960_000), true},
+		{"missing paired response", nil, amount(5_960_000), false},
+		{"missing waiting duration", amount(0), nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := meterStats()
+			d.PairedResponse, d.WaitingAfterResponse = tc.response, tc.waiting
+			tt := meterTester(t, &conversation.ContextMeterState{Open: true, Expanded: true}, d)
+			meterSettle(tt)
+			texts := tt.Texts()
+			for _, label := range []string{i18n.In("en", "meter_execution_node"), i18n.In("en", "meter_first_output"), "0.0 ms", "5.96 s"} {
+				if slices.Contains(texts, label) != tc.visible {
+					t.Errorf("%q visibility differs from %t: %q", label, tc.visible, texts)
+				}
+			}
+		})
 	}
 }

@@ -300,6 +300,21 @@ func TestAgentStatistics(t *testing.T) {
 	})
 }
 
+func TestLatencyTimelineUsesMatchedAttempts(t *testing.T) {
+	var latency agentStatisticLatency
+	latency.observe(protocol.ConversationObservationAttempt{ResponseUs: ptr(uint64(70))})
+	latency.observe(protocol.ConversationObservationAttempt{FirstTokenUs: ptr(uint64(110))})
+	latency.observe(protocol.ConversationObservationAttempt{ResponseUs: ptr(uint64(90)), FirstTokenUs: ptr(uint64(80))})
+	if latency.pairedResponse.finish() != nil || latency.waiting.finish() != nil {
+		t.Fatal("unpaired latency produced a timeline")
+	}
+	latency.observe(protocol.ConversationObservationAttempt{ResponseUs: ptr(uint64(10)), FirstTokenUs: ptr(uint64(30))})
+	latency.observe(protocol.ConversationObservationAttempt{Transport: "http", HeadersUs: ptr(uint64(0)), FirstTokenUs: ptr(uint64(0))})
+	if a, b := *latency.pairedResponse.finish(), *latency.waiting.finish(); a != 5 || b != 10 {
+		t.Fatalf("paired response and waiting = %d and %d, want 5 and 10", a, b)
+	}
+}
+
 func TestAgentStatisticsPreservesAnthropicCacheWritePricing(t *testing.T) {
 	t.Parallel()
 	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -326,6 +341,26 @@ func TestAgentStatisticsPreservesAnthropicCacheWritePricing(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDecodeGenerationRequiresMatchedTiming(t *testing.T) {
+	elapsed, first := uint64(10), uint64(4)
+	tokens := protocol.ConversationUsage{Output: 12, Reasoning: 5}
+	for _, times := range [][2]*uint64{{nil, &first}, {&elapsed, nil}, {&first, &first}, {&first, &elapsed}} {
+		if got := tokens.DecodeGeneration(times[0], times[1], false); got != nil {
+			t.Fatalf("incomplete or nonpositive decode interval contributed %+v", got)
+		}
+	}
+	for _, tc := range []struct {
+		usage    protocol.ConversationUsage
+		streamed bool
+		want     uint64
+	}{{tokens, false, 7}, {tokens, true, 12}, {protocol.ConversationUsage{Output: 12}, false, 12}} {
+		got := tc.usage.DecodeGeneration(&elapsed, &first, tc.streamed)
+		if got == nil || got.ElapsedUs != 6 || got.OutputTokens != tc.want || got.Responses != 1 {
+			t.Fatalf("decode sample = %+v for %+v", got, tc)
+		}
 	}
 }
 

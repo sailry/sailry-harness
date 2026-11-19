@@ -47,19 +47,22 @@ type ContextStats struct {
 	Phases []ContextPhase
 	Speed  *float64
 
-	Response, FirstToken, Elapsed *uint64
+	Response, FirstToken, Elapsed        *uint64
+	PairedResponse, WaitingAfterResponse *uint64
 }
 
 // ContextStep is a turn's latest request as a bar of the history.
 type ContextStep struct {
-	ID        string
-	Step      uint64
-	Tokens    *uint64
-	Estimated bool
-	Model     string
-	Limit     uint64
-	Parts     []ContextPart
-	Complete  bool
+	Speed        *float64
+	FirstTokenUs *uint64
+	ID           string
+	Step         uint64
+	Tokens       *uint64
+	Estimated    bool
+	Model        string
+	Limit        uint64
+	Parts        []ContextPart
+	Complete     bool
 }
 
 // ContextPart is a category of the context: its label key, tokens and chart

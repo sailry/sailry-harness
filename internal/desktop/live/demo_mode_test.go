@@ -828,7 +828,7 @@ func TestDemoMode(t *testing.T) {
 			settle()
 		}
 		hover(figures[0], "Tokens", "This session", packageCount(usage.Tokens), "Subagents", packageCount(delegated))
-		hover(figures[1], "Session average", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
+		hover(figures[1], "Generation speed", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT", "600.0 ms")
 		hover(figures[2], "Cost", "This session", "$"+price(micros), "Subagents", "$"+price(share))
 		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
 		// The turns, a bare number, are read where they are published.
@@ -897,7 +897,7 @@ func TestDemoMode(t *testing.T) {
 		shows("of the first conversation", r.App.Composer(cv.ID).Model, count(occupied), "/ "+count(usage.Window),
 			"Until compaction "+count(usage.Window*4/5-occupied), "Output reserve "+count(usage.Window*4/25), "Details",
 			fmt.Sprintf("%d turns", usage.Turns), "$"+price(micros), "Input", packageCount(input), "Output", "Cache hit", "Subagents",
-			"Active time", "Wait", "Reply", "Tools", "Other", "Session average "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
+			"Active time", "Wait", "Reply", "Tools", "Other", "Generation speed "+fmt.Sprintf("%.1f", usage.Speed)+" tok/s",
 			"Connection averages", "API response", "240.0 ms", "TTFT", "600.0 ms", "Request time")
 		shot("demo-context-panel")
 		// Its folds: what the context divides into, the tool calls by name

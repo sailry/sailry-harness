@@ -2338,6 +2338,8 @@ meter_title: Context
 meter_session_usage: Session usage
 meter_session_time: Active time
 meter_connection: Connection averages
+meter_execution_node: Execution host
+meter_first_output: First output
 meter_details: Details
 meter_compactions: '%{count} compactions'
 meter_turns: '%{count} turns'
@@ -2361,7 +2363,7 @@ meter_other: Other
 meter_api_response: API response
 meter_first_response: TTFT
 meter_request_time: Request time
-meter_output_speed: Session average
+meter_output_speed: Generation speed
 meter_cache_hit: Cache hit
 meter_cache_read: Cache read
 meter_input_note: Input includes cache reads

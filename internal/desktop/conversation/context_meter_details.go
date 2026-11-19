@@ -290,12 +290,19 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 	if chosen == nil {
 		s.Selected = ""
 	}
-	label := func(step *ContextStep) string {
+	fields := func(step *ContextStep) []string {
 		parts := []string{strings.ReplaceAll(i18n.T(c, "meter_step"), "%{count}", fmt.Sprint(step.Step)), tokenLabel(step.Tokens, step.Estimated)}
 		if step.Model != "" {
 			parts = append(parts, step.Model)
 		}
-		return strings.Join(parts, " · ")
+		speed, first := "—", "—"
+		if step.Speed != nil {
+			speed = fmt.Sprintf("%.1f", *step.Speed)
+		}
+		if step.FirstTokenUs != nil {
+			first = contextDuration(c, *step.FirstTokenUs)
+		}
+		return append(parts, "TPS "+speed, i18n.T(c, "meter_first_response")+" "+first)
 	}
 	ui.Row(c.Key("history")).FillWidth().Height(historyHeight).Gap(4).AlignItems(ui.End).Children(func() {
 		for i := range historySlots {
@@ -312,9 +319,10 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 			if step.Tokens != nil && *step.Tokens > 0 {
 				height = max(historyStub, float32(*step.Tokens)/float32(peak)*historyHeight)
 			}
-			b := ui.ButtonBase(c.Key("step/" + step.ID)).Label(label(step)).Grow(1).Basis(0).Height(historyHeight).
+			label := strings.Join(fields(step), "  ")
+			b := ui.ButtonBase(c.Key("step/" + step.ID)).Label(label).Grow(1).Basis(0).Height(historyHeight).
 				Cursor(ui.CursorPointer).AccessSelected(chosen == step)
-			kit.Tooltip(c, b, label(step))
+			kit.Tooltip(c, b, label)
 			b.OnClick(func() {
 				if s.Selected == step.ID {
 					s.Selected = ""
@@ -327,7 +335,11 @@ func contextHistory(c *ui.Context, s *ContextMeterState, d *ContextStats) *Conte
 		}
 	})
 	if chosen != nil {
-		ui.Text(c.Key("chosen"), label(chosen)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
+		ui.Row(c.Key("chosen")).FillWidth().MinWidth(0).Wrap().GapX(10).GapY(3).Children(func() {
+			for _, field := range fields(chosen) {
+				ui.Text(c, field).MinWidth(0).FontSize(12).TextColor(p.MutedForeground).FontFeatures("tnum").SingleLine()
+			}
+		})
 	}
 	return chosen
 }
@@ -490,10 +502,37 @@ func contextConnection(c *ui.Context, d *ContextStats) {
 	if d.Elapsed != nil {
 		figures = append(figures, contextFigure{label: i18n.T(c, "meter_request_time"), value: contextDuration(c, *d.Elapsed)})
 	}
-	if len(figures) == 0 {
+	paired := d.PairedResponse != nil && d.WaitingAfterResponse != nil
+	if len(figures) == 0 && !paired {
 		return
 	}
 	contextSection(c, "connection", i18n.T(c, "meter_connection"), "", false, func() {
 		contextFigures(c, "connection", 16, figures)
+		if paired {
+			contextConnectionPath(c, *d.PairedResponse, *d.WaitingAfterResponse)
+		}
+	})
+}
+
+// The milestones use equal spacing so a zero-length stage still has a readable
+// label. Each connector reports its own duration from the same set of requests.
+func contextConnectionPath(c *ui.Context, response, waiting uint64) {
+	p := theme.Of(c)
+	ui.Column(c.Key("connection-path")).FillWidth().MinWidth(0).Gap(4).Children(func() {
+		ui.Row(c.Key("stages")).FillWidth().Children(func() {
+			for i, value := range []uint64{response, waiting} {
+				ui.Row(c.Key(i)).Grow(1).Basis(0).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
+					color := p.Chart[i+1]
+					ui.Box(c).Grow(1).Height(2).Radius(1).Background(color)
+					ui.Text(c, contextDuration(c, value)).FontSize(12).FontFeatures("tnum").SingleLine()
+					ui.Box(c).Grow(1).Height(2).Radius(1).Background(color)
+				})
+			}
+		})
+		ui.Row(c.Key("milestones")).FillWidth().Justify(ui.SpaceBetween).Children(func() {
+			for _, key := range []string{"meter_execution_node", "meter_api_response", "meter_first_output"} {
+				ui.Text(c, i18n.T(c, key)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
+			}
+		})
 	})
 }
