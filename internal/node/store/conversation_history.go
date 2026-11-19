@@ -93,7 +93,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	more := false
 	for rows.Next() {
 		var seq uint64
-		var body []byte
+		var body sql.RawBytes
 		if err = rows.Scan(&seq, &body); err != nil {
 			rows.Close()
 			return nil, false, err
@@ -114,12 +114,13 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return nil, false, err
 	}
-	out := []protocol.ConversationEntry{}
+	out := make([]protocol.ConversationEntry, 0, len(records))
 	for i := len(records) - 1; i >= 0; i-- {
 		entry, e := projectStoredEntry(ctx, db, records[i].record, records[i].sequence, requests)
 		if e != nil {
 			return nil, false, e
 		}
+		records[i] = rowValue{}
 		out = append(out, entry)
 	}
 	return out, more, nil

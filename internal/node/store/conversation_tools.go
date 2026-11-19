@@ -75,7 +75,7 @@ func (requests toolRequests) find(ctx context.Context, db *sql.Conn, record cano
 		page.matches = map[toolCallKey][]toolRequestRecord{}
 		for rows.Next() {
 			var seq uint64
-			var body []byte
+			var body sql.RawBytes
 			var r canonical.Record
 			if err = rows.Scan(&seq, &body); err != nil {
 				return nil, err

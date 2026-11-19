@@ -154,15 +154,16 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 			case *canonical.FileContent:
 				part = resourcePart(map[string]any{"file_uri": v.File.URI, "mime_type": v.File.Mime})
 			case *canonical.ToolRequest, *canonical.ToolResponse:
-				raw := rawTool(record, *block)
-				if resolve != nil {
-					var err error
+				var raw *rawAgentTool
+				var err error
+				if resolve == nil {
+					raw = rawTool(record, *block)
+				} else {
 					raw, err = resolve(*block)
 					if err != nil {
 						return value, err
 					}
 				}
-				var err error
 				part, err = raw.part()
 				if err != nil {
 					return value, err
