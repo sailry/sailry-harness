@@ -52,6 +52,7 @@ func run() error {
 	if options.AcceptanceUI {
 		return runAcceptanceUI(options)
 	}
+	serveProfiles()
 	successor := os.Getenv(successorVariable) != ""
 	_ = os.Unsetenv(successorVariable)
 	if !options.Preview && options.DataDir == "" && !instanceLock(mygo.App.RequestSingleInstanceLock, successor, successorWait) {

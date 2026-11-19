@@ -81,7 +81,7 @@ func TestRegistrySkillTakesItsSlug(t *testing.T) {
 				t.Fatal(err)
 			}
 			skill, err := ParseSkill(data, source.Slug)
-			if err != nil || skill.Name != source.Slug {
+			if err != nil || skill.Name != source.Slug || skill.DisplayName == nil || *skill.DisplayName == "" {
 				t.Fatalf("skill %+v, %v", skill, err)
 			}
 		})

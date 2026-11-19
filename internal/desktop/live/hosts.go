@@ -181,7 +181,11 @@ func (r *Runtime) projectHosts(d *viewmodel.Data) {
 		state := r.hosts[id]
 		r.projectHost(state, d)
 		present[id] = state.view
-		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: state.view.Name, Platform: state.view.OS, Local: state.view.Local, Update: state.view.Update != nil && hostUpdateAvailable(state.view.Runtime.Version)})
+		name := state.view.Name
+		if state.view.Local {
+			name = "local_host_name"
+		}
+		d.Hosts = append(d.Hosts, viewmodel.Host{ID: id, Name: name, Platform: state.view.OS, Local: state.view.Local, Update: state.view.Update != nil && hostUpdateAvailable(state.view.Runtime.Version)})
 	}
 	for id, state := range r.hosts {
 		if present[id] == nil && (state.install == nil || !state.install.active) {
@@ -236,7 +240,8 @@ func (r *Runtime) projectHost(state *liveHost, d *viewmodel.Data) {
 	}
 	if state.info != nil {
 		info := state.info
-		if info.Name != nil && strings.TrimSpace(*info.Name) != "" {
+		// The local device is named Local everywhere, not by its hostname.
+		if !view.Local && info.Name != nil && strings.TrimSpace(*info.Name) != "" {
 			view.Name = *info.Name
 		}
 		// The Node names its system (a Linux distribution's ID); an unknown

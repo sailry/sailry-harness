@@ -61,21 +61,24 @@ type Runtime struct {
 	hookSettings         hookSettingsState
 	codeIndexSettings    codeIndexSettingsState
 	personalInstructions personalInstructionsState
-	settingsShown        *Runtime
-	settingsGeneration   uint64
-	providerMoves        map[string]providerMove
-	terminalSettings     terminalSettingsState
-	backupSettings       backupSettingsState
-	localModels          localModelState
-	knowledge            knowledgeState
-	media                mediaState
-	dictation            dictationState
-	usage                featureUsage
-	permissions          permissionState
-	knowledgeWanted      string // the citation the knowledge viewer was last asked for
-	pendingSession       string
-	transferDialogOwner  *Runtime
-	admittedSessions     map[string]protocol.Session
+	// instructionsOwner is the Runtime whose custom prompt the settings page
+	// edits, on the local Runtime.
+	instructionsOwner   *Runtime
+	settingsShown       *Runtime
+	settingsGeneration  uint64
+	providerMoves       map[string]providerMove
+	terminalSettings    terminalSettingsState
+	backupSettings      backupSettingsState
+	localModels         localModelState
+	knowledge           knowledgeState
+	media               mediaState
+	dictation           dictationState
+	usage               featureUsage
+	permissions         permissionState
+	knowledgeWanted     string // the citation the knowledge viewer was last asked for
+	pendingSession      string
+	transferDialogOwner *Runtime
+	admittedSessions    map[string]protocol.Session
 
 	// acknowledged is the attention revision each shown session was marked
 	// read at (attentionFrame).

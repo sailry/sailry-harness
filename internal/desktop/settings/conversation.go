@@ -113,6 +113,14 @@ func personalInstructions(c *ui.Context, m *Model) {
 	})
 }
 
+// Detach releases the editor from the page: it drops a waiting focus request
+// and reports whether an edit still waits for its save.
+func (e *PersonalInstructions) Detach() bool {
+	edited := e.edited
+	e.edited, e.focus = false, false
+	return edited
+}
+
 // SettleEdits hands the custom prompt's edit to its save once the editor
 // loses focus: another control, another window, or another page that no
 // longer builds it. The shell calls it every frame, whichever page shows.

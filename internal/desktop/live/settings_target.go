@@ -277,13 +277,21 @@ func (r *Runtime) nodeSettingsFrame() {
 	status := owner.machineSettingsStatus()
 	allowedNow := status == "" && m.ExecutionSettingsStatus != ""
 	m.ExecutionSettingsStatus = status
+	var editor *settings.PersonalInstructions
 	if status == "" && root.App.Page == shell.SettingsPage && m.Section == settings.Conversation {
-		if m.PersonalInstructions != &owner.personalInstructions.editor {
-			m.PersonalInstructions = &owner.personalInstructions.editor
+		editor = &owner.personalInstructions.editor
+	}
+	if previous := m.PersonalInstructions; previous != editor {
+		// An edit made on the editor being replaced saves on the Node that
+		// owns it, before another page or host takes the editor's place.
+		if previous != nil && previous.Detach() && root.instructionsOwner != nil {
+			root.instructionsOwner.queuePersonalInstructionsSave()
+		}
+		m.PersonalInstructions, root.instructionsOwner = editor, nil
+		if editor != nil {
+			root.instructionsOwner = owner
 			owner.readPersonalInstructions()
 		}
-	} else {
-		m.PersonalInstructions = nil
 	}
 	if owner == nil || owner != root && !owner.controller.Connected() {
 		return

@@ -199,7 +199,7 @@ notifications: 通知
 hosts: ホスト
 host_add: ホストを追加
 sidebar_host_update: 更新
-local_host_name: sailry-mac.local
+local_host_name: ローカル
 remote_host_name: design-node.local
 features_all: すべての機能
 feature_pin: サイドバーにピン
@@ -655,7 +655,7 @@ composer_permission_full: フルアクセス
 composer_permission_ask_description: ファイルを編集したりコマンドを実行する前に確認する(E)
 composer_permission_project_description: プロジェクトファイルを自動的に編集します。コマンドを実行する前に確認します
 composer_permission_full_description: プロジェクトの外部を含むファイルを編集し、コマンドを自動的に実行します
-composer_host_local: ローカルデバイス
+composer_host_local: ローカル
 composer_no_project: チャット
 composer_execution_host: 実行ホスト
 composer_branch_none: ブランチなし
@@ -1380,7 +1380,7 @@ market_theme_details: テーマ詳細
 market_details_source: 提供元
 market_theme_light: ライト
 market_theme_dark: ダーク
-market_local: このデバイス
+market_local: ローカル
 market_details_formats: その他の形式
 market_install: インストール
 market_update: 更新

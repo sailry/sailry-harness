@@ -471,15 +471,20 @@ func skillPicture(c *ui.Context, m *Model, x *preview.Skill) {
 	})
 }
 
-// compactCount is a count in at most four characters: 950, 1.2k, 4.4M.
+// compactCount is a count in a short form: 950, 1.2k, 12.3k, 4.4M.
 func compactCount(n uint64) string {
-	switch {
-	case n >= 1_000_000:
-		return strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64) + "M"
-	case n >= 1_000:
-		return strconv.FormatFloat(float64(n)/1_000, 'f', 1, 64) + "k"
+	value, suffix := float64(n), ""
+	for _, unit := range []string{"k", "M", "B"} {
+		// A value that rounds to 1000 of a unit is written in the next.
+		if value < 999.95 {
+			break
+		}
+		value, suffix = value/1000, unit
 	}
-	return strconv.FormatUint(n, 10)
+	if suffix == "" {
+		return strconv.FormatUint(n, 10)
+	}
+	return strconv.FormatFloat(value, 'f', 1, 64) + suffix
 }
 
 // themeAction is a theme's action: Apply an installed theme, Install or
@@ -553,14 +558,13 @@ func themeIconAction(c *ui.Context, m *Model, x *preview.MarketTheme) {
 	})
 }
 
-// marketThemeCard is a catalog theme as its preview over its name with its
-// icon action, one line of description and its tags, like the Appearance gallery. A theme the Desktop
+// marketThemeCard is a catalog theme as its preview over its name and one
+// line of description beside its icon action, like the Appearance gallery. A theme the Desktop
 // holds no package of yet previews as a placeholder. A theme of one mode
 // previews in that mode, else in the current one.
 func marketThemeCard(c *ui.Context, s *State, x *preview.MarketTheme) {
 	m := s.Model
 	p := theme.Of(c)
-	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	dark := p.Dark
 	if x.Dark != x.Light {
 		dark = x.Dark
@@ -580,23 +584,12 @@ func marketThemeCard(c *ui.Context, s *State, x *preview.MarketTheme) {
 				})
 			}
 		})
-		ui.Column(c.Key("body")).FillWidth().MinWidth(0).Padding(10, 12, 12, 12).Gap(6).Children(func() {
-			ui.Row(c).FillWidth().MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, x.Name).FontSize(14).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-				themeIconAction(c, m, x)
+		ui.Row(c.Key("body")).FillWidth().MinWidth(0).Padding(10, 8, 12, 12).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+				ui.Text(c, x.Name).FontSize(14).FontWeight(600).SingleLine()
+				ui.Text(c, x.Description).FontSize(12).TextColor(p.MutedForeground).SingleLine()
 			})
-			ui.Text(c, x.Description).FontSize(12).TextColor(p.MutedForeground).SingleLine().FillWidth()
-			ui.Row(c.Key("tags")).Gap(6).Children(func() {
-				if x.Builtin {
-					kit.Tag(c, t("market_theme_builtin"))
-				}
-				if x.Dark {
-					kit.Tag(c, t("market_theme_dark"))
-				}
-				if x.Light {
-					kit.Tag(c, t("market_theme_light"))
-				}
-			})
+			themeIconAction(c, m, x)
 		})
 	})
 }

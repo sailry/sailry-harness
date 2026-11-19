@@ -224,7 +224,7 @@ func TestSkillMarketSourceSelector(t *testing.T) {
 }
 
 func TestCompactCount(t *testing.T) {
-	for n, want := range map[uint64]string{0: "0", 950: "950", 1_234: "1.2k", 4_400_000: "4.4M"} {
+	for n, want := range map[uint64]string{0: "0", 950: "950", 1_234: "1.2k", 12_345: "12.3k", 999_960: "1.0M", 4_400_000: "4.4M"} {
 		if got := compactCount(n); got != want {
 			t.Errorf("compactCount(%d) = %q; want %q", n, got, want)
 		}

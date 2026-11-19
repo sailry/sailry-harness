@@ -1,8 +1,10 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,6 +23,9 @@ const (
 	marketImageEdge     = 96
 	marketImageFetches  = 6
 	marketImageDeadline = 20 * time.Second
+	// marketImagePixels bounds the size a picture's header may declare: the
+	// decoder allocates it before scaling down.
+	marketImagePixels = 4 << 20
 )
 
 type marketImage struct {
@@ -36,7 +41,13 @@ type marketImages struct {
 
 func newMarketImages() *marketImages {
 	return &marketImages{entries: map[string]*marketImage{}, slots: make(chan struct{}, marketImageFetches),
-		client: &http.Client{Transport: netproxy.Transport(), Timeout: marketImageDeadline}}
+		client: &http.Client{Transport: netproxy.Transport(), Timeout: marketImageDeadline,
+			CheckRedirect: func(request *http.Request, via []*http.Request) error {
+				if request.URL.Scheme != "https" || len(via) >= 5 {
+					return errors.New("market picture redirect is refused")
+				}
+				return nil
+			}}}
 }
 
 // marketImage is the picture at address once fetched, else nil while it is
@@ -88,6 +99,10 @@ func (images *marketImages) fetch(ctx context.Context, address string) (*ui.Bitm
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, marketImageBytes+1))
 	if err != nil || len(data) > marketImageBytes {
+		return nil, errors.New("market picture is unavailable")
+	}
+	header, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || header.Width <= 0 || header.Height <= 0 || header.Width*header.Height > marketImagePixels {
 		return nil, errors.New("market picture is unavailable")
 	}
 	return ui.DecodeBitmapScaled(data, marketImageEdge)

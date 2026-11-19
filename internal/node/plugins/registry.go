@@ -416,7 +416,7 @@ func normalizeRegistrySkill(data []byte, source protocol.PluginSkillsRegistryRes
 			labels[key] = string(data)
 		}
 	}
-	if !skillName(title) {
+	if title != source.Slug {
 		if _, exists := labels["display-name"]; !exists {
 			labels["display-name"] = title
 		}

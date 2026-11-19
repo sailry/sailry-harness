@@ -199,7 +199,7 @@ notifications: 通知
 hosts: 主機
 host_add: 新增主機
 sidebar_host_update: 更新
-local_host_name: sailry-mac.local
+local_host_name: 本地
 remote_host_name: design-node.local
 features_all: 全部功能
 feature_pin: 固定到側欄
@@ -655,7 +655,7 @@ composer_permission_full: 完全權限
 composer_permission_ask_description: 修改檔案和執行命令前詢問
 composer_permission_project_description: 自動修改專案檔案，執行命令前詢問
 composer_permission_full_description: 自動修改檔案和執行命令，可影響專案外檔案
-composer_host_local: 本機
+composer_host_local: 本地
 composer_no_project: 對話
 composer_execution_host: 執行主機
 composer_branch_none: 無分支
@@ -1380,7 +1380,7 @@ market_theme_details: 主題詳情
 market_details_source: 來源
 market_theme_light: 淺色
 market_theme_dark: 深色
-market_local: 本機
+market_local: 本地
 market_details_formats: 其他格式
 market_install: 安裝
 market_update: 更新

@@ -199,7 +199,7 @@ notifications: Benachrichtigungen
 hosts: Hosts
 host_add: Host hinzufügen
 sidebar_host_update: Aktualisieren
-local_host_name: sailry-mac.local
+local_host_name: Lokal
 remote_host_name: design-node.local
 features_all: Alle Features anzeigen
 feature_pin: An die Seitenleiste anheften
@@ -655,7 +655,7 @@ composer_permission_full: Vollständiger Zugriff auf
 composer_permission_ask_description: Vor dem Bearbeiten von Dateien oder Ausführen von Befehlen fragen
 composer_permission_project_description: Projektdateien automatisch bearbeiten; vor Ausführung von Befehlen fragen
 composer_permission_full_description: Dateien bearbeiten und Befehle automatisch ausführen, auch außerhalb des Projekts
-composer_host_local: Lokales Gerät
+composer_host_local: Lokal
 composer_no_project: Chats
 composer_execution_host: Ausführungs-Host
 composer_branch_none: Kein Branch
@@ -1380,7 +1380,7 @@ market_theme_details: Theme-Details
 market_details_source: Quelle
 market_theme_light: Hell
 market_theme_dark: Dunkel
-market_local: Dieses Gerät
+market_local: Lokal
 market_details_formats: Andere Formate
 market_install: Installieren
 market_update: Aktualisieren

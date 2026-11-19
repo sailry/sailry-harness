@@ -99,6 +99,10 @@ The Desktop recipes run `just native` and supply the helper path automatically:
 - `just desktop <name>` opens an isolated test profile at `.runtime/profiles/<name>`
   for any other name.
 
+These runs serve Go profiles on `http://127.0.0.1:6061/debug/pprof/`, for
+example `go tool pprof http://127.0.0.1:6061/debug/pprof/heap`. Other runs
+serve them only when `SAILRY_PPROF` names a loopback address.
+
 These commands run the current checkout; the choice selects data, not a different
 application version. Close another instance using that profile before starting.
 
