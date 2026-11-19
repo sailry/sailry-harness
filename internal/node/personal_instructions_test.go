@@ -14,9 +14,17 @@ import (
 func TestPersonalInstructionsCommands(t *testing.T) {
 	node := nodeFixture(t)
 	root := node.profile.Ownership.Path
+	value := func(data any) protocol.PersonalInstructions {
+		t.Helper()
+		v, ok := dispatchPayload[protocol.PersonalInstructions](data)
+		if !ok {
+			t.Fatalf("unexpected personal instructions payload %T", data)
+		}
+		return v
+	}
 	read := func() protocol.PersonalInstructions {
 		t.Helper()
-		return commandFixture(t, node, protocol.Command{Kind: "read_personal_instructions"}).Data.(protocol.PersonalInstructions)
+		return value(commandFixture(t, node, protocol.Command{Kind: "read_personal_instructions"}).Data)
 	}
 	save := func(text string, expected *string) protocol.Request {
 		return protocol.NewRequest(node.ID(), protocol.Command{Kind: "save_personal_instructions", Data: protocol.CommandSavePersonalInstructionsPayload{Text: text, ExpectedRevision: expected}})
@@ -68,7 +76,7 @@ func TestPersonalInstructionsCommands(t *testing.T) {
 		if a.result.Fault == nil {
 			winners++
 			accepted = a.request
-			state = a.result.Output.Data.(protocol.PersonalInstructions)
+			state = value(a.result.Output.Data)
 		} else if a.result.Fault.Code == protocol.ErrorCodeRevisionConflict {
 			conflicts++
 		} else {
@@ -86,7 +94,7 @@ func TestPersonalInstructionsCommands(t *testing.T) {
 		t.Fatal(cleared.Fault)
 	}
 	replay := dispatchFixture(t, node, node.ID(), accepted)
-	if replay.Fault != nil || replay.Output.Data.(*protocol.PersonalInstructions).Text != state.Text || read().Text != "" {
+	if replay.Fault != nil || value(replay.Output.Data).Text != state.Text || read().Text != "" {
 		t.Fatalf("durable replay changed the cleared preference: %+v", replay)
 	}
 	if captured, err = prompt.CapturePersonal(t.Context(), root); err != nil || captured != "" {
