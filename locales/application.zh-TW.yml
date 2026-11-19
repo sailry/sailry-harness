@@ -2821,8 +2821,11 @@ files_unsaved_discard: 捨棄
 files_save_all: 全部儲存
 settings_experimental: 實驗性
 settings_experimental_description: 開發與除錯設定
-settings_code_index: 程式碼索引
-settings_code_index_description: 為程式碼搜尋工具建立專案程式碼索引
+settings_code_index: 程式碼工具
+settings_code_index_description: 按需搜尋和分析專案程式碼
+settings_code_index_persistent: 完整程式碼索引
+settings_code_index_persistent_description: 將所選專案的索引儲存在磁碟上
+settings_code_index_project: 專案
 code_index_settings_saved: 已儲存
 code_index_settings_failed: 無法讀取或儲存程式碼索引設定
 code_index_settings_conflict: 程式碼索引設定已變更，請重試

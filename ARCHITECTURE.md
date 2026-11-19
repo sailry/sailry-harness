@@ -306,10 +306,26 @@ enables the same full-text index implementation as the Rust database.
 Canonical conversation data uses Sailry-owned records, messages and blocks.
 Binary content is stored by digest. Unknown usage counts remain unknown.
 Knowledge chunks, full-text indexes and vectors are derived data; their source
-files and configuration are independent. Worktree code indexes live under
-`cache/code-index/<WorktreeId>/index.turso`. Code indexing bounds concurrent
-readers, parser memory and syntax query work. It reports partial results and
-drains idle parser arenas after high-allocation batches and when a query ends.
+files and configuration are independent. Code queries use live source by
+default. An outline parses one file. Search and graph queries select candidates
+by scope and lexical matches, and hold their parsed rows only for the query.
+The live scan bounds the number of files parsed, source bytes examined, result
+rows and elapsed scan time. Results report incomplete coverage when bounds or
+graph selection leave part of the worktree unchecked.
+
+A machine administrator can enable persistent search and graph indexes per
+project. The first such query opens the derived worktree index under
+`cache/code-index/<WorktreeId>/index.turso`. Version 2 keeps typed declaration
+fields and uses numeric file IDs for declaration, reference and import rows.
+Recognized version 1 caches are rebuilt on first persistent use. Data, lock,
+locale, vendored and minified files contribute file metadata only. Persistent
+queries reconcile worktree changes alongside watcher notifications, including
+changes whose notifications have yet to arrive. Index handles and watches close
+after two minutes without a persistent query, checked once a minute. Startup
+and hourly maintenance reclaim inactive derived indexes after fourteen days or
+when aggregate cache size exceeds 512 MiB, oldest first. Both query paths share
+one parser permit, bound per-file parser memory and drain idle parser arenas
+after high-allocation batches and queries.
 
 Managed checkouts use the main worktree's `.sailry/worktrees/<id>` directory,
 excluded through Git's `info/exclude`. Command, browser and transfer staging uses
@@ -612,7 +628,7 @@ input or approval remains visible when background work is active.
 | Terminals | Node owns the PTY and screen mirror; local and remote controllers attach to that mirror |
 | Web | Execution-Node reads and ordered search channels; direct reads pin public DNS on redirects and reject private addresses |
 | Browser | Node-owned Chromium process tree and private browser profile per conversation |
-| Code index | Lazy gotreesitter index, using the pinned grammar registry; bounded name-based graph heuristics without language servers |
+| Code index | On-demand gotreesitter queries with optional per-project persistence and bounded name-based graph resolution |
 | Local models | Verified explicit installation, one CPU inference at a time, interactive priority and idle engine release |
 | Knowledge | Shared retrieval service used by package-owned features; citations recheck source identity |
 | Python | Bundled runtime; lazy package environments from hash-locked requirements and prebuilt wheels |

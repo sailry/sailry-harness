@@ -14,9 +14,8 @@ import (
 
 const (
 	// batchSymbols bounds one multi-row symbol insert and one writer transaction.
-	batchSymbols  = 512
-	batchRows     = 256
-	symbolColumns = 8
+	batchSymbols = 512
+	batchRows    = 256
 )
 
 // state is the JSON kept in files.state.
@@ -45,7 +44,13 @@ type cached struct {
 }
 
 // index is one worktree's derived database.
-type index struct{ handle *store.Handle }
+type index struct{ handle indexStorage }
+
+type indexStorage interface {
+	Read(context.Context, func(*sql.Conn) error) error
+	Write(context.Context, func(*sql.Conn) error) error
+	Close() error
+}
 
 func openIndex(ctx context.Context, path string) (*index, error) {
 	handle, err := store.OpenCodeIndex(ctx, path)
@@ -145,6 +150,7 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 	}
 	var committed uint64
 	err := i.handle.Write(ctx, func(db *sql.Conn) error {
+		ids := make([]int64, len(files))
 		for index := range files {
 			file := &files[index]
 			if err := ctx.Err(); err != nil {
@@ -158,16 +164,14 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 			if file.Hash != "" {
 				hash = file.Hash
 			}
-			if _, err := db.ExecContext(ctx, "INSERT INTO files(path,fingerprint,hash,state) VALUES(?1,?2,?3,?4) ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,hash=excluded.hash,state=excluded.state", file.Path, fingerprint, hash, string(body)); err != nil {
+			if err := db.QueryRowContext(ctx, "INSERT INTO files(path,fingerprint,hash,state) VALUES(?1,?2,?3,?4) ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,hash=excluded.hash,state=excluded.state RETURNING id", file.Path, fingerprint, hash, string(body)).Scan(&ids[index]); err != nil {
 				return err
 			}
-			for _, statement := range []string{"DELETE FROM symbols WHERE path=?1", "DELETE FROM refs WHERE path=?1", "DELETE FROM imports WHERE path=?1"} {
-				if _, err := db.ExecContext(ctx, statement, file.Path); err != nil {
-					return err
-				}
+			if err := clearFile(ctx, db, ids[index]); err != nil {
+				return err
 			}
 		}
-		references := batch{prefix: "INSERT INTO refs(path,name,kind,start_line,start_column,start_byte,receiver,scope,scope_kind,scope_line,scope_end_line) VALUES ", row: "(?,?,?,?,?,?,?,?,?,?,?)"}
+		references := batch{prefix: "INSERT INTO refs(file_id,name,kind,start_line,start_column,start_byte,receiver,scope,scope_kind,scope_line,scope_end_line) VALUES ", row: "(?,?,?,?,?,?,?,?,?,?,?)"}
 		for index := range files {
 			file := &files[index]
 			for _, usage := range file.References {
@@ -175,7 +179,7 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 				if usage.Scope != nil {
 					scope, kind, start, end = usage.Scope.Name, usage.Scope.Kind, usage.Scope.StartLine, usage.Scope.EndLine
 				}
-				if err := references.push(ctx, db, batchRows, file.Path, usage.Name, usage.Kind, usage.Line, usage.Column, usage.Start, usage.Receiver, scope, kind, start, end); err != nil {
+				if err := references.push(ctx, db, batchRows, ids[index], usage.Name, usage.Kind, usage.Line, usage.Column, usage.Start, usage.Receiver, scope, kind, start, end); err != nil {
 					return err
 				}
 			}
@@ -183,10 +187,10 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 		if err := references.flush(ctx, db); err != nil {
 			return err
 		}
-		modules := batch{prefix: "INSERT INTO imports(path,module) VALUES ", row: "(?,?)"}
+		modules := batch{prefix: "INSERT INTO imports(file_id,module) VALUES ", row: "(?,?)"}
 		for index := range files {
 			for _, module := range files[index].Imports {
-				if err := modules.push(ctx, db, batchRows, files[index].Path, module); err != nil {
+				if err := modules.push(ctx, db, batchRows, ids[index], module); err != nil {
 					return err
 				}
 			}
@@ -194,19 +198,18 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 		if err := modules.flush(ctx, db); err != nil {
 			return err
 		}
-		symbols := batch{prefix: "INSERT INTO symbols(path,name,language,body,field0,field1,cjk0,cjk1) VALUES ", row: "(?,?,?,?,?,?,?,?)"}
+		symbols := batch{prefix: "INSERT INTO symbols(file_id,name,language,kind,start_byte,end_byte,start_line,start_column,end_line,end_column,signature,depth,field0,field1,cjk0,cjk1) VALUES ", row: "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"}
 		for index := range files {
 			file := &files[index]
 			for _, symbol := range file.Symbols {
-				body, err := json.Marshal(symbol)
-				if err != nil {
-					return err
-				}
-				context := file.Path + " "
+				terms := file.Path + " "
 				if symbol.Signature != nil {
-					context += *symbol.Signature
+					terms += *symbol.Signature
 				}
-				if err := symbols.push(ctx, db, batchSymbols, file.Path, symbol.Name, symbol.Language, string(body), knowledge.Field(symbol.Name), knowledge.Field(context), knowledge.Index(symbol.Name), knowledge.Index(context)); err != nil {
+				span := symbol.Range
+				if err := symbols.push(ctx, db, batchSymbols, ids[index], symbol.Name, symbol.Language, symbol.Kind,
+					span.StartByte, span.EndByte, span.StartLine, span.StartColumn, span.EndLine, span.EndColumn, optional(symbol.Signature), symbol.Depth,
+					knowledge.Field(symbol.Name), knowledge.Field(terms), knowledge.Index(symbol.Name), knowledge.Index(terms)); err != nil {
 					return err
 				}
 			}
@@ -224,6 +227,15 @@ func (i *index) replace(ctx context.Context, files []Parsed, fingerprint string)
 	return committed, err == nil, failure(err)
 }
 
+func clearFile(ctx context.Context, db *sql.Conn, id int64) error {
+	for _, statement := range []string{"DELETE FROM symbols WHERE file_id=?1", "DELETE FROM refs WHERE file_id=?1", "DELETE FROM imports WHERE file_id=?1"} {
+		if _, err := db.ExecContext(ctx, statement, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // remove deletes records proven absent by a complete traversal in one
 // transaction and returns the committed revision.
 func (i *index) remove(ctx context.Context, paths []string) (uint64, error) {
@@ -233,10 +245,18 @@ func (i *index) remove(ctx context.Context, paths []string) (uint64, error) {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			for _, statement := range []string{"DELETE FROM symbols WHERE path=?1", "DELETE FROM refs WHERE path=?1", "DELETE FROM imports WHERE path=?1", "DELETE FROM files WHERE path=?1"} {
-				if _, err := db.ExecContext(ctx, statement, path); err != nil {
-					return err
+			var id int64
+			if err := db.QueryRowContext(ctx, "SELECT id FROM files WHERE path=?1", path).Scan(&id); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
 				}
+				return err
+			}
+			if err := clearFile(ctx, db, id); err != nil {
+				return err
+			}
+			if _, err := db.ExecContext(ctx, "DELETE FROM files WHERE id=?1", id); err != nil {
+				return err
 			}
 		}
 		if _, err := db.ExecContext(ctx, "UPDATE metadata SET revision=revision+1 WHERE singleton=1"); err != nil {
@@ -249,49 +269,29 @@ func (i *index) remove(ctx context.Context, paths []string) (uint64, error) {
 	return committed, failure(err)
 }
 
+const symbolSelect = "SELECT f.path,s.name,s.language,s.kind,s.start_byte,s.end_byte,s.start_line,s.start_column,s.end_line,s.end_column,s.signature,s.depth,coalesce(f.hash,'')"
+const symbolJoin = " FROM symbols s JOIN files f ON f.id=s.file_id"
+
+func scanSymbol(rows *sql.Rows) (Symbol, error) {
+	var symbol Symbol
+	span := &symbol.Range
+	err := rows.Scan(&symbol.Path, &symbol.Name, &symbol.Language, &symbol.Kind,
+		&span.StartByte, &span.EndByte, &span.StartLine, &span.StartColumn, &span.EndLine, &span.EndColumn,
+		&symbol.Signature, &symbol.Depth, &symbol.FileRevision)
+	return symbol, err
+}
+
 func symbols(rows *sql.Rows) ([]Symbol, error) {
 	defer rows.Close()
 	found := []Symbol{}
 	for rows.Next() {
-		var body string
-		if err := rows.Scan(&body); err != nil {
-			return nil, err
-		}
-		var symbol Symbol
-		if err := json.Unmarshal([]byte(body), &symbol); err != nil {
+		symbol, err := scanSymbol(rows)
+		if err != nil {
 			return nil, err
 		}
 		found = append(found, symbol)
 	}
 	return found, rows.Err()
-}
-
-// outline returns one indexed file's declarations in source order.
-func (i *index) outline(ctx context.Context, path string) (protocol.CodeIndexOutline, error) {
-	outline := protocol.CodeIndexOutline{Path: path}
-	err := i.handle.Read(ctx, func(db *sql.Conn) error {
-		var body string
-		if err := db.QueryRowContext(ctx, "SELECT hash,state FROM files WHERE path=?1", path).Scan(&outline.FileRevision, &body); err != nil {
-			return err
-		}
-		var state state
-		if err := json.Unmarshal([]byte(body), &state); err != nil {
-			return err
-		}
-		rows, err := db.QueryContext(ctx, "SELECT body FROM symbols WHERE path=?1 ORDER BY id LIMIT ?2", path, maxOutlineSymbols+1)
-		if err != nil {
-			return err
-		}
-		if outline.Symbols, err = symbols(rows); err != nil {
-			return err
-		}
-		outline.Truncated = state.Truncated || len(outline.Symbols) > maxOutlineSymbols
-		outline.Symbols = outline.Symbols[:min(len(outline.Symbols), maxOutlineSymbols)]
-		outline.Language, outline.Status, outline.Capabilities, outline.Partial = state.Language, state.Status, state.Capabilities, state.Partial
-		outline.IndexRevision, err = revision(ctx, db)
-		return err
-	})
-	return outline, failure(err)
 }
 
 // graph runs one graph view against a single read transaction.
@@ -312,10 +312,10 @@ func (i *index) graph(ctx context.Context, query *protocol.CodeIndexGraph) (prot
 }
 
 const (
-	searchFilter = "(?1 IS NULL OR instr(lower(s.name),lower(?1))>0) AND (?2 IS NULL OR s.path=?2 OR substr(s.path,1,length(?2)+1)=?2||'/') AND (?3 IS NULL OR s.language=?3)"
+	searchFilter = "(?1 IS NULL OR instr(lower(s.name),lower(?1))>0) AND (?2 IS NULL OR f.path=?2 OR substr(f.path,1,length(?2)+1)=?2||'/') AND (?3 IS NULL OR s.language=?3)"
 	// Exact names rank before prefixes and other hits; declarations outside
 	// test paths rank before tests inside each group. The score breaks ties.
-	searchOrder = "CASE WHEN ?5 IS NULL THEN 2 WHEN lower(s.name)=lower(?5) THEN 0 WHEN substr(lower(s.name),1,length(?5))=lower(?5) THEN 1 ELSE 2 END,CASE WHEN instr('/'||s.path,'/tests/')>0 OR instr('/'||s.path||'/','/tests.rs/')>0 OR instr(s.path,'_test')>0 OR instr('/'||s.path,'/test_')>0 THEN 1 ELSE 0 END"
+	searchOrder = "CASE WHEN ?5 IS NULL THEN 2 WHEN lower(s.name)=lower(?5) THEN 0 WHEN substr(lower(s.name),1,length(?5))=lower(?5) THEN 1 ELSE 2 END,CASE WHEN instr('/'||f.path,'/tests/')>0 OR instr('/'||f.path||'/','/tests.rs/')>0 OR instr(f.path,'_test')>0 OR instr('/'||f.path,'/test_')>0 THEN 1 ELSE 0 END"
 )
 
 func optional(value *string) any {
@@ -337,11 +337,11 @@ func (i *index) search(ctx context.Context, query *protocol.CodeIndexSearch) (pr
 		wanted = text
 	}
 	values := []any{optional(query.Name), optional(query.Path), optional(query.Language), limit + 1, wanted}
-	statement := "SELECT s.body FROM symbols s WHERE " + searchFilter + " ORDER BY " + searchOrder + ",s.path,s.id LIMIT ?4"
+	statement := symbolSelect + symbolJoin + " WHERE " + searchFilter + " ORDER BY " + searchOrder + ",f.path,s.id LIMIT ?4"
 	if terms != "" {
 		// Scores are materialized before the joins so every filter applies
 		// to the ranked candidates.
-		statement = "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?6) AS score FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,?6)) SELECT s.body FROM candidates f JOIN symbols s ON s.id=f.id WHERE " + searchFilter + " ORDER BY " + searchOrder + ",f.score DESC,s.path,s.id LIMIT ?4"
+		statement = "WITH candidates AS MATERIALIZED (SELECT id,fts_score(field0,field1,cjk0,cjk1,?6) AS score FROM symbols WHERE fts_match(field0,field1,cjk0,cjk1,?6)) " + symbolSelect + symbolJoin + " JOIN candidates c ON c.id=s.id WHERE " + searchFilter + " ORDER BY " + searchOrder + ",c.score DESC,f.path,s.id LIMIT ?4"
 		expression := "field0:(" + terms + ") OR field1:(" + terms + ") OR cjk0:(" + terms + ") OR cjk1:(" + terms + ")"
 		values = append(values, expression)
 	}

@@ -2292,8 +2292,11 @@ chat_config_desktop: デスクトップの設定
 settings_experimental: 実験的機能
 settings_experimental_description: 開発とデバッグの設定
 provider_deepseek: DeepSeek
-settings_code_index: コードインデックス
-settings_code_index_description: コード検索ツール用にプロジェクトのコードをインデックス化
+settings_code_index: コードツール
+settings_code_index_description: 必要に応じてプロジェクトのコードを検索・分析
+settings_code_index_persistent: 完全なコードインデックス
+settings_code_index_persistent_description: 選択したプロジェクトのインデックスをディスクに保存
+settings_code_index_project: プロジェクト
 code_index_settings_saved: 保存しました
 code_index_settings_failed: コードインデックスの設定を読み込みまたは保存できませんでした
 code_index_settings_conflict: コードインデックスの設定が変更されました。再試行してください

@@ -1,9 +1,12 @@
 package settings
 
 import (
+	"slices"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
@@ -39,6 +42,7 @@ func conversation(c *ui.Context, m *Model) {
 					report(c, m.CodeIndex.Commit(), CodeIndexMessages)
 				}
 			}
+			persistentCodeIndex(c, m)
 		})
 	})
 	personalInstructions(c, m)
@@ -51,6 +55,33 @@ func conversation(c *ui.Context, m *Model) {
 				// One tick a pixel, 12 to 18.
 				ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
 			})
+		})
+	})
+}
+
+func persistentCodeIndex(c *ui.Context, m *Model) {
+	if len(m.CodeIndexProjects) == 0 || m.PersistentCodeIndexProjects == nil {
+		return
+	}
+	if !slices.ContainsFunc(m.CodeIndexProjects, func(choice kit.SelectOption) bool { return choice.Value == m.CodeIndexProject }) {
+		m.CodeIndexProject = m.CodeIndexProjects[0].Value
+	}
+	title := i18n.T(c, "settings_code_index_persistent")
+	disabled := m.CodeIndex.Pending || !m.CodeIndex.Saved || m.SaveProjectCodeIndex == nil
+	kit.WideRow(c, "persistent-code-index", title, i18n.T(c, "settings_code_index_persistent_description"), func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+			selectProject, _ := kit.SelectField(c.Key("project"), "code-index-project", &m.CodeIndexProject, kit.SelectProps{
+				Label: i18n.T(c, "settings_code_index_project"), Options: m.CodeIndexProjects, Disabled: disabled,
+			})
+			selectProject.Width(180)
+			project, err := protocol.ParseProjectID(m.CodeIndexProject)
+			if err != nil {
+				return
+			}
+			enabled := slices.Contains(m.PersistentCodeIndexProjects, project)
+			if ui.Switch(c.Key(project), &enabled).Label(title).Disabled(disabled).Changed() && !disabled {
+				m.SaveProjectCodeIndex(project, enabled)
+			}
 		})
 	})
 }

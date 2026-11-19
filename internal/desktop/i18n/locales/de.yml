@@ -2292,8 +2292,11 @@ chat_config_desktop: Desktop-Konfiguration
 settings_experimental: Experimentell
 settings_experimental_description: Entwicklungs- und Debugging-Einstellungen
 provider_deepseek: DeepSeek
-settings_code_index: Codeindex
-settings_code_index_description: Projektcode für die Codesuchwerkzeuge indexieren
+settings_code_index: Code-Werkzeuge
+settings_code_index_description: Projektcode bei Bedarf durchsuchen und analysieren
+settings_code_index_persistent: Vollständiger Codeindex
+settings_code_index_persistent_description: Einen Index für das ausgewählte Projekt auf dem Datenträger speichern
+settings_code_index_project: Projekt
 code_index_settings_saved: Gespeichert
 code_index_settings_failed: Codeindex-Einstellungen konnten nicht geladen oder gespeichert werden
 code_index_settings_conflict: Codeindex-Einstellungen geändert; erneut versuchen

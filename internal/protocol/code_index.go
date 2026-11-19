@@ -291,6 +291,9 @@ func (value CodeIndexOutline) MarshalJSON() ([]byte, error) {
 type CodeIndexSettings struct {
 	Revision uint64 `json:"revision"`
 	Enabled  bool   `json:"enabled"`
+	// PersistentProjects opts specific projects into the full on-disk index.
+	// An omitted list leaves the saved preference in place on update.
+	PersistentProjects *[]ProjectID `json:"persistent_projects,omitempty"`
 }
 
 func DefaultCodeIndexSettings() CodeIndexSettings {
@@ -311,5 +314,6 @@ func (value *CodeIndexSettings) UnmarshalJSON(data []byte) error {
 func (value CodeIndexSettings) MarshalJSON() ([]byte, error) {
 	type plain CodeIndexSettings
 	encoded := plain(value)
+	encoded.PersistentProjects = normalizeCollections(encoded.PersistentProjects)
 	return json.Marshal(encoded)
 }

@@ -2292,8 +2292,11 @@ chat_config_desktop: 데스크톱 설정
 settings_experimental: 실험적 기능
 settings_experimental_description: 개발 및 디버깅 설정
 provider_deepseek: DeepSeek
-settings_code_index: 코드 색인
-settings_code_index_description: 코드 검색 도구를 위해 프로젝트 코드 색인
+settings_code_index: 코드 도구
+settings_code_index_description: 필요할 때 프로젝트 코드 검색 및 분석
+settings_code_index_persistent: 전체 코드 색인
+settings_code_index_persistent_description: 선택한 프로젝트의 색인을 디스크에 저장
+settings_code_index_project: 프로젝트
 code_index_settings_saved: 저장됨
 code_index_settings_failed: 코드 색인 설정을 불러오거나 저장할 수 없음
 code_index_settings_conflict: 코드 색인 설정이 변경되었습니다. 다시 시도하세요

@@ -2292,8 +2292,11 @@ chat_config_desktop: Configuration du bureau
 settings_experimental: Expérimental
 settings_experimental_description: Paramètres de développement et de débogage
 provider_deepseek: DeepSeek
-settings_code_index: Index du code
-settings_code_index_description: Indexer le code du projet pour les outils de recherche de code
+settings_code_index: Outils de code
+settings_code_index_description: Rechercher et analyser le code du projet à la demande
+settings_code_index_persistent: Index complet du code
+settings_code_index_persistent_description: Conserver un index sur disque pour le projet sélectionné
+settings_code_index_project: Projet
 code_index_settings_saved: Enregistré
 code_index_settings_failed: Impossible de charger ou d’enregistrer les paramètres de l’index du code
 code_index_settings_conflict: Paramètres de l’index du code modifiés ; réessayez

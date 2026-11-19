@@ -18,8 +18,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// Reconciling scans the worktree, reads and parses bounded batches in
-// parallel, then commits short writer transactions. The staged approach
+// Reconciling scans the worktree, reads and parses bounded batches, then
+// commits short writer transactions. The staged approach
 // follows ast-index v3.56.0 (MIT).
 
 // report is the scan-wide reconcile state plus the per-file problems that
@@ -228,15 +228,14 @@ type inputs struct {
 func (s *Service) read(ctx context.Context, files *core.Files, paths []string, in inputs, deadline time.Time) ([]inspected, error) {
 	bounded, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	select {
-	case <-bounded.Done():
+	release, err := s.acquireReader(bounded)
+	if err != nil {
 		if ctx.Err() != nil {
 			return nil, cancelled()
 		}
-		return nil, failure(bounded.Err())
-	case s.parsing <- struct{}{}:
+		return nil, err
 	}
-	defer func() { <-s.parsing }()
+	defer release()
 	results := make([]inspected, 0, len(paths))
 	for _, path := range paths {
 		if ctx.Err() != nil {
@@ -258,6 +257,18 @@ func (s *Service) read(ctx context.Context, files *core.Files, paths []string, i
 
 func (s *Service) inspect(bounded context.Context, files *core.Files, path string, prior cached, previous core.FileStamp, ready *Parsed) inspected {
 	var result inspected
+	if !IndexedSource(path) {
+		file, err := files.Open(path)
+		if err != nil {
+			return inspected{err: failure(err)}
+		}
+		_ = file.Close()
+		if prior.fingerprint != Fingerprint || prior.state.Status != StatusUnsupported {
+			file := Omitted(path, StatusUnsupported)
+			result.file = &file
+		}
+		return result
+	}
 	result.stamp, result.err = s.inspectText(files, bounded, path, MaxFileBytes, previous, func(source *string) error {
 		if source == nil {
 			if prior.fingerprint != Fingerprint || prior.state.Status != StatusTooLarge {
@@ -277,9 +288,9 @@ func (s *Service) inspect(bounded context.Context, files *core.Files, path strin
 				result.file = ready
 				return nil
 			}
-			file, err = s.parser.parseHashed(bounded, path, *source, hash)
+			file, err = s.parser.parseHashed(bounded, path, *source, hash, sourceContent)
 		} else {
-			file, err = s.parser.Parse(bounded, path, *source)
+			file, err = s.parser.ParseIndexed(bounded, path, *source)
 		}
 		if err == nil {
 			result.file = &file

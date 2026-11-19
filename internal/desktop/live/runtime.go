@@ -19,7 +19,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -60,7 +59,7 @@ type Runtime struct {
 	resourcePage         resourcePageState
 	workspaceSettings    workspaceSettingsState
 	hookSettings         hookSettingsState
-	codeIndexSettings    settings.Stored[bool]
+	codeIndexSettings    codeIndexSettingsState
 	personalInstructions personalInstructionsState
 	settingsShown        *Runtime
 	settingsGeneration   uint64

@@ -3,7 +3,6 @@ package codeindex
 import (
 	"context"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,18 +19,18 @@ const (
 	maxFiles   = 50_000
 	batchFiles = 16
 	// readers bounds the read and parse workers shared by all worktrees.
-	readers   = 2
+	readers   = 1
 	maxIssues = 5
 	// Overflow falls back to a full content check.
 	maxChanged = 4096
 	// idleRelease is how long an unused worktree keeps its open index and
 	// its file watch.
-	idleRelease = 10 * time.Minute
+	idleRelease = 2 * time.Minute
 )
 
 // Fingerprint identifies this engine's extraction rules in files.fingerprint.
 // Records written under any other rules are parsed again.
-var Fingerprint = Hash("code-index-v1:gotreesitter:v0.57.0:embedded-1:data-1:references-2")
+var Fingerprint = Hash("code-index-v2:gotreesitter:v0.57.0:embedded-1:source-1:references-2:budget-64m")
 
 // Watch subscribes to changes of one worktree root. Its owner delivers every
 // batch to Observed (empty for unknown changes) before waking the subscription.
@@ -48,9 +47,11 @@ type Service struct {
 	closed      context.Context
 	close       context.CancelFunc
 
-	mutex     sync.Mutex
-	enabled   bool
-	worktrees map[protocol.WorktreeID]*worktree
+	// maintenance serializes operations that close or remove an index.
+	maintenance sync.Mutex
+	mutex       sync.Mutex
+	enabled     bool
+	worktrees   map[protocol.WorktreeID]*worktree
 }
 
 type worktree struct {
@@ -64,11 +65,12 @@ type worktree struct {
 	stopped context.Context
 	stop    context.CancelFunc
 	observe sync.Once
-	// used is the start of the latest query, guarded by the service.
+	// used is the end of the latest persistent query, guarded by the service.
 	used time.Time
 
-	opening sync.Mutex
-	index   *index
+	opening   sync.Mutex
+	index     *index
+	cacheUsed time.Time
 }
 
 // dirty counts invalidations and remembers the exactly changed paths.
@@ -126,12 +128,18 @@ func New(profile string, watch Watch) *Service {
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
+		lastPruned := time.Now()
+		service.prune(lastPruned, cacheMaxAge, cacheMaxBytes)
 		for {
 			select {
 			case <-closed.Done():
 				return
 			case now := <-ticker.C:
 				service.releaseIdle(now)
+				if now.Sub(lastPruned) >= cachePruneInterval {
+					service.prune(now, cacheMaxAge, cacheMaxBytes)
+					lastPruned = now
+				}
 			}
 		}
 	}()
@@ -142,17 +150,30 @@ func New(profile string, watch Watch) *Service {
 // query used for idleRelease, so a watch lasts only while its worktree is
 // queried. The next query opens both again and reconciles by revision.
 func (s *Service) releaseIdle(now time.Time) {
+	s.maintenance.Lock()
+	defer s.maintenance.Unlock()
 	s.mutex.Lock()
-	var released []*worktree
+	defer s.mutex.Unlock()
 	for id, worktree := range s.worktrees {
-		if now.Sub(worktree.used) >= idleRelease {
-			released = append(released, worktree)
+		if now.Sub(worktree.used) >= idleRelease && worktree.access.TryLock() {
+			worktree.stop()
+			_ = worktree.closeIndex()
+			worktree.access.Unlock()
 			delete(s.worktrees, id)
 		}
 	}
-	s.mutex.Unlock()
-	for _, worktree := range released {
-		_ = worktree.release()
+}
+
+func (s *Service) acquireReader(ctx context.Context) (func(), error) {
+	select {
+	case <-ctx.Done():
+		return nil, failure(ctx.Err())
+	case s.parsing <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-s.parsing
+			return nil, failure(err)
+		}
+		return func() { <-s.parsing }, nil
 	}
 }
 
@@ -163,6 +184,10 @@ func (s *Service) directory(id protocol.WorktreeID) string {
 func (s *Service) worktree(id protocol.WorktreeID, root string) (*worktree, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	return s.worktreeLocked(id, root)
+}
+
+func (s *Service) worktreeLocked(id protocol.WorktreeID, root string) (*worktree, error) {
 	if s.closed.Err() != nil {
 		return nil, cancelled()
 	}
@@ -173,7 +198,9 @@ func (s *Service) worktree(id protocol.WorktreeID, root string) (*worktree, erro
 		if known.root != root {
 			return nil, fault(protocol.ErrorCodeRevisionConflict, "worktree root changed")
 		}
-		known.used = time.Now()
+		if known.stopped.Err() != nil {
+			return nil, cancelled()
+		}
 		return known, nil
 	}
 	created := &worktree{root: root, database: filepath.Join(s.directory(id), "index.turso"), sync: make(chan *progress, 1), dirty: dirty{paths: map[string]uint64{}}, used: time.Now()}
@@ -183,33 +210,45 @@ func (s *Service) worktree(id protocol.WorktreeID, root string) (*worktree, erro
 	return created, nil
 }
 
-// release stops a worktree's queries and closes its index.
+// release waits for stopped queries to return before closing the index.
 func (w *worktree) release() error {
-	w.stop()
-	// Readers release the index before it closes.
 	w.access.Lock()
 	defer w.access.Unlock()
+	return w.closeIndex()
+}
+
+func (w *worktree) closeIndex() error {
 	if w.index == nil {
 		return nil
 	}
 	err := w.index.close()
 	w.index = nil
+	touchCache(filepath.Dir(w.database))
 	return err
 }
 
 // Configure enables or disables indexing. Disabling stops every query and
 // closes the indexes; their files stay as a cache.
 func (s *Service) Configure(enabled bool) {
+	s.maintenance.Lock()
+	defer s.maintenance.Unlock()
 	s.mutex.Lock()
-	s.enabled = enabled
+	s.enabled = enabled && s.closed.Err() == nil
 	var released []*worktree
-	if !enabled {
+	if !s.enabled {
 		released = slices.Collect(maps.Values(s.worktrees))
-		clear(s.worktrees)
 	}
 	s.mutex.Unlock()
 	for _, worktree := range released {
+		worktree.stop()
+	}
+	for _, worktree := range released {
 		_ = worktree.release()
+	}
+	if len(released) != 0 {
+		s.mutex.Lock()
+		clear(s.worktrees)
+		s.mutex.Unlock()
 	}
 }
 
@@ -267,41 +306,57 @@ func (s *Service) Observed(id protocol.WorktreeID, paths []string) {
 
 // Remove deletes the derived cache of a removed worktree.
 func (s *Service) Remove(id protocol.WorktreeID) error {
+	s.maintenance.Lock()
+	defer s.maintenance.Unlock()
 	s.mutex.Lock()
 	worktree := s.worktrees[id]
+	if worktree == nil {
+		defer s.mutex.Unlock()
+		return failure(s.removeCache(id))
+	}
+	worktree.stop()
 	s.mutex.Unlock()
-	if worktree != nil {
-		if err := worktree.release(); err != nil {
-			return err
-		}
-	}
-	if err := os.RemoveAll(s.directory(id)); err != nil {
-		return failure(err)
-	}
+	err := worktree.release()
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if s.worktrees[id] == worktree {
-		delete(s.worktrees, id)
+	delete(s.worktrees, id)
+	if err != nil {
+		return err
 	}
-	return nil
+	return failure(s.removeCache(id))
 }
 
 // begin scopes a query to its caller and its worktree and takes shared
 // access to the index.
-func (w *worktree) begin(ctx context.Context) (context.Context, func(), error) {
+func (s *Service) begin(ctx context.Context, id protocol.WorktreeID, root string, persistent bool) (context.Context, *worktree, func(), error) {
+	if ctx.Err() != nil {
+		return nil, nil, nil, cancelled()
+	}
+	s.mutex.Lock()
+	w, err := s.worktreeLocked(id, root)
+	if err != nil {
+		s.mutex.Unlock()
+		return nil, nil, nil, err
+	}
+	w.access.RLock()
+	s.mutex.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
 	detach := context.AfterFunc(w.stopped, cancel)
-	w.access.RLock()
 	end := func() {
+		if persistent {
+			s.mutex.Lock()
+			w.used = time.Now()
+			s.mutex.Unlock()
+		}
 		w.access.RUnlock()
 		detach()
 		cancel()
 	}
 	if ctx.Err() != nil || w.stopped.Err() != nil {
 		end()
-		return nil, nil, cancelled()
+		return nil, nil, nil, cancelled()
 	}
-	return ctx, func() {
+	return ctx, w, func() {
 		// Keep arenas reusable across batches in a query. The parser
 		// pool keeps strong references until drained, even while idle.
 		gotreesitter.DrainArenaPools()
@@ -337,10 +392,13 @@ func (w *worktree) observed(s *Service, id protocol.WorktreeID) {
 func (w *worktree) opened(ctx context.Context) (*index, error) {
 	w.opening.Lock()
 	defer w.opening.Unlock()
+	directory := filepath.Dir(w.database)
 	if w.index != nil {
+		if time.Since(w.cacheUsed) >= cachePruneInterval {
+			w.cacheUsed = touchCache(directory)
+		}
 		return w.index, nil
 	}
-	directory := filepath.Dir(w.database)
 	cache := filepath.Dir(directory)
 	for _, private := range []string{filepath.Dir(cache), cache, directory} {
 		if err := core.PrivateDirectory(private); err != nil {
@@ -352,6 +410,7 @@ func (w *worktree) opened(ctx context.Context) (*index, error) {
 		return nil, err
 	}
 	w.index = opened
+	w.cacheUsed = touchCache(directory)
 	return opened, nil
 }
 
@@ -370,70 +429,6 @@ func validate(root string, paths ...string) error {
 		}
 	}
 	return nil
-}
-
-// Outline refreshes one file and returns its declarations.
-func (s *Service) Outline(ctx context.Context, id protocol.WorktreeID, root, path string) (protocol.CodeIndexOutline, error) {
-	var outline protocol.CodeIndexOutline
-	if err := validate(root, path); err != nil {
-		return outline, err
-	}
-	worktree, err := s.worktree(id, root)
-	if err != nil {
-		return outline, err
-	}
-	ctx, end, err := worktree.begin(ctx)
-	if err != nil {
-		return outline, err
-	}
-	defer end()
-	var progress *progress
-	select {
-	case <-ctx.Done():
-		return outline, cancelled()
-	case progress = <-worktree.sync:
-	}
-	defer func() { worktree.sync <- progress }()
-	worktree.observed(s, id)
-	if ctx.Err() != nil {
-		return outline, cancelled()
-	}
-	index, err := worktree.opened(ctx)
-	if err != nil {
-		return outline, err
-	}
-	files, err := core.OpenFiles(root, core.RestrictedFiles)
-	if err != nil {
-		return outline, err
-	}
-	defer files.Close()
-	if err := progress.records.load(ctx, index); err != nil {
-		return outline, err
-	}
-	results, err := s.read(ctx, files, []string{path}, inputs{entries: progress.records.entries}, time.Now().Add(10*time.Second))
-	if err != nil {
-		return outline, err
-	}
-	if results[0].err != nil {
-		return outline, failure(results[0].err)
-	}
-	if file := results[0].file; file != nil {
-		revision, committed, err := index.replace(ctx, []Parsed{*file}, Fingerprint)
-		if err != nil {
-			return outline, err
-		}
-		if committed {
-			progress.records.insert(file, Fingerprint)
-			progress.records.advance(revision)
-		}
-	}
-	if outline, err = index.outline(ctx, path); err != nil {
-		return outline, err
-	}
-	worktree.dirty.mutex.Lock()
-	outline.Partial = outline.Partial || worktree.dirty.watchFailed
-	worktree.dirty.mutex.Unlock()
-	return outline, nil
 }
 
 // reconcile refreshes the index when no other reader is doing so. It returns
@@ -472,11 +467,7 @@ func (s *Service) Search(ctx context.Context, id protocol.WorktreeID, root strin
 			return page, err
 		}
 	}
-	worktree, err := s.worktree(id, root)
-	if err != nil {
-		return page, err
-	}
-	ctx, end, err := worktree.begin(ctx)
+	ctx, worktree, end, err := s.begin(ctx, id, root, true)
 	if err != nil {
 		return page, err
 	}
@@ -546,11 +537,7 @@ func (s *Service) Graph(ctx context.Context, id protocol.WorktreeID, root string
 	if err := checkGraph(root, &query); err != nil {
 		return page, err
 	}
-	worktree, err := s.worktree(id, root)
-	if err != nil {
-		return page, err
-	}
-	ctx, end, err := worktree.begin(ctx)
+	ctx, worktree, end, err := s.begin(ctx, id, root, true)
 	if err != nil {
 		return page, err
 	}

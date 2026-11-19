@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"math"
 	"slices"
 	"strings"
@@ -85,12 +84,8 @@ func (r *reader) scanCandidates(visit func(candidate) bool, statement string, va
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var body string
-		if err := rows.Scan(&body); err != nil {
-			return err
-		}
-		var symbol Symbol
-		if err := json.Unmarshal([]byte(body), &symbol); err != nil {
+		symbol, err := scanSymbol(rows)
+		if err != nil {
 			return err
 		}
 		if !visit(candidate{
@@ -130,7 +125,7 @@ func (r *reader) definitions(names []string) (map[string][]candidate, error) {
 			seen[c.key()] = true
 			found[c.name] = append(found[c.name], c)
 			return true
-		}, "SELECT body FROM symbols WHERE name IN ("+list+") ORDER BY path,id", values...)
+		}, symbolSelect+symbolJoin+" WHERE s.name IN ("+list+") ORDER BY f.path,s.id", values...)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +139,7 @@ func (r *reader) outline(path string) ([]candidate, error) {
 	err := r.scanCandidates(func(c candidate) bool {
 		found = append(found, c)
 		return true
-	}, "SELECT body FROM symbols WHERE path=?1 ORDER BY id LIMIT ?2", path, maxSymbols)
+	}, symbolSelect+symbolJoin+" WHERE f.path=?1 ORDER BY s.id LIMIT ?2", path, maxSymbols)
 	return found, err
 }
 
@@ -155,10 +150,10 @@ func (r *reader) within(paths []string, name *string, limit int) ([]candidate, e
 	seen := map[key]bool{}
 	for _, path := range paths {
 		// BINARY path order places every descendant between prefix/ and prefix0.
-		statement := "SELECT body FROM symbols WHERE (path=?1 OR (path>=?2 AND path<?3))"
+		statement := symbolSelect + symbolJoin + " WHERE (f.path=?1 OR (f.path>=?2 AND f.path<?3))"
 		values := []any{path, path + "/", path + "0"}
 		if name != nil {
-			statement += " AND name=?4"
+			statement += " AND s.name=?4"
 			values = append(values, *name)
 		}
 		more := false
@@ -173,7 +168,7 @@ func (r *reader) within(paths []string, name *string, limit int) ([]candidate, e
 			seen[c.key()] = true
 			found = append(found, c)
 			return true
-		}, statement+" ORDER BY path,id", values...)
+		}, statement+" ORDER BY f.path,s.id", values...)
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +234,7 @@ func (r *reader) references(names []string, limit int) ([]located, error) {
 			break
 		}
 		list, values := placeholders(part)
-		rows, err := r.usages(true, "SELECT path,"+usageColumns+" FROM refs WHERE name IN ("+list+") ORDER BY path,start_byte LIMIT ?", append(values, remaining+1)...)
+		rows, err := r.usages(true, "SELECT f.path,"+usageColumns+" FROM refs r JOIN files f ON f.id=r.file_id WHERE r.name IN ("+list+") ORDER BY f.path,r.start_byte LIMIT ?", append(values, remaining+1)...)
 		if err != nil {
 			return nil, err
 		}
@@ -257,7 +252,7 @@ func (r *reader) inside(path string, start, end uint32, limit int) ([]located, e
 	if err := r.ctx.Err(); err != nil {
 		return nil, err
 	}
-	rows, err := r.usages(false, "SELECT "+usageColumns+" FROM refs WHERE path=?1 AND start_byte>=?2 AND start_byte<?3 ORDER BY start_byte LIMIT ?4", path, start, end, limit+1)
+	rows, err := r.usages(false, "SELECT "+usageColumns+" FROM refs r JOIN files f ON f.id=r.file_id WHERE f.path=?1 AND r.start_byte>=?2 AND r.start_byte<?3 ORDER BY r.start_byte LIMIT ?4", path, start, end, limit+1)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +295,7 @@ func (r *reader) imports(paths []string) (map[string][]string, error) {
 			return nil, err
 		}
 		list, values := placeholders(part)
-		modules, err := r.modulesOf(math.MaxInt, "SELECT path,module FROM imports WHERE path IN ("+list+")", values...)
+		modules, err := r.modulesOf(math.MaxInt, "SELECT f.path,i.module FROM imports i JOIN files f ON f.id=i.file_id WHERE f.path IN ("+list+")", values...)
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +311,7 @@ func (r *reader) modules(limit int) (map[string][]string, error) {
 	if err := r.ctx.Err(); err != nil {
 		return nil, err
 	}
-	return r.modulesOf(limit, "SELECT path,module FROM imports ORDER BY path LIMIT ?1", limit+1)
+	return r.modulesOf(limit, "SELECT f.path,i.module FROM imports i JOIN files f ON f.id=i.file_id ORDER BY f.path LIMIT ?1", limit+1)
 }
 
 // total is the reference count of one name in one referencing file.
@@ -332,7 +327,7 @@ func (r *reader) totals(limit int) ([]total, error) {
 	if err := r.ctx.Err(); err != nil {
 		return nil, err
 	}
-	rows, err := r.db.QueryContext(r.ctx, "SELECT path,name,count(*) FROM refs GROUP BY path,name ORDER BY path,name LIMIT ?1", limit+1)
+	rows, err := r.db.QueryContext(r.ctx, "SELECT f.path,r.name,count(*) FROM refs r JOIN files f ON f.id=r.file_id GROUP BY f.path,r.name ORDER BY f.path,r.name LIMIT ?1", limit+1)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +354,7 @@ func (r *reader) counts() (map[string]uint32, error) {
 	if err := r.ctx.Err(); err != nil {
 		return nil, err
 	}
-	rows, err := r.db.QueryContext(r.ctx, "SELECT path,count(*) FROM symbols GROUP BY path")
+	rows, err := r.db.QueryContext(r.ctx, "SELECT f.path,count(*) FROM symbols s JOIN files f ON f.id=s.file_id GROUP BY f.path")
 	if err != nil {
 		return nil, err
 	}

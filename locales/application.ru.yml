@@ -2821,8 +2821,11 @@ files_unsaved_discard: Отбросить
 files_save_all: Сохранить все
 settings_experimental: Экспериментальное
 settings_experimental_description: Настройки разработки и отладки
-settings_code_index: Индекс кода
-settings_code_index_description: Индексировать код проекта для инструментов поиска кода
+settings_code_index: Инструменты для кода
+settings_code_index_description: Искать и анализировать код проекта по запросу
+settings_code_index_persistent: Полный индекс кода
+settings_code_index_persistent_description: Хранить индекс выбранного проекта на диске
+settings_code_index_project: Проект
 code_index_settings_saved: Сохранено
 code_index_settings_failed: Не удалось загрузить или сохранить настройки индекса кода
 code_index_settings_conflict: Настройки индекса кода изменились; повторите

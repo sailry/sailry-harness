@@ -55,9 +55,11 @@ func TestScanBudgetKeepsFinishedPrefix(t *testing.T) {
 	equal(t, "only interrupted file remains", progress.scan.pending, []string{"z.rs"})
 	equal(t, "incomplete pass did not publish new proofs", progress.verified["a.rs"], previous)
 	for path, want := range map[string]string{"a.rs": "checked", "b.rs": "latest"} {
-		outline, err := w.index.outline(t.Context(), path)
-		if err != nil || names2(outline.Symbols) != want {
-			t.Fatalf("wrong resumed %s: %+v, %v", path, outline, err)
+		query := protocol.DefaultCodeIndexSearch()
+		query.Path = &path
+		page, err := w.index.search(t.Context(), &query)
+		if err != nil || names2(page.Symbols) != want {
+			t.Fatalf("wrong resumed %s: %+v, %v", path, page, err)
 		}
 	}
 	report, err = f.service.synchronize(t.Context(), w, w.index, progress, defaultLimits())

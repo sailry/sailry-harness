@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -523,30 +524,34 @@ func TestIndexRebuildable(t *testing.T) {
 		}
 		equal(t, "retired", len(f.search("retired").Symbols), 0)
 		equal(t, "words", names2(f.search("current").Symbols), "current")
-		outline, err := f.service.Outline(context.Background(), f.id, f.root, "main.rs")
+		outline, err := f.service.OutlineOnDemand(context.Background(), f.id, f.root, "main.rs")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if outline.FileRevision == nil || len(outline.Symbols) != 1 || outline.Symbols[0].FileRevision != *outline.FileRevision || *outline.FileRevision != Hash("pub fn current() {}\n") {
 			t.Errorf("outline %+v", outline)
 		}
-		equal(t, "outline revision", outline.IndexRevision, current.IndexRevision)
+		equal(t, "outline has no index revision", outline.IndexRevision, uint64(0))
 	})
 	t.Run("outline parses only the requested file", func(t *testing.T) {
 		f := newFixture(t)
 		f.write("first.rs", "pub fn first() {}\n", "second.rs", "pub fn second() {}\n", "notes.unknownext", "text\n")
-		outline, err := f.service.Outline(context.Background(), f.id, f.root, "first.rs")
+		var read []string
+		f.service.inspectText = func(files *core.Files, ctx context.Context, path string, limit int, stamp core.FileStamp, inspect func(*string) error) (core.FileStamp, error) {
+			read = append(read, path)
+			return files.InspectText(ctx, path, limit, stamp, inspect)
+		}
+		outline, err := f.service.OutlineOnDemand(context.Background(), f.id, f.root, "first.rs")
 		if err != nil {
 			t.Fatal(err)
 		}
 		equal(t, "outline", names2(outline.Symbols), "first")
-		worktree, _ := f.service.worktree(f.id, f.root)
-		_, files, err := worktree.index.snapshot(context.Background())
-		if err != nil || len(files) != 1 {
-			t.Fatalf("files %v %v", files, err)
+		equal(t, "source reads", read, []string{"first.rs"})
+		if _, err := os.Stat(f.database()); !os.IsNotExist(err) {
+			t.Fatalf("outline left a database: %v", err)
 		}
 		equal(t, "search", names2(f.search("").Symbols), "first,second")
-		unsupported, err := f.service.Outline(context.Background(), f.id, f.root, "notes.unknownext")
+		unsupported, err := f.service.OutlineOnDemand(context.Background(), f.id, f.root, "notes.unknownext")
 		if err != nil {
 			t.Fatal(err)
 		}

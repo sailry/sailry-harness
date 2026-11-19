@@ -637,11 +637,11 @@ func storageLoadRebuildCode(ctx context.Context, handle *Handle) error {
 		if err := handle.Write(ctx, func(connection *sql.Conn) error {
 			for index := start; index < min(start+100, storageLoadCodeFiles); index++ {
 				path := fmt.Sprintf("src/fixture_%04d.go", index)
-				if err := storageLoadExec(ctx, connection, "INSERT INTO files(path,fingerprint,state) VALUES(?,'fixture','{}')", path); err != nil {
+				id := index + 1
+				if err := storageLoadExec(ctx, connection, "INSERT INTO files(id,path,fingerprint,state) VALUES(?,?,'fixture','{}')", id, path); err != nil {
 					return err
 				}
-				body := fmt.Sprintf(`{"name":"Symbol%d","path":%q}`, index, path)
-				if err := storageLoadExec(ctx, connection, "INSERT INTO symbols(path,name,language,body,field0,field1,cjk0,cjk1) VALUES(?,?,'go',?,?,?,'','')", path, fmt.Sprintf("Symbol%d", index), body, fmt.Sprintf("symbol%d", index), "rust async cancellation fixture"); err != nil {
+				if err := storageLoadExec(ctx, connection, "INSERT INTO symbols(file_id,name,language,kind,start_byte,end_byte,start_line,start_column,end_line,end_column,depth,field0,field1,cjk0,cjk1) VALUES(?,?,'go','function',0,1,1,1,1,2,0,?,?,'','')", id, fmt.Sprintf("Symbol%d", index), fmt.Sprintf("symbol%d", index), "rust async cancellation fixture"); err != nil {
 					return err
 				}
 			}

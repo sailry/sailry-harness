@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -190,7 +191,7 @@ func (node *Node) codeIndexIO(ctx context.Context, caller protocol.NodeID, reque
 		var settings protocol.CodeIndexSettings
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
-			settings, err = store.ReadCodeIndexSettings(ctx, db)
+			settings, err = store.ViewCodeIndexSettings(ctx, db)
 			return err
 		})
 		return protocol.Output{Kind: "code_index_settings", Data: settings}, err
@@ -205,13 +206,31 @@ func (node *Node) codeIndexIO(ctx context.Context, caller protocol.NodeID, reque
 	switch input := request.Command.Data.(type) {
 	case *protocol.CommandSearchCodePayload:
 		output.Kind = "code_search"
-		output.Data, err = node.codeIndex.service.Search(operation, input.Worktree, root, input.Query)
+		persistent, lookupErr := node.persistentCodeIndex(operation, input.Worktree)
+		if lookupErr != nil {
+			err = lookupErr
+			break
+		}
+		search := node.codeIndex.service.SearchOnDemand
+		if persistent {
+			search = node.codeIndex.service.Search
+		}
+		output.Data, err = search(operation, input.Worktree, root, input.Query)
 	case *protocol.CommandOutlineCodePayload:
 		output.Kind = "code_outline"
-		output.Data, err = node.codeIndex.service.Outline(operation, input.Worktree, root, input.Path)
+		output.Data, err = node.codeIndex.service.OutlineOnDemand(operation, input.Worktree, root, input.Path)
 	case *protocol.CommandGraphCodePayload:
 		output.Kind = "code_graph"
-		output.Data, err = node.codeIndex.service.Graph(operation, input.Worktree, root, input.Query)
+		persistent, lookupErr := node.persistentCodeIndex(operation, input.Worktree)
+		if lookupErr != nil {
+			err = lookupErr
+			break
+		}
+		graph := node.codeIndex.service.GraphOnDemand
+		if persistent {
+			graph = node.codeIndex.service.Graph
+		}
+		output.Data, err = graph(operation, input.Worktree, root, input.Query)
 	default:
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "code query expected"}
 	}
@@ -222,6 +241,30 @@ func (node *Node) codeIndexIO(ctx context.Context, caller protocol.NodeID, reque
 		return protocol.Output{}, err
 	}
 	return output, nil
+}
+
+func (node *Node) persistentCodeIndex(ctx context.Context, worktree protocol.WorktreeID) (bool, error) {
+	var allowed bool
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadCodeIndexSettings(ctx, db)
+		if err != nil || settings.PersistentProjects == nil || len(*settings.PersistentProjects) == 0 {
+			return err
+		}
+		var project sql.NullString
+		err = db.QueryRowContext(ctx, "SELECT project FROM worktrees WHERE id=?1", worktree.String()).Scan(&project)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil || !project.Valid {
+			return err
+		}
+		id, err := protocol.ParseProjectID(project.String)
+		if err == nil {
+			allowed = slices.Contains(*settings.PersistentProjects, id)
+		}
+		return err
+	})
+	return allowed, err
 }
 
 // codeToolValue shapes a code result for the model. Plugin flows and clients

@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // The settings' view model: the boundary between the pages and their
@@ -192,11 +193,16 @@ type Model struct {
 
 	// Conversation.
 	Sandbox Stored[bool]
-	// CodeIndex is whether the Node indexes project code for its code tools.
+	// CodeIndex is the enabled choice for the Node's code tools.
 	CodeIndex      Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
 	TextSize       float64 // 12..18, a pixel a step; DefaultTextSize unless chosen
+
+	CodeIndexProjects           []kit.SelectOption
+	PersistentCodeIndexProjects []protocol.ProjectID
+	CodeIndexProject            string
+	SaveProjectCodeIndex        func(protocol.ProjectID, bool)
 
 	// Shortcuts.
 	Keys Keys

@@ -26,6 +26,7 @@ import (
 // controller's configuration Node, pending drafts or captured saves.
 func TestSettingsTarget(t *testing.T) {
 	nodes := []protocol.NodeID{{1}, {2}, {3}}
+	projects := []protocol.ProjectID{{1}, {2}, {3}}
 	transports := make([]*conversationTestTransport, len(nodes))
 	reporting := make([]*settingsTestTransport, len(nodes))
 	// external is the compaction revision another controller saved on a
@@ -42,6 +43,9 @@ func TestSettingsTarget(t *testing.T) {
 		snapshot := protocol.DefaultSnapshot()
 		snapshot.Node = node
 		snapshot.User = &protocol.User{ID: protocol.UserID{byte(index + 1)}, Name: "Fixture", Local: index == 0, Administrator: index != 2, State: "active"}
+		project := protocol.DefaultProject()
+		project.ID, project.Name, project.Path, project.Owner = projects[index], "Fixture project", t.TempDir(), &snapshot.User.ID
+		snapshot.Projects = []protocol.Project{project}
 		// Each Node answers its own values: the local one revision 1, 60 %, 4
 		// children, sleep allowed, sandbox and code index on; the remote
 		// one revision 2, 70 %, 5 children, sleep prevented, both off.
@@ -133,13 +137,21 @@ func TestSettingsTarget(t *testing.T) {
 				value.ID, value.Node, value.OwnerUser, value.Revision, value.Paused = input.ID, node, snapshot.User.ID, input.ExpectedRevision+1, input.Paused
 				return output("knowledge_collection", value)
 			case "read_code_index_settings":
-				return output("code_index_settings", protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0})
+				return output("code_index_settings", protocol.CodeIndexSettings{Revision: revision, Enabled: index == 0, PersistentProjects: &[]protocol.ProjectID{}})
 			case "save_code_index_settings":
 				input, _ := detail[protocol.CommandSaveCodeIndexSettingsPayload](request.Command.Data)
-				// The fixture keeps no state: a second save finds the
-				// revision it read first, as after another controller's.
-				if input.ExpectedRevision != revision {
+				// A second machine switch save finds the original revision,
+				// as after another controller's edit. A project save uses
+				// the revision returned by the first switch save.
+				expected := revision
+				if input.Settings.PersistentProjects != nil {
+					expected++
+				}
+				if input.ExpectedRevision != expected {
 					return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "code index settings changed before saving"}}, true
+				}
+				if input.Settings.PersistentProjects == nil {
+					input.Settings.PersistentProjects = &[]protocol.ProjectID{}
 				}
 				input.Settings.Revision++
 				return output("code_index_settings", input.Settings)
@@ -477,6 +489,16 @@ func TestSettingsTarget(t *testing.T) {
 		settle()
 		if count(1, "save_sandbox_settings") != 1 || count(1, "save_code_index_settings") != 1 {
 			t.Fatal("conversation settings save did not reach the selected host")
+		}
+		if len(m.CodeIndexProjects) != 1 || m.CodeIndexProjects[0].Value != projects[1].String() {
+			t.Fatalf("project choices are outside the selected host: %+v", m.CodeIndexProjects)
+		}
+		beforeCodeIndex := count(0, "save_code_index_settings")
+		m.SaveProjectCodeIndex(projects[1], true)
+		settle()
+		if count(1, "save_code_index_settings") != 2 || count(0, "save_code_index_settings") != beforeCodeIndex ||
+			!slices.Equal(m.PersistentCodeIndexProjects, []protocol.ProjectID{projects[1]}) || m.CodeIndex.Revision != 4 {
+			t.Fatalf("remote project selection did not save: %+v, %v", m.CodeIndex, m.PersistentCodeIndexProjects)
 		}
 		m.Open(settings.Decision)
 		root.localModelsFrame()

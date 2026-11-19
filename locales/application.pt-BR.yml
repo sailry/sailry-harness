@@ -2821,8 +2821,11 @@ files_unsaved_discard: Descartar
 files_save_all: Salvar tudo
 settings_experimental: Experimental
 settings_experimental_description: Configurações de desenvolvimento e depuração
-settings_code_index: Índice de código
-settings_code_index_description: Indexar o código do projeto para as ferramentas de busca de código
+settings_code_index: Ferramentas de código
+settings_code_index_description: Buscar e analisar o código do projeto sob demanda
+settings_code_index_persistent: Índice completo de código
+settings_code_index_persistent_description: Manter um índice em disco para o projeto selecionado
+settings_code_index_project: Projeto
 code_index_settings_saved: Salvo
 code_index_settings_failed: Não foi possível carregar ou salvar as configurações do índice de código
 code_index_settings_conflict: As configurações do índice de código mudaram; tente novamente

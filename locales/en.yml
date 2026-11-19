@@ -344,8 +344,11 @@ settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
-settings_code_index: Code index
-settings_code_index_description: Index project code for the code search tools
+settings_code_index: Code tools
+settings_code_index_description: Search and analyze project code on demand
+settings_code_index_persistent: Full code index
+settings_code_index_persistent_description: Keep an on-disk index for the selected project
+settings_code_index_project: Project
 code_index_settings_saved: Saved
 code_index_settings_failed: Could not load or save code index settings
 code_index_settings_conflict: Code index settings changed; try again

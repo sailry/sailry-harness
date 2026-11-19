@@ -1047,9 +1047,14 @@ built-in tools (`inspect_image`, `generate_image`, `generate_video`): the
 actions and handler operations `media.inspect`, `media.image` and `media.video`
 still validate, but a declaration that names one binds no tool.
 
-`code.index.settings.read` and `code.index.settings.write` expose the Node index
-enable setting on the captured settings surface, without a worktree, session,
-turn or callback invocation. `web.settings.read` and `web.settings.write` retain
+`code.index.settings.read` and `code.index.settings.write` expose code tool
+settings on the captured settings surface, without a worktree, session, turn or
+callback invocation. The Node performs code lookups on demand by default.
+`enabled` controls code tool availability. An administrator can opt their
+visible projects into a full on-disk index in Settings → Conversation. An
+omitted `persistent_projects` list preserves the saved selection on update.
+An empty list clears the selections the administrator can manage.
+`web.settings.read` and `web.settings.write` retain
 search settings and driver checks. Disabled packages can configure their own
 settings surface. Use `sailry/search.prepareSettings` with opaque
 `sailry/credentials` field handles for search credential updates; plaintext

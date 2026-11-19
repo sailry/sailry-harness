@@ -24,9 +24,8 @@ const (
 	maxNameBytes      = 512
 	maxSignatureBytes = 384
 	parseMicros       = 1_000_000
-	// Index readers parse concurrently. The library's default
-	// budget permits 512 MiB of scratch and tree memory per file.
-	parseMemoryBytes = 128 << 20
+	// Bound the parser's scratch and tree memory for an individual file.
+	parseMemoryBytes = 64 << 20
 	// The cursor can allocate while enumerating a single pattern at
 	// one node, before the caller gets a chance to check its deadline.
 	matchWorkBudget = 8_192
@@ -62,9 +61,9 @@ func Omitted(file string, status Status) Parsed {
 	return parsed
 }
 
-// Candidate reports whether a path may hold an indexed language.
+// Candidate reports whether a path contributes source or recognized metadata.
 func Candidate(file string) bool {
-	return grammars.DetectLanguage(file) != nil || path.Ext(file) == ""
+	return grammars.DetectLanguage(file) != nil || path.Ext(file) == "" || excludedCodePath(file)
 }
 
 func detect(file, source string) *grammars.LangEntry {
@@ -84,10 +83,18 @@ func Hash(source string) string {
 // Parse extracts the declarations, references and imports of one source. It
 // fails only when ctx is cancelled.
 func (p *Parser) Parse(ctx context.Context, file, source string) (Parsed, error) {
-	return p.parseHashed(ctx, file, source, "")
+	return p.parseHashed(ctx, file, source, "", allContent)
 }
 
-func (p *Parser) parseHashed(ctx context.Context, file, source, hash string) (Parsed, error) {
+type parseContent uint8
+
+const (
+	allContent parseContent = iota
+	sourceContent
+	outlineContent
+)
+
+func (p *Parser) parseHashed(ctx context.Context, file, source, hash string, content parseContent) (Parsed, error) {
 	if err := ctx.Err(); err != nil {
 		return Parsed{}, err
 	}
@@ -102,6 +109,9 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string) (Pa
 	}
 	language := entry.Name
 	parsed.Language = language
+	if content != allContent && (!sourceLanguage(language) || excludedCodePath(file) || minifiedSource(language, source)) {
+		return parsed, nil
+	}
 	tree, err := parse(ctx, entry, source)
 	if err != nil {
 		return Parsed{}, err
@@ -115,8 +125,9 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string) (Pa
 	found := extract(s, tree.RootNode(), language)
 	parsed.Status = StatusParsed
 	parsed.Partial = tree.ParseStoppedEarly()
+	parsed.Truncated = tree.ParseStopReason() == gotreesitter.ParseStopMemoryBudget
 	parsed.collect(found, language, source, origin{})
-	if err := p.embedded(ctx, &parsed, s, entry, tree); err != nil {
+	if err := p.embedded(ctx, &parsed, s, entry, tree, content != allContent); err != nil {
 		return Parsed{}, err
 	}
 	slices.SortStableFunc(parsed.Symbols, func(left, right Symbol) int {
@@ -137,8 +148,10 @@ func (p *Parser) parseHashed(ctx context.Context, file, source, hash string) (Pa
 		seen[key] = true
 		return duplicate
 	})
-	if err := p.references(ctx, &parsed, s, entry, tree, found.imports); err != nil {
-		return Parsed{}, err
+	if content != outlineContent {
+		if err := p.references(ctx, &parsed, s, entry, tree, found.imports); err != nil {
+			return Parsed{}, err
+		}
 	}
 	return parsed, ctx.Err()
 }

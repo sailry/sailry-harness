@@ -128,6 +128,9 @@ func (r *Runtime) initNodeSettings() {
 	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
 	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }
+	m.SaveProjectCodeIndex = func(project protocol.ProjectID, enabled bool) {
+		onMachine(func(owner *Runtime) { owner.saveProjectCodeIndex(project, enabled) })
+	}
 	m.ProviderActions = settings.ProviderActions{
 		NewID: func() string { return protocol.NewProviderID().String() },
 		Available: func() bool {
@@ -274,6 +277,7 @@ func (r *Runtime) nodeSettingsFrame() {
 	allowedNow := status == "" && m.ExecutionSettingsStatus != ""
 	m.ExecutionSettingsStatus = status
 	if status == "" && root.App.Page == shell.SettingsPage && m.Section == settings.Conversation {
+		owner.publishCodeIndexProjects()
 		if m.PersonalInstructions != &owner.personalInstructions.editor {
 			m.PersonalInstructions = &owner.personalInstructions.editor
 			owner.readPersonalInstructions()
@@ -321,6 +325,7 @@ func (r *Runtime) showNodeSettings(owner *Runtime) {
 	m.ConcurrencyReadOnly = false
 	m.Media, m.MediaOptions, m.MediaUnavailable = settings.Stored[[4]string]{Pending: waiting}, nil, [4]bool{}
 	m.CodeIndex = settings.Stored[bool]{Pending: waiting}
+	m.CodeIndexProjects, m.PersistentCodeIndexProjects, m.CodeIndexProject = nil, nil, ""
 	m.Roles, m.Teams = nil, nil
 	m.Services, m.ConnTypes, m.ConnAccounts = nil, nil, nil
 	if actions := m.ConnectorActions; actions != nil {

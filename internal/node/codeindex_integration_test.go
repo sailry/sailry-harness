@@ -514,6 +514,17 @@ func TestCodeIndexCommands(t *testing.T) {
 	cache := func(worktree protocol.WorktreeID) string {
 		return filepath.Join(profile, "cache", "code-index", worktree.String())
 	}
+	settings := func() protocol.CodeIndexSettings {
+		return acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "read_code_index_settings"})
+	}
+	configure := func(projects ...protocol.ProjectID) {
+		current := settings()
+		current.PersistentProjects = new(append([]protocol.ProjectID{}, projects...))
+		acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: current, ExpectedRevision: current.Revision}})
+	}
+	if found := settings(); !found.Enabled || found.Revision != 0 || found.PersistentProjects == nil || len(*found.PersistentProjects) != 0 {
+		t.Fatalf("default settings %+v", found)
+	}
 
 	t.Run("outline", func(t *testing.T) {
 		for _, expected := range []struct {
@@ -552,7 +563,7 @@ func TestCodeIndexCommands(t *testing.T) {
 			}
 		}
 		data := acceptanceDo[protocol.CodeIndexOutline](t, node, protocol.Command{Kind: "outline_code", Data: protocol.CommandOutlineCodePayload{Worktree: main, Path: "settings.json"}})
-		if data.Language == nil || *data.Language != "json" || !data.Capabilities.Data {
+		if data.Language == nil || *data.Language != "json" || data.Status != codeindex.StatusUnsupported || len(data.Symbols) != 0 {
 			t.Fatalf("outline of settings.json: %+v", data)
 		}
 		_, failure := acceptanceCall[protocol.CodeIndexOutline](t, node, protocol.Command{Kind: "outline_code", Data: protocol.CommandOutlineCodePayload{Worktree: main, Path: "../outside.go"}})
@@ -560,6 +571,27 @@ func TestCodeIndexCommands(t *testing.T) {
 			t.Fatal("an outline outside the worktree was answered")
 		}
 	})
+
+	t.Run("on demand", func(t *testing.T) {
+		found := codeSearch(t, node, main, protocol.CodeIndexSearch{Query: "Serve"})
+		if len(found.Symbols) == 0 || found.Symbols[0].Name != "Serve" || found.IndexRevision != 0 || found.Partial {
+			t.Fatalf("on-demand search returned %+v", found)
+		}
+		// A caller in another file is discovered without building a worktree index.
+		path := filepath.Join(root, "cmd", "bridge.go")
+		if err := os.WriteFile(path, []byte("package main\nfunc Bridge() { helper(\"bridge\") }\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(path)
+		graph := codeGraph(t, node, main, protocol.CodeIndexGraphViewCallers, "helper")
+		if graph.IndexRevision != 0 || !slices.Contains(codeCallers(graph), "cmd/bridge.go:Bridge") {
+			t.Fatalf("on-demand graph returned %+v", graph)
+		}
+		if _, err := os.Stat(filepath.Join(cache(main), "index.turso")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("default commands persisted a code index: %v", err)
+		}
+	})
+	configure(project.ID)
 
 	var revision uint64
 	t.Run("search", func(t *testing.T) {
@@ -626,8 +658,7 @@ func TestCodeIndexCommands(t *testing.T) {
 			paths = append(paths, entry.Path)
 		}
 		slices.Sort(paths)
-		// The map ranks every indexed file with declarations, data files too.
-		if !slices.Equal(paths, []string{"app/service.py", "cmd/server.go", "lib/index.rs", "settings.json", "src/page.ts"}) || ranked.Total != 5 {
+		if !slices.Equal(paths, []string{"app/service.py", "cmd/server.go", "lib/index.rs", "src/page.ts"}) || ranked.Total != 4 {
 			t.Fatalf("map lists %v of %d", paths, ranked.Total)
 		}
 		_, failure := acceptanceCall[protocol.CodeIndexGraphGraphPage](t, node, protocol.Command{Kind: "graph_code", Data: protocol.CommandGraphCodePayload{Worktree: main, Query: protocol.CodeIndexGraph{View: protocol.CodeIndexGraphViewCallers, Paths: []string{}, Depth: 3, Limit: 50}}})
@@ -692,6 +723,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		bulk := acceptanceDo[protocol.Project](t, node, protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{
 			Name: "Bulk fixture", Path: bulkRoot, Source: protocol.ProjectsSource{Kind: "local"}, Appearance: protocol.DefaultProjectsAppearance(),
 		}})
+		configure(project.ID, bulk.ID)
 		worktree := codeMain(t, node, bulk.ID)
 		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: worktree, Query: protocol.CodeIndexSearch{Query: "Bulk", Limit: 20}}})
 		accepted, err := node.Dispatch(t.Context(), node.ID(), request)
@@ -775,12 +807,10 @@ func TestCodeIndexCommands(t *testing.T) {
 	})
 
 	t.Run("settings", func(t *testing.T) {
-		settings := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "read_code_index_settings"})
-		if settings != (protocol.CodeIndexSettings{Revision: 0, Enabled: true}) {
-			t.Fatalf("default settings %+v", settings)
-		}
-		disabled := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: 0, Enabled: false}, ExpectedRevision: 0}})
-		if disabled != (protocol.CodeIndexSettings{Revision: 1, Enabled: false}) {
+		configure(project.ID)
+		current := settings()
+		disabled := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: current.Revision, Enabled: false}, ExpectedRevision: current.Revision}})
+		if disabled.Enabled || disabled.Revision != current.Revision+1 || disabled.PersistentProjects == nil || !slices.Equal(*disabled.PersistentProjects, []protocol.ProjectID{project.ID}) {
 			t.Fatalf("disabled settings %+v", disabled)
 		}
 		// The saved enablement applies before the save completes.
@@ -796,8 +826,8 @@ func TestCodeIndexCommands(t *testing.T) {
 		}
 		_, failure = acceptanceCall[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: 0, Enabled: true}, ExpectedRevision: 0}})
 		acceptanceFault(t, "stale settings", failure, protocol.ErrorCodeRevisionConflict, "code index settings changed before saving")
-		enabled := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: 1, Enabled: true}, ExpectedRevision: 1}})
-		if enabled != (protocol.CodeIndexSettings{Revision: 2, Enabled: true}) {
+		enabled := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Revision: disabled.Revision, Enabled: true}, ExpectedRevision: disabled.Revision}})
+		if !enabled.Enabled || enabled.Revision != disabled.Revision+1 || enabled.PersistentProjects == nil || !slices.Equal(*enabled.PersistentProjects, []protocol.ProjectID{project.ID}) {
 			t.Fatalf("enabled settings %+v", enabled)
 		}
 		page, failure := acceptanceCall[protocol.CodeIndexSearchPage](t, node, protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: main, Query: protocol.CodeIndexSearch{Query: "Serve", Limit: 20}}})
@@ -807,7 +837,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		if found := codeSymbols(page.Symbols); len(found) == 0 || found[0].name != "Serve" || page.Partial || page.Truncated {
 			t.Fatalf("search after enabling again found %+v", page)
 		}
-		if read := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "read_code_index_settings"}); read != enabled {
+		if read := settings(); read.Enabled != enabled.Enabled || read.Revision != enabled.Revision || read.PersistentProjects == nil || !slices.Equal(*read.PersistentProjects, *enabled.PersistentProjects) {
 			t.Fatalf("saved settings read as %+v", read)
 		}
 	})
@@ -832,6 +862,18 @@ func TestCodeIndexCommands(t *testing.T) {
 		}
 	})
 
+	t.Run("project opt out", func(t *testing.T) {
+		configure()
+		defer configure(project.ID)
+		if current := settings(); current.PersistentProjects == nil || len(*current.PersistentProjects) != 0 {
+			t.Fatalf("project opt-out settings %+v", current)
+		}
+		page := codeSearch(t, node, main, protocol.CodeIndexSearch{Query: "Serve"})
+		if page.IndexRevision != 0 || len(page.Symbols) == 0 {
+			t.Fatalf("query after opting out returned %+v", page)
+		}
+	})
+
 	t.Run("fingerprint", func(t *testing.T) {
 		before := codeSearch(t, node, main, protocol.CodeIndexSearch{Limit: 100})
 		if err := node.Stop(context.Background()); err != nil {
@@ -842,7 +884,7 @@ func TestCodeIndexCommands(t *testing.T) {
 		if found := codeFingerprints(t, database, ""); !slices.Equal(found, []string{codeindex.Fingerprint}) {
 			t.Fatalf("the index carries fingerprints %v, want %s", found, codeindex.Fingerprint)
 		}
-		if codeindex.Fingerprint != "e8a01af683f2373e36cf68caafce413399d7f5e66cc8375ab1cb52b085447e6a" {
+		if codeindex.Fingerprint != codeindex.Hash("code-index-v2:gotreesitter:v0.57.0:embedded-1:source-1:references-2:budget-64m") {
 			t.Fatalf("the engine fingerprint is %s", codeindex.Fingerprint)
 		}
 		// Another engine's rows: same files and hashes, other rules.
@@ -1030,7 +1072,7 @@ func TestCodeAgentTools(t *testing.T) {
 		paths = append(paths, item.(map[string]any)["path"].(string))
 	}
 	slices.Sort(paths)
-	if !slices.Equal(paths, []string{"app/service.py", "cmd/server.go", "lib/index.rs", "settings.json", "src/page.ts"}) || overview["total"] != float64(5) {
+	if !slices.Equal(paths, []string{"app/service.py", "cmd/server.go", "lib/index.rs", "src/page.ts"}) || overview["total"] != float64(4) {
 		t.Fatalf("code_map ranked %v: %v", paths, overview)
 	}
 }

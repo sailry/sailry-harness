@@ -44,7 +44,7 @@ func (p *Parser) injections(entry *grammars.LangEntry) *gotreesitter.Query {
 }
 
 // embedded indexes the regions a host language delegates to other grammars.
-func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry *grammars.LangEntry, tree *gotreesitter.Tree) error {
+func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry *grammars.LangEntry, tree *gotreesitter.Tree, sourceOnly bool) error {
 	if _, ok := bundled("injections", entry.Name); !ok {
 		return nil
 	}
@@ -106,6 +106,9 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry 
 				parsed.Partial = true
 				continue
 			}
+			if sourceOnly && !sourceLanguage(guest.Name) {
+				continue
+			}
 			text := s.text(region)
 			guestTree, err := parse(ctx, guest, text)
 			if err != nil {
@@ -116,6 +119,7 @@ func (p *Parser) embedded(ctx context.Context, parsed *Parsed, s *syntax, entry 
 			} else {
 				parsed.Capabilities.Embedded = true
 				parsed.Partial = parsed.Partial || guestTree.ParseStoppedEarly()
+				parsed.Truncated = parsed.Truncated || guestTree.ParseStopReason() == gotreesitter.ParseStopMemoryBudget
 				inner := &syntax{language: guest.Language(), source: text}
 				start := region.StartPoint()
 				parsed.collect(extract(inner, guestTree.RootNode(), guest.Name), guest.Name, text,
