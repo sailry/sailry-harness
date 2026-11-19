@@ -111,19 +111,29 @@ func (pr *Project) gitEmpty(c *ui.Context, details bool) bool {
 	if len(state.Repositories) > 0 {
 		key = "git_repositories"
 	}
+	// The details column has the button; the main area only says so.
+	var initialize func()
+	if state.Kind == "directory" && details {
+		initialize = func() {
+			label := i18n.T(c, "git_initialize")
+			kit.Primary(c.Key("initialize"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { pr.gitAction(c, GitAction{Kind: "git_initialize"}) })
+		}
+	}
 	ui.Column(c.Key("git-empty")).Grow(1).Center().Padding(16).Gap(12).Children(func() {
-		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, key, "count", len(state.Repositories))})
+		result := kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, key, "count", len(state.Repositories))}
+		if len(state.Repositories) == 0 {
+			result.Extra = initialize
+		}
+		kit.Result(c, result)
 		if len(state.Repositories) > 0 {
 			ui.Column(c.Key("repositories")).FillWidth().MaxWidth(384).Border(1, theme.Of(c).Border).Radius(theme.Of(c).Radius).Children(func() {
 				for index, name := range state.Repositories {
 					ui.Row(c.Key(index)).Padding(8, 12).Gap(8).Children(func() { ui.Icon(c, icons.Folder).FontSize(14); ui.Text(c, name).FontSize(14).SingleLine() })
 				}
 			})
-		}
-		// The details column has the button; the main area only says so.
-		if state.Kind == "directory" && details {
-			label := i18n.T(c, "git_initialize")
-			kit.Primary(c.Key("initialize"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { pr.gitAction(c, GitAction{Kind: "git_initialize"}) })
+			if initialize != nil {
+				initialize()
+			}
 		}
 	})
 	return true

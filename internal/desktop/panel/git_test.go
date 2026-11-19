@@ -104,6 +104,29 @@ func clickMenu(t *testing.T, tt *ui.Tester, name string) {
 
 // The Git page's changes, menus, history and whole diff; each case on its own page.
 func TestGitPage(t *testing.T) {
+	t.Run("InitializeSpacing", func(t *testing.T) {
+		pr := NewProjects(preview.Load().Workspace).Of("sailry-go")
+		var sent GitAction
+		pr.Actions = &Actions{Git: func(_ *ui.Context, action GitAction) { sent = action }}
+		pr.SetGitState(GitState{Known: true, Kind: "directory"})
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Fill().Children(func() { PageDetails(c, Changes, pr) })
+		}, 320, 640)
+		tt.SetLocale("en")
+		tt.Frame()
+		label, foundLabel := tt.Find(en("git_directory_title"))
+		button, foundButton := tt.AccessByRole(ui.RoleButton, en("git_initialize"))
+		if !foundLabel || !foundButton {
+			t.Fatalf("the initialization state is incomplete: %q", tt.Texts())
+		}
+		if gap := button.Bounds.Y - label.Y - label.H; gap < 0 || gap > 24 {
+			t.Fatalf("the button is %g DIP below the title, want it within 24 DIP", gap)
+		}
+		clickRole(t, tt, ui.RoleButton, en("git_initialize"), 0)
+		if sent.Kind != "git_initialize" {
+			t.Fatalf("initialization sent %q", sent.Kind)
+		}
+	})
 	// The changes start grouped tracked and untracked, as folders; the ⋯
 	// menu's View options regroup them by staging and list them flat.
 	t.Run("GroupedSections", func(t *testing.T) {
