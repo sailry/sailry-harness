@@ -12,6 +12,7 @@ import (
 
 	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/link"
 )
 
 // Market card pictures are the https addresses a skill directory names for a
@@ -88,7 +89,7 @@ func (images *marketImages) fetch(ctx context.Context, address string) (*ui.Bitm
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("User-Agent", "Sailry/0.1")
+	request.Header.Set("User-Agent", "Sailry/"+link.ProductVersion)
 	response, err := images.client.Do(request)
 	if err != nil {
 		return nil, err
