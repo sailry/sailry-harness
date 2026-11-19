@@ -151,12 +151,6 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		if owners[r.Turn] != r.Turn || r.Status == "queued" && pending[r.Turn] {
 			continue
 		}
-		// Guidance whose run the fitted page left out is part of that run,
-		// not a turn of its own: it waits for the earlier page, which loads
-		// at once (unloadedOwner), and shows alone only if that load failed.
-		if r.Joined != nil && state.OlderErr == nil {
-			continue
-		}
 		if r.Status == "continued" && r.Continuation != nil && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == r.Turn && e.Author != "user" }) {
 			continue
 		}

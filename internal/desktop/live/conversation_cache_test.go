@@ -192,17 +192,11 @@ func TestConversationFrameCacheDropsToolWaitAfterResponse(t *testing.T) {
 	})
 }
 
-func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
+func TestConversationFrameReleasesReplacedPresentation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, _, detached, id := cacheTestRuntime(t)
 		state := cacheTestFrame(t, r, detached, id)
 		r.beginConversationFrame()
-		// An earlier detail or attachment read can finish just as the view is
-		// replaced. The bulk projection writes to App.Data before layout.
-		r.projectConversations(nil)
-		if len(detached.Turns) != 1 || detached.Turns[0].User != "Latest input" {
-			t.Fatal("fixture did not repopulate the detached view")
-		}
 		detached.Queue = []composer.Queued{{ID: "queued"}}
 		detached.Waiting.Approvals = []composer.Approval{{ID: "approval"}}
 		detached.Animating = true
@@ -219,10 +213,9 @@ func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
 		}
 
 		r.beginConversationFrame()
-		r.projectConversations(nil)
 		r.finishConversationFrame()
 		if detached.Turns != nil || visible.Turns != nil || len(r.conversationPresentations) != 0 {
-			t.Fatal("a bulk projection survived a frame without a mounted view")
+			t.Fatal("history survived a frame without a mounted view")
 		}
 	})
 }
@@ -456,11 +449,13 @@ func TestRetainedToolDetailEnrichment(t *testing.T) {
 func TestBlankMissingTurnLoadsOnOpen(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source, cv, id := cacheTestRuntime(t)
-		older := cacheTestPage(id, 1, "Older input")
+		blank := cacheTestPage(id, 1, "Older input")
 		accepted := source.conversations[id]
-		accepted.Page.Runs = append(slices.Clone(older.Runs), accepted.Page.Runs...)
+		joined := cacheTestPage(id, 3, "Guidance outside the loaded range").Runs[0]
+		joined.Joined = &blank.Runs[0].Turn
+		accepted.Page.Runs = slices.Concat(blank.Runs, accepted.Page.Runs, []protocol.ConversationRun{joined})
 		accepted.Page.NextBefore = nil
-		accepted.Missing = []protocol.TurnID{older.Runs[0].Turn}
+		accepted.Missing = []protocol.TurnID{blank.Runs[0].Turn, joined.Turn}
 		source.conversations[id] = accepted
 		if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
 			t.Fatal(err)
@@ -472,26 +467,30 @@ func TestBlankMissingTurnLoadsOnOpen(t *testing.T) {
 				return link.Response{}, false
 			}
 			reads++
+			query, ok := detail[protocol.CommandReadTurnPayload](request.Command.Data)
+			if !ok || query.Turn != blank.Runs[0].Turn || query.Before != nil {
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "automatically loaded a joined guidance member"}}, true
+			}
 			return link.Response{Output: protocol.Output{Kind: "turn_history", Data: protocol.ConversationTurnHistory{
-				Sequence: accepted.Sequence, Revision: accepted.Page.Revision, Run: older.Runs[0], Entries: older.Entries,
+				Sequence: accepted.Sequence, Revision: accepted.Page.Revision, Run: blank.Runs[0], Entries: blank.Entries,
 				Approvals: []protocol.ConversationApproval{}, Questions: []protocol.ConversationQuestion{}, Children: []protocol.ConversationChild{},
 			}}}, true
 		}
 		cacheTestFrame(t, r, cv, id)
 		r.workers.Wait()
 		synctest.Wait()
-		cacheTestFrame(t, r, cv, id)
+		state := cacheTestFrame(t, r, cv, id)
 		r.workers.Wait()
-		if reads != 1 || len(cv.Turns) != 2 || cv.Turns[0].User != "Older input" || len(cv.Turns[0].Reply.Blocks) == 0 {
+		if reads != 1 || len(cv.Turns) != 2 || cv.Turns[0].User != "Older input" || len(cv.Turns[0].Reply.Blocks) == 0 ||
+			!slices.Equal(state.Snapshot.Missing, []protocol.TurnID{joined.Turn}) {
 			t.Fatalf("the blank turn did not load once on open: %d reads, %#v", reads, cv.Turns)
 		}
 	})
 }
 
-// Guidance whose run the fitted first page left out shows inside that run once
-// the earlier page loads, which it does as the conversation opens; it is never
-// drawn as an empty turn of its own.
-func TestGuidanceWithUnloadedOwnerLoadsOnOpen(t *testing.T) {
+// A controller connected to an older Node can still receive a split group.
+// The available input shows until the user reaches its owner while scrolling.
+func TestGuidanceWithUnloadedOwnerUsesOlderPageOnScroll(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source, cv, id := cacheTestRuntime(t)
 		owner := cacheTestPage(id, 1, "Long task")
@@ -505,20 +504,20 @@ func TestGuidanceWithUnloadedOwnerLoadsOnOpen(t *testing.T) {
 			t.Fatal(err)
 		}
 		synctest.Wait()
-		release := make(chan struct{})
 		source.handle = func(request protocol.Request) (link.Response, bool) {
 			if request.Command.Kind != "read_conversation" {
 				return link.Response{}, false
 			}
-			<-release
 			return link.Response{Output: protocol.Output{Kind: "conversation", Data: protocol.ConversationHistory{Sequence: accepted.Sequence, Page: owner}}}, true
 		}
-		cacheTestFrame(t, r, cv, id)
-		if len(cv.Turns) != 0 {
-			t.Fatalf("guidance without its run showed as a turn: %#v", cv.Turns)
-		}
-		close(release)
+		state := cacheTestFrame(t, r, cv, id)
 		r.workers.Wait()
+		if len(cv.Turns) != 1 || cv.Turns[0].User != "Latest input" || len(state.Snapshot.Page.Runs) != 1 {
+			t.Fatalf("a legacy page hid available input: %#v", cv.Turns)
+		}
+		if err := r.controller.LoadOlderConversation(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
 		synctest.Wait()
 		cacheTestFrame(t, r, cv, id)
 		if len(cv.Turns) != 1 || !strings.HasPrefix(cv.Turns[0].User, "Long task") || !strings.Contains(cv.Turns[0].User, "Latest input") {
@@ -539,7 +538,7 @@ func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
 			previous := r.App.Data
 			rebuilt := &viewmodel.Conversation{ID: old.ID, Node: old.Node}
 			r.App.ApplyData(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{rebuilt}, Workspace: &viewmodel.Workspace{}})
-			r.projectConversations(previous)
+			r.carryConversationPresentations(previous)
 			return rebuilt
 		}
 		rebuilt := rebuild()
@@ -559,8 +558,14 @@ func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
 		synctest.Wait()
 		old = rebuilt
 		rebuilt = rebuild()
-		if len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Refreshed input" {
-			t.Fatalf("a changed history kept its old rows: %#v", rebuilt.Turns)
+		if len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Latest input" || old.Turns != nil {
+			t.Fatalf("a directory rebuild projected history or held the old view: %#v", rebuilt.Turns)
+		}
+		r.conversationSeen[id] = true
+		state, _ = r.conversationState(id)
+		if !r.projectConversation(rebuilt, id, state, time.Unix(20, 0), "en") ||
+			len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Refreshed input" {
+			t.Fatalf("the visible frame did not project changed history: %#v", rebuilt.Turns)
 		}
 		r.finishConversationFrame()
 	})

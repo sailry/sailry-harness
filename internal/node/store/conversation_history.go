@@ -195,6 +195,96 @@ func readConversationPage(ctx context.Context, db *sql.Conn, session protocol.Se
 	}
 	return page, nil
 }
+
+// historyOwners maps each run to the recipient whose history it belongs to.
+// An orphan in older stored history can still be read on its own.
+func historyOwners(runs []protocol.ConversationRun) map[protocol.TurnID]protocol.ConversationRun {
+	owners := make(map[protocol.TurnID]protocol.ConversationRun, len(runs))
+	for _, run := range runs {
+		owners[run.Turn] = run
+	}
+	for _, run := range runs {
+		if run.Joined != nil {
+			if recipient, ok := owners[*run.Joined]; ok && recipient.Joined == nil {
+				owners[run.Turn] = recipient
+			}
+		}
+	}
+	return owners
+}
+
+const historyUnjoined = `NOT EXISTS(SELECT 1 FROM conversation_turns recipient
+WHERE recipient.session=h.session AND recipient.turn=json_extract(a.body,'$.joined'))`
+
+// historyRuns selects the page's recipients before reading their guidance.
+// A recipient's admission sequence is the exclusive page boundary for its
+// entire group, including guidance admitted on either side of the boundary.
+func historyRuns(ctx context.Context, db *sql.Conn, session protocol.SessionID, before *protocol.TurnID, limit uint16) ([]protocol.ConversationRun, *protocol.TurnID, error) {
+	boundary := uint64(math.MaxInt64)
+	var cursor string
+	if before != nil {
+		run, err := visibleAgentRun(ctx, db, session, *before)
+		if err != nil {
+			return nil, nil, err
+		}
+		boundary, cursor = run.Sequence, run.Turn.String()
+	}
+	runs, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn
+WHERE h.session=?1 AND t.rowid<?2 AND json_extract(a.body,'$.status')!='queued'
+AND (json_extract(a.body,'$.status')!='cancelled' OR a.input IS NOT NULL OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))
+AND `+historyUnjoined+` ORDER BY t.rowid DESC LIMIT ?3`, session.String(), boundary, int(limit)+1)
+	if err != nil {
+		return nil, nil, err
+	}
+	var next *protocol.TurnID
+	if len(runs) > int(limit) {
+		runs = runs[:limit]
+		next = new(runs[len(runs)-1].Turn)
+	}
+	if before == nil {
+		active, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn
+WHERE h.session=?1 AND (json_extract(a.body,'$.status') IN ('running','stopping','queued') OR (json_extract(a.body,'$.status')='cancelled' AND a.input IS NULL AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn)))
+AND `+historyUnjoined+` ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,t.rowid DESC LIMIT 100`, session.String())
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, run := range active {
+			if !slices.ContainsFunc(runs, func(candidate protocol.ConversationRun) bool { return candidate.Turn == run.Turn }) {
+				runs = append(runs, run)
+			}
+		}
+	}
+	if len(runs) == 0 {
+		return runs, next, nil
+	}
+	ids := make([]protocol.TurnID, len(runs))
+	for i, run := range runs {
+		ids[i] = run.Turn
+	}
+	selected, err := encode(ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A page from an older Node could already include a guidance run as
+	// its cursor. Fill in that run's recipient without repeating the cursor.
+	guidance, err := readBodies[protocol.ConversationRun](ctx, db, `SELECT a.body FROM conversation_turns h CROSS JOIN agent_runs a ON a.turn=h.turn
+WHERE h.session=?1 AND json_extract(a.body,'$.joined') IN (SELECT value FROM json_each(?2))
+AND h.turn!=?3`, session.String(), string(selected), cursor)
+	if err != nil {
+		return nil, nil, err
+	}
+	runs = append(runs, guidance...)
+	slices.SortFunc(runs, func(a, b protocol.ConversationRun) int { return cmp.Compare(a.Sequence, b.Sequence) })
+	for i := range runs {
+		if runs[i].Session != session {
+			origin := runs[i].Session
+			runs[i].Origin = &origin
+			runs[i].Session = session
+		}
+	}
+	return runs, next, nil
+}
+
 func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, before *protocol.TurnID, limit uint16) (protocol.ConversationHistory, error) {
 	value := protocol.DefaultConversationHistory()
 	if limit == 0 {
@@ -204,69 +294,35 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	if err := requireSession(ctx, db, session); err != nil {
 		return value, err
 	}
-	boundary := uint64(math.MaxInt64)
-	if before != nil {
-		run, err := visibleAgentRun(ctx, db, session, *before)
-		if err != nil {
-			return value, err
-		}
-		boundary = run.Sequence
-	}
-	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND t.rowid<?2 AND json_extract(a.body,'$.status')!='queued' AND (json_extract(a.body,'$.status')!='cancelled' OR a.input IS NOT NULL OR EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn)) ORDER BY t.rowid DESC LIMIT ?3", session.String(), boundary, int(limit)+1)
+	runs, next, err := historyRuns(ctx, db, session, before, limit)
 	if err != nil {
 		return value, err
 	}
-	var next *protocol.TurnID
-	if len(runs) > int(limit) {
-		runs = runs[:limit]
-		id := runs[len(runs)-1].Turn
-		next = &id
+	owners := historyOwners(runs)
+	ids := make([]protocol.TurnID, len(runs))
+	for i, run := range runs {
+		ids[i] = run.Turn
 	}
-	if before == nil {
-		active, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN conversation_turns h ON h.turn=a.turn WHERE h.session=?1 AND (json_extract(a.body,'$.status') IN ('running','stopping','queued') OR (json_extract(a.body,'$.status')='cancelled' AND a.input IS NULL AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=a.turn))) ORDER BY (json_extract(a.body,'$.status') IN ('running','stopping')) DESC,t.rowid DESC LIMIT 100", session.String())
-		if err != nil {
-			return value, err
-		}
-		for _, r := range active {
-			if !slices.ContainsFunc(runs, func(v protocol.ConversationRun) bool { return v.Turn == r.Turn }) {
-				runs = append(runs, r)
-			}
-		}
-	}
-	slices.SortFunc(runs, func(a, b protocol.ConversationRun) int {
-		if a.Sequence < b.Sequence {
-			return -1
-		}
-		if a.Sequence > b.Sequence {
-			return 1
-		}
-		return 0
-	})
-	ids := []protocol.TurnID{}
-	for i := range runs {
-		if runs[i].Session != session {
-			origin := runs[i].Session
-			runs[i].Origin = &origin
-			runs[i].Session = session
-		}
-		ids = append(ids, runs[i].Turn)
+	if before != nil {
+		// Pack entries from newer logical turns first even when an older
+		// recipient's guidance was admitted after them.
+		slices.SortStableFunc(ids, func(a, b protocol.TurnID) int { return cmp.Compare(owners[a].Sequence, owners[b].Sequence) })
 	}
 	entries, _, err := historyEntries(ctx, db, session, ids, nil, 100, before != nil)
 	if err != nil {
 		return value, err
 	}
-	// Closed turns entirely preceding the oldest retained entry remain on older pages.
+	// Closed groups entirely preceding the oldest retained group remain on
+	// older pages.
 	if len(entries) > 0 {
 		oldest := uint64(math.MaxUint64)
-		for _, r := range runs {
-			if slices.ContainsFunc(entries, func(e protocol.ConversationEntry) bool { return e.Turn == r.Turn }) {
-				oldest = min(oldest, r.Sequence)
-			}
+		for _, entry := range entries {
+			oldest = min(oldest, owners[entry.Turn].Sequence)
 		}
 		newestRemoved := uint64(0)
 		blocked := false
 		for _, r := range runs {
-			if r.Sequence < oldest && !activeRunStatus(r.Status) {
+			if owners[r.Turn].Turn == r.Turn && r.Sequence < oldest && !activeRunStatus(r.Status) {
 				newestRemoved = max(newestRemoved, r.Sequence)
 			}
 		}
@@ -276,10 +332,15 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 			}
 		}
 		if !blocked && newestRemoved > 0 {
-			runs = slices.DeleteFunc(runs, func(r protocol.ConversationRun) bool { return r.Sequence < oldest && !activeRunStatus(r.Status) })
-			if len(runs) > 0 {
-				id := runs[0].Turn
-				next = &id
+			runs = slices.DeleteFunc(runs, func(r protocol.ConversationRun) bool {
+				owner := owners[r.Turn]
+				return owner.Sequence < oldest && !activeRunStatus(owner.Status)
+			})
+			for _, run := range runs {
+				if owners[run.Turn].Turn == run.Turn {
+					next = new(run.Turn)
+					break
+				}
 			}
 		}
 	}
@@ -383,6 +444,7 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		entryBytes += len(body)
 	}
 	trimmed := map[protocol.TurnID]bool{}
+	owners := historyOwners(page.Runs)
 	for {
 		entries := page.Entries
 		page.Entries = entries[:0]
@@ -403,21 +465,26 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 			retainConversationMetadata(page)
 			continue
 		}
-		closed := []int{}
-		for i, r := range page.Runs {
-			if !activeRunStatus(r.Status) {
-				closed = append(closed, i)
+		var first, next *protocol.TurnID
+		for _, run := range page.Runs {
+			if owners[run.Turn].Turn != run.Turn || activeRunStatus(run.Status) {
+				continue
+			}
+			if first == nil {
+				first = new(run.Turn)
+			} else {
+				next = new(run.Turn)
+				break
 			}
 		}
-		if !prune || len(closed) <= 1 {
+		if !prune || next == nil {
 			return nil, invalid("conversation metadata exceeds the transport limit")
 		}
-		turn := page.Runs[closed[0]].Turn
-		next := page.Runs[closed[1]].Turn
-		page.Runs = slices.Delete(page.Runs, closed[0], closed[0]+1)
+		dropped := func(turn protocol.TurnID) bool { return owners[turn].Turn == *first }
+		page.Runs = slices.DeleteFunc(page.Runs, func(r protocol.ConversationRun) bool { return dropped(r.Turn) })
 		kept := 0
 		for i, entry := range page.Entries {
-			if entry.Turn == turn {
+			if dropped(entry.Turn) {
 				entryBytes -= sizes[i]
 				continue
 			}
@@ -426,10 +493,10 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		}
 		clear(page.Entries[kept:])
 		page.Entries, sizes = page.Entries[:kept], sizes[:kept]
-		page.Approvals = slices.DeleteFunc(page.Approvals, func(a protocol.ConversationApproval) bool { return a.Turn == turn })
-		page.Questions = slices.DeleteFunc(page.Questions, func(q protocol.ConversationQuestion) bool { return q.Turn == turn })
-		page.Children = slices.DeleteFunc(page.Children, func(c protocol.ConversationChild) bool { return c.Origin.Turn == turn })
-		page.NextBefore = &next
+		page.Approvals = slices.DeleteFunc(page.Approvals, func(a protocol.ConversationApproval) bool { return dropped(a.Turn) })
+		page.Questions = slices.DeleteFunc(page.Questions, func(q protocol.ConversationQuestion) bool { return dropped(q.Turn) })
+		page.Children = slices.DeleteFunc(page.Children, func(c protocol.ConversationChild) bool { return dropped(c.Origin.Turn) })
+		page.NextBefore = next
 	}
 	ids := []protocol.TurnID{}
 	for _, r := range page.Runs {

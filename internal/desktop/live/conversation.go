@@ -49,46 +49,6 @@ func (r *Runtime) SetExport(f func(string, string, conversation.ExportFormat)) {
 	}
 }
 
-func (r *Runtime) projectConversations(previous *viewmodel.Data) {
-	project := func(list []*viewmodel.Conversation) {
-		for _, cv := range list {
-			owner := r.conversationRuntime(cv, nil)
-			if owner == nil {
-				continue
-			}
-			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
-				if state, ok := owner.conversationState(id); ok {
-					if owner.carryConversationPresentation(previous, cv, id) {
-						continue
-					}
-					owner.invalidateConversationPresentation(cv)
-					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
-					owner.projectOutgoing(cv, state.Snapshot.Page)
-					owner.enrichDetails(cv, state)
-					owner.enrichQueue(cv, state.Snapshot.Page.Queue)
-					owner.projectConversationAssets(cv, state)
-					owner.bindAttachmentSources(cv.ID, state.Snapshot.Page)
-					cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
-				}
-			} else {
-				owner.projectOutgoing(cv, protocol.ConversationPage{})
-			}
-			markOfflineConversation(cv)
-		}
-	}
-	project(r.App.Data.Unassigned)
-	for _, p := range r.App.Data.Projects {
-		project(p.Conversations)
-	}
-	for id, release := range r.conversationWatches {
-		if state, ok := r.conversationState(id); ok && state.Removed {
-			release()
-			delete(r.conversationWatches, id)
-		}
-	}
-	r.projectModels()
-}
-
 func modelKey(provider protocol.ProviderID, model string) string {
 	return provider.String() + "/" + model
 }
@@ -148,6 +108,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	snapshot := r.snapshot()
 	var page protocol.ConversationPage
 	unsynced := false
+	hadTurns := len(cv.Turns) > 0
 	id, idErr := protocol.ParseSessionID(cv.ID)
 	if idErr == nil {
 		r.conversationSeen[id] = true
@@ -163,13 +124,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if state, ok := r.conversationState(id); ok {
 			page = state.Snapshot.Page
 			unsynced = !state.Connected
-			if r.projectConversation(cv, id, state, c.Now(), c.Locale()) {
-				r.bindReferences(cv.ID, page)
-				r.enrichDetails(cv, state, c.Locale())
-				r.enrichQueue(cv, page.Queue)
-				r.bindAttachmentSources(cv.ID, page)
-				r.projectConversationAssets(cv, state)
-			}
+			r.projectWatchedConversation(c, cv, id, state)
 			if state.Connected {
 				// Elapsed labels need a rebuilt frame, including in plugin panels;
 				// paint-only activity animations cannot update projected text.
@@ -183,7 +138,6 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 					}
 				}
 			}
-			cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
@@ -192,6 +146,10 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	cv.Session.ResolveViewerImage = r.resolveConversationViewerImage
 	cv.Session.Embed = func(_, dest, _ string, image bool) (conversation.Embed, bool) { return r.chatEmbed(cv, dest, image) }
 	r.projectOutgoing(cv, page)
+	if hadTurns != (len(cv.Turns) > 0) {
+		// The header above the transcript uses the presence of its rows.
+		c.Invalidate()
+	}
 	r.projectControls(c, cv, comp)
 	for ti := range cv.Turns {
 		for bi := range cv.Turns[ti].Reply.Blocks {

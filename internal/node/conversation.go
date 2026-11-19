@@ -81,6 +81,9 @@ func (node *Node) subscribeConversation(ctx context.Context, session protocol.Se
 		if err != nil {
 			return err
 		}
+		snapshot.Missing = slices.DeleteFunc(snapshot.Missing, func(turn protocol.TurnID) bool {
+			return !slices.ContainsFunc(snapshot.Page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == turn })
+		})
 		for _, turn := range missing {
 			if !slices.Contains(snapshot.Missing, turn) {
 				snapshot.Missing = append(snapshot.Missing, turn)

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
@@ -113,32 +114,45 @@ func (r *Runtime) saveConversationPresentation(cv *viewmodel.Conversation, prese
 	r.conversationPresentations[cv] = presentation
 }
 
-// carryConversationPresentation moves an unchanged history's rows to the
-// view a Node snapshot rebuilt for the same conversation. Any Client change
-// rebuilds every view, so reprojecting here would redo the open history
-// twice per change while nothing in it moved.
-func (r *Runtime) carryConversationPresentation(previous *viewmodel.Data, cv *viewmodel.Conversation, id protocol.SessionID) bool {
-	if previous == nil || cv.Offline || r.composerOutgoing[cv.ID] != nil {
-		return false
+// carryConversationPresentations moves the mounted rows onto the views a
+// Node snapshot rebuilt. The localized frame projection consumes new
+// observations when the conversation renders.
+func (r *Runtime) carryConversationPresentations(previous *viewmodel.Data) {
+	if previous == nil {
+		return
 	}
-	old := previous.Find(cv.ID)
-	if old == nil || old == cv || old.Offline {
-		return false
+	for old, saved := range r.conversationPresentations {
+		if previous.Find(old.ID) != old || old.Offline || saved.generation == 0 || r.composerOutgoing[old.ID] != nil {
+			continue
+		}
+		cv := r.App.Data.Find(old.ID)
+		if cv == nil || cv == old || cv.Node != old.Node || cv.Offline {
+			continue
+		}
+		cv.Turns, cv.Session, cv.Waiting, cv.Queue, cv.Animating = old.Turns, old.Session, old.Waiting, old.Queue, old.Animating
+		old.Turns, old.Queue = nil, nil
+		old.Waiting, old.Animating = composer.Interactions{}, false
+		delete(r.conversationPresentations, old)
+		r.conversationPresentations[cv] = saved
 	}
-	saved, ok := r.conversationPresentations[old]
-	if !ok || saved.generation == 0 || saved.generation != r.conversationCopies[id].generation {
-		return false
-	}
-	cv.Turns, cv.Session, cv.Waiting, cv.Queue, cv.Animating = old.Turns, old.Session, old.Waiting, old.Queue, old.Animating
-	delete(r.conversationPresentations, old)
-	r.conversationPresentations[cv] = saved
-	return true
 }
 
-// A bulk projection or an optimistic edit invalidates reuse, not ownership of
-// the view. This still lets the frame release a detached presentation.
+// An optimistic edit invalidates reuse while retaining ownership of the view
+// until the frame can release a detached presentation.
 func (r *Runtime) invalidateConversationPresentation(cv *viewmodel.Conversation) {
 	r.saveConversationPresentation(cv, conversationPresentation{mounted: r.conversationPresentations[cv].mounted})
+}
+
+func (r *Runtime) projectWatchedConversation(c *ui.Context, cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState) {
+	if r.projectConversation(cv, id, state, c.Now(), c.Locale()) {
+		page := state.Snapshot.Page
+		r.bindReferences(cv.ID, page)
+		r.enrichDetails(cv, state, c.Locale())
+		r.enrichQueue(cv, page.Queue)
+		r.bindAttachmentSources(cv.ID, page)
+		r.projectConversationAssets(cv, state)
+	}
+	cv.Animating = state.Connected && len(state.Snapshot.Drafts) > 0
 }
 
 func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.SessionID, state client.ConversationState, now time.Time, language string) bool {
@@ -158,13 +172,10 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	var clocks transcriptClocks
 	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
 	clocks.advance(cv.Turns, now)
-	// A first page the Node fitted to its frame can leave out a turn's
-	// entries, or the run that guidance joined. Either would show as an empty
-	// reply until the user scrolled to the top, so the history loads now;
-	// each load re-projects, and the next one follows until the page is whole
-	// there or a load fails.
-	if (blankMissingTurn(state.Snapshot) || unloadedOwner(state.Snapshot)) && !state.LoadingOlder && state.OlderErr == nil {
-		r.async(func() { _ = r.controller.LoadOlderConversation(r.ctx, id) })
+	// Recover a blank turn on the fitted page without loading unrelated
+	// history or the prefix of a turn already shown.
+	if state.HasBlankHistoryTurn() && !state.LoadingOlder && state.OlderErr == nil {
+		r.async(func() { _ = r.controller.LoadBlankConversationTurn(r.ctx, id) })
 	}
 	presentation := conversationPresentation{mounted: true}
 	if cacheable {
@@ -173,25 +184,4 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	}
 	r.saveConversationPresentation(cv, presentation)
 	return true
-}
-
-// unloadedOwner reports guidance joined to a run the page does not list.
-func unloadedOwner(s protocol.ConversationSnapshot) bool {
-	for _, r := range s.Page.Runs {
-		if r.Joined != nil && !slices.ContainsFunc(s.Page.Runs, func(o protocol.ConversationRun) bool { return o.Turn == *r.Joined }) {
-			return true
-		}
-	}
-	return false
-}
-
-// blankMissingTurn reports a listed turn the page carries none of the
-// entries of.
-func blankMissingTurn(s protocol.ConversationSnapshot) bool {
-	for _, turn := range s.Missing {
-		if !slices.ContainsFunc(s.Page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == turn }) {
-			return true
-		}
-	}
-	return false
 }

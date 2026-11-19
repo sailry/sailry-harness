@@ -104,6 +104,20 @@ func TestConversationPageFit(t *testing.T) {
 			}
 		}
 	})
+	t.Run("pruning takes the recipient and interleaved guidance together", func(t *testing.T) {
+		page := build()
+		page.Runs[2].Joined = &turns[0]
+		kept := protocol.DefaultConversationPage()
+		kept.Runs = page.Runs[1:2]
+		kept.NextBefore = &turns[1]
+		if _, err := FitConversationPage(&page, headroom(size(kept))); err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Runs) != 1 || page.Runs[0].Turn != turns[1] || len(page.Entries) != 0 ||
+			page.NextBefore == nil || *page.NextBefore != turns[1] {
+			t.Fatalf("a pruned guidance group left data or skipped the next group: %+v", page)
+		}
+	})
 }
 
 func TestConversationMissingHonorsForkVisibility(t *testing.T) {

@@ -78,14 +78,18 @@ func (r *Runtime) initConversationSearch() {
 					done(0, false)
 					return
 				}
-				r.projectConversations(nil)
 				cv := r.App.Data.Find(session)
-				if cv != nil {
+				if cv != nil && r.conversationRuntime(cv, nil) == owner {
 					ownerTurn := turn
-					if state, ok := owner.controller.Conversation(id); ok {
+					if copy, ok := owner.conversationCopies[id]; ok {
+						copy.stale = true
+						owner.conversationCopies[id] = copy
+					}
+					if state, ok := owner.conversationState(id); ok {
 						if joined, listed := turnOwners(state.Snapshot.Page.Runs)[turn]; listed {
 							ownerTurn = joined
 						}
+						owner.projectWatchedConversation(c, cv, id, state)
 					}
 					for i, row := range cv.Turns {
 						if row.ID == ownerTurn.String() {

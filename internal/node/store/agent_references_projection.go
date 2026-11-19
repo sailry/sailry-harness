@@ -49,6 +49,7 @@ type referenceTurn struct {
 	Sequence uint64                          `json:"sequence"`
 	Kind     protocol.ConversationRunKind    `json:"kind"`
 	Status   protocol.ConversationStatus     `json:"status"`
+	Joined   *protocol.TurnID                `json:"joined,omitempty"`
 	Error    *protocol.Fault                 `json:"error"`
 	Started  *int64                          `json:"started_ms"`
 	Finished *int64                          `json:"finished_ms"`
@@ -77,7 +78,7 @@ func boundedReferenceRun(run protocol.ConversationRun, t *referenceTruncation) r
 			}
 		}
 	}
-	return referenceTurn{Turn: run.Turn, Worktree: run.Worktree, Sequence: run.Sequence, Kind: run.Kind, Status: run.Status, Error: run.Error, Started: run.StartedMs, Finished: run.FinishedMs, Input: run.Input}
+	return referenceTurn{Turn: run.Turn, Worktree: run.Worktree, Sequence: run.Sequence, Kind: run.Kind, Status: run.Status, Joined: run.Joined, Error: run.Error, Started: run.StartedMs, Finished: run.FinishedMs, Input: run.Input}
 }
 func boundedReferenceEntry(ctx context.Context, db *sql.Conn, session protocol.SessionID, entry protocol.ConversationEntry, t *referenceTruncation) (map[string]any, error) {
 	parts := []any{}
@@ -214,6 +215,7 @@ type referenceConversation struct {
 
 func boundedReferenceConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, history protocol.ConversationHistory) ([]byte, error) {
 	response := referenceConversation{Page: referencePage{Session: history.Page.Session, Revision: history.Page.Revision, Entries: []map[string]any{}, Runs: []referenceTurn{}, NextBefore: history.Page.NextBefore}, Missing: append([]protocol.TurnID{}, history.Missing...), referenceTruncation: newReferenceTruncation()}
+	owners := historyOwners(history.Page.Runs)
 	for _, entry := range history.Page.Entries {
 		value, err := boundedReferenceEntry(ctx, db, session, entry, &response.referenceTruncation)
 		if err != nil {
@@ -247,17 +249,29 @@ func boundedReferenceConversation(ctx context.Context, db *sql.Conn, session pro
 			response.Entries = slices.DeleteFunc(response.Entries, func(id string) bool { return id == entry["id"] })
 			continue
 		}
-		if len(response.Page.Runs) > 1 {
-			run := response.Page.Runs[0]
-			response.Page.Runs = response.Page.Runs[1:]
-			response.Page.Entries = slices.DeleteFunc(response.Page.Entries, func(entry map[string]any) bool { return entry["turn"] == run.Turn.String() })
-			response.Missing = slices.DeleteFunc(response.Missing, func(id protocol.TurnID) bool { return id == run.Turn })
-			response.Inputs = slices.DeleteFunc(response.Inputs, func(id protocol.TurnID) bool { return id == run.Turn })
-			next := response.Page.Runs[0].Turn
-			response.Page.NextBefore = &next
-			continue
+		var first, next *protocol.TurnID
+		for _, run := range response.Page.Runs {
+			if owners[run.Turn].Turn == run.Turn {
+				if first == nil {
+					first = new(run.Turn)
+				} else {
+					next = new(run.Turn)
+					break
+				}
+			}
 		}
-		return nil, invalid("history metadata exceeds the model output budget")
+		if next == nil {
+			return nil, invalid("history metadata exceeds the model output budget")
+		}
+		dropped := func(turn protocol.TurnID) bool { return owners[turn].Turn == *first }
+		response.Page.Runs = slices.DeleteFunc(response.Page.Runs, func(run referenceTurn) bool { return dropped(run.Turn) })
+		response.Page.Entries = slices.DeleteFunc(response.Page.Entries, func(entry map[string]any) bool {
+			turn, err := protocol.ParseTurnID(entry["turn"].(string))
+			return err == nil && dropped(turn)
+		})
+		response.Missing = slices.DeleteFunc(response.Missing, dropped)
+		response.Inputs = slices.DeleteFunc(response.Inputs, dropped)
+		response.Page.NextBefore = next
 	}
 }
 

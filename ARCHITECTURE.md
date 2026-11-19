@@ -901,20 +901,25 @@ interrupts paging. The last observer drops the body and may leave one of 64
 range bookmarks. A matching history revision does not make detached pages
 current. Full-range recovery can request up to 1,000 entries per turn page;
 interactive reads and partial-range recovery retain their smaller entry limit.
-Node byte and wire frame limits apply to both. A new subscription sends history
-first. Closing the last observation releases queued and replayed frames. Node
-skips live metadata refresh for unobserved conversations and reads current
-durable state when a new observer attaches. Statistics are computed outside the
-publication lock and delivered on the same ordered feed.
+Node byte and wire frame limits apply to both. History pages place consumed
+guidance with its recipient. The recipient's admission sequence is the
+exclusive cursor for the group, and individual turns retain entry cursors.
+A new subscription sends history first. Closing the last observation releases
+queued and replayed frames. Node skips live metadata refresh for unobserved
+conversations and reads current durable state when a new observer attaches.
+Statistics are computed outside the publication lock and delivered on the same
+ordered feed.
 
 Desktop reuses read-only conversation source copies until a Client observation
 changes, including pagination and connection state. Across history pages and
 streaming drafts the read-only view shares its already detached canonical entries.
 Replacement snapshots and removal of a visible entry invalidate their reuse.
 Mutable action reads always get independent copies.
-An unchanged visible transcript projection is reused even for active runs; elapsed labels update
-without rebuilding its history. Controls and mutable presentation overlays still
-refresh. An unmounted transcript releases the widget list and its row frame.
+The visible transcript projects from the current observation in the frame's
+locale. A directory refresh transfers unchanged rows to the rebuilt view.
+Elapsed labels update without rebuilding history. Controls and mutable
+presentation overlays still refresh. An unmounted transcript releases the
+widget list and its row frame.
 Desktop keeps up to 64 lightweight turn-and-pixel scroll bookmarks for reopening
 away from the end. Controller-owned drafts and canonical history have their own
 lifetimes. Command

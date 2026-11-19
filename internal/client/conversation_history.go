@@ -70,10 +70,22 @@ func (c *Client) readConversationTurn(ctx context.Context, session protocol.Sess
 // LoadOlderConversation coalesces repeated requests and completes the oldest
 // partial turn before requesting the next twenty logical turns.
 func (c *Client) LoadOlderConversation(ctx context.Context, session protocol.SessionID) error {
-	return c.loadOlderConversation(ctx, session, turnHistoryPageLimit)
+	return c.loadOlderConversation(ctx, session, turnHistoryPageLimit, false)
 }
 
-func (c *Client) loadOlderConversation(ctx context.Context, session protocol.SessionID, turnLimit uint16) error {
+// LoadBlankConversationTurn restores one turn omitted entirely from a fitted
+// page. It leaves partially loaded turns and earlier pages for scrolling.
+func (c *Client) LoadBlankConversationTurn(ctx context.Context, session protocol.SessionID) error {
+	return c.loadOlderConversation(ctx, session, turnHistoryPageLimit, true)
+}
+
+// HasBlankHistoryTurn reports a displayed run whose entries were omitted
+// from its page. A joined member has no separate row to recover.
+func (s ConversationState) HasBlankHistoryTurn() bool {
+	return missingConversationTurn(s.Snapshot, true) != nil
+}
+
+func (c *Client) loadOlderConversation(ctx context.Context, session protocol.SessionID, turnLimit uint16, blank bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -87,11 +99,15 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 		c.conversationMu.Unlock()
 		return nil
 	}
+	snapshot := w.projection.snapshot
+	partial := missingConversationTurn(*snapshot, blank)
+	if blank && partial == nil {
+		c.conversationMu.Unlock()
+		return nil
+	}
 	w.state.LoadingOlder = true
 	w.state.OlderErr = nil
 	generation := w.projection.generation
-	snapshot := w.projection.snapshot
-	partial := oldestMissing(*snapshot)
 	revision := snapshot.Page.Revision
 	var beforeEntry *uint64
 	var beforeTurn *protocol.TurnID
@@ -133,7 +149,7 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 		h, err = c.ReadConversation(ctx, session, beforeTurn)
 		if err == nil {
 			incoming, missing, sequence = h.Page, h.Missing, h.Sequence
-			if beforeRunSequence != 0 && slices.ContainsFunc(incoming.Runs, func(older protocol.ConversationRun) bool { return older.Sequence >= beforeRunSequence }) {
+			if beforeRunSequence != 0 && !historyPrecedes(incoming, beforeRunSequence) {
 				err = fault(protocol.ErrorCodeInvalidRequest, "history page crossed its turn boundary")
 			}
 		}
@@ -178,6 +194,21 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 		_ = c.RefreshConversation(ctx, session)
 	}
 	return err
+}
+
+// historyPrecedes checks the exclusive cursor against logical runs. Returned
+// guidance can cross it only with its recipient present on the older page.
+func historyPrecedes(page protocol.ConversationPage, before uint64) bool {
+	for _, run := range page.Runs {
+		if run.Sequence < before {
+			continue
+		}
+		if run.Sequence == before || (page.NextBefore != nil && *page.NextBefore == run.Turn) ||
+			conversationOwnerSequence(page, run) >= before {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) waitConversationSequence(ctx context.Context, w *conversationWatch, generation, sequence uint64) error {
@@ -317,13 +348,39 @@ func mergeHistoryEntries(held, incoming []protocol.ConversationEntry, hidden map
 }
 
 func oldestMissing(s protocol.ConversationSnapshot) *protocol.TurnID {
+	return missingConversationTurn(s, false)
+}
+
+func missingConversationTurn(s protocol.ConversationSnapshot, blank bool) *protocol.TurnID {
+	if len(s.Missing) == 0 {
+		return nil
+	}
+	var oldest *protocol.TurnID
+	var sequence uint64
 	for _, r := range s.Page.Runs {
-		if slices.Contains(s.Missing, r.Turn) {
-			t := r.Turn
-			return &t
+		if !slices.Contains(s.Missing, r.Turn) {
+			continue
+		}
+		owner := conversationOwnerSequence(s.Page, r)
+		if blank && (owner != r.Sequence || earliestEntry(s, r.Turn) != nil) {
+			continue
+		}
+		if oldest == nil || owner < sequence {
+			oldest, sequence = new(r.Turn), owner
 		}
 	}
-	return nil
+	return oldest
+}
+
+func conversationOwnerSequence(page protocol.ConversationPage, run protocol.ConversationRun) uint64 {
+	if run.Joined != nil {
+		for _, recipient := range page.Runs {
+			if recipient.Turn == *run.Joined && recipient.Joined == nil {
+				return recipient.Sequence
+			}
+		}
+	}
+	return run.Sequence
 }
 
 func earliestEntry(s protocol.ConversationSnapshot, turn protocol.TurnID) *uint64 {
@@ -339,6 +396,7 @@ func earliestEntry(s protocol.ConversationSnapshot, turn protocol.TurnID) *uint6
 type conversationExtent struct {
 	all     bool
 	turn    uint64
+	member  uint64
 	entry   *uint64
 	partial bool
 }
@@ -347,7 +405,7 @@ func conversationExtentOf(s protocol.ConversationSnapshot) conversationExtent {
 	if t := oldestMissing(s); t != nil {
 		for _, r := range s.Page.Runs {
 			if r.Turn == *t {
-				return conversationExtent{turn: r.Sequence, entry: earliestEntry(s, *t), partial: true}
+				return conversationExtent{turn: conversationOwnerSequence(s.Page, r), member: r.Sequence, entry: earliestEntry(s, *t), partial: true}
 			}
 		}
 	}
@@ -373,10 +431,11 @@ func (e conversationExtent) needsMore(s protocol.ConversationSnapshot) bool {
 			return true
 		}
 		if slices.Contains(s.Missing, r.Turn) {
-			if r.Sequence > e.turn || r.Sequence == e.turn && !e.partial {
+			owner := conversationOwnerSequence(s.Page, r)
+			if owner > e.turn || owner == e.turn && (!e.partial || r.Sequence < e.member) {
 				return true
 			}
-			if r.Sequence == e.turn && e.entry != nil {
+			if owner == e.turn && r.Sequence == e.member && e.entry != nil {
 				v := earliestEntry(s, r.Turn)
 				if v == nil || *v > *e.entry {
 					return true

@@ -334,7 +334,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.prefsRevision = prefs.Revision()
 	r.readTelemetry()
 	r.readSandbox()
-	r.projectConversations(nil)
+	r.projectModels()
 	r.initTeams()
 	r.initNodeSettings()
 	r.initConversationSearch()
@@ -613,7 +613,7 @@ func (r *Runtime) finishFrame() {
 	r.pruneDocumentPreviews()
 	r.pruneCommands()
 	for id, release := range r.conversationWatches {
-		if !r.conversationSeen[id] {
+		if !r.conversationSeen[id] || r.conversationCopies[id].state.Removed {
 			release()
 			delete(r.conversationWatches, id)
 		}
@@ -646,7 +646,11 @@ func (r *Runtime) project() {
 	r.projectHosts(d)
 	previous := r.App.Data
 	r.applyConversationData(d)
-	r.projectConversations(previous)
+	r.carryConversationPresentations(previous)
+	for _, bound := range r.bindings {
+		bound.carryConversationPresentations(previous)
+	}
+	r.projectModels()
 	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
 	r.pruneSessions(snapshot)

@@ -492,7 +492,7 @@ func (c *Client) restoreConversation(ctx context.Context, w *conversationWatch, 
 				continue
 			}
 		}
-		if err := c.loadOlderConversation(ctx, w.session, turnLimit); err != nil {
+		if err := c.loadOlderConversation(ctx, w.session, turnLimit, false); err != nil {
 			return
 		}
 	}

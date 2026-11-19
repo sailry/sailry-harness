@@ -9,6 +9,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestHistoryCursorUsesTheGuidanceRecipient(t *testing.T) {
+	recipient, guidance := protocol.TurnID{1}, protocol.TurnID{4}
+	page := protocol.ConversationPage{Runs: []protocol.ConversationRun{
+		{Turn: recipient, Sequence: 1},
+		{Turn: guidance, Sequence: 4, Joined: &recipient},
+	}, NextBefore: &recipient}
+	if !historyPrecedes(page, 3) {
+		t.Fatal("an older recipient cannot page with its later guidance")
+	}
+	page.NextBefore = &guidance
+	if historyPrecedes(page, 3) {
+		t.Fatal("a guidance member moved the cursor past its boundary")
+	}
+	page.Runs, page.NextBefore = page.Runs[1:], nil
+	if historyPrecedes(page, 3) {
+		t.Fatal("guidance without its recipient crossed the cursor")
+	}
+}
+
 func TestConversationFailureStopsLoadingAndCanRefresh(t *testing.T) {
 	snapshot := projectionSnapshot(0)
 	session := projectionSession(1, 1)
