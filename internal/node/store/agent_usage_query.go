@@ -9,6 +9,10 @@ const agentUsagePreset = `coalesce(
  (SELECT json_extract(saved.body,'$.provider.preset.id') FROM providers saved WHERE saved.id=json_extract(provider,'$.id') AND json_extract(saved.body,'$.provider.preset.source.kind')='builtin'))`
 
 // The indexed query reads captured execution configuration and canonical usage.
+// The report reads only cache_creation of the provider's own usage, so the
+// rest of that object, which can be large, stays in the database.
+const agentUsageTrimmed = `CASE WHEN json_type(e.usage,'$.provider')='object' THEN json_set(json_remove(e.usage,'$.provider'),'$.provider',json_object('cache_creation',json(json_extract(e.usage,'$.provider.cache_creation')))) ELSE e.usage END`
+
 const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
     coalesce(json_extract(e.body,'$.metadata.execution.source.id'),
         CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
@@ -42,7 +46,8 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
     max(0,coalesce(json_extract(e.usage,'$.reasoning'),0)),
     e.provider_id,e.model,e.project,e.worktree,
     json_extract(e.provider,'$.api'),json_extract(e.provider,'$.authentication'),
-    json_extract(e.provider,'$.endpoint'),e.usage,
+    json_extract(e.provider,'$.endpoint'),
+    ` + agentUsageTrimmed + `,
     json_extract(e.body,'$.metadata.execution.timing.elapsed_us'),
     json_extract(e.body,'$.metadata.execution.media'),e.sequence,e.session,e.turn,
     json_extract(e.body,'$.metadata.execution.timing.first_token_us'),

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -69,6 +70,46 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		}
 		if cost != nil {
 			t.Fatalf("compatible API invented the reseller's one-hour price: %#v", cost)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The report query keeps only cache_creation of the provider's usage; the
+// trimmed object must still decode to the same cache-write split.
+func TestUsageQueryKeepsCacheCreation(t *testing.T) {
+	t.Parallel()
+	storage, _, _, _, _ := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	trim := "SELECT " + strings.ReplaceAll(agentUsageTrimmed, "e.usage", "?1")
+	err := storage.Node.Read(ctx, func(db *sql.Conn) error {
+		for raw, want := range map[string]string{
+			`{"input":1,"provider":{"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30},"id":"msg","content":"large"}}`: `{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30}`,
+			`{"input":1,"provider":{"id":"msg"}}`: `null`,
+			`{"input":1}`:                         ``,
+		} {
+			var got string
+			if err := db.QueryRowContext(ctx, trim, raw).Scan(&got); err != nil {
+				return err
+			}
+			var usage canonical.Usage
+			if err := json.Unmarshal([]byte(got), &usage); err != nil {
+				t.Fatalf("%s: %v", got, err)
+			}
+			var provider struct {
+				Creation json.RawMessage `json:"cache_creation"`
+			}
+			if len(usage.Provider) > 0 {
+				if err := json.Unmarshal(usage.Provider, &provider); err != nil {
+					t.Fatalf("%s: %v", got, err)
+				}
+			}
+			if string(provider.Creation) != want || *usage.Input != 1 {
+				t.Fatalf("%s trimmed to %s", raw, got)
+			}
 		}
 		return nil
 	})
