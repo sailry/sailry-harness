@@ -79,18 +79,88 @@ func TestAutomaticHTTPSRequiresPublicDestination(t *testing.T) {
 		t.Error("a refused asset reached the dialer")
 		return nil, errors.New("asset was rejected")
 	}
-	client := NewPublicHTTPSClient(time.Second, 4)
+	client := newPublicHTTPSClient(NewFetcher(options), time.Second, 4)
 	defer client.CloseIdleConnections()
-	client.Transport.(publicHTTPS).DialContext = NewFetcher(options).dialPublic
-	for _, input := range []string{"http://picture.example/", "https://localhost/", "https://picture.example/"} {
-		response, err := client.Get(input)
+	redirects := fetchFixture()
+	redirects.Transport = fixtureTransport(func(request *http.Request) (*http.Response, error) {
+		location := map[string]string{"plain.example": "http://picture.example/", "private.example": "https://10.0.0.1/", "loopback.example": "https://127.1/"}[request.URL.Host]
+		if location == "" {
+			t.Error("a refused redirect reached HTTP", request.URL)
+			return responseFixture("bad", "image/png"), nil
+		}
+		return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": []string{location}}, Body: http.NoBody, Request: request}, nil
+	})
+	redirected := newPublicHTTPSClient(NewFetcher(redirects), time.Second, 4)
+	for _, check := range []struct {
+		client *http.Client
+		input  string
+		code   protocol.ErrorCode
+	}{
+		{client, "http://picture.example/", protocol.ErrorCodeInvalidRequest},
+		{client, "https://user@picture.example/", protocol.ErrorCodeInvalidRequest},
+		{client, "https://localhost/", protocol.ErrorCodePermissionDenied},
+		{client, "https://127.0.0.1/", protocol.ErrorCodePermissionDenied},
+		{client, "https://picture.example/", protocol.ErrorCodePermissionDenied},
+		{redirected, "https://plain.example/", protocol.ErrorCodeInvalidRequest},
+		{redirected, "https://private.example/", protocol.ErrorCodePermissionDenied},
+		{redirected, "https://loopback.example/", protocol.ErrorCodePermissionDenied},
+	} {
+		response, err := check.client.Get(check.input)
 		if response != nil {
 			response.Body.Close()
 		}
 		var fault *protocol.Fault
-		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest && fault.Code != protocol.ErrorCodePermissionDenied {
-			t.Errorf("automatic asset destination %q: %v", input, err)
+		if !errors.As(err, &fault) || fault.Code != check.code {
+			t.Errorf("automatic asset destination %q: want %s, got %v", check.input, check.code, err)
 		}
+	}
+}
+
+func TestAutomaticHTTPSUsesProxy(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var tunnels []string
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		tunnels = append(tunnels, request.Method+" "+request.Host)
+		mu.Unlock()
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer proxyServer.Close()
+	proxy, _ := url.Parse(proxyServer.URL)
+	options := fetchFixture()
+	options.Proxy = func(*http.Request) (*url.URL, error) { return proxy, nil }
+	options.Resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		if host == "private.example" {
+			return []netip.Addr{netip.MustParseAddr("192.168.1.10")}, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+	}
+	options.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != proxy.Host {
+			t.Error("an asset bypassed the proxy", address)
+			return nil, errors.New("direct dial refused")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	client := newPublicHTTPSClient(NewFetcher(options), 5*time.Second, 4)
+	defer client.CloseIdleConnections()
+	if response, err := client.Get("https://picture.example/a.png"); err == nil {
+		response.Body.Close()
+		t.Fatal("refused tunnel succeeded")
+	}
+	response, err := client.Get("https://private.example/a.png")
+	if response != nil {
+		response.Body.Close()
+	}
+	var fault *protocol.Fault
+	if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodePermissionDenied {
+		t.Fatal("private proxied asset", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(tunnels) != 1 || tunnels[0] != "CONNECT picture.example:443" {
+		t.Fatal("asset tunnels", tunnels)
 	}
 }
 

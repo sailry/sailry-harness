@@ -11,12 +11,15 @@ import (
 	"time"
 )
 
-// NewPublicHTTPSClient fetches automatic public resources directly so each
-// connection uses the address verified by the public network policy.
+// NewPublicHTTPSClient fetches automatic public resources under the policy of
+// model web reads, through the system proxy when one applies.
 func NewPublicHTTPSClient(timeout time.Duration, maxRedirects int) *http.Client {
-	fetcher := NewFetcher(FetchOptions{})
+	return newPublicHTTPSClient(NewFetcher(FetchOptions{}), timeout, maxRedirects)
+}
+
+func newPublicHTTPSClient(fetcher *Fetcher, timeout time.Duration, maxRedirects int) *http.Client {
 	return &http.Client{
-		Transport: publicHTTPS{fetchTransport(nil, fetcher.dialPublic)},
+		Transport: publicHTTPS{fetcher},
 		Timeout:   timeout,
 		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 			if len(via) > maxRedirects {
@@ -27,7 +30,13 @@ func NewPublicHTTPSClient(timeout time.Duration, maxRedirects int) *http.Client 
 	}
 }
 
-type publicHTTPS struct{ *http.Transport }
+// publicHTTPS checks every request, redirects included, before it leaves.
+// A direct connection is checked at dial time against the address it uses.
+// A proxy resolves the target itself, so the target is resolved here and
+// refused when it names a private or local address; as for model web reads,
+// a target only the proxy can resolve, or that resolves only to a TUN proxy's
+// placeholder range, is handed to the proxy, which then owns the final address.
+type publicHTTPS struct{ fetcher *Fetcher }
 
 func (transport publicHTTPS) RoundTrip(request *http.Request) (*http.Response, error) {
 	if request.URL.Scheme != "https" || request.URL.User != nil {
@@ -39,8 +48,23 @@ func (transport publicHTTPS) RoundTrip(request *http.Request) (*http.Response, e
 	}
 	request = request.Clone(request.Context())
 	request.URL, request.Host = target, target.Host
-	return transport.Transport.RoundTrip(request)
+	proxy, err := transport.fetcher.options.Proxy(request)
+	if err != nil {
+		return nil, webUnavailable("unsupported web proxy")
+	}
+	if proxy != nil {
+		if err = transport.fetcher.validateDestination(request.Context(), target, true); err != nil {
+			return nil, err
+		}
+	}
+	next, err := transport.fetcher.transport(proxy)
+	if err != nil {
+		return nil, err
+	}
+	return next.RoundTrip(request)
 }
+
+func (transport publicHTTPS) CloseIdleConnections() { transport.fetcher.Close() }
 
 func (fetcher *Fetcher) validateDestination(ctx context.Context, parsed *url.URL, proxied bool) error {
 	if proxied {
