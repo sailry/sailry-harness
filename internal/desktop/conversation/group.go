@@ -183,9 +183,16 @@ func pathList(c Call) bool {
 	return n >= 2 || n == 1 && c.Output.Paths[0] != c.Detail
 }
 
-// Summary shows the last call's label, detail and status, without its output.
+// Summary represents the newest executing foreground call, or the last call
+// once foreground work has settled. Background jobs have their own status.
 func Summary(calls []Call) Call {
 	s := calls[len(calls)-1]
+	for i := len(calls) - 1; i >= 0; i-- {
+		if calls[i].Running && calls[i].Background == nil {
+			s = calls[i]
+			break
+		}
+	}
 	s.Output = nil
 	return s
 }

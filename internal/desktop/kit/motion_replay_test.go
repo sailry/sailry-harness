@@ -73,15 +73,37 @@ func TestSweepSleepsBetweenPasses(t *testing.T) {
 			witnessPaints(c, &paints)
 		})
 	}, 400, 32)
-	nextMotionPhase(tt, 2*time.Second, 1300*time.Millisecond)
+	nextMotionPhase(tt, 2*time.Second, 1850*time.Millisecond)
 	paints = 0
-	tt.Advance(500 * time.Millisecond)
+	tt.Advance(270 * time.Millisecond)
 	if paints != 0 || tt.FramePending() {
 		t.Fatal("sweep repainting after it has left the label")
 	}
 	tt.Advance(500 * time.Millisecond)
 	if paints == 0 || !tt.FramePending() {
 		t.Fatal("sweep did not wake on re-entering the label")
+	}
+}
+
+func TestShortSweepCrossesGlyphsOnWideRows(t *testing.T) {
+	for _, style := range []theme.Mode{theme.Light, theme.Dark} {
+		tt := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", style)
+			p := theme.Of(c)
+			row := ui.Row(c).Width(800).Background(p.Background)
+			var sw Sweep
+			row.Children(func() {
+				span := ui.Span{Text: "Run", Size: 14, Color: p.Foreground}
+				sw.Text(c, ui.RichText(c, span).SingleLine(), span)
+			})
+			sw.Frame(row)
+		}, 800, 32)
+		nextMotionPhase(tt, sweepPeriod, 0)
+		still := bytes.Clone(tt.Image().Pix)
+		nextMotionPhase(tt, sweepPeriod, sweepPeriod/2)
+		if bytes.Equal(still, tt.Image().Pix) {
+			t.Fatalf("%v: sweep did not change the short label at mid-pass", style)
+		}
 	}
 }
 

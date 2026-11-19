@@ -197,6 +197,9 @@ func rowSize(e ui.Element, size float32, wrap bool) ui.Element {
 // plain is a row without details: no caret.
 func plain(c *ui.Context, key any, call Call) {
 	row := rowSize(ui.Row(c.Key(key)), textSize(c), call.wrap).Gap(8).MaxWidthPercent(100)
+	if !call.wrap {
+		row.AlignSelf(ui.Start)
+	}
 	hovered := row.Hovered()
 	sw := &kit.Sweep{}
 	row.Children(func() { summary(c, call, hovered, false, false, sw) })
@@ -281,7 +284,7 @@ func (s *State) groups(c *ui.Context, calls []Call) {
 	})
 }
 
-// group is calls of one name under the last one's summary.
+// group shows a summary above calls of one name.
 func (s *State) group(c *ui.Context, run []Call) {
 	head := Summary(run)
 	if len(run) == 1 && run[0].Output == nil {

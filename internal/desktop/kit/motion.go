@@ -55,8 +55,8 @@ func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Elemen
 // text highlight that moves. It draws at FPS and stays still with Reduce
 // Motion.
 type Sweep struct {
-	row  ui.Rect
-	used bool
+	row    ui.Rect
+	labels int
 }
 
 type sweepLabelKey struct{}
@@ -69,9 +69,10 @@ type sweepLabel struct {
 
 // Frame makes row the box the band crosses. Call it on the row's element
 // after its children are built; it does nothing when no text took the
-// band.
+// band. A single label uses its own width so the band stays visible even
+// when the containing row spans a wide transcript.
 func (s *Sweep) Frame(row ui.Element) {
-	if s.used {
+	if s.labels > 1 {
 		row.Draw(func(_ *ui.Painter, r ui.Rect) { s.row = r })
 	}
 }
@@ -92,11 +93,14 @@ func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 	if c.Preferences().ReduceMotion || span.Text == "" {
 		return e
 	}
-	s.used = true
+	s.labels++
 	p := theme.Of(c)
 	peak, hi := float32(0.75), p.Background.MixOklab(span.Color, 0.2)
 	if p.Dark {
 		peak, hi = 0.6, p.Foreground.MixOklab(span.Color, 0.2)
+		if span.Color == p.Foreground {
+			hi = p.MutedForeground
+		}
 	}
 	const layers = 12
 	span.Color = hi.Alpha(peak / layers)

@@ -349,6 +349,25 @@ func testSummary(t *testing.T) {
 			}
 		})
 	}
+	t.Run("concurrent foreground work", func(t *testing.T) {
+		calls := []Call{
+			{ID: "first", Running: true},
+			{ID: "second", Running: true, Output: &Output{}},
+			{ID: "background", Background: &Background{Running: true}},
+			{ID: "finished"},
+		}
+		for _, want := range []string{"second", "first", "finished"} {
+			head := Summary(calls)
+			if head.ID != want || head.Output != nil {
+				t.Fatalf("head = %+v, want %s", head, want)
+			}
+			for i := range calls {
+				if calls[i].ID == want {
+					calls[i].Running = false
+				}
+			}
+		}
+	})
 }
 
 // Background outcomes keep their status color without adding result text
