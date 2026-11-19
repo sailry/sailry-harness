@@ -21,7 +21,8 @@ const (
 
 // modalList is a muted heading with a count and, at its end, the list's
 // compact add action; then one bordered box of rows apart by dividers, or
-// the empty text in a dashed box. n is the rows' count; action may be nil.
+// the empty text in a dashed box. The box takes a translucent muted fill so
+// its rows read as one group over a frosted dialog. n is the rows' count; action may be nil.
 func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows func(), action func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Gap(8).FillWidth().Children(func() {
@@ -44,7 +45,7 @@ func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows
 			}
 			return
 		}
-		ui.Column(c.Key("frame")).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).ClipX().Children(rows)
+		ui.Column(c.Key("frame")).Background(p.Muted.Alpha(0.5)).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).ClipX().Children(rows)
 	})
 }
 

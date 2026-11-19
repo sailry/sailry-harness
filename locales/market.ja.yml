@@ -34,3 +34,7 @@ market_no_themes: "一致するテーマがありません"
 market_load_more: さらに読み込む
 
 market_manage: "管理"
+market_details: "詳細"
+market_verified: "認証済み"
+market_installs: "インストール数"
+market_stars: "スター"

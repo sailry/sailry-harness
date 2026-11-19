@@ -34,3 +34,7 @@ market_no_themes: "沒有符合的主題"
 market_load_more: 載入更多
 
 market_manage: "管理"
+market_details: "詳情"
+market_verified: "已驗證"
+market_installs: "安裝量"
+market_stars: "收藏"

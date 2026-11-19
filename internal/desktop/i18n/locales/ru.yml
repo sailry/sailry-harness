@@ -6,6 +6,10 @@ files: Файлы
 git: Git
 settings: Настройки
 market_title: Каталог
+market_details: Подробнее
+market_verified: Проверено
+market_installs: Установки
+market_stars: Звёзды
 search: Поиск
 sidebar_toggle: Развернуть или сжать навигацию
 more: Больше действий
@@ -1487,8 +1491,8 @@ plugins_updates_later: Позже
 plugins_updates_selected: Обновить (%{count})
 plugins_retry: Повторить
 skill_source_git: Git
-skill_source_skills: skills.sh
-skill_source_hub: skillhub.cn
+skill_source_skills: Vercel Skills
+skill_source_hub: SkillHub
 skill_source_directory: Каталог
 skill_source_archive: Архив
 skill_source_link_invalid: Введите URL страницы навыка

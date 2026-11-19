@@ -732,7 +732,11 @@ catalog, including offline fallback and default initialization.
 The selected Node searches the community catalog from the [Agent Plugins
 Directory verified index](https://agentpluginsdirectory.com/for-agents) (CC BY
 4.0), and searches skills through skills.sh and SkillHub. Desktop loads the
-next page near the end of the list. Package-owned skills appear in their
+next page near the end of the list. Catalog entries carry the directory's
+publisher, picture, counts and verified mark; the Node names GitHub owner
+pictures only for the default skills.sh directory. Desktop fetches those https
+pictures itself, bounded in size and concurrency, and keeps them only while the
+shown catalog names them. Package-owned skills appear in their
 plugin details. Skill detail reads resolve the selected document at a captured
 source revision and preserve the source's error for retry.
 

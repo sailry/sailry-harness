@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -343,20 +344,113 @@ func marketSkills(c *ui.Context, s *State) int {
 			for _, y := range m.SkillList {
 				installed = installed || y.ID == x.ID
 			}
-			marketCard(c, x.ID, x.Name, x.Origin+" · "+x.Description, func() { kit.Tile(c, x.Name, icons.Bot) },
-				MarketAction(installed, x.Update), m.Busy[BusyPackage+x.ID], func() { s.ShowDetails(DetailSkill, x.ID) }, func() {
-					if m.PackageActions != nil && m.PackageActions.MarketSkill != nil {
-						m.PackageActions.MarketSkill(x.ID)
-						return
-					}
-					notice(c)
-				})
+			marketSkillCard(c, s, x, MarketAction(installed, x.Update))
 		}
 	})
 	if m.Live && (m.MarketFailed || m.MarketPagingFailed) {
 		marketRetry(c, m)
 	}
 	return len(shown)
+}
+
+// marketSkillCard is a catalog skill as a card: the publisher's or the skill's
+// picture beside the publisher and the name, the directory's verified mark,
+// two lines of description, then the directory's counts with Details and the
+// action. The publisher stands in for a directory without a description.
+func marketSkillCard(c *ui.Context, s *State, x *preview.Skill, action string) {
+	m := s.Model
+	p := theme.Of(c)
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	open := func() { s.ShowDetails(DetailSkill, x.ID) }
+	card := kit.Frost(c, ui.Column(c.Key(x.ID)).MinWidth(0).Padding(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint)
+	if card.Hovered() {
+		card.Background(p.Hover)
+	}
+	card.Children(func() {
+		b := ui.ButtonBase(c.Key("open")).Label(x.Name).FillWidth().MinWidth(0).Cursor(ui.CursorPointer).OnClick(open)
+		b.Children(func() {
+			ui.Column(c).FillWidth().MinWidth(0).Gap(10).Children(func() {
+				ui.Row(c).FillWidth().MinWidth(0).Gap(10).AlignItems(ui.Center).Children(func() {
+					skillPicture(c, m, x)
+					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+						publisher := x.Publisher
+						if publisher == "" {
+							publisher = x.Origin
+						}
+						if publisher != "" {
+							ui.Text(c, publisher).FontSize(12).Font("monospace").TextColor(p.MutedForeground).SingleLine()
+						}
+						ui.Text(c, x.Name).FontSize(15).FontWeight(600).SingleLine()
+					})
+					if x.Verified {
+						kit.Badge(c, t("market_verified"), kit.Positive).Shrink(0).AlignSelf(ui.Start)
+					}
+				})
+				desc := strings.TrimSpace(x.Description)
+				if desc == "" {
+					desc = x.Origin
+				}
+				ui.Text(c, desc).FontSize(13).TextColor(p.MutedForeground).MaxLines(2).Height(36).FillWidth()
+			})
+		})
+		ui.Row(c.Key("footer")).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
+			count := func(icon *ui.SVG, label string, value *uint64) {
+				if value == nil {
+					return
+				}
+				ui.Row(c.Key(label)).Gap(4).AlignItems(ui.Center).Label(label + " " + compactCount(*value)).Children(func() {
+					ui.Icon(c, icon).FontSize(13).TextColor(p.MutedForeground)
+					ui.Text(c, compactCount(*value)).FontSize(12).FontFeatures("tnum").TextColor(p.MutedForeground).SingleLine()
+				})
+			}
+			count(icons.Download, t("market_installs"), x.Installs)
+			count(icons.Star, t("market_stars"), x.Stars)
+			ui.Spacer(c)
+			kit.TextAction(c.Key("details"), t("market_details"), false).OnClick(open)
+			label := t(action)
+			switch {
+			case m.Busy[BusyPackage+x.ID]:
+				kit.PrimaryBusy(c.Key("action"), label, false, true).Height(28)
+			case action == "market_installed":
+				ui.Text(c, label).FontSize(13).TextColor(p.MutedForeground).SingleLine()
+			default:
+				kit.PrimaryBusy(c.Key("action"), label, false, false).Height(28).OnClick(func() {
+					if m.PackageActions != nil && m.PackageActions.MarketSkill != nil {
+						m.PackageActions.MarketSkill(x.ID)
+						return
+					}
+					notice(c)
+				})
+			}
+		})
+	})
+}
+
+// skillPicture is the card's 36 DIP picture once fetched, else the tile.
+func skillPicture(c *ui.Context, m *Model, x *preview.Skill) {
+	var bitmap *ui.Bitmap
+	if x.Avatar != "" && m.PackageActions != nil && m.PackageActions.Image != nil {
+		bitmap = m.PackageActions.Image(x.Avatar)
+	}
+	if bitmap == nil {
+		kit.Tile(c, x.Name, icons.Bot)
+		return
+	}
+	p := theme.Of(c)
+	ui.Row(c).Size(kit.TileSize, kit.TileSize).Shrink(0).Radius(kit.TileSize*11/36).Clip().Border(1, p.Border).Children(func() {
+		ui.Image(c, bitmap).Size(kit.TileSize, kit.TileSize)
+	})
+}
+
+// compactCount is a count in at most four characters: 950, 1.2k, 4.4M.
+func compactCount(n uint64) string {
+	switch {
+	case n >= 1_000_000:
+		return strconv.FormatFloat(float64(n)/1_000_000, 'f', 1, 64) + "M"
+	case n >= 1_000:
+		return strconv.FormatFloat(float64(n)/1_000, 'f', 1, 64) + "k"
+	}
+	return strconv.FormatUint(n, 10)
 }
 
 // themeAction is a theme's action: Apply an installed theme, Install or
@@ -398,27 +492,58 @@ func marketThemes(c *ui.Context, s *State) {
 		kit.Result(c, kit.ResultProps{Icon: icons.Palette, Title: i18n.T(c, "market_no_themes"), Card: true})
 		return
 	}
-	kit.Grid(c, func() {
+	ui.Grid(c.Key("themes")).Columns(3).Gap(12).FillWidth().Children(func() {
 		for _, x := range shown {
-			action := MarketAction(x.Installed, x.Update)
-			switch {
-			case x.Current:
-				action = "market_theme_current"
-			case x.Installed && !x.Update:
-				action = "market_theme_apply"
-			}
-			desc := x.Description
-			if x.Builtin {
-				desc = i18n.T(c, "market_theme_builtin") + " · " + desc
-			}
-			marketCard(c, x.ID, x.Name, desc, func() { kit.Tile(c, x.Name, icons.Palette) }, action, m.Busy[BusyPackage+x.ID],
-				func() { s.ShowDetails(DetailTheme, x.ID) }, func() {
-					if m.PackageActions != nil && m.PackageActions.Theme != nil {
-						m.PackageActions.Theme(x.ID)
-						return
-					}
-					notice(c)
-				})
+			marketThemeCard(c, s, x)
 		}
+	})
+}
+
+// marketThemeCard is a catalog theme as its preview over its name, its
+// description and its action, like the Appearance gallery. A theme the Desktop
+// holds no package of yet previews as a placeholder. A theme of one mode
+// previews in that mode, else in the current one.
+func marketThemeCard(c *ui.Context, s *State, x *preview.MarketTheme) {
+	m := s.Model
+	p := theme.Of(c)
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	dark := p.Dark
+	if x.Dark != x.Light {
+		dark = x.Dark
+	}
+	card := kit.Frost(c, ui.Column(c.Key(x.ID)).MinWidth(0).Radius(p.RadiusLg).Border(1, p.Border).Clip(), p.Surface, kit.CardTint)
+	if card.Hovered() {
+		card.Background(p.Hover)
+	}
+	card.Children(func() {
+		b := ui.ButtonBase(c.Key("open")).Label(x.Name).FillWidth().MinWidth(0).Cursor(ui.CursorPointer).OnClick(func() { s.ShowDetails(DetailTheme, x.ID) })
+		b.Children(func() {
+			if pkg := theme.Find(x.ID); pkg.ID == x.ID {
+				miniature(c, pkg, dark)
+			} else {
+				ui.Row(c).FillWidth().Height(previewHeight).Center().Background(p.Muted.Alpha(0.5)).Children(func() {
+					ui.Icon(c, icons.Palette).FontSize(24).TextColor(p.MutedForeground)
+				})
+			}
+		})
+		ui.Column(c.Key("body")).FillWidth().MinWidth(0).Padding(12).Gap(8).Children(func() {
+			ui.Row(c).FillWidth().MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, x.Name).FontSize(14).FontWeight(600).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+				if x.Builtin {
+					kit.Tag(c, t("market_theme_builtin")).Shrink(0)
+				}
+			})
+			ui.Text(c, x.Description).FontSize(12).TextColor(p.MutedForeground).MaxLines(2).Height(32).FillWidth()
+			ui.Row(c.Key("footer")).FillWidth().Gap(6).AlignItems(ui.Center).Children(func() {
+				if x.Dark {
+					kit.Tag(c, t("market_theme_dark"))
+				}
+				if x.Light {
+					kit.Tag(c, t("market_theme_light"))
+				}
+				ui.Spacer(c)
+				themeAction(c, m, x)
+			})
+		})
 	})
 }

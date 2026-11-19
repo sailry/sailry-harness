@@ -72,6 +72,12 @@ type Skill struct {
 	Enabled, Update       bool
 	Installed             bool
 	Content               string
+	// A catalog card's publisher, its picture's https address, the
+	// directory's counts when it reports them and its verified mark.
+	Publisher       string
+	Avatar          string
+	Installs, Stars *uint64
+	Verified        bool
 }
 
 type MarketTheme struct {

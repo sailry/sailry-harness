@@ -34,3 +34,7 @@ market_no_themes: "일치하는 테마가 없습니다"
 market_load_more: 더 불러오기
 
 market_manage: "관리"
+market_details: "세부 정보"
+market_verified: "인증됨"
+market_installs: "설치 수"
+market_stars: "스타"

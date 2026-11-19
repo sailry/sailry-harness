@@ -1,6 +1,6 @@
 skill_source_git: "Git"
-skill_source_skills: "skills.sh"
-skill_source_hub: "skillhub.cn"
+skill_source_skills: "Vercel Skills"
+skill_source_hub: "SkillHub"
 skill_source_link: "技能链接"
 skill_source_link_invalid: "请输入技能详情页链接"
 skill_source_skills_hint: "https://skills.sh/owner/repository/skill"

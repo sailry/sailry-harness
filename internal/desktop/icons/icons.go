@@ -147,6 +147,7 @@ var (
 	Zap        = load("zap")
 	House      = load("house")
 	Download   = load("download")
+	Star       = load("star")
 	HardDrive  = load("hard-drive")
 	Delete     = load("delete")
 	Shield     = load("reicon-shield")

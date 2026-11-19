@@ -170,6 +170,8 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				ID          string  `json:"skillId"`
 				Name        string  `json:"name"`
 				Description *string `json:"description"`
+				Installs    *uint64 `json:"installs"`
+				Official    bool    `json:"isOfficial"`
 			} `json:"skills"`
 			Total *uint64 `json:"total"`
 			More  *bool   `json:"hasMore"`
@@ -185,12 +187,22 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				}
 				entry := protocol.DefaultPluginSkillcatalogEntry()
 				entry.ID, entry.Name, entry.DisplayName, entry.Description, entry.Origin = skill.Source+"/"+skill.ID, skill.ID, &skill.Name, skill.Description, skill.Source
+				entry.Installs, entry.Verified = skill.Installs, skill.Official
 				parts := strings.Split(skill.Source, "/")
 				safe := true
 				for _, part := range parts {
 					safe = safe && registrySegment(part)
 				}
 				if safe {
+					// The directory lists GitHub repositories: the owner is the
+					// publisher, pictured by GitHub. A substitute directory
+					// names its own hosts, so it gets no GitHub picture.
+					owner := parts[0]
+					entry.Publisher = &owner
+					if manager.SkillsDirectoryURL == "" {
+						avatar := "https://github.com/" + owner + ".png?size=96"
+						entry.Avatar = &avatar
+					}
 					endpoint := "https://skills.sh/" + skill.Source + "/" + skill.ID
 					entry.Url = &endpoint
 					if len(parts) == 2 {
@@ -228,9 +240,13 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 					Description *string `json:"description"`
 					Chinese     *string `json:"description_zh"`
 					Namespace   struct {
-						Handle string `json:"handle"`
+						Handle  string  `json:"handle"`
+						Display *string `json:"displayName"`
 					} `json:"namespace"`
-					Version *string `json:"version"`
+					Version   *string `json:"version"`
+					Downloads *uint64 `json:"downloads"`
+					Stars     *uint64 `json:"stars"`
+					Verified  bool    `json:"verified"`
 				} `json:"skills"`
 				Total *uint64 `json:"total"`
 			} `json:"data"`
@@ -260,12 +276,17 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				if skill.Icon != nil {
 					icon, parseErr := url.Parse(*skill.Icon)
 					if parseErr == nil && icon.Scheme == "https" && icon.Host != "" && icon.User == nil {
-						entry.Icon = skill.Icon
+						entry.Icon, entry.Avatar = skill.Icon, skill.Icon
 					}
 				}
 				if skill.Chinese != nil {
 					entry.DescriptionLocales["zh-CN"] = *skill.Chinese
 				}
+				publisher := skill.Namespace.Handle
+				if skill.Namespace.Display != nil && strings.TrimSpace(*skill.Namespace.Display) != "" {
+					publisher = strings.TrimSpace(*skill.Namespace.Display)
+				}
+				entry.Publisher, entry.Installs, entry.Stars, entry.Verified = &publisher, skill.Downloads, skill.Stars, skill.Verified
 				endpoint := "https://skillhub.cn/skills/" + skill.Namespace.Handle + "/" + skill.Slug
 				entry.Url, entry.Source = &endpoint, &protocol.PluginSkillcatalogInstallSource{Kind: "registry", Data: source}
 				result.Entries = append(result.Entries, entry)

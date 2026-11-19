@@ -6,6 +6,10 @@ files: ファイル
 git: Git
 settings: 設定
 market_title: マーケット
+market_details: 詳細
+market_verified: 認証済み
+market_installs: インストール数
+market_stars: スター
 search: 検索
 sidebar_toggle: ナビゲーションを展開または折り畳む
 more: アクションを追加
@@ -1487,8 +1491,8 @@ plugins_updates_later: 後で
 plugins_updates_selected: 更新（%{count}）
 plugins_retry: 再試行
 skill_source_git: Git
-skill_source_skills: skills.sh
-skill_source_hub: skillhub.cn
+skill_source_skills: Vercel Skills
+skill_source_hub: SkillHub
 skill_source_directory: フォルダー
 skill_source_archive: アーカイブ
 skill_source_link_invalid: スキルの詳細ページのURLを入力してください

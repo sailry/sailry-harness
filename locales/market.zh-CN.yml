@@ -35,3 +35,7 @@ market_load_more: 加载更多
 skill_catalog_load_failed: 无法加载技能
 
 market_manage: "管理"
+market_details: "详情"
+market_verified: "已验证"
+market_installs: "安装量"
+market_stars: "收藏"

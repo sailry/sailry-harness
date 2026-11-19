@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
@@ -35,6 +36,9 @@ type PackageActions struct {
 	ReimportSkill  func(string)
 	SavePython     func()
 	About          func()
+	// Image is a market card's picture by its https address, nil until
+	// fetched or when it cannot be.
+	Image func(string) *ui.Bitmap
 }
 
 type SkillCandidate struct {

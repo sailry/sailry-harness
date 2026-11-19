@@ -7,6 +7,10 @@ files
 git
 settings
 market_title
+market_details
+market_verified
+market_installs
+market_stars
 search
 sidebar_toggle
 more

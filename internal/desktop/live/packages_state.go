@@ -71,6 +71,7 @@ type packageState struct {
 	terminals          map[string]*liveTerminal
 	skillOperation     *skillSourceOperation
 	configuration      uint64
+	images             *marketImages
 }
 
 func newPackageState() *packageState {
@@ -79,7 +80,7 @@ func newPackageState() *packageState {
 		updates: map[string]protocol.PluginUpdatesReport{}, directories: map[string]*localPackage{},
 		catalog: map[string]protocol.PluginCatalogEntry{}, catalogSources: map[string]protocol.PluginCatalogSource{}, catalogInfos: map[string]protocol.PluginInfo{}, catalogWaiters: map[string][]func(){}, skillCatalog: map[string]protocol.PluginSkillcatalogEntry{}, updateChecks: map[string]string{},
 		documents: map[string]string{}, requests: map[string]protocol.Request{}, pending: map[string]protocol.Request{},
-		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{},
+		themes: map[string]theme.Snapshot{}, themeBusy: map[string]bool{}, images: newMarketImages(),
 	}
 }
 
@@ -92,6 +93,7 @@ func (r *Runtime) initB8Packages() {
 	m := r.App.Settings.Model
 	m.Indexes = []string{"pypi.org", "mirrors.aliyun.com", "mirrors.tencent.com", "pypi.tuna.tsinghua.edu.cn", "custom"}
 	m.PackageActions = &settings.PackageActions{
+		Image: r.marketImage,
 		CheckUpdates: func(kind viewmodel.PackageKind) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.checkPackageUpdates(kind)

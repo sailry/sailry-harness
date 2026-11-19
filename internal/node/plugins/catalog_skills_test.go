@@ -48,6 +48,43 @@ func TestExternalSkillCatalogPages(t *testing.T) {
 	}
 }
 
+func TestExternalSkillCatalogCardFields(t *testing.T) {
+	const skills = `{"skills":[{"source":"acme/skills","skillId":"pdf","name":"PDF","installs":1200,"isOfficial":true}],"total":1,"hasMore":false}`
+	const hub = `{"code":0,"data":{"skills":[{"iconUrl":"https://cdn.example/pdf.png","namespace":{"handle":"team","displayName":" Team "},"slug":"pdf","name":"PDF","downloads":42,"stars":7,"verified":true}],"total":1}}`
+	for _, tt := range []struct {
+		name, body, publisher, avatar string
+		source                        protocol.PluginSkillcatalogSource
+		installs, stars               *uint64
+	}{
+		{"skills.sh", skills, "acme", "", protocol.PluginSkillcatalogSourceSkillsSh, new(uint64(1200)), nil},
+		{"skillhub", hub, "Team", "https://cdn.example/pdf.png", protocol.PluginSkillcatalogSourceSkillhub, new(uint64(42)), new(uint64(7))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, tt.body) }))
+			defer server.Close()
+			manager := NewManager(t.TempDir())
+			manager.SkillsDirectoryURL, manager.RegistryURL = server.URL, server.URL
+			page, err := manager.SkillCatalog(t.Context(), tt.source, "", 1, false)
+			if err != nil || len(page.Entries) != 1 {
+				t.Fatalf("unexpected page: %+v, %v", page, err)
+			}
+			entry := page.Entries[0]
+			// A substitute skills.sh directory gets no GitHub picture.
+			avatar := ""
+			if entry.Avatar != nil {
+				avatar = *entry.Avatar
+			}
+			if entry.Publisher == nil || *entry.Publisher != tt.publisher || avatar != tt.avatar || !entry.Verified {
+				t.Fatalf("unexpected identity: %+v", entry)
+			}
+			same := func(a, b *uint64) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
+			if !same(entry.Installs, tt.installs) || !same(entry.Stars, tt.stars) {
+				t.Fatalf("unexpected counts: %v %v", entry.Installs, entry.Stars)
+			}
+		})
+	}
+}
+
 func TestExternalSkillCatalogRejectsErrorEnvelope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"message":"not a catalog"}`)

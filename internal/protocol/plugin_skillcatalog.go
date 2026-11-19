@@ -75,6 +75,15 @@ type PluginSkillcatalogEntry struct {
 	Url                *string                          `json:"url"`
 	Source             *PluginSkillcatalogInstallSource `json:"source"`
 	Bundled            bool                             `json:"bundled"`
+	// Publisher is the directory's name for who publishes the skill, and
+	// Avatar an https picture of them or of the skill.
+	Publisher *string `json:"publisher,omitempty"`
+	Avatar    *string `json:"avatar,omitempty"`
+	// Installs and Stars are the directory's counts when it reports them.
+	Installs *uint64 `json:"installs,omitempty"`
+	Stars    *uint64 `json:"stars,omitempty"`
+	// Verified is the directory's own official or verified mark.
+	Verified bool `json:"verified,omitempty"`
 }
 
 func DefaultPluginSkillcatalogEntry() PluginSkillcatalogEntry {

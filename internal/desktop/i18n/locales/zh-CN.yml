@@ -6,6 +6,10 @@ files: 文件
 git: Git
 settings: 设置
 market_title: 市场
+market_details: 详情
+market_verified: 已验证
+market_installs: 安装量
+market_stars: 收藏
 search: 搜索
 sidebar_toggle: 展开或折叠导航
 more: 更多操作
@@ -1487,8 +1491,8 @@ plugins_updates_later: 稍后
 plugins_updates_selected: 更新（%{count}）
 plugins_retry: 重试
 skill_source_git: Git
-skill_source_skills: skills.sh
-skill_source_hub: skillhub.cn
+skill_source_skills: Vercel Skills
+skill_source_hub: SkillHub
 skill_source_directory: 目录
 skill_source_archive: 压缩包
 skill_source_link_invalid: 请输入技能详情页链接

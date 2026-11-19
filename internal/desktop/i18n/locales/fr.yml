@@ -6,6 +6,10 @@ files: Fichiers
 git: Git
 settings: Paramètres
 market_title: Marché
+market_details: Détails
+market_verified: Vérifié
+market_installs: Installations
+market_stars: Étoiles
 search: Rechercher
 sidebar_toggle: Développer ou réduire la navigation
 more: Plus d'actions
@@ -1487,8 +1491,8 @@ plugins_updates_later: Plus tard
 plugins_updates_selected: Mettre à jour (%{count})
 plugins_retry: Réessayer
 skill_source_git: Git
-skill_source_skills: skills.sh
-skill_source_hub: skillhub.cn
+skill_source_skills: Vercel Skills
+skill_source_hub: SkillHub
 skill_source_directory: Dossier
 skill_source_archive: Archive
 skill_source_link_invalid: Saisissez l’URL des détails d’une compétence

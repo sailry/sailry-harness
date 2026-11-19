@@ -35,3 +35,7 @@ market_load_more: Load more
 skill_catalog_load_failed: Could not load skills
 
 market_manage: "Manage"
+market_details: "Details"
+market_verified: "Verified"
+market_installs: "Installs"
+market_stars: "Stars"

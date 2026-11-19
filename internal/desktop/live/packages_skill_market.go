@@ -135,7 +135,8 @@ func (r *Runtime) publishSkillMarket() {
 			}
 			seen[entry.ID] = true
 			state.skillCatalog[entry.ID] = entry
-			row := viewmodel.Skill{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Origin: entry.Origin, Content: state.documents[entry.ID]}
+			row := viewmodel.Skill{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Origin: entry.Origin, Content: state.documents[entry.ID],
+				Publisher: stringValue(entry.Publisher), Avatar: stringValue(entry.Avatar), Installs: entry.Installs, Stars: entry.Stars, Verified: entry.Verified}
 			if entry.DisplayName != nil {
 				row.Name = *entry.DisplayName
 			}
@@ -148,6 +149,11 @@ func (r *Runtime) publishSkillMarket() {
 			m.MarketSkills = append(m.MarketSkills, row)
 		}
 	}
+	pictures := map[string]bool{}
+	for _, row := range m.MarketSkills {
+		pictures[row.Avatar] = row.Avatar != ""
+	}
+	r.pruneMarketImages(pictures)
 	m.MarketMore = false
 	for _, page := range state.skillMarketPages {
 		m.MarketMore = m.MarketMore || page.Next != nil && *page.Next > page.Page
