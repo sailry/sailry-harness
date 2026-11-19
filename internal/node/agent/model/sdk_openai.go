@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -37,11 +39,55 @@ func (model *sdkModel) openAIOptions(call fantasy.Call) []option.RequestOption {
 	return opts
 }
 
+// responsesSSEBody makes a compatible gateway's final JSON event visible to
+// the SDK when the HTTP body ends cleanly without the SSE event separator.
+// The adapter only accepts an actual response terminal from the extra bytes.
+type responsesSSEBody struct {
+	io.ReadCloser
+	eof, padded bool
+	separator   string
+}
+
+func (body *responsesSSEBody) Read(buffer []byte) (int, error) {
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+	if !body.eof {
+		count, err := body.ReadCloser.Read(buffer)
+		if err != io.EOF {
+			return count, err
+		}
+		body.eof, body.separator = true, "\n\n"
+		if count > 0 {
+			return count, nil
+		}
+	}
+	if body.separator == "" {
+		return 0, io.EOF
+	}
+	count := copy(buffer, body.separator)
+	body.separator = body.separator[count:]
+	body.padded = true
+	return count, nil
+}
+
 func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
 	// The service is built without openaisdk.NewClient, which would add the
 	// OPENAI_* variables of the machine to a request for the configured provider.
 	service := responses.NewResponseService(model.openAIOptions(call)...)
-	stream := service.NewStreaming(ctx, responses.ResponseNewParams{}, option.WithRequestBody("application/json", raw))
+	tail := &responsesSSEBody{}
+	stream := service.NewStreaming(ctx, responses.ResponseNewParams{}, option.WithRequestBody("application/json", raw),
+		option.WithMiddleware(func(request *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			response, err := next(request)
+			if err == nil && response != nil && response.Body != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+				mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+				if mediaType == "text/event-stream" {
+					tail.ReadCloser = response.Body
+					response.Body = tail
+				}
+			}
+			return response, err
+		}))
 	defer stream.Close()
 	texts, tools, reasoning := map[string]string{}, map[string]bool{}, map[string]bool{}
 	callItems := map[string]map[string]any{}
@@ -103,10 +149,20 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 			emitter.fail(err)
 			return
 		}
-		if response := wireObject(value["response"]); response != nil {
+		eventType := wireString(value["type"])
+		response := wireObject(value["response"])
+		if tail.padded {
+			status := wireString(response["status"])
+			_, hasOutput := response["output"].([]any)
+			if !hasOutput || !(eventType == "response.completed" && status == "completed" || eventType == "response.incomplete" && status == "incomplete") {
+				emitter.fail(io.ErrUnexpectedEOF)
+				return
+			}
+		}
+		if response != nil {
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
 		}
-		switch wireString(value["type"]) {
+		switch eventType {
 		case "response.output_text.delta":
 			id := wireString(value["item_id"])
 			texts[id] += wireString(value["delta"])
@@ -160,20 +216,18 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 				}
 			}
 		case "response.failed", "error":
-			response := wireObject(value["response"])
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
 			if output := wireArray(response["output"]); len(output) > 0 {
 				emitter.responseSources(output)
 			}
 			emitter.facts.body, _ = json.Marshal(value)
-			emitter.fail(fmt.Errorf("model response ended with %s", wireString(value["type"])))
+			emitter.fail(fmt.Errorf("model response ended with %s", eventType))
 			return
 		case "response.completed", "response.incomplete":
 			// An incomplete response is a terminal that keeps its partial
 			// output and usage; its reason is how the answer ended.
 			terminal = true
-			response := wireObject(value["response"])
-			if wireString(value["type"]) == "response.incomplete" {
+			if eventType == "response.incomplete" {
 				incomplete = true
 				switch wireString(wireObject(response["incomplete_details"])["reason"]) {
 				case "max_output_tokens":
@@ -226,6 +280,10 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 		}
 	}
 	if err := stream.Err(); err != nil {
+		var malformed *json.SyntaxError
+		if tail.padded && errors.As(err, &malformed) {
+			err = io.ErrUnexpectedEOF
+		}
 		emitter.fail(err)
 		return
 	}

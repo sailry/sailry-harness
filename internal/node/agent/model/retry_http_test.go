@@ -197,8 +197,12 @@ func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 
 func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 	for _, kind := range []string{"responses", "anthropic", "google", "chat"} {
+		endings := []string{"idle", "truncated"}
+		if kind == "responses" {
+			endings = append(endings, "missing-separator")
+		}
 		for _, content := range []string{"text", "tool"} {
-			for _, ending := range []string{"idle", "truncated"} {
+			for _, ending := range endings {
 				t.Run(kind+"/"+content+"/"+ending, func(t *testing.T) {
 					var payload []byte
 					wantUsage := true
@@ -215,6 +219,13 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 						payload = fixture(t, kind+"-"+content+".sse")
 						if kind == "chat" {
 							payload = bytes.TrimSuffix(payload, []byte("data: [DONE]\n\n"))
+						}
+					}
+					if ending == "missing-separator" {
+						payload = bytes.TrimRight(payload, "\r\n")
+						if content == "tool" {
+							item := `data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"stable-call","id":"item","name":"read","arguments":"{\"path\":\"file\"}"}}` + "\n\n"
+							payload = append([]byte(item), payload...)
 						}
 					}
 					var requests atomic.Int32
@@ -284,6 +295,44 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestResponsesTailWithoutTerminalRetries(t *testing.T) {
+	for _, sample := range []struct {
+		name, tail string
+	}{
+		{"cut-json", `{"type":"response.completed","response":`},
+		{"missing-output", `{"type":"response.completed","response":{"status":"completed"}}`},
+		{"mismatched-status", `{"type":"response.completed","response":{"status":"in_progress","output":[]}}`},
+		{"item-only", `{"type":"response.output_item.done","item":{"type":"function_call","call_id":"partial","id":"item","name":"read","arguments":"{}"}}`},
+		{"sentinel-only", `[DONE]`},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			server := serverFixture(t, "data: "+sample.tail, string(fixture(t, "responses-text.sse")))
+			language, err := newSDK(t.Context(), transportConfig{Kind: "responses", Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var attempts []Attempt
+			finished := false
+			err = Run(t.Context(), language, requestCall(t, "responses"), Main, &policyClock{}, func(attempt Attempt) error {
+				attempts = append(attempts, attempt)
+				return nil
+			}, func(part fantasy.StreamPart) bool {
+				if part.Type == fantasy.StreamPartTypeToolCall {
+					t.Error("an unfinished response produced a tool call")
+				}
+				finished = finished || part.Type == fantasy.StreamPartTypeFinish
+				return true
+			}, nil)
+			if err != nil || !finished || len(attempts) != 2 || len(server.captured()) != 2 {
+				t.Fatalf("partial response recovery: attempts=%+v finished=%t error=%v", attempts, finished, err)
+			}
+			if first := attempts[0]; first.Failure == nil || !first.Failure.truncated || first.RetryDelay == nil || attempts[1].Failure != nil {
+				t.Fatalf("partial response lost its retry state: %+v", attempts)
+			}
+		})
 	}
 }
 
