@@ -90,7 +90,7 @@ func CompleteModel(model protocol.ConversationModel, reference *protocol.Convers
 	choices := []protocol.Effort{}
 	if native != nil && native.Efforts != nil {
 		for _, effort := range *native.Efforts {
-			if effort.Kind != "default" {
+			if effort.Kind != "default" && validateEffort(api, effort, model.Output) == nil {
 				choices = append(choices, effort)
 			}
 		}

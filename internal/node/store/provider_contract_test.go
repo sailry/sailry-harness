@@ -4,13 +4,74 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestMixedGatewayDiscoverySavesProtocolEfforts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"claude/fixture","supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},{"id":"gpt/fixture","supported_reasoning_levels":[{"effort":"none"},{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"none"}]}`))
+	}))
+	defer server.Close()
+	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiAnthropic, protocol.ConversationModelApiResponses} {
+		t.Run(string(api), func(t *testing.T) {
+			_, node, storage := schemaFixture(t)
+			ctx := t.Context()
+			p := providerFixture()
+			p.Api, p.Endpoint = api, server.URL
+			p.Models, p.DefaultModel = nil, ""
+			catalog, err := providers.Discover(ctx, p, nil)
+			if err != nil || len(catalog.Models) != 2 {
+				t.Fatalf("discovery returned %d models: %v", len(catalog.Models), err)
+			}
+			if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				events, err := CompleteProviderModelDiscovery(ctx, db, node, p, catalog)
+				if err != nil {
+					return err
+				}
+				saved := events[0].Data.(protocol.ConversationProvider)
+				if len(saved.Models) != 2 {
+					t.Fatalf("saved %d models", len(saved.Models))
+				}
+				for _, m := range saved.Models {
+					want := []string{"low", "high"}
+					wantDefault := "high"
+					if m.ID == "gpt/fixture" {
+						if m.Capabilities == nil || m.Capabilities.Efforts == nil || (*m.Capabilities.Efforts)[0].Kind != "none" {
+							t.Fatal("raw gateway effort lost")
+						}
+						wantDefault = "low"
+						if api == protocol.ConversationModelApiResponses {
+							want, wantDefault = []string{"none", "low", "high"}, "none"
+						}
+					}
+					var got []string
+					for _, effort := range m.Efforts {
+						got = append(got, effort.Kind)
+					}
+					if !slices.Equal(got, want) || m.DefaultEffort.Kind != wantDefault {
+						t.Fatalf("%s saved %v default %s", m.ID, got, m.DefaultEffort.Kind)
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestProviderSaveTracksDefaultOAuthCatalogVersion(t *testing.T) {
 	_, node, storage := schemaFixture(t)

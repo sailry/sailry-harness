@@ -44,7 +44,9 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, genera
 			var models []viewmodel.ChannelModel
 			for _, original := range discovered {
 				model := known[original.ID]
+				var reference *protocol.ConversationCatalogModel
 				if catalog, ok := metadata[original.ID]; ok {
+					reference = &catalog
 					if original.Context == nil && catalog.Context != nil {
 						model.Context = *catalog.Context
 					}
@@ -54,29 +56,11 @@ func (r *Runtime) finishDiscovery(provider protocol.ConversationProvider, genera
 					if model.DisplayName == nil && catalog.Name != "" {
 						model.DisplayName = new(catalog.Name)
 					}
-					completed := providers.CompleteChannelModel(provider, model, &catalog)
-					model.Vision, model.Tools, model.Reasoning, model.Generates = completed.Vision, completed.Tools, completed.Reasoning, completed.Generates
-					caps := original.Capabilities
-					if caps == nil || caps.Efforts == nil {
-						for _, option := range catalog.Options {
-							if option.Kind == "effort" {
-								if efforts, ok := detail[protocol.ConversationCatalogReasoningEffortPayload](option.Data); ok {
-									model.Efforts = nil
-									for _, value := range efforts.Values {
-										if value != nil {
-											model.Efforts = append(model.Efforts, parseEffort(*value))
-										} else {
-											model.Efforts = append(model.Efforts, protocol.Effort{Kind: "default"})
-										}
-									}
-								}
-							}
-						}
-					}
-					if len(model.Efforts) > 0 && (caps == nil || caps.DefaultEffort == nil) {
-						model.DefaultEffort = model.Efforts[min(1, len(model.Efforts)-1)]
-					}
 				}
+				if original.Output == nil {
+					model.Output = min(model.Output, model.Context)
+				}
+				model = providers.CompleteChannelModel(provider, model, reference)
 				known[model.ID] = model
 				models = append(models, channelModel(model))
 			}

@@ -85,7 +85,6 @@ func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done
 			done(nil)
 			return
 		}
-		var models []viewmodel.ChannelModel
 		if result, ok := detail[protocol.ConversationDiscoveryCatalog](out.Data); ok {
 			known := map[string]protocol.ConversationModel{}
 			for _, m := range result.Models {
@@ -103,30 +102,12 @@ func (r *Runtime) discoverModels(editor *Runtime, d settings.ProviderDraft, done
 				if m.Output != nil {
 					model.Output = *m.Output
 				}
-				if caps := m.Capabilities; caps != nil {
-					if caps.Vision != nil {
-						model.Vision = *caps.Vision
-					}
-					if caps.Tools != nil {
-						model.Tools = *caps.Tools
-					}
-					if caps.Reasoning != nil {
-						model.Reasoning = *caps.Reasoning
-					}
-					if caps.Efforts != nil {
-						model.Efforts = *caps.Efforts
-					}
-					if caps.DefaultEffort != nil {
-						model.DefaultEffort = *caps.DefaultEffort
-					}
-				}
 				known[model.ID] = model
-				models = append(models, channelModel(model))
 			}
 			r.finishDiscovery(draft, d.EditorGeneration, result.Models, known, editor.providerModels, done)
 			return
 		}
-		done(models)
+		done(nil)
 	})
 }
 func (r *Runtime) saveCompaction() {
