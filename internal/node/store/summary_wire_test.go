@@ -151,7 +151,7 @@ func TestFailureOverridesSuccessPreview(t *testing.T) {
 func TestToolSummaryPreservesRevisionAndNormalizedSize(t *testing.T) {
 	result := json.RawMessage(`{ "z": [9007199254740999, "<b>"], "a": 1, "a": 2 }`)
 	for _, output := range []*json.RawMessage{nil, &result} {
-		raw := rawAgentTool{Name: "test", Arguments: json.RawMessage(`{"path":"a&b"}`), Result: output, Presentation: protocol.ToolPresentationSummary}
+		raw := rawAgentTool{Name: "test", Arguments: json.RawMessage(`{"path":"a&b"}`), Result: output, Presentation: protocol.ToolPresentationSummary, Grouping: protocol.ToolGroupingSequence}
 		args := raw.displayData().args
 		original, err := encode([]any{raw.ID, raw.Name, args, raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
 		if err != nil {
