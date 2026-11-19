@@ -186,7 +186,6 @@ func (command Command) Durable() bool {
 		"read_knowledge_citation",
 		"list_knowledge_collections",
 		"inspect_terminal",
-		"claim_terminal",
 		"input_terminal",
 		"resize_terminal",
 		"set_terminal_appearance",

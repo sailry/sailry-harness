@@ -609,7 +609,10 @@ a terminal releases its PTY, mirrors and subscriptions and removes its inventory
 row. Final events and durable command outcomes remain available for observation
 and request recovery; they never restart the process. Node startup retires rows
 left by its previous process. Closing a view only detaches it, so a running
-terminal remains available to other controllers.
+terminal remains available to other controllers. A terminal takeover has a durable
+request receipt and advances the input revision, including when two mobile
+controllers share the same entry Node. Routed mobile input uses the revision
+returned by its own creation or takeover.
 
 Agent file operations exclude managed-checkout descendants and protected Git
 metadata. Authenticated manual workflows can access registered managed worktrees

@@ -56,7 +56,7 @@ var transientCommands = func() map[string]observation {
 			"open_port", "cancel_port", "download_ssh_file", "stage_ssh_upload", "upload_plugin", "download_backup", "upload_backup",
 			"download_file", "upload_file", "upload_attachment", "download_attachment", "download_image", "cancel_file_transfer",
 		},
-		interactive: {"claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance", "count_feature"},
+		interactive: {"input_terminal", "resize_terminal", "set_terminal_appearance", "count_feature"},
 		readOnly: {
 			"snapshot", "read_artifact", "list_artifacts", "list_artifact_revisions", "read_activity_catalog", "read_worktree_catalog",
 			"read_host_install", "list_wsl_distributions", "read_wsl_host_install", "browse_ssh_directory", "list_ssh_terminals", "list_plugins",

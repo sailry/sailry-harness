@@ -42,10 +42,10 @@ func (service *Service) Claim(caller protocol.NodeID, id protocol.TerminalID, ex
 		value.mu.Unlock()
 		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeConflict, "terminal process is not running")
 	}
-	if value.info.Owner == nil || *value.info.Owner != caller {
-		value.info.Owner = &caller
-		value.info.Revision++
-	}
+	// Routed controllers share an entry identity. Each admitted claim must
+	// invalidate the previous lease even when the owner identity is unchanged.
+	value.info.Owner = &caller
+	value.info.Revision++
 	info := value.info
 	value.mu.Unlock()
 	value.publish()

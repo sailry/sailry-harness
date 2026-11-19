@@ -24,6 +24,7 @@ class TerminalSession {
   final bool createNew;
   String? terminal;
   String? _pending;
+  String? _pendingClaim;
   ({String terminal, int revision})? _lease;
 
   int? get revision => _lease?.revision;
@@ -79,11 +80,20 @@ class TerminalSession {
   }
 
   Future<void> claim(int expectedRevision) async {
-    final result = await command('claim_terminal', {
-      'terminal': terminal,
-      'expected_revision': expectedRevision,
-    });
-    _lease = _ownedLease(object(result['data']));
+    try {
+      final result = _pendingClaim != null
+          ? await resolve(_pendingClaim!)
+          : await command('claim_terminal', {
+              'terminal': terminal,
+              'expected_revision': expectedRevision,
+            });
+      _pendingClaim = null;
+      _lease = _ownedLease(object(result['data']));
+    } on CommandFailure catch (error) {
+      if (error.retained) _pendingClaim = error.request;
+      if (error.rejected) _pendingClaim = null;
+      rethrow;
+    }
   }
 
   void forgetLease() => _lease = null;

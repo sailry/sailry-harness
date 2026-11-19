@@ -8,6 +8,8 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -334,6 +336,40 @@ func testTerminalTabsClosePending(t *testing.T) {
 		}
 		if got := terminalTabsTestTabs(root); len(got) != 0 || root.packages.terminals[id] != nil || root.terminalInventory().pending[id] {
 			t.Fatalf("a terminal closed while pending stayed: %v", got)
+		}
+	})
+}
+
+func TestRejectedTerminalClosePreservesPanelOnLaterExit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		info := terminalTabsTestInfo(1, protocol.WorktreeID{1}, "running")
+		root, source := terminalTabsFixture(t, info)
+		source.respond = func(protocol.Request) link.Response {
+			return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "close denied"}}
+		}
+		id := info.ID.String()
+		tab := panel.Tab{Kind: panel.Terminal, ID: id}
+		root.App.RevealConversationPanel()
+		root.App.Panel.Show(tab)
+		root.App.Panel.OnTerminalClose(tab)
+		root.closeLiveTerminal(id)
+		synctest.Wait()
+		root.mu.Lock()
+		callbacks := root.queue
+		root.queue = nil
+		root.mu.Unlock()
+		ui.NewTester(func(c *ui.Context) {
+			for _, callback := range callbacks {
+				callback(c)
+			}
+			callbacks = nil
+		}, 400, 200).Frame()
+		if len(source.sent("close_terminal")) != 1 || !root.App.HasPanelTab(tab) {
+			t.Fatal("a rejected close must leave the terminal attached")
+		}
+		root.dropTerminalTab(id)
+		if !root.App.PanelOpen || root.App.HasPanelTab(tab) {
+			t.Fatal("a later passive exit folded the panel after a rejected close")
 		}
 	})
 }

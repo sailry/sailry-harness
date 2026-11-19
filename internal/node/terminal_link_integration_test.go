@@ -158,6 +158,20 @@ func TestTerminalControllerIntegration(test *testing.T) {
 				}
 			}
 			wait("fixture 中文", 80)
+			// Both routed phones appear under this controller's authenticated entry.
+			firstRevision := info.Revision
+			claim := controller.Prepare(protocol.Command{Kind: "claim_terminal", Data: protocol.CommandClaimTerminalPayload{Terminal: info.ID, ExpectedRevision: firstRevision}})
+			for range 2 {
+				out, err := controller.Execute(ctx, claim)
+				claimed, ok := dispatchPayload[protocol.TerminalInfo](out.Data)
+				if err != nil || !ok || claimed.ID != info.ID || claimed.Revision != firstRevision+1 {
+					test.Fatalf("claim receipt: %+v, %v", claimed, err)
+				}
+				info = claimed
+			}
+			if _, err := controller.Do(ctx, protocol.Command{Kind: "input_terminal", Data: protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: firstRevision, Bytes: []byte("stale input")}}); err == nil {
+				test.Fatal("previous lease issued to the same entry still wrote to the shell")
+			}
 			if _, err := controller.Do(ctx, protocol.Command{Kind: "resize_terminal", Data: protocol.CommandResizeTerminalPayload{Terminal: info.ID, Revision: info.Revision, Viewport: protocol.TerminalViewport{Columns: 53, Rows: 18}}}); err != nil {
 				test.Fatal(err)
 			}

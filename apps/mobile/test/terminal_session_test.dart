@@ -121,17 +121,19 @@ void main() {
       expect(page.lease(opened), isNull);
       expect(fixture.sent.single.$1, 'open_terminal');
 
+      fixture.result = info(owner: other, revision: 4);
       await page.claim(3);
       expect(fixture.sent.last.$1, 'claim_terminal');
       expect(fixture.sent.last.$2, {
         'terminal': 'terminal-1',
         'expected_revision': 3,
       });
-      expect(page.lease(opened), 3);
+      expect(page.lease(opened), isNull);
+      expect(page.lease(fixture.result), 4);
       page.observe(info(owner: controller, revision: 2));
-      expect(page.lease(opened), 3);
+      expect(page.lease(fixture.result), 4);
       expect(page.lease(info(owner: controller)), isNull);
-      final changed = info(owner: other, revision: 4);
+      final changed = info(owner: other, revision: 5);
       page.observe(changed);
       expect(page.lease(changed), isNull);
       expect(page.revision, isNull);
@@ -140,6 +142,25 @@ void main() {
       expect(returning.lease(await returning.open(launch, [opened])), isNull);
     },
   );
+
+  test('a lost takeover reply resolves the original lease', () async {
+    final fixture = Fixture()..result = info(owner: other);
+    final page = fixture.page(sharedEntry: List.filled(32, '02').join());
+    await page.open(launch, [fixture.result]);
+    fixture.uncertain = true;
+    await expectLater(page.claim(3), throwsA(isA<CommandFailure>()));
+    fixture.result = info(owner: other, revision: 4);
+    final newer = info(owner: other, revision: 5);
+    await page.claim(5);
+    expect(page.lease(newer), isNull);
+    expect(
+      fixture.sent.where((call) => call.$1 == 'claim_terminal'),
+      hasLength(1),
+    );
+    expect(fixture.recovered, ['original']);
+    page.observe(newer);
+    expect(page.revision, isNull);
+  });
 
   test('a routed page can use its own reconciled creation lease', () async {
     final fixture = Fixture()

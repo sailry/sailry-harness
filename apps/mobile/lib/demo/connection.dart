@@ -79,7 +79,7 @@ class DemoConnection implements Connection {
   bool _terminalCR = false;
   final _terminalViewport = <String, int>{'columns': 80, 'rows': 24};
   Map<String, dynamic> _terminalAppearance = {};
-  final int _terminalRevision = 1;
+  int _terminalRevision = 1;
 
   Map<String, dynamic> get _config => {
     'mode': 'code',
@@ -700,6 +700,11 @@ class DemoConnection implements Connection {
         _terminalAppearance = object(data['appearance']);
         return _terminal;
       case 'claim_terminal':
+        if (data['expected_revision'] != _terminalRevision) {
+          throw StateError('Demo terminal ownership changed');
+        }
+        _terminalRevision++;
+        _publish();
         return _terminal;
       case 'resize_terminal':
         _resizeTerminal(data['viewport']);

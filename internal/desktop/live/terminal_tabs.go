@@ -119,16 +119,12 @@ func (r *Runtime) createLiveTerminal(owner *Runtime, worktree protocol.WorktreeI
 				return
 			}
 			if state.closing {
-				owner.executeScoped("terminal-close/"+id, protocol.Command{Kind: "close_terminal", Data: protocol.CommandCloseTerminalPayload{Worktree: worktree, Terminal: info.ID}}, func(c *ui.Context, _ protocol.Output, err error) {
-					if err != nil && faultCode(err) != protocol.ErrorCodeNotFound {
-						state.closing = false
-						root.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
-						if root.packages.terminals[id] == state {
-							root.attachLiveTerminal(state, info)
-						}
-						return
+				command := protocol.Command{Kind: "close_terminal", Data: protocol.CommandCloseTerminalPayload{Worktree: worktree, Terminal: info.ID}}
+				root.closeTerminalCommand(owner, id, command, func() {
+					state.closing = false
+					if root.packages.terminals[id] == state {
+						root.attachLiveTerminal(state, info)
 					}
-					root.dropTerminalTab(id)
 				})
 				return
 			}

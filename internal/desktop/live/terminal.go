@@ -7,6 +7,7 @@ import (
 	myterminal "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -29,11 +30,12 @@ type liveTerminal struct {
 	// claiming holds while claim_terminal is unanswered; claimed is the
 	// revision an unowned terminal was last claimed at, so one refused
 	// automatic claim is not repeated every frame.
-	claiming bool
-	claimed  uint64
-	query    string
-	find     bool
-	selected int
+	claiming     bool
+	claimed      uint64
+	claimRequest *protocol.Request
+	query        string
+	find         bool
+	selected     int
 }
 
 func (r *Runtime) initLiveTerminals() {
@@ -270,8 +272,13 @@ func (r *Runtime) claimLiveTerminal(id string, state *liveTerminal) {
 	}
 	info := connection.current()
 	state.claiming, state.claimed = true, info.Revision
+	request := state.claimRequest
+	if request == nil {
+		claim := state.owner.controller.Prepare(protocol.Command{Kind: "claim_terminal", Data: protocol.CommandClaimTerminalPayload{Terminal: info.ID, ExpectedRevision: info.Revision}})
+		request = &claim
+	}
 	if !state.owner.async(func() {
-		output, err := state.owner.controller.Do(connection.ctx, protocol.Command{Kind: "claim_terminal", Data: protocol.CommandClaimTerminalPayload{Terminal: info.ID, ExpectedRevision: info.Revision}})
+		output, err := state.owner.controller.Settle(connection.ctx, *request)
 		claimed, valid := detail[protocol.TerminalInfo](output.Data)
 		if err == nil && valid {
 			connection.claimed(claimed)
@@ -280,6 +287,10 @@ func (r *Runtime) claimLiveTerminal(id string, state *liveTerminal) {
 			state.claiming = false
 			if root.packages.terminals[id] != state || state.conn != connection || connection.ctx.Err() != nil {
 				return
+			}
+			state.claimRequest = nil
+			if client.Retained(err) {
+				state.claimRequest = request
 			}
 			root.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
 			if err == nil {
@@ -319,15 +330,25 @@ func (r *Runtime) closeLiveTerminal(id string) {
 	if info.Worktree != nil {
 		command = protocol.Command{Kind: "close_terminal", Data: protocol.CommandCloseTerminalPayload{Worktree: *info.Worktree, Terminal: info.ID}}
 	} else if info.Ssh == nil {
+		root.App.CancelTerminalClose(id)
 		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "terminal worktree is unavailable"))
 		return
 	}
+	root.closeTerminalCommand(owner, id, command, nil)
+}
+
+// The close can resolve after the original view has moved or been detached.
+func (r *Runtime) closeTerminalCommand(owner *Runtime, id string, command protocol.Command, onError func()) {
 	owner.executeScoped("terminal-close/"+id, command, func(c *ui.Context, _ protocol.Output, err error) {
-		if err != nil && faultCode(err) != protocol.ErrorCodeNotFound {
-			root.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+		if err == nil || faultCode(err) == protocol.ErrorCodeNotFound {
+			r.dropTerminalTab(id)
 			return
 		}
-		root.dropTerminalTab(id)
+		r.App.CancelTerminalClose(id)
+		r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+		if onError != nil {
+			onError()
+		}
 	})
 }
 

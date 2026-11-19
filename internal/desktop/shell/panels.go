@@ -218,6 +218,11 @@ func (a *App) noteTerminalClose(t panel.Tab) {
 	a.panels.terminalCloses[t] = a.panels.mounted
 }
 
+// CancelTerminalClose clears a failed close so a later shell exit stays passive.
+func (a *App) CancelTerminalClose(id string) {
+	delete(a.panels.terminalCloses, panel.Tab{Kind: panel.Terminal, ID: id})
+}
+
 // DropPanelTab takes t out of the panel that has it, shown or not. A Node
 // acknowledgment of an explicit terminal close can also fold its panel.
 func (a *App) DropPanelTab(t panel.Tab) {
