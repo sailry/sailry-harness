@@ -122,8 +122,8 @@ func agentText(text protocol.ToolDisplayProjectionText, args, result, item any) 
 			}
 			if text != nil {
 				if p.Take != nil {
-					runes := []rune(*text)
-					parts = append(parts, string(runes[:min(uint64(len(runes)), *p.Take)]))
+					limit := int(min(uint64(len(*text)), *p.Take))
+					parts = append(parts, agentClip(*text, limit, false))
 				} else {
 					parts = append(parts, *text)
 				}
@@ -229,9 +229,19 @@ func agentCommandAliases(command string, aliases []protocol.ToolDisplayAlias) st
 	}
 	return out.String()
 }
-func (raw *rawAgentTool) resolved(full bool) *protocol.ToolDetailResolved {
-	args, result := agentJSON(raw.Arguments), raw.value()
-	metadata := agentResultDisplay(result)
+
+type toolDisplayData struct {
+	args, result any
+	metadata     *protocol.ToolResultResultDisplay
+}
+
+func (raw *rawAgentTool) displayData() toolDisplayData {
+	result := raw.value()
+	return toolDisplayData{args: agentJSON(raw.Arguments), result: result, metadata: agentResultDisplay(result)}
+}
+
+func (raw *rawAgentTool) resolved(full bool, data toolDisplayData) *protocol.ToolDetailResolved {
+	args, result, metadata := data.args, data.result, data.metadata
 	display := raw.Display
 	if display == nil && metadata == nil {
 		return nil

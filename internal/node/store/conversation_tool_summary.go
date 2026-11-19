@@ -62,11 +62,13 @@ func agentString(value any) *string {
 }
 func agentClip(text string, limit int, single bool) string {
 	var out strings.Builder
-	for i, c := range []rune(text) {
-		if i == limit || single && (c == '\r' || c == '\n') {
+	count := 0
+	for _, c := range text {
+		if count == limit || single && (c == '\r' || c == '\n') {
 			break
 		}
 		out.WriteRune(c)
+		count++
 	}
 	return out.String()
 }
@@ -226,9 +228,8 @@ func ValidAgentProgress(value protocol.ConversationProgress) bool {
 	}
 	return size <= 64*1024
 }
-func (raw *rawAgentTool) delegation() protocol.ToolDetailDelegation {
+func (raw *rawAgentTool) delegation(args map[string]any) protocol.ToolDetailDelegation {
 	value := protocol.DefaultToolDetailDelegation()
-	args := agentObject(agentJSON(raw.Arguments))
 	if v, ok := args["session"]; ok {
 		body, _ := json.Marshal(v)
 		var id protocol.SessionID
@@ -270,15 +271,15 @@ func (raw *rawAgentTool) task() *string {
 	return &task
 }
 func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
-	revision, err := raw.revision()
+	data := raw.displayData()
+	revision, err := raw.revision(data.args)
 	if err != nil {
 		return nil, err
 	}
 	value := protocol.DefaultToolDetailSummary()
 	value.Revision = revision
-	result := raw.value()
-	metadata := agentResultDisplay(result)
-	value.Resolved = raw.resolved(false)
+	result, metadata := data.result, data.metadata
+	value.Resolved = raw.resolved(false, data)
 	value.Failure = raw.Failure
 	value.Diagnostics = raw.Failure != nil || metadata != nil && len(metadata.Diagnostics) > 0
 	value.Error = raw.errorText(metadata)
@@ -301,7 +302,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 			recipe := raw.Display.Output
 			visible = visible || recipe.Table != nil
 			if body := recipe.Body; body != nil {
-				if text := agentString(agentReference(body.Text, agentJSON(raw.Arguments), result, nil)); text != nil {
+				if text := agentString(agentReference(body.Text, data.args, result, nil)); text != nil {
 					visible = visible || *text != "" || body.Empty != nil
 				}
 			}
@@ -336,7 +337,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 		}
 		value.Lines = &n
 	}
-	args := agentObject(agentJSON(raw.Arguments))
+	args := agentObject(data.args)
 	if path := agentString(args["path"]); path != nil && *path != "" && !strings.ContainsAny(*path, "\r\n") {
 		v := agentClip(*path, 200, true)
 		value.Path = &v
@@ -350,7 +351,7 @@ func (raw *rawAgentTool) summary() (*protocol.ToolDetailSummary, error) {
 			*item.dest = &text
 		}
 	}
-	value.Delegation = raw.delegation()
+	value.Delegation = raw.delegation(args)
 	value.Task = raw.task()
 	if raw.Name == "ask_user" || raw.Name == "mcp_elicitation" || raw.Name == "plan_review" {
 		// An MCP request asks with a form or a link, which the model's own

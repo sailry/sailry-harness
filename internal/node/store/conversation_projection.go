@@ -83,8 +83,8 @@ func rawTool(record canonical.Record, block canonical.Block) *rawAgentTool {
 	}
 	return raw
 }
-func (raw *rawAgentTool) revision() (string, error) {
-	body, err := encode([]any{raw.ID, raw.Name, agentJSON(raw.Arguments), raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
+func (raw *rawAgentTool) revision(args any) (string, error) {
+	body, err := encode([]any{raw.ID, raw.Name, args, raw.result(), raw.Display, raw.Presentation, raw.Grouping, raw.Images, raw.Failure, raw.Error})
 	if err != nil {
 		return "", err
 	}

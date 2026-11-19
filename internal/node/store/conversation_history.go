@@ -372,6 +372,7 @@ func fitConversationPage(page *protocol.ConversationPage, extraBytes int, prune 
 		}
 		if len(page.Entries) > 1 {
 			trimmed[page.Entries[0].Turn] = true
+			page.Entries[0] = protocol.ConversationEntry{}
 			page.Entries = page.Entries[1:]
 			entryBytes -= sizes[0]
 			sizes = sizes[1:]

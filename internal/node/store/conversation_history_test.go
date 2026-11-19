@@ -49,9 +49,13 @@ func TestConversationPageFit(t *testing.T) {
 	})
 	t.Run("one byte over drops only the oldest entry", func(t *testing.T) {
 		page := build()
+		original := page.Entries
 		trimmed, err := FitConversationPage(&page, headroom(exact-1))
 		if err != nil || len(page.Entries) != len(whole.Entries)-1 || page.Entries[0].ID != whole.Entries[1].ID {
 			t.Fatalf("fit = %d entries, %v", len(page.Entries), err)
+		}
+		if original[0].ID != "" || original[0].Parts != nil {
+			t.Fatal("discarded entry retained its payload in the fitted slice backing array")
 		}
 		if len(trimmed) != 1 || trimmed[0] != turns[0] {
 			t.Fatalf("trimmed turns = %v", trimmed)

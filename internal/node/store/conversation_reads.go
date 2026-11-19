@@ -153,7 +153,8 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 		return value, fault(protocol.ErrorCodeNotFound, "tool detail call does not match")
 	}
 
-	revision, err := raw.revision()
+	data := raw.displayData()
+	revision, err := raw.revision(data.args)
 	if err != nil {
 		return value, err
 	}
@@ -164,7 +165,7 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 	detail.Arguments = raw.Arguments
 	detail.Result = raw.Result
 	detail.Images = raw.Images
-	detail.Resolved = raw.resolved(true)
+	detail.Resolved = raw.resolved(true, data)
 	detail.Content = raw.content()
 	if err = toolCheckpointDetail(ctx, db, input.Turn, raw, &detail); err != nil {
 		return value, err

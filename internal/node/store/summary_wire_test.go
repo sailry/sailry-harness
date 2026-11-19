@@ -58,7 +58,7 @@ func TestToolSummaryOmitsUndisclosedOutput(t *testing.T) {
 					t.Fatalf("unexpected result content in %s projection: %s", mode, wire)
 				}
 			}
-			full := raw.resolved(true)
+			full := raw.resolved(true, raw.displayData())
 			if full == nil || full.Output == nil || full.Output.Preview != source || full.Output.Body == nil || full.Output.Body.Text != source {
 				t.Fatalf("explicit detail lost original output: %+v", full)
 			}
@@ -92,7 +92,7 @@ func TestSummaryFailuresKeepDetails(t *testing.T) {
 			if summary.Resolved == nil || summary.Resolved.Output != nil {
 				t.Fatalf("failure eagerly projected output: %+v", summary.Resolved)
 			}
-			full := raw.resolved(true)
+			full := raw.resolved(true, raw.displayData())
 			if full == nil || full.Output == nil || full.Output.Preview != message {
 				t.Fatalf("original failure was lost from requested details: %+v", full)
 			}
@@ -134,7 +134,7 @@ func TestFailureOverridesSuccessPreview(t *testing.T) {
 					Output: &protocol.ToolDisplayProjectionOutput{Preview: &protocol.ToolDisplayProjectionText{Parts: []protocol.ToolDisplayProjectionPart{{Text: &punctuation}}}}},
 			}
 			for _, full := range []bool{false, true} {
-				resolved := raw.resolved(full)
+				resolved := raw.resolved(full, raw.displayData())
 				if resolved.Output == nil || resolved.Output.Preview != message || resolved.Output.Body != nil || resolved.Input.Summary == nil || resolved.Input.Summary.Text != "Another host" {
 					t.Fatalf("failure was replaced by a success recipe: %+v", resolved)
 				}
