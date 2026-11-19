@@ -439,6 +439,10 @@ func testLastLines(t *testing.T) {
 	if hidden != 30 || !strings.HasPrefix(text, "30\n") || !strings.HasSuffix(text, "129") {
 		t.Errorf("hidden %d, text starts %q", hidden, text[:4])
 	}
+	text, hidden = lastLines(strings.Join(lines, "\n") + "\n\n\n")
+	if hidden != 32 || !strings.HasPrefix(text, "32\n") || !strings.HasSuffix(text, "129\n\n") {
+		t.Errorf("preview lost the command's trailing blank lines: hidden %d, starts %q", hidden, text[:4])
+	}
 }
 
 func testElapsed(t *testing.T) {

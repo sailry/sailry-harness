@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"image/png"
 	"os"
@@ -247,6 +248,37 @@ func TestToolRowCommandKeyboard(t *testing.T) {
 	tt.Frame()
 	if tt.HasText(shown) {
 		t.Fatalf("Space did not close the row: %q", tt.Texts())
+	}
+}
+
+func TestPendingToolCopyYieldsToLaterCopy(t *testing.T) {
+	s := New()
+	var pending context.Context
+	output := Output{Text: "Retained preview", Command: true, Copy: func(ctx context.Context) { pending = ctx }}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Children(func() {
+			s.output(c, &output, false)
+			ui.Button(c, "Copy newer text").OnClick(func() { s.copyText(c, "newer text") })
+		})
+	}, 900, 600)
+	tt.SetLocale("en")
+	tt.Frame()
+	copyLabel := i18n.In("en", "tool_copy")
+	button, ok := tt.AccessByRole(ui.RoleButton, copyLabel)
+	if !ok {
+		t.Fatal("retained output is missing its Copy action")
+	}
+	tt.Move(button.Bounds.X+button.Bounds.W/2, button.Bounds.Y+button.Bounds.H/2)
+	tt.Frame()
+	if err := tt.Click(copyLabel); err != nil || pending == nil || pending.Err() != nil {
+		t.Fatalf("asynchronous copy did not start: %v", err)
+	}
+	if err := tt.Click("Copy newer text"); err != nil {
+		t.Fatal(err)
+	}
+	if pending.Err() == nil || tt.Clipboard() != "newer text" {
+		t.Fatal("a newer copy left an older request able to overwrite the clipboard")
 	}
 }
 

@@ -175,6 +175,22 @@ func toolHasDetails(call ToolCall) bool {
 // HistoricalCommandDetail selects a result outside the activity window. The
 // revision identifies the result to inspect, not permission to read a process.
 func HistoricalCommandDetail(page protocol.ConversationPage, ref protocol.ToolDetailReference, name string, summary *protocol.ToolDetailSummary) *HistoricalCommandReference {
+	refCommand := CommandDetailReference(page, ref, name, summary)
+	if refCommand == nil {
+		return nil
+	}
+	taskID := "command:" + refCommand.Command.String()
+	for _, task := range page.Background {
+		if task.ID == taskID {
+			return nil
+		}
+	}
+	return refCommand
+}
+
+// CommandDetailReference identifies a launch to verify against its canonical
+// result before reading the associated process.
+func CommandDetailReference(page protocol.ConversationPage, ref protocol.ToolDetailReference, name string, summary *protocol.ToolDetailSummary) *HistoricalCommandReference {
 	if name == "wait_agent" || summary == nil || summary.Failure != nil || summary.Task == nil || ref.Revision == "" || ref.Session == (protocol.SessionID{}) {
 		return nil
 	}
@@ -185,12 +201,6 @@ func HistoricalCommandDetail(page protocol.ConversationPage, ref protocol.ToolDe
 	command, err := protocol.ParseRequestID(id)
 	if err != nil || command == (protocol.RequestID{}) {
 		return nil
-	}
-	taskID := "command:" + command.String()
-	for _, task := range page.Background {
-		if task.ID == taskID {
-			return nil
-		}
 	}
 	session := ref.Session
 	for _, run := range page.Runs {

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -122,6 +123,74 @@ func (c *Client) readCommandOutput(ctx context.Context, session protocol.Session
 		return protocol.ProcessSnapshot{}, fault(protocol.ErrorCodeInvalidRequest, "unexpected command output")
 	}
 	return snapshot, nil
+}
+
+// ReadCommandTranscript reads retained stdout and stderr for an identified
+// command. A positive line count keeps only the end of each stream while paging.
+func (c *Client) ReadCommandTranscript(ctx context.Context, session protocol.SessionID, turn protocol.TurnID, id protocol.RequestID, lines int) (string, error) {
+	var output strings.Builder
+	for _, stream := range []protocol.ProcessOutputOutputStream{protocol.ProcessOutputOutputStreamStdout, protocol.ProcessOutputOutputStreamStderr} {
+		var full strings.Builder
+		var tail []string
+		var newlines int
+		var offset, total uint64
+		for {
+			result, err := c.Do(ctx, protocol.Command{Kind: "read_command_page", Data: protocol.CommandReadCommandPagePayload{
+				Session: session, ID: id, Stream: stream, Offset: offset, Limit: 32 * 1024,
+			}})
+			if err != nil {
+				return "", err
+			}
+			page, err := payload[protocol.ProcessOutputOutputPage](result.Data)
+			if err != nil || result.Kind != "command_output_page" || page.Info.Session != session || page.Info.Turn != turn || page.Info.ID != id ||
+				page.Stream != stream || page.Offset < offset || page.Offset > page.TotalBytes ||
+				page.NextOffset != nil && (*page.NextOffset <= page.Offset || *page.NextOffset > page.TotalBytes) {
+				return "", fault(protocol.ErrorCodeInvalidRequest, "unexpected command output page")
+			}
+			if offset == 0 {
+				total = page.TotalBytes
+			}
+			if lines > 0 {
+				tail = append(tail, page.Text)
+				newlines += strings.Count(page.Text, "\n")
+				// Keep the extra separator needed to distinguish an ending
+				// newline from the first of the last complete lines.
+				for len(tail) > 1 {
+					remaining := newlines - strings.Count(tail[0], "\n")
+					if remaining <= lines {
+						break
+					}
+					tail[0], tail, newlines = "", tail[1:], remaining
+				}
+			} else {
+				full.WriteString(page.Text)
+			}
+			if page.NextOffset == nil || *page.NextOffset >= total {
+				break
+			}
+			offset = *page.NextOffset
+		}
+		text := full.String()
+		if lines > 0 {
+			text = retainCommandLines(strings.Join(tail, ""), lines)
+		}
+		if output.Len() != 0 && text != "" && !strings.HasSuffix(output.String(), "\n") {
+			output.WriteByte('\n')
+		}
+		output.WriteString(text)
+	}
+	return output.String(), nil
+}
+
+func retainCommandLines(text string, lines int) string {
+	end := len(strings.TrimSuffix(text, "\n"))
+	for range lines {
+		end = strings.LastIndexByte(text[:end], '\n')
+		if end < 0 {
+			return text
+		}
+	}
+	return strings.Clone(text[end+1:])
 }
 
 type commandOutputWatch struct {

@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -409,6 +410,8 @@ type Output struct {
 	// Text is plain output; Command keeps only its last 100 lines.
 	Text    string
 	Command bool
+	// Copy reads the complete retained command when Text is only a preview.
+	Copy func(context.Context) `json:"-"`
 	// Paths lists the files a search or read touched.
 	Paths []string
 	Diff  *Diff

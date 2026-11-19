@@ -5,6 +5,7 @@
 package conversation
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ const (
 // Canonical conversation data remains in Client.
 type State struct {
 	toolCards     map[string]map[string]func(*ui.Context)
+	copyCancel    context.CancelFunc
 	renderSession string
 	lists         map[string]*transcriptList
 	boundLists    []*transcriptList
@@ -330,7 +332,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		// compaction too.
 		defer func() {
 			if last && sess != nil {
-				diagnostic(c, sess.Diagnostic)
+				s.diagnostic(c, sess.Diagnostic)
 				banner(c, sess)
 			}
 			s.selection(c, session, col, sess != nil && sess.ReadOnly, actions)
@@ -420,7 +422,7 @@ func (s *State) user(c *ui.Context, session string, t *Turn, q string, current i
 				ui.Column(c).Width(bubbleMax).Children(func() { s.files(c, "user-files", t.Files, actions) })
 			})
 		}
-		userFooter(c, t, over, actions)
+		s.userFooter(c, t, over, actions)
 	})
 }
 
@@ -668,7 +670,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, t
 			case LimitBlock:
 				plain(c, "limit-"+key, Call{Label: i18n.T(c, "chat_output_limit"), Icon: "triangle-alert", Warning: true})
 			case ErrorBlock:
-				diagnostic(c, &Diagnostic{Title: b.Label, Fields: b.Fields, Detail: b.Text})
+				s.diagnostic(c, &Diagnostic{Title: b.Label, Fields: b.Fields, Detail: b.Text})
 			}
 		})
 	}

@@ -196,7 +196,7 @@ func uniquePaths(paths []string) []string {
 
 // lastLines keeps a command's last 100 lines, returning how many it hid.
 func lastLines(text string) (string, int) {
-	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	if len(lines) <= 100 {
 		return strings.Join(lines, "\n"), 0
 	}

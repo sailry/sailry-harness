@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -305,18 +306,21 @@ func (s *State) row(c *ui.Context, call Call) {
 				call.Output = &value
 			}
 		}
+		var detail BackgroundDetail
+		if call.BackgroundDetail != nil {
+			detail = call.BackgroundDetail()
+		}
 		if b := call.Background; b != nil {
 			notice(c, backgroundStatus(c, b), rowColor(theme.Of(c), call))
-			if b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
+			if detail.Output == nil && b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
 				s.output(c, &Output{Text: b.Preview, Command: true}, false)
 			}
 		}
 		if call.BackgroundDetail != nil {
-			detail := call.BackgroundDetail()
 			if detail.Denied {
 				notice(c, i18n.T(c, "permission_denied"), theme.Of(c).Warning)
 			}
-			if detail.Status != nil {
+			if detail.Status != nil && call.Background == nil {
 				withStatus := call
 				withStatus.Background = detail.Status
 				notice(c, backgroundStatus(c, detail.Status), rowColor(theme.Of(c), withStatus))
@@ -389,7 +393,7 @@ func backgroundStatus(c *ui.Context, b *Background) string {
 // bare reports an output with nothing to display below its row.
 func bare(call Call) bool {
 	o := call.Output
-	if o.Table != nil || o.Diff != nil || o.Text != "" || len(o.Images) > 0 || len(o.Notices) > 0 || o.Partial {
+	if o.Table != nil || o.Diff != nil || o.Text != "" || o.Copy != nil || len(o.Images) > 0 || len(o.Notices) > 0 || o.Partial {
 		return false
 	}
 	return o.Failure == ""
@@ -451,14 +455,34 @@ func (s *State) output(c *ui.Context, o *Output, paths bool) {
 		if paths {
 			return
 		}
-		copyText := copyOf(o)
 		b := kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "tool_copy"), 20, false).
 			TextColor(p.MutedForeground).Absolute().Top(4).Right(4)
 		if !hovered && !b.FocusVisible() {
 			b.Opacity(0)
 		}
-		b.OnClick(func() { c.WriteClipboard(copyText) })
+		b.OnClick(func() {
+			if o.Copy != nil {
+				s.cancelCopy()
+				ctx, cancel := context.WithCancel(context.Background())
+				s.copyCancel = cancel
+				o.Copy(ctx)
+				return
+			}
+			s.copyText(c, copyOf(o))
+		})
 	})
+}
+
+func (s *State) cancelCopy() {
+	if s.copyCancel != nil {
+		s.copyCancel()
+		s.copyCancel = nil
+	}
+}
+
+func (s *State) copyText(c *ui.Context, text string) {
+	s.cancelCopy()
+	c.WriteClipboard(text)
 }
 
 // copyOf is what a call's copy button copies.

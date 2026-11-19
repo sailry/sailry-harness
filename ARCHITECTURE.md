@@ -821,7 +821,9 @@ refresh. Leaving a conversation releases its presentation cache and unbinds
 the transcript's render payload without resetting its scroll position. Command
 admission reads current Client state independently of rendering. Old background
 commands open on their original tool row: the controller resolves the stored
-call revision and reads bounded output for that exact session and command.
+call revision and reads output for that exact session and command. Command
+cards show the last 100 retained lines. Copy reads the full retained output
+on demand when the captured result was truncated.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
 cancels outstanding reads when it closes or leaves the virtualized list. Visible

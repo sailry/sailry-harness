@@ -156,7 +156,7 @@ func (s *State) footer(c *ui.Context, t *Turn, over bool, actions Actions) {
 	row.Children(func() {
 		if text != "" {
 			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false)).OnClick(func() {
-				c.WriteClipboard(text)
+				s.copyText(c, text)
 				kit.Copied(c)
 			})
 			icon, label := icons.Volume, "reader_read"
@@ -253,7 +253,7 @@ func exportMenu(c *ui.Context, id, turn string, disabled bool, actions Actions) 
 
 // userFooter is under a user message, at the end: the time it was sent
 // while the pointer is over the message (over) or the row, Copy and Edit.
-func userFooter(c *ui.Context, t *Turn, over bool, actions Actions) {
+func (s *State) userFooter(c *ui.Context, t *Turn, over bool, actions Actions) {
 	p := theme.Of(c)
 	row := ui.Row(c.Key("user-footer")).FillWidth().Gap(8).Justify(ui.End).AlignItems(ui.Center).TextColor(p.Description())
 	hovered := over || row.Hovered()
@@ -263,7 +263,7 @@ func userFooter(c *ui.Context, t *Turn, over bool, actions Actions) {
 		}
 		if t.User != "" {
 			quiet(c, kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false)).OnClick(func() {
-				c.WriteClipboard(t.User)
+				s.copyText(c, t.User)
 				kit.Copied(c)
 			})
 		}

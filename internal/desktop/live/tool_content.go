@@ -108,6 +108,9 @@ func projectToolContent(call *conversation.Call, loaded protocol.ToolDetail, loc
 					}
 				}
 				for _, notice := range text.Notices {
+					if call.Output.Command && (text.Path == "/data/stdout/text" || text.Path == "/data/stderr/text") && notice.Label == "Output was truncated" {
+						continue
+					}
 					call.Output.Notices = append(call.Output.Notices, toolLocalText(protocol.ToolResultLocalText{Label: notice.Label, Locales: notice.Locales}, language))
 				}
 			}

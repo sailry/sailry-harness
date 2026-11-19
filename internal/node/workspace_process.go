@@ -51,12 +51,14 @@ func (node *Node) workspaceProcess(ctx context.Context, caller protocol.NodeID, 
 		value, err := node.processes.Read(input.Session, input.ID)
 		return protocol.Output{Kind: "command_output", Data: value}, err
 	case *protocol.CommandReadCommandPagePayload:
-		until := ""
-		if input.Until != nil {
-			until = *input.Until
-		}
-		if err := node.processes.Wait(ctx, input.Session, input.ID, input.WaitMs, until); err != nil {
-			return protocol.Output{}, err
+		if input.WaitMs != 0 {
+			until := ""
+			if input.Until != nil {
+				until = *input.Until
+			}
+			if err := node.processes.Wait(ctx, input.Session, input.ID, input.WaitMs, until); err != nil {
+				return protocol.Output{}, err
+			}
 		}
 		value, err := node.processes.Page(input.Session, input.ID, input.Stream, input.Offset, input.Limit)
 		return protocol.Output{Kind: "command_output_page", Data: value}, err

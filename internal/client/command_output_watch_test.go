@@ -3,6 +3,7 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,53 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestReadCommandTranscript(t *testing.T) {
+	t.Parallel()
+	session, turn, command := protocol.SessionID{1}, protocol.TurnID{2}, protocol.RequestID{3}
+	first, last := strings.Repeat("previous\n", 120)+"partial", " line\n"+strings.Repeat("last\n", 98)+"end\n\n"
+	badTurn := false
+	transport := &clientTransport{dispatch: func(request protocol.Request) (link.Admission, error) {
+		q, err := payload[protocol.CommandReadCommandPagePayload](request.Command.Data)
+		if err != nil || request.Command.Kind != "read_command_page" || q.Session != session || q.ID != command || q.WaitMs != 0 || q.Limit != 32*1024 {
+			t.Fatalf("unexpected retained output request: %+v, %v", q, err)
+		}
+		page := protocol.DefaultProcessOutputOutputPage()
+		page.Info.Session, page.Info.Turn, page.Info.ID = session, turn, command
+		if badTurn {
+			page.Info.Turn = protocol.TurnID{9}
+		}
+		page.Stream, page.Offset, page.TotalBytes = q.Stream, q.Offset, 10000
+		switch {
+		case q.Stream == protocol.ProcessOutputOutputStreamStderr && q.Offset == 0:
+			page.Text = "stderr"
+		case q.Stream == protocol.ProcessOutputOutputStreamStdout && q.Offset == 0:
+			page.Text, page.NextOffset = first, new(uint64(8192))
+		case q.Stream == protocol.ProcessOutputOutputStreamStdout && q.Offset == 8192:
+			page.Text = last
+		default:
+			t.Fatalf("unexpected output cursor: %+v", q)
+		}
+		completion := make(chan link.Response, 1)
+		completion <- link.Response{Output: protocol.Output{Kind: "command_output_page", Data: page}}
+		return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: completion}, nil
+	}}
+	c := New(transport)
+	t.Cleanup(func() { _ = c.Close() })
+	for _, tc := range []struct {
+		lines int
+		want  string
+	}{{100, strings.Repeat("last\n", 98) + "end\n\nstderr"}, {0, first + last + "stderr"}} {
+		got, err := c.ReadCommandTranscript(t.Context(), session, turn, command, tc.lines)
+		if err != nil || got != tc.want {
+			t.Fatalf("last %d lines: got %q, want %q, error %v", tc.lines, got, tc.want, err)
+		}
+	}
+	badTurn = true
+	if got, err := c.ReadCommandTranscript(t.Context(), session, turn, command, 0); err == nil || got != "" {
+		t.Fatalf("an unrelated turn exposed command output: %q, %v", got, err)
+	}
+}
 
 func TestCommandOutputOwnerRecovery(t *testing.T) {
 	t.Parallel()

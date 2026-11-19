@@ -15,8 +15,16 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 		ref        protocol.ToolDetailReference
 		summary    *protocol.ToolDetailSummary
 		historical *client.HistoricalCommandReference
+		owner      protocol.SessionID
 	}
 	page := state.Snapshot.Page
+	connected := state.Connected
+	origins := make(map[protocol.TurnID]protocol.SessionID)
+	for _, run := range page.Runs {
+		if run.Origin != nil {
+			origins[run.Turn] = *run.Origin
+		}
+	}
 	sources := map[string]source{}
 	pending := map[toolPendingKey][]toolAssociation{}
 	for _, entry := range page.Entries {
@@ -56,13 +64,17 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 			ref := protocol.ToolDetailReference{Session: page.Session, Turn: entry.Turn, Entry: entry.ID, Index: uint64(index), Call: id, Revision: summary.Revision}
 			var historical *client.HistoricalCommandReference
 			if part.Kind == "tool_result" {
-				historical = client.HistoricalCommandDetail(page, ref, name, summary)
+				historical = client.CommandDetailReference(page, ref, name, summary)
 			}
 			if !summary.HasDetails && historical == nil {
 				delete(sources, key)
 				continue
 			}
-			sources[key] = source{ref, summary, historical}
+			owner := page.Session
+			if original, ok := origins[entry.Turn]; ok {
+				owner = original
+			}
+			sources[key] = source{ref, summary, historical, owner}
 		}
 	}
 	if len(sources) == 0 {
@@ -78,7 +90,8 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 					continue
 				}
 				call.BackgroundDetail = nil
-				if ref := source.historical; ref != nil && state.Connected && !call.Pending && call.State != conversation.Denied && call.State != conversation.StateInterrupted {
+				if ref := source.historical; ref != nil && connected && (call.Background == nil || !call.Background.Running) &&
+					!call.Pending && call.State != conversation.Denied && call.State != conversation.StateInterrupted {
 					call.BackgroundDetail = func() conversation.BackgroundDetail {
 						return r.historicalCommandDetail(*ref)
 					}
@@ -104,6 +117,9 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 						if err == nil && ctx.Err() == nil {
 							projected.Name = name
 							ProjectToolDetail(&projected, summary, value, locales...)
+							if binding, ok := toolCommand(value, source.owner, ref.Turn); ok && connected && projected.Output != nil {
+								r.loadRetainedCommand(ctx, binding, projected.Output)
+							}
 						}
 						content := value.Content
 						r.enqueue(func(c *ui.Context) {

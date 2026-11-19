@@ -14,8 +14,43 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+func TestForegroundCommandRetainedPreviewBinding(t *testing.T) {
+	session, turn, id := protocol.SessionID{1}, protocol.TurnID{2}, protocol.RequestID{3}
+	tail := strings.Repeat("retained\n", 101) + "finished"
+	result, err := json.Marshal(map[string]any{
+		"kind": "command_result",
+		"data": map[string]any{
+			"stdout": protocol.ProcessCapture{Text: "captured head", Truncated: true},
+			"stderr": protocol.ProcessCapture{Text: "error stream"},
+		},
+		"sailry_command": map[string]any{
+			"id":     id,
+			"stdout": retainedCommandTail{Text: tail, Offset: 70000, Head: 71000, Start: 71000, End: 71000, Total: 71000},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail := protocol.ToolDetail{Result: new(json.RawMessage(result)), Content: &protocol.ToolContent{Version: 1, Blocks: []protocol.ToolContentBlock{{
+		Kind: "text", Data: protocol.ToolContentText{Path: "/data/stdout/text", Notices: []protocol.PluginDesktopNavigation{
+			{Label: "Output was truncated"}, {Label: "Some output could not be decoded"},
+		}},
+	}}}}
+	ref, ok := toolCommand(detail, session, turn)
+	if !ok || ref.session != session || ref.turn != turn || ref.id != id || ref.preview == nil || *ref.preview != tail+"\nerror stream" {
+		t.Fatalf("foreground capture lost its retained command or final lines: %+v", ref)
+	}
+	call := conversation.Call{Name: "run_command"}
+	ProjectToolDetail(&call, &protocol.ToolDetailSummary{HasDetails: true}, detail, "en")
+	if call.Output == nil || !call.Output.Command || !reflect.DeepEqual(call.Output.Notices, []string{"Some output could not be decoded"}) {
+		t.Fatalf("command disclosure hid a real diagnostic or kept a preview notice: %+v", call.Output)
+	}
+}
+
 func TestHistoricalCommandDisclosure(t *testing.T) {
 	const title, stdout = "Original background command", "Retained output of the original command"
+	prefix := strings.Repeat("before the preview\n", 40)
+	tail := strings.Repeat("last lines\n", 99) + stdout
 	session, turn, command := protocol.SessionID{1}, protocol.TurnID{1}, protocol.RequestID{1}
 	snapshot := protocol.DefaultConversationSnapshot()
 	snapshot.Node, snapshot.Sequence = protocol.NodeID{1}, 6
@@ -51,6 +86,7 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	r, cv, transport, _ := watchCallbackTranscript(t, snapshot)
 	r.initCommands()
 	t.Cleanup(func() { r.closeCommands(); r.workers.Wait() })
+	retained := true
 	transport.mu.Lock()
 	transport.handle = func(request protocol.Request) (link.Response, bool) {
 		switch request.Command.Kind {
@@ -68,29 +104,53 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 			authentic := protocol.DefaultProcessSnapshot()
 			authentic.Info.ID, authentic.Info.Session, authentic.Info.Turn = command, session, turn
 			authentic.Info.Status = protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(7)}}
-			authentic.Stdout.Text = stdout
+			authentic.Stdout.Text, authentic.Stdout.Truncated = "bounded capture", true
 			return link.Response{Output: protocol.Output{Kind: "command_output", Data: authentic}}, true
+		case "read_command_page":
+			if !retained {
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "command retention ended"}}, true
+			}
+			query, _ := detail[protocol.CommandReadCommandPagePayload](request.Command.Data)
+			if query.Session != session || query.ID != command || query.WaitMs != 0 {
+				t.Errorf("opened detail paged another process: %+v", query)
+			}
+			page := protocol.DefaultProcessOutputOutputPage()
+			page.Info.ID, page.Info.Session, page.Info.Turn = command, session, turn
+			page.Stream, page.Offset = query.Stream, query.Offset
+			if query.Stream == protocol.ProcessOutputOutputStreamStdout {
+				page.TotalBytes = uint64(len(prefix) + len(tail))
+				if query.Offset == 0 {
+					page.Text, page.NextOffset = prefix, new(uint64(len(prefix)))
+				} else if query.Offset == uint64(len(prefix)) {
+					page.Text = tail
+				} else {
+					t.Errorf("unexpected output cursor: %+v", query)
+				}
+			}
+			return link.Response{Output: protocol.Output{Kind: "command_output_page", Data: page}}, true
 		}
 		return link.Response{}, false
 	}
 	transport.mu.Unlock()
 	view := conversation.New()
+	var completions []func(*ui.Context)
 	tester := ui.NewTesterWith(func(c *ui.Context) {
 		defer r.pruneCommandDetails()
 		defer view.FinishFrame()
 		theme.Apply(c, "", theme.Light)
+		for _, complete := range completions {
+			complete(c)
+		}
+		completions = nil
 		ui.Column(c).Fill().Children(func() { conversation.View(c, view, cv.ID, cv.Turns, &cv.Session, referenceViewActions{}) })
 	}, 900, 1240, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, ReduceTransparency: true}})
 	tester.SetLocale("en")
 	render := func() {
 		r.workers.Wait()
 		r.mu.Lock()
-		queue := r.queue
+		completions = r.queue
 		r.queue = nil
 		r.mu.Unlock()
-		for _, complete := range queue {
-			complete(nil)
-		}
 		state := cacheTestFrame(t, r, cv, session)
 		r.enrichDetails(cv, state, "en")
 		tester.Frame()
@@ -121,8 +181,30 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	click(title)
 	render()
 	render()
-	if got := requests(); !reflect.DeepEqual(got, []string{"read_tool_detail", "read_command"}) || !tester.HasText(stdout) || !tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
+	wantRequests := []string{"read_tool_detail", "read_command", "read_command_page", "read_command_page", "read_command_page"}
+	if got := requests(); !reflect.DeepEqual(got, wantRequests) || !tester.HasText(tail) || tester.HasText(prefix) || tester.HasText(i18n.In("en", "tool_partial")) || !tester.HasText(i18n.In("en", "background_exit", "code", 7)) {
 		t.Fatalf("opening did not render the real old result once: %v; %q", got, tester.Texts())
+	}
+	copyLabel := i18n.In("en", "tool_copy")
+	copyButton, ok := tester.AccessByRole(ui.RoleButton, copyLabel)
+	if !ok {
+		t.Fatal("retained command has no Copy action")
+	}
+	tester.Move(copyButton.Bounds.X+copyButton.Bounds.W/2, copyButton.Bounds.Y+copyButton.Bounds.H/2)
+	tester.Frame()
+	click(copyLabel)
+	render()
+	wantRequests = append(wantRequests, "read_command_page", "read_command_page", "read_command_page")
+	if got := requests(); !reflect.DeepEqual(got, wantRequests) || tester.Clipboard() != prefix+tail {
+		t.Fatalf("Copy did not recover all retained pages: %v, %d bytes", got, len(tester.Clipboard()))
+	}
+	transport.mu.Lock()
+	retained = false
+	transport.mu.Unlock()
+	click(copyLabel)
+	render()
+	if tester.Clipboard() != prefix+tail || !tester.HasText(tail) {
+		t.Fatal("eviction replaced the clipboard or removed the existing preview")
 	}
 	blocks := conversation.Compact(cv.Turns[0].Reply.Blocks)
 	if len(blocks) != 2 || len(blocks[0].Calls) != 1 || blocks[0].Calls[0].ID != "call/0" || blocks[1].Text != "Original answer" {

@@ -68,7 +68,7 @@ func banner(c *ui.Context, sess *Session) {
 
 // diagnostic is a failure in detail after the last turn: its heading,
 // each field as a label and value, and the raw message, with Copy.
-func diagnostic(c *ui.Context, d *Diagnostic) {
+func (s *State) diagnostic(c *ui.Context, d *Diagnostic) {
 	if d == nil {
 		return
 	}
@@ -80,7 +80,7 @@ func diagnostic(c *ui.Context, d *Diagnostic) {
 			ui.Icon(c, icons.TriangleAlert).FontSize(rowIcon(size)).TextColor(p.Danger)
 			ui.Text(c, d.Title).FontSize(size).FontWeight(500).Grow(1).TextColor(p.Danger)
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
-				c.WriteClipboard(DiagnosticText(d))
+				s.copyText(c, DiagnosticText(d))
 				kit.Copied(c)
 			})
 		})
@@ -371,7 +371,7 @@ func (s *State) selection(c *ui.Context, session string, turn ui.Element, readon
 		}
 		button("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) }).Disabled(readonly)
 		button("copy", i18n.T(c, "message_copy"), func() {
-			c.WriteClipboard(text)
+			s.copyText(c, text)
 			kit.Copied(c)
 		})
 		button("new", i18n.T(c, "chat_new"), func() { actions.Start(Quote(text)) })
