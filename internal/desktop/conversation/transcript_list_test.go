@@ -199,6 +199,22 @@ func TestTranscriptBookmarksAreBounded(t *testing.T) {
 	}
 }
 
+func TestFailedHistoryLoadDiscardsPendingTranscriptBookmark(t *testing.T) {
+	s := New()
+	sess := &Session{Older: 12}
+	l := &transcriptList{frame: transcriptFrame{id: "session", turns: []Turn{{ID: "latest"}}, session: sess}}
+	s.rememberTranscript("session", transcriptAnchor{turn: "older"})
+	s.restoreTranscript(l)
+	if s.anchors["session"].turn != "older" {
+		t.Fatal("the bookmark should survive while earlier history can be loaded")
+	}
+	sess.OlderFailed = true
+	s.restoreTranscript(l)
+	if _, pending := s.anchors["session"]; pending {
+		t.Fatal("a failed history load left a stale bookmark")
+	}
+}
+
 func TestSplitTranscriptImagesUseTheirOwningSession(t *testing.T) {
 	s := New()
 	reads := map[string]int{}

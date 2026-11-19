@@ -100,7 +100,8 @@ func (s *State) FinishFrame() {
 
 func (s *State) releaseTranscript(l *transcriptList) {
 	id := l.frame.id
-	if _, pending := s.anchors[id]; !pending && !l.layout.AtEnd() {
+	delete(s.anchors, id)
+	if !l.layout.AtEnd() {
 		first, last := l.layout.Visible()
 		if first >= 0 && first <= last && first < len(l.frame.turns) {
 			turn := l.frame.turns[first].ID
@@ -143,7 +144,15 @@ func (s *State) rememberTranscript(id string, place transcriptAnchor) {
 func (s *State) restoreTranscript(l *transcriptList) {
 	f := &l.frame
 	place, ok := s.anchors[f.id]
-	if !ok || len(f.turns) == 0 {
+	if !ok {
+		return
+	}
+	// A new reading position or a failed history load ends a restore attempt.
+	if s.built[f.id] && !l.layout.AtEnd() || f.session != nil && f.session.OlderFailed {
+		delete(s.anchors, f.id)
+		return
+	}
+	if len(f.turns) == 0 {
 		return
 	}
 	for row := range f.turns {
