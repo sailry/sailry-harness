@@ -64,7 +64,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 	t.Parallel()
 	const report = "When you collect a substantive result, failure or blocker from a delegated child"
 	const link = "](sailry://session/<session-id>)"
-	const initialPlan = "For substantial multi-step work, record an initial plan early"
+	const initialPlan = "Use update_plan to record a plan early for substantial multi-step work"
 	const revisePlan = "Submit the full revised plan with the current progress tool as soon as it is available"
 	for _, mode := range []protocol.WorkMode{protocol.WorkModeCode, protocol.WorkModeFlagship, protocol.WorkModePlan} {
 		t.Run(string(mode), func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 			parent := System(Instruction(false), canonical.Context{Policy: &parentPolicy})
 			for _, phrase := range []string{
 				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
-				initialPlan, "discover it using the exact name", "review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
+				initialPlan, "Include plan updates in the same batch as ready delegation or independent tools", "review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
 			} {
 				if !strings.Contains(parent, phrase) {
 					t.Errorf("parent prompt is missing %q", phrase)
