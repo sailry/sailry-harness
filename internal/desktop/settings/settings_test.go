@@ -61,7 +61,7 @@ func TestConversationCustomPrompt(t *testing.T) {
 	editor := &PersonalInstructions{Known: true}
 	state.PersonalInstructions = editor
 	var submitted string
-	state.SavePersonalInstructions = func() { submitted = editor.Draft }
+	state.EditPersonalInstructions = func() { submitted = editor.Draft }
 	state.CodeIndex = stored(true)
 	state.SavePersistentCodeIndex = func(enabled bool) { state.PersistentCodeIndex = new(enabled) }
 	state.PersistentCodeIndex = new(false)
@@ -80,9 +80,8 @@ func TestConversationCustomPrompt(t *testing.T) {
 	if !*state.PersistentCodeIndex {
 		t.Fatal("full code index switch did not save")
 	}
-	save, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save"))
-	if !ok || !save.Disabled || save.Bounds.W <= 24 {
-		t.Fatal("unchanged custom prompt does not show a labeled disabled Save button")
+	if _, ok := tester.AccessByRole(ui.RoleButton, i18n.In("en", "settings_save")); ok {
+		t.Fatal("custom prompt still has a Save button")
 	}
 	field, ok := tester.AccessByRole(ui.RoleTextField, i18n.In("en", "settings_custom_prompt"))
 	if !ok || field.Disabled {
@@ -90,10 +89,6 @@ func TestConversationCustomPrompt(t *testing.T) {
 	}
 	tester.ClickAt(field.Bounds.X+10, field.Bounds.Y+10)
 	tester.Type("Use the project formatter.")
-	tester.Frame()
-	if err := tester.Click(i18n.In("en", "settings_save")); err != nil {
-		t.Fatal(err)
-	}
 	tester.Frame()
 	if submitted != "Use the project formatter." {
 		t.Fatalf("submitted %q", submitted)

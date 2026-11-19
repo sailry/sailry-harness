@@ -12,10 +12,12 @@ var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_faile
 // live action adapter.
 var CodeIndexMessages = Messages{"code_index_settings_saved", "code_index_settings_failed", "code_index_settings_conflict", "code_index_settings_unknown"}
 
+var PersonalInstructionsMessages = Messages{Failed: "settings_custom_prompt_failed", Conflict: "settings_custom_prompt_conflict", Uncertain: "settings_custom_prompt_unknown"}
+
 // PersonalInstructions holds the editor draft for one settings host.
 type PersonalInstructions struct {
-	Saved, Draft              string
-	Known, Pending, Uncertain bool
+	Saved, Draft                      string
+	Known, Pending, Failed, Uncertain bool
 }
 
 func conversation(c *ui.Context, m *Model) {
@@ -74,28 +76,30 @@ func personalInstructions(c *ui.Context, m *Model) {
 	e := m.PersonalInstructions
 	label := i18n.T(c, "settings_custom_prompt")
 	kit.Group(c, "personal-instructions", label, i18n.T(c, "settings_custom_prompt_description"), func() {
-		if e != nil && !e.Known && !e.Pending && m.ReadPersonalInstructions != nil {
-			kit.Secondary(c.Key("reload"), i18n.T(c, "settings_retry")).OnClick(m.ReadPersonalInstructions)
+		if e == nil || e.Pending {
 			return
 		}
-		action := "settings_save"
-		if e != nil && e.Uncertain {
-			action = "files_check_result"
-		}
-		disabled := e == nil || !e.Known || !e.Uncertain && e.Saved == e.Draft || m.Live && m.SavePersonalInstructions == nil
-		kit.PrimaryBusy(c.Key("save"), i18n.T(c, action), disabled, e != nil && e.Pending).OnClick(func() {
-			if m.Live {
-				m.SavePersonalInstructions()
-				return
+		if !e.Known && m.ReadPersonalInstructions != nil {
+			kit.Secondary(c.Key("reload"), i18n.T(c, "settings_retry")).OnClick(m.ReadPersonalInstructions)
+		} else if m.RetryPersonalInstructions != nil && (e.Uncertain || e.Failed && e.Draft != e.Saved) {
+			action := "settings_retry"
+			if e.Uncertain {
+				action = "files_check_result"
 			}
-			e.Saved = e.Draft
-			kit.Toast(c, kit.Done, i18n.T(c, "workspace_saved"))
-		})
+			kit.Secondary(c.Key("retry"), i18n.T(c, action)).OnClick(m.RetryPersonalInstructions)
+		}
 	}, func() {
 		if e == nil {
 			return
 		}
-		ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Placeholder(i18n.T(c, "settings_custom_prompt_placeholder")).
-			Disabled(!e.Known || e.Pending || e.Uncertain).FillWidth().Height(100)
+		changed := ui.TextArea(c.Key(m.ManagedNode), &e.Draft).Label(label).Placeholder(i18n.T(c, "settings_custom_prompt_placeholder")).
+			Disabled(!e.Known || e.Uncertain || m.Live && m.EditPersonalInstructions == nil).FillWidth().Height(100).Changed()
+		if changed {
+			if m.Live {
+				m.EditPersonalInstructions()
+			} else {
+				e.Saved = e.Draft
+			}
+		}
 	})
 }

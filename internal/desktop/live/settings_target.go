@@ -124,7 +124,8 @@ func (r *Runtime) initNodeSettings() {
 	}
 	m.PersonalInstructions = nil
 	m.ReadPersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.readPersonalInstructions() }) }
-	m.SavePersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.savePersonalInstructions() }) }
+	m.EditPersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.queuePersonalInstructionsSave() }) }
+	m.RetryPersonalInstructions = func() { onMachine(func(owner *Runtime) { owner.savePersonalInstructions() }) }
 	m.SavePower = func() { onMachine(func(owner *Runtime) { owner.savePower() }) }
 	m.SaveMedia = func() { on(func(owner *Runtime) { owner.saveMedia() }) }
 	m.SaveCodeIndex = func() { onMachine(func(owner *Runtime) { owner.saveCodeIndex() }) }

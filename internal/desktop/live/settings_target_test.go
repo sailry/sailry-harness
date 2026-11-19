@@ -582,7 +582,7 @@ func TestSettingsTarget(t *testing.T) {
 			t.Fatalf("remote inherited another host's draft: %+v", e)
 		}
 		m.PersonalInstructions.Draft = "Remote\nprompt"
-		m.SavePersonalInstructions()
+		m.RetryPersonalInstructions()
 		settle()
 		if prompts[1].Text != "Remote\nprompt" || prompts[0].Text != "" {
 			t.Fatalf("saved prompts = %+v", prompts)
@@ -590,9 +590,9 @@ func TestSettingsTarget(t *testing.T) {
 		other := "remote change"
 		prompts[1] = protocol.PersonalInstructions{Revision: &other, Text: other}
 		m.PersonalInstructions.Draft = "Edited draft"
-		m.SavePersonalInstructions()
+		m.RetryPersonalInstructions()
 		settle()
-		if e := m.PersonalInstructions; e.Saved != other || e.Draft != "Edited draft" || prompts[1].Text != other {
+		if e := m.PersonalInstructions; !e.Failed || e.Saved != other || e.Draft != "Edited draft" || prompts[1].Text != other {
 			t.Fatalf("conflict overwrote a draft or file: %+v", e)
 		}
 		showHost("")

@@ -148,9 +148,10 @@ type BackupLast struct {
 const DefaultTextSize = 14
 
 type Model struct {
-	PersonalInstructions     *PersonalInstructions
-	SavePersonalInstructions func()
-	ReadPersonalInstructions func()
+	PersonalInstructions      *PersonalInstructions
+	EditPersonalInstructions  func()
+	RetryPersonalInstructions func()
+	ReadPersonalInstructions  func()
 
 	// ManagedNode is the shared target for Node-owned settings in this window.
 	ManagedNode string

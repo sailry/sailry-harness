@@ -148,10 +148,18 @@ func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messag
 // saveSettingReread refreshes the section when the Node can no longer
 // confirm the outcome and the page could retain a stale revision.
 func (r *Runtime) saveSettingReread(command protocol.Command, messages settings.Messages, reread func(), done func(protocol.Output, bool)) {
-	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+	r.saveSettingResult(command, messages, func(_ *ui.Context, output protocol.Output, err error) {
+		done(output, err == nil)
 		if reread != nil && client.Released(err) && faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
-			defer reread()
+			reread()
 		}
+	})
+}
+
+// saveSettingResult exposes the settled fault to editors that retain drafts
+// and need to distinguish a refused save from one whose outcome is open.
+func (r *Runtime) saveSettingResult(command protocol.Command, messages settings.Messages, done func(*ui.Context, protocol.Output, error)) {
+	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
 		outcome := kit.Done
 		if err != nil {
 			outcome = kit.Failed
@@ -163,7 +171,7 @@ func (r *Runtime) saveSettingReread(command protocol.Command, messages settings.
 			}
 		}
 		settings.Report(c, outcome, messages)
-		done(output, err == nil)
+		done(c, output, err)
 	})
 }
 
