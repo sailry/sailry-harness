@@ -364,6 +364,11 @@ func (r *Runtime) nameModelSources(c *ui.Context, id string, models []composer.M
 			host = h.Name
 		}
 	}
+	// The local host keeps its name key until its Node names it, as the
+	// shell's hostName shows it.
+	if host == "local_host_name" {
+		host = i18n.T(c, host)
+	}
 	for i := range models {
 		provider, _, _ := strings.Cut(models[i].ID, "/")
 		switch {
