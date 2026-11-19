@@ -301,7 +301,7 @@ func (script *reviewScript) Stream(_ context.Context, call fantasy.Call) (fantas
 		for _, group := range frozen.Groups {
 			groups = append(groups, group.ID)
 		}
-		encoded, _ := json.Marshal(map[string]any{"review_id": frozen.ReviewID, "groups": groups, "record_receipt": false, "title": "Review evidence"})
+		encoded, _ := json.Marshal(map[string]any{"review_id": frozen.ReviewID, "groups": groups, "record_receipt": false, "role": "explore", "title": "Review evidence"})
 		name, args = delegate, string(encoded)
 	case 4:
 		child := childSession.FindStringSubmatch(script.results["delegate"])
@@ -471,7 +471,7 @@ func reviewDelegation(t *testing.T) {
 	}
 	// The guided turn continues the delegated child's session and originates
 	// from the guiding call.
-	if children := history.Page.Children; len(children) != 2 || children[0].Run.Status != protocol.ConversationStatusCompleted || children[0].Origin.Session != session.ID ||
+	if children := history.Page.Children; len(children) != 2 || children[0].Origin.Role == nil || children[0].Run.Status != protocol.ConversationStatusCompleted || children[0].Origin.Session != session.ID ||
 		children[1].Run.Session != children[0].Run.Session || children[1].Run.Turn == children[0].Run.Turn || children[1].Origin.Session != session.ID || children[1].Origin.Entry == children[0].Origin.Entry {
 		t.Fatalf("children = %+v", history.Page.Children)
 	}
