@@ -307,20 +307,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.invalidateConversationPresentation(cv)
 		}
 	}
-	ctx.Models = r.offeredModels(cv.ID, ctx.Models)
-	r.nameModelSources(c, cv.ID, ctx.Models)
-	ctx.MemberModels = r.memberModels(ctx.Models)
-	for i := range ctx.Models {
-		model := &ctx.Models[i]
-		if model.ID == comp.Model && model.Reasoning {
-			model.Score = r.measuredScore(model.ID, parseEffort(comp.EffortName(nil, *model)))
-		}
-	}
-	for _, family := range []composer.Family{{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Brand("anthropic")}, {ID: "openai", Label: "provider_openai", Icon: icons.Brand("openai")}, {ID: "gemini", Label: "provider_gemini", Icon: icons.Brand("gemini")}, {ID: "other", Label: "provider_other", Icon: icons.Settings2}} {
-		if slices.ContainsFunc(ctx.Models, func(m composer.Model) bool { return m.Family == family.ID }) {
-			ctx.Families = append(ctx.Families, family)
-		}
-	}
+	r.projectComposerModels(c, cv, comp, ctx)
 	if unsentDraft(cv) {
 		ctx.Readonly = false
 		ctx.SendBlocked = !r.controller.Connected()
@@ -357,7 +344,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			}
 		}
 	}
-	ctx.References, ctx.Commands = r.references(cv, comp)
+	ctx.References, ctx.Commands = r.catalogReferences(c, cv, comp)
 	comp.Running = cv.Running()
 	// Keep model controls durable without treating UI-only location edits as config.
 	selectedEffort := ""
@@ -404,6 +391,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.bindComposerAttachments(actions)
 	return ctx, actions
 }
+
+// composerFamilies are the provider families the model picker groups by.
+var composerFamilies = []composer.Family{{ID: "anthropic", Label: "provider_anthropic", Icon: icons.Brand("anthropic")}, {ID: "openai", Label: "provider_openai", Icon: icons.Brand("openai")}, {ID: "gemini", Label: "provider_gemini", Icon: icons.Brand("gemini")}, {ID: "other", Label: "provider_other", Icon: icons.Settings2}}
 
 func modeChoice(mode protocol.WorkMode) composer.Mode {
 	switch mode {

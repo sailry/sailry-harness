@@ -93,8 +93,16 @@ type Runtime struct {
 	sessionBases      map[*composer.State]*sessionBaseStart
 	App               *shell.App
 	Preferences       *preferences.Store
-	controller        *client.Client
-	ctx               context.Context
+
+	// delivered counts the frames that projected a change or ran delivered
+	// results, which is what frame-kept projections are invalidated by
+	// besides their own keys.
+	delivered uint64
+	// composerCatalogs are the composer catalogs by conversation.
+	composerCatalogs map[string]*composerCatalog
+
+	controller *client.Client
+	ctx        context.Context
 	// filePreview is the window's preview dialog (file_preview.go).
 	filePreview *filePreview
 	// memoryNext is when Settings › Experimental samples memory again.
@@ -459,6 +467,7 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.applyPreferences()
 		r.prefsRevision = revision
 		r.project()
+		r.delivered++
 	}
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: r.Preferences.Data.ToastSeconds, MessageTextSize: uint8(r.App.Settings.TextSize)})
 	r.App.Messages.CompactDisplay = r.App.Settings.MessageDisplay == 1
@@ -467,6 +476,9 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.dirty = false
 	r.queue = nil
 	r.mu.Unlock()
+	if dirty || len(queue) > 0 {
+		r.delivered++
+	}
 	if dirty {
 		r.project()
 	}
@@ -671,6 +683,7 @@ func (r *Runtime) pruneSessions(snapshot protocol.Snapshot) {
 	maps.DeleteFunc(r.composerInitialized, func(id string, _ bool) bool { return gone(id) })
 	maps.DeleteFunc(r.composerObserved, func(id string, _ string) bool { return gone(id) })
 	maps.DeleteFunc(r.composerRevisions, func(id string, _ uint64) bool { return gone(id) })
+	maps.DeleteFunc(r.composerCatalogs, func(id string, _ *composerCatalog) bool { return gone(id) })
 	maps.DeleteFunc(r.composerSaving, func(id string, saving bool) bool { return !saving && gone(id) })
 	maps.DeleteFunc(r.conversationEdits, func(id string, _ conversationEdit) bool { return gone(id) })
 	maps.DeleteFunc(r.composerOutgoing, func(id string, _ *conversationOutgoing) bool { return gone(id) })
