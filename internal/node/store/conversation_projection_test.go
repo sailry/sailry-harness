@@ -87,3 +87,49 @@ func TestStoredProjectionKeepsResourcePositionsAfterLegacyDiagnostic(t *testing.
 		t.Fatal(err)
 	}
 }
+
+func TestHistoryPageMatchesOnlyRequestedCallsAtResponseSequence(t *testing.T) {
+	storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		add := func(branch, id string) uint64 {
+			m := canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: id, Name: "read_file", Arguments: json.RawMessage(`{"path":"file"}`)}})
+			r := canonical.NewRecord(turn, "message", &m, now)
+			r.Provenance.Author = "assistant"
+			r.Provenance.Branch = branch
+			entry, _, err := AppendCanonical(ctx, db, session.ID, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return entry.Sequence
+		}
+		add("other", "reused")
+		add("main", "off-page")
+		first := add("main", "reused")
+		second := add("main", "reused")
+		response := &canonical.ToolResponse{ID: "reused", Name: "read_file"}
+		m := canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: response})
+		r := canonical.NewRecord(turn, "message", &m, now)
+		r.Provenance.Branch = "main"
+		page := toolRequests{}
+		page.include(r)
+		for _, cache := range []toolRequests{page, nil} {
+			for _, boundary := range []uint64{first, second} {
+				tool, err := cache.find(ctx, db, r, boundary, response)
+				if err != nil {
+					return err
+				}
+				if (tool != nil) != (boundary == first) {
+					t.Fatalf("incorrect match at sequence %d", boundary)
+				}
+			}
+		}
+		if _, ok := page[turn].matches[toolCallKey{"main", "off-page", "read_file"}]; ok {
+			t.Fatal("retained an unrequested tool call")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

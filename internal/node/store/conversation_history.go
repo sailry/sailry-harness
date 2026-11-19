@@ -87,6 +87,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		sequence uint64
 		record   canonical.Record
 	}
+	requests := toolRequests{}
 	records := []rowValue{}
 	size := 0
 	more := false
@@ -106,6 +107,7 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 			rows.Close()
 			return nil, false, err
 		}
+		requests.include(record)
 		records = append(records, rowValue{seq, record})
 		size += len(body)
 	}
@@ -113,7 +115,6 @@ func historyEntries(ctx context.Context, db *sql.Conn, session protocol.SessionI
 		return nil, false, err
 	}
 	out := []protocol.ConversationEntry{}
-	requests := toolRequests{}
 	for i := len(records) - 1; i >= 0; i-- {
 		entry, e := projectStoredEntry(ctx, db, records[i].record, records[i].sequence, requests)
 		if e != nil {
