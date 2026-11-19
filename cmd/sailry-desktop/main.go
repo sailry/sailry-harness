@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/debug"
 
 	"github.com/egoist/mygo"
 	_ "github.com/egoist/mygo/locales/ja"
@@ -43,8 +44,21 @@ func main() {
 	}
 }
 
+// The window redraws continuously while anything animates, and each frame
+// leaves short-lived garbage. Without a limit the collector lets the heap grow
+// to twice its live size before running, so the process footprint swings by
+// hundreds of megabytes. The soft limit collects earlier; GOMEMLIMIT overrides it.
+const heapLimit = 320 << 20
+
+func limitHeap() {
+	if os.Getenv("GOMEMLIMIT") == "" {
+		debug.SetMemoryLimit(heapLimit)
+	}
+}
+
 func run() error {
 	computer.Trampoline()
+	limitHeap()
 	options, err := parseOptions(os.Args[1:])
 	if err != nil {
 		return err
