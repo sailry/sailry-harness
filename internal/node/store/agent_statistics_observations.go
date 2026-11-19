@@ -139,13 +139,13 @@ func agentStatisticCalls(ctx context.Context, db *sql.Conn, session protocol.Ses
 // Lightweight JSON selects avoid retaining conversation or tool result bodies.
 const agentStatisticEventsQuery = `SELECT e.turn,json_object(
  'kind',json_extract(e.body,'$.kind'),'phases',json_extract(e.body,'$.metadata.execution.phases'),
- 'usage',json(coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage'))),
+ 'usage',json_remove(coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')),'$.provider'),
  'has_reply',json_extract(e.body,'$.role')='assistant' AND EXISTS(
   SELECT 1 FROM json_each(e.body,'$.content') p WHERE length(json_extract(p.value,'$.text'))>0),
  'tools',json((SELECT json_group_array(json_extract(p.value,'$.name')) FROM json_each(e.body,'$.content') p
   WHERE json_extract(p.value,'$.type')='tool_request' AND json_type(p.value,'$.name')='text' AND json_type(p.value,'$.arguments')='object'))),
  EXISTS(SELECT 1 FROM conversation_events membership WHERE membership.session=?1 AND membership.sequence=e.sequence)
- FROM agent_events e WHERE EXISTS(SELECT 1 FROM conversation_turns h WHERE h.session=?1 AND h.turn=e.turn) ORDER BY e.sequence`
+ FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn WHERE h.session=?1 ORDER BY e.sequence`
 
 func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.ConversationObservationSummary, error) {
 	result := protocol.DefaultConversationObservationSummary()

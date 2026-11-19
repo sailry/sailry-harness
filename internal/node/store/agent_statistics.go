@@ -47,7 +47,8 @@ func ReadAgentStatistics(ctx context.Context, db *sql.Conn, session protocol.Ses
 // Frozen execution sources override the original turn's provider for helper
 // requests. Inherited turns keep their original capture, never the fork's model.
 // The selection is the session's own turns plus the child turns delegated from
-// them, which are Sailry's own sessions and are totalled apart.
+// them, which are Sailry's own sessions and are totalled apart. Only Anthropic
+// cache-write pricing reads the raw provider usage payload.
 const agentStatisticsUsageRows = `WITH selected AS (
  SELECT turn,0 AS delegated FROM conversation_turns WHERE session=?1
  UNION
@@ -72,7 +73,8 @@ const agentStatisticsUsageRows = `WITH selected AS (
  WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
  AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
  AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
- SELECT usage,model,json_extract(provider,'$.api'),elapsed,media,delegated,` + agentUsagePreset + ` FROM responses`
+ SELECT CASE WHEN json_extract(provider,'$.api')='anthropic' AND json_extract(usage,'$.cache_write')>0
+  THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,media,delegated,` + agentUsagePreset + ` FROM responses`
 
 // agentStatisticsMetrics totals the session's own usage and, apart from it,
 // the usage of the children its turns delegated.
