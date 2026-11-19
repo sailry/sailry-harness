@@ -402,7 +402,8 @@ type Background struct {
 }
 
 type BackgroundDetail struct {
-	Output *Output
+	Output  *Output
+	Failure string // reading the command's output failed
 }
 
 // Output is a call's result, one or more of its parts.

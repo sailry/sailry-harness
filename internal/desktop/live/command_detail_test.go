@@ -49,6 +49,7 @@ func TestForegroundCommandRetainedPreviewBinding(t *testing.T) {
 
 func TestHistoricalCommandDisclosure(t *testing.T) {
 	const title, stdout = "Original background command", "Retained output of the original command"
+	const noRetention = "command retention ended"
 	prefix := strings.Repeat("before the preview\n", 40)
 	tail := strings.Repeat("last lines\n", 99) + stdout
 	session, turn, command := protocol.SessionID{1}, protocol.TurnID{1}, protocol.RequestID{1}
@@ -97,6 +98,9 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 			}
 			return link.Response{Output: protocol.Output{Kind: "tool_detail", Data: protocol.ToolDetailPage{Reference: ref, TotalBytes: uint64(len(body)), Text: string(body)}}}, true
 		case "read_command":
+			if !retained {
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: noRetention}}, true
+			}
 			query, _ := detail[protocol.CommandReadCommandPayload](request.Command.Data)
 			if query.Session != session || query.ID != command || query.WaitMs != 0 {
 				t.Errorf("opened detail read another process: %+v", query)
@@ -108,7 +112,7 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 			return link.Response{Output: protocol.Output{Kind: "command_output", Data: authentic}}, true
 		case "read_command_page":
 			if !retained {
-				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "command retention ended"}}, true
+				return link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: noRetention}}, true
 			}
 			query, _ := detail[protocol.CommandReadCommandPagePayload](request.Command.Data)
 			if query.Session != session || query.ID != command || query.WaitMs != 0 {
@@ -214,5 +218,11 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	render()
 	if len(r.commands.details) != 0 || tester.HasText(stdout) {
 		t.Fatalf("closing retained the old command's view or output: %d reads, output visible %t", len(r.commands.details), tester.HasText(stdout))
+	}
+	click(title)
+	render()
+	render()
+	if !tester.HasText(noRetention) || tester.HasText(stdout) {
+		t.Fatalf("reopening lost the read error: %q", tester.Texts())
 	}
 }

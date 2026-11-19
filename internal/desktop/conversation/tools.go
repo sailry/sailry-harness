@@ -359,12 +359,14 @@ func (s *State) row(c *ui.Context, call Call) {
 		if call.BackgroundDetail != nil {
 			detail = call.BackgroundDetail()
 		}
-		// The body is the command's own output; its state is the row's.
-		if b := call.Background; b != nil && detail.Output == nil && b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
-			s.output(c, &Output{Text: b.Preview, Command: true}, false)
-		}
 		if detail.Output != nil {
 			s.output(c, detail.Output, false)
+		} else if b := call.Background; b != nil && b.Preview != "" {
+			if call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview {
+				s.output(c, &Output{Text: b.Preview, Command: true}, false)
+			}
+		} else if detail.Failure != "" && (call.Output == nil || call.Output.Failure == "") {
+			s.output(c, &Output{Failure: detail.Failure}, false)
 		}
 		paths := pathList(call)
 		if call.Output != nil && (paths || !bare(call)) {

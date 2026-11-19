@@ -10,20 +10,21 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/egoist/mygo/netproxy"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/web"
 )
 
-// Market card pictures are the https addresses a skill directory names for a
+// Market card pictures are the public HTTPS addresses a skill directory names for a
 // publisher or a skill. Each is fetched once by the Desktop, at most
 // marketImageBytes, decoded down to marketImageEdge and kept only while a
 // card of the shown catalog names it. A failed fetch keeps the card's tile.
 const (
-	marketImageBytes    = 512 << 10
-	marketImageEdge     = 96
-	marketImageFetches  = 6
-	marketImageDeadline = 20 * time.Second
+	marketImageBytes     = 512 << 10
+	marketImageEdge      = 96
+	marketImageFetches   = 6
+	marketImageDeadline  = 20 * time.Second
+	marketImageRedirects = 4
 	// marketImagePixels bounds the size a picture's header may declare: the
 	// decoder allocates it before scaling down.
 	marketImagePixels = 4 << 20
@@ -42,13 +43,7 @@ type marketImages struct {
 
 func newMarketImages() *marketImages {
 	return &marketImages{entries: map[string]*marketImage{}, slots: make(chan struct{}, marketImageFetches),
-		client: &http.Client{Transport: netproxy.Transport(), Timeout: marketImageDeadline,
-			CheckRedirect: func(request *http.Request, via []*http.Request) error {
-				if request.URL.Scheme != "https" || len(via) >= 5 {
-					return errors.New("market picture redirect is refused")
-				}
-				return nil
-			}}}
+		client: web.NewPublicHTTPSClient(marketImageDeadline, marketImageRedirects)}
 }
 
 // marketImage is the picture at address once fetched, else nil while it is
@@ -103,7 +98,7 @@ func (images *marketImages) fetch(ctx context.Context, address string) (*ui.Bitm
 		return nil, errors.New("market picture is unavailable")
 	}
 	header, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || header.Width <= 0 || header.Height <= 0 || header.Width*header.Height > marketImagePixels {
+	if err != nil || header.Width <= 0 || header.Height <= 0 || header.Width > marketImagePixels/header.Height {
 		return nil, errors.New("market picture is unavailable")
 	}
 	return ui.DecodeBitmapScaled(data, marketImageEdge)

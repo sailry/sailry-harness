@@ -93,6 +93,7 @@ func (r *Runtime) initB8Packages() {
 	r.packages.market = theme.NewMarket(r.packages.profile)
 	unsubscribeThemes := r.packages.profile.OnChange(r.readInstalledThemes)
 	context.AfterFunc(r.ctx, unsubscribeThemes)
+	context.AfterFunc(r.ctx, r.packages.images.client.CloseIdleConnections)
 	m := r.App.Settings.Model
 	m.Indexes = []string{"pypi.org", "mirrors.aliyun.com", "mirrors.tencent.com", "pypi.tuna.tsinghua.edu.cn", "custom"}
 	m.PackageActions = &settings.PackageActions{

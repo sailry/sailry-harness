@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"weak"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
@@ -20,19 +21,20 @@ type nativeChartRow struct {
 // for: charts ask for them per series on every frame.
 var chartColors struct {
 	mu      sync.Mutex
-	palette *theme.Palette
+	palette weak.Pointer[theme.Palette]
 	colors  map[string]string
 }
 
 func nativeChartColor(view *ui.Context, name string) ui.Color {
 	palette := theme.Of(view)
+	key := weak.Make(palette)
 	chartColors.mu.Lock()
-	if chartColors.palette != palette || chartColors.colors == nil {
+	if chartColors.palette != key || chartColors.colors == nil {
 		var snapshot struct {
 			Colors map[string]string `json:"colors"`
 		}
 		_ = json.Unmarshal(ThemeSnapshot(palette), &snapshot)
-		chartColors.palette, chartColors.colors = palette, snapshot.Colors
+		chartColors.palette, chartColors.colors = key, snapshot.Colors
 		if chartColors.colors == nil {
 			chartColors.colors = map[string]string{}
 		}

@@ -69,6 +69,31 @@ func TestPrivateAddressRejected(t *testing.T) {
 	}
 }
 
+func TestAutomaticHTTPSRequiresPublicDestination(t *testing.T) {
+	t.Parallel()
+	options := fetchFixture()
+	options.Resolve = func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.IPv6Loopback()}, nil
+	}
+	options.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		t.Error("a refused asset reached the dialer")
+		return nil, errors.New("asset was rejected")
+	}
+	client := NewPublicHTTPSClient(time.Second, 4)
+	defer client.CloseIdleConnections()
+	client.Transport.(publicHTTPS).DialContext = NewFetcher(options).dialPublic
+	for _, input := range []string{"http://picture.example/", "https://localhost/", "https://picture.example/"} {
+		response, err := client.Get(input)
+		if response != nil {
+			response.Body.Close()
+		}
+		var fault *protocol.Fault
+		if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeInvalidRequest && fault.Code != protocol.ErrorCodePermissionDenied {
+			t.Errorf("automatic asset destination %q: %v", input, err)
+		}
+	}
+}
+
 func TestDNSPinnedAcrossRedirects(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

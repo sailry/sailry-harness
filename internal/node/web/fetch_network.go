@@ -11,6 +11,37 @@ import (
 	"time"
 )
 
+// NewPublicHTTPSClient fetches automatic public resources directly so each
+// connection uses the address verified by the public network policy.
+func NewPublicHTTPSClient(timeout time.Duration, maxRedirects int) *http.Client {
+	fetcher := NewFetcher(FetchOptions{})
+	return &http.Client{
+		Transport: publicHTTPS{fetchTransport(nil, fetcher.dialPublic)},
+		Timeout:   timeout,
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) > maxRedirects {
+				return webUnavailable("web redirect limit exceeded")
+			}
+			return nil
+		},
+	}
+}
+
+type publicHTTPS struct{ *http.Transport }
+
+func (transport publicHTTPS) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Scheme != "https" || request.URL.User != nil {
+		return nil, webInvalid("web URL must use HTTPS without credentials")
+	}
+	target, err := publicURL(request.URL.String())
+	if err != nil {
+		return nil, err
+	}
+	request = request.Clone(request.Context())
+	request.URL, request.Host = target, target.Host
+	return transport.Transport.RoundTrip(request)
+}
+
 func (fetcher *Fetcher) validateDestination(ctx context.Context, parsed *url.URL, proxied bool) error {
 	if proxied {
 		var cancel context.CancelFunc
@@ -66,13 +97,17 @@ func (fetcher *Fetcher) transport(proxy *url.URL) (http.RoundTripper, error) {
 	if proxy == nil {
 		dial = fetcher.dialPublic
 	}
-	transport := &http.Transport{Proxy: http.ProxyURL(proxy), DialContext: dial, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
+	transport := fetchTransport(proxy, dial)
 	if len(fetcher.clients) == 16 {
 		fetcher.clients[0].transport.CloseIdleConnections()
 		fetcher.clients = fetcher.clients[1:]
 	}
 	fetcher.clients = append(fetcher.clients, fetchClient{key: key, transport: transport})
 	return transport, nil
+}
+
+func fetchTransport(proxy *url.URL, dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
+	return &http.Transport{Proxy: http.ProxyURL(proxy), DialContext: dial, ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
 }
 
 func (fetcher *Fetcher) dialPublic(ctx context.Context, network, address string) (net.Conn, error) {
