@@ -126,6 +126,19 @@ func (node *Node) beginConnectorLogin(ctx context.Context, caller protocol.NodeI
 	if err != nil {
 		return protocol.Output{}, err
 	}
+	if expected := input.ExpectedCLIAccount; expected != nil {
+		if input.Method != protocol.PluginConnectorKindLocalCli || *expected == "" || len(*expected) > 128 {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid local CLI account selection"}
+		}
+		identity, err := node.connectorCLIIdentity(ctx, capture.Declaration)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		if identity.ID != *expected {
+			return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "local CLI account changed; choose again"}
+		}
+		capture.CLIIdentity = &identity
+	}
 	if err := node.captureConnectorTargets(ctx, &capture); err != nil {
 		return protocol.Output{}, err
 	}

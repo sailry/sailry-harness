@@ -8,6 +8,7 @@ import "github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 type ConnectorDraft struct {
 	Type, Service, Method string
 	ExpectedRevision      uint64
+	CLIAccount            string
 	Fields                map[string]string
 	Registration          bool
 	Update                bool

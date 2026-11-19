@@ -52,6 +52,7 @@ type ConnectorLoginCapture struct {
 	Previous    uint64
 	Record      ConnectorRecord
 	Input       protocol.PluginConnectorInput
+	CLIIdentity *protocol.PluginConnectorIdentity // verified before the mutation is admitted
 }
 
 func ConnectorDeclarations(info protocol.PluginInfo) []protocol.PluginConnectorDeclaration {

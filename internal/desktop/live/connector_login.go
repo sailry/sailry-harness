@@ -125,6 +125,9 @@ func (r *Runtime) beginConnectorAuthorization(draft settings.ConnectorDraft, kin
 		OpenURL: func(value string) { r.enqueue(func(c *ui.Context) { c.OpenURL(value) }) }}
 	attempt.view = &actions.Authorization
 	payload := protocol.CommandStartConnectorLoginPayload{Package: kind.Package, Connector: kind.Declaration.ID, Method: method, Input: input}
+	if method == protocol.PluginConnectorKindLocalCli && draft.CLIAccount != "" {
+		payload.ExpectedCLIAccount = &draft.CLIAccount
+	}
 	if connection, exists := r.authorizations.connections[draft.Service]; exists {
 		payload.Connection, payload.ExpectedRevision = &connection.ID, &draft.ExpectedRevision
 	}

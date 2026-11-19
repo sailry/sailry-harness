@@ -443,8 +443,10 @@ private reasoning is replayed only to its producing provider and model. Reviewed
 capability lookup corrections recognize supported model aliases without renaming
 the provider's requested model or changing stored records.
 Repeated provider call IDs are disambiguated by their message occurrence before
-execution. Package hooks observe a bounded set of their own recent, complete
-tool results from the active turn.
+execution. Model requests render tool failures as readable messages with their
+code and applicable details. Canonical responses retain the original evidence.
+Package hooks observe a bounded set of their own recent, complete tool results
+from the active turn.
 
 API-key model requests identify as `Sailry/<product version>` and carry the
 session ID in `x-session-affinity` and `X-Session-Id`; Responses and Chat
@@ -593,7 +595,7 @@ selection supplies named roles and optional model overrides. Read-only roles use
 Team settings control child concurrency, with a default of eight per root session.
 In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
 parent by default. `guide_agent` does the same when it starts a new task in an
-idle child. A dependent spawn can set `overlap: false`. After guidance,
+idle child. Both tools accept an explicit `overlap` setting for a new task. After guidance,
 `wait_agent` can collect a dependent result. Standard and user-selected spawns keep
 their existing wait defaults. A completed overlapping child can reopen a reply
 at the next model boundary while other children are still running. The parent
@@ -621,7 +623,8 @@ evidence. The running turn takes a bounded batch between model steps; an idle
 session can take a reserved batch through its normal automatic queue. An
 automatic turn can collect later evidence at the same model boundaries. Delivery
 and the Node-authored evidence record commit together, without changing user
-input or replaying a tool result. Foreground child results also belong to their
+input or replaying a tool result. New evidence records opt into compact summary
+projection at capture time. Foreground child results also belong to their
 original row; a real `wait_agent` call still returns its own tool result. Steering
 can yield the foreground wait while the parent drains completed child results at
 its next safe boundary.
@@ -633,6 +636,8 @@ A promoted command switches its completion capture to the most recent bytes of
 each stream. Command evidence carries truncation flags and omitted byte counts
 when the retained text can be compared with the byte totals. Background commands
 in child sessions support polling during the child turn and stop when it settles.
+The process service bounds retries for rejected completion writes and retains
+the final output in memory when it cannot commit the result.
 
 ## Tools and resource services
 
@@ -789,6 +794,8 @@ the installed trust decision. Changed OAuth identity, scopes or flow require new
 authorization. Declared programs start without a shell, with a scrubbed environment,
 bounded execution and idle cleanup. Service connections inject credentials only
 into declared origins, headers, MCP servers or environment targets.
+Binding a local CLI verifies the selected account before changing the saved
+connection. Switching methods drops the previous method's credentials.
 
 Plugin package files are shared by digest. Configuration and personal KV/search
 spaces belong to the authenticated user on each execution Node. Explicit project storage uses the captured accessible project

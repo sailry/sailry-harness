@@ -642,6 +642,13 @@ func connectorDialog(c *ui.Context, m *Model) {
 				fields = append(fields, f)
 			}
 		}
+		draft := func() ConnectorDraft {
+			input := ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: make(map[string]string, len(fields))}
+			for _, field := range fields {
+				input.Fields[field.Name] = e.fields[field.Name]
+			}
+			return input
+		}
 		// A saved CLI connection, or a connected OAuth one, with fields saves
 		// them as they are; binding or authorizing again is asked for apart.
 		acquired := method == "connector_oauth" || method == "connector_cli"
@@ -700,7 +707,9 @@ func connectorDialog(c *ui.Context, m *Model) {
 						return
 					}
 					if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
-						m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Registration: true}, e.saving())
+						input := draft()
+						input.Registration = true
+						m.ConnectorActions.Save(input, e.saving())
 					} else {
 						notice(c)
 					}
@@ -724,7 +733,15 @@ func connectorDialog(c *ui.Context, m *Model) {
 					return
 				}
 				if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
-					m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Update: configuring}, e.saving())
+					input := draft()
+					input.Update = configuring
+					if method == "connector_cli" && !configuring {
+						if e.account < 0 || e.account >= len(m.ConnAccounts) {
+							return
+						}
+						input.CLIAccount = m.ConnAccounts[e.account]
+					}
+					m.ConnectorActions.Save(input, e.saving())
 					return
 				}
 				if s := m.service(e.service); s != nil {
@@ -824,6 +841,8 @@ func (e *connectorEditor) saving() func(bool) {
 		e.request, e.pending = nil, false
 		if ok {
 			e.open = false
+		} else if e.cliStarted {
+			e.cliStarted, e.accounts = false, preview.Fetch{}
 		}
 	}
 }

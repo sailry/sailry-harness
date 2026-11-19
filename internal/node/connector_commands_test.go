@@ -1,16 +1,101 @@
 package node
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestConnectorBindChecksSelectedCLIAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture requires a Unix executable")
+	}
+	directory := t.TempDir()
+	script := `#!/bin/sh
+printf '%s' '{"hosts":{"github.com":[{"login":"current-account","active":true}]}}'
+`
+	if err := os.WriteFile(filepath.Join(directory, "gh"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	environment := process.NewEnvironment([]string{"PATH=" + directory})
+	node := systemNodeFixture(t, Options{Environment: &environment, MCP: fixtureMCPOptions()})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var previous protocol.PluginConnectorConnection
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		info, err := store.ReadPlugin(ctx, db, "github")
+		if err != nil {
+			return err
+		}
+		if info == nil {
+			return errors.New("GitHub connector is absent")
+		}
+		input := protocol.CommandStartConnectorLoginPayload{Package: plugins.PackageReference(*info), Connector: "github", Method: protocol.PluginConnectorKindSecret}
+		input.Input.Secrets = map[string]protocol.Secret{"token": protocol.NewSecret("fixture-token")}
+		capture, err := store.PrepareConnectorLogin(ctx, db, protocol.NewRequestID(), input)
+		if err != nil {
+			return err
+		}
+		if err := store.StartConnectorLogin(ctx, db, capture); err != nil {
+			return err
+		}
+		previous, err = store.CompleteConnectorLogin(ctx, db, capture, nil, nil, false)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input := protocol.CommandStartConnectorLoginPayload{Package: previous.Package, Connector: previous.Connector, Connection: &previous.ID,
+		ExpectedRevision: &previous.Revision, Method: protocol.PluginConnectorKindLocalCli, ExpectedCLIAccount: new("old-account")}
+	command := protocol.Command{Kind: "start_connector_login", Data: &input}
+	result := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), command))
+	if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeRevisionConflict {
+		t.Fatalf("binding with a changed account returned %v", result.Fault)
+	}
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		current, err := store.ReadConnectorRecord(ctx, db, previous.ID)
+		if err == nil && (current.Method != previous.Method || current.Revision != previous.Revision || current.Secrets["token"].Expose() == "") {
+			t.Error("rejecting the stale selection changed the saved connection")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedCLIAccount = new("current-account")
+	attempt := commandFixture(t, node, command).Data.(protocol.PluginConnectorAttempt)
+	updates, err := node.Subscribe(ctx, node.ID(), protocol.Topic{Kind: "connector_login", Data: attempt.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer updates.Close()
+	for {
+		update, err := updates.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		login, valid := dispatchPayload[protocol.PluginConnectorLoginUpdate](update.Data)
+		if !valid || login.State.Kind == "failed" || login.State.Kind == "cancelled" {
+			t.Fatalf("unexpected CLI login state %q", login.State.Kind)
+		}
+		if login.State.Kind == "connected" {
+			connection, valid := dispatchPayload[protocol.PluginConnectorConnection](login.State.Data)
+			if !valid || connection.Identity == nil || connection.Identity.ID != "current-account" || len(connection.Configured) != 0 {
+				t.Error("binding did not retain the selected account with its own credentials")
+			}
+			break
+		}
+	}
+}
 
 // Over 1 s: the Node start installs and verifies the bundled packages.
 func TestPluginConnectorAccess(t *testing.T) {

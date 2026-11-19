@@ -1855,7 +1855,7 @@ func TestConnectors(t *testing.T) {
 			t.Error("the CLI connection offers Save beside Bind")
 		}
 		press(tt, button(t, tt, en("connector_bind")))
-		if len(drafts) != 1 || drafts[0].Method != "connector_cli" || drafts[0].Service != "hub/hub" || drafts[0].Update {
+		if len(drafts) != 1 || drafts[0].Method != "connector_cli" || drafts[0].Service != "hub/hub" || drafts[0].CLIAccount != "octocat" || drafts[0].Update {
 			t.Fatalf("Bind sent %+v", drafts)
 		}
 		done[0](false)
@@ -1871,6 +1871,15 @@ func TestConnectors(t *testing.T) {
 			t.Fatalf("switching to a token sent %+v", drafts)
 		}
 		done[1](false)
+		m.connector.method = 1
+		settle()
+		m.connector.account = 0
+		settle()
+		press(tt, button(t, tt, en("connector_bind")))
+		if len(drafts) != 3 || drafts[2].CLIAccount != "other" || len(drafts[2].Fields) != 0 {
+			t.Fatal("CLI binding did not carry the selected account alone")
+		}
+		done[2](false)
 		// A saved CLI connection with a field of its own saves the field
 		// without binding again; Bind asks for the account apart.
 		m.ConnTypes[0].Fields = append(m.ConnTypes[0].Fields, preview.ConnectorField{Name: "host", Title: "Host"})
@@ -1883,10 +1892,10 @@ func TestConnectors(t *testing.T) {
 		m.connector.fields["host"] = "hub.example"
 		settle()
 		press(tt, button(t, tt, en("settings_save")))
-		if len(drafts) != 3 || !drafts[2].Update || drafts[2].Method != "connector_cli" || drafts[2].Fields["host"] != "hub.example" {
+		if len(drafts) != 4 || !drafts[3].Update || drafts[3].Method != "connector_cli" || drafts[3].CLIAccount != "" || drafts[3].Fields["host"] != "hub.example" {
 			t.Fatalf("the CLI connection's field saved as %+v", drafts)
 		}
-		done[2](false)
+		done[3](false)
 		press(tt, button(t, tt, en("connector_bind")))
 		settle()
 		if !tt.HasText(en("connector_choose_account")) || !tt.HasText("octocat") {

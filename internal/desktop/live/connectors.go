@@ -662,7 +662,7 @@ func (r *Runtime) inspectConnectorCLI(id string, done func([]string)) {
 		}
 		identity, ok := detail[protocol.PluginConnectorIdentity](output.Data)
 		if ok {
-			done([]string{identity.Name})
+			done([]string{identity.ID})
 		} else {
 			done(nil)
 		}

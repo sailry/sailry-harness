@@ -2920,12 +2920,13 @@ func (value CommandInspectConnectorCliPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandStartConnectorLoginPayload struct {
-	Package          PluginReference      `json:"package"`
-	Connector        string               `json:"connector"`
-	Connection       *PluginConnectorID   `json:"connection"`
-	ExpectedRevision *uint64              `json:"expected_revision"`
-	Method           PluginConnectorKind  `json:"method"`
-	Input            PluginConnectorInput `json:"input"`
+	Package            PluginReference      `json:"package"`
+	Connector          string               `json:"connector"`
+	Connection         *PluginConnectorID   `json:"connection"`
+	ExpectedRevision   *uint64              `json:"expected_revision"`
+	ExpectedCLIAccount *string              `json:"expected_cli_account,omitempty"`
+	Method             PluginConnectorKind  `json:"method"`
+	Input              PluginConnectorInput `json:"input"`
 }
 
 func DefaultCommandStartConnectorLoginPayload() CommandStartConnectorLoginPayload {

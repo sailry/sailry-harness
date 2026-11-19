@@ -186,8 +186,14 @@ func (node *Node) runConnectorLogin(ctx context.Context, capture *store.Connecto
 		identity, err := node.connectorIdentity(ctx, *capture, nil)
 		return nil, identity, err
 	case protocol.PluginConnectorKindLocalCli:
+		if capture.CLIIdentity != nil {
+			return nil, capture.CLIIdentity, nil
+		}
 		identity, err := node.connectorCLIIdentity(ctx, capture.Declaration)
-		return nil, &identity, err
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, &identity, nil
 	case protocol.PluginConnectorKindMcpOauth:
 		return node.connectorMCPLogin(ctx, capture, callback, progress)
 	}
