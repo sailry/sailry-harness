@@ -384,7 +384,7 @@ func rowHasIcon(child *NativeElement) bool {
 	if child.Module != "sailry/ui" || child.Export != "SettingsRow" {
 		return false
 	}
-	_, props, err := nativeProps(*child)
+	_, props, err := nativeElementProps(child)
 	return err == nil && nativeIcon(nativeProp(props, "icon", "")) != nil
 }
 
@@ -400,7 +400,7 @@ func (binding *NativeBinding) renderSortable(view *ui.Context, element NativeEle
 	rows := slices.Clone(children)
 	names := make(map[*NativeElement]string, len(rows))
 	for _, row := range rows {
-		name, _, err := nativeProps(*row)
+		name, _, err := nativeElementProps(row)
 		if err != nil {
 			return err
 		}
@@ -601,7 +601,7 @@ func (binding *NativeBinding) renderCollapse(view *ui.Context, element NativeEle
 		if child.Module != "sailry/ui" || child.Export != "CollapseSlot" {
 			return ui.Element{}, hostInvalid("collapse requires named slots")
 		}
-		_, slotProps, err := nativeProps(*child)
+		_, slotProps, err := nativeElementProps(child)
 		if err != nil {
 			return ui.Element{}, err
 		}

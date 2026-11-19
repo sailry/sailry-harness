@@ -26,7 +26,7 @@ func TestHeatmapDrawsSquareCells(t *testing.T) {
 			tester := ui.NewTester(func(view *ui.Context) {
 				theme.Apply(view, "", theme.Dark)
 				ui.Column(view).Fill().Children(func() {
-					_, renderErr = binding.renderHeatmap(view, map[string]json.RawMessage{
+					renderErr = renderTestHeatmap(&binding, view, map[string]json.RawMessage{
 						"rows":    json.RawMessage("7"),
 						"columns": json.RawMessage(fmt.Sprint(sample.columns)),
 						"cells":   json.RawMessage(`[{"column":0,"row":0,"intensity":1}]`),
@@ -66,7 +66,7 @@ func TestHeatmapFillsMeasuredWidth(t *testing.T) {
 			tester := ui.NewTester(func(view *ui.Context) {
 				theme.Apply(view, "", theme.Dark)
 				ui.Column(view).Fill().Children(func() {
-					_, renderErr = binding.renderHeatmap(view, map[string]json.RawMessage{
+					renderErr = renderTestHeatmap(&binding, view, map[string]json.RawMessage{
 						"rows":    json.RawMessage(fmt.Sprint(rows)),
 						"columns": json.RawMessage(fmt.Sprint(columns)),
 						"cells":   json.RawMessage(cells),
@@ -87,4 +87,12 @@ func TestHeatmapFillsMeasuredWidth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func renderTestHeatmap(binding *NativeBinding, view *ui.Context, props map[string]json.RawMessage) error {
+	source, err := parseHeatmap(props)
+	if err == nil {
+		binding.renderHeatmap(view, source)
+	}
+	return err
 }

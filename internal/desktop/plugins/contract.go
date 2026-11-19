@@ -44,6 +44,7 @@ type NativeElement struct {
 	RenderChild func(*ui.Context, *NativeElement) (ui.Element, error) `json:"-"`
 	Focus       func() bool                                           `json:"-"`
 	look        *elementLook
+	cache       *elementCache
 	// panelAxis is the axis of the resizable group this panel is in.
 	panelAxis int
 	// keyInput reaches the actual input inside a native field whose returned

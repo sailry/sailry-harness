@@ -273,7 +273,22 @@ func (binding *NativeBinding) operation(ctx context.Context, module, name string
 	return nil, hostUnavailable(fmt.Sprintf("%s.%s is unavailable in this view", module, name))
 }
 
+// nativeProps are a native component's identifier and props, parsed once
+// per element when it has a cache (renderElement makes one). Callers share
+// the props and must not modify them.
 func nativeProps(element NativeElement) (string, map[string]json.RawMessage, error) {
+	if element.cache == nil {
+		return parseNativeProps(element)
+	}
+	if element.cache.native == nil {
+		identity, props, err := parseNativeProps(element)
+		element.cache.native = &nativeParse{identity: identity, props: props, err: err}
+	}
+	parsed := element.cache.native
+	return parsed.identity, parsed.props, parsed.err
+}
+
+func parseNativeProps(element NativeElement) (string, map[string]json.RawMessage, error) {
 	identity := fmt.Sprintf("native-%d", element.ID)
 	props := map[string]json.RawMessage{}
 	if len(element.Props) == 0 || string(element.Props) == "null" {

@@ -190,7 +190,7 @@ func (binding *NativeBinding) focusNativeElement(element *NativeElement) bool {
 	if element == nil {
 		return false
 	}
-	_, props, err := nativeProps(*element)
+	_, props, err := nativeElementProps(element)
 	if err == nil && nativeProp(props, "disabled", false) {
 		return false
 	}
@@ -198,7 +198,7 @@ func (binding *NativeBinding) focusNativeElement(element *NativeElement) bool {
 		return true
 	}
 	if element.Module == "sailry/forms" && (element.Export == "TextField" || element.Export == "NumberField") {
-		identity, _, err := nativeProps(*element)
+		identity, _, err := nativeElementProps(element)
 		if err == nil {
 			binding.state.mu.Lock()
 			draft := binding.state.text[identity]

@@ -585,25 +585,6 @@ func (mounted *Mounted) image(name string) (ui.ImageSource, error) {
 	return image, err
 }
 
-func runtimeProperties(element *NativeElement) map[string]any {
-	properties := map[string]any{}
-	_ = json.Unmarshal(element.Props, &properties)
-	if properties == nil {
-		properties = map[string]any{}
-	}
-	for _, style := range element.Styles {
-		if len(style.Arguments) == 1 {
-			var value any
-			if json.Unmarshal(style.Arguments[0], &value) == nil {
-				properties[style.Name] = value
-			}
-		} else if len(style.Arguments) == 0 {
-			properties[style.Name] = true
-		}
-	}
-	return properties
-}
-
 func runtimeString(value any) string {
 	if text, ok := value.(string); ok {
 		return text

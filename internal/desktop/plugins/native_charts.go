@@ -3,6 +3,7 @@ package plugins
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/chart"
@@ -15,16 +16,51 @@ type nativeChartRow struct {
 	Value string `json:"value"`
 }
 
+// chartColors are the theme snapshot's colors of the last palette asked
+// for: charts ask for them per series on every frame.
+var chartColors struct {
+	mu      sync.Mutex
+	palette *theme.Palette
+	colors  map[string]string
+}
+
 func nativeChartColor(view *ui.Context, name string) ui.Color {
-	var snapshot struct {
-		Colors map[string]string `json:"colors"`
-	}
-	if json.Unmarshal(ThemeSnapshot(theme.Of(view)), &snapshot) == nil {
-		if color, err := nativeColor(snapshot.Colors[name]); err == nil {
-			return color
+	palette := theme.Of(view)
+	chartColors.mu.Lock()
+	if chartColors.palette != palette || chartColors.colors == nil {
+		var snapshot struct {
+			Colors map[string]string `json:"colors"`
+		}
+		_ = json.Unmarshal(ThemeSnapshot(palette), &snapshot)
+		chartColors.palette, chartColors.colors = palette, snapshot.Colors
+		if chartColors.colors == nil {
+			chartColors.colors = map[string]string{}
 		}
 	}
-	return theme.Of(view).Primary
+	value := chartColors.colors[name]
+	chartColors.mu.Unlock()
+	if color, err := nativeColor(value); err == nil {
+		return color
+	}
+	return palette.Primary
+}
+
+// chartSource is an element's chart source, parsed and checked once per
+// element when it has a cache.
+func chartSource[Source any](element NativeElement, props map[string]json.RawMessage, parse func(map[string]json.RawMessage) (*Source, error)) (*Source, error) {
+	type parsed struct {
+		source *Source
+		err    error
+	}
+	if element.cache == nil {
+		return parse(props)
+	}
+	if kept, ok := element.cache.chart.(parsed); ok {
+		return kept.source, kept.err
+	}
+	source, err := parse(props)
+	element.cache.chart = parsed{source, err}
+	return source, err
 }
 
 func (binding *NativeBinding) renderChart(view *ui.Context, element NativeElement, _ func(), _ func(CallbackRef, json.RawMessage)) (ui.Element, error) {
@@ -40,39 +76,59 @@ func (binding *NativeBinding) renderChart(view *ui.Context, element NativeElemen
 		}
 		return ui.Progress(view, min(max(value, 0), 100)/100).Label(nativeProp(props, "label", "")).FillWidth().TextColor(nativeChartColor(view, nativeProp(props, "color", "primary"))), nil
 	case "Heatmap":
-		return binding.renderHeatmap(view, props)
+		source, err := chartSource(element, props, parseHeatmap)
+		if err != nil {
+			return ui.Element{}, err
+		}
+		return binding.renderHeatmap(view, source), nil
 	case "StackedChart":
-		return binding.renderStackedChart(view, props)
+		source, err := chartSource(element, props, parseStackedChart)
+		if err != nil {
+			return ui.Element{}, err
+		}
+		return binding.renderStackedChart(view, source), nil
 	}
 	return ui.Element{}, hostInvalid("unknown native chart")
 }
 
-func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]json.RawMessage) (ui.Element, error) {
-	var source struct {
-		Rows    int `json:"rows"`
-		Columns int `json:"columns"`
-		Cells   []struct {
-			Column     int     `json:"column"`
-			Row        int     `json:"row"`
-			Intensity  float32 `json:"intensity"`
-			Label      string  `json:"label"`
-			LabelGroup *string `json:"label_group"`
-			Tooltip    struct {
-				Heading string           `json:"heading"`
-				Title   string           `json:"title"`
-				Rows    []nativeChartRow `json:"rows"`
-			} `json:"tooltip"`
-		} `json:"cells"`
-	}
+type heatmapSource struct {
+	Rows    int `json:"rows"`
+	Columns int `json:"columns"`
+	Cells   []struct {
+		Column     int     `json:"column"`
+		Row        int     `json:"row"`
+		Intensity  float32 `json:"intensity"`
+		Label      string  `json:"label"`
+		LabelGroup *string `json:"label_group"`
+		Tooltip    struct {
+			Heading string           `json:"heading"`
+			Title   string           `json:"title"`
+			Rows    []nativeChartRow `json:"rows"`
+		} `json:"tooltip"`
+		tip kit.ChartTip
+	} `json:"cells"`
+}
+
+func parseHeatmap(props map[string]json.RawMessage) (*heatmapSource, error) {
+	var source heatmapSource
 	body, _ := hostJSON(props)
 	if json.Unmarshal(body, &source) != nil || source.Rows <= 0 || source.Columns <= 0 || len(source.Cells) > 100000 {
-		return ui.Element{}, hostInvalid("invalid heatmap bounds")
+		return nil, hostInvalid("invalid heatmap bounds")
 	}
-	for _, cell := range source.Cells {
+	for index := range source.Cells {
+		cell := &source.Cells[index]
 		if cell.Row < 0 || cell.Row >= source.Rows || cell.Column < 0 || cell.Column >= source.Columns || !finiteNumber(float64(cell.Intensity)) || cell.Intensity < 0 || cell.Intensity > 1 {
-			return ui.Element{}, hostInvalid("invalid heatmap cell")
+			return nil, hostInvalid("invalid heatmap cell")
+		}
+		cell.tip = kit.ChartTip{Heading: cell.Tooltip.Heading, Title: cell.Tooltip.Title}
+		for _, row := range cell.Tooltip.Rows {
+			cell.tip.Rows = append(cell.tip.Rows, kit.ChartTipRow{Label: row.Label, Value: row.Value})
 		}
 	}
+	return &source, nil
+}
+
+func (binding *NativeBinding) renderHeatmap(view *ui.Context, source *heatmapSource) ui.Element {
 	palette := theme.Of(view)
 	active := nativeChartColor(view, "chart_2")
 	// Limit the plot's width before resolving its aspect ratio so short
@@ -88,11 +144,7 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 					x := chart.Span{Lo: float32(cell.Column) / float32(source.Columns), Hi: (float32(cell.Column) + 0.8) / float32(source.Columns)}
 					y := chart.Span{Lo: 1 - (float32(cell.Row)+0.8)/float32(source.Rows), Hi: 1 - float32(cell.Row)/float32(source.Rows)}
 					mark := chart.Rect(view, x, y).Background(color).Radius(2)
-					tip := kit.ChartTip{Heading: cell.Tooltip.Heading, Title: cell.Tooltip.Title}
-					for _, row := range cell.Tooltip.Rows {
-						tip.Rows = append(tip.Rows, kit.ChartTipRow{Label: row.Label, Value: row.Value})
-					}
-					kit.ChartTooltip(view, mark, tip)
+					kit.ChartTooltip(view, mark, cell.tip)
 				}
 			}).Fill()
 		})
@@ -118,71 +170,85 @@ func (binding *NativeBinding) renderHeatmap(view *ui.Context, props map[string]j
 				}
 			}
 		})
-	}), nil
+	})
 }
 
-func (binding *NativeBinding) renderStackedChart(view *ui.Context, props map[string]json.RawMessage) (ui.Element, error) {
-	var source struct {
-		Series []struct {
-			ID    string `json:"id"`
-			Color string `json:"color"`
-		} `json:"series"`
-		Buckets []struct {
-			Label   string     `json:"label"`
-			Values  *[]float64 `json:"values"`
-			Tooltip struct {
-				Heading string           `json:"heading"`
-				Rows    []nativeChartRow `json:"rows"`
-				Footer  nativeChartRow   `json:"footer"`
-			} `json:"tooltip"`
-		} `json:"buckets"`
-		Maximum float64 `json:"maximum"`
-		Ticks   []struct {
-			Value float64 `json:"value"`
-			Label string  `json:"label"`
-		} `json:"ticks"`
-		Height *float32 `json:"height"`
-	}
+type stackedChartSource struct {
+	Series []struct {
+		ID    string `json:"id"`
+		Color string `json:"color"`
+	} `json:"series"`
+	Buckets []struct {
+		Label   string     `json:"label"`
+		Values  *[]float64 `json:"values"`
+		Tooltip struct {
+			Heading string           `json:"heading"`
+			Rows    []nativeChartRow `json:"rows"`
+			Footer  nativeChartRow   `json:"footer"`
+		} `json:"tooltip"`
+		// marks are the bar segments' labels, by series.
+		marks []string
+	} `json:"buckets"`
+	Maximum float64 `json:"maximum"`
+	Ticks   []struct {
+		Value float64 `json:"value"`
+		Label string  `json:"label"`
+	} `json:"ticks"`
+	Height       *float32 `json:"height"`
+	height       float32
+	scale        chart.Linear
+	ticks, under []chart.Tick
+}
+
+func parseStackedChart(props map[string]json.RawMessage) (*stackedChartSource, error) {
+	var source stackedChartSource
 	body, _ := hostJSON(props)
 	if json.Unmarshal(body, &source) != nil || !finiteNumber(source.Maximum) || source.Maximum < 0 || len(source.Buckets) > 10000 || len(source.Series) > 256 {
-		return ui.Element{}, hostInvalid("invalid stacked chart bounds")
+		return nil, hostInvalid("invalid stacked chart bounds")
 	}
-	height := float32(148)
+	source.height = float32(148)
 	if source.Height != nil {
-		height = *source.Height
+		source.height = *source.Height
 	}
-	if !finiteNumber(float64(height)) || height < 96 || height > 480 {
-		return ui.Element{}, hostInvalid("invalid stacked chart height")
+	if !finiteNumber(float64(source.height)) || source.height < 96 || source.height > 480 {
+		return nil, hostInvalid("invalid stacked chart height")
 	}
-	for _, bucket := range source.Buckets {
+	for index := range source.Buckets {
+		bucket := &source.Buckets[index]
 		if len(bucket.Tooltip.Rows) != len(source.Series) {
-			return ui.Element{}, hostInvalid("stacked chart tooltip series differ")
+			return nil, hostInvalid("stacked chart tooltip series differ")
 		}
 		if bucket.Values != nil {
 			if len(*bucket.Values) != len(source.Series) {
-				return ui.Element{}, hostInvalid("stacked chart series differ")
+				return nil, hostInvalid("stacked chart series differ")
 			}
-			for _, value := range *bucket.Values {
+			for column, value := range *bucket.Values {
 				if !finiteNumber(value) || value < 0 {
-					return ui.Element{}, hostInvalid("invalid stacked chart value")
+					return nil, hostInvalid("invalid stacked chart value")
 				}
+				bucket.marks = append(bucket.marks, fmt.Sprintf("%s %s", bucket.Label, bucket.Tooltip.Rows[column].Value))
 			}
 		}
 	}
-	scale := chart.NewLinear(0, max(source.Maximum, 1))
-	ticks := []chart.Tick{}
+	source.scale = chart.NewLinear(0, max(source.Maximum, 1))
+	source.ticks = []chart.Tick{}
 	for _, tick := range source.Ticks {
 		if !finiteNumber(tick.Value) {
-			return ui.Element{}, hostInvalid("invalid stacked chart tick")
+			return nil, hostInvalid("invalid stacked chart tick")
 		}
-		ticks = append(ticks, chart.Tick{At: scale.At(tick.Value), Value: tick.Value, Label: tick.Label})
+		source.ticks = append(source.ticks, chart.Tick{At: source.scale.At(tick.Value), Value: tick.Value, Label: tick.Label})
 	}
-	bottom := []chart.Tick{}
+	source.under = []chart.Tick{}
 	for index, bucket := range source.Buckets {
 		if bucket.Label != "" {
-			bottom = append(bottom, chart.Tick{At: (float32(index) + 0.5) / float32(len(source.Buckets)), Label: bucket.Label})
+			source.under = append(source.under, chart.Tick{At: (float32(index) + 0.5) / float32(len(source.Buckets)), Label: bucket.Label})
 		}
 	}
+	return &source, nil
+}
+
+func (binding *NativeBinding) renderStackedChart(view *ui.Context, source *stackedChartSource) ui.Element {
+	scale, ticks, bottom, height := source.scale, source.ticks, source.under, source.height
 	colors := make([]ui.Color, len(source.Series))
 	for index, series := range source.Series {
 		colors[index] = nativeChartColor(view, series.Color)
@@ -210,7 +276,7 @@ func (binding *NativeBinding) renderStackedChart(view *ui.Context, props map[str
 			}
 			for column, value := range *bucket.Values {
 				mark := chart.Rect(view, x, scale.Span(total, total+value)).Background(colors[column])
-				mark.Label(fmt.Sprintf("%s %s", bucket.Label, bucket.Tooltip.Rows[column].Value))
+				mark.Label(bucket.marks[column])
 				kit.ChartTooltip(view, mark, tip)
 				total += value
 			}
@@ -218,5 +284,5 @@ func (binding *NativeBinding) renderStackedChart(view *ui.Context, props map[str
 				chart.Rect(view, x, chart.Span{Lo: 0, Hi: 0.005}).Background(theme.Of(view).MutedForeground)
 			}
 		}
-	}).Height(height).FillWidth().Gap(8), nil
+	}).Height(height).FillWidth().Gap(8)
 }

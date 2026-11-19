@@ -13,27 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-func (mounted *Mounted) widgetKey(element *NativeElement) string {
-	properties := runtimeProperties(element)
-	identity := runtimeString(properties["id"])
-	if identity == "" {
-		identity = runtimeString(properties["motion_id"])
-	}
-	if identity == "" {
-		if state, ok := properties["state"].(map[string]any); ok && runtimeFloat(state["__coreState"]) > 0 {
-			identity = fmt.Sprintf("state:%v", state["__coreState"])
-		}
-	}
-	if identity == "" {
-		if ordinal := runtimeFloat(properties["__ordinal"]); ordinal > 0 {
-			identity = fmt.Sprintf("position:%v", ordinal)
-		} else {
-			identity = strconv.FormatUint(element.ID, 10)
-		}
-	}
-	return element.Module + "/" + element.Export + "/" + identity
-}
-
 func (mounted *Mounted) widgetID(element *NativeElement) uint64 {
 	key := mounted.widgetKey(element)
 	if identifier, exists := mounted.widgetIDs[key]; exists {
