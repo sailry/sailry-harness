@@ -3,6 +3,7 @@ package live
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -447,4 +448,41 @@ func TestRetainedToolDetailEnrichment(t *testing.T) {
 			t.Fatalf("enriching a retained tool row accumulated or lost its output: %#v", call.Output)
 		}
 	}
+}
+
+// A turn the Node left out of a fitted first page loads as the conversation
+// opens, instead of showing as an empty reply until the user scrolls up.
+func TestBlankMissingTurnLoadsOnOpen(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		older := cacheTestPage(id, 1, "Older input")
+		accepted := source.conversations[id]
+		accepted.Page.Runs = append(slices.Clone(older.Runs), accepted.Page.Runs...)
+		accepted.Page.NextBefore = nil
+		accepted.Missing = []protocol.TurnID{older.Runs[0].Turn}
+		source.conversations[id] = accepted
+		if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		reads := 0
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			if request.Command.Kind != "read_turn" {
+				return link.Response{}, false
+			}
+			reads++
+			return link.Response{Output: protocol.Output{Kind: "turn_history", Data: protocol.ConversationTurnHistory{
+				Sequence: accepted.Sequence, Revision: accepted.Page.Revision, Run: older.Runs[0], Entries: older.Entries,
+				Approvals: []protocol.ConversationApproval{}, Questions: []protocol.ConversationQuestion{}, Children: []protocol.ConversationChild{},
+			}}}, true
+		}
+		cacheTestFrame(t, r, cv, id)
+		r.workers.Wait()
+		synctest.Wait()
+		cacheTestFrame(t, r, cv, id)
+		r.workers.Wait()
+		if reads != 1 || len(cv.Turns) != 2 || cv.Turns[0].User != "Older input" || len(cv.Turns[0].Reply.Blocks) == 0 {
+			t.Fatalf("the blank turn did not load once on open: %d reads, %#v", reads, cv.Turns)
+		}
+	})
 }

@@ -136,6 +136,13 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	var clocks transcriptClocks
 	cv.Turns, cv.Session, cv.Waiting, cv.Queue, clocks = projectTranscript(state, language)
 	clocks.advance(cv.Turns, now)
+	// A first page the Node fitted to its frame lists turns whose entries it
+	// left out. Such a turn would show as an empty reply until the user
+	// scrolled to the top, so its history loads now; each load re-projects,
+	// and the next blank turn follows until none is left or a load fails.
+	if blankMissingTurn(state.Snapshot) && !state.LoadingOlder && state.OlderErr == nil {
+		r.async(func() { _ = r.controller.LoadOlderConversation(r.ctx, id) })
+	}
 	presentation := conversationPresentation{mounted: true}
 	if cacheable {
 		presentation.generation, presentation.language = copy.generation, language
@@ -143,4 +150,15 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 	}
 	r.saveConversationPresentation(cv, presentation)
 	return true
+}
+
+// blankMissingTurn reports a listed turn the page carries none of the
+// entries of.
+func blankMissingTurn(s protocol.ConversationSnapshot) bool {
+	for _, turn := range s.Missing {
+		if !slices.ContainsFunc(s.Page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == turn }) {
+			return true
+		}
+	}
+	return false
 }
