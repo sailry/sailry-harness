@@ -434,19 +434,12 @@ func (s *Service) watchStallLocked(entry *commandEntry) {
 			stalled := Stalled{Snapshot: protocol.ProcessSnapshot{Info: entry.info, Stdout: stdout, Stderr: stderr},
 				ElapsedMs: uint64(max(now.UnixMilli()-int64(entry.info.StartedMs), 0)), SilenceMs: uint64(silent.Milliseconds()),
 				StdoutBytes: stdoutBytes, StderrBytes: stderrBytes}
-			resumed := entry.outputChanged
 			s.mu.Unlock()
 			if s.options.Stalled(context.WithoutCancel(s.ctx), stalled) == nil {
 				return
 			}
-			select {
-			case <-entry.done:
-				return
-			case <-s.ctx.Done():
-				return
-			case <-resumed:
-				wait = StallWindow
-			}
+			// An unrecorded report is checked again after another window.
+			wait = StallWindow
 		}
 	}()
 }

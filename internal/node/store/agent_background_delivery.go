@@ -307,6 +307,13 @@ func deliverBackground(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	if err != nil {
 		return nil, nil, err
 	}
+	// The input that takes the held results ends the stop hold of commands
+	// still running.
+	if explicitInput {
+		if err = releaseStoppedCommands(ctx, db, run.Session); err != nil {
+			return nil, nil, err
+		}
+	}
 	if len(results) == 0 && !initialNotice {
 		return nil, nil, nil
 	}

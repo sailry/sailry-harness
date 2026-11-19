@@ -66,7 +66,8 @@ type Options struct {
 	After       func(time.Duration) <-chan time.Time
 	Finished    func(context.Context, Finished) error
 	// Stalled, when set, records prolonged silence for a follow-up command.
-	// A successful report ends observation for that command.
+	// A successful report ends observation for that command; after an error
+	// the command is checked again once another window passes.
 	Stalled        func(context.Context, Stalled) error
 	Changed        func(protocol.WorktreeID)
 	CaptureManaged func(string) (string, error)

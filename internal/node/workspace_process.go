@@ -178,7 +178,7 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	launch.CompletionGate = gate
 	effect.after = func() { close(gate) }
 	if input.Background {
-		value, err := node.processes.Start(launch)
+		value, err := node.startTurnCommand(operation, launch)
 		if err != nil && launch.Release != nil {
 			launch.Release()
 		}
@@ -207,6 +207,19 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 	return output, err
 
 }
+
+// startTurnCommand starts a background command for an operation of a running
+// turn. A stop of that turn cancels the operation before the Node stops the
+// session's commands, so a command started after that scan sees the
+// cancellation here and is stopped the same way; its receipt is held as stopped.
+func (node *Node) startTurnCommand(operation context.Context, launch process.Launch) (protocol.ProcessInfo, error) {
+	value, err := node.processes.Start(launch)
+	if err == nil && operation.Err() != nil && !launch.Service {
+		_, _ = node.processes.Stop(launch.Session, launch.ID)
+	}
+	return value, err
+}
+
 func (node *Node) activeWorkspaceCommands(ctx context.Context, worktree protocol.WorktreeID) bool {
 	var snapshot protocol.Snapshot
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {

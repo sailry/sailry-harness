@@ -196,7 +196,7 @@ WHERE json_extract(c.body,'$.package.name')=?1 AND json_extract(a.body,'$.status
 		return err
 	}
 	for _, run := range runs {
-		if _, err := stopAgentTurn(ctx, db, run.Turn, time.Now()); err != nil {
+		if _, err := interruptAgentTurn(ctx, db, run.Turn, time.Now()); err != nil {
 			return err
 		}
 	}

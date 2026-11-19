@@ -164,14 +164,9 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 			AND EXISTS (SELECT 1 FROM agent_runs WHERE turn=?1 AND json_extract(body,'$.status') IN ('queued','running','stopping'))`, turn.String()); err != nil {
 			return protocol.Output{}, nil, err
 		}
-		run, err := stopAgentTurn(ctx, db, turn, now)
+		run, err := interruptAgentTurn(ctx, db, turn, now)
 		if err != nil {
 			return protocol.Output{}, nil, err
-		}
-		if run.Status == protocol.ConversationStatusStopping {
-			if err = HoldStoppedCommands(ctx, db, run.Session); err != nil {
-				return protocol.Output{}, nil, err
-			}
 		}
 		events, err := activityEvent(ctx, db, run.Session)
 		return protocol.Output{Kind: "run", Data: run}, events, err
@@ -320,7 +315,8 @@ func executeQueueCommand(ctx context.Context, db *sql.Conn, caller protocol.Node
 			return protocol.Output{}, nil, err
 		}
 		for _, r := range active {
-			stopped, e := stopAgentTurn(ctx, db, r.Turn, now)
+			// Send now interrupts the running turn like a user stop.
+			stopped, e := interruptAgentTurn(ctx, db, r.Turn, now)
 			if e != nil {
 				return protocol.Output{}, nil, e
 			}

@@ -640,14 +640,18 @@ Active follow-ups and automatic deliveries contribute to session activity.
 Held results remain available for the next input, and a descendant waiting for
 input or approval remains visible when background work is active.
 
-A user stop of a running turn also ends the session's command work. The stop
+A user stop of a running turn also ends the session's command work, as does
+Send now and the stop of a disabled or removed package's automatic turn. The stop
 transaction holds the session's running and undelivered command evidence with
 the `stopped` reason, and a command receipt committed after the stop is held
-the same way. After the commit, the Node stops every background or promoted
-command of the session except those launched with `service: true`, a background-only
-flag the model sets for development servers and watchers. Held results, including
-a service that later exits, start no notice turn even if the queue resumes, report no
-stall, and join the user's next message.
+the same way. After the commit, the engine has the Node stop every background or
+promoted command of the session except those launched with `service: true`, a
+background-only flag the model sets for development servers and watchers. A
+command that starts while the stop commits finds its operation cancelled and
+is stopped too. Held results, including a service that later exits, start no
+notice turn even if the queue resumes, report no stall, and join the user's next
+message. That message also releases the hold on services still running, so their
+follow-up and stall reports resume.
 
 A promoted command switches its completion capture to the most recent bytes of
 each stream. Command evidence carries truncation flags and omitted byte counts

@@ -212,7 +212,8 @@ func TestStalledDelivery(t *testing.T) {
 		if _, _, err = FinishTurn(ctx, db, second.Run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
 			return err
 		}
-		if written, err := stall(db, 45*time.Minute); err != nil || written {
+		// The held command is checked again later instead of ending observation.
+		if written, err := stall(db, 45*time.Minute); !errors.Is(err, ErrCommandHeld) || written {
 			return fmt.Errorf("stall after the stop replaced held evidence: %v", err)
 		}
 		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)

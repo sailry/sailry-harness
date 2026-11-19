@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -253,6 +254,30 @@ func HoldStoppedCommands(ctx context.Context, db *sql.Conn, session protocol.Ses
 	}
 	for _, record := range records {
 		record.Task.Suppressed, record.Task.Hold = true, new(protocol.ConversationBackgroundHoldStopped)
+		if err = saveBackgroundRecord(ctx, db, &record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ErrCommandHeld reports that a command held by a user stop records no stall yet.
+var ErrCommandHeld = errors.New("background command is held by a stop")
+
+// releaseStoppedCommands ends the stop hold on the session's commands that are
+// still running, such as services, once the user's next message has taken the
+// held results: their follow-up and stall reports resume, and they count as
+// active background work again.
+func releaseStoppedCommands(ctx context.Context, db *sql.Conn, session protocol.SessionID) error {
+	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE session=?1 AND kind='command' AND state='running' AND json_extract(body,'$.task.suppressed')=1", session.String())
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if record.Task.Hold == nil || *record.Task.Hold != protocol.ConversationBackgroundHoldStopped {
+			continue
+		}
+		record.Task.Suppressed, record.Task.Hold = false, nil
 		if err = saveBackgroundRecord(ctx, db, &record); err != nil {
 			return err
 		}

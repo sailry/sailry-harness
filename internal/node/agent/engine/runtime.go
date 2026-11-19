@@ -45,6 +45,10 @@ type Options struct {
 	// StopCommands, when set, stops a session's background commands. The
 	// engine calls it for a child session whose run has ended.
 	StopCommands func(protocol.SessionID)
+	// StopTransient, when set, stops a session's non-service background
+	// commands. The engine calls it once a durable stop of the session's
+	// running turn commits: a user stop, Send now or a disabled package.
+	StopTransient func(protocol.SessionID)
 }
 
 type Runtime struct {
@@ -58,6 +62,7 @@ type Runtime struct {
 	telemetry         *telemetry.Control
 	working           func() func()
 	stopCommands      func(protocol.SessionID)
+	stopTransient     func(protocol.SessionID)
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -137,7 +142,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{telemetry: options.Telemetry, working: options.Working, stopCommands: options.StopCommands, stopTransient: options.StopTransient, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, afterTurn: options.AfterTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
@@ -355,10 +360,18 @@ func (r *Runtime) StopCommitted(run protocol.ConversationRun) {
 	r.mu.Lock()
 	x := r.active[run.Turn]
 	r.mu.Unlock()
-	if x != nil && x.ctx.Err() == nil {
+	if x != nil {
+		if x.ctx.Err() != nil {
+			return
+		}
 		x.cancel()
 		r.stopChildren(x)
 		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
+	}
+	// Every stop of a running turn ends the session's command work; declared
+	// services keep running. The stop transaction already held their evidence.
+	if r.stopTransient != nil {
+		r.stopTransient(run.Session)
 	}
 }
 

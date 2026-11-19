@@ -287,6 +287,18 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 	}
 	return run, putAgentRun(ctx, db, run)
 }
+
+// interruptAgentTurn stops a turn the way a user stop does. Stopping a running
+// turn also holds the session's command evidence; once the stop commits, the
+// engine has the Node stop the session's non-service commands.
+func interruptAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now time.Time) (protocol.ConversationRun, error) {
+	run, err := stopAgentTurn(ctx, db, turn, now)
+	if err != nil || run.Status != protocol.ConversationStatusStopping {
+		return run, err
+	}
+	return run, HoldStoppedCommands(ctx, db, run.Session)
+}
+
 func reorderQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID, turn protocol.TurnID, before *protocol.TurnID) error {
 	queue, err := ReadQueue(ctx, db, session)
 	if err != nil {

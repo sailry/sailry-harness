@@ -232,9 +232,13 @@ func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, no
 	if command.Task.Session != snapshot.Info.Session || command.Task.Turn != snapshot.Info.Turn {
 		return nil, false, errors.New("background command ownership changed")
 	}
-	// A command held by a user stop, such as a service, reports no stall.
-	if command.Task.State != protocol.ConversationBackgroundStateRunning || !command.FollowUp || command.Task.Suppressed {
+	if command.Task.State != protocol.ConversationBackgroundStateRunning || !command.FollowUp {
 		return nil, false, nil
+	}
+	// A command held by a user stop, such as a service, reports no stall
+	// until the user's next message releases the hold; it is checked again.
+	if command.Task.Suppressed {
+		return nil, false, ErrCommandHeld
 	}
 	id := "stall:" + snapshot.Info.ID.String()
 	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)

@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,12 +18,22 @@ func TestStallMonitor(t *testing.T) {
 		stalls  chan Stalled
 		output  chan string
 		emitted chan struct{}
-		launch  Launch
+		// declined holds a token for each report the recorder declines.
+		declined chan struct{}
+		launch   Launch
 	}
 	start := func(t *testing.T) fixture {
-		value := fixture{clock: clockwork.NewFakeClock(), stalls: make(chan Stalled, 8), output: make(chan string), emitted: make(chan struct{})}
+		value := fixture{clock: clockwork.NewFakeClock(), stalls: make(chan Stalled, 8), output: make(chan string), emitted: make(chan struct{}), declined: make(chan struct{}, 1)}
 		service, err := New(Options{Profile: t.TempDir(), Now: value.clock.Now, After: value.clock.After,
-			Stalled: func(_ context.Context, stalled Stalled) error { value.stalls <- stalled; return nil },
+			Stalled: func(_ context.Context, stalled Stalled) error {
+				value.stalls <- stalled
+				select {
+				case <-value.declined:
+					return errors.New("report declined")
+				default:
+					return nil
+				}
+			},
 			Run: func(ctx context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 				for {
 					select {
@@ -102,6 +113,28 @@ func TestStallMonitor(t *testing.T) {
 		}
 		if len(value.stalls) != 0 {
 			t.Fatal("command was reported after its first recorded stall")
+		}
+	})
+	t.Run("a declined report is checked again after another window", func(t *testing.T) {
+		t.Parallel()
+		value := start(t)
+		value.declined <- struct{}{}
+		if _, err := value.service.Start(value.launch); err != nil {
+			t.Fatal(err)
+		}
+		armed(t, value)
+		value.clock.Advance(StallWindow)
+		stalled(t, value)
+		// Still silent, with no new output, the command is reported again.
+		armed(t, value)
+		value.clock.Advance(StallWindow)
+		stalled(t, value)
+		value.clock.Advance(4 * StallWindow)
+		if err := value.service.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if len(value.stalls) != 0 {
+			t.Fatal("command was reported after its recorded stall")
 		}
 	})
 	t.Run("a finished command is never reported", func(t *testing.T) {
