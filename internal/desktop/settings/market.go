@@ -1,9 +1,9 @@
 package settings
 
 import (
-	"strconv"
 	"strings"
 
+	format "github.com/egoist/mygo/i18n"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -430,9 +430,10 @@ func marketSkillCard(c *ui.Context, s *State, x *preview.Skill, action string) {
 				if value == nil {
 					return
 				}
-				ui.Row(c.Key(label)).Gap(4).AlignItems(ui.Center).Label(label + " " + compactCount(*value)).Children(func() {
+				text := compactCount(c.Locale(), *value)
+				ui.Row(c.Key(label)).Gap(4).AlignItems(ui.Center).Label(label + " " + text).Children(func() {
 					ui.Icon(c, icon).FontSize(13).TextColor(p.MutedForeground)
-					ui.Text(c, compactCount(*value)).FontSize(12).FontFeatures("tnum").TextColor(p.MutedForeground).SingleLine()
+					ui.Text(c, text).FontSize(12).FontFeatures("tnum").TextColor(p.MutedForeground).SingleLine()
 				})
 			}
 			count(icons.Download, t("market_installs"), x.Installs)
@@ -474,20 +475,11 @@ func skillPicture(c *ui.Context, m *Model, x *preview.Skill) {
 	})
 }
 
-// compactCount is a count in a short form: 950, 1.2k, 12.3k, 4.4M.
-func compactCount(n uint64) string {
-	value, suffix := float64(n), ""
-	for _, unit := range []string{"k", "M", "B"} {
-		// A value that rounds to 1000 of a unit is written in the next.
-		if value < 999.95 {
-			break
-		}
-		value, suffix = value/1000, unit
-	}
-	if suffix == "" {
-		return strconv.FormatUint(n, 10)
-	}
-	return strconv.FormatFloat(value, 'f', 1, 64) + suffix
+// compactCount is a count in the locale's short compact notation with at
+// most one fraction digit: 950, 1.2K, 12.3K and 4.4M in English, 1.2万 and
+// 3.4亿 in Simplified Chinese, 1.2萬 in Traditional Chinese.
+func compactCount(locale string, n uint64) string {
+	return format.FormatNumber(i18n.Match(locale), n, format.NumberOptions{Notation: format.CompactShort, MaxFractionDigits: 1})
 }
 
 // themeAction is a theme's action: Apply an installed theme, Install or

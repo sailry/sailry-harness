@@ -224,9 +224,19 @@ func TestSkillMarketSourceSelector(t *testing.T) {
 }
 
 func TestCompactCount(t *testing.T) {
-	for n, want := range map[uint64]string{0: "0", 950: "950", 1_234: "1.2k", 12_345: "12.3k", 999_960: "1.0M", 4_400_000: "4.4M"} {
-		if got := compactCount(n); got != want {
-			t.Errorf("compactCount(%d) = %q; want %q", n, got, want)
+	for _, test := range []struct {
+		locale string
+		counts map[uint64]string
+	}{
+		{"en", map[uint64]string{0: "0", 950: "950", 1_234: "1.2K", 12_345: "12.3K", 999_960: "1M", 4_400_000: "4.4M"}},
+		{"zh-CN", map[uint64]string{950: "950", 12_345: "1.2万", 4_400_000: "440万", 340_000_000: "3.4亿"}},
+		{"zh-TW", map[uint64]string{12_345: "1.2萬", 340_000_000: "3.4億"}},
+		{"ja", map[uint64]string{12_345: "1.2万", 340_000_000: "3.4億"}},
+	} {
+		for n, want := range test.counts {
+			if got := compactCount(test.locale, n); got != want {
+				t.Errorf("compactCount(%q, %d) = %q; want %q", test.locale, n, got, want)
+			}
 		}
 	}
 }
