@@ -3,6 +3,7 @@ package settings
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -92,6 +93,63 @@ func TestPreviewSkillMarketFiltersLocally(t *testing.T) {
 	for _, name := range []string{i18n.In("en", "market_load_more"), i18n.In("en", "settings_retry")} {
 		if _, exists := tt.AccessByRole(ui.RoleButton, name); exists {
 			t.Fatalf("the preview offers %q", name)
+		}
+	}
+}
+
+func TestSkillMarketSourceSelector(t *testing.T) {
+	s := New()
+	s.MarketKind, s.MarketSource, s.MarketLoad = 1, 1, preview.Fetch{Loaded: true}
+	tt := ui.NewTesterWith(func(c *ui.Context) { MarketPage(c, s) }, 640, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	if s.MarketSkillSource != SkillMarketAll || !tt.HasText("changelog") || !tt.HasText("pr-describe") {
+		t.Fatalf("default skill source does not show both catalogs: %q", tt.Texts())
+	}
+	label := func(key string) string { return i18n.In("en", key) }
+	search, found := tt.Access(label("market_search_skills"))
+	if !found {
+		t.Fatal("no search field in the skills market")
+	}
+	for _, want := range []struct {
+		key       string
+		selection int
+		shown     string
+		hidden    string
+	}{
+		{"skill_source_skills", SkillMarketSkillsSh, "changelog", "pr-describe"},
+		{"skill_source_hub", SkillMarketSkillhub, "pr-describe", "changelog"},
+	} {
+		source, ok := tt.AccessByRole(ui.RoleMenuButton, label("market_details_source"))
+		if !ok {
+			t.Fatal("no source selector in the skills market")
+		}
+		if search.Bounds.X+search.Bounds.W > source.Bounds.X ||
+			search.Bounds.Y+search.Bounds.H <= source.Bounds.Y || int(source.Bounds.X+source.Bounds.W) > 640 {
+			t.Fatalf("source selector is not beside the search field: search=%+v source=%+v", search.Bounds, source.Bounds)
+		}
+		tt.ClickAt(source.Bounds.X+source.Bounds.W/2, source.Bounds.Y+source.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		var names []string
+		var choice ui.AccessInfo
+		for _, control := range tt.AccessAll() {
+			switch control.Role {
+			case ui.RoleMenuItem, ui.RoleMenuItemRadio, ui.RoleMenuItemCheckBox:
+				names = append(names, control.Name)
+				if control.Name == label(want.key) {
+					choice = control
+				}
+			}
+		}
+		if !slices.Equal(names, []string{label("market_all"), label("skill_source_skills"), label("skill_source_hub")}) {
+			t.Fatalf("skill source choices: %q", names)
+		}
+		tt.ClickAt(choice.Bounds.X+choice.Bounds.W/2, choice.Bounds.Y+choice.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+		if s.MarketSkillSource != want.selection || s.MarketSource != 1 || !tt.HasText(want.shown) || tt.HasText(want.hidden) {
+			t.Fatalf("source %q did not filter skills independently of plugins: %q", want.key, tt.Texts())
 		}
 	}
 }

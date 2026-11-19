@@ -153,7 +153,7 @@ func (r *Runtime) initB8Packages() {
 			if m.MarketKind == 2 {
 				root.packages.themeRead = false
 			}
-			r.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery, true)
+			r.searchPackageMarket(m.MarketKind, marketSource(m), m.MarketQuery, true)
 		},
 		MoreMarket: func() {
 			if owner := r.packageOwner(); owner != nil {
@@ -280,7 +280,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		}
 	}
 	if root.App.Page == shell.MarketPage {
-		root.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery, false)
+		root.searchPackageMarket(m.MarketKind, marketSource(m.Model), m.MarketQuery, false)
 	}
 	r.projectInstallations()
 	r.projectMarketThemes()

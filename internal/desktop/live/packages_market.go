@@ -20,8 +20,14 @@ func packageCatalogSource(number int) protocol.PluginCatalogSource {
 	return protocol.PluginCatalogSourceOfficial
 }
 
-// packageMarketKey names a market search: the kind, the plugins' source and
-// the query the Node searched.
+func marketSource(m *settings.Model) int {
+	if m.MarketKind == 1 {
+		return m.MarketSkillSource
+	}
+	return m.MarketSource
+}
+
+// packageMarketKey names a market search by kind, source and query.
 func packageMarketKey(kind, source int, query string) string {
 	return fmt.Sprintf("%d/%d/%s", kind, source, query)
 }
@@ -75,7 +81,7 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool
 	r.App.Settings.MarketLoad.Loading, r.App.Settings.MarketLoad.Loaded = true, false
 	r.App.Settings.MarketFailed = false
 	if kind == 1 {
-		owner.searchSkillMarket(query, force, generation)
+		owner.searchSkillMarket(source, query, force, generation)
 		return
 	}
 	ctx, cancel := context.WithCancel(owner.ctx)

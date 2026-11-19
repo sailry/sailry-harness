@@ -12,9 +12,16 @@ import (
 )
 
 // The Market page (settings/market*, market/*): Plugins, Skills and
-// Themes as segments, a search with the plugins' source, the filters
-// (categories, theme modes, installed only) and the cards, each with
-// Install, Installed or Update; a card opens its details.
+// Themes as segments, a search with the plugin or skill catalog source,
+// filters (categories, theme modes, installed only) and cards with install
+// or update actions. A card opens its details.
+
+// Skill market source choices, in the order shown in the selector.
+const (
+	SkillMarketAll = iota
+	SkillMarketSkillsSh
+	SkillMarketSkillhub
+)
 
 // marketCategories are the plugins' category filters.
 var marketCategories = []string{"", "market_category_development", "market_category_automation", "market_category_data",
@@ -88,6 +95,8 @@ func MarketPage(c *ui.Context, s *State) {
 				switch m.MarketKind {
 				case 0:
 					pick(c, "source", t("market_details_source"), &m.MarketSource, []string{t("market_source_official"), t("market_source_community")}, false).Width(140)
+				case 1:
+					pick(c, "skill-source", t("market_details_source"), &m.MarketSkillSource, []string{t("market_all"), t("skill_source_skills"), t("skill_source_hub")}, false).Width(140)
 				case 2:
 					ui.Text(c, t("market_local")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 				}
@@ -287,9 +296,24 @@ func marketPlugins(c *ui.Context, s *State) {
 
 func marketSkills(c *ui.Context, s *State) {
 	m := s.Model
+	// Preview fixtures use catalog URLs as origins. Live sources are selected
+	// by the request, since a live origin names the repository or publisher.
+	var previewOrigin string
+	if !m.Live {
+		switch m.MarketSkillSource {
+		case SkillMarketSkillsSh:
+			previewOrigin = "skills.sh/"
+		case SkillMarketSkillhub:
+			previewOrigin = "skillhub.cn/"
+		}
+	}
 	var shown []*preview.Skill
 	for i := range m.MarketSkills {
-		if x := &m.MarketSkills[i]; m.marketMatch(x.Name + " " + x.Description) {
+		x := &m.MarketSkills[i]
+		if previewOrigin != "" && !strings.HasPrefix(x.Origin, previewOrigin) {
+			continue
+		}
+		if m.marketMatch(x.Name + " " + x.Description) {
 			shown = append(shown, x)
 		}
 	}

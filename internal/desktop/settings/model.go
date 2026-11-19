@@ -268,19 +268,20 @@ type Model struct {
 	// market*, model_library*): the installed packages, the market's
 	// plugins, skills and themes, the installed skills and the library's
 	// models, with the pages' searches and filters.
-	Packages        []preview.Package
-	MarketPlugins   []preview.Package
-	SkillList       []preview.Skill
-	MarketSkills    []preview.Skill
-	Themes          []preview.MarketTheme
-	Library         []preview.LibraryModel
-	SkillQuery      string
-	MarketKind      int // 0 plugins, 1 skills, 2 themes
-	MarketQuery     string
-	MarketSource    int // 0 official, 1 community
-	MarketCategory  int // of marketCategories
-	MarketMode      int // 0 all, 1 dark, 2 light
-	MarketInstalled bool
+	Packages          []preview.Package
+	MarketPlugins     []preview.Package
+	SkillList         []preview.Skill
+	MarketSkills      []preview.Skill
+	Themes            []preview.MarketTheme
+	Library           []preview.LibraryModel
+	SkillQuery        string
+	MarketKind        int // 0 plugins, 1 skills, 2 themes
+	MarketQuery       string
+	MarketSource      int // 0 official, 1 community
+	MarketSkillSource int
+	MarketCategory    int // of marketCategories
+	MarketMode        int // 0 all, 1 dark, 2 light
+	MarketInstalled   bool
 	// MarketLoad is the catalog's load: the cards' skeleton shows while
 	// it runs, from the market's first frame.
 	MarketLoad preview.Fetch

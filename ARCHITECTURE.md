@@ -723,6 +723,10 @@ with Desktop contributions. The loader checks those requirements again for
 remote UI code. Bundled installation also honors withdrawals in the embedded
 catalog, including offline fallback and default initialization.
 
+Desktop's Skills market queries skills.sh and SkillHub through the selected
+Node and pages each directory independently. Package-owned skills appear in
+their plugin details.
+
 Installations keep exact content provenance separately from their ongoing update
 source and pinned preference. Official updates continue following the official
 catalog after every install. Desktop displays Node recommendations and does not

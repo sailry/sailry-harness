@@ -331,12 +331,12 @@ func ExtensionsData() *Extensions {
 		Skills: []Skill{
 			{ID: "review", Name: "review", Description: "Review a diff for bugs", Package: "Review skills", Enabled: true},
 			{ID: "security-review", Name: "security-review", Description: "Review changes for security issues", Package: "Review skills", Enabled: true},
-			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "github.com/sailry/skills", Enabled: true, Update: true},
+			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "skillhub.cn/skills/acme/release-notes", Enabled: true, Update: true},
 			{ID: "sql-style", Name: "sql-style", Description: "House style for SQL", Origin: "skills.sh/acme/sql-style"},
 		},
 		Market: []Skill{
-			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "github.com/sailry/skills", Update: true},
-			{ID: "pr-describe", Name: "pr-describe", Description: "Describe a pull request", Origin: "github.com/sailry/skills"},
+			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "skillhub.cn/skills/acme/release-notes", Update: true},
+			{ID: "pr-describe", Name: "pr-describe", Description: "Describe a pull request", Origin: "skillhub.cn/skills/acme/pr-describe"},
 			{ID: "changelog", Name: "changelog", Description: "Keep a changelog", Origin: "skills.sh/keep/changelog"},
 		},
 		Themes: []MarketTheme{
