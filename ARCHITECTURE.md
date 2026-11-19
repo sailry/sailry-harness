@@ -826,8 +826,10 @@ Replacement snapshots and removal of a visible entry invalidate their reuse.
 Mutable action reads always get independent copies.
 An unchanged visible transcript projection is reused even for active runs; elapsed labels update
 without rebuilding its history. Controls and mutable presentation overlays still
-refresh. Leaving a conversation releases its presentation cache and unbinds
-the transcript's render payload without resetting its scroll position. Command
+refresh. An unmounted transcript releases the widget list and its row frame.
+Desktop keeps up to 64 lightweight turn-and-pixel scroll bookmarks for reopening
+away from the end. Controller-owned drafts and canonical history have their own
+lifetimes. Command
 admission reads current Client state independently of rendering. Old background
 commands open on their original tool row: the controller resolves the stored
 call revision and reads output for that exact session and command. Command

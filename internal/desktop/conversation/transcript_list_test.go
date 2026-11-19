@@ -9,7 +9,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-func TestFinishFrameUnbindsOnlyUnmountedTranscripts(t *testing.T) {
+func TestFinishFrameReleasesOnlyUnmountedTranscripts(t *testing.T) {
 	s := New()
 	left := []Turn{{ID: "left-old", User: "Left transcript", InputOnly: true}}
 	right := []Turn{{ID: "right", User: "Right transcript", InputOnly: true}}
@@ -28,7 +28,7 @@ func TestFinishFrameUnbindsOnlyUnmountedTranscripts(t *testing.T) {
 			})
 			if showLeft {
 				ui.Column(c.Key("left-pane")).Grow(1).FillHeight().Children(func() {
-					View(c, s, "left", left, leftSession, leftActions)
+					Docked(c, s, "left", left, leftSession, leftActions, func() { ui.Box(c).Height(32) })
 					Navigation(c, s)
 				})
 			}
@@ -51,8 +51,9 @@ func TestFinishFrameUnbindsOnlyUnmountedTranscripts(t *testing.T) {
 		if leftRail.transcript != nil || leftRail.c != nil || oldKey(0) != 0 {
 			t.Error("the old rail or key can still reach the unmounted transcript")
 		}
-		if s.List("left") != leftLayout || !leftLayout.FollowEnd {
-			t.Error("detaching the payload changed the persistent layout state")
+		if s.lists["left"] != nil || s.docks["left"] != nil || s.views["left"] != nil || s.presses["left"] != nil ||
+			s.area["left"] != (ui.Rect{}) || s.built["left"] || s.finds["left"] != nil || leftLayout.Key != nil {
+			t.Error("unmounting retained transcript UI state")
 		}
 	}
 	assertRightMounted := func() {
@@ -67,19 +68,26 @@ func TestFinishFrameUnbindsOnlyUnmountedTranscripts(t *testing.T) {
 	}
 
 	showLeft, s.Split = false, true
+	cancelled := 0
+	s.finds = map[string]*search{"left": {cancel: func() { cancelled++ }, reveal: func() { cancelled++ }}}
 	tt.Frame()
 	assertDetached()
 	assertRightMounted()
+	if cancelled != 2 {
+		t.Errorf("unmount canceled %d search requests, want 2", cancelled)
+	}
 
 	showLeft, s.Split, showRightRail = true, false, false
 	left = []Turn{{ID: "left-new", User: "Reopened transcript", InputOnly: true}}
 	leftActions = &still{}
 	tt.Frame()
-	if s.lists["left"] != leftList || oldKey(0) != "left-new" || leftList.frame.actions != leftActions ||
-		leftList.nav != leftRail || leftRail.transcript != leftList || !tt.HasText(left[0].User) {
-		t.Fatal("the same list and rail must bind the new keys, content, and actions on reopening")
+	newList := s.lists["left"]
+	if newList == nil || newList == leftList || newList.layout.Key(0) != "left-new" || newList.frame.actions != leftActions ||
+		newList.nav == nil || newList.nav == leftRail || newList.nav.transcript != newList || !tt.HasText(left[0].User) || !newList.layout.AtEnd() {
+		t.Fatal("a fresh list and rail must bind the reopened conversation at its end")
 	}
 	assertRightMounted()
+	leftList, leftRail, leftLayout, oldKey = newList, newList.nav, &newList.layout, newList.layout.Key
 
 	// The right transcript leaves a pending rail; the loading pane must not
 	// mount it as its own rail or keep the left list's previous payload.
@@ -106,7 +114,7 @@ func TestFinishFramePreservesPixelAnchorAndRailKeys(t *testing.T) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Children(func() {
 			if shown {
-				View(c, s, "conversation", turns, sess, still{})
+				Docked(c, s, "conversation", turns, sess, still{}, func() { ui.Box(c).Height(40) })
 				Navigation(c, s)
 			}
 		})
@@ -137,14 +145,26 @@ func TestFinishFramePreservesPixelAnchorAndRailKeys(t *testing.T) {
 
 	shown = false
 	tt.Frame()
-	turns = append([]Turn{
+	old := layout
+	if s.lists["conversation"] != nil || s.anchors["conversation"].turn != key {
+		t.Fatal("the list must be replaced by a lightweight bookmark")
+	}
+	full := append([]Turn{
 		{ID: "older-1", User: "First older message", InputOnly: true},
 		{ID: "older-2", User: "Second older message", InputOnly: true},
 	}, turns...)
 	shown = true
+	sess.Older = len(full) - 8
+	turns = full[sess.Older:]
 	tt.Frame()
+	if s.anchors["conversation"].turn != key {
+		t.Fatal("the newest page discarded the bookmark before its history arrived")
+	}
+	turns, sess.Older = full, 0
+	tt.Frame()
+	layout = s.List("conversation")
 	first, _ = layout.Visible()
-	if s.List("conversation") != layout || first != anchor+2 || layout.Key(first) != key || layout.AtEnd() {
+	if layout == old || first != anchor+2 || layout.Key(first) != key || layout.AtEnd() {
 		t.Fatalf("reopening did not keep the same anchored row: row %d key %v, want row %d key %v", first, layout.Key(first), anchor+2, key)
 	}
 	if diff := yOfLabel() - y; diff < -0.5 || diff > 0.5 {
@@ -166,6 +186,16 @@ func TestFinishFramePreservesPixelAnchorAndRailKeys(t *testing.T) {
 	tt.Frame()
 	if _, last := layout.Visible(); last != len(turns)-1 || !tt.HasText(turns[len(turns)-1].User) {
 		t.Errorf("End on the rail should build and show the last row, got row %d", last)
+	}
+}
+
+func TestTranscriptBookmarksAreBounded(t *testing.T) {
+	s := New()
+	for i := range transcriptBookmarks + 1 {
+		s.rememberTranscript(fmt.Sprint(i), transcriptAnchor{turn: "turn"})
+	}
+	if len(s.anchors) != transcriptBookmarks || s.anchors["0"].turn != "" || s.anchors["1"].turn != "turn" {
+		t.Fatal("bookmarks must keep the newest positions within their limit")
 	}
 }
 

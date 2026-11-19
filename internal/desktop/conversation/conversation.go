@@ -37,6 +37,8 @@ type State struct {
 	renderSession string
 	lists         map[string]*transcriptList
 	boundLists    []*transcriptList
+	anchors       map[string]transcriptAnchor
+	anchorOrder   uint64
 	open          map[string]bool    // the disclosures open
 	work          map[string]bool    // work regions the user opened or closed
 	built         map[string]bool    // lists built once, so laid out
@@ -275,7 +277,7 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 			}
 		}
 		// What shows of the transcript is the list above the dock.
-		list := ui.List(c, &l.layout, n, l.row).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog)
+		list := ui.List(c, &l.layout, n, l.row).TrackScroll(&l.scroll).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog).Draw(l.paint)
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
@@ -314,7 +316,7 @@ func fadeUnder(list ui.Element, area ui.Rect, reserve float32) {
 // whole, the scroll bar's; a turn's side padding is wider.
 const scrollStrip = 16
 
-func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess *Session, actions Actions) {
+func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess *Session, actions Actions) ui.Element {
 	first, last := i == 0, i == n-1
 	top, bottom := float32(0), float32(turnBottom)
 	if first {
@@ -394,6 +396,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 			})
 		}
 	})
+	return col
 }
 
 // user renders one original or consumed input with its own identity.

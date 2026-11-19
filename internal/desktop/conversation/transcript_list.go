@@ -5,19 +5,31 @@ import (
 	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
-// MyGo retains Key and the last row builder on ListState. Both refer to this
-// list, which can drop its frame data without losing MyGo's scroll anchor.
+// MyGo retains its last row frame in ListState. Keep it only while mounted.
 type transcriptList struct {
 	layout      ui.ListState
+	scroll      ui.ScrollState
 	olderMarker ui.Handle
 	olderTurn   string
 	row         func(int)
 	link        func(string)
 	block       func(*ui.Context, *parser.Document, int) bool
+	paint       func(*ui.Painter, ui.Rect)
 	nav         *navigation
 	frame       transcriptFrame
+	paintTop    float32
+	painted     transcriptAnchor
+	restore     transcriptAnchor
 	mounted     bool
 }
+
+type transcriptAnchor struct {
+	turn  string
+	inset float32
+	order uint64
+}
+
+const transcriptBookmarks = 64
 
 type transcriptFrame struct {
 	state   *State
@@ -29,8 +41,14 @@ type transcriptFrame struct {
 	aside   float32
 }
 
-// List returns the list state of a conversation.
-func (s *State) List(id string) *ui.ListState { return &s.listOf(id).layout }
+// List returns a mounted layout, or prepares one for an explicit scroll
+// request before the conversation is shown.
+func (s *State) List(id string) *ui.ListState {
+	l := s.listOf(id)
+	delete(s.anchors, id)
+	l.restore = transcriptAnchor{}
+	return &l.layout
+}
 
 func (s *State) listOf(id string) *transcriptList {
 	if l := s.lists[id]; l != nil {
@@ -38,7 +56,7 @@ func (s *State) listOf(id string) *transcriptList {
 	}
 	l := &transcriptList{}
 	l.layout.FollowEnd, l.layout.Key = true, l.key
-	l.row, l.link, l.block = l.buildRow, l.openLink, l.embedBlock
+	l.row, l.link, l.block, l.paint = l.buildRow, l.openLink, l.embedBlock, l.beginPaint
 	s.lists[id] = l
 	return l
 }
@@ -50,12 +68,12 @@ func (s *State) bindTranscript(c *ui.Context, id string, turns []Turn, sess *Ses
 	}
 	l.frame = transcriptFrame{state: s, c: c, id: id, turns: turns, session: sess, actions: actions, aside: s.Aside}
 	l.mounted = true
+	s.restoreTranscript(l)
 	return l
 }
 
-// FinishFrame drops the render bindings of lists and rails not built in this
-// view pass. Call it once after building all panes and overlays. Mounted lists
-// keep their bindings because MyGo can build more rows during layout.
+// FinishFrame releases lists and rails left out of this pass. Call it after
+// building every pane and overlay. Mounted lists can build more rows in layout.
 func (s *State) FinishFrame() {
 	s.navigated = nil
 	bound := s.boundLists[:0]
@@ -70,12 +88,97 @@ func (s *State) FinishFrame() {
 			l.mounted = false
 			bound = append(bound, l)
 		} else {
+			s.releaseTranscript(l)
 			l.frame = transcriptFrame{}
 			l.olderMarker, l.olderTurn = ui.Handle{}, ""
+			l.layout, l.scroll = ui.ListState{}, ui.ScrollState{}
 		}
 	}
 	clear(s.boundLists[len(bound):])
 	s.boundLists = bound
+}
+
+func (s *State) releaseTranscript(l *transcriptList) {
+	id := l.frame.id
+	if _, pending := s.anchors[id]; !pending && !l.layout.AtEnd() {
+		first, last := l.layout.Visible()
+		if first >= 0 && first <= last && first < len(l.frame.turns) {
+			turn := l.frame.turns[first].ID
+			place := transcriptAnchor{turn: turn}
+			if l.painted.turn == turn {
+				place.inset = l.painted.inset
+			}
+			s.rememberTranscript(id, place)
+		}
+	}
+	delete(s.lists, id)
+	delete(s.docks, id)
+	delete(s.views, id)
+	delete(s.presses, id)
+	delete(s.area, id)
+	delete(s.built, id)
+	s.CloseSearchIn(id)
+	delete(s.finds, id)
+}
+
+func (s *State) rememberTranscript(id string, place transcriptAnchor) {
+	if s.anchors == nil {
+		s.anchors = make(map[string]transcriptAnchor)
+	}
+	if len(s.anchors) >= transcriptBookmarks {
+		var oldest string
+		var order uint64
+		for session, anchor := range s.anchors {
+			if order == 0 || anchor.order < order {
+				oldest, order = session, anchor.order
+			}
+		}
+		delete(s.anchors, oldest)
+	}
+	s.anchorOrder++
+	place.order = s.anchorOrder
+	s.anchors[id] = place
+}
+
+func (s *State) restoreTranscript(l *transcriptList) {
+	f := &l.frame
+	place, ok := s.anchors[f.id]
+	if !ok || len(f.turns) == 0 {
+		return
+	}
+	for row := range f.turns {
+		if f.turns[row].ID == place.turn {
+			l.layout.ScrollTo(row, ui.Start)
+			l.restore = place
+			delete(s.anchors, f.id)
+			return
+		}
+	}
+	// A reopening can render its newest page while Client restores older turns.
+	if f.session == nil || f.session.Older == 0 {
+		delete(s.anchors, f.id)
+	}
+}
+
+func (l *transcriptList) beginPaint(_ *ui.Painter, rect ui.Rect) {
+	l.paintTop = rect.Y
+}
+
+func (l *transcriptList) paintRow(turn string, rect ui.Rect) {
+	// MyGo exposes scrolling in pixels and scrolling to a row separately.
+	// Measure the row's inset here, after the virtual list has laid it out.
+	inset := l.paintTop - rect.Y
+	if inset >= -0.5 && inset < rect.H {
+		l.painted = transcriptAnchor{turn: turn, inset: max(0, inset)}
+	}
+	if l.restore.turn == turn {
+		adjust := min(l.restore.inset, max(0, rect.H-1)) - max(0, inset)
+		l.restore = transcriptAnchor{}
+		if adjust > 0.5 && l.scroll.Y < l.scroll.MaxY {
+			l.scroll.Y = min(l.scroll.Y+adjust, l.scroll.MaxY)
+			l.frame.c.Invalidate()
+		}
+	}
 }
 
 func (l *transcriptList) key(i int) any {
@@ -107,7 +210,10 @@ func (l *transcriptList) buildRow(i int) {
 	// Row actions can keep a turn, but must not keep the whole slice alive
 	// through a pointer into its backing array.
 	t := f.turns[i]
-	s.turn(f.c, f.id, i, &t, len(f.turns), f.session, f.actions)
+	turn := t.ID
+	s.turn(f.c, f.id, i, &t, len(f.turns), f.session, f.actions).DrawOver(func(_ *ui.Painter, rect ui.Rect) {
+		l.paintRow(turn, rect)
+	})
 }
 
 func (l *transcriptList) openLink(link string) {
