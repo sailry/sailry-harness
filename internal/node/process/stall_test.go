@@ -104,7 +104,9 @@ func TestStallMonitor(t *testing.T) {
 		}
 		value.clock.Advance(10 * time.Minute)
 		second := stalled(t, value)
-		if second.Snapshot.Info.ID != info.ID || second.Snapshot.Stdout.Text != "resumed\nmore\n" || second.Snapshot.Info.Status.Kind != "running" {
+		if second.Snapshot.Info.ID != info.ID || second.Snapshot.Stdout.Text != "resumed\nmore\n" || second.Snapshot.Info.Status.Kind != "running" ||
+			second.ElapsedMs <= second.SilenceMs || second.SilenceMs != uint64(StallWindow.Milliseconds()) ||
+			second.StdoutBytes == nil || *second.StdoutBytes != uint64(len(second.Snapshot.Stdout.Text)) {
 			t.Fatal("unexpected second stall", second)
 		}
 		if snapshot, err := value.service.Read(info.Session, info.ID); err != nil || snapshot.Info.Status.Kind != "running" {

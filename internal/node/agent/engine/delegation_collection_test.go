@@ -63,6 +63,65 @@ func TestExplicitCollectionDoesNotRedeliverForegroundResult(t *testing.T) {
 	}
 }
 
+func TestPluginStopCollectsOverlappingChildWithoutAnotherModelCall(t *testing.T) {
+	const answer = "Collected independent result"
+	childStarted, stopInference := make(chan struct{}), make(chan struct{})
+	release := make(chan struct{})
+	parent := &scriptedModel{scripts: []script{
+		response(call("spawn", "spawn_agent", `{"task":"Complete the independent check","overlap":true}`), finish()),
+	}}
+	child := &scriptedModel{scripts: []script{func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		close(childStarted)
+		select {
+		case <-ctx.Done():
+			return
+		case <-release:
+			response(text(answer), finish())(ctx, request, yield)
+		}
+	}}}
+	hook := objectTool("hook", true, true, func(context.Context, canonical.ToolRequest) ToolResult { return ToolResult{} })
+	hook.Binding = &store.ApprovalBinding{Owner: protocol.PluginReference{Name: "hook-fixture"}}
+	hook.BeforeModel = func(_ context.Context, records []canonical.Record, _ ToolResultReader) (bool, error) {
+		for _, record := range records {
+			if message := record.Message(); message != nil {
+				for _, block := range message.Content {
+					if result, ok := block.Data.(*canonical.ToolResponse); ok && result.ID == "spawn" {
+						close(stopInference)
+						return true, nil
+					}
+				}
+			}
+		}
+		return false, nil
+	}
+	f := newFixture(t, parent, hook)
+	config := f.session.Config
+	config.Mode = protocol.WorkModeFlagship
+	input := protocol.DefaultConversationStart()
+	input.Config, input.Execution, input.Message.Text = &config, protocol.ConversationExecutionModel, "Run one independent check"
+	turn := f.command("start_session", &input).Data.(protocol.QueuedTurn)
+	f.r.model = func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		if binding.Session == turn.Session {
+			return parent, nil
+		}
+		return child, nil
+	}
+	f.start()
+	awaitBackgroundTest(t, f.ctx, childStarted)
+	awaitBackgroundTest(t, f.ctx, stopInference)
+	close(release)
+	f.waitRun(f.childTurns()[0], protocol.ConversationStatusCompleted)
+	f.waitRun(turn.ID, protocol.ConversationStatusCompleted)
+	state, err := f.r.load(f.ctx, turn.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(state.Records)
+	if err != nil || strings.Count(string(body), answer) != 1 || parent.count() != 1 {
+		t.Fatalf("plugin stop lost the result or resumed inference: calls=%d, result count=%d, err=%v", parent.count(), strings.Count(string(body), answer), err)
+	}
+}
+
 func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 	const (
 		firstGuidance  = "Continue while the first check runs."

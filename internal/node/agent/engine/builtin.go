@@ -48,7 +48,9 @@ func (r *Runtime) builtins(x *execution) []Tool {
 			}
 			return r.question(x, call)
 		}),
-		updatePlanTool(x.inv.Session.Delegation != nil),
+	}
+	if x.inv.Session.Delegation == nil || x.childRole != nil && x.childRole.Tools != nil {
+		values = append(values, updatePlanTool())
 	}
 	source := store.AgentHistorySource{Caller: x.inv.Caller, Session: x.inv.Session.ID, Turn: x.inv.Run.Turn}
 	for _, kind := range []string{"list_sessions", "read_session", "search_session"} {

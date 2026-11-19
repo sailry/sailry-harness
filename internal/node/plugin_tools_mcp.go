@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
@@ -40,8 +39,7 @@ func (node *Node) bindMCPTools(ctx context.Context, invocation *store.AgentInvoc
 	workers.Wait()
 	var tools []engine.Tool
 	var terminal error
-	diagnosticBytes := 0
-	for index, result := range results {
+	for _, result := range results {
 		if result.err == nil && len(tools)+len(result.tools) > 64 {
 			for _, tool := range result.tools {
 				if tool.Close != nil {
@@ -56,12 +54,6 @@ func (node *Node) bindMCPTools(ctx context.Context, invocation *store.AgentInvoc
 		}
 		if failure := terminalMCPBindingError(result.err); failure != nil {
 			terminal = errors.Join(terminal, failure)
-		}
-		if diagnosticBytes < 16*1024 {
-			binding := bindings[index]
-			message := fmt.Sprintf("MCP server %s/%s is unavailable; do not claim to use it.", binding.info.Summary.Name, binding.server)
-			diagnosticBytes += len(message)
-			invocation.Instructions = append(invocation.Instructions, store.AgentInstruction{Text: message})
 		}
 	}
 	return tools, terminal

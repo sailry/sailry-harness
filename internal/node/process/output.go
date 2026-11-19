@@ -30,16 +30,24 @@ func (buffer *outputBuffer) append(value []byte) {
 	buffer.total += uint64(len(value))
 	buffer.decoder.append(value)
 	if buffer.tail {
-		buffer.bytes = append(buffer.bytes, value...)
-		if len(buffer.bytes) > captureLimit {
-			buffer.bytes = append(buffer.bytes[:0], buffer.bytes[len(buffer.bytes)-captureLimit:]...)
-			buffer.truncated = true
-		}
+		buffer.bytes = appendTail(buffer.bytes, value)
+		buffer.truncated = buffer.truncated || buffer.total > uint64(len(buffer.bytes))
 		return
 	}
 	count := min(len(value), captureLimit-len(buffer.bytes))
 	buffer.bytes = append(buffer.bytes, value[:count]...)
 	buffer.truncated = buffer.truncated || count < len(value)
+}
+
+func appendTail(buffer, value []byte) []byte {
+	if len(value) >= captureLimit {
+		return append(buffer[:0], value[len(value)-captureLimit:]...)
+	}
+	if discard := len(buffer) + len(value) - captureLimit; discard > 0 {
+		copy(buffer, buffer[discard:])
+		buffer = buffer[:len(buffer)-discard]
+	}
+	return append(buffer, value...)
 }
 
 func (buffer *outputBuffer) capture() protocol.ProcessCapture {

@@ -277,6 +277,10 @@ func (r *Runtime) settleQueuedChildren() {
 }
 
 func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
+	return r.waitForeground(x, finishing, true)
+}
+
+func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (bool, error) {
 	r.mu.Lock()
 	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
@@ -319,18 +323,20 @@ func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
 	}()
 	for {
 		changed := r.activitySignal()
-		var guidance bool
-		err := r.db.Read(x.ctx, func(db *sql.Conn) error {
-			var err error
-			guidance, err = store.PendingGuidance(x.ctx, db, x.inv.Run.Turn)
-			return err
-		})
-		if err != nil {
-			return false, err
-		}
-		if guidance {
-			// The loop continues so the guidance joins before the next request.
-			return true, nil
+		if acceptGuidance {
+			var guidance bool
+			err := r.db.Read(x.ctx, func(db *sql.Conn) error {
+				var err error
+				guidance, err = store.PendingGuidance(x.ctx, db, x.inv.Run.Turn)
+				return err
+			})
+			if err != nil {
+				return false, err
+			}
+			if guidance {
+				// The loop continues so the guidance joins before the next request.
+				return true, nil
+			}
 		}
 		pending := false
 		for _, child := range children {
@@ -363,7 +369,7 @@ func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
 			}
 			return true, nil
 		}
-		if !pending || x.foregroundSteered {
+		if !pending || acceptGuidance && x.foregroundSteered {
 			return false, nil
 		}
 		if stopWaiting == nil {
@@ -373,6 +379,17 @@ func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
 		case <-x.ctx.Done():
 			return false, x.ctx.Err()
 		case <-changed:
+		}
+	}
+}
+
+// settleForeground keeps admitted results when a plugin ends inference. Any
+// new guidance remains queued for the turn settlement path.
+func (r *Runtime) settleForeground(x *execution) error {
+	for {
+		delivered, err := r.waitForeground(x, true, false)
+		if err != nil || !delivered {
+			return err
 		}
 	}
 }

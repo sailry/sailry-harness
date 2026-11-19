@@ -181,19 +181,31 @@ func TestBackgroundCompletionEvidence(t *testing.T) {
 		launches := 0
 		service, err := New(Options{Profile: t.TempDir(), After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }, Run: func(ctx context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
 			launches++
+			emit(protocol.ProcessOutputOutputStreamStdout, bytes.Repeat([]byte{'x'}, captureLimit))
+			emit(protocol.ProcessOutputOutputStreamStdout, []byte("before promotion\n"))
 			close(started)
 			select {
 			case <-runDone:
 			case <-ctx.Done():
 				t.Error("promoted process inherited caller cancellation")
 			}
-			emit(protocol.ProcessOutputOutputStreamStdout, []byte("promoted output"))
+			emit(protocol.ProcessOutputOutputStreamStdout, []byte("promoted output\n"))
+			emit(protocol.ProcessOutputOutputStreamStderr, bytes.Repeat([]byte{'x'}, streamLimit+100))
+			emit(protocol.ProcessOutputOutputStreamStderr, []byte("final failure\n"))
 			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		}, Finished: func(_ context.Context, finished Finished) error {
 			close(entered)
 			<-persisted
-			if finished.Snapshot.Stdout.Text != "promoted output" {
-				t.Error("promotion lost original output")
+			stdout, stderr := finished.Snapshot.Stdout, finished.Snapshot.Stderr
+			if !strings.HasSuffix(stdout.Text, "before promotion\npromoted output\n") || len(stdout.Text) != captureLimit || !stdout.Truncated {
+				t.Error("promotion lost the already received tail")
+			}
+			if !strings.HasSuffix(stderr.Text, "final failure\n") || len(stderr.Text) != captureLimit || !stderr.Truncated {
+				t.Error("completion persisted the beginning of stderr")
+			}
+			if finished.StdoutBytes == nil || *finished.StdoutBytes != uint64(captureLimit+len("before promotion\npromoted output\n")) ||
+				finished.StderrBytes == nil || *finished.StderrBytes != uint64(streamLimit+100+len("final failure\n")) {
+				t.Error("completion lost exact stream lengths")
 			}
 			return nil
 		}})
@@ -308,6 +320,81 @@ func TestBackgroundCompletionEvidence(t *testing.T) {
 				t.Fatal("command identity was replayed")
 			}
 		})
+	}
+}
+
+func TestBackgroundCompletionRetriesUncommittedWrite(t *testing.T) {
+	finishes := make(chan Finished, 2)
+	retry := make(chan time.Time, 1)
+	armed := make(chan struct{})
+	attempts, launches := 0, 0
+	service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
+		if delay == time.Second {
+			close(armed)
+			return retry
+		}
+		return make(chan time.Time)
+	}, Run: func(_ context.Context, _ Launch, emit func(protocol.ProcessOutputOutputStream, []byte), _ <-chan []byte) (protocol.ProcessCompletion, error) {
+		launches++
+		emit(protocol.ProcessOutputOutputStreamStdout, []byte("completed once"))
+		return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+	}, Finished: func(_ context.Context, finished Finished) error {
+		attempts++
+		finishes <- finished
+		if attempts == 1 {
+			return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "transaction did not commit"}
+		}
+		return nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = service.Close() })
+	launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000}
+	if _, err := service.Start(launch); err != nil {
+		t.Fatal(err)
+	}
+	<-armed
+	before, err := service.Read(launch.Session, launch.ID)
+	if err != nil || before.Info.Status.Kind != "running" {
+		t.Fatal("failed settlement was published as durable", before, err)
+	}
+	retry <- time.Now()
+	if err := service.Wait(t.Context(), launch.Session, launch.ID, 30000, "missing"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := service.Read(launch.Session, launch.ID)
+	if err != nil || after.Info.Status.Kind != "finished" || launches != 1 || len(finishes) != 2 {
+		t.Fatal("settlement did not recover without repeating the command", after, err, launches)
+	}
+	for range 2 {
+		evidence := <-finishes
+		if evidence.Snapshot.Info.ID != launch.ID || evidence.Snapshot.Stdout.Text != "completed once" {
+			t.Fatal("settlement retried different evidence", evidence)
+		}
+	}
+}
+
+func TestCommandOutputMatchesAfterWaitBoundary(t *testing.T) {
+	stream := newRetained(t.TempDir(), &outputBudget{}, true, false)
+	defer stream.evict()
+	stream.append([]byte("Compiled\nNext: Comp"))
+	position := stream.position()
+	if stream.matchesAfter(position, "Compiled") {
+		t.Fatal("a match before the wait woke it")
+	}
+	stream.append([]byte("iled "))
+	if !stream.matchesAfter(position, "Compiled") {
+		t.Fatal("a match spanning the wait boundary was missed")
+	}
+	position = stream.position()
+	stream.append([]byte("and running\n"))
+	if stream.matchesAfter(position, "Compiled") {
+		t.Fatal("unrelated new output replayed an earlier match")
+	}
+	stream.append([]byte(strings.Repeat("x", captureLimit) + "Compiled again"))
+	if !stream.matchesAfter(position, "Compiled") {
+		t.Fatal("a new match was lost after retention overflow")
 	}
 }
 

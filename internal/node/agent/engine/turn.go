@@ -303,13 +303,6 @@ func (r *Runtime) turn(x *execution) error {
 		return err
 	}
 	policy := prompt.Policy(inv.Turn.Config.Mode, inv.Turn.Config.Permission, inv.Session.Delegation != nil)
-	instructions := map[string]bool{}
-	for _, tool := range x.tools {
-		if tool.Instruction != "" && !instructions[tool.Instruction] {
-			policy += "\n\n" + tool.Instruction
-			instructions[tool.Instruction] = true
-		}
-	}
 	if x.assistantContext != "" {
 		policy += "\n\n" + x.assistantContext
 	}
@@ -458,7 +451,7 @@ func (r *Runtime) turn(x *execution) error {
 			}
 			return failure
 		}
-		if !x.callbackPending && !inv.Run.Notice && inv.Run.Kind == protocol.ConversationRunKindTask {
+		if !x.callbackPending && inv.Run.Kind == protocol.ConversationRunKindTask {
 			delivered, err = r.deliverBackground(x, false)
 			if err != nil {
 				return err
@@ -503,7 +496,7 @@ func (r *Runtime) turn(x *execution) error {
 				return err
 			}
 			if stopped {
-				return nil
+				return r.settleForeground(x)
 			}
 		}
 		if err = r.infer(x, binding, languageModel, state); err != nil {

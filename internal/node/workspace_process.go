@@ -89,6 +89,15 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 		if run.Status != protocol.ConversationStatusRunning || run.Kind != protocol.ConversationRunKindTask {
 			return &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "task turn is not running"}
 		}
+		if input.FollowUp {
+			session, err := store.ReadSession(ctx, db, run.Session)
+			if err != nil {
+				return err
+			}
+			if session.Delegation != nil {
+				return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "delegated commands do not support automatic follow-up; read the result before returning to the parent"}
+			}
+		}
 		root, err = store.ReadWorkspaceRoot(ctx, db, run.Worktree, false)
 		if err != nil {
 			return err

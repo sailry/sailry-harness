@@ -110,7 +110,11 @@ func (writer *writer) batch(first *writeJob) {
 					job.result = job.context.Err()
 				}
 				if job.result != nil {
-					job.result = storageFull(job.result)
+					if transactionConflict(job.result) {
+						job.result = uncommitted(job.result)
+					} else {
+						job.result = storageFull(job.result)
+					}
 					_, failure = writer.connection.ExecContext(ctx, "ROLLBACK TO sailry_job")
 				}
 				if failure == nil {

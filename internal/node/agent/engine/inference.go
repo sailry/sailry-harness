@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -71,11 +72,19 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		delegation = r.delegationContext(x, state)
 	}
 	canDelegate := hasTools && findTool(x.tools, "spawn_agent") != nil
+	identity := fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)
+	if started := x.inv.Run.StartedMs; started != nil {
+		identity += fmt.Sprintf("\nTurn started (UTC): %s (%d ms)", time.UnixMilli(*started).UTC().Format(time.RFC3339Nano), *started)
+	}
+	skills := ""
+	if hasTools && findTool(x.tools, "load_skill") != nil {
+		skills = x.skillContext
+	}
 	parts := []prompt.Part{
 		{Key: "workflow", Text: prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil, canDelegate)},
-		{Key: "execution_identity", Text: fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)},
+		{Key: "execution_identity", Text: identity},
 		{Key: "delegation", Text: delegation},
-		{Key: "skills", Text: x.skillContext},
+		{Key: "skills", Text: skills},
 		{Key: "child_budget", Text: childBudgetContext(x, state)},
 	}
 	if hasTools {
@@ -102,10 +111,15 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	}
 	parts = append(parts, prompt.Part{Key: "instructions", Text: strings.Join(instructions, "\n\n")})
 	ownedParts := []string{}
-	for _, tool := range x.tools {
-		for _, part := range tool.ContextParts {
-			if !slices.Contains(ownedParts, part) {
-				ownedParts = append(ownedParts, part)
+	if hasTools {
+		for _, tool := range x.tools {
+			if tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
+				continue
+			}
+			for _, part := range tool.ContextParts {
+				if !slices.Contains(ownedParts, part) {
+					ownedParts = append(ownedParts, part)
+				}
 			}
 		}
 	}

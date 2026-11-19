@@ -27,6 +27,8 @@ type workspaceToolCall struct {
 	approval protocol.ApprovalID
 }
 
+const childRunCommandDescription = "Run a command on the Node. Provide a short description and use the admitted worktree by default. The foreground timeout defaults to 120000 ms. For longer work use background=true, then read_command with wait_ms to collect the result before returning to the parent. Background commands stop when the delegated task ends. Use pty=true with background=true for a command that needs a terminal. Output reports truncation. Invoke the tool directly so it can obtain consent when needed."
+
 func releasePrepared[T any](mu *sync.Mutex, calls map[string]T) func(canonical.ToolRequest) {
 	return func(call canonical.ToolRequest) {
 		mu.Lock()
@@ -71,6 +73,16 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var schema map[string]any
 		if err = json.Unmarshal(declaration.Parameters, &schema); err != nil {
 			return nil, err
+		}
+		if inv.Session.Delegation != nil && declaration.Operation == protocol.ToolOperationRunCommand {
+			if properties, ok := schema["properties"].(map[string]any); ok {
+				delete(properties, "follow_up")
+			}
+			declaration.Parameters, err = json.Marshal(schema)
+			if err != nil {
+				return nil, err
+			}
+			declaration.Description = childRunCommandDescription
 		}
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
@@ -218,6 +230,13 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			} else {
 				output, effectErr = node.workspaceIO(ctx, inv.Caller, request, current.prepared, effect)
 			}
+			if snapshot, ok := output.Data.(protocol.ProcessSnapshot); effectErr == nil && request.Command.Kind == "stop_command" && ok {
+				effect.external = true
+				effect.commit = func(ctx context.Context, db *sql.Conn, out protocol.Output) (protocol.Output, []protocol.Event, error) {
+					events, err := store.ObserveCommandStop(ctx, db, inv.Run.Turn, snapshot, time.Now())
+					return out, events, err
+				}
+			}
 			if !declaration.ReadOnly {
 				output, effectErr = node.recordWorkspaceEffect(context.WithoutCancel(ctx), inv.Caller, request, output, effectErr, effect)
 			}
@@ -226,24 +245,9 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			}
 			if declaration.Operation == protocol.ToolOperationReadCommand {
 				if snapshot, ok := output.Data.(protocol.ProcessSnapshot); ok {
-					unlock := node.agent.LockPublication()
-					err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-						events, err := store.ConsumeCommandBackground(ctx, db, inv.Run.Turn, snapshot, time.Now())
-						if err != nil {
-							return err
-						}
-						_, err = store.RecordEvents(ctx, db, node.ID(), events)
-						return err
-					})
-					if err == nil {
-						node.publish()
-						node.agent.RefreshCommitted(inv.Session.ID)
-					}
-					unlock()
-					if err != nil {
+					if err := node.consumeWorkspaceCommand(ctx, inv.Run.Turn, snapshot); err != nil {
 						return workspaceToolFault(err)
 					}
-					node.agent.Committed()
 				}
 			}
 			value := node.workspaceToolValue(inv.Session.ID, request, output)
@@ -298,6 +302,42 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	}
 	bound, err := node.pluginTools(ctx, inv, append(append(append(tools, connections...), browsers...), managedBrowsers...))
 	return append(append(bound, media...), managed...), err
+}
+
+func (node *Node) consumeWorkspaceCommand(ctx context.Context, turn protocol.TurnID, snapshot protocol.ProcessSnapshot) error {
+	switch snapshot.Info.Status.Kind {
+	case "running", "stopping":
+		return nil
+	}
+	var pending bool
+	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		pending, err = store.CommandBackgroundPending(ctx, db, snapshot)
+		return err
+	})
+	if err != nil || !pending {
+		return err
+	}
+	unlock := node.agent.LockPublication()
+	changed := false
+	err = node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		events, err := store.ConsumeCommandBackground(ctx, db, turn, snapshot, time.Now())
+		if err != nil || len(events) == 0 {
+			return err
+		}
+		changed = true
+		_, err = store.RecordEvents(ctx, db, node.ID(), events)
+		return err
+	})
+	if err == nil && changed {
+		node.publish()
+		node.agent.RefreshCommitted(snapshot.Info.Session)
+	}
+	unlock()
+	if err == nil && changed {
+		node.agent.Committed()
+	}
+	return err
 }
 
 func toolSearchLabels(display protocol.ToolDisplay) []string {

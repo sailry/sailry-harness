@@ -46,17 +46,19 @@ func (s *Service) Preview(session protocol.SessionID, id protocol.RequestID, hea
 func (stream *retainedStream) preview() map[string]any {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
-	transcoded := stream.decoder.transcoded()
+	transcoded := stream.capture.decoder.transcoded()
 	if stream.total <= captureLimit {
 		if transcoded {
 			return map[string]any{"transcoded": true, "total_bytes": stream.total}
 		}
 		return nil
 	}
-	offset := stream.total - uint64(len(stream.tail))
-	start, end := stream.decoder.bounds(stream.tail, offset, stream.finished)
+	value := stream.last()
+	value = value[len(value)-min(len(value), recentLimit):]
+	offset := stream.total - uint64(len(value))
+	start, end := stream.capture.decoder.bounds(value, offset, stream.finished)
 	offset += uint64(start)
-	text, invalid := stream.decoder.decode(stream.tail[start:end], offset)
+	text, invalid := stream.capture.decoder.decode(value[start:end], offset)
 	head := uint64(min(stream.retained, min(stream.limit, prefixLimit)))
 	tail, written := stream.written-(uint64(stream.retained)-head), stream.written
 	if first, last, end, err := stream.ranges(); err == nil {

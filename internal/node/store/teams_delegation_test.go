@@ -545,7 +545,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			})
 		}
 	})
-	t.Run("collected command settles only unreserved stall evidence", func(t *testing.T) {
+	t.Run("collected command dismisses stalls until delivered", func(t *testing.T) {
 		for _, row := range []struct {
 			name     string
 			state    protocol.ConversationBackgroundState
@@ -553,7 +553,7 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 			want     protocol.ConversationBackgroundState
 		}{
 			{"undelivered", protocol.ConversationBackgroundStatePending, false, protocol.ConversationBackgroundStateDismissed},
-			{"reserved", protocol.ConversationBackgroundStatePending, true, protocol.ConversationBackgroundStatePending},
+			{"reserved", protocol.ConversationBackgroundStatePending, true, protocol.ConversationBackgroundStateDismissed},
 			{"delivered", protocol.ConversationBackgroundStateDelivered, true, protocol.ConversationBackgroundStateDelivered},
 		} {
 			t.Run(row.name, func(t *testing.T) {
@@ -590,7 +590,9 @@ func TestBackgroundNoticeEvidence(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					if saved.Task.State != row.want || row.reserved && (saved.Task.Revision != revision || saved.Task.Delivery == nil || *saved.Task.Delivery != turn) {
+					if saved.Task.State != row.want ||
+						row.want == protocol.ConversationBackgroundStateDelivered && (saved.Task.Revision != revision || saved.Task.Delivery == nil || *saved.Task.Delivery != turn) ||
+						row.want == protocol.ConversationBackgroundStateDismissed && saved.Task.Delivery != nil {
 						return errors.New("command collection changed the wrong stall evidence")
 					}
 					return nil

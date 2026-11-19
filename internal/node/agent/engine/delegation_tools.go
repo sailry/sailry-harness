@@ -246,8 +246,12 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 // guideChild guides or resumes a child for call. arguments are the ones that
 // execute: the call's own, or those a package tool prepared from them.
 func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
+	mode := childForeground
+	if x.inv.Turn.Config.Mode == protocol.WorkModeFlagship {
+		mode = childOverlap
+	}
 	var state store.ChildState
-	result := r.admitChild(x, arguments, childForeground, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+	result := r.admitChild(x, arguments, mode, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error

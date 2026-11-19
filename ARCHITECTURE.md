@@ -495,10 +495,14 @@ login recovery can record a different effective credential for a waiting run
 without rewriting that admission capture. Other updates affect subsequent
 admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
-context. Named context sections append changed values, with execution IDs
-separate from stable instructions. New user input refreshes the current deferred
+context. The execution identity section includes the turn's UTC start time.
+Plugin initializer text stays in agent context and fixed package guidance
+follows the tools available to inference. Unavailable MCP servers contribute
+no tool instructions. Named context sections append changed values. New user
+input refreshes the current deferred
 tool catalog and last successfully recorded unfinished plan. The core
 `update_plan` tool records progress alongside delegation or independent reads.
+Delegated children receive it only through an explicit role tool selection.
 Earlier plans use the same history projection. Compaction or visibility changes
 restore sections no longer present in model-visible history.
 Automatic compaction uses the captured model and defaults to 80% of its context
@@ -588,12 +592,16 @@ new review assignments when the roster is populated. Continuing an existing chil
 selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
 In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
-parent by default. A dependent next step can use `overlap: false` to wait before
-continuing. Standard, user-selected and package delegation keep their existing
-wait defaults. A completed overlapping child can reopen a reply at the next
-model boundary while other children are still running. The parent settles after
-collecting all its foreground children. Waiting for a child is accounted for
-separately from active tool execution.
+parent by default. `guide_agent` does the same when it starts a new task in an
+idle child. A dependent spawn can set `overlap: false`. After guidance,
+`wait_agent` can collect a dependent result. Standard and user-selected spawns keep
+their existing wait defaults. A completed overlapping child can reopen a reply
+at the next model boundary while other children are still running. The parent
+settles after collecting its foreground children. An intentional plugin stop
+also collects them and skips further model calls. Waiting for a child is
+accounted for separately from active tool execution. Child commands may run
+in the background while the child works. The child collects any needed results
+before its task ends, when the Node stops its remaining commands.
 
 `list_subagents` reads a bounded page of direct child sessions from durable
 delegation records across turns. The active parent uses its captured delegation
@@ -610,7 +618,8 @@ boundary. Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
 evidence. The running turn takes a bounded batch between model steps; an idle
-session can take a reserved batch through its normal automatic queue. Delivery
+session can take a reserved batch through its normal automatic queue. An
+automatic turn can collect later evidence at the same model boundaries. Delivery
 and the Node-authored evidence record commit together, without changing user
 input or replaying a tool result. Foreground child results also belong to their
 original row; a real `wait_agent` call still returns its own tool result. Steering
@@ -619,6 +628,11 @@ its next safe boundary.
 Active follow-ups and automatic deliveries contribute to session activity.
 Held results remain available for the next input, and a descendant waiting for
 input or approval remains visible when background work is active.
+
+A promoted command switches its completion capture to the most recent bytes of
+each stream. Command evidence carries truncation flags and omitted byte counts
+when the retained text can be compared with the byte totals. Background commands
+in child sessions support polling during the child turn and stop when it settles.
 
 ## Tools and resource services
 

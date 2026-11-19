@@ -37,12 +37,20 @@ func startedGroup(t *testing.T, service *Service, launch Launch) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Wait(context.Background(), info.Session, info.ID, 30000, "\n"); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := service.Read(info.Session, info.ID)
-	if err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var snapshot protocol.ProcessSnapshot
+	for {
+		snapshot, err = service.Read(info.Session, info.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(snapshot.Stdout.Text, "\n") {
+			break
+		}
+		if err := service.Wait(ctx, info.Session, info.ID, 100, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
 	text, found := strings.CutPrefix(strings.TrimSpace(snapshot.Stdout.Text), "group:")
 	group, err := strconv.Atoi(text)

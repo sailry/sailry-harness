@@ -127,7 +127,7 @@ func TestResumedQueueRow(t *testing.T) {
 }
 
 // TestStalledDelivery covers stall evidence under the delivery rules: one
-// notice turn per stall period, counted in the automatic chain, and none for
+// notice per watched command, counted in the automatic chain, and none for
 // a session the user stopped.
 func TestStalledDelivery(t *testing.T) {
 	t.Parallel()
@@ -136,6 +136,7 @@ func TestStalledDelivery(t *testing.T) {
 	input := protocol.DefaultCommandRunCommandPayload()
 	input.Turn, input.Command, input.Background, input.FollowUp = turn, "fixture server", true, true
 	command := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+	later := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
 	id := "stall:" + command.ID.String()
 	stall := func(db *sql.Conn, after time.Duration) (bool, error) {
 		stalled := process.Stalled{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: command.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "running"}}}, ElapsedMs: uint64(after.Milliseconds())}
@@ -157,6 +158,9 @@ func TestStalledDelivery(t *testing.T) {
 			return err
 		}
 		if _, err := RegisterCommand(ctx, db, command, now); err != nil {
+			return err
+		}
+		if _, err := RegisterCommand(ctx, db, later, now); err != nil {
 			return err
 		}
 		if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
@@ -183,8 +187,12 @@ func TestStalledDelivery(t *testing.T) {
 		if again, err := notice(db); err != nil || again != nil {
 			return fmt.Errorf("delivered stall started another notice turn: %v", err)
 		}
+		if written, err := stall(db, 30*time.Minute); err != nil || written {
+			return fmt.Errorf("another silent period repeated a delivered stall: %v", err)
+		}
+		command, id = later, "stall:"+later.ID.String()
 		if written, err := stall(db, 30*time.Minute); err != nil || !written {
-			return fmt.Errorf("next silent period recorded no stall: %v", err)
+			return fmt.Errorf("another command recorded no first stall: %v", err)
 		}
 		second, err := notice(db)
 		if err != nil || second == nil {
@@ -204,8 +212,8 @@ func TestStalledDelivery(t *testing.T) {
 		if _, _, err = FinishTurn(ctx, db, second.Run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
 			return err
 		}
-		if written, err := stall(db, 45*time.Minute); err != nil || !written {
-			return fmt.Errorf("stall after the stop was not recorded: %v", err)
+		if written, err := stall(db, 45*time.Minute); err != nil || written {
+			return fmt.Errorf("stall after the stop replaced held evidence: %v", err)
 		}
 		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)
 		if err != nil {

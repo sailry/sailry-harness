@@ -212,6 +212,10 @@ func (r *Runtime) deferTools(x *execution) error {
 		switch {
 		case tool.Delegation && role:
 			tool.Deferred = false
+		case child && slices.ContainsFunc(declaredOperations(*tool), func(operation protocol.ToolOperation) bool {
+			return operation == protocol.ToolOperationFetchWeb || operation == protocol.ToolOperationSearchWeb
+		}):
+			tool.Deferred = true
 		case tool.Binding == nil || tool.Binding.Owner.Name == "":
 			// The Node's own tools state their rule where they are built.
 			// The session history tools are discoverable.

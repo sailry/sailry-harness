@@ -36,6 +36,9 @@ type Finished struct {
 	Snapshot  protocol.ProcessSnapshot
 	ElapsedMs *uint64
 	Explicit  bool
+	// Byte totals are present when comparable to the captured UTF-8 text.
+	StdoutBytes *uint64
+	StderrBytes *uint64
 }
 
 // StallWindow is how long a running background command may stay silent before
@@ -46,6 +49,10 @@ const StallWindow = 15 * time.Minute
 type Stalled struct {
 	Snapshot  protocol.ProcessSnapshot
 	ElapsedMs uint64
+	SilenceMs uint64
+	// Byte totals cover output observed as of the snapshot.
+	StdoutBytes *uint64
+	StderrBytes *uint64
 }
 
 type Options struct {

@@ -176,7 +176,7 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 		return result, invalid("pending completion has no outcome")
 	}
 	result.Notice = protocol.ConversationBackgroundNotice{ID: record.Task.ID, Kind: record.Task.Kind, Title: processPreview(record.Task.Title, 200), Outcome: *record.Task.Outcome}
-	result.ElapsedMs = record.ElapsedMs
+	result.ElapsedMs, result.SilenceMs = record.ElapsedMs, record.SilenceMs
 	result.ExitCode = record.Task.ExitCode
 	if record.Task.Summary != nil {
 		result.Notice.Summary = new(processPreview(*record.Task.Summary, 512))
@@ -192,9 +192,13 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 	}
 	if record.Stdout != nil {
 		result.Stdout = new(processTail(*record.Stdout, streamLimit))
+		result.StdoutOmittedBytes = omittedCommandBytes(record.StdoutBytes, *result.Stdout)
+		result.StdoutTruncated = record.StdoutTruncated || result.StdoutOmittedBytes != nil || len(*result.Stdout) < len(*record.Stdout)
 	}
 	if record.Stderr != nil {
 		result.Stderr = new(processTail(*record.Stderr, streamLimit))
+		result.StderrOmittedBytes = omittedCommandBytes(record.StderrBytes, *result.Stderr)
+		result.StderrTruncated = record.StderrTruncated || result.StderrOmittedBytes != nil || len(*result.Stderr) < len(*record.Stderr)
 	}
 	if record.Task.Kind.Kind == "agent" && *record.Task.Outcome == protocol.ConversationBackgroundOutcomeFailed {
 		child, ok := processStatusData[protocol.ConversationBackgroundKindAgentPayload](record.Task.Kind.Data)
@@ -214,6 +218,13 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 		}
 	}
 	return result, nil
+}
+
+func omittedCommandBytes(total *uint64, tail string) *uint64 {
+	if total == nil || *total <= uint64(len(tail)) {
+		return nil
+	}
+	return new(*total - uint64(len(tail)))
 }
 
 func readBackgroundBatch(ctx context.Context, db *sql.Conn, session protocol.SessionID, reservation *protocol.TurnID, explicitInput bool) ([]BackgroundRecord, []canonical.BackgroundResult, error) {

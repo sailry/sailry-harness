@@ -57,7 +57,7 @@ func TestNativePlanPersistsOrderedProgressInPlanMode(t *testing.T) {
 }
 
 func TestNativePlanRejectsTextOverHistoryBudget(t *testing.T) {
-	tool := updatePlanTool(false)
+	tool := updatePlanTool()
 	const start = `{"title":null,"steps":[{"description":"`
 	const end = `","state":"pending"}]}`
 	text := strings.Repeat("\u00e9", 32*1024)

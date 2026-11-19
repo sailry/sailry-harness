@@ -12,6 +12,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -19,6 +20,84 @@ import (
 const fixtureChildFailureMarker = "Fixture child stopped by a provider protocol error"
 const fixtureChildFailure = fixtureChildFailureMarker + " \"quoted\"\n</runtime>"
 const fixtureChildTitle = "Background fixture"
+
+func TestNoticeTurnCollectsLaterCommandResult(t *testing.T) {
+	entered, release := make(chan fantasy.Call, 1), make(chan struct{})
+	resumed := make(chan fantasy.Call, 1)
+	main := &scriptedModel{scripts: []script{
+		response(text("Commands are still running."), finish()),
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			entered <- request
+			select {
+			case <-release:
+				response(text("Read the first result."), finish())(ctx, request, yield)
+			case <-ctx.Done():
+			}
+		},
+		func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+			resumed <- request
+			response(text("Read the second result."), finish())(ctx, request, yield)
+		},
+	}}
+	f := newFixture(t, main)
+	f.start()
+	parent := f.submit("Run both commands")
+	f.waitRun(parent, protocol.ConversationStatusCompleted)
+	finishCommand := func(reason string) protocol.RequestID {
+		t.Helper()
+		input := protocol.DefaultCommandRunCommandPayload()
+		input.Turn, input.Command, input.Background, input.FollowUp = parent, "fixture", true, true
+		request := protocol.NewRequest(f.node, protocol.Command{Kind: "run_command", Data: &input})
+		now := f.r.clock.Now()
+		if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+			if _, err := store.RegisterCommand(f.ctx, db, request, now); err != nil {
+				return err
+			}
+			snapshot := protocol.ProcessSnapshot{
+				Info:   protocol.ProcessInfo{ID: request.ID, Session: f.session.ID, Turn: parent, Status: protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}},
+				Stdout: protocol.ProcessCapture{Text: reason},
+			}
+			if _, err := store.FinishCommand(f.ctx, db, process.Finished{Snapshot: snapshot}, now); err != nil {
+				return err
+			}
+			_, _, err := store.ScheduleBackground(f.ctx, db, f.node, f.session.ID, now)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		f.r.Committed()
+		return request.ID
+	}
+	first := finishCommand("First exact completion")
+	request := awaitBackgroundTest(t, f.ctx, entered)
+	if !strings.Contains(promptText(request), first.String()) {
+		t.Fatal("the notice did not start with its first completion")
+	}
+	second := finishCommand("Second exact completion")
+	close(release)
+	request = awaitBackgroundTest(t, f.ctx, resumed)
+	if strings.Count(promptText(request), "command:"+second.String()) != 1 {
+		t.Fatal("the notice did not read its subsequent completion exactly once")
+	}
+	var notice protocol.TurnID
+	for _, turn := range backgroundFailureHistory(t, f).Page.Runs {
+		if turn.Notice {
+			if notice != (protocol.TurnID{}) {
+				t.Fatal("the later completion opened another notice turn")
+			}
+			notice = turn.Turn
+		}
+	}
+	if notice == (protocol.TurnID{}) {
+		t.Fatal("no notice turn was retained")
+	}
+	f.waitRun(notice, protocol.ConversationStatusCompleted)
+	for _, record := range f.state().Records {
+		if record.Background() != nil && record.Turn != notice {
+			t.Fatal("a command result left the notice turn")
+		}
+	}
+}
 
 func TestBackgroundChildFailureAtTurnBoundary(t *testing.T) {
 	for _, boundary := range []string{"tool", "stream", "approval", "wait_agent", "stop"} {
@@ -124,18 +203,23 @@ func TestBackgroundChildFailureAfterParentEnds(t *testing.T) {
 	for _, scenario := range []string{"automatic", "legacy failure before queued input", "stopped child"} {
 		t.Run(scenario, func(t *testing.T) {
 			failChild := make(chan struct{})
+			childStarted := make(chan struct{})
 			nextRequest := make(chan fantasy.Call, 1)
 			main := &scriptedModel{scripts: []script{backgroundFailureSpawn(), response(text("The parent ended first"), finish()), func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
 				nextRequest <- request
 				response(text("Reviewed background work"), finish())(ctx, request, yield)
 			}}}
-			child := &scriptedModel{scripts: []script{scriptedChildFailure(failChild)}}
+			child := &scriptedModel{scripts: []script{func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				close(childStarted)
+				scriptedChildFailure(failChild)(ctx, request, yield)
+			}}}
 			f := backgroundFailureFixture(t, main, child)
 			f.start()
 			first := f.submit("Original task")
 			f.waitRun(first, protocol.ConversationStatusCompleted)
 			childID := onlyBackgroundTestChild(t, f)
 			f.waitRun(childID, protocol.ConversationStatusRunning)
+			awaitBackgroundTest(t, f.ctx, childStarted)
 			reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
 			t.Cleanup(func() { _ = reservation.Close() })
 			snapshot := protocol.DefaultConversationSnapshot()

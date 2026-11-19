@@ -28,6 +28,7 @@ func TestCommandEvidenceRecovery(t *testing.T) {
 	completion := process.Finished{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: request.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}}, Stdout: protocol.ProcessCapture{Text: output}}}
 	elapsed := uint64(12)
 	completion.ElapsedMs = &elapsed
+	completion.StdoutBytes = new(uint64(len(output)))
 	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
 		_, err := FinishCommand(ctx, db, completion, now.Add(time.Second))
 		return err
@@ -47,6 +48,11 @@ func TestCommandEvidenceRecovery(t *testing.T) {
 		}
 		if record.Task.ExitCode == nil || *record.Task.ExitCode != 0 {
 			return fmt.Errorf("a command that exited states exit code %v", record.Task.ExitCode)
+		}
+		evidence, err := backgroundResult(ctx, db, *record)
+		if err != nil || evidence.Stdout == nil || !evidence.StdoutTruncated || evidence.StdoutOmittedBytes == nil ||
+			*evidence.StdoutOmittedBytes != uint64(len(output)-len(*evidence.Stdout)) {
+			return fmt.Errorf("loss metadata does not describe the emitted tail: %+v, %v", evidence, err)
 		}
 		// The call that started the command names its task, and no other call does.
 		for result, want := range map[string]string{
@@ -163,8 +169,11 @@ func TestStalledCommandEvidence(t *testing.T) {
 	input.Turn, input.Command, input.Background, input.FollowUp = turn, "fixture server", true, true
 	watched := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
 	settled := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+	manualInput := input
+	manualInput.FollowUp = false
+	manual := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &manualInput})
 	running := func(id protocol.RequestID, stdout string) process.Stalled {
-		return process.Stalled{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: id, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "running"}}, Stdout: protocol.ProcessCapture{Text: stdout}}, ElapsedMs: 900000}
+		return process.Stalled{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: id, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "running"}}, Stdout: protocol.ProcessCapture{Text: stdout}}, ElapsedMs: 1000000, SilenceMs: 900000}
 	}
 	read := func(db *sql.Conn, id string) (*BackgroundRecord, error) {
 		return readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)
@@ -173,13 +182,16 @@ func TestStalledCommandEvidence(t *testing.T) {
 		if _, written, err := StallCommand(ctx, db, running(watched.ID, ""), now); err != nil || written {
 			return errors.New("an unregistered command recorded a stall")
 		}
-		for _, request := range []protocol.Request{watched, settled} {
+		for _, request := range []protocol.Request{watched, settled, manual} {
 			if _, err := RegisterCommand(ctx, db, request, now); err != nil {
 				return err
 			}
 		}
 		if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
 			return err
+		}
+		if _, written, err := StallCommand(ctx, db, running(manual.ID, ""), now.Add(15*time.Minute)); err != nil || written {
+			return errors.New("a command without follow-up recorded a stall")
 		}
 		changes, written, err := StallCommand(ctx, db, running(watched.ID, "waiting for input"), now.Add(15*time.Minute))
 		if err != nil || !written || len(changes) == 0 {
@@ -189,7 +201,7 @@ func TestStalledCommandEvidence(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if stall == nil || stall.Task.State != protocol.ConversationBackgroundStatePending || stall.Task.Outcome == nil || *stall.Task.Outcome != protocol.ConversationBackgroundOutcomeStalled || !stall.FollowUp || stall.ElapsedMs == nil || *stall.ElapsedMs != 900000 || stall.Stdout == nil || *stall.Stdout != "waiting for input" || stall.Task.Summary == nil || *stall.Task.Summary != "waiting for input" || stall.Task.Session != session.ID || stall.Task.Turn != turn {
+		if stall == nil || stall.Task.State != protocol.ConversationBackgroundStatePending || stall.Task.Outcome == nil || *stall.Task.Outcome != protocol.ConversationBackgroundOutcomeStalled || !stall.FollowUp || stall.ElapsedMs == nil || *stall.ElapsedMs != 1000000 || stall.SilenceMs == nil || *stall.SilenceMs != 900000 || stall.Stdout == nil || *stall.Stdout != "waiting for input" || stall.Task.Summary == nil || *stall.Task.Summary != "waiting for input" || stall.Task.Session != session.ID || stall.Task.Turn != turn {
 			return errors.New("stall evidence is incomplete")
 		}
 		command, err := read(db, "command:"+watched.ID.String())
@@ -217,6 +229,24 @@ func TestStalledCommandEvidence(t *testing.T) {
 			return errors.New("a second silent command recorded no stall")
 		}
 		finished := process.Finished{Snapshot: protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: settled.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}}}}
+		reserved, err := read(db, "stall:"+watched.ID.String())
+		if err != nil || reserved == nil || reserved.Task.Delivery == nil {
+			return fmt.Errorf("the first stall did not retain the queued turn: %v", err)
+		}
+		reservation := *reserved.Task.Delivery
+		finished.Snapshot.Info.ID = watched.ID
+		if _, err := FinishCommand(ctx, db, finished, now.Add(17*time.Minute)); err != nil {
+			return err
+		}
+		update, err := read(db, reserved.Task.ID)
+		if err != nil || update == nil || update.Task.State != protocol.ConversationBackgroundStateDismissed || update.Task.Delivery != nil {
+			return fmt.Errorf("a superseded stall stayed reserved: %+v, %v", update, err)
+		}
+		terminal, err := read(db, "command:"+watched.ID.String())
+		if err != nil || terminal == nil || terminal.Task.Delivery == nil || *terminal.Task.Delivery != reservation {
+			return fmt.Errorf("completion did not replace its reserved stall: %+v, %v", terminal, err)
+		}
+		finished.Snapshot.Info.ID = settled.ID
 		if _, err := FinishCommand(ctx, db, finished, now.Add(17*time.Minute)); err != nil {
 			return err
 		}
@@ -233,5 +263,68 @@ func TestStalledCommandEvidence(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCommandStopReceiptConsumesItsConfirmedOutcome(t *testing.T) {
+	t.Parallel()
+	for _, row := range []struct {
+		name     string
+		observed bool
+		raced    bool
+	}{
+		{"model stop before completion", true, false},
+		{"model stop raced completion", true, true},
+		{"controller stop", false, false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+			ctx := t.Context()
+			input := protocol.DefaultCommandRunCommandPayload()
+			input.Turn, input.Command, input.Background, input.FollowUp = turn, "fixture command", true, true
+			request := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &input})
+			snapshot := protocol.ProcessSnapshot{Info: protocol.ProcessInfo{ID: request.ID, Session: session.ID, Turn: turn, Status: protocol.ProcessStatus{Kind: "stopping"}}}
+			finished := process.Finished{Snapshot: snapshot, Explicit: true}
+			finished.Snapshot.Info.Status = protocol.ProcessStatus{Kind: "finished", Data: protocol.ProcessOutcome{Kind: "cancelled"}}
+			if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				if _, err := RegisterCommand(ctx, db, request, now); err != nil {
+					return err
+				}
+				if row.raced {
+					if _, err := FinishCommand(ctx, db, finished, now); err != nil {
+						return err
+					}
+				}
+				if row.observed {
+					if _, err := ObserveCommandStop(ctx, db, turn, snapshot, now); err != nil {
+						return err
+					}
+				}
+				if !row.raced {
+					if _, err := FinishCommand(ctx, db, finished, now); err != nil {
+						return err
+					}
+				}
+				pending, err := CommandBackgroundPending(ctx, db, finished.Snapshot)
+				if err != nil || pending == row.observed {
+					return fmt.Errorf("the stop receipt left wrong consumption eligibility: %v, %v", pending, err)
+				}
+				record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "command:"+request.ID.String())
+				if err != nil {
+					return err
+				}
+				want := protocol.ConversationBackgroundStatePending
+				if row.observed {
+					want = protocol.ConversationBackgroundStateConsumed
+				}
+				if record.Task.State != want || record.Task.Outcome == nil || *record.Task.Outcome != protocol.ConversationBackgroundOutcomeStopped {
+					return fmt.Errorf("stop evidence changed outcome or attribution: %+v", record.Task)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

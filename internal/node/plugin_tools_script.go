@@ -156,6 +156,9 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		if len(selection.Parts) > 8 {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin turn returned too many context parts"}
 		}
+		if instruction := strings.TrimSpace(selection.Instruction); instruction != "" {
+			contextParts = append(contextParts, instruction)
+		}
 		for _, part := range selection.Parts {
 			combined += len(part)
 			if strings.TrimSpace(part) == "" || combined > 32*1024 {
@@ -164,9 +167,6 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			if !slices.Contains(contextParts, part) {
 				contextParts = append(contextParts, part)
 			}
-		}
-		if selection.Instruction != "" {
-			instruction += "\n\n" + selection.Instruction
 		}
 		declarations = slices.DeleteFunc(declarations, func(declaration protocol.ToolDeclaration) bool {
 			return !slices.Contains(selection.Tools, declaration.Name)

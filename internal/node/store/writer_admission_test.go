@@ -79,6 +79,12 @@ func TestWriteAdmission(t *testing.T) {
 					t.Errorf("write error: got %v, want %v", err, want)
 				}
 			}
+			if test.callbackError == busy {
+				var fault *protocol.Fault
+				if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeBusy {
+					t.Errorf("rolled-back callback conflict must be reported as retryable: %v", err)
+				}
+			}
 			if errors.Is(err, context.Canceled) {
 				var fault *protocol.Fault
 				if errors.As(err, &fault) {

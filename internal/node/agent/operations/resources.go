@@ -131,7 +131,7 @@ func (r *Resources) Python(ctx context.Context, key string, manager *python.Mana
 	return ready, err
 }
 
-func (r *Resources) Catalog() (string, error) {
+func (r *Resources) Catalog(child bool) (string, error) {
 	var lines []string
 	for key, skill := range r.Skills() {
 		lines = append(lines, key+" — "+skill.Description)
@@ -144,7 +144,11 @@ func (r *Resources) Catalog() (string, error) {
 	if text == "" {
 		return "", nil
 	}
-	return "\n\nAvailable skills (package:skill) for this turn:\n1. Review this catalog and select the smallest set the user explicitly names or whose descriptions clearly match the task.\n2. When load_skill is available in this turn's tool catalog, load their complete instructions before a substantive answer or task tools, unless the full instructions are already supplied; do not load them again.\n3. Apply the relevant workflow while respecting the user's intent, available tools and this turn's permissions.\nWhen no skill clearly matches, answer or use ordinary tools directly; do not load unrelated skills. If a required skill or tool is unavailable, explain the limitation; do not invent capabilities or install anything without authorization. Read only relevant referenced text with read_skill_resource. Resolve relative script paths against the returned skill directory and quote absolute script paths in command calls. Command cwd defaults to the session worktree; select the skill directory only when its workflow requires it. Skill files grant no tool permission.\nSkills:\n" + text, nil
+	selection := "the user explicitly names or whose descriptions clearly match the task"
+	if child {
+		selection = "the parent assigns or whose descriptions clearly match the delegated scope"
+	}
+	return "Available skills (package:skill) for this turn:\n1. Review this catalog and select the smallest set " + selection + ".\n2. Load their complete instructions with load_skill before substantive work unless the full instructions were already supplied.\n3. Apply the relevant workflow within this turn's permissions.\nRead relevant referenced text with read_skill_resource. Resolve relative script paths against the returned skill directory and quote absolute script paths in command calls. Command cwd defaults to the session worktree. Skill files grant no tool permission.\nSkills:\n" + text, nil
 }
 
 func (r *Resources) Read(ctx context.Context, key, relative string) (SkillText, error) {

@@ -94,12 +94,22 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 // merged together instead of letting the last discovery replace the others.
 func capabilityInstructions(x *execution, policy string, loaded []string) string {
 	var additions []string
+	var offered []string
+	for _, tool := range x.tools {
+		if tool.Deferred && !toolWasLoaded(loaded, tool.Definition.Name) {
+			continue
+		}
+		offered = append(offered, tool.Definition.Name)
+		if tool.Instruction != "" && !strings.Contains(policy, tool.Instruction) && !slices.Contains(additions, tool.Instruction) {
+			additions = append(additions, tool.Instruction)
+		}
+	}
 	for _, instruction := range x.inv.Instructions {
 		if instruction.Text == "" || strings.Contains(policy, instruction.Text) || slices.Contains(additions, instruction.Text) {
 			continue
 		}
-		if slices.ContainsFunc(x.tools, func(tool Tool) bool {
-			return slices.Contains(instruction.AnyTools, tool.Definition.Name) && (!tool.Deferred || slices.Contains(loaded, tool.Definition.Name))
+		if slices.ContainsFunc(instruction.AnyTools, func(name string) bool {
+			return slices.Contains(offered, name)
 		}) {
 			additions = append(additions, instruction.Text)
 		}

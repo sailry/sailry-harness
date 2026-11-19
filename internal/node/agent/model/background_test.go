@@ -131,3 +131,21 @@ func TestHistoricalNoticeDoesNotChangeUserRole(t *testing.T) {
 		}
 	}
 }
+
+func TestBackgroundProjectionKeepsLossWithoutRepeatingSummary(t *testing.T) {
+	const summary = "Actual exit error"
+	id := protocol.RequestID{1}
+	record := canonical.NewRecord(protocol.NewTurnID(), "background", &canonical.Background{Results: []canonical.BackgroundResult{{
+		Notice: protocol.ConversationBackgroundNotice{ID: "command:" + id.String(),
+			Kind:    protocol.ConversationBackgroundKind{Kind: "command", Data: protocol.ConversationBackgroundKindCommandPayload{ID: id}},
+			Outcome: protocol.ConversationBackgroundOutcomeFailed, Summary: new(summary)},
+		Stderr: new("earlier lines\n" + summary), StderrTruncated: true, StderrOmittedBytes: new(uint64(52000)),
+	}}}, time.Unix(100, 0))
+	_, evidence, err := record.ModelContent()
+	if err != nil || strings.Count(evidence, summary) != 1 || !strings.Contains(evidence, `"stderr_omitted_bytes":52000`) || !strings.Contains(evidence, `"stderr_truncated":true`) {
+		t.Fatalf("incorrect background evidence: %q, %v", evidence, err)
+	}
+	if stored := record.Background().Results[0].Notice.Summary; stored == nil || *stored != summary {
+		t.Fatalf("model projection changed the stored summary: %v", stored)
+	}
+}

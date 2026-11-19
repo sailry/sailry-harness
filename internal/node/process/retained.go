@@ -40,8 +40,11 @@ type retainedStream struct {
 	retained int
 	total    uint64
 	written  uint64
+	// A foreground capture owns the prefix. Keep a separate suffix only
+	// after overflow, until promotion transfers it to the capture.
 	tail     []byte
 	finished bool
+	cutShort bool
 	budget   *outputBudget
 	capture  outputBuffer
 	decoder  outputDecoder
@@ -51,11 +54,11 @@ type retainedStream struct {
 }
 
 func newRetained(profile string, budget *outputBudget, tail, command bool) *retainedStream {
-	prefix, suffix := captureLimit, 0
+	prefix := captureLimit
 	if tail {
-		prefix, suffix = 0, captureLimit
+		prefix = 0
 	}
-	stream := &retainedStream{budget: budget, capture: outputBuffer{tail: tail, decoder: newOutputDecoder(prefix, suffix, command)}}
+	stream := &retainedStream{budget: budget, capture: outputBuffer{tail: tail, decoder: newOutputDecoder(prefix, captureLimit, command)}}
 	directory := filepath.Join(profile, "tmp")
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		stream.error = err
@@ -93,18 +96,18 @@ func clearOutput(profile string) error {
 func (stream *retainedStream) append(value []byte) {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+	if !stream.capture.tail && stream.total+uint64(len(value)) > captureLimit {
+		if stream.tail == nil && len(value) < captureLimit {
+			stream.tail = slices.Clone(stream.capture.bytes)
+		}
+		stream.tail = appendTail(stream.tail, value)
+	}
 	stream.capture.append(value)
 	stream.decoder.append(value)
 	stream.toScan = append(stream.toScan, value...)
 	stream.scan(false)
 	start := stream.total
 	stream.total += uint64(len(value))
-	if len(value) >= recentLimit {
-		stream.tail = append(stream.tail[:0], value[len(value)-recentLimit:]...)
-	} else {
-		discard := max(len(stream.tail)+len(value)-recentLimit, 0)
-		stream.tail = append(stream.tail[discard:], value...)
-	}
 	if len(value) == 0 || stream.error != nil || stream.file == nil {
 		return
 	}
@@ -171,6 +174,9 @@ func (stream *retainedStream) finish() {
 	stream.decoder.finish()
 	stream.capture.decoder.finish()
 	stream.scan(true)
+	if len(stream.tail) > recentLimit {
+		stream.tail = slices.Clone(stream.tail[len(stream.tail)-recentLimit:])
+	}
 	stream.budget.used.Add(-int64(stream.reserved - stream.retained))
 	stream.reserved = stream.retained
 	if stream.file != nil {
@@ -179,11 +185,27 @@ func (stream *retainedStream) finish() {
 	}
 }
 
+func (stream *retainedStream) promote() {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.tail != nil {
+		stream.capture.bytes, stream.tail = stream.tail, nil
+	}
+	stream.capture.tail = true
+}
+
+func (stream *retainedStream) last() []byte {
+	if stream.tail != nil {
+		return stream.tail
+	}
+	return stream.capture.bytes
+}
+
 // cut marks output that ended before its stream closed.
 func (stream *retainedStream) cut() {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
-	stream.capture.truncated = true
+	stream.capture.truncated, stream.cutShort = true, true
 }
 
 func (stream *retainedStream) evict() {
@@ -205,14 +227,59 @@ func (stream *retainedStream) bytes() int {
 func (stream *retainedStream) snapshot(recent bool) protocol.ProcessCapture {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+	return stream.captureLocked(recent)
+}
+
+func (stream *retainedStream) captureLocked(recent bool) protocol.ProcessCapture {
 	if !recent {
 		return stream.capture.capture()
 	}
-	value := stream.tail
+	value := stream.last()
+	value = value[len(value)-min(len(value), recentLimit):]
 	offset := stream.total - uint64(len(value))
-	start, end := stream.decoder.bounds(value, offset, stream.finished)
-	text, invalid := stream.decoder.decode(value[start:end], offset+uint64(start))
-	return protocol.ProcessCapture{Text: text, Truncated: stream.total > uint64(len(value)), InvalidUtf8: invalid}
+	start, end := stream.capture.decoder.bounds(value, offset, stream.finished)
+	text, invalid := stream.capture.decoder.decode(value[start:end], offset+uint64(start))
+	return protocol.ProcessCapture{Text: text, Truncated: stream.cutShort || stream.total > uint64(end-start), InvalidUtf8: invalid}
+}
+
+func (stream *retainedStream) captureDetails(recent bool) (protocol.ProcessCapture, *uint64) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	capture := stream.captureLocked(recent)
+	if stream.cutShort || stream.capture.decoder.transcoded() || capture.InvalidUtf8 {
+		return capture, nil
+	}
+	return capture, new(stream.total)
+}
+
+func (stream *retainedStream) position() uint64 {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return stream.total
+}
+
+// matchesAfter includes a marker split across the wait boundary, but a match
+// ending entirely in output received before the wait cannot wake it.
+func (stream *retainedStream) matchesAfter(position uint64, needle string) bool {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if stream.total <= position {
+		return false
+	}
+	value := stream.last()
+	offset := stream.total - uint64(len(value))
+	decoder := &stream.capture.decoder
+	start, end := decoder.bounds(value, offset, stream.finished)
+	text, _ := decoder.decode(value[start:end], offset+uint64(start))
+	if position > offset+uint64(start) {
+		old := min(int(position-offset), end)
+		_, oldEnd := decoder.bounds(value[:old], offset, false)
+		if oldEnd > start {
+			prefix, _ := decoder.decode(value[start:oldEnd], offset+uint64(start))
+			text = text[max(len(prefix)-len(needle)+1, 0):]
+		}
+	}
+	return strings.Contains(text, needle)
 }
 
 func (stream *retainedStream) read(offset uint64, count int) ([]byte, error) {

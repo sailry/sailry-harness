@@ -16,13 +16,19 @@ import (
 // BackgroundRecord retains completion evidence independently of process handles.
 // Background delivery consumes its follow-up flag through the same authoritative writer.
 type BackgroundRecord struct {
-	Task      protocol.ConversationBackgroundTask `json:"task"`
-	FollowUp  bool                                `json:"follow_up"`
-	Stdout    *string                             `json:"stdout"`
-	Stderr    *string                             `json:"stderr"`
-	Response  *string                             `json:"response"`
-	ElapsedMs *uint64                             `json:"elapsed_ms"`
-	Sequence  uint64                              `json:"sequence"`
+	Task            protocol.ConversationBackgroundTask `json:"task"`
+	FollowUp        bool                                `json:"follow_up"`
+	StopObserved    bool                                `json:"stop_observed,omitempty"`
+	Stdout          *string                             `json:"stdout"`
+	Stderr          *string                             `json:"stderr"`
+	StdoutBytes     *uint64                             `json:"stdout_bytes,omitempty"`
+	StderrBytes     *uint64                             `json:"stderr_bytes,omitempty"`
+	StdoutTruncated bool                                `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool                                `json:"stderr_truncated,omitempty"`
+	Response        *string                             `json:"response"`
+	ElapsedMs       *uint64                             `json:"elapsed_ms"`
+	SilenceMs       *uint64                             `json:"silence_ms,omitempty"`
+	Sequence        uint64                              `json:"sequence"`
 }
 
 func (record *BackgroundRecord) UnmarshalJSON(data []byte) error {
@@ -148,29 +154,40 @@ func FinishCommand(ctx context.Context, db *sql.Conn, finished process.Finished,
 	default:
 		return nil, errors.New("invalid command status")
 	}
-	stdout, stderr := processTail(snapshot.Stdout.Text, 2048), processTail(snapshot.Stderr.Text, 2048)
-	record.Stdout, record.Stderr, record.ElapsedMs = &stdout, &stderr, finished.ElapsedMs
-	for _, text := range []string{snapshot.Stderr.Text, snapshot.Stdout.Text} {
-		if text != "" {
-			value := processTail(text, 512)
-			summary = &value
-			break
+	record.captureCommand(snapshot, finished.StdoutBytes, finished.StderrBytes)
+	record.ElapsedMs = finished.ElapsedMs
+	if summary == nil {
+		summary = commandSummary(snapshot)
+	}
+	// Replace a still-reserved stall with its completion before the notice
+	// starts. Already delivered stalls stay in canonical history.
+	reservation, err := settleStall(ctx, db, snapshot.Info.ID)
+	if err != nil {
+		return nil, err
+	}
+	switch outcome {
+	case protocol.ConversationBackgroundOutcomeCompleted, protocol.ConversationBackgroundOutcomeFailed,
+		protocol.ConversationBackgroundOutcomeTimedOut, protocol.ConversationBackgroundOutcomeUnknown:
+		if record.FollowUp {
+			record.Task.Delivery = reservation
 		}
 	}
 	if err := terminalCommandRecord(ctx, db, record, outcome, summary, now); err != nil {
 		return nil, err
 	}
-	// The completion supersedes stall evidence no turn has taken.
-	if err := settleStall(ctx, db, snapshot.Info.ID); err != nil {
-		return nil, err
-	}
 	return activityEvent(ctx, db, record.Task.Session)
 }
 
-// StallCommand records one silent period of a running background command as
-// evidence of its own, `stall:<request>`, with the outcome stalled. The
-// command's record stays running until it finishes. It reports whether
-// evidence was written.
+func (record *BackgroundRecord) captureCommand(snapshot protocol.ProcessSnapshot, stdoutBytes, stderrBytes *uint64) {
+	stdout, stderr := processTail(snapshot.Stdout.Text, 2048), processTail(snapshot.Stderr.Text, 2048)
+	record.Stdout, record.Stderr = &stdout, &stderr
+	record.StdoutBytes, record.StderrBytes = stdoutBytes, stderrBytes
+	record.StdoutTruncated = snapshot.Stdout.Truncated || len(stdout) < len(snapshot.Stdout.Text)
+	record.StderrTruncated = snapshot.Stderr.Truncated || len(stderr) < len(snapshot.Stderr.Text)
+}
+
+// StallCommand records at most one silent period for a follow-up command.
+// The command itself stays running until it finishes.
 func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, now time.Time) ([]protocol.Event, bool, error) {
 	snapshot := stalled.Snapshot
 	// A command outside an agent turn, or promoted before its receipt commits, has no record.
@@ -181,7 +198,7 @@ func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, no
 	if command.Task.Session != snapshot.Info.Session || command.Task.Turn != snapshot.Info.Turn {
 		return nil, false, errors.New("background command ownership changed")
 	}
-	if command.Task.State != protocol.ConversationBackgroundStateRunning {
+	if command.Task.State != protocol.ConversationBackgroundStateRunning || !command.FollowUp {
 		return nil, false, nil
 	}
 	id := "stall:" + snapshot.Info.ID.String()
@@ -189,43 +206,39 @@ func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, no
 	if err != nil {
 		return nil, false, err
 	}
-	switch {
-	case record == nil:
-		record = &BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: id, Session: command.Task.Session, Turn: command.Task.Turn, Kind: command.Task.Kind, Title: command.Task.Title, State: protocol.ConversationBackgroundStateRunning, StartedMs: command.Task.StartedMs}}
-	case record.Task.State == protocol.ConversationBackgroundStatePending && record.Task.Delivery != nil:
-		// A reserved delivery keeps the evidence its notice was rendered from.
+	if record != nil {
 		return nil, false, nil
-	case record.Task.State != protocol.ConversationBackgroundStatePending:
-		record.Task.Delivery, record.Task.Recovered, record.Task.Suppressed, record.Task.Hold = nil, false, false, nil
 	}
-	record.FollowUp = command.FollowUp
-	elapsed := stalled.ElapsedMs
-	stdout, stderr := processTail(snapshot.Stdout.Text, 2048), processTail(snapshot.Stderr.Text, 2048)
-	record.Stdout, record.Stderr, record.ElapsedMs = &stdout, &stderr, &elapsed
-	var summary *string
-	for _, text := range []string{snapshot.Stderr.Text, snapshot.Stdout.Text} {
-		if text != "" {
-			value := processTail(text, 512)
-			summary = &value
-			break
-		}
-	}
-	if err := terminalCommandRecord(ctx, db, record, protocol.ConversationBackgroundOutcomeStalled, summary, now); err != nil {
+	record = &BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: id, Session: command.Task.Session, Turn: command.Task.Turn,
+		Kind: command.Task.Kind, Title: command.Task.Title, State: protocol.ConversationBackgroundStateRunning, StartedMs: command.Task.StartedMs},
+		FollowUp: true, ElapsedMs: &stalled.ElapsedMs, SilenceMs: &stalled.SilenceMs}
+	record.captureCommand(snapshot, stalled.StdoutBytes, stalled.StderrBytes)
+	if err := terminalCommandRecord(ctx, db, record, protocol.ConversationBackgroundOutcomeStalled, commandSummary(snapshot), now); err != nil {
 		return nil, false, err
 	}
 	events, err := activityEvent(ctx, db, record.Task.Session)
 	return events, true, err
 }
 
-// settleStall dismisses a command's undelivered stall evidence. Delivered or
-// reserved evidence stays with the turn that received it.
-func settleStall(ctx context.Context, db *sql.Conn, command protocol.RequestID) error {
-	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "stall:"+command.String())
-	if err != nil || record == nil || record.Task.State != protocol.ConversationBackgroundStatePending || record.Task.Delivery != nil {
-		return err
+func commandSummary(snapshot protocol.ProcessSnapshot) *string {
+	for _, text := range []string{snapshot.Stderr.Text, snapshot.Stdout.Text} {
+		if text != "" {
+			return new(processTail(text, 512))
+		}
 	}
-	record.Task.State = protocol.ConversationBackgroundStateDismissed
-	return saveBackgroundRecord(ctx, db, record)
+	return nil
+}
+
+// settleStall dismisses a command's undelivered stall evidence, including a
+// queued reservation. Already delivered evidence stays with its turn.
+func settleStall(ctx context.Context, db *sql.Conn, command protocol.RequestID) (*protocol.TurnID, error) {
+	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "stall:"+command.String())
+	if err != nil || record == nil || record.Task.State != protocol.ConversationBackgroundStatePending {
+		return nil, err
+	}
+	reservation := record.Task.Delivery
+	record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateDismissed, nil
+	return reservation, saveBackgroundRecord(ctx, db, record)
 }
 
 func processStatusData[T any](value any) (T, bool) {
@@ -243,6 +256,9 @@ func processStatusData[T any](value any) (T, bool) {
 
 func terminalCommandRecord(ctx context.Context, db *sql.Conn, record *BackgroundRecord, outcome protocol.ConversationBackgroundOutcome, summary *string, now time.Time) error {
 	record.Task.State = protocol.ConversationBackgroundStatePending
+	if outcome == protocol.ConversationBackgroundOutcomeStopped && record.StopObserved {
+		record.Task.State = protocol.ConversationBackgroundStateConsumed
+	}
 	record.Task.Outcome = &outcome
 	finished := now.UnixMilli()
 	record.Task.FinishedMs = &finished
@@ -350,7 +366,12 @@ func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protoc
 			}
 		}
 		record.Task.Delivery = nil
-		record.Task.Recovered, record.Task.Suppressed, record.Task.Hold = true, true, new(protocol.ConversationBackgroundHoldInterrupted)
+		if strings.HasPrefix(record.Task.ID, "stall:") {
+			record.Task.State = protocol.ConversationBackgroundStateDismissed
+			record.Task.Hold = nil
+		} else {
+			record.Task.Recovered, record.Task.Suppressed, record.Task.Hold = true, true, new(protocol.ConversationBackgroundHoldInterrupted)
+		}
 		if err := saveBackgroundRecord(ctx, db, &record); err != nil {
 			return nil, err
 		}

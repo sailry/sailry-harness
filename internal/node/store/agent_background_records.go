@@ -9,6 +9,19 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// CommandBackgroundPending avoids taking the writer for an output read that
+// cannot consume any more evidence.
+func CommandBackgroundPending(ctx context.Context, db *sql.Conn, snapshot protocol.ProcessSnapshot) (bool, error) {
+	if snapshot.Info.Status.Kind == "running" || snapshot.Info.Status.Kind == "stopping" {
+		return false, nil
+	}
+	var pending bool
+	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_background
+		WHERE id=?1 AND session=?2 AND turn=?3 AND state IN ('running','pending'))`,
+		"command:"+snapshot.Info.ID.String(), snapshot.Info.Session.String(), snapshot.Info.Turn.String()).Scan(&pending)
+	return pending, err
+}
+
 func ConsumeCommandBackground(ctx context.Context, db *sql.Conn, parent protocol.TurnID, snapshot protocol.ProcessSnapshot, now time.Time) ([]protocol.Event, error) {
 	run, err := activeAgentRun(ctx, db, parent)
 	if err != nil {
@@ -27,29 +40,60 @@ func ConsumeCommandBackground(ctx context.Context, db *sql.Conn, parent protocol
 	if err != nil {
 		return nil, err
 	}
-	changed := false
-	if record.Task.State != protocol.ConversationBackgroundStateConsumed && record.Task.State != protocol.ConversationBackgroundStateDismissed {
-		record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateConsumed, nil
-		if err = saveBackgroundRecord(ctx, db, record); err != nil {
-			return nil, err
-		}
-		changed = true
+	if record.Task.State != protocol.ConversationBackgroundStatePending {
+		return nil, nil
 	}
-	stall, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "stall:"+snapshot.Info.ID.String())
+	record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateConsumed, nil
+	if err = saveBackgroundRecord(ctx, db, record); err != nil {
+		return nil, err
+	}
+	if _, err = settleStall(ctx, db, snapshot.Info.ID); err != nil {
+		return nil, err
+	}
+	return activityEvent(ctx, db, run.Session)
+}
+
+// ObserveCommandStop records a stop acknowledged by a tool turn. Only a
+// confirmed stopped outcome is consumed by that acknowledgment.
+func ObserveCommandStop(ctx context.Context, db *sql.Conn, parent protocol.TurnID, snapshot protocol.ProcessSnapshot, now time.Time) ([]protocol.Event, error) {
+	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "command:"+snapshot.Info.ID.String())
+	if err != nil || record == nil {
+		return nil, err
+	}
+	run, err := ReadAgentRun(ctx, db, parent)
 	if err != nil {
 		return nil, err
 	}
-	if stall != nil && stall.Task.State == protocol.ConversationBackgroundStatePending && stall.Task.Delivery == nil {
-		stall.Task.State = protocol.ConversationBackgroundStateDismissed
-		if err = saveBackgroundRecord(ctx, db, stall); err != nil {
-			return nil, err
+	if run.Session != snapshot.Info.Session || record.Task.Session != snapshot.Info.Session || record.Task.Turn != snapshot.Info.Turn {
+		return nil, fault(protocol.ErrorCodePermissionDenied, "command belongs to another execution")
+	}
+	if run.Status != protocol.ConversationStatusRunning {
+		return nil, nil
+	}
+	if snapshot.Info.Status.Kind != "running" && snapshot.Info.Status.Kind != "stopping" {
+		if record.Task.State == protocol.ConversationBackgroundStateRunning || record.Task.State == protocol.ConversationBackgroundStatePending {
+			return ConsumeCommandBackground(ctx, db, parent, snapshot, now)
 		}
-		changed = true
+		return nil, nil
 	}
-	if changed {
-		return activityEvent(ctx, db, run.Session)
+	switch record.Task.State {
+	case protocol.ConversationBackgroundStateRunning:
+		if !record.StopObserved {
+			record.StopObserved = true
+			err = saveBackgroundRecord(ctx, db, record)
+		}
+	case protocol.ConversationBackgroundStatePending:
+		// The process can finish after producing the stopping snapshot and
+		// before the tool receipt is recorded.
+		if record.Task.Outcome != nil && *record.Task.Outcome == protocol.ConversationBackgroundOutcomeStopped {
+			record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateConsumed, nil
+			if err = saveBackgroundRecord(ctx, db, record); err != nil {
+				return nil, err
+			}
+			return activityEvent(ctx, db, run.Session)
+		}
 	}
-	return nil, nil
+	return nil, err
 }
 
 func RegisterChildBackground(ctx context.Context, db *sql.Conn, parent, child protocol.ConversationRun, title string, now time.Time) ([]protocol.Event, error) {
