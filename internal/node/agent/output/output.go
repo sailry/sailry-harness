@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"lukechampine.com/blake3"
 )
 
 const MaxLines = 2000
@@ -18,14 +19,17 @@ type Cache struct {
 	reads   fileReads
 }
 type entry struct {
-	identity  identity
-	projected canonical.ToolResponse
+	identity identity
+	format   canonical.ToolFormat
+	value    json.RawMessage
+	slots    slotProjection
 }
 type identity struct {
 	message, call, revision string
 	visible                 bool
-	images                  int
-	omitted                 string
+	digest                  [32]byte
+	format                  canonical.ToolFormat
+	status                  canonical.ToolStatus
 }
 
 func clone[T any](value T) T {
@@ -88,22 +92,45 @@ func resultEnvelope(response *canonical.ToolResponse) map[string]any {
 	}
 	return envelope
 }
-func resultIdentity(record canonical.Record, response canonical.ToolResponse, visible bool) identity {
-	identity := identity{message: record.ID, call: response.ID, revision: response.Revision, visible: visible}
-	if envelope := resultEnvelope(&response); envelope != nil {
-		for _, content := range array(envelope["content"]) {
-			if object(content)["type"] == "image" {
-				identity.images++
-			}
-		}
-		if omitted := object(envelope["structuredContent"])["omitted_screenshots"]; omitted != nil {
-			identity.omitted = encoded(omitted)
-		}
+
+// Tool payload bytes are borrowed until Project selects the final output.
+func cloneRecord(record canonical.Record) canonical.Record {
+	msg := record.Message()
+	if msg == nil {
+		return clone(record)
 	}
-	return identity
+	shell := *msg
+	shell.Content = nil
+	record.Data = &shell
+	copied := clone(record)
+	out := copied.Message()
+	if msg.Content != nil {
+		out.Content = make([]canonical.Block, len(msg.Content))
+	}
+	for i, block := range msg.Content {
+		tool := response(&block)
+		if tool == nil {
+			out.Content[i] = clone(block)
+			continue
+		}
+		fields := *tool
+		fields.Result.Value = nil
+		fields = clone(fields)
+		fields.Result.Value = tool.Result.Value
+		block.Data = &fields
+		out.Content[i] = block
+	}
+	return copied
 }
 func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
-	projected := clone(records)
+	if records == nil {
+		*cache = Cache{}
+		return nil
+	}
+	projected := make([]canonical.Record, len(records))
+	for i := range records {
+		projected[i] = cloneRecord(records[i])
+	}
 	visible := map[string]bool{}
 	for _, record := range projected {
 		if record.Kind != "operation" {
@@ -132,13 +159,12 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		}
 	}
 	type source struct {
-		record   int
 		response *canonical.ToolResponse
 		identity identity
 	}
 	sources := []source{}
 	for i := range projected {
-		audience(&projected[i])
+		filterAudience(&projected[i], false)
 		record := &projected[i]
 		value := message(record)
 		if value == nil {
@@ -150,14 +176,18 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 		}
 		for j := range value.Content {
 			if response := response(&value.Content[j]); response != nil {
-				sources = append(sources, source{record: i, response: response, identity: resultIdentity(*record, *response, isVisible)})
+				key := identity{
+					message: record.ID, call: response.ID, revision: response.Revision, visible: isVisible,
+					digest: blake3.Sum256(response.Result.Value), format: response.Format, status: response.Status,
+				}
+				sources = append(sources, source{response: response, identity: key})
 			}
 		}
 	}
 	unchanged := len(sources) >= len(cache.entries)
 	if unchanged {
 		for i, entry := range cache.entries {
-			if entry.identity.message == "" || entry.identity.revision == "" || !reflect.DeepEqual(entry.identity, sources[i].identity) {
+			if entry.identity.message == "" || entry.identity.revision == "" || entry.identity != sources[i].identity {
 				unchanged = false
 				break
 			}
@@ -168,19 +198,39 @@ func (cache *Cache) Project(records []canonical.Record) []canonical.Record {
 	}
 	for i, source := range sources {
 		if i < len(cache.entries) {
-			*source.response = clone(cache.entries[i].projected)
+			cached := cache.entries[i]
+			if cached.value != nil {
+				source.response.Format = cached.format
+				source.response.Result.Value = bytes.Clone(cached.value)
+			} else {
+				source.response.Result.Value = bytes.Clone(source.response.Result.Value)
+			}
+			cached.slots.apply(source.response)
 			continue
 		}
-		projectResponse(source.response, source.identity.visible, &cache.reads)
-		cache.entries = append(cache.entries, entry{identity: source.identity, projected: clone(*source.response)})
+		original := source.response.Result.Value
+		slots := slotProjection{audience: filterResultAudience(source.response)}
+		projectResponse(source.response, source.identity.visible, &cache.reads, &slots)
+		slots.apply(source.response)
+		cached := entry{identity: source.identity, format: source.response.Format, slots: slots}
+		if cached.format != source.identity.format || !bytes.Equal(original, source.response.Result.Value) {
+			cached.value = bytes.Clone(source.response.Result.Value)
+		} else {
+			source.response.Result.Value = bytes.Clone(original)
+		}
+		cache.entries = append(cache.entries, cached)
 	}
 	return projected
 }
-func projectResponse(response *canonical.ToolResponse, visible bool, reads *fileReads) {
-	original := append(json.RawMessage(nil), response.Result.Value...)
+
+func projectResponse(response *canonical.ToolResponse, visible bool, reads *fileReads, slots *slotProjection) {
+	original := response.Result.Value
 	source := map[string]any{"call": response.ID, "revision": response.Revision}
 	if response.Format == canonical.MCPError {
 		projectError(response, source)
+		if !bytes.Equal(response.Result.Value, original) {
+			slots.removedField = "/data"
+		}
 		return
 	}
 	envelope := resultEnvelope(response)
@@ -197,7 +247,10 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 		previous = reads
 	}
 	preview(envelope, source, previous, response.ID)
-	bound(envelope, source, tail, response.Format == canonical.JSON)
+	slots.bounded = bound(envelope, source, tail, response.Format == canonical.JSON)
+	if _, kept := envelope["structuredContent"]; !kept {
+		slots.removedField = "/structuredContent"
+	}
 	if response.Format == canonical.JSON && reflect.DeepEqual(envelope, resultEnvelope(response)) {
 		return
 	}
@@ -205,8 +258,9 @@ func projectResponse(response *canonical.ToolResponse, visible bool, reads *file
 	if response.Format == canonical.MCP && bytes.Equal(body, original) {
 		return
 	}
+	slots.clear = response.Format != canonical.MCP
 	response.Format = canonical.MCP
-	response.Result = canonical.Payload{Value: body}
+	response.Result.Value = body
 }
 func preview(envelope map[string]any, source map[string]any, reads *fileReads, call string) {
 	original := envelope["structuredContent"]

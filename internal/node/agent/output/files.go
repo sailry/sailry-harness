@@ -28,7 +28,7 @@ func filePreview(original map[string]any, source map[string]any, reads *fileRead
 			}
 		}
 	}
-	body := ""
+	var body strings.Builder
 	bytes, lines := 0, 0
 	shortened := false
 	var shown *fileRange
@@ -56,7 +56,7 @@ func filePreview(original map[string]any, source map[string]any, reads *fileRead
 		if bytes+rowBytes+len(encoded(metadata)) > fileBytes || lines+rowLines+lineCount(metadata) > MaxLines {
 			break
 		}
-		body += row
+		body.WriteString(row)
 		bytes += rowBytes
 		lines += rowLines
 		shortened = shortened || omitted
@@ -66,7 +66,7 @@ func filePreview(original map[string]any, source map[string]any, reads *fileRead
 	if len(page.Lines) > 0 && shown == nil {
 		return "", false
 	}
-	projected := renderFile(page, body, shown, shortened, next, source)
+	projected := renderFile(page, body.String(), shown, shortened, next, source)
 	if len(encoded(projected)) > fileBytes {
 		return "", false
 	}

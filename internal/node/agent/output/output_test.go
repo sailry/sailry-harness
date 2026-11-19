@@ -139,3 +139,92 @@ func TestOutgoingProjection(t *testing.T) {
 		}
 	})
 }
+
+func BenchmarkWarmFileToolHistory(b *testing.B) {
+	lines := make([]protocol.FileLine, 100)
+	for i := range lines {
+		lines[i] = protocol.FileLine{Number: uint64(i + 1), Text: strings.Repeat("abcdefgh", 12) + "\n"}
+	}
+	records := make([]canonical.Record, 32)
+	for i := range records {
+		path := fmt.Sprintf("file-%d.go", i)
+		records[i] = resultRecord(path, map[string]any{"kind": "file_lines", "data": protocol.FileLines{Path: path, Revision: "test", Lines: lines}}, canonical.JSON)
+	}
+	var cache Cache
+	cache.Project(records)
+	b.ReportAllocs()
+	for b.Loop() {
+		cache.Project(records)
+	}
+}
+
+func TestWarmProjectionKeepsCurrentResponseMetadata(t *testing.T) {
+	record := resultRecord("tool", map[string]any{"body": strings.Repeat("payload", MaxBytes)}, canonical.JSON)
+	original := onlyResponse(&record)
+	var cache Cache
+	first := cache.Project([]canonical.Record{record})
+	firstResult := onlyResponse(&first[0])
+	if firstResult.Format != canonical.MCP {
+		t.Fatal("fixture did not require a projection")
+	}
+	firstResult.Result.Value[0] = '!'
+	meta := map[string]json.RawMessage{"state": json.RawMessage(`"new"`)}
+	original.Meta = &meta
+	second := cache.Project([]canonical.Record{record})
+	secondResult := onlyResponse(&second[0])
+	if !json.Valid(secondResult.Result.Value) || secondResult.Meta == nil || string((*secondResult.Meta)["state"]) != `"new"` {
+		t.Fatal("warm projection lost metadata or reused caller-owned bytes")
+	}
+	(*secondResult.Meta)["state"][1] = 'x'
+	if string(meta["state"]) != `"new"` {
+		t.Fatal("warm projection modified canonical metadata")
+	}
+	original.Result.Value = json.RawMessage(`{"changed":true}`)
+	third := cache.Project([]canonical.Record{record})
+	if got := onlyResponse(&third[0]); got.Format != canonical.JSON || string(got.Result.Value) != string(original.Result.Value) {
+		t.Fatal("different payload reused a prior projection")
+	}
+}
+
+func TestProjectionKeepsCurrentSlotsAligned(t *testing.T) {
+	parts := []any{
+		map[string]any{"type": "image", "data": nil, "annotations": map[string]any{"audience": []string{"user"}}},
+		map[string]any{"type": "text", "text": strings.Repeat("x", MaxBytes*2)},
+		map[string]any{"type": "text", "text": "later"},
+		map[string]any{"type": "image", "data": nil},
+	}
+	record := resultRecord("slots", map[string]any{"content": parts, "structuredContent": map[string]any{"bytes": nil}}, canonical.MCP)
+	result := onlyResponse(&record)
+	for _, path := range []string{"/content/0/data", "/content/3/data", "/structuredContent/bytes"} {
+		result.Result.Assets = append(result.Result.Assets, canonical.BinarySlot{Pointer: path, Encoding: canonical.Base64, Asset: canonical.AssetRef{Digest: "old"}})
+	}
+	raw := Audience(record)
+	before := onlyResponse(&raw).Result.Assets
+	if len(before) != 2 || before[0].Pointer != "/content/2/data" || before[1].Pointer != "/structuredContent/bytes" {
+		t.Fatalf("filtered slots = %+v", before)
+	}
+	var cache Cache
+	for _, digest := range []string{"cold", "warm"} {
+		result.Result.Assets[1].Asset.Digest = digest
+		projected := cache.Project([]canonical.Record{record})
+		got := onlyResponse(&projected[0]).Result.Assets
+		if len(got) != 1 || got[0].Pointer != "/content/1/data" || got[0].Asset.Digest != digest {
+			t.Fatalf("%s slots = %+v", digest, got)
+		}
+		if result.Result.Assets[1].Pointer != "/content/3/data" {
+			t.Fatal("source slots changed")
+		}
+	}
+}
+
+func TestUnchangedResultOwnsProjectedBytes(t *testing.T) {
+	record := resultRecord("small", 42, canonical.JSON)
+	var cache Cache
+	for range 2 {
+		projected := cache.Project([]canonical.Record{record})
+		onlyResponse(&projected[0]).Result.Value[0] = '7'
+		if string(onlyResponse(&record).Result.Value) != "42" {
+			t.Fatal("projected result aliases canonical history")
+		}
+	}
+}

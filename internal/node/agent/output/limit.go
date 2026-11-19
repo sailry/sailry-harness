@@ -106,7 +106,7 @@ func notice(source map[string]any, tail bool, totalBytes, totalLines, shownBytes
 	}
 	return fmt.Sprintf("[Tool result truncated: showing the %s %d of %d lines (%d of %d bytes). Read the original result with read_tool_output using output=%s and offset=%d, then continue with next_offset]", edge, shownLines, totalLines, shownBytes, totalBytes, encoded(source), offset)
 }
-func bound(envelope map[string]any, source map[string]any, tail, plain bool) {
+func bound(envelope map[string]any, source map[string]any, tail, plain bool) (removed []int) {
 	bytes, lines := size(envelope)
 	if bytes <= MaxBytes && lines <= MaxLines {
 		return
@@ -184,10 +184,12 @@ func bound(envelope map[string]any, source map[string]any, tail, plain bool) {
 		field["text"] = shown
 	}
 	kept := make([]any, 0, len(contents)+1)
-	for _, content := range contents {
+	for index, content := range contents {
 		field := textField(object(content))
 		if field == nil || text(field["text"]) != "" {
 			kept = append(kept, content)
+		} else {
+			removed = append(removed, index)
 		}
 	}
 	offset := 0
@@ -196,6 +198,7 @@ func bound(envelope map[string]any, source map[string]any, tail, plain bool) {
 	}
 	kept = append(kept, map[string]any{"type": "text", "text": notice(source, tail, totalBytes, totalLines, shownBytes, shownLines, offset)})
 	envelope["content"] = kept
+	return
 }
 func projectError(response *canonical.ToolResponse, source map[string]any) {
 	value := object(decode(response.Result.Value))

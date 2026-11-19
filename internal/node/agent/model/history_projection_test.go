@@ -149,3 +149,42 @@ func TestAnsweredPairsReusedIDsByOccurrence(t *testing.T) {
 		t.Fatal("a second projection changed established tool pairs")
 	}
 }
+
+func TestBuildProjectedCallMatchesRawAudience(t *testing.T) {
+	turn := protocol.NewTurnID()
+	call := canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: "c", Name: "sample", Arguments: json.RawMessage(`{}`)}}
+	result := canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "c", Name: "sample", Format: canonical.MCP, Status: canonical.ToolSuccess, Result: canonical.Payload{Value: json.RawMessage(`{"content":[{"type":"text","text":"secret-fixture","annotations":{"audience":["user"]}},{"type":"text","text":"allowed-fixture"}]}`)}}}
+	records := []canonical.Record{canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, call), time.Time{}), canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, result), time.Time{})}
+	var cache output.Cache
+	filtered := cache.Project(records)
+	binding := Binding{Provider: protocol.DefaultConversationProvider(), Config: protocol.DefaultSessionConfig()}
+	for _, api := range []protocol.ConversationModelApi{protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiPlugin} {
+		binding.Provider.Api = api
+		if api == protocol.ConversationModelApiPlugin {
+			selection := protocol.DefaultConversationPresetsBinding()
+			selection.Adapter = &protocol.PluginModelAdapterBinding{Capabilities: protocol.PluginModelAdapterCapabilities{Tools: true}}
+			capture := &selection
+			binding.Provider.Binding = &capture
+		}
+		raw, err := BuildCall(binding, Request{Records: records})
+		if err != nil {
+			t.Fatal(err)
+		}
+		projected, err := BuildProjectedCall(binding, Request{Records: filtered})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var source, actual any = raw.Prompt, projected.Prompt
+		if api == protocol.ConversationModelApiPlugin {
+			source = raw.ProviderOptions[pluginRequestKey]
+			actual = projected.ProviderOptions[pluginRequestKey]
+		}
+		body, err := json.Marshal(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(source, actual) || strings.Contains(string(body), "secret-fixture") || !strings.Contains(string(body), "allowed-fixture") {
+			t.Fatalf("%s raw/projected output diverged or contained wrong audience: %s", api, body)
+		}
+	}
+}

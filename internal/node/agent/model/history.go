@@ -17,6 +17,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// BuildProjectedCall consumes request records already filtered by output.Cache.Project.
+// The engine may subsequently materialize attachments and rename tool calls.
+func BuildProjectedCall(binding Binding, request Request) (fantasy.Call, error) {
+	request.audienceProjected = true
+	return BuildCall(binding, request)
+}
+
+func (request Request) audienceRecord(record canonical.Record) canonical.Record {
+	if request.audienceProjected {
+		return record
+	}
+	return output.Audience(record)
+}
+
 func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 	if PluginBound(binding.Provider) {
 		return BuildPluginCall(binding, request)
@@ -60,7 +74,7 @@ func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
 		}
 	}
 	for i, record := range records {
-		record = output.Audience(record)
+		record = request.audienceRecord(record)
 		message, background, err := record.ModelContent()
 		if err != nil {
 			return call, err
