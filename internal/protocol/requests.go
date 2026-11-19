@@ -212,6 +212,7 @@ func (command Command) Durable() bool {
 		"test_search_driver",
 		"read_code_index_settings",
 		"read_hooks",
+		"read_personal_instructions",
 		"read_file_lines",
 		"read_image",
 		"find_files",

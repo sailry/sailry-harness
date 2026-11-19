@@ -75,7 +75,7 @@ var transientCommands = func() map[string]observation {
 			"read_knowledge_citation", "list_knowledge_collections", "read_resource_catalog", "inspect_terminal", "inspect_request", "list_credentials", "browse_database",
 			"test_database", "inspect_host", "read_host_metrics", "read_plugin_memory", "read_computer_permissions", "list_directory", "browse_files",
 			"read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "fetch_web",
-			"cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_code_index_settings", "read_hooks",
+			"cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_code_index_settings", "read_hooks", "read_personal_instructions",
 			"read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "read_attachment",
 			"search_files", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees",
 			"read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "read_git_show",

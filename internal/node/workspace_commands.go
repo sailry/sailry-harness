@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -61,7 +62,7 @@ func workspaceCommand(kind string) bool {
 	switch kind {
 	case "read_project_catalog", "read_worktree_catalog":
 		return true
-	case "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_search_settings", "save_search_settings", "write_artifact", "upload_file", "upload_attachment", "download_file", "download_attachment", "download_image", "finish_file_upload", "cancel_file_transfer", "restore_file_checkpoint", "apply_turn_hunk", "read_hooks", "save_hooks", "read_sandbox_settings", "save_sandbox_settings", "run_command", "list_commands", "read_command", "read_command_page", "write_command", "stop_command", "stop_commands":
+	case "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_search_settings", "save_search_settings", "write_artifact", "upload_file", "upload_attachment", "download_file", "download_attachment", "download_image", "finish_file_upload", "cancel_file_transfer", "restore_file_checkpoint", "apply_turn_hunk", "read_personal_instructions", "save_personal_instructions", "read_hooks", "save_hooks", "read_sandbox_settings", "save_sandbox_settings", "run_command", "list_commands", "read_command", "read_command_page", "write_command", "stop_command", "stop_commands":
 		return true
 	}
 	return false
@@ -399,6 +400,13 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return node.restoreWorkspaceCheckpoint(ctx, request, root, effect)
 	case "apply_turn_hunk":
 		return node.applyWorkspaceHunk(ctx, request, root)
+	case "read_personal_instructions":
+		value, err := prompt.ReadPersonalInstructions(ctx, node.profile.Ownership.Path)
+		return protocol.Output{Kind: "personal_instructions", Data: value}, err
+	case "save_personal_instructions":
+		value, err := prompt.SavePersonalInstructions(ctx, node.profile.Ownership.Path, *command.Data.(*protocol.CommandSavePersonalInstructionsPayload))
+		effect.external = err == nil
+		return protocol.Output{Kind: "personal_instructions", Data: value}, err
 	case "read_hooks", "save_hooks", "read_sandbox_settings", "save_sandbox_settings":
 		return node.workspaceSettings(ctx, command, effect)
 	case "run_command", "list_commands", "read_command", "read_command_page", "write_command", "stop_command", "stop_commands":

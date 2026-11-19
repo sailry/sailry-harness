@@ -480,6 +480,10 @@ uses the captured model and defaults to 80% of its context window. Summaries do 
 delete original records or raw tool output. Context-length failures allow up to two
 reactive compactions.
 
+Desktop Conversation settings edit the selected Node profile's `instructions.md`.
+The Node captures that file for each new turn, including turns in existing
+sessions. Each turn retains the instructions it ran with.
+
 Project and personal instruction files are captured whole rather than using the
 128 KiB file-tool page size. Reads retain file confinement, cancellation, UTF-8
 validation and change detection. The existing history-frame capacity bounds raw

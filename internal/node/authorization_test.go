@@ -82,8 +82,10 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 			t.Fatalf("administrator code index write: %+v", response)
 		}
 	})
-	t.Run("only administrators manage Node hooks", func(t *testing.T) {
+	t.Run("only administrators manage Node hooks and personal instructions", func(t *testing.T) {
 		for _, command := range []protocol.Command{
+			{Kind: "read_personal_instructions"},
+			{Kind: "save_personal_instructions", Data: protocol.CommandSavePersonalInstructionsPayload{}},
 			{Kind: "read_hooks"},
 			{Kind: "save_hooks", Data: protocol.DefaultCommandSaveHooksPayload()},
 		} {
@@ -92,6 +94,12 @@ func TestProjectUsersAndSubscriptionRevocation(t *testing.T) {
 			}
 			if response := send(owner, command); response.Fault != nil {
 				t.Fatalf("administrator %s: %+v", command.Kind, response)
+			}
+			request := protocol.NewRequest(node.ID(), command)
+			scope := protocol.DefaultPluginContext()
+			request.Plugin = &scope
+			if _, err := node.authorizeCommand(t.Context(), owner, request); err == nil {
+				t.Fatalf("plugin accessed machine command %s", command.Kind)
 			}
 		}
 	})

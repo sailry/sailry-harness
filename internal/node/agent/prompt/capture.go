@@ -99,12 +99,7 @@ func CaptureGuides(ctx context.Context, root string, scopes []GuideScope) (map[s
 	return guides, nil
 }
 func CapturePersonal(ctx context.Context, profile string) (string, error) {
-	files, err := core.OpenFiles(profile, core.RestrictedFiles)
-	if err != nil {
-		return "", err
-	}
-	defer files.Close()
-	value, err := readInstruction(ctx, files, "instructions.md")
+	value, err := readPersonalText(ctx, profile)
 	if err != nil {
 		return "", err
 	}
