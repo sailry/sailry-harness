@@ -44,6 +44,11 @@ func (r *Runtime) refreshStatisticsLocked(session protocol.SessionID, dirty bool
 		}
 		return
 	}
+	// Statistics are derived from durable history. A new subscription requests
+	// current totals after reserving its stream, including changes made unseen.
+	if !r.feed.Observed(session) {
+		return
+	}
 	if len(r.statistics) >= statisticsCapacity {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "statistics_failed", Data: protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "statistics refresh did not complete"}})
 		return
@@ -71,6 +76,10 @@ func (r *Runtime) finishStatistics(session protocol.SessionID, statistics protoc
 	defer unlock()
 	r.statisticsMu.Lock()
 	defer r.statisticsMu.Unlock()
+	if !r.feed.Observed(session) {
+		delete(r.statistics, session)
+		return true
+	}
 	if r.statistics[session] && r.ctx.Err() == nil {
 		r.statistics[session] = false
 		return false

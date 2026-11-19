@@ -13,7 +13,7 @@ import (
 )
 
 func TestConversationPublication(t *testing.T) {
-	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "bounded_admission"} {
+	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "bounded_admission", "unobserved_statistics"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t, &scriptedModel{})
 			t.Cleanup(func() {
@@ -41,6 +41,37 @@ func TestConversationPublication(t *testing.T) {
 			message.Usage = &canonical.Usage{Input: &input, Output: &output}
 			record := canonical.NewRecord(turn, "message", &message, f.r.clock.Now())
 			record.Provenance.Author = "assistant"
+			if scenario == "unobserved_statistics" {
+				if err := f.r.save(f.ctx, f.session.ID, record); err != nil {
+					t.Fatal(err)
+				}
+				// Hold publication so an erroneously admitted statistics reader cannot finish.
+				unlock := f.r.LockPublication()
+				f.r.RefreshStatisticsCommitted(f.session.ID)
+				_, admitted := f.r.statistics[f.session.ID]
+				unlock()
+				if admitted {
+					t.Fatal("statistics reader admitted without a subscriber")
+				}
+				reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+				defer reservation.Close()
+				unlock = f.r.LockPublication()
+				f.r.RequestStatisticsCommitted(f.session.ID)
+				unlock()
+				stream := reservation.Subscribe(protocol.DefaultConversationSnapshot())
+				if _, err := stream.Next(f.ctx); err != nil {
+					t.Fatal(err)
+				}
+				update, err := stream.Next(f.ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				frame := update.Data.(*protocol.ConversationFrame)
+				if frame.Change.Kind != "statistics" || frame.Change.Data.(*protocol.ConversationStatistics).Responses != 1 {
+					t.Fatal("new subscriber missed statistics from an unobserved commit")
+				}
+				return
+			}
 			if scenario == "commit_keeps_snapshot_consistent" {
 				if err := f.r.feed.Delta(f.session.ID, protocol.ConversationDraft{ID: record.ID, Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Partial"}}}); err != nil {
 					t.Fatal(err)

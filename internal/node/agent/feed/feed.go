@@ -76,6 +76,14 @@ func (h *Hub) Sequence(id protocol.SessionID) uint64 {
 	return 0
 }
 
+// Observed includes reservations made before the initial history read completes.
+func (h *Hub) Observed(id protocol.SessionID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	f := h.sessions[id]
+	return f != nil && len(f.observers) != 0
+}
+
 // Sessions returns only currently retained or observed conversation feeds.
 func (h *Hub) Sessions() []protocol.SessionID {
 	h.mu.Lock()
