@@ -51,12 +51,24 @@ func TestConversationFeed(t *testing.T) {
 					t.Fatal("commit was lost between reservation and snapshot")
 				}
 			case "retained lag recovery", "retained gap resets":
+				var evictedQueue []protocol.Update
+				var evictedRetained []retainedFrame
 				count := 100
 				if scenario == "retained gap resets" {
 					count = maxRetained + 1
 				}
 				for i := 0; i < count; i++ {
+					if queue := reservation.subscription.queue; len(queue) == liveCapacity && evictedQueue == nil {
+						evictedQueue = queue[:1]
+					}
+					if replay := h.sessions[session].retained; len(replay) == maxRetained && evictedRetained == nil {
+						evictedRetained = replay[:1]
+					}
 					h.Publish(session, protocol.ConversationChange{Kind: "queue", Data: protocol.DefaultConversationQueue()})
+				}
+				if len(evictedQueue) != 1 || evictedQueue[0].Data != nil ||
+					scenario == "retained gap resets" && (len(evictedRetained) != 1 || evictedRetained[0].frame.Change.Data != nil) {
+					t.Fatal("evicted frames still have payload references in the backing slice")
 				}
 				if scenario == "retained gap resets" {
 					if next().Kind != "reset_required" {
@@ -127,5 +139,71 @@ func TestConversationFeed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestClosedConversationFeedReleasesUnreadFrames(t *testing.T) {
+	h := New(protocol.NodeID{1})
+	session, turn := protocol.NewSessionID(), protocol.NewTurnID()
+	reservation := h.Reserve(session, make(chan struct{}))
+	stream := reservation.Subscribe(protocol.DefaultConversationSnapshot()).(*Subscription)
+	run := protocol.DefaultConversationRun()
+	run.Session, run.Turn, run.Worktree = session, turn, protocol.NewWorktreeID()
+	run.Status, run.Kind = protocol.ConversationStatusRunning, protocol.ConversationRunKindTask
+	h.Publish(session, protocol.ConversationChange{Kind: "run", Data: run})
+	if !stream.resume() || len(stream.pending) == 0 {
+		t.Fatal("fixture did not hold a replay")
+	}
+	h.Publish(session, protocol.ConversationChange{Kind: "queue", Data: protocol.DefaultConversationQueue()})
+	if stream.initial == nil || len(stream.queue) == 0 {
+		t.Fatal("fixture did not hold unread updates")
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if stream.initial != nil || stream.queue != nil || stream.pending != nil {
+		t.Fatal("closed observer keeps unread updates")
+	}
+	active := h.sessions[session]
+	if active == nil || active.active == nil || active.retained != nil {
+		t.Fatal("last observer did not release replay while leaving the active turn")
+	}
+	run.Status = protocol.ConversationStatusCompleted
+	h.Publish(session, protocol.ConversationChange{Kind: "run", Data: run})
+	if len(h.Sessions()) != 0 {
+		t.Fatal("completed unobserved feed is still owned by the hub")
+	}
+	idle := h.Reserve(session, make(chan struct{}))
+	if idle.Sequence != 0 || len(idle.Drafts) != 0 {
+		t.Fatal("reopened feed inherited settled replay or drafts")
+	}
+	_ = idle.Close()
+	if len(h.Sessions()) != 0 {
+		t.Fatal("closed idle reservation retained the feed")
+	}
+}
+
+func TestBackgroundFeedDeduplicationFollowsCurrentPage(t *testing.T) {
+	h := New(protocol.NodeID{1})
+	session := protocol.NewSessionID()
+	reservation := h.Reserve(session, make(chan struct{}))
+	defer reservation.Close()
+	first := protocol.DefaultConversationBackgroundTask()
+	first.ID = "first"
+	first.Session, first.Turn = session, protocol.NewTurnID()
+	first.Kind = protocol.ConversationBackgroundKind{Kind: "command", Data: protocol.ConversationBackgroundKindCommandPayload{ID: protocol.NewRequestID()}}
+	first.State = protocol.ConversationBackgroundStateRunning
+	second := first
+	second.ID = "second"
+	h.PublishBackground(session, []protocol.ConversationBackgroundTask{first, second})
+	before := h.Sequence(session)
+	h.PublishBackground(session, []protocol.ConversationBackgroundTask{second})
+	if len(h.sessions[session].background) != 1 || h.Sequence(session) != before {
+		t.Fatal("published page did not drop obsolete deduplication state")
+	}
+	second.Revision++
+	h.PublishBackground(session, []protocol.ConversationBackgroundTask{second})
+	if h.Sequence(session) != before+1 {
+		t.Fatal("changed background task revision was not published")
 	}
 }

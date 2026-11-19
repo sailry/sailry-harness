@@ -32,13 +32,24 @@ func TestBeforeModelResultsKeepRecentCompleteResultsOfThisTurn(t *testing.T) {
 		result(current, "other-tool", "private-tool", `"Another package"`),
 	}
 	names := map[string]string{"memory-read": "read"}
-	results, latest := beforeModelResults(records, current, names, "")
+	var loaded []string
+	read := func(result *canonical.ToolResponse) (json.RawMessage, error) {
+		loaded = append(loaded, result.ID)
+		return result.Result.Value, nil
+	}
+	results, latest, err := beforeModelResults(records, current, names, "", read)
+	if err != nil {
+		t.Fatal(err)
+	}
 	encoded, err := json.Marshal(map[string]any{"results": results})
 	if err != nil || latest != "other-tool" || string(encoded) != `{"results":[{"name":"read","response":"First"},{"name":"read","response":"Second"}]}` {
 		t.Fatalf("before_model results have %d bytes, %d entries, newest %q, error %v", len(encoded), len(results), latest, err)
 	}
-	if repeated, newest := beforeModelResults(records, current, names, latest); repeated != nil || newest != latest {
-		t.Fatalf("unchanged tool results requested a second evaluation: %d, %q", len(repeated), newest)
+	if !slices.Equal(loaded, []string{"second", "large", "first"}) {
+		t.Fatalf("hook read results outside the current package or turn: %v", loaded)
+	}
+	if repeated, newest, err := beforeModelResults(records, current, names, latest, read); err != nil || repeated != nil || newest != latest || len(loaded) != 3 {
+		t.Fatalf("unchanged tool results requested a second read or evaluation: %d, %q, %v, %v", len(repeated), newest, loaded, err)
 	}
 }
 

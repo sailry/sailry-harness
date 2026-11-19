@@ -25,6 +25,7 @@ type delegatedChild struct {
 	started   bool
 	released  bool
 	delivered bool
+	overlap   bool
 	successor *delegatedChild
 	// A queued successor owns its predecessor's commands even before it starts.
 	commandsInherited bool
@@ -34,6 +35,14 @@ type collectedChild struct {
 	session protocol.SessionID
 	turn    protocol.TurnID
 }
+
+type childMode uint8
+
+const (
+	childForeground childMode = iota
+	childOverlap
+	childBackground
+)
 
 func (r *Runtime) activitySignal() <-chan struct{} {
 	r.mu.Lock()
@@ -47,7 +56,7 @@ func (r *Runtime) activitySignal() <-chan struct{} {
 // admitChild keeps the Node's existing operation lease until durable admission
 // and handoff finish, even if the calling tool stops waiting for the receipt.
 // arguments are the ones that execute and name the child's workspace.
-func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background bool, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
+func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode childMode, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
 	parent, release, ok := r.BeginOperation(x.inv.Run.Turn)
 	if !ok {
 		return invalidTool("parent execution has ended")
@@ -86,12 +95,13 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background
 			r.Wake()
 			return
 		}
+		background := mode == childBackground
 		owner := parent
 		if background {
 			owner = r.ctx
 		}
 		childContext, cancel := context.WithCancel(owner)
-		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background}
+		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background, overlap: mode == childOverlap}
 		r.mu.Lock()
 		if r.children == nil {
 			r.children = map[protocol.TurnID]*delegatedChild{}
@@ -266,10 +276,7 @@ func (r *Runtime) settleQueuedChildren() {
 	}
 }
 
-func (r *Runtime) foregroundStep(x *execution) (bool, error) {
-	if x.foregroundSteered {
-		return false, nil
-	}
+func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
 	r.mu.Lock()
 	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
@@ -304,6 +311,12 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 		}
 		r.Wake()
 	}
+	var stopWaiting func()
+	defer func() {
+		if stopWaiting != nil {
+			stopWaiting()
+		}
+	}()
 	for {
 		changed := r.activitySignal()
 		var guidance bool
@@ -342,7 +355,7 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 				return false, err
 			}
 			if childPending(state.Run) {
-				pending = true
+				pending = pending || finishing || !current.overlap
 				continue
 			}
 			if err := r.deliverForeground(x, state); err != nil {
@@ -350,8 +363,11 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 			}
 			return true, nil
 		}
-		if !pending {
+		if !pending || x.foregroundSteered {
 			return false, nil
+		}
+		if stopWaiting == nil {
+			stopWaiting = x.timeline.span(phaseExcluded, "foreground")
 		}
 		select {
 		case <-x.ctx.Done():

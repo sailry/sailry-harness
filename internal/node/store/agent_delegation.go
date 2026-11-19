@@ -19,6 +19,7 @@ type delegationArguments struct {
 	Task       string               `json:"task"`
 	Worktree   *protocol.WorktreeID `json:"worktree"`
 	Background bool                 `json:"background"`
+	Overlap    bool                 `json:"overlap"`
 }
 
 // DelegationAvailable uses the captured turn. A team supplies a roster, while

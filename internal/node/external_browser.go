@@ -168,6 +168,7 @@ func (node *Node) externalBrowserTool(inv *store.AgentInvocation, owner protocol
 	calls := map[string]*protocol.Request{}
 	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: name, InputSchema: schema}, SchemaJSON: browserToolSchema, ReadOnly: readOnly, Approval: !readOnly,
 		Binding: &store.ApprovalBinding{Owner: owner, Tool: name, Operation: &operation}}
+	tool.ReleasePrepared = releasePrepared(&mu, calls)
 	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 		var input struct {
 			Action    protocol.ExternalBrowserAction `json:"action"`

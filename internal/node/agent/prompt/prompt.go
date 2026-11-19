@@ -92,8 +92,9 @@ func SystemParts(instruction string, context canonical.Context) []string {
 
 // Part is one replaceable section of the current execution context.
 type Part struct {
-	Key  string
-	Text string
+	Key            string
+	Text           string
+	RefreshOnInput bool
 }
 
 func Capture(parts []Part, owned []string) canonical.PromptContext {
@@ -118,17 +119,9 @@ func digest(value string) string {
 	sum := blake3.Sum256([]byte(value))
 	return fmt.Sprintf("%x", sum[:])
 }
-func contextIdentity(record canonical.Record) *canonical.PromptContext {
-	runtime := record.Metadata.Runtime
-	if runtime == nil || !runtime.TurnContext || !runtime.AgentVisible || runtime.Notes == nil {
-		return nil
-	}
-	return runtime.Notes.Context
-}
 
-// Pending appends only changed named sections and unseen owner content. State
-// comes from emitted sections still in the model-visible history, not a full
-// snapshot on a later delta whose original instructions may have been compacted.
+// Pending emits changed sections, sections refreshed by a new input and unseen
+// owner content. It derives state from the deltas still visible to the model.
 func Pending(records []canonical.Record, parts []Part, owned []string) ([]Part, []string) {
 	start := 0
 	summary := -1
@@ -170,34 +163,36 @@ func Pending(records []canonical.Record, parts []Part, owned []string) ([]Part, 
 			break
 		}
 	}
-	// Identity matching needs only metadata; tool payloads stay shared and are
-	// never copied or changed by this projection.
-	current := make([]canonical.Record, 0, len(records)-start)
-	for _, record := range records[start:] {
+	retained := map[string]bool{}
+	type emittedPart struct {
+		digest   string
+		position int
+	}
+	latest := map[string]emittedPart{}
+	lastInput := -1
+	for position := start; position < len(records); position++ {
+		record := &records[position]
 		if record.Kind != "message" {
 			continue
 		}
-		visible := record.Metadata.Runtime == nil || record.Metadata.Runtime.AgentVisible
+		runtime := record.Metadata.Runtime
+		visible := runtime == nil || runtime.AgentVisible
 		if override, ok := visibility[record.ID]; ok {
 			visible = override
 		}
 		if !visible {
 			continue
 		}
-		if record.Metadata.Runtime != nil && !record.Metadata.Runtime.AgentVisible {
-			runtime := *record.Metadata.Runtime
-			runtime.AgentVisible = true
-			record.Metadata.Runtime = &runtime
+		if record.Provenance.Author == "user" {
+			input := record.Metadata.Input
+			if input == nil || input.Source == nil || *input.Source != canonical.InputNotice {
+				lastInput = position
+			}
 		}
-		current = append(current, record)
-	}
-	records = current
-	retained := map[string]bool{}
-	latest := map[string]string{}
-	for _, record := range records {
-		if identity := contextIdentity(record); identity != nil {
+		if runtime != nil && runtime.TurnContext && runtime.Notes != nil && runtime.Notes.Context != nil {
+			identity := runtime.Notes.Context
 			for key, value := range identity.Parts {
-				latest[key] = value
+				latest[key] = emittedPart{value, position}
 			}
 			for _, id := range identity.Retained {
 				retained[id] = true
@@ -208,13 +203,14 @@ func Pending(records []canonical.Record, parts []Part, owned []string) ([]Part, 
 	for _, part := range parts {
 		previous, present := latest[part.Key]
 		delete(latest, part.Key)
-		if previous != digest(part.Text) && (present || part.Text != "") {
+		refresh := part.RefreshOnInput && part.Text != "" && present && lastInput > previous.position
+		if refresh || previous.digest != digest(part.Text) && (present || part.Text != "") {
 			pending = append(pending, part)
 		}
 	}
 	var removed []string
 	for key, value := range latest {
-		if value != digest("") {
+		if value.digest != digest("") {
 			removed = append(removed, key)
 		}
 	}

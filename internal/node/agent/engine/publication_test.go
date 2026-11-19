@@ -13,7 +13,7 @@ import (
 )
 
 func TestConversationPublication(t *testing.T) {
-	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "bounded_admission", "unobserved_statistics"} {
+	for _, scenario := range []string{"commit_keeps_snapshot_consistent", "dirty_read_follows_entries", "bounded_admission", "unobserved_statistics", "unobserved_refresh"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t, &scriptedModel{})
 			t.Cleanup(func() {
@@ -41,6 +41,34 @@ func TestConversationPublication(t *testing.T) {
 			message.Usage = &canonical.Usage{Input: &input, Output: &output}
 			record := canonical.NewRecord(turn, "message", &message, f.r.clock.Now())
 			record.Provenance.Author = "assistant"
+			if scenario == "unobserved_refresh" {
+				if err := f.r.save(f.ctx, f.session.ID, record); err != nil {
+					t.Fatal(err)
+				}
+				before := f.r.feed.Sequence(f.session.ID)
+				f.r.Refresh(f.session.ID)
+				if f.r.feed.Sequence(f.session.ID) != before {
+					t.Fatal("metadata refresh sent frames without an observer")
+				}
+				unlock := f.r.LockPublication()
+				reservation := f.r.feed.Reserve(f.session.ID, make(chan struct{}))
+				defer reservation.Close()
+				var history protocol.ConversationHistory
+				err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+					var err error
+					history, err = store.ReadConversation(f.ctx, db, f.session.ID, nil, 20)
+					return err
+				})
+				unlock()
+				if err != nil || len(history.Page.Runs) != 1 || len(history.Page.Entries) != 1 || history.Page.Entries[0].ID != record.ID {
+					t.Fatalf("new observer did not find unobserved activity in durable history: %v", err)
+				}
+				f.r.Refresh(f.session.ID)
+				if f.r.feed.Sequence(f.session.ID) <= before {
+					t.Fatal("metadata refresh omitted a reserved observer")
+				}
+				return
+			}
 			if scenario == "unobserved_statistics" {
 				if err := f.r.save(f.ctx, f.session.ID, record); err != nil {
 					t.Fatal(err)

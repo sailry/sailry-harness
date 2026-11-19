@@ -1520,7 +1520,7 @@
       "required": []
     },
     "read_only": true,
-    "concurrent": false
+    "concurrent": true
   },
   {
     "operation": "process.stop",

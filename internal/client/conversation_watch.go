@@ -20,14 +20,13 @@ type ConversationState struct {
 	// statistics or a snapshot arrive.
 	StatisticsErr error
 	entryEpoch    *byte
-	pageVersion   uint64
+	viewVersion   uint64
 }
 
 type conversationWatch struct {
 	session         protocol.SessionID
 	projection      *ConversationProjection
-	entryEpoch      *byte
-	pageVersion     uint64
+	viewVersion     uint64
 	state           ConversationState
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -48,7 +47,7 @@ type conversationBookmark struct {
 
 func (w *conversationWatch) discardHistory() {
 	w.projection.snapshot = nil
-	w.entryEpoch = nil
+	w.projection.entryEpoch = nil
 	w.projection.liveStart = nil
 	w.projection.statisticsErr = nil
 	w.projection.hidden, w.projection.revealed = nil, nil
@@ -91,7 +90,7 @@ func (c *Client) LatestLocalTurnStatus(session protocol.SessionID, turn protocol
 }
 
 // ConversationView returns a detached snapshot for a read-only presentation.
-// Passing its previous unmodified result reuses canonical entries across pages.
+// Passing its previous unmodified result reuses immutable canonical entries.
 // Ordinary Conversation callers continue to receive independently mutable copies.
 func (c *Client) ConversationView(session protocol.SessionID, previous ConversationState) (ConversationState, bool) {
 	return c.readConversationState(session, &previous)
@@ -111,16 +110,16 @@ func (c *Client) readConversationState(session protocol.SessionID, previous *Con
 		return s, true
 	}
 	if previous != nil {
-		if w.entryEpoch == nil {
-			w.entryEpoch = new(byte)
+		if w.projection.entryEpoch == nil {
+			w.projection.entryEpoch = new(byte)
 		}
-		s.entryEpoch, s.pageVersion = w.entryEpoch, w.pageVersion
+		s.entryEpoch, s.viewVersion = w.projection.entryEpoch, w.viewVersion
 		if s.SameViewSnapshot(*previous) {
 			s.Snapshot = previous.Snapshot
 			return s, true
 		}
-		if previous.entryEpoch == w.entryEpoch {
-			s.Snapshot = copyPagedSnapshot(*snapshot, previous.Snapshot.Page.Entries)
+		if previous.entryEpoch == s.entryEpoch {
+			s.Snapshot = copySnapshotWithEntries(*snapshot, previous.Snapshot.Page.Entries)
 			return s, true
 		}
 	}
@@ -131,12 +130,12 @@ func (c *Client) readConversationState(session protocol.SessionID, previous *Con
 // SameViewSnapshot reports whether two read-only views share the complete
 // detached snapshot, independently of watch status such as LoadingOlder.
 func (s ConversationState) SameViewSnapshot(other ConversationState) bool {
-	return s.entryEpoch != nil && s.entryEpoch == other.entryEpoch && s.pageVersion == other.pageVersion
+	return s.entryEpoch != nil && s.entryEpoch == other.entryEpoch && s.viewVersion == other.viewVersion
 }
 
-// Between stream updates pagination only inserts records in canonical sequence
-// order. Existing records were checked for equality by mergeHistoryEntries.
-func copyPagedSnapshot(snapshot protocol.ConversationSnapshot, previous []protocol.ConversationEntry) protocol.ConversationSnapshot {
+// Within an entry epoch, streaming and pagination only insert records in
+// canonical sequence order. Mutable snapshot fields still need detached copies.
+func copySnapshotWithEntries(snapshot protocol.ConversationSnapshot, previous []protocol.ConversationEntry) protocol.ConversationSnapshot {
 	entries := snapshot.Page.Entries
 	snapshot.Page.Entries = nil
 	result := copyValue(snapshot)
@@ -459,7 +458,7 @@ func (c *Client) applyConversationUpdate(w *conversationWatch, generation uint64
 	}
 	applied, err := w.projection.Apply(generation, update)
 	if err == nil && applied == Applied {
-		w.entryEpoch = nil
+		w.viewVersion++
 		w.state.Loading = false
 		w.state.Connected = true
 		w.state.Err = nil

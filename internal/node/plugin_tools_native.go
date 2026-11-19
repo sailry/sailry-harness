@@ -17,6 +17,14 @@ func (owner *pluginScriptTurn) bindNative(tool, bound engine.Tool, declaration p
 	tool.Confirm, tool.ConfigureApproval, tool.Approved, tool.Close = bound.Confirm, bound.ConfigureApproval, bound.Approved, bound.Close
 	var mu sync.Mutex
 	calls := map[string]canonical.ToolRequest{}
+	tool.ReleasePrepared = func(call canonical.ToolRequest) {
+		mu.Lock()
+		delete(calls, call.ID)
+		mu.Unlock()
+		if bound.ReleasePrepared != nil {
+			bound.ReleasePrepared(call)
+		}
+	}
 	tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 		var input any
 		if json.Unmarshal(call.Arguments, &input) != nil {

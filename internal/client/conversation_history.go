@@ -166,7 +166,7 @@ func (c *Client) loadOlderConversation(ctx context.Context, session protocol.Ses
 			slices.SortFunc(current.Missing, func(a, b protocol.TurnID) int { return slices.Compare(a[:], b[:]) })
 			current.Missing = slices.Compact(current.Missing)
 			w.projection.settle()
-			w.pageVersion++
+			w.viewVersion++
 			w.rememberExtent()
 		}
 	}

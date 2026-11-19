@@ -67,6 +67,7 @@ func (node *Node) storageTools(inv *store.AgentInvocation, catalog *operations.C
 		scope := protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 		var mu sync.Mutex
 		calls := map[string]*protocol.Request{}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 			command, err := operations.Command(declaration.Operation, call.Arguments, inv.Run.Worktree, inv.Session.ID, inv.Run.Turn, inv.Worktree.Project, false)
 			if err != nil {

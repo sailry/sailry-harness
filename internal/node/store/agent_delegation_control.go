@@ -17,6 +17,7 @@ type ChildState struct {
 	Response  *string
 	Recipient *protocol.TurnID
 	Paused    bool
+	Ready     bool
 }
 
 func ReleaseChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, children []protocol.TurnID) ([]protocol.Event, error) {
@@ -231,16 +232,30 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 			return state, err
 		}
 	}
+	if state.Run.Status == protocol.ConversationStatusQueued {
+		if err = db.QueryRowContext(ctx, "SELECT ready FROM agent_runs WHERE turn=?1", state.Run.Turn.String()).Scan(&state.Ready); err != nil {
+			return state, err
+		}
+	}
 	queue, err := ReadQueue(ctx, db, child)
 	state.Paused = queue.Paused
 	return state, err
 }
 func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*string, error) {
-	records, err := readBodies[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.kind')='message' AND json_extract(body,'$.role')='assistant' ORDER BY sequence DESC", turn.String())
+	rows, err := db.QueryContext(ctx, "SELECT body FROM agent_events WHERE turn=?1 AND json_extract(body,'$.kind')='message' AND json_extract(body,'$.role')='assistant' ORDER BY sequence DESC", turn.String())
 	if err != nil {
 		return nil, err
 	}
-	for _, record := range records {
+	defer rows.Close()
+	for rows.Next() {
+		var body sql.RawBytes
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		var record canonical.Record
+		if err := json.Unmarshal(body, &record); err != nil {
+			return nil, err
+		}
 		message := record.Message()
 		if message == nil || message.Role != canonical.Assistant {
 			continue
@@ -262,7 +277,7 @@ func childResponse(ctx context.Context, db *sql.Conn, turn protocol.TurnID) (*st
 			return &value, nil
 		}
 	}
-	return nil, nil
+	return nil, rows.Err()
 }
 func PendingGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) (bool, error) {
 	var pending bool

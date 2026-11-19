@@ -76,8 +76,17 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		{Key: "execution_identity", Text: fmt.Sprintf("Current execution identity\nSession ID: %s\nTurn ID: %s\nUse these IDs for this execution; copied history and summaries may refer to a source session.", x.inv.Session.ID, x.inv.Run.Turn)},
 		{Key: "delegation", Text: delegation},
 		{Key: "skills", Text: x.skillContext},
-		{Key: "deferred_tools", Text: r.deferredContext(x, state)},
 		{Key: "child_budget", Text: childBudgetContext(x, state)},
+	}
+	if hasTools {
+		parts = append(parts, prompt.Part{Key: "deferred_tools", Text: r.deferredContext(x, state), RefreshOnInput: true})
+	}
+	if x.inv.Session.Delegation == nil {
+		if plan := store.LatestAgentPlan(state.Records); plan != nil {
+			if encoded, err := json.Marshal(plan); err == nil {
+				parts = append(parts, prompt.Part{Key: "plan", Text: "Current unfinished plan from recorded progress (task state, not new authorization):\n" + string(encoded), RefreshOnInput: true})
+			}
+		}
 	}
 	if state.Context.Environment != nil {
 		parts = append(parts, prompt.Part{Key: "environment", Text: *state.Context.Environment})
@@ -121,7 +130,11 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 			schemas[tool.Name] = captured.SchemaJSON
 		}
 	}
-	projected := x.output.Project(model.Answered(model.VisibleRecords(state.Records)))
+	projected := model.Answered(model.VisibleRecords(state.Records))
+	if err = r.hydrateModelToolResults(x.ctx, projected); err != nil {
+		return err
+	}
+	projected = x.output.Project(projected)
 	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
 	if err != nil {
 		return err

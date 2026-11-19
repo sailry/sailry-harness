@@ -39,6 +39,7 @@ func (node *Node) scopedTools(inv *store.AgentInvocation, catalog *operations.Ca
 		scope := protocol.PluginContext{Turn: &inv.Run.Turn, Package: declaration.Owner, Worktree: &inv.Run.Worktree, Session: &inv.Session.ID, Surface: protocol.PluginDesktopSurface{Kind: "workspace"}}
 		var mu sync.Mutex
 		calls := map[string]*protocol.Request{}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 			command, err := operations.ScopedCommand(declaration.Operation, call.Arguments, inv.Session.ID)
 			if err != nil {

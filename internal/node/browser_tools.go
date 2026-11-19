@@ -83,6 +83,7 @@ func (node *Node) browserTool(inv *store.AgentInvocation, owner protocol.PluginR
 		current := calls[call.ID]
 		return current != nil && browserRequiresApproval(current.Command.Data.(*protocol.CommandUseBrowserPayload).Action)
 	}
+	tool.ReleasePrepared = releasePrepared(&mu, calls)
 	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 		var input struct {
 			Action    string                     `json:"action"`

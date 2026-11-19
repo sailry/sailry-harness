@@ -199,6 +199,7 @@ func (node *Node) mediaTool(inv *store.AgentInvocation, spec operations.MediaSpe
 	tool := engine.Tool{Definition: fantasy.FunctionTool{Name: spec.Name, Description: spec.Description, InputSchema: schema}, SchemaJSON: spec.Parameters,
 		ReadOnly: spec.ReadOnly, Concurrent: spec.Concurrent, Deferred: true, Approval: !spec.ReadOnly,
 		Binding: &store.ApprovalBinding{Tool: spec.Name, Operation: &operation}}
+	tool.ReleasePrepared = releasePrepared(&mu, calls)
 	tool.Prepare = func(_ context.Context, call canonical.ToolRequest) error {
 		action, err := mediaAction(kind, call.Arguments)
 		if err != nil {

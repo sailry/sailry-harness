@@ -14,7 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"worktree":{"type":["string","null"]}}}`
+const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"overlap":{"type":"boolean","description":"Continue independent parent work while this foreground child runs. Its result still joins this turn."},"worktree":{"type":["string","null"]}}}`
 const listSubagentsSchema = `{"type":"object","additionalProperties":false,"properties":{"before":{"type":"string","pattern":"^[1-9][0-9]{0,18}$","description":"Use next_before from the preceding page"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":20}}}`
 
 func delegationAvailable(x *execution) bool {
@@ -35,7 +35,8 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 		if name == "wait_agent" {
 			schema = `{"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from list_subagents or a completion notice; omit for the current execution"}},"required":["session"],"additionalProperties":false}`
 		}
-		tool := jsonTool(name, delegationDescriptions[name], schema, false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+		observe := name == "wait_agent"
+		tool := jsonTool(name, delegationDescriptions[name], schema, observe, observe, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 			if ctx.Err() != nil || x.ctx.Err() != nil {
 				return invalidTool("delegation is no longer active")
 			}
@@ -207,12 +208,22 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 	var args struct {
 		Role       *string `json:"role"`
 		Background bool    `json:"background"`
+		Overlap    bool    `json:"overlap"`
 	}
 	if json.Unmarshal(arguments, &args) != nil {
 		return invalidTool("invalid delegation arguments")
 	}
 	if args.Role != nil && !slices.ContainsFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool { return role.Key == *args.Role && r.usableRole(x, role) }) {
 		return invalidTool("role is not listed in this turn's roster")
+	}
+	if args.Background && args.Overlap {
+		return invalidTool("overlap requires a foreground child")
+	}
+	mode := childForeground
+	if args.Background {
+		mode = childBackground
+	} else if args.Overlap {
+		mode = childOverlap
 	}
 	var selected *protocol.ConversationInput
 	if call.ID == "sailry-selected-"+x.inv.Run.Turn.String() {
@@ -223,7 +234,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 		}
 		selected = &copy
 	}
-	return r.admitChild(x, arguments, args.Background, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+	return r.admitChild(x, arguments, mode, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		inv, events, err := store.DelegatePrepared(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, selected, args.Background, r.clock.Now())
 		return &inv, events, err
 	})
@@ -233,7 +244,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 // execute: the call's own, or those a package tool prepared from them.
 func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
 	var state store.ChildState
-	result := r.admitChild(x, arguments, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+	result := r.admitChild(x, arguments, childForeground, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error
@@ -291,6 +302,12 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 		}
 		if guidance {
 			value["guidance_pending"] = true
+			return ToolResult{Value: value}
+		}
+		if state.Run.Status == protocol.ConversationStatusQueued && !state.Ready {
+			// A foreground admission in this batch can only start after the
+			// model has a durable response for the call that created it.
+			value["admitted"], value["pending"] = true, true
 			return ToolResult{Value: value}
 		}
 		select {

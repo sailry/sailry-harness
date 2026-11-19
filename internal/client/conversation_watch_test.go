@@ -349,6 +349,50 @@ func TestConversationWatchDropsQueuedSnapshotAfterRemoval(t *testing.T) {
 	}
 }
 
+func TestConversationViewReusesUnchangedHistoryDuringStreaming(t *testing.T) {
+	const generation = 1
+	snapshot := conversationFixture()
+	session, turn := snapshot.Page.Session, snapshot.Page.Runs[0].Turn
+	w := &conversationWatch{session: session, projection: NewConversationProjection(snapshot.Node, session, generation), ctx: t.Context()}
+	c := &Client{conversations: map[protocol.SessionID]*conversationWatch{session: w}}
+	apply := func(update protocol.Update) {
+		t.Helper()
+		if got, err := c.applyConversationUpdate(w, generation, update); got != Applied || err != nil {
+			t.Fatalf("update %s = %v, %v", update.Kind, got, err)
+		}
+	}
+	apply(protocol.Update{Kind: "conversation_snapshot", Data: snapshot})
+	initial, _ := c.ConversationView(session, ConversationState{})
+	apply(conversationFrame(*w.projection.snapshot, "delta", protocol.ConversationDraft{
+		ID: "stream", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Working"}},
+	}))
+	streaming, _ := c.ConversationView(session, initial)
+	if streaming.SameViewSnapshot(initial) || len(streaming.Snapshot.Drafts) != 1 || len(initial.Snapshot.Drafts) != 0 {
+		t.Fatal("the live draft did not update independently of the previous view")
+	}
+	if &streaming.Snapshot.Page.Entries[0] != &initial.Snapshot.Page.Entries[0] {
+		t.Fatal("a streaming draft copied the unchanged canonical history")
+	}
+	entry := protocol.ConversationEntry{ID: "stream", Turn: turn, Sequence: 2, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Original"}}}
+	apply(conversationFrame(*w.projection.snapshot, "entry", entry))
+	finished, _ := c.ConversationView(session, streaming)
+	if len(finished.Snapshot.Page.Entries) != 2 || &finished.Snapshot.Page.Entries[0].Parts[0] != &initial.Snapshot.Page.Entries[0].Parts[0] {
+		t.Fatal("appending a canonical entry copied unmodified entry bodies")
+	}
+	apply(conversationFrame(*w.projection.snapshot, "hidden", protocol.ConversationChangeHiddenPayload{ID: entry.ID, Turn: turn}))
+	entry.Parts[0].Data = "Revealed"
+	apply(conversationFrame(*w.projection.snapshot, "revealed", entry))
+	revealed, _ := c.ConversationView(session, finished)
+	if len(revealed.Snapshot.Page.Entries) != 2 || revealed.Snapshot.Page.Entries[1].Parts[0].Data != "Revealed" || finished.Snapshot.Page.Entries[1].Parts[0].Data != "Original" {
+		t.Fatal("a hide-and-reveal cycle reused the obsolete projection")
+	}
+	mutable, _ := c.Conversation(session)
+	mutable.Snapshot.Page.Entries[0].Parts[0].Data = "Changed"
+	if revealed.Snapshot.Page.Entries[0].Parts[0].Data != "Request" {
+		t.Fatal("a mutable action read aliased the presentation")
+	}
+}
+
 type requestedTurnPage struct {
 	query    protocol.CommandReadTurnPayload
 	complete chan link.Response

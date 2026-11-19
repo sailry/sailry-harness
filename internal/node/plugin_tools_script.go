@@ -397,14 +397,17 @@ func pluginResultFailed(value any) bool {
 	return failed
 }
 
-func (owner *pluginScriptTurn) beforeModel(handler string) func(context.Context, []canonical.Record) (bool, error) {
+func (owner *pluginScriptTurn) beforeModel(handler string) func(context.Context, []canonical.Record, engine.ToolResultReader) (bool, error) {
 	names := make(map[string]string, len(owner.info.Extension.Tools))
 	for _, declaration := range owner.info.Extension.Tools {
 		names[plugins.ToolAlias(owner.info.Summary.Name, declaration.Name)] = declaration.Name
 	}
 	lastCall := ""
-	return func(ctx context.Context, records []canonical.Record) (bool, error) {
-		results, newest := beforeModelResults(records, owner.invocation.Run.Turn, names, lastCall)
+	return func(ctx context.Context, records []canonical.Record, read engine.ToolResultReader) (bool, error) {
+		results, newest, err := beforeModelResults(records, owner.invocation.Run.Turn, names, lastCall, read)
+		if err != nil {
+			return false, err
+		}
 		if newest == lastCall && newest != "" {
 			return false, nil
 		}
@@ -421,7 +424,7 @@ func (owner *pluginScriptTurn) beforeModel(handler string) func(context.Context,
 	}
 }
 
-func beforeModelResults(records []canonical.Record, turn protocol.TurnID, names map[string]string, lastCall string) ([]json.RawMessage, string) {
+func beforeModelResults(records []canonical.Record, turn protocol.TurnID, names map[string]string, lastCall string, read engine.ToolResultReader) ([]json.RawMessage, string, error) {
 	// Reserve the array envelope. Keep whole recent results, since even a
 	// valid partial result can give a package the wrong view of its state.
 	remaining := plugins.ScriptMaxDataBytes - len(`{"results":[]}`)
@@ -447,17 +450,24 @@ func beforeModelResults(records []canonical.Record, turn protocol.TurnID, names 
 			if newest == "" {
 				newest = value.ID
 				if newest != "" && newest == lastCall {
-					return nil, newest
+					return nil, newest, nil
 				}
 			}
 			name, ok := names[value.Name]
-			if !ok || len(value.Result.Value) > remaining {
+			if !ok || remaining == 0 {
+				continue
+			}
+			result, err := read(value)
+			if err != nil {
+				return nil, "", err
+			}
+			if len(result) > remaining {
 				continue
 			}
 			body, err := json.Marshal(struct {
 				Name     string          `json:"name"`
 				Response json.RawMessage `json:"response"`
-			}{name, value.Result.Value})
+			}{name, result})
 			if err == nil && len(body)+1 <= remaining {
 				results = append(results, body)
 				remaining -= len(body) + 1
@@ -465,5 +475,5 @@ func beforeModelResults(records []canonical.Record, turn protocol.TurnID, names 
 		}
 	}
 	slices.Reverse(results)
-	return results, newest
+	return results, newest, nil
 }

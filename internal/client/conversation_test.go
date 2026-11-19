@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -25,15 +27,32 @@ func conversationFrame(s protocol.ConversationSnapshot, kind string, data any) p
 }
 
 func TestConversationHistoryMergePreservesCanonicalOrder(t *testing.T) {
-	page := conversationFixture().Page
+	s := conversationFixture()
+	turn := s.Page.Runs[0].Turn
 	entry := func(sequence uint64, id string) protocol.ConversationEntry {
-		return protocol.ConversationEntry{ID: id, Turn: page.Runs[0].Turn, Sequence: sequence, Author: "assistant"}
+		return protocol.ConversationEntry{ID: id, Turn: turn, Sequence: sequence, Author: "assistant"}
 	}
-	page.Entries = []protocol.ConversationEntry{entry(4, "four"), entry(8, "eight")}
+	hidden := entry(2, "hidden")
+	s.Page.Entries = []protocol.ConversationEntry{hidden, entry(4, "four"), entry(8, "eight")}
+	s.Drafts = []protocol.ConversationDraft{{ID: "stream", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Partial reply"}}}}
+	p := NewConversationProjection(s.Node, s.Page.Session, 1)
+	if got, err := p.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: s}); got != Applied || err != nil {
+		t.Fatalf("apply snapshot: %v, %v", got, err)
+	}
+	for _, id := range []string{hidden.ID, "stream", "unloaded"} {
+		if got, err := p.Apply(1, conversationFrame(*p.snapshot, "hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: id})); got != Applied || err != nil {
+			t.Fatalf("hide %q: %v, %v", id, got, err)
+		}
+	}
+	state := p.Snapshot()
+	if len(state.Drafts) != 0 || len(state.Page.Entries) != 2 {
+		t.Fatal("hidden frame did not remove the loaded entry or draft")
+	}
+	page := state.Page
 	older := protocol.DefaultConversationPage()
 	older.Session, older.Revision = page.Session, page.Revision
-	older.Entries = []protocol.ConversationEntry{entry(1, "one"), entry(2, "hidden"), entry(4, "four"), entry(6, "six")}
-	if err := mergeConversationPage(&page, older, true, map[string]bool{"hidden": true}); err != nil {
+	older.Entries = []protocol.ConversationEntry{entry(1, "one"), hidden, entry(3, "stream"), entry(4, "four"), entry(5, "unloaded"), entry(6, "six")}
+	if err := mergeConversationPage(&page, older, true, p.hidden); err != nil {
 		t.Fatal(err)
 	}
 	want := []protocol.ConversationEntry{entry(1, "one"), entry(4, "four"), entry(6, "six"), entry(8, "eight")}
@@ -49,6 +68,40 @@ func TestConversationHistoryMergePreservesCanonicalOrder(t *testing.T) {
 		if !reflect.DeepEqual(page, before) {
 			t.Fatal("rejected page changed loaded history")
 		}
+	}
+}
+
+func TestConversationToolActivityDoesNotRetainHistoryTombstones(t *testing.T) {
+	s := conversationFixture()
+	turn := s.Page.Runs[0].Turn
+	toolDraft := func(i int) protocol.ConversationDraft {
+		return protocol.ConversationDraft{ID: fmt.Sprintf("activity-%d", i), Turn: turn, Author: "sailry", Parts: []protocol.ConversationPart{{
+			Kind: "resource", Data: json.RawMessage(fmt.Sprintf(`{"type":"tool_started","id":"call-%d","name":"read_file"}`, i)),
+		}}}
+	}
+	first := toolDraft(0)
+	s.Drafts = []protocol.ConversationDraft{first}
+	p := NewConversationProjection(s.Node, s.Page.Session, 1)
+	if got, err := p.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: s}); got != Applied || err != nil {
+		t.Fatalf("apply snapshot: %v, %v", got, err)
+	}
+	apply := func(kind string, data any) {
+		t.Helper()
+		if got, err := p.Apply(1, conversationFrame(*p.snapshot, kind, data)); got != Applied || err != nil {
+			t.Fatalf("apply %s: %v, %v", kind, got, err)
+		}
+	}
+	apply("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: first.ID})
+	for i := 1; i <= 1024; i++ {
+		draft := toolDraft(i)
+		apply("delta", draft)
+		if drafts := p.snapshot.Drafts; len(drafts) != 1 || drafts[0].ID != draft.ID {
+			t.Fatalf("drafts after starting %q: %+v", draft.ID, drafts)
+		}
+		apply("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: draft.ID})
+	}
+	if len(p.snapshot.Drafts) != 0 || len(p.hidden) != 0 {
+		t.Fatalf("finished tools retained %d drafts and %d history tombstones", len(p.snapshot.Drafts), len(p.hidden))
 	}
 }
 

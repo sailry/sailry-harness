@@ -69,6 +69,7 @@ func (node *Node) connectionTools(ctx context.Context, inv *store.AgentInvocatio
 		var mu sync.Mutex
 		calls := map[string]*connectionToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 			command, err := node.connectionCommand(ctx, inv, declaration, call.Arguments, captured)
 			if err != nil {

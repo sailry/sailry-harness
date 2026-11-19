@@ -17,24 +17,78 @@ import (
 // mediaOutputs are the Node outputs whose data object may declare inline_data.
 var mediaOutputs = []string{"computer", "browser", "external_browser", "file_image"}
 
-// hydrateToolResult restores one stored tool result for the turn's history.
-// Media a JSON result declares in inline_data leaves the value and becomes
-// the attachments of the in-memory result, so a request carries it as media
-// and never as base64 text. The attachments a tool stored for display are
-// not model input and an MCP result carries its media in its own content, so
-// neither stays on the result here.
-func hydrateToolResult(ctx context.Context, db *sql.Conn, result *canonical.ToolResponse) error {
-	payload := result.Result
+// modelToolResult detaches the result's presentation metadata. Declared JSON
+// media becomes request-local attachment references; display-only attachments
+// never reach the model and MCP carries media in its own content.
+func modelToolResult(stored *canonical.ToolResponse) canonical.ToolResponse {
+	result := *stored
 	result.Attachments = nil
 	if result.Format == canonical.JSON {
-		payload, result.Attachments = liftToolMedia(payload)
+		result.Result, result.Attachments = liftToolMedia(result.Result)
 	}
-	value, err := store.HydrateCanonicalPayload(ctx, db, payload)
-	if err != nil {
+	return result
+}
+
+func (r *Runtime) readToolResult(ctx context.Context, stored *canonical.ToolResponse) (json.RawMessage, error) {
+	if len(stored.Result.Assets) == 0 {
+		return stored.Result.Value, nil
+	}
+	result := modelToolResult(stored)
+	if len(result.Result.Assets) == 0 {
+		return result.Result.Value, nil
+	}
+	var value json.RawMessage
+	err := r.db.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		value, err = store.HydrateCanonicalPayload(ctx, db, result.Result)
 		return err
+	})
+	return value, err
+}
+
+// hydrateModelToolResults receives the detached, visible, answered history
+// for one model request. Only affected messages and tool results are copied.
+func (r *Runtime) hydrateModelToolResults(ctx context.Context, records []canonical.Record) error {
+	var pending []*canonical.ToolResponse
+	for i := range records {
+		message := records[i].Message()
+		if message == nil {
+			continue
+		}
+		var content []canonical.Block
+		for j, block := range message.Content {
+			stored, ok := block.Data.(*canonical.ToolResponse)
+			if !ok || len(stored.Attachments) == 0 && len(stored.Result.Assets) == 0 {
+				continue
+			}
+			if content == nil {
+				content = slices.Clone(message.Content)
+			}
+			result := modelToolResult(stored)
+			content[j].Data = &result
+			if len(result.Result.Assets) > 0 {
+				pending = append(pending, &result)
+			}
+		}
+		if content != nil {
+			projected := *message
+			projected.Content = content
+			records[i].Data = &projected
+		}
 	}
-	result.Result = canonical.Payload{Value: value}
-	return nil
+	if len(pending) == 0 {
+		return nil
+	}
+	return r.db.Read(ctx, func(db *sql.Conn) error {
+		for _, result := range pending {
+			value, err := store.HydrateCanonicalPayload(ctx, db, result.Result)
+			if err != nil {
+				return err
+			}
+			result.Result = canonical.Payload{Value: value}
+		}
+		return nil
+	})
 }
 
 // liftToolMedia removes inline_data from the result root, or from the data of

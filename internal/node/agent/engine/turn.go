@@ -193,7 +193,7 @@ func (r *Runtime) execute(x *execution) {
 	}
 	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
 	if successor != nil {
-		next := &delegatedChild{root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true, commandsInherited: true}
+		next := &delegatedChild{root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true, overlap: child.overlap, commandsInherited: true}
 		r.mu.Lock()
 		child.successor = next
 		delete(r.children, child.turn)
@@ -433,14 +433,15 @@ func (r *Runtime) turn(x *execution) error {
 		if selected {
 			continue
 		}
-		delivered, err := r.foregroundStep(x)
+		last := lastMessage(state.Records)
+		finishing := last != nil && last.Role == canonical.Assistant && last.Error == nil
+		delivered, err := r.foregroundStep(x, finishing)
 		if err != nil {
 			return err
 		}
 		if delivered {
 			continue
 		}
-		last := lastMessage(state.Records)
 		if last != nil && last.Error != nil {
 			if last.Error.Code != nil && *last.Error.Code == "context_overflow" && recoveries < 2 {
 				if err = r.compact(x, binding, state, false); err != nil {
@@ -477,7 +478,7 @@ func (r *Runtime) turn(x *execution) error {
 			compacted = true
 			continue
 		}
-		if !x.callbackPending && last != nil && last.Role == canonical.Assistant {
+		if finishing && !x.callbackPending {
 			return nil
 		}
 		limited, err := r.childTurnLimit(x, state)
@@ -488,12 +489,15 @@ func (r *Runtime) turn(x *execution) error {
 			return nil
 		}
 		observed := map[string]bool{}
+		readResult := func(response *canonical.ToolResponse) (json.RawMessage, error) {
+			return r.readToolResult(x.ctx, response)
+		}
 		for _, tool := range x.tools {
 			if tool.BeforeModel == nil || tool.Binding == nil || observed[tool.Binding.Owner.Name] {
 				continue
 			}
 			observed[tool.Binding.Owner.Name] = true
-			stopped, err := tool.BeforeModel(x.ctx, state.Records)
+			stopped, err := tool.BeforeModel(x.ctx, state.Records, readResult)
 			if err != nil {
 				return err
 			}
@@ -514,29 +518,14 @@ func (r *Runtime) load(ctx context.Context, session protocol.SessionID) (store.A
 	return r.reload(ctx, session, store.AgentState{})
 }
 
-// reload decodes and hydrates only the records appended since previous. The
-// earlier records are shared with previous and are read-only for every step.
+// reload decodes appended records without materializing their binary payloads.
+// Earlier records are shared with previous and stay read-only for every step.
 func (r *Runtime) reload(ctx context.Context, session protocol.SessionID, previous store.AgentState) (store.AgentState, error) {
 	var state store.AgentState
 	err := r.db.Read(ctx, func(db *sql.Conn) error {
-		var reused int
 		var err error
-		state, reused, err = store.ExtendAgentState(ctx, db, session, previous)
-		if err != nil {
-			return err
-		}
-		for i := reused; i < len(state.Records); i++ {
-			if message := state.Records[i].MutableMessage(); message != nil {
-				for _, block := range message.Content {
-					if result, ok := block.Data.(*canonical.ToolResponse); ok {
-						if err := hydrateToolResult(ctx, db, result); err != nil {
-							return err
-						}
-					}
-				}
-			}
-		}
-		return nil
+		state, _, err = store.ExtendAgentState(ctx, db, session, previous)
+		return err
 	})
 	return state, err
 }

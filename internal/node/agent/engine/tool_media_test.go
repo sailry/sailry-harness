@@ -55,6 +55,19 @@ func TestToolMedia(t *testing.T) {
 			if f.readQuery("SELECT count(*) FROM agent_events WHERE instr(body,'"+encoded[:48]+"')>0") != 0 || f.readQuery("SELECT count(*) FROM agent_blobs WHERE length(bytes)="+strconv.Itoa(len(pixels))) != 1 {
 				t.Error("tool media was stored inline")
 			}
+			var stored *canonical.ToolResponse
+			for _, record := range f.state().Records {
+				if message := record.Message(); message != nil {
+					for _, block := range message.Content {
+						if result, ok := block.Data.(*canonical.ToolResponse); ok && result.ID == "shot" {
+							stored = result
+						}
+					}
+				}
+			}
+			if stored == nil || len(stored.Result.Assets) != 1 || len(stored.Attachments) != 1 || !strings.Contains(string(stored.Result.Value), `"data":null`) {
+				t.Fatalf("active history lost its stored media references: %+v", stored)
+			}
 			var output string
 			var files []fantasy.FilePart
 			for _, message := range m.calls[1].Prompt {

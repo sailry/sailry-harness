@@ -123,7 +123,6 @@ type execution struct {
 	guidance          chan struct{}
 	tools             []Tool
 	names             *exposure
-	deferredContext   *string
 	toolCleanup       []func() error
 	inputMu           sync.Mutex
 	inputWake         chan struct{}
@@ -411,6 +410,11 @@ func (r *Runtime) Refresh(session protocol.SessionID) {
 // RefreshCommitted publishes a pinned metadata read while its caller owns
 // publication, so no newer interaction or queue can overtake the read.
 func (r *Runtime) RefreshCommitted(session protocol.SessionID, changedChildren ...protocol.TurnID) {
+	// Run transitions maintain the active draft feed independently. A later
+	// observer reserves and reads current durable state under publication.
+	if !r.feed.Observed(session) {
+		return
+	}
 	var history protocol.ConversationHistory
 	if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
 		var err error
@@ -434,9 +438,7 @@ func (r *Runtime) RefreshCommitted(session protocol.SessionID, changedChildren .
 	for _, v := range history.Page.Approvals {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "approval", Data: v})
 	}
-	for _, task := range history.Page.Background {
-		r.feed.Publish(session, protocol.ConversationChange{Kind: "background", Data: task})
-	}
+	r.feed.PublishBackground(session, history.Page.Background)
 	for _, child := range history.Page.Children {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "child", Data: child})
 	}

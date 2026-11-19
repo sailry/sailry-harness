@@ -295,9 +295,12 @@ func ReadConversation(ctx context.Context, db *sql.Conn, session protocol.Sessio
 	for _, id := range trimmed {
 		missing[id] = true
 	}
+	// The turn-first scan stops at its first visible sequence. Drive the
+	// membership check by that index instead of walking the whole session.
+	const firstVisible = "SELECT (SELECT e.sequence FROM agent_events e CROSS JOIN conversation_events h ON h.sequence=e.sequence AND h.session=?1 WHERE e.turn=?2 AND " + visibleCanonical + " ORDER BY e.sequence LIMIT 1)"
 	for _, r := range page.Runs {
 		var first sql.NullInt64
-		if err = db.QueryRowContext(ctx, "SELECT min(e.sequence) FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND e.turn=?2 AND "+visibleCanonical, session.String(), r.Turn.String()).Scan(&first); err != nil {
+		if err = db.QueryRowContext(ctx, firstVisible, session.String(), r.Turn.String()).Scan(&first); err != nil {
 			return value, err
 		}
 		if first.Valid && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Sequence == uint64(first.Int64) }) {

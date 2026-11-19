@@ -268,7 +268,7 @@ func TestForegroundChildFailureStaysInForeground(t *testing.T) {
 	if delivered, err := f.r.deliverBackground(parent, false); err != nil || delivered {
 		t.Fatalf("background delivery took a foreground child: %t, %v", delivered, err)
 	}
-	if delivered, err := f.r.foregroundStep(parent); err != nil || !delivered {
+	if delivered, err := f.r.foregroundStep(parent, true); err != nil || !delivered {
 		t.Fatalf("foreground result was not delivered: %t, %v", delivered, err)
 	}
 	if delivered, err := f.r.deliverBackground(parent, false); err != nil || delivered {

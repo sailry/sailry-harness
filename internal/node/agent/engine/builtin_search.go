@@ -112,7 +112,7 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 	if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return tool.Deferred }) {
 		return nil
 	}
-	tool := jsonTool("tool_search", "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools become available on the next model request and stay loaded in this conversation. Search before using a capability absent from the current tool list. Discovery does not execute the tools or change their permissions.", `{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":8}}}`, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+	tool := jsonTool("tool_search", "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools become available on the next model request. Context compaction can unload tools; search again for capabilities absent from the current tool list. Discovery does not execute the tools or change their permissions.", `{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":8}}}`, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
 		if ctx.Err() != nil || x.ctx.Err() != nil {
 			return invalidTool("tool discovery invocation is no longer active")
 		}

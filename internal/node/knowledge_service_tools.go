@@ -148,6 +148,7 @@ func (node *Node) knowledgeTools(inv *store.AgentInvocation, catalog *operations
 		var mu sync.Mutex
 		calls := map[string]*protocol.Request{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 			command, err := knowledgeToolCommand(declaration.Operation, call.Arguments, inv.Run.Worktree)
 			if err != nil {

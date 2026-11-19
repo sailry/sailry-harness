@@ -176,6 +176,31 @@ func TestApprovalSettlesBeforeCall(t *testing.T) {
 		t.Fatalf("executions=%d", executions.Load())
 	}
 }
+
+func TestDeniedToolReleasesPreparedCall(t *testing.T) {
+	var pending atomic.Int32
+	tool := objectTool("write", false, false, func(context.Context, canonical.ToolRequest) ToolResult {
+		t.Error("denied tool executed")
+		return ToolResult{Value: map[string]bool{"ok": true}}
+	})
+	tool.Approval = true
+	tool.Prepare = func(context.Context, canonical.ToolRequest) error { pending.Add(1); return nil }
+	tool.ReleasePrepared = func(canonical.ToolRequest) { pending.Add(-1) }
+	m := &scriptedModel{scripts: []script{response(call("write", "write", `{}`), finish()), response(text("Done"), finish())}}
+	f := newFixture(t, m, tool)
+	f.start()
+	turn := f.submit("Task")
+	approval := f.waitingApproval()
+	if got := pending.Load(); got != 1 {
+		t.Fatalf("pending preparations before approval: %d", got)
+	}
+	f.command("resolve_approval", &protocol.CommandResolveApprovalPayload{Session: f.session.ID, Approval: approval.ID, Decision: protocol.ConversationDecision{Kind: "deny"}})
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	if got := pending.Load(); got != 0 {
+		t.Fatalf("denied tool retained %d preparations", got)
+	}
+}
+
 func TestQuestionSurvivesRestart(t *testing.T) {
 	m := &scriptedModel{scripts: []script{response(call("ask", "ask_user", `{"prompt":"Choose","input":{"kind":"choice","options":["First (Recommended)","Second"],"multiple":false}}`), finish())}}
 	f := newFixture(t, m)

@@ -57,8 +57,9 @@ func TestTurnContextAppendsOnlyChangedSections(t *testing.T) {
 			key = "title"
 		}
 		parts := record.Metadata.Runtime.Notes.Context.Parts
-		if len(parts) != 1 || parts[key] == "" {
-			t.Fatalf("context update %d resent unchanged sections: %v", index+1, parts)
+		if key == "title" && (len(parts) != 1 || parts[key] == "") ||
+			key == "execution_identity" && (len(parts) != 2 || parts[key] == "" || parts["deferred_tools"] == "") {
+			t.Fatalf("context update %d did not keep stable sections separate from refreshed discovery: %v", index+1, parts)
 		}
 		if key == "execution_identity" {
 			value := record.Message().Content[0].Data.(*canonical.TextContent).Text

@@ -27,6 +27,14 @@ type workspaceToolCall struct {
 	approval protocol.ApprovalID
 }
 
+func releasePrepared[T any](mu *sync.Mutex, calls map[string]T) func(canonical.ToolRequest) {
+	return func(call canonical.ToolRequest) {
+		mu.Lock()
+		delete(calls, call.ID)
+		mu.Unlock()
+	}
+}
+
 func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation) ([]engine.Tool, error) {
 	if _, err := node.workspaceRoot(ctx, inv.Run.Worktree, false); err != nil {
 		return nil, err
@@ -55,6 +63,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		var observed workspaceRevisions
 		if declaration.Operation == protocol.ToolOperationApplyChanges {
 			tool.ObserveHistory = observed.update

@@ -50,6 +50,7 @@ func (node *Node) agentTools(inv *store.AgentInvocation) ([]engine.Tool, error) 
 			SchemaJSON: schema, ReadOnly: declaration.readOnly, Deferred: true, Approval: !declaration.readOnly}
 		var mu sync.Mutex
 		calls := map[string]*protocol.Request{}
+		tool.ReleasePrepared = releasePrepared(&mu, calls)
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 			command, err := declaration.prepare(ctx, call.Arguments)
 			if err != nil {

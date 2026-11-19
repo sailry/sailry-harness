@@ -15,6 +15,7 @@ type ConversationProjection struct {
 	session        protocol.SessionID
 	generation     uint64
 	snapshot       *protocol.ConversationSnapshot
+	entryEpoch     *byte
 	recovering     bool
 	liveStart      *uint64
 	artifactCursor uint64
@@ -120,6 +121,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "artifact cursor exhausted")
 		}
 		p.snapshot = new(copyValue(v))
+		p.entryEpoch = nil
 		p.recovering = false
 		p.liveStart = nil
 		p.artifactCursor++
@@ -197,10 +199,32 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		if e != nil {
 			return Ignored, e
 		}
-		p.hidden[x.ID] = true
+		_, canonical := p.revealed[x.ID]
+		entryCount := len(page.Entries)
+		page.Entries = slices.DeleteFunc(page.Entries, func(e protocol.ConversationEntry) bool {
+			if e.ID != x.ID {
+				return false
+			}
+			canonical = true
+			return e.Turn == x.Turn
+		})
+		if len(page.Entries) != entryCount {
+			// A later reveal may restore this sequence with new projection data.
+			p.entryEpoch = nil
+		}
+		draftCount := len(v.Drafts)
+		var removed protocol.ConversationDraft
+		v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool {
+			if d.ID != x.ID || d.Turn != x.Turn {
+				return false
+			}
+			removed = d
+			return true
+		})
+		if canonical || draftCount-len(v.Drafts) != 1 || !isTransientToolActivityDraft(removed) {
+			p.hidden[x.ID] = true
+		}
 		delete(p.revealed, x.ID)
-		page.Entries = slices.DeleteFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.ID == x.ID && e.Turn == x.Turn })
-		v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool { return d.ID == x.ID && d.Turn == x.Turn })
 	case "run":
 		x, e := payload[protocol.ConversationRun](f.Change.Data)
 		if e != nil {
@@ -366,6 +390,14 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 	v.Sequence = f.Sequence
 	p.settle()
 	return Applied, nil
+}
+
+func isTransientToolActivityDraft(d protocol.ConversationDraft) bool {
+	if d.Author != "sailry" || d.Branch != "" || len(d.Parts) != 1 || d.Parts[0].Kind != "resource" {
+		return false
+	}
+	activity := resourceValue(d.Parts[0].Data)
+	return activity.Type == "tool_started" && activity.ID != "" && activity.Name != ""
 }
 
 func activeConversationRun(s protocol.ConversationStatus) bool {

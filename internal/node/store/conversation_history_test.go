@@ -1,10 +1,14 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -100,4 +104,63 @@ func TestConversationPageFit(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestConversationMissingHonorsForkVisibility(t *testing.T) {
+	t.Parallel()
+	storage, _, source, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := context.Background()
+	if err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		first := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "First input")), now)
+		first.Provenance.Author = "user"
+		if _, _, err := AppendCanonical(ctx, db, source.ID, first); err != nil {
+			return err
+		}
+		for range 100 {
+			message := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Recent history")), now)
+			message.Provenance.Author = "assistant"
+			if _, _, err := AppendCanonical(ctx, db, source.ID, message); err != nil {
+				return err
+			}
+		}
+		setVisibility := func(visible bool) error {
+			record := canonical.NewRecord(turn, "operation", canonical.Operation{Kind: "visibility", Data: &canonical.Visibility{
+				Message: first.ID, UserVisible: visible, AgentVisible: visible,
+			}}, now)
+			runtime := canonical.DefaultRuntime()
+			runtime.UserVisible = false
+			record.Metadata.Runtime = &runtime
+			_, _, err := AppendCanonical(ctx, db, source.ID, record)
+			return err
+		}
+		if err := setVisibility(false); err != nil {
+			return err
+		}
+		if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		fork, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: source.ID, Through: turn, ExpectedRevision: source.Revision})
+		if err != nil {
+			return err
+		}
+		// The new visibility operation belongs only to the source session.
+		if err = setVisibility(true); err != nil {
+			return err
+		}
+		for _, row := range []struct {
+			session protocol.SessionID
+			missing []protocol.TurnID
+		}{{source.ID, []protocol.TurnID{turn}}, {fork.ID, nil}} {
+			history, err := ReadConversation(ctx, db, row.session, nil, 20)
+			if err != nil {
+				return err
+			}
+			if len(history.Page.Entries) != 100 || !slices.Equal(history.Missing, row.missing) {
+				return fmt.Errorf("session %s has %d entries and missing %v, want 100 and %v", row.session, len(history.Page.Entries), history.Missing, row.missing)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

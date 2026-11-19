@@ -59,6 +59,41 @@ func TestCollaborateWorkflowUsesAvailableDelegation(t *testing.T) {
 	}
 }
 
+func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
+	t.Parallel()
+	const report = "When you collect a substantive result, failure or blocker from a delegated child"
+	const link = "](sailry://session/<session-id>)"
+	const revisePlan = "If update_plan is available, immediately submit the full revised plan"
+	for _, mode := range []protocol.WorkMode{protocol.WorkModeCode, protocol.WorkModeFlagship, protocol.WorkModePlan} {
+		t.Run(string(mode), func(t *testing.T) {
+			parentPolicy := Policy(mode, protocol.PermissionFull, false)
+			parent := System(Instruction(false), canonical.Context{Policy: &parentPolicy})
+			for _, phrase := range []string{
+				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
+				"review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
+			} {
+				if !strings.Contains(parent, phrase) {
+					t.Errorf("parent prompt is missing %q", phrase)
+				}
+			}
+			if mode == protocol.WorkModePlan && !strings.Contains(parent, "Do not implement changes or run tools with side effects.") {
+				t.Error("Plan prompt lost its read-only policy")
+			}
+
+			childPolicy := Policy(mode, protocol.PermissionFull, true)
+			child := System(Instruction(true), canonical.Context{Policy: &childPolicy})
+			if strings.Contains(child, report) || strings.Contains(child, link) || strings.Contains(child, revisePlan) {
+				t.Error("child prompt includes parent progress instructions")
+			}
+			for _, phrase := range []string{"returns to the parent agent, not the user", "assigned goal", "what remains unverified"} {
+				if !strings.Contains(child, phrase) {
+					t.Errorf("child prompt is missing %q", phrase)
+				}
+			}
+		})
+	}
+}
+
 func TestPendingContextTracksRollingBoundary(t *testing.T) {
 	turn, now := protocol.NewTurnID(), time.Unix(1, 0)
 	user := func(text string) canonical.Record {
@@ -146,6 +181,33 @@ func TestContextMessageOnlyOnChange(t *testing.T) {
 	}
 	if Capture([]Part{{Key: "first", Text: "second\nthird"}}, nil).State == Capture([]Part{{Key: "first\nsecond", Text: "third"}}, nil).State {
 		t.Fatal("state identity lost exact part boundaries")
+	}
+}
+
+func TestPendingContextRefreshesAfterInputButNotNotice(t *testing.T) {
+	turn, now := protocol.NewTurnID(), time.Unix(1, 0)
+	parts := []Part{{Key: "deferred_tools", Text: "Deferred tools\nread_session", RefreshOnInput: true}}
+	original := *ContextMessage(turn, parts, nil, now)
+	notice := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Background completion")), now)
+	notice.Provenance.Author = "user"
+	source := canonical.InputNotice
+	index := uint64(0)
+	notice.Metadata.Input = &canonical.Input{Source: &source, NoticePart: &index}
+	records := []canonical.Record{original, notice}
+	if got, _ := Pending(records, parts, nil); len(got) > 0 {
+		t.Fatalf("notice-only history refreshed the discovery section: %+v", got)
+	}
+
+	guidance := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Continue with the remaining checks")), now)
+	guidance.Provenance.Author = "user"
+	records = append(records, guidance)
+	if got, _ := Pending(records, parts, nil); !slices.Equal(got, parts) {
+		t.Fatalf("new guidance did not refresh the discovery section: %+v", got)
+	}
+	refreshed := *ContextMessage(turn, parts, nil, now)
+	records = append(records, refreshed, notice)
+	if got, _ := Pending(records, parts, nil); len(got) > 0 {
+		t.Fatalf("unchanged discovery section refreshed again: %+v", got)
 	}
 }
 

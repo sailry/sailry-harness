@@ -36,17 +36,20 @@ type Tool struct {
 	Approval   bool
 	// Confirm reports whether one prepared call of a tool without Approval
 	// asks first: a read-only tool with an optional project write.
-	Confirm           func(canonical.ToolRequest) bool
-	Binding           *store.ApprovalBinding
-	Execute           func(context.Context, canonical.ToolRequest) ToolResult
-	Prepare           func(context.Context, canonical.ToolRequest) error
+	Confirm func(canonical.ToolRequest) bool
+	Binding *store.ApprovalBinding
+	Execute func(context.Context, canonical.ToolRequest) ToolResult
+	Prepare func(context.Context, canonical.ToolRequest) error
+	// ReleasePrepared drops transient preparation even when the call never
+	// reaches Execute. It is safe to call after Execute has consumed it.
+	ReleasePrepared   func(canonical.ToolRequest)
 	ObserveHistory    func([]canonical.Record)
 	ConfigureApproval func(context.Context, *sql.Conn, canonical.ToolRequest, protocol.ConversationApproval) (protocol.ConversationApproval, error)
 	Approved          func(canonical.ToolRequest, protocol.ApprovalID, protocol.RequestID)
 	Close             func() error
 	Instruction       string
 	ContextParts      []string
-	BeforeModel       func(context.Context, []canonical.Record) (bool, error)
+	BeforeModel       func(context.Context, []canonical.Record, ToolResultReader) (bool, error)
 	BindDelegation    func(Tool) Tool
 	// Guidance makes BindDelegation receive guide_agent instead of spawn_agent.
 	Guidance bool
@@ -67,6 +70,11 @@ type Tool struct {
 	// keeps the identity the model sent; the arguments are what executes.
 	ExecutePrepared func(context.Context, canonical.ToolRequest, json.RawMessage) ToolResult
 }
+
+// ToolResultReader materializes a selected result for a package hook. The
+// canonical history passed to the hook retains its stored asset references.
+type ToolResultReader func(*canonical.ToolResponse) (json.RawMessage, error)
+
 type ToolResult struct {
 	Collect         *collectedChild
 	Meta            *map[string]json.RawMessage
@@ -248,25 +256,20 @@ func visibleOperation(operation protocol.ToolOperation) bool {
 	return false
 }
 
-// deferredContext lists the names of the tools a turn starts without, so the
-// model knows what discovery can load. The list is fixed for the turn.
+// deferredContext lists the captured tools that discovery can currently load.
 func (r *Runtime) deferredContext(x *execution, state store.AgentState) string {
-	if x.deferredContext == nil {
-		names := r.exposure(x, state)
-		var deferred []string
-		for _, tool := range x.tools {
-			if tool.Deferred && !slices.Contains(state.LoadedTools, tool.Definition.Name) {
-				deferred = append(deferred, names.name(tool.Definition.Name))
-			}
+	names := r.exposure(x, state)
+	var deferred []string
+	for _, tool := range x.tools {
+		if tool.Deferred && !slices.Contains(state.LoadedTools, tool.Definition.Name) {
+			deferred = append(deferred, names.name(tool.Definition.Name))
 		}
-		slices.Sort(deferred)
-		text := ""
-		if len(deferred) != 0 {
-			text = "Deferred tools\n" + strings.Join(deferred, ", ")
-		}
-		x.deferredContext = &text
 	}
-	return *x.deferredContext
+	if len(deferred) == 0 {
+		return ""
+	}
+	slices.Sort(deferred)
+	return "Deferred tools\n" + strings.Join(deferred, ", ") + "\nUse tool_search to load a needed tool by exact name (select:name) or search by capability."
 }
 
 func (r *Runtime) declarations(x *execution, binding model.Binding, state store.AgentState) []fantasy.FunctionTool {
@@ -340,6 +343,9 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			tool.ObserveHistory(state.Records)
 		}
 		if tool.Prepare != nil {
+			if tool.ReleasePrepared != nil {
+				defer tool.ReleasePrepared(call)
+			}
 			if err := tool.Prepare(x.ctx, call); err != nil {
 				results[i] = toolFault(err)
 				continue

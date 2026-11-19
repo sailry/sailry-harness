@@ -231,7 +231,7 @@ func TestDelegationHandoff(t *testing.T) {
 			t.Cleanup(func() { unblock(); parent.cancel() })
 			collected := make(chan error, 1)
 			go func() {
-				delivered, err := f.r.foregroundStep(parent)
+				delivered, err := f.r.foregroundStep(parent, true)
 				if err == nil && !delivered {
 					err = errors.New("foreground child ended without a result")
 				}
@@ -412,7 +412,7 @@ func TestDelegationHandoff(t *testing.T) {
 		t.Cleanup(unblock)
 		returned := make(chan ToolResult, 1)
 		go func() {
-			returned <- f.r.admitChild(x, call.Arguments, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+			returned <- f.r.admitChild(x, call.Arguments, childForeground, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 				inv, events, err := store.DelegateAgent(ctx, db, f.node, x.inv.Run.Turn, toolIdentity(call), nil, false, f.r.clock.Now())
 				if err != nil {
 					return nil, nil, err
