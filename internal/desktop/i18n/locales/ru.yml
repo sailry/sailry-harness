@@ -1119,6 +1119,7 @@ provider_models_empty: Нет настроенных моделей
 provider_connect: Подключить учетную запись
 provider_reconnect: Войти
 provider_access_key: Ключ API
+provider_access_no_key: Без ключа API
 provider_access_cloud: Облачные учетные данные
 provider_name_required: Введите имя поставщика
 provider_endpoint_required: Введите действительную конечную точку API

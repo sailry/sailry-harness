@@ -1119,6 +1119,7 @@ provider_models_empty: 모델이 설정되지 않았습니다
 provider_connect: 계정 연결
 provider_reconnect: 로그인
 provider_access_key: API 키
+provider_access_no_key: API 키 불필요
 provider_access_cloud: 클라우드 자격 증명
 provider_name_required: 공급자 이름 입력
 provider_endpoint_required: 유효한 API 엔드포인트 입력

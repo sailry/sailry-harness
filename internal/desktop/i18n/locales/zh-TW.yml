@@ -1119,6 +1119,7 @@ provider_models_empty: 尚未配置模型
 provider_connect: 連線賬號
 provider_reconnect: 登入
 provider_access_key: API 金鑰
+provider_access_no_key: 無需 API 金鑰
 provider_access_cloud: 雲端服務憑證
 provider_name_required: 請填寫供應商名稱
 provider_endpoint_required: 請輸入有效的 API 端點

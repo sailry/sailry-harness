@@ -19,7 +19,7 @@ import (
 // The Providers page (settings/providers): the model catalog with the
 // compaction threshold, the channels filtered by family and search, each
 // expanding to its models, and the editor that adds or edits one: the
-// brand step (account sign-ins, then brands with API methods), the method
+// brand step (grouped by access method), the method
 // step where a brand has several, then the configuration and models. A
 // method's wire protocol, product and region are switched in the form.
 // Account logins sign in in the authorization dialog.
@@ -1190,16 +1190,26 @@ func loginLabel(c *ui.Context, x preview.Method) string {
 	return x.Name
 }
 
-// apiMethods are a brand's methods that are not account sign-ins.
-func apiMethods(b *preview.Brand) []preview.Method {
-	return slices.DeleteFunc(slices.Clone(b.Methods), func(x preview.Method) bool { return x.Login != "" })
+// pickerMethods limits the methods offered after selecting a brand to those
+// matching its access group. A brand may offer several ways to connect.
+func pickerMethods(b *preview.Brand, group string) []preview.Method {
+	var methods []preview.Method
+	for _, x := range b.Methods {
+		access := "provider_access_key"
+		if x.Login != "" {
+			access = "provider_access_login"
+		} else if x.Auth == preview.AuthNone {
+			access = "provider_access_no_key"
+		}
+		if access == group {
+			methods = append(methods, x)
+		}
+	}
+	return methods
 }
 
-// brandPicker is two groups of outlined pills, each with its heading and
-// its marks: account sign-ins grouped by brand, then brands with API methods.
-// A brand opens its only method's form or asks which. before runs ahead of a
-// choice and after it, as the welcome guide opens the editor (nil for
-// none).
+// brandPicker opens the selected brand's only method or asks which method
+// to use. The welcome guide wraps the selection with before and after.
 func brandPicker(c *ui.Context, m *Model, node string, before, after func()) {
 	p := theme.Of(c)
 	chip := func(key, label, mark string, pick func()) {
@@ -1237,51 +1247,42 @@ func brandPicker(c *ui.Context, m *Model, node string, before, after func()) {
 			ui.Row(c).Wrap().Gap(8).Children(fill)
 		})
 	}
-	type login struct {
+	type choice struct {
 		brand   *preview.Brand
 		methods []preview.Method
 		label   string
+		mark    string
 	}
-	var logins []login
-	var brands []*preview.Brand
-	for i := range m.Brands {
-		b := &m.Brands[i]
-		if node != "" && b.Node != node {
-			continue
-		}
-		var methods []preview.Method
-		for _, x := range b.Methods {
-			if x.Login != "" {
-				methods = append(methods, x)
-			}
-		}
-		if len(methods) > 0 {
-			label := b.Name
-			if len(methods) == 1 {
-				label = loginLabel(c, methods[0])
-			}
-			logins = append(logins, login{b, methods, label})
-		}
-		if len(apiMethods(b)) > 0 {
-			brands = append(brands, b)
-		}
-	}
-	slices.SortStableFunc(logins, func(a, b login) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
-		group("provider_access_login", len(logins), func() {
-			for _, x := range logins {
-				mark := x.brand.ID
-				if len(x.methods) == 1 && icons.Brand(x.methods[0].Icon) != nil {
-					mark = x.methods[0].Icon
+		for _, access := range []string{"provider_access_login", "provider_access_key", "provider_access_no_key"} {
+			var choices []choice
+			for i := range m.Brands {
+				b := &m.Brands[i]
+				if node != "" && b.Node != node {
+					continue
 				}
-				chip("login-"+channelKey(x.brand.Node, x.brand.ID), x.label, mark, func() { m.chooseProvider(x.brand, x.methods) })
+				methods := pickerMethods(b, access)
+				if len(methods) == 0 {
+					continue
+				}
+				x := choice{b, methods, b.Name, b.ID}
+				if access == "provider_access_login" && len(methods) == 1 {
+					x.label = loginLabel(c, methods[0])
+					if icons.Brand(methods[0].Icon) != nil {
+						x.mark = methods[0].Icon
+					}
+				}
+				choices = append(choices, x)
 			}
-		})
-		group("provider_access_key", len(brands), func() {
-			for _, b := range brands {
-				chip("api-"+channelKey(b.Node, b.ID), b.Name, b.ID, func() { m.chooseProvider(b, apiMethods(b)) })
+			if access == "provider_access_login" {
+				slices.SortStableFunc(choices, func(a, b choice) int { return strings.Compare(strings.ToLower(a.label), strings.ToLower(b.label)) })
 			}
-		})
+			group(access, len(choices), func() {
+				for _, x := range choices {
+					chip(channelKey(x.brand.Node, x.brand.ID), x.label, x.mark, func() { m.chooseProvider(x.brand, x.methods) })
+				}
+			})
+		}
 	})
 }
 

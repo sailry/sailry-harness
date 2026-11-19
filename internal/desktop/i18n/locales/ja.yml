@@ -1119,6 +1119,7 @@ provider_models_empty: モデルが設定されていません
 provider_connect: アカウントを接続
 provider_reconnect: ログイン
 provider_access_key: API キー
+provider_access_no_key: API キー不要
 provider_access_cloud: クラウド認証情報
 provider_name_required: プロバイダ名を入力
 provider_endpoint_required: 有効な API エンドポイントを入力

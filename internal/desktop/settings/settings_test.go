@@ -605,6 +605,23 @@ func TestDraftChecks(t *testing.T) {
 
 // The provider editor's steps and checks.
 func TestProviderEditor(t *testing.T) {
+	t.Run("keyless methods have their own group", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Brands = []preview.Brand{{ID: "cli", Name: "CLI", Methods: []preview.Method{{ID: "local", Auth: preview.AuthNone}}}}
+		tester := ui.NewTester(func(c *ui.Context) { brandPicker(c, m, "", nil, nil) }, 900, 900)
+		tester.SetLocale("en")
+		tester.Frame()
+		if !tester.HasText(i18n.In("en", "provider_access_no_key")) || tester.HasText(i18n.In("en", "provider_access_key")) {
+			t.Fatalf("keyless provider offered under wrong heading: %v", tester.Texts())
+		}
+		brand := m.Brands[0]
+		brand.Methods = append(brand.Methods, preview.Method{ID: "key", Auth: preview.AuthKey})
+		for group, want := range map[string]string{"provider_access_key": "key", "provider_access_no_key": "local"} {
+			if got := pickerMethods(&brand, group); len(got) != 1 || got[0].ID != want {
+				t.Fatalf("%s offers %v", group, got)
+			}
+		}
+	})
 	t.Run("account variants share one brand entry", func(t *testing.T) {
 		m := NewModel(preview.SettingsData())
 		m.Brands = []preview.Brand{{ID: "workbuddy", Name: "WorkBuddy", Methods: []preview.Method{
@@ -631,7 +648,7 @@ func TestProviderEditor(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	e := &m.provider
 	e.add(m)
-	e.choose(&m.Brands[0], apiMethods(&m.Brands[0])) // Anthropic: several API methods
+	e.choose(&m.Brands[0], pickerMethods(&m.Brands[0], "provider_access_key")) // Anthropic: several API methods
 	if e.step != stepMethod {
 		t.Fatalf("several methods went to step %d", e.step)
 	}
@@ -656,7 +673,7 @@ func TestProviderEditor(t *testing.T) {
 	if e.step != stepMethod {
 		t.Errorf("back went to %d", e.step)
 	}
-	e.choose(&m.Brands[2], apiMethods(&m.Brands[2])) // Google: one method
+	e.choose(&m.Brands[2], pickerMethods(&m.Brands[2], "provider_access_key")) // Google: one method
 	if e.step != stepConfigure {
 		t.Errorf("one method went to %d", e.step)
 	}
@@ -730,7 +747,7 @@ func TestProviderEditor(t *testing.T) {
 		brand := &preview.Brand{ID: "fixture", Name: "Fixture", Methods: []preview.Method{hosted, compatible}}
 		e := &m.provider
 		e.add(m)
-		e.choose(brand, apiMethods(brand))
+		e.choose(brand, pickerMethods(brand, "provider_access_key"))
 		if e.step != stepMethod || len(e.methods) != 2 {
 			t.Fatalf("two methods went to step %d with %d rows", e.step, len(e.methods))
 		}

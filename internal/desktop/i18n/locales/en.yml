@@ -1119,6 +1119,7 @@ provider_models_empty: No models configured
 provider_connect: Connect account
 provider_reconnect: Sign in
 provider_access_key: API key
+provider_access_no_key: No API key required
 provider_access_cloud: Cloud credentials
 provider_name_required: Enter a provider name
 provider_endpoint_required: Enter a valid API endpoint

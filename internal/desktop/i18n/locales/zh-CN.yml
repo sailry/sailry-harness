@@ -1119,6 +1119,7 @@ provider_models_empty: 尚未配置模型
 provider_connect: 连接账号
 provider_reconnect: 登录
 provider_access_key: API 密钥
+provider_access_no_key: 无需 API 密钥
 provider_access_cloud: 云服务凭据
 provider_name_required: 请填写渠道名称
 provider_endpoint_required: 请输入有效的接口地址
