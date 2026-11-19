@@ -116,6 +116,15 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationUnavailable => 'チャットが利用できません';
 
   @override
+  String get conversationReconnectingHint => 'ホストの応答を待っています';
+
+  @override
+  String get conversationUnavailableHint => 'メッセージを読み込めません';
+
+  @override
+  String get connectionDetails => '詳細';
+
+  @override
   String get conversationFailed => '操作に失敗しました。やり直します';
 
   @override

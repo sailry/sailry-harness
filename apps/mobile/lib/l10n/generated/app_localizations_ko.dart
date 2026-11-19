@@ -117,6 +117,15 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationUnavailable => '사용할 수 없는 채팅';
 
   @override
+  String get conversationReconnectingHint => '호스트 응답을 기다리는 중';
+
+  @override
+  String get conversationUnavailableHint => '메시지를 불러올 수 없음';
+
+  @override
+  String get connectionDetails => '세부 정보';
+
+  @override
   String get conversationFailed => '작업 실패; 다시 시도하기';
 
   @override

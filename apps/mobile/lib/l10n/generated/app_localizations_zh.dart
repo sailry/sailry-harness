@@ -114,6 +114,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationUnavailable => '会话不可用';
 
   @override
+  String get conversationReconnectingHint => '正在等待主机响应';
+
+  @override
+  String get conversationUnavailableHint => '无法加载消息';
+
+  @override
+  String get connectionDetails => '详情';
+
+  @override
   String get conversationFailed => '操作失败，请重试';
 
   @override
@@ -2384,6 +2393,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationUnavailable => '會話不可用';
+
+  @override
+  String get conversationReconnectingHint => '正在等待主機回應';
+
+  @override
+  String get conversationUnavailableHint => '無法載入訊息';
+
+  @override
+  String get connectionDetails => '詳情';
 
   @override
   String get conversationFailed => '操作失敗，請重試';

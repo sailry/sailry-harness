@@ -312,6 +312,24 @@ abstract class AppLocalizations {
   /// **'Chat unavailable'**
   String get conversationUnavailable;
 
+  /// No description provided for @conversationReconnectingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the host to respond'**
+  String get conversationReconnectingHint;
+
+  /// No description provided for @conversationUnavailableHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t load messages'**
+  String get conversationUnavailableHint;
+
+  /// No description provided for @connectionDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Details'**
+  String get connectionDetails;
+
   /// No description provided for @conversationFailed.
   ///
   /// In en, this message translates to:

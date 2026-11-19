@@ -119,6 +119,15 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationUnavailable => 'Чат недоступен';
 
   @override
+  String get conversationReconnectingHint => 'Ожидание ответа хоста';
+
+  @override
+  String get conversationUnavailableHint => 'Не удалось загрузить сообщения';
+
+  @override
+  String get connectionDetails => 'Подробности';
+
+  @override
   String get conversationFailed => 'Операция не удалась; повторите попытку';
 
   @override

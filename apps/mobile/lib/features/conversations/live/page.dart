@@ -746,11 +746,10 @@ class _LiveConversationPageState extends State<LiveConversationPage>
             reason == null &&
             widget.host.connected;
         final unavailable = !connected;
+        // A pending watch or refresh reads as reconnecting rather than a retry.
+        final recovering = !_ownerEnded && (reconnecting || retry == null);
         final hasBanner =
-            _historyPending != null ||
-            _backup != null ||
-            _pendingSend != null ||
-            unavailable && _snapshot.isNotEmpty;
+            _historyPending != null || _backup != null || _pendingSend != null;
         return ConversationFrame(
           title: text(_session['title'], context.tr('chat')),
           actions: [
@@ -865,149 +864,128 @@ class _LiveConversationPageState extends State<LiveConversationPage>
                       ),
                     ],
                   ),
-                if (unavailable && _snapshot.isNotEmpty)
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight:
-                          ((constraints.maxHeight -
-                                      bottomInset -
-                                      ConversationFrame.contentInset(context)) /
-                                  2)
-                              .clamp(0, 240),
-                    ),
-                    child: SingleChildScrollView(
-                      key: const PageStorageKey('connection-status-scroll'),
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: ConnectionStatus(
-                        reconnecting: reconnecting,
-                        reason: reason,
-                        onRetry: reconnecting ? null : retry,
-                      ),
-                    ),
-                  ),
                 Expanded(
-                  child: unavailable && _snapshot.isEmpty
-                      ? Padding(
-                          padding: EdgeInsets.only(
-                            top: ConversationFrame.contentInset(context),
-                            bottom: bottomInset,
-                          ),
-                          child: loading
-                              ? LoadingOverlay(
-                                  loading: true,
-                                  label: context.tr('conversationLoading'),
-                                  child: const SizedBox.expand(),
-                                )
-                              : reconnecting
-                              ? Center(
-                                  child: SingleChildScrollView(
-                                    padding: const EdgeInsets.all(24),
-                                    child: ConnectionStatus(
-                                      reconnecting: true,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      unavailable && _snapshot.isEmpty
+                          ? Padding(
+                              padding: EdgeInsets.only(
+                                top: ConversationFrame.contentInset(context),
+                                bottom: bottomInset,
+                              ),
+                              child: loading
+                                  ? LoadingOverlay(
+                                      loading: true,
+                                      label: context.tr('conversationLoading'),
+                                      child: const SizedBox.expand(),
+                                    )
+                                  : DisconnectedState(
+                                      reconnecting: recovering,
                                       reason: reason,
+                                      onRetry: retry,
                                     ),
-                                  ),
-                                )
-                              : FailureState(
-                                  icon: 'server',
-                                  message: context.tr(
-                                    'conversationUnavailable',
-                                  ),
-                                  action: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (reason != null)
-                                        ErrorDetails(reason: reason),
-                                      if (!_ownerEnded)
-                                        FilledButton(
-                                          onPressed: retry,
-                                          child: Text(context.tr('retry')),
-                                        ),
-                                    ],
+                            )
+                          : connected &&
+                                objects(_page['entries']).isEmpty &&
+                                objects(_page['runs']).isEmpty &&
+                                objects(
+                                  object(view['snapshot'])['drafts'],
+                                ).isEmpty
+                          ? CustomScrollView(
+                              slivers: [
+                                SliverFillRemaining(
+                                  hasScrollBody: false,
+                                  child: EmptyState(
+                                    icon: 'chat',
+                                    message: context.tr('conversationEmpty'),
                                   ),
                                 ),
-                        )
-                      : connected &&
-                            objects(_page['entries']).isEmpty &&
-                            objects(_page['runs']).isEmpty &&
-                            objects(object(view['snapshot'])['drafts']).isEmpty
-                      ? CustomScrollView(
-                          slivers: [
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: EmptyState(
-                                icon: 'chat',
-                                message: context.tr('conversationEmpty'),
+                              ],
+                            )
+                          : !_settled
+                          ? Padding(
+                              padding: EdgeInsets.only(
+                                top: ConversationFrame.contentInset(context),
+                                bottom: bottomInset,
                               ),
+                              child: LoadingOverlay(
+                                loading: true,
+                                label: context.tr('conversationLoading'),
+                                child: const SizedBox.expand(),
+                              ),
+                            )
+                          : LiveTimeline(
+                              key: ValueKey((widget.host.id, widget.sessionId)),
+                              controller: _scroll,
+                              padding: EdgeInsets.fromLTRB(
+                                20,
+                                hasBanner
+                                    ? 0
+                                    : ConversationFrame.contentInset(context),
+                                20,
+                                bottomInset + 8,
+                              ),
+                              older: [
+                                if (view['older_error'] != null)
+                                  Text(
+                                    key: const ValueKey('older-error'),
+                                    object(view['older_error'])['message']
+                                            as String? ??
+                                        context.tr('conversationFailed'),
+                                  ),
+                                if (_page['next_before'] != null ||
+                                    (_snapshot['missing'] as List? ?? const [])
+                                        .isNotEmpty)
+                                  TextButton(
+                                    key: const ValueKey('older'),
+                                    onPressed: view['loading_older'] == true
+                                        ? null
+                                        : () async {
+                                            try {
+                                              await _updates?.loadOlder();
+                                            } catch (error) {
+                                              _failure(error);
+                                            }
+                                          },
+                                    child: Text(
+                                      context.tr('conversationOlder'),
+                                    ),
+                                  ),
+                              ],
+                              view: view,
+                              session: _session,
+                              host: widget.host,
+                              command: _command,
+                              onPlanFeedback: _sendPlanFeedback,
+                              pendingPlanFeedback: _pendingPlanFeedback,
+                              toolOutput: _trackTools,
+                              onOpenChild: _openChild,
+                              onOpenLink: _openReplyLink,
+                              onTurnAction: _canUseHistory ? _turnAction : null,
+                              canChangeHistory: _canChangeHistory,
+                              sending: _sending || _pendingSend != null,
+                              artifactActions: _artifactActions,
+                              artifactChanges: _view,
+                              canRestore: () => _canChangeHistory,
+                              turnKey: (turn) =>
+                                  _turnKeys.putIfAbsent(turn, GlobalKey.new),
                             ),
-                          ],
-                        )
-                      : !_settled
-                      ? Padding(
-                          padding: EdgeInsets.only(
-                            top: ConversationFrame.contentInset(context),
-                            bottom: bottomInset,
-                          ),
-                          child: LoadingOverlay(
-                            loading: true,
-                            label: context.tr('conversationLoading'),
-                            child: const SizedBox.expand(),
-                          ),
-                        )
-                      : LiveTimeline(
-                          key: ValueKey((widget.host.id, widget.sessionId)),
-                          controller: _scroll,
-                          padding: EdgeInsets.fromLTRB(
-                            20,
-                            hasBanner
-                                ? 0
-                                : ConversationFrame.contentInset(context),
-                            20,
-                            bottomInset + 8,
-                          ),
-                          older: [
-                            if (view['older_error'] != null)
-                              Text(
-                                key: const ValueKey('older-error'),
-                                object(view['older_error'])['message']
-                                        as String? ??
-                                    context.tr('conversationFailed'),
-                              ),
-                            if (_page['next_before'] != null ||
-                                (_snapshot['missing'] as List? ?? const [])
-                                    .isNotEmpty)
-                              TextButton(
-                                key: const ValueKey('older'),
-                                onPressed: view['loading_older'] == true
-                                    ? null
-                                    : () async {
-                                        try {
-                                          await _updates?.loadOlder();
-                                        } catch (error) {
-                                          _failure(error);
-                                        }
-                                      },
-                                child: Text(context.tr('conversationOlder')),
-                              ),
-                          ],
-                          view: view,
-                          session: _session,
-                          host: widget.host,
-                          command: _command,
-                          onPlanFeedback: _sendPlanFeedback,
-                          pendingPlanFeedback: _pendingPlanFeedback,
-                          toolOutput: _trackTools,
-                          onOpenChild: _openChild,
-                          onOpenLink: _openReplyLink,
-                          onTurnAction: _canUseHistory ? _turnAction : null,
-                          canChangeHistory: _canChangeHistory,
-                          sending: _sending || _pendingSend != null,
-                          artifactActions: _artifactActions,
-                          artifactChanges: _view,
-                          canRestore: () => _canChangeHistory,
-                          turnKey: (turn) =>
-                              _turnKeys.putIfAbsent(turn, GlobalKey.new),
+                      Positioned(
+                        top: hasBanner
+                            ? 0
+                            : ConversationFrame.contentInset(context),
+                        left: 0,
+                        right: 0,
+                        child: ConnectionBanner(
+                          visible: unavailable && _snapshot.isNotEmpty,
+                          reconnecting: recovering,
+                          reason: reason,
+                          onRetry: retry,
                         ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

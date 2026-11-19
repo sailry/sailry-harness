@@ -119,6 +119,16 @@ class AppLocalizationsEs extends AppLocalizations {
   String get conversationUnavailable => 'Chat no disponible';
 
   @override
+  String get conversationReconnectingHint => 'Esperando respuesta del host';
+
+  @override
+  String get conversationUnavailableHint =>
+      'No se pudieron cargar los mensajes';
+
+  @override
+  String get connectionDetails => 'Detalles';
+
+  @override
   String get conversationFailed => 'Operación fallida; vuelva a intentarlo';
 
   @override

@@ -10,6 +10,7 @@ import 'package:sailry_bridge/api/conversation.dart';
 import 'package:sailry_bridge/bridge.dart';
 import 'package:sailry_mobile/content/markdown.dart';
 import 'package:sailry_mobile/features/conversations/conversation_frame.dart';
+import 'package:sailry_mobile/features/conversations/live/connection_status.dart';
 import 'package:sailry_mobile/features/conversations/live/page.dart';
 import 'package:sailry_mobile/features/conversations/live/project_bar.dart';
 import 'package:sailry_mobile/features/conversations/live/task.dart';
@@ -548,8 +549,20 @@ void main() {
           ..error = outage
           ..notifyListeners();
         feed.publish({'connected': false, 'error': outage});
-        await tester.pumpAndSettle();
+        // The reconnecting banner's spinner never settles.
+        await tester.pump(const Duration(milliseconds: 300));
         expect(_message('Owned transcript'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(ConnectionBanner),
+            matching: find.text(
+              tester
+                  .element(find.byType(LiveConversationPage))
+                  .tr('conversationReconnecting'),
+            ),
+          ),
+          findsOneWidget,
+        );
         expect(feed.closes, 0);
 
         host
