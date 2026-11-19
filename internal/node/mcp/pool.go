@@ -24,8 +24,10 @@ import (
 const (
 	maxConnections = 32
 	idleTTL        = 30 * time.Minute
-	maxTools       = 64
-	maxToolBytes   = 256 * 1024
+	// Package MCP tools are deferred: the model sees their names until
+	// tool_search loads one, so a server may list a service's full toolset.
+	maxTools       = 256
+	maxToolBytes   = 1024 * 1024
 	maxMessage     = 8 * 1024 * 1024
 	expiryInterval = time.Minute
 	maxCalls       = 8

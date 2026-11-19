@@ -10,6 +10,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// mcpTurnToolLimit bounds the MCP tools one turn binds across its servers.
+// They are deferred, so the bound covers names in context and open leases,
+// not declarations sent with each request.
+const mcpTurnToolLimit = 256
+
 type pluginMCPBinding struct {
 	info          protocol.PluginInfo
 	settings      store.ResolvedPluginSettings
@@ -40,7 +45,7 @@ func (node *Node) bindMCPTools(ctx context.Context, invocation *store.AgentInvoc
 	var tools []engine.Tool
 	var terminal error
 	for _, result := range results {
-		if result.err == nil && len(tools)+len(result.tools) > 64 {
+		if result.err == nil && len(tools)+len(result.tools) > mcpTurnToolLimit {
 			for _, tool := range result.tools {
 				if tool.Close != nil {
 					terminal = errors.Join(terminal, tool.Close())
