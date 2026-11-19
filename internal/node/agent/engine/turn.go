@@ -194,7 +194,7 @@ func (r *Runtime) execute(x *execution) {
 	}
 	r.observeTurn(run, x.inv.Turn.Config.Mode, child != nil)
 	if successor != nil {
-		next := &delegatedChild{root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true, overlap: child.overlap, commandsInherited: true}
+		next := &delegatedChild{root: child.root, parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true, overlap: child.overlap, detached: child.detached, commandsInherited: true}
 		r.mu.Lock()
 		child.successor = next
 		delete(r.children, child.turn)
@@ -411,7 +411,9 @@ func (r *Runtime) turn(x *execution) error {
 			return err
 		}
 		if state.Reviewed {
-			return nil
+			// A reviewed plan ends the turn without another model call; its
+			// running children deliver their results later.
+			return r.detachForeground(x)
 		}
 		// Each applicable operation commits before the next state reload.
 		if calls := pending(state.Records); len(calls) > 0 {
@@ -443,12 +445,15 @@ func (r *Runtime) turn(x *execution) error {
 		last := lastMessage(state.Records)
 		finishing := last != nil && last.Role == canonical.Assistant && last.Error == nil
 		// A completed child can reopen a reply while its siblings are running.
-		delivered, err := r.foregroundStep(x, finishing && !x.callbackPending)
-		if err != nil {
-			return err
-		}
-		if delivered {
-			continue
+		// A failed step takes no result: no model call would answer it.
+		if last == nil || last.Error == nil {
+			delivered, err := r.foregroundStep(x, finishing && !x.callbackPending)
+			if err != nil {
+				return err
+			}
+			if delivered {
+				continue
+			}
 		}
 		if last != nil && last.Error != nil {
 			if last.Error.Code != nil && *last.Error.Code == "context_overflow" && recoveries < 2 {
@@ -459,6 +464,11 @@ func (r *Runtime) turn(x *execution) error {
 				compacted = true
 				continue
 			}
+			// The model failed, not the delegated work: children keep running
+			// and report to the next turn instead of being cancelled with it.
+			if err = r.detachForeground(x); err != nil {
+				return err
+			}
 			failure := &model.Failure{Kind: model.Other, Message: last.Error.Message, Exhausted: last.Error.RetryExhausted, WaitExhausted: last.Error.RetryWaitExhausted}
 			if last.Error.Code != nil {
 				failure.Kind = model.FailureKind(*last.Error.Code)
@@ -466,7 +476,7 @@ func (r *Runtime) turn(x *execution) error {
 			return failure
 		}
 		if !x.callbackPending && inv.Run.Kind == protocol.ConversationRunKindTask {
-			delivered, err = r.deliverBackground(x, false)
+			delivered, err := r.deliverBackground(x, false)
 			if err != nil {
 				return err
 			}

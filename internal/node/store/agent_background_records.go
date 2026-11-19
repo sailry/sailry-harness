@@ -148,6 +148,7 @@ func FinishChildBackground(ctx context.Context, db *sql.Conn, child protocol.Con
 				return nil, err
 			}
 			if record.Response != nil {
+				record.ResponseBytes = new(uint64(len(*record.Response)))
 				v := processPreview(*record.Response, 4096)
 				record.Response = &v
 			}

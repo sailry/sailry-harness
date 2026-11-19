@@ -32,7 +32,9 @@ func (r *Runtime) deliverForeground(x *execution, state store.ChildState) error 
 	switch child.Status {
 	case protocol.ConversationStatusCompleted:
 		result.Notice.Outcome = protocol.ConversationBackgroundOutcomeCompleted
-		result.Response = callbackPreview(state.Response, 4096)
+		if state.Response != nil {
+			result.ChildResponse(*state.Response, uint64(len(*state.Response)), 4096)
+		}
 	case protocol.ConversationStatusCancelled:
 		result.Notice.Outcome = protocol.ConversationBackgroundOutcomeCancelled
 	case protocol.ConversationStatusInterrupted:

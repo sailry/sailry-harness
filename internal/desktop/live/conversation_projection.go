@@ -679,7 +679,9 @@ func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn pr
 			}
 		}
 	}
-	modelOutput := false
+	// final reports that the parent's latest output is a reply, not a call:
+	// only then does it wait for children that overlap its own work.
+	modelOutput, final := false, false
 scan:
 	for entryIndex := len(page.Entries) - 1; entryIndex >= 0; entryIndex-- {
 		entry := page.Entries[entryIndex]
@@ -696,6 +698,7 @@ scan:
 				}
 				modelOutput = true
 			case "text", "thinking", "image":
+				final = final || !modelOutput
 				modelOutput = true
 				break scan
 			default:
@@ -715,7 +718,7 @@ scan:
 			continue
 		}
 		call := callAt(page, child.Origin.Entry, child.Origin.Index)
-		if call != nil && (call.Summary == nil || !call.Summary.Delegation.Background) {
+		if call != nil && (call.Summary == nil || !call.Summary.Delegation.Background) && (final || !child.Origin.Overlap) {
 			count++
 		}
 	}

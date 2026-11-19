@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"charm.land/fantasy"
@@ -120,6 +121,73 @@ func TestPluginStopCollectsOverlappingChildWithoutAnotherModelCall(t *testing.T)
 	if err != nil || strings.Count(string(body), answer) != 1 || parent.count() != 1 {
 		t.Fatalf("plugin stop lost the result or resumed inference: calls=%d, result count=%d, err=%v", parent.count(), strings.Count(string(body), answer), err)
 	}
+}
+
+func TestPluginStopGuidanceDetachesOverlappingChild(t *testing.T) {
+	childStarted, stopInference := make(chan struct{}), make(chan struct{})
+	release := make(chan struct{})
+	parent := &scriptedModel{scripts: []script{
+		response(call("spawn", "spawn_agent", `{"task":"Complete the independent check","overlap":true}`), finish()),
+	}}
+	child := &scriptedModel{scripts: []script{func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		close(childStarted)
+		select {
+		case <-ctx.Done():
+		case <-release:
+			response(text("Detached result"), finish())(ctx, request, yield)
+		}
+	}}}
+	var stopped sync.Once
+	hook := objectTool("hook", true, true, func(context.Context, canonical.ToolRequest) ToolResult { return ToolResult{} })
+	hook.Binding = &store.ApprovalBinding{Owner: protocol.PluginReference{Name: "hook-fixture"}}
+	hook.BeforeModel = func(_ context.Context, records []canonical.Record, _ ToolResultReader) (bool, error) {
+		for _, record := range records {
+			if message := record.Message(); message != nil {
+				for _, block := range message.Content {
+					if result, ok := block.Data.(*canonical.ToolResponse); ok && result.ID == "spawn" {
+						stopped.Do(func() { close(stopInference) })
+						return true, nil
+					}
+				}
+			}
+		}
+		return false, nil
+	}
+	f := newFixture(t, parent, hook)
+	config := f.session.Config
+	config.Mode = protocol.WorkModeFlagship
+	input := protocol.DefaultConversationStart()
+	input.Config, input.Execution, input.Message.Text = &config, protocol.ConversationExecutionModel, "Run one independent check"
+	turn := f.command("start_session", &input).Data.(protocol.QueuedTurn)
+	f.r.model = func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		if binding.Session == turn.Session {
+			return parent, nil
+		}
+		return child, nil
+	}
+	f.start()
+	awaitBackgroundTest(t, f.ctx, childStarted)
+	awaitBackgroundTest(t, f.ctx, stopInference)
+	var run protocol.ConversationRun
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		run, err = store.ReadAgentRun(f.ctx, db, turn.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn.ID, ExpectedRevision: run.Revision, Message: protocol.ConversationInput{Text: "Change of plan"}})
+	// The guidance ends the wait: the turn finishes while its child runs on.
+	f.waitRun(turn.ID, protocol.ConversationStatusCompleted)
+	childTurn := f.childTurns()[0]
+	if f.readQuery("SELECT count(*) FROM agent_runs WHERE turn='"+childTurn.String()+"' AND json_extract(body,'$.status')='running'") != 1 {
+		t.Fatal("the detached child did not keep running")
+	}
+	if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND json_extract(body,'$.follow_up')=1") != 1 {
+		t.Fatal("the detached child does not follow up like a background child")
+	}
+	close(release)
+	f.waitRun(childTurn, protocol.ConversationStatusCompleted)
 }
 
 func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
@@ -340,5 +408,76 @@ func TestWaitAgentReturnsPendingBeforeForegroundAdmissionIsReleased(t *testing.T
 		}
 	case <-f.ctx.Done():
 		t.Fatal("wait blocked the batch that needed to release its foreground child")
+	}
+}
+
+func TestParentModelFailureDetachesOverlappingChild(t *testing.T) {
+	const childAnswer = "Result from the overlapping child"
+	childStarted, finishChild := make(chan struct{}), make(chan struct{})
+	integration := make(chan fantasy.Call, 1)
+	step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		prompt := promptText(request)
+		switch {
+		case strings.Contains(prompt, childAnswer):
+			integration <- request
+			response(text("Integrated the child result"), finish())(ctx, request, yield)
+		case !strings.Contains(prompt, `"admitted"`):
+			response(call("child", "spawn_agent", `{"task":"Check the independent area"}`), finish())(ctx, request, yield)
+		default:
+			<-childStarted
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+		}
+	}
+	parent := &scriptedModel{scripts: []script{step, step, step, step, step, step}}
+	var started sync.Once
+	children := &scriptedModel{scripts: []script{func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		started.Do(func() { close(childStarted) })
+		select {
+		case <-ctx.Done():
+		case <-finishChild:
+			response(text(childAnswer), finish())(ctx, request, yield)
+		}
+	}}}
+	f := newFixture(t, parent)
+	config := f.session.Config
+	config.Mode = protocol.WorkModeFlagship
+	input := protocol.DefaultConversationStart()
+	input.Config, input.Execution, input.Message.Text = &config, protocol.ConversationExecutionModel, "Delegate one check"
+	turn := f.command("start_session", &input).Data.(protocol.QueuedTurn)
+	f.r.model = func(_ context.Context, binding model.Binding) (fantasy.LanguageModel, error) {
+		if binding.Session == turn.Session {
+			return parent, nil
+		}
+		return children, nil
+	}
+	f.start()
+	f.waitRun(turn.ID, protocol.ConversationStatusFailed)
+	admitted := f.childTurns()
+	if len(admitted) != 1 {
+		t.Fatalf("admitted children=%d", len(admitted))
+	}
+	var child protocol.ConversationRun
+	if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		var err error
+		child, err = store.ReadAgentRun(f.ctx, db, admitted[0])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if child.Status != protocol.ConversationStatusRunning {
+		t.Fatalf("the parent's model failure ended its overlapping child: %s", child.Status)
+	}
+	if f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.metadata.runtime.notes.cancelled_subagents') IS NOT NULL") != 0 {
+		t.Fatal("the failed parent reported its overlapping child as cancelled")
+	}
+	close(finishChild)
+	f.waitRun(admitted[0], protocol.ConversationStatusCompleted)
+	select {
+	case request := <-integration:
+		if strings.Count(promptText(request), childAnswer) != 1 {
+			t.Fatal("the next turn did not receive the child result exactly once")
+		}
+	case <-f.ctx.Done():
+		t.Fatal("the detached child result was not delivered to a later turn")
 	}
 }

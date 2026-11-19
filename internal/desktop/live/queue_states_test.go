@@ -387,6 +387,13 @@ func TestQueueStates(t *testing.T) {
 				snapshot.Page.Runs = append(snapshot.Page.Runs, protocol.ConversationRun{Session: session, Turn: item, Kind: "task", Status: "completed", Guidance: &ended, Joined: &running})
 				snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: "guidance", Turn: item, Author: "user"})
 			}, 1},
+			{"overlapping child while the parent works", func(snapshot *protocol.ConversationSnapshot) {
+				snapshot.Page.Children[0].Origin.Overlap = true
+			}, 0},
+			{"overlapping child after the final reply", func(snapshot *protocol.ConversationSnapshot) {
+				snapshot.Page.Children[0].Origin.Overlap = true
+				snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: "reply", Turn: running, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "Done"}}})
+			}, 1},
 		} {
 			t.Run(row.name, func(t *testing.T) {
 				callID, name := "delegation", "Research"

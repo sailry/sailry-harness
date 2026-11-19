@@ -281,7 +281,7 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		receipt, next, _, err := GuideChild(ctx, db, node, parent, guide, guide.Arguments, now)
+		receipt, next, _, err := GuideChild(ctx, db, node, parent, guide, guide.Arguments, false, now)
 		if err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func TestChildOwnershipAndGuidance(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		receipt, next, _, err = GuideChild(ctx, db, node, parent, idleGuide, idleGuide.Arguments, now)
+		receipt, next, _, err = GuideChild(ctx, db, node, parent, idleGuide, idleGuide.Arguments, false, now)
 		if err != nil {
 			return err
 		}

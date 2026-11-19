@@ -55,15 +55,16 @@ func queuedInvocationInput(ctx context.Context, db *sql.Conn, turn protocol.Turn
 	return value, err
 }
 func DelegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, selected *protocol.ConversationInput, ready bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
-	return delegateAgent(ctx, db, node, parent, identity, identity.Arguments, selected, ready, now, nil)
+	return delegateAgent(ctx, db, node, parent, identity, identity.Arguments, selected, ready, false, now, nil)
 }
 
 // DelegatePrepared admits a child for a call whose executing arguments differ
 // from the ones the model sent: a package tool bound to agents.delegate or
 // agents.guide prepares them. identity stays the recorded call, which locates it in the
-// conversation; arguments describe the child.
-func DelegatePrepared(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
-	return delegateAgent(ctx, db, node, parent, identity, arguments, selected, ready, now, nil)
+// conversation; arguments describe the child. overlap records the effective
+// foreground mode, which a default can choose without an argument.
+func DelegatePrepared(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready, overlap bool, now time.Time) (AgentInvocation, []protocol.Event, error) {
+	return delegateAgent(ctx, db, node, parent, identity, arguments, selected, ready, overlap, now, nil)
 }
 
 // delegationOperation is the operation a delegation call runs: that of the
@@ -91,7 +92,7 @@ func delegationOperation(ctx context.Context, db *sql.Conn, turn protocol.TurnID
 	}
 	return "", nil
 }
-func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready bool, now time.Time, guidance *protocol.ConversationRun) (AgentInvocation, []protocol.Event, error) {
+func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, selected *protocol.ConversationInput, ready, overlap bool, now time.Time, guidance *protocol.ConversationRun) (AgentInvocation, []protocol.Event, error) {
 	empty := AgentInvocation{}
 	operation, err := delegationOperation(ctx, db, parent, identity.Name)
 	if err != nil {
@@ -383,7 +384,15 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 	if err = inheritTurnOrigin(ctx, db, turn.ID, inherit); err != nil {
 		return empty, nil, err
 	}
-	origin := protocol.Delegation{Session: parentRun.Session, Turn: parent, Entry: entry, Index: part}
+	origin := protocol.Delegation{Session: parentRun.Session, Turn: parent, Entry: entry, Index: part, Overlap: overlap}
+	if guidance != nil {
+		// Guidance continues the running execution in its existing mode.
+		prior, err := readDelegation(ctx, db, guidance.Turn)
+		if err != nil {
+			return empty, nil, err
+		}
+		origin.Overlap = prior != nil && prior.Overlap
+	}
 	if role != nil {
 		origin.Role = &role.ID
 	}

@@ -26,6 +26,9 @@ type delegatedChild struct {
 	released  bool
 	delivered bool
 	overlap   bool
+	// detached children left a turn that made no further model call. Their
+	// results follow up like a background child's.
+	detached  bool
 	successor *delegatedChild
 	// A queued successor owns its predecessor's commands even before it starts.
 	commandsInherited bool
@@ -96,12 +99,19 @@ func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, mode child
 			return
 		}
 		background := mode == childBackground
-		owner := parent
-		if background {
-			owner = r.ctx
-		}
-		childContext, cancel := context.WithCancel(owner)
+		childContext, cancel := context.WithCancel(r.ctx)
 		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background, overlap: mode == childOverlap}
+		if !background {
+			// A foreground child ends with its turn unless the turn detached it.
+			context.AfterFunc(parent, func() {
+				r.mu.Lock()
+				detached := child.detached
+				r.mu.Unlock()
+				if !detached {
+					cancel()
+				}
+			})
+		}
 		r.mu.Lock()
 		if r.children == nil {
 			r.children = map[protocol.TurnID]*delegatedChild{}
@@ -277,15 +287,18 @@ func (r *Runtime) settleQueuedChildren() {
 }
 
 func (r *Runtime) foregroundStep(x *execution, finishing bool) (bool, error) {
-	return r.waitForeground(x, finishing, true)
+	delivered, guidance, err := r.waitForeground(x, finishing, true)
+	return delivered || guidance, err
 }
 
-func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (bool, error) {
+// waitForeground delivers the next settled foreground child. With
+// acceptGuidance, pending guidance for the turn ends the wait instead.
+func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (delivered, guidance bool, err error) {
 	r.mu.Lock()
 	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
 	if len(children) == 0 {
-		return false, nil
+		return false, false, nil
 	}
 	var release []protocol.TurnID
 	for _, child := range children {
@@ -311,7 +324,7 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 		}
 		unlock()
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		r.Wake()
 	}
@@ -331,11 +344,11 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 				return err
 			})
 			if err != nil {
-				return false, err
+				return false, false, err
 			}
 			if guidance {
 				// The loop continues so the guidance joins before the next request.
-				return true, nil
+				return false, true, nil
 			}
 		}
 		pending := false
@@ -358,40 +371,95 @@ func (r *Runtime) waitForeground(x *execution, finishing, acceptGuidance bool) (
 			})
 			unlock()
 			if err != nil {
-				return false, err
+				return false, false, err
 			}
 			if childPending(state.Run) {
 				pending = pending || finishing || !current.overlap
 				continue
 			}
 			if err := r.deliverForeground(x, state); err != nil {
-				return false, err
+				return false, false, err
 			}
-			return true, nil
+			return true, false, nil
 		}
 		if !pending || acceptGuidance && x.foregroundSteered {
-			return false, nil
+			return false, false, nil
 		}
 		if stopWaiting == nil {
 			stopWaiting = x.timeline.span(phaseExcluded, "foreground")
 		}
 		select {
 		case <-x.ctx.Done():
-			return false, x.ctx.Err()
+			return false, false, x.ctx.Err()
 		case <-changed:
 		}
 	}
 }
 
-// settleForeground keeps admitted results when a plugin ends inference. Any
-// new guidance remains queued for the turn settlement path.
+// settleForeground keeps admitted results when a plugin ends inference: the
+// turn collects its foreground children without another model call. Guidance
+// cannot join such a turn, so it ends the wait. The remaining children then
+// detach to background delivery and the guidance runs as the next turn.
 func (r *Runtime) settleForeground(x *execution) error {
+	x.foregroundSteered = false
 	for {
-		delivered, err := r.waitForeground(x, true, false)
-		if err != nil || !delivered {
+		delivered, guidance, err := r.waitForeground(x, true, true)
+		if err != nil {
 			return err
 		}
+		if guidance {
+			return r.detachForeground(x)
+		}
+		if !delivered {
+			return nil
+		}
 	}
+}
+
+// detachForeground hands the turn's undelivered foreground children to
+// background delivery when the turn makes no further model call. They keep
+// running; each result arrives as a notice or with the next input instead
+// of being cancelled with the turn.
+func (r *Runtime) detachForeground(x *execution) error {
+	r.mu.Lock()
+	var children []*delegatedChild
+	var turns []protocol.TurnID
+	for _, child := range x.foreground {
+		if !child.delivered {
+			children = append(children, child)
+			turns = append(turns, child.turn)
+		}
+	}
+	r.mu.Unlock()
+	if len(children) == 0 {
+		return nil
+	}
+	unlock := r.LockPublication()
+	defer unlock()
+	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
+		events, err := store.DetachChildren(x.ctx, db, x.inv.Run.Turn, turns)
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordEvents(x.ctx, db, r.node, events)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	x.foreground = slices.DeleteFunc(x.foreground, func(child *delegatedChild) bool { return slices.Contains(children, child) })
+	for _, child := range children {
+		child.detached, child.released = true, true
+		for current := child.successor; current != nil; current = current.successor {
+			current.detached = true
+		}
+	}
+	r.mu.Unlock()
+	r.publish()
+	r.RefreshCommitted(x.inv.Session.ID)
+	r.Wake()
+	return nil
 }
 
 func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *protocol.TurnID) error {
@@ -432,13 +500,15 @@ func (r *Runtime) markCollectedChild(x *execution, session protocol.SessionID, t
 
 // stopChildren cancels every child of the turn's session, foreground or
 // background, including those earlier turns left running. Children cannot
-// delegate, so the session's children are its whole subtree. The turn keeps
+// delegate, so the session's children are its whole subtree. A failed turn
+// keeps the children it detached; a stop cancels them too. The turn keeps
 // the children it cancelled: one that finishes and leaves the runtime before
 // the turn settles them still has its completion record consumed.
 func (r *Runtime) stopChildren(x *execution) {
+	stopped := x.ctx.Err() != nil
 	r.mu.Lock()
 	for _, child := range r.children {
-		if child.root == x.inv.Session.ID {
+		if child.root == x.inv.Session.ID && (stopped || !child.detached) {
 			child.cancel()
 			if !slices.Contains(x.stopped, child) {
 				x.stopped = append(x.stopped, child)

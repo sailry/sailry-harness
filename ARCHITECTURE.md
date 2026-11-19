@@ -594,14 +594,24 @@ allow roleless delegation. Code Review requires a tool-capable captured role for
 new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
 selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
-In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
-parent by default. `guide_agent` does the same when it starts a new task in an
-idle child. Both tools accept an explicit `overlap` setting for a new task. After guidance,
+In Flagship, a model's `spawn_agent` call overlaps foreground work with the
+parent by default. A model's `guide_agent` call does the same when it starts a
+new task in an idle child; package tools bound to delegation keep the
+foreground wait. Both tools accept an explicit `overlap` setting for a new
+task. The delegation record stores the effective mode, so clients show the
+parent as waiting on an overlapping child only after its final reply. After guidance,
 `wait_agent` can collect a dependent result. Standard and user-selected spawns keep
 their existing wait defaults. A completed overlapping child can reopen a reply
 at the next model boundary while other children are still running. The parent
 settles after collecting its foreground children. An intentional plugin stop
-also collects them and skips further model calls. Waiting for a child is
+also collects them and skips further model calls; guidance that arrives during
+that wait ends it. When the parent makes no further model call because its
+model failed, its plan was reviewed or guidance ended a plugin stop, its
+undelivered foreground children detach to background delivery instead of being
+cancelled: they keep running and their results arrive as a notice or with the
+next input. A stop still cancels them. Automatic child results keep the first
+4 KiB of the answer and mark a cut with `response_truncated` and the full byte
+count; `wait_agent` with the exact turn returns all of it. Waiting for a child is
 accounted for separately from active tool execution. Child commands may run
 in the background while the child works. The child collects any needed results
 before its task ends, when the Node stops its remaining commands.

@@ -301,6 +301,9 @@ type Delegation struct {
 	Entry   string    `json:"entry"`
 	Index   uint64    `json:"index"`
 	Role    *RoleID   `json:"role"`
+	// Overlap is the effective foreground mode: the parent keeps working
+	// while the child runs instead of waiting for its result.
+	Overlap bool `json:"overlap,omitempty"`
 }
 
 func DefaultDelegation() Delegation {
@@ -310,6 +313,7 @@ func DefaultDelegation() Delegation {
 		Entry:   "",
 		Index:   0,
 		Role:    nil,
+		Overlap: false,
 	}
 }
 func (value *Delegation) UnmarshalJSON(data []byte) error { return Decode(data, value) }

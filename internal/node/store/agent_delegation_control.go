@@ -35,6 +35,32 @@ func ReleaseChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, 
 	}
 	return nil, nil
 }
+
+// DetachChildren hands a turn's foreground children to background delivery
+// when the turn makes no further model call. Their completion records then
+// follow up like a background child's: as a notice, or with the next input.
+func DetachChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, children []protocol.TurnID) ([]protocol.Event, error) {
+	if _, err := ReleaseChildren(ctx, db, parent, children); err != nil {
+		return nil, err
+	}
+	owners := map[protocol.SessionID]bool{}
+	for _, turn := range children {
+		record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "agent:"+turn.String())
+		if err != nil {
+			return nil, err
+		}
+		if record == nil || record.FollowUp || record.Task.State == protocol.ConversationBackgroundStateConsumed || record.Task.State == protocol.ConversationBackgroundStateDismissed {
+			continue
+		}
+		record.FollowUp = true
+		if err = saveBackgroundRecord(ctx, db, record); err != nil {
+			return nil, err
+		}
+		owners[record.Task.Session] = true
+	}
+	return backgroundOwnerEvents(ctx, db, owners)
+}
+
 func ClaimChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now time.Time) (*AgentInvocation, []protocol.Event, error) {
 	origin, err := readDelegation(ctx, db, turn)
 	if err != nil {
@@ -289,7 +315,7 @@ func PendingGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnI
 // recorded call, guide_agent or a package tool bound to agents.guide, and
 // locates it in the conversation; arguments are the ones that execute, which
 // such a package tool prepares.
-func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, now time.Time) (ChildState, *AgentInvocation, []protocol.Event, error) {
+func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent protocol.TurnID, identity canonical.ToolIdentity, arguments json.RawMessage, overlap bool, now time.Time) (ChildState, *AgentInvocation, []protocol.Event, error) {
 	var args struct {
 		Session *protocol.SessionID `json:"session"`
 		Message string              `json:"message"`
@@ -313,13 +339,13 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	recipient := state.Run.Turn
 	state.Recipient = &recipient
 	if state.Run.Status == protocol.ConversationStatusRunning {
-		inv, events, err := delegateAgent(ctx, db, node, parent, identity, arguments, nil, true, now, &state.Run)
+		inv, events, err := delegateAgent(ctx, db, node, parent, identity, arguments, nil, true, false, now, &state.Run)
 		if err == nil {
 			state.Run = inv.Run
 		}
 		return state, nil, events, err
 	}
-	inv, events, err := DelegatePrepared(ctx, db, node, parent, identity, arguments, nil, false, now)
+	inv, events, err := DelegatePrepared(ctx, db, node, parent, identity, arguments, nil, false, overlap, now)
 	if err != nil {
 		return state, nil, events, err
 	}

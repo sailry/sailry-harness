@@ -52,7 +52,7 @@ func TestListSubagentsAcrossParentTurns(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, next, _, err := GuideChild(ctx, db, node, firstParent, guidance, guidance.Arguments, now); err != nil || next != nil {
+		if _, next, _, err := GuideChild(ctx, db, node, firstParent, guidance, guidance.Arguments, false, now); err != nil || next != nil {
 			return fmt.Errorf("running guidance should not create another invocation: %v", err)
 		}
 		if _, _, err = FinishTurn(ctx, db, firstParent, protocol.ConversationStatusCompleted, nil, now); err != nil {

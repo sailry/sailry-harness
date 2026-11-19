@@ -188,7 +188,15 @@ func backgroundResult(ctx context.Context, db *sql.Conn, record BackgroundRecord
 		responseLimit, streamLimit = 2048, 1024
 	}
 	if record.Response != nil {
-		result.Response = new(processPreview(*record.Response, responseLimit))
+		total := uint64(len(*record.Response))
+		if record.ResponseBytes != nil {
+			total = *record.ResponseBytes
+		}
+		if record.Task.Kind.Kind == "agent" {
+			result.ChildResponse(*record.Response, total, responseLimit)
+		} else {
+			result.Response = new(processPreview(*record.Response, responseLimit))
+		}
 	}
 	if record.Stdout != nil {
 		result.Stdout = new(processTail(*record.Stdout, streamLimit))

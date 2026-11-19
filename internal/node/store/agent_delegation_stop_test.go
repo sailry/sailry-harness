@@ -101,7 +101,7 @@ func TestStopQueuedChild(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			receipt, _, _, err := GuideChild(ctx, db, node, parent, guide, guide.Arguments, now)
+			receipt, _, _, err := GuideChild(ctx, db, node, parent, guide, guide.Arguments, false, now)
 			if err != nil {
 				return err
 			}

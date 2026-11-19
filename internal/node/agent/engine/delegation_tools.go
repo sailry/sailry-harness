@@ -14,7 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"overlap":{"type":"boolean","description":"Continue parent work while this foreground child runs. Defaults to true in Collaborate. Set false if the next parent step needs its result."},"worktree":{"type":["string","null"]}}}`
+const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$","description":"Exact session ID of an idle child to continue; omit for a new child"},"role":{"type":["string","null"],"description":"Exact roster role key; omit to use this turn's model"},"task":{"type":"string","description":"Goal, scope, expected result and established findings"},"title":{"type":"string","minLength":1,"description":"Short single-line label for the child"},"background":{"type":"boolean","description":"Not owned by this turn; the result arrives as a later notice"},"overlap":{"type":"boolean","description":"Continue parent work while this foreground child runs. Defaults to true in Flagship. Set false if the next parent step needs its result."},"worktree":{"type":["string","null"],"description":"Registered worktree ID for a new child; defaults to this turn's worktree"}}}`
 const listSubagentsSchema = `{"type":"object","additionalProperties":false,"properties":{"before":{"type":"string","pattern":"^[1-9][0-9]{0,18}$","description":"Use next_before from the preceding page"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":20}}}`
 
 func delegationAvailable(x *execution) bool {
@@ -238,7 +238,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 		selected = &copy
 	}
 	return r.admitChild(x, arguments, mode, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
-		inv, events, err := store.DelegatePrepared(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, selected, args.Background, r.clock.Now())
+		inv, events, err := store.DelegatePrepared(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, selected, args.Background, mode == childOverlap, r.clock.Now())
 		return &inv, events, err
 	})
 }
@@ -252,7 +252,9 @@ func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments
 	if json.Unmarshal(arguments, &args) != nil {
 		return invalidTool("invalid child guidance arguments")
 	}
-	overlap := x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
+	// Like spawn_agent, only the core tool overlaps by default; a package tool
+	// bound to agents.guide keeps the foreground wait it was written for.
+	overlap := call.Name == "guide_agent" && x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
 	if args.Overlap != nil {
 		overlap = *args.Overlap
 	}
@@ -265,7 +267,7 @@ func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments
 		var inv *store.AgentInvocation
 		var events []protocol.Event
 		var err error
-		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, r.clock.Now())
+		state, inv, events, err = store.GuideChild(ctx, db, r.node, x.inv.Run.Turn, toolIdentity(call), arguments, mode == childOverlap, r.clock.Now())
 		return inv, events, err
 	})
 	if result.Value == nil && result.Failure == nil {
@@ -325,6 +327,7 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 			// A foreground admission in this batch can only start after the
 			// model has a durable response for the call that created it.
 			value["admitted"], value["pending"] = true, true
+			value["hint"] = "Starts after this tool batch; its result arrives automatically, or wait_agent can collect it in a later step."
 			return ToolResult{Value: value}
 		}
 		select {

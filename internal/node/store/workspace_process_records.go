@@ -26,6 +26,7 @@ type BackgroundRecord struct {
 	StdoutTruncated bool                                `json:"stdout_truncated,omitempty"`
 	StderrTruncated bool                                `json:"stderr_truncated,omitempty"`
 	Response        *string                             `json:"response"`
+	ResponseBytes   *uint64                             `json:"response_bytes,omitempty"`
 	ElapsedMs       *uint64                             `json:"elapsed_ms"`
 	SilenceMs       *uint64                             `json:"silence_ms,omitempty"`
 	Sequence        uint64                              `json:"sequence"`
