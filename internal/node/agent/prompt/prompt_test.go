@@ -33,6 +33,11 @@ func TestSystemPromptByteStable(t *testing.T) {
 			t.Fatal("captured permission policy was not retained")
 		}
 	}
+	for _, child := range []bool{false, true} {
+		if !strings.HasPrefix(Instruction(child), text("baseline")+"\n\n") {
+			t.Fatalf("shared instructions missing for child=%t", child)
+		}
+	}
 	if !strings.HasPrefix(Instruction(false), "You are Sailry,") || !strings.Contains(Instruction(false), "Responses\n") || strings.Contains(Instruction(true), "Responses\n") {
 		t.Fatal("recipient instructions changed")
 	}
