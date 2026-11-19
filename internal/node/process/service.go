@@ -319,6 +319,27 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 	if s.options.Changed != nil {
 		s.options.Changed(entry.launch.Worktree)
 	}
+	if unrecorded != nil {
+		s.reconcileLater(entry)
+	}
+}
+
+// reconcileDelays space the automatic attempts to record a completion that
+// storage refused, so it settles without an inspection. After the last one
+// the completion waits for an inspection or a Node restart.
+var reconcileDelays = [...]time.Duration{30 * time.Second, 2 * time.Minute, 10 * time.Minute}
+
+func (s *Service) reconcileLater(entry *commandEntry) {
+	for _, delay := range reconcileDelays {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.options.After(delay):
+		}
+		if !s.reconcile(s.ctx, entry) {
+			return
+		}
+	}
 }
 
 func (s *Service) persistFinished(finished Finished) error {
@@ -350,15 +371,29 @@ func refusedCompletion(err error) bool {
 func (s *Service) ReconcileFinished(ctx context.Context, session protocol.SessionID, id protocol.RequestID) {
 	s.mu.Lock()
 	entry, err := s.entryLocked(session, id)
-	if err != nil || entry.unrecorded == nil || entry.recording {
+	s.mu.Unlock()
+	if err == nil {
+		s.reconcile(ctx, entry)
+	}
+}
+
+// reconcile reports whether the completion still awaits a write that storage
+// may accept later.
+func (s *Service) reconcile(ctx context.Context, entry *commandEntry) bool {
+	s.mu.Lock()
+	if entry.unrecorded == nil || s.entries[entry.info.ID] != entry {
 		s.mu.Unlock()
-		return
+		return false
+	}
+	if entry.recording {
+		s.mu.Unlock()
+		return true
 	}
 	finished := *entry.unrecorded
 	entry.recording = true
 	s.mu.Unlock()
 
-	err = s.options.Finished(ctx, finished)
+	err := s.options.Finished(ctx, finished)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,12 +402,13 @@ func (s *Service) ReconcileFinished(ctx context.Context, session protocol.Sessio
 		if !refusedCompletion(err) && !errors.Is(err, ctx.Err()) {
 			entry.unrecorded = nil
 		}
-		return
+		return entry.unrecorded != nil
 	}
 	entry.unrecorded = nil
 	entry.info.Status = finished.Snapshot.Info.Status
 	s.changeLocked(entry)
-	s.publishLocked(session)
+	s.publishLocked(entry.info.Session)
+	return false
 }
 
 func (s *Service) append(entry *commandEntry, kind protocol.ProcessOutputOutputStream, value []byte) {

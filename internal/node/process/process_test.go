@@ -568,6 +568,74 @@ func TestBackgroundCompletionStopsRetrying(t *testing.T) {
 	}
 }
 
+func TestRefusedCompletionSettlesWithoutInspection(t *testing.T) {
+	for _, refusals := range []int{4, 3 + len(reconcileDelays)} {
+		var mu sync.Mutex
+		attempts := 0
+		recorded := make(chan struct{})
+		tick := make(chan time.Time)
+		retry := make(chan time.Time)
+		close(retry)
+		service, err := New(Options{Profile: t.TempDir(), After: func(delay time.Duration) <-chan time.Time {
+			if delay == time.Second {
+				return retry
+			}
+			return tick
+		}, Run: func(context.Context, Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error) {
+			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
+		}, Finished: func(context.Context, Finished) error {
+			mu.Lock()
+			defer mu.Unlock()
+			attempts++
+			if attempts > refusals {
+				close(recorded)
+				return nil
+			}
+			return &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "fixture storage is busy"}
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch := Launch{ID: protocol.NewRequestID(), Session: protocol.NewSessionID(), Turn: protocol.NewTurnID(), Root: t.TempDir(), Command: "fixture", TimeoutMs: 1000}
+		if _, err := service.Start(launch); err != nil {
+			t.Fatal(err)
+		}
+		settled := false
+		for range reconcileDelays {
+			select {
+			case tick <- time.Time{}:
+			case <-recorded:
+				settled = true
+			case <-time.After(3 * time.Second):
+				t.Fatal("refused completion was not scheduled for another write")
+			}
+			if settled {
+				break
+			}
+		}
+		if !settled {
+			select {
+			case <-recorded:
+				settled = true
+			case tick <- time.Time{}:
+				t.Fatal("refused completion kept retrying after its bounded attempts")
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+		_ = service.Close()
+		items := service.List(launch.Session)
+		mu.Lock()
+		got := attempts
+		mu.Unlock()
+		if want := refusals <= 3+len(reconcileDelays)-1; settled != want || len(items) != 1 {
+			t.Fatalf("refusals %d settled %v, attempts %d, items %+v", refusals, settled, got, items)
+		}
+		if settled && items[0].Status.Kind != "finished" || !settled && (items[0].Status.Kind != "failed" || got != 3+len(reconcileDelays)) {
+			t.Fatalf("refusals %d left status %+v after %d attempts", refusals, items[0].Status, got)
+		}
+	}
+}
+
 func TestCommandOutputMatchesAfterWaitBoundary(t *testing.T) {
 	stream := newRetained(t.TempDir(), &outputBudget{}, true, false)
 	defer stream.evict()
