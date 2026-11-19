@@ -133,6 +133,14 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		if err = validateAgentReferences(ctx, db, session, v.Message, nil); err != nil {
 			return protocol.Output{}, nil, err
 		}
+		// Guidance joins the running turn, so it is admitted with the session
+		// revision that turn captured: a model or mode chosen since applies to
+		// the next queued turn, not to the reply being guided.
+		recipient, err := readTurnCapture(ctx, db, target.Turn)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		session.Revision, session.Config, session.Roles = recipient.Revision, recipient.Config, recipient.Roles
 		turn, err := admitAgentTurn(ctx, db, node, caller, request, session, protocol.ConversationRunKindTask, true)
 		if err != nil {
 			return protocol.Output{}, nil, err

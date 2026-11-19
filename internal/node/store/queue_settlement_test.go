@@ -637,7 +637,7 @@ func TestBackgroundDelivery(t *testing.T) {
 // TestQueueSettlement does not.
 func TestGuidanceQueue(t *testing.T) {
 	t.Parallel()
-	for _, scenario := range []string{"pending guidance is taken together", "other settings stay ordinary", "outlived guidance starts one turn", "queue commands"} {
+	for _, scenario := range []string{"pending guidance is taken together", "changed settings apply after guidance", "outlived guidance starts one turn", "queue commands"} {
 		t.Run(scenario, func(t *testing.T) {
 			t.Parallel()
 			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
@@ -769,11 +769,10 @@ func TestGuidanceQueue(t *testing.T) {
 					if batch, _, err = TakeGuidance(ctx, db, turn); err != nil || len(batch) != 0 {
 						return fmt.Errorf("guidance was delivered twice: %v", err)
 					}
-				case "other settings stay ordinary":
-					first, err := send("guide_turn", "Same settings")
-					if err != nil {
-						return err
-					}
+				case "changed settings apply after guidance":
+					// The composer saves a new choice to the session at once.
+					// Guidance still joins the reply it guides; the choice
+					// applies to the input queued after it.
 					current, err := ReadSession(ctx, db, session.ID)
 					if err != nil {
 						return err
@@ -787,29 +786,30 @@ func TestGuidanceQueue(t *testing.T) {
 					if _, err = command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: session.ID, ExpectedRevision: current.Revision, Config: config}); err != nil {
 						return err
 					}
-					other, err := send("guide_turn", "Other settings")
+					guided, err := send("guide_turn", "Guidance")
 					if err != nil {
 						return err
 					}
-					if err = order([]protocol.TurnID{first, other}, &turn, nil); err != nil {
+					queued, err := send("queue_turn", "Queued")
+					if err != nil {
 						return err
 					}
-					if _, item, _ := queueFixtureItem(ctx, db, session.ID, other); !item.Ready {
-						return errors.New("input with other settings is not ready to start")
+					if err = order([]protocol.TurnID{guided, queued}, &turn, nil); err != nil {
+						return err
 					}
 					batch, _, err := TakeGuidance(ctx, db, turn)
-					if err != nil || fmt.Sprint(texts(batch)) != "[Same settings]" {
+					if err != nil || fmt.Sprint(texts(batch)) != "[Guidance]" {
 						return fmt.Errorf("batch = %v: %v", texts(batch), err)
 					}
-					if _, _, err = FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
-						return err
+					captured := func(id protocol.TurnID) protocol.Permission {
+						value, _ := readTurnCapture(ctx, db, id)
+						return value.Config.Permission
 					}
-					next, _, err := ClaimNext(ctx, db, now)
-					if err != nil {
-						return err
+					if got := captured(guided); got != captured(turn) || got == changed {
+						return fmt.Errorf("guidance captured permission %v, the guided turn %v", got, captured(turn))
 					}
-					if next == nil || next.Run.Turn != other || next.Turn.Config.Permission != changed {
-						return errors.New("input with other settings did not start with its own settings")
+					if got := captured(queued); got != changed {
+						return fmt.Errorf("queued input captured permission %v, want %v", got, changed)
 					}
 				case "outlived guidance starts one turn":
 					waiting, err := send("queue_turn", "Ordinary")

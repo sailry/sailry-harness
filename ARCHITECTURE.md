@@ -617,7 +617,9 @@ listed child session starts a new child turn with its own admission receipt;
 waiting only observes a specific execution.
 
 Input received during a running task is durable guidance, consumed at a model
-boundary. Stop cancels work explicitly. Partial text and reasoning use a bounded
+boundary. Guidance is admitted with the session revision its running turn
+captured, so a model or mode chosen meanwhile applies to later queued turns.
+Stop cancels work explicitly. Partial text and reasoning use a bounded
 in-memory feed; committed output is canonical. Interrupted streams seal visible
 text into history. Background children and commands publish durable completion
 evidence. The running turn takes a bounded batch between model steps; an idle
