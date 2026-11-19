@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"path"
@@ -20,8 +21,7 @@ import (
 const overviewLimit = 20
 
 // overviewRead is a session's asset inventory as the overview popover read
-// it: the groups of one structural history revision, newest first, kept
-// while the session is not shown so it reopens at once.
+// it: the groups of one structural history revision, newest first, while mounted.
 type overviewRead struct {
 	open bool
 	// revision and head are the history the popover was last synced with.
@@ -39,6 +39,16 @@ type overviewRead struct {
 	// generation names the read under way: a newer read or a close drops
 	// an older one's result.
 	generation uint64
+	cancel     context.CancelFunc
+}
+
+func (o *overviewRead) cancelRead() {
+	if o.cancel != nil {
+		o.cancel()
+		o.cancel = nil
+	}
+	o.generation++
+	o.loading = false
 }
 
 // current reports whether the inventory covers the newest history.
@@ -83,11 +93,12 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 			}
 		}
 		if read.revision != page.Revision || read.head != state.Snapshot.Sequence {
-			// The history moved: a read under way is for the old one, and
-			// a structural change makes the rows read so far another
-			// history's.
-			read.generation++
-			read.loading, read.failed = false, false
+			// A structural change invalidates the page. Ordinary streamed events
+			// can share the pending read and request one follow-up at its end.
+			if read.revision != page.Revision {
+				read.cancelRead()
+			}
+			read.failed = false
 			read.revision, read.head = page.Revision, state.Snapshot.Sequence
 			if read.loaded && read.loadedRevision != read.revision {
 				read.loaded, read.groups, read.before = false, nil, nil
@@ -149,8 +160,7 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 			}
 			return
 		}
-		read.generation++
-		read.loading = false
+		read.cancelRead()
 	}
 	view.Load = func(more bool) { r.loadOverview(session.ID, read, more) }
 	view.OpenChild = func(id string) { r.openLiveChild(cv, id) }
@@ -173,6 +183,9 @@ func (r *Runtime) sessionOverview(c *ui.Context, cv *viewmodel.Conversation) *co
 // one after what is loaded. A page read at another history revision than
 // the one shown fails, as the rows would not belong together.
 func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, more bool) {
+	if read.loading {
+		return
+	}
 	var before *uint64
 	if more {
 		before = read.before
@@ -181,13 +194,16 @@ func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, m
 	generation, head := read.generation, read.head
 	read.refreshing = read.loaded && !more && !read.failed
 	read.loading, read.failed = true, false
-	r.async(func() {
-		page, err := r.readConversationAssets(session, before)
+	ctx, cancel := context.WithCancel(r.ctx)
+	read.cancel = cancel
+	if !r.async(func() {
+		defer cancel()
+		page, err := r.readConversationAssets(ctx, session, before)
 		r.enqueue(func(c *ui.Context) {
 			if read.generation != generation {
 				return
 			}
-			read.loading = false
+			read.loading, read.cancel = false, nil
 			if err != nil || read.revision != 0 && read.revision != page.Revision || more && read.loaded && read.loadedRevision != page.Revision {
 				read.failed = true
 				kit.Toast(c, kit.Failed, i18n.T(c, "chat_assets_failed"))
@@ -198,23 +214,31 @@ func (r *Runtime) loadOverview(session protocol.SessionID, read *overviewRead, m
 			}
 			read.groups = append(read.groups, page.Groups...)
 			read.loaded, read.loadedRevision, read.loadedHead, read.before = true, page.Revision, head, page.NextBefore
+			if read.open && read.head != head {
+				r.loadOverview(session, read, false)
+			}
 		})
-	})
+	}) {
+		read.cancelRead()
+	}
 }
 
 // readConversationAssets asks the Host for groups until it has overviewLimit
 // of them or the inventory ends: one answer may hold fewer.
-func (r *Runtime) readConversationAssets(session protocol.SessionID, before *uint64) (protocol.ConversationAssetsPage, error) {
+func (r *Runtime) readConversationAssets(ctx context.Context, session protocol.SessionID, before *uint64) (protocol.ConversationAssetsPage, error) {
 	result := protocol.ConversationAssetsPage{Session: session}
 	for {
 		query := protocol.ConversationAssetsQuery{Before: before, Limit: uint16(overviewLimit - len(result.Groups))}
-		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_conversation_assets", Data: protocol.CommandListConversationAssetsPayload{Session: session, Query: query}})
+		output, err := r.controller.Do(ctx, protocol.Command{Kind: "list_conversation_assets", Data: protocol.CommandListConversationAssetsPayload{Session: session, Query: query}})
 		if err != nil {
 			return result, err
 		}
 		page, valid := detail[protocol.ConversationAssetsPage](output.Data)
 		if !valid || output.Kind != "conversation_assets" || page.Session != session || page.Revision == 0 || len(page.Groups) > int(query.Limit) {
 			return result, fileActionFault(protocol.ErrorCodeInvalidRequest, "conversation asset response is invalid")
+		}
+		if before != nil && page.NextBefore != nil && *page.NextBefore >= *before {
+			return result, fileActionFault(protocol.ErrorCodeInvalidRequest, "conversation asset cursor did not advance")
 		}
 		if result.Revision != 0 && result.Revision != page.Revision {
 			return result, fileActionFault(protocol.ErrorCodeRevisionConflict, "conversation history changed while reading assets")

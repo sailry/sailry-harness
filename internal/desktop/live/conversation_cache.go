@@ -89,6 +89,12 @@ func (r *Runtime) finishConversationFrame() {
 		cv.Waiting, cv.Animating = composer.Interactions{}, false
 		delete(r.conversationPresentations, cv)
 	}
+	for id, read := range r.overviews {
+		if !r.conversationSeen[id] {
+			read.cancelRead()
+			delete(r.overviews, id)
+		}
+	}
 	for id := range r.childConversations {
 		if !r.conversationSeen[id] {
 			delete(r.childConversations, id)

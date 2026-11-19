@@ -2,6 +2,7 @@ package live
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
@@ -129,4 +130,62 @@ func TestSessionOverviewForegroundReads(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestSessionOverviewCoalescesStreamAndReleasesUnmountedRead(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		state := cacheTestFrame(t, r, cv, id)
+		revision := state.Snapshot.Page.Revision
+		read := &overviewRead{open: true, revision: revision, head: state.Snapshot.Sequence}
+		r.overviews = map[protocol.SessionID]*overviewRead{id: read}
+		proceed := make(chan struct{})
+		defer func() { close(proceed); r.workers.Wait() }()
+		var calls atomic.Int32
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			if request.Command.Kind != "list_conversation_assets" {
+				return link.Response{}, false
+			}
+			calls.Add(1)
+			<-proceed
+			return link.Response{Output: protocol.Output{Kind: "conversation_assets", Data: protocol.ConversationAssetsPage{Session: id, Revision: revision}}}, true
+		}
+		advance := func() {
+			state.Snapshot.Sequence++
+			r.beginConversationFrame()
+			r.conversationVersion++
+			r.conversationCopies[id] = conversationCopy{state: state, ok: true, generation: r.conversationVersion}
+			r.sessionOverview(nil, cv)
+		}
+		for range 20 {
+			advance()
+		}
+		synctest.Wait()
+		if calls.Load() != 1 {
+			t.Fatalf("stream burst caused %d concurrent inventory reads", calls.Load())
+		}
+		proceed <- struct{}{}
+		synctest.Wait()
+		applyOverviewCallbacks(r)
+		synctest.Wait()
+		if calls.Load() != 2 {
+			t.Fatalf("expected one follow-up, got %d total reads", calls.Load())
+		}
+		proceed <- struct{}{}
+		synctest.Wait()
+		applyOverviewCallbacks(r)
+		if !read.current() {
+			t.Fatal("follow-up did not cover the latest stream head")
+		}
+		advance()
+		synctest.Wait()
+		r.beginConversationFrame()
+		r.finishConversationFrame()
+		proceed <- struct{}{}
+		synctest.Wait()
+		applyOverviewCallbacks(r)
+		if r.overviews[id] != nil || read.loading || read.current() {
+			t.Fatal("unmounted inventory published a stale result")
+		}
+	})
 }
