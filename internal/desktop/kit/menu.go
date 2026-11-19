@@ -572,7 +572,8 @@ func SelectTrigger(c *ui.Context, b ui.Element, shown string, placeholder, open 
 func selectFrame(c *ui.Context, b ui.Element) ui.Element {
 	p, t := theme.Of(c), c.Theme()
 	b.Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
-		Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
+		Border(1, p.Input).FocusRingOffset(-t.FocusRingWidth).Background(t.Surface).
+		AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
 	if b.IsDisabled() {
 		b.Opacity(0.5)
 	}

@@ -282,6 +282,32 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	})
 }
 
+// A focused full-width select stays inside the field, including its outline.
+func TestSelectFocusFitsField(t *testing.T) {
+	chosen := "Alpha"
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		ui.Column(c).Fill().Padding(20).Children(func() {
+			b, _ := Select(c.Key("select"), "select", "Pick", &chosen, []string{"Alpha"}, false)
+			b.FillWidth()
+		})
+	}, 240, 100)
+	tt.Frame()
+	control, ok := tt.Access("Pick")
+	if !ok {
+		t.Fatal("missing select")
+	}
+	x := int(control.Bounds.X)
+	y := int(control.Bounds.Y + control.Bounds.H/2)
+	rest := tt.Image()
+	outside, inside := rest.RGBAAt(x-2, y), rest.RGBAAt(x+1, y)
+	tt.Key(0, ui.KeyTab)
+	focused := tt.Image()
+	if focused.RGBAAt(x-2, y) != outside || focused.RGBAAt(x+1, y) == inside {
+		t.Fatal("keyboard focus must paint inside the field")
+	}
+}
+
 // The form controls line up with a text input.
 func TestControlsMatchInput(t *testing.T) {
 	// A select has a text input's height, and its dropdown is as wide as it.
