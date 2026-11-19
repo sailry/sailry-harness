@@ -48,9 +48,9 @@ func TestReplyContentSpacing(t *testing.T) {
 					}
 				}
 			})
-			// A sequence's rows sit one rail gap apart, the first under its
-			// summary as the others under each other.
-			t.Run("sequence rows", func(t *testing.T) {
+			// A block's calls are rows of one level, in order, one rail gap
+			// apart, with no summary row above them.
+			t.Run("block rows", func(t *testing.T) {
 				state := New()
 				calls := []Call{
 					{ID: "scope-1", Name: "scope", Label: "Read scope", Output: &Output{Text: "First output"}},
@@ -58,14 +58,12 @@ func TestReplyContentSpacing(t *testing.T) {
 					{ID: "plan", Name: "plan", Label: "Update plan", Output: &Output{Text: "Plan output"}},
 					{ID: "command", Name: "command", Label: "Command", Output: &Output{Text: "Command output"}},
 				}
-				state.toggle("tool-sequence-scope-1")
 				tester := ui.NewTester(func(c *ui.Context) {
 					theme.Apply(c, "", theme.Light)
 					kit.SetPreferences(c, kit.Preferences{MessageTextSize: size})
-					state.tools(c, calls)
+					state.tools(c, calls, true)
 				}, 900, 700)
 				tester.Frame()
-				scope, plan := spacingRow(t, tester, "Review scope"), spacingRow(t, tester, "Update plan")
 				var rows []ui.Rect
 				for _, item := range tester.AccessAll() {
 					if item.Role == ui.RoleButton && item.Bounds.H > 0 {
@@ -73,12 +71,17 @@ func TestReplyContentSpacing(t *testing.T) {
 					}
 				}
 				slices.SortFunc(rows, func(a, b ui.Rect) int { return cmp.Compare(a.Y, b.Y) })
-				if len(rows) != 4 {
-					t.Fatalf("sequence rows=%d, want its summary and three runs", len(rows))
+				if len(rows) != len(calls) {
+					t.Fatalf("block rows=%d, want one per call, %d", len(rows), len(calls))
 				}
-				for index, gap := range []float32{scope.Y - (rows[0].Y + rows[0].H), plan.Y - (scope.Y + scope.H), rows[3].Y - (plan.Y + plan.H)} {
-					if math.Abs(float64(gap-railGap)) > 0.5 {
-						t.Fatalf("sequence row %d spacing=%v, want %v", index, gap, railGap)
+				for index, call := range calls {
+					if row := spacingRow(t, tester, call.Label); row != rows[index] || row.X != rows[0].X {
+						t.Fatalf("row %d is %v, want %q at %v on the first row's level", index, rows[index], call.Label, row)
+					}
+					if index > 0 {
+						if gap := rows[index].Y - (rows[index-1].Y + rows[index-1].H); math.Abs(float64(gap-railGap)) > 0.5 {
+							t.Fatalf("block row %d spacing=%v, want %v", index, gap, railGap)
+						}
 					}
 				}
 			})

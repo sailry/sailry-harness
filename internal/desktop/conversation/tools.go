@@ -3,6 +3,7 @@ package conversation
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -93,8 +94,8 @@ func backgroundFailed(b *Background) bool {
 }
 
 // summary builds a row's content: status icon, label, input detail and caret.
-// A running row shimmers its label and detail with one band across the
-// row, sw's; the icon has none.
+// A running row, or one awaiting the model, shimmers its label and detail
+// with one band across the row, sw's; the icon has none.
 func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep) {
 	p := theme.Of(c)
 	size := textSize(c)
@@ -117,7 +118,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	if label == "" && call.LabelKey != "" {
 		label = i18n.T(c, call.LabelKey)
 	}
-	shimmer := call.Running && quiet
+	shimmer := call.Running && quiet || awaitingModel(call)
 	switch {
 	case label != "" && (shimmer || !call.wrap):
 		// Laid out as the sweep draws it (kit.Sweep.Text), running or not,
@@ -258,56 +259,18 @@ func Rail(c *ui.Context) ui.Element {
 	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(railGap)
 }
 
-func (s *State) tools(c *ui.Context, calls []Call) {
-	if Sequence(calls) {
-		head := Summary(calls)
-		s.disclosure(c, "tool-sequence-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
-			summary(c, head, hovered, true, open, sw)
-		}, 8, 8, func() { s.groups(c, calls) })
-		return
+func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
+	if !activity && slices.ContainsFunc(calls, func(call Call) bool { return call.Running || call.AwaitingModel }) {
+		calls = slices.Clone(calls)
+		for index := range calls {
+			calls[index].Running, calls[index].AwaitingModel = false, false
+		}
 	}
-	s.groups(c, calls)
-}
-
-// groups builds runs of calls of the same name. More than one run only shows
-// on a sequence's rail, so they are a rail's 8 DIPs apart, as its rows are
-// from the summary above and as a group's own rows are once it opens.
-func (s *State) groups(c *ui.Context, calls []Call) {
+	// Every call is one row of its own, in order, a rail's 8 DIPs apart:
+	// no fold over the block or over calls of one name, so each row opens
+	// straight onto its own result.
 	ui.Column(c).Gap(railGap).Children(func() {
-		for _, run := range Runs(calls) {
-			if len(run) == 1 && !pathList(run[0]) {
-				s.row(c, run[0])
-				continue
-			}
-			s.group(c, run)
-		}
-	})
-}
-
-// group shows a summary above calls of one name.
-func (s *State) group(c *ui.Context, run []Call) {
-	head := Summary(run)
-	if len(run) == 1 && run[0].Output == nil {
-		plain(c, "tool-group-"+run[0].ID, head)
-		return
-	}
-	s.disclosure(c, "tool-group-"+run[0].ID, func(hovered, open bool, sw *kit.Sweep) {
-		summary(c, head, hovered, true, open, sw)
-	}, 8, 8, func() {
-		if paths := uniquePaths(run); len(paths) > 0 && pathList(run[len(run)-1]) {
-			for _, path := range paths {
-				s.pathRow(c, path)
-			}
-			for _, call := range run {
-				if call.Background != nil || call.BackgroundDetail != nil {
-					s.row(c, call)
-				} else if call.Output != nil && call.Output.Failure != "" {
-					notice(c, call.Output.Failure, failureTone(c, call.Output))
-				}
-			}
-			return
-		}
-		for _, call := range run {
+		for _, call := range calls {
 			s.row(c, call)
 		}
 	})
@@ -325,7 +288,7 @@ func (s *State) row(c *ui.Context, call Call) {
 	// A call whose loaded output has nothing to draw does not open: its
 	// row already says all there is.
 	card := s.toolCards[s.renderSession][call.ID]
-	if call.Background == nil && call.BackgroundDetail == nil && (call.Output == nil || call.Load == nil && card == nil && bare(call)) {
+	if call.Background == nil && call.BackgroundDetail == nil && (call.Output == nil || call.Load == nil && card == nil && bare(call) && !pathList(call)) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
@@ -345,7 +308,7 @@ func (s *State) row(c *ui.Context, call Call) {
 		if b := call.Background; b != nil {
 			notice(c, backgroundStatus(c, b), rowColor(theme.Of(c), call))
 			if b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
-				s.output(c, &Output{Text: b.Preview, Command: true})
+				s.output(c, &Output{Text: b.Preview, Command: true}, false)
 			}
 		}
 		if call.BackgroundDetail != nil {
@@ -359,11 +322,12 @@ func (s *State) row(c *ui.Context, call Call) {
 				notice(c, backgroundStatus(c, detail.Status), rowColor(theme.Of(c), withStatus))
 			}
 			if detail.Output != nil {
-				s.output(c, detail.Output)
+				s.output(c, detail.Output, false)
 			}
 		}
-		if call.Output != nil && (call.Background == nil || !bare(call)) {
-			s.output(c, call.Output)
+		paths := pathList(call)
+		if call.Output != nil && (paths || call.Background == nil || !bare(call)) {
+			s.output(c, call.Output, paths)
 		}
 		if card != nil {
 			card(c)
@@ -372,7 +336,7 @@ func (s *State) row(c *ui.Context, call Call) {
 }
 
 // The open rail owns the formatted result. MyGo closes its local state when
-// the disclosure, parent group, or virtualized row leaves the tree.
+// the disclosure or virtualized row leaves the tree.
 type disclosureDetail struct {
 	revision string
 	active   *bool
@@ -443,14 +407,19 @@ func notice(c *ui.Context, text string, tone ui.Color) {
 	ui.Text(c, text).FontSize(textSize(c)).Padding(8, 12).TextColor(tone).Selectable()
 }
 
-// output builds a call's result: failure, table, diff, text, notices, with
-// a copy button showing while the pointer is over it.
-func (s *State) output(c *ui.Context, o *Output) {
+// output builds a call's result. A path list uses the file links in place
+// of the aggregate preview, while retaining other parts of the result.
+func (s *State) output(c *ui.Context, o *Output, paths bool) {
 	p := theme.Of(c)
 	size := textSize(c)
 	box := ui.Column(c).Gap(4)
 	hovered := box.Hovered()
 	box.Children(func() {
+		if paths {
+			for _, path := range uniquePaths(o.Paths) {
+				s.pathRow(c, path)
+			}
+		}
 		if o.Failure != "" {
 			notice(c, o.Failure, failureTone(c, o))
 		}
@@ -460,14 +429,10 @@ func (s *State) output(c *ui.Context, o *Output) {
 		if o.Diff != nil {
 			s.diff(c, o.Diff)
 		}
-		if o.Text != "" {
-			text, hidden := o.Text, 0
+		if !paths && o.Text != "" {
+			text := o.Text
 			if o.Command {
-				text, hidden = lastLines(text)
-			}
-			if hidden > 0 {
-				ui.Text(c, i18n.T(c, "tool_output_earlier", "count", hidden)).FontSize(size).
-					Padding(0, 12, 8, 12).TextColor(p.MutedForeground)
+				text, _ = lastLines(text)
 			}
 			ui.ScrollBoth(c).MaxHeight(outputMax(size)).Children(func() {
 				ui.Text(c, text).Font("monospace").FontSize(size).LineHeight(20.0 / 14).NoWrap().
@@ -482,6 +447,9 @@ func (s *State) output(c *ui.Context, o *Output) {
 		}
 		if o.Partial {
 			notice(c, i18n.T(c, "tool_partial"), p.MutedForeground)
+		}
+		if paths {
+			return
 		}
 		copyText := copyOf(o)
 		b := kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "tool_copy"), 20, false).

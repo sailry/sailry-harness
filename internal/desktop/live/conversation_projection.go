@@ -283,6 +283,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		}
 	}
 	summarized := map[int]bool{}
+	awaitingModel := map[int][]*conversation.Call{}
 	for _, entry := range page.Entries {
 		owner := owners[entry.Turn]
 		position, ok := positions[owner]
@@ -301,6 +302,7 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			}
 			continue
 		}
+		blockCount := len(t.Reply.Blocks)
 		textOffset := 0
 		if len(entry.Citations) > 0 {
 			for _, block := range t.Reply.Blocks {
@@ -331,8 +333,19 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			// Search is work in the accepted layout, so it precedes the answer.
 			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources, Suggestions: searchSuggestions(*entry.SearchSuggestions)})
 		}
-		phase := projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t))
+		var batch []*conversation.Call
+		var collect *[]*conversation.Call
+		if entry.Author == "tool" && entry.Turn == owner && t.Reply.Status == conversation.Running {
+			collect = &batch
+		}
+		phase := projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations, started, launches, language, segmentFrom(t), collect)
 		clocks.record(position, time.Time{}, phase)
+		if len(batch) > 0 {
+			awaitingModel[position] = batch
+		} else if entry.Author == "assistant" && entry.Turn == owner && len(awaitingModel[position]) > 0 &&
+			(len(t.Reply.Blocks) > blockCount || hasModelOutput(entry.Parts)) {
+			delete(awaitingModel, position)
+		}
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
@@ -366,12 +379,16 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 		}
 	}
 	for _, draft := range snapshot.Drafts {
-		if position, ok := positions[owners[draft.Turn]]; ok {
+		owner := owners[draft.Turn]
+		if position, ok := positions[owner]; ok {
 			t := &turns[position]
-			phase := projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t))
+			phase := projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations, started, launches, language, segmentFrom(t), nil)
 			clocks.record(position, time.Time{}, phase)
 			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
 				t.Reply.Phase = phase
+				if draft.Author == "assistant" && draft.Turn == owner && (phase == conversation.Generating || phase == conversation.Thinking) {
+					delete(awaitingModel, position)
+				}
 			}
 		}
 	}
@@ -549,6 +566,17 @@ func projectTranscript(state client.ConversationState, language string) ([]conve
 			if position, ok := positions[run.Turn]; ok && turns[position].Reply.Status.Active() {
 				turns[position].Reply.Phase = conversation.WaitingController
 				turns[position].Reply.LoginRecovery = canRestoreControllerLogin(snapshot.Node, run.Waiting)
+			}
+		}
+	}
+	for position, batch := range awaitingModel {
+		reply := &turns[position].Reply
+		if !state.Connected || reply.Status != conversation.Running || reply.Phase != conversation.AwaitingResponse {
+			continue
+		}
+		for _, call := range batch {
+			if !call.Running && !call.Pending && call.State == conversation.StateNone {
+				call.AwaitingModel = true
 			}
 		}
 	}
@@ -805,7 +833,7 @@ func segmentFrom(turn *conversation.Turn) int {
 	return turn.Segments[len(turn.Segments)-1].From
 }
 
-func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int) time.Time {
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[toolPendingKey][]toolAssociation, started map[string]string, launches map[string][]conversation.Child, language string, from int, toolBatch *[]*conversation.Call) time.Time {
 	var compacting time.Time
 	for index, part := range parts {
 		switch part.Kind {
@@ -898,6 +926,7 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 						}
 					}
 				}
+				matched := call != nil && result.ID != nil && *result.ID != "" && result.Name != ""
 				if call == nil {
 					if result.Summary != nil && result.Summary.Progress != nil {
 						reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)})
@@ -915,6 +944,8 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 				call.Running = false
 				if result.Summary != nil && result.Summary.Task != nil {
 					started[call.ID] = *result.Summary.Task
+				} else if toolBatch != nil && matched && !call.Terminal && len(launches[call.ID]) == 0 && !toolDiagnostics(result.Summary) {
+					*toolBatch = append(*toolBatch, call)
 				}
 				// The pictures a tool returned show under its output.
 				for _, image := range result.Images {
@@ -954,6 +985,20 @@ func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, 
 
 func toolDiagnostics(summary *protocol.ToolDetailSummary) bool {
 	return summary != nil && (summary.Failure != nil || summary.Diagnostics)
+}
+
+func hasModelOutput(parts []protocol.ConversationPart) bool {
+	for _, part := range parts {
+		switch part.Kind {
+		case "tool_call":
+			return true
+		case "text", "thinking":
+			if text, ok := detail[string](part.Data); ok && text != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func draftPhase(parts []protocol.ConversationPart) conversation.Phase {

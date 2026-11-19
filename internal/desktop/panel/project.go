@@ -179,6 +179,18 @@ func (v *GitView) Scope() string  { return v.scope }
 // Open are the diffs open, in order.
 func (v *GitView) Open() []string { return v.open }
 
+// UsesFileDiff reports whether a single-file diff can apply a hunk with this
+// path's working file revision.
+func (v *GitView) UsesFileDiff(path string) bool {
+	return v.change == path || slices.Contains(v.open, path)
+}
+
+// UsesDiff includes the combined view, which needs patches but no working
+// file content.
+func (v *GitView) UsesDiff(path string) bool {
+	return v.UsesFileDiff(path) || v.UsesFileDiff(allChanges)
+}
+
 // Show opens a changed file's diff, or focuses it when open.
 func (v *GitView) Show(path string) {
 	if path == "" {

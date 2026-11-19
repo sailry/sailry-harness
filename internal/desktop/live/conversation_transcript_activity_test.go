@@ -66,6 +66,88 @@ func transcriptResult(id, name string) protocol.ConversationPart {
 	return protocol.ConversationPart{Kind: "tool_result", Data: result}
 }
 
+func TestTranscriptToolBatchAwaitsModel(t *testing.T) {
+	session, turn := protocol.SessionID{1}, protocol.TurnID{1}
+	state := client.ConversationState{Connected: true, Snapshot: protocol.DefaultConversationSnapshot()}
+	page := &state.Snapshot.Page
+	page.Session, page.Revision = session, 1
+	page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Sequence: 1, Kind: "task", Status: "running"}}
+	entry := func(id, author string, parts ...protocol.ConversationPart) {
+		page.Entries = append(page.Entries, protocol.ConversationEntry{ID: id, Turn: turn, Author: author, Sequence: uint64(len(page.Entries) + 1), Parts: parts})
+	}
+	check := func(stage string, phase conversation.Phase, running, awaiting []string) []conversation.Block {
+		t.Helper()
+		turns, _, _, _, _ := projectTranscript(state, "en")
+		if len(turns) != 1 || turns[0].Reply.Phase != phase {
+			t.Fatalf("%s: want phase %v, got %+v", stage, phase, turns)
+		}
+		blocks := turns[0].Reply.Blocks
+		var gotRunning, gotAwaiting []string
+		for _, block := range blocks {
+			for _, call := range block.Calls {
+				if call.Running {
+					gotRunning = append(gotRunning, call.ID)
+				}
+				if call.AwaitingModel {
+					gotAwaiting = append(gotAwaiting, call.ID)
+				}
+			}
+		}
+		if !slices.Equal(gotRunning, running) || !slices.Equal(gotAwaiting, awaiting) {
+			t.Fatalf("%s: running=%v, awaiting=%v; want running=%v, awaiting=%v", stage, gotRunning, gotAwaiting, running, awaiting)
+		}
+		return blocks
+	}
+	entry("old-call", "assistant", transcriptTool("old", "read_fixture"))
+	entry("old-result", "tool", transcriptResult("old", "read_fixture"))
+	check("old batch", conversation.AwaitingResponse, nil, []string{"old-call/0"})
+
+	entry("calls", "assistant", transcriptTool("read", "read_fixture"), transcriptTool("search", "search_fixture"), transcriptTool("plan", "update_plan"))
+	check("new tool calls without text", conversation.AwaitingResponse, nil, nil)
+	for _, tool := range []struct{ id, name string }{{"read", "read_fixture"}, {"search", "search_fixture"}} {
+		activity := json.RawMessage(fmt.Sprintf(`{"type":"tool_started","id":%q,"name":%q}`, tool.id, tool.name))
+		state.Snapshot.Drafts = append(state.Snapshot.Drafts, protocol.ConversationDraft{ID: "start-" + tool.id, Turn: turn, Author: "sailry", Parts: []protocol.ConversationPart{{Kind: "resource", Data: activity}}})
+	}
+	batch := []string{"calls/0", "calls/1"}
+	check("parallel workers", conversation.ExecutingTool, batch, nil)
+	state.Snapshot.Drafts = state.Snapshot.Drafts[1:]
+	check("first worker exited", conversation.ExecutingTool, batch[1:], nil)
+	state.Snapshot.Drafts = nil
+	check("all workers exited before the batch entry", conversation.AwaitingResponse, nil, nil)
+
+	entry("unmatched", "tool", transcriptResult("read", "read_fixture"))
+	page.Entries[len(page.Entries)-1].Branch = "other"
+	check("result without a call on its branch", conversation.AwaitingResponse, nil, nil)
+
+	progress := transcriptResult("plan", "update_plan")
+	progress.Data.(protocol.ConversationPartToolResultPayload).Summary.Progress = &protocol.ConversationProgress{
+		Steps: []protocol.ConversationProgressStep{{Description: "Inspect", State: "completed"}},
+	}
+	entry("results", "tool", transcriptResult("read", "read_fixture"), transcriptResult("search", "search_fixture"), progress)
+	blocks := check("ordinary results in a mixed batch", conversation.AwaitingResponse, nil, batch)
+	if len(blocks) != 5 || blocks[3].Kind != conversation.ProgressBlock || len(blocks[3].Calls) != 0 {
+		t.Fatalf("validated progress did not replace the pending plan call: %+v", blocks)
+	}
+
+	state.Connected = false
+	check("disconnected", conversation.AwaitingResponse, nil, nil)
+	state.Connected = true
+	page.Runs[0].Status = "stopping"
+	check("stopping", conversation.AwaitingResponse, nil, nil)
+	page.Runs[0].Status = "completed"
+	check("completed", conversation.PhaseNone, nil, nil)
+	page.Runs[0].Status = "running"
+
+	state.Snapshot.Drafts = []protocol.ConversationDraft{{ID: "answer", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "thinking", Data: ""}}}}
+	check("empty assistant draft", conversation.AwaitingResponse, nil, batch)
+	thought := protocol.ConversationPart{Kind: "thinking", Data: "private reasoning"}
+	state.Snapshot.Drafts[0].Parts[0] = thought
+	check("first assistant thinking", conversation.Thinking, nil, nil)
+	state.Snapshot.Drafts = nil
+	entry("answer", "assistant", thought)
+	check("committed assistant thinking", conversation.AwaitingResponse, nil, nil)
+}
+
 func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	parent, turn := protocol.SessionID{1}, protocol.TurnID{1}
 	s := protocol.DefaultConversationSnapshot()
@@ -267,16 +349,19 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 	entry("request", "assistant", part)
 	page.Approvals = []protocol.ConversationApproval{{ID: protocol.ApprovalID{1}, Session: id, Turn: turn, Entry: "request", State: "pending", Source: "user"}}
 	check("approval", "")
+	if call := turns[0].Reply.Blocks[0].Calls[0]; !call.Pending || call.AwaitingModel {
+		t.Fatalf("pending approval was projected as model wait: %+v", call)
+	}
 	page.Approvals[0].State = "approved"
 	entry("start", "sailry", protocol.ConversationPart{Kind: "resource", Data: json.RawMessage(`{"type":"tool_started","id":"inspect","name":"inspect_fixture"}`)})
 	check("tool running", "")
-	if !turns[0].Reply.Blocks[0].Calls[0].Running {
-		t.Fatal("started tool does not report activity")
+	if call := turns[0].Reply.Blocks[0].Calls[0]; !call.Running || call.AwaitingModel {
+		t.Fatalf("started tool did not report only execution: %+v", call)
 	}
 	entry("done", "tool", transcriptResult("inspect", "inspect_fixture"))
 	check("after tool", idle)
-	if turns[0].Reply.Blocks[0].Calls[0].Running {
-		t.Fatal("finished tool still reports activity")
+	if call := turns[0].Reply.Blocks[0].Calls[0]; call.Running || !call.AwaitingModel {
+		t.Fatalf("returned tool did not report only model wait: %+v", call)
 	}
 	for range 3 {
 		tester.Advance(500 * time.Millisecond)
@@ -349,5 +434,8 @@ func TestHiddenDelegationDiagnosticKeepsChildBoundary(t *testing.T) {
 	blocks := conversation.Compact(turns[0].Reply.Blocks)
 	if len(blocks) != 4 || blocks[0].Kind != conversation.ToolsBlock || len(blocks[0].Calls) != 1 || blocks[0].Calls[0].ID != "first/0" || !blocks[0].Calls[0].Warning || blocks[1].Kind != conversation.ChildrenBlock || blocks[2].Text != "Between launches" || blocks[3].Kind != conversation.ChildrenBlock || len(blocks[1].Children) != 1 || len(blocks[3].Children) != 1 {
 		t.Fatalf("a late diagnostic moved past text or the reused child: %+v", blocks)
+	}
+	if blocks[0].Calls[0].AwaitingModel {
+		t.Fatal("late delegation diagnostic was projected as model wait")
 	}
 }

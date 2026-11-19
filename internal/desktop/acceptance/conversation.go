@@ -141,7 +141,11 @@ func stopReply(w *window) error {
 }
 
 func toolOutput(w *window) error {
-	const raw = "{\n  \"data\": {\"elapsed_ms\": 84, \"outcome\": {\"type\": \"exited\", \"data\": 127}},\n  \"stderr\": \"/bin/sh: python: command not found\\n\"\n}"
+	const (
+		command = "python --version"
+		failure = "/bin/sh: python: command not found"
+		raw     = "{\n  \"data\": {\"elapsed_ms\": 84, \"outcome\": {\"type\": \"exited\", \"data\": 127}},\n  \"stderr\": \"" + failure + "\\n\"\n}"
+	)
 	output := &conversation.Output{}
 	loads := 0
 	if err := w.open(func(data *preview.Data) {
@@ -149,7 +153,7 @@ func toolOutput(w *window) error {
 		cv.Turns = []conversation.Turn{{ID: "acceptance/tool", User: "Inspect a failed fixture command", Reply: conversation.Reply{
 			Status: conversation.Running,
 			Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{{
-				ID: "acceptance/command", Name: "command", Label: "Command", Warning: true, Error: label("tool_failed"), Output: output,
+				ID: "acceptance/command", Name: "command", Label: "Command", Detail: command, Code: true, Warning: true, Error: label("tool_failed"), Output: output,
 				Load: func(apply func(*conversation.Output)) func() {
 					loads++
 					apply(&conversation.Output{Text: raw})
@@ -164,8 +168,11 @@ func toolOutput(w *window) error {
 	if err := w.selectConversation(idleSession); err != nil {
 		return err
 	}
-	if loads != 0 || w.tester.HasText(raw) {
+	if loads != 0 || w.tester.HasText(failure) {
 		return fmt.Errorf("tool details loaded before expansion: loads %d", loads)
+	}
+	if !w.tester.HasText(command) {
+		return fmt.Errorf("collapsed tool did not retain its command input")
 	}
 	if err := w.click("Command"); err != nil {
 		return err
@@ -176,12 +183,10 @@ func toolOutput(w *window) error {
 	}
 	failures := 0
 	for _, text := range w.tester.Texts() {
-		if text == label("tool_failed") {
-			failures++
-		}
+		failures += strings.Count(text, failure)
 	}
-	if failures != 1 {
-		return fmt.Errorf("failure label rendered %d times, want only the tool header", failures)
+	if failures != 1 || w.tester.HasText(label("tool_failed")) || !w.tester.HasText(command) {
+		return fmt.Errorf("expanded tool should keep the command input and render the original failure once, got %d", failures)
 	}
 	if err := w.copyOutput(raw); err != nil {
 		return err
@@ -189,11 +194,11 @@ func toolOutput(w *window) error {
 	if err := w.click("Command"); err != nil {
 		return err
 	}
-	if w.tester.HasText(raw) || loads != 1 {
-		return fmt.Errorf("closing the tool retained its body or reloaded it: visible %v, loads %d", w.tester.HasText(raw), loads)
+	if w.tester.HasText(failure) || loads != 1 {
+		return fmt.Errorf("closing the tool retained its body or reloaded it: visible %v, loads %d", w.tester.HasText(failure), loads)
 	}
 	w.result.Turns = []string{"acceptance/tool"}
-	w.evidence("assertion", "Expanded lazy details once; original JSON rendered and copied unchanged; failure label appeared only in the header; closing hid the result")
+	w.evidence("assertion", "Expanded details once, kept the command input, showed the original failure once, copied the original JSON unchanged, and closed the result")
 	w.evidence("tool_result", raw)
 	return nil
 }

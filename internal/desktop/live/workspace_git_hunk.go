@@ -12,8 +12,8 @@ import (
 )
 
 type workspaceGitDiff struct {
-	diff   protocol.GitDiff
-	status protocol.GitStatus
+	diff                protocol.GitDiff
+	index, head, branch *string
 }
 
 func workspaceManualHunkIndex(displayed viewmodel.Hunk, patch string) int {
@@ -37,7 +37,7 @@ func (p *workspaceProject) manualGitHunk(c *ui.Context, relative string, display
 	key := scope + "/" + relative
 	captured, exists := p.manualDiffs[key]
 	selected := workspaceManualHunkIndex(displayed, captured.diff.Text)
-	if !exists || !p.diffs[key] || selected < 0 || captured.diff.Binary || captured.diff.Truncated || captured.status.IndexRevision == nil || scope == "staged" || action != "stage" && action != "reject" {
+	if !exists || !p.diffs[key] || selected < 0 || captured.diff.Binary || captured.diff.Truncated || captured.index == nil || scope == "staged" || action != "stage" && action != "reject" {
 		p.workspaceError(c, protocol.ErrorCodeRevisionConflict, "complete working-tree hunk source is not loaded")
 		return
 	}
@@ -50,7 +50,7 @@ func (p *workspaceProject) manualGitHunk(c *ui.Context, relative string, display
 			return
 		}
 		digest := blake3.Sum256([]byte(captured.diff.Text))
-		input := protocol.CommandApplyGitHunkPayload{Worktree: p.owner.ID, Path: relative, Scope: protocol.GitDiffScope(scope), Operation: protocol.GitHunkOperation(action), Hunk: uint32(selected), DiffRevision: fmt.Sprintf("%x", digest), ExpectedRevision: *source.Revision, ExpectedHead: captured.status.Head, ExpectedBranch: captured.status.Branch, ExpectedIndex: *captured.status.IndexRevision}
+		input := protocol.CommandApplyGitHunkPayload{Worktree: p.owner.ID, Path: relative, Scope: protocol.GitDiffScope(scope), Operation: protocol.GitHunkOperation(action), Hunk: uint32(selected), DiffRevision: fmt.Sprintf("%x", digest), ExpectedRevision: *source.Revision, ExpectedHead: captured.head, ExpectedBranch: captured.branch, ExpectedIndex: *captured.index}
 		kind := gitIndex
 		if action != "stage" {
 			kind = gitOperation

@@ -541,6 +541,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
 	live := latest && active && r.Status != Unsynced
+	toolActivity := r.Status == Running || r.Status == Stopping
 	gap := float32(8)
 	if parts.hasWork {
 		gap = workGap
@@ -595,7 +596,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				ui.Divider(c).Background(p.Border)
 				if parts.hasWork && workOpen {
 					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, r.Phase, actions)
+						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, toolActivity, r.Phase, actions)
 					})
 				}
 			})
@@ -606,7 +607,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, key, answer, live, r.Phase, actions)
+				s.blocks(c, key, answer, live, toolActivity, r.Phase, actions)
 			})
 		}
 		if latest && !active && r.Changes != nil {
@@ -617,7 +618,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		}
 		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
-				s.blocks(c, key+"-errors", parts.failures, false, PhaseNone, actions)
+				s.blocks(c, key+"-errors", parts.failures, false, false, PhaseNone, actions)
 			})
 		}
 		if latest && !active {
@@ -627,7 +628,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 }
 
 // blocks builds blocks in transcript order.
-func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, phase Phase, actions Actions) {
+func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, toolActivity bool, phase Phase, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	for i, b := range blocks {
@@ -645,7 +646,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 					})
 				})
 			case ToolsBlock:
-				s.tools(c, b.Calls)
+				s.tools(c, b.Calls, toolActivity)
 			case QuestionBlock:
 				s.question(c, b.Question)
 			case ChildrenBlock:

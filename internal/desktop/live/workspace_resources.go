@@ -62,20 +62,25 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		return
 	}
 	if p.turnView != nil {
-		p.readFile(relative)
-		p.readTurnHunks(relative)
+		if p.panel.Git.UsesFileDiff(relative) {
+			p.readFile(relative)
+			p.readTurnHunks(relative)
+		}
 		return
 	}
 	key := scope + "/" + relative
 	if p.diffs[key] {
 		p.projectDiff(relative, p.diffContents[key])
+		if _, loaded := p.files[relative]; !loaded && p.panel.Git.UsesFileDiff(relative) && !p.manualDiffs[key].diff.Binary {
+			p.readFile(relative)
+		}
 		return
 	}
 	value := protocol.GitDiffScope(scope)
 	if value == "" {
 		value = protocol.GitDiffScopeAll
 	}
-	capturedStatus := p.status
+	captured := workspaceGitDiff{index: p.status.IndexRevision, head: p.status.Head, branch: p.status.Branch}
 	p.read("diff/"+key, protocol.Command{Kind: "read_git_diff", Data: protocol.CommandReadGitDiffPayload{Worktree: p.owner.ID, Path: relative, Scope: value}}, func(c *ui.Context, out protocol.Output) {
 		diff, ok := detail[protocol.GitDiff](out.Data)
 		if !ok {
@@ -85,16 +90,17 @@ func (p *workspaceProject) readDiff(relative, scope string) {
 		if p.manualDiffs == nil {
 			p.manualDiffs = map[string]workspaceGitDiff{}
 		}
-		p.manualDiffs[key] = workspaceGitDiff{diff: diff, status: capturedStatus}
+		captured.diff = diff
+		p.manualDiffs[key] = captured
 		p.panel.SetGitDiffState(relative, scope, panel.GitDiffState{Binary: diff.Binary, Partial: diff.Truncated, Size: diff.Size})
 		if p.diffContents == nil {
 			p.diffContents = map[string][]viewmodel.Hunk{}
 		}
 		p.diffContents[key] = workspaceHunks(diff.Text)
 		p.projectDiff(relative, p.diffContents[key])
-		// A binary file has no text to read beside its diff: its card says
-		// so, and reading it would only fail.
-		if !diff.Binary {
+		// An individual text diff compares the captured file revision when
+		// applying a hunk. The combined view and binary files need no body.
+		if !diff.Binary && p.panel.Git.UsesFileDiff(relative) {
 			p.readFile(relative)
 		}
 		p.readTurnHunks(relative)

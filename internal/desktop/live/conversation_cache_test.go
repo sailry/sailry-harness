@@ -147,6 +147,49 @@ func TestConversationViewRefreshReplacesSameLengthHistory(t *testing.T) {
 	})
 }
 
+func TestConversationFrameCacheDropsToolWaitAfterResponse(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, cv, id := cacheTestRuntime(t)
+		snapshot := source.conversations[id]
+		run := snapshot.Page.Runs[0]
+		run.Status, run.FinishedMs = "running", nil
+		snapshot.Page.Runs = []protocol.ConversationRun{run}
+		snapshot.Page.Entries = []protocol.ConversationEntry{
+			snapshot.Page.Entries[0],
+			{ID: "request", Turn: run.Turn, Sequence: 4, Author: "assistant", Parts: []protocol.ConversationPart{transcriptTool("read", "read_fixture")}},
+			{ID: "result", Turn: run.Turn, Sequence: 5, Author: "tool", Parts: []protocol.ConversationPart{transcriptResult("read", "read_fixture")}},
+		}
+		check := func(stage string, want bool) {
+			t.Helper()
+			snapshot.Sequence++
+			source.conversations[id] = snapshot
+			if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			cacheTestFrame(t, r, cv, id)
+			if len(cv.Turns) != 1 || len(cv.Turns[0].Reply.Blocks) == 0 || len(cv.Turns[0].Reply.Blocks[0].Calls) != 1 {
+				t.Fatalf("%s: missing projected tool: %+v", stage, cv.Turns)
+			}
+			call := &cv.Turns[0].Reply.Blocks[0].Calls[0]
+			if call.ID != "request/0" || call.Running || call.AwaitingModel != want {
+				t.Fatalf("%s: want tool wait=%v without execution, got %+v", stage, want, call)
+			}
+			cacheTestFrame(t, r, cv, id)
+			if reused := &cv.Turns[0].Reply.Blocks[0].Calls[0]; reused != call || reused.AwaitingModel != want {
+				t.Fatalf("%s: an unchanged frame rebuilt the call or reused a stale wait", stage)
+			}
+		}
+		check("returned batch", true)
+		parts := []protocol.ConversationPart{{Kind: "text", Data: "Partial answer"}}
+		snapshot.Drafts = []protocol.ConversationDraft{{ID: "answer", Turn: run.Turn, Author: "assistant", Parts: parts}}
+		check("assistant draft", false)
+		snapshot.Drafts = nil
+		snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: "answer", Turn: run.Turn, Sequence: 6, Author: "assistant", Parts: parts})
+		check("committed answer", false)
+	})
+}
+
 func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, _, detached, id := cacheTestRuntime(t)

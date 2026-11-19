@@ -100,8 +100,11 @@ func (b *demo) pursuit() *Conversation {
 
 	second := cv.Turn{ID: id + "/2", Marker: b.goalMarker("pursuit.marker")}
 	donut := b.call(second.ID, "edit", "pencil", "src/charts/donut.tsx")
-	second.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(38), Phase: cv.Generating}
-	second.Reply.Blocks = []cv.Block{reasoning(b.t("pursuit.2.think")), tools(donut)}
+	check := b.call(second.ID, "command", "command", "npm run test:visual -- charts/donut")
+	check.Output = &cv.Output{Text: "charts/donut  8 passed", Command: true}
+	check.AwaitingModel = true
+	second.Reply = cv.Reply{Status: cv.Running, Elapsed: secs(38), Phase: cv.AwaitingResponse}
+	second.Reply.Blocks = []cv.Block{reasoning(b.t("pursuit.2.think")), tools(donut), tools(check)}
 
 	c := b.conv(id, "pursuit.title", Running, time.Minute, cv.Usage{Tokens: 184000, Speed: 71.4, Cost: 0.0932, Cached: 121000, Context: 0.21}, set, first, second)
 	c.Badges = []composer.StatusBadge{b.goalBadge("goal.running", kit.Info, composer.Text{Label: "12m"},

@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -67,6 +68,23 @@ func (pr *Project) syncDocument(path string, item *fileItem) {
 		pr.FileChanged(path, item.editor.Buffer.String())
 	}
 }
+
+// ReleaseClosedFile clears the editor state left by a read that completed
+// after its tab closed. A draft or a pending edit or save still owns its data.
+func (pr *Project) ReleaseClosedFile(path string) bool {
+	if slices.Contains(pr.Files.open, path) {
+		return false
+	}
+	if item := pr.Files.items[path]; item != nil {
+		pr.syncDocument(path, item)
+		if item.dirty || item.document != nil && (item.document.saving || item.document.pendingEdit) {
+			return false
+		}
+		delete(pr.Files.items, path)
+	}
+	return true
+}
+
 func (pr *Project) SetFileStatus(path string, saving, partial bool) {
 	state := pr.Files.item(path).documentState()
 	state.saving, state.partial = saving, partial

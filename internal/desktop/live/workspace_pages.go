@@ -26,7 +26,7 @@ func (r *Runtime) resourceWorkspaceFrame(chat *Runtime) {
 	}
 	r.resourcePage = resourcePageState{target: target, shown: shown}
 	if shown != nil && shown != chatWorkspace {
-		shown.pruneDocumentImages()
+		shown.pruneClosedContent()
 		shown.resourceFrame()
 	}
 }

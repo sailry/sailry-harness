@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -164,6 +165,59 @@ func workspaceFailure(kind string, err error) (kit.Outcome, string) {
 		return outcome, prefix + "_unknown"
 	}
 	return outcome, prefix + "_failed"
+}
+
+// workspaceReadGroup is what a workspace read is for: "directory" for a
+// folder listing, "git" for a repository read, "" for any other read.
+func workspaceReadGroup(key string) string {
+	switch {
+	case strings.HasPrefix(key, "directory/"):
+		return "directory"
+	case strings.HasPrefix(key, "git-"):
+		return "git"
+	}
+	return ""
+}
+
+// workspaceReadFailure names the toast of a failed folder listing or Git
+// read. The workspace starts these on its own once a conversation or draft
+// shows a worktree, as when a project is chosen for a new draft, so the copy
+// says what was read and the cause the Node tells apart instead of naming a
+// workspace action. own is false for any other read, which keeps the general
+// copy. A Git that cannot run on the Node (not_configured, or unavailable on
+// Nodes that do not tell it apart) keeps Git's general failure copy.
+func workspaceReadFailure(key string, err error) (outcome kit.Outcome, name string, own bool) {
+	group := workspaceReadGroup(key)
+	if group == "" {
+		return kit.Failed, "", false
+	}
+	code := faultCode(err)
+	switch {
+	case code == protocol.ErrorCodeUnavailable && faultMessage(err) == "resource host is offline":
+		return kit.Failed, "resource_offline_action", true
+	case code == protocol.ErrorCodeOutcomeUnknown:
+		return kit.Uncertain, "workspace_action_unknown", true
+	case code == protocol.ErrorCodeConflict || code == protocol.ErrorCodeRevisionConflict:
+		return kit.Conflict, "workspace_changed", true
+	}
+	if group == "directory" {
+		switch code {
+		case protocol.ErrorCodeNotFound:
+			return kit.Failed, "directory_missing", true
+		case protocol.ErrorCodePermissionDenied:
+			return kit.Failed, "directory_denied", true
+		}
+		return kit.Failed, "directory_failed", true
+	}
+	switch code {
+	case protocol.ErrorCodeNotFound:
+		return kit.Failed, "git_index_missing", true
+	case protocol.ErrorCodePermissionDenied:
+		return kit.Failed, "git_index_denied", true
+	case protocol.ErrorCodeBusy:
+		return kit.Failed, "git_index_busy", true
+	}
+	return kit.Failed, "git_action_failed", true
 }
 
 // worktreeFailureKey is a worktree operation's copy for a fault code.

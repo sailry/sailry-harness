@@ -341,9 +341,11 @@ Unsupported generations and foreign databases fail without replacing the databas
 Schema additions are rehearsed on an isolated snapshot, backed up and applied
 transactionally with current-format validation. Configuration and recovery records
 are checked at startup; history and captured turns are checked when read.
-Existing Turso files are opened in place. Startup does not move, convert or
-automatically select archived databases. Preview `.sqlite` files are not selected,
-converted or removed. Legacy plugin records stay
+Active Turso files from the `v0.2.0` release onward are opened in place. A profile
+without active database files starts with new Turso storage, even if it contains
+an older archive or preview `.sqlite` files. Startup does not select, convert or
+remove those files. Incomplete active storage still fails without replacement.
+Legacy plugin records stay
 preserved when the normal schema update adds per-user configuration tables;
 initialization runs once with those tables so later restarts do not resurrect
 removed configuration.
@@ -456,14 +458,14 @@ snapshot every six hours when its content changes, and releases embed their
 committed snapshot. This reference data is separate from the reviewed model
 request policies under `internal/node/agent/model/data`.
 
-Uploaded pictures reach a vision-capable conversation model as native image
-input. Explicit model tags and native discovery take precedence. Automatic
-vision uses the channel's catalog, or the canonical model when entries for
-an unlisted gateway agree on its identity. Discovery and manual model entry
-read model data from the owning Node, whose settings and turn admission resolve
-the same capability. If the turn omits an image and has an inspection route,
-its prompt names the attachment directly for `inspect_image`, which makes a
-separate model request.
+Model settings separate input modalities from tool, reasoning and generation
+capabilities. Automatic input capabilities follow the model and channel in the
+owning Node's catalog, including declared image support from native discovery.
+Manual capabilities are kept on refresh. Older settings and unknown gateways
+retain their text and image compatibility behavior. The captured model, native
+adapter and detected file format determine whether an attachment can travel as
+media. Available inspection routes stay usable through attachment references.
+The turn releases cached bytes once the outgoing history no longer needs them.
 
 Admission freezes the worktree, permission, configuration, model or team,
 reasoning effort, credential identity and package revisions. Renewed runtime
@@ -472,13 +474,13 @@ login recovery can record a different effective credential for a waiting run
 without rewriting that admission capture. Other updates affect subsequent
 admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
-context. Named context sections append only changed values, with execution IDs
-separate from stable instructions. Each delta records only its emitted sections;
-compaction or visibility changes restore sections no longer present in model-visible
-history. Existing context records remain unchanged. Automatic compaction
-uses the captured model and defaults to 80% of its context window. Summaries do not
-delete original records or raw tool output. Context-length failures allow up to two
-reactive compactions.
+context. Named context sections append changed values, with execution IDs
+separate from stable instructions. New user input refreshes the current deferred
+tool catalog and last successfully recorded unfinished plan. Compaction or
+visibility changes restore sections no longer present in model-visible history.
+Automatic compaction uses the captured model and defaults to 80% of its context
+window. Summaries preserve original records and raw tool output. Context-length
+failures allow up to two reactive compactions.
 
 Desktop Conversation settings edit the selected Node profile's `instructions.md`.
 The Node captures that file for each new turn, including turns in existing
@@ -505,7 +507,9 @@ latest user request and its pending attachments. The previous summary is never
 silently omitted to make the summary request fit. A failed request leaves the
 original context intact; there is no background compaction or second summary pass.
 
-Hidden history is filtered before attachment materialization. A successful
+The active history holds stored tool payloads and asset references. A request
+hydrates eligible tool results after selecting its visible, answered history.
+Hidden history is filtered before materialization. A successful
 compaction must reach a main request before another threshold compaction.
 Provider-reported usage alone enters usage and cost totals; local token estimates
 inform context budgeting without inventing billed usage. After a checkpoint,
@@ -552,6 +556,10 @@ allow roleless delegation. Code Review requires a tool-capable captured role for
 new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
 selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
+Ordinary foreground delegation waits for its results before the next parent
+step. A parent can explicitly overlap a foreground child with independent work.
+That child remains owned by the parent turn and joins before it settles. Waiting
+for a child is accounted for separately from active tool execution.
 
 `list_subagents` reads a bounded page of direct child sessions from durable
 delegation records across turns. The active parent uses its captured delegation
@@ -571,7 +579,9 @@ evidence. The running turn takes a bounded batch between model steps; an idle
 session can take a reserved batch through its normal automatic queue. Delivery
 and the Node-authored evidence record commit together, without changing user
 input or replaying a tool result. Foreground child results also belong to their
-original row; a real `wait_agent` call still returns its own tool result.
+original row; a real `wait_agent` call still returns its own tool result. Steering
+can yield the foreground wait while the parent drains completed child results at
+its next safe boundary.
 Active follow-ups and automatic deliveries contribute to session activity.
 Held results remain available for the next input, and a descendant waiting for
 input or approval remains visible when background work is active.
@@ -787,13 +797,16 @@ range bookmarks. A matching history revision does not make detached pages
 current. Full-range recovery can request up to 1,000 entries per turn page;
 interactive reads and partial-range recovery retain their smaller entry limit.
 Node byte and wire frame limits apply to both. A new subscription sends history
-first. Node computes conversation statistics outside the publication lock and
-delivers them on the same ordered feed.
+first. Closing the last observation releases queued and replayed frames. Node
+skips live metadata refresh for unobserved conversations and reads current
+durable state when a new observer attaches. Statistics are computed outside the
+publication lock and delivered on the same ordered feed.
 
 Desktop reuses read-only conversation source copies until a Client observation
-changes, including pagination and connection state. Across history pages the
-read-only view shares its already detached canonical entries. Node stream updates
-invalidate that reuse, and mutable action reads always get independent copies.
+changes, including pagination and connection state. Across history pages and
+streaming drafts the read-only view shares its already detached canonical entries.
+Replacement snapshots and removal of a visible entry invalidate their reuse.
+Mutable action reads always get independent copies.
 An unchanged visible transcript projection is reused even for active runs; elapsed labels update
 without rebuilding its history. Controls and mutable presentation overlays still
 refresh. Leaving a conversation releases its presentation cache and unbinds
@@ -808,6 +821,9 @@ image rows and published document cards resolve bitmaps when displayed. Panes
 share them on their owning Node and release them after their last visible use. The transcript retains
 checkpoint paths and change counts for loaded turns. Opening the history or
 changes view requests the older checkpoint inventory; review owns the diff lines.
+Open workspace editors retain file bodies and draft revisions. A single-file
+diff retains the revision needed for hunk actions. Closing an editor or diff
+releases its recoverable file contents while retaining workspace navigation.
 
 Terminal rendering uses MyGo's terminal package and libghostty-vt. Mermaid uses
 CrychicUI, chart variants use the conversation painter over limu, and math uses

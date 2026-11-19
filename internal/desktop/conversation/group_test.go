@@ -23,11 +23,10 @@ func named(name string, n int) []Call {
 	return out
 }
 
-// TestGrouping groups the pure grouping and summary rules; each case keeps its own fixture.
+// TestGrouping groups the pure grouping and row rules; each case keeps its own fixture.
 func TestGrouping(t *testing.T) {
 	t.Run("Compact", testCompact)
-	t.Run("RunsAndSequence", testRunsAndSequence)
-	t.Run("Summary", testSummary)
+	t.Run("RowColor", testRowColor)
 	t.Run("AnswerFrom", testAnswerFrom)
 	t.Run("LastLines", testLastLines)
 	t.Run("Elapsed", testElapsed)
@@ -315,65 +314,30 @@ func testCompact(t *testing.T) {
 	}
 }
 
-func testRunsAndSequence(t *testing.T) {
-	calls := append(append(named("read", 2), named("grep", 1)...), named("read", 1)...)
-	runs := Runs(calls)
-	if len(runs) != 3 || len(runs[0]) != 2 {
-		t.Fatalf("runs %v", runs)
-	}
-	if !Sequence(calls) || Sequence(named("read", 3)) || Sequence(named("read", 1)) {
-		t.Error("a sequence is more than one call of more than one name")
-	}
-}
-
-func testSummary(t *testing.T) {
+// A row's color is its own call's state alone.
+func testRowColor(t *testing.T) {
 	p := &theme.Palette{
 		MutedForeground: ui.RGBA(100, 100, 100, 1), Foreground: ui.RGBA(250, 250, 250, 1),
 		Danger: ui.RGBA(240, 40, 40, 1), Warning: ui.RGBA(240, 170, 40, 1),
 	}
-	failed := Call{Name: "read", Failed: true}
 	for _, row := range []struct {
 		name string
-		last Call
+		call Call
 		want ui.Color
 	}{
-		{"settled after failure", Call{}, p.MutedForeground},
-		{"running after failure", Call{Running: true}, p.MutedForeground.Mix(p.Foreground, 0.35)},
-		{"awaiting approval after failure", Call{Pending: true}, p.Warning},
-		{"interrupted after failure", Call{Warning: true, State: NotExecuted}, p.Warning},
-		{"latest failure", Call{Failed: true}, p.Danger},
+		{"settled", Call{}, p.MutedForeground},
+		{"running", Call{Running: true}, p.MutedForeground.Mix(p.Foreground, 0.35)},
+		{"awaiting approval", Call{Pending: true}, p.Warning},
+		{"interrupted", Call{Warning: true, State: NotExecuted}, p.Warning},
+		{"tool error", Call{Warning: true}, p.MutedForeground},
+		{"failed", Call{Failed: true}, p.Danger},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			row.last.Name, row.last.Detail, row.last.Output = "read", "last", &Output{}
-			calls := []Call{failed, {Name: "read", Pending: true}, row.last}
-			s := Summary(calls)
-			if s.Detail != "last" || s.Output != nil || rowColor(p, s) != row.want {
-				t.Fatalf("summary %+v has color %v, want %v", s, rowColor(p, s), row.want)
-			}
-			if rowColor(p, calls[0]) != p.Danger || calls[2].Output == nil {
-				t.Fatal("summary changed a grouped call's status or output")
+			if got := rowColor(p, row.call); got != row.want {
+				t.Fatalf("%+v has color %v, want %v", row.call, got, row.want)
 			}
 		})
 	}
-	t.Run("concurrent foreground work", func(t *testing.T) {
-		calls := []Call{
-			{ID: "first", Running: true},
-			{ID: "second", Running: true, Output: &Output{}},
-			{ID: "background", Background: &Background{Running: true}},
-			{ID: "finished"},
-		}
-		for _, want := range []string{"second", "first", "finished"} {
-			head := Summary(calls)
-			if head.ID != want || head.Output != nil {
-				t.Fatalf("head = %+v, want %s", head, want)
-			}
-			for i := range calls {
-				if calls[i].ID == want {
-					calls[i].Running = false
-				}
-			}
-		}
-	})
 }
 
 // Background outcomes keep their status color without adding result text
@@ -398,14 +362,6 @@ func testBackground(t *testing.T) {
 		if got := flagged(calls[i]); got != rows[i].flagged {
 			t.Errorf("%+v takes the warning color: %v, want %v", rows[i].background, got, rows[i].flagged)
 		}
-	}
-	if s := Summary(calls[:2]); s.Background != calls[1].Background || s.Running {
-		t.Errorf("a settled group is headed %+v, want its last call's state", s)
-	}
-	active := append([]Call{}, calls[:2]...)
-	active[0].Running = true
-	if s := Summary(active); s.Background != calls[1].Background || s.Running {
-		t.Errorf("an earlier running call changed the last call's settled state: %+v", s)
 	}
 	for _, lang := range []string{"en", "zh-CN"} {
 		for _, size := range []float32{12, 18} {

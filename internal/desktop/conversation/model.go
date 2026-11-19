@@ -364,8 +364,12 @@ type Call struct {
 	// or, with a State, a denied, interrupted or unexecuted
 	// call (warning color).
 	Failed, Warning, Pending, Running bool
-	// Standalone calls never group; Terminal ones (ask_user, plan review)
-	// are interactions rather than work.
+	// AwaitingModel marks a call of the latest returned batch while the run
+	// waits for the model's next output: its row keeps the running sweep in
+	// its settled color. The projection sets it; the view does not infer it.
+	AwaitingModel bool
+	// Standalone calls start their own block. Terminal calls belong to the
+	// interaction area, for example a question or a plan review.
 	Standalone, Terminal bool
 	// Output is what expanding the row shows; nil rows have no caret.
 	Output *Output

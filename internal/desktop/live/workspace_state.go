@@ -9,6 +9,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -68,6 +70,7 @@ type workspaceProject struct {
 	directories              map[string]bool
 	loading                  map[string]bool
 	failedReads              map[string]bool
+	readReported             map[string]string // read key -> toast key of its reported failure
 	diffs                    map[string]bool
 	diffContents             map[string][]viewmodel.Hunk
 	manualDiffs              map[string]workspaceGitDiff
@@ -146,7 +149,7 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 		r.initWorkspace()
 	}
 	for _, project := range r.workspace.projects {
-		project.pruneDocumentImages()
+		project.pruneClosedContent()
 	}
 	r.projectWorkspaceLocations()
 	session, ok := r.session(r.App.Sidebar.Selected)
@@ -255,6 +258,52 @@ func (p *workspaceProject) releaseView() {
 	}
 	p.panel.ResetFileSearch()
 	p.stopGitRefreshTimer()
+	p.pruneClosedContent()
+}
+
+// pruneClosedContent keeps the workspace's navigation state while dropping
+// file bodies and patches that no open editor or diff needs. A later read
+// recovers them from the Node with the then-current revision.
+func (p *workspaceProject) pruneClosedContent() {
+	p.pruneDocumentImages()
+	for path := range p.files {
+		if p.panel.Git.UsesFileDiff(path) || !p.panel.ReleaseClosedFile(path) {
+			continue
+		}
+		delete(p.files, path)
+		delete(p.changedFiles, path)
+		delete(p.failedReads, "file/"+path)
+		if file := workspaceFileNode(p.data.Files, path); file != nil {
+			file.Text = ""
+		}
+	}
+	var released map[string]bool
+	for key := range p.diffContents {
+		_, path, _ := strings.Cut(key, "/")
+		if !p.panel.Git.UsesDiff(path) {
+			delete(p.diffContents, key)
+			delete(p.manualDiffs, key)
+			delete(p.diffs, key)
+			delete(p.failedReads, "diff/"+key)
+			if released == nil {
+				released = map[string]bool{}
+			}
+			released[path] = true
+		}
+	}
+	for path := range p.hunks {
+		if !p.panel.Git.UsesDiff(path) {
+			delete(p.hunks, path)
+		}
+	}
+	if len(released) > 0 && p.turnView == nil {
+		for index := range p.data.Changes {
+			change := &p.data.Changes[index]
+			if released[change.Path] {
+				change.Hunks = nil
+			}
+		}
+	}
 }
 func (r *Runtime) closeWorkspace() {
 	if r.workspace == nil {
@@ -317,19 +366,53 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 				state.Next = false
 				p.directoryState(directory, state)
 			}
-			p.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+			if outcome, name, own := workspaceReadFailure(key, err); own {
+				p.reportRead(c, key, outcome, name)
+			} else {
+				p.runtime.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+			}
 			for _, failure := range failures {
 				failure(c, err)
 			}
 			return
 		}
+		delete(p.readReported, key)
 		done(c, out)
 	})
+}
+
+// reportRead toasts a failed folder or Git read once per cause: the reads a
+// watch repeats, and the Git status and worktree list that fail together,
+// tell it once until the read succeeds or the user refreshes. A project's
+// worktree list read for location labels while another project is shown
+// leaves its failure to the read made when that project is shown.
+func (p *workspaceProject) reportRead(c *ui.Context, key string, outcome kit.Outcome, name string) {
+	if key == "git-worktrees" {
+		shown := p.runtime.selectedWorkspace()
+		if shown == nil || shown.owner.Project == nil || p.owner.Project == nil || *shown.owner.Project != *p.owner.Project {
+			return
+		}
+	}
+	group := workspaceReadGroup(key)
+	told := false
+	for other, reported := range p.readReported {
+		if reported == name && workspaceReadGroup(other) == group {
+			told = true
+		}
+	}
+	if p.readReported == nil {
+		p.readReported = map[string]string{}
+	}
+	p.readReported[key] = name
+	if !told {
+		kit.Toast(c, outcome, i18n.T(c, name))
+	}
 }
 func (p *workspaceProject) refresh() {
 	if p.runtime.controller.Connected() {
 		p.closeDocumentImages()
 	}
+	p.readReported = nil
 	p.turnView = nil
 	p.reviewTarget = nil
 	p.reviewTurns = map[string]protocol.TurnID{}

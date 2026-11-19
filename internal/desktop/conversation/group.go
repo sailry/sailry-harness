@@ -163,31 +163,6 @@ func AnswerFrom(blocks []Block) int {
 	return 0
 }
 
-// Runs splits calls into runs of the same name, as tool_groups does.
-func Runs(calls []Call) [][]Call {
-	var out [][]Call
-	for len(calls) > 0 {
-		end := 1
-		for end < len(calls) && calls[end].Name == calls[0].Name {
-			end++
-		}
-		out = append(out, calls[:end:end])
-		calls = calls[end:]
-	}
-	return out
-}
-
-// Sequence reports calls that go under one outer disclosure: more than one,
-// not all of the same name.
-func Sequence(calls []Call) bool {
-	for i := 1; i < len(calls); i++ {
-		if calls[i].Name != calls[0].Name {
-			return true
-		}
-	}
-	return false
-}
-
 // pathList reports a call whose body lists the paths it touched: two or
 // more, or one other than its detail.
 func pathList(c Call) bool {
@@ -198,33 +173,22 @@ func pathList(c Call) bool {
 	return n >= 2 || n == 1 && c.Output.Paths[0] != c.Detail
 }
 
-// Summary represents the newest executing foreground call, or the last call
-// once foreground work has settled. Background jobs have their own status.
-func Summary(calls []Call) Call {
-	s := calls[len(calls)-1]
-	for i := len(calls) - 1; i >= 0; i-- {
-		if calls[i].Running && calls[i].Background == nil {
-			s = calls[i]
-			break
-		}
-	}
-	s.Output = nil
-	return s
+// awaitingModel is a call whose row sweeps while the model's next output is
+// awaited: a foreground call of the returned batch that did not fail, is
+// not awaiting approval and takes no warning color.
+func awaitingModel(call Call) bool {
+	return call.AwaitingModel && call.Background == nil && !call.Failed && !call.Pending && !flagged(call)
 }
 
-// uniquePaths lists the paths of calls once each, in order.
-func uniquePaths(calls []Call) []string {
+// uniquePaths lists paths once each, in order: a path row is keyed by its
+// path.
+func uniquePaths(paths []string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, c := range calls {
-		if c.Output == nil {
-			continue
-		}
-		for _, p := range c.Output.Paths {
-			if !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+	for _, p := range paths {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
 		}
 	}
 	return out
