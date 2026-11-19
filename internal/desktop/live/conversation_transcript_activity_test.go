@@ -251,6 +251,15 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	second[1].Run.Status = "completed"
 	frame("child", second[1])
 	show()
+	toolGroup := i18n.In("zh-CN", "meter_tool_calls")
+	order(count(10, 10), text.Data.(string), toolGroup, count(1, 2), "check_fixture", thinking)
+	if tester.HasText("search_fixture") {
+		t.Fatal("settled tools did not collapse into their group")
+	}
+	if err := tester.Click(toolGroup); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
 	order(count(10, 10), text.Data.(string), "search_fixture", count(1, 2), "check_fixture", thinking)
 	transcriptActivityShot(t, tester, "transcript-child-reuse")
 	if err := tester.Click(count(1, 2)); err != nil {

@@ -259,6 +259,22 @@ func TestAgentManagementTools(t *testing.T) {
 			}
 		}
 	}
+	expectCodes := func(t *testing.T, history protocol.ConversationHistory, expected map[string]protocol.ErrorCode) {
+		t.Helper()
+		actual := make(map[string]protocol.ErrorCode)
+		for _, entry := range history.Page.Entries {
+			for _, part := range entry.Parts {
+				if value, ok := part.Data.(*protocol.ConversationPartToolResultPayload); ok && value.ID != nil && value.Summary != nil && value.Summary.Failure != nil && value.Summary.Failure.Code != nil {
+					actual[*value.ID] = *value.Summary.Failure.Code
+				}
+			}
+		}
+		for call, code := range expected {
+			if actual[call] != code {
+				t.Errorf("%s history has error code %q, want %q", call, actual[call], code)
+			}
+		}
+	}
 	unknown := strings.Repeat("a", 64)
 
 	t.Run("patch receipts allow consecutive guarded edits", func(t *testing.T) {
@@ -375,29 +391,34 @@ func TestAgentManagementTools(t *testing.T) {
 			"inspect":         {`"summary":{`, `"name":"roles-fixture"`, `"issues":[]`},
 			"mcp-install":     {`"name":"mcp-fixture"`, `"standalone":true`, `"credential_slots":["TOKEN"]`, `"transport":"stdio"`},
 			"skills":          {`{"skills":[]}`},
-			"skill-uninstall": {"permission_denied", "only standalone skill packages can be managed by this tool"},
+			"skill-uninstall": {"only standalone skill packages can be managed by this tool"},
 			"agents":          {`{"agents":[`, `"key":"explore"`, `"revision":"1"`},
 			"agent":           {`"key":"reviewer"`, `"revision":"1"`},
 			"ocr-models":      {`"models"`},
-			"ocr-install":     {"not_found", "local model is not registered"},
-			"ocr-remove":      {"not_found", "local model is not registered"},
+			"ocr-install":     {"local model is not registered"},
+			"ocr-remove":      {"local model is not registered"},
 			"mcp-list":        {`"servers":[`, `"name":"mcp-fixture"`},
 			"mcp-update":      {`"name":"mcp-fixture"`, `"credential_slots":["TOKEN"]`, `"standalone":true`},
-			"plugin-remove":   {"invalid_request", "use manage_skills or manage_mcp for standalone packages"},
+			"plugin-remove":   {"use manage_skills or manage_mcp for standalone packages"},
 			"edit":            {`"description":"Reviews changes"`, `"revision":"2"`},
-			"stale":           {"revision_conflict", "configuration revision changed; reload before editing"},
+			"stale":           {"configuration revision changed; reload before editing"},
 			"team":            {`"key":"review"`, `"revision":"1"`, `"members":["`},
 			"teams":           {`"teams":[`, `"key":"review"`},
 			"roster":          {`"kind":"roles"`, `"key":"reviewer"`, `"revision":"2"`},
 			"mcp-remove":      {`"servers":[`, `"name":"github"`},
 			"apply":           {`"session":"`, `"roles":[{"id":"`, `"revision":"2"`},
-			"apply-stale":     {"revision_conflict"},
+			"apply-stale":     {"configuration revision changed; reload before editing"},
 			"apply-team":      {`"team":{"id":"`, `"roles":[`},
 			"keep":            {`"kind":"role"`, `"name":"Lead reviewer"`, `"revision":"3"`},
 			"assign":          {`"kind":"session_roles"`, `"roles":[]`},
 			"delete-team":     {`[]`},
 			"drop":            {`"kind":"roles"`, `"key":"explore"`},
-			"delete-missing":  {"not_found"},
+			"delete-missing":  {"role does not exist"},
+		})
+		expectCodes(t, history, map[string]protocol.ErrorCode{
+			"skill-uninstall": protocol.ErrorCodePermissionDenied, "ocr-install": protocol.ErrorCodeNotFound,
+			"ocr-remove": protocol.ErrorCodeNotFound, "plugin-remove": protocol.ErrorCodeInvalidRequest,
+			"stale": protocol.ErrorCodeRevisionConflict, "apply-stale": protocol.ErrorCodeRevisionConflict, "delete-missing": protocol.ErrorCodeNotFound,
 		})
 		for _, call := range []string{"ocr-install", "ocr-remove"} {
 			if strings.Contains(results[call], "permission_denied") {
@@ -429,7 +450,7 @@ func TestAgentManagementTools(t *testing.T) {
 
 	t.Run("ask permission", func(t *testing.T) {
 		var results map[string]string
-		_, approvals, _ := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
+		_, approvals, history := turn(t, protocol.WorkModeCode, protocol.PermissionAsk, func(approval protocol.ConversationApproval) string {
 			script.mu.Lock()
 			defer script.mu.Unlock()
 			// add_agent is approved; the next request's add_team and OCR
@@ -470,13 +491,18 @@ func TestAgentManagementTools(t *testing.T) {
 			"teams":           {`{"teams":[]}`},
 			"agent":           {`"key":"writer"`, `"revision":"1"`},
 			"agents":          {`"key":"writer"`},
-			"invalid-agent":   {"invalid_request", "role key, name or turn limit is invalid"},
-			"invalid-edit":    {"invalid_request", "role key, name or turn limit is invalid"},
-			"invalid-team":    {"invalid_request", "team key or name is invalid"},
-			"invalid-members": {"invalid_request", "team members must be distinct"},
-			"invalid-keep":    {"invalid_request", "role key, name or turn limit is invalid"},
+			"invalid-agent":   {"role key, name or turn limit is invalid"},
+			"invalid-edit":    {"role key, name or turn limit is invalid"},
+			"invalid-team":    {"team key or name is invalid"},
+			"invalid-members": {"team members must be distinct"},
+			"invalid-keep":    {"role key, name or turn limit is invalid"},
 		})
-		if strings.Contains(results["denied"], `"key":"writers"`) || strings.Contains(results["ocr-remove"], "not_found") {
+		expectCodes(t, history, map[string]protocol.ErrorCode{
+			"invalid-agent": protocol.ErrorCodeInvalidRequest, "invalid-edit": protocol.ErrorCodeInvalidRequest,
+			"invalid-team": protocol.ErrorCodeInvalidRequest, "invalid-members": protocol.ErrorCodeInvalidRequest, "invalid-keep": protocol.ErrorCodeInvalidRequest,
+			"denied": protocol.ErrorCodePermissionDenied, "ocr-remove": protocol.ErrorCodePermissionDenied,
+		})
+		if strings.Contains(results["denied"], `"key":"writers"`) || strings.Contains(results["ocr-remove"], "local model is not registered") {
 			t.Fatalf("denied calls executed: %q, %q", results["denied"], results["ocr-remove"])
 		}
 		states := map[protocol.ConversationApprovalState]int{}
@@ -869,7 +895,7 @@ func TestAgentManagementTools(t *testing.T) {
 
 	t.Run("plan mode", func(t *testing.T) {
 		var results map[string]string
-		_, approvals, _ := turn(t, protocol.WorkModePlan, protocol.PermissionFull, func(protocol.ConversationApproval) string {
+		_, approvals, history := turn(t, protocol.WorkModePlan, protocol.PermissionFull, func(protocol.ConversationApproval) string {
 			t.Fatal("plan mode must not ask")
 			return "deny"
 		}, func(step int, current map[string]string) [][3]string {
@@ -896,16 +922,21 @@ func TestAgentManagementTools(t *testing.T) {
 		})
 		expect(t, results, map[string][]string{
 			"plugins":       {`"name":"roles-fixture"`},
-			"plugin-remove": {"permission_denied", "planning turns cannot change plugins"},
+			"plugin-remove": {"planning turns cannot change plugins"},
 			"mcp-list":      {`"servers":[`, `"name":"github"`, `"standalone":false`},
-			"mcp-install":   {"permission_denied", "MCP mutations are unavailable in Plan mode"},
+			"mcp-install":   {"MCP mutations are unavailable in Plan mode"},
 			"skills":        {`{"skills":[]}`},
-			"skill-remove":  {"permission_denied", "skill installation changes are unavailable in Plan mode"},
+			"skill-remove":  {"skill installation changes are unavailable in Plan mode"},
 			"agents":        {`"key":"writer"`},
-			"agent":         {"permission_denied", "planning mode permits read-only tools"},
-			"keep":          {"permission_denied", "planning mode permits read-only tools"},
-			"ocr-install":   {"permission_denied", "planning mode permits read-only tools"},
-			"command":       {"permission_denied", "planning mode permits read-only tools"},
+			"agent":         {"planning mode permits read-only tools"},
+			"keep":          {"planning mode permits read-only tools"},
+			"ocr-install":   {"planning mode permits read-only tools"},
+			"command":       {"planning mode permits read-only tools"},
+		})
+		expectCodes(t, history, map[string]protocol.ErrorCode{
+			"plugin-remove": protocol.ErrorCodePermissionDenied, "mcp-install": protocol.ErrorCodePermissionDenied,
+			"skill-remove": protocol.ErrorCodePermissionDenied, "agent": protocol.ErrorCodePermissionDenied,
+			"keep": protocol.ErrorCodePermissionDenied, "ocr-install": protocol.ErrorCodePermissionDenied, "command": protocol.ErrorCodePermissionDenied,
 		})
 		if len(approvals) != 0 {
 			t.Fatalf("plan mode recorded approvals: %+v", approvals)
