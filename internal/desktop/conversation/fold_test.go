@@ -4,7 +4,50 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
+
+func TestEarlierReplySegmentFoldsWhileTurnContinues(t *testing.T) {
+	state := New()
+	turns := []Turn{{
+		ID: "turn",
+		Segments: []Segment{
+			{Inputs: []Input{{ID: "turn", User: "Inspect the code"}}},
+			{From: 2, Inputs: []Input{{ID: "guide", User: "Check the test too"}}},
+		},
+		Reply: Reply{Status: Running, Blocks: []Block{
+			{Kind: ToolsBlock, Calls: []Call{{ID: "earlier", Label: "Read file", Detail: "history.go"}}},
+			{Kind: TextBlock, Text: "Earlier answer"},
+			{Kind: ToolsBlock, Calls: []Call{{ID: "latest", Label: "Read file", Detail: "active_test.go"}}},
+			{Kind: TextBlock, Text: "Latest answer"},
+		}},
+	}}
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { View(c, state, "session", turns, nil, still{}) })
+	}, 900, 800)
+	tester.SetLocale("zh-CN")
+	tester.SetPreferences(ui.Preferences{ReduceMotion: true})
+	completed := i18n.In("zh-CN", "turn_completed")
+	for _, status := range []RunStatus{Running, Continued} {
+		turns[0].Reply.Status = status
+		tester.Frame()
+		button, ok := tester.AccessByRole(ui.RoleButton, completed)
+		if !ok || button.Expanded || tester.HasText("history.go") || !tester.HasText("Earlier answer") || !tester.HasText("active_test.go") {
+			t.Fatalf("%s: earlier work should be folded with the latest work visible: %q", StatusKey(status), tester.Texts())
+		}
+	}
+	if err := tester.Click(completed); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("history.go") {
+		t.Fatalf("opening the completed segment did not reveal earlier work: %q", tester.Texts())
+	}
+}
 
 func TestFoldedReplyMatchesExpandedBoundaries(t *testing.T) {
 	samples := []Block{

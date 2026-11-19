@@ -538,10 +538,14 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	p := theme.Of(c)
 	size := textSize(c)
 	r := &t.Reply
+	partStatus := r.Status
+	if !latest {
+		partStatus = Completed
+	}
 	workKey := "work-" + key
 	workOpen, chosen := s.work[workKey]
 	if !chosen {
-		workOpen = r.Status != Completed
+		workOpen = partStatus != Completed
 	}
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
@@ -557,11 +561,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		// The header: the status, its time, and the work region's trigger.
 		if latest || parts.hasWork {
 			ui.Column(c).Gap(8).Children(func() {
-				statusKey := StatusKey(r.Status)
-				if !latest {
-					statusKey = StatusKey(Completed)
-				}
-				label := i18n.T(c, statusKey)
+				label := i18n.T(c, StatusKey(partStatus))
 				status := func() {
 					row := ui.Row(c).Gap(8).Shrink(1).MinWidth(0)
 					if latest && (r.Status == Failed || r.Status == Interrupted) {
