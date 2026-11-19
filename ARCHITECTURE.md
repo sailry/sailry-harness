@@ -780,7 +780,9 @@ interrupts paging. The last observer drops the body and may leave one of 64
 range bookmarks. A matching history revision does not make detached pages
 current. Full-range recovery can request up to 1,000 entries per turn page;
 interactive reads and partial-range recovery retain their smaller entry limit.
-Node byte and wire frame limits apply to both.
+Node byte and wire frame limits apply to both. A new subscription sends history
+first. Node computes conversation statistics outside the publication lock and
+delivers them on the same ordered feed.
 
 Desktop reuses read-only conversation source copies until a Client observation
 changes, including pagination and connection state. An unchanged visible

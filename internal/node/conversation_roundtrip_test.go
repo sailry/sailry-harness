@@ -26,6 +26,35 @@ import (
 	"lukechampine.com/blake3"
 )
 
+func TestConversationSubscriptionPublishesInitialStatisticsAfterHistory(t *testing.T) {
+	t.Parallel()
+	node := nodeFixture(t)
+	session := sessionFixture(t, node)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	stream, err := node.subscribeConversation(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	initial, err := stream.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, ok := initial.Data.(protocol.ConversationSnapshot)
+	if !ok || snapshot.Page.Session != session.ID || snapshot.Statistics != nil {
+		t.Fatalf("expected history before statistics, got %+v", initial)
+	}
+	update, err := stream.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame, ok := update.Data.(*protocol.ConversationFrame)
+	if !ok || frame == nil || frame.Sequence != snapshot.Sequence+1 || frame.Change.Kind != "statistics" {
+		t.Fatalf("expected the next frame to contain initial statistics, got %+v", update)
+	}
+}
+
 func TestFirstModelRequestIncludesUploadedImage(t *testing.T) {
 	t.Parallel()
 	stream, err := os.ReadFile("agent/model/testdata/responses-text.sse")

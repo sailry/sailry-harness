@@ -66,10 +66,6 @@ func (node *Node) subscribeConversation(ctx context.Context, session protocol.Se
 			return err
 		}
 		snapshot.Page, snapshot.Missing = history.Page, history.Missing
-		statistics, statisticsErr := store.ReadAgentStatistics(ctx, db, session)
-		if statisticsErr == nil {
-			snapshot.Statistics = &statistics
-		}
 		if snapshot.Artifacts, err = store.ListArtifacts(ctx, db, session, nil, 64); err != nil {
 			return err
 		}
@@ -96,8 +92,8 @@ func (node *Node) subscribeConversation(ctx context.Context, session protocol.Se
 		_ = reservation.Close()
 		return nil, nodeFault(err)
 	}
-	if snapshot.Statistics == nil {
-		node.agent.RequestStatisticsCommitted(session)
-	}
+	// The reservation receives the statistics frame even if it is ready before
+	// the controller reads its history. Aggregate outside the publication lock.
+	node.agent.RequestStatisticsCommitted(session)
 	return reservation.Subscribe(snapshot), nil
 }
