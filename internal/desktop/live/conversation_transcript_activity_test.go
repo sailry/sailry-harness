@@ -290,13 +290,13 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 		t.Fatal("the current stream was hidden")
 	}
 	state.Snapshot.Drafts[0].Parts = append(state.Snapshot.Drafts[0].Parts, protocol.ConversationPart{Kind: "thinking", Data: "private"})
-	check("reasoning after earlier output", idle)
+	check("reasoning after earlier output", "")
 	if tester.HasText("private") {
 		t.Fatal("private reasoning entered the transcript")
 	}
 	state.Snapshot.Drafts = nil
 	entry("partial", "assistant", text)
-	check("after committed text", idle)
+	check("after committed text", "")
 	part = transcriptTool("ask", "ask_user")
 	ask := part.Data.(protocol.ConversationPartToolCallPayload)
 	spec := &protocol.ConversationQuestionSpec{Prompt: "Which file?", Input: protocol.ConversationQuestionInput{Kind: "choice", Data: protocol.ConversationQuestionInputChoicePayload{Options: []string{"Main"}}}}
@@ -305,6 +305,10 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 	entry("question", "assistant", part)
 	page.Questions = []protocol.ConversationQuestion{{ID: protocol.QuestionID{1}, Session: id, Turn: turn, Entry: "question", State: protocol.ConversationQuestionState{Kind: "pending"}}}
 	check("question", "")
+	for _, status := range []string{"cancelled", "declined"} {
+		page.Questions[0].State = protocol.ConversationQuestionState{Kind: status}
+		check(status+" question", "")
+	}
 	page.Questions[0].State = protocol.ConversationQuestionState{Kind: "answered", Data: protocol.ConversationQuestionAnswer{Kind: "choices", Data: protocol.ConversationQuestionAnswerChoicesPayload{Selected: []uint64{0}}}}
 	entry("answered", "tool", transcriptResult("ask", "ask_user"))
 	check("question answered", idle)

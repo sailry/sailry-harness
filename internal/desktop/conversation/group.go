@@ -66,6 +66,21 @@ type replySections struct {
 	hasWork, endsInRetry   bool
 }
 
+func (p replySections) runningToolVisible() bool {
+	for _, section := range [][]Block{p.work, p.answer} {
+		for _, block := range section {
+			if block.Kind == ToolsBlock {
+				for _, call := range block.Calls {
+					if call.Running {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // partitionReply only groups visible blocks. Error blocks always escape the
 // work fold, as do terminal calls following the last nonterminal call.
 func partitionReply(blocks []Block, expanded bool) replySections {

@@ -562,7 +562,11 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 						row.TextColor(p.Danger)
 					}
 					row.Children(func() {
-						ui.Text(c, label).FontSize(size).SingleLine()
+						if live && r.Phase == ExecutingTool && !parts.runningToolVisible() {
+							kit.Shimmer(c, label, size, p.MutedForeground)
+						} else {
+							ui.Text(c, label).FontSize(size).SingleLine()
+						}
 						if latest && r.Elapsed > 0 {
 							ui.Text(c, Elapsed(r.Elapsed)).FontSize(size).SingleLine()
 						}
@@ -672,7 +676,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 // The tail reports the parent's current phase, not the last activity in its
 // history. A background child has its own status independent of the parent.
 func showPhase(r *Reply, parts replySections) bool {
-	if r.Status == Stopping || r.Phase == WaitingUser {
+	if r.Status == Stopping || r.Phase == WaitingUser || r.Phase == ExecutingTool {
 		return false
 	}
 	if r.Phase == WaitingController {
@@ -680,6 +684,19 @@ func showPhase(r *Reply, parts replySections) bool {
 	}
 	if len(parts.work) > 0 && parts.endsInRetry && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
 		return false
+	}
+	// A committed reply or dismissed question remains visible after its draft
+	// disappears and before the run's next status arrives.
+	if r.Status == Running && (r.Phase == AwaitingResponse || r.Phase == PhaseNone || r.Phase == Thinking) && len(parts.answer) > 0 {
+		last := parts.answer[len(parts.answer)-1]
+		switch last.Kind {
+		case TextBlock, ImagesBlock, FilesBlock, VisualBlock, LimitBlock:
+			return false
+		case QuestionBlock:
+			if q := last.Question; q != nil && q.State != QuestionAnswered && q.State != QuestionAccepted {
+				return false
+			}
+		}
 	}
 	visibleTail := parts.answer
 	if len(visibleTail) == 0 && len(parts.failures) == 0 {
