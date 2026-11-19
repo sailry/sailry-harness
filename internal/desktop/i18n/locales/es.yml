@@ -1317,6 +1317,21 @@ role_docs_description: Escribir y actualizar la documentación del proyecto
 role_prompt_docs: |-
     Escribe o actualiza la documentación del alcance asignado. Lee primero el código y los documentos existentes relevantes, sigue su estructura y terminología, y mantén el texto conciso y preciso.
     Informa qué archivos cambiaron y qué datos no pudiste confirmar.
+role_preset_plan: Planificación
+role_plan_description: Definir los pasos de implementación y los criterios de aceptación
+role_prompt_plan: Examina el comportamiento actual y sus restricciones. Identifica las decisiones de diseño y divide el trabajo en pasos verificables con sus dependencias y comprobaciones. Señala los supuestos que deba resolver el agente principal. Conserva los archivos del proyecto sin cambios.
+role_preset_frontend: Diseño e implementación de interfaces
+role_frontend_description: Diseñar e implementar la disposición visual y las interacciones
+role_prompt_frontend: Diseña la disposición, la jerarquía visual y las interacciones con el sistema de diseño existente e impleméntalas. Cubre el teclado y los estados de carga y error cuando corresponda. Verifica los tamaños de ventana admitidos y compara el resultado con las referencias disponibles.
+role_preset_troubleshoot: Resolución de problemas complejos
+role_troubleshoot_description: Resolver implementaciones difíciles y desbloquear tareas estancadas
+role_prompt_troubleshoot: Asume una implementación compleja o una tarea que siga bloqueada tras dos o tres intentos. Revisa los resultados previos, contrasta la hipótesis clave e implementa la solución o corrección necesaria. Verifica el resultado en las condiciones originales e informa de los cambios, las pruebas y las limitaciones restantes.
+role_model_hint_review: Usa un modelo de razonamiento avanzado (p. ej., Opus) para revisar varios módulos, por ejemplo para comprobar si una cancelación llega a los subagentes.
+role_model_hint_implement: Un modelo de programación equilibrado (p. ej., Sonnet) sirve para cambios acotados, como añadir y guardar un ajuste.
+role_model_hint_test: Usa un modelo rápido (p. ej., Haiku) para ejecutar pruebas de regresión específicas. Elige uno de razonamiento avanzado para pruebas sensibles a la temporización.
+role_model_hint_plan: Un modelo de razonamiento avanzado (p. ej., Opus) ayuda a comparar diseños, por ejemplo al planificar una migración del historial que conserve las sesiones.
+role_model_hint_frontend: Un modelo de programación equilibrado (p. ej., Sonnet) sirve para implementar interfaces. Para comparar un panel con una captura de pantalla, elige uno que admita imágenes.
+role_model_hint_troubleshoot: Usa un modelo de razonamiento avanzado (p. ej., Opus) para fallos difíciles de reproducir, como un pico de memoria al desplazarse por una conversación larga.
 team_role_one: 1 rol
 team_role_count: '%{count} roles'
 teams_concurrency: Concurrencia de subagentes

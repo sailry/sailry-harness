@@ -1317,6 +1317,21 @@ role_docs_description: Projektdokumentation schreiben und aktualisieren
 role_prompt_docs: |-
     Schreibe oder aktualisiere die Dokumentation für den zugewiesenen Umfang. Lies zuerst den relevanten Code und die vorhandenen Dokumente, folge ihrer Struktur und Terminologie und halte den Text knapp und genau.
     Melde, welche Dateien geändert wurden und welche Fakten du nicht bestätigen konntest.
+role_preset_plan: Planung
+role_plan_description: Arbeitsschritte und Abnahmekriterien festlegen
+role_prompt_plan: Prüfe das bestehende Verhalten und die Rahmenbedingungen. Benenne die relevanten Entwurfsentscheidungen und gliedere den Plan in überprüfbare Schritte mit Abhängigkeiten und Prüfverfahren. Kennzeichne Annahmen, die der leitende Agent klären muss. Lass die Projektdateien unverändert.
+role_preset_frontend: UI-Design und Umsetzung
+role_frontend_description: Oberflächen und Bedienabläufe entwerfen und umsetzen
+role_prompt_frontend: Entwirf Layout, visuelle Hierarchie und Interaktion im bestehenden Designsystem und setze sie um. Berücksichtige relevante Tastatur-, Lade- und Fehlerzustände. Prüfe unterstützte Fenstergrößen sowie vorhandene visuelle Vorlagen.
+role_preset_troubleshoot: Komplexe Probleme lösen
+role_troubleshoot_description: Anspruchsvolle Funktionen umsetzen und festgefahrene Aufgaben lösen
+role_prompt_troubleshoot: Übernimm komplexe Implementierungen oder Aufgaben, die nach zwei bis drei Versuchen feststecken. Prüfe bisherige Erkenntnisse und die entscheidende Annahme. Setze die nötige Lösung um und prüfe sie unter den ursprünglichen Bedingungen. Berichte über Änderungen, Prüfungen und verbleibende Grenzen.
+role_model_hint_review: Für modulübergreifende Prüfungen eignet sich ein schlussfolgerungsstarkes Modell (z. B. Opus), etwa um zu prüfen, ob ein Abbruch auch die Unteragenten stoppt.
+role_model_hint_implement: Ein ausgewogenes Programmiermodell (z. B. Sonnet) eignet sich für klar begrenzte Änderungen, etwa ein neues Einstellungsfeld samt Speicherung.
+role_model_hint_test: Für gezielte Regressionstests eignet sich ein schnelles Modell (z. B. Haiku). Für zeitkritische Testabläufe ist ein schlussfolgerungsstarkes Modell sinnvoll.
+role_model_hint_plan: Für Entwurfsentscheidungen eignet sich ein schlussfolgerungsstarkes Modell (z. B. Opus), etwa bei der Planung einer Migration, die vorhandene Sitzungen erhält.
+role_model_hint_frontend: Für Oberflächen eignet sich ein ausgewogenes Programmiermodell (z. B. Sonnet). Beim Abgleich einer Einstellungsseite mit einem Screenshot sollte es Bildeingaben unterstützen.
+role_model_hint_troubleshoot: Für schwer reproduzierbare Fehler eignet sich ein schlussfolgerungsstarkes Modell (z. B. Opus), etwa bei Speicherspitzen beim Scrollen in langen Unterhaltungen.
 team_role_one: 1 Rolle
 team_role_count: '%{count} Rollen'
 teams_concurrency: Parallele Unteragenten

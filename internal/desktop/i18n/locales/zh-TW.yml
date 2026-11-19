@@ -1317,6 +1317,21 @@ role_docs_description: 撰寫和更新專案文件
 role_prompt_docs: |-
     為指定範圍撰寫或更新文件。先閱讀相關程式碼和現有文件，沿用它們的結構和術語，保持內容簡潔準確。
     回報修改了哪些檔案，以及無法確認的內容。
+role_preset_plan: 方案規劃
+role_plan_description: 拆解實作步驟，釐清相依關係與驗收條件
+role_prompt_plan: 整理現有行為和限制，找出影響設計的關鍵選擇。將方案拆成可驗證的步驟，寫明相依關係與驗收方法，標示需要主代理確認的假設。保留專案檔案原樣。
+role_preset_frontend: UI 設計與實作
+role_frontend_description: 設計版面、視覺層次與互動，並完成介面實作
+role_prompt_frontend: 依現有設計系統梳理操作流程，設計並實作版面、視覺層次與互動。依情境處理鍵盤操作、載入及錯誤狀態，檢查支援的視窗尺寸；有參考圖時逐項比對。
+role_preset_troubleshoot: 難題攻堅
+role_troubleshoot_description: 解決複雜實作，接手多次嘗試仍未解決的問題
+role_prompt_troubleshoot: 負責複雜實作，或接手已嘗試兩三次仍未解決的問題。檢視先前的證據與嘗試，驗證關鍵假設，完成必要的實作或修正，並依原始條件驗證。回報修改內容、驗證結果與剩餘限制。
+role_model_hint_review: 跨模組審查可選推理能力強的模型（例如 Opus），例如檢查父工作階段取消後子代理是否停止。
+role_model_hint_implement: 範圍明確的修改可選均衡型程式設計模型（例如 Sonnet），例如新增設定欄位並儲存設定。
+role_model_hint_test: 執行特定回歸測試可選快速模型（例如 Haiku）；排查涉及時序的測試可選推理能力強的模型。
+role_model_hint_plan: 涉及設計取捨可選推理能力強的模型（例如 Opus），例如規劃保留既有工作階段的歷程資料遷移。
+role_model_hint_frontend: 介面開發可選均衡型程式設計模型（例如 Sonnet）；需要比對設定面板與截圖時，選支援圖片輸入的模型。
+role_model_hint_troubleshoot: 難以重現的問題可選推理能力強的模型（例如 Opus），例如找出捲動長對話時記憶體用量激增的原因。
 team_role_one: 1 個角色
 team_role_count: '%{count} 個角色'
 teams_concurrency: 子代理並行數

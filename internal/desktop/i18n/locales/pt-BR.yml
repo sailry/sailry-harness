@@ -1317,6 +1317,21 @@ role_docs_description: Escrever e atualizar a documentação do projeto
 role_prompt_docs: |-
     Escreva ou atualize a documentação do escopo atribuído. Leia primeiro o código e os documentos existentes relevantes, siga a estrutura e a terminologia deles e mantenha o texto conciso e preciso.
     Relate quais arquivos foram alterados e os fatos que você não conseguiu confirmar.
+role_preset_plan: Planejamento
+role_plan_description: Definir as etapas de implementação e os critérios de aceitação
+role_prompt_plan: Examine o comportamento atual e as restrições. Identifique decisões de projeto e divida o trabalho em etapas verificáveis, indicando dependências e formas de validação. Destaque hipóteses que o agente principal precisa confirmar. Mantenha os arquivos do projeto intactos.
+role_preset_frontend: Design e implementação de interfaces
+role_frontend_description: Projetar e implementar a apresentação visual e as interações
+role_prompt_frontend: Projete o layout, a hierarquia visual e as interações com o sistema de design existente e implemente a interface. Quando necessário, inclua navegação por teclado e estados de carregamento e erro. Verifique os tamanhos de janela compatíveis e compare o resultado com as referências fornecidas.
+role_preset_troubleshoot: Resolução de problemas complexos
+role_troubleshoot_description: Implementar soluções complexas e destravar tarefas difíceis
+role_prompt_troubleshoot: Assuma uma implementação complexa ou uma tarefa ainda travada após duas ou três tentativas. Revise as evidências anteriores, teste a hipótese central e implemente a solução ou correção necessária. Verifique o resultado nas condições originais e relate alterações, verificações e limitações restantes.
+role_model_hint_review: Use um modelo de raciocínio avançado (por exemplo, Opus) para revisar vários módulos, por exemplo para verificar se o cancelamento chega aos subagentes.
+role_model_hint_implement: Um modelo de programação equilibrado (por exemplo, Sonnet) atende a mudanças pontuais, como adicionar e salvar uma configuração.
+role_model_hint_test: Use um modelo rápido (por exemplo, Haiku) para executar testes de regressão específicos. Prefira raciocínio avançado para testes sensíveis à ordem ou ao tempo de execução.
+role_model_hint_plan: Um modelo de raciocínio avançado (por exemplo, Opus) ajuda a avaliar alternativas, como planejar uma migração de histórico que preserve as sessões existentes.
+role_model_hint_frontend: Um modelo de programação equilibrado (por exemplo, Sonnet) atende ao desenvolvimento de interfaces. Para comparar um painel de configurações com uma captura de tela, escolha um modelo que aceite imagens.
+role_model_hint_troubleshoot: Use um modelo de raciocínio avançado (por exemplo, Opus) para falhas difíceis de reproduzir, como um pico de memória ao rolar uma conversa longa.
 team_role_one: 1 função
 team_role_count: '%{count} funções'
 teams_concurrency: Concorrência de subagentes

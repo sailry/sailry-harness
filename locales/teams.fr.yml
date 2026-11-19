@@ -62,3 +62,18 @@ role_avatar: Avatar
 role_avatar_seed: Avatar %{seed}
 role_avatar_shuffle: Mélanger
 role_avatar_none: Par défaut
+role_preset_plan: "Planification"
+role_plan_description: "Définir les étapes de réalisation et les critères de validation"
+role_prompt_plan: "Examiner le comportement actuel et les contraintes. Identifier les choix de conception, puis détailler les étapes vérifiables, leurs dépendances et les contrôles associés. Signaler les hypothèses à confirmer par le responsable. Laisser les fichiers du projet intacts."
+role_preset_frontend: "Conception et réalisation d’interfaces"
+role_frontend_description: "Concevoir et réaliser la présentation visuelle et les interactions"
+role_prompt_frontend: "Conçois la disposition, la hiérarchie visuelle et les interactions selon le système de conception existant, puis réalise-les. Gère au besoin le clavier, le chargement et les erreurs. Vérifie les tailles de fenêtre prises en charge et compare le résultat aux références fournies."
+role_preset_troubleshoot: "Résolution de problèmes complexes"
+role_troubleshoot_description: "Réaliser des développements complexes et débloquer les travaux en difficulté"
+role_prompt_troubleshoot: "Prends en charge une réalisation complexe ou un problème resté sans solution après deux ou trois essais. Examine les résultats précédents, teste l’hypothèse clé et réalise la modification ou la correction nécessaire. Vérifie-la dans les conditions initiales et précise les résultats et les limites restantes."
+role_model_hint_review: "Un modèle à raisonnement avancé (p. ex. Opus) convient aux revues transversales, par exemple pour vérifier la propagation d’une annulation aux sous-agents."
+role_model_hint_implement: "Un modèle de programmation équilibré (p. ex. Sonnet) convient à une modification ciblée, comme ajouter et enregistrer un paramètre."
+role_model_hint_test: "Un modèle rapide (p. ex. Haiku) suffit pour lancer des tests de régression ciblés. Privilégier le raisonnement avancé pour les tests sensibles au séquencement."
+role_model_hint_plan: "Un modèle à raisonnement avancé (p. ex. Opus) convient aux choix de conception, comme planifier une migration d’historique qui préserve les sessions existantes."
+role_model_hint_frontend: "Un modèle de programmation équilibré (p. ex. Sonnet) convient aux interfaces. Pour comparer un panneau de réglages à une capture d’écran, choisir un modèle acceptant les images."
+role_model_hint_troubleshoot: "Un modèle à raisonnement avancé (p. ex. Opus) convient aux pannes difficiles à reproduire, comme un pic de mémoire au défilement d’une longue conversation."

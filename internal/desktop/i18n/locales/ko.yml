@@ -1317,6 +1317,21 @@ role_docs_description: 프로젝트 문서를 작성하고 업데이트합니다
 role_prompt_docs: |-
     할당된 범위의 문서를 작성하거나 업데이트하세요. 먼저 관련 코드와 기존 문서를 읽고 그 구조와 용어를 따르며, 간결하고 정확하게 작성하세요.
     변경한 파일과 확인하지 못한 사실을 보고하세요.
+role_preset_plan: 구현 계획
+role_plan_description: 구현 단계와 검증 기준을 정리합니다
+role_prompt_plan: 현재 동작과 제약을 확인하고 설계에 영향을 주는 선택지를 파악하세요. 검증 가능한 단계로 나누어 의존 관계와 확인 방법을 명시하세요. 주 에이전트의 판단이 필요한 가정을 표시하고 프로젝트 파일은 그대로 두세요.
+role_preset_frontend: UI 설계 및 구현
+role_frontend_description: 화면 구성, 시각적 위계와 상호작용을 설계하고 구현합니다
+role_prompt_frontend: 기존 디자인 시스템에 맞춰 레이아웃, 시각적 위계와 사용자 조작을 설계하고 구현하세요. 필요한 키보드 조작과 로딩 및 오류 상태를 처리하세요. 지원하는 창 크기에서 확인하고 참고 이미지가 있으면 비교하세요.
+role_preset_troubleshoot: 고난도 문제 해결
+role_troubleshoot_description: 복잡한 기능을 구현하고 여러 번 시도해도 풀리지 않는 문제를 해결합니다
+role_prompt_troubleshoot: 복잡한 구현이나 두세 번 시도해도 막힌 작업을 맡으세요. 기존 증거와 시도를 살펴 핵심 가설을 검증하고 필요한 구현이나 수정을 완료하세요. 원래 조건에서 다시 확인하고 변경 사항, 결과와 남은 제약을 보고하세요.
+role_model_hint_review: '상위 세션을 중지할 때 하위 에이전트도 멈추는지 등 여러 모듈에 걸친 검토에는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
+role_model_hint_implement: '설정 항목 추가와 저장 등 범위가 명확한 변경에는 균형형 코딩 모델(예: Sonnet)이 적합합니다.'
+role_model_hint_test: '특정 회귀 테스트를 실행할 때는 빠른 모델(예: Haiku)을, 타이밍에 민감한 테스트를 조사할 때는 추론 성능이 높은 모델을 선택하세요.'
+role_model_hint_plan: '기존 세션을 보존하는 기록 마이그레이션 등 설계 대안을 비교할 때는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
+role_model_hint_frontend: '화면 구현에는 균형형 코딩 모델(예: Sonnet)이 적합합니다. 설정 화면과 스크린샷을 비교할 때는 이미지 입력을 지원하는 모델을 선택하세요.'
+role_model_hint_troubleshoot: '긴 대화를 스크롤할 때 메모리 사용량이 급증하는 현상처럼 재현이 어려운 문제에는 추론 성능이 높은 모델(예: Opus)이 적합합니다.'
 team_role_one: 역할 1개
 team_role_count: 역할 %{count}개
 teams_concurrency: 하위 에이전트 동시 실행 수
