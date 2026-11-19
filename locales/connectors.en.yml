@@ -47,7 +47,6 @@ connector_changed_targets: Credential targets
 connector_changed_mcp: MCP servers
 connector_changed_source: Package source
 
-connector_authentication: "Authentication"
 connector_account_enabled: "Enable account"
 connector_server_allowed: "Enable server"
 connector_package_disabled: "Plugin disabled"

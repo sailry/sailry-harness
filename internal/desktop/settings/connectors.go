@@ -152,7 +152,6 @@ type mcpEditor struct {
 // none, whether saving clears it, and whether its typed value shows.
 type slotMark struct {
 	saved string
-	clear bool
 	shown bool
 }
 
@@ -165,11 +164,9 @@ func (e *mcpEditor) mark(i int) *slotMark {
 }
 
 // kept reports whether saving keeps the slot's saved credential: nothing
-// typed over it, under the name and the kind of transport it was saved for,
-// and not marked to clear.
+// typed over it, under the name and the kind of transport it was saved for.
 func (e *mcpEditor) kept(i int) bool {
-	mark := e.mark(i)
-	return e.pinned(i) && !mark.clear && (e.source == 0) == (e.transport == 0)
+	return e.pinned(i) && (e.source == 0) == (e.transport == 0)
 }
 
 // pinned reports whether the slot still names its saved credential with no
@@ -233,8 +230,8 @@ func connectors(c *ui.Context, m *Model) {
 			}
 		})
 	})
-	// The connector's editor is over the server's, whose Authentication opens
-	// it, and a package's settings form is where its servers are configured.
+	// A package's settings form is where its servers are configured; the
+	// connector's editor opens from the service's row.
 	serviceDetails(c, m)
 	mcpDialog(c, m)
 	PackageConfigurationDialog(c, m)
@@ -411,12 +408,12 @@ func (m *Model) serviceAction(c *ui.Context, s *preview.Service, k string) {
 			notice(c)
 		}
 	case "connector_add_credentials":
-		m.addCredentials(s)
+		m.authenticate(s)
 	case "connector_connect":
 		if s.Account {
 			m.editService(s)
 		} else {
-			m.addCredentials(s)
+			m.authenticate(s)
 		}
 	case "connector_configure", "connector_bind", "connector_reauthorize":
 		if s.Manual {
@@ -469,7 +466,7 @@ func (m *Model) serviceItems(s *preview.Service) []string {
 	switch {
 	case s.Manual:
 		out = []string{"connector_configure", "connector_remove"}
-		if waiting && kind != nil {
+		if waiting && kind != nil && kind.Enabled && len(kind.Methods) > 0 {
 			out = append(out, "connector_connect")
 		}
 	case s.Account:
@@ -492,9 +489,12 @@ func (m *Model) serviceItems(s *preview.Service) []string {
 		}
 		out = append(out, "connector_remove")
 	case kind != nil && kind.Enabled && len(kind.Methods) > 0:
-		if waiting {
+		// An account the connector has already is edited on its own row.
+		account := m.service(s.Type)
+		switch {
+		case waiting:
 			out = append(out, "connector_connect")
-		} else {
+		case account == nil || !account.Account:
 			out = append(out, "connector_add_credentials")
 		}
 	}
@@ -531,8 +531,14 @@ func (m *Model) connType(id string) *preview.ConnectorType {
 // account: its methods and fields, as Add after choosing the connector.
 func (m *Model) addCredentials(s *preview.Service) {
 	if k := m.connType(s.Type); k != nil {
-		m.connector = connectorEditor{open: true, kind: k, fields: map[string]string{}, direct: true}
+		m.connector = connectorEditor{open: true, kind: k, fields: map[string]string{}, direct: true, method: defaultMethod(k)}
 	}
+}
+
+// defaultMethod is the method a new connection starts on: the local CLI when
+// the connector offers it, which binds an account already signed in.
+func defaultMethod(k *preview.ConnectorType) int {
+	return max(0, slices.Index(k.Methods, "connector_cli"))
 }
 
 func (m *Model) editService(s *preview.Service) {
@@ -567,8 +573,8 @@ func (m *Model) editServer(s *preview.Service, saved []string) {
 }
 
 // connectorDialog is the connector list to choose from, then the connector's
-// header, its methods as segments, its form and Cancel with the method's
-// action.
+// header, its methods as segments, new or saved, the chosen method's account
+// list or fields, and Cancel with the method's action.
 func connectorDialog(c *ui.Context, m *Model) {
 	e := &m.connector
 	if !e.open {
@@ -603,7 +609,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 									m.editService(s)
 									return
 								}
-								e.kind = k
+								e.kind, e.method = k, defaultMethod(k)
 							}}.row(c, k.ID, k.Name)
 					}
 				}, nil)
@@ -618,110 +624,70 @@ func connectorDialog(c *ui.Context, m *Model) {
 			ui.Row(c).Size(32, 32).Center().Children(func() { serviceTile(c, k.Name, k.Icon) })
 			ui.Text(c, k.Name).FontSize(18).FontWeight(600)
 		})
-		if len(k.Methods) > 1 && e.service == "" {
-			kit.Segmented(c, "methods", &e.method, labels(c, k.Methods), kit.SegmentedProps{Block: true}).Label(t("connector_filter"))
+		existing := m.service(e.service)
+		if existing != nil && existing.Identity != "" {
+			ui.Text(c, existing.Identity).FontSize(14).TextColor(p.MutedForeground)
 		}
-		if s := m.service(e.service); s != nil && s.Identity != "" {
-			ui.Text(c, s.Identity).FontSize(14).TextColor(p.MutedForeground)
+		// A saved connection shows the same methods, on the one it uses.
+		if len(k.Methods) > 1 {
+			kit.Segmented(c, "methods", &e.method, labels(c, k.Methods), kit.SegmentedProps{Block: true}).Label(t("connector_filter")).Disabled(e.pending)
 		}
 		method := k.Methods[min(e.method, len(k.Methods)-1)]
-		// An existing OAuth or CLI connection with fields saves them as they
-		// are; authorizing or binding again is asked for apart.
-		existing := m.service(e.service)
+		// The connection's own method keeps what it holds; another method
+		// authorizes the connection again with that method.
+		same := existing != nil && existing.Method == method
+		var fields []preview.ConnectorField
+		for _, f := range k.Fields {
+			if len(f.Methods) == 0 || slices.Contains(f.Methods, method) {
+				fields = append(fields, f)
+			}
+		}
+		// A connected OAuth connection with fields saves them as they are;
+		// authorizing again is asked for apart.
+		configuring := same && method == "connector_oauth" && len(fields) > 0 && !e.reacquire && existing.State == preview.Connected
 		acquired := method == "connector_oauth" || method == "connector_cli"
-		configuring := acquired && existing != nil && len(k.Fields) > 0 && !e.reacquire &&
-			(method == "connector_cli" || existing.State == preview.Connected)
 		ready := true
 		ui.Column(c.Key("content")).Gap(12).Children(func() {
-			switch {
-			case method == "connector_cli" && !configuring:
-				// There is an account to bind once the local CLI was looked at
-				// and has one.
-				ready = false
-				if m.Live {
-					if !e.cliStarted && m.ConnectorActions != nil && m.ConnectorActions.InspectCLI != nil {
-						e.cliStarted = true
-						e.accounts.Loading = true
-						m.ConnAccounts = nil
-						typeID := k.ID
-						m.ConnectorActions.InspectCLI(typeID, func(accounts []string) {
-							if e.open && e.kind != nil && e.kind.ID == typeID {
-								m.ConnAccounts = accounts
-								e.accounts.Loading, e.accounts.Loaded = false, true
-							}
-						})
-					}
-					if e.accounts.Loading {
-						accountSkeleton(c)
-						break
-					}
-				} else {
-					if !e.accounts.Loaded && !e.accounts.Loading {
-						e.accounts.Start()
-					}
-					if e.accounts.Advance(c.Now()) {
-						c.After(preview.Tick)
-						accountSkeleton(c)
-						break
-					}
-				}
-				names := m.ConnAccounts
-				modalList(c, "accounts", t("connector_choose_account"), "", t("connector_not_connected"), len(names), func() {
-					for i, a := range names {
-						sel := i == e.account
-						listRow{selected: &sel, onClick: func() { e.account = i }}.row(c, i, a)
-					}
-				}, nil)
-				ready = len(names) > 0
-				if !ready {
-					// Nothing to bind: look at the local CLI again.
-					kit.TextAction(c.Key("retry"), t("chat_retry"), e.pending).AlignSelf(ui.End).OnClick(func() {
-						e.cliStarted, e.accounts = false, preview.Fetch{}
-					})
-				}
-			case method == "connector_oauth" && len(k.Fields) == 0:
+			if method == "connector_cli" {
+				ready = cliAccounts(c, m, e, k, existing)
+			} else if method == "connector_oauth" && len(fields) == 0 {
 				ui.Column(c.Key("browser")).AlignItems(ui.Center).Gap(12).Padding(12).Children(func() {
 					ui.Icon(c, icons.Globe).FontSize(32).TextColor(p.MutedForeground)
 					ui.Text(c, t("connector_browser")).FontSize(14)
 				})
-			default:
-				for _, f := range k.Fields {
-					v := e.fields[f.Name]
-					kit.Field(c, f.Name, f.Title, "", func() {
-						ui.Row(c).Gap(4).Children(func() {
-							in := ui.TextInput(c.Key("input"), &v).Label(f.Title).Grow(1).Disabled(e.pending)
-							if f.Secret {
-								in.Password().Placeholder(t("form_secret_hint"))
-							}
-							if f.Help {
-								kit.Action(c.Key("help"), icons.ExternalLink, t("menu_help"), false).OnClick(func() {
-									if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Help != nil {
-										if url := m.ConnectorActions.Help(k.ID, f.Name); url != "" {
-											c.OpenURL(url)
-										}
-									} else {
-										notice(c)
+			}
+			for _, f := range fields {
+				v := e.fields[f.Name]
+				kit.Field(c, f.Name, f.Title, "", func() {
+					ui.Row(c).Gap(4).Children(func() {
+						in := ui.TextInput(c.Key("input"), &v).Label(f.Title).Grow(1).Disabled(e.pending)
+						if f.Secret {
+							in.Password().Placeholder(t("form_secret_hint"))
+						}
+						if f.Help {
+							kit.Action(c.Key("help"), icons.ExternalLink, t("menu_help"), false).OnClick(func() {
+								if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Help != nil {
+									if url := m.ConnectorActions.Help(k.ID, f.Name); url != "" {
+										c.OpenURL(url)
 									}
-								})
-							}
-						})
+								} else {
+									notice(c)
+								}
+							})
+						}
 					})
-					e.fields[f.Name] = v
-					// A field the method needs has a value, or for a saved
-					// connection's secret the one the Node holds. Authorizing
-					// in the browser asks for its own.
-					if (configuring || !acquired) && !f.Optional && !(m.Live && f.Secret && e.service != "") && strings.TrimSpace(v) == "" {
-						ready = false
-					}
+				})
+				e.fields[f.Name] = v
+				// A field the method needs has a value, or for the method's
+				// saved secret the one the Node holds. Authorizing in the
+				// browser or binding the CLI asks for its own.
+				if (configuring || !acquired) && !f.Optional && !(m.Live && f.Secret && same) && strings.TrimSpace(v) == "" {
+					ready = false
 				}
 			}
 			if configuring {
-				again := "connector_reauthorize"
-				if method == "connector_cli" {
-					again = "connector_bind"
-				}
-				kit.TextAction(c.Key("reacquire"), t(again), e.pending || !k.Enabled).AlignSelf(ui.Start).OnClick(func() {
-					e.reacquire, e.cliStarted, e.accounts = true, false, preview.Fetch{}
+				kit.TextAction(c.Key("reacquire"), t("connector_reauthorize"), e.pending || !k.Enabled).AlignSelf(ui.Start).OnClick(func() {
+					e.reacquire = true
 				})
 			}
 			if method == "connector_application" {
@@ -740,7 +706,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 		action := "settings_save"
 		switch {
 		case configuring:
-		case method == "connector_oauth" && e.service != "":
+		case method == "connector_oauth" && same:
 			action = "connector_reauthorize"
 		case method == "connector_oauth":
 			action = "connector_authorize"
@@ -757,7 +723,9 @@ func connectorDialog(c *ui.Context, m *Model) {
 					m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Update: configuring}, e.saving())
 					return
 				}
-				if s := m.service(e.service); s == nil {
+				if s := m.service(e.service); s != nil {
+					s.Method = method
+				} else {
 					st := preview.Connected
 					if method == "connector_oauth" {
 						st = preview.Connecting
@@ -774,6 +742,58 @@ func connectorDialog(c *ui.Context, m *Model) {
 			})
 		})
 	}).Width(min(520, width(c)-48)).Label(t("connector_add"))
+}
+
+// cliAccounts is the local CLI's accounts to bind, the connection's own
+// selected, once the host looked at the CLI; with none, Retry looks again.
+// It reports whether there is an account to bind.
+func cliAccounts(c *ui.Context, m *Model, e *connectorEditor, k *preview.ConnectorType, existing *preview.Service) bool {
+	t := func(key string, a ...any) string { return i18n.T(c, key, a...) }
+	identity := ""
+	if existing != nil {
+		identity = existing.Identity
+	}
+	if m.Live {
+		if !e.cliStarted && m.ConnectorActions != nil && m.ConnectorActions.InspectCLI != nil {
+			e.cliStarted = true
+			e.accounts.Loading = true
+			m.ConnAccounts = nil
+			typeID := k.ID
+			m.ConnectorActions.InspectCLI(typeID, func(accounts []string) {
+				if e.open && e.kind != nil && e.kind.ID == typeID {
+					m.ConnAccounts = accounts
+					e.accounts.Loading, e.accounts.Loaded = false, true
+					e.account = max(0, slices.Index(accounts, identity))
+				}
+			})
+		}
+		if e.accounts.Loading {
+			accountSkeleton(c)
+			return false
+		}
+	} else {
+		if !e.accounts.Loaded && !e.accounts.Loading {
+			e.accounts.Start()
+		}
+		if e.accounts.Advance(c.Now()) {
+			c.After(preview.Tick)
+			accountSkeleton(c)
+			return false
+		}
+	}
+	names := m.ConnAccounts
+	modalList(c, "accounts", t("connector_choose_account"), "", t("connector_not_connected"), len(names), func() {
+		for i, a := range names {
+			sel := i == e.account
+			listRow{selected: &sel, onClick: func() { e.account = i }}.row(c, i, a)
+		}
+	}, nil)
+	if len(names) == 0 {
+		kit.TextAction(c.Key("retry"), t("chat_retry"), e.pending).AlignSelf(ui.End).OnClick(func() {
+			e.cliStarted, e.accounts = false, preview.Fetch{}
+		})
+	}
+	return len(names) > 0
 }
 
 // pendingButton is the primary button of an action that takes time: it
@@ -900,8 +920,9 @@ func (m *Model) authenticate(s *preview.Service) {
 
 // mcpDialog is name, transport, the command and its arguments or the URL,
 // then the environment or headers, whose saved credentials stay unless typed
-// over or cleared; then the last failure's reason when asked for, and
-// Authentication, Reload, Details, Cancel and Save. A saved server's editor
+// over or removed; then the last failure's reason when asked for, and
+// Reload, Details, Cancel and Save. A connector that authorizes the server is
+// the row's, not the editor's. A saved server's editor
 // is locked until its configuration is read, and while a save is uncertain.
 func mcpDialog(c *ui.Context, m *Model) {
 	e := &m.mcp
@@ -924,7 +945,7 @@ func mcpDialog(c *ui.Context, m *Model) {
 			}
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Busy(e.loading).Children(func() {
-			kit.Field(c, "name", t("settings_name"), t("mcp_name_hint"), func() {
+			kit.Field(c, "name", t("settings_name"), "", func() {
 				// A saved server keeps the name it was added under.
 				ui.TextInput(c.Key("input"), &e.name).Label(t("settings_name")).FillWidth().Disabled(locked || e.original != "")
 			})
@@ -966,7 +987,13 @@ func mcpDialog(c *ui.Context, m *Model) {
 							shown := e.mark(i).shown
 							ui.Row(c).Gap(4).Children(func() {
 								ui.TextInput(c.Key("name"), &e.slots[i].Key).Label(t("mcp_slot_name")).Placeholder(t("mcp_slot_name")).Width(160).Disabled(locked)
-								value := ui.TextInput(c.Key("value"), &e.slots[i].Value).Label(t("mcp_slot_value")).Placeholder(t("form_secret_hint")).Grow(1).Disabled(locked)
+								// A saved value stays unless typed over; the row's
+								// removal drops it.
+								hint := "form_secret_hint"
+								if e.kept(i) {
+									hint = "mcp_secret_saved"
+								}
+								value := ui.TextInput(c.Key("value"), &e.slots[i].Value).Label(t("mcp_slot_value")).Placeholder(t(hint)).Grow(1).Disabled(locked)
 								mask := "mcp_hide_secret"
 								if !shown {
 									value.Password()
@@ -979,37 +1006,11 @@ func mcpDialog(c *ui.Context, m *Model) {
 									e.removed++
 								})
 							})
-							if !e.pinned(i) {
-								return
-							}
-							// The saved credential under this name: kept as it
-							// is, or cleared by the save when asked to or when
-							// the transport it was saved for is left.
-							ui.Row(c.Key("saved")).Gap(8).Children(func() {
-								note := "mcp_secret_cleared"
-								if e.kept(i) {
-									note = "mcp_secret_saved"
-								}
-								ui.Text(c, t(note)).FontSize(12).TextColor(p.MutedForeground).Grow(1).Shrink(1).MinWidth(0)
-								if (e.source == 0) != (e.transport == 0) {
-									return
-								}
-								toggle := "mcp_clear_secret"
-								if e.mark(i).clear {
-									toggle = "mcp_keep_secret"
-								}
-								kit.TextAction(c.Key("clear"), t(toggle), locked).OnClick(func() { e.mark(i).clear = !e.mark(i).clear })
-							})
 						})
 					}
 					kit.Secondary(c.Key("add"), t(add)).Height(28).AlignSelf(ui.Start).Disabled(locked).OnClick(func() { e.slots = append(e.slots, preview.EnvVar{}) })
 				})
 			})
-			help := "mcp_install_stdio_help"
-			if e.transport != 0 {
-				help = "mcp_install_http_help"
-			}
-			ui.Text(c, t(help)).FontSize(12).TextColor(p.MutedForeground)
 		})
 		if e.details && e.detail != "" {
 			ui.Text(c.Key("detail"), e.detail).FontSize(12).TextColor(p.MutedForeground).Selectable()
@@ -1053,13 +1054,6 @@ func mcpDialog(c *ui.Context, m *Model) {
 			e.open = false
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-			if s := m.service(e.original); s != nil {
-				// The connector that authorizes this server, when its package
-				// declares one: its editor opens over this one.
-				if k := m.connType(s.Type); k != nil && k.Enabled && len(k.Methods) > 0 {
-					kit.TextAction(c.Key("authorize"), t("connector_authentication"), e.loading || e.request != nil).OnClick(func() { m.authenticate(s) })
-				}
-			}
 			if e.unread {
 				kit.Secondary(c.Key("reload"), t("plugins_settings_reload")).Disabled(e.loading).OnClick(reload)
 			}

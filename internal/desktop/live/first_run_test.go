@@ -28,6 +28,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -225,7 +226,10 @@ func firstRun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
-	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
+	// A fixture environment: a connector's local CLI finds no signed-in
+	// account of the person running the test.
+	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()})
+	owner, err := node.StartWithOptions(ctx, profile, node.Options{Environment: &environment})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1295,8 +1299,10 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_cancel")); !ok || !tester.HasText("GitHub") {
 		t.Fatalf("Connect did not open github's editor: %q", tester.Texts())
 	}
+	shots("connectors-connect-cli")
 	press(zh("settings_cancel"))
-	if acted := sent()[before:]; len(acted) != 0 {
+	// GitHub's editor opens on its local CLI, which it looks at.
+	if acted := sent()[before:]; !slices.Equal(acted, []string{"inspect_connector_cli"}) {
 		t.Errorf("opening details and editors sent %q", acted)
 	}
 	// The details of a plugin's own server lead to its editor, on the
@@ -1404,10 +1410,18 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 
 	// Configure reads the saved server into its editor: the definition and
 	// the slot that holds a credential, never the credential. Saving it
-	// untouched keeps the credential; Clear saves the slot empty.
+	// untouched keeps the credential; removing the slot drops it.
+	holdsCredential := func() bool {
+		for _, x := range tester.AccessAll() {
+			if x.Role == ui.RoleTextField && x.Name == zh("mcp_slot_value") && x.Placeholder == zh("mcp_secret_saved") {
+				return true
+			}
+		}
+		return false
+	}
 	choose("fixture", manual, "connector_configure")
 	settle()
-	if !tester.HasText(zh("mcp_secret_saved")) || tester.HasText("first") || count("read_plugin_settings") != 1 {
+	if !holdsCredential() || tester.HasText("first") || count("read_plugin_settings") != 1 {
 		t.Fatalf("Configure did not load the saved server: %d reads, %q", count("read_plugin_settings"), tester.Texts())
 	}
 	if address, slot, value := field(zh("mcp_url")), field(zh("mcp_slot_name")), field(zh("mcp_slot_value")); address != endpoint.URL || slot != "X-Key" || value != "" {
@@ -1423,23 +1437,18 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	dismiss()
 	choose("fixture", manual, "connector_configure")
 	settle()
-	if err := tester.Click(zh("mcp_clear_secret")); err != nil {
-		t.Fatal(err)
-	}
+	press(zh("mcp_remove_slot"))
 	settle()
-	if !tester.HasText(zh("mcp_secret_cleared")) {
-		t.Errorf("Clear did not mark the slot: %q", tester.Texts())
-	}
 	press(zh("settings_save"))
 	settle()
 	if seen := called(); count("install_mcp") != 3 || count("check_plugin_mcp") != 4 || !slices.Equal(seen, []string{""}) {
-		t.Fatalf("saving the cleared slot: %d installs, %d checks, called with %q: %q", count("install_mcp"), count("check_plugin_mcp"), seen, tester.Texts())
+		t.Fatalf("saving without the slot: %d installs, %d checks, called with %q: %q", count("install_mcp"), count("check_plugin_mcp"), seen, tester.Texts())
 	}
 	dismiss()
 	choose("fixture", manual, "connector_configure")
 	settle()
-	if tester.HasText(zh("mcp_secret_saved")) {
-		t.Errorf("the cleared slot still holds a credential: %q", tester.Texts())
+	if holdsCredential() {
+		t.Errorf("the removed slot still holds a credential: %q", tester.Texts())
 	}
 	press(zh("settings_cancel"))
 

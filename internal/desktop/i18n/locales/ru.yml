@@ -1253,7 +1253,6 @@ market_details_tools: Инструменты
 connector_mcp_updated_at: Обновлено
 connector_mcp_error: Ошибка
 mcp_edit: Настроить MCP
-mcp_name_hint: Строковые буквы, цифры, точки или дефисы
 mcp_transport: Транспортные средства
 plugins_stdio: Стандартные входы/выходы
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: Добавить переменную среды
 mcp_headers: Заголовки
 mcp_add_header: Добавить заголовок
 mcp_slot_name: Имя
-mcp_keep_secret: Сохранить учетные данные
-mcp_clear_secret: Ясные полномочия
 mcp_secret_saved: Учетные данные сохранены; оставьте пустыми для сохранения
-mcp_secret_cleared: Учетные данные будут очищены при сохранении
 mcp_show_secret: Показать учётные данные
 mcp_hide_secret: Скрыть учётные данные
 connector_no_auth: Без аутентификации
-connector_authentication: Аутентификация
 connector_mcp_status: Статус
 connector_mcp_updated: Обновлено %{time}
 plugins_settings_reload: Перезагрузить
 plugins_settings_diagnostics: Подробности
 mcp_slot_value: Стоимость
 mcp_remove_slot: Удалить пункт
-mcp_install_stdio_help: Укажите команду и аргументы для выбранного хоста; секретные значения вводятся в полях учётных данных
-mcp_install_http_help: Укажите адрес MCP; для приватных заголовков используйте поля учётных данных или авторизацию OAuth
 mcp_configuration_saved: MCP конфигурация сохранена
 mcp_oauth_callback_failed: Не удалось получить обратный вызов авторизации; попробуйте еще раз
 mcp_oauth_failed: Авторизация не удалась; попробуйте снова

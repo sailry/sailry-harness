@@ -1253,7 +1253,6 @@ market_details_tools: Outils
 connector_mcp_updated_at: Mis à jour
 connector_mcp_error: Erreur
 mcp_edit: Configurer MCP
-mcp_name_hint: Lettres minuscules, chiffres, points ou traits d'union
 mcp_transport: Transports
 plugins_stdio: Entrée/sortie standard
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: Ajouter une variable d'environnement
 mcp_headers: En-têtes
 mcp_add_header: Ajouter un en-tête
 mcp_slot_name: Nom
-mcp_keep_secret: Conserver les informations d &apos; identification
-mcp_clear_secret: Une référence claire
 mcp_secret_saved: Identifiant sauvegardé; laisser vide pour conserver
-mcp_secret_cleared: Les informations d'identification seront effacées lors de l'enregistrement
 mcp_show_secret: Afficher l’identifiant
 mcp_hide_secret: Masquer l’identifiant
 connector_no_auth: Sans authentification
-connector_authentication: Authentification
 connector_mcp_status: Statut
 connector_mcp_updated: Mis à jour %{time}
 plugins_settings_reload: Recharger
 plugins_settings_diagnostics: Détails
 mcp_slot_value: Valeur
 mcp_remove_slot: Supprimer l'élément
-mcp_install_stdio_help: Saisissez la commande et les arguments de l’hôte sélectionné ; placez les valeurs privées dans les champs d’identifiants
-mcp_install_http_help: Saisissez le point de terminaison MCP ; utilisez les champs d’identifiants pour les en-têtes privés ou autorisez avec OAuth
 mcp_configuration_saved: MCP configuration enregistrée
 mcp_oauth_callback_failed: Impossible de recevoir le rappel d'autorisation; réessayez
 mcp_oauth_failed: L'autorisation a échoué; réessayez

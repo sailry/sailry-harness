@@ -48,7 +48,6 @@ connector_changed_targets: 憑證目標
 connector_changed_mcp: MCP 服務
 connector_changed_source: 外掛來源
 
-connector_authentication: "身分驗證"
 connector_account_enabled: "啟用帳號"
 connector_server_allowed: "啟用服務"
 connector_package_disabled: "外掛已停用"

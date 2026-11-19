@@ -48,7 +48,6 @@ connector_changed_targets: 認証情報の送信先
 connector_changed_mcp: MCP サーバー
 connector_changed_source: パッケージの取得元
 
-connector_authentication: "認証"
 connector_account_enabled: "アカウントを有効化"
 connector_server_allowed: "サーバーを有効化"
 connector_package_disabled: "プラグインは無効"

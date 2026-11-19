@@ -48,7 +48,6 @@ connector_changed_targets: 인증 정보 대상
 connector_changed_mcp: MCP 서버
 connector_changed_source: 패키지 출처
 
-connector_authentication: "인증"
 connector_account_enabled: "계정 활성화"
 connector_server_allowed: "서버 활성화"
 connector_package_disabled: "플러그인 비활성화됨"

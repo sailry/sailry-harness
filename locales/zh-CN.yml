@@ -656,7 +656,6 @@ mcp_configuration: 配置
 mcp_configuration_invalid: MCP 配置无效
 mcp_configuration_saved: 已保存 MCP 配置
 mcp_bundled: 插件中的 MCP
-mcp_name_hint: 小写字母、数字、点或短横线
 mcp_transport: 连接方式
 mcp_command: 命令
 mcp_command_hint: npx、uvx 或可执行命令
@@ -673,10 +672,7 @@ mcp_add_header: 添加请求头
 mcp_slot_name: 名称
 mcp_slot_value: 值
 mcp_remove_slot: 移除此项
-mcp_secret_saved: 已保存凭据，留空保留
-mcp_secret_cleared: 保存时清除凭据
-mcp_clear_secret: 清除凭据
-mcp_keep_secret: 保留凭据
+mcp_secret_saved: 已保存，留空保留
 mcp_invalid: 检查名称、连接信息和变量设置
 mcp_manage_plugins: 管理插件
 mcp_stopped: 已停止 · 示例

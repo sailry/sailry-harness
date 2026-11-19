@@ -1510,8 +1510,17 @@ func TestConnectors(t *testing.T) {
 		if e.loading || e.name != "files" || e.command != "npx" || !slices.Equal(e.args, []string{"-y", "files"}) || len(e.slots) != 2 || e.revision != 4 {
 			t.Fatalf("the editor does not hold the saved server: %+v", *e)
 		}
-		if !tt.HasText(en("mcp_secret_saved")) || !e.kept(0) || e.kept(1) {
-			t.Errorf("saved slots: kept %v %v: %q", e.kept(0), e.kept(1), tt.Texts())
+		// The first slot's value field: its placeholder says a credential is
+		// saved under it.
+		placeholder := func() string {
+			value, _ := tt.AccessByRole(ui.RoleTextField, en("mcp_slot_value"))
+			return value.Placeholder
+		}
+		if placeholder() != en("mcp_secret_saved") || !e.kept(0) || e.kept(1) {
+			t.Errorf("saved slots: kept %v %v, placeholder %q", e.kept(0), e.kept(1), placeholder())
+		}
+		if tt.HasText(en("mcp_secret_saved")) {
+			t.Errorf("the saved credential is noted beside its field: %q", tt.Texts())
 		}
 		if name, ok := tt.AccessByRole(ui.RoleTextField, en("settings_name")); !ok || !name.Disabled {
 			t.Errorf("a saved server's name can be edited: %+v", name)
@@ -1527,28 +1536,21 @@ func TestConnectors(t *testing.T) {
 		}
 		(*done)[0](false)
 		settle()
-		// Clear and Keep toggle the saved credential; a typed value replaces
-		// it; another kind of transport does not carry it over.
-		press(tt, button(t, tt, en("mcp_clear_secret")))
-		if e.kept(0) || !tt.HasText(en("mcp_secret_cleared")) || len(e.draft().Keep) != 0 {
-			t.Errorf("Clear left the credential kept: %q", tt.Texts())
-		}
-		press(tt, button(t, tt, en("mcp_keep_secret")))
-		if !e.kept(0) || !tt.HasText(en("mcp_secret_saved")) {
-			t.Errorf("Keep did not keep the credential: %q", tt.Texts())
-		}
+		// A typed value replaces the saved credential; another kind of
+		// transport does not carry it over.
 		e.transport, e.url = 1, "https://example.test/mcp"
 		settle()
-		if e.kept(0) || !tt.HasText(en("mcp_secret_cleared")) {
+		if e.kept(0) || placeholder() == en("mcp_secret_saved") || len(e.draft().Keep) != 0 {
 			t.Error("a credential saved for a command is kept for a URL")
 		}
-		if _, ok := tt.AccessByRole(ui.RoleButton, en("mcp_keep_secret")); ok {
-			t.Error("a credential of another transport can be kept")
-		}
 		e.transport = 0
+		settle()
+		if !e.kept(0) || placeholder() != en("mcp_secret_saved") {
+			t.Error("returning to a command does not keep its credential")
+		}
 		e.slots[0].Value = "typed"
 		settle()
-		if d := e.draft(); len(d.Keep) != 0 || d.Server.Env[0].Value != "typed" || tt.HasText(en("mcp_secret_saved")) {
+		if d := e.draft(); len(d.Keep) != 0 || d.Server.Env[0].Value != "typed" || placeholder() == en("mcp_secret_saved") {
 			t.Errorf("a typed credential saves as %+v", d)
 		}
 		// A value is masked until shown: the last slot's here.
@@ -1818,6 +1820,55 @@ func TestConnectors(t *testing.T) {
 		settle()
 		if bind := button(t, tt, en("connector_bind")); bind.Disabled || inspected != 2 || !tt.HasText("octocat") {
 			t.Errorf("after Retry: Bind disabled %v, %d inspections: %q", bind.Disabled, inspected, tt.Texts())
+		}
+	})
+	// A connector with several methods: a new connection starts on the CLI,
+	// a saved one shows the same methods on its own, each method shows only
+	// its own fields, and another method authorizes the connection again.
+	t.Run("connector methods", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var drafts []ConnectorDraft
+		var done []func(bool)
+		m.ConnectorActions = &ConnectorActions{
+			Save: func(draft ConnectorDraft, completed func(bool)) {
+				drafts, done = append(drafts, draft), append(done, completed)
+			},
+			InspectCLI: func(_ string, completed func([]string)) { completed([]string{"other", "octocat"}) },
+		}
+		m.ConnTypes = []preview.ConnectorType{{ID: "hub/hub", Package: "hub", Name: "Hub", Methods: []string{"connector_token", "connector_cli"}, Enabled: true,
+			Fields: []preview.ConnectorField{{Name: "token", Title: "Token", Secret: true, Methods: []string{"connector_token"}}}}}
+		m.Services = nil
+		tt, settle := page(m)
+		m.addCredentials(&preview.Service{Type: "hub/hub"})
+		settle()
+		if _, ok := tt.AccessByRole(ui.RoleTextField, "Token"); ok || m.connector.method != 1 {
+			t.Fatalf("a new connection opens on method %d with the token field %v", m.connector.method, ok)
+		}
+		m.Services = []preview.Service{{ID: "hub/hub", Type: "hub/hub", Name: "Hub", Method: "connector_cli", Identity: "octocat", Account: true, AccountOn: true, State: preview.Connected, Revision: 3}}
+		m.editService(&m.Services[0])
+		settle()
+		if _, ok := tt.AccessByRole(ui.RoleTextField, "Token"); ok || m.connector.method != 1 || m.connector.account != 1 {
+			t.Fatalf("the CLI connection opens on method %d, account %d, token field %v", m.connector.method, m.connector.account, ok)
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("settings_save")); ok {
+			t.Error("the CLI connection offers Save beside Bind")
+		}
+		press(tt, button(t, tt, en("connector_bind")))
+		if len(drafts) != 1 || drafts[0].Method != "connector_cli" || drafts[0].Service != "hub/hub" || drafts[0].Update {
+			t.Fatalf("Bind sent %+v", drafts)
+		}
+		done[0](false)
+		m.connector.method = 0
+		settle()
+		if save := button(t, tt, en("settings_save")); !save.Disabled {
+			t.Error("switching a CLI connection to a token keeps a token it never had")
+		}
+		m.connector.fields["token"] = "secret"
+		settle()
+		press(tt, button(t, tt, en("settings_save")))
+		if len(drafts) != 2 || drafts[1].Method != "connector_token" || drafts[1].Service != "hub/hub" || drafts[1].ExpectedRevision != 3 || drafts[1].Fields["token"] != "secret" {
+			t.Fatalf("switching to a token sent %+v", drafts)
 		}
 	})
 }

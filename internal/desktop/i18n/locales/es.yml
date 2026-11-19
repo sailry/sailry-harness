@@ -1253,7 +1253,6 @@ market_details_tools: Herramientas
 connector_mcp_updated_at: Actualizado
 connector_mcp_error: Error
 mcp_edit: Configurar MCP
-mcp_name_hint: Letras minúsculas, números, puntos o guiones
 mcp_transport: Transporte
 plugins_stdio: Entrada/salida estándar
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: Añadir variable de entorno
 mcp_headers: Encabezados
 mcp_add_header: Añadir encabezado
 mcp_slot_name: Nombre
-mcp_keep_secret: Mantener las credenciales
-mcp_clear_secret: Credencial clara
 mcp_secret_saved: Credencial guardada; deje en blanco para mantener
-mcp_secret_cleared: Las credenciales se borrarán al guardar
 mcp_show_secret: Mostrar credencial
 mcp_hide_secret: Ocultar credencial
 connector_no_auth: Sin autenticación
-connector_authentication: Autenticación
 connector_mcp_status: Estado
 connector_mcp_updated: Actualizado %{time}
 plugins_settings_reload: Recargar
 plugins_settings_diagnostics: Detalles
 mcp_slot_value: Valor
 mcp_remove_slot: Eliminar el artículo
-mcp_install_stdio_help: Introduce el comando y los argumentos del host seleccionado; añade los valores privados en los campos de credenciales
-mcp_install_http_help: Introduce el endpoint MCP; usa los campos de credenciales para las cabeceras privadas o autoriza con OAuth
 mcp_configuration_saved: MCP configuración guardada
 mcp_oauth_callback_failed: No se pudo recibir la devolución de llamada de autorización; inténtelo de nuevo
 mcp_oauth_failed: La autorización falló; inténtelo de nuevo

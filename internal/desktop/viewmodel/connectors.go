@@ -46,6 +46,9 @@ type ConnectorField struct {
 	Secret      bool
 	Help        bool
 	Optional    bool
+	// Methods are the methods whose credentials the field holds, as
+	// connectorMethods keys; none means every method uses it.
+	Methods []string
 }
 
 type ConnectorType struct {

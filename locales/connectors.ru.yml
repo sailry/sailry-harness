@@ -48,7 +48,6 @@ connector_changed_targets: Получатели учётных данных
 connector_changed_mcp: Серверы MCP
 connector_changed_source: Источник пакета
 
-connector_authentication: "Аутентификация"
 connector_account_enabled: "Включить аккаунт"
 connector_server_allowed: "Включить сервер"
 connector_package_disabled: "Плагин отключён"

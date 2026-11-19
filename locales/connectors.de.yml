@@ -48,7 +48,6 @@ connector_changed_targets: Anmeldedatenziele
 connector_changed_mcp: MCP-Server
 connector_changed_source: Paketquelle
 
-connector_authentication: "Authentifizierung"
 connector_account_enabled: "Konto aktivieren"
 connector_server_allowed: "Server aktivieren"
 connector_package_disabled: "Plugin deaktiviert"

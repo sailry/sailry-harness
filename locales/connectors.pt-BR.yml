@@ -48,7 +48,6 @@ connector_changed_targets: Destinos de credenciais
 connector_changed_mcp: Servidores MCP
 connector_changed_source: Origem do pacote
 
-connector_authentication: "Autenticação"
 connector_account_enabled: "Ativar conta"
 connector_server_allowed: "Ativar servidor"
 connector_package_disabled: "Plugin desativado"

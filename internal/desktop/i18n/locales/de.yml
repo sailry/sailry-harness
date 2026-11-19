@@ -1253,7 +1253,6 @@ market_details_tools: Werkzeuge
 connector_mcp_updated_at: Aktualisiert
 connector_mcp_error: Fehler
 mcp_edit: MCP konfigurieren
-mcp_name_hint: Kleinbuchstaben, Zahlen, Punkte oder Bindestriche
 mcp_transport: Verkehr
 plugins_stdio: Standard-Eingang / Ausgang
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: Umgebungsvariable hinzufügen
 mcp_headers: Header
 mcp_add_header: Kopfzeile hinzufügen
 mcp_slot_name: Name
-mcp_keep_secret: Anmeldeinformationen beibehalten
-mcp_clear_secret: Clear Credential
 mcp_secret_saved: Anmeldeinformationen gespeichert; zum Behalten leer lassen
-mcp_secret_cleared: Anmeldeinformationen werden beim Speichern gelöscht
 mcp_show_secret: Anmeldedaten anzeigen
 mcp_hide_secret: Anmeldedaten ausblenden
 connector_no_auth: Keine Authentifizierung
-connector_authentication: Authentifizierung
 connector_mcp_status: Status
 connector_mcp_updated: Aktualisiert %{time}
 plugins_settings_reload: Neu laden
 plugins_settings_diagnostics: Details
 mcp_slot_value: Wert
 mcp_remove_slot: Artikel entfernen
-mcp_install_stdio_help: Befehl und Argumente für den gewählten Host eingeben; geheime Werte gehören in die Zugangsdatenfelder
-mcp_install_http_help: MCP-Endpunkt eingeben; private Header über Zugangsdatenfelder oder OAuth autorisieren
 mcp_configuration_saved: MCP Konfiguration gespeichert
 mcp_oauth_callback_failed: Der Autorisierungsrückruf konnte nicht empfangen werden; versuchen Sie es erneut
 mcp_oauth_failed: Autorisierung fehlgeschlagen; versuchen Sie es erneut

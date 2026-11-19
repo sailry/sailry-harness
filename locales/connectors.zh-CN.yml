@@ -47,7 +47,6 @@ connector_changed_targets: 凭据目标
 connector_changed_mcp: MCP 服务
 connector_changed_source: 插件来源
 
-connector_authentication: "身份验证"
 connector_account_enabled: "启用账号"
 connector_server_allowed: "启用服务"
 connector_package_disabled: "插件已停用"

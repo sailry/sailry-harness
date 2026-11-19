@@ -1253,7 +1253,6 @@ market_details_tools: 工具
 connector_mcp_updated_at: 更新時間
 connector_mcp_error: 錯誤
 mcp_edit: 配置 MCP
-mcp_name_hint: 小寫字母、數字、點或短橫線
 mcp_transport: 連線方式
 plugins_stdio: 標準輸入輸出
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: 新增環境變數
 mcp_headers: 請求頭
 mcp_add_header: 新增請求頭
 mcp_slot_name: 名稱
-mcp_keep_secret: 保留憑據
-mcp_clear_secret: 清除憑據
 mcp_secret_saved: 已儲存憑據，留空保留
-mcp_secret_cleared: 儲存時清除憑據
 mcp_show_secret: 顯示憑據
 mcp_hide_secret: 隱藏憑據
 connector_no_auth: 無需驗證
-connector_authentication: 身分驗證
 connector_mcp_status: 狀態
 connector_mcp_updated: 更新於 %{time}
 plugins_settings_reload: 重新讀取
 plugins_settings_diagnostics: 詳情
 mcp_slot_value: 值
 mcp_remove_slot: 移除此項
-mcp_install_stdio_help: 輸入所選主機執行的命令和參數，私密值填寫於憑證欄位
-mcp_install_http_help: 輸入 MCP 位址，私密標頭填寫於憑證欄位，或使用 OAuth 授權
 mcp_configuration_saved: 已儲存 MCP 配置
 mcp_oauth_callback_failed: 無法接收授權回撥，請重試
 mcp_oauth_failed: 授權失敗，請重試

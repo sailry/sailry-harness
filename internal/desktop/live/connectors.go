@@ -162,14 +162,31 @@ func (r *Runtime) projectConnectors() {
 		value := r.authorizations.types[id]
 		declaration := value.Declaration
 		kind := viewmodel.ConnectorType{ID: id, Package: value.Package.Name, Name: declaration.Display.Label, Enabled: value.Enabled, Icon: pluginIconSource(declaration.Display.Icon)}
+		// A field a token or application method names as its credential
+		// belongs to that method; the others are the connection's own.
+		owners := map[string][]string{}
 		for _, auth := range declaration.Auth {
 			method := connectorMethod(protocol.PluginConnectorKind(auth.Kind))
 			if !slices.Contains(kind.Methods, method) {
 				kind.Methods = append(kind.Methods, method)
 			}
+			var names []string
+			if value, ok := detail[protocol.PluginConnectorAuthSecretPayload](auth.Data); ok {
+				names = value.Fields
+			} else if value, ok := detail[protocol.PluginConnectorAuthApplicationPayload](auth.Data); ok {
+				names = []string{value.Fields.ClientID}
+				if value.Fields.ClientSecret != nil {
+					names = append(names, *value.Fields.ClientSecret)
+				}
+			}
+			for _, name := range names {
+				if !slices.Contains(owners[name], method) {
+					owners[name] = append(owners[name], method)
+				}
+			}
 		}
 		for _, field := range declaration.Fields {
-			kind.Fields = append(kind.Fields, viewmodel.ConnectorField{Name: field.Name, Title: field.Title, Secret: field.Secret, Optional: field.Optional, Help: field.Help != nil})
+			kind.Fields = append(kind.Fields, viewmodel.ConnectorField{Name: field.Name, Title: field.Title, Secret: field.Secret, Optional: field.Optional, Help: field.Help != nil, Methods: owners[field.Name]})
 		}
 		types = append(types, kind)
 	}
@@ -633,8 +650,13 @@ func (r *Runtime) inspectConnectorCLI(id string, done func([]string)) {
 		return
 	}
 	r.execute(protocol.Command{Kind: "inspect_connector_cli", Data: protocol.CommandInspectConnectorCliPayload{Package: value.Package, Connector: value.Declaration.ID}}, func(c *ui.Context, output protocol.Output, err error) {
-		if err != nil {
+		// A CLI that is missing or signed out is the editor's empty list,
+		// which can look again; only other failures are reported.
+		var fault *protocol.Fault
+		if err != nil && !(errors.As(err, &fault) && fault.Code == protocol.ErrorCodeNotConfigured) {
 			r.connectorError(c, err)
+		}
+		if err != nil {
 			done(nil)
 			return
 		}

@@ -1253,7 +1253,6 @@ market_details_tools: ツール
 connector_mcp_updated_at: 更新日時
 connector_mcp_error: エラー
 mcp_edit: MCP を設定
-mcp_name_hint: 小文字、数字、ドット、ハイフン
 mcp_transport: 交通
 plugins_stdio: 標準入出力
 plugins_http: Streamable HTTP
@@ -1271,22 +1270,16 @@ mcp_add_environment: 環境変数を追加
 mcp_headers: ヘッダー
 mcp_add_header: ヘッダを追加
 mcp_slot_name: 名前
-mcp_keep_secret: クレジット情報を保持
-mcp_clear_secret: クレジット情報をクリア
 mcp_secret_saved: クレジット情報を保存しました。保持するには空にしてください
-mcp_secret_cleared: クレジット情報は保存時にクリアされます
 mcp_show_secret: 認証情報を表示
 mcp_hide_secret: 認証情報を隠す
 connector_no_auth: 認証不要
-connector_authentication: 認証
 connector_mcp_status: 状態
 connector_mcp_updated: 更新日時 %{time}
 plugins_settings_reload: 再読み込み
 plugins_settings_diagnostics: 詳細
 mcp_slot_value: 値
 mcp_remove_slot: アイテムを削除
-mcp_install_stdio_help: 選択中のホストのコマンドと引数を入力し、秘密の値は認証情報欄に入力します
-mcp_install_http_help: MCP エンドポイントを入力し、秘密のヘッダーは認証情報欄、または OAuth で認証します
 mcp_configuration_saved: MCP 設定を保存
 mcp_oauth_callback_failed: 認証コールバックを受信できませんでした。もう一度試してください
 mcp_oauth_failed: 認証に失敗しました。もう一度試してください
