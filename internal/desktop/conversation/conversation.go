@@ -545,7 +545,11 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	workKey := "work-" + key
 	workOpen, chosen := s.work[workKey]
 	if !chosen {
-		workOpen = partStatus != Completed
+		// A run that ended without completing opens all of its work, the
+		// parts before consumed guidance included, so it shows where it
+		// stopped; a live run folds the parts it has moved past.
+		ended := r.Status == Cancelled || r.Status == Interrupted || r.Status == Failed
+		workOpen = partStatus != Completed || ended
 	}
 	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
