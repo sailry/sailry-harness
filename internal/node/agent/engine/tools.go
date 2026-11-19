@@ -17,12 +17,15 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"lukechampine.com/blake3"
 )
+
+var progressToolName = operations.Alias("progress", "update_plan")
 
 // Tool is one captured declaration and executor. Concurrency and authority are
 // properties of the captured registration, never arguments supplied by a model.
@@ -206,6 +209,7 @@ func (r *Runtime) deferTools(x *execution) error {
 		}
 	}
 	role := selectedRole(x.inv.Message) != nil
+	collaborate := !child && x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
 	for index := range x.tools {
 		tool := &x.tools[index]
 		switch {
@@ -217,6 +221,9 @@ func (r *Runtime) deferTools(x *execution) error {
 			if slices.Contains([]string{"list_sessions", "read_session", "search_session"}, tool.Definition.Name) {
 				tool.Deferred = true
 			}
+		case collaborate && tool.Definition.Name == progressToolName:
+			// The coordinator can record its plan in the same batch as dispatch.
+			tool.Deferred = false
 		default:
 			// A declared initial tool starts visible only to the main agent.
 			tool.Deferred = !(tool.Binding.Owner.Name == selected || visibleTool(*tool) || !tool.Deferred && !child)

@@ -507,8 +507,8 @@ func TestCollaborateWithOneModelRunsChildrenInParallel(t *testing.T) {
 	}
 	language := &scriptedModel{scripts: []script{
 		response(
-			call("first", "spawn_agent", `{"task":"Investigate the first question"}`),
-			call("second", "spawn_agent", `{"task":"Investigate the second question"}`),
+			call("first", "spawn_agent", `{"task":"Investigate the first question","overlap":false}`),
+			call("second", "spawn_agent", `{"task":"Investigate the second question","overlap":false}`),
 			call("missing-role", "spawn_agent", `{"task":"Refuse unknown role","role":"reviewer"}`),
 			finish(),
 		),

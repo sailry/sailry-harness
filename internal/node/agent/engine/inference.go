@@ -82,10 +82,22 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 		parts = append(parts, prompt.Part{Key: "deferred_tools", Text: r.deferredContext(x, state), RefreshOnInput: true})
 	}
 	if x.inv.Session.Delegation == nil {
+		var progress []string
+		if tool := findTool(x.tools, progressToolName); hasTools && tool != nil {
+			name := r.exposure(x, state).name(tool.Definition.Name)
+			if tool.Deferred && !slices.Contains(state.LoadedTools, tool.Definition.Name) {
+				progress = append(progress, "For substantial multi-step work or a needed plan update, load the progress tool with tool_search using select:"+name+". Batch discovery with other independent calls.")
+			} else {
+				progress = append(progress, "Use "+name+" to record a plan for substantial multi-step work and to update the plan you are continuing.")
+			}
+		}
 		if plan := store.LatestAgentPlan(state.Records); plan != nil {
 			if encoded, err := json.Marshal(plan); err == nil {
-				parts = append(parts, prompt.Part{Key: "plan", Text: "Current unfinished plan from recorded progress (task state, not new authorization):\n" + string(encoded), RefreshOnInput: true})
+				progress = append(progress, "Current unfinished plan from recorded progress (task state, not new authorization):\n"+string(encoded))
 			}
+		}
+		if len(progress) != 0 {
+			parts = append(parts, prompt.Part{Key: "plan", Text: strings.Join(progress, "\n"), RefreshOnInput: true})
 		}
 	}
 	if state.Context.Environment != nil {

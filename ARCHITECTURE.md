@@ -478,8 +478,11 @@ admission. Policy, instructions, guides and selected
 capabilities form the stable prompt; changing per-turn state is carried as agent
 context. Named context sections append changed values, with execution IDs
 separate from stable instructions. New user input refreshes the current deferred
-tool catalog and last successfully recorded unfinished plan. Compaction or
-visibility changes restore sections no longer present in model-visible history.
+tool catalog and last successfully recorded unfinished plan. The plan section
+names the admitted progress tool or its exact discovery query. Collaborate
+offers that plugin tool on the first request so the parent can record progress
+alongside delegation. Compaction or visibility changes restore sections no
+longer present in model-visible history.
 Automatic compaction uses the captured model and defaults to 80% of its context
 window. Summaries preserve original records and raw tool output. Context-length
 failures allow up to two reactive compactions.
@@ -558,10 +561,12 @@ allow roleless delegation. Code Review requires a tool-capable captured role for
 new review assignments when the roster is populated. Continuing an existing child preserves its original role. Team
 selection supplies named roles and optional model overrides. Read-only roles use Plan.
 Team settings control child concurrency, with a default of eight per root session.
-Ordinary foreground delegation waits for its results before the next parent
-step. A parent can explicitly overlap a foreground child with independent work.
-That child remains owned by the parent turn and joins before it settles. Waiting
-for a child is accounted for separately from active tool execution.
+In Collaborate, a model's `spawn_agent` call overlaps foreground work with the
+parent by default. A dependent next step can use `overlap: false` to wait before
+continuing. Standard, user-selected and package delegation keep their existing
+wait defaults. An overlapping child remains owned by its parent turn and joins
+before it settles. Waiting for a child is accounted for separately from active
+tool execution.
 
 `list_subagents` reads a bounded page of direct child sessions from durable
 delegation records across turns. The active parent uses its captured delegation

@@ -87,7 +87,7 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 		}
 	}
 	parent := &scriptedModel{scripts: []script{
-		response(call("first", "spawn_agent", `{"task":"Run the first check"}`), finish()),
+		response(call("first", "spawn_agent", `{"task":"Run the first check","overlap":false}`), finish()),
 		observe(parentRequests, finishSecondStep, response(call("second", "spawn_agent", `{"task":"Run the second check"}`), finish())),
 		observe(parentRequests, finishThirdStep, response(text("First check summarized"), finish())),
 		observe(parentRequests, nil, response(text("Both checks summarized"), finish())),
@@ -161,7 +161,7 @@ func TestForegroundResultsJoinRepeatedGuidance(t *testing.T) {
 	}
 }
 
-func TestForegroundChildrenOverlapIndependentParentWork(t *testing.T) {
+func TestCollaborateForegroundChildrenOverlapIndependentParentWorkByDefault(t *testing.T) {
 	const childAnswer = "Result from the overlapping child"
 	childStarted := make(chan struct{}, 2)
 	finishChildren := make(chan struct{})
@@ -173,8 +173,8 @@ func TestForegroundChildrenOverlapIndependentParentWork(t *testing.T) {
 	})
 	parent := &scriptedModel{scripts: []script{
 		response(
-			call("first", "spawn_agent", `{"task":"Check the first independent area","overlap":true}`),
-			call("second", "spawn_agent", `{"task":"Check the second independent area","overlap":true}`),
+			call("first", "spawn_agent", `{"task":"Check the first independent area"}`),
+			call("second", "spawn_agent", `{"task":"Check the second independent area"}`),
 			finish(),
 		),
 		response(call("local", "local_check", `{}`), finish()),

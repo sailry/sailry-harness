@@ -14,7 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"overlap":{"type":"boolean","description":"Continue independent parent work while this foreground child runs. Its result still joins this turn."},"worktree":{"type":["string","null"]}}}`
+const spawnSchema = `{"type":"object","additionalProperties":false,"required":["task"],"properties":{"session":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},"role":{"type":["string","null"]},"task":{"type":"string"},"title":{"type":"string","minLength":1},"background":{"type":"boolean"},"overlap":{"type":"boolean","description":"Continue parent work while this foreground child runs. Defaults to true in Collaborate. Set false if the next parent step needs its result."},"worktree":{"type":["string","null"]}}}`
 const listSubagentsSchema = `{"type":"object","additionalProperties":false,"properties":{"before":{"type":"string","pattern":"^[1-9][0-9]{0,18}$","description":"Use next_before from the preceding page"},"limit":{"type":"integer","minimum":1,"maximum":50,"default":20}}}`
 
 func delegationAvailable(x *execution) bool {
@@ -208,7 +208,7 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 	var args struct {
 		Role       *string `json:"role"`
 		Background bool    `json:"background"`
-		Overlap    bool    `json:"overlap"`
+		Overlap    *bool   `json:"overlap"`
 	}
 	if json.Unmarshal(arguments, &args) != nil {
 		return invalidTool("invalid delegation arguments")
@@ -216,17 +216,20 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 	if args.Role != nil && !slices.ContainsFunc(x.inv.Turn.Roles.Profiles, func(role protocol.RoleProfile) bool { return role.Key == *args.Role && r.usableRole(x, role) }) {
 		return invalidTool("role is not listed in this turn's roster")
 	}
-	if args.Background && args.Overlap {
+	explicitOverlap := args.Overlap != nil && *args.Overlap
+	if args.Background && explicitOverlap {
 		return invalidTool("overlap requires a foreground child")
 	}
+	selectedCall := call.ID == "sailry-selected-"+x.inv.Run.Turn.String()
+	defaultOverlap := args.Overlap == nil && call.Name == "spawn_agent" && !selectedCall && x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
 	mode := childForeground
 	if args.Background {
 		mode = childBackground
-	} else if args.Overlap {
+	} else if explicitOverlap || defaultOverlap {
 		mode = childOverlap
 	}
 	var selected *protocol.ConversationInput
-	if call.ID == "sailry-selected-"+x.inv.Run.Turn.String() {
+	if selectedCall {
 		copy := x.inv.Message
 		copy.References = slices.DeleteFunc(slices.Clone(copy.References), func(ref protocol.ConversationReference) bool { return ref.Target.Kind == "agent" })
 		if strings.TrimSpace(copy.Text) == "" && len(copy.References) == 0 && len(copy.Attachments) == 0 {

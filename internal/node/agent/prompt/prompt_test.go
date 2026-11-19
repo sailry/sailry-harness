@@ -34,7 +34,8 @@ func TestSystemPromptByteStable(t *testing.T) {
 		}
 	}
 	for _, child := range []bool{false, true} {
-		if !strings.HasPrefix(Instruction(child), text("baseline")+"\n\n") {
+		instructions := Instruction(child)
+		if !strings.HasPrefix(instructions, text("baseline")+"\n\n") || !strings.Contains(instructions, "use tool_search when offered to load its exact current name") {
 			t.Fatalf("shared instructions missing for child=%t", child)
 		}
 	}
@@ -63,14 +64,15 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 	t.Parallel()
 	const report = "When you collect a substantive result, failure or blocker from a delegated child"
 	const link = "](sailry://session/<session-id>)"
-	const revisePlan = "If update_plan is available, immediately submit the full revised plan"
+	const initialPlan = "For substantial multi-step work, record an initial plan early"
+	const revisePlan = "Submit the full revised plan with the current progress tool as soon as it is available"
 	for _, mode := range []protocol.WorkMode{protocol.WorkModeCode, protocol.WorkModeFlagship, protocol.WorkModePlan} {
 		t.Run(string(mode), func(t *testing.T) {
 			parentPolicy := Policy(mode, protocol.PermissionFull, false)
 			parent := System(Instruction(false), canonical.Context{Policy: &parentPolicy})
 			for _, phrase := range []string{
 				report, "review its evidence and integrate", "what the child actually verified", "static only", "internal handoffs", link,
-				"review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
+				initialPlan, "discover it using the exact name", "review the current steps first", revisePlan, "leave unrun required checks pending", "reconcile unfinished steps with the evidence",
 			} {
 				if !strings.Contains(parent, phrase) {
 					t.Errorf("parent prompt is missing %q", phrase)
@@ -82,7 +84,7 @@ func TestParentProgressInstructionsAreRecipientScoped(t *testing.T) {
 
 			childPolicy := Policy(mode, protocol.PermissionFull, true)
 			child := System(Instruction(true), canonical.Context{Policy: &childPolicy})
-			if strings.Contains(child, report) || strings.Contains(child, link) || strings.Contains(child, revisePlan) {
+			if strings.Contains(child, report) || strings.Contains(child, link) || strings.Contains(child, initialPlan) || strings.Contains(child, revisePlan) {
 				t.Error("child prompt includes parent progress instructions")
 			}
 			for _, phrase := range []string{"returns to the parent agent, not the user", "assigned goal", "what remains unverified"} {

@@ -10,8 +10,28 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestCollaborateOffersCapturedProgressTool(t *testing.T) {
+	progress := packageTool("progress", "update_plan", "", false, func(context.Context, canonical.ToolRequest) ToolResult {
+		return ToolResult{Value: map[string]bool{"updated": true}}
+	})
+	model := &scriptedModel{scripts: []script{response(text("Completed"), finish())}}
+	f := newFixture(t, model, progress)
+	config := f.session.Config
+	config.Mode = protocol.WorkModeFlagship
+	input := protocol.DefaultConversationStart()
+	input.Config, input.Execution, input.Message.Text = &config, protocol.ConversationExecutionModel, "Coordinate the reports"
+	turn := f.command("start_session", &input).Data.(protocol.QueuedTurn)
+	f.start()
+	f.waitRun(turn.ID, protocol.ConversationStatusCompleted)
+	request := model.calls[0]
+	if !slices.Contains(offeredNames(request), "update_plan") || !strings.Contains(promptText(request), "Use update_plan to record a plan") {
+		t.Fatal("Collaboration required discovery for its captured progress tool")
+	}
+}
 
 func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 	const originalPlan = `{"title":"Coordinate two fixes","steps":[{"description":"Fix the first report","state":"completed"},{"description":"Verify the second report","state":"in_progress"}]}`
@@ -19,6 +39,8 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 	progress := objectTool(planTool, true, false, func(_ context.Context, request canonical.ToolRequest) ToolResult {
 		return ToolResult{Value: map[string]json.RawMessage{"progress": request.Arguments}}
 	})
+	progress.Deferred = true
+	progress.Binding = &store.ApprovalBinding{Owner: protocol.PluginReference{Name: "progress"}, Tool: planTool}
 	cold := objectTool("optional_probe", true, true, nil)
 	remaining := objectTool("remaining_probe", true, true, nil)
 	cold.Deferred, remaining.Deferred = true, true
@@ -40,7 +62,8 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 		return ToolResult{Value: map[string]bool{"done": true}}
 	})
 	model := &scriptedModel{scripts: []script{
-		response(call("plan", planTool, originalPlan), finish()),
+		response(call("discover-plan", "tool_search", `{"query":"select:update_plan"}`), finish()),
+		response(call("plan", "update_plan", originalPlan), finish()),
 		response(call("hold-one", "hold_fixture", `{}`), finish()),
 		response(call("discover", "tool_search", `{"query":"select:optional_probe"}`), call("hold-two", "hold_fixture", `{}`), finish()),
 		response(call("hold-three", "hold_fixture", `{}`), finish()),
@@ -69,8 +92,19 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 		t.Fatal("fixture did not reach the step without new input")
 	}
 	fixture.waitRun(turn, protocol.ConversationStatusCompleted)
-	if model.count() != 5 {
+	if model.count() != len(model.scripts) {
 		t.Fatalf("model requests = %d", model.count())
+	}
+	const planSection = `<context-section name="plan">`
+	const usePlan = "Use update_plan to record a plan for substantial multi-step work"
+	first := promptText(model.calls[0])
+	if !strings.Contains(first, planSection+"\nFor substantial multi-step work or a needed plan update, load the progress tool with tool_search using select:update_plan.") ||
+		strings.Contains(first, originalPlan) || slices.Contains(offeredNames(model.calls[0]), "update_plan") {
+		t.Fatal("fresh request did not distinguish a discoverable progress tool from saved plan state")
+	}
+	next := promptText(model.calls[1])
+	if !strings.Contains(next, planSection+"\n"+usePlan) || !slices.Contains(offeredNames(model.calls[1]), "update_plan") {
+		t.Fatal("loaded progress tool was not offered and named in the current plan context")
 	}
 	for _, record := range fixture.state().Records {
 		if record.Kind == "compaction" {
@@ -82,9 +116,9 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 		guidance string
 		loaded   bool
 	}{
-		{2, "Also check the logs", false},
-		{3, "Keep the earlier result", true},
+		{3, "Also check the logs", false},
 		{4, "Keep the earlier result", true},
+		{5, "Keep the earlier result", true},
 	} {
 		request := model.calls[step.index]
 		var prompt strings.Builder
@@ -97,18 +131,18 @@ func TestGuidanceRefreshesPlanAndToolDiscoveryWithoutCompaction(t *testing.T) {
 			}
 		}
 		_, after, ok := strings.Cut(prompt.String(), step.guidance)
-		if !ok || !strings.Contains(after, `<context-section name="plan">`) || !strings.Contains(after, originalPlan) {
-			t.Errorf("request %d lacks the verified plan after its guidance", step.index)
+		if !ok || !strings.Contains(after, planSection+"\n"+usePlan) || !strings.Contains(after, originalPlan) {
+			t.Errorf("request %d lacks the loaded progress tool and verified plan after guidance", step.index)
 		}
 		_, catalog, ok := strings.Cut(after, `<context-section name="deferred_tools">`)
 		catalog, _, _ = strings.Cut(catalog, "</context-section>")
-		if !ok || !strings.Contains(catalog, "remaining_probe") || strings.Contains(catalog, "optional_probe") == step.loaded {
+		if !ok || !strings.Contains(catalog, "remaining_probe") || strings.Contains(catalog, "update_plan") || strings.Contains(catalog, "optional_probe") == step.loaded {
 			t.Errorf("request %d has stale deferred tools: %q", step.index, catalog)
 		}
 		if enabled := slices.ContainsFunc(request.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == "optional_probe" }); enabled != step.loaded {
 			t.Errorf("request %d has wrong discovered-tool declaration: %v", step.index, enabled)
 		}
-		if step.index == 4 && strings.Count(after, `<context-section name="plan">`) != 1 {
+		if step.index == 5 && strings.Count(after, planSection) != 1 {
 			t.Error("unchanged plan was injected again without new input")
 		}
 	}
