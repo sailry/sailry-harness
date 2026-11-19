@@ -175,7 +175,9 @@ func (a *App) split(c *ui.Context) bool {
 	a.Messages.Split = g != nil
 	if g == nil {
 		if t := a.panes.Active; t.Kind == panes.Terminal && a.HasWorkspaceTerminal(t.ID) {
-			a.paneView(c, t)
+			// Alone, the terminal is the page: the title bar already names
+			// it, so it has no pane header.
+			a.paneView(c, t, false)
 			return true
 		}
 		return false
@@ -189,7 +191,7 @@ func (a *App) split(c *ui.Context) bool {
 // tree changes around it.
 func (a *App) paneNode(c *ui.Context, n *panes.Node) {
 	if n.Leaf() {
-		a.paneView(c, n.Target)
+		a.paneView(c, n.Target, true)
 		return
 	}
 	keys := make([]any, len(n.Children))
@@ -218,8 +220,9 @@ func (a *App) paneTitle(c *ui.Context, t panes.Target) string {
 
 // paneView is one pane of a split: focused by a click in it, closed by ⌘W in
 // it, its header over its content, and the zones that take drops. A terminal
-// pane splits beside itself with a new terminal on ⌘D and ⌘⇧D.
-func (a *App) paneView(c *ui.Context, t panes.Target) {
+// pane splits beside itself with a new terminal on ⌘D and ⌘⇧D. header is
+// false for a terminal shown alone.
+func (a *App) paneView(c *ui.Context, t panes.Target, header bool) {
 	w := &a.panes
 	h := w.handle(t)
 	col := ui.Column(c.Key(t)).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
@@ -240,7 +243,9 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 	d, z, ok := kit.DockDrop(c, col, func(d panes.Drag, z kit.Zone) bool {
 		return a.canDropPane(t, d.Target, placement(z))
 	}, func() {
-		a.paneHeader(c, t)
+		if header {
+			a.paneHeader(c, t)
+		}
 		if t.Kind == panes.Terminal {
 			a.terminalPane(c, t.ID)
 			return

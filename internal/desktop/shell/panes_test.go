@@ -674,3 +674,25 @@ func testDragPaneIntoEarlierPane(t *testing.T) {
 		})
 	}
 }
+
+// A terminal shown alone is the page and has no pane header; in a split it
+// has one like the other panes.
+func TestLoneTerminalHasNoPaneHeader(t *testing.T) {
+	a, tt := newTester(t)
+	a.OpenWorkspaceTerminal("lone-terminal", "")
+	tt.Frame()
+	tt.Frame()
+	drag := i18n.In("en", "pane_drag")
+	if a.panes.Active.Kind != panes.Terminal || a.panes.Displayed() != nil || buttons(tt, drag) != 0 {
+		t.Fatalf("a lone terminal shows a pane header: %q", tt.Texts())
+	}
+	term := a.panes.Active
+	if !a.panes.Drop(term, session(preview.Big), panes.Right) {
+		t.Fatal("drop")
+	}
+	tt.Frame()
+	tt.Frame()
+	if buttons(tt, drag) != 2 {
+		t.Fatalf("split panes lost their headers: %d", buttons(tt, drag))
+	}
+}
