@@ -40,6 +40,8 @@ type packageState struct {
 	documents          map[string]string
 	marketKey          string
 	marketGeneration   uint64
+	marketCancel       context.CancelFunc
+	skillMarketPages   [len(skillMarketSources)]protocol.PluginSkillcatalogPage
 	requests           map[string]protocol.Request
 	pending            map[string]protocol.Request
 	tasks              []protocol.InstallationTask
@@ -150,10 +152,13 @@ func (r *Runtime) initB8Packages() {
 			m := root.App.Settings.Model
 			if m.MarketKind == 2 {
 				root.packages.themeRead = false
-			} else if owner := r.packageOwner(); owner != nil {
-				owner.packages.marketKey = ""
 			}
-			r.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery)
+			r.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery, true)
+		},
+		MoreMarket: func() {
+			if owner := r.packageOwner(); owner != nil {
+				owner.loadMoreSkillMarket()
+			}
 		},
 		MarketPlugin: func(id string) {
 			if owner := r.packageOwner(); owner != nil {
@@ -244,9 +249,12 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	}
 	changed := root.packages.selectedNode != node
 	if changed {
-		if previousNode := root.packages.selectedNode; previousNode != "" && m.PythonStatus == "" {
+		if previousNode := root.packages.selectedNode; previousNode != "" {
 			if previous := root.runtimeFor(previousNode); previous != nil && previous.packages != nil {
-				previous.packages.pythonDraft = m.Python
+				previous.cancelMarketSearch()
+				if m.PythonStatus == "" {
+					previous.packages.pythonDraft = m.Python
+				}
 			}
 		}
 		root.packages.selectedNode = node
@@ -260,6 +268,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		m.Packages, m.SkillList, m.MarketPlugins, m.MarketSkills = nil, nil, nil, nil
 		if m.MarketKind != 2 {
 			m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
+			m.MarketMore, m.MarketFailed = false, false
 		}
 	} else {
 		if changed {
@@ -271,7 +280,7 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		}
 	}
 	if root.App.Page == shell.MarketPage {
-		root.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery)
+		root.searchPackageMarket(m.MarketKind, m.MarketSource, m.MarketQuery, false)
 	}
 	r.projectInstallations()
 	r.projectMarketThemes()

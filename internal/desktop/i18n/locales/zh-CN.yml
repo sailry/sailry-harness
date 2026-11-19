@@ -2135,6 +2135,14 @@ updates_profile_inside: 数据目录位于 Sailry 应用内，请移出后再更
 compatibility_update_unavailable: 此版本暂不可自动更新
 settings_media: 媒体模型
 settings_media_description: 管理图像、音频和视频任务使用的模型
+provider_cap_text: 文本
+provider_cap_input: 输入
+provider_cap_audio_input: 音频
+provider_cap_pdf: PDF
+provider_cap_functions: 功能
+provider_cap_follow_catalog: 跟随模型目录
+provider_cap_input_hint: 模型支持的输入。附件能否直传还取决于接口和文件格式。
+provider_cap_catalog_unknown: 模型目录暂无该渠道下这个模型的输入信息。
 provider_cap_vision: 识图
 provider_cap_tools: 工具
 provider_cap_reasoning: 推理
@@ -2154,6 +2162,8 @@ media_video: 视频
 media_speech: 语音
 media_follow: 跟随对话模型
 media_load_failed: 无法读取媒体模型
+market_load_more: 加载更多
+skill_catalog_load_failed: 无法加载技能
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID

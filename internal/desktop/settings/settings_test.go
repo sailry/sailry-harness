@@ -964,7 +964,9 @@ func TestProviderEditor(t *testing.T) {
 		tt.Frame()
 		tt.Advance(time.Second)
 		// boxes are a model's six, in the form's order.
-		names := []string{"Understands Image", "Can Tools", "Can Reasoning", "Generates Image", "Generates Video", "Generates Speech"}
+		in := func(group, name string) string { return i18n.In("en", group) + " " + i18n.In("en", name) }
+		names := []string{in("provider_cap_input", "media_image"), in("provider_cap_functions", "provider_cap_tools"), in("provider_cap_functions", "provider_cap_reasoning"),
+			in("provider_cap_generates", "media_image"), in("provider_cap_generates", "media_video"), in("provider_cap_generates", "media_speech")}
 		boxes := func(model int) (checked [6]bool, at [6]ui.AccessInfo) {
 			t.Helper()
 			for i, name := range names {

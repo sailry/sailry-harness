@@ -138,7 +138,7 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 		if query.Provider != nil || len(query.IDs) == 0 {
 			return result, invalid("channel catalog lookup requires model identifiers")
 		}
-		namespace, err := metadataCatalogProvider(query.Channel.Endpoint, query.Channel.Authentication)
+		namespace, err := providers.ChannelCatalogNamespace(query.Channel.Endpoint, query.Channel.Authentication)
 		if err != nil {
 			return result, err
 		}
@@ -192,20 +192,24 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 		}
 		if len(models) == 0 || models[len(models)-1].ID != model.ID {
 			models = append(models, model)
-			presence = [3]bool{len(model.Inputs) > 0, len(model.Outputs) > 0, len(model.Options) > 0}
+			presence = [3]bool{model.Inputs != nil, len(model.Outputs) > 0, len(model.Options) > 0}
 		} else {
 			mergeCatalogModel(&models[len(models)-1], model, &presence)
 		}
 	}
 	bytes := 0
 	for _, model := range models {
-		if query.Channel != nil && query.Provider == nil && !slices.Contains(model.Inputs, "image") {
-			vision, err := catalogVision(ctx, db, status.Bundled, "", model.ID)
-			if err != nil {
-				return result, err
-			}
-			if vision {
-				model.Inputs = append(model.Inputs, "image")
+		if query.Channel != nil && query.Provider == nil {
+			// An ID on an unlisted proxy can suggest legacy vision, but not a full input list.
+			model.Inputs = slices.DeleteFunc(model.Inputs, func(input string) bool { return input != "text" && input != "image" })
+			if !slices.Contains(model.Inputs, "image") {
+				inputs, err := catalogInputs(ctx, db, status.Bundled, "", model.ID)
+				if err != nil {
+					return result, err
+				}
+				if slices.Contains(inputs, "image") {
+					model.Inputs = append(model.Inputs, "image")
+				}
 			}
 		}
 		body, err := encode(model)
@@ -319,9 +323,6 @@ func catalogBoolean(left, right *bool) *bool {
 	return &value
 }
 func intersectCatalogStrings(left *[]string, right []string, seen *bool) {
-	if len(right) == 0 {
-		return
-	}
 	if !*seen {
 		*left = right
 		*seen = true
@@ -343,8 +344,12 @@ func mergeCatalogModel(left *protocol.ConversationCatalogModel, right protocol.C
 	left.Output = catalogMinimum(left.Output, right.Output)
 	left.Tools = catalogBoolean(left.Tools, right.Tools)
 	left.Reasoning = catalogBoolean(left.Reasoning, right.Reasoning)
-	intersectCatalogStrings(&left.Inputs, right.Inputs, &seen[0])
-	intersectCatalogStrings(&left.Outputs, right.Outputs, &seen[1])
+	if right.Inputs != nil {
+		intersectCatalogStrings(&left.Inputs, right.Inputs, &seen[0])
+	}
+	if len(right.Outputs) > 0 {
+		intersectCatalogStrings(&left.Outputs, right.Outputs, &seen[1])
+	}
 	if len(right.Options) == 0 {
 		return
 	}

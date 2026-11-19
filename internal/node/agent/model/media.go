@@ -67,7 +67,7 @@ func MediaChannelFor(kind protocol.MediaKind, provider protocol.ConversationProv
 	compatible := provider.Api == protocol.ConversationModelApiChatCompletions || provider.Api == protocol.ConversationModelApiResponses
 	switch kind {
 	case protocol.MediaKindVision:
-		if !entry.Vision {
+		if !entry.AcceptsInput("image") {
 			return "", false
 		}
 		if provider.Api == protocol.ConversationModelApiPlugin {

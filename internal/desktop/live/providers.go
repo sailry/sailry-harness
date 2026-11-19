@@ -670,7 +670,7 @@ func azureVersion(p protocol.ConversationProvider) string {
 
 func channelModel(m protocol.ConversationModel) viewmodel.ChannelModel {
 	v := viewmodel.ChannelModel{ID: m.ID, Name: m.ID, Context: int(m.Context), Output: int(m.Output), DefaultEffort: effortName(m.DefaultEffort),
-		Vision: m.Vision, Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
+		Inputs: slices.Clone(m.Inputs), Vision: m.AcceptsInput("image"), Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
 	for _, generated := range m.Generates {
 		v.Generates = append(v.Generates, string(generated))
 	}
@@ -852,9 +852,13 @@ func (r *Runtime) providerDraft(d settings.ProviderDraft) protocol.ConversationP
 		}
 		m.Reasoning = len(m.Efforts) > 0
 		// Tags the user chose in the form replace the catalog's and stay the
-		// model's; without them the Node completes the tags from its catalog.
+		// model's; without them the Node completes the tags from its catalog,
+		// including a model switched back from the user's tags.
 		if m.CustomCapabilities = model.CustomCapabilities; m.CustomCapabilities {
-			m.Vision, m.Tools, m.Reasoning = model.Vision, model.Tools, model.Reasoning
+			// A nil list keeps the legacy fallback, where Vision is the image input.
+			m.Inputs, m.Vision = slices.Clone(model.Inputs), model.Vision
+			m.Vision = m.AcceptsInput("image")
+			m.Tools, m.Reasoning = model.Tools, model.Reasoning
 			m.Generates = []protocol.MediaGeneration{}
 			for _, generated := range model.Generates {
 				m.Generates = append(m.Generates, protocol.MediaGeneration(generated))

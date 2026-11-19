@@ -2135,6 +2135,14 @@ updates_profile_inside: 데이터 프로파일이 Sailry 안에 있습니다. �
 compatibility_update_unavailable: 이 버전은 아직 자동 업데이트할 수 없습니다
 settings_media: 미디어 모델
 settings_media_description: 이미지, 오디오 및 비디오 작업에 대한 모델 관리
+provider_cap_text: 텍스트
+provider_cap_input: Inputs
+provider_cap_audio_input: Audio
+provider_cap_pdf: PDF
+provider_cap_functions: Functions
+provider_cap_follow_catalog: Follow catalog
+provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
+provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: 비전
 provider_cap_tools: 도구
 provider_cap_reasoning: 추론
@@ -2154,6 +2162,8 @@ media_video: 동영상
 media_speech: 음성
 media_follow: 대화 모델 따르기
 media_load_failed: 미디어 모델을 읽을 수 없음
+market_load_more: 더 불러오기
+skill_catalog_load_failed: Could not load skills
 panel_history_empty: 아직 기록이 없습니다
 panel_documents_empty: 아직 문서가 없습니다
 connections_copy_id: ID 복사

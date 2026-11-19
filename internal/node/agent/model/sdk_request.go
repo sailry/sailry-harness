@@ -135,9 +135,12 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 						continue
 					}
 					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					content := map[string]any{"type": "input_image", "detail": "auto", "image_url": dataURL(value)}
-					if !strings.HasPrefix(value.MediaType, "image/") {
-						content = map[string]any{"type": "input_file", "filename": value.Filename, "file_data": "data:" + value.MediaType + ";base64," + base64.StdEncoding.EncodeToString(value.Data)}
+					var content map[string]any
+					if strings.HasPrefix(value.MediaType, "image/") {
+						content = map[string]any{"type": "input_image", "detail": "auto", "image_url": dataURL(value)}
+					} else {
+						content = openAIFileData(value)
+						content["type"] = "input_file"
 					}
 					input = append(input, map[string]any{"type": "message", "role": string(message.Role), "content": []any{content}})
 				case fantasy.ContentTypeReasoning:
@@ -354,7 +357,9 @@ func requestJSON(config transportConfig, call fantasy.Call) (map[string]any, err
 						continue
 					}
 					value, _ := fantasy.AsMessagePart[fantasy.FilePart](part)
-					content = append(content, chatImage(value))
+					if file := chatFile(value); file != nil {
+						content = append(content, file)
+					}
 				case fantasy.ContentTypeToolCall:
 					value, _ := fantasy.AsMessagePart[fantasy.ToolCallPart](part)
 					tools = append(tools, map[string]any{"type": "function", "id": value.ToolCallID, "function": map[string]any{"name": value.ToolName, "arguments": value.Input}})
@@ -464,6 +469,27 @@ func anthropicFile(file fantasy.FilePart) map[string]any {
 
 func googleFile(file fantasy.FilePart) map[string]any {
 	return map[string]any{"inlineData": map[string]any{"mimeType": file.MediaType, "data": base64.StdEncoding.EncodeToString(file.Data)}}
+}
+
+func openAIFileData(file fantasy.FilePart) map[string]any {
+	name := file.Filename
+	if name == "" && file.MediaType == "application/pdf" {
+		name = "attachment.pdf"
+	}
+	return map[string]any{"filename": name, "file_data": dataURL(file)}
+}
+
+func chatFile(file fantasy.FilePart) map[string]any {
+	switch {
+	case strings.HasPrefix(file.MediaType, "image/"):
+		return chatImage(file)
+	case file.MediaType == "application/pdf":
+		return map[string]any{"type": "file", "file": openAIFileData(file)}
+	}
+	if format := chatAudioFormat(file.MediaType); format != "" {
+		return map[string]any{"type": "input_audio", "input_audio": map[string]any{"format": format, "data": base64.StdEncoding.EncodeToString(file.Data)}}
+	}
+	return nil
 }
 
 func chatImage(file fantasy.FilePart) map[string]any {

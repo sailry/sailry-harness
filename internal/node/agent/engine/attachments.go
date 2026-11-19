@@ -1,14 +1,15 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/MoeForge/moego/base64"
-	"github.com/gabriel-vasile/mimetype"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/MoeForge/moego/base64"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -19,11 +20,13 @@ const attachmentPrefix = "sailry-attachment://"
 const attachmentReadNote = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"
 
 type attachmentMaterial struct {
-	attachment protocol.Attachment
-	current    bool
-	data       []byte
-	err        error
-	loaded     bool
+	attachment    protocol.Attachment
+	current       bool
+	data          []byte
+	err           error
+	mime          string
+	loaded        bool
+	referenceOnly bool
 }
 
 // hydrateAttachments changes the request's copy only. Canonical history retains
@@ -43,34 +46,42 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 	if x.attachments == nil {
 		x.attachments = map[protocol.AttachmentID]*attachmentMaterial{}
 	}
+	// Only inline content consumes the budget, so retaining bytes for a
+	// reference-only attachment could grow past it on a long turn.
+	referenced := make(map[protocol.AttachmentID]bool)
 	for i := range request {
 		message := request[i].MutableMessage()
 		if message == nil {
 			continue
 		}
 		var content []canonical.Block
-		changed := false
-		for _, block := range message.Content {
-			if input := request[i].Metadata.Input; input != nil && input.CapabilityPart != nil && *input.CapabilityPart == block.Index {
-				changed = true
-				continue
-			}
-			if block.Kind == "image" && !vision {
-				changed = true
-				continue
-			}
+		input := request[i].Metadata.Input
+		for index, block := range message.Content {
+			drop := block.Kind == "image" && !vision ||
+				input != nil && input.CapabilityPart != nil && *input.CapabilityPart == block.Index
 			file, ok := block.Data.(*canonical.FileContent)
-			if !ok || !strings.HasPrefix(file.File.URI, attachmentPrefix) {
-				content = append(content, block)
+			if !drop && (!ok || !strings.HasPrefix(file.File.URI, attachmentPrefix)) {
+				if content != nil {
+					content = append(content, block)
+				}
 				continue
 			}
-			changed = true
+			if content == nil {
+				content = make([]canonical.Block, index, len(message.Content))
+				copy(content, message.Content[:index])
+			}
+			if drop {
+				continue
+			}
 			id, err := protocol.ParseAttachmentID(strings.TrimPrefix(file.File.URI, attachmentPrefix))
 			if err != nil {
 				return nil, nil, err
 			}
 			if r.attachment == nil || r.attachmentBytes == nil {
 				return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "attachment materialization is unavailable"}
+			}
+			if _, seen := referenced[id]; !seen {
+				referenced[id] = false
 			}
 			entry := x.attachments[id]
 			if entry == nil {
@@ -95,8 +106,22 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 				return nil, nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "attachment media type mismatch"}
 			}
 			included := false
-			image := strings.HasPrefix(strings.ToLower(attachment.Spec.MediaType), "image/")
-			if attachment.Spec.Size <= remaining {
+			declared := strings.ToLower(attachment.Spec.MediaType)
+			mime := declared
+			if entry.mime != "" {
+				mime = entry.mime
+			}
+			image := strings.HasPrefix(mime, "image/")
+			mayInclude := !entry.referenceOnly
+			if entry.mime != "" {
+				switch {
+				case image:
+					mayInclude = vision
+				case mime == "application/pdf" || attachmentAudioVideo(mime):
+					mayInclude = model.AttachmentFileMIME(binding, mime) != ""
+				}
+			}
+			if mayInclude && attachment.Spec.Size <= remaining {
 				if !entry.loaded {
 					entry.data, entry.err = r.attachmentBytes(x.ctx, attachment)
 					entry.loaded = true
@@ -113,7 +138,10 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					content = append(content, canonical.Text(uint64(len(content)), "Attachment reference: "+string(descriptor)+"\nAttachment unavailable; contents not included"))
 					continue
 				}
-				mime := strings.Split(mimetype.Detect(entry.data).String(), ";")[0]
+				if entry.mime == "" {
+					entry.mime, _, _ = strings.Cut(mimetype.Detect(entry.data).String(), ";")
+				}
+				mime = entry.mime
 				image = strings.HasPrefix(mime, "image/")
 				switch {
 				case image && vision:
@@ -122,22 +150,32 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 					assets[key] = entry.data
 					content = append(content, canonical.Block{Index: uint64(len(content)), Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Digest: key, Mime: mime, Size: uint64(len(entry.data))}}})
 					included = true
-				case mime == "application/pdf" && attachmentPDFSupported(x.inv.Provider.Api):
-					media := mime
-					content = append(content, canonical.Block{Index: uint64(len(content)), Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: base64.StdEncoding.EncodeToString(entry.data), Mime: &media}}})
-					included = true
-				case len(entry.data) <= 1<<20 && utf8.Valid(entry.data) && !strings.ContainsRune(string(entry.data), 0) && (strings.HasPrefix(mime, "text/") || mime == "application/json" || mime == "application/xml" || mime == "application/yaml" || mime == "application/octet-stream"):
+				case mime == "application/pdf" || attachmentAudioVideo(mime):
+					if media := model.AttachmentFileMIME(binding, mime); media != "" {
+						content = append(content, canonical.Block{Index: uint64(len(content)), Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: base64.StdEncoding.EncodeToString(entry.data), Mime: &media}}})
+						included = true
+					}
+				case len(entry.data) <= 1<<20 && utf8.Valid(entry.data) && bytes.IndexByte(entry.data, 0) < 0 && (strings.HasPrefix(mime, "text/") || mime == "application/json" || mime == "application/xml" || mime == "application/yaml" || mime == "application/octet-stream"):
 					content = append(content, canonical.Text(uint64(len(content)), "Attachment: "+attachment.Spec.Name+"\n"+string(entry.data)))
 					included = true
 				}
 				if included {
 					remaining -= attachment.Spec.Size
+					referenced[id] = true
+				} else {
+					entry.data, entry.loaded = nil, false
+					// A model change can make detected media eligible again.
+					entry.referenceOnly = !image && mime != "application/pdf" && !attachmentAudioVideo(mime)
 				}
 			}
 			descriptor, _ := json.Marshal(map[string]any{"id": id, "name": attachment.Spec.Name, "media_type": attachment.Spec.MediaType, "size": attachment.Spec.Size})
 			note := "Attachment reference: " + string(descriptor)
 			if !included {
 				switch {
+				case !image && (mime == "application/pdf" || declared == "application/pdf"):
+					note += "\nThe PDF is not included directly. Use read_office with source {\"kind\":\"attachment\",\"value\":\"" + id.String() + "\"}."
+				case !image && (attachmentAudioVideo(mime) || attachmentAudioVideo(declared)):
+					note += "\nThe conversation model cannot directly read this attachment in this request; only its reference is included."
 				case !image:
 					note += "\n" + attachmentReadNote
 				case canInspect && attachment.Spec.Size <= protocol.MAX_IMAGE_BYTES:
@@ -150,7 +188,7 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 			}
 			content = append(content, canonical.Text(uint64(len(content)), note))
 		}
-		if !changed {
+		if content == nil {
 			continue
 		}
 		for index := range content {
@@ -171,6 +209,14 @@ func (r *Runtime) hydrateAttachments(x *execution, records []canonical.Record) (
 			request[i].Data = &hydrated
 		}
 	}
+	for id, entry := range x.attachments {
+		included, present := referenced[id]
+		if !present {
+			delete(x.attachments, id)
+		} else if !included && entry.err == nil && !entry.referenceOnly {
+			entry.data, entry.loaded = nil, false
+		}
+	}
 	return request, assets, nil
 }
 func nodeAttachmentCode(err error) protocol.ErrorCode {
@@ -180,10 +226,6 @@ func nodeAttachmentCode(err error) protocol.ErrorCode {
 	return protocol.ErrorCodeInternal
 }
 
-func attachmentPDFSupported(api protocol.ConversationModelApi) bool {
-	switch api {
-	case protocol.ConversationModelApiResponses, protocol.ConversationModelApiChatCompletions, protocol.ConversationModelApiAnthropic, protocol.ConversationModelApiGemini, protocol.ConversationModelApiAzureOpenAi:
-		return true
-	}
-	return false
+func attachmentAudioVideo(mime string) bool {
+	return strings.HasPrefix(mime, "audio/") || strings.HasPrefix(mime, "video/")
 }

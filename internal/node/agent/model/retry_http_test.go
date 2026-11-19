@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -195,11 +196,27 @@ func TestSDKTruncatedStreamsRetryTheSameRequestAndResetOutput(t *testing.T) {
 }
 
 func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
-	for _, kind := range []string{"responses", "anthropic"} {
+	for _, kind := range []string{"responses", "anthropic", "google", "chat"} {
 		for _, content := range []string{"text", "tool"} {
 			for _, ending := range []string{"idle", "truncated"} {
 				t.Run(kind+"/"+content+"/"+ending, func(t *testing.T) {
-					payload := fixture(t, kind+"-"+content+".sse")
+					var payload []byte
+					wantUsage := true
+					wantOutput := uint64(3)
+					if kind == "google" {
+						// The fixture reports three visible and two reasoning tokens.
+						wantOutput = 5
+					}
+					if kind == "chat" && content == "tool" {
+						// The choice completed, but the optional usage trailer was lost.
+						payload = []byte("data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"stable-call\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"file\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n")
+						wantUsage = false
+					} else {
+						payload = fixture(t, kind+"-"+content+".sse")
+						if kind == "chat" {
+							payload = bytes.TrimSuffix(payload, []byte("data: [DONE]\n\n"))
+						}
+					}
 					var requests atomic.Int32
 					closed := make(chan struct{}, MainRetries+1)
 					server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -221,8 +238,7 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					// A completed protocol event must release a still-open body,
-					// rather than waiting for the response inactivity deadline.
+					// Bound the read of an optional trailer in the stalled fixture.
 					sdk := language.(*sdkModel)
 					transport := sdk.client.Transport.(responseTransport)
 					transport.stall = 250 * time.Millisecond
@@ -254,8 +270,11 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 						t.Fatalf("completed output changed: text=%q calls=%d", text, calls)
 					}
 					attempt := attempts[0]
-					if attempt.Failure != nil || attempt.Status == nil || *attempt.Status != http.StatusOK || attempt.ResponseUs == nil || attempt.Usage.Output == nil || *attempt.Usage.Output != 3 {
-						t.Fatalf("completed response lost status or final usage: %+v", attempt)
+					if attempt.Failure != nil || attempt.Status == nil || *attempt.Status != http.StatusOK || attempt.ResponseUs == nil {
+						t.Fatalf("completed response lost status: %+v", attempt)
+					}
+					if got := attempt.Usage.Output; wantUsage && (got == nil || *got != wantOutput) || !wantUsage && got != nil {
+						t.Fatalf("completed response lost or invented final usage: %+v", attempt.Usage)
 					}
 					select {
 					case <-closed:
@@ -265,6 +284,32 @@ func TestSDKTerminalEventsDoNotWaitForHTTPStreamClosure(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestSDKIncompleteToolCallIsRejected(t *testing.T) {
+	for _, test := range []struct {
+		kind, frame string
+	}{
+		{"chat", `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call","function":{"name":"read","arguments":"{"}}]},"finish_reason":"tool_calls"}]}`},
+		{"google", `{"candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":{"name":"read","args":{},"willContinue":true}}]},"finishReason":"STOP"}]}`},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			server := serverFixture(t, "data: "+test.frame+"\n\n")
+			language, err := newSDK(t.Context(), transportConfig{Kind: test.kind, Model: "fixture", Endpoint: server.URL, Key: "fixture-key"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = Run(t.Context(), language, requestCall(t, test.kind), Main, &policyClock{}, nil, func(part fantasy.StreamPart) bool {
+				if part.Type == fantasy.StreamPartTypeToolCall || part.Type == fantasy.StreamPartTypeFinish {
+					t.Errorf("incomplete tool input reached the caller as %s", part.Type)
+				}
+				return true
+			}, nil)
+			if err == nil || len(server.captured()) != 1 {
+				t.Fatalf("malformed tool call was accepted or replayed: %v", err)
+			}
+		})
 	}
 }
 

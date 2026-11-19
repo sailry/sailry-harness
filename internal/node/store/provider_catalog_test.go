@@ -228,10 +228,16 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 	ctx := t.Context()
 	const modelID = "fixture-vision"
 	download, err := providers.ParseCatalog([]byte(`{
-		"openai":{"models":{"fixture-vision":{"id":"fixture-vision","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text","image"]}}}},
+		"openai":{"models":{
+			"fixture-vision":{"id":"fixture-vision","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text","image","video","audio","pdf"]}},
+			"fixture-empty":{"id":"fixture-empty","modalities":{"input":[]}}
+		}},
 		"deepseek":{"models":{"fixture-vision":{"id":"fixture-vision","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text"]}}}},
 		"another":{"models":{"fixture-ambiguous":{"id":"fixture-ambiguous","canonical_model_id":"other/fixture-ambiguous","modalities":{"input":["text"]}}}},
-		"other":{"models":{"fixture-ambiguous":{"id":"fixture-ambiguous","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text"]}}}}
+		"other":{"models":{
+			"fixture-ambiguous":{"id":"fixture-ambiguous","canonical_model_id":"openai/fixture-vision","modalities":{"input":["text"]}},
+			"fixture-bare":{"id":"fixture-bare","modalities":{"input":["text","video","audio","pdf"]}}
+		}}
 	}`))
 	if err != nil {
 		t.Fatal(err)
@@ -243,18 +249,23 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	all := []string{"text", "image", "video", "audio", "pdf"}
+	text := []string{"text"}
 	for _, row := range []struct {
-		name, endpoint, model string
-		auth                  protocol.Authentication
-		manual, nativeDeny    bool
-		want                  bool
+		name, endpoint, model         string
+		auth                          protocol.Authentication
+		manual, nativeDeny, oldVision bool
+		vision                        bool
+		catalog, inputs               []string
 	}{
-		{name: "exact canonical model on a custom gateway", endpoint: "https://custom.invalid/v1", model: modelID, want: true},
-		{name: "explicit text-only channel", endpoint: "https://api.deepseek.com/v1", model: modelID},
-		{name: "authenticated official namespace", endpoint: "https://chatgpt.com/backend-api/codex", auth: protocol.AuthenticationChatGptOAuth, model: modelID, want: true},
-		{name: "native capability overrides catalog", endpoint: "https://custom.invalid/v1", model: modelID, nativeDeny: true},
-		{name: "manual capability overrides catalog", endpoint: "https://custom.invalid/v1", model: modelID, manual: true},
-		{name: "conflicting model identities", endpoint: "https://custom.invalid/v1", model: "fixture-ambiguous"},
+		{name: "canonical vision only on an unlisted gateway", endpoint: "https://custom.invalid/v1", model: modelID, catalog: []string{"text", "image"}, vision: true},
+		{name: "explicit text-only channel", endpoint: "https://api.deepseek.com/v1", model: modelID, catalog: text, inputs: text},
+		{name: "authenticated official namespace", endpoint: "https://chatgpt.com/backend-api/codex", auth: protocol.AuthenticationChatGptOAuth, model: modelID, oldVision: true, vision: true, catalog: all, inputs: all},
+		{name: "native capability overrides only image", endpoint: "https://api.openai.com/v1", model: modelID, nativeDeny: true, catalog: all, inputs: []string{"text", "video", "audio", "pdf"}},
+		{name: "manual legacy capability overrides catalog", endpoint: "https://api.openai.com/v1", model: modelID, manual: true, catalog: all},
+		{name: "conflicting model identities", endpoint: "https://custom.invalid/v1", model: "fixture-ambiguous", catalog: text},
+		{name: "bare ID on an unlisted gateway", endpoint: "https://custom.invalid/v1", model: "fixture-bare", catalog: text},
+		{name: "explicit empty on an exact channel", endpoint: "https://api.openai.com/v1", model: "fixture-empty", catalog: []string{}, inputs: []string{}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			provider := providerFixture()
@@ -264,7 +275,7 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 				provider.Authentication = row.auth
 			}
 			entry := &provider.Models[0]
-			entry.ID, entry.Vision, entry.CustomCapabilities = row.model, false, row.manual
+			entry.ID, entry.Vision, entry.CustomCapabilities = row.model, row.oldVision, row.manual
 			if row.nativeDeny {
 				entry.Capabilities = &protocol.ConversationDiscoveryCapabilities{Vision: new(false)}
 			}
@@ -282,16 +293,15 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				catalogVision := row.want || row.manual || row.nativeDeny
-				if len(page.Models) != 1 || slices.Contains(page.Models[0].Inputs, "image") != catalogVision {
-					return fmt.Errorf("channel catalog lookup = %+v, want vision %v", page, catalogVision)
+				if len(page.Models) != 1 || !reflect.DeepEqual(page.Models[0].Inputs, row.catalog) {
+					return fmt.Errorf("channel catalog lookup = %+v, want inputs %#v", page, row.catalog)
 				}
 				captured, err := captureTurnProvider(ctx, db, provider, row.model)
 				if err != nil {
 					return err
 				}
-				if captured.Models[0].Vision != row.want {
-					return fmt.Errorf("captured vision = %v, want %v", captured.Models[0].Vision, row.want)
+				if model := captured.Models[0]; model.Vision != row.vision || !reflect.DeepEqual(model.Inputs, row.inputs) {
+					return fmt.Errorf("capture did not resolve inputs %#v and vision %v: %+v", row.inputs, row.vision, model)
 				}
 				snapshot, _, err := ReadProviderSnapshot(ctx, db, node)
 				if err != nil {
@@ -303,22 +313,22 @@ func TestProviderVisionUsesChannelOrCanonicalModel(t *testing.T) {
 				}
 				for _, values := range [][]protocol.ConversationProvider{snapshot, listed} {
 					index := slices.IndexFunc(values, func(value protocol.ConversationProvider) bool { return value.ID == provider.ID })
-					if index < 0 || values[index].Models[0].Vision != row.want || values[index].Revision != provider.Revision {
-						return fmt.Errorf("provider projection did not return vision %v at revision %d", row.want, provider.Revision)
+					if index < 0 || values[index].Models[0].Vision != row.vision || !reflect.DeepEqual(values[index].Models[0].Inputs, row.inputs) || values[index].Revision != provider.Revision {
+						return fmt.Errorf("provider projection did not resolve inputs %#v and vision %v at revision %d", row.inputs, row.vision, provider.Revision)
 					}
 				}
 				saved, err := readProviderConfiguration(ctx, db, provider.ID)
 				if err != nil {
 					return err
 				}
-				if saved == nil || saved.Provider.Models[0].Vision || saved.Provider.Revision != provider.Revision {
-					return fmt.Errorf("reading provider vision changed the stored configuration")
+				if saved == nil || saved.Provider.Models[0].Inputs != nil || saved.Provider.Models[0].Vision != row.oldVision || saved.Provider.Revision != provider.Revision {
+					return fmt.Errorf("resolving legacy model inputs changed the stored configuration")
 				}
 				if err = fillProviderMetadata(ctx, db, &provider); err != nil {
 					return err
 				}
-				if provider.Models[0].Vision != row.want {
-					return fmt.Errorf("completed vision = %v, want %v", provider.Models[0].Vision, row.want)
+				if model := provider.Models[0]; model.Vision != row.vision || !reflect.DeepEqual(model.Inputs, row.inputs) {
+					return fmt.Errorf("completion did not resolve inputs %#v and vision %v: %+v", row.inputs, row.vision, model)
 				}
 				return nil
 			})

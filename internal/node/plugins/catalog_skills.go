@@ -71,6 +71,7 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 	if page == 0 || len(query) > 4096 || strings.ContainsRune(query, 0) {
 		return result, packageFault("invalid skill catalog query")
 	}
+	query = strings.TrimSpace(query)
 	key := fmt.Sprintf("%s\x00%s\x00%d", source, query, page)
 	manager.repositoryMu.Lock()
 	cached, exists := manager.skillPages[key]
@@ -82,6 +83,11 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 	manager.repositoryMu.Unlock()
 	if !force && exists && time.Since(cached.at) < 15*time.Minute {
 		return cached.page, nil
+	}
+	readJSON := func(endpoint string, target any) error {
+		request, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return manager.catalogJSON(request, endpoint, target)
 	}
 	var err error
 	switch source {
@@ -99,7 +105,7 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 		if endpoint == "" {
 			endpoint = OfficialCatalogURL
 		}
-		err = manager.catalogJSON(ctx, endpoint, &feed)
+		err = readJSON(endpoint, &feed)
 		if err == nil {
 			if feed.Version != 1 || !commitHash(feed.Commit) || len(feed.Skills) > 4096 {
 				return result, packageFault("invalid official skill catalog")
@@ -166,10 +172,13 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				Description *string `json:"description"`
 			} `json:"skills"`
 			Total *uint64 `json:"total"`
-			More  bool    `json:"hasMore"`
+			More  *bool   `json:"hasMore"`
 		}
-		err = manager.catalogJSON(ctx, endpoint, &response)
+		err = readJSON(endpoint, &response)
 		if err == nil {
+			if response.Skills == nil || !searching && response.More == nil {
+				return result, packageFault("invalid skills.sh catalog response")
+			}
 			for _, skill := range response.Skills {
 				if skill.Source == "" || !registrySegment(skill.ID) || strings.TrimSpace(skill.Name) == "" {
 					return result, packageFault("invalid skills.sh entry")
@@ -193,7 +202,7 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				}
 				result.Entries = append(result.Entries, entry)
 			}
-			if !searching && response.More && page < ^uint32(0) {
+			if !searching && *response.More && page < ^uint32(0) {
 				next := page + 1
 				result.Next = &next
 			}
@@ -210,7 +219,7 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 			parameters.Set("keyword", query)
 		}
 		var response struct {
-			Code int64 `json:"code"`
+			Code *int64 `json:"code"`
 			Data struct {
 				Skills []struct {
 					Icon        *string `json:"iconUrl"`
@@ -223,14 +232,20 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 					} `json:"namespace"`
 					Version *string `json:"version"`
 				} `json:"skills"`
-				Total uint64 `json:"total"`
+				Total *uint64 `json:"total"`
 			} `json:"data"`
 		}
-		err = manager.catalogJSON(ctx, manager.registryEndpoint()+"/api/skills?"+parameters.Encode(), &response)
+		err = readJSON(manager.registryEndpoint()+"/api/skills?"+parameters.Encode(), &response)
 		if err == nil {
-			if response.Code != 0 {
+			if response.Code == nil {
+				return result, packageFault("invalid Skillhub catalog response")
+			}
+			if *response.Code != 0 {
 				err = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Skillhub catalog is unavailable"}
 				break
+			}
+			if response.Data.Skills == nil || response.Data.Total == nil {
+				return result, packageFault("invalid Skillhub catalog response")
 			}
 			for _, skill := range response.Data.Skills {
 				source := protocol.PluginSkillsRegistrySource{Namespace: &skill.Namespace.Handle, Slug: skill.Slug, Version: skill.Version}
@@ -255,8 +270,8 @@ func (manager *Manager) SkillCatalog(ctx context.Context, source protocol.Plugin
 				entry.Url, entry.Source = &endpoint, &protocol.PluginSkillcatalogInstallSource{Kind: "registry", Data: source}
 				result.Entries = append(result.Entries, entry)
 			}
-			result.Total = &response.Data.Total
-			if uint64(page)*24 < response.Data.Total && page < ^uint32(0) {
+			result.Total = response.Data.Total
+			if uint64(page)*24 < *response.Data.Total && page < ^uint32(0) {
 				next := page + 1
 				result.Next = &next
 			}

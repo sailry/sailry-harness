@@ -41,7 +41,7 @@ func (e *providerEditor) lookupModelCapabilities(c *ui.Context, m *Model, d *mod
 		return
 	}
 	target := e.modelCapabilityTarget(d.id)
-	if !d.seeded && d.model.ID != "" && target.id == d.model.ID {
+	if !d.seeded && !d.relookup && d.model.ID != "" && target.id == d.model.ID {
 		if d.lookup != nil {
 			d.applyAutomaticCapabilities(d.lookup.original)
 			d.lookup = nil
@@ -85,22 +85,45 @@ func (e *providerEditor) lookupModelCapabilities(c *ui.Context, m *Model, d *mod
 			row := &e.models[i]
 			if row.lookup == pending && !row.model.CustomCapabilities && e.modelCapabilityTarget(row.id) == target {
 				row.applyAutomaticCapabilities(model)
+				if row.relookup && target.id == row.model.ID {
+					// The saved ID now has the catalog's tags to come back to.
+					row.relookup, row.lookup = false, nil
+				}
 				return
 			}
 		}
 	})
 }
 
+// followCatalog hands the row's tags back to the catalog: the editor shows
+// the catalog's tags it knows, or asks for them, and a save lets the Node
+// complete them.
+func (d *modelDraft) followCatalog() {
+	d.model.CustomCapabilities = false
+	switch {
+	case d.lookup != nil:
+		// A fresh lookup for the ID as typed; the saved ID's tags stay its
+		// original, and without them the saved ID is looked up too.
+		d.relookup = d.lookup.original == nil
+		d.lookup = &modelCapabilityLookup{original: d.lookup.original}
+	case d.catalog != nil:
+		d.applyAutomaticCapabilities(d.catalog)
+	default:
+		d.applyAutomaticCapabilities(nil)
+		d.relookup = true
+	}
+}
+
 func (d *modelDraft) applyAutomaticCapabilities(model *viewmodel.ChannelModel) {
 	d.model.Vision, d.model.Tools, d.model.Reasoning = true, true, false
-	d.model.Generates, d.catalog, d.hosted = nil, nil, false
+	d.model.Inputs, d.model.Generates, d.catalog, d.hosted = nil, nil, nil, false
 	if model == nil {
 		return
 	}
 	catalog := *model
-	catalog.Generates = slices.Clone(model.Generates)
+	catalog.Inputs, catalog.Generates = slices.Clone(model.Inputs), slices.Clone(model.Generates)
 	d.catalog = &catalog
 	d.model.Vision, d.model.Tools, d.model.Reasoning = model.Vision, model.Tools, model.Reasoning
-	d.model.Generates = slices.Clone(model.Generates)
+	d.model.Inputs, d.model.Generates = slices.Clone(model.Inputs), slices.Clone(model.Generates)
 	d.hosted = slices.Contains(model.Generates, viewmodel.GenerateImageTool)
 }

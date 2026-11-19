@@ -2147,6 +2147,14 @@ updates_profile_inside
 compatibility_update_unavailable
 settings_media
 settings_media_description
+provider_cap_text
+provider_cap_input
+provider_cap_audio_input
+provider_cap_pdf
+provider_cap_functions
+provider_cap_follow_catalog
+provider_cap_input_hint
+provider_cap_catalog_unknown
 provider_cap_vision
 provider_cap_tools
 provider_cap_reasoning
@@ -2166,6 +2174,8 @@ media_video
 media_speech
 media_follow
 media_load_failed
+market_load_more
+skill_catalog_load_failed
 panel_history_empty
 panel_documents_empty
 connections_copy_id

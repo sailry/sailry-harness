@@ -12,28 +12,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func metadataCatalogProvider(endpoint string, authentication protocol.Authentication) (string, error) {
-	switch authentication {
-	case protocol.AuthenticationChatGpt, protocol.AuthenticationChatGptOAuth:
-		return "openai", nil
-	case protocol.AuthenticationClaudeOAuth:
-		return "anthropic", nil
-	case protocol.AuthenticationCopilot:
-		return "github-copilot", nil
-	}
-	switch strings.TrimRight(endpoint, "/") {
-	case "https://api.openai.com/v1":
-		return "openai", nil
-	case "https://api.anthropic.com":
-		return "anthropic", nil
-	case "https://generativelanguage.googleapis.com/v1beta":
-		return "google", nil
-	case "https://api.deepseek.com", "https://api.deepseek.com/v1":
-		return "deepseek", nil
-	}
-	return providers.BundledCatalogProvider(endpoint)
-}
-
 func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.ConversationProvider) error {
 	channel := &protocol.ConversationCatalogChannel{Endpoint: provider.Endpoint, Authentication: provider.Authentication}
 	for i := range provider.Models {
@@ -51,13 +29,13 @@ func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.
 	return nil
 }
 
-// catalogVision uses an exact channel entry or the agreed origin of the model
-// on an unlisted channel. A shared ID alone does not identify the models.
-func catalogVision(ctx context.Context, db *sql.Conn, bundled bool, namespace, id string) (bool, error) {
+// catalogInputs finds the exact offering, or the agreed canonical origin when
+// no namespace is specified. Callers use the latter only for legacy vision.
+func catalogInputs(ctx context.Context, db *sql.Conn, bundled bool, namespace, id string) ([]string, error) {
 	if namespace == "" {
 		entries, err := providerCatalogEntries(ctx, db, protocol.ConversationCatalogQuery{IDs: []string{id}}, bundled)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		origin := ""
 		for _, entry := range entries {
@@ -68,32 +46,35 @@ func catalogVision(ctx context.Context, db *sql.Conn, bundled bool, namespace, i
 				continue
 			}
 			if origin != "" && origin != identity.Canonical {
-				return false, nil
+				return nil, nil
 			}
 			origin = identity.Canonical
 		}
 		var valid bool
 		namespace, id, valid = strings.Cut(origin, "/")
 		if !valid || !boundedCatalogID(namespace, 128) || !boundedCatalogID(id, 256) {
-			return false, nil
+			return nil, nil
 		}
 	}
 	entries, err := providerCatalogEntries(ctx, db, protocol.ConversationCatalogQuery{Provider: &namespace, IDs: []string{id}}, bundled)
 	if err != nil || len(entries) == 0 {
-		return false, err
+		return nil, err
 	}
 	reference, err := providers.CatalogModel(entries[0].Body)
-	return slices.Contains(reference.Inputs, "image"), err
+	if err != nil || reference.ID != id {
+		return nil, err
+	}
+	return reference.Inputs, nil
 }
 
-// fillProviderVision resolves absent automatic vision flags on already saved
-// models for both controller reads and new turns.
+// fillProviderVision resolves input capabilities on already saved legacy models
+// for both controller reads and new turns, without revising the configuration.
 func fillProviderVision(ctx context.Context, db *sql.Conn, provider *protocol.ConversationProvider, modelID string) error {
 	var status *protocol.ConversationCatalogStatus
 	var namespace string
 	for i := range provider.Models {
 		entry := &provider.Models[i]
-		if modelID != "" && entry.ID != modelID || entry.Vision || entry.CustomCapabilities || entry.Capabilities != nil && entry.Capabilities.Vision != nil {
+		if modelID != "" && entry.ID != modelID || entry.Inputs != nil || entry.CustomCapabilities {
 			continue
 		}
 		if status == nil {
@@ -101,17 +82,25 @@ func fillProviderVision(ctx context.Context, db *sql.Conn, provider *protocol.Co
 			if err != nil {
 				return err
 			}
-			namespace, err = metadataCatalogProvider(provider.Endpoint, provider.Authentication)
+			namespace, err = providers.ChannelCatalogNamespace(provider.Endpoint, provider.Authentication)
 			if err != nil {
 				return err
 			}
 			status = &current
 		}
-		vision, err := catalogVision(ctx, db, status.Bundled, namespace, entry.ID)
-		if err != nil {
-			return err
+		var inputs []string
+		if namespace != "" || !entry.Vision && (entry.Capabilities == nil || entry.Capabilities.Vision == nil) {
+			var err error
+			inputs, err = catalogInputs(ctx, db, status.Bundled, namespace, entry.ID)
+			if err != nil {
+				return err
+			}
+			if namespace == "" {
+				entry.Vision = slices.Contains(inputs, "image")
+				inputs = nil
+			}
 		}
-		entry.Vision = vision
+		*entry = providers.CompleteModelInputs(*entry, inputs)
 	}
 	return nil
 }

@@ -14,6 +14,29 @@ import (
 
 const CatalogURL = "https://models.dev/api.json"
 
+// ChannelCatalogNamespace identifies a known offering namespace for a channel.
+func ChannelCatalogNamespace(endpoint string, authentication protocol.Authentication) (string, error) {
+	switch authentication {
+	case protocol.AuthenticationChatGpt, protocol.AuthenticationChatGptOAuth:
+		return "openai", nil
+	case protocol.AuthenticationClaudeOAuth:
+		return "anthropic", nil
+	case protocol.AuthenticationCopilot:
+		return "github-copilot", nil
+	}
+	switch strings.TrimRight(endpoint, "/") {
+	case "https://api.openai.com/v1":
+		return "openai", nil
+	case "https://api.anthropic.com":
+		return "anthropic", nil
+	case "https://generativelanguage.googleapis.com/v1beta":
+		return "google", nil
+	case "https://api.deepseek.com", "https://api.deepseek.com/v1":
+		return "deepseek", nil
+	}
+	return BundledCatalogProvider(endpoint)
+}
+
 type CatalogEntry struct {
 	Provider string
 	ID       string
@@ -145,6 +168,7 @@ func CatalogModel(raw json.RawMessage) (protocol.ConversationCatalogModel, error
 		}
 	}
 	modalities := object(value["modalities"])
+	model.Inputs = nil
 	for _, item := range []struct {
 		key    string
 		target *[]string
@@ -154,7 +178,7 @@ func CatalogModel(raw json.RawMessage) (protocol.ConversationCatalogModel, error
 				return model, unavailable("catalog modalities are invalid")
 			}
 			for _, modality := range *item.target {
-				if !identifier(modality, 32) {
+				if !identifier(modality, 32) || item.key == "input" && !protocol.ValidModelInput(modality) {
 					return model, unavailable("catalog modality is invalid")
 				}
 			}

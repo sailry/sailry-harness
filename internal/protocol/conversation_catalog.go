@@ -115,15 +115,18 @@ func (value ConversationCatalogPage) MarshalJSON() ([]byte, error) {
 }
 
 type ConversationCatalogModel struct {
-	ID        string                         `json:"id"`
-	Name      string                         `json:"name"`
-	Context   *uint32                        `json:"context"`
-	Output    *uint32                        `json:"output"`
-	Inputs    []string                       `json:"inputs"`
-	Outputs   []string                       `json:"outputs"`
-	Tools     *bool                          `json:"tools"`
-	Reasoning *bool                          `json:"reasoning"`
-	Options   []ConversationCatalogReasoning `json:"options"`
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Context *uint32  `json:"context"`
+	Output  *uint32  `json:"output"`
+	Inputs  []string `json:"inputs"`
+	// InputsUnknown preserves a missing input list on the wire while older
+	// controllers can still read the required inputs array.
+	InputsUnknown bool                           `json:"inputs_unknown,omitempty"`
+	Outputs       []string                       `json:"outputs"`
+	Tools         *bool                          `json:"tools"`
+	Reasoning     *bool                          `json:"reasoning"`
+	Options       []ConversationCatalogReasoning `json:"options"`
 }
 
 func DefaultConversationCatalogModel() ConversationCatalogModel {
@@ -145,12 +148,16 @@ func (value *ConversationCatalogModel) UnmarshalJSON(data []byte) error {
 	if err := DecodeObject(data, &decoded, []string{"id", "name", "inputs", "outputs", "options"}, false); err != nil {
 		return err
 	}
+	if decoded.InputsUnknown && len(decoded.Inputs) == 0 {
+		decoded.Inputs = nil
+	}
 	*value = ConversationCatalogModel(decoded)
 	return nil
 }
 func (value ConversationCatalogModel) MarshalJSON() ([]byte, error) {
 	type plain ConversationCatalogModel
 	encoded := plain(value)
+	encoded.InputsUnknown = value.Inputs == nil
 	encoded.Inputs = normalizeCollections(encoded.Inputs)
 	encoded.Outputs = normalizeCollections(encoded.Outputs)
 	encoded.Options = normalizeCollections(encoded.Options)

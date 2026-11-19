@@ -16,10 +16,12 @@ type ChannelModel struct {
 	Context, Output int
 	Efforts         []string
 	DefaultEffort   string
-	// The capability tags: what the model understands, can do and generates
-	// (GenerateImage, GenerateImageTool, GenerateVideo, GenerateSpeech).
-	// CustomCapabilities marks tags the user chose, which the catalog no
-	// longer replaces.
+	// The capability tags: what the model accepts (Inputs, ModelInputs'
+	// values; nil when unknown, where text and Vision stand for them), can do
+	// and generates (GenerateImage, GenerateImageTool, GenerateVideo,
+	// GenerateSpeech). Vision mirrors the image input. CustomCapabilities
+	// marks tags the user chose, which the catalog no longer replaces.
+	Inputs                   []string
 	Vision, Tools, Reasoning bool
 	Generates                []string
 	CustomCapabilities       bool
@@ -35,6 +37,24 @@ type ModelFeature struct {
 
 // FeatureOption is a choice of a ModelFeature.
 type FeatureOption struct{ ID, Name string }
+
+// ModelInputs are the values of ChannelModel.Inputs, the catalog's input
+// modalities, in the order the settings list them.
+var ModelInputs = [5]string{"text", "image", "video", "audio", "pdf"}
+
+// AcceptsInput is whether the model's tags include the input kind; an
+// unknown list falls back to text and Vision, as the Node does.
+func (m ChannelModel) AcceptsInput(kind string) bool {
+	if m.Inputs == nil {
+		return kind == "text" || kind == "image" && m.Vision
+	}
+	for _, input := range m.Inputs {
+		if input == kind {
+			return true
+		}
+	}
+	return false
+}
 
 // The values of ChannelModel.Generates. An image comes from the images
 // endpoint (GenerateImage) or from the tool the conversation model hosts

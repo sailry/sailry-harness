@@ -92,7 +92,7 @@ func TestProviderModelCapabilityLookup(t *testing.T) {
 	if len(calls) != 3 || calls[2].id != "replacement" {
 		t.Fatalf("lookup did not follow the replacement ID: %+v", calls)
 	}
-	box, ok := tt.AccessByRole(ui.RoleCheckBox, i18n.In("en", "provider_cap_understands")+" "+i18n.In("en", "media_image"))
+	box, ok := tt.AccessByRole(ui.RoleCheckBox, i18n.In("en", "provider_cap_input")+" "+i18n.In("en", "media_image"))
 	if !ok || !box.Checked {
 		t.Fatal("model image control was unavailable before a manual override")
 	}
@@ -100,8 +100,95 @@ func TestProviderModelCapabilityLookup(t *testing.T) {
 	tt.Frame()
 	calls[2].reply(&viewmodel.ChannelModel{ID: "replacement", Vision: true, Generates: []string{viewmodel.GenerateSpeech}})
 	settle()
-	if !row.model.CustomCapabilities || row.model.Vision || len(row.model.Generates) != 0 || len(calls) != 3 {
+	if !row.model.CustomCapabilities || row.model.Vision || row.model.AcceptsInput("image") || !row.model.AcceptsInput("text") ||
+		len(row.model.Generates) != 0 || len(calls) != 3 {
 		t.Fatal("an automatic result replaced manually selected capability tags")
+	}
+}
+
+// Follow catalog hands a model's tags back to the catalog and a ticked box
+// takes them again, in a form as narrow as the editor gets.
+func TestProviderModelFollowCatalog(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Live = true
+	e := &m.provider
+	e.open, e.step = true, stepConfigure
+	e.models = draftsOf([]viewmodel.ChannelModel{{ID: "saved", CustomCapabilities: true, Inputs: []string{"text", "pdf"}, Tools: true,
+		Generates: []string{viewmodel.GenerateSpeech}}})
+	row := &e.models[0]
+	var asked []string
+	var reply func(*viewmodel.ChannelModel)
+	m.ProviderActions.LookupModel = func(_ ProviderDraft, id string, done func(*viewmodel.ChannelModel)) {
+		asked, reply = append(asked, id), done
+	}
+	const width = 320
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		e.lookupModelCapabilities(c, m, row)
+		capabilityForm(c, row, "responses")
+	}, width, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tt.SetLocale("en")
+	tt.Frame()
+	box := func(group, name string) ui.AccessInfo {
+		t.Helper()
+		node, ok := tt.AccessByRole(ui.RoleCheckBox, i18n.In("en", group)+" "+i18n.In("en", name))
+		if !ok {
+			t.Fatalf("no %s %s box", group, name)
+		}
+		return node
+	}
+	follow := func() ui.AccessInfo {
+		t.Helper()
+		node, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "provider_cap_follow_catalog"))
+		if !ok || node.Bounds.X+node.Bounds.W > width {
+			t.Fatalf("follow catalog switch = %+v", node)
+		}
+		return node
+	}
+	click := func(node ui.AccessInfo) {
+		tt.ClickAt(node.Bounds.X+node.Bounds.H/2, node.Bounds.Y+node.Bounds.H/2)
+		tt.Frame()
+	}
+	lines := map[float32]bool{}
+	for _, kind := range viewmodel.ModelInputs {
+		node := box("provider_cap_input", inputLabels[kind])
+		if node.Checked != (kind == "text" || kind == "pdf") {
+			t.Fatalf("%s input box = %+v", kind, node)
+		}
+		lines[node.Bounds.Y] = true
+	}
+	if len(lines) < 2 {
+		t.Fatal("the inputs did not wrap in a narrow form")
+	}
+	if box("provider_cap_functions", "provider_cap_tools").Checked != true || follow().Checked || len(asked) != 0 {
+		t.Fatal("the user's tags did not show as their own")
+	}
+	click(follow())
+	if row.model.CustomCapabilities || row.model.Inputs != nil || !row.relookup || !follow().Checked {
+		t.Fatalf("follow catalog kept the user's tags: %+v", row.model)
+	}
+	tt.Advance(modelCapabilityLookupDelay + time.Millisecond)
+	tt.Frame()
+	if !slices.Equal(asked, []string{"saved"}) {
+		t.Fatalf("lookups = %v, want the saved ID", asked)
+	}
+	reply(&viewmodel.ChannelModel{ID: "saved", Inputs: []string{"text", "image", "video"}, Vision: true, Tools: true})
+	tt.Frame()
+	if row.relookup || row.lookup != nil || row.catalog == nil || !slices.Equal(row.model.Inputs, []string{"text", "image", "video"}) ||
+		!row.model.Vision || len(row.model.Generates) != 0 || row.model.CustomCapabilities {
+		t.Fatalf("catalog tags = %+v", row.model)
+	}
+	click(box("provider_cap_input", "provider_cap_audio_input"))
+	if !row.model.CustomCapabilities || !slices.Equal(row.model.Inputs, []string{"text", "image", "video", "audio"}) || follow().Checked {
+		t.Fatalf("a ticked input did not become the user's: %+v", row.model)
+	}
+	click(box("provider_cap_input", "media_image"))
+	if row.model.Vision || row.model.AcceptsInput("image") {
+		t.Fatal("Vision did not follow the image input")
+	}
+	click(follow())
+	if row.model.CustomCapabilities || !slices.Equal(row.model.Inputs, []string{"text", "image", "video"}) || !row.model.Vision || len(asked) != 1 {
+		t.Fatalf("following again did not restore the catalog's tags: %+v", row.model)
 	}
 }
 

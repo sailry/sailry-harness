@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -65,7 +66,9 @@ func (model *sdkModel) streamGoogle(ctx context.Context, body map[string]any, ca
 	continuation := false
 	config.AutomaticContinuation = &continuation
 	config.HTTPOptions = &genai.HTTPOptions{RetryOptions: &genai.HTTPRetryOptions{Attempts: &attempts}}
-	terminal, tools := false, false
+	want := max(config.CandidateCount, 1)
+	finished := map[int64]bool{}
+	tools := false
 	finish := fantasy.FinishReasonStop
 	for chunk, err := range client.Models.GenerateContentStream(ctx, model.config.Model, contents, config) {
 		if err != nil {
@@ -116,6 +119,10 @@ func (model *sdkModel) streamGoogle(ctx context.Context, body map[string]any, ca
 				}
 				function := wireObject(part["functionCall"])
 				if function != nil {
+					if wireString(function["name"]) == "" || function["willContinue"] == true || len(wireArray(function["partialArgs"])) != 0 {
+						emitter.fail(fmt.Errorf("model tool input is incomplete"))
+						return
+					}
 					id = wireString(function["id"])
 					if id == "" {
 						id = uuid.NewString()
@@ -158,22 +165,39 @@ func (model *sdkModel) streamGoogle(ctx context.Context, body map[string]any, ca
 					}
 				}
 			}
-			if reason := wireString(candidate["finishReason"]); reason != "" {
-				terminal = true
-				switch reason {
-				case "STOP":
-					finish = fantasy.FinishReasonStop
-				case "MAX_TOKENS":
-					finish = fantasy.FinishReasonLength
-				case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII":
-					finish = fantasy.FinishReasonContentFilter
-				default:
-					finish = fantasy.FinishReasonUnknown
-				}
+			switch reason := genai.FinishReason(wireString(candidate["finishReason"])); reason {
+			case "", genai.FinishReasonUnspecified:
+				continue
+			case genai.FinishReasonStop:
+				finish = fantasy.FinishReasonStop
+			case genai.FinishReasonMaxTokens:
+				finish = fantasy.FinishReasonLength
+			case genai.FinishReasonSafety, genai.FinishReasonRecitation, genai.FinishReasonBlocklist, genai.FinishReasonProhibitedContent, genai.FinishReasonSPII:
+				finish = fantasy.FinishReasonContentFilter
+			case genai.FinishReasonLanguage, genai.FinishReasonOther, genai.FinishReasonImageSafety, genai.FinishReasonTooManyToolCalls, genai.FinishReasonImageProhibitedContent, genai.FinishReasonNoImage, genai.FinishReasonImageRecitation, genai.FinishReasonImageOther:
+				finish = fantasy.FinishReasonUnknown
+			default:
+				emitter.fail(fmt.Errorf("model generation did not complete: %s", reason))
+				return
+			}
+			// The SDK omits a zero-valued candidate index when marshaling.
+			index := int64(0)
+			if n := wireInt(candidate["index"]); n != nil {
+				index = *n
+			}
+			if index >= 0 && index < int64(want) {
+				finished[index] = true
 			}
 		}
+		if len(finished) == int(want) {
+			break
+		}
 	}
-	if !terminal {
+	if err := ctx.Err(); err != nil {
+		emitter.fail(err)
+		return
+	}
+	if len(finished) != int(want) {
 		emitter.fail(io.ErrUnexpectedEOF)
 		return
 	}

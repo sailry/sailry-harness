@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -19,8 +20,32 @@ func packageCatalogSource(number int) protocol.PluginCatalogSource {
 	return protocol.PluginCatalogSourceOfficial
 }
 
-func (r *Runtime) searchPackageMarket(kind, source int, query string) {
+// packageMarketKey names a market search: the kind, the plugins' source and
+// the query the Node searched.
+func packageMarketKey(kind, source int, query string) string {
+	return fmt.Sprintf("%d/%d/%s", kind, source, query)
+}
+
+func (r *Runtime) cancelMarketSearch() {
+	if cancel := r.packages.marketCancel; cancel != nil {
+		cancel()
+		r.packages.marketCancel = nil
+	}
+	r.App.Settings.SetBusy(settings.BusyMarket, false)
+}
+
+func (r *Runtime) searchPackageMarket(kind, source int, query string, force bool) {
+	owner := r.packageOwner()
+	if kind != 1 {
+		r.App.Settings.MarketMore = false
+	}
 	if kind == 2 {
+		r.App.Settings.MarketFailed = false
+		if owner != nil && owner.packages.marketKey != "" {
+			owner.packages.marketKey = ""
+			owner.packages.marketGeneration++
+			owner.cancelMarketSearch()
+		}
 		state := r.localRuntime().packages
 		if !state.themeRead {
 			r.localRuntime().readThemeCatalog(false)
@@ -28,119 +53,83 @@ func (r *Runtime) searchPackageMarket(kind, source int, query string) {
 		r.App.Settings.MarketLoad.Loading, r.App.Settings.MarketLoad.Loaded = state.themeBusy["catalog"], state.themeRead && !state.themeBusy["catalog"]
 		return
 	}
-	owner := r.packageOwner()
 	if owner == nil {
 		return
 	}
 	state := owner.packages
-	key := fmt.Sprintf("%d/%d/%s", kind, source, query)
-	if key == state.marketKey {
+	key := packageMarketKey(kind, source, query)
+	if key == state.marketKey && !force {
 		return
+	}
+	owner.cancelMarketSearch()
+	if key != state.marketKey {
+		// Another search's cards are not this one's results, even if it fails.
+		clear(state.skillMarketPages[:])
+		if kind == 0 {
+			r.App.Settings.MarketPlugins = nil
+		}
 	}
 	state.marketKey = key
 	state.marketGeneration++
 	generation := state.marketGeneration
-	r.App.Settings.MarketLoad.Loading = true
+	r.App.Settings.MarketLoad.Loading, r.App.Settings.MarketLoad.Loaded = true, false
+	r.App.Settings.MarketFailed = false
+	if kind == 1 {
+		owner.searchSkillMarket(query, force, generation)
+		return
+	}
+	ctx, cancel := context.WithCancel(owner.ctx)
+	state.marketCancel = cancel
+	catalogSource := packageCatalogSource(source)
 	owner.async(func() {
 		var entries []protocol.PluginCatalogEntry
-		var skillEntries []protocol.PluginSkillcatalogEntry
 		var err error
 		unavailable := false
-		if kind == 0 {
-			for page := uint32(1); ; page++ {
-				var out protocol.Output
-				out, err = owner.controller.Do(owner.ctx, protocol.Command{Kind: "search_plugin_catalog", Data: protocol.CommandSearchPluginCatalogPayload{Source: packageCatalogSource(source), Query: query, Page: page}})
-				if err != nil {
-					break
-				}
-				value, valid := detail[protocol.PluginCatalogPage](out.Data)
-				if !valid || out.Kind != "plugin_catalog" {
-					err = errors.New("unexpected plugin catalog response")
-					break
-				}
-				entries = append(entries, value.Entries...)
-				unavailable = unavailable || value.Unavailable
-				if value.Page >= value.Pages {
-					break
-				}
+		for page := uint32(1); ; page++ {
+			var out protocol.Output
+			out, err = owner.controller.Do(ctx, protocol.Command{Kind: "search_plugin_catalog", Data: protocol.CommandSearchPluginCatalogPayload{Source: catalogSource, Query: query, Page: page, Force: force}})
+			if err != nil {
+				break
 			}
-		} else {
-			for _, catalogSource := range []protocol.PluginSkillcatalogSource{protocol.PluginSkillcatalogSourceOfficial, protocol.PluginSkillcatalogSourceSkillsSh, protocol.PluginSkillcatalogSourceSkillhub} {
-				page := uint32(1)
-				for {
-					var out protocol.Output
-					out, err = owner.controller.Do(owner.ctx, protocol.Command{Kind: "search_skill_catalog", Data: protocol.CommandSearchSkillCatalogPayload{Source: catalogSource, Query: query, Page: page}})
-					if err != nil {
-						break
-					}
-					value, valid := detail[protocol.PluginSkillcatalogPage](out.Data)
-					if !valid || out.Kind != "skill_catalog" {
-						err = errors.New("unexpected skill catalog response")
-						break
-					}
-					skillEntries = append(skillEntries, value.Entries...)
-					unavailable = unavailable || value.Unavailable
-					if value.Next == nil || *value.Next <= page {
-						break
-					}
-					page = *value.Next
-				}
-				if err != nil {
-					break
-				}
+			value, valid := detail[protocol.PluginCatalogPage](out.Data)
+			if !valid || out.Kind != "plugin_catalog" || value.Page != page {
+				err = errors.New("unexpected plugin catalog response")
+				break
+			}
+			entries = append(entries, value.Entries...)
+			unavailable = unavailable || value.Unavailable
+			if value.Unavailable || page >= value.Pages {
+				break
 			}
 		}
 		owner.enqueue(func(c *ui.Context) {
-			if state.marketGeneration != generation {
+			if ctx.Err() != nil || state.marketGeneration != generation || owner.localRuntime().packageOwner() != owner {
 				return
 			}
-			if owner.localRuntime().packageOwner() != owner {
-				return
-			}
+			owner.cancelMarketSearch()
 			m := owner.App.Settings.Model
 			m.MarketLoad.Loading, m.MarketLoad.Loaded = false, true
+			m.MarketFailed = err != nil || unavailable
 			if err != nil {
-				owner.packageReport(c, err)
-				return
-			}
-			if unavailable {
+				kit.Error(c, i18n.T(c, "market_plugins"), faultDetail(err))
+			} else if unavailable {
 				kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
 			}
-			if kind == 0 {
-				m.MarketPlugins = nil
-				for _, entry := range entries {
-					if state.catalogSources[entry.ID] != packageCatalogSource(source) {
-						delete(state.catalogInfos, entry.ID)
-					}
-					state.catalog[entry.ID] = entry
-					state.catalogSources[entry.ID] = packageCatalogSource(source)
-					row := catalogPackageView(entry, owner.packageLocale(), source)
-					row.Host = owner.packageHostLabel()
-					m.MarketPlugins = append(m.MarketPlugins, row)
-				}
-				owner.projectPackages()
-			} else {
-				m.MarketSkills = nil
-				for _, entry := range skillEntries {
-					state.skillCatalog[entry.ID] = entry
-					row := viewmodel.Skill{ID: entry.ID, Name: entry.Name, Description: stringValue(entry.Description), Origin: entry.Origin, Content: state.documents[entry.ID]}
-					if entry.DisplayName != nil {
-						row.Name = *entry.DisplayName
-					}
-					if title := entry.DisplayLocales[i18n.Match(owner.packageLocale())]; title != "" {
-						row.Name = title
-					}
-					if text := entry.DescriptionLocales[i18n.Match(owner.packageLocale())]; text != "" {
-						row.Description = text
-					}
-					if entry.Package != nil {
-						row.Package = *entry.Package
-					}
-					m.MarketSkills = append(m.MarketSkills, row)
-				}
-				owner.projectSkillMarket()
-				owner.readMarketSkillUpdates()
+			if m.MarketFailed && len(entries) == 0 {
+				return
 			}
+			m.MarketPlugins = nil
+			for _, entry := range entries {
+				if state.catalogSources[entry.ID] != catalogSource {
+					delete(state.catalogInfos, entry.ID)
+				}
+				state.catalog[entry.ID] = entry
+				state.catalogSources[entry.ID] = catalogSource
+				row := catalogPackageView(entry, owner.packageLocale(), source)
+				row.Host = owner.packageHostLabel()
+				m.MarketPlugins = append(m.MarketPlugins, row)
+			}
+			owner.projectPackages()
 		})
 	})
 }

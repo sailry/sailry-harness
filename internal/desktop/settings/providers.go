@@ -499,6 +499,9 @@ type modelDraft struct {
 	// which a reset of the tags shows again; nil when they were the user's.
 	catalog *preview.ChannelModel
 	lookup  *modelCapabilityLookup
+	// relookup asks the catalog for the saved ID's tags, which a row that
+	// follows the catalog again after the user's tags does not have.
+	relookup bool
 }
 
 // providerEditor is the step, the brand, the methods its choice offered and
@@ -551,7 +554,7 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 		if x.Context > 0 {
 			ctx = strconv.Itoa(x.Context)
 		}
-		x.Generates = slices.Clone(x.Generates)
+		x.Inputs, x.Generates = slices.Clone(x.Inputs), slices.Clone(x.Generates)
 		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts), def: max(0, slices.Index(x.Efforts, x.DefaultEffort)),
 			hosted: slices.Contains(x.Generates, viewmodel.GenerateImageTool)}
 		if !x.CustomCapabilities {
@@ -1765,10 +1768,30 @@ func effortTag(c *ui.Context, j int, name string, isDefault, pending bool, choos
 	})
 }
 
+// inputLabels name ModelInputs' kinds in the capability form, by i18n key.
+var inputLabels = map[string]string{"text": "provider_cap_text", "image": "media_image", "video": "media_video",
+	"audio": "provider_cap_audio_input", "pdf": "provider_cap_pdf"}
+
+// setInput ticks or clears an input kind. An unknown list first takes the
+// inputs it stood for, so the other kinds stay as shown; Vision follows
+// the image input.
+func (d *modelDraft) setInput(kind string, on bool) {
+	x := &d.model
+	inputs := []string{}
+	for _, k := range viewmodel.ModelInputs {
+		if k == kind && on || k != kind && x.AcceptsInput(k) {
+			inputs = append(inputs, k)
+		}
+	}
+	x.Inputs = inputs
+	x.Vision = x.AcceptsInput("image")
+}
+
 // capabilityForm is the model's capability tags as checkboxes in three
-// groups: what it understands, what it can do and what it generates. A
-// change marks the tags as the user's (CustomCapabilities), which a save
-// then keeps over the catalog's.
+// groups: its inputs, its functions and what it generates, under Follow
+// catalog. Following leaves the tags to the catalog, which a save lets the
+// Node complete; a changed box or turning it off marks the tags as the
+// user's (CustomCapabilities), which a save then keeps over the catalog's.
 func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
@@ -1777,6 +1800,12 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 		changed := ui.Checkbox(c.Key(key), on, t(name)).Label(t(group) + " " + t(name)).Disabled(d.pending).Changed()
 		x.CustomCapabilities = x.CustomCapabilities || changed
 		return changed
+	}
+	input := func(kind string) {
+		on := x.AcceptsInput(kind)
+		if check("provider_cap_input", "input-"+kind, inputLabels[kind], &on) {
+			d.setInput(kind, on)
+		}
 	}
 	generates := func(key, name string, on bool, set func(bool)) {
 		if check("provider_cap_generates", key, name, &on) {
@@ -1792,24 +1821,53 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 		}
 	}
 	// A group is a row of the capability table: its label in the first
-	// column, sized to the longest, and its boxes beside it.
-	group := func(key string, boxes func()) {
-		ui.Text(c.Key(key+"-label"), t(key)).FontSize(14).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
+	// column, sized to the longest, with its tooltip, and its boxes beside it.
+	group := func(key, tip string, boxes func()) {
+		label := ui.Text(c.Key(key+"-label"), t(key)).FontSize(14).TextColor(p.MutedForeground).SingleLine().AlignSelf(ui.Center)
+		if tip != "" {
+			kit.Tooltip(c, label, t(tip))
+		}
 		ui.Row(c.Key(key)).Wrap().GapX(16).GapY(6).AlignItems(ui.Center).MinWidth(0).Children(boxes)
 	}
 	ui.Column(c.Key("capabilities")).Gap(8).Children(func() {
-		ui.Text(c.Key("heading"), t("provider_capabilities")).FontSize(14).FontWeight(500).SingleLine().TextColor(p.PopoverForeground)
+		// The heading with Follow catalog at its right, which wraps under it
+		// in a narrow form.
+		ui.Row(c.Key("head")).Wrap().GapX(12).GapY(6).AlignItems(ui.Center).Children(func() {
+			ui.Text(c.Key("heading"), t("provider_capabilities")).FontSize(14).FontWeight(500).SingleLine().Grow(1).
+				TextColor(p.PopoverForeground)
+			ui.Row(c.Key("follow")).Gap(8).AlignItems(ui.Center).Shrink(0).Children(func() {
+				follow := !x.CustomCapabilities
+				label := ui.Text(c.Key("label"), t("provider_cap_follow_catalog")).FontSize(13).SingleLine().TextColor(p.MutedForeground)
+				if follow && x.Inputs == nil && strings.TrimSpace(d.id) != "" {
+					kit.Tooltip(c, label, t("provider_cap_catalog_unknown"))
+				}
+				if ui.Switch(c.Key("switch"), &follow).Label(t("provider_cap_follow_catalog")).Disabled(d.pending).Changed() {
+					if follow {
+						d.followCatalog()
+					} else {
+						// The tags as shown become the user's.
+						x.CustomCapabilities = true
+					}
+				}
+			})
+		})
 		// The form's surface, not the window's, under the unchecked boxes.
 		surface := *c.Theme()
 		surface.Background = ui.Transparent
 		ui.Themed(c, &surface).Background(ui.Transparent).Children(func() {
 			ui.Grid(c).ColumnTracks(ui.FitContent(), ui.Fr(1)).GapX(16).GapY(10).Children(func() {
-				group("provider_cap_understands", func() { check("provider_cap_understands", "vision", "media_image", &x.Vision) })
-				group("provider_cap_can", func() {
-					check("provider_cap_can", "tools", "provider_cap_tools", &x.Tools)
-					check("provider_cap_can", "reasoning", "provider_cap_reasoning", &x.Reasoning)
+				// Inputs are what the model accepts, not what every protocol
+				// and attachment kind sends.
+				group("provider_cap_input", "provider_cap_input_hint", func() {
+					for _, kind := range viewmodel.ModelInputs {
+						input(kind)
+					}
 				})
-				group("provider_cap_generates", func() {
+				group("provider_cap_functions", "", func() {
+					check("provider_cap_functions", "tools", "provider_cap_tools", &x.Tools)
+					check("provider_cap_functions", "reasoning", "provider_cap_reasoning", &x.Reasoning)
+				})
+				group("provider_cap_generates", "", func() {
 					// The image route follows the model's output kind and the
 					// provider protocol, rather than treating a tool as an endpoint.
 					image := slices.Contains(x.Generates, viewmodel.GenerateImage) || slices.Contains(x.Generates, viewmodel.GenerateImageTool)

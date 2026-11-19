@@ -84,11 +84,7 @@ func MarketPage(c *ui.Context, s *State) {
 			}
 			search := []string{"market_search_plugins", "market_search_skills", "market_search_themes"}[m.MarketKind]
 			ui.Row(c.Key("search")).Gap(12).Children(func() {
-				ui.SearchField(c.Key("query"), &m.MarketQuery).Placeholder(t(search)).Label(t(search)).Grow(1).OnSubmit(func() {
-					if m.PackageActions != nil && m.PackageActions.RetryMarket != nil {
-						m.PackageActions.RetryMarket()
-					}
-				})
+				ui.SearchField(c.Key("query"), &m.MarketQuery).Placeholder(t(search)).Label(t(search)).Grow(1).OnSubmit(m.retryMarket)
 				switch m.MarketKind {
 				case 0:
 					pick(c, "source", t("market_details_source"), &m.MarketSource, []string{t("market_source_official"), t("market_source_community")}, false).Width(140)
@@ -142,9 +138,55 @@ func marketFilters(c *ui.Context, m *Model) {
 	})
 }
 
-func marketMatch(q, text string) bool {
+// marketMatch is whether a card is of the query. A live catalog is the
+// Node's search for it, in the Node's order, which the page shows as is.
+func (m *Model) marketMatch(text string) bool {
+	return m.Live || marketQueryMatch(m.MarketQuery, text)
+}
+
+func marketQueryMatch(q, text string) bool {
 	q = strings.ToLower(strings.TrimSpace(q))
 	return q == "" || strings.Contains(strings.ToLower(text), q)
+}
+
+// retryMarket searches the catalog again.
+func (m *Model) retryMarket() {
+	if m.PackageActions != nil && m.PackageActions.RetryMarket != nil {
+		m.PackageActions.RetryMarket()
+	}
+}
+
+// marketEmpty is the result of a search without cards: a failed live
+// search, which Retry runs again, or none found.
+func marketEmpty(c *ui.Context, m *Model, icon *ui.SVG, none, failed string) {
+	if !m.Live || !m.MarketFailed {
+		kit.Result(c, kit.ResultProps{Icon: icon, Title: i18n.T(c, none), Card: true})
+		return
+	}
+	kit.Result(c, kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, failed), Card: true, Extra: func() {
+		kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(m.retryMarket)
+	}})
+}
+
+// marketMore follows a live search's cards: Retry once a source failed, the
+// cards read kept, and Load more while a source has a further page; a page
+// that failed stays next, for Load more again.
+func marketMore(c *ui.Context, m *Model) {
+	if !m.Live || !m.MarketFailed && !m.MarketMore {
+		return
+	}
+	ui.Row(c.Key("more")).Justify(ui.Center).Gap(12).Children(func() {
+		if m.MarketFailed {
+			kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(m.retryMarket)
+		}
+		if m.MarketMore {
+			kit.SecondaryBusy(c.Key("load-more"), i18n.T(c, "market_load_more"), m.Busy[BusyMarket]).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.MoreMarket != nil {
+					m.PackageActions.MoreMarket()
+				}
+			})
+		}
+	})
 }
 
 // marketCard is a 76 DIP bordered card of the item's summary and its action.
@@ -205,14 +247,14 @@ func marketPlugins(c *ui.Context, s *State) {
 	for i := range m.MarketPlugins {
 		x := &m.MarketPlugins[i]
 		installed := m.installedPackage(x.ID) != nil
-		if x.Source != source || !marketMatch(m.MarketQuery, x.Name+" "+x.Description) ||
+		if x.Source != source || !m.marketMatch(x.Name+" "+x.Description) ||
 			m.MarketCategory > 0 && x.Category != marketCategories[m.MarketCategory] || m.MarketInstalled && !installed {
 			continue
 		}
 		shown = append(shown, x)
 	}
 	if len(shown) == 0 {
-		kit.Result(c, kit.ResultProps{Icon: icons.Puzzle, Title: i18n.T(c, "plugins_none"), Card: true})
+		marketEmpty(c, m, icons.Puzzle, "plugins_none", "unavailable")
 		return
 	}
 	kit.Grid(c, func() {
@@ -235,18 +277,19 @@ func marketPlugins(c *ui.Context, s *State) {
 				func() { s.ShowDetails(DetailPlugin, x.ID) }, install)
 		}
 	})
+	marketMore(c, m)
 }
 
 func marketSkills(c *ui.Context, s *State) {
 	m := s.Model
 	var shown []*preview.Skill
 	for i := range m.MarketSkills {
-		if x := &m.MarketSkills[i]; marketMatch(m.MarketQuery, x.Name+" "+x.Description) {
+		if x := &m.MarketSkills[i]; m.marketMatch(x.Name + " " + x.Description) {
 			shown = append(shown, x)
 		}
 	}
 	if len(shown) == 0 {
-		kit.Result(c, kit.ResultProps{Icon: icons.Bot, Title: i18n.T(c, "skills_no_matches"), Card: true})
+		marketEmpty(c, m, icons.Bot, "skills_no_matches", "skill_catalog_load_failed")
 		return
 	}
 	kit.Grid(c, func() {
@@ -265,6 +308,7 @@ func marketSkills(c *ui.Context, s *State) {
 				})
 		}
 	})
+	marketMore(c, m)
 }
 
 // themeAction is a theme's action: Apply an installed theme, Install or
@@ -296,7 +340,7 @@ func marketThemes(c *ui.Context, s *State) {
 	var shown []*preview.MarketTheme
 	for i := range m.Themes {
 		x := &m.Themes[i]
-		if !marketMatch(m.MarketQuery, x.Name+" "+x.Description) || m.MarketInstalled && !x.Installed ||
+		if !marketQueryMatch(m.MarketQuery, x.Name+" "+x.Description) || m.MarketInstalled && !x.Installed ||
 			m.MarketMode == 1 && !x.Dark || m.MarketMode == 2 && !x.Light {
 			continue
 		}

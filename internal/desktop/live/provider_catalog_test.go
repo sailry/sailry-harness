@@ -17,12 +17,34 @@ import (
 
 func TestProviderModelLookupUsesChannelCapabilities(t *testing.T) {
 	t.Parallel()
+	// Inputs come only from a catalog entry of the channel's own namespace; an
+	// unlisted gateway keeps the unknown list with its Vision tag.
+	for _, test := range []struct {
+		endpoint string
+		inputs   []string
+	}{
+		{endpoint: "https://fixture-gateway.invalid/v1"},
+		{endpoint: "https://api.deepseek.com", inputs: []string{"text", "image"}},
+	} {
+		t.Run(test.endpoint, func(t *testing.T) {
+			t.Parallel()
+			found := lookupProviderModelFixture(t, test.endpoint)
+			if found == nil || found.ID != "fixture-vision" || !found.Vision || !found.Tools || !found.Reasoning || len(found.Generates) != 0 || found.CustomCapabilities ||
+				(found.Inputs == nil) != (test.inputs == nil) || !slices.Equal(found.Inputs, test.inputs) {
+				t.Fatalf("catalog tags = %+v", found)
+			}
+		})
+	}
+}
+
+func lookupProviderModelFixture(t *testing.T, endpoint string) *viewmodel.ChannelModel {
+	t.Helper()
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Node = protocol.NodeID{1}
 	transport := &conversationTestTransport{snapshot: snapshot}
 	provider := protocol.DefaultConversationProvider()
 	provider.Api, provider.Authentication = protocol.ConversationModelApiResponses, protocol.AuthenticationApiKey
-	provider.Endpoint = "https://fixture-gateway.invalid/v1"
+	provider.Endpoint = endpoint
 	const id = "fixture-vision"
 	transport.handle = func(request protocol.Request) (link.Response, bool) {
 		if request.Command.Kind != "read_model_catalog" {
@@ -51,8 +73,44 @@ func TestProviderModelLookupUsesChannelCapabilities(t *testing.T) {
 	for _, post := range r.queue {
 		post(nil)
 	}
-	if found == nil || found.ID != id || !found.Vision || !found.Tools || !found.Reasoning || len(found.Generates) != 0 || found.CustomCapabilities {
-		t.Fatalf("catalog tags = %+v", found)
+	return found
+}
+
+// The editor's inputs reach the draft: an unknown list stays unknown, an
+// explicit empty list stays explicit, the user's list is sent with Vision
+// as its image entry, and a model that follows the catalog again goes
+// without the user's mark, for the Node to complete.
+func TestProviderModelInputsDraft(t *testing.T) {
+	t.Parallel()
+	provider := providerRouteFixture()
+	legacy, explicit, custom := protocol.DefaultConversationModel(), protocol.DefaultConversationModel(), protocol.DefaultConversationModel()
+	legacy.ID, legacy.Context, legacy.Output, legacy.Vision = "legacy", 128000, 16384, true
+	explicit.ID, explicit.Context, explicit.Output, explicit.Inputs = "explicit", 128000, 16384, []string{}
+	custom.ID, custom.Context, custom.Output, custom.Inputs, custom.Vision, custom.CustomCapabilities = "custom", 128000, 16384, []string{"text", "image", "pdf"}, true, true
+	custom.Generates = []protocol.MediaGeneration{protocol.MediaGenerationSpeech}
+	provider.Models, provider.DefaultModel = []protocol.ConversationModel{legacy, explicit, custom}, custom.ID
+	projected := []viewmodel.ChannelModel{channelModel(legacy), channelModel(explicit), channelModel(custom)}
+	if projected[0].Inputs != nil || !projected[0].AcceptsInput("image") || projected[1].Inputs == nil || len(projected[1].Inputs) != 0 ||
+		projected[1].Vision || !slices.Equal(projected[2].Inputs, custom.Inputs) || !projected[2].Vision || !projected[2].CustomCapabilities {
+		t.Fatalf("projected inputs = %+v", projected)
+	}
+	key := provider.ID.String()
+	r := &Runtime{providerDraftBases: map[string]protocol.ConversationProvider{key + "/8": provider}}
+	channel := viewmodel.Channel{ID: key, API: string(provider.Api), Name: provider.Name, Endpoint: provider.Endpoint, Default: 2, Models: projected}
+	draft := r.providerDraft(settings.ProviderDraft{Channel: channel, ExpectedRevision: 8})
+	if draft.Models[0].Inputs != nil || !draft.Models[0].Vision || draft.Models[1].Inputs == nil || len(draft.Models[1].Inputs) != 0 ||
+		!slices.Equal(draft.Models[2].Inputs, custom.Inputs) || !draft.Models[2].CustomCapabilities || draft.DefaultModel != custom.ID {
+		t.Fatalf("unchanged inputs changed in the draft: %+v", draft.Models)
+	}
+	channel.Models = slices.Clone(projected)
+	channel.Models[0].CustomCapabilities, channel.Models[0].Inputs = true, []string{"text", "video"}
+	channel.Models[2].CustomCapabilities = false
+	draft = r.providerDraft(settings.ProviderDraft{Channel: channel, ExpectedRevision: 8})
+	if got := draft.Models[0]; !got.CustomCapabilities || !slices.Equal(got.Inputs, []string{"text", "video"}) || got.Vision {
+		t.Fatalf("the user's inputs = %+v", got)
+	}
+	if got := draft.Models[2]; got.CustomCapabilities || got.ID != custom.ID || draft.DefaultModel != custom.ID {
+		t.Fatalf("a model following the catalog kept the user's mark: %+v", got)
 	}
 }
 

@@ -33,7 +33,7 @@ func ReadsImages(binding Binding) bool {
 		return false
 	}
 	if model := metadata(binding); model != nil {
-		return model.Vision
+		return model.AcceptsInput("image")
 	}
 	_, reads := MediaChannelFor(protocol.MediaKindVision, binding.Provider, protocol.ConversationModel{Vision: true})
 	return reads

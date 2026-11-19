@@ -2135,6 +2135,14 @@ updates_profile_inside: El perfil de datos está dentro de Sailry; muévalo ante
 compatibility_update_unavailable: Esta versión aún no está disponible para actualizar automáticamente
 settings_media: Modelos de medios
 settings_media_description: Gestionar modelos para tareas de imagen, audio y vídeo
+provider_cap_text: Texto
+provider_cap_input: Inputs
+provider_cap_audio_input: Audio
+provider_cap_pdf: PDF
+provider_cap_functions: Functions
+provider_cap_follow_catalog: Follow catalog
+provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
+provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: Visión
 provider_cap_tools: Herramientas
 provider_cap_reasoning: Razonamiento
@@ -2154,6 +2162,8 @@ media_video: Vídeo
 media_speech: Voz
 media_follow: Seguir el modelo de la conversación
 media_load_failed: No se pudieron leer los modelos de medios
+market_load_more: Cargar más
+skill_catalog_load_failed: Could not load skills
 panel_history_empty: Aún no hay historial
 panel_documents_empty: Aún no hay documentos
 connections_copy_id: Copiar ID

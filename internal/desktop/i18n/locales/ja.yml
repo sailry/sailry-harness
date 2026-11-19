@@ -2135,6 +2135,14 @@ updates_profile_inside: データプロファイルは Sailry の中にありま
 compatibility_update_unavailable: このバージョンはまだ自動更新できません
 settings_media: メディアモデル
 settings_media_description: 画像、オーディオ、ビデオタスクのモデルを管理します
+provider_cap_text: テキスト
+provider_cap_input: Inputs
+provider_cap_audio_input: Audio
+provider_cap_pdf: PDF
+provider_cap_functions: Functions
+provider_cap_follow_catalog: Follow catalog
+provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
+provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: ビジョン
 provider_cap_tools: ツール
 provider_cap_reasoning: 推論
@@ -2154,6 +2162,8 @@ media_video: 動画
 media_speech: 音声
 media_follow: 会話モデルに従う
 media_load_failed: メディアモデルを読み込めませんでした
+market_load_more: さらに読み込む
+skill_catalog_load_failed: Could not load skills
 panel_history_empty: 履歴はまだありません
 panel_documents_empty: ドキュメントはまだありません
 connections_copy_id: ID をコピー

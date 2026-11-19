@@ -2135,6 +2135,14 @@ updates_profile_inside: 資料目錄位於 Sailry 應用內，請移出後再更
 compatibility_update_unavailable: 此版本暫不可自動更新
 settings_media: 媒體模型
 settings_media_description: 管理影像、音訊和影片任務使用的模型
+provider_cap_text: 文字
+provider_cap_input: Inputs
+provider_cap_audio_input: Audio
+provider_cap_pdf: PDF
+provider_cap_functions: Functions
+provider_cap_follow_catalog: Follow catalog
+provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
+provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: 識圖
 provider_cap_tools: 工具
 provider_cap_reasoning: 推理
@@ -2154,6 +2162,8 @@ media_video: 影片
 media_speech: 語音
 media_follow: 跟隨對話模型
 media_load_failed: 無法讀取媒體模型
+market_load_more: 載入更多
+skill_catalog_load_failed: Could not load skills
 panel_history_empty: 尚無歷史記錄
 panel_documents_empty: 尚無文件
 connections_copy_id: 複製 ID

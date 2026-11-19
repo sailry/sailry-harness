@@ -23,6 +23,7 @@ type PackageActions struct {
 	CancelDownload func()
 	LoadDetails    func(DetailKind, string, func())
 	RetryMarket    func()
+	MoreMarket     func()
 	MarketPlugin   func(string)
 	PluginVersion  func(string, string)
 	PinPlugin      func(string, bool)
@@ -105,6 +106,7 @@ const (
 	BusyThemes        = "themes"      // Appearance: Check updates
 	BusyPluginUpdates = "plugins"     // Plugins: Check updates
 	BusySkillUpdates  = "skills"      // Skills: Check updates
+	BusyMarket        = "market"      // Market: Load more, while the live search reads
 	BusyPermissions   = "permissions" // Permissions: Check
 	BusyTelemetry     = "telemetry"   // General: Reset
 	// BusyPackage followed by a package's, skill's or theme's ID is an

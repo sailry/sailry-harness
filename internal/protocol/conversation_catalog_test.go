@@ -2,9 +2,34 @@ package protocol
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestModelCatalogPreservesUnknownInputsAcrossWire(t *testing.T) {
+	for _, inputs := range [][]string{nil, {}, {"text", "audio"}} {
+		model := DefaultConversationCatalogModel()
+		model.ID, model.Name, model.Inputs = "fixture", "Fixture", inputs
+		wire, err := json.Marshal(model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded ConversationCatalogModel
+		if err := json.Unmarshal(wire, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if (decoded.Inputs == nil) != (inputs == nil) || !slices.Equal(decoded.Inputs, inputs) {
+			t.Errorf("inputs %v changed on the wire: %s", inputs, wire)
+		}
+		var legacy struct {
+			Inputs []string `json:"inputs"`
+		}
+		if err := json.Unmarshal(wire, &legacy); err != nil || legacy.Inputs == nil {
+			t.Errorf("the required legacy inputs array is missing: %s (%v)", wire, err)
+		}
+	}
+}
 
 func TestModelCatalogBundledStatus(t *testing.T) {
 	status := DefaultConversationCatalogStatus()

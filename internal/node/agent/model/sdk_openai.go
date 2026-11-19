@@ -3,8 +3,10 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sort"
 	"strings"
 
@@ -238,16 +240,28 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 }
 
 type chatTool struct {
-	id, name, input string
-	started         bool
+	id, name, input   string
+	started, hasInput bool
 }
 
 func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.Call, emitter *sdkEmitter) {
+	var options struct {
+		N             int `json:"n"`
+		StreamOptions struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
+	}
+	if err := json.Unmarshal(raw, &options); err != nil {
+		emitter.fail(err)
+		return
+	}
 	// Built without openaisdk.NewClient for the reason given in streamResponses.
 	service := openaisdk.NewChatCompletionService(model.openAIOptions(call)...)
 	stream := service.NewStreaming(ctx, openaisdk.ChatCompletionNewParams{}, option.WithRequestBody("application/json", raw))
 	defer stream.Close()
 	tools := map[int64]*chatTool{}
+	finished := map[int64]bool{}
+	want := max(options.N, 1)
 	reason := ""
 	// Reasoning a model writes inline in its content is reasoning. A provider
 	// that also reports reasoning in its own field is read from that field.
@@ -274,7 +288,8 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 			emitter.fail(err)
 			return
 		}
-		emitter.updateUsage(wireObject(value["usage"]), "chat")
+		usage := wireObject(value["usage"])
+		emitter.updateUsage(usage, "chat")
 		for _, value := range wireArray(value["choices"]) {
 			choice := wireObject(value)
 			delta := wireObject(choice["delta"])
@@ -320,27 +335,57 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 					}
 				}
 				if input, ok := function["arguments"].(string); ok {
+					tool.hasInput = true
 					tool.input += input
 					if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputDelta, ID: tool.id, ToolCallName: tool.name, Delta: input}) {
 						return
 					}
 				}
 			}
-			if finish, ok := choice["finish_reason"].(string); ok && finish != "" {
+			switch finish := wireString(choice["finish_reason"]); finish {
+			case "stop", "tool_calls", "function_call", "length", "content_filter":
+				index := wireInt(choice["index"])
+				if index == nil && choice["index"] == nil && want == 1 {
+					finished[0] = true
+				} else if index != nil && *index >= 0 && *index < int64(want) {
+					finished[*index] = true
+				}
 				reason = finish
+			case "":
+			default:
+				emitter.fail(fmt.Errorf("unsupported model finish reason"))
+				return
 			}
+		}
+		// Chat can send the requested usage in a separate, choices-empty chunk.
+		if len(finished) == want && (usage != nil || !options.StreamOptions.IncludeUsage) {
+			break
 		}
 	}
 	// A tag the stream left unfinished is what it was: text, or open reasoning.
 	if !write(inline.finish()) {
 		return
 	}
-	if err := stream.Err(); err != nil {
+	// Losing only the usage trailer cannot undo the completed choices. Never
+	// suppress cancellation, a provider error event or malformed SSE data.
+	if err := ctx.Err(); err != nil {
 		emitter.fail(err)
 		return
 	}
-	if reason == "" {
+	if err := stream.Err(); err != nil {
+		var network net.Error
+		lostTrailer := errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &network)
+		if len(finished) != want || !lostTrailer {
+			emitter.fail(err)
+			return
+		}
+	}
+	if len(finished) != want {
 		emitter.fail(io.ErrUnexpectedEOF)
+		return
+	}
+	if (reason == "tool_calls" || reason == "function_call") && len(tools) == 0 {
+		emitter.fail(fmt.Errorf("model tool identity is incomplete"))
 		return
 	}
 	indices := make([]int64, 0, len(tools))
@@ -350,13 +395,14 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 	sort.Slice(indices, func(i, j int) bool { return indices[i] < indices[j] })
 	for _, index := range indices {
 		tool := tools[index]
-		if tool.id == "" || tool.name == "" || !json.Valid([]byte(tool.input)) {
+		input := strings.TrimSpace(tool.input)
+		if tool.id == "" || tool.name == "" || !strings.HasPrefix(input, "{") || !json.Valid([]byte(input)) {
 			// The output limit cut this call: it is dropped, the complete
 			// calls and the partial answer stay.
 			if reason == "length" {
 				continue
 			}
-			if tool.id == "" || tool.name == "" || strings.TrimSpace(tool.input) != "" {
+			if tool.id == "" || tool.name == "" || !tool.hasInput || input != "" {
 				emitter.fail(fmt.Errorf("model tool input is incomplete"))
 				return
 			}

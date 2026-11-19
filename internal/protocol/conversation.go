@@ -4,6 +4,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"slices"
 )
 
 type ConversationExecution string
@@ -255,16 +256,34 @@ type ConversationModel struct {
 	Output           uint32                             `json:"output"`
 	CompactionTokens *uint32                            `json:"compaction_tokens,omitempty"`
 	Capabilities     *ConversationDiscoveryCapabilities `json:"capabilities,omitempty"`
-	Vision           bool                               `json:"vision"`
-	Tools            bool                               `json:"tools"`
-	Reasoning        bool                               `json:"reasoning"`
-	Generates        []MediaGeneration                  `json:"generates"`
-	// CustomCapabilities marks vision, tools, reasoning and generates as chosen
-	// by the user, so catalog completion and discovery keep them.
+	// A nil list falls back to the legacy text and vision capabilities.
+	Inputs    []string          `json:"inputs,omitzero"`
+	Vision    bool              `json:"vision"`
+	Tools     bool              `json:"tools"`
+	Reasoning bool              `json:"reasoning"`
+	Generates []MediaGeneration `json:"generates"`
+	// CustomCapabilities marks input, tools, reasoning and generation tags as user-chosen.
 	CustomCapabilities bool     `json:"custom_capabilities,omitempty"`
 	Efforts            []Effort `json:"efforts"`
 	CustomEfforts      bool     `json:"custom_efforts"`
 	DefaultEffort      Effort   `json:"default_effort"`
+}
+
+// ValidModelInput reports whether kind is a models.dev v1 input modality.
+func ValidModelInput(kind string) bool {
+	switch kind {
+	case "text", "image", "video", "audio", "pdf":
+		return true
+	}
+	return false
+}
+
+// AcceptsInput consults explicit inputs before falling back to legacy text and image support.
+func (value ConversationModel) AcceptsInput(kind string) bool {
+	if value.Inputs == nil {
+		return kind == "text" || kind == "image" && value.Vision
+	}
+	return ValidModelInput(kind) && slices.Contains(value.Inputs, kind)
 }
 
 func DefaultConversationModel() ConversationModel {
@@ -285,27 +304,43 @@ func DefaultConversationModel() ConversationModel {
 	}
 }
 func (value *ConversationModel) UnmarshalJSON(data []byte) error {
-	type plain ConversationModel
-	decoded := plain{}
-	decoded.DisplayName = nil
-	decoded.CompactionTokens = nil
-	decoded.Capabilities = nil
-	decoded.Vision = false
-	decoded.Tools = false
-	decoded.Reasoning = false
-	decoded.Generates = []MediaGeneration{}
-	decoded.Efforts = []Effort{}
-	decoded.CustomEfforts = false
-	decoded.DefaultEffort = Effort{Kind: "default"}
+	// The wire pointer accepts null without relaxing the decoder's other slice fields.
+	decoded := struct {
+		ID                 string                             `json:"id"`
+		DisplayName        *string                            `json:"display_name"`
+		Context            uint32                             `json:"context"`
+		Output             uint32                             `json:"output"`
+		CompactionTokens   *uint32                            `json:"compaction_tokens"`
+		Capabilities       *ConversationDiscoveryCapabilities `json:"capabilities"`
+		Inputs             *[]string                          `json:"inputs"`
+		Vision             bool                               `json:"vision"`
+		Tools              bool                               `json:"tools"`
+		Reasoning          bool                               `json:"reasoning"`
+		Generates          []MediaGeneration                  `json:"generates"`
+		CustomCapabilities bool                               `json:"custom_capabilities"`
+		Efforts            []Effort                           `json:"efforts"`
+		CustomEfforts      bool                               `json:"custom_efforts"`
+		DefaultEffort      Effort                             `json:"default_effort"`
+	}{Generates: []MediaGeneration{}, Efforts: []Effort{}, DefaultEffort: Effort{Kind: "default"}}
 	if err := DecodeObject(data, &decoded, []string{"id", "context", "output"}, false); err != nil {
 		return err
 	}
-	*value = ConversationModel(decoded)
+	*value = ConversationModel{
+		ID: decoded.ID, DisplayName: decoded.DisplayName, Context: decoded.Context, Output: decoded.Output,
+		CompactionTokens: decoded.CompactionTokens, Capabilities: decoded.Capabilities, Vision: decoded.Vision,
+		Tools: decoded.Tools, Reasoning: decoded.Reasoning, Generates: decoded.Generates, CustomCapabilities: decoded.CustomCapabilities,
+		Efforts: decoded.Efforts, CustomEfforts: decoded.CustomEfforts, DefaultEffort: decoded.DefaultEffort,
+	}
+	if decoded.Inputs != nil {
+		value.Inputs = *decoded.Inputs
+		value.Vision = value.AcceptsInput("image")
+	}
 	return nil
 }
 func (value ConversationModel) MarshalJSON() ([]byte, error) {
 	type plain ConversationModel
 	encoded := plain(value)
+	encoded.Vision = value.AcceptsInput("image")
 	encoded.Generates = normalizeCollections(encoded.Generates)
 	encoded.Efforts = normalizeCollections(encoded.Efforts)
 	return json.Marshal(encoded)

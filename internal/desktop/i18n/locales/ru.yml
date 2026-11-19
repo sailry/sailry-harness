@@ -2135,6 +2135,14 @@ updates_profile_inside: Профиль данных находится внут�
 compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления
 settings_media: Фотомодели СМИ
 settings_media_description: Управление моделями для изображений, аудио и видео задач
+provider_cap_text: Текст
+provider_cap_input: Inputs
+provider_cap_audio_input: Audio
+provider_cap_pdf: PDF
+provider_cap_functions: Functions
+provider_cap_follow_catalog: Follow catalog
+provider_cap_input_hint: Inputs accepted by the model. Attachment support also depends on the API and file format.
+provider_cap_catalog_unknown: The catalog has no input details for this model and channel.
 provider_cap_vision: Видение
 provider_cap_tools: Инструменты
 provider_cap_reasoning: Обоснование
@@ -2154,6 +2162,8 @@ media_video: Видео
 media_speech: Речь
 media_follow: Как в модели разговора
 media_load_failed: Не удалось прочитать медиамодели
+market_load_more: Загрузить ещё
+skill_catalog_load_failed: Could not load skills
 panel_history_empty: Истории пока нет
 panel_documents_empty: Документов пока нет
 connections_copy_id: Копировать ID
