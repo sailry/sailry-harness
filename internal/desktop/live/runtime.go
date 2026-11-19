@@ -334,7 +334,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.prefsRevision = prefs.Revision()
 	r.readTelemetry()
 	r.readSandbox()
-	r.projectConversations()
+	r.projectConversations(nil)
 	r.initTeams()
 	r.initNodeSettings()
 	r.initConversationSearch()
@@ -642,8 +642,9 @@ func (r *Runtime) project() {
 		bound.pruneSessions(peerSnapshot)
 	}
 	r.projectHosts(d)
+	previous := r.App.Data
 	r.applyConversationData(d)
-	r.projectConversations()
+	r.projectConversations(previous)
 	r.projectProviderSnapshot()
 	r.prunePins(snapshot)
 	r.pruneSessions(snapshot)

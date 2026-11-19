@@ -49,7 +49,7 @@ func (r *Runtime) SetExport(f func(string, string, conversation.ExportFormat)) {
 	}
 }
 
-func (r *Runtime) projectConversations() {
+func (r *Runtime) projectConversations(previous *viewmodel.Data) {
 	project := func(list []*viewmodel.Conversation) {
 		for _, cv := range list {
 			owner := r.conversationRuntime(cv, nil)
@@ -58,6 +58,9 @@ func (r *Runtime) projectConversations() {
 			}
 			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 				if state, ok := owner.conversationState(id); ok {
+					if owner.carryConversationPresentation(previous, cv, id) {
+						continue
+					}
 					owner.invalidateConversationPresentation(cv)
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
 					owner.projectOutgoing(cv, state.Snapshot.Page)

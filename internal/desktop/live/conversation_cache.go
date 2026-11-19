@@ -113,6 +113,28 @@ func (r *Runtime) saveConversationPresentation(cv *viewmodel.Conversation, prese
 	r.conversationPresentations[cv] = presentation
 }
 
+// carryConversationPresentation moves an unchanged history's rows to the
+// view a Node snapshot rebuilt for the same conversation. Any Client change
+// rebuilds every view, so reprojecting here would redo the open history
+// twice per change while nothing in it moved.
+func (r *Runtime) carryConversationPresentation(previous *viewmodel.Data, cv *viewmodel.Conversation, id protocol.SessionID) bool {
+	if previous == nil || cv.Offline || r.composerOutgoing[cv.ID] != nil {
+		return false
+	}
+	old := previous.Find(cv.ID)
+	if old == nil || old == cv || old.Offline {
+		return false
+	}
+	saved, ok := r.conversationPresentations[old]
+	if !ok || saved.generation == 0 || saved.generation != r.conversationCopies[id].generation {
+		return false
+	}
+	cv.Turns, cv.Session, cv.Waiting, cv.Queue, cv.Animating = old.Turns, old.Session, old.Waiting, old.Queue, old.Animating
+	delete(r.conversationPresentations, old)
+	r.conversationPresentations[cv] = saved
+	return true
+}
+
 // A bulk projection or an optimistic edit invalidates reuse, not ownership of
 // the view. This still lets the frame release a detached presentation.
 func (r *Runtime) invalidateConversationPresentation(cv *viewmodel.Conversation) {

@@ -199,7 +199,7 @@ func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
 		r.beginConversationFrame()
 		// An earlier detail or attachment read can finish just as the view is
 		// replaced. The bulk projection writes to App.Data before layout.
-		r.projectConversations()
+		r.projectConversations(nil)
 		if len(detached.Turns) != 1 || detached.Turns[0].User != "Latest input" {
 			t.Fatal("fixture did not repopulate the detached view")
 		}
@@ -219,7 +219,7 @@ func TestConversationFrameReleasesLateBulkProjection(t *testing.T) {
 		}
 
 		r.beginConversationFrame()
-		r.projectConversations()
+		r.projectConversations(nil)
 		r.finishConversationFrame()
 		if detached.Turns != nil || visible.Turns != nil || len(r.conversationPresentations) != 0 {
 			t.Fatal("a bulk projection survived a frame without a mounted view")
@@ -524,5 +524,44 @@ func TestGuidanceWithUnloadedOwnerLoadsOnOpen(t *testing.T) {
 		if len(cv.Turns) != 1 || !strings.HasPrefix(cv.Turns[0].User, "Long task") || !strings.Contains(cv.Turns[0].User, "Latest input") {
 			t.Fatalf("the guidance did not join its loaded run: %#v", cv.Turns)
 		}
+	})
+}
+
+// A Node snapshot rebuilds every conversation view. An unchanged history
+// keeps its projected rows on the rebuilt view; a changed one projects again.
+func TestRebuiltViewKeepsUnchangedHistory(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, old, id := cacheTestRuntime(t)
+		cacheTestFrame(t, r, old, id)
+		rows := &old.Turns[0]
+		rebuild := func() *viewmodel.Conversation {
+			r.beginConversationFrame()
+			previous := r.App.Data
+			rebuilt := &viewmodel.Conversation{ID: old.ID, Node: old.Node}
+			r.App.ApplyData(&viewmodel.Data{Unassigned: []*viewmodel.Conversation{rebuilt}, Workspace: &viewmodel.Workspace{}})
+			r.projectConversations(previous)
+			return rebuilt
+		}
+		rebuilt := rebuild()
+		r.conversationSeen[id] = true
+		state, _ := r.conversationState(id)
+		if r.projectConversation(rebuilt, id, state, time.Unix(20, 0), "en") || len(rebuilt.Turns) != 1 || &rebuilt.Turns[0] != rows {
+			t.Fatal("an unchanged history was projected again for its rebuilt view")
+		}
+		r.finishConversationFrame()
+
+		updated := source.conversations[id]
+		updated.Page = cacheTestPage(id, 2, "Refreshed input")
+		source.conversations[id] = updated
+		if err := r.controller.RefreshConversation(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		old = rebuilt
+		rebuilt = rebuild()
+		if len(rebuilt.Turns) != 1 || rebuilt.Turns[0].User != "Refreshed input" {
+			t.Fatalf("a changed history kept its old rows: %#v", rebuilt.Turns)
+		}
+		r.finishConversationFrame()
 	})
 }

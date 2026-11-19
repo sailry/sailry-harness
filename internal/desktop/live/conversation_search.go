@@ -78,7 +78,7 @@ func (r *Runtime) initConversationSearch() {
 					done(0, false)
 					return
 				}
-				r.projectConversations()
+				r.projectConversations(nil)
 				cv := r.App.Data.Find(session)
 				if cv != nil {
 					ownerTurn := turn
