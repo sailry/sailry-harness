@@ -577,7 +577,9 @@ permission rules. The Commands package provides desktop terminal controls.
 Command input is discoverable on demand. Everyday file,
 Git, code and web tools are initially exposed when their packages are enabled.
 `tool_search` discovers other declared tools under the captured permission.
-Approvals settle before execution. Adjacent read-only concurrent calls run in
+Approvals settle before execution. A command run with workspace access needs
+no prompt, and neither does stopping it or writing to it: the admitted launch
+request in the same session records that access. Adjacent read-only concurrent calls run in
 groups of at most eight and retain result order. Node owns approval and question
 deadlines.
 

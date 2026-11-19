@@ -124,3 +124,76 @@ func testCommandApprovalRules(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// testCommandTargetApprovals settles stop and write approvals by the access
+// their target command was admitted with in the same session.
+func testCommandTargetApprovals(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("workspace sandbox is unavailable on this platform")
+	}
+	storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := context.Background()
+	launch := func(db *sql.Conn, access protocol.ProcessAccess) (protocol.RequestID, error) {
+		payload := protocol.DefaultCommandRunCommandPayload()
+		payload.Turn, payload.Command, payload.Access, payload.Background = turn, "npm run dev", access, true
+		request := protocol.NewRequest(node, protocol.Command{Kind: "run_command", Data: &payload})
+		body, err := encode(request)
+		if err == nil {
+			_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body)
+		}
+		return request.ID, err
+	}
+	sequence := 0
+	settle := func(db *sql.Conn, operation protocol.ToolOperation, target protocol.SessionID, id protocol.RequestID) (protocol.ConversationApproval, error) {
+		sequence++
+		call := fmt.Sprintf("target-%d", sequence)
+		name, command := "stop_command", protocol.Command{Kind: "stop_command", Data: &protocol.CommandStopCommandPayload{Session: target, ID: id}}
+		if operation == protocol.ToolOperationWriteCommand {
+			name, command = "write_command", protocol.Command{Kind: "write_command", Data: &protocol.CommandWriteCommandPayload{Session: target, ID: id, Input: "q\n"}}
+		}
+		arguments, err := encode(map[string]any{"id": id})
+		if err != nil {
+			return protocol.ConversationApproval{}, err
+		}
+		record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &canonical.ToolRequest{ID: call, Name: name, Arguments: arguments}})), now)
+		record.Provenance.Author = "sailry"
+		if _, _, err = AppendCanonical(ctx, db, session.ID, record); err != nil {
+			return protocol.ConversationApproval{}, err
+		}
+		value, _, err := BeginApproval(ctx, db, turn, canonical.ToolIdentity{ID: &call, Name: name, Arguments: arguments}, &ApprovalBinding{Tool: name, Operation: &operation}, now)
+		if err != nil {
+			return value, err
+		}
+		return ConfigureWorkspaceApproval(ctx, db, turn, value, operation, command, nil)
+	}
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		confined, err := launch(db, protocol.ProcessAccessWorkspace)
+		if err != nil {
+			return err
+		}
+		unrestricted, err := launch(db, protocol.ProcessAccessUnrestricted)
+		if err != nil {
+			return err
+		}
+		for _, operation := range []protocol.ToolOperation{protocol.ToolOperationStopCommand, protocol.ToolOperationWriteCommand} {
+			value, err := settle(db, operation, session.ID, confined)
+			if err != nil || value.Source != protocol.ConversationApprovalSourceSandbox || value.State != protocol.ConversationApprovalStateApproved {
+				return fmt.Errorf("%s of a sandboxed command asked: %+v, %v", operation, value, err)
+			}
+			for _, row := range []struct {
+				name    string
+				session protocol.SessionID
+				id      protocol.RequestID
+			}{{"unrestricted", session.ID, unrestricted}, {"other session", protocol.NewSessionID(), confined}, {"unknown", session.ID, protocol.NewRequestID()}} {
+				value, err := settle(db, operation, row.session, row.id)
+				if err != nil || value.State != protocol.ConversationApprovalStatePending || value.Source != protocol.ConversationApprovalSourceUser {
+					return fmt.Errorf("%s of an %s command was settled without the user: %+v, %v", operation, row.name, value, err)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

@@ -90,6 +90,7 @@ func TestAgentHistoryAndReview(t *testing.T) {
 	t.Run("canonical card authority", testPluginCardAuthority)
 	t.Run("native task admission", testTaskAdmission)
 	t.Run("command approval rules", testCommandApprovalRules)
+	t.Run("command target approvals", testCommandTargetApprovals)
 	t.Run("retained command stream keeps invocation and canonical revision", func(t *testing.T) {
 		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 		ctx := context.Background()
