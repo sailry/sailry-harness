@@ -49,26 +49,15 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) 
 					return errors.New("theme resource exceeds file limit")
 				}
 			}
-			file, err := files.Open(asset.Path)
-			if err != nil {
-				return fmt.Errorf("%s: %w", asset.Path, err)
-			}
-			info, err := file.Stat()
-			if err != nil {
-				file.Close()
-				return err
-			}
-			if !info.Mode().IsRegular() || info.Size() > themeFileLimit {
-				file.Close()
-				return errors.New("theme resource exceeds file limit")
-			}
-			data, err := io.ReadAll(io.LimitReader(file, themeFileLimit+1))
-			closeErr := file.Close()
-			if err != nil {
-				return err
-			}
-			if closeErr != nil {
-				return closeErr
+			// A snapshot keeps its resources' bytes, and its pictures share
+			// them rather than hold a second copy.
+			snapshot, _ := files.(memoryFS)
+			data, kept := snapshot[asset.Path]
+			if !kept {
+				var err error
+				if data, err = readThemeResource(files, asset.Path); err != nil {
+					return err
+				}
 			}
 			if len(data) > themeFileLimit || encoded+len(data) > themePackageLimit || len(seen) >= 32 {
 				return errors.New("theme package exceeds resource limit")
@@ -98,20 +87,48 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) 
 					return fmt.Errorf("%s: %w", asset.Path, err)
 				}
 			}
+			size := len(data)
+			source := func() []byte { return data }
+			if embedded {
+				// The built-in themes cannot change: a picture reads its
+				// bytes again when it is first drawn instead of keeping them.
+				name := asset.Path
+				data = nil
+				source = func() []byte {
+					body, _ := readThemeResource(files, name)
+					return body
+				}
+			}
 			picture := &picture{bitmap: sync.OnceValue(func() *ui.Bitmap {
-				bitmap, _ := ui.DecodeBitmap(data)
+				bitmap, _ := ui.DecodeBitmap(source())
 				return bitmap
 			})}
 			if max(configuration.Width, configuration.Height) > themePreviewEdge {
 				picture.preview = sync.OnceValue(func() *ui.Bitmap {
-					bitmap, _ := ui.DecodeBitmapScaled(data, themePreviewEdge)
+					bitmap, _ := ui.DecodeBitmapScaled(source(), themePreviewEdge)
 					return bitmap
 				})
 			}
 			seen[asset.Path], asset.pic = picture, picture
-			encoded += len(data)
+			encoded += size
 			decoded += allocation
 		}
 	}
 	return nil
+}
+
+func readThemeResource(files fs.FS, name string) ([]byte, error) {
+	file, err := files.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > themeFileLimit {
+		return nil, errors.New("theme resource exceeds file limit")
+	}
+	return io.ReadAll(io.LimitReader(file, themeFileLimit+1))
 }
