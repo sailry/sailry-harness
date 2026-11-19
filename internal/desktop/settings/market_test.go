@@ -69,6 +69,12 @@ func TestLiveSkillMarketShowsNodeSearch(t *testing.T) {
 		if _, exists := tt.AccessByRole(ui.RoleButton, retry); exists {
 			t.Fatalf("%v: an empty search offers Retry", width)
 		}
+		s.MarketMore = true
+		tt.Frame()
+		clickButton(t, tt, more)
+		if !slices.Equal(calls, []string{"more", "retry", "retry", "more"}) {
+			t.Fatalf("%v: an empty page with a continuation did not page: %q", width, calls)
+		}
 	}
 }
 

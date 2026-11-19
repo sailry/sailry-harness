@@ -156,16 +156,17 @@ func (m *Model) retryMarket() {
 	}
 }
 
-// marketEmpty is the result of a search without cards: a failed live
-// search, which Retry runs again, or none found.
+// marketEmpty keeps paging available when a source has later pages but
+// the pages read so far have no matches.
 func marketEmpty(c *ui.Context, m *Model, icon *ui.SVG, none, failed string) {
-	if !m.Live || !m.MarketFailed {
-		kit.Result(c, kit.ResultProps{Icon: icon, Title: i18n.T(c, none), Card: true})
-		return
+	props := kit.ResultProps{Icon: icon, Title: i18n.T(c, none), Card: true}
+	if m.Live && m.MarketFailed {
+		props.Icon, props.Status, props.Title = nil, kit.ResultError, i18n.T(c, failed)
 	}
-	kit.Result(c, kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, failed), Card: true, Extra: func() {
-		kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(m.retryMarket)
-	}})
+	if m.Live && (m.MarketFailed || m.MarketMore) {
+		props.Extra = func() { marketActions(c, m) }
+	}
+	kit.Result(c, props)
 }
 
 // marketMore follows a live search's cards: Retry once a source failed, the
@@ -175,6 +176,10 @@ func marketMore(c *ui.Context, m *Model) {
 	if !m.Live || !m.MarketFailed && !m.MarketMore {
 		return
 	}
+	marketActions(c, m)
+}
+
+func marketActions(c *ui.Context, m *Model) {
 	ui.Row(c.Key("more")).Justify(ui.Center).Gap(12).Children(func() {
 		if m.MarketFailed {
 			kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(m.retryMarket)
