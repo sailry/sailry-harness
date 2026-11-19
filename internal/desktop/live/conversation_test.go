@@ -708,6 +708,8 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		response.Output = protocol.Output{Kind: "channel_presets", Data: protocol.DefaultConversationPresetsListing()}
 	case "read_compaction_settings":
 		response.Output = protocol.Output{Kind: "compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: 1, Percent: 80}}
+	case "read_model_scores":
+		response.Output = protocol.Output{Kind: "model_scores", Data: protocol.DefaultConversationCatalogScores()}
 	case "read_team_settings":
 		response.Output = protocol.Output{Kind: "team_settings", Data: protocol.DefaultTeamSettings()}
 	}
