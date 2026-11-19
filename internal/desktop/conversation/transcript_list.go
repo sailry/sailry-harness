@@ -7,20 +7,22 @@ import (
 
 // MyGo retains its last row frame in ListState. Keep it only while mounted.
 type transcriptList struct {
-	layout      ui.ListState
-	scroll      ui.ScrollState
-	olderMarker ui.Handle
-	olderTurn   string
-	row         func(int)
-	link        func(string)
-	block       func(*ui.Context, *parser.Document, int) bool
-	paint       func(*ui.Painter, ui.Rect)
-	nav         *navigation
-	frame       transcriptFrame
-	paintTop    float32
-	painted     transcriptAnchor
-	restore     transcriptAnchor
-	mounted     bool
+	layout       ui.ListState
+	scroll       ui.ScrollState
+	olderMarker  ui.Handle
+	olderTurn    string
+	olderVisible bool
+	olderRetry   bool
+	row          func(int)
+	link         func(string)
+	block        func(*ui.Context, *parser.Document, int) bool
+	paint        func(*ui.Painter, ui.Rect)
+	nav          *navigation
+	frame        transcriptFrame
+	paintTop     float32
+	painted      transcriptAnchor
+	restore      transcriptAnchor
+	mounted      bool
 }
 
 type transcriptAnchor struct {
@@ -91,6 +93,7 @@ func (s *State) FinishFrame() {
 			s.releaseTranscript(l)
 			l.frame = transcriptFrame{}
 			l.olderMarker, l.olderTurn = ui.Handle{}, ""
+			l.olderVisible, l.olderRetry = false, false
 			l.layout, l.scroll = ui.ListState{}, ui.ScrollState{}
 		}
 	}

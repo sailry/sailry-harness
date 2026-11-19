@@ -526,3 +526,46 @@ func TestOlderPageRequiresVisibleMarker(t *testing.T) {
 		t.Fatalf("prepend lost anchor or fetched offscreen page: first=%d requests=%d, previous=%d", first, r.older, asked)
 	}
 }
+
+func TestFailedHistoryRetriesOnScroll(t *testing.T) {
+	s, r := conversation.New(), &recorder{}
+	turns := []conversation.Turn{{ID: "giant", User: strings.Repeat("Long historical turn.\n", 100), InputOnly: true}}
+	sess := &conversation.Session{Older: 20, OlderFailed: true}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, "history", turns, sess, r) })
+	}, 800, 400)
+	tt.SetLocale("en")
+	for range 4 {
+		tt.Frame()
+	}
+	if r.older != 0 {
+		t.Fatalf("history retried outside the viewport: %d requests", r.older)
+	}
+	list := s.List("history")
+	list.ScrollTo(0, ui.Start)
+	for range 4 {
+		tt.Frame()
+	}
+	if r.older != 1 || tt.HasText(i18n.In("en", "chat_retry")) {
+		t.Fatalf("expected one retry on reaching the marker and no button: %d requests, %q", r.older, tt.Texts())
+	}
+	tt.Scroll(100, 200, 0, -64)
+	for range 4 {
+		tt.Frame()
+	}
+	if r.older != 2 {
+		t.Fatalf("an upward scroll at the top did not retry once: %d requests", r.older)
+	}
+	list.ScrollToEnd()
+	for range 4 {
+		tt.Frame()
+	}
+	list.ScrollTo(0, ui.Start)
+	for range 4 {
+		tt.Frame()
+	}
+	if r.older != 3 {
+		t.Fatalf("returning to the marker did not retry once: %d requests", r.older)
+	}
+}

@@ -266,18 +266,32 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 	s.pressOf(id).watch(pane)
 	pane.Children(func() {
 		l, n := s.bindTranscript(c, id, turns, sess, actions), len(turns)
-		if sess != nil && sess.Older > 0 && !sess.LoadingOlder && !sess.OlderFailed && n > 0 && l.olderTurn == turns[0].ID {
+		wasVisible := l.olderVisible
+		l.olderVisible = false
+		if sess != nil && sess.Older > 0 && n > 0 && l.olderTurn == turns[0].ID {
 			// MyGo builds rows outside the viewport, and one turn can be much taller
-			// than the entire pane. Request history only when its loader is on screen.
+			// than the entire pane. Request history only when its marker is on screen.
 			area := s.area[id]
 			first, last := l.layout.Visible()
 			marker := l.olderMarker.Bounds(c)
-			if first == 0 && last >= first && area.H > 0 && marker.H > 0 && marker.Y < area.Y+area.H && marker.Y+marker.H > area.Y {
+			l.olderVisible = first == 0 && last >= first && area.H > 0 && marker.H > 0 &&
+				marker.Y < area.Y+area.H && marker.Y+marker.H > area.Y
+			if l.olderVisible && !sess.LoadingOlder && (!sess.OlderFailed || !wasVisible || l.olderRetry) {
 				actions.LoadOlder()
 			}
 		}
+		l.olderRetry = false
 		// What shows of the transcript is the list above the dock.
 		list := ui.List(c, &l.layout, n, l.row).TrackScroll(&l.scroll).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog).Draw(l.paint)
+		if l.olderVisible && sess.OlderFailed && !sess.LoadingOlder {
+			list.HandleInput(func(ev ui.InputEvent) bool {
+				if ev.Kind == ui.InputScroll && ev.DY < 0 && !ev.Momentum && ev.Mods&(ui.Ctrl|ui.Shift) == 0 {
+					l.olderRetry = true
+					c.Invalidate()
+				}
+				return false
+			})
+		}
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
@@ -340,7 +354,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 			s.selection(c, session, col, sess != nil && sess.ReadOnly, actions)
 		}()
 		if first {
-			s.older(c, session, t.ID, sess, actions)
+			s.older(c, session, t.ID, sess)
 		}
 		if t.Compaction != nil {
 			s.compaction(c, t)
