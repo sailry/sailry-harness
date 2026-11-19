@@ -514,24 +514,48 @@ func contextConnection(c *ui.Context, d *ContextStats) {
 	})
 }
 
-// The milestones use equal spacing so a zero-length stage still has a readable
-// label. Each connector reports its own duration from the same set of requests.
+// contextConnectionPath draws the request path as stations joined by links:
+// the execution host, the API response and the first output, each link
+// labelled with its stage's average from the same requests. The links share
+// the width equally, so a zero-length stage still has a readable label.
 func contextConnectionPath(c *ui.Context, response, waiting uint64) {
 	p := theme.Of(c)
-	ui.Column(c.Key("connection-path")).FillWidth().MinWidth(0).Gap(4).Children(func() {
-		ui.Row(c.Key("stages")).FillWidth().Children(func() {
-			for i, value := range []uint64{response, waiting} {
-				ui.Row(c.Key(i)).Grow(1).Basis(0).MinWidth(0).Gap(5).AlignItems(ui.Center).Children(func() {
-					color := p.Chart[i+1]
-					ui.Box(c).Grow(1).Height(2).Radius(1).Background(color)
+	const station = 28
+	stops := []struct {
+		icon *ui.SVG
+		key  string
+	}{{icons.Monitor, "meter_execution_node"}, {icons.Globe, "meter_api_response"}, {icons.Chat, "meter_first_output"}}
+	ui.Column(c.Key("connection-path")).FillWidth().MinWidth(0).Gap(6).Children(func() {
+		ui.Row(c.Key("stations")).FillWidth().AlignItems(ui.Center).Children(func() {
+			for i, stop := range stops {
+				ui.Row(c.Key(stop.key)).Size(station, station).Shrink(0).Center().Radius(station/2).
+					Border(1, p.Border).Background(p.Muted).Children(func() {
+					ui.Icon(c, stop.icon).FontSize(14).TextColor(p.MutedForeground)
+				})
+				if i == len(stops)-1 {
+					break
+				}
+				value := []uint64{response, waiting}[i]
+				color := p.Chart[i+1]
+				ui.Row(c.Key(i)).Grow(1).Basis(0).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).Grow(1).Height(1.5).Background(color)
 					ui.Text(c, contextDuration(c, value)).FontSize(12).FontFeatures("tnum").SingleLine()
-					ui.Box(c).Grow(1).Height(2).Radius(1).Background(color)
+					ui.Box(c).Grow(1).Height(1.5).Background(color)
 				})
 			}
 		})
-		ui.Row(c.Key("milestones")).FillWidth().Justify(ui.SpaceBetween).Children(func() {
-			for _, key := range []string{"meter_execution_node", "meter_api_response", "meter_first_output"} {
-				ui.Text(c, i18n.T(c, key)).FontSize(12).TextColor(p.MutedForeground).SingleLine()
+		// Each label lines up with its station: the first and last at the
+		// edges, the middle one at the centre where the equal links put it.
+		ui.Row(c.Key("labels")).FillWidth().Children(func() {
+			for i, stop := range stops {
+				align := ui.Center
+				switch i {
+				case 0:
+					align = ui.Start
+				case len(stops) - 1:
+					align = ui.End
+				}
+				ui.Text(c.Key(stop.key), i18n.T(c, stop.key)).FontSize(12).TextColor(p.MutedForeground).TextAlign(align).Grow(1).Basis(0).MinWidth(0).SingleLine()
 			}
 		})
 	})
