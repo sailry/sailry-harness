@@ -312,7 +312,7 @@ func TestCallbackActivityStaysAtOriginalRows(t *testing.T) {
 		t.Fatalf("activity did not update the open command in place: %q", tester.Texts())
 	}
 	button, ok := tester.AccessByRole(ui.RoleButton, "First worker")
-	if !ok || button.Description != i18n.In("en", "turn_failed")+"\n"+reason || !tester.HasText(i18n.In("en", "subagent_count", "completed", 1, "total", 2)) {
+	if !ok || button.Description != i18n.In("en", "turn_failed")+"\n"+reason || !tester.HasText(i18n.In("en", "subagent_count", "completed", 2, "total", 2)) {
 		t.Fatalf("the open child group lost the failure and status update: %+v, %q", button, tester.Texts())
 	}
 	task.State, task.Revision = protocol.ConversationBackgroundStateConsumed, 3

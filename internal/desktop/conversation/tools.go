@@ -704,6 +704,21 @@ func (s *State) question(c *ui.Context, q *Question) {
 
 // children is the rows of subagent sessions: one row, or a disclosure of
 // their marks and count over a row each.
+// childCounts counts every ended child as done, whatever its outcome. A
+// continued row is superseded by the turn that follows it and is not counted.
+func childCounts(kids []Child) (done, total int) {
+	for _, k := range kids {
+		if k.Status == ChildContinued {
+			continue
+		}
+		total++
+		if k.Status.Finished() {
+			done++
+		}
+	}
+	return done, total
+}
+
 func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 	if len(kids) == 1 {
 		child(c, kids[0], actions)
@@ -711,14 +726,9 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 	}
 	p := theme.Of(c)
 	size := textSize(c)
-	done, running := 0, false
-	for _, k := range kids {
-		if k.Status == ChildCompleted {
-			done++
-		}
-		running = running || !k.Unsynced && k.Status.Active()
-	}
-	label := i18n.T(c, "subagent_count", "completed", done, "total", len(kids))
+	done, total := childCounts(kids)
+	running := slices.ContainsFunc(kids, func(k Child) bool { return !k.Unsynced && k.Status.Active() })
+	label := i18n.T(c, "subagent_count", "completed", done, "total", total)
 	s.disclosure(c, "children-"+cmp.Or(kids[0].Turn, kids[0].ID), func(hovered, open bool, sw *kit.Sweep) {
 		color := p.MutedForeground
 		if hovered {

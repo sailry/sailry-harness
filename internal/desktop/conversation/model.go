@@ -653,3 +653,8 @@ type Usage struct {
 
 // Active reports a child that is still executing.
 func (s ChildStatus) Active() bool { return s == ChildRunning || s == ChildStopping }
+
+// Finished reports a child execution that ended with an outcome of its own.
+func (s ChildStatus) Finished() bool {
+	return s == ChildCompleted || s == ChildFailed || s == ChildInterrupted || s == ChildCancelled
+}

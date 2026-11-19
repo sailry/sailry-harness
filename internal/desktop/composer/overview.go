@@ -333,7 +333,9 @@ func (s *OverviewState) body(c *ui.Context, o *Overview, popover bool) {
 				if !s.all["activity"] {
 					done, running := 0, false
 					for _, k := range o.Children {
-						if k.Completed {
+						// A child that neither runs nor waits has ended,
+						// whatever its outcome.
+						if k.Completed || !k.Running && k.Status != "turn_queued" {
 							done++
 						}
 						running = running || k.Running
