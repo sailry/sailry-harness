@@ -106,11 +106,12 @@ func openConnections(ctx context.Context, path string) (_ *connections, result e
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if err := createDatabaseFile(path); err != nil {
-		return nil, err
-	}
+	// A missing native runtime must not leave an empty database that blocks startup.
 	connector, err := turso.Connector(path, false)
 	if err != nil {
+		return nil, err
+	}
+	if err := createDatabaseFile(path); err != nil {
 		return nil, err
 	}
 	writeDB := sql.OpenDB(connector)
