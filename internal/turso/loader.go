@@ -84,22 +84,11 @@ func libraryDirectory(name string, development bool) (string, error) {
 	if _, err := os.Lstat(filepath.Join(directory, name)); !errors.Is(err, fs.ErrNotExist) {
 		return verifyLibrary(directory, name, false)
 	}
-	// Tests run from their package directories; source builds also find the
-	// fixed staging directory of the containing checkout.
-	directory, err = os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		candidate := filepath.Join(directory, ".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH)
-		if _, err := os.Lstat(filepath.Join(candidate, name)); !errors.Is(err, fs.ErrNotExist) {
-			return verifyLibrary(candidate, name, false)
-		}
-		parent := filepath.Dir(directory)
-		if parent == directory {
-			break
-		}
-		directory = parent
+	// Tests and go run use the working checkout. A source binary built in the
+	// checkout can also be launched from a different working directory.
+	cwd, _ := os.Getwd()
+	if staged := shipped.StagedDirectory(name, cwd, directory); staged != "" {
+		return verifyLibrary(staged, name, false)
 	}
 	return "", fmt.Errorf("Turso native library is unavailable; run sh native/turso/build.sh or set SAILRY_TURSO_LIB to %s", name)
 }

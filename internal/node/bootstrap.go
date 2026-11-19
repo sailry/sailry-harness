@@ -25,18 +25,29 @@ func OpenProfile(ctx context.Context, path string) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	sweepProfile(ownership.Path)
-	identity, err := link.OpenIdentity(ownership.Path)
+	identity, err := profileIdentity(ctx, ownership.Path)
 	if err != nil {
 		_ = ownership.Close()
 		return nil, err
 	}
+	sweepProfile(ownership.Path)
 	database, err := store.Open(ctx, ownership.Path, identity.ID())
 	if err != nil {
 		_ = ownership.Close()
 		return nil, err
 	}
 	return &Profile{Ownership: ownership, Identity: identity, Store: database}, nil
+}
+
+func profileIdentity(ctx context.Context, path string) (link.Identity, error) {
+	identity, err := link.ReadIdentity(path)
+	if !errors.Is(err, os.ErrNotExist) {
+		return identity, err
+	}
+	if err := store.CheckIdentityCreation(ctx, path); err != nil {
+		return link.Identity{}, err
+	}
+	return link.OpenIdentity(path)
 }
 
 func (profile *Profile) Close() error {

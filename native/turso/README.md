@@ -39,10 +39,11 @@ and Desktop bundles. Seal the completed package after signing with
 `go run ./native/fetch -seal <path>` (and `-host` for Host).
 
 Release builds load only the library in the shipped directory after validating
-its target, size and SHA-256 against `native-seal.json`. Source builds can use
-the containing checkout's staging directory or set `SAILRY_TURSO_LIB` to a
-specific file with the platform filename. They validate the file against a
-seal when one is present. An unsealed source override is a developer input.
+its target, size and SHA-256 against `native-seal.json`. Source builds find
+the staging directory from the current working directory or executable
+ancestors. Set `SAILRY_TURSO_LIB` to select a specific file with the platform
+filename. Source builds validate the file against a seal when one is present.
+`just native` builds the library if it is absent and no override is set.
 
 The official SDK has no path option. `internal/turso/loader.go` resolves the
 selected file before initialization, then temporarily restricts the platform's

@@ -15,12 +15,17 @@ import (
 // Identity belongs to the exclusive profile owner.
 type Identity struct{ seed [ed25519.SeedSize]byte }
 
+const identityName = "link.key"
+
 func OpenIdentity(directory string) (Identity, error) {
-	var identity Identity
+	identity, err := ReadIdentity(directory)
+	if !errors.Is(err, os.ErrNotExist) {
+		return identity, err
+	}
 	if _, err := rand.Read(identity.seed[:]); err != nil {
 		return Identity{}, err
 	}
-	path := filepath.Join(directory, "link.key")
+	path := filepath.Join(directory, identityName)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err == nil {
 		_, writeErr := file.Write(identity.seed[:])
@@ -45,6 +50,13 @@ func OpenIdentity(directory string) (Identity, error) {
 	if !errors.Is(err, os.ErrExist) {
 		return Identity{}, err
 	}
+	return ReadIdentity(directory)
+}
+
+// ReadIdentity loads the existing key without creating one.
+func ReadIdentity(directory string) (Identity, error) {
+	var identity Identity
+	path := filepath.Join(directory, identityName)
 	metadata, err := os.Lstat(path)
 	if err != nil {
 		return Identity{}, err
@@ -55,7 +67,7 @@ func OpenIdentity(directory string) (Identity, error) {
 	if runtime.GOOS != "windows" && metadata.Mode().Perm()&0o077 != 0 {
 		return Identity{}, errors.New("identity file permissions must exclude group and other users")
 	}
-	file, err = os.Open(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return Identity{}, err
 	}

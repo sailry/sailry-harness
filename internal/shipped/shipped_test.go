@@ -12,6 +12,23 @@ import (
 	"testing"
 )
 
+func TestStagedDirectoryFindsExecutableCheckout(t *testing.T) {
+	t.Parallel()
+	const name = "native-runtime.test"
+	checkout := t.TempDir()
+	staging := filepath.Join(checkout, ".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH)
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, name), []byte("runtime"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executableDirectory := filepath.Join(checkout, "bin", "dev")
+	if got := StagedDirectory(name, t.TempDir(), executableDirectory); got != staging {
+		t.Fatalf("executable checkout library = %q; want %q", got, staging)
+	}
+}
+
 func TestSeal(t *testing.T) {
 	for _, location := range []struct {
 		goos, executable, directory string

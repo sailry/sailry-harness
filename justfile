@@ -13,6 +13,7 @@ goos := if os() == "macos" { "darwin" } else { os() }
 goarch := if arch() == "aarch64" { "arm64" } else if arch() == "x86_64" { "amd64" } else { arch() }
 native := justfile_directory() / ".runtime/native" / goos + "-" + goarch
 iroh := if os() == "macos" { "libsailry_iroh.dylib" } else if os() == "windows" { "sailry_iroh.dll" } else { "libsailry_iroh.so" }
+turso := if os() == "macos" { "libturso_sync_sdk_kit.dylib" } else if os() == "windows" { "turso_sync_sdk_kit.dll" } else { "libturso_sync_sdk_kit.so" }
 profiles := justfile_directory() / ".runtime/profiles"
 
 # List the recipes.
@@ -62,9 +63,10 @@ acceptance-ui: native
     go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
     {{ quote(native / "sailry-host") }} acceptance --data-dir {{ quote(profiles / "acceptance-ui") }} --suite ui --desktop {{ quote(native / "sailry-desktop") }} --open-report
 
-# Build the local iroh library with the pinned Rust toolchain when it is missing.
+# Build missing iroh and Turso libraries with their pinned Rust toolchains.
 native:
     test -f {{ quote(native / iroh) }} || sh native/iroh/build.sh
+    test -n "${SAILRY_TURSO_LIB:-}" || test -f {{ quote(native / turso) }} || sh native/turso/build.sh
 
 # Rebuild the local iroh library after its source, C ABI, pins or target changed.
 native-build:

@@ -132,7 +132,7 @@ func (node *Node) changeBackup(ctx context.Context, caller protocol.NodeID, requ
 // target directory. The running profile is never written.
 func (node *Node) publishRestored(ctx context.Context, staged *backup.Staged, target string) (protocol.Output, error) {
 	defer staged.Close()
-	identity, err := link.OpenIdentity(staged.Directory)
+	identity, err := link.ReadIdentity(staged.Directory)
 	if err != nil {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "restored identity is unreadable"}
 	}

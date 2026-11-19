@@ -47,6 +47,22 @@ func Directory() (string, error) {
 	return directory, err
 }
 
+// StagedDirectory finds a development library under a checkout containing an origin.
+func StagedDirectory(name string, origins ...string) string {
+	visited := make(map[string]bool)
+	for _, directory := range origins {
+		for directory != "" && !visited[directory] {
+			visited[directory] = true
+			candidate := filepath.Join(directory, ".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH)
+			if _, err := os.Lstat(filepath.Join(candidate, name)); !errors.Is(err, fs.ErrNotExist) {
+				return candidate
+			}
+			directory = filepath.Dir(directory)
+		}
+	}
+	return ""
+}
+
 func location() (string, bool, error) {
 	executable, err := os.Executable()
 	if err == nil {

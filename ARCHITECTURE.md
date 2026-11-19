@@ -280,6 +280,8 @@ Desktop controller preferences live at
 `internal/node/store` uses the native Turso engine through the official
 `turso.tech/database/tursogo` SDK for `storage/node.turso` and
 `storage/knowledge.turso`, retaining the Rust filenames and file families.
+The Node creates `link.key` only for a fresh storage family. An existing Node
+database must open with its original key, including when restored from backup.
 Each database has one writer goroutine, MVCC mode and a separate read-only pool.
 The writer groups queued operations in a
 `BEGIN IMMEDIATE` transaction with a savepoint per operation. Results become

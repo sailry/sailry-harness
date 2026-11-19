@@ -14,8 +14,7 @@ import (
 // LoadDefault loads the iroh library of the running program. A release
 // build passes development false and loads only the library its package
 // ships, after checking it against the package seal. A development build
-// may also name a library with SAILRY_IROH_LIB or use the one built into
-// .runtime/native under the working directory.
+// may also name a library with SAILRY_IROH_LIB or use a staged checkout library.
 func LoadDefault(development bool) error {
 	if loaded.Load() != nil {
 		return nil
@@ -52,12 +51,16 @@ func LoadDefault(development bool) error {
 		filepath.Join(directory, "..", "Resources", name),
 		filepath.Join(directory, "Frameworks", "SailryIroh.framework", "SailryIroh"),
 		filepath.Join(directory, "..", "Frameworks", "SailryIroh.framework", "SailryIroh"),
-		filepath.Join(".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH, name),
 	}
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
 			return Load(path)
 		}
+	}
+	cwd, _ := os.Getwd()
+	stagedOrigin, _ := shipped.Directory()
+	if staged := shipped.StagedDirectory(name, cwd, stagedOrigin); staged != "" {
+		return Load(filepath.Join(staged, name))
 	}
 	return fmt.Errorf("native iroh library is unavailable; set SAILRY_IROH_LIB or bundle %s", name)
 }

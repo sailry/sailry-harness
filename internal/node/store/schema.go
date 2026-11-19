@@ -55,7 +55,7 @@ func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, 
 	if err := core.PrivateDirectory(storage); err != nil {
 		return nil, err
 	}
-	path, err := nodeDatabasePath(ctx, storage)
+	path, _, err := nodeDatabasePath(ctx, storage)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func (definition currentSchema) initialize(ctx context.Context, connection *sql.
 	case err != nil:
 		return err
 	case !bytes.Equal(stored, node[:]):
-		return errors.New("Node identity does not match its database")
+		return identityDatabaseError(definition.path, "node identity does not match link.key")
 	}
 	if definition.state != schemaCurrent {
 		if err := initializeUsers(ctx, connection); err != nil {
@@ -348,8 +348,11 @@ func verifyNodeIdentity(ctx context.Context, connection *sql.Conn, path string, 
 	if err := connection.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&stored); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	if len(stored) != len(node) {
+		return incompatibleDatabase(path, "the database has no valid Node identity; restore a complete profile backup")
+	}
 	if !bytes.Equal(stored, node[:]) {
-		return incompatibleDatabase(path, "Node identity is missing or does not match its database")
+		return identityDatabaseError(path, "node identity does not match link.key")
 	}
 	return nil
 }

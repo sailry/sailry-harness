@@ -85,13 +85,14 @@ export SAILRY_HELPERS_DIR="$PWD/.runtime/native/$(go env GOOS)-$(go env GOARCH)/
 go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 ```
 
-The helper directory points source runs at the staged computer-use helper;
-`go run` places its executable in a temporary directory without bundled helpers.
-Store tests and source runs also need the FTS-enabled Turso library. Build it
-once with `sh native/turso/build.sh`, using the pinned standard Rust toolchain
-in `PATH`. The loader finds the checkout's `.runtime/native/<goos>-<goarch>/`
-directory; `SAILRY_TURSO_LIB` can select an explicit source-build library.
-The Desktop recipes supply this helper path automatically:
+The helper directory points source runs at the staged computer-use helper
+because `go run` places its executable in a temporary directory. Store tests
+and source runs need the FTS-enabled Turso library. `just native` prepares
+missing iroh and Turso libraries using the pinned Rust toolchains. Source builds
+check `.runtime/native/<goos>-<goarch>/` from the working directory and the
+source executable's ancestor directories. `SAILRY_TURSO_LIB` selects an
+explicit source-build library and skips its build in `just native`.
+The Desktop recipes run `just native` and supply the helper path automatically:
 
 - `just desktop` opens the installed release data at `~/.sailry`.
 - `just desktop dev` opens the development data at `~/.sailry-dev`.

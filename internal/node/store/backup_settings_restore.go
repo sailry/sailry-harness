@@ -17,7 +17,7 @@ import (
 // pre-upgrade database copy, which the restored profile retains.
 func PrepareRestored(ctx context.Context, staging string, node protocol.NodeID, original, target string) ([]string, error) {
 	storage := filepath.Join(staging, "storage")
-	path, err := nodeDatabasePath(ctx, storage)
+	path, _, err := nodeDatabasePath(ctx, storage)
 	if err != nil {
 		return nil, err
 	}
