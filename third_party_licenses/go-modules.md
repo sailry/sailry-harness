@@ -66,7 +66,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/dlclark/regexp2` | v1.11.0 | MIT | `LICENSE` | D H |
 | `github.com/dustin/go-humanize` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/ebitengine/purego` | v0.11.3 | Apache-2.0 | `LICENSE` | D H M |
-| `github.com/egoist/mygo` | v0.8.4-0.20261109104234-eadf1fce6af3 | MIT | `LICENSE` | D H |
+| `github.com/egoist/mygo` | v0.10.0 | MIT | `LICENSE` | D H |
 | `github.com/ELY-Open-Source/CrychicUI` | v0.0.0-20261110123803-1c55e6a884bb | MIT; bundled Lucide icons ISC | `LICENSE`, `THIRD_PARTY_NOTICES.md` | D |
 | `github.com/emirpasic/gods` | v1.18.1 | BSD-2-Clause, ISC | `LICENSE` | D H |
 | `github.com/felixge/httpsnoop` | v1.1.0 | MIT | `LICENSE.txt` | D H |
@@ -138,7 +138,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/pkg/sftp` | v1.13.12 | BSD-2-Clause | `LICENSE` | D H |
 | `github.com/pkoukk/tiktoken-go` | v0.1.8 | MIT | `LICENSE` | D H |
 | `github.com/pkoukk/tiktoken-go-loader` | v0.0.2 | MIT | `LICENSE` | D H |
-| `github.com/ProtonMail/go-crypto` | v1.1.6 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
+| `github.com/ProtonMail/go-crypto` | v1.4.1 | BSD-3-Clause | `LICENSE`, `PATENTS` | D H |
 | `github.com/remyoudompheng/bigfft` | v0.0.0-20230129092748-24d4a6f8daec | BSD-3-Clause | `LICENSE` | D H |
 | `github.com/richardlehane/mscfb` | v1.0.9 | Apache-2.0 | `LICENSE.txt` | D H |
 | `github.com/richardlehane/msoleps` | v1.0.6 | Apache-2.0 | `LICENSE.txt` | D H |
