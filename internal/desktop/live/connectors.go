@@ -653,7 +653,7 @@ func (r *Runtime) inspectConnectorCLI(id string, done func([]string)) {
 		// A CLI that is missing or signed out is the editor's empty list,
 		// which can look again; only other failures are reported.
 		var fault *protocol.Fault
-		if err != nil && !(errors.As(err, &fault) && fault.Code == protocol.ErrorCodeNotConfigured) {
+		if err != nil && !(errors.As(err, &fault) && (fault.Code == protocol.ErrorCodeNotConfigured || fault.Code == protocol.ErrorCodeExpired)) {
 			r.connectorError(c, err)
 		}
 		if err != nil {

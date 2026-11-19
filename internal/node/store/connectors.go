@@ -342,6 +342,31 @@ func connectorFields(record *ConnectorRecord, input protocol.PluginConnectorInpu
 	return nil
 }
 
+// connectorMethodSecrets are the secret fields a method names as its own
+// credentials: a token method's fields or an application's client secret.
+func connectorMethodSecrets(declaration protocol.PluginConnectorDeclaration, method protocol.PluginConnectorKind) []string {
+	var names []string
+	for _, auth := range declaration.Auth {
+		if auth.Kind != string(method) {
+			continue
+		}
+		body, _ := json.Marshal(auth.Data)
+		switch method {
+		case protocol.PluginConnectorKindSecret:
+			var value protocol.PluginConnectorAuthSecretPayload
+			if json.Unmarshal(body, &value) == nil {
+				names = append(names, value.Fields...)
+			}
+		case protocol.PluginConnectorKindApplication:
+			var value protocol.PluginConnectorAuthApplicationPayload
+			if json.Unmarshal(body, &value) == nil && value.Fields.ClientSecret != nil {
+				names = append(names, *value.Fields.ClientSecret)
+			}
+		}
+	}
+	return names
+}
+
 func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.RequestID, input protocol.CommandStartConnectorLoginPayload) (ConnectorLoginCapture, error) {
 	var capture ConnectorLoginCapture
 	info, declaration, err := ConnectorDeclaration(ctx, db, input.Package, input.Connector)
@@ -360,12 +385,6 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 		record, err = ReadConnectorRecord(ctx, db, *input.Connection)
 		if err != nil {
 			return capture, err
-		}
-		definitionChanged := input.Method != record.Method
-		for key, value := range input.Input.Fields {
-			definitionChanged = definitionChanged || record.Fields[key] != value
-		}
-		if definitionChanged {
 		}
 		if record.Plugin != input.Package.Name || record.Connector != input.Connector || input.ExpectedRevision == nil {
 			return capture, invalid("connector connection does not match its package")
@@ -387,6 +406,13 @@ func PrepareConnectorLogin(ctx context.Context, db *sql.Conn, attempt protocol.R
 		}
 		if record.Secrets == nil {
 			record.Secrets = map[string]protocol.Secret{}
+		}
+		// Another method does not keep the credentials the previous one
+		// named; the connection's own secret fields stay.
+		if input.Method != record.Method {
+			for _, name := range connectorMethodSecrets(declaration, record.Method) {
+				delete(record.Secrets, name)
+			}
 		}
 	} else {
 		var exists bool

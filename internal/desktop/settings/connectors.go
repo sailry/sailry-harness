@@ -642,13 +642,13 @@ func connectorDialog(c *ui.Context, m *Model) {
 				fields = append(fields, f)
 			}
 		}
-		// A connected OAuth connection with fields saves them as they are;
-		// authorizing again is asked for apart.
-		configuring := same && method == "connector_oauth" && len(fields) > 0 && !e.reacquire && existing.State == preview.Connected
+		// A saved CLI connection, or a connected OAuth one, with fields saves
+		// them as they are; binding or authorizing again is asked for apart.
 		acquired := method == "connector_oauth" || method == "connector_cli"
+		configuring := same && acquired && len(fields) > 0 && !e.reacquire && (method == "connector_cli" || existing.State == preview.Connected)
 		ready := true
 		ui.Column(c.Key("content")).Gap(12).Children(func() {
-			if method == "connector_cli" {
+			if method == "connector_cli" && !configuring {
 				ready = cliAccounts(c, m, e, k, existing)
 			} else if method == "connector_oauth" && len(fields) == 0 {
 				ui.Column(c.Key("browser")).AlignItems(ui.Center).Gap(12).Padding(12).Children(func() {
@@ -686,8 +686,12 @@ func connectorDialog(c *ui.Context, m *Model) {
 				}
 			}
 			if configuring {
-				kit.TextAction(c.Key("reacquire"), t("connector_reauthorize"), e.pending || !k.Enabled).AlignSelf(ui.Start).OnClick(func() {
-					e.reacquire = true
+				again := "connector_reauthorize"
+				if method == "connector_cli" {
+					again = "connector_bind"
+				}
+				kit.TextAction(c.Key("reacquire"), t(again), e.pending || !k.Enabled).AlignSelf(ui.Start).OnClick(func() {
+					e.reacquire, e.cliStarted, e.accounts = true, false, preview.Fetch{}
 				})
 			}
 			if method == "connector_application" {

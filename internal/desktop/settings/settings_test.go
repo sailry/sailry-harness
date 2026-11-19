@@ -1870,6 +1870,28 @@ func TestConnectors(t *testing.T) {
 		if len(drafts) != 2 || drafts[1].Method != "connector_token" || drafts[1].Service != "hub/hub" || drafts[1].ExpectedRevision != 3 || drafts[1].Fields["token"] != "secret" {
 			t.Fatalf("switching to a token sent %+v", drafts)
 		}
+		done[1](false)
+		// A saved CLI connection with a field of its own saves the field
+		// without binding again; Bind asks for the account apart.
+		m.ConnTypes[0].Fields = append(m.ConnTypes[0].Fields, preview.ConnectorField{Name: "host", Title: "Host"})
+		m.Services[0].Fields = map[string]string{"host": "hub.test"}
+		m.editService(&m.Services[0])
+		settle()
+		if _, ok := tt.AccessByRole(ui.RoleTextField, "Host"); !ok || tt.HasText(en("connector_choose_account")) {
+			t.Fatalf("the CLI connection's field editor: %q", tt.Texts())
+		}
+		m.connector.fields["host"] = "hub.example"
+		settle()
+		press(tt, button(t, tt, en("settings_save")))
+		if len(drafts) != 3 || !drafts[2].Update || drafts[2].Method != "connector_cli" || drafts[2].Fields["host"] != "hub.example" {
+			t.Fatalf("the CLI connection's field saved as %+v", drafts)
+		}
+		done[2](false)
+		press(tt, button(t, tt, en("connector_bind")))
+		settle()
+		if !tt.HasText(en("connector_choose_account")) || !tt.HasText("octocat") {
+			t.Errorf("Bind does not ask for the account: %q", tt.Texts())
+		}
 	})
 }
 

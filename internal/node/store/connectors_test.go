@@ -132,3 +132,62 @@ func TestConnectorLifecycleAndConsent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Switching a connection to another method drops the credentials the previous
+// method named and keeps the connection's other fields.
+func TestConnectorMethodSwitchDropsPriorCredentials(t *testing.T) {
+	t.Parallel()
+	_, _, storage := schemaFixture(t)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		info := pluginTestInfo("connector-switch", 'c')
+		extension := protocol.DefaultPluginExtension()
+		extension.ApiVersion = "v1"
+		secretField := "token"
+		declaration := protocol.DefaultPluginConnectorDeclaration()
+		declaration.ID, declaration.Display.Label, declaration.Accounts = "account", "Fixture service", protocol.PluginConnectorAccountsSingle
+		declaration.Origins = []string{"https://api.example.test"}
+		declaration.Fields = []protocol.PluginConnectorField{{Name: "note", Title: "Note", Optional: true}, {Name: secretField, Title: "Token", Secret: true}}
+		cli := protocol.DefaultPluginConnectorAuthLocalCliPayload()
+		cli.Command, cli.TimeoutMs, cli.MaxOutput = "fixture-cli", 1000, 4096
+		cli.Status.Argv, cli.Status.Account = []string{"status"}, "/account"
+		cli.Token.Argv, cli.Token.Parse = []string{"token"}, protocol.PluginConnectorParse{Kind: "line"}
+		declaration.Auth = []protocol.PluginConnectorAuth{
+			{Kind: "secret", Data: protocol.PluginConnectorAuthSecretPayload{Fields: []string{secretField}}},
+			{Kind: "local_cli", Data: cli},
+		}
+		declaration.Inject = []protocol.PluginConnectorInjection{{Header: &secretField, Prefix: "Bearer ", Field: &secretField}}
+		extension.Connectors, info.Extension = []protocol.PluginConnectorDeclaration{declaration}, &extension
+		info, err := InstallPlugin(ctx, db, info, 0, true)
+		if err != nil {
+			return err
+		}
+		input := protocol.CommandStartConnectorLoginPayload{Package: plugins.PackageReference(info), Connector: declaration.ID, Method: protocol.PluginConnectorKindSecret,
+			Input: protocol.PluginConnectorInput{Fields: map[string]string{"note": "kept"}, Secrets: map[string]protocol.Secret{secretField: protocol.NewSecret("protected-token")}}}
+		capture, err := PrepareConnectorLogin(ctx, db, protocol.NewRequestID(), input)
+		if err != nil {
+			return err
+		}
+		if err := StartConnectorLogin(ctx, db, capture); err != nil {
+			return err
+		}
+		value, err := CompleteConnectorLogin(ctx, db, capture, nil, &protocol.PluginConnectorIdentity{ID: "account-id", Name: "Account"}, false)
+		if err != nil {
+			return err
+		}
+		connection, revision := value.ID, value.Revision
+		switched := protocol.CommandStartConnectorLoginPayload{Package: input.Package, Connector: declaration.ID, Connection: &connection, ExpectedRevision: &revision,
+			Method: protocol.PluginConnectorKindLocalCli, Input: protocol.PluginConnectorInput{Fields: map[string]string{}, Secrets: map[string]protocol.Secret{}}}
+		capture, err = PrepareConnectorLogin(ctx, db, protocol.NewRequestID(), switched)
+		if err != nil {
+			return err
+		}
+		if _, kept := capture.Record.Secrets[secretField]; kept || capture.Record.Fields["note"] != "kept" || capture.Record.Method != protocol.PluginConnectorKindLocalCli {
+			return fmt.Errorf("the switched connection holds %v secrets and fields %v", len(capture.Record.Secrets), capture.Record.Fields)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
