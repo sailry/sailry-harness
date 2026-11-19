@@ -32,7 +32,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				usage := canonical.Usage{Input: ptr(uint64(200)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(60)), CacheWrite: ptr(uint64(40)), Provider: json.RawMessage(test.raw)}
-				cost, err := estimateAgentCost(ctx, db, modelPrices{}, "anthropic", "anthropic", "fixture", usage)
+				cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -53,7 +53,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 			return err
 		}
 		usage := canonical.Usage{Input: ptr(uint64(200)), Output: ptr(uint64(20)), CacheRead: ptr(uint64(60)), CacheWrite: ptr(uint64(40)), Provider: json.RawMessage(`{"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30}}`)}
-		cost, err := estimateAgentCost(ctx, db, modelPrices{}, "anthropic", "anthropic", "fixture", usage)
+		cost, err := estimateAgentCost(ctx, db, &modelPrices{}, "anthropic", "anthropic", "fixture", usage)
 		if err != nil {
 			return err
 		}
@@ -63,7 +63,7 @@ func TestAnthropicCacheWriteCost(t *testing.T) {
 		if _, err = db.ExecContext(ctx, "INSERT INTO model_catalog(provider,id,body) VALUES('reseller','fixture',?1)", catalog); err != nil {
 			return err
 		}
-		cost, err = estimateAgentCost(ctx, db, modelPrices{}, "reseller", "anthropic", "fixture", usage)
+		cost, err = estimateAgentCost(ctx, db, &modelPrices{}, "reseller", "anthropic", "fixture", usage)
 		if err != nil {
 			return err
 		}

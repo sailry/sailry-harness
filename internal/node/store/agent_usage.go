@@ -6,8 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"math"
-	"math/big"
+	"math/bits"
 	"slices"
 	"sort"
 	"strings"
@@ -18,6 +19,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// usageRequestPage is the protocol's bound on the requests of one report page.
+const usageRequestPage = 20
 
 func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, query protocol.UsageQuery) (protocol.UsageReport, error) {
 	report := protocol.DefaultUsageReport()
@@ -58,50 +62,41 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	if err != nil {
 		return report, err
 	}
+	index := 0
+	switch query.Dimension {
+	case protocol.UsageDimensionModel:
+		index = 1
+	case protocol.UsageDimensionProject:
+		index = 2
+	case protocol.UsageDimensionWorktree:
+		index = 3
+	}
 	rows, err := db.QueryContext(ctx, agentUsageRows, time.UnixMilli(query.StartMs).UTC().Format("2006-01-02T15:04:05"), time.UnixMilli(query.EndMs).UTC().Format("2006-01-02T15:04:05"), string(projects), string(worktrees), string(providers), string(models), 100001, user.ID.String())
 	if err != nil {
 		return report, err
 	}
-	type usageRow struct {
-		time                          string
-		tokens                        protocol.ConversationUsage
-		provider, model               string
-		project                       sql.NullString
-		worktree                      string
-		api, authentication, endpoint sql.NullString
-		usage                         string
-		elapsed                       sql.NullInt64
-		media                         sql.NullString
-		sequence                      uint64
-		session, turn                 string
-		first                         sql.NullInt64
-		reasoningStreamed             bool
-		providerName                  sql.NullString
-		scope                         string
-		resource, assistant           sql.NullString
-		preset                        sql.NullString
-	}
-	captured := []usageRow{}
-	for rows.Next() {
-		if len(captured) == 100000 {
-			rows.Close()
-			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
-		}
-		var row usageRow
-		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.provider, &row.model, &row.project, &row.worktree, &row.api, &row.authentication, &row.endpoint, &row.usage, &row.elapsed, &row.media, &row.sequence, &row.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scope, &row.resource, &row.assistant, &row.preset); err != nil {
-			rows.Close()
-			return report, err
-		}
-		captured = append(captured, row)
-	}
-	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return report, err
-	}
+	// Rows are aggregated as they are read. SQLite runs the price lookups
+	// beside the open statement on the same connection.
+	defer rows.Close()
+	var (
+		row     usageRow
+		stored  canonical.Usage
+		usage   sql.RawBytes
+		scanned int
+	)
 	groups := map[string]*protocol.UsageGroup{}
 	resources := map[string]protocol.UsageKey{}
-	requests := []protocol.UsageRequest{}
-	prices := modelPrices{}
-	for _, row := range captured {
+	scopes := map[usageScopeKey]*usageScope{}
+	latest := usageLatest{items: []protocol.UsageRequest{}}
+	prices := &modelPrices{}
+	for rows.Next() {
+		if scanned == 100000 {
+			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
+		}
+		scanned++
+		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.scope.provider, &row.model, &row.scope.project, &row.scope.worktree, &row.api, &row.authentication, &row.endpoint, &usage, &row.elapsed, &row.media, &row.sequence, &row.scope.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scopeName, &row.scope.resource, &row.scope.assistant, &row.preset); err != nil {
+			return report, err
+		}
 		created, e := time.Parse(time.RFC3339Nano, row.time)
 		if e != nil {
 			return report, e
@@ -110,100 +105,64 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		if ms < query.StartMs || ms >= query.EndMs {
 			continue
 		}
-		provider, e := protocol.ParseProviderID(row.provider)
-		if e != nil {
-			return report, e
-		}
-		worktree, e := protocol.ParseWorktreeID(row.worktree)
-		if e != nil {
-			return report, e
-		}
-		session, e := protocol.ParseSessionID(row.session)
-		if e != nil {
-			return report, e
+		row.scope.model = row.model
+		scope := scopes[row.scope]
+		if scope == nil {
+			if scope, e = newUsageScope(row.scope); e != nil {
+				return report, e
+			}
+			scopes[row.scope] = scope
+			for i, key := range scope.keys {
+				resources[scope.texts[i]] = key
+			}
 		}
 		turn, e := protocol.ParseTurnID(row.turn)
 		if e != nil {
 			return report, e
 		}
-		var project *protocol.ProjectID
-		if row.project.Valid {
-			id, e := protocol.ParseProjectID(row.project.String)
-			if e != nil {
-				return report, e
-			}
-			project = &id
-		}
-		owner := protocol.UsageKey{Kind: "session", Data: session}
-		location := owner
-		if project != nil {
-			owner = protocol.UsageKey{Kind: "project", Data: *project}
-			location = protocol.UsageKey{Kind: "worktree", Data: protocol.UsageKeyWorktreePayload{Project: *project, Worktree: worktree}}
-		} else if row.resource.Valid {
-			var resource protocol.ConnectionResource
-			if e = json.Unmarshal([]byte(row.resource.String), &resource); e != nil {
-				return report, e
-			}
-			owner = protocol.UsageKey{Kind: "connection", Data: resource}
-			location = owner
-		} else if row.assistant.Valid {
-			var assistant protocol.PluginConversationBinding
-			if e = json.Unmarshal([]byte(row.assistant.String), &assistant); e != nil {
-				return report, e
-			}
-			owner = protocol.UsageKey{Kind: "assistant", Data: protocol.UsageKeyAssistantPayload{Package: assistant.Package.Name, ID: assistant.ID}}
-			location = owner
-		}
-		keys := []protocol.UsageKey{{Kind: "provider", Data: provider}, {Kind: "model", Data: protocol.UsageKeyModelPayload{Provider: provider, Model: row.model}}, owner, location}
-		index := 0
-		switch query.Dimension {
-		case protocol.UsageDimensionModel:
-			index = 1
-		case protocol.UsageDimensionProject:
-			index = 2
-		case protocol.UsageDimensionWorktree:
-			index = 3
-		}
-		key := keys[index]
-		keyText := usageKeyText(key)
+		keyText := scope.texts[index]
 		group := groups[keyText]
 		if group == nil {
 			g := protocol.DefaultUsageGroup()
-			g.Key = key
+			g.Key = scope.keys[index]
 			group = &g
 			groups[keyText] = group
 		}
-		providerName := row.provider
+		providerName := row.scope.provider
 		if row.providerName.Valid {
 			providerName = row.providerName.String
 		}
 		name := providerName
 		if index == 2 {
-			name = row.scope
+			name = row.scopeName
 		}
-		if index < 3 && name != "" {
+		// The group is named after its latest response.
+		if index < 3 && name != "" && (group.Name == nil || *group.Name != name) {
 			v := name
 			group.Name = &v
-		}
-		for _, key := range keys {
-			resources[usageKeyText(key)] = key
 		}
 		if len(groups) > 4096 || len(resources) > 4096*4 {
 			return report, invalid("usage report exceeds the group or resource limit; narrow the filters")
 		}
-		var usage canonical.Usage
-		if e = json.Unmarshal([]byte(row.usage), &usage); e != nil {
+		// The scanned bytes are decoded without a copy; only the provider body
+		// is retained.
+		stored = canonical.Usage{}
+		if e = stored.UnmarshalJSON(usage); e != nil {
 			return report, e
 		}
 		var cost *protocol.UsageCost
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
-			cost, e = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, usage)
+			cost, e = estimateAgentCost(ctx, db, prices, row.preset.String, row.api.String, row.model, stored)
 			if e != nil {
 				return report, e
 			}
 		}
-		elapsed, first := usageTime(row.elapsed), usageTime(row.first)
-		generation := row.tokens.DecodeGeneration(elapsed, first, row.reasoningStreamed)
+		elapsed, elapsedKnown := usageMicros(row.elapsed)
+		first, firstKnown := usageMicros(row.first)
+		var generation *protocol.UsageGeneration
+		if elapsedKnown && firstKnown {
+			generation = row.tokens.DecodeGeneration(&elapsed, &first, row.reasoningStreamed)
+		}
 		if e = addUsageMetrics(&report.Totals, row.tokens, cost, generation); e != nil {
 			return report, e
 		}
@@ -227,36 +186,40 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			(bytes.Compare(node[:], before.Node[:]) > 0 || node == before.Node && row.sequence >= before.Sequence)) {
 			continue
 		}
+		if !latest.admits(position) {
+			continue
+		}
 		request := protocol.DefaultUsageRequest()
 		request.Position = position
-		request.Session = session
+		request.Session = scope.session
 		request.Turn = turn
-		request.Project = project
-		request.ScopeName = row.scope
-		request.Worktree = worktree
-		request.Provider = provider
+		request.Project = scope.project
+		request.ScopeName = row.scopeName
+		request.Worktree = scope.worktree
+		request.Provider = scope.provider
 		request.ProviderName = providerName
 		request.Model = row.model
 		request.Tokens = row.tokens
-		request.ElapsedUs = elapsed
-		if first != nil && (elapsed == nil || *first <= *elapsed) {
-			request.FirstTokenUs = first
+		// Copies escape only for the requests a page keeps.
+		if elapsedKnown {
+			v := elapsed
+			request.ElapsedUs = &v
+		}
+		if firstKnown && (!elapsedKnown || first <= elapsed) {
+			v := first
+			request.FirstTokenUs = &v
 		}
 		if cost != nil {
 			request.UsdMicros = &cost.UsdMicros
 		}
-		requests = append(requests, request)
+		latest.add(request)
 	}
-	sort.Slice(requests, func(i, j int) bool {
-		if requests[i].Position.TimestampMs != requests[j].Position.TimestampMs {
-			return requests[i].Position.TimestampMs > requests[j].Position.TimestampMs
-		}
-		return requests[i].Position.Sequence > requests[j].Position.Sequence
-	})
-	if len(requests) > 20 {
-		report.Requests.HasMore = true
-		requests = requests[:20]
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return report, err
 	}
+	requests := latest.items
+	sort.Slice(requests, func(i, j int) bool { return usageNewer(requests[i].Position, requests[j].Position) })
+	report.Requests.HasMore = latest.offered > usageRequestPage
 	titles := map[protocol.SessionID]string{}
 	for i := range requests {
 		title, known := titles[requests[i].Session]
@@ -307,6 +270,123 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 	}
 	return report, nil
 }
+
+// usageRow holds the columns of the response being aggregated.
+type usageRow struct {
+	time                          string
+	tokens                        protocol.ConversationUsage
+	model                         string
+	scope                         usageScopeKey
+	api, authentication, endpoint sql.NullString
+	elapsed                       sql.NullInt64
+	media                         sql.NullString
+	sequence                      uint64
+	turn                          string
+	first                         sql.NullInt64
+	reasoningStreamed             bool
+	providerName                  sql.NullString
+	scopeName                     string
+	preset                        sql.NullString
+}
+
+// usageScopeKey is the stored identity from which a response's report keys
+// are derived.
+type usageScopeKey struct {
+	provider, model, worktree, session string
+	project, resource, assistant       sql.NullString
+}
+
+// usageScope is the parsed identity and report keys of a usageScopeKey: its
+// provider, model, owner and location keys and their sort texts.
+type usageScope struct {
+	provider protocol.ProviderID
+	worktree protocol.WorktreeID
+	session  protocol.SessionID
+	project  *protocol.ProjectID
+	keys     [4]protocol.UsageKey
+	texts    [4]string
+}
+
+func newUsageScope(key usageScopeKey) (*usageScope, error) {
+	scope := &usageScope{}
+	var err error
+	if scope.provider, err = protocol.ParseProviderID(key.provider); err != nil {
+		return nil, err
+	}
+	if scope.worktree, err = protocol.ParseWorktreeID(key.worktree); err != nil {
+		return nil, err
+	}
+	if scope.session, err = protocol.ParseSessionID(key.session); err != nil {
+		return nil, err
+	}
+	if key.project.Valid {
+		id, err := protocol.ParseProjectID(key.project.String)
+		if err != nil {
+			return nil, err
+		}
+		scope.project = &id
+	}
+	owner := protocol.UsageKey{Kind: "session", Data: scope.session}
+	location := owner
+	if scope.project != nil {
+		owner = protocol.UsageKey{Kind: "project", Data: *scope.project}
+		location = protocol.UsageKey{Kind: "worktree", Data: protocol.UsageKeyWorktreePayload{Project: *scope.project, Worktree: scope.worktree}}
+	} else if key.resource.Valid {
+		var resource protocol.ConnectionResource
+		if err = json.Unmarshal([]byte(key.resource.String), &resource); err != nil {
+			return nil, err
+		}
+		owner = protocol.UsageKey{Kind: "connection", Data: resource}
+		location = owner
+	} else if key.assistant.Valid {
+		var assistant protocol.PluginConversationBinding
+		if err = json.Unmarshal([]byte(key.assistant.String), &assistant); err != nil {
+			return nil, err
+		}
+		owner = protocol.UsageKey{Kind: "assistant", Data: protocol.UsageKeyAssistantPayload{Package: assistant.Package.Name, ID: assistant.ID}}
+		location = owner
+	}
+	scope.keys = [4]protocol.UsageKey{{Kind: "provider", Data: scope.provider}, {Kind: "model", Data: protocol.UsageKeyModelPayload{Provider: scope.provider, Model: key.model}}, owner, location}
+	for i, key := range scope.keys {
+		scope.texts[i] = usageKeyText(key)
+	}
+	return scope, nil
+}
+
+// usageLatest keeps the newest requests before a page boundary; the protocol
+// returns at most one page of them.
+type usageLatest struct {
+	items   []protocol.UsageRequest
+	oldest  int
+	offered int
+}
+
+// admits counts a request and reports whether it belongs to the page so far.
+func (latest *usageLatest) admits(position protocol.UsagePosition) bool {
+	latest.offered++
+	return len(latest.items) < usageRequestPage || usageNewer(position, latest.items[latest.oldest].Position)
+}
+
+func (latest *usageLatest) add(request protocol.UsageRequest) {
+	if len(latest.items) < usageRequestPage {
+		latest.items = append(latest.items, request)
+	} else {
+		latest.items[latest.oldest] = request
+	}
+	for i := range latest.items {
+		if usageNewer(latest.items[latest.oldest].Position, latest.items[i].Position) {
+			latest.oldest = i
+		}
+	}
+}
+
+func usageNewer(a, b protocol.UsagePosition) bool {
+	if a.TimestampMs != b.TimestampMs {
+		return a.TimestampMs > b.TimestampMs
+	}
+	return a.Sequence > b.Sequence
+}
+
 func usageKeyText(key protocol.UsageKey) string {
 	order := slices.Index([]string{"provider", "model", "project", "session", "connection", "assistant", "worktree"}, key.Kind)
 	body, _ := encode(key.Data)
@@ -396,10 +476,26 @@ func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.Conversation
 	return nil
 }
 
-// modelPrices holds the catalog entries one report has read, keyed by supplier
-// and model; the empty supplier keys the entry every supplier agrees on. An
-// entry the catalog lacks is kept as nil.
-type modelPrices map[[2]string][]byte
+func usageMicros(value sql.NullInt64) (uint64, bool) {
+	if !value.Valid || value.Int64 < 0 {
+		return 0, false
+	}
+	return uint64(value.Int64), true
+}
+
+// modelPrices holds the catalog prices one report has read. Entries are keyed
+// by supplier and model; the empty supplier keys the price every supplier
+// agrees on, and a price the catalog lacks is kept as nil. Channels memoize
+// which entry and supplier price a preset, wire protocol and model.
+type modelPrices struct {
+	entries  map[[2]string]*catalogPrice
+	channels map[[3]string]pricedChannel
+}
+
+type pricedChannel struct {
+	price    *catalogPrice
+	supplier string
+}
 
 // catalogSuppliers names the models.dev supplier of a preset or brand that
 // models.dev lists under another identifier.
@@ -431,16 +527,34 @@ func priceSuppliers(preset, api string) []string {
 	return suppliers
 }
 
-// entry returns the catalog entry that prices a model: the first of the
-// suppliers that lists the exact identifier, else the entry of any other
-// supplier when all that list it state one price. Resellers price the same
-// identifier differently, so a model they disagree on stays unpriced. The
-// supplier identifies which vendor-specific pricing rules can be applied.
-func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) ([]byte, string, error) {
+// channel returns the price of a model on a channel and its supplier.
+func (prices *modelPrices) channel(ctx context.Context, db *sql.Conn, preset, api, model string) (*catalogPrice, string, error) {
+	key := [3]string{preset, api, model}
+	if priced, known := prices.channels[key]; known {
+		return priced.price, priced.supplier, nil
+	}
+	price, supplier, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
+	if err != nil {
+		return nil, "", err
+	}
+	if prices.channels == nil {
+		prices.channels = map[[3]string]pricedChannel{}
+	}
+	prices.channels[key] = pricedChannel{price, supplier}
+	return price, supplier, nil
+}
+
+// entry returns the catalog price of a model: the first of the suppliers
+// that lists the exact identifier, else the entry of any other supplier when
+// all that list it state one price. Resellers price the same identifier
+// differently, so a model they disagree on stays unpriced. The supplier
+// identifies which vendor-specific pricing rules can be applied.
+func (prices *modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []string, model string) (*catalogPrice, string, error) {
 	for _, supplier := range append(suppliers, "") {
 		key := [2]string{supplier, model}
-		body, known := prices[key]
+		price, known := prices.entries[key]
 		if !known {
+			var body []byte
 			var err error
 			if supplier != "" {
 				err = db.QueryRowContext(ctx, "SELECT body FROM model_catalog WHERE provider=?1 AND id=?2", supplier, model).Scan(&body)
@@ -453,10 +567,16 @@ func (prices modelPrices) entry(ctx context.Context, db *sql.Conn, suppliers []s
 			if err != nil {
 				return nil, "", err
 			}
-			prices[key] = body
+			if body != nil {
+				price = parseCatalogPrice(body)
+			}
+			if prices.entries == nil {
+				prices.entries = map[[2]string]*catalogPrice{}
+			}
+			prices.entries[key] = price
 		}
-		if body != nil {
-			return body, supplier, nil
+		if price != nil {
+			return price, supplier, nil
 		}
 	}
 	return nil, "", nil
@@ -491,54 +611,149 @@ func agreedPrice(ctx context.Context, db *sql.Conn, model string) ([]byte, error
 	return agreed, rows.Err()
 }
 
-func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, preset, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
-	if usage.Input == nil || usage.Output == nil {
-		return nil, nil
+// The rates a catalog price states, by the field that names them.
+const (
+	rateInput = iota
+	rateOutput
+	rateCacheRead
+	rateCacheWrite
+	rateReasoning
+	rateCount
+)
+
+var rateFields = [rateCount]string{"input", "output", "cache_read", "cache_write", "reasoning"}
+
+// priceRates is one set of catalog rates in micro-USD per million tokens. A
+// rate that is absent or not a usable number is unknown.
+type priceRates struct {
+	rate  [rateCount]uint64
+	known [rateCount]bool
+	// audio marks a price with audio rates, which usage does not separate.
+	audio bool
+}
+
+func parseRates(cost map[string]json.RawMessage) priceRates {
+	var rates priceRates
+	_, input := cost["input_audio"]
+	_, output := cost["output_audio"]
+	rates.audio = input || output
+	for i, field := range rateFields {
+		var v float64
+		if json.Unmarshal(cost[field], &v) != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v*1000000 >= float64(math.MaxUint64) {
+			continue
+		}
+		rates.rate[i], rates.known[i] = uint64(math.Round(v*1000000)), true
 	}
-	body, supplier, err := prices.entry(ctx, db, priceSuppliers(preset, api), model)
-	if err != nil || body == nil {
-		return nil, err
-	}
+	return rates
+}
+
+// catalogPrice is a catalog entry's cost, parsed once per report. An entry
+// whose cost cannot be read is listed but prices nothing.
+type catalogPrice struct {
+	usable bool
+	base   priceRates
+	// tiered prices select the context tier with the largest size the input
+	// exceeds, else the base rates.
+	tiered bool
+	tiers  []priceTier
+	// over200k, when set, replaces the base rates above 200,000 input tokens.
+	over200k *priceRates
+}
+
+type priceTier struct {
+	size  uint64
+	rates priceRates
+}
+
+func parseCatalogPrice(body []byte) *catalogPrice {
+	price := &catalogPrice{}
 	var object map[string]json.RawMessage
 	if json.Unmarshal(body, &object) != nil {
-		return nil, nil
+		return price
 	}
 	var cost map[string]json.RawMessage
 	if json.Unmarshal(object["cost"], &cost) != nil {
-		return nil, nil
+		return price
 	}
 	if raw, ok := cost["tiers"]; ok {
 		var tiers []map[string]json.RawMessage
 		if json.Unmarshal(raw, &tiers) != nil {
-			return nil, nil
+			return price
 		}
 		seen := map[uint64]bool{}
-		threshold := uint64(0)
 		for _, tier := range tiers {
 			var criteria struct {
 				Type string `json:"type"`
 				Size uint64 `json:"size"`
 			}
 			if json.Unmarshal(tier["tier"], &criteria) != nil || criteria.Type != "context" || seen[criteria.Size] {
-				return nil, nil
+				return price
 			}
 			seen[criteria.Size] = true
-			if *usage.Input > criteria.Size && criteria.Size >= threshold {
-				cost = tier
-				threshold = criteria.Size
-			}
+			price.tiers = append(price.tiers, priceTier{criteria.Size, parseRates(tier)})
 		}
-	} else if *usage.Input > 200000 {
-		if raw, ok := cost["context_over_200k"]; ok {
-			if json.Unmarshal(raw, &cost) != nil {
-				return nil, nil
-			}
+		price.tiered = true
+	} else if raw, ok := cost["context_over_200k"]; ok {
+		// The override is decoded over the base cost, keeping members it omits.
+		merged := maps.Clone(cost)
+		var over priceRates
+		if json.Unmarshal(raw, &merged) == nil {
+			over = parseRates(merged)
 		}
+		price.over200k = &over
 	}
-	if _, ok := cost["input_audio"]; ok {
+	price.base = parseRates(cost)
+	price.usable = true
+	return price
+}
+
+func (price *catalogPrice) rates(input uint64) *priceRates {
+	if price.tiered {
+		selected, threshold := &price.base, uint64(0)
+		for i := range price.tiers {
+			if tier := &price.tiers[i]; input > tier.size && tier.size >= threshold {
+				selected, threshold = &tier.rates, tier.size
+			}
+		}
+		return selected
+	}
+	if input > 200000 && price.over200k != nil {
+		return price.over200k
+	}
+	return &price.base
+}
+
+// uint128 is an exact sum of rate and token products.
+type uint128 struct{ hi, lo uint64 }
+
+// add reports whether the sum still fits.
+func (value *uint128) add(other uint128) bool {
+	var carry uint64
+	value.lo, carry = bits.Add64(value.lo, other.lo, 0)
+	value.hi, carry = bits.Add64(value.hi, other.hi, carry)
+	return carry == 0
+}
+
+// micros rounds a sum of rate products to micro-USD, reporting whether the
+// amount fits.
+func (value uint128) micros() (uint64, bool) {
+	if !value.add(uint128{lo: 500000}) || value.hi >= 1000000 {
+		return 0, false
+	}
+	quotient, _ := bits.Div64(value.hi, value.lo, 1000000)
+	return quotient, true
+}
+
+func estimateAgentCost(ctx context.Context, db *sql.Conn, prices *modelPrices, preset, api, model string, usage canonical.Usage) (*protocol.UsageCost, error) {
+	if usage.Input == nil || usage.Output == nil {
 		return nil, nil
 	}
-	if _, ok := cost["output_audio"]; ok {
+	price, supplier, err := prices.channel(ctx, db, preset, api, model)
+	if err != nil || price == nil || !price.usable {
+		return nil, err
+	}
+	rates := price.rates(*usage.Input)
+	if rates.audio {
 		return nil, nil
 	}
 	read, write, reasoning := optionalUint(usage.CacheRead), optionalUint(usage.CacheWrite), optionalUint(usage.Reasoning)
@@ -567,62 +782,63 @@ func estimateAgentCost(ctx context.Context, db *sql.Conn, prices modelPrices, pr
 			}
 		}
 	}
-	rate := func(field string) (uint64, bool) {
-		var v float64
-		if json.Unmarshal(cost[field], &v) != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v*1000000 >= float64(math.MaxUint64) {
-			return 0, false
-		}
-		return uint64(math.Round(v * 1000000)), true
-	}
-	if _, ok := rate("input"); !ok {
+	if !rates.known[rateInput] || !rates.known[rateOutput] {
 		return nil, nil
 	}
-	if _, ok := rate("output"); !ok {
-		return nil, nil
-	}
-	categories := [4]*big.Int{new(big.Int), new(big.Int), new(big.Int), new(big.Int)}
+	var categories [4]uint128
 	for _, item := range []struct {
 		count           uint64
-		field, fallback string
+		field, fallback int
 		category        int
-		multiplier      int64
+		doubled         bool
 	}{
-		{*usage.Input - read - write, "input", "", 0, 1},
-		{*usage.Output - reasoning, "output", "", 1, 1},
-		{read, "cache_read", "", 2, 1},
-		{write - hourlyWrite, "cache_write", "", 3, 1},
+		{*usage.Input - read - write, rateInput, -1, 0, false},
+		{*usage.Output - reasoning, rateOutput, -1, 1, false},
+		{read, rateCacheRead, -1, 2, false},
+		{write - hourlyWrite, rateCacheWrite, -1, 3, false},
 		// Anthropic's catalog cache_write rate is for five minutes. It bills
 		// one-hour writes at twice the base input rate, including context tiers.
-		{hourlyWrite, "input", "", 3, 2},
-		{reasoning, "reasoning", "output", 1, 1},
+		{hourlyWrite, rateInput, -1, 3, true},
+		{reasoning, rateReasoning, rateOutput, 1, false},
 	} {
 		if item.count == 0 {
 			continue
 		}
-		r, ok := rate(item.field)
-		if !ok && item.fallback != "" {
-			r, ok = rate(item.fallback)
+		field := item.field
+		if !rates.known[field] && item.fallback >= 0 {
+			field = item.fallback
 		}
+		if !rates.known[field] {
+			return nil, nil
+		}
+		var product uint128
+		product.hi, product.lo = bits.Mul64(rates.rate[field], item.count)
+		if item.doubled && !product.add(product) {
+			return nil, nil
+		}
+		if !categories[item.category].add(product) {
+			return nil, nil
+		}
+	}
+	// A product or sum beyond 128 bits exceeds every representable amount.
+	var cumulative uint128
+	total := uint64(0)
+	result := &struct {
+		cost      protocol.UsageCost
+		breakdown protocol.UsageCostBreakdown
+	}{}
+	amounts := [4]*uint64{&result.breakdown.Input, &result.breakdown.Output, &result.breakdown.CacheRead, &result.breakdown.CacheWrite}
+	for i, category := range categories {
+		if !cumulative.add(category) {
+			return nil, nil
+		}
+		next, ok := cumulative.micros()
 		if !ok {
 			return nil, nil
 		}
-		product := new(big.Int).Mul(new(big.Int).SetUint64(r), new(big.Int).SetUint64(item.count))
-		product.Mul(product, big.NewInt(item.multiplier))
-		categories[item.category].Add(categories[item.category], product)
-	}
-	cumulative := new(big.Int)
-	total := uint64(0)
-	amounts := [4]uint64{}
-	for i, category := range categories {
-		cumulative.Add(cumulative, category)
-		rounded := new(big.Int).Add(cumulative, big.NewInt(500000))
-		rounded.Div(rounded, big.NewInt(1000000))
-		if !rounded.IsUint64() {
-			return nil, nil
-		}
-		next := rounded.Uint64()
-		amounts[i] = next - total
+		*amounts[i] = next - total
 		total = next
 	}
-	return &protocol.UsageCost{UsdMicros: total, Responses: 1, Breakdown: &protocol.UsageCostBreakdown{Input: amounts[0], Output: amounts[1], CacheRead: amounts[2], CacheWrite: amounts[3]}}, nil
+	result.cost = protocol.UsageCost{UsdMicros: total, Responses: 1, Breakdown: &result.breakdown}
+	return &result.cost, nil
 }

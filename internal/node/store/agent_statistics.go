@@ -112,7 +112,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return result, delegated, err
 	}
-	prices := modelPrices{}
+	prices := &modelPrices{}
 	for _, row := range records {
 		var cost *protocol.UsageCost
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
