@@ -67,8 +67,7 @@ func (r *Runtime) beginConversationFrame() {
 	r.mu.Lock()
 	for id := range r.conversationChanges {
 		if cached, ok := r.conversationCache[id]; ok {
-			cached.generation = 0
-			cached.composer = nil
+			cached.stale = true
 			r.conversationCache[id] = cached
 		}
 	}
@@ -128,6 +127,7 @@ func (r *Runtime) projectConversation(cv *viewmodel.Conversation, id protocol.Se
 		// The Node's connection override is applied later in conversation.
 		// Restore the observed connection when that Node becomes available.
 		cv.Session.Connection = saved.connection
+		cv.Session.LoadingOlder, cv.Session.OlderFailed = state.LoadingOlder, state.OlderErr != nil
 		saved.clocks.advance(cv.Turns, now)
 		saved.mounted = true
 		r.conversationPresentations[cv] = saved

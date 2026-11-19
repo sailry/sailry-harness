@@ -184,6 +184,7 @@ type Runtime struct {
 }
 
 type conversationCopy struct {
+	stale      bool
 	state      client.ConversationState
 	ok         bool
 	generation uint64
@@ -218,10 +219,20 @@ func (r *Runtime) conversationState(id protocol.SessionID) (client.ConversationS
 		return r.controller.Conversation(id)
 	}
 	copied, ok := r.conversationCopies[id]
-	if !ok || copied.generation == 0 {
-		copied.state, copied.ok = r.controller.ConversationView(id, copied.state)
-		r.conversationVersion++
-		copied.generation = r.conversationVersion
+	if !ok || copied.stale {
+		previous := copied.state
+		copied.state, copied.ok = r.controller.ConversationView(id, previous)
+		current := copied.state
+		// A page request's loading flag changes before any history arrives.
+		// Keep the projected rows and update the pagination indicator in place.
+		pagingOnly := current.SameViewSnapshot(previous) && current.LoadingOlder != previous.LoadingOlder &&
+			current.Connected && previous.Connected && !current.Loading && !previous.Loading && current.Err == nil && previous.Err == nil
+		if !pagingOnly {
+			r.conversationVersion++
+			copied.generation = r.conversationVersion
+			copied.composer = nil
+		}
+		copied.stale = false
 		r.conversationCopies[id] = copied
 	}
 	return copied.state, copied.ok

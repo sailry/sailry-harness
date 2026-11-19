@@ -20,12 +20,14 @@ type ConversationState struct {
 	// statistics or a snapshot arrive.
 	StatisticsErr error
 	entryEpoch    *byte
+	pageVersion   uint64
 }
 
 type conversationWatch struct {
 	session         protocol.SessionID
 	projection      *ConversationProjection
 	entryEpoch      *byte
+	pageVersion     uint64
 	state           ConversationState
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -90,7 +92,11 @@ func (c *Client) readConversationState(session protocol.SessionID, previous *Con
 		if w.entryEpoch == nil {
 			w.entryEpoch = new(byte)
 		}
-		s.entryEpoch = w.entryEpoch
+		s.entryEpoch, s.pageVersion = w.entryEpoch, w.pageVersion
+		if s.SameViewSnapshot(*previous) {
+			s.Snapshot = previous.Snapshot
+			return s, true
+		}
 		if previous.entryEpoch == w.entryEpoch {
 			s.Snapshot = copyPagedSnapshot(*snapshot, previous.Snapshot.Page.Entries)
 			return s, true
@@ -98,6 +104,12 @@ func (c *Client) readConversationState(session protocol.SessionID, previous *Con
 	}
 	s.Snapshot = copyValue(*snapshot)
 	return s, true
+}
+
+// SameViewSnapshot reports whether two read-only views share the complete
+// detached snapshot, independently of watch status such as LoadingOlder.
+func (s ConversationState) SameViewSnapshot(other ConversationState) bool {
+	return s.entryEpoch != nil && s.entryEpoch == other.entryEpoch && s.pageVersion == other.pageVersion
 }
 
 // Between stream updates pagination only inserts records in canonical sequence

@@ -98,7 +98,7 @@ func TestConversationFrameCachePagination(t *testing.T) {
 		go func() { loaded <- r.controller.LoadOlderConversation(t.Context(), id) }()
 		<-started
 		loading := cacheTestFrame(t, r, cv, id)
-		if &loading.Snapshot.Page.Entries[0] != &first.Snapshot.Page.Entries[0] {
+		if retained != &cv.Turns[0] || !loading.SameViewSnapshot(first) || &loading.Snapshot.Page.Entries[0] != &first.Snapshot.Page.Entries[0] {
 			t.Fatal("a pending history read recopied unchanged entries")
 		}
 		if !loading.LoadingOlder || !cv.Session.LoadingOlder {
