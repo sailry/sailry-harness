@@ -1033,6 +1033,13 @@ graph fields and sets `graph_unavailable` to a short reason. File reads check
 each selected revision; stale ranges never expand against new source. Abandoning a Client search or outline sends its
 scoped `cancel_code_index_query` while the transport runtime remains available.
 
+`code_pipeline` chains two to eight dependent file or index reads. Each later
+step binds arguments to JSON pointers in the previous operation's `data`. A
+symbol lookup can pass its file path, zero-based start line and file revision
+to `files.read_lines`. Only the selected final data and incomplete step numbers
+reach the model. The result is limited to 16 KiB. Independent calls continue
+to use the engine's concurrent read groups.
+
 `media.settings.read` and `media.settings.write` authorize
 `readMediaSettings`, `listMediaModels` and `prepareMediaSettings` on the
 captured settings surface. Image inspection and image and video generation are

@@ -889,7 +889,8 @@ func TestCodeIndexCommands(t *testing.T) {
 func TestCodeAgentTools(t *testing.T) {
 	search, outline := operations.Alias("code", "code_search"), operations.Alias("code", "code_outline")
 	codeContext, impact, ranked := operations.Alias("code", "code_context"), operations.Alias("code", "code_impact"), operations.Alias("code", "code_map")
-	tools := []string{search, outline, codeContext, impact, ranked}
+	pipeline := operations.Alias("code", "code_pipeline")
+	tools := []string{search, outline, codeContext, impact, ranked, pipeline}
 	script := &acceptanceScript{steps: []acceptanceStep{
 		{"discover", "tool_search", acceptanceArguments(map[string]any{"query": "select:" + strings.Join(tools, ",")})},
 		{"search", search, acceptanceArguments(map[string]any{"query": "Serve"})},
@@ -897,6 +898,9 @@ func TestCodeAgentTools(t *testing.T) {
 		{"context", codeContext, acceptanceArguments(map[string]any{"name": "helper"})},
 		{"impact", impact, acceptanceArguments(map[string]any{"name": "helper"})},
 		{"map", ranked, acceptanceArguments(map[string]any{})},
+		{"baseline_search", search, acceptanceArguments(map[string]any{"name": "helper", "limit": 8})},
+		{"baseline_read", operations.Alias("files", "read_file"), acceptanceArguments(map[string]any{"path": "cmd/server.go", "offset": 16, "limit": 1})},
+		{"pipeline", pipeline, acceptanceArguments(json.RawMessage(`{"steps":[{"operation":"code.search","arguments":{"name":"helper"}},{"operation":"files.read_lines","arguments":{"limit":1},"from_previous":{"path":"/symbols/0/path","offset":"/symbols/0/range/start_line","expected_revision":"/symbols/0/file_revision"}}],"select":"/lines/0/text"}`))},
 		{id: "answer"},
 	}}
 	node := acceptanceNode(t, filepath.Join(t.TempDir(), "profile"), script, Options{})
@@ -1005,6 +1009,17 @@ func TestCodeAgentTools(t *testing.T) {
 	if file["path"] != "cmd/server.go" || !slices.Equal(names, []string{"Serve", "main"}) {
 		t.Fatalf("code_impact affected %v in %v", names, file)
 	}
+
+	selected := acceptanceResult(t, results, "pipeline", pipeline)
+	if value, ok := selected["value"].(string); !ok || strings.TrimSpace(value) != "func helper(address string) {" || len(selected) > 2 {
+		t.Fatalf("code_pipeline did not isolate the selected source line: %v", selected)
+	}
+	baseline := acceptanceResult(t, results, "baseline_read", operations.Alias("files", "read_file"))
+	baselineText := baseline["data"].(map[string]any)["lines"].([]any)[0].(map[string]any)["text"]
+	if selected["value"] != baselineText {
+		t.Fatalf("pipeline and ordinary read returned different source lines: %v and %v", selected, baseline)
+	}
+	t.Logf("Same lookup, tool result bytes: separate search and read %d, pipeline %d", len(results["baseline_search"].Result.Value)+len(results["baseline_read"].Result.Value), len(results["pipeline"].Result.Value))
 
 	overview := acceptanceResult(t, results, "map", ranked)
 	if overview["isError"] == true {

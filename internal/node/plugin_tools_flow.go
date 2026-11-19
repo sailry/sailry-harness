@@ -102,7 +102,11 @@ func (owner *pluginScriptTurn) operation(ctx context.Context, tool string, call 
 func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler protocol.ToolHandler, call canonical.ToolRequest, arguments any, readOnly bool) engine.ToolResult {
 	started := time.Now()
 	var state, outcome any
-	outputs := []engine.ToolResult{}
+	// Successful intermediate values are consumed by the next callback. Only
+	// failures can be referenced by output index; keep a receipt for a flow
+	// with effects in case its formatter fails after the operation completed.
+	var failures [8]*engine.ToolResult
+	var lastEffectResult *engine.ToolResult
 	var failure *engine.ToolResult
 	message := ""
 	if limit := handler.Flow.MessageChars; limit != nil {
@@ -120,8 +124,8 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 			if failure != nil {
 				return *failure
 			}
-			if len(outputs) != 0 {
-				return outputs[len(outputs)-1]
+			if lastEffectResult != nil {
+				return *lastEffectResult
 			}
 			return workspaceToolFault(err)
 		}
@@ -145,12 +149,11 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 			var result any
 			_ = json.Unmarshal(transition.Result, &result)
 			if transition.Output != nil {
-				if *transition.Output >= uint64(len(outputs)) {
+				if *transition.Output >= step {
 					return workspaceToolFault(&protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin flow references an unavailable output"})
 				}
-				captured := outputs[*transition.Output]
-				if captured.Failure != nil || captured.ReturnedError {
-					return captured
+				if captured := failures[*transition.Output]; captured != nil {
+					return *captured
 				}
 			}
 			return engine.ToolResult{Value: result, ReturnedError: pluginResultFailed(result)}
@@ -164,7 +167,9 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 			}
 		}
 		captured := owner.operation(ctx, name, call, step, transition.Call.Operation, transition.Call.Arguments)
-		outputs = append(outputs, captured)
+		if !readOnly {
+			lastEffectResult = &captured
+		}
 		outcome = captured.Value
 		if captured.Failure != nil {
 			outcome = map[string]any{"isError": true, "error": captured.Failure}
@@ -173,8 +178,11 @@ func (owner *pluginScriptTurn) flow(ctx context.Context, name string, handler pr
 			}
 		}
 		failed := captured.Failure != nil || captured.ReturnedError
+		if failed {
+			failures[step] = &captured
+		}
 		if failed && (!transition.Optional || !pluginOperationReadOnly(transition.Call.Operation)) {
-			failure = &outputs[len(outputs)-1]
+			failure = &captured
 		} else if !failed {
 			failure = nil
 		}
