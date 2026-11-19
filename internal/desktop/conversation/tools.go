@@ -321,6 +321,8 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 func groupHead(calls []Call) Call {
 	head := calls[len(calls)-1]
 	head.wrap = false
+	// The header sweeps while any call in the group still runs; its label,
+	// icon and colour stay the latest call's.
 	head.Running = head.Running || slices.ContainsFunc(calls, func(call Call) bool { return call.Running })
 	return head
 }
@@ -368,8 +370,6 @@ func (s *State) row(c *ui.Context, call Call) {
 			if call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview {
 				s.output(c, &Output{Text: b.Preview, Command: true}, false)
 			}
-		} else if detail.Failure != "" && (call.Output == nil || call.Output.Failure == "") {
-			s.output(c, &Output{Failure: detail.Failure}, false)
 		}
 		paths := pathList(call)
 		if call.Output != nil && (paths || !bare(call)) {

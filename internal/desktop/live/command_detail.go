@@ -3,7 +3,6 @@ package live
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -187,11 +186,9 @@ func (r *Runtime) historicalCommandDetail(ref client.HistoricalCommandReference)
 }
 
 func projectHistoricalCommand(value client.HistoricalCommandOutput, err error) conversation.BackgroundDetail {
+	// A row shows the command's own output only; an unreadable one shows none.
 	if err != nil {
-		if errors.Is(err, context.Canceled) || faultCode(err) == protocol.ErrorCodeCancelled {
-			return conversation.BackgroundDetail{}
-		}
-		return conversation.BackgroundDetail{Failure: faultDetail(err)}
+		return conversation.BackgroundDetail{}
 	}
 	text := joinCommandText(value.Stdout.Text, value.Stderr.Text)
 	var detail conversation.BackgroundDetail

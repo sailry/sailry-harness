@@ -222,7 +222,10 @@ func TestHistoricalCommandDisclosure(t *testing.T) {
 	click(title)
 	render()
 	render()
-	if !tester.HasText(noRetention) || tester.HasText(stdout) {
-		t.Fatalf("reopening lost the read error: %q", tester.Texts())
+	// The body is the command's own output; a failed read writes nothing.
+	for _, text := range tester.Texts() {
+		if strings.Contains(text, noRetention) {
+			t.Fatalf("reopening showed the read error as the command's output: %q", tester.Texts())
+		}
 	}
 }

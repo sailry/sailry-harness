@@ -193,10 +193,34 @@ func TestToolGroupRevealsFailureMessage(t *testing.T) {
 		t.Fatalf("consecutive calls were not folded: %q", tt.Texts())
 	}
 	calls[0].Running, calls[0].Failed = false, true
-	calls[0].Output = &Output{Failure: "the plugin could not read the changes"}
+	calls[0].Output = &Output{Failure: "the plugin could not read the changes\nCode: changes_unavailable", ToolFailure: true}
 	tt.Frame()
 	if !tt.HasText(calls[0].Output.Failure) || tt.HasText("successful output") {
 		t.Fatalf("the group's error did not open on its own: %q", tt.Texts())
+	}
+	if !slices.ContainsFunc(tt.Texts(), func(text string) bool { return strings.Contains(text, "Code: changes_unavailable") }) {
+		t.Fatalf("the group's error lost its code: %q", tt.Texts())
+	}
+}
+
+// A group's header is its latest call, in that call's own state and colour,
+// even while an earlier call of the run is still going or has failed.
+func TestToolGroupHeadFollowsLatestCall(t *testing.T) {
+	calls := []Call{
+		{ID: "build", Name: "run_command", Label: "Run command", Running: true},
+		{ID: "read", Name: "read_file", Label: "Read file", Output: &Output{Text: "done"}},
+	}
+	if head := groupHead(calls); head.ID != "read" || !head.Running || head.Failed {
+		t.Fatalf("the header did not show the latest call sweeping for a running group: %+v", head)
+	}
+	calls[1].Running, calls[1].Output = true, nil
+	if head := groupHead(calls); !head.Running {
+		t.Fatalf("the header lost the latest call's running state: %+v", head)
+	}
+	calls[0].Running, calls[0].Failed = false, true
+	calls[1].Running, calls[1].Output = false, &Output{Text: "done"}
+	if head := groupHead(calls); head.Running || head.Failed {
+		t.Fatalf("the header took an earlier call's state: %+v", head)
 	}
 }
 
