@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -21,7 +22,7 @@ const (
 	themeDecodeLimit   = 32 * 1024 * 1024
 )
 
-func (value *Package) loadPictures(manifest []byte, files fs.FS) error {
+func (value *Package) loadPictures(manifest []byte, files fs.FS, embedded bool) error {
 	seen := make(map[string]*picture)
 	encoded, decoded := len(manifest), uint64(0)
 	for _, variant := range []*Variant{value.Light, value.Dark} {
@@ -89,11 +90,18 @@ func (value *Package) loadPictures(manifest []byte, files fs.FS) error {
 			if configuration.Width < 1 || configuration.Height < 1 || configuration.Width > 4096 || configuration.Height > 4096 || max(allocation, decoderBytes) > themeDecodeLimit-decoded {
 				return errors.New("theme image exceeds decoded resource limit")
 			}
-			bitmap, err := ui.DecodeBitmap(data)
-			if err != nil {
-				return fmt.Errorf("%s: %w", asset.Path, err)
+			decode := sync.OnceValues(func() (*ui.Bitmap, error) { return ui.DecodeBitmap(data) })
+			// Installed packages must pass a full decode before admission. Shipped
+			// images are immutable and tested; allocate pixels on first use.
+			if !embedded {
+				if _, err := decode(); err != nil {
+					return fmt.Errorf("%s: %w", asset.Path, err)
+				}
 			}
-			picture := &picture{bitmap: bitmap}
+			picture := &picture{bitmap: func() *ui.Bitmap {
+				bitmap, _ := decode()
+				return bitmap
+			}}
 			seen[asset.Path], asset.pic = picture, picture
 			encoded += len(data)
 			decoded += allocation

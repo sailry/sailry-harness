@@ -213,7 +213,7 @@ type Decoration struct {
 
 // picture retains one decoded resource from the verified package snapshot.
 type picture struct {
-	bitmap *ui.Bitmap
+	bitmap func() *ui.Bitmap
 }
 
 // UnmarshalJSON applies the defaults to the omitted fields.
@@ -237,12 +237,12 @@ func (d *Decoration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Bitmap returns the resource decoded during strict package loading.
+// Bitmap returns the shared pixels for this decoration.
 func (d *Decoration) Bitmap() *ui.Bitmap {
 	if d == nil || d.pic == nil {
 		return nil
 	}
-	return d.pic.bitmap
+	return d.pic.bitmap()
 }
 
 // Kind is an effect's motion.
@@ -291,6 +291,10 @@ func (v *Variant) Layers(surface string) []Effect {
 
 // Parse validates a current v1 manifest and a bounded snapshot of its images.
 func Parse(data []byte, files fs.FS) (*Package, error) {
+	return parsePackage(data, files, false)
+}
+
+func parsePackage(data []byte, files fs.FS, embedded bool) (*Package, error) {
 	if len(data) > themeManifestLimit {
 		return nil, fmt.Errorf("theme manifest exceeds file limit")
 	}
@@ -301,7 +305,7 @@ func Parse(data []byte, files fs.FS) (*Package, error) {
 	if err := p.validate(); err != nil {
 		return nil, err
 	}
-	if err := p.loadPictures(data, files); err != nil {
+	if err := p.loadPictures(data, files, embedded); err != nil {
 		return nil, err
 	}
 	return &p, nil
@@ -331,7 +335,7 @@ func load() []*Package {
 		if err != nil {
 			panic(err)
 		}
-		p, err := Parse(bytes.TrimSpace(data), root)
+		p, err := parsePackage(bytes.TrimSpace(data), root, true)
 		if err != nil {
 			panic(fmt.Sprintf("theme %s: %v", path.Base(path.Dir(manifest)), err))
 		}
