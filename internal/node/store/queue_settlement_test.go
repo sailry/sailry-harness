@@ -648,7 +648,7 @@ func TestDetachedGuidanceCaptureFaults(t *testing.T) {
 		{fault(protocol.ErrorCodeExpired, "runtime credential expired"), true},
 		{fault(protocol.ErrorCodeBusy, "storage is busy"), false},
 		{fault(protocol.ErrorCodeConflict, "conflict"), false},
-		{fault(protocol.ErrorCodeRevisionConflict, "revision changed"), false},
+		{fault(protocol.ErrorCodeRevisionConflict, "assistant revision changed"), true},
 		{fault(protocol.ErrorCodeUnavailable, "storage is unavailable"), false},
 		{fault(protocol.ErrorCodeOutcomeUnknown, "commit is uncertain"), false},
 		{fault(protocol.ErrorCodeInternal, "internal"), false},

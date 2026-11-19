@@ -531,14 +531,17 @@ func recaptureDetachedGuidance(ctx context.Context, db *sql.Conn, turn protocol.
 }
 
 // uncapturableSettings reports a configuration the session cannot run with
-// now. Storage, revision and availability faults are not configuration.
+// now. A revision conflict means the configuration (such as a plugin
+// assistant's version) changed during capture; failing here would fail the
+// recipient's settlement, so the recipient's capture stands as for any other
+// unusable configuration. Storage and availability faults propagate.
 func uncapturableSettings(err error) bool {
 	failure, ok := errors.AsType[*protocol.Fault](err)
 	if !ok {
 		return false
 	}
 	switch failure.Code {
-	case protocol.ErrorCodeNotConfigured, protocol.ErrorCodeInvalidRequest, protocol.ErrorCodePermissionDenied, protocol.ErrorCodeExpired:
+	case protocol.ErrorCodeNotConfigured, protocol.ErrorCodeInvalidRequest, protocol.ErrorCodePermissionDenied, protocol.ErrorCodeExpired, protocol.ErrorCodeRevisionConflict:
 		return true
 	}
 	return false
