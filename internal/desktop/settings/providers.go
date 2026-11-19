@@ -1515,48 +1515,42 @@ func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	})
 }
 
+// providerTargets is the form's host choice: one multi-select dropdown of
+// every host, the channel's own host checked and fixed, the others toggled
+// as copy destinations. It shows only for an auth that can be copied and
+// while another host can be chosen; otherwise the channel stays where it is.
 func providerTargets(c *ui.Context, m *Model, e *providerEditor) {
 	hosts := e.targetHosts(m)
 	if providerAuthAllowsMultipleTargets(e.auth()) && slices.ContainsFunc(hosts, func(host ProviderHost) bool {
 		return host.Node != e.owner && (host.Connected || slices.Contains(e.targets, host.Node))
 	}) {
-		for _, host := range hosts {
-			if host.Node == e.owner {
-				kit.Field(c, "owner", i18n.T(c, "provider_host"), "", func() {
-					ui.Text(c, providerHostName(c, host)).FontSize(14).TextColor(theme.Of(c).MutedForeground)
-				})
-				break
-			}
-		}
-		providerCopyTargets(c, hosts, e)
+		providerHostSelect(c, hosts, e)
 	}
 	providerTargetStatuses(c, hosts, e)
 }
 
-func providerCopyTargets(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
-	label := i18n.T(c, "provider_copy_to_hosts")
-	names := make([]string, 0, len(e.targets))
+func providerHostSelect(c *ui.Context, hosts []ProviderHost, e *providerEditor) {
+	label := i18n.T(c, "provider_hosts")
+	names := make([]string, 0, len(e.targets)+1)
 	for _, host := range hosts {
-		if host.Node != e.owner && slices.Contains(e.targets, host.Node) {
+		if host.Node == e.owner || slices.Contains(e.targets, host.Node) {
 			names = append(names, providerHostName(c, host))
 		}
-	}
-	shown, placeholder := strings.Join(names, ", "), len(names) == 0
-	if placeholder {
-		shown = i18n.T(c, "provider_no_copy_targets")
 	}
 	const id = "provider-hosts"
 	kit.Field(c, "hosts", label, "", func() {
 		kit.MenuButton(c.Key("hosts"), id, func(b ui.Element) {
-			kit.SelectTrigger(c, b.Label(label).Disabled(e.probing), shown, placeholder, kit.MenuOpen(c, id)).FillWidth()
+			kit.SelectTrigger(c, b.Label(label).Disabled(e.probing), strings.Join(names, ", "), false, kit.MenuOpen(c, id)).FillWidth()
 		}, func(menu *kit.Menu) {
 			for _, host := range hosts {
-				if host.Node == e.owner {
-					continue
+				owner := host.Node == e.owner
+				selected := owner || slices.Contains(e.targets, host.Node)
+				item := menu.Item(providerHostName(c, host)).Icon(icons.Platform(host.Platform)).Checked(selected).
+					Disabled(owner || !host.Connected && !selected)
+				if !host.Connected {
+					item.Trailing(i18n.T(c, "connections_offline"))
 				}
-				selected := slices.Contains(e.targets, host.Node)
-				if menu.Item(providerHostName(c, host)).Icon(icons.Platform(host.Platform)).Checked(selected).
-					Disabled(!host.Connected && !selected).Chosen() {
+				if item.Chosen() && !owner {
 					e.toggleCopyTarget(host.Node)
 					kit.OpenMenu(c, id, true)
 				}

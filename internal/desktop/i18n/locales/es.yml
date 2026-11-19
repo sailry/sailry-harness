@@ -1151,9 +1151,6 @@ provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: Ingrese la clave API
 provider_api_key: Clave de API
 provider_get_key: Obtener clave API
-provider_host: Host
-provider_copy_to_hosts: Copy to other hosts
-provider_no_copy_targets: This host only
 provider_hosts: Hosts
 provider_host_required: Select a host. Account sign-in channels require exactly one host.
 provider_host_saved: Saved on {host}

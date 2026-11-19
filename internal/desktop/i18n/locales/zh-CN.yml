@@ -1151,9 +1151,6 @@ provider_endpoint_hint: https://api.example.com/v1
 provider_key_hint: 输入 API Key
 provider_api_key: API 密钥
 provider_get_key: 获取密钥
-provider_host: 主机
-provider_copy_to_hosts: 复制到其他主机
-provider_no_copy_targets: 仅此主机
 provider_hosts: 主机
 provider_host_required: 请选择主机。账号登录渠道只能归属一台主机。
 provider_host_saved: 已保存到 {host}

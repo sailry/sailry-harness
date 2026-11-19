@@ -187,7 +187,7 @@ func TestProviderTargetRowsRequireSelectableHost(t *testing.T) {
 			tt.SetLocale("en")
 			tt.Frame()
 			text := strings.Join(tt.Texts(), "\n")
-			for _, key := range []string{"provider_host", "provider_copy_to_hosts"} {
+			for _, key := range []string{"provider_hosts"} {
 				if strings.Contains(text, i18n.In("en", key)) != test.visible {
 					t.Fatalf("%s visibility: %q", key, text)
 				}
