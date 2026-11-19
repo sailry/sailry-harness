@@ -303,7 +303,7 @@ func TestGraphBounds(t *testing.T) {
 		lined := graphQuery("callers", "", "a.rs", "b.rs")
 		line := uint32(1)
 		lined.Line = &line
-		for _, invalid := range []protocol.CodeIndexGraph{graphQuery("callers", ""), graphQuery("impact", ""), deep, wide, lined, graphQuery("map", "", "../outside")} {
+		for _, invalid := range []protocol.CodeIndexGraph{graphQuery("", ""), graphQuery("unknown", ""), graphQuery("callers", ""), graphQuery("impact", ""), deep, wide, lined, graphQuery("map", "", "../outside")} {
 			_, err := f.service.Graph(context.Background(), f.id, f.root, invalid)
 			if code(err) != protocol.ErrorCodeInvalidRequest {
 				t.Errorf("%+v: %v", invalid, err)

@@ -597,6 +597,10 @@ func checkGraph(root string, query *protocol.CodeIndexGraph) error {
 		if !selected && len(query.Paths) == 0 {
 			return invalid
 		}
+	case protocol.CodeIndexGraphViewMap:
+		return nil
+	default:
+		return invalid
 	}
 	return nil
 }
