@@ -77,3 +77,48 @@ func TestConversationSyncFailureFreezesChildrenWithoutChangingRunStatus(t *testi
 		t.Fatal("presentation changed the child's last accepted status")
 	}
 }
+
+func TestLiveToolDraftPairsOnlyWithItsBranch(t *testing.T) {
+	node, session, turn := protocol.NodeID{1}, protocol.SessionID{1}, protocol.TurnID{1}
+	snapshot := protocol.DefaultConversationSnapshot()
+	snapshot.Node, snapshot.Page.Session, snapshot.Page.Revision = node, session, 1
+	snapshot.Page.Runs = []protocol.ConversationRun{{Session: session, Turn: turn, Sequence: 1, Revision: 1, Kind: "task", Status: "running"}}
+	for index, branch := range []string{"", "other"} {
+		snapshot.Page.Entries = append(snapshot.Page.Entries, protocol.ConversationEntry{ID: "call-" + branch, Turn: turn, Sequence: uint64(index + 1), Branch: branch, Author: "assistant", Parts: []protocol.ConversationPart{transcriptTool("shared", "read_file")}})
+	}
+	projection := client.NewConversationProjection(node, session, 1)
+	if _, err := projection.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	apply := func(kind string, data any) {
+		t.Helper()
+		snapshot.Sequence++
+		frame := protocol.ConversationFrame{Node: node, Session: session, Sequence: snapshot.Sequence, Change: protocol.ConversationChange{Kind: kind, Data: data}}
+		if outcome, err := projection.Apply(1, protocol.Update{Kind: "conversation_frame", Data: frame}); outcome != client.Applied || err != nil {
+			t.Fatalf("apply %s: %v, %v", kind, outcome, err)
+		}
+	}
+	check := func(active int) {
+		t.Helper()
+		turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: *projection.Snapshot()})
+		if len(turns) != 1 || len(turns[0].Reply.Blocks) != 2 {
+			t.Fatalf("unexpected transcript %+v", turns)
+		}
+		for index, block := range turns[0].Reply.Blocks {
+			if len(block.Calls) != 1 {
+				t.Fatalf("unexpected tool row %+v", block)
+			}
+			call := block.Calls[0]
+			if call.Running != (index == active) {
+				t.Fatalf("call %d running=%v, active=%d", index, call.Running, active)
+			}
+		}
+	}
+	for index, branch := range []string{"", "other"} {
+		draft := protocol.ConversationDraft{Turn: turn, ID: "activity-" + branch, Branch: branch, Author: "sailry", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"tool_started","id":"shared","name":"read_file"}`)}}}
+		apply("delta", draft)
+		check(index)
+		apply("hidden", protocol.ConversationChangeHiddenPayload{Turn: turn, ID: draft.ID})
+		check(-1)
+	}
+}
