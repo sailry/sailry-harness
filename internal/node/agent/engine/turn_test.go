@@ -462,6 +462,52 @@ func TestGuidanceJoinsAtBoundary(t *testing.T) {
 		t.Fatalf("requests=%d", m.count())
 	}
 }
+
+// TestGuidanceBatchPerInference joins one bounded batch before each model
+// call; the remainder waits for the next boundary rather than the same one.
+func TestGuidanceBatchPerInference(t *testing.T) {
+	received, release := make(chan struct{}), make(chan struct{})
+	m := &scriptedModel{scripts: []script{func(ctx context.Context, _ fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		close(received)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return
+		}
+		_ = yield(text("Working")) && yield(finish())
+	}, response(text("First batch handled"), finish()), response(text("Remainder handled"), finish())}}
+	f := newFixture(t, m)
+	f.start()
+	turn := f.submit("Initial")
+	select {
+	case <-received:
+	case <-f.ctx.Done():
+		t.Fatal("model did not start")
+	}
+	// The store's batch takes 16 messages; one more must wait.
+	const queued = 17
+	guidance := func(index int) string { return fmt.Sprintf("Guidance item %02d.", index) }
+	for index := range queued {
+		input := protocol.DefaultConversationInput()
+		input.Text = guidance(index)
+		f.command("guide_turn", &protocol.CommandGuideTurnPayload{Recipient: turn, ExpectedRevision: f.session.Revision, Message: input})
+	}
+	close(release)
+	f.waitRun(turn, protocol.ConversationStatusCompleted)
+	m.mu.Lock()
+	calls := slices.Clone(m.calls)
+	m.mu.Unlock()
+	if len(calls) != 3 {
+		t.Fatalf("requests=%d, want the first step and one per guidance batch", len(calls))
+	}
+	first, second := promptText(calls[1]), promptText(calls[2])
+	if !strings.Contains(first, guidance(0)) || !strings.Contains(first, guidance(queued-2)) || strings.Contains(first, guidance(queued-1)) {
+		t.Fatalf("the first guided request should carry exactly one batch: %s", first)
+	}
+	if !strings.Contains(second, guidance(queued-1)) {
+		t.Fatalf("the remainder did not join the next request: %s", second)
+	}
+}
 func TestQueueOrder(t *testing.T) {
 	m := &scriptedModel{scripts: []script{response(text("First reply"), finish()), response(text("Second reply"), finish())}}
 	f := newFixture(t, m)
