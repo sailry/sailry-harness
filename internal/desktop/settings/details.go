@@ -244,19 +244,6 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 			rows = append(rows, [2]string{t("plugins_version_updates"), following})
 		}
 		facts(c, rows)
-		if pk.Official && pk.Installed {
-			label := "plugins_pin_version"
-			if pk.Pinned {
-				label = "plugins_resume_following"
-			}
-			kit.SecondaryBusy(c.Key("pin"), t(label), s.Busy[BusyPackage+pk.ID]).Height(28).OnClick(func() {
-				if s.PackageActions != nil && s.PackageActions.PinPlugin != nil {
-					s.PackageActions.PinPlugin(pk.ID, !pk.Pinned)
-					return
-				}
-				pk.Pinned = !pk.Pinned
-			})
-		}
 		includes := [][3]any{{"market_details_tools", icons.Settings2, len(pk.Tools)}, {"market_details_skills", icons.BookOpen, len(pk.Skills)}, {"market_details_mcp", icons.Network, len(pk.MCP)}}
 		ui.Column(c.Key("includes")).Gap(8).Children(func() {
 			ui.Text(c, t("market_details_includes")).FontSize(14).FontWeight(500)

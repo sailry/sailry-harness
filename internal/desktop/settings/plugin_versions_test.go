@@ -63,13 +63,6 @@ func TestPluginPinAndFollow(t *testing.T) {
 	s := New()
 	pk := preview.Package{ID: "notes", Name: "Notes", Version: "1.2.0", Official: true, Installed: true, Pinned: true, UpdateAvailable: true}
 	s.Packages = []preview.Package{pk}
-	var calls []bool
-	s.PackageActions = &PackageActions{PinPlugin: func(id string, pinned bool) {
-		if id != pk.ID {
-			t.Errorf("pin targeted %q", id)
-		}
-		calls = append(calls, pinned)
-	}}
 	d := &Detail{Kind: DetailPlugin, ID: pk.ID}
 	tt := ui.NewTesterWith(func(c *ui.Context) { pluginDetails(c, s, &pk, d) }, 800, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
@@ -77,18 +70,16 @@ func TestPluginPinAndFollow(t *testing.T) {
 	if !tt.HasText(i18n.In("en", "plugins_fixed_version", "version", pk.Version)) || Update(&pk) {
 		t.Fatal("a pinned package does not show its fixed version or still offers updates")
 	}
-	clickButton(t, tt, i18n.In("en", "plugins_resume_following"))
-	if len(calls) != 1 || calls[0] {
-		t.Fatalf("resume following sent %v", calls)
+	if _, exists := tt.AccessByRole(ui.RoleButton, i18n.In("en", "plugins_resume_following")); exists {
+		t.Fatal("overview duplicates the package menu action")
 	}
 	pk.Pinned = false
 	tt.Frame()
 	if !tt.HasText(i18n.In("en", "plugins_following_versions")) || !Update(&pk) {
 		t.Fatal("following does not show its state or actionable Node update")
 	}
-	clickButton(t, tt, i18n.In("en", "plugins_pin_version"))
-	if len(calls) != 2 || !calls[1] {
-		t.Fatalf("pinning sent %v", calls)
+	if _, exists := tt.AccessByRole(ui.RoleButton, i18n.In("en", "plugins_pin_version")); exists {
+		t.Fatal("overview duplicates the package menu action")
 	}
 	pk.UpdateAvailable, pk.Latest = false, "9.0.0"
 	if Update(&pk) {
