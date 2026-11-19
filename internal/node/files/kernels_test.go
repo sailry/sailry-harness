@@ -47,8 +47,8 @@ func TestFileTextKernels(t *testing.T) {
 	if err != nil || after != "a\r\nc\r\n" {
 		t.Fatalf("patch %q: %v", after, err)
 	}
-	if _, err = ApplyPatchChunks("a\nx\na\n", []PatchChunk{{Old: []string{"a"}, New: []string{"b"}}}); err == nil {
-		t.Fatal("ambiguous patch was accepted")
+	if _, err = ApplyPatchChunks("a\nx\na\n", []PatchChunk{{Old: []string{"a"}, New: []string{"b"}}}); err == nil || !strings.Contains(err.Error(), "lines 1 and 3") {
+		t.Fatalf("ambiguous hunk locations: %v", err)
 	}
 	hunks, err := SplitHunks("note.txt", "one\ntwo\nthree\n", "one\nnext\nthree\n", 0)
 	if err != nil || len(hunks) != 1 || !validRevision(hunks[0].Hunk.ID) {
@@ -90,8 +90,8 @@ func TestPreparedFileChanges(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "third.txt")); !os.IsNotExist(err) {
 		t.Fatalf("unattempted file exists: %v", err)
 	}
-	if _, err = ResolvePatchWithRevisions(ctx, root, "*** Begin Patch\n*** Update File: first.txt\n@@\n-after\n+next\n*** End Patch", nil, core.ManualFiles); err == nil {
-		t.Fatal("unobserved file update was accepted")
+	if _, err = ResolvePatchWithRevisions(ctx, root, "*** Begin Patch\n*** Update File: first.txt\n@@\n-after\n+next\n*** End Patch", nil, core.ManualFiles); err == nil || !strings.Contains(err.Error(), "first.txt") {
+		t.Fatalf("unobserved file update: %v", err)
 	}
 }
 func TestNotebookPreparation(t *testing.T) {

@@ -55,6 +55,10 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		var mu sync.Mutex
 		calls := map[string]*workspaceToolCall{}
 		tool := engine.Tool{Definition: fantasy.FunctionTool{Name: declaration.Name, Description: declaration.Description, InputSchema: schema}, SchemaJSON: declaration.Parameters, ReadOnly: declaration.ReadOnly, Concurrent: declaration.Concurrent, Deferred: !declaration.Initial, Approval: !declaration.ReadOnly, Binding: &store.ApprovalBinding{Owner: declaration.Owner, Tool: declaration.Name, Operation: &declaration.Operation}}
+		var observed workspaceRevisions
+		if declaration.Operation == protocol.ToolOperationApplyChanges {
+			tool.ObserveHistory = observed.update
+		}
 		tool.Prepare = func(ctx context.Context, call canonical.ToolRequest) error {
 			sandbox := protocol.DefaultSandboxSettings()
 			if declaration.Operation == protocol.ToolOperationRunCommand {
@@ -78,11 +82,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 				if err = json.Unmarshal(call.Arguments, &patch); err != nil {
 					return err
 				}
-				revisions, e := node.observedWorkspaceRevisions(ctx, inv.Session.ID)
-				if e != nil {
-					return e
-				}
-				changes, e := files.ResolvePatchWithRevisions(ctx, inv.Worktree.Path, patch.Input, revisions, core.RestrictedFiles)
+				changes, e := files.ResolvePatchWithRevisions(ctx, inv.Worktree.Path, patch.Input, observed.paths, core.RestrictedFiles)
 				if e != nil {
 					return e
 				}
@@ -371,39 +371,112 @@ func (node *Node) workspaceToolValue(ctx context.Context, request protocol.Reque
 	}
 	return value
 }
-func (node *Node) observedWorkspaceRevisions(ctx context.Context, session protocol.SessionID) (map[string]string, error) {
-	result := map[string]string{}
-	var state store.AgentState
-	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-		var err error
-		state, err = store.LoadAgentState(ctx, db, session)
-		return err
-	})
-	if err != nil {
-		return nil, err
+
+// workspaceRevisions follows the canonical history visible to this turn. Receipts
+// from a successful write are observations of its new revision, like reads.
+type workspaceRevisions struct {
+	paths map[string]string
+	count int
+	last  string
+}
+
+func (r *workspaceRevisions) update(records []canonical.Record) {
+	if r.paths == nil || r.count > len(records) || r.count > 0 && records[r.count-1].ID != r.last {
+		r.paths = map[string]string{}
+		r.count = 0
 	}
-	for _, record := range state.Records {
-		if message := record.Message(); message != nil {
-			for _, block := range message.Content {
-				response, ok := block.Data.(*canonical.ToolResponse)
-				if !ok || response.Status != canonical.ToolSuccess {
+	for _, record := range records[r.count:] {
+		message := record.Message()
+		if message == nil || record.Provenance.Author != "tool" {
+			continue
+		}
+		for _, block := range message.Content {
+			response, ok := block.Data.(*canonical.ToolResponse)
+			if !ok {
+				if v, ok := block.Data.(canonical.ToolResponse); ok {
+					response = &v
+				} else {
 					continue
 				}
-				var value struct {
-					Kind string `json:"kind"`
-					Data struct {
-						Path     string  `json:"path"`
-						Revision *string `json:"revision"`
-					} `json:"data"`
-				}
-				if json.Unmarshal(response.Result.Value, &value) == nil && value.Data.Revision != nil {
-					switch value.Kind {
-					case "file_content", "file_lines", "file_written", "notebook_page":
-						result[value.Data.Path] = *value.Data.Revision
+			}
+			r.observe(response)
+		}
+	}
+	r.count = len(records)
+	if r.count > 0 {
+		r.last = records[r.count-1].ID
+	}
+}
+
+func (r *workspaceRevisions) observe(response *canonical.ToolResponse) {
+	var value struct {
+		Kind string
+		Data struct {
+			Path, Revision, From, To string
+			Files                    []struct {
+				Path, Destination, Revision string
+				Kind                        protocol.ChangeKind
+				Status                      protocol.ChangeStatus
+			}
+		}
+	}
+	if json.Unmarshal(response.Result.Value, &value) != nil {
+		return
+	}
+	data := value.Data
+	if value.Kind == "file_changes" {
+		for _, file := range data.Files {
+			switch file.Status {
+			case protocol.ChangeStatusUnknown:
+				delete(r.paths, file.Path)
+				delete(r.paths, file.Destination)
+			case protocol.ChangeStatusApplied:
+				switch file.Kind {
+				case protocol.ChangeKindDeleted:
+					delete(r.paths, file.Path)
+				case protocol.ChangeKindRenamed:
+					r.move(file.Path, file.Destination)
+				default:
+					if file.Revision != "" {
+						r.paths[file.Path] = file.Revision
+					} else {
+						delete(r.paths, file.Path)
 					}
 				}
 			}
 		}
+		return
 	}
-	return result, nil
+	if response.Status != canonical.ToolSuccess {
+		return
+	}
+	switch value.Kind {
+	case "file_content", "file_lines", "file_written", "notebook_page":
+		if data.Revision != "" {
+			r.paths[data.Path] = data.Revision
+		}
+	case "entry_trashed":
+		r.invalidateTree(data.Path)
+	case "entry_moved":
+		// Generic entry operations may move directories across roots.
+		r.invalidateTree(data.From)
+		r.invalidateTree(data.To)
+	}
+}
+
+func (r *workspaceRevisions) invalidateTree(path string) {
+	for known := range r.paths {
+		if known == path || strings.HasPrefix(known, path+"/") {
+			delete(r.paths, known)
+		}
+	}
+}
+
+func (r *workspaceRevisions) move(from, to string) {
+	revision, ok := r.paths[from]
+	delete(r.paths, from)
+	delete(r.paths, to)
+	if ok {
+		r.paths[to] = revision
+	}
 }

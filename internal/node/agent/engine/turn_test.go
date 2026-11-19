@@ -154,7 +154,7 @@ func TestOneRequestPerStep(t *testing.T) {
 				}
 			case "turn panic":
 				mustHaveText(t, state.Records, "Recovered")
-				if !strings.Contains(responses["stuck"], "interrupted before completing") {
+				if !strings.Contains(responses["stuck"], "did not start") || !strings.Contains(responses["stuck"], string(protocol.ErrorCodeCancelled)) {
 					t.Fatalf("failed turn left its call unsettled: %v", responses)
 				}
 			case "credential renewed mid-turn":
@@ -324,6 +324,27 @@ func TestParallelReadOnlyOrder(t *testing.T) {
 		f.waitRun(turn, protocol.ConversationStatusCancelled)
 		if starts.Load() != 8 {
 			t.Fatalf("stopped turn started %d calls", starts.Load())
+		}
+		observed := map[string]protocol.ErrorCode{}
+		for _, record := range f.state().Records {
+			message := record.Message()
+			if message == nil {
+				continue
+			}
+			for _, block := range message.Content {
+				result, ok := block.Data.(*canonical.ToolResponse)
+				if !ok || result.Name != "read" {
+					continue
+				}
+				var fault struct{ Data protocol.Fault }
+				if err := json.Unmarshal(result.Result.Value, &fault); err != nil {
+					t.Fatal(err)
+				}
+				observed[result.ID] = fault.Data.Code
+			}
+		}
+		if len(observed) != 9 || observed["a"] != protocol.ErrorCodeOutcomeUnknown || observed["i"] != protocol.ErrorCodeCancelled {
+			t.Fatalf("stopped call outcomes: %v", observed)
 		}
 	})
 	t.Run("tied stream slots keep arrival order", func(t *testing.T) {

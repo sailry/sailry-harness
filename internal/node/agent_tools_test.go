@@ -261,6 +261,41 @@ func TestAgentManagementTools(t *testing.T) {
 	}
 	unknown := strings.Repeat("a", 64)
 
+	t.Run("patch receipts allow consecutive guarded edits", func(t *testing.T) {
+		path := filepath.Join(root, "repeated.txt")
+		turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string { return "deny" }, func(step int, results map[string]string) [][3]string {
+			switch step {
+			case 1:
+				return [][3]string{{"load-patch", "tool_search", `{"limit":1,"query":"select:apply_patch"}`}}
+			case 2:
+				return [][3]string{{"create", "apply_patch", `{"input":"*** Begin Patch\n*** Add File: repeated.txt\n+first\n*** End Patch"}`}}
+			case 3:
+				return [][3]string{{"update", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-first\n+second\n*** End Patch"}`}}
+			case 4:
+				return [][3]string{{"update-again", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-second\n+third\n*** End Patch"}`}}
+			case 5:
+				contents, err := os.ReadFile(path)
+				if err != nil || string(contents) != "third\n" {
+					t.Errorf("consecutive native patch results: file=%q error=%v", contents, err)
+					return nil
+				}
+				if err = os.WriteFile(path, []byte("third\nexternal\n"), 0600); err != nil {
+					t.Error(err)
+					return nil
+				}
+				return [][3]string{{"stale", "apply_patch", `{"input":"*** Begin Patch\n*** Update File: repeated.txt\n@@\n-third\n+fourth\n*** End Patch"}`}}
+			case 6:
+				if !strings.Contains(results["stale"], "repeated.txt") || !strings.Contains(results["stale"], "changed since") {
+					t.Errorf("external modification: %s", results["stale"])
+				}
+			}
+			return nil
+		})
+		content, err := os.ReadFile(path)
+		if err != nil || string(content) != "third\nexternal\n" {
+			t.Fatalf("stale patch modified external content: file=%q error=%v", content, err)
+		}
+	})
 	t.Run("full permission", func(t *testing.T) {
 		var results map[string]string
 		_, approvals, history := turn(t, protocol.WorkModeCode, protocol.PermissionFull, func(protocol.ConversationApproval) string {
@@ -867,4 +902,43 @@ func TestAgentManagementTools(t *testing.T) {
 			t.Fatalf("plan mode changed the installed packages: %+v", installed)
 		}
 	})
+}
+
+func TestWorkspaceRevisionsTrackPatchReceipts(t *testing.T) {
+	var observed workspaceRevisions
+	var records []canonical.Record
+	add := func(id, status, raw string, byValue bool) {
+		response := canonical.ToolResponse{Status: canonical.ToolStatus(status), Result: canonical.Payload{Value: json.RawMessage(raw)}}
+		var data any = &response
+		if byValue {
+			data = response
+		}
+		records = append(records, canonical.Record{ID: id, Kind: "message", Provenance: canonical.Provenance{Author: "tool"}, Data: canonical.NewMessage(canonical.User, canonical.Block{Kind: "tool_response", Data: data})})
+		observed.update(records)
+	}
+	add("read", "success", `{"kind":"file_lines","data":{"path":"a","revision":"old"}}`, false)
+	add("patch", "error", `{"kind":"file_changes","data":{"files":[{"kind":"modified","status":"applied","path":"a","revision":"new"},{"kind":"added","status":"applied","path":"b","revision":"created"},{"kind":"modified","status":"failed","path":"c","revision":"untrusted"}]}}`, true)
+	if len(observed.paths) != 2 || observed.paths["a"] != "new" || observed.paths["b"] != "created" {
+		t.Fatalf("partial patch observations: %v", observed.paths)
+	}
+	add("rename", "success", `{"kind":"file_changes","data":{"files":[{"kind":"renamed","status":"applied","path":"b","destination":"d"}]}}`, false)
+	add("unknown", "error", `{"kind":"file_changes","data":{"files":[{"kind":"modified","status":"unknown","path":"a"}]}}`, false)
+	if len(observed.paths) != 1 || observed.paths["d"] != "created" {
+		t.Fatalf("rename/unknown: %v", observed.paths)
+	}
+	add("read-child", "success", `{"kind":"file_lines","data":{"path":"dir/child","revision":"src"}}`, true)
+	add("read-destination", "success", `{"kind":"file_lines","data":{"path":"other/child","revision":"dest"}}`, true)
+	add("read-sibling", "success", `{"kind":"file_lines","data":{"path":"directory/child","revision":"keep"}}`, true)
+	add("cross-root", "success", `{"kind":"entry_moved","data":{"from":"dir","to":"other"}}`, false)
+	if len(observed.paths) != 2 || observed.paths["d"] != "created" || observed.paths["directory/child"] != "keep" {
+		t.Fatalf("cross-root directory move: %v", observed.paths)
+	}
+	add("trash", "success", `{"kind":"entry_trashed","data":{"path":"directory"}}`, false)
+	if len(observed.paths) != 1 || observed.paths["d"] != "created" {
+		t.Fatalf("directory deletion: %v", observed.paths)
+	}
+	observed.update(records[:1])
+	if len(observed.paths) != 1 || observed.paths["a"] != "old" {
+		t.Fatalf("rewound history: %v", observed.paths)
+	}
 }

@@ -643,6 +643,12 @@ func lastMessage(records []canonical.Record) *canonical.Message {
 }
 
 func pending(records []canonical.Record) []canonical.ToolRequest {
+	return pendingCalls(records, nil)
+}
+
+// When settling an interrupted turn, collect durable evidence that execution
+// was possible. A reused call ID begins a new observation after its response.
+func pendingCalls(records []canonical.Record, admitted map[string]bool) []canonical.ToolRequest {
 	start := 0
 	for i := range records {
 		if background := records[i].Background(); background != nil && background.Initial {
@@ -657,10 +663,29 @@ func pending(records []canonical.Record) []canonical.ToolRequest {
 	var requests []*canonical.ToolRequest
 	waiting := map[string][]int{}
 	for i := start; i < len(records); i++ {
+		if admitted != nil && records[i].Kind == "operation" {
+			op, ok := records[i].Data.(*canonical.Operation)
+			if !ok {
+				if v, ok := records[i].Data.(canonical.Operation); ok {
+					op = &v
+				}
+			}
+			if op != nil && op.Kind == "tool_meta" {
+				if meta, ok := op.Data.(*canonical.ToolMeta); ok && len(waiting[meta.Call]) > 0 {
+					var mark map[string]json.RawMessage
+					if json.Unmarshal(meta.Patch, &mark) == nil && string(mark[canonical.ExecutableKey]) == "true" {
+						admitted[meta.Call] = true
+					}
+				}
+			}
+		}
 		if m := records[i].Message(); m != nil {
 			for _, block := range m.Content {
 				switch value := block.Data.(type) {
 				case *canonical.ToolRequest:
+					if len(waiting[value.ID]) == 0 {
+						delete(admitted, value.ID)
+					}
 					waiting[value.ID] = append(waiting[value.ID], len(requests))
 					requests = append(requests, value)
 				case *canonical.ToolResponse:

@@ -40,6 +40,7 @@ type Tool struct {
 	Binding           *store.ApprovalBinding
 	Execute           func(context.Context, canonical.ToolRequest) ToolResult
 	Prepare           func(context.Context, canonical.ToolRequest) error
+	ObserveHistory    func([]canonical.Record)
 	ConfigureApproval func(context.Context, *sql.Conn, canonical.ToolRequest, protocol.ConversationApproval) (protocol.ConversationApproval, error)
 	Approved          func(canonical.ToolRequest, protocol.ApprovalID, protocol.RequestID)
 	Close             func() error
@@ -296,6 +297,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	r.exposure(x, state)
 	results := make([]ToolResult, len(calls))
 	executable := make([]bool, len(calls))
+	startedCalls := make([]bool, len(calls))
 	asks := make([]bool, len(calls))
 	var marks []canonical.Record
 	x.observedMu.Lock()
@@ -333,6 +335,9 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 		if err := tool.schema.Validate(arguments); err != nil {
 			results[i] = invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
 			continue
+		}
+		if tool.ObserveHistory != nil {
+			tool.ObserveHistory(state.Records)
 		}
 		if tool.Prepare != nil {
 			if err := tool.Prepare(x.ctx, call); err != nil {
@@ -388,8 +393,8 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				continue
 			}
 			slots <- struct{}{}
-			// The first eight calls of a run always start; a stopped turn starts none after them.
-			if i >= start+8 && x.ctx.Err() != nil {
+			// Cancellation may arrive while a worker slot is occupied.
+			if x.ctx.Err() != nil {
 				<-slots
 				break
 			}
@@ -411,8 +416,12 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 					results[i] = toolFault(err)
 					return
 				}
+				if x.ctx.Err() != nil {
+					return
+				}
 				tool := findTool(x.tools, call.Name)
 				finished := x.timeline.tool(call, tool.Delegation)
+				startedCalls[i] = true
 				results[i] = tool.Execute(x.ctx, call)
 				finished()
 				x.hooks.After(x.ctx, call.Name, call.ID, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
@@ -425,7 +434,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	var contextDelta canonical.Context
 	for i, call := range calls {
 		if executable[i] && results[i].Value == nil && results[i].Failure == nil {
-			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing"}}
+			results[i] = interruptedTool(startedCalls[i])
 		}
 		blocks = append(blocks, responseBlock(uint64(i), call, results[i]))
 		if delta := results[i].Context; delta != nil {
@@ -517,6 +526,13 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider, Meta: result.Meta, Attachments: result.Attachments}}
 }
 
+func interruptedTool(mayHaveStarted bool) ToolResult {
+	if !mayHaveStarted {
+		return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "Tool call did not start before the turn ended"}}
+	}
+	return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing; inspect the original operation before retrying"}}
+}
+
 // settleCalls records an interrupted result for every call the stopped or
 // failed turn left unanswered, as the source finalization does.
 func (r *Runtime) settleCalls(ctx context.Context, x *execution) error {
@@ -524,13 +540,14 @@ func (r *Runtime) settleCalls(ctx context.Context, x *execution) error {
 	if err != nil {
 		return err
 	}
-	calls := pending(state.Records)
+	admitted := make(map[string]bool)
+	calls := pendingCalls(state.Records, admitted)
 	if len(calls) == 0 {
 		return nil
 	}
 	blocks := make([]canonical.Block, 0, len(calls))
 	for _, call := range calls {
-		blocks = append(blocks, responseBlock(uint64(len(blocks)), call, ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing"}}))
+		blocks = append(blocks, responseBlock(uint64(len(blocks)), call, interruptedTool(admitted[call.ID])))
 	}
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
 	record.Provenance.Author = "tool"

@@ -60,14 +60,17 @@ func ParsePatch(input string) ([]PatchHunk, error) {
 			return nil, invalid("invalid patch path")
 		}
 		if entry.Kind == "add" {
+			var contents strings.Builder
 			for cursor < len(lines)-1 && !strings.HasPrefix(lines[cursor], "*** ") {
 				line := lines[cursor]
 				if !strings.HasPrefix(line, "+") {
 					return nil, invalid("invalid add hunk: every line must start with '+'")
 				}
-				entry.Contents += line[1:] + "\n"
+				contents.WriteString(line[1:])
+				contents.WriteByte('\n')
 				cursor++
 			}
+			entry.Contents = contents.String()
 		} else if entry.Kind == "update" {
 			if cursor < len(lines)-1 && strings.HasPrefix(lines[cursor], "*** Move to: ") {
 				destination := strings.TrimPrefix(lines[cursor], "*** Move to: ")
@@ -288,14 +291,14 @@ func ApplyPatchChunks(before string, chunks []PatchChunk) (string, error) {
 		if index+1 < len(positions) {
 			bound = positions[index+1].start
 		}
-		count := 0
+		first := -1
 		for at := p.from; at+len(p.pattern) <= bound; at++ {
 			if matches(p.pattern, at) {
-				count++
+				if first >= 0 {
+					return "", invalid(fmt.Sprintf("patch hunk matches multiple locations at lines %d and %d; add context lines or an @@ line", first+1, at+1))
+				}
+				first = at
 			}
-		}
-		if count > 1 {
-			return "", invalid("patch hunk matches multiple locations; add context lines or an @@ line")
 		}
 	}
 	slices.SortStableFunc(replacements, func(a, b replacement) int { return a.start - b.start })
@@ -370,14 +373,14 @@ func ResolvePatchWithRevisions(ctx context.Context, root, input string, observed
 		}
 		expected, ok := observed[hunk.Path]
 		if !ok {
-			return nil, conflict("the current revision of this file has not been read; read the file again")
+			return nil, conflict(hunk.Path + ": the current revision has not been read; read this file before editing")
 		}
 		before, e := f.CompleteText(ctx, hunk.Path)
 		if e != nil {
 			return nil, e
 		}
 		if revision([]byte(before)) != expected {
-			return nil, conflict("file changed since it was last read; read the file again")
+			return nil, conflict(hunk.Path + ": file changed since it was last read; read this file again")
 		}
 		budget += len(before)
 		if budget > protocol.MAX_CHANGE_BYTES || len(changes) >= protocol.MAX_CHANGES {
@@ -393,7 +396,7 @@ func ResolvePatchWithRevisions(ctx context.Context, root, input string, observed
 		}
 		after, e := ApplyPatchChunks(before, hunk.Chunks)
 		if e != nil {
-			return nil, e
+			return nil, invalid(hunk.Path + ": " + fault(e).Message)
 		}
 		budget += len(after)
 		if after == before {
