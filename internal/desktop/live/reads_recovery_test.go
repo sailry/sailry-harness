@@ -225,7 +225,7 @@ func TestReadRecovery(t *testing.T) {
 			cache := r.attachmentImages(session)
 			r.projectAttachmentImage(cache, key)
 			settle()
-			if reads != 1 || !cache.failed[key] || cache.loading[key] || cache.missing[key] {
+			if reads != 1 || !cache.failed[key] || cache.loading[key] != nil || cache.missing[key] {
 				t.Fatal("a transient picture failure was left loading or marked missing")
 			}
 			for range 10 {

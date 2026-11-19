@@ -262,7 +262,7 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 		for _, cache := range state.imageSessions {
 			cache.cancel()
 			cache.ctx, cache.cancel = context.WithCancel(state.ctx)
-			cache.loading = map[string]bool{}
+			cache.loading = map[string]context.CancelFunc{}
 			clear(cache.failed)
 		}
 		for _, publication := range state.publications {
@@ -278,7 +278,7 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 	cache := state.imageSessions[session]
 	if cache == nil {
 		ctx, cancel := context.WithCancel(state.ctx)
-		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*attachmentThumbnail{}, loading: map[string]bool{}, failed: map[string]bool{}, missing: map[string]bool{}}
+		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*attachmentThumbnail{}, loading: map[string]context.CancelFunc{}, failed: map[string]bool{}, missing: map[string]bool{}}
 		state.imageSessions[session] = cache
 	}
 	return cache
@@ -293,11 +293,11 @@ func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string
 	}
 	state := r.attachments
 	descriptor, ok := state.files[key]
-	if !ok || cache.loading[key] || cache.failed[key] || cache.missing[key] || !state.imageConnected {
+	if !ok || cache.loading[key] != nil || cache.failed[key] || cache.missing[key] || !state.imageConnected {
 		return nil
 	}
-	cache.loading[key] = true
-	ctx := cache.ctx
+	ctx, cancel := context.WithCancel(cache.ctx)
+	cache.loading[key] = cancel
 	r.async(func() {
 		if !state.takeImageSlot(ctx) {
 			return
@@ -318,6 +318,7 @@ func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string
 				return
 			}
 			delete(cache.loading, key)
+			cancel()
 			if err == nil {
 				cache.images[key] = thumbnail
 				return
@@ -423,6 +424,14 @@ func (r *Runtime) pruneAttachmentImages() {
 			for key := range cache.images {
 				if !cache.visible[key] {
 					delete(cache.images, key)
+				}
+			}
+			// A row passed on the way, as an opened transcript goes to its
+			// end, would read and decode a picture to drop it.
+			for key, cancel := range cache.loading {
+				if !cache.visible[key] {
+					cancel()
+					delete(cache.loading, key)
 				}
 			}
 			clear(cache.visible)

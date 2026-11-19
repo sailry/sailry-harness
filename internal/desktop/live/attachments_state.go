@@ -48,7 +48,9 @@ type attachmentImageState struct {
 	cancel  context.CancelFunc
 	images  map[string]*attachmentThumbnail
 	visible map[string]bool
-	loading map[string]bool
+	// loading cancels each thumbnail read under way; one whose row is no
+	// longer built is cancelled before it reads or decodes.
+	loading map[string]context.CancelFunc
 	failed  map[string]bool // transient reads wait for a refresh or a reconnected Node
 	missing map[string]bool // pictures that cannot show: gone or past the limits
 	viewer  *attachmentViewerImage
