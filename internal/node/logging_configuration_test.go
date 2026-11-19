@@ -2,11 +2,14 @@ package node
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -56,7 +59,7 @@ func TestConfigurationRefusalLogging(t *testing.T) {
 			}
 			fields = nil
 			span := logging.NewSpan("command", slog.String("operation", "submit_turn"))
-			rejectCommand(span, failure, false)
+			rejectCommand(span, "submit_turn", failure, false)
 			if severity != test.level || fields["code"] != "not_configured" {
 				t.Fatalf("logged %v %v, want %v", severity, fields, test.level)
 			}
@@ -76,13 +79,31 @@ func TestConfigurationRefusalLogging(t *testing.T) {
 	// A known reason must not hide an internal error or a script diagnostic.
 	internal := protocol.NewConfigurationFault(protocol.ConfigurationLoginRequired, "private")
 	internal.Code = protocol.ErrorCodeInternal
-	rejectCommand(logging.NewSpan("command"), internal, false)
+	rejectCommand(logging.NewSpan("command"), "submit_turn", internal, false)
 	if severity != slog.LevelError {
 		t.Fatal("internal error was downgraded")
 	}
-	diagnostic := &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Details: &protocol.FaultDetails{Kind: "system_diagnostic"}}
-	rejectCommand(logging.NewSpan("command"), diagnostic, false)
-	if severity != slog.LevelError {
-		t.Fatal("system diagnostic was downgraded")
+	const entry, detail = "dev.sailry.platform/host/main.js", "private script detail"
+	bundle := plugins.ScriptBundle{Entry: entry, Files: map[string]string{
+		entry: `export function read() { throw new TypeError("` + detail + `"); }`,
+	}}
+	_, err = plugins.RunCallback(t.Context(), bundle, "read", nil, plugins.ScriptEnvironment{Context: protocol.DefaultPluginContext()}, true, nil)
+	var diagnostic *protocol.Fault
+	if !errors.As(err, &diagnostic) || diagnostic.Code != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("callback fault = %v", err)
+	}
+	report, ok := faultDiagnostic(diagnostic)
+	if !ok || report.Source != protocol.NotificationSystemSystemSourcePluginCallback || report.Phase != protocol.NotificationSystemDiagnosticPhaseCallback ||
+		report.Exception == nil || *report.Exception != protocol.NotificationSystemScriptExceptionTypeError {
+		t.Fatalf("callback diagnostic = %+v", report)
+	}
+	rejectCommand(logging.NewSpan("command", slog.String("operation", "read_plugin_callback")), "read_plugin_callback", diagnostic, false)
+	if severity != slog.LevelError || fields["code"] != "invalid_request" || fields["operation"] != "read_plugin_callback" {
+		t.Fatalf("callback fault logged as %v %v", severity, fields)
+	}
+	for _, value := range fields {
+		if text, ok := value.(string); ok && strings.Contains(text, detail) {
+			t.Fatal("script exception text entered the log")
+		}
 	}
 }

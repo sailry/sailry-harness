@@ -29,6 +29,8 @@ const (
 	traced
 	// slow reads are recorded only when slow, failed or uncertain.
 	slow
+	// workspaceRead uses the slow policy without adding automatic reports for controller reads.
+	workspaceRead
 	// readOnly commands return, probe or cancel a read and store nothing.
 	readOnly
 	// transfer commands open or cancel a byte stream. The durable command
@@ -52,6 +54,7 @@ var transientCommands = func() map[string]observation {
 			"read_tool_output", "read_tool_detail", "read_session", "read_plugin_callback", "read_plugin_value", "read_plugin_conversation_value",
 			"list_ssh", "list_databases", "list_plugin_models", "read_model_catalog", "read_model_scores", "read_project_catalog",
 		},
+		workspaceRead: {"list_directory", "inspect_git", "list_worktrees"},
 		transfer: {
 			"open_port", "cancel_port", "download_ssh_file", "stage_ssh_upload", "upload_plugin", "download_backup", "upload_backup",
 			"download_file", "upload_file", "upload_attachment", "download_attachment", "download_image", "cancel_file_transfer",
@@ -73,11 +76,11 @@ var transientCommands = func() map[string]observation {
 			"decide", "read_local_model_settings", "read_local_models", "refresh_local_model", "list_shells", "read_plugin_secret",
 			"list_media_models", "read_media_settings", "synthesize_speech", "search_models", "read_model_versions", "resolve_model", "query_knowledge",
 			"read_knowledge_citation", "list_knowledge_collections", "read_resource_catalog", "inspect_terminal", "inspect_request", "list_credentials", "browse_database",
-			"test_database", "inspect_host", "read_host_metrics", "read_plugin_memory", "read_computer_permissions", "list_directory", "browse_files",
+			"test_database", "inspect_host", "read_host_metrics", "read_plugin_memory", "read_computer_permissions", "browse_files",
 			"read_file", "search_code", "outline_code", "graph_code", "cancel_code_index_query", "fetch_web",
 			"cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_code_index_settings", "read_hooks", "read_personal_instructions",
 			"read_file_lines", "read_image", "find_files", "read_office", "read_notebook", "read_attachment",
-			"search_files", "inspect_git", "read_git_head", "list_git_branches", "resolve_git_revision", "list_worktrees",
+			"search_files", "read_git_head", "list_git_branches", "resolve_git_revision",
 			"read_git_stash", "read_git_output", "list_git_remote_tags", "read_git_log", "read_git_commit", "read_git_show",
 			"list_git_changes", "read_git_change", "read_git_context", "read_git_blame", "read_git_diff",
 		},
@@ -149,7 +152,13 @@ func (node *Node) attachLogging() {
 	}
 	node.logs = true
 	_ = logging.Retain(node.profile.Ownership.Path)
-	logging.SetReport(node.telemetry.Record)
+	logging.SetReport(func(level slog.Level, fields logging.Fields) {
+		// Use the command, not an operation named by a callback diagnostic.
+		name, _ := fields["command"].(string)
+		if transientCommands[name] != workspaceRead {
+			node.telemetry.Record(level, fields)
+		}
+	})
 }
 
 func (node *Node) detachLogging() {
@@ -172,6 +181,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 	case class == changing || class == traced || class == slow:
 	case request.Plugin != nil:
 		name = "plugin_command"
+	case class == workspaceRead:
 	default:
 		return nil
 	}
@@ -200,7 +210,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 		return logging.NewSpan("command", attrs...)
 	case request.Plugin != nil:
 		return logging.NewBackground("command", attrs...)
-	case class == slow:
+	case class == slow || class == workspaceRead:
 		return logging.NewQuery("command", attrs...)
 	}
 	return logging.NewSpan("command", attrs...)
@@ -209,7 +219,7 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 // rejectCommand records a refusal. Expected refusals are warnings; a
 // cancelled command, or any refusal of a read whose caller has gone, is the
 // caller's own act and not a failure.
-func rejectCommand(span *logging.Span, fault *protocol.Fault, abandoned bool) {
+func rejectCommand(span *logging.Span, kind string, fault *protocol.Fault, abandoned bool) {
 	if abandoned || fault.Code == protocol.ErrorCodeCancelled {
 		span.Finish(logging.Cancelled, string(protocol.ErrorCodeCancelled), false)
 		return
@@ -225,6 +235,10 @@ func rejectCommand(span *logging.Span, fault *protocol.Fault, abandoned bool) {
 	}
 	expected := fault.Code == protocol.ErrorCodeNotFound || fault.Code == protocol.ErrorCodeInvalidRequest ||
 		fault.Code == protocol.ErrorCodeUnavailable && fault.Details != nil && fault.Details.Kind == "network"
+	if fault.Code == protocol.ErrorCodeNotConfigured && fault.Details == nil && (kind == "inspect_git" || kind == "list_worktrees") {
+		// The native Git service reports a missing executable without a configuration reason.
+		expected = true
+	}
 	if reason := fault.ConfigurationReason(); reason.Known() {
 		span.Set(slog.String("configuration_reason", string(reason)))
 		if fault.Code == protocol.ErrorCodeNotConfigured {
@@ -266,7 +280,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
 		}
 		span.Set(slog.String("command_stage", "admission"))
-		rejectCommand(span, fault, !request.Command.Durable() && ctx.Err() != nil)
+		rejectCommand(span, request.Command.Kind, fault, !request.Command.Durable() && ctx.Err() != nil)
 		return accepted, err
 	}
 	span.Set(slog.Bool("durable", accepted.Receipt.Durable))
@@ -282,7 +296,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			return
 		case result.Fault != nil:
 			span.Set(slog.String("command_stage", "completion"))
-			rejectCommand(span, result.Fault, !accepted.Receipt.Durable && ctx.Err() != nil)
+			rejectCommand(span, request.Command.Kind, result.Fault, !accepted.Receipt.Durable && ctx.Err() != nil)
 		default:
 			observeOutput(span, request, result.Output)
 			span.Finish(logging.Completed, "", false)

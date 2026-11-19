@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 
 	"github.com/egoist/mygo"
 	_ "github.com/egoist/mygo/locales/ja"
@@ -78,7 +79,6 @@ func run() error {
 		mygo.Power.OnResume(backend.Node.CheckSchedules)
 	}
 	var notifier *live.Notifier
-	var notificationWindow *mygo.Window
 	if backend.Client != nil {
 		notifier = live.NewNotifier(backend.Client, backend.Preferences)
 		// Remote hosts' notices take the same channels as the local Node's.
@@ -156,9 +156,15 @@ func run() error {
 			}
 		})
 	}
+	var noticeTray *windowsNoticeTray
 	applyPreferences := func() {
 		if backend.Preferences != nil {
 			mygo.App.SetLocale(preferenceLocale(backend.Preferences.Data.Language))
+			if noticeTray != nil && ctx.Err() == nil {
+				if err := noticeTray.configure(backend.Preferences.Data.Notifications[0], i18n.Match(mygo.App.Locale())); err != nil {
+					log.Printf("notification tray: %v", err)
+				}
+			}
 		}
 		// A language chosen in Settings applies at once: the menu and
 		// every window's title follow it, as the pages do.
@@ -279,32 +285,6 @@ func run() error {
 				runtime.OpenSession(sessionID)
 			}
 		}
-		if notifier != nil && notificationWindow == nil {
-			notificationWindow = entry.window
-			notifier.SetUpdate(notificationWindow.Update)
-			notifier.SetLocale(mygo.App.Locale)
-			// A focused window shows the notice itself; the system
-			// notification is for an application in the background.
-			notifier.SetPresent(func(notice *viewmodel.Notice) bool {
-				for _, candidate := range windows {
-					if candidate.live != nil && candidate.window.IsFocused() {
-						candidate.live.PresentNotice(notice)
-						return true
-					}
-				}
-				return false
-			})
-			notifier.SetNotify(func(id, title, body, session string) {
-				notification := mygo.NewNotification(mygo.NotificationOptions{ID: id, Title: title, Body: body, Group: session})
-				go func() {
-					if err := notification.ShowContext(ctx); err != nil {
-						log.Printf("desktop notification: %v", err)
-						// The notice shows in the next focused window instead.
-						notifier.Undelivered(id)
-					}
-				}()
-			})
-		}
 		windows = append(windows, entry)
 		active = entry
 		backend.reports.watch(entry.window, app)
@@ -345,6 +325,28 @@ func run() error {
 		applyPreferences()
 		return nil
 	}
+	raiseWindow := func() *desktopWindow {
+		if backend.stopped.Load() || guard.passing {
+			return nil
+		}
+		if active == nil && !options.Preview {
+			if err := openWindow(""); err != nil {
+				log.Printf("desktop composition: %v", err)
+			}
+		}
+		if active != nil {
+			guard.raise(active)
+		}
+		return active
+	}
+	if runtime.GOOS == "windows" && notifier != nil {
+		noticeTray = &windowsNoticeTray{openCenter: func() {
+			if entry := raiseWindow(); entry != nil {
+				entry.app.Navigate(shell.NotificationsPage)
+				entry.window.Invalidate()
+			}
+		}}
+	}
 	var composition error
 	mygo.App.WhenReady(func() {
 		if backend.Preferences != nil {
@@ -356,36 +358,61 @@ func run() error {
 			mygo.App.Quit()
 			return
 		}
+		if notifier != nil {
+			notifier.SetLocale(mygo.App.Locale)
+			// A focused window shows the notice itself; the system
+			// notification is for an application in the background.
+			notifier.SetPresent(func(notice *viewmodel.Notice) bool {
+				for _, candidate := range windows {
+					if candidate.live != nil && candidate.window.IsFocused() {
+						candidate.live.PresentNotice(notice)
+						return true
+					}
+				}
+				return false
+			})
+			show := func(opts mygo.NotificationOptions) error { return mygo.NewNotification(opts).ShowContext(ctx) }
+			notifier.SetNotify(func(id, title, body, session string) {
+				opts := mygo.NotificationOptions{ID: id, Title: title, Body: body, Group: session}
+				result := func(err error) {
+					if err != nil && ctx.Err() == nil {
+						log.Printf("desktop notification: %v", err)
+						notifier.Undelivered(id)
+					}
+				}
+				if noticeTray != nil {
+					result(noticeTray.replace(opts, show))
+				} else {
+					go func() { result(show(opts)) }()
+				}
+			})
+			notifier.SetUpdate(mygo.App.WhenReady)
+			if noticeTray != nil {
+				mygo.App.OnQuit(func() {
+					cancel()
+					noticeTray.remove()
+				})
+			}
+		}
 		if updates != nil {
 			updates.Service.Startup()
 		}
 		// Another launch of the default profile hands over to this one.
-		mygo.App.OnSecondInstance(func([]string, string) {
-			if backend.stopped.Load() {
-				// The launch is this Desktop's successor, waiting for it to quit.
-				return
-			}
-			if active == nil && !options.Preview {
-				if err := openWindow(""); err != nil {
-					log.Printf("desktop composition: %v", err)
-				}
-			}
-			if active != nil {
-				guard.raise(active)
-			}
-		})
+		mygo.App.OnSecondInstance(func([]string, string) { raiseWindow() })
 		mygo.App.OnNotificationClick(func(id string) {
-			if active == nil && !options.Preview {
-				if err := openWindow(""); err != nil {
-					log.Printf("desktop composition: %v", err)
+			if noticeTray != nil {
+				id = noticeTray.logicalID(id)
+				if id == "" {
+					return
 				}
 			}
-			if active == nil || active.live == nil {
-				return
+			if entry := raiseWindow(); entry != nil && entry.live != nil {
+				if noticeTray != nil {
+					// A notice without a session opens the inbox rather than the previous page.
+					entry.app.Navigate(shell.NotificationsPage)
+				}
+				entry.live.OpenNotice(id)
 			}
-			active.window.Show()
-			active.window.Focus()
-			active.live.OpenNotice(id)
 		})
 		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
 			if guard.beforeQuit(e.SessionEnding) {

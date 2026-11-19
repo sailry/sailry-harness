@@ -4,7 +4,6 @@ package live
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -21,8 +20,8 @@ import (
 )
 
 // TestSystemShortcutsUI is the acceptance of the system shortcuts'
-// Desktop side: KEY-022, KEY-023, KEY-024, SKEY-009, SHELL-035 and
-// SHELL-070, as far as the process can be driven without the system.
+// Desktop side: KEY-022, KEY-023, KEY-024, SKEY-009 and SHELL-035,
+// as far as the process can be driven without the system.
 //
 // Substitutions and limits: no key is registered with the system here. The
 // test proves the set of accelerators the entry point reads after each
@@ -234,28 +233,17 @@ func TestSystemShortcutsUI(t *testing.T) {
 	settle(window, "the quote reaches the composer", systemUIWait, func() bool {
 		return app.Composer(session.ID.String()).Draft == "> "+quoted && shown(window, "Selected text") == 0
 	})
-	// SHELL-070: Help › Selected text sends the window's own command, which
-	// takes the same path.
 	selected.Store([2]string{"Second selection", ""})
-	var sent []string
-	item := menuItem(app.Menu("en", func(id string) { sent = append(sent, id) }), "system.selection")
-	if item == nil || item.Disabled || item.Click == nil || item.Label != "Selected text" {
-		t.Fatalf("Help › Selected text: %+v", item)
-	}
-	item.Click(item, nil)
-	if len(sent) != 1 || sent[0] != "system.selection" {
-		t.Fatalf("Help › Selected text sent %v", sent)
-	}
-	app.Do(sent[0])
-	settle(window, "the command's selection dialog", systemUIWait, func() bool { return shown(window, "Second selection") == 1 })
+	capture()
+	settle(window, "another selection dialog", systemUIWait, func() bool { return shown(window, "Second selection") == 1 })
 	pressIn(window, "Quote")
 	settle(window, "the second quote follows the first", systemUIWait, func() bool {
 		return app.Composer(session.ID.String()).Draft == "> "+quoted+"\n\n> Second selection"
 	})
-	if reads.Load() != 5 {
-		t.Fatalf("the reader ran %d times", reads.Load())
+	if reads.Load() != 5 || activations.Load() != 5 {
+		t.Fatalf("five captures read %d times and activated %d times", reads.Load(), activations.Load())
 	}
-	t.Logf("step 6 passed: with the injected reader an empty selection, a missing permission and an oversized text each showed their toast and no dialog; a text showed in the Selected text dialog after the window's activation callback ran once per capture, Read aloud handed the text to the bound reader and turned into Stop reading until pressed again, and Quote put %q into the conversation's composer; Help › Selected text sent system.selection, which quoted a second text after it", fmt.Sprintf("> %s", quoted))
+	t.Logf("step 6 passed: with the injected reader an empty selection, a missing permission and an oversized text each showed their toast and no dialog; a text showed in the Selected text dialog after the window's activation callback ran once per capture, Read aloud handed the text to the bound reader and turned into Stop reading until pressed again, and Quote put %q into the conversation's composer; a second shortcut capture appended a second quote", "> "+quoted)
 
 	// Step 7: the new-conversation command, a window shortcut and menu item.
 	app.Do("conversation.new")

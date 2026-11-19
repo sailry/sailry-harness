@@ -7,6 +7,10 @@ import (
 	"syscall"
 )
 
+func nativeGitCommand(args ...string) (*exec.Cmd, error) {
+	return exec.Command("git", args...), nil
+}
+
 func prepareNative(cmd *exec.Cmd) (func(), error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return func() {}, nil

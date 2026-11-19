@@ -43,6 +43,41 @@ func TestStartupScope(t *testing.T) {
 	}
 }
 
+func TestDesktopStartupLogUnavailable(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "profile")
+	owner, err := core.AcquireProfile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	if err := os.WriteFile(filepath.Join(profile, "logs"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = previous; _ = stderr.Close() })
+	backend, err := openBackend(t.Context(), startupOptions{DataDir: profile})
+	if backend != nil {
+		_ = backend.Close()
+		t.Fatal("started a second Node in the profile")
+	}
+	var inUse *core.ProfileInUseError
+	if !errors.As(err, &inUse) {
+		t.Fatalf("Node startup error was masked: %v", err)
+	}
+	written, err := os.ReadFile(stderr.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(written); !strings.Contains(text, "sailry-desktop: continuing without a diagnostic log: logging is unavailable") || strings.Contains(text, profile) {
+		t.Fatalf("startup diagnostic = %q", text)
+	}
+}
+
 func TestPreviewFlagNoNode(t *testing.T) {
 	t.Parallel()
 	for _, explicit := range []bool{false, true} {

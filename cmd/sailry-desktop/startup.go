@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -117,9 +118,11 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	// First-launch detection must precede creation of the Node database.
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
-	// The application runs without its log when the log cannot be opened.
-	backend.logs, _ = logging.Install(path, "desktop")
-	backend.reports = catchCrashes()
+	if backend.logs, err = logging.Install(path, "desktop"); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "sailry-desktop: continuing without a diagnostic log:", err)
+	} else {
+		backend.reports = catchCrashes()
+	}
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		MCP:         &mcp.Options{Warm: true},
 		Network:     startupScope(options.Relays, backend.Preferences.Data.IrohRelays),

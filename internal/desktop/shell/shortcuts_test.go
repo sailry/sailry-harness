@@ -219,7 +219,7 @@ func TestMenu(t *testing.T) {
 			{"Toggle Full Screen", cmd(ui.Ctrl|ui.Super, ui.KeyF)},
 			{"Chats", ""}, {"Activity board", ""}, {"Files", ""}, {"Git", ""}, {"Market", ""}},
 		"Window": {{"Minimize", cmd(ui.Super, ui.KeyM)}, {"Zoom", ""}, {"Bring All to Front", ""}},
-		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}, {"Welcome to Sailry", ""}, {"Selected text", ""}},
+		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}, {"Welcome to Sailry", ""}},
 	}
 	var names []string
 	for _, m := range menu {
@@ -287,21 +287,42 @@ func TestMenu(t *testing.T) {
 	if !slices.Equal(sent, []string{"conversation.new", "project.new", "folder.open", "close"}) {
 		t.Errorf("File sent %q", sent)
 	}
-	if logs := menu[5].Submenu[2]; !logs.Disabled {
-		t.Error("Logs is enabled without a log folder")
+	if logs := menu[5].Submenu[2]; logs.ID != "help.logs" || !logs.Disabled || logs.Click != nil {
+		t.Errorf("Logs in preview: %+v", logs)
 	}
-	// A live window with a log folder opens it.
+	a.Hooks.OpenLogs = func() { t.Error("preview opened the real log folder") }
+	if logs := a.Menu("en", a.Do)[5].Submenu[2]; !logs.Disabled || logs.Click != nil {
+		t.Errorf("Logs in preview with a live hook: %+v", logs)
+	}
+	// A live window opens an available folder; the guide remains available.
 	opened := 0
 	logged := New(preview.Load())
 	logged.Preview = false
+	if logs := logged.Menu("en", logged.Do)[5].Submenu[2]; !logs.Disabled || logs.Click != nil {
+		t.Errorf("Logs without a live folder: %+v", logs)
+	}
 	logged.Hooks.OpenLogs = func() { opened++ }
-	if logs := logged.Menu("en", logged.Do)[5].Submenu[2]; logs.Disabled || logs.Click == nil {
+	help := logged.Menu("en", logged.Do)[5].Submenu
+	if logs := help[2]; logs.Disabled || logs.Click == nil {
 		t.Error("Logs is disabled with a log folder")
 	} else {
 		logs.Click(logs, nil)
 		logged.run(nil, "help.logs")
 		if opened != 1 || !slices.Equal(logged.sent, []string{"help.logs"}) {
 			t.Errorf("Logs opened %d times after sending %q", opened, logged.sent)
+		}
+	}
+	logged.sent = nil
+	if guide := help[4]; guide.ID != "app.welcome" || guide.Disabled || guide.Click == nil {
+		t.Errorf("Welcome guide: %+v", guide)
+	} else {
+		guide.Click(guide, nil)
+		if !slices.Equal(logged.sent, []string{"app.welcome"}) {
+			t.Fatalf("Welcome guide sent %q", logged.sent)
+		}
+		logged.run(nil, logged.sent[0])
+		if !logged.Welcome.Open {
+			t.Error("the Help item did not open the welcome guide")
 		}
 	}
 	// Find in Conversation sends its command, as ⌘F.

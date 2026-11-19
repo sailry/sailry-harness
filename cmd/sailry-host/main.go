@@ -52,8 +52,9 @@ func runService(ctx context.Context, args []string, cancel context.CancelFunc) (
 		_, err := fmt.Fprintln(os.Stdout, hostctl.ServiceUsage)
 		return 0, err
 	}
-	// The Host runs without its log when the log cannot be opened.
-	if closeLogs, err := logging.Install(options.Profile, "host"); err == nil {
+	if closeLogs, err := logging.Install(options.Profile, "host"); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "sailry-host: continuing without a diagnostic log:", err)
+	} else {
 		defer closeLogs()
 	}
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{

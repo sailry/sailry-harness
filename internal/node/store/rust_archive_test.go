@@ -15,7 +15,7 @@ import (
 func TestStartupPreservesInactiveStorage(t *testing.T) {
 	t.Parallel()
 	for _, active := range []bool{false, true} {
-		name := "preserved original requires explicit selection"
+		name := "new database leaves preserved original alone"
 		if active {
 			name = "active database leaves preserved original alone"
 		}
@@ -52,26 +52,16 @@ func TestStartupPreservesInactiveStorage(t *testing.T) {
 				}
 			}
 			opened, err := Open(t.Context(), profile, node)
-			if opened != nil {
-				if closeErr := opened.Close(); closeErr != nil {
-					t.Fatal(closeErr)
-				}
-			}
-			if active && err != nil {
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !active && (err == nil || !strings.Contains(err.Error(), "preserved")) {
-				t.Fatalf("inactive preserved storage: %v", err)
+			if err := opened.Close(); err != nil {
+				t.Fatal(err)
 			}
 			for name, body := range files {
 				got, err := os.ReadFile(filepath.Join(profile, filepath.FromSlash(name)))
 				if err != nil || !bytes.Equal(got, []byte(body)) {
 					t.Fatalf("preserved file %s changed: %v", name, err)
-				}
-			}
-			if !active {
-				if _, err := os.Stat(filepath.Join(storage, "node.turso")); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("a replacement database was created: %v", err)
 				}
 			}
 			if _, err := os.Stat(filepath.Join(storage, "rust-archive-2")); !errors.Is(err, os.ErrNotExist) {

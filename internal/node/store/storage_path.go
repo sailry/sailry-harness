@@ -9,8 +9,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/core"
 )
 
-// Node uses the native database names shared with the Rust application. Preview
-// SQLite files are unrelated; preserved native originals require explicit recovery.
+// Only the standard native database families are active. Preview SQLite files
+// and historical archives are neither opened nor migrated.
 func nodeDatabasePath(ctx context.Context, storage string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -28,21 +28,17 @@ func nodeDatabasePath(ctx context.Context, storage string) (string, error) {
 			return "", err
 		}
 		if info.Size() == 0 {
-			return "", incompatibleDatabase(path, "the existing Node database is empty; existing data was not changed")
+			return "", incompatibleDatabase(path, "the existing Node database is empty")
 		}
 		return path, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	if _, err := os.Lstat(filepath.Join(storage, "rust-archive", "node.turso")); err == nil {
-		return "", incompatibleDatabase(path, "the original Turso database is preserved in storage/rust-archive; existing data was not changed")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	for _, member := range core.DatabaseFiles(path)[1:] {
+	remaining := append(core.DatabaseFiles(path)[1:], core.DatabaseFiles(filepath.Join(storage, "knowledge.turso"))...)
+	for _, member := range remaining {
 		if _, err := os.Lstat(member); err == nil {
-			return "", incompatibleDatabase(path, "the Node database is missing but its journal remains; existing data was not changed")
+			return "", incompatibleDatabase(path, "the Node database is missing but active storage still contains "+filepath.Base(member))
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}

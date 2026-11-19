@@ -437,11 +437,11 @@ bundled Python interpreter keeps `disable-library-validation`. Windows packaging
 currently leaves `windows.certificate` and `windows.signCommand` unset in
 `mygo.json`, so its artifacts are unsigned.
 
-A release opens `storage/node.turso` and `storage/knowledge.turso` in place with
-the official Turso Go SDK. The existing schema synchronizer adds compatible
-tables and fields to owned Rust databases. It does not convert files, archive
-the active database or select an archived copy. Preview `.sqlite` files are left
-untouched and are not selected as the active database. Node identity,
+A release opens active `storage/node.turso` and `storage/knowledge.turso` files
+from `v0.2.0` onward in place with the official Turso Go SDK. The schema
+synchronizer adds compatible tables and fields. When no active database files
+exist, startup initializes new Turso storage; it does not migrate older archives
+or preview `.sqlite` files and leaves them untouched. Node identity,
 controller preferences, themes and file trees remain in place.
 `cmd/sailry-desktop/upgrade_integration_test.go` checks this with real native
 databases initialized from the recorded Rust schema.

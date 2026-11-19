@@ -2,6 +2,7 @@ package live
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -29,19 +30,31 @@ func (r *Runtime) ReportShortcutConflict() {
 	r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "shortcut_conflict")) })
 }
 
-// SetLogFolder gives Help › Logs the folder of the process's log. Without
-// one the item stays disabled.
+// SetLogFolder gives Help › Logs the live profile's log folder. A writer that
+// could not start may still have left logs from an earlier run.
 func (r *Runtime) SetLogFolder(path string) {
-	if path == "" {
+	r.App.Hooks.OpenLogs = nil
+	if r.App.Preview {
+		return
+	}
+	if path == "" && r.Preferences != nil && filepath.IsAbs(r.Preferences.Path) {
+		path = filepath.Join(filepath.Dir(r.Preferences.Path), "..", "logs")
+	}
+	if !filepath.IsAbs(path) || !logFolderExists(path) {
 		return
 	}
 	r.App.Hooks.OpenLogs = func() {
-		if _, err := os.Stat(path); err != nil || r.attachments.native.OpenLocal == nil {
+		if !logFolderExists(path) || r.attachments == nil || r.attachments.native.OpenLocal == nil {
 			r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "files_open_failed")) })
 			return
 		}
 		r.attachments.native.OpenLocal(path)
 	}
+}
+
+func logFolderExists(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
 }
 
 // selectionReader reads the front app's selected text, or names the message

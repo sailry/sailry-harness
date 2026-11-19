@@ -99,7 +99,10 @@ func nativeRunner(environment []string, profile string) Runner {
 	}
 	environment = append([]string(nil), environment...)
 	return func(ctx context.Context, root string, args []string, input []byte) (CommandResult, error) {
-		git := exec.Command("git", append([]string{"--no-pager"}, args...)...)
+		git, err := nativeGitCommand(append([]string{"--no-pager"}, args...)...)
+		if err != nil {
+			return CommandResult{}, err
+		}
 		git.Dir = root
 		env := map[string]string{}
 		for _, value := range environment {
@@ -156,17 +159,20 @@ func runGitCommand(ctx context.Context, launch gitCommand, input []byte) (Comman
 
 	cleanup, err := prepareNative(cmd)
 	if err != nil {
-		return CommandResult{}, err
+		return CommandResult{}, nativeFault(err, "Could not prepare native Git process containment")
 	}
 	defer cleanup()
 	if err := cmd.Start(); err != nil {
-		return CommandResult{}, fault(protocol.ErrorCodeUnavailable, "Git executable unavailable on execution Node")
+		if cmd.Err != nil {
+			return CommandResult{}, gitLookupFault(cmd.Err)
+		}
+		return CommandResult{}, nativeFault(err, "Could not start the native Git command on execution Node")
 	}
 	launch.started()
 	if err := ownNative(cmd); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return CommandResult{}, err
+		return CommandResult{}, nativeFault(err, "Could not take ownership of the native Git process")
 	}
 	outWrite.Close()
 	errWrite.Close()
@@ -238,6 +244,24 @@ wait:
 		return CommandResult{}, err
 	}
 	return CommandResult{Stdout: stdout.data, Stderr: stderr.data, ExitCode: code, Truncated: stdout.truncated || stderr.truncated, InvalidUTF8: !utf8.Valid(stdout.data) || !utf8.Valid(stderr.data)}, nil
+}
+
+func gitLookupFault(err error) error {
+	switch {
+	case errors.Is(err, exec.ErrNotFound):
+		return fault(protocol.ErrorCodeNotConfigured, "Git executable not found on execution Node")
+	case errors.Is(err, exec.ErrDot):
+		return fault(protocol.ErrorCodePermissionDenied, "Refused a relative Git executable path on execution Node")
+	default:
+		return nativeFault(err, "Git executable lookup failed on execution Node")
+	}
+}
+
+func nativeFault(err error, message string) error {
+	if errors.Is(err, os.ErrPermission) {
+		return fault(protocol.ErrorCodePermissionDenied, message)
+	}
+	return fault(protocol.ErrorCodeUnavailable, message)
 }
 
 // command runs one local Git process. A read has the read deadline; a mutation
