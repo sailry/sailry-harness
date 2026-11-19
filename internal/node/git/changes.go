@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -71,19 +73,33 @@ func (s *Service) changeCapture(ctx context.Context, root string, state protocol
 		if err != nil {
 			return mapError(err)
 		}
-		iter := tree.Files()
-		defer iter.Close()
-		return iter.ForEach(func(file *object.File) error {
+		// The inventory needs only names, modes and hashes; tree.Files would
+		// decode every blob of the tree.
+		walker := object.NewTreeWalker(tree, true, nil)
+		defer walker.Close()
+		for {
+			name, entry, err := walker.Next()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return mapError(err)
+			}
+			if entry.Mode == filemode.Dir || entry.Mode == filemode.Submodule {
+				continue
+			}
 			if len(target) == 100000 {
 				return fault(protocol.ErrorCodeUnavailable, "Git change inventory exceeds scan limit")
 			}
-			if validPath(file.Name) != nil {
+			if validPath(name) != nil {
 				omitted++
-				return nil
+				continue
 			}
-			target[file.Name] = &resource{Hash: file.Hash.String(), Mode: uint32(file.Mode)}
-			return checkContext(ctx)
-		})
+			target[name] = &resource{Hash: entry.Hash.String(), Mode: uint32(entry.Mode)}
+			if err := checkContext(ctx); err != nil {
+				return err
+			}
+		}
 	}
 	switch state.Kind {
 	case "commit":
@@ -699,14 +715,18 @@ func (s *Service) Context(ctx context.Context, root string, input protocol.Comma
 	if input.Offset > uint64(len(segments)) {
 		return result, invalid("Git context offset is beyond the file")
 	}
+	// The frame's size is the result's without text plus each line as JSON
+	// escapes it, so a page is measured once rather than once per line.
+	result.Next = ptr(uint64(math.MaxUint64))
+	frame, _ := json.Marshal(protocol.Output{Kind: "git_context", Data: result})
+	size := len(frame)
+	var text strings.Builder
 	for i := input.Offset; i < min(uint64(len(segments)), input.Offset+min(input.Limit, 500)); i++ {
-		before := result.Text
-		result.Text += segments[i]
+		line, _ := json.Marshal(segments[i])
+		size += len(line) - 2
 		result.Next = ptr(i + 1)
-		body, _ := json.Marshal(protocol.Output{Kind: "git_context", Data: result})
-		if len(body) > maxDiff {
-			result.Text = before
-			if before == "" {
+		if size > maxDiff {
+			if text.Len() == 0 {
 				result.SkipReason = ptr("line_too_large")
 				result.Next = nil
 			} else {
@@ -714,6 +734,11 @@ func (s *Service) Context(ctx context.Context, root string, input protocol.Comma
 			}
 			break
 		}
+		text.WriteString(segments[i])
+	}
+	result.Text = text.String()
+	if result.Next != nil && *result.Next == math.MaxUint64 {
+		result.Next = nil
 	}
 	if result.Next != nil && *result.Next >= uint64(len(segments)) {
 		result.Next = nil

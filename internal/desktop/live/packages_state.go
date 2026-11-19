@@ -24,6 +24,9 @@ import (
 )
 
 type packageState struct {
+	// projected is what the package views were last built from by the
+	// frame: package results project themselves when they arrive.
+	projected          packageProjection
 	working            map[string]int // the packages worked on, by the view's ID
 	infos              map[string]protocol.PluginInfo
 	removed            map[string]uint64
@@ -280,7 +283,12 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 		if changed {
 			owner.packages.marketKey = ""
 		}
-		owner.projectPackages()
+		// Rebuilding every frame allocated the whole package list each time.
+		key := packageProjection{owner.controller.Revision(), owner.packageLocale(), int(root.App.Page), m.MarketKind}
+		if changed || owner.packages.projected != key {
+			owner.packages.projected = key
+			owner.projectPackages()
+		}
 		if !owner.packages.observing {
 			owner.observeInstallations()
 		}
@@ -290,6 +298,14 @@ func (r *Runtime) packagesFrame(c *ui.Context) {
 	}
 	r.projectInstallations()
 	r.projectMarketThemes()
+}
+
+// packageProjection is the input of a frame's package projection besides
+// package results: the Client revision, the package locale and the page.
+type packageProjection struct {
+	revision   uint64
+	locale     string
+	page, kind int
 }
 
 func (r *Runtime) projectPythonSettings(owner *Runtime, changed bool) {
@@ -651,6 +667,7 @@ func (r *Runtime) packageCommandReport(command protocol.Command, failed string, 
 						}
 						kit.Toast(c, kit.Done, i18n.T(c, key))
 					}
+					r.projectPackages()
 				}
 				if command.Kind == "remove_plugin" {
 					kit.Toast(c, kit.Done, i18n.T(c, "plugins_uninstalled"))
@@ -737,6 +754,7 @@ func (r *Runtime) uninstallPackage(id string, done func(bool)) {
 			delete(r.packages.infos, name)
 			delete(r.packages.updates, name)
 			r.forgetPackageDirectory(name, info.Summary.Revision)
+			r.projectPackages()
 		}
 		done(ok)
 	})

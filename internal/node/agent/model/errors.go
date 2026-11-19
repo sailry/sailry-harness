@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"sort"
 	"strings"
@@ -176,6 +177,10 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 				message = code + ": " + message
 			}
 			f.Message = message
+		} else if cause := transportCause(provider.Cause); cause != "" && !strings.Contains(f.Message, cause) {
+			// Without a response body the transport's error is the only
+			// account of why the stream broke.
+			f.Message += ": " + cause
 		}
 		lower := strings.ToLower(string(provider.ResponseBody))
 		switch {
@@ -219,6 +224,24 @@ func Classify(err error, secrets ...protocol.Secret) *Failure {
 	f.Message = safeDiagnostic(f.Message, secrets)
 	return f
 }
+
+// transportCause is a transport error's own text, without the request URL a
+// url.Error repeats, on one line of at most 200 characters.
+func transportCause(err error) string {
+	if err == nil {
+		return ""
+	}
+	var request *url.Error
+	if errors.As(err, &request) {
+		err = request.Err
+	}
+	text := strings.Join(strings.Fields(err.Error()), " ")
+	if runes := []rune(text); len(runes) > 200 {
+		text = string(runes[:200]) + "…"
+	}
+	return text
+}
+
 func containsCode(value string, codes ...string) bool {
 	for _, code := range codes {
 		if strings.EqualFold(value, code) {
