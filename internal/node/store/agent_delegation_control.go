@@ -61,6 +61,25 @@ func DetachChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 	return backgroundOwnerEvents(ctx, db, owners)
 }
 
+// StopChild stops the current execution of a child the parent turn's
+// conversation owns, on the same path as a controller's stop_turn: the
+// request is recorded for stop_reason. A child that is not queued or running
+// is returned unchanged.
+func StopChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child protocol.SessionID, now time.Time) (protocol.ConversationRun, []protocol.Event, error) {
+	run, err := ownedChild(ctx, db, parent, child, nil)
+	if err != nil || run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning {
+		return run, nil, err
+	}
+	if _, err = db.ExecContext(ctx, "UPDATE agent_delegations SET stop_requested=1 WHERE turn=?1", run.Turn.String()); err != nil {
+		return run, nil, err
+	}
+	if run, err = stopAgentTurn(ctx, db, run.Turn, now); err != nil {
+		return run, nil, err
+	}
+	events, err := activityEvent(ctx, db, run.Session)
+	return run, events, err
+}
+
 func ClaimChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now time.Time) (*AgentInvocation, []protocol.Event, error) {
 	origin, err := readDelegation(ctx, db, turn)
 	if err != nil {

@@ -93,6 +93,45 @@ func TestGuideAgentCanOverlapOutsideCollaborate(t *testing.T) {
 	}
 }
 
+func TestStopAgentStopsAndCollectsChild(t *testing.T) {
+	started := make(chan struct{})
+	blocker := func(ctx context.Context, _ fantasy.Call, _ func(fantasy.StreamPart) bool) {
+		close(started)
+		<-ctx.Done()
+	}
+	f, x := delegationFixture(t, &scriptedModel{scripts: []script{blocker}})
+	spawn := saveDelegationCall(t, f, x, "background", true)
+	if result := f.r.spawnChild(x, spawn, spawn.Arguments); result.Failure != nil {
+		t.Fatal(result.Failure)
+	}
+	f.r.workers.Wait()
+	turns := f.childTurns()
+	if len(turns) != 1 {
+		t.Fatalf("admitted children=%d", len(turns))
+	}
+	f.start()
+	select {
+	case <-started:
+	case <-f.ctx.Done():
+		t.Fatal("child did not start")
+	}
+	var session protocol.SessionID
+	for _, child := range f.r.children {
+		session = child.session
+	}
+	args, _ := json.Marshal(map[string]any{"session": session})
+	for _, attempt := range []string{"running", "already ended"} {
+		result := f.r.stopChild(x, canonical.ToolRequest{ID: "stop " + attempt, Name: "stop_agent", Arguments: args})
+		value, ok := result.Value.(map[string]any)
+		if !ok || result.Failure != nil || value["status"] != protocol.ConversationStatusCancelled || value["turn"] != turns[0] || result.Collect == nil {
+			t.Fatalf("%s: stop returned %+v", attempt, result)
+		}
+	}
+	if f.readQuery("SELECT count(*) FROM agent_delegations WHERE stop_requested=1 AND turn='"+turns[0].String()+"'") != 1 {
+		t.Fatal("the parent's stop was not recorded as an explicit stop")
+	}
+}
+
 func TestWaitAgent(t *testing.T) {
 	for _, guidance := range []bool{false, true} {
 		name := "bounded observation keeps queued child"

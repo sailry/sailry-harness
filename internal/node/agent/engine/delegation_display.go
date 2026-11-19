@@ -104,7 +104,7 @@ func (r *Runtime) captureCorePresentation(record *canonical.Record) {
 			display.Input.Summary, display.Input.Context, display.Input.Content = field("/title"), field("/role"), field("/task")
 			p.Groupings[name] = protocol.ToolGroupingStandalone
 			p.Delegations = append(p.Delegations, name)
-		case "guide_agent", "wait_agent":
+		case "guide_agent", "wait_agent", "stop_agent":
 			display.Input.Summary = field("/session")
 			format := protocol.ToolDisplayInputFormatSession
 			display.Input.Summary.Format = &format

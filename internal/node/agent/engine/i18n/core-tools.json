@@ -35,6 +35,18 @@
     "pt-BR": "Aguardar subagente",
     "ru": "Ждать субагента"
   },
+  "tool_stop_agent": {
+    "en": "Stop subagent",
+    "zh-CN": "停止子智能体",
+    "zh-TW": "停止子智能體",
+    "ja": "サブエージェントを停止",
+    "ko": "하위 에이전트 중지",
+    "fr": "Arrêter le sous-agent",
+    "de": "Unteragent stoppen",
+    "es": "Detener subagente",
+    "pt-BR": "Parar subagente",
+    "ru": "Остановить субагента"
+  },
   "tool_list_subagents": {
     "en": "List subagents",
     "zh-CN": "查看子智能体",

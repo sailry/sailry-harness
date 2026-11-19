@@ -30,7 +30,7 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 	for _, name := range []string{"spawn_agent", "guide_agent", "wait_agent"} {
 		schema := spawnSchema
 		if name == "guide_agent" {
-			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1},"overlap":{"type":"boolean","description":"Continue parent work while an idle child runs its new task. Defaults to true in Collaborate. Guidance to an already running child returns immediately."}},"required":["session","message"],"additionalProperties":false}`
+			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1},"overlap":{"type":"boolean","description":"Continue parent work while an idle child runs its new task. Defaults to true in Flagship. Guidance to an already running child returns immediately."}},"required":["session","message"],"additionalProperties":false}`
 		}
 		if name == "wait_agent" {
 			schema = `{"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from list_subagents or a completion notice; omit for the current execution"}},"required":["session"],"additionalProperties":false}`
@@ -84,7 +84,81 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 	})
 	list.Deferred = deferred
 	list.SearchLabels = []string{"子智能体", "子智能體", "子代理", "查看", "续接", "恢复"}
-	return append(values, list)
+	stop := jsonTool("stop_agent", delegationDescriptions["stop_agent"], `{"type":"object","properties":{"session":{"type":"string","description":"Exact session ID of the child to stop"}},"required":["session"],"additionalProperties":false}`, false, false, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
+		if ctx.Err() != nil || x.ctx.Err() != nil {
+			return invalidTool("delegation is no longer active")
+		}
+		return r.stopChild(x, call)
+	})
+	stop.Deferred = deferred
+	return append(values, list, stop)
+}
+
+// stopChild stops a child this conversation owns through the controller's
+// explicit stop path, then observes it settle so its cancelled record is
+// collected with this result instead of reopening a reply.
+func (r *Runtime) stopChild(x *execution, call canonical.ToolRequest) ToolResult {
+	var args struct {
+		Session protocol.SessionID `json:"session"`
+	}
+	if json.Unmarshal(call.Arguments, &args) != nil {
+		return invalidTool("invalid child control arguments")
+	}
+	unlock := r.LockPublication()
+	var run protocol.ConversationRun
+	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
+		var events []protocol.Event
+		var err error
+		run, events, err = store.StopChild(x.ctx, db, x.inv.Run.Turn, args.Session, r.clock.Now())
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordEvents(x.ctx, db, r.node, events)
+		return err
+	})
+	if err == nil {
+		r.StopCommitted(run)
+		r.publish()
+		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
+		r.RefreshCommitted(run.Session)
+		r.RefreshCommitted(x.inv.Session.ID, run.Turn)
+	}
+	unlock()
+	if err != nil {
+		return toolFault(err)
+	}
+	r.Wake()
+	window, cancel := context.WithCancel(x.ctx)
+	defer cancel()
+	deadline := make(chan struct{})
+	go func() {
+		if r.clock.Sleep(window, 150*time.Second) == nil {
+			close(deadline)
+		}
+	}()
+	for {
+		changed := r.activitySignal()
+		var state store.ChildState
+		if err := r.db.Read(x.ctx, func(db *sql.Conn) error {
+			var err error
+			state, err = store.ReadChildState(x.ctx, db, x.inv.Run.Turn, args.Session, &run.Turn)
+			return err
+		}); err != nil {
+			return toolFault(err)
+		}
+		value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status}
+		if !childPending(state.Run) {
+			return ToolResult{Value: value, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
+		}
+		select {
+		case <-x.ctx.Done():
+			return toolFault(x.ctx.Err())
+		case <-deadline:
+			// Its cancelled result arrives automatically once it settles.
+			return ToolResult{Value: value}
+		case <-changed:
+		}
+	}
 }
 
 func selectedRole(input protocol.ConversationInput) *protocol.RoleReference {

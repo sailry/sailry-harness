@@ -622,6 +622,10 @@ scope; no caller-supplied session can change the scope. The page keeps exact
 session and turn IDs, status, an assigned title and a frozen role when available,
 but no task input or result text. An explicit stop is recorded with the exact
 child delegation and remains available after request receipts expire.
+`stop_agent` lets the parent stop a queued or running child its conversation
+owns on the same path as a controller's stop. The stop is recorded, the parent
+no longer waits for the child, and its cancelled result is collected with the
+call instead of reopening a reply.
 Listing does not resume, collect or replay work. An explicit spawn using a
 listed child session starts a new child turn with its own admission receipt;
 waiting only observes a specific execution.

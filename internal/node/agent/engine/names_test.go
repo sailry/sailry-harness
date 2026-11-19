@@ -125,7 +125,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 				t.Errorf("first request offers %q", name)
 			}
 		}
-		if context := promptText(model.calls[0]); !strings.Contains(context, "Deferred tools\ncreate_goal, delete_file, guide_agent, list_sessions, list_subagents, mcp__github__run_trigger, read_session, search_session, spawn_agent, wait_agent\n") {
+		if context := promptText(model.calls[0]); !strings.Contains(context, "Deferred tools\ncreate_goal, delete_file, guide_agent, list_sessions, list_subagents, mcp__github__run_trigger, read_session, search_session, spawn_agent, stop_agent, wait_agent\n") {
 			t.Fatalf("deferred names are not listed:\n%s", context)
 		}
 		second := offeredNames(model.calls[1])
