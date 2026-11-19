@@ -37,7 +37,7 @@ func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {
 	for _, hosted := range []bool{false, true} {
 		name := "declared instructions"
 		if hosted {
-			name = "instructions already supplied by the host"
+			name = "duplicate host declaration stays scoped to the offered tool"
 		}
 		t.Run(name, func(t *testing.T) {
 			alpha := objectTool("alpha", true, true, nil)
@@ -82,7 +82,7 @@ func TestDiscoveryMergesCapabilityInstructionsAcrossTurns(t *testing.T) {
 					}
 				}
 				want := 1
-				if index == 0 && !hosted {
+				if index == 0 {
 					want = 0
 				}
 				if strings.Count(system.String(), alphaContext) != want || strings.Count(system.String(), betaContext) != want || strings.Contains(system.String(), unavailableContext) {

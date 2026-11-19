@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -114,6 +115,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		instruction = *info.Extension.Instructions
 	}
 	overrides := map[string]json.RawMessage{}
+	var turnInstruction prompt.Part
 	var contextParts []string
 	if host.Turn != nil {
 		selected := pluginSelectedOperations(info, names)
@@ -156,9 +158,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		if len(selection.Parts) > 8 {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "plugin turn returned too many context parts"}
 		}
-		if instruction := strings.TrimSpace(selection.Instruction); instruction != "" {
-			contextParts = append(contextParts, instruction)
-		}
+		turnInstruction = prompt.Part{Key: "plugin:" + info.Summary.Name, Text: strings.TrimSpace(selection.Instruction)}
 		for _, part := range selection.Parts {
 			combined += len(part)
 			if strings.TrimSpace(part) == "" || combined > 32*1024 {
@@ -223,7 +223,7 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 				tool.Concurrent = tool.Concurrent && concurrent
 			}
 		}
-		tool.ContextParts = contextParts
+		tool.TurnInstruction, tool.ContextParts = turnInstruction, contextParts
 		if host.Turn != nil && host.Turn.BeforeModel != nil {
 			tool.BeforeModel = owner.beforeModel(*host.Turn.BeforeModel)
 		}

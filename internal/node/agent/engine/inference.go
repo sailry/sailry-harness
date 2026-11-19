@@ -111,15 +111,22 @@ func (r *Runtime) infer(x *execution, captured model.Binding, languageModel fant
 	}
 	parts = append(parts, prompt.Part{Key: "instructions", Text: strings.Join(instructions, "\n\n")})
 	ownedParts := []string{}
-	if hasTools {
-		for _, tool := range x.tools {
-			if tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name) {
-				continue
-			}
-			for _, part := range tool.ContextParts {
-				if !slices.Contains(ownedParts, part) {
-					ownedParts = append(ownedParts, part)
-				}
+	contextPackages := map[string]bool{}
+	child := x.inv.Session.Delegation != nil
+	for _, tool := range x.tools {
+		if child && (!hasTools || tool.Deferred && !toolWasLoaded(state.LoadedTools, tool.Definition.Name)) {
+			continue
+		}
+		// A package's initializer can describe an active goal or continuation
+		// before its tools are discovered. State replaces that package's
+		// previous context without changing the system prompt.
+		if instruction := tool.TurnInstruction; instruction.Text != "" && !contextPackages[instruction.Key] {
+			contextPackages[instruction.Key] = true
+			parts = append(parts, instruction)
+		}
+		for _, part := range tool.ContextParts {
+			if !slices.Contains(ownedParts, part) {
+				ownedParts = append(ownedParts, part)
 			}
 		}
 	}

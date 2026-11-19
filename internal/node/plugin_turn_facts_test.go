@@ -28,20 +28,26 @@ type turnFactsModel struct {
 	fantasy.LanguageModel
 	mu      sync.Mutex
 	prompts []string
+	systems []string
 }
 
 func (script *turnFactsModel) Stream(_ context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
-	var text strings.Builder
+	var text, system strings.Builder
 	for _, message := range call.Prompt {
 		for _, part := range message.Content {
 			if value, found := fantasy.AsMessagePart[fantasy.TextPart](part); found {
 				text.WriteString(value.Text)
 				text.WriteByte('\n')
+				if message.Role == fantasy.MessageRoleSystem {
+					system.WriteString(value.Text)
+					system.WriteByte('\n')
+				}
 			}
 		}
 	}
 	script.mu.Lock()
 	script.prompts = append(script.prompts, text.String())
+	script.systems = append(script.systems, system.String())
 	step := len(script.prompts)
 	script.mu.Unlock()
 	note := operations.Alias("turn-facts-fixture", "note")
@@ -258,6 +264,7 @@ export async function completed(args){
 	t.Run("initialize", func(t *testing.T) {
 		script.mu.Lock()
 		prompts := append([]string(nil), script.prompts...)
+		systems := append([]string(nil), script.systems...)
 		script.mu.Unlock()
 		if len(prompts) != 4 {
 			t.Fatalf("model requests = %d", len(prompts))
@@ -267,6 +274,11 @@ export async function completed(args){
 		}
 		if !strings.Contains(prompts[3], "facts automatic=true notice=false marker=verify") {
 			t.Fatal("the continuation was not initialized as automatic with its marker")
+		}
+		for index, system := range systems {
+			if strings.Contains(system, "facts automatic=") || system != systems[0] {
+				t.Fatalf("initializer facts changed the system prompt on request %d", index)
+			}
 		}
 	})
 }

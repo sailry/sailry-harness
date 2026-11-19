@@ -197,7 +197,7 @@ func TestToolSelectionAndNames(t *testing.T) {
 		}
 		// A declared initial tool starts visible only to the main agent.
 		if !slices.Equal(visible, []string{"read_tool_output", operations.Alias("files", "read_file"), "tool_search"}) ||
-			!slices.Equal(deferred, []string{operations.UpdatePlanTool, "list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
+			!slices.Equal(deferred, []string{"list_sessions", "read_session", "search_session", operations.Alias("files", "delete_file"), operations.Alias("memory", "search_memory")}) {
 			t.Fatalf("standard child visible=%v deferred=%v", visible, deferred)
 		}
 		selection := func(kind string, data any) protocol.PluginConversationTool {

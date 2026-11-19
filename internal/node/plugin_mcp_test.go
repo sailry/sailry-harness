@@ -24,19 +24,15 @@ import (
 func TestMCPPackageAndScriptCapture(t *testing.T) {
 	t.Run("conversation selects MCP and preserves scripted native receipt", pluginMCPConversationAcceptance)
 	t.Run("assistant conversation uses its declared workspace, packages, tools and context", pluginAssistantAcceptance)
-	t.Run("startup retains safe unavailable diagnostics and terminal cleanup", func(t *testing.T) {
-		invocation := &store.AgentInvocation{}
+	t.Run("startup omits unavailable servers and preserves terminal cleanup", func(t *testing.T) {
+		const known = "Existing turn instruction."
+		invocation := &store.AgentInvocation{Instructions: []store.AgentInstruction{{Text: known}}}
 		info := protocol.DefaultPluginInfo()
 		info.Summary.Name, info.Summary.Digest = "unavailable-fixture", strings.Repeat("a", 64)
 		unavailable := &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "private-token https://private.test"}
 		tools, err := (&Node{}).bindMCPTools(t.Context(), invocation, []pluginMCPBinding{{info: info, server: "first", failure: unavailable}, {info: info, server: "second", failure: unavailable}})
-		if err != nil || len(tools) != 0 || len(invocation.Instructions) != 2 {
-			t.Fatalf("ordinary MCP startup failure became fatal: %v, %+v", err, invocation.Instructions)
-		}
-		for _, instruction := range invocation.Instructions {
-			if strings.Contains(instruction.Text, "private-token") || strings.Contains(instruction.Text, "https://") || !strings.Contains(instruction.Text, "do not claim to use it") {
-				t.Fatalf("unsafe MCP startup diagnostic: %s", instruction.Text)
-			}
+		if err != nil || len(tools) != 0 || len(invocation.Instructions) != 1 || invocation.Instructions[0].Text != known {
+			t.Fatalf("unavailable MCP servers changed the tool surface, turn instructions or outcome: %v, %+v", err, invocation.Instructions)
 		}
 		unknown := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "cleanup could not be confirmed"}
 		cancelled := &protocol.Fault{Code: protocol.ErrorCodeCancelled, Message: "fixture cancellation"}

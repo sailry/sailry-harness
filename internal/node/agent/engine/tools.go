@@ -18,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -49,6 +50,7 @@ type Tool struct {
 	Approved          func(canonical.ToolRequest, protocol.ApprovalID, protocol.RequestID)
 	Close             func() error
 	Instruction       string
+	TurnInstruction   prompt.Part
 	ContextParts      []string
 	BeforeModel       func(context.Context, []canonical.Record, ToolResultReader) (bool, error)
 	BindDelegation    func(Tool) Tool
