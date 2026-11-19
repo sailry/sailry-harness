@@ -10,6 +10,36 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Closing the window or quitting saves an edit still within its delay.
+func TestPersonalInstructionsFlushBeforeClosing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source := terminalTabsFixture(t)
+		e := &r.personalInstructions.editor
+		e.Known = true
+		r.App.Settings.PersonalInstructions = e
+		source.respond = func(request protocol.Request) link.Response {
+			input, _ := detail[protocol.CommandSavePersonalInstructionsPayload](request.Command.Data)
+			return link.Response{Output: protocol.Output{Kind: "personal_instructions", Data: protocol.PersonalInstructions{Text: input.Text, Revision: &input.Text}}}
+		}
+		e.Draft = "Closing prompt"
+		r.queuePersonalInstructionsSave()
+		r.FlushEdits()
+		synctest.Wait()
+		commands := source.sent("save_personal_instructions")
+		if len(commands) != 1 || r.personalInstructions.timer != nil {
+			t.Fatalf("the pending edit was not saved before closing: %d writes", len(commands))
+		}
+		if input, _ := detail[protocol.CommandSavePersonalInstructionsPayload](commands[0].Data); input.Text != "Closing prompt" {
+			t.Fatalf("the flushed save wrote %q", input.Text)
+		}
+		r.FlushEdits()
+		synctest.Wait()
+		if len(source.sent("save_personal_instructions")) != 1 {
+			t.Fatal("flushing again repeated the save")
+		}
+	})
+}
+
 func TestPersonalInstructionsSaveAfterEditing(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, source := terminalTabsFixture(t)

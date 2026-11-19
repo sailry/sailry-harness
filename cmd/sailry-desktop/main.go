@@ -299,6 +299,9 @@ func run() error {
 		entry.window.OnBlur(entry.save)
 		entry.window.OnClose(func(e *mygo.CloseEvent) {
 			entry.save()
+			if entry.live != nil {
+				entry.live.FlushEdits()
+			}
 			if guard.closing(entry) {
 				e.PreventDefault()
 			}
@@ -416,6 +419,11 @@ func run() error {
 			}
 		})
 		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
+			for _, entry := range windows {
+				if entry.live != nil {
+					entry.live.FlushEdits()
+				}
+			}
 			if guard.beforeQuit(e.SessionEnding) {
 				e.PreventDefault()
 			}

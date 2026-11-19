@@ -65,6 +65,27 @@ func (r *Runtime) queuePersonalInstructionsSave() {
 	s.timer = timer
 }
 
+// FlushEdits starts the saves of settings edits that still wait for their
+// editor to lose focus or for their delay. The window calls it before it
+// closes and before the application quits, which neither would wait for.
+func (r *Runtime) FlushEdits() {
+	root := r.localRuntime()
+	if e := root.App.Settings.PersonalInstructions; e != nil && e.Detach() && root.instructionsOwner != nil {
+		root.instructionsOwner.queuePersonalInstructionsSave()
+	}
+	owners := []*Runtime{root}
+	for _, bound := range root.bindings {
+		owners = append(owners, bound)
+	}
+	for _, owner := range owners {
+		if s := &owner.personalInstructions; s.timer != nil {
+			s.timer.Stop()
+			s.timer = nil
+			owner.flushPersonalInstructionsSave()
+		}
+	}
+}
+
 func (r *Runtime) flushPersonalInstructionsSave() {
 	s := &r.personalInstructions
 	if s.queued && s.timer == nil && !s.editor.Pending && !s.editor.Failed && !s.editor.Uncertain {
