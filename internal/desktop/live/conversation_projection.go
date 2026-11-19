@@ -1197,26 +1197,11 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 	if summary.Path != nil {
 		call.Detail = *summary.Path
 	}
-	call.Error = toolFailure(language, summary)
-	if summary.Failure != nil {
-		call.Failed = summary.Failure.Origin == "runtime"
-		call.Warning = summary.Failure.Origin == "tool"
-		if code := summary.Failure.Code; code != nil {
-			switch *code {
-			case protocol.ErrorCodeCancelled:
-				call.Failed = false
-				call.Warning = false
-			case protocol.ErrorCodeOutcomeUnknown:
-				call.Failed = false
-				call.Warning = true
-				call.State = conversation.StateInterrupted
-			case protocol.ErrorCodeNotFound:
-				if summary.Expected != nil {
-					call.Failed = false
-					call.Warning = false
-				}
-			}
-		}
+	failure := client.DisplayToolFailure(summary)
+	if failure != nil {
+		call.Error = toolFailure(language, summary.Error, failure)
+		call.Failed = failure.Origin == protocol.ToolFailureOriginRuntime
+		call.Warning = failure.Origin == protocol.ToolFailureOriginTool
 		if call.Failed {
 			call.State = conversation.StateFailed
 		}
@@ -1241,8 +1226,10 @@ func projectCall(name string, summary *protocol.ToolDetailSummary, language stri
 			}
 		}
 	}
-	if message := capturedToolError(summary); message != "" {
-		call.Output = toolErrorOutput(message, summary.Failure)
+	if failure != nil {
+		if message := capturedToolError(summary.Error); message != "" {
+			call.Output = toolErrorOutput(message, failure)
+		}
 	}
 	return call
 }

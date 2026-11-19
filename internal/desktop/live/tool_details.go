@@ -177,9 +177,9 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 		projected.Running = false
 	}
 	if projected.Output == nil || projected.Output.Failure == "" {
-		if value.Failure != nil && loaded.Result != nil {
+		if failure := client.DisplayToolFailure(&value); failure != nil && loaded.Result != nil {
 			if message := protocol.ToolErrorMessage(*loaded.Result); message != "" {
-				projected.Output = toolErrorOutput(message, value.Failure)
+				projected.Output = toolErrorOutput(message, failure)
 			}
 		}
 		if projected.Output == nil || projected.Output.Failure == "" {
@@ -195,11 +195,11 @@ func ProjectToolDetail(call *conversation.Call, summary *protocol.ToolDetailSumm
 	*call = projected
 }
 
-func capturedToolError(summary *protocol.ToolDetailSummary) string {
-	if summary.Failure == nil || summary.Error == nil {
+func capturedToolError(message *string) string {
+	if message == nil {
 		return ""
 	}
-	text := strings.TrimSpace(*summary.Error)
+	text := strings.TrimSpace(*message)
 	if strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[{") || strings.HasPrefix(text, "[\n") {
 		return protocol.ToolErrorMessage(json.RawMessage(text))
 	}

@@ -92,6 +92,37 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 	}
 }
 
+func TestCompletedToolCommandShowsOnlyOutput(t *testing.T) {
+	for _, historical := range []bool{false, true} {
+		call := Call{ID: "command", Label: "Command"}
+		status := &Background{Outcome: OutcomeCompleted}
+		const text = "command result"
+		if historical {
+			status.Exit = new(0)
+			call.BackgroundDetail = func() BackgroundDetail {
+				return BackgroundDetail{Status: status, Output: &Output{Text: text, Command: true}}
+			}
+		} else {
+			status.Preview = text
+			call.Background = status
+		}
+		state := New()
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			state.row(c, call)
+		}, 900, 300)
+		tester.SetLocale("en")
+		tester.Frame()
+		if err := tester.Click("Command"); err != nil {
+			t.Fatal(err)
+		}
+		tester.Frame()
+		if !tester.HasText(text) || tester.HasText(i18n.In("en", "background_outcome_completed")) || tester.HasText(i18n.In("en", "background_exit", "code", 0)) {
+			t.Fatalf("expanded successful command added status text or lost output: %q", tester.Texts())
+		}
+	}
+}
+
 func TestOpenToolDetailLifetime(t *testing.T) {
 	var reads []func(*Output)
 	var cancels int

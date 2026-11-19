@@ -143,15 +143,12 @@ func coreTool(name string) (label, icon string) {
 
 // toolFailure is a failed call's line: the tool's own message, or the kind of
 // the failure in the user's language when it gave none.
-func toolFailure(language string, summary *protocol.ToolDetailSummary) string {
-	if summary.Error != nil && strings.TrimSpace(*summary.Error) != "" {
-		return *summary.Error
-	}
-	if summary.Failure == nil {
-		return ""
+func toolFailure(language string, message *string, failure *protocol.ToolFailure) string {
+	if message != nil && strings.TrimSpace(*message) != "" {
+		return *message
 	}
 	key := "tool_failed"
-	if code := summary.Failure.Code; code != nil {
+	if code := failure.Code; code != nil {
 		switch *code {
 		case protocol.ErrorCodeNotFound:
 			key = "tool_not_found"
@@ -159,10 +156,6 @@ func toolFailure(language string, summary *protocol.ToolDetailSummary) string {
 			key = "tool_invalid"
 		case protocol.ErrorCodePermissionDenied:
 			key = "tool_denied"
-		case protocol.ErrorCodeCancelled:
-			key = "turn_cancelled"
-		case protocol.ErrorCodeOutcomeUnknown:
-			key = "tool_interrupted"
 		case protocol.ErrorCodeUnavailable:
 			key = "tool_unavailable"
 		}

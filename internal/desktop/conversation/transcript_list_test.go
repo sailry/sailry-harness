@@ -160,6 +160,12 @@ func TestFinishFramePreservesPixelAnchorAndRailKeys(t *testing.T) {
 	if s.anchors["conversation"].turn != key {
 		t.Fatal("the newest page discarded the bookmark before its history arrived")
 	}
+	sess.LoadingOlder, shown = true, false
+	tt.Frame()
+	if s.lists["conversation"] != nil || s.anchors["conversation"].turn != key {
+		t.Fatal("closing during history recovery must release the list and keep the bookmark")
+	}
+	shown, sess.LoadingOlder = true, false
 	turns, sess.Older = full, 0
 	tt.Frame()
 	layout = s.List("conversation")

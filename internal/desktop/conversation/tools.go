@@ -296,7 +296,7 @@ func (s *State) tools(c *ui.Context, calls []Call, activity bool) {
 
 // A group discloses call headers. Individual rows still own their outputs.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
-	head := Call{LabelKey: "meter_tool_calls", Detail: fmt.Sprint(len(calls))}
+	head := Call{LabelKey: "meter_tool_calls"}
 	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func() {
@@ -341,7 +341,7 @@ func (s *State) row(c *ui.Context, call Call) {
 			detail = call.BackgroundDetail()
 		}
 		if b := call.Background; b != nil {
-			notice(c, backgroundStatus(c, b), rowColor(theme.Of(c), call))
+			backgroundNotice(c, b, rowColor(theme.Of(c), call))
 			if detail.Output == nil && b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
 				s.output(c, &Output{Text: b.Preview, Command: true}, false)
 			}
@@ -353,7 +353,7 @@ func (s *State) row(c *ui.Context, call Call) {
 			if detail.Status != nil && call.Background == nil {
 				withStatus := call
 				withStatus.Background = detail.Status
-				notice(c, backgroundStatus(c, detail.Status), rowColor(theme.Of(c), withStatus))
+				backgroundNotice(c, detail.Status, rowColor(theme.Of(c), withStatus))
 			}
 			if detail.Output != nil {
 				s.output(c, detail.Output, false)
@@ -403,11 +403,15 @@ func (d *disclosureDetail) Close() error {
 	return nil
 }
 
-func backgroundStatus(c *ui.Context, b *Background) string {
+func backgroundNotice(c *ui.Context, b *Background, color ui.Color) {
 	if b.Running {
-		return i18n.T(c, "background_running")
+		notice(c, i18n.T(c, "background_running"), color)
+		return
 	}
-	keys := [...]string{"background_outcome_completed", "background_outcome_failed", "background_outcome_cancelled",
+	if b.Outcome == OutcomeCompleted {
+		return
+	}
+	keys := [...]string{"", "background_outcome_failed", "background_outcome_cancelled",
 		"background_outcome_stopped", "background_outcome_timed_out", "background_outcome_interrupted",
 		"background_outcome_unknown", "background_outcome_stalled"}
 	label := i18n.T(c, keys[b.Outcome])
@@ -417,7 +421,7 @@ func backgroundStatus(c *ui.Context, b *Background) string {
 	if b.Waiting {
 		label += " · " + i18n.T(c, "background_result_waiting")
 	}
-	return label
+	notice(c, label, color)
 }
 
 // bare reports an output with nothing to display below its row.

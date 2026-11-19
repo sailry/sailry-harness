@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -116,6 +117,32 @@ func TestToolFailureMessageOrOriginalResult(t *testing.T) {
 				}
 			} else if call.Output.Text != "" {
 				t.Fatalf("original envelope was repeated: %q", call.Output.Text)
+			}
+		})
+	}
+}
+
+func TestNeutralToolOutcomesDoNotBecomeFailures(t *testing.T) {
+	for _, sample := range []struct {
+		code     protocol.ErrorCode
+		expected *protocol.ToolResultExpected
+	}{
+		{code: protocol.ErrorCodeCancelled},
+		{code: protocol.ErrorCodeOutcomeUnknown},
+		{code: protocol.ErrorCodeNotFound, expected: new(protocol.ToolResultExpectedFileNotFound)},
+	} {
+		t.Run(string(sample.code), func(t *testing.T) {
+			message := "original tool outcome"
+			summary := &protocol.ToolDetailSummary{Failure: &protocol.ToolFailure{Code: &sample.code, Origin: protocol.ToolFailureOriginRuntime},
+				Error: &message, Expected: sample.expected, HasDetails: true}
+			call := projectCall("read_file", summary, "en")
+			if call.Failed || call.Warning || call.State != conversation.StateNone || call.Error != "" || call.Output != nil {
+				t.Fatalf("tool summary treated the outcome as a failure: %+v", call)
+			}
+			raw := json.RawMessage(`{"message":"original tool outcome"}`)
+			ProjectToolDetail(&call, summary, protocol.ToolDetail{Result: &raw}, "en")
+			if call.Failed || call.Warning || call.State != conversation.StateNone || call.Error != "" || call.Output == nil || call.Output.Failure != "" || call.Output.Text == "" {
+				t.Fatalf("tool detail treated the outcome as a failure: %+v", call)
 			}
 		})
 	}

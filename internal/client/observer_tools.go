@@ -172,7 +172,9 @@ func toolHasDetails(call ToolCall) bool {
 	return (call.Approval == nil || call.Approval.State != "denied") && call.Summary != nil && call.Summary.HasDetails
 }
 
-func displayToolFailure(summary *protocol.ToolDetailSummary) *protocol.ToolFailure {
+// DisplayToolFailure classifies the faults that should appear as tool errors
+// in a conversation view. The canonical summary retains every fault code.
+func DisplayToolFailure(summary *protocol.ToolDetailSummary) *protocol.ToolFailure {
 	if summary == nil || summary.Failure == nil {
 		return nil
 	}
@@ -196,7 +198,7 @@ func toolNeedsErrorDetail(call ToolCall) bool {
 	if call.State != "returned" || !toolHasDetails(call) || toolHidden(call) {
 		return false
 	}
-	failure := displayToolFailure(call.Summary)
+	failure := DisplayToolFailure(call.Summary)
 	if failure == nil || failure.Origin != protocol.ToolFailureOriginRuntime && failure.Origin != protocol.ToolFailureOriginTool ||
 		failure.Code != nil && *failure.Code == protocol.ErrorCodePermissionDenied {
 		return false
@@ -292,7 +294,7 @@ func toolRow(call ToolCall) map[string]any {
 	var state any
 	summary := call.Summary
 	var code *protocol.ErrorCode
-	failure := displayToolFailure(summary)
+	failure := DisplayToolFailure(summary)
 	if summary != nil {
 		icon = summary.Icon
 		if summary.Resolved != nil {

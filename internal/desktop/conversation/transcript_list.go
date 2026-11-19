@@ -100,17 +100,19 @@ func (s *State) FinishFrame() {
 
 func (s *State) releaseTranscript(l *transcriptList) {
 	id := l.frame.id
-	delete(s.anchors, id)
-	if !l.layout.AtEnd() {
-		first, last := l.layout.Visible()
-		if first >= 0 && first <= last && first < len(l.frame.turns) {
-			turn := l.frame.turns[first].ID
-			place := transcriptAnchor{turn: turn}
-			if l.painted.turn == turn {
-				place.inset = l.painted.inset
-			}
-			s.rememberTranscript(id, place)
+	first, last := l.layout.Visible()
+	if !l.layout.AtEnd() && first >= 0 && first <= last && first < len(l.frame.turns) {
+		delete(s.anchors, id)
+		turn := l.frame.turns[first].ID
+		place := transcriptAnchor{turn: turn}
+		if l.painted.turn == turn {
+			place.inset = l.painted.inset
 		}
+		s.rememberTranscript(id, place)
+	} else if sess := l.frame.session; sess == nil || sess.OlderFailed || sess.Older == 0 && !sess.Loading && !sess.LoadingOlder {
+		// If the loaded range can still grow to reach a pending bookmark,
+		// keep it when leaving the transcript during history recovery.
+		delete(s.anchors, id)
 	}
 	delete(s.lists, id)
 	delete(s.docks, id)

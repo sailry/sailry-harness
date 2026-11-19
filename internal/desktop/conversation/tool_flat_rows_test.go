@@ -96,6 +96,9 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 				if len(groups) != 1 || groups[0].Expanded || !tt.HasText("current.go") || !tt.HasText("Command") {
 					t.Fatalf("settled calls should be grouped while the active and failed calls are visible: %q", tt.Texts())
 				}
+				if tt.HasText("4") {
+					t.Fatalf("the folded group shows its call count: %q", tt.Texts())
+				}
 				for _, detail := range details {
 					if tt.HasText(detail) {
 						t.Fatalf("the folded group displays %q: %q", detail, tt.Texts())
