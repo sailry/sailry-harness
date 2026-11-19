@@ -164,7 +164,7 @@ func (r *Runtime) readAttachmentPreview(ctx context.Context, descriptor attachme
 		return file, &content, err
 	}
 	if file.Kind == conversation.ImageFile {
-		data, err := r.readAttachmentImage(ctx, descriptor)
+		data, _, err := r.readAttachmentImage(ctx, descriptor)
 		if err != nil {
 			return file, nil, err
 		}
@@ -350,7 +350,7 @@ func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attach
 						err = fileActionFault(protocol.ErrorCodeInvalidRequest, "document thumbnail exceeds its byte limit")
 					}
 					if err == nil {
-						bitmap, err = decodeAttachmentBitmap(data)
+						bitmap, err = decodeAttachmentBitmap(data, attachmentThumbnailEdge)
 					}
 					r.enqueue(func(*ui.Context) {
 						if ctx.Err() != nil || r.attachments.documents[key] != image {

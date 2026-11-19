@@ -188,7 +188,11 @@ func status(c *ui.Context, a *Attachment) string {
 // its ends fading into the surface.
 func (s *State) attachments(c *ui.Context, actions Actions) {
 	kit.ImageViewer(c, &s.view, func(a *Attachment) kit.ViewerItem {
-		return kit.ViewerItem{Source: a.Image, Name: a.Name}
+		source := a.Image
+		if s.attachmentCallbacks != nil && s.attachmentCallbacks.ViewerImage != nil {
+			source = s.attachmentCallbacks.ViewerImage(a)
+		}
+		return kit.ViewerItem{Source: source, Name: a.Name}
 	}, func(action kit.ImageAction, a *Attachment) {
 		if s.attachmentCallbacks != nil && s.attachmentCallbacks.Image != nil {
 			s.attachmentCallbacks.Image(action, a)

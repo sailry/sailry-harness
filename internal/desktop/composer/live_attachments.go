@@ -20,6 +20,8 @@ type AttachmentCallbacks struct {
 	Pick   func()
 	Remove func(*Attachment)
 	Image  func(kit.ImageAction, *Attachment)
+	// ViewerImage resolves the current gallery item while its viewer is open.
+	ViewerImage func(*Attachment) ui.ImageSource
 	// Locked holds attachment changes while the first message is admitted.
 	Locked func() bool
 }

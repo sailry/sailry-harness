@@ -836,8 +836,10 @@ on demand when the captured result was truncated.
 Closing the disclosure releases the read, not the process. Historical tool rows retain
 revision-scoped summaries. Their open disclosure owns the formatted result and
 cancels outstanding reads when it closes or leaves the virtualized list. Visible
-image rows and published document cards resolve bitmaps when displayed. Panes
-share them on their owning Node and release them after their last visible use. The transcript retains
+conversation image rows resolve bounded thumbnails. The viewer loads the selected
+original on demand and releases it when that image leaves the viewer. Pane
+previews release images after their last visible use. Installed themes validate
+artwork at admission and decode the full image only when it is rendered. The transcript retains
 checkpoint paths and change counts for loaded turns. Opening the history or
 changes view requests the older checkpoint inventory; review owns the diff lines.
 Open workspace editors retain file bodies and draft revisions. A single-file

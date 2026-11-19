@@ -299,5 +299,72 @@ func TestVisibleDocumentThumbnailLifetime(t *testing.T) {
 	})
 }
 
+func TestAttachmentViewerLoadsSelectedOriginal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, source, settle := readRecoveryFixture(t)
+		var encoded bytes.Buffer
+		if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1536, 240))); err != nil {
+			t.Fatal(err)
+		}
+		source.image = encoded.Bytes()
+		digest := blake3.Sum256(source.image)
+		revision := hex.EncodeToString(digest[:])
+		session, worktree := protocol.SessionID{1}, protocol.WorktreeID{1}
+		const path = "picture.png"
+		reads := 0
+		respond := source.handle
+		source.handle = func(request protocol.Request) (link.Response, bool) {
+			if request.Command.Kind != "download_file" {
+				return respond(request)
+			}
+			reads++
+			return link.Response{Output: protocol.Output{Kind: "file_download", Data: protocol.FileDownload{
+				Stream: protocol.StreamID{1}, Worktree: worktree, Path: path, Size: uint64(len(source.image)), Revision: revision,
+			}}}, true
+		}
+		r.conversationSeen = map[protocol.SessionID]bool{session: true}
+		id := session.String()
+		first, second := conversation.Image{ID: "first"}, conversation.Image{ID: "second"}
+		for _, picture := range []conversation.Image{first, second} {
+			r.registerWorkspaceFile(id, picture.ID, worktree, path, nil)
+			r.resolveConversationImage(id, picture)
+		}
+		settle()
+		first, second = r.resolveConversationImage(id, first), r.resolveConversationImage(id, second)
+		if first.Width != 1024 || first.Height != 160 || first.OriginalRevision != revision || reads != 2 {
+			t.Fatalf("bounded thumbnail: %+v, reads=%d", first, reads)
+		}
+		if got := r.resolveConversationViewerImage(id, first); got != first.Source {
+			t.Fatal("opening the viewer did not keep the thumbnail while loading")
+		}
+		settle()
+		original := r.resolveConversationViewerImage(id, first)
+		if width, height := ui.ImageSize(original); width != 1536 || height != 240 || reads != 3 {
+			t.Fatalf("selected image: %gx%g, reads=%d", width, height, reads)
+		}
+		cache := r.attachmentImages(id)
+		selected := cache.viewer
+		// The workspace path now serves a different revision. Navigating to
+		// its other card still shows that card's captured thumbnail.
+		revision = "changed"
+		if got := r.resolveConversationViewerImage(id, second); got != second.Source || selected.ctx.Err() == nil {
+			t.Fatal("navigating retained the previous gallery selection")
+		}
+		settle()
+		if got := r.resolveConversationViewerImage(id, second); got != second.Source || reads != 4 {
+			t.Fatal("the viewer accepted or repeatedly fetched a different revision")
+		}
+		selected = cache.viewer
+		r.pruneAttachmentImages()
+		if cache.viewer != selected {
+			t.Fatal("the visible viewer was released")
+		}
+		r.pruneAttachmentImages()
+		if cache.viewer != nil || selected.ctx.Err() == nil {
+			t.Fatal("closing the viewer retained the current selection")
+		}
+	})
+}
+
 var _ link.Transport = (*readRecoveryTransport)(nil)
 var _ link.Subscription = (*readRecoverySubscription)(nil)

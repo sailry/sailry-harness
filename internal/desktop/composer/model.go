@@ -283,6 +283,8 @@ type Attachment struct {
 	// Image is a picture's thumbnail, nil for other files or until it
 	// decodes.
 	Image ui.ImageSource
+	// ImageRevision identifies the original when Image is scaled down.
+	ImageRevision string
 	// Path is where a dropped or chosen file is; Data a pasted picture's
 	// PNG bytes.
 	Path     string

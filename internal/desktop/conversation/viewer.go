@@ -17,8 +17,12 @@ type Viewer = kit.Viewer[Image]
 
 // viewer draws the image viewer over the window while open (kit's
 // ImageViewer). Copy, Save and Open go to the shell.
-func (s *State) viewer(c *ui.Context, session string, actions Actions) {
+func (s *State) viewer(c *ui.Context, session string, actions Actions, sess *Session) {
 	kit.ImageViewer(c, s.viewOf(session), func(im Image) kit.ViewerItem {
-		return kit.ViewerItem{Source: im.Source, Name: im.Name}
+		source := im.Source
+		if sess != nil && sess.ResolveViewerImage != nil {
+			source = sess.ResolveViewerImage(session, im)
+		}
+		return kit.ViewerItem{Source: source, Name: im.Name}
 	}, actions.ImageAction)
 }

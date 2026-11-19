@@ -46,11 +46,12 @@ type attachmentDescriptor struct {
 type attachmentImageState struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
-	images  map[string]*ui.Bitmap
+	images  map[string]*attachmentThumbnail
 	visible map[string]bool
 	loading map[string]bool
 	failed  map[string]bool // transient reads wait for a refresh or a reconnected Node
 	missing map[string]bool // pictures that cannot show: gone or past the limits
+	viewer  *attachmentViewerImage
 }
 type attachmentState struct {
 	ctx                context.Context
@@ -117,6 +118,12 @@ func (r *Runtime) bindComposerAttachments(x *conversationActions) {
 	}
 	r.projectDraftAttachmentImages(x)
 	callbacks := &composer.AttachmentCallbacks{Locked: x.attachmentsLocked, Remove: x.Discard, Image: func(action kit.ImageAction, a *composer.Attachment) { r.draftImageAction(x, action, a) }}
+	callbacks.ViewerImage = func(a *composer.Attachment) ui.ImageSource {
+		if a.ImageRevision != "" {
+			return r.attachmentViewerSource(x.cv.ID, a.ID, a.ImageRevision, a.Image)
+		}
+		return a.Image
+	}
 	callbacks.Pick = func() { r.chooseAttachments(x) }
 	x.comp.SetAttachmentCallbacks(callbacks)
 }

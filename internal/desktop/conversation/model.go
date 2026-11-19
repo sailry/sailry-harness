@@ -185,6 +185,8 @@ type Image struct {
 	Width, Height int
 	Source        ui.ImageSource
 	Missing       bool
+	// OriginalRevision identifies the original when Source is scaled down.
+	OriginalRevision string `json:"-"`
 	// Reference is how a reply's Markdown names a tool result's picture
 	// (sailry-image:<Reference>): the result's ID and the picture's index.
 	Reference string
@@ -602,8 +604,9 @@ const (
 // connected session at its start.
 type Session struct {
 	// ResolveImage belongs to the Node that owns this transcript, including child panes.
-	ResolveImage func(session string, image Image) Image                     `json:"-"`
-	Embed        func(session, dest, label string, image bool) (Embed, bool) `json:"-"`
+	ResolveImage       func(session string, image Image) Image                     `json:"-"`
+	ResolveViewerImage func(session string, image Image) ui.ImageSource            `json:"-"`
+	Embed              func(session, dest, label string, image bool) (Embed, bool) `json:"-"`
 	// Older is how many turns come before the first one shown, 0 at the
 	// start; LoadingOlder while the page before loads, OlderFailed when it
 	// did not.

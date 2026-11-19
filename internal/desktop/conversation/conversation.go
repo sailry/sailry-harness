@@ -250,7 +250,7 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 			})
 		})
 	}
-	s.viewer(c, id, actions)
+	s.viewer(c, id, actions, sess)
 	s.confirmRewind(c, id, actions)
 	s.searchResult(c, id)
 	s.referenceDialog(c, id)
