@@ -163,8 +163,11 @@ func marketFilters(c *ui.Context, m *Model) {
 
 // marketMatch is whether a card is of the query. A live catalog is the
 // Node's search for it, in the Node's order, which the page shows as is.
-func (m *Model) marketMatch(text string) bool {
-	return m.Live || marketQueryMatch(m.MarketQuery, text)
+// marketMatch reports whether a card shows for the preview's query. The
+// live catalog is searched by its request, so a live card always shows and
+// its text is not joined each frame.
+func (m *Model) marketMatch(name, description string) bool {
+	return m.Live || marketQueryMatch(m.MarketQuery, name+" "+description)
 }
 
 func marketQueryMatch(q, text string) bool {
@@ -304,7 +307,7 @@ func marketPlugins(c *ui.Context, s *State) int {
 	for i := range m.MarketPlugins {
 		x := &m.MarketPlugins[i]
 		installed := m.installedPackage(x.ID) != nil
-		if x.Source != source || !m.marketMatch(x.Name+" "+x.Description) ||
+		if x.Source != source || !m.marketMatch(x.Name, x.Description) ||
 			m.MarketCategory > 0 && x.Category != marketCategories[m.MarketCategory] || m.MarketInstalled && !installed {
 			continue
 		}
@@ -359,7 +362,7 @@ func marketSkills(c *ui.Context, s *State) int {
 		if previewOrigin != "" && !strings.HasPrefix(x.Origin, previewOrigin) {
 			continue
 		}
-		if m.marketMatch(x.Name + " " + x.Description) {
+		if m.marketMatch(x.Name, x.Description) {
 			shown = append(shown, x)
 		}
 	}
