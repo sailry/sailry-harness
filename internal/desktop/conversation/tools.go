@@ -303,9 +303,10 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	head := groupHead(calls)
-	s.disclosure(c, "tool-group-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+	failed := slices.ContainsFunc(calls, toolErrorOpen)
+	s.wrapping(c, "tool-group-"+calls[0].ID, false, failed, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
-	}, 8, 8, func() {
+	}, 8, 8, func(ui.Element) {
 		for _, call := range calls {
 			ui.Column(c.Key("enter-" + call.ID)).Transition(toolRowEnter).Children(func() { s.row(c, call) })
 		}
@@ -317,7 +318,12 @@ func (s *State) toolGroup(c *ui.Context, calls []Call) {
 func groupHead(calls []Call) Call {
 	head := calls[len(calls)-1]
 	head.wrap = false
+	head.Running = head.Running || slices.ContainsFunc(calls, func(call Call) bool { return call.Running })
 	return head
+}
+
+func toolErrorOpen(call Call) bool {
+	return !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
 }
 
 // row is one call: its body is its output.
@@ -336,8 +342,7 @@ func (s *State) row(c *ui.Context, call Call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	failed := !call.Pending && (call.Failed || call.Warning && call.State == StateNone || call.Output != nil && call.Output.Failure != "")
-	s.wrapping(c, "tools-"+call.ID, false, failed, func(hovered, open bool, sw *kit.Sweep) {
+	s.wrapping(c, "tools-"+call.ID, false, toolErrorOpen(call), func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func(rail ui.Element) {
 		if call.Load != nil {
