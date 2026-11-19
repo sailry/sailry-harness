@@ -153,7 +153,10 @@ func TestTranscriptDelegationBatchesReplayInPlace(t *testing.T) {
 	text := protocol.ConversationPart{Kind: "text", Data: "Inspecting the parent files"}
 	frame("delta", protocol.ConversationDraft{ID: "message", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{text}})
 	show()
-	order(count(10, 10), text.Data.(string), i18n.In("zh-CN", "turn_generating"))
+	order(count(10, 10), text.Data.(string))
+	if tester.HasText(i18n.In("zh-CN", "turn_generating")) || tester.HasText(thinking) {
+		t.Fatal("streamed output also showed a phase row")
+	}
 	entry("message", "assistant", text)
 	entry("tools", "assistant", transcriptTool("r", "read_fixture"), transcriptTool("s", "search_fixture"))
 	entry("results", "tool", transcriptResult("s", "search_fixture"), transcriptResult("r", "read_fixture"))
@@ -282,7 +285,7 @@ func TestTranscriptParentIdlePhaseTransitions(t *testing.T) {
 	transcriptActivityShot(t, tester, "transcript-after-tool")
 	text := protocol.ConversationPart{Kind: "text", Data: "Partial reply"}
 	state.Snapshot.Drafts = []protocol.ConversationDraft{{ID: "partial", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{text}}}
-	check("streaming", "turn_generating")
+	check("streaming", "")
 	if !tester.HasText("Partial reply") {
 		t.Fatal("the current stream was hidden")
 	}
