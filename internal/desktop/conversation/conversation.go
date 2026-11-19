@@ -525,30 +525,24 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 	p := theme.Of(c)
 	size := textSize(c)
 	r := &t.Reply
-	blocks = Compact(blocks)
-	from := AnswerFrom(blocks)
-	end := len(blocks)
-	for end > 0 && blocks[end-1].Kind == ErrorBlock {
-		end--
+	workKey := "work-" + key
+	workOpen, chosen := s.work[workKey]
+	if !chosen {
+		workOpen = r.Status != Completed
 	}
+	parts := partitionReply(blocks, workOpen)
 	active := r.Status.Active()
 	live := latest && active && r.Status != Unsynced
 	gap := float32(8)
-	if from > 0 {
+	if parts.hasWork {
 		gap = workGap
 	}
 	col := ui.Column(c.Key("reply")).Gap(gap)
 	over := col.Hovered()
 	col.Children(func() {
 		// The header: the status, its time, and the work region's trigger.
-		if latest || from > 0 {
+		if latest || parts.hasWork {
 			ui.Column(c).Gap(8).Children(func() {
-				key := "work-" + key
-				workOpen, chosen := s.work[key]
-				if !chosen {
-					// Only a successful final result folds its work by default.
-					workOpen = r.Status != Completed
-				}
 				statusKey := StatusKey(r.Status)
 				if !latest {
 					statusKey = StatusKey(Completed)
@@ -569,7 +563,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				// A quiet line: the status in a lighter tone than the answer,
 				// the work region's chevron right after it, brightening on
 				// hover.
-				if from == 0 {
+				if !parts.hasWork {
 					ui.Row(c).Height(rowHeight(size)).TextColor(p.Description()).Children(status)
 				} else {
 					b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight(size)).MaxWidthPercent(100).Gap(6).
@@ -584,18 +578,18 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 							chevron = icons.ChevronDown
 						}
 						ui.Icon(c, chevron).FontSize(rowIcon(size) - 2).Shrink(0)
-					}).OnClick(func() { s.work[key] = !workOpen })
+					}).OnClick(func() { s.work[workKey] = !workOpen })
 				}
 				ui.Divider(c).Background(p.Border)
-				if from > 0 && workOpen {
+				if parts.hasWork && workOpen {
 					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-						s.blocks(c, key, blocks[:from], live && from == len(blocks), actions)
+						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, actions)
 					})
 				}
 			})
 		}
-		if from < end {
-			answer := blocks[from:end]
+		if len(parts.answer) > 0 {
+			answer := parts.answer
 			if mark != "" {
 				answer = markBlocks(answer, mark)
 			}
@@ -606,12 +600,12 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 		if latest && !active && r.Changes != nil {
 			s.changes(c, t.ID, r.Changes, actions)
 		}
-		if live && showPhase(r, blocks) {
+		if live && showPhase(r, parts.endsInRetry) {
 			phaseRow(c, r, t.ID, actions)
 		}
-		if end < len(blocks) {
+		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
-				s.blocks(c, key+"-errors", blocks[end:], false, actions)
+				s.blocks(c, key+"-errors", parts.failures, false, actions)
 			})
 		}
 		if latest && !active {
@@ -669,14 +663,14 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 
 // The tail reports the parent's current phase, not the last activity in its
 // history. A background child has its own status independent of the parent.
-func showPhase(r *Reply, blocks []Block) bool {
+func showPhase(r *Reply, endsInRetry bool) bool {
 	if r.Status == Stopping || r.Phase == WaitingUser || r.Phase == ExecutingTool {
 		return false
 	}
 	if r.Phase == WaitingController {
 		return true
 	}
-	if n := len(blocks); n > 0 && blocks[n-1].Kind == RetryBlock && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
+	if endsInRetry && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
 		return false
 	}
 	for _, b := range r.Blocks {

@@ -61,6 +61,63 @@ func Compact(blocks []Block) []Block {
 	return append(out, failures...)
 }
 
+type replySections struct {
+	work, answer, failures []Block
+	hasWork, endsInRetry   bool
+}
+
+// partitionReply only groups visible blocks. Error blocks always escape the
+// work fold, as do terminal calls following the last nonterminal call.
+func partitionReply(blocks []Block, expanded bool) replySections {
+	var parts replySections
+	var visible []Block
+	if expanded {
+		visible = Compact(blocks)
+		start := AnswerFrom(visible)
+		parts.work = visible[:start]
+		parts.hasWork = start > 0
+		parts.endsInRetry = start > 0 && visible[start-1].Kind == RetryBlock
+		visible = visible[start:]
+	} else {
+		start := AnswerFrom(blocks)
+		parts.hasWork = start > 0
+		parts.endsInRetry = start > 0 && blocks[start-1].Kind == RetryBlock
+		for i := 0; i < start; i++ {
+			if blocks[i].Kind == ErrorBlock {
+				parts.failures = append(parts.failures, blocks[i])
+			}
+		}
+		if start > 0 && blocks[start-1].Kind == ToolsBlock {
+			calls := blocks[start-1].Calls
+			first := len(calls)
+			for first > 0 && calls[first-1].Terminal {
+				first--
+			}
+			for i := first; i < len(calls); i++ {
+				visible = append(visible, Block{Kind: ToolsBlock, Calls: calls[i : i+1 : i+1]})
+			}
+		}
+		tail := Compact(blocks[start:])
+		if len(visible) == 0 {
+			visible = tail
+		} else {
+			visible = append(visible, tail...)
+		}
+	}
+	end := len(visible)
+	for end > 0 && visible[end-1].Kind == ErrorBlock {
+		end--
+	}
+	parts.answer = visible[:end]
+	if len(parts.failures) == 0 {
+		parts.failures = visible[end:]
+	} else {
+		parts.failures = append(parts.failures, visible[end:]...)
+	}
+	parts.endsInRetry = parts.endsInRetry && len(parts.answer) == 0 && len(parts.failures) == 0
+	return parts
+}
+
 // work reports a block that belongs in the collapsible work region:
 // everything but text, questions, the answer's pictures, files and
 // visuals, failures, the notice that the answer was cut, and tool blocks of
