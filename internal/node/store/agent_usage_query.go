@@ -11,7 +11,7 @@ const agentUsagePreset = `coalesce(
 // The indexed query reads captured execution configuration and canonical usage.
 // The report reads only cache_creation of the provider's own usage, so the
 // rest of that object, which can be large, stays in the database.
-const agentUsageTrimmed = `CASE WHEN json_type(e.usage,'$.provider')='object' THEN json_set(json_remove(e.usage,'$.provider'),'$.provider',json_object('cache_creation',json(json_extract(e.usage,'$.provider.cache_creation')))) ELSE e.usage END`
+const agentUsageTrimmed = `CASE WHEN json_type(e.usage,'$.provider')='object' THEN json_set(json_remove(e.usage,'$.provider'),'$.provider',json_object('cache_creation',json(e.usage -> '$.provider.cache_creation'))) ELSE e.usage END`
 
 const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,e.sequence,e.session,e.turn,s.project,r.worktree,json_extract(r.config,'$.resource') AS resource,json_extract(r.config,'$.assistant') AS assistant,
     coalesce(json_extract(e.body,'$.metadata.execution.source.id'),

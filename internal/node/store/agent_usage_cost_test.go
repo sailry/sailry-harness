@@ -90,6 +90,8 @@ func TestUsageQueryKeepsCacheCreation(t *testing.T) {
 			`{"input":1,"provider":{"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30},"id":"msg","content":"large"}}`: `{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":30}`,
 			`{"input":1,"provider":{"id":"msg"}}`: `null`,
 			`{"input":1}`:                         ``,
+			`{"input":1,"provider":{"cache_creation":"unavailable"}}`: `"unavailable"`,
+			`{"input":1,"provider":{"cache_creation":"{}"}}`:          `"{}"`,
 		} {
 			var got string
 			if err := db.QueryRowContext(ctx, trim, raw).Scan(&got); err != nil {
