@@ -226,11 +226,11 @@ func (s *State) pathRow(c *ui.Context, path string) {
 // head builds the row's content; texts it gives the row's sweep shimmer
 // as one band across the row.
 func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
-	s.wrapping(c, key, false, head, top, bottom, body)
+	s.wrapping(c, key, false, head, top, bottom, func(ui.Element) { body() })
 }
 
 // wrapping is a disclosure whose row may wrap its label (rowSize).
-func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
+func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func(ui.Element)) {
 	open := s.opened(key)
 	size := textSize(c)
 	ui.Column(c.Key(key)).Children(func() {
@@ -241,7 +241,8 @@ func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered
 		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
 		sw.Frame(t)
 		if open {
-			Rail(c).Padding(top, 0, bottom, railPad(size)).Children(body)
+			rail := Rail(c).Padding(top, 0, bottom, railPad(size))
+			rail.Children(func() { body(rail) })
 		}
 	})
 }
@@ -318,19 +319,6 @@ func (s *State) row(c *ui.Context, call Call) {
 		output.Images = nil
 		call.Output = &output
 	}
-	if call.Load != nil {
-		if s.requestedDetails == nil {
-			s.requestedDetails = map[string]bool{}
-		}
-		if s.opened("tools-" + call.ID) {
-			if !s.requestedDetails[call.ID] {
-				s.requestedDetails[call.ID] = true
-				call.Load()
-			}
-		} else {
-			delete(s.requestedDetails, call.ID)
-		}
-	}
 	// A call whose loaded output has nothing to draw does not open: its
 	// row already says all there is.
 	card := s.toolCards[s.renderSession][call.ID]
@@ -338,9 +326,19 @@ func (s *State) row(c *ui.Context, call Call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool, sw *kit.Sweep) {
+	s.wrapping(c, "tools-"+call.ID, false, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
-	}, 4, 8, func() {
+	}, 4, 8, func(rail ui.Element) {
+		if call.Load != nil {
+			state := ui.Local(rail, "tool-detail", func() disclosureDetail { return disclosureDetail{} })
+			if output := state.read(call); output != nil {
+				value := *output
+				if call.Output != nil {
+					value.Images = call.Output.Images
+				}
+				call.Output = &value
+			}
+		}
 		if b := call.Background; b != nil {
 			notice(c, backgroundStatus(c, b), rowColor(theme.Of(c), call))
 			if b.Preview != "" && (call.Output == nil || call.Output.Text != b.Preview && call.Output.Failure != b.Preview) {
@@ -368,6 +366,40 @@ func (s *State) row(c *ui.Context, call Call) {
 			card(c)
 		}
 	})
+}
+
+// The open rail owns the formatted result. MyGo closes its local state when
+// the disclosure, parent group, or virtualized row leaves the tree.
+type disclosureDetail struct {
+	revision string
+	active   *bool
+	output   *Output
+	cancel   func()
+}
+
+func (d *disclosureDetail) read(call Call) *Output {
+	if d.active == nil || d.revision != call.DetailRevision {
+		d.Close()
+		active := true
+		d.active, d.revision = &active, call.DetailRevision
+		d.cancel = call.Load(func(output *Output) {
+			if active {
+				d.output = output
+			}
+		})
+	}
+	return d.output
+}
+
+func (d *disclosureDetail) Close() error {
+	if d.active != nil {
+		*d.active = false
+	}
+	if d.cancel != nil {
+		d.cancel()
+	}
+	*d = disclosureDetail{}
+	return nil
 }
 
 func backgroundStatus(c *ui.Context, b *Background) string {
@@ -654,7 +686,7 @@ func (s *State) question(c *ui.Context, q *Question) {
 		plain(c, "question-"+q.CallID, head)
 		return
 	}
-	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
+	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func(ui.Element) {
 		ui.Scroll(c).MaxHeight(outputMax(size)).Gap(4).Children(func() {
 			for _, a := range q.Answers {
 				ui.Text(c, a).FontSize(size).Selectable().TextColor(p.Foreground)

@@ -374,7 +374,8 @@ type Call struct {
 	Background       *Background
 	BackgroundDetail func() BackgroundDetail
 	// Load requests revision-scoped details when this disclosure first opens.
-	Load func()
+	DetailRevision string
+	Load           func(apply func(*Output)) (cancel func())
 
 	wrap bool // view-only: the label wraps rather than truncates
 }

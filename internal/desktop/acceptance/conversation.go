@@ -150,7 +150,11 @@ func toolOutput(w *window) error {
 			Status: conversation.Running,
 			Blocks: []conversation.Block{{Kind: conversation.ToolsBlock, Calls: []conversation.Call{{
 				ID: "acceptance/command", Name: "command", Label: "Command", Warning: true, Error: label("tool_failed"), Output: output,
-				Load: func() { loads++; output.Text = raw },
+				Load: func(apply func(*conversation.Output)) func() {
+					loads++
+					apply(&conversation.Output{Text: raw})
+					return nil
+				},
 			}}}},
 		}}}
 		cv.Status = preview.Running

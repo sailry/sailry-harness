@@ -13,7 +13,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	nodeplugins "github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -89,23 +88,20 @@ func (r *Runtime) initPluginCards() *pluginCardState {
 	return root.pluginCards
 }
 
-func (r *Runtime) bindPluginCards(cv *viewmodel.Conversation, callID string, loaded protocol.ToolDetail) {
-	if cv == nil {
-		return
-	}
+func (r *Runtime) bindPluginCards(session, callID string, content *protocol.ToolContent) {
 	root, state := r.localRuntime(), r.initPluginCards()
 	if state.closed {
 		return
 	}
-	call := pluginCardCallKey{node: r.controller.Target(), session: cv.ID, call: callID}
+	call := pluginCardCallKey{node: r.controller.Target(), session: session, call: callID}
 	var keys []pluginCardKey
-	if loaded.Content != nil {
-		for index, block := range loaded.Content.Blocks {
+	if content != nil {
+		for index, block := range content.Blocks {
 			if block.Kind != "card" {
 				continue
 			}
 			summary, valid := detail[protocol.PluginCardSummary](block.Data)
-			if !valid || summary.Node != call.node || summary.Receipt.Session.String() != cv.ID ||
+			if !valid || summary.Node != call.node || summary.Receipt.Session.String() != session ||
 				int(summary.Receipt.Block) != index || !nodeplugins.CardSummaryValid(summary) {
 				continue
 			}
@@ -137,11 +133,11 @@ func (r *Runtime) bindPluginCards(cv *viewmodel.Conversation, callID string, loa
 	}
 	if len(keys) == 0 {
 		delete(state.calls, call)
-		root.App.Messages.SetToolCard(cv.ID, callID, nil)
+		root.App.Messages.SetToolCard(session, callID, nil)
 		return
 	}
 	state.calls[call] = keys
-	root.App.Messages.SetToolCard(cv.ID, callID, func(view *ui.Context) {
+	root.App.Messages.SetToolCard(session, callID, func(view *ui.Context) {
 		current := root.pluginCards
 		if current == nil || current.closed || !reflect.DeepEqual(current.calls[call], keys) {
 			return

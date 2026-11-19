@@ -81,3 +81,64 @@ func TestToolFailureDetailsRemainAvailable(t *testing.T) {
 		t.Fatalf("original failure cannot be opened: %q", tester.Texts())
 	}
 }
+
+func TestOpenToolDetailLifetime(t *testing.T) {
+	var reads []func(*Output)
+	var cancels int
+	call := Call{ID: "example", Label: "Tool", DetailRevision: "one", Output: &Output{}, Load: func(apply func(*Output)) func() {
+		reads = append(reads, apply)
+		return func() { cancels++ }
+	}}
+	state := New()
+	mounted := true
+	tester := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		if mounted {
+			state.row(c, call)
+		}
+	}, 640, 400)
+	frame := func() { tester.Frame() }
+	toggle := func() {
+		t.Helper()
+		if err := tester.Click("Tool"); err != nil {
+			t.Fatal(err)
+		}
+		frame()
+	}
+	frame()
+	if len(reads) != 0 {
+		t.Fatal("folded result fetched")
+	}
+	toggle()
+	if len(reads) != 1 {
+		t.Fatalf("open reads = %d", len(reads))
+	}
+	reads[0](&Output{Text: "first result"})
+	frame()
+	if !tester.HasText("first result") || len(reads) != 1 {
+		t.Fatal("open detail not retained")
+	}
+	call.DetailRevision = "two"
+	frame()
+	if len(reads) != 2 || cancels != 1 {
+		t.Fatalf("revision reads %d cancels %d", len(reads), cancels)
+	}
+	reads[0](&Output{Text: "stale result"})
+	frame()
+	if tester.HasText("first result") || tester.HasText("stale result") {
+		t.Fatal("stale revision retained")
+	}
+	toggle()
+	if cancels != 2 {
+		t.Fatalf("close cancels = %d", cancels)
+	}
+	toggle()
+	if len(reads) != 3 {
+		t.Fatalf("reopen reads = %d", len(reads))
+	}
+	mounted = false
+	frame()
+	if cancels != 3 {
+		t.Fatalf("unmount cancels = %d", cancels)
+	}
+}

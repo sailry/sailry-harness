@@ -1,7 +1,7 @@
 package live
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
@@ -77,44 +77,48 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 				if !ok {
 					continue
 				}
-				var loaded bool
-				if source.summary.HasDetails {
-					var value protocol.ToolDetail
-					if value, loaded = r.controller.ConversationDetail(source.ref); loaded {
-						r.bindPluginCards(cv, call.ID, value)
-						ProjectToolDetail(call, source.summary, value, locales...)
-					}
-				}
 				call.BackgroundDetail = nil
 				if ref := source.historical; ref != nil && state.Connected && !call.Pending && call.State != conversation.Denied && call.State != conversation.StateInterrupted {
 					call.BackgroundDetail = func() conversation.BackgroundDetail {
 						return r.historicalCommandDetail(*ref)
 					}
 				}
-				if !source.summary.HasDetails || loaded {
+				if !source.summary.HasDetails {
 					continue
 				}
 				if call.Output == nil {
 					call.Output = &conversation.Output{}
 				}
-				ref := source.ref
-				call.Load = func() {
-					key := fmt.Sprintf("detail/%s/%s/%d/%s", ref.Session, ref.Entry, ref.Index, ref.Revision)
-					if r.busy[key] {
-						return
-					}
-					r.busy[key] = true
+				ref, summary := source.ref, source.summary
+				name, id, session := call.Name, call.ID, cv.ID
+				call.DetailRevision = ref.Revision
+				call.Load = func(apply func(*conversation.Output)) func() {
+					ctx, cancel := context.WithCancel(r.ctx)
 					r.async(func() {
-						_, err := r.controller.ReadConversationDetail(r.ctx, ref)
+						value, cached := r.controller.ConversationDetail(ref)
+						var err error
+						if !cached {
+							value, err = r.controller.ReadToolDetail(ctx, ref)
+						}
+						var projected conversation.Call
+						if err == nil && ctx.Err() == nil {
+							projected.Name = name
+							ProjectToolDetail(&projected, summary, value, locales...)
+						}
+						content := value.Content
 						r.enqueue(func(c *ui.Context) {
-							delete(r.busy, key)
+							if ctx.Err() != nil {
+								return
+							}
 							if err != nil {
 								r.report(c, err, "session_changed")
-							} else {
-								r.projectConversations()
+								return
 							}
+							r.bindPluginCards(session, id, content)
+							apply(projected.Output)
 						})
 					})
+					return cancel
 				}
 			}
 		}

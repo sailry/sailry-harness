@@ -545,9 +545,12 @@ func bindRecordedDetails(turns []conversation.Turn, snapshot protocol.Conversati
 				full := *call
 				live.ProjectToolDetail(&full, source.summary, *tools[index].Detail, "en")
 				call.Output = &conversation.Output{}
-				call.Load = func() {
+				call.DetailRevision = source.ref.Revision
+				call.Load = func(apply func(*conversation.Output)) func() {
 					loaded[source.key] = true
 					*call = full
+					apply(full.Output)
+					return nil
 				}
 			}
 		}

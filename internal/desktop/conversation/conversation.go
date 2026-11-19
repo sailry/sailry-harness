@@ -61,14 +61,13 @@ type State struct {
 	// floats there (the session overview card): the turns, the dock and the
 	// rail center in what is left, while the list still fills the pane, so
 	// its scroll bar stays at the pane's edge. The caller sets it per call.
-	Aside            float32
-	CompactDisplay   bool
-	ReaderActive     func(string) bool
-	Search           func(string, string, *uint64, func(SearchPage)) func()
-	Reveal           func(string, Match, func(int, bool)) func()
-	requestedDetails map[string]bool
-	references       map[string]map[string][]Reference
-	referenceDetail  referenceDetail
+	Aside           float32
+	CompactDisplay  bool
+	ReaderActive    func(string) bool
+	Search          func(string, string, *uint64, func(SearchPage)) func()
+	Reveal          func(string, Match, func(int, bool)) func()
+	references      map[string]map[string][]Reference
+	referenceDetail referenceDetail
 	// OpenLink takes a link or a file path of the conversation's content
 	// the application opens itself: in the right panel on a click, with the
 	// system on a click with the platform modifier (External). It reports
