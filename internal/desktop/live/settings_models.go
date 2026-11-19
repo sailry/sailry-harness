@@ -266,8 +266,9 @@ func (s *localModelState) registryChanged(models []protocol.ModelsLocalModel) {
 // again until a page is entered anew.
 func (r *Runtime) watchLocalModels() {
 	s := &r.localModels
+	collections := &r.localRuntime().knowledge
 	lost := func() {
-		r.enqueue(func(*ui.Context) { s.watching, s.unwatched, s.stale, r.knowledge.stale = false, true, true, true })
+		r.enqueue(func(*ui.Context) { s.watching, s.unwatched, s.stale, collections.stale = false, true, true, true })
 	}
 	s.watching = r.observe(func() {
 		stream, err := r.controller.Subscribe(r.ctx, protocol.Topic{Kind: "node"})
@@ -276,7 +277,7 @@ func (r *Runtime) watchLocalModels() {
 			return
 		}
 		defer stream.Close()
-		for first := true; ; first = false {
+		for {
 			update, err := stream.Next(r.ctx)
 			if err != nil {
 				lost()
@@ -284,11 +285,9 @@ func (r *Runtime) watchLocalModels() {
 			}
 			switch update.Kind {
 			case "snapshot":
-				// The subscription opens with the snapshot the frame's own
-				// read already covers.
-				if !first {
-					r.enqueue(func(*ui.Context) { s.stale, r.knowledge.stale = true, true })
-				}
+				// A frame's independent read can precede the first snapshot.
+				// Refresh after subscribing to cover changes in that gap.
+				r.enqueue(func(*ui.Context) { s.stale, collections.stale = true, true })
 			case "event":
 				envelope, valid := detail[protocol.EventEnvelope](update.Data)
 				if !valid || envelope.Node != r.controller.Target() {
@@ -301,7 +300,7 @@ func (r *Runtime) watchLocalModels() {
 					}
 				case "knowledge_collections_changed", "resource_catalog_changed":
 					// The event names no collection: the page reads them again.
-					r.enqueue(func(*ui.Context) { r.knowledge.stale = true })
+					r.enqueue(func(*ui.Context) { collections.stale = true })
 				case "local_model_settings_changed":
 					if changed, valid := detail[protocol.EventLocalModelSettingsChangedPayload](envelope.Event.Data); valid {
 						r.enqueue(func(*ui.Context) {
