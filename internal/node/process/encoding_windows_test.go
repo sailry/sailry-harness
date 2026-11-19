@@ -24,21 +24,23 @@ func TestNativeOutputEncoding(t *testing.T) {
 		want  string
 	}{{"UTF-16", []byte{0xff, 0xfe, 'a', 0, 0x2d, 0x4e}, "a中"}, {"OEM", []byte{'a', 0x82}, "aé"}, {"UTF-8 BOM", []byte{0xef, 0xbb, 0xbf, 'a'}, "a"}} {
 		t.Run(fixture.name, func(t *testing.T) {
-			decoder := outputDecoder{command: true, pageCode: newCodePage(437), prefix: 100}
+			stream := newRetained(t.TempDir(), &outputBudget{}, false, true)
+			defer stream.evict()
+			stream.capture.decoder.pageCode = newCodePage(437)
 			for _, value := range fixture.bytes {
-				decoder.append([]byte{value})
+				stream.append([]byte{value})
 			}
-			decoder.finish()
-			text, bad := decoder.decode(fixture.bytes, 0)
-			if text != fixture.want || bad {
-				t.Fatal(text, bad)
+			stream.finish()
+			capture := stream.snapshot(false)
+			if capture.Text != fixture.want || capture.InvalidUtf8 {
+				t.Fatal(capture)
 			}
-			preview := (&retainedStream{decoder: decoder, total: uint64(len(fixture.bytes))}).preview()
+			preview := stream.preview()
 			if preview["transcoded"] != true || preview["total_bytes"] != uint64(len(fixture.bytes)) || len(preview) != 2 {
 				t.Fatal("small transcoded output lost original byte accounting", preview)
 			}
 			if fixture.name == "UTF-16" {
-				if _, err := decoder.page(fixture.bytes[3:], 3, 4, true); err == nil {
+				if _, err := stream.capture.decoder.page(fixture.bytes[3:], 3, 4, true); err == nil {
 					t.Fatal("split UTF-16 offset accepted")
 				}
 			}
