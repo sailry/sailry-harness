@@ -18,10 +18,11 @@ type ChannelModel struct {
 	DefaultEffort   string
 	// The capability tags: what the model accepts (Inputs, ModelInputs'
 	// values; nil when unknown, where text and Vision stand for them), can do
-	// and generates (GenerateImage, GenerateImageTool, GenerateVideo,
-	// GenerateSpeech). Vision mirrors the image input. CustomCapabilities
-	// marks tags the user chose, which the catalog no longer replaces.
+	// and generates through a media service. Outputs separately reports the
+	// catalog's native modalities. Vision mirrors the image input.
+	// CustomCapabilities marks editable tags that the catalog cannot replace.
 	Inputs                   []string
+	Outputs                  []string
 	Vision, Tools, Reasoning bool
 	Generates                []string
 	CustomCapabilities       bool

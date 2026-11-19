@@ -83,7 +83,12 @@ func TestProviderInputsFollowCatalogWithoutReplacingOverrides(t *testing.T) {
 				return fmt.Errorf("expected three saved models at revision %d, got %+v", revision, stored)
 			}
 			models := stored.Provider.Models
+			var outputs []string
+			if inputs != nil {
+				outputs = []string{"text"}
+			}
 			if model := models[0]; model.Vision != vision || !reflect.DeepEqual(model.Inputs, inputs) ||
+				!reflect.DeepEqual(model.Outputs, outputs) ||
 				model.Context != auto.Context || model.Output != auto.Output || !reflect.DeepEqual(model.CompactionTokens, auto.CompactionTokens) ||
 				!model.CustomEfforts || !reflect.DeepEqual(model.Efforts, auto.Efforts) || !reflect.DeepEqual(model.DefaultEffort, auto.DefaultEffort) {
 				return fmt.Errorf("automatic model should follow inputs %#v without changing its limits or efforts: %+v", inputs, model)

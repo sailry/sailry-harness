@@ -203,11 +203,11 @@ func readProviderCatalog(ctx context.Context, db *sql.Conn, query protocol.Conve
 			// An ID on an unlisted proxy can suggest legacy vision, but not a full input list.
 			model.Inputs = slices.DeleteFunc(model.Inputs, func(input string) bool { return input != "text" && input != "image" })
 			if !slices.Contains(model.Inputs, "image") {
-				inputs, err := catalogInputs(ctx, db, status.Bundled, "", model.ID)
+				offering, err := catalogOffering(ctx, db, status.Bundled, "", model.ID)
 				if err != nil {
 					return result, err
 				}
-				if slices.Contains(inputs, "image") {
+				if offering != nil && slices.Contains(offering.Inputs, "image") {
 					model.Inputs = append(model.Inputs, "image")
 				}
 			}
@@ -283,7 +283,13 @@ func providerCatalogEntries(ctx context.Context, db *sql.Conn, query protocol.Co
 			continue
 		}
 		seen[id] = true
-		if err := read(db.QueryContext(ctx, "SELECT provider,id,body FROM model_catalog WHERE id=?1 AND (?2 IS NULL OR provider=?2) ORDER BY provider", id, query.Provider)); err != nil {
+		var err error
+		if query.Provider != nil {
+			err = read(db.QueryContext(ctx, "SELECT provider,id,body FROM model_catalog WHERE provider=?1 AND id=?2", *query.Provider, id))
+		} else {
+			err = read(db.QueryContext(ctx, "SELECT provider,id,body FROM model_catalog WHERE id=?1 ORDER BY provider", id))
+		}
+		if err != nil {
 			return nil, err
 		}
 	}

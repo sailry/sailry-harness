@@ -2137,6 +2137,7 @@ settings_media: Modelos de medios
 settings_media_description: Gestionar modelos para tareas de imagen, audio y vídeo
 provider_cap_text: Texto
 provider_cap_input: Inputs
+provider_cap_output: Native outputs
 provider_cap_audio_input: Audio
 provider_cap_pdf: PDF
 provider_cap_functions: Functions

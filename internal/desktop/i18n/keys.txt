@@ -2149,6 +2149,7 @@ settings_media
 settings_media_description
 provider_cap_text
 provider_cap_input
+provider_cap_output
 provider_cap_audio_input
 provider_cap_pdf
 provider_cap_functions

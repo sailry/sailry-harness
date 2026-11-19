@@ -53,3 +53,24 @@ func TestCompleteChannelModelInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogOutputsDoNotAdvertiseGenerationRoutes(t *testing.T) {
+	provider := protocol.ConversationProvider{Api: protocol.ConversationModelApiResponses, Endpoint: "https://api.openai.com/v1", Authentication: protocol.AuthenticationApiKey}
+	model := protocol.ConversationModel{ID: "fixture"}
+	reference := protocol.ConversationCatalogModel{ID: model.ID, Inputs: []string{"text", "image"}, Outputs: []string{"text", "audio", "audio", "future"}}
+	got := CompleteChannelModel(provider, model, &reference)
+	if !slices.Equal(got.Outputs, []string{"text", "audio"}) || !slices.Equal(got.Generates, []protocol.MediaGeneration{protocol.MediaGenerationImageTool}) {
+		t.Fatalf("native output and media routes overlap: %+v", got)
+	}
+	got.CustomCapabilities = true
+	got.Generates = []protocol.MediaGeneration{protocol.MediaGenerationVideo}
+	reference.Outputs = []string{"text", "image"}
+	got = CompleteChannelModel(provider, got, &reference)
+	if !slices.Equal(got.Outputs, reference.Outputs) || !slices.Equal(got.Generates, []protocol.MediaGeneration{protocol.MediaGenerationVideo}) {
+		t.Fatalf("native output metadata replaced a manual route: %+v", got)
+	}
+	provider.Endpoint = "https://proxy.invalid/v1"
+	if got := CompleteChannelModel(provider, model, &reference); got.Outputs != nil {
+		t.Fatalf("other offerings reported as native outputs: %+v", got)
+	}
+}

@@ -554,7 +554,7 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 		if x.Context > 0 {
 			ctx = strconv.Itoa(x.Context)
 		}
-		x.Inputs, x.Generates = slices.Clone(x.Inputs), slices.Clone(x.Generates)
+		x.Inputs, x.Outputs, x.Generates = slices.Clone(x.Inputs), slices.Clone(x.Outputs), slices.Clone(x.Generates)
 		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts), def: max(0, slices.Index(x.Efforts, x.DefaultEffort)),
 			hosted: slices.Contains(x.Generates, viewmodel.GenerateImageTool)}
 		if !x.CustomCapabilities {
@@ -1787,11 +1787,8 @@ func (d *modelDraft) setInput(kind string, on bool) {
 	x.Vision = x.AcceptsInput("image")
 }
 
-// capabilityForm is the model's capability tags as checkboxes in three
-// groups: its inputs, its functions and what it generates, under Follow
-// catalog. Following leaves the tags to the catalog, which a save lets the
-// Node complete; a changed box or turning it off marks the tags as the
-// user's (CustomCapabilities), which a save then keeps over the catalog's.
+// capabilityForm shows the native output metadata beside the editable
+// input, function and generation tags. Manual tags survive catalog refresh.
 func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
@@ -1862,6 +1859,21 @@ func capabilityForm(c *ui.Context, d *modelDraft, api string) {
 					for _, kind := range viewmodel.ModelInputs {
 						input(kind)
 					}
+				})
+				group("provider_cap_output", "", func() {
+					var labels []string
+					id := strings.TrimSpace(d.id)
+					if x.ID == id || d.catalog != nil && d.catalog.ID == id {
+						for _, kind := range x.Outputs {
+							if key := inputLabels[kind]; key != "" {
+								labels = append(labels, t(key))
+							}
+						}
+					}
+					if len(labels) == 0 {
+						labels = append(labels, t("host_unknown"))
+					}
+					ui.Text(c.Key("native"), strings.Join(labels, ", ")).FontSize(14).TextColor(p.PopoverForeground)
 				})
 				group("provider_cap_functions", "", func() {
 					check("provider_cap_functions", "tools", "provider_cap_tools", &x.Tools)

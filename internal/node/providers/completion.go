@@ -11,7 +11,7 @@ import (
 // CompleteChannelModel enriches a model with a reference from its channel lookup.
 func CompleteChannelModel(provider protocol.ConversationProvider, model protocol.ConversationModel, reference *protocol.ConversationCatalogModel) protocol.ConversationModel {
 	var matchedChannel bool
-	if reference != nil && reference.ID == model.ID && reference.Inputs != nil && !model.CustomCapabilities {
+	if reference != nil && reference.ID == model.ID {
 		namespace, _ := ChannelCatalogNamespace(provider.Endpoint, provider.Authentication)
 		matchedChannel = namespace != "" // Unlisted channels may have an ID-only reference.
 	}
@@ -36,6 +36,10 @@ func completeModel(model protocol.ConversationModel, reference *protocol.Convers
 		reference = nil
 	}
 	completed := model
+	completed.Outputs = nil
+	if matchedChannel && reference != nil {
+		completed.Outputs = CatalogOutputs(reference.Outputs)
+	}
 	native := model.Capabilities
 	var reasoning *bool
 	if native != nil {
@@ -123,6 +127,16 @@ func completeModel(model protocol.ConversationModel, reference *protocol.Convers
 		}
 	}
 	return completed
+}
+
+// CatalogOutputs keeps known native modalities without giving them a media route.
+func CatalogOutputs(outputs []string) (known []string) {
+	for _, output := range outputs {
+		if protocol.ValidModelOutput(output) && !slices.Contains(known, output) {
+			known = append(known, output)
+		}
+	}
+	return known
 }
 
 // CompleteModelInputs updates just the input tags. Native vision overrides the

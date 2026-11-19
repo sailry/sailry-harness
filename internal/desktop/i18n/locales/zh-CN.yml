@@ -2137,6 +2137,7 @@ settings_media: 媒体模型
 settings_media_description: 管理图像、音频和视频任务使用的模型
 provider_cap_text: 文本
 provider_cap_input: 输入
+provider_cap_output: 原生输出
 provider_cap_audio_input: 音频
 provider_cap_pdf: PDF
 provider_cap_functions: 功能

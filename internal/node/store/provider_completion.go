@@ -29,9 +29,9 @@ func fillProviderMetadata(ctx context.Context, db *sql.Conn, provider *protocol.
 	return nil
 }
 
-// catalogInputs finds the exact offering, or the agreed canonical origin when
-// no namespace is specified. Callers use the latter only for legacy vision.
-func catalogInputs(ctx context.Context, db *sql.Conn, bundled bool, namespace, id string) ([]string, error) {
+// catalogOffering finds the exact offering, or the agreed canonical origin
+// when no namespace is specified. The latter is used only for legacy vision.
+func catalogOffering(ctx context.Context, db *sql.Conn, bundled bool, namespace, id string) (*protocol.ConversationCatalogModel, error) {
 	if namespace == "" {
 		entries, err := providerCatalogEntries(ctx, db, protocol.ConversationCatalogQuery{IDs: []string{id}}, bundled)
 		if err != nil {
@@ -64,17 +64,23 @@ func catalogInputs(ctx context.Context, db *sql.Conn, bundled bool, namespace, i
 	if err != nil || reference.ID != id {
 		return nil, err
 	}
-	return reference.Inputs, nil
+	return &reference, nil
 }
 
 // fillProviderVision resolves input capabilities on already saved legacy models
-// for both controller reads and new turns, without revising the configuration.
+// for controller reads and new turns without revising the configuration.
+// Controller lists also backfill native outputs for existing configurations.
 func fillProviderVision(ctx context.Context, db *sql.Conn, provider *protocol.ConversationProvider, modelID string) error {
 	var status *protocol.ConversationCatalogStatus
 	var namespace string
 	for i := range provider.Models {
 		entry := &provider.Models[i]
-		if modelID != "" && entry.ID != modelID || entry.Inputs != nil || entry.CustomCapabilities {
+		if modelID != "" && entry.ID != modelID {
+			continue
+		}
+		fillInputs := entry.Inputs == nil && !entry.CustomCapabilities
+		fillOutputs := modelID == "" && len(entry.Outputs) == 0
+		if !fillInputs && !fillOutputs {
 			continue
 		}
 		if status == nil {
@@ -89,18 +95,25 @@ func fillProviderVision(ctx context.Context, db *sql.Conn, provider *protocol.Co
 			status = &current
 		}
 		var inputs []string
-		if namespace != "" || !entry.Vision && (entry.Capabilities == nil || entry.Capabilities.Vision == nil) {
-			var err error
-			inputs, err = catalogInputs(ctx, db, status.Bundled, namespace, entry.ID)
+		if namespace != "" || fillInputs && !entry.Vision && (entry.Capabilities == nil || entry.Capabilities.Vision == nil) {
+			offering, err := catalogOffering(ctx, db, status.Bundled, namespace, entry.ID)
 			if err != nil {
 				return err
 			}
-			if namespace == "" {
-				entry.Vision = slices.Contains(inputs, "image")
-				inputs = nil
+			if offering != nil {
+				if namespace != "" {
+					inputs = offering.Inputs
+					if fillOutputs {
+						entry.Outputs = providers.CatalogOutputs(offering.Outputs)
+					}
+				} else {
+					entry.Vision = slices.Contains(offering.Inputs, "image")
+				}
 			}
 		}
-		*entry = providers.CompleteModelInputs(*entry, inputs)
+		if fillInputs {
+			*entry = providers.CompleteModelInputs(*entry, inputs)
+		}
 	}
 	return nil
 }

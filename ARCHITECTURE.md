@@ -458,9 +458,11 @@ snapshot every six hours when its content changes, and releases embed their
 committed snapshot. This reference data is separate from the reviewed model
 request policies under `internal/node/agent/model/data`.
 
-Model settings separate input modalities from tool, reasoning and generation
-capabilities. Automatic input capabilities follow the model and channel in the
-owning Node's catalog, including declared image support from native discovery.
+Model settings separate input and native output modalities from tool,
+reasoning and callable generation capabilities. Native outputs come from the
+catalog and do not enable a generation endpoint. Automatic input capabilities
+follow the model and channel in the owning Node's catalog, including declared
+image support from native discovery.
 Manual capabilities are kept on refresh. Older settings and unknown gateways
 retain their text and image compatibility behavior. The captured model, native
 adapter and detected file format determine whether an attachment can travel as

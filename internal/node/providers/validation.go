@@ -33,6 +33,11 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 				return invalid("model input modality is unsupported")
 			}
 		}
+		for _, output := range model.Outputs {
+			if !protocol.ValidModelOutput(output) {
+				return invalid("model output modality is unsupported")
+			}
+		}
 		if model.Reasoning {
 			if len(model.Efforts) > 16 || len(model.Efforts) == 0 && model.DefaultEffort.Kind != "default" {
 				return invalid("reasoning choices must be unique, bounded and include the default")

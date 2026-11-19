@@ -2137,6 +2137,7 @@ settings_media: 미디어 모델
 settings_media_description: 이미지, 오디오 및 비디오 작업에 대한 모델 관리
 provider_cap_text: 텍스트
 provider_cap_input: Inputs
+provider_cap_output: Native outputs
 provider_cap_audio_input: Audio
 provider_cap_pdf: PDF
 provider_cap_functions: Functions

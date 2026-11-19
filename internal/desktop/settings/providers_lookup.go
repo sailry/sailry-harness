@@ -116,14 +116,14 @@ func (d *modelDraft) followCatalog() {
 
 func (d *modelDraft) applyAutomaticCapabilities(model *viewmodel.ChannelModel) {
 	d.model.Vision, d.model.Tools, d.model.Reasoning = true, true, false
-	d.model.Inputs, d.model.Generates, d.catalog, d.hosted = nil, nil, nil, false
+	d.model.Inputs, d.model.Outputs, d.model.Generates, d.catalog, d.hosted = nil, nil, nil, nil, false
 	if model == nil {
 		return
 	}
 	catalog := *model
-	catalog.Inputs, catalog.Generates = slices.Clone(model.Inputs), slices.Clone(model.Generates)
+	catalog.Inputs, catalog.Outputs, catalog.Generates = slices.Clone(model.Inputs), slices.Clone(model.Outputs), slices.Clone(model.Generates)
 	d.catalog = &catalog
 	d.model.Vision, d.model.Tools, d.model.Reasoning = model.Vision, model.Tools, model.Reasoning
-	d.model.Inputs, d.model.Generates = slices.Clone(model.Inputs), slices.Clone(model.Generates)
+	d.model.Inputs, d.model.Outputs, d.model.Generates = slices.Clone(model.Inputs), slices.Clone(model.Outputs), slices.Clone(model.Generates)
 	d.hosted = slices.Contains(model.Generates, viewmodel.GenerateImageTool)
 }

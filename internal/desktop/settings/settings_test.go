@@ -953,7 +953,7 @@ func TestProviderEditor(t *testing.T) {
 		var saved []ProviderDraft
 		m.ProviderActions.Save = func(d ProviderDraft, _ func(ProviderSaveResult)) { saved = append(saved, d) }
 		m.provider = providerEditor{open: true, step: stepConfigure, name: "Provider", keySet: true, models: draftsOf([]preview.ChannelModel{
-			{ID: "hosted", Context: 128000, Tools: true, Generates: []string{viewmodel.GenerateImageTool, viewmodel.GenerateSpeech}},
+			{ID: "hosted", Context: 128000, Tools: true, Outputs: []string{"text", "audio"}, Generates: []string{viewmodel.GenerateImageTool, viewmodel.GenerateSpeech}},
 			{ID: "plain", Context: 128000, Vision: true},
 		})}
 		for i := range m.provider.models {
@@ -963,6 +963,9 @@ func TestProviderEditor(t *testing.T) {
 		tt.SetLocale("en")
 		tt.Frame()
 		tt.Advance(time.Second)
+		if !tt.HasText(i18n.In("en", "provider_cap_output")) || !tt.HasText("Text, Audio") || !tt.HasText(i18n.In("en", "host_unknown")) {
+			t.Fatalf("native output capability metadata was omitted: %q", tt.Texts())
+		}
 		// boxes are a model's six, in the form's order.
 		in := func(group, name string) string { return i18n.In("en", group) + " " + i18n.In("en", name) }
 		names := []string{in("provider_cap_input", "media_image"), in("provider_cap_functions", "provider_cap_tools"), in("provider_cap_functions", "provider_cap_reasoning"),

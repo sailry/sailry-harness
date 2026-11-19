@@ -2137,6 +2137,7 @@ settings_media: メディアモデル
 settings_media_description: 画像、オーディオ、ビデオタスクのモデルを管理します
 provider_cap_text: テキスト
 provider_cap_input: Inputs
+provider_cap_output: Native outputs
 provider_cap_audio_input: Audio
 provider_cap_pdf: PDF
 provider_cap_functions: Functions

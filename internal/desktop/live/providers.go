@@ -670,7 +670,8 @@ func azureVersion(p protocol.ConversationProvider) string {
 
 func channelModel(m protocol.ConversationModel) viewmodel.ChannelModel {
 	v := viewmodel.ChannelModel{ID: m.ID, Name: m.ID, Context: int(m.Context), Output: int(m.Output), DefaultEffort: effortName(m.DefaultEffort),
-		Inputs: slices.Clone(m.Inputs), Vision: m.AcceptsInput("image"), Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
+		Inputs: slices.Clone(m.Inputs), Outputs: slices.Clone(m.Outputs), Vision: m.AcceptsInput("image"),
+		Tools: m.Tools, Reasoning: m.Reasoning, CustomCapabilities: m.CustomCapabilities}
 	for _, generated := range m.Generates {
 		v.Generates = append(v.Generates, string(generated))
 	}

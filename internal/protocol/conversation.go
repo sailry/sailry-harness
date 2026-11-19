@@ -257,7 +257,10 @@ type ConversationModel struct {
 	CompactionTokens *uint32                            `json:"compaction_tokens,omitempty"`
 	Capabilities     *ConversationDiscoveryCapabilities `json:"capabilities,omitempty"`
 	// A nil list falls back to the legacy text and vision capabilities.
-	Inputs    []string          `json:"inputs,omitzero"`
+	Inputs []string `json:"inputs,omitzero"`
+	// Outputs reports native output modalities from the channel's catalog.
+	// Generates identifies callable media services independently.
+	Outputs   []string          `json:"outputs,omitempty"`
 	Vision    bool              `json:"vision"`
 	Tools     bool              `json:"tools"`
 	Reasoning bool              `json:"reasoning"`
@@ -273,6 +276,15 @@ type ConversationModel struct {
 func ValidModelInput(kind string) bool {
 	switch kind {
 	case "text", "image", "video", "audio", "pdf":
+		return true
+	}
+	return false
+}
+
+// ValidModelOutput reports whether kind is a supported catalog output modality.
+func ValidModelOutput(kind string) bool {
+	switch kind {
+	case "text", "image", "video", "audio":
 		return true
 	}
 	return false
@@ -313,6 +325,7 @@ func (value *ConversationModel) UnmarshalJSON(data []byte) error {
 		CompactionTokens   *uint32                            `json:"compaction_tokens"`
 		Capabilities       *ConversationDiscoveryCapabilities `json:"capabilities"`
 		Inputs             *[]string                          `json:"inputs"`
+		Outputs            []string                           `json:"outputs"`
 		Vision             bool                               `json:"vision"`
 		Tools              bool                               `json:"tools"`
 		Reasoning          bool                               `json:"reasoning"`
@@ -327,7 +340,7 @@ func (value *ConversationModel) UnmarshalJSON(data []byte) error {
 	}
 	*value = ConversationModel{
 		ID: decoded.ID, DisplayName: decoded.DisplayName, Context: decoded.Context, Output: decoded.Output,
-		CompactionTokens: decoded.CompactionTokens, Capabilities: decoded.Capabilities, Vision: decoded.Vision,
+		CompactionTokens: decoded.CompactionTokens, Capabilities: decoded.Capabilities, Outputs: decoded.Outputs, Vision: decoded.Vision,
 		Tools: decoded.Tools, Reasoning: decoded.Reasoning, Generates: decoded.Generates, CustomCapabilities: decoded.CustomCapabilities,
 		Efforts: decoded.Efforts, CustomEfforts: decoded.CustomEfforts, DefaultEffort: decoded.DefaultEffort,
 	}
