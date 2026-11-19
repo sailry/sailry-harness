@@ -20,7 +20,10 @@ import (
 
 // Environment reports captured execution facts. Git appends its actual snapshot
 // when that service is available; an unavailable project snapshot is explicit.
-func Environment(now time.Time, model, shell string, project bool) string {
+// sandbox is the effective command sandbox: the setting on a supported OS
+// outside Full permission. Commands reread the setting, so a change during the
+// turn appears in the next captured environment.
+func Environment(now time.Time, model, shell string, project, sandbox bool) string {
 	osName := runtime.GOOS
 	if osName == "darwin" {
 		osName = "macos"
@@ -37,7 +40,11 @@ func Environment(now time.Time, model, shell string, project bool) string {
 	encoded, _ := json.Marshal(model)
 	value := fmt.Sprintf("Session environment\nOS: %s\nArchitecture: %s\nDate: %s\nModel: %s", osName, arch, now.Format("2006-01-02 (UTC-07:00)"), encoded)
 	if project {
-		value += fmt.Sprintf("\nWorking directory: . (current project directory)\nCommand shell: %q\nGit snapshot: unavailable", shell)
+		state := "disabled"
+		if sandbox {
+			state = "enabled"
+		}
+		value += fmt.Sprintf("\nWorking directory: . (current project directory)\nCommand shell: %q\nCommand sandbox: %s\nGit snapshot: unavailable", shell, state)
 	}
 	return value
 }
@@ -106,7 +113,7 @@ func CapturePersonal(ctx context.Context, profile string) (string, error) {
 	if value == nil || strings.TrimSpace(*value) == "" {
 		return "", nil
 	}
-	return "Personal instructions\nThese are the user's preferences for tasks on this machine. Explicit instructions for the current task, work mode, tool permissions and delegated scope remain authoritative. Apply scoped project guides within their stated directories.\nSource: instructions.md\n" + *value, nil
+	return "Personal instructions\nThese are the user's preferences for tasks on this machine.\nSource: instructions.md\n" + *value, nil
 }
 func readInstruction(ctx context.Context, files *core.Files, name string) (*string, error) {
 	if ctx.Err() != nil {

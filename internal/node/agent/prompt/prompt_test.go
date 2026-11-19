@@ -29,8 +29,12 @@ func TestSystemPromptByteStable(t *testing.T) {
 		if Policy(protocol.WorkModePlan, permission, false) != text("plan") {
 			t.Fatal("planning inherited write authority from permission")
 		}
-		if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), "Windows retains") {
-			t.Fatal("captured permission policy was not retained")
+		want := "Command sandbox: enabled"
+		if permission == protocol.PermissionFull {
+			want = "without the workspace sandbox"
+		}
+		if !strings.Contains(Policy(protocol.WorkModeCode, permission, false), want) {
+			t.Fatalf("%s policy does not describe its command sandbox", permission)
 		}
 	}
 	for _, child := range []bool{false, true} {

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -322,7 +323,18 @@ func (r *Runtime) turn(x *execution) error {
 			policy += "\n\n" + addition
 		}
 	}
-	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, os.Getenv("SHELL"), inv.Worktree.Project != nil)
+	// Full permission and unsupported systems run commands outside the sandbox
+	// whatever the setting says; the model is told the effective state.
+	sandbox := protocol.DefaultSandboxSettings()
+	if err = r.db.Read(x.ctx, func(db *sql.Conn) error {
+		var err error
+		sandbox, err = store.ReadSandboxSettings(x.ctx, db)
+		return err
+	}); err != nil {
+		return err
+	}
+	sandboxed := sandbox.Enabled && inv.Turn.Config.Permission != protocol.PermissionFull && (runtime.GOOS == "darwin" || runtime.GOOS == "linux")
+	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, os.Getenv("SHELL"), inv.Worktree.Project != nil, sandboxed)
 	personal, err := prompt.CapturePersonal(x.ctx, r.profile)
 	if err != nil {
 		return err

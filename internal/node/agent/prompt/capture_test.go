@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -151,4 +152,21 @@ func TestCaptureInstructionReadBoundaries(t *testing.T) {
 			t.Fatalf("absent personal instructions = %q, %v", personal, err)
 		}
 	})
+}
+
+func TestEnvironmentReportsCommandSandbox(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	for _, sandbox := range []bool{false, true} {
+		want := "\nCommand sandbox: disabled\n"
+		if sandbox {
+			want = "\nCommand sandbox: enabled\n"
+		}
+		if value := Environment(now, "model", "/bin/sh", true, sandbox); !strings.Contains(value, want) {
+			t.Fatalf("sandbox=%t: %q", sandbox, value)
+		}
+	}
+	if value := Environment(now, "model", "/bin/sh", false, true); strings.Contains(value, "Command sandbox") {
+		t.Fatalf("an environment without a project reported a command sandbox: %q", value)
+	}
 }
