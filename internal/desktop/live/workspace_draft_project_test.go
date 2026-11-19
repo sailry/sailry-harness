@@ -20,6 +20,7 @@ func TestDraftProjectSelectionReadFailure(t *testing.T) {
 		name      string
 		directory *protocol.Fault
 		git       *protocol.Fault
+		linked    bool
 		want      []string
 	}{
 		{
@@ -31,6 +32,12 @@ func TestDraftProjectSelectionReadFailure(t *testing.T) {
 			name: "a Node that does not tell a missing Git apart still names Git",
 			git:  &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Git executable unavailable on execution Node"},
 			want: []string{"git_action_failed"},
+		},
+		{
+			name:   "the linked checkout and project location report the same Git failure once",
+			git:    &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "Git executable not found on execution Node"},
+			linked: true,
+			want:   []string{"git_action_failed"},
 		},
 		{
 			name:      "a missing project folder is named as such",
@@ -47,13 +54,13 @@ func TestDraftProjectSelectionReadFailure(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				testDraftProjectSelectionReadFailure(t, test.directory, test.git, test.want)
+				testDraftProjectSelectionReadFailure(t, test.directory, test.git, test.linked, test.want)
 			})
 		})
 	}
 }
 
-func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol.Fault, want []string) {
+func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol.Fault, linked bool, want []string) {
 	fixture := newPluginLocationTestFixture(t)
 	root := fixture.root
 	root.busy, root.uncertain = map[string]bool{}, map[string]protocol.Request{}
@@ -101,6 +108,12 @@ func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol
 	if selected != 0 {
 		t.Fatal("choosing a project sent a command of its own")
 	}
+	selectedTree := fixture.main
+	if linked {
+		selectedTree = fixture.target
+		root.workspace.admitted[selectedTree.ID] = selectedTree
+		comp.Worktree = selectedTree.Path
+	}
 
 	root.App.Sidebar.Selected = "draft/first"
 	window := closeTestWindow(root)
@@ -113,8 +126,8 @@ func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol
 	}
 	settle()
 	project := root.selectedWorkspace()
-	if project == nil || project.owner.ID != fixture.main.ID {
-		t.Fatal("the draft did not show its project's main worktree")
+	if project == nil || project.owner.ID != selectedTree.ID {
+		t.Fatal("the draft did not show its selected worktree")
 	}
 	// A watched repository change reads Git again; a failure already told is
 	// not told again.
@@ -129,8 +142,19 @@ func testDraftProjectSelectionReadFailure(t *testing.T, directory, git *protocol
 		if request.Target != root.controller.Target() {
 			t.Fatalf("a workspace read targeted another Node: %+v", request)
 		}
-		if !slices.Contains([]string{"list_directory", "inspect_git", "list_worktrees"}, request.Command.Kind) {
+		var target, expected protocol.WorktreeID
+		switch payload := request.Command.Data.(type) {
+		case protocol.CommandListDirectoryPayload:
+			target, expected = payload.Worktree, selectedTree.ID
+		case protocol.CommandInspectGitPayload:
+			target, expected = payload.Worktree, selectedTree.ID
+		case protocol.CommandListWorktreesPayload:
+			target, expected = payload.Worktree, fixture.main.ID
+		default:
 			t.Fatalf("selecting a project sent %q; only workspace reads are expected", request.Command.Kind)
+		}
+		if target != expected {
+			t.Fatalf("%q targeted worktree %s, want %s", request.Command.Kind, target, expected)
 		}
 		kinds = append(kinds, request.Command.Kind)
 	}

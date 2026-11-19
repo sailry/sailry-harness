@@ -387,17 +387,25 @@ func (p *workspaceProject) read(key string, command protocol.Command, done func(
 // worktree list read for location labels while another project is shown
 // leaves its failure to the read made when that project is shown.
 func (p *workspaceProject) reportRead(c *ui.Context, key string, outcome kit.Outcome, name string) {
+	group := workspaceReadGroup(key)
+	shown := p.runtime.selectedWorkspace()
+	reports := p.readReported
+	var locationReport string
 	if key == "git-worktrees" {
-		shown := p.runtime.selectedWorkspace()
-		if shown == nil || shown.owner.Project == nil || p.owner.Project == nil || *shown.owner.Project != *p.owner.Project {
+		if shown == nil || shown.locationWorkspace() != p {
 			return
 		}
+		// Location reads use the main checkout, even when a linked checkout
+		// owns the repository status shown in the conversation.
+		reports, locationReport = shown.readReported, p.readReported[key]
+	} else if group == "git" && shown == p {
+		locationReport = p.locationWorkspace().readReported["git-worktrees"]
 	}
-	group := workspaceReadGroup(key)
-	told := false
-	for other, reported := range p.readReported {
+	told := locationReport == name
+	for other, reported := range reports {
 		if reported == name && workspaceReadGroup(other) == group {
 			told = true
+			break
 		}
 	}
 	if p.readReported == nil {
@@ -408,9 +416,25 @@ func (p *workspaceProject) reportRead(c *ui.Context, key string, outcome kit.Out
 		kit.Toast(c, outcome, i18n.T(c, name))
 	}
 }
+
+func (p *workspaceProject) locationWorkspace() *workspaceProject {
+	if p.owner.Project != nil && !p.owner.Main {
+		for _, location := range p.runtime.workspace.projects {
+			if location.owner.Main && location.owner.Project != nil && *location.owner.Project == *p.owner.Project {
+				return location
+			}
+		}
+	}
+	return p
+}
+
 func (p *workspaceProject) refresh() {
 	if p.runtime.controller.Connected() {
 		p.closeDocumentImages()
+	}
+	if location := p.locationWorkspace(); location != p {
+		delete(location.readReported, "git-worktrees")
+		delete(location.failedReads, "git-worktrees")
 	}
 	p.readReported = nil
 	p.turnView = nil

@@ -110,6 +110,15 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 	if !inspected.Load() {
 		t.Fatal("inspection did not reach native Git status")
 	}
+	const invalidPackage = "private package/name"
+	install := protocol.NewRequest(node.ID(), protocol.Command{Kind: "install_bundled_plugin", Data: protocol.CommandInstallBundledPluginPayload{Name: invalidPackage}})
+	admission, err := node.Dispatch(t.Context(), node.ID(), install)
+	if err != nil || !admission.Receipt.Durable {
+		t.Fatalf("fixture installation was not admitted durably: %v, %v", admission.Receipt, err)
+	}
+	if completion := <-admission.Completion; completion.Fault == nil || completion.Fault.Code != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("invalid package did not fail after admission: %+v", completion)
+	}
 	if err := node.Stop(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -151,11 +160,24 @@ func TestWorkspaceReadCommandDiagnostics(t *testing.T) {
 			t.Errorf("%s failure recorded %d times", want.kind, matched)
 		}
 	}
+	installFailures := 0
+	for _, line := range lines {
+		if strings.Contains(line, " request="+install.ID.String()+" ") && strings.Contains(line, " phase=failed ") {
+			installFailures++
+			if !strings.Contains(line, " WARN desktop area=command phase=failed ") ||
+				!strings.Contains(line, " command=install_bundled_plugin ") || !strings.Contains(line, " command_stage=completion code=invalid_request ") {
+				t.Errorf("installation failure logged as %q", line)
+			}
+		}
+	}
+	if installFailures != 1 {
+		t.Errorf("installation failure recorded %d times", installFailures)
+	}
 	tail, err := logging.Tail(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, private := range []string{filepath.Base(root), entry, contents, missing, localCause} {
+	for _, private := range []string{filepath.Base(root), entry, contents, missing, localCause, invalidPackage} {
 		if bytes.Contains(local, []byte(private)) || bytes.Contains(tail, []byte(private)) {
 			t.Errorf("diagnostics kept private value %q", private)
 		}
