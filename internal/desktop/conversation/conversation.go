@@ -591,7 +591,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				ui.Divider(c).Background(p.Border)
 				if parts.hasWork && workOpen {
 					ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
-						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, actions)
+						s.blocks(c, workKey, parts.work, live && len(parts.answer) == 0 && len(parts.failures) == 0, r.Phase, actions)
 					})
 				}
 			})
@@ -602,18 +602,18 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 				answer = markBlocks(answer, mark)
 			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, key, answer, live, actions)
+				s.blocks(c, key, answer, live, r.Phase, actions)
 			})
 		}
 		if latest && !active && r.Changes != nil {
 			s.changes(c, t.ID, r.Changes, actions)
 		}
-		if live && showPhase(r, parts.endsInRetry) {
+		if live && showPhase(r, parts) {
 			phaseRow(c, r, t.ID, actions)
 		}
 		if len(parts.failures) > 0 {
 			ui.Column(c.Key("errors")).Gap(workGap).Children(func() {
-				s.blocks(c, key+"-errors", parts.failures, false, actions)
+				s.blocks(c, key+"-errors", parts.failures, false, PhaseNone, actions)
 			})
 		}
 		if latest && !active {
@@ -623,7 +623,7 @@ func (s *State) replyPart(c *ui.Context, t *Turn, blocks []Block, mark string, a
 }
 
 // blocks builds blocks in transcript order.
-func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, actions Actions) {
+func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, phase Phase, actions Actions) {
 	p := theme.Of(c)
 	size := textSize(c)
 	for i, b := range blocks {
@@ -632,9 +632,9 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 		ui.Column(c.Key(key)).Children(func() {
 			switch b.Kind {
 			case TextBlock:
-				s.span(kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last, Options: &s.md}), 0, 0, 0)
+				s.span(kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last && phase == Generating, Options: &s.md}), 0, 0, 0)
 			case ReasoningBlock:
-				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
+				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last && phase == Thinking}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
 						ui.Text(c, b.Text).FontSize(size).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
@@ -671,24 +671,36 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 
 // The tail reports the parent's current phase, not the last activity in its
 // history. A background child has its own status independent of the parent.
-func showPhase(r *Reply, endsInRetry bool) bool {
-	if r.Status == Stopping || r.Phase == WaitingUser || r.Phase == ExecutingTool {
+func showPhase(r *Reply, parts replySections) bool {
+	if r.Status == Stopping || r.Phase == WaitingUser {
 		return false
 	}
 	if r.Phase == WaitingController {
 		return true
 	}
-	if endsInRetry && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
+	if len(parts.work) > 0 && parts.endsInRetry && (r.Phase == AwaitingResponse || r.Phase == PhaseNone) && r.Status == Running {
 		return false
 	}
-	for _, b := range r.Blocks {
-		for _, call := range b.Calls {
-			if call.Pending || call.Running {
+	visibleTail := parts.answer
+	if len(visibleTail) == 0 && len(parts.failures) == 0 {
+		visibleTail = parts.work
+	}
+	if n := len(visibleTail); n > 0 {
+		last := visibleTail[n-1]
+		if (last.Kind == TextBlock && r.Phase == Generating || last.Kind == ReasoningBlock && r.Phase == Thinking) && last.Text != "" {
+			return false
+		}
+	}
+	for _, blocks := range [][]Block{parts.work, parts.answer} {
+		for _, b := range blocks {
+			for _, call := range b.Calls {
+				if call.Pending || call.Running {
+					return false
+				}
+			}
+			if b.Question != nil && b.Question.State == QuestionPending {
 				return false
 			}
-		}
-		if b.Question != nil && b.Question.State == QuestionPending {
-			return false
 		}
 	}
 	return true

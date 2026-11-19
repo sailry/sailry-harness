@@ -223,8 +223,8 @@ func testLoadingMarks(t *testing.T) {
 		}
 		tt.SetScale(2)
 
-		// With nothing pending the phase row shows: thinking, then replying.
-		reply.Blocks = kept[:1]
+		// With no visible output the phase mark and label share a baseline.
+		reply.Blocks = nil
 		for _, phase := range []struct {
 			phase conversation.Phase
 			key   string

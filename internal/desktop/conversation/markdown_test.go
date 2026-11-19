@@ -114,7 +114,7 @@ func checkMarkdown(t *testing.T) {
 		s := conversation.New()
 		tt := ui.NewTester(func(c *ui.Context) {
 			theme.Apply(c, "", theme.Light)
-			turns := []conversation.Turn{{ID: "gfm", User: "Show it", Reply: conversation.Reply{Status: status,
+			turns := []conversation.Turn{{ID: "gfm", User: "Show it", Reply: conversation.Reply{Status: status, Phase: conversation.Generating,
 				Blocks: []conversation.Block{{Kind: conversation.TextBlock, Text: text}}}}}
 			ui.Column(c).Fill().Children(func() { conversation.View(c, s, "gfm", turns, nil, noActions{}) })
 		}, 900, 1400)
