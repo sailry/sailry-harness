@@ -1365,6 +1365,10 @@ role_avatar_shuffle: Otros
 role_avatar_none: Predeterminado
 market_plugin_details: Detalles del plugin
 market_skill_details: Detalles del skill
+market_skill_document_failed: No se pudo cargar el documento del skill
+market_skill_document_missing: Este skill ya no está en el catálogo
+market_skill_document_unavailable: El documento del skill no está disponible
+market_skill_document_host_changed: El host del skill ha cambiado
 market_theme_details: Detalles del tema
 market_details_source: Origen
 market_theme_light: Claro

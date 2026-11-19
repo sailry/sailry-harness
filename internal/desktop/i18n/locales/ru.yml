@@ -1365,6 +1365,10 @@ role_avatar_shuffle: Другие
 role_avatar_none: По умолчанию
 market_plugin_details: Сведения о плагине
 market_skill_details: Сведения о навыке
+market_skill_document_failed: Не удалось загрузить документ навыка
+market_skill_document_missing: Этого навыка больше нет в каталоге
+market_skill_document_unavailable: Документ навыка недоступен
+market_skill_document_host_changed: Хост навыка изменился
 market_theme_details: Сведения о теме
 market_details_source: Источник
 market_theme_light: Светлые

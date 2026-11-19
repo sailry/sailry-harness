@@ -1376,6 +1376,10 @@ role_avatar_shuffle
 role_avatar_none
 market_plugin_details
 market_skill_details
+market_skill_document_failed
+market_skill_document_missing
+market_skill_document_unavailable
+market_skill_document_host_changed
 market_theme_details
 market_details_source
 market_theme_light

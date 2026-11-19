@@ -90,7 +90,7 @@ func (r *Runtime) reimportSkill(id string) {
 	}
 }
 
-func (r *Runtime) loadSkillDocument(id string, done func(string)) {
+func (r *Runtime) loadSkillDocument(id string, done func(string, string)) {
 	name := r.packageID(id)
 	if info, exists := r.packages.infos[name]; exists {
 		skillName := strings.TrimPrefix(id, name+":")
@@ -100,7 +100,7 @@ func (r *Runtime) loadSkillDocument(id string, done func(string)) {
 	}
 	entry, exists := r.packages.skillCatalog[id]
 	if !exists {
-		done("the skill is no longer in the catalog")
+		done("market_skill_document_missing", "")
 		return
 	}
 	if entry.Bundled && entry.Package != nil {
@@ -108,7 +108,7 @@ func (r *Runtime) loadSkillDocument(id string, done func(string)) {
 		return
 	}
 	if entry.Source == nil {
-		done("the catalog does not provide a skill document source")
+		done("market_skill_document_unavailable", "")
 		return
 	}
 	detailView := r.App.Settings.Details
@@ -152,25 +152,25 @@ func (r *Runtime) loadSkillDocument(id string, done func(string)) {
 				return
 			}
 			if r.packageOwner() != r {
-				done("the skill source host changed")
+				done("market_skill_document_host_changed", "")
 				return
 			}
 			if err != nil {
-				done(faultDetail(err))
+				done(skillDocumentFailure(err))
 				return
 			}
 			if source.Kind == "" {
-				done("the catalog skill document is unavailable")
+				done("market_skill_document_unavailable", "")
 				return
 			}
 			r.readSkillDocument(id, source, done)
 		})
 	}) {
-		done("resource host is offline")
+		done("resource_offline_action", "")
 	}
 }
 
-func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocumentSource, done func(string)) {
+func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocumentSource, done func(string, string)) {
 	detailView := r.App.Settings.Details
 	if !r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_skill_document", Data: protocol.CommandReadSkillDocumentPayload{Source: source}})
@@ -183,11 +183,11 @@ func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocum
 				return
 			}
 			if r.packageOwner() != r {
-				done("the skill source host changed")
+				done("market_skill_document_host_changed", "")
 				return
 			}
 			if err != nil {
-				done(faultDetail(err))
+				done(skillDocumentFailure(err))
 				return
 			}
 			body := skillBody(document.Content)
@@ -197,11 +197,21 @@ func (r *Runtime) readSkillDocument(id string, source protocol.PluginSkillsDocum
 					list[index].Content = body
 				}
 			}
-			done("")
+			done("", "")
 		})
 	}) {
-		done("resource host is offline")
+		done("resource_offline_action", "")
 	}
+}
+
+// skillDocumentFailure is a skill document's failure for its details: an
+// offline host as such, any other host fault with the host's own reason.
+func skillDocumentFailure(err error) (string, string) {
+	reason := faultMessage(err)
+	if reason == "resource host is offline" {
+		return "resource_offline_action", ""
+	}
+	return "market_skill_document_failed", reason
 }
 
 // skillBody is a skill document without its YAML frontmatter: the name,

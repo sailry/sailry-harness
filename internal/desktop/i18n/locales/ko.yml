@@ -1365,6 +1365,10 @@ role_avatar_shuffle: 다른 아바타
 role_avatar_none: 기본 아바타
 market_plugin_details: 플러그인 세부 정보
 market_skill_details: 스킬 세부 정보
+market_skill_document_failed: 스킬 문서를 불러올 수 없습니다
+market_skill_document_missing: 이 스킬은 더 이상 카탈로그에 없습니다
+market_skill_document_unavailable: 스킬 문서를 사용할 수 없습니다
+market_skill_document_host_changed: 스킬의 호스트가 변경되었습니다
 market_theme_details: 테마 세부 정보
 market_details_source: 출처
 market_theme_light: 라이트

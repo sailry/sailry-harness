@@ -1365,6 +1365,10 @@ role_avatar_shuffle: 換一批
 role_avatar_none: 預設頭像
 market_plugin_details: 外掛詳情
 market_skill_details: 技能詳情
+market_skill_document_failed: 無法載入技能文件
+market_skill_document_missing: 此技能已不在目錄中
+market_skill_document_unavailable: 技能文件無法使用
+market_skill_document_host_changed: 技能所在的主機已變更
 market_theme_details: 主題詳情
 market_details_source: 來源
 market_theme_light: 淺色

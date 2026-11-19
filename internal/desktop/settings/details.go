@@ -31,8 +31,10 @@ type Detail struct {
 	Tab  int
 	// Load is the details' fetch: the content's skeleton shows under the
 	// summary while it runs.
-	Load    preview.Fetch
-	failure string
+	Load preview.Fetch
+	// failure is the i18n key of the load's failure and reason the host's
+	// own words for it, which may be "".
+	failure, reason string
 }
 
 // ShowDetails opens an item's details, replacing those shown, and loads
@@ -42,10 +44,10 @@ func (s *State) ShowDetails(kind DetailKind, id string) {
 	s.Details.Load.Start()
 	if s.Live && s.PackageActions != nil && s.PackageActions.LoadDetails != nil {
 		detail := s.Details
-		s.PackageActions.LoadDetails(kind, id, func(message string) {
+		s.PackageActions.LoadDetails(kind, id, func(failure, reason string) {
 			if s.Details == detail {
-				detail.Load.Loading, detail.Load.Loaded = false, message == ""
-				detail.failure = message
+				detail.Load.Loading, detail.Load.Loaded = false, failure == ""
+				detail.failure, detail.reason = failure, reason
 			}
 		})
 	}
@@ -121,7 +123,7 @@ func skillDetails(c *ui.Context, s *State, d *Detail) {
 		facts(c, [][2]string{{i18n.T(c, "market_details_source"), skillSource(c, skill)}})
 	}
 	if d.failure != "" {
-		kit.Result(c.Key("document-failed"), kit.ResultProps{Status: kit.ResultError, Title: d.failure, Card: true, Extra: func() {
+		kit.Result(c.Key("document-failed"), kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, d.failure), SubTitle: d.reason, Card: true, Extra: func() {
 			kit.Secondary(c.Key("retry"), i18n.T(c, "settings_retry")).OnClick(func() { s.ShowDetails(DetailSkill, d.ID) })
 		}})
 	}

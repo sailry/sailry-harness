@@ -51,9 +51,9 @@ func TestSkillDetailsRetainSourceErrors(t *testing.T) {
 		}
 		tt := pluginUpdateQueueTester(r)
 		tt.SetLocale("en")
-		for _, want := range []string{discoverFailure, documentFailure, ""} {
-			message := "not completed"
-			r.loadSkillDocument(id, func(failure string) { message = failure })
+		for _, want := range [][2]string{{"market_skill_document_failed", discoverFailure}, {"market_skill_document_failed", documentFailure}, {}} {
+			message := [2]string{"not completed"}
+			r.loadSkillDocument(id, func(failure, reason string) { message = [2]string{failure, reason} })
 			for range 2 {
 				synctest.Wait()
 				tt.Frame()

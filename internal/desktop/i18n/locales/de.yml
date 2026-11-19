@@ -1365,6 +1365,10 @@ role_avatar_shuffle: Neu mischen
 role_avatar_none: Standard
 market_plugin_details: Plugin-Details
 market_skill_details: Skill-Details
+market_skill_document_failed: Das Skill-Dokument konnte nicht geladen werden
+market_skill_document_missing: Dieser Skill ist nicht mehr im Katalog
+market_skill_document_unavailable: Das Skill-Dokument ist nicht verfügbar
+market_skill_document_host_changed: Der Host des Skills hat sich geändert
 market_theme_details: Theme-Details
 market_details_source: Quelle
 market_theme_light: Hell

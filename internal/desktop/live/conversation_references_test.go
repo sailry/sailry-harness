@@ -27,14 +27,14 @@ func TestPluginReferenceOpensOwningHostDetails(t *testing.T) {
 	root.App.Host = localSnapshot.Node.String()
 
 	loaded := false
-	root.App.Settings.PackageActions = &settings.PackageActions{LoadDetails: func(kind settings.DetailKind, id string, done func(string)) {
+	root.App.Settings.PackageActions = &settings.PackageActions{LoadDetails: func(kind settings.DetailKind, id string, done func(string, string)) {
 		rows := root.App.Settings.Packages
 		if root.packageOwner() != host || kind != settings.DetailPlugin || id != info.Summary.Name ||
 			len(rows) != 1 || rows[0].ID != id {
 			t.Fatalf("details loaded before projecting the owning host: %v, %v", kind, rows)
 		}
 		loaded = true
-		done("")
+		done("", "")
 	}}
 	host.openReference("", protocol.TurnID{}, protocol.ConversationReference{
 		Target: protocol.ConversationReferenceTarget{Kind: "plugin", Data: info.Summary.Name},

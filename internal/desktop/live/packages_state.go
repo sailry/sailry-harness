@@ -146,13 +146,13 @@ func (r *Runtime) initB8Packages() {
 				owner.packages.downloadCancel()
 			}
 		},
-		LoadDetails: func(kind settings.DetailKind, id string, done func(string)) {
+		LoadDetails: func(kind settings.DetailKind, id string, done func(string, string)) {
 			if owner := r.packageOwner(); owner != nil {
 				owner.loadPackageDetails(kind, id, done)
 			} else if kind == settings.DetailSkill {
-				done("resource host is offline")
+				done("resource_offline_action", "")
 			} else {
-				done("")
+				done("", "")
 			}
 		},
 		RetryMarket: func() {

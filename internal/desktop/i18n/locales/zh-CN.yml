@@ -1365,6 +1365,10 @@ role_avatar_shuffle: 换一批
 role_avatar_none: 默认头像
 market_plugin_details: 插件详情
 market_skill_details: 技能详情
+market_skill_document_failed: 无法加载技能文档
+market_skill_document_missing: 此技能已不在目录中
+market_skill_document_unavailable: 技能文档不可用
+market_skill_document_host_changed: 技能所在的主机已更改
 market_theme_details: 主题详情
 market_details_source: 来源
 market_theme_light: 浅色

@@ -1365,6 +1365,10 @@ role_avatar_shuffle: シャッフル
 role_avatar_none: デフォルト
 market_plugin_details: プラグイン詳細
 market_skill_details: スキル詳細
+market_skill_document_failed: スキルのドキュメントを読み込めませんでした
+market_skill_document_missing: このスキルはカタログにありません
+market_skill_document_unavailable: スキルのドキュメントを利用できません
+market_skill_document_host_changed: スキルのホストが変更されました
 market_theme_details: テーマ詳細
 market_details_source: 提供元
 market_theme_light: ライト

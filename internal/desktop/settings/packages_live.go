@@ -22,20 +22,22 @@ type PackageActions struct {
 	Browse         func(string, string, func() bool, func(string)) // a package file of this machine, where Install reads it: the local host's name, the directory first shown, whether the form still wants it, the chosen path
 	Download       func(string, string, string, func(bool))
 	CancelDownload func()
-	LoadDetails    func(DetailKind, string, func(message string))
-	RetryMarket    func()
-	MoreMarket     func()
-	MarketPlugin   func(string)
-	PluginVersion  func(string, string)
-	PinPlugin      func(string, bool)
-	MarketSkill    func(string)
-	Theme          func(string)
-	ChooseSkill    func(int, func(string))
-	InstallSkill   func(SkillSourceDraft, func(bool))
-	CancelSkill    func()
-	ReimportSkill  func(string)
-	SavePython     func()
-	About          func()
+	// LoadDetails finishes with a failure's i18n key and the host's reason,
+	// both "" when the details loaded.
+	LoadDetails   func(DetailKind, string, func(failure, reason string))
+	RetryMarket   func()
+	MoreMarket    func()
+	MarketPlugin  func(string)
+	PluginVersion func(string, string)
+	PinPlugin     func(string, bool)
+	MarketSkill   func(string)
+	Theme         func(string)
+	ChooseSkill   func(int, func(string))
+	InstallSkill  func(SkillSourceDraft, func(bool))
+	CancelSkill   func()
+	ReimportSkill func(string)
+	SavePython    func()
+	About         func()
 	// Image is a market card's picture by its https address, nil until
 	// fetched or when it cannot be.
 	Image func(string) *ui.Bitmap

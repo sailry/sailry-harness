@@ -210,14 +210,14 @@ func catalogPackageView(entry protocol.PluginCatalogEntry, locale string, source
 	return row
 }
 
-func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done func(string)) {
+func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done func(string, string)) {
 	switch kind {
 	case settings.DetailTheme:
-		done("")
+		done("", "")
 	case settings.DetailSkill:
 		r.loadSkillDocument(id, done)
 	default:
-		finish := func() { done("") }
+		finish := func() { done("", "") }
 		name := id
 		if info, known := r.packages.catalogInfos[id]; known {
 			name = info.Summary.Name
