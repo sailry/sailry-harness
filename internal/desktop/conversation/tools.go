@@ -303,7 +303,10 @@ var toolRowEnter = ui.ElementTransition{Duration: 180 * time.Millisecond, Ease: 
 // call, which a growing run keeps.
 func (s *State) toolGroup(c *ui.Context, calls []Call) {
 	head := groupHead(calls)
-	failed := slices.ContainsFunc(calls, toolErrorOpen)
+	failed := slices.ContainsFunc(calls, func(call Call) bool {
+		return (call.Failed || call.Warning) && toolErrorOpen(call) &&
+			(call.Load != nil || call.Output != nil && call.Output.Failure != "")
+	})
 	s.wrapping(c, "tool-group-"+calls[0].ID, false, failed, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func(ui.Element) {

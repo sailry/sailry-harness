@@ -177,6 +177,29 @@ func TestConsecutiveToolRowsFold(t *testing.T) {
 	}
 }
 
+func TestToolGroupRevealsFailureMessage(t *testing.T) {
+	s := New()
+	calls := []Call{
+		{ID: "review", Name: "review_scope", Label: "Review scope", Running: true},
+		{ID: "read", Name: "read_file", Label: "Read file", Output: &Output{Text: "successful output"}},
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		s.tools(c, calls, true)
+	}, 600, 400)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if tt.HasText("Review scope") {
+		t.Fatalf("consecutive calls were not folded: %q", tt.Texts())
+	}
+	calls[0].Running, calls[0].Failed = false, true
+	calls[0].Output = &Output{Failure: "the plugin could not read the changes"}
+	tt.Frame()
+	if !tt.HasText(calls[0].Output.Failure) || tt.HasText("successful output") {
+		t.Fatalf("the group's error did not open on its own: %q", tt.Texts())
+	}
+}
+
 // A row listing the files its call touched opens onto their links, once
 // each, without the aggregate preview or a Copy action; a failure still
 // shows.
