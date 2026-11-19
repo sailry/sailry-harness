@@ -168,3 +168,32 @@ func projectProviderRouteFixture(t *testing.T, provider protocol.ConversationPro
 	}
 	return channel, r.App.Settings.Brands
 }
+
+func TestPackagePresetCredentialStatus(t *testing.T) {
+	pkg := protocol.ConversationPresetsSourcePackagePayload{Name: "fixture"}
+	p := providerRouteFixture()
+	p.Preset.Source = protocol.ConversationPresetsSource{Kind: "package", Data: &pkg}
+	p.Api, p.Credential = protocol.ConversationModelApiPlugin, nil
+	entry := protocol.DefaultConversationPresetsEntry()
+	entry.Source = protocol.ConversationPresetsSource{Kind: "package", Data: pkg}
+	entry.Package = &protocol.PluginReference{Name: pkg.Name}
+	entry.Preset.ID = p.Preset.ID
+	entry.Preset.Routes = []protocol.ConversationPresetsRoute{{Protocol: protocol.ConversationPresetsProtocolPlugin}}
+	for _, tc := range []struct {
+		kind   string
+		auth   viewmodel.Auth
+		status string
+	}{
+		{"none", viewmodel.AuthNone, ""}, {"api_key", viewmodel.AuthKey, "provider_status_missing_key"}, {"", viewmodel.AuthUnresolved, ""},
+	} {
+		listing := protocol.DefaultConversationPresetsListing()
+		if tc.kind != "" {
+			entry.Preset.Auth.Kind = tc.kind
+			listing.Entries = []protocol.ConversationPresetsEntry{entry}
+		}
+		ch, _ := projectProviderRouteFixture(t, p, listing)
+		if ch.Auth != tc.auth || settings.ProviderStatus(&ch) != tc.status {
+			t.Fatalf("%q: auth %v, status %q", tc.kind, ch.Auth, settings.ProviderStatus(&ch))
+		}
+	}
+}

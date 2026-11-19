@@ -7,6 +7,7 @@ const (
 	AuthOAuth
 	AuthPlugin
 	AuthNone
+	AuthUnresolved // The package preset that declares the credential requirement is unavailable.
 )
 
 type ChannelModel struct {

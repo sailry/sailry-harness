@@ -6,7 +6,6 @@ import (
 	"html"
 	"net"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -179,7 +178,7 @@ func (r *Runtime) initAuthorization() {
 // its sign-in is presented.
 func (r *Runtime) loginEntry(provider protocol.ConversationProvider) (protocol.ConversationPresetsEntry, bool) {
 	for _, entry := range r.providerPresets {
-		if provider.Preset != nil && provider.Preset.ID == entry.Preset.ID && reflect.DeepEqual(provider.Preset.Source, entry.Source) {
+		if provider.Preset != nil && provider.Preset.ID == entry.Preset.ID && samePresetSource(provider.Preset.Source, entry.Source) {
 			return entry, true
 		}
 	}

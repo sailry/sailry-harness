@@ -209,6 +209,20 @@ func providerBrandKey(node string, entry protocol.ConversationPresetsEntry) stri
 	return brand
 }
 
+// Locally constructed catalogs and decoded snapshots use different Go forms
+// of the same package source payload. Match the protocol identity in both.
+func samePresetSource(a, b protocol.ConversationPresetsSource) bool {
+	if a.Kind != b.Kind {
+		return false
+	}
+	if a.Kind != "package" {
+		return a.Kind == "builtin" || a.Kind == "partner"
+	}
+	x, okX := detail[protocol.ConversationPresetsSourcePackagePayload](a.Data)
+	y, okY := detail[protocol.ConversationPresetsSourcePackagePayload](b.Data)
+	return okX && okY && x.Name != "" && x.Name == y.Name
+}
+
 func presetRouteIndex(id string) int {
 	separator := strings.LastIndex(id, "/")
 	if separator < 0 {
@@ -577,6 +591,11 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 		}
 		if p.Preset != nil {
 			reference := *p.Preset
+			// Package presets with auth none share the API-key wire value.
+			// Only their declaration establishes whether a key is required.
+			if reference.Source.Kind == "package" && p.Authentication == protocol.AuthenticationApiKey {
+				ch.Auth = viewmodel.AuthUnresolved
+			}
 			if reference.Source.Kind == "builtin" && reference.ID == "compatible-chat" && p.Api == protocol.ConversationModelApiChatCompletions && p.Authentication == protocol.AuthenticationApiKey {
 				if entry, ok := r.providerPresets[node+"/builtin:compatible-responses/0"]; ok && entry.Preset.Offered {
 					// The retired Chat-only preset uses the offered compatible
@@ -588,9 +607,13 @@ func (r *Runtime) projectNodeProviders() []viewmodel.Channel {
 			route := -1
 			for id, entry := range r.providerPresets {
 				i := presetRouteIndex(id)
-				if (route < 0 || i < route) && entry.Preset.ID == reference.ID && reflect.DeepEqual(entry.Source, reference.Source) && i < len(entry.Preset.Routes) && apiForProtocol(entry.Preset.Routes[i].Protocol) == p.Api && (reference.Route == nil || reflect.DeepEqual(*reference.Route, presetRouteKey(entry.Preset.Routes[i]))) {
+				if (route < 0 || i < route) && entry.Preset.ID == reference.ID && samePresetSource(entry.Source, reference.Source) && i < len(entry.Preset.Routes) && apiForProtocol(entry.Preset.Routes[i].Protocol) == p.Api && (reference.Route == nil || reflect.DeepEqual(*reference.Route, presetRouteKey(entry.Preset.Routes[i]))) {
 					route, ch.Method = i, id
 					switch entry.Preset.Auth.Kind {
+					case "api_key", "builtin":
+						if p.Authentication == protocol.AuthenticationApiKey {
+							ch.Auth = viewmodel.AuthKey
+						}
 					case "none":
 						ch.Auth = viewmodel.AuthNone
 					case "plugin":
