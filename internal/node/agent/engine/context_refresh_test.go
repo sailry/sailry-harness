@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"slices"
 	"strings"
 	"testing"
@@ -9,8 +10,63 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/agent/prompt"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+func TestToollessModelClearsPluginCapabilityContext(t *testing.T) {
+	const (
+		enabledInstruction  = "Active goal: call update_goal after verification."
+		disabledInstruction = "New active goal state: call update_goal."
+		disabledPart        = "New owned context for a tool-capable request."
+		capabilityPolicy    = "Use read_goal when inspecting progress."
+		generalInstruction  = "Keep the reply brief."
+		laterInput          = "Continue with the text-only model"
+	)
+	model := &scriptedModel{scripts: []script{response(text("First reply"), finish()), response(text("Second reply"), finish())}}
+	f := newFixture(t, model)
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(f.ctx, `UPDATE providers SET body=json_insert(body,'$.provider.models[#]',
+			json_set(json_extract(body,'$.provider.models[0]'),'$.id','fixture-text','$.tools',json('false')))`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.r.toolsForTurn = func(_ context.Context, invocation *store.AgentInvocation) ([]Tool, error) {
+		read := packageTool("goals", "read_goal", "", true, nil)
+		read.Instruction = capabilityPolicy
+		update := packageTool("goals", "update_goal", "", false, nil)
+		update.TurnInstruction = prompt.Part{Key: "plugin:goals", Text: enabledInstruction}
+		if invocation.Turn.Config.Model == "fixture-text" {
+			update.TurnInstruction.Text = disabledInstruction
+			update.ContextParts = []string{disabledPart}
+		}
+		invocation.Instructions = []store.AgentInstruction{{Text: generalInstruction}}
+		return []Tool{read, update}, nil
+	}
+	f.start()
+	f.waitRun(f.submit("Start the goal"), protocol.ConversationStatusCompleted)
+	config := f.session.Config
+	config.Model = "fixture-text"
+	f.session = f.command("set_session_config", &protocol.CommandSetSessionConfigPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Config: config}).Data.(protocol.Session)
+	f.waitRun(f.submit(laterInput), protocol.ConversationStatusCompleted)
+
+	first, second := model.calls[0], model.calls[1]
+	if !strings.Contains(promptText(first), enabledInstruction) || !strings.Contains(promptText(first), capabilityPolicy) ||
+		slices.Contains(offeredNames(first), "update_goal") {
+		t.Fatal("tool-capable parent lost the initial policy or deferred goal instruction")
+	}
+	requestText := promptText(second)
+	if len(second.Tools) != 0 || strings.Contains(requestText, capabilityPolicy) || strings.Contains(requestText, disabledInstruction) ||
+		strings.Contains(requestText, disabledPart) || !strings.Contains(requestText, generalInstruction) {
+		t.Fatalf("text-only model received tool capabilities or lost general instructions: %q", requestText)
+	}
+	_, tail, found := strings.Cut(requestText, laterInput)
+	if !found || !strings.Contains(tail, "<context-section name=\"plugin:goals\">\nCleared;") || strings.Contains(tail, enabledInstruction) {
+		t.Fatal("text-only model did not clear the previous goal tool instruction")
+	}
+}
 
 func TestCollaborateOffersNativeProgressTool(t *testing.T) {
 	model := &scriptedModel{scripts: []script{response(text("Completed"), finish())}}

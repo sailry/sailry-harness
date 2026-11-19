@@ -30,7 +30,7 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 	for _, name := range []string{"spawn_agent", "guide_agent", "wait_agent"} {
 		schema := spawnSchema
 		if name == "guide_agent" {
-			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1}},"required":["session","message"],"additionalProperties":false}`
+			schema = `{"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1},"overlap":{"type":"boolean","description":"Continue parent work while an idle child runs its new task. Defaults to true in Collaborate. Guidance to an already running child returns immediately."}},"required":["session","message"],"additionalProperties":false}`
 		}
 		if name == "wait_agent" {
 			schema = `{"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from list_subagents or a completion notice; omit for the current execution"}},"required":["session"],"additionalProperties":false}`
@@ -246,8 +246,18 @@ func (r *Runtime) spawnChild(x *execution, call canonical.ToolRequest, arguments
 // guideChild guides or resumes a child for call. arguments are the ones that
 // execute: the call's own, or those a package tool prepared from them.
 func (r *Runtime) guideChild(x *execution, call canonical.ToolRequest, arguments json.RawMessage) ToolResult {
+	var args struct {
+		Overlap *bool `json:"overlap"`
+	}
+	if json.Unmarshal(arguments, &args) != nil {
+		return invalidTool("invalid child guidance arguments")
+	}
+	overlap := x.inv.Turn.Config.Mode == protocol.WorkModeFlagship
+	if args.Overlap != nil {
+		overlap = *args.Overlap
+	}
 	mode := childForeground
-	if x.inv.Turn.Config.Mode == protocol.WorkModeFlagship {
+	if overlap {
 		mode = childOverlap
 	}
 	var state store.ChildState

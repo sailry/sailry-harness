@@ -293,6 +293,7 @@ func GuideChild(ctx context.Context, db *sql.Conn, node protocol.NodeID, parent 
 	var args struct {
 		Session *protocol.SessionID `json:"session"`
 		Message string              `json:"message"`
+		Overlap *bool               `json:"overlap"`
 	}
 	if operation, err := delegationOperation(ctx, db, parent, identity.Name); err != nil {
 		return ChildState{}, nil, nil, err

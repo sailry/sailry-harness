@@ -128,6 +128,7 @@ func delegateAgent(ctx context.Context, db *sql.Conn, node protocol.NodeID, pare
 		var guide struct {
 			Session protocol.SessionID `json:"session"`
 			Message string             `json:"message"`
+			Overlap *bool              `json:"overlap"`
 		}
 		if err = protocol.DecodeObject(arguments, &guide, []string{"session", "message"}, true); err != nil {
 			return empty, nil, invalid("invalid child guidance arguments")

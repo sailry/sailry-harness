@@ -62,6 +62,37 @@ func saveDelegationCall(t *testing.T, f *engineFixture, x *execution, id string,
 	return call
 }
 
+func TestGuideAgentCanOverlapOutsideCollaborate(t *testing.T) {
+	f, parent := delegationFixture(t, &scriptedModel{scripts: []script{response(text("First result"), finish())}})
+	spawn := saveDelegationCall(t, f, parent, "initial", true)
+	admitted := f.r.spawnChild(parent, spawn, spawn.Arguments)
+	if admitted.Failure != nil {
+		t.Fatal(admitted.Failure)
+	}
+	child := admitted.Value.(map[string]any)
+	f.start()
+	f.waitRun(child["turn"].(protocol.TurnID), protocol.ConversationStatusCompleted)
+
+	args, err := json.Marshal(map[string]any{"session": child["session"], "message": "Check the second result", "overlap": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guide := canonical.ToolRequest{ID: "follow-up", Name: "guide_agent", Arguments: args}
+	record := canonical.NewRecord(parent.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &guide}), f.r.clock.Now())
+	record.Provenance.Author = "assistant"
+	if err := f.r.save(parent.ctx, parent.inv.Session.ID, record); err != nil {
+		t.Fatal(err)
+	}
+	result := f.r.guideChild(parent, guide, args)
+	if result.Failure != nil {
+		t.Fatal(result.Failure)
+	}
+	if parent.inv.Turn.Config.Mode == protocol.WorkModeFlagship || len(parent.foreground) != 1 ||
+		!parent.foreground[0].overlap || parent.foreground[0].session != child["session"] {
+		t.Fatal("guidance did not admit an overlapping task for the original child")
+	}
+}
+
 func TestWaitAgent(t *testing.T) {
 	for _, guidance := range []bool{false, true} {
 		name := "bounded observation keeps queued child"

@@ -39,7 +39,7 @@ func TestVisibleRecordsCanBeProjectedAgain(t *testing.T) {
 	}
 }
 
-func TestToolFailureRequestUsesMessageAndKeepsRawFallback(t *testing.T) {
+func TestToolFailureRequestIncludesReadableDiagnosticsAndKeepsRawFallback(t *testing.T) {
 	provider := protocol.DefaultConversationProvider()
 	provider.Api = protocol.ConversationModelApiChatCompletions
 	binding := Binding{Provider: provider, Config: protocol.DefaultSessionConfig()}
@@ -49,8 +49,9 @@ func TestToolFailureRequestUsesMessageAndKeepsRawFallback(t *testing.T) {
 		format                    canonical.ToolFormat
 		status                    canonical.ToolStatus
 	}{
-		{"runtime", `{"code":-32000,"message":"Review is unavailable","data":{"code":"unavailable","details":"internal detail"}}`, "Tool error: " + reason, "internal detail", canonical.MCPError, canonical.ToolErrorStatus},
-		{"mcp", `{"isError":true,"content":[{"type":"text","text":"Private note","annotations":{"audience":["user"]}},{"type":"text","text":"{\"error\":{\"message\":\"Review is unavailable\"},\"details\":\"internal detail\"}"}]}`, "Tool error: " + reason, "internal detail", canonical.MCP, canonical.ToolErrorStatus},
+		{"runtime", `{"code":-32000,"message":"Review is unavailable","data":{"code":"unavailable","details":{"kind":"configuration","reason":"provider_disabled","credential":"private diagnostic"}}}`, "Tool error: " + reason + "\nCode: unavailable\nDetails: configuration, reason=provider_disabled", "private diagnostic", canonical.MCPError, canonical.ToolErrorStatus},
+		{"invalid parameter", `{"code":"invalid_request","message":"Parameter is invalid","details":{"parameter":"limit","expected":"positive integer","message":"Parameter is invalid"}}`, "Tool error: Parameter is invalid\nCode: invalid_request\nDetails: parameter=limit, expected=positive integer", "", canonical.JSON, canonical.ToolErrorStatus},
+		{"mcp", `{"isError":true,"content":[{"type":"text","text":"Private note","annotations":{"audience":["user"]}},{"type":"text","text":"{\"error\":{\"code\":\"conflict\",\"message\":\"Review is unavailable\"},\"details\":\"Run the review again\"}"}]}`, "Tool error: " + reason + "\nCode: conflict\nDetails: Run the review again", "Private note", canonical.MCP, canonical.ToolErrorStatus},
 		{"unknown", `{"code":-32000,"data":{"status":"busy"}}`, `{"code":-32000,"data":{"status":"busy"}}`, "", canonical.MCPError, canonical.ToolErrorStatus},
 		{"success", `{"message":"A business field","data":{"value":7}}`, `{"message":"A business field","data":{"value":7}}`, "", canonical.JSON, canonical.ToolSuccess},
 	} {
@@ -80,10 +81,12 @@ func TestToolFailureRequestUsesMessageAndKeepsRawFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			tool := projected.Messages[0].Data.(*protocol.PluginModelAdapterWireMessageToolPayload)
-			wire := string(tool.Parts[0].Data.(*protocol.PluginModelAdapterWirePartJsonPayload).Value)
-			if tool.IsError != (row.status == canonical.ToolErrorStatus) || row.omitted != "" && (!strings.Contains(wire, reason) || strings.Contains(wire, row.omitted)) ||
-				strings.Contains(wire, "Private note") {
+			wire := tool.Parts[0].Data.(*protocol.PluginModelAdapterWirePartJsonPayload).Value
+			if tool.IsError != (row.status == canonical.ToolErrorStatus) || row.omitted != "" && strings.Contains(string(wire), row.omitted) {
 				t.Fatalf("unexpected plugin adapter result: %s", wire)
+			}
+			if want, readable := strings.CutPrefix(row.want, "Tool error: "); readable && protocol.ToolErrorMessage(wire) != want {
+				t.Fatalf("plugin adapter lost the readable diagnostic: %s", wire)
 			}
 			if string(result.Result.Value) != row.body {
 				t.Fatal("model projection changed the canonical payload")
