@@ -489,3 +489,36 @@ func TestSearchBar(t *testing.T) {
 		t.Error("Escape left the bar open")
 	}
 }
+
+func TestOlderPageRequiresVisibleMarker(t *testing.T) {
+	s, r := conversation.New(), &recorder{}
+	turns := []conversation.Turn{{ID: "giant", User: strings.Repeat("Long historical turn.\n", 100), InputOnly: true}}
+	sess := &conversation.Session{Older: 20}
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, "history", turns, sess, r) })
+	}, 800, 400)
+	for range 4 {
+		tt.Frame()
+	}
+	if r.older != 0 {
+		t.Fatalf("opened at end of tall turn but requested older history %d times", r.older)
+	}
+	list := s.List("history")
+	list.ScrollTo(0, ui.Start)
+	for range 3 {
+		tt.Frame()
+	}
+	if r.older == 0 {
+		t.Fatal("visible start of history did not request a page")
+	}
+	asked := r.older
+	turns = append([]conversation.Turn{{ID: "earlier", User: strings.Repeat("Earlier message.\n", 100), InputOnly: true}}, turns...)
+	for range 4 {
+		tt.Frame()
+	}
+	first, _ := list.Visible()
+	if first != 1 || r.older != asked {
+		t.Fatalf("prepend lost anchor or fetched offscreen page: first=%d requests=%d, previous=%d", first, r.older, asked)
+	}
+}

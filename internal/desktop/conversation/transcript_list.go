@@ -8,13 +8,15 @@ import (
 // MyGo retains Key and the last row builder on ListState. Both refer to this
 // list, which can drop its frame data without losing MyGo's scroll anchor.
 type transcriptList struct {
-	layout  ui.ListState
-	row     func(int)
-	link    func(string)
-	block   func(*ui.Context, *parser.Document, int) bool
-	nav     *navigation
-	frame   transcriptFrame
-	mounted bool
+	layout      ui.ListState
+	olderMarker ui.Handle
+	olderTurn   string
+	row         func(int)
+	link        func(string)
+	block       func(*ui.Context, *parser.Document, int) bool
+	nav         *navigation
+	frame       transcriptFrame
+	mounted     bool
 }
 
 type transcriptFrame struct {
@@ -69,6 +71,7 @@ func (s *State) FinishFrame() {
 			bound = append(bound, l)
 		} else {
 			l.frame = transcriptFrame{}
+			l.olderMarker, l.olderTurn = ui.Handle{}, ""
 		}
 	}
 	clear(s.boundLists[len(bound):])

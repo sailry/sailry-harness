@@ -27,7 +27,7 @@ func loading(c *ui.Context) {
 // older is the row before the first turn while there is history before it: a
 // loader while the page loads, its failure as a Result with Retry, or
 // nothing, as reaching it asks for the page.
-func (s *State) older(c *ui.Context, sess *Session, actions Actions) {
+func (s *State) older(c *ui.Context, id, turn string, sess *Session, actions Actions) {
 	if sess == nil || sess.Older == 0 {
 		return
 	}
@@ -39,12 +39,10 @@ func (s *State) older(c *ui.Context, sess *Session, actions Actions) {
 		return
 	}
 	p := theme.Of(c)
-	ui.Row(c.Key("older")).Height(32).Gap(8).Justify(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+	l := s.listOf(id)
+	l.olderTurn = turn
+	ui.Row(c.Key("older")).Bind(&l.olderMarker).Height(32).Gap(8).Justify(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
 		kit.Loader(c, 14)
-		if !sess.LoadingOlder {
-			// The start came into view: ask once this frame is built.
-			s.wantOlder = true
-		}
 	})
 }
 

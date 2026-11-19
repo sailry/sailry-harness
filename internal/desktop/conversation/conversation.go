@@ -53,7 +53,6 @@ type State struct {
 	rewindOf      string             // the conversation it is of
 	reading       string             // the turn read aloud
 	finds         map[string]*search // the search bar of each conversation
-	wantOlder     bool               // the start came into view this frame
 	navigated     *transcriptList    // the transcript built last, when it has a rail not built yet
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
@@ -231,7 +230,6 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 		d.c, d.reserve = c, reserve
 	}
 	n := len(turns)
-	s.wantOlder = false
 	// A lost or recovering connection is told after the last turn, where the
 	// next reply would come; a session without turns has it over the list.
 	if n == 0 {
@@ -250,9 +248,6 @@ func Docked(c *ui.Context, s *State, id string, turns []Turn, sess *Session, act
 			})
 		})
 	}
-	if s.wantOlder && !sess.LoadingOlder {
-		actions.LoadOlder()
-	}
 	s.viewer(c, id, actions)
 	s.confirmRewind(c, id, actions)
 	s.searchResult(c, id)
@@ -267,12 +262,23 @@ func (s *State) transcript(c *ui.Context, pane ui.Element, id string, turns []Tu
 	s.pressOf(id).watch(pane)
 	pane.Children(func() {
 		l, n := s.bindTranscript(c, id, turns, sess, actions), len(turns)
+		if sess != nil && sess.Older > 0 && !sess.LoadingOlder && !sess.OlderFailed && n > 0 && l.olderTurn == turns[0].ID {
+			// MyGo builds rows outside the viewport, and one turn can be much taller
+			// than the entire pane. Request history only when its loader is on screen.
+			area := s.area[id]
+			first, last := l.layout.Visible()
+			marker := l.olderMarker.Bounds(c)
+			if first == 0 && last >= first && area.H > 0 && marker.H > 0 && marker.Y < area.Y+area.H && marker.Y+marker.H > area.Y {
+				actions.LoadOlder()
+			}
+		}
 		// What shows of the transcript is the list above the dock.
 		list := ui.List(c, &l.layout, n, l.row).Fill().Padding(0, s.Aside, reserve, 0).Role(ui.RoleLog)
 		area := list.Bounds()
 		fadeUnder(list, area, reserve)
 		area.H = max(area.H-reserve, 0)
 		s.area[id] = area
+
 		// A delegated session's transcript, the child panel's (no session), is
 		// read-only and has no navigation. The pane builds it (Navigation).
 		s.navigated = nil
@@ -330,7 +336,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 			s.selection(c, session, col, sess != nil && sess.ReadOnly, actions)
 		}()
 		if first {
-			s.older(c, sess, actions)
+			s.older(c, session, t.ID, sess, actions)
 		}
 		if t.Compaction != nil {
 			s.compaction(c, t)
@@ -371,7 +377,9 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 					ui.Column(c.Key(inputIndex)).FillWidth().Children(func() {
 						s.user(c, session, &message, q, current, marked, actions)
 					})
-					current -= strings.Count(strings.ToLower(input.User), strings.ToLower(q))
+					if marked {
+						current -= strings.Count(strings.ToLower(input.User), strings.ToLower(q))
+					}
 				}
 				end := len(blocks)
 				latest := index == len(t.Segments)-1
