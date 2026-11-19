@@ -964,7 +964,7 @@ usage_read_failed: "사용량을 불러올 수 없습니다. 다시 시도하십
 usage_empty: "아직 사용되지 않음"
 usage_responses: "Responses"
 usage_speed: "생성 속도"
-usage_speed_help: "첫 번째 Token까지 걸리는 시간을 포함하며, 대기열 및 도구는 제외"
+usage_speed_help: "모델의 첫 출력 이후 초당 출력 토큰 수"
 usage_speed_partial: "부분 응답"
 usage_cost: "예상 비용 (USD)"
 usage_cost_help: "참조 추정치, 법안이 아닙니다"

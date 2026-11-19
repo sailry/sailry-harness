@@ -964,7 +964,7 @@ usage_read_failed: "Не удалось загрузить использова�
 usage_empty: "Еще не используется"
 usage_responses: "Responses"
 usage_speed: "Скорость генерации"
-usage_speed_help: "Включает время до первого Token, исключает очереди и инструменты"
+usage_speed_help: "Количество выходных токенов в секунду с момента первого вывода модели"
 usage_speed_partial: "Частичные ответы"
 usage_cost: "Сметная стоимость (долл. США)"
 usage_cost_help: "Базовая смета, а не счет"

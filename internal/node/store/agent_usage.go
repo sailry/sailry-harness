@@ -75,6 +75,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		sequence                      uint64
 		session, turn                 string
 		first                         sql.NullInt64
+		reasoningStreamed             bool
 		providerName                  sql.NullString
 		scope                         string
 		resource, assistant           sql.NullString
@@ -87,7 +88,7 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 			return report, invalid("usage report exceeds the row limit; narrow the time range or filters")
 		}
 		var row usageRow
-		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.provider, &row.model, &row.project, &row.worktree, &row.api, &row.authentication, &row.endpoint, &row.usage, &row.elapsed, &row.media, &row.sequence, &row.session, &row.turn, &row.first, &row.providerName, &row.scope, &row.resource, &row.assistant, &row.preset); err != nil {
+		if err = rows.Scan(&row.time, &row.tokens.Input, &row.tokens.Output, &row.tokens.CachedInput, &row.tokens.Reasoning, &row.provider, &row.model, &row.project, &row.worktree, &row.api, &row.authentication, &row.endpoint, &row.usage, &row.elapsed, &row.media, &row.sequence, &row.session, &row.turn, &row.first, &row.reasoningStreamed, &row.providerName, &row.scope, &row.resource, &row.assistant, &row.preset); err != nil {
 			rows.Close()
 			return report, err
 		}
@@ -201,25 +202,22 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 				return report, e
 			}
 		}
-		var elapsed *uint64
-		if row.elapsed.Valid && row.elapsed.Int64 >= 0 {
-			v := uint64(row.elapsed.Int64)
-			elapsed = &v
-		}
-		if e = addUsageMetrics(&report.Totals, row.tokens, cost, elapsed); e != nil {
+		elapsed, first := usageTime(row.elapsed), usageTime(row.first)
+		generation := decodeGeneration(elapsed, first, row.tokens, row.reasoningStreamed)
+		if e = addUsageMetrics(&report.Totals, row.tokens, cost, generation); e != nil {
 			return report, e
 		}
-		if e = addUsageMetrics(&group.Metrics, row.tokens, cost, elapsed); e != nil {
+		if e = addUsageMetrics(&group.Metrics, row.tokens, cost, generation); e != nil {
 			return report, e
 		}
 		day := int((usageFloor(ms, 86400000, offset) - report.Days[0].StartMs) / 86400000)
-		if e = addUsageMetrics(&report.Days[day].Metrics, row.tokens, cost, elapsed); e != nil {
+		if e = addUsageMetrics(&report.Days[day].Metrics, row.tokens, cost, generation); e != nil {
 			return report, e
 		}
 		addUsageModel(&report.Days[day], row.model, row.tokens)
 		if ms >= recentStart {
 			bucket := int((usageFloor(ms, 1800000, offset) - report.Recent[0].StartMs) / 1800000)
-			if e = addUsageMetrics(&report.Recent[bucket].Metrics, row.tokens, cost, elapsed); e != nil {
+			if e = addUsageMetrics(&report.Recent[bucket].Metrics, row.tokens, cost, generation); e != nil {
 				return report, e
 			}
 			addUsageModel(&report.Recent[bucket], row.model, row.tokens)
@@ -241,9 +239,8 @@ func readAgentUsage(ctx context.Context, db *sql.Conn, node protocol.NodeID, que
 		request.Model = row.model
 		request.Tokens = row.tokens
 		request.ElapsedUs = elapsed
-		if row.first.Valid && row.first.Int64 >= 0 && elapsed != nil && uint64(row.first.Int64) <= *elapsed {
-			v := uint64(row.first.Int64)
-			request.FirstTokenUs = &v
+		if first != nil && (elapsed == nil || *first <= *elapsed) {
+			request.FirstTokenUs = first
 		}
 		if cost != nil {
 			request.UsdMicros = &cost.UsdMicros
@@ -343,7 +340,29 @@ func addUsageModel(point *protocol.UsagePoint, model string, value protocol.Conv
 	v.Reasoning += value.Reasoning
 	point.Models[model] = v
 }
-func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.ConversationUsage, cost *protocol.UsageCost, elapsed *uint64) error {
+func usageTime(value sql.NullInt64) *uint64 {
+	if !value.Valid || value.Int64 < 0 {
+		return nil
+	}
+	us := uint64(value.Int64)
+	return &us
+}
+
+// Decode throughput uses matched output counts and time after first output.
+// When supplied, hidden reasoning tokens precede that window. Providers that
+// omit the breakdown contribute their reported completion count.
+func decodeGeneration(elapsed, first *uint64, tokens protocol.ConversationUsage, reasoningStreamed bool) *protocol.UsageGeneration {
+	if elapsed == nil || first == nil || *elapsed <= *first {
+		return nil
+	}
+	output := tokens.Output
+	if !reasoningStreamed {
+		output -= min(output, tokens.Reasoning)
+	}
+	return &protocol.UsageGeneration{ElapsedUs: *elapsed - *first, OutputTokens: output, Responses: 1}
+}
+
+func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.ConversationUsage, cost *protocol.UsageCost, generation *protocol.UsageGeneration) error {
 	target.Responses++
 	if target.Tokens == nil {
 		target.Tokens = &protocol.ConversationUsage{}
@@ -352,15 +371,15 @@ func addUsageMetrics(target *protocol.UsageMetrics, tokens protocol.Conversation
 	target.Tokens.Output += tokens.Output
 	target.Tokens.CachedInput += tokens.CachedInput
 	target.Tokens.Reasoning += tokens.Reasoning
-	if elapsed != nil {
+	if generation != nil {
 		if target.Generation == nil {
 			target.Generation = &protocol.UsageGeneration{}
 		}
-		if math.MaxUint64-target.Generation.ElapsedUs < *elapsed {
+		if math.MaxUint64-target.Generation.ElapsedUs < generation.ElapsedUs {
 			return invalid("usage duration exceeds the counter limit")
 		}
-		target.Generation.ElapsedUs += *elapsed
-		target.Generation.OutputTokens += tokens.Output
+		target.Generation.ElapsedUs += generation.ElapsedUs
+		target.Generation.OutputTokens += generation.OutputTokens
 		target.Generation.Responses++
 	}
 	if cost != nil {

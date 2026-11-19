@@ -362,7 +362,7 @@ func testDemoUsage(t *testing.T) {
 					cached += r.tokens.CachedInput
 					cost += r.cost.Input + r.cost.Output + r.cost.CacheRead + r.cost.CacheWrite
 					output += r.tokens.Output
-					elapsed += r.elapsed
+					elapsed += r.elapsed - r.first
 					if r.tokens.CachedInput > r.tokens.Input || r.first > r.elapsed || u.scope(&s) != project || s.title != usageTitle(c.Title) {
 						t.Errorf("%s has record %+v in %q titled %q", c.ID, r, u.scope(&s), s.title)
 					}

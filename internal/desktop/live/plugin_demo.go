@@ -169,7 +169,7 @@ func demoStatistics(view *viewmodel.Conversation, model string) *protocol.Conver
 	if usage.Speed > 0 && output > 0 {
 		generating = count(float64(output) * 1_000_000 / usage.Speed)
 		statistics.Generation = &protocol.UsageGeneration{ElapsedUs: generating, OutputTokens: output, Responses: turns}
-		observed.OutputUs, observed.OutputTokens, observed.OutputSamples = generating, output-reasoning, turns
+		observed.OutputUs, observed.OutputTokens, observed.OutputSamples = generating, output, turns
 	}
 
 	// The time to the first token is a few hundred milliseconds, the response
@@ -272,7 +272,7 @@ func demoStatistics(view *viewmodel.Conversation, model string) *protocol.Conver
 				attempt.Usage.CachedInput = sent * cached / input
 			}
 			attempt.Categories, attempt.CompleteContext = demoCategories(occupied, uint64(index), results), true
-			attempt.CacheReported, attempt.ReasoningReported = true, true
+			attempt.CacheReported, attempt.ReasoningReported, attempt.ReasoningStreamed = true, true, true
 			request.Attempts = []protocol.ConversationObservationAttempt{attempt}
 			observed.Recent = append(observed.Recent, request)
 			// The composition adds the requests' categories up, kind by kind.

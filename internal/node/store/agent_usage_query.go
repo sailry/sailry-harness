@@ -46,6 +46,7 @@ const agentUsageRows = `WITH responses AS (SELECT e.body,coalesce(json_extract(e
     json_extract(e.body,'$.metadata.execution.timing.elapsed_us'),
     json_extract(e.body,'$.metadata.execution.media'),e.sequence,e.session,e.turn,
     json_extract(e.body,'$.metadata.execution.timing.first_token_us'),
+    coalesce(json_extract(e.body,'$.metadata.execution.observation.attempts[0].reasoning_streamed'),0),
     json_extract(e.provider,'$.name'),coalesce(
         (SELECT name FROM projects WHERE id=e.project),
         CASE json_extract(e.resource,'$.kind')

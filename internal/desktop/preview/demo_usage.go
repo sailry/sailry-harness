@@ -403,10 +403,11 @@ func (u *Usage) conversation(c *Conversation, project int, end time.Time) {
 		if rate.reasoning {
 			reasoning = outputs[i] * 3 / 10
 		}
+		first := min(times[i]/3, 380_000+uint64(i%4)*90_000)
 		u.records = append(u.records, usageRecord{at: last.Add(-time.Duration(count-1-i) * 3 * time.Minute).UnixMilli(), session: session, model: model,
 			tokens:  protocol.ConversationUsage{Input: inputs[i], Output: outputs[i], CachedInput: reads[i], Reasoning: reasoning},
 			cost:    protocol.UsageCostBreakdown{Input: parts[0], Output: parts[1], CacheRead: parts[2]},
-			elapsed: times[i], first: min(times[i]/3, 380_000+uint64(i%4)*90_000)})
+			elapsed: first + times[i], first: first})
 	}
 }
 
@@ -457,12 +458,14 @@ func (r *usageRecord) add(target *protocol.UsageMetrics) {
 	target.Tokens.Output += r.tokens.Output
 	target.Tokens.CachedInput += r.tokens.CachedInput
 	target.Tokens.Reasoning += r.tokens.Reasoning
-	if target.Generation == nil {
-		target.Generation = &protocol.UsageGeneration{}
+	if r.elapsed > r.first {
+		if target.Generation == nil {
+			target.Generation = &protocol.UsageGeneration{}
+		}
+		target.Generation.ElapsedUs += r.elapsed - r.first
+		target.Generation.OutputTokens += r.tokens.Output
+		target.Generation.Responses++
 	}
-	target.Generation.ElapsedUs += r.elapsed
-	target.Generation.OutputTokens += r.tokens.Output
-	target.Generation.Responses++
 	if target.Cost == nil {
 		target.Cost = &protocol.UsageCost{Breakdown: &protocol.UsageCostBreakdown{}}
 	}

@@ -113,15 +113,10 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 				if part.Type == fantasy.StreamPartTypeReasoningDelta && part.Delta != "" {
 					attempt.ReasoningStreamed = true
 				}
-				if part.Type == fantasy.StreamPartTypeReasoningEnd {
-					if metadata, ok := part.ProviderMetadata[anthropic.Name].(*anthropic.ReasoningOptionMetadata); ok && metadata.RedactedData != "" {
-						attempt.ReasoningStreamed = true
-					}
-				}
 				if metadata, ok := part.ProviderMetadata[responseMetadataKey].(*responseMetadata); ok {
 					attempt.Status = metadata.Status
 				}
-				if attempt.FirstToken == nil && outputPart(part) {
+				if attempt.FirstToken == nil && firstTokenPart(part) {
 					first := timer.Now()
 					attempt.FirstToken = &first
 				}
@@ -211,6 +206,26 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 		schedule.waited += *attempt.RetryDelay
 	}
 }
+
+// A call ID or an empty arguments frame can establish provisional stream state
+// for retry purposes before the provider delivers any model output.
+func firstTokenPart(part fantasy.StreamPart) bool {
+	switch part.Type {
+	case fantasy.StreamPartTypeTextDelta, fantasy.StreamPartTypeReasoningDelta:
+		return part.Delta != ""
+	case fantasy.StreamPartTypeToolInputStart:
+		return part.ToolCallName != ""
+	case fantasy.StreamPartTypeToolInputDelta:
+		return part.Delta != ""
+	case fantasy.StreamPartTypeToolCall:
+		return part.ToolCallName != "" || part.ToolCallInput != ""
+	case fantasy.StreamPartTypeKeepalive:
+		return PluginOutput(part) && (part.ToolCallName != "" || part.Delta != "")
+	default:
+		return false
+	}
+}
+
 func outputPart(part fantasy.StreamPart) bool {
 	if PluginOutput(part) {
 		return true

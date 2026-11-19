@@ -102,7 +102,7 @@ func TestAgentStatistics(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if result.Turns != 1 || result.Responses != 1 || result.Usage == nil || result.Usage.Input != 100 || result.Usage.Output != 20 || result.Generation == nil || result.Generation.ElapsedUs != 10 || result.Observations.Replies != 1 {
+				if result.Turns != 1 || result.Responses != 1 || result.Usage == nil || result.Usage.Input != 100 || result.Usage.Output != 20 || result.Generation == nil || result.Generation.ElapsedUs != 6 || result.Generation.OutputTokens != 19 || result.Observations.Replies != 1 {
 					t.Fatalf("recorded totals = %#v", result)
 				}
 				switch scenario {
@@ -166,6 +166,9 @@ func TestAgentStatistics(t *testing.T) {
 					if !ok || output.Kind != "usage" || usage.Node != node || usage.Totals.Responses != 1 || usage.Totals.Tokens == nil || usage.Totals.Tokens.Input != 100 || usage.Totals.Tokens.Output != 20 ||
 						usage.Totals.Cost == nil || usage.Totals.Cost.UsdMicros != 357 || len(usage.Groups) != 1 || len(usage.Requests.Items) != 1 || usage.PricingUpdatedAtMs == nil || *usage.PricingUpdatedAtMs != 1234 {
 						t.Fatalf("usage report = %#v", output)
+					}
+					if usage.Totals.Generation == nil || *usage.Totals.Generation != *result.Generation || usage.Requests.Items[0].ElapsedUs == nil || *usage.Requests.Items[0].ElapsedUs != 10 || usage.Requests.Items[0].FirstTokenUs == nil || *usage.Requests.Items[0].FirstTokenUs != 4 {
+						t.Fatalf("session and report decode statistics or raw request timing differ: %+v", usage.Totals)
 					}
 					// Grouping by project labels the group, not the request's provider.
 					query.Dimension = protocol.UsageDimensionProject
@@ -339,7 +342,7 @@ func TestDelegatedStatistics(t *testing.T) {
 			message.Usage = &canonical.Usage{Input: ptr(input), Output: ptr(output)}
 			record := canonical.NewRecord(turn, "message", &message, now)
 			record.Provenance.Author = "assistant"
-			record.Metadata.Execution = &canonical.Execution{Timing: &canonical.Timing{ElapsedUs: ptr(elapsed)}}
+			record.Metadata.Execution = &canonical.Execution{Timing: &canonical.Timing{ElapsedUs: ptr(elapsed), FirstTokenUs: ptr(uint64(2))}}
 			_, _, err := AppendCanonical(ctx, db, session, record)
 			return err
 		}
@@ -370,11 +373,11 @@ func TestDelegatedStatistics(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if result.Turns != 1 || result.Responses != 1 || result.Usage == nil || result.Usage.Input != 100 || result.Usage.Output != 20 || result.Cost == nil || result.Cost.UsdMicros != 360 || result.Generation == nil || result.Generation.ElapsedUs != 10 {
+		if result.Turns != 1 || result.Responses != 1 || result.Usage == nil || result.Usage.Input != 100 || result.Usage.Output != 20 || result.Cost == nil || result.Cost.UsdMicros != 360 || result.Generation == nil || result.Generation.ElapsedUs != 8 {
 			t.Fatalf("child usage leaked into the parent's own totals: %#v", result)
 		}
 		delegated := result.Delegated
-		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 13200 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 21 {
+		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 13200 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 15 {
 			t.Fatalf("delegated totals = %#v", delegated)
 		}
 		own, err := ReadAgentStatistics(ctx, db, children[0].Session.ID)

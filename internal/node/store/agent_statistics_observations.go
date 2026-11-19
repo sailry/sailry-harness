@@ -258,14 +258,12 @@ func agentStatisticsObservations(ctx context.Context, db *sql.Conn, session prot
 			if attempt.ElapsedUs != nil {
 				result.ModelUs = addAgentStatistic(result.ModelUs, *attempt.ElapsedUs)
 			}
-			if attempt.ReasoningReported && attempt.Usage != nil && attempt.ElapsedUs != nil && attempt.FirstTokenUs != nil && *attempt.ElapsedUs > *attempt.FirstTokenUs {
-				result.OutputUs = addAgentStatistic(result.OutputUs, *attempt.ElapsedUs-*attempt.FirstTokenUs)
-				output := attempt.Usage.Output
-				if !attempt.ReasoningStreamed {
-					output -= min(output, attempt.Usage.Reasoning)
+			if attempt.Usage != nil {
+				if generation := decodeGeneration(attempt.ElapsedUs, attempt.FirstTokenUs, *attempt.Usage, attempt.ReasoningStreamed); generation != nil {
+					result.OutputUs = addAgentStatistic(result.OutputUs, generation.ElapsedUs)
+					result.OutputTokens = addAgentStatistic(result.OutputTokens, generation.OutputTokens)
+					result.OutputSamples++
 				}
-				result.OutputTokens = addAgentStatistic(result.OutputTokens, output)
-				result.OutputSamples++
 			}
 			for _, row := range attempt.Categories {
 				total, exists := composition[row.Kind]

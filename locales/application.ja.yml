@@ -964,7 +964,7 @@ usage_read_failed: "使用状況を読み込めませんでした。もう一度
 usage_empty: "まだ使用していません"
 usage_responses: "Responses"
 usage_speed: "発生速度"
-usage_speed_help: "最初の Token までの時間を含み、キューとツールを除く"
+usage_speed_help: "モデルの最初の出力以降の毎秒出力トークン数"
 usage_speed_partial: "部分応答"
 usage_cost: "推定費用（米ドル）"
 usage_cost_help: "予算ではなく参考予算"

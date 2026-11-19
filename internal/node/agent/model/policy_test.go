@@ -302,6 +302,28 @@ func TestRetryExhaustionRequiresRecoverableRetryableFailure(t *testing.T) {
 	}
 }
 
+func TestFirstTokenRequiresOutput(t *testing.T) {
+	accumulator := &pluginAccumulator{}
+	parts, err := accumulator.push(pluginDeltas(t, `[{"kind":"tool_call","index":0,"id":"call"},{"kind":"tool_call","index":0,"name":"read"}]`))
+	if err != nil || len(parts) != 2 {
+		t.Fatalf("plugin tool deltas = %v, %v", parts, err)
+	}
+	replayOnly, err := (&pluginAccumulator{}).push(pluginDeltas(t, `[{"kind":"reasoning","replay":"signature"}]`))
+	if err != nil || len(replayOnly) != 1 {
+		t.Fatalf("reasoning replay = %v, %v", replayOnly, err)
+	}
+	for _, part := range []fantasy.StreamPart{parts[0], replayOnly[0], {Type: fantasy.StreamPartTypeToolInputStart, ID: "call"}, {Type: fantasy.StreamPartTypeToolInputDelta, ID: "call"}} {
+		if firstTokenPart(part) || !outputPart(part) {
+			t.Fatalf("stream bookkeeping must preserve retry state without marking first token: %+v", part)
+		}
+	}
+	for _, part := range []fantasy.StreamPart{parts[1], {Type: fantasy.StreamPartTypeToolInputStart, ToolCallName: "read"}, {Type: fantasy.StreamPartTypeToolInputDelta, Delta: "{"}, {Type: fantasy.StreamPartTypeReasoningDelta, Delta: "plan"}, textPart("answer")} {
+		if !firstTokenPart(part) {
+			t.Fatalf("model output did not mark first token: %+v", part)
+		}
+	}
+}
+
 func TestNoRetryAfterOutputWithoutReset(t *testing.T) {
 	for _, event := range []fantasy.StreamPart{textPart("partial"), {Type: fantasy.StreamPartTypeToolInputDelta, ID: "call", Delta: "{"}} {
 		t.Run(string(event.Type), func(t *testing.T) {

@@ -1104,7 +1104,7 @@ usage_read_failed: 无法读取用量，请重试
 usage_empty: 暂无用量记录
 usage_responses: 响应数
 usage_speed: 生成速度
-usage_speed_help: 按模型响应总耗时计算，包含首 Token 延迟，不含排队和工具执行
+usage_speed_help: "从首个模型输出开始计算每秒输出 Token 数"
 usage_speed_partial: 部分响应
 usage_cost: 估算费用（USD）
 usage_cost_help: 参考估算，不代表实际账单

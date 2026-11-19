@@ -513,6 +513,9 @@ character counts and excluded opaque payload sizes, never request bodies.
 Text estimates remain separate from provider-reported tokens. Attempt-relative
 timings distinguish HTTP dispatch after preparation, successful request write,
 response headers and first model content; unavailable transport facts stay absent.
+Generation speed divides total measured output tokens by the sum of positive
+intervals from first model output to completion. A request without that timing
+can still contribute usage and cost. Request duration includes time to first output.
 
 Model request recovery permits up to nine retries and ten minutes of cumulative
 waiting. Network failures use exponential waits from one to thirty seconds;

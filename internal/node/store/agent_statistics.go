@@ -63,6 +63,8 @@ const agentStatisticsUsageRows = `WITH selected AS (
   CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
    THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider,
  json_extract(e.body,'$.metadata.execution.timing.elapsed_us') AS elapsed,
+ json_extract(e.body,'$.metadata.execution.timing.first_token_us') AS first,
+ coalesce(json_extract(e.body,'$.metadata.execution.observation.attempts[0].reasoning_streamed'),0) AS reasoning_streamed,
  json_extract(e.body,'$.metadata.execution.media') AS media,
  a.provider AS captured,json_extract(m.value,'$.provider') AS assigned
  FROM selected h JOIN agent_events e ON e.turn=h.turn
@@ -74,19 +76,20 @@ const agentStatisticsUsageRows = `WITH selected AS (
  AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
  AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
  SELECT CASE WHEN json_extract(provider,'$.api')='anthropic' AND json_extract(usage,'$.cache_write')>0
-  THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,media,delegated,` + agentUsagePreset + ` FROM responses`
+  THEN usage ELSE json_remove(usage,'$.provider') END,model,json_extract(provider,'$.api'),elapsed,first,reasoning_streamed,media,delegated,` + agentUsagePreset + ` FROM responses`
 
 // agentStatisticsMetrics totals the session's own usage and, apart from it,
 // the usage of the children its turns delegated.
 func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.UsageMetrics, protocol.UsageMetrics, error) {
 	result, delegated := protocol.DefaultUsageMetrics(), protocol.DefaultUsageMetrics()
 	type row struct {
-		usage      canonical.Usage
-		model      string
-		api, media sql.NullString
-		elapsed    sql.NullInt64
-		delegated  bool
-		preset     sql.NullString
+		usage             canonical.Usage
+		model             string
+		api, media        sql.NullString
+		elapsed, first    sql.NullInt64
+		reasoningStreamed bool
+		delegated         bool
+		preset            sql.NullString
 	}
 	rows, err := db.QueryContext(ctx, agentStatisticsUsageRows, session.String())
 	if err != nil {
@@ -96,7 +99,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 	for rows.Next() {
 		var value row
 		var body []byte
-		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.media, &value.delegated, &value.preset); err != nil {
+		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.first, &value.reasoningStreamed, &value.media, &value.delegated, &value.preset); err != nil {
 			rows.Close()
 			return result, delegated, err
 		}
@@ -118,17 +121,13 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 				return result, delegated, err
 			}
 		}
-		var elapsed *uint64
-		if row.elapsed.Valid && row.elapsed.Int64 >= 0 {
-			value := uint64(row.elapsed.Int64)
-			elapsed = &value
-		}
 		tokens := protocol.ConversationUsage{Input: optionalUint(row.usage.Input), Output: optionalUint(row.usage.Output), CachedInput: optionalUint(row.usage.CacheRead), Reasoning: optionalUint(row.usage.Reasoning)}
 		total := &result
 		if row.delegated {
 			total = &delegated
 		}
-		if err = addUsageMetrics(total, tokens, cost, elapsed); err != nil {
+		generation := decodeGeneration(usageTime(row.elapsed), usageTime(row.first), tokens, row.reasoningStreamed)
+		if err = addUsageMetrics(total, tokens, cost, generation); err != nil {
 			return result, delegated, err
 		}
 	}
