@@ -162,15 +162,15 @@ tool_search_files: 搜索文件
 tool_git_status: Git 状态
 tool_git_diff: 查看差异
 tool_git_log: Git 日志
-tool_spawn_agent: 子代理
+tool_spawn_agent: 子智能体
 tool_list_agents: "列出代理"
 tool_add_agent: "添加代理"
 tool_edit_agent: "编辑代理"
 tool_delete_agent: "删除代理"
 tool_apply_agents: "应用代理"
-tool_guide_agent: "引导子代理"
-tool_wait_agent: "等待子代理"
-tool_list_subagents: "查看子代理"
+tool_guide_agent: "引导子智能体"
+tool_wait_agent: "等待子智能体"
+tool_list_subagents: "查看子智能体"
 tool_list_teams: "列出团队"
 tool_add_team: "添加团队"
 tool_edit_team: "编辑团队"
@@ -313,7 +313,7 @@ workspace_pin: 置顶会话
 workspace_unpin: 取消置顶
 workspace_archive: 归档会话
 session_delete: 删除会话
-session_delete_confirm: 删除此会话及其子代理会话，无法恢复
+session_delete_confirm: 删除此会话及其子智能体会话，无法恢复
 session_delete_busy: 请先停止会话，再删除
 session_changed: 会话已变化，请重新操作
 workspace_copy_path: 复制路径
@@ -723,10 +723,10 @@ skills_already_installed: 已安装
 skills_source_invalid: 请检查仓库地址、分支和目录
 skills_not_found: 找不到仓库或技能
 skills_failed: 技能操作失败，请重试
-roles_profiles: 子代理
+roles_profiles: 子智能体
 role_example: 审查助手 · 示例
 role_example_description: 继承会话模型，协助审查变更
-role_editor: 编辑子代理
+role_editor: 编辑子智能体
 role_id: 标识
 role_model_source: 模型来源
 role_fixed: 固定模型
@@ -744,20 +744,20 @@ role_prompt_implement: |-
   完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
   复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
 role_invalid: 请检查标识、名称和轮数
-role_conflict: 子代理已变更，请重新打开
+role_conflict: 子智能体已变更，请重新打开
 role_duplicate: 标识已存在
 role_model_unavailable: 所选模型或供应商不可用
 role_effort_inherit: 自动
 role_effort_invalid: 模型不支持此推理强度
 role_skill_unavailable: 技能不可用
-role_remove_prompt: "移除示例子代理“%{name}”？仅修改当前预览"
-role_remove_live: "移除子代理“%{name}”？已发送任务不受影响"
+role_remove_prompt: "移除示例子智能体“%{name}”？仅修改当前预览"
+role_remove_live: "移除子智能体“%{name}”？已发送任务不受影响"
 role_save: 保存
 role_retry: 重试
 role_disconnected: 未连接
 role_unknown: 结果未确认，请重试原请求
 role_failed: 操作失败，请重试
-role_capacity: 子代理数量已达上限
+role_capacity: 子智能体数量已达上限
 settings_record_preview: 只保留当前窗口中的示例，不修改主机配置，不安装或执行任何内容
 terminal_environment: 全局环境变量
 terminal_environment_add: 添加环境变量
@@ -1198,9 +1198,9 @@ chat_sync_retry: 重新连接
 turn_tools_running: 正在执行
 turn_generating: 正在回复
 turn_compacting: 正在压缩
-turn_waiting_child: 等待 1 个子代理
+turn_waiting_child: 等待 1 个子智能体
 turn_waiting_controller: 等待控制端更新登录
-turn_waiting_children: "等待 %{count} 个子代理"
+turn_waiting_children: "等待 %{count} 个子智能体"
 turn_reasoning: 思考过程
 chat_context_summary: 上下文摘要
 chat_compact: 压缩上下文
@@ -1311,8 +1311,8 @@ composer_metric_million: "%{value}M"
 composer_metric_billion: "%{value}B"
 composer_todo_title: 待办
 composer_todo_count: "%{completed}/%{total} 项任务"
-composer_subagent_one: "1 个子代理"
-composer_subagent_count: "%{count} 个子代理"
+composer_subagent_one: "1 个子智能体"
+composer_subagent_count: "%{count} 个子智能体"
 composer_todo_remaining: "剩余 %{count} 步"
 composer_todo_collapse: 收起待办
 composer_todo_empty: 暂无待办
@@ -1517,7 +1517,7 @@ settings_plugins: 插件
 settings_mcp: MCP
 settings_providers: "模型"
 settings_media: 媒体模型
-settings_agents: 子代理
+settings_agents: 子智能体
 settings_skills: 技能
 settings_connections: 远程连接
 settings_shortcuts: 快捷键
@@ -1531,7 +1531,7 @@ settings_plugins_description: 管理已安装插件
 settings_mcp_description: 查看与配置可供会话使用的 MCP 工具服务
 settings_providers_description: 管理会话使用的供应商、认证和模型
 settings_media_description: 管理图像、音频和视频任务使用的模型
-settings_agents_description: 配置子代理的模型和提示词
+settings_agents_description: 配置子智能体的模型和提示词
 settings_skills_description: 管理可供会话使用的技能
 settings_connections_description: 管理配对设备和远程节点连接
 settings_shortcuts_description: 查看应用全局命令与键盘快捷键
@@ -1637,11 +1637,11 @@ task_pending: 待办
 task_in_progress: 进行中
 task_completed: 已完成
 task_skipped: 已跳过
-turn_subagents: 正在等待子代理…
-subagent_preview_menu: 子代理过程示例
-subagent_preview_prompt: 展示子代理状态与只读过程
-subagent_count: "%{completed}/%{total} 子代理"
-chat_child: 子代理
+turn_subagents: 正在等待子智能体…
+subagent_preview_menu: 子智能体过程示例
+subagent_preview_prompt: 展示子智能体状态与只读过程
+subagent_count: "%{completed}/%{total} 子智能体"
+chat_child: 子智能体
 chat_child_generic: 通用任务
 chat_child_summary: "%{complete} 已完成 · %{failed} 失败"
 chat_child_readonly: "%{role} · 只读"
@@ -1670,11 +1670,11 @@ queue_reload: 重新载入
 queue_reload_draft: 用当前内容替换编辑草稿
 queue_blocked: 项目信任或资源归属已改变，请先核对
 subagent_summary: "%{complete} 已完成 · %{failed} 失败 · 仅示例"
-subagent_show: 查看子代理活动
+subagent_show: 查看子智能体活动
 subagent_open: 查看过程
-subagent_unavailable: 此子代理的示例过程已不可用
-subagent_stop_unavailable: 只读预览，单独停止子代理尚未接入
-subagent_readonly: "%{role} · 只读示例，未执行子代理"
+subagent_unavailable: 此子智能体的示例过程已不可用
+subagent_stop_unavailable: 只读预览，单独停止子智能体尚未接入
+subagent_readonly: "%{role} · 只读示例，未执行子智能体"
 subagent_sample_review: 检查项目结构
 subagent_sample_test: 制定验证方案
 subagent_sample_waiting: 等待边界确认
@@ -1693,8 +1693,8 @@ composer_prompt_plan: 为接下来的任务制定计划
 composer_prompt_explain: 解释相关代码的工作方式
 reference_files: 文件
 reference_files_description: 当前 worktree 的示例文件
-reference_agents: 子代理
-reference_agents_description: 引用已配置的子代理
+reference_agents: 子智能体
+reference_agents_description: 引用已配置的子智能体
 reference_sessions: 会话
 reference_sessions_description: "可用会话"
 reference_context: 工作区上下文
@@ -1710,7 +1710,7 @@ reference_back: 返回上一级
 reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
 reference_stale: 引用的归属或配置已改变，请移除后重新选择
 reference_unavailable: 无法打开引用
-reference_one_agent: 一条消息只能引用一个子代理，请先移除已选子代理
+reference_one_agent: 一条消息只能引用一个子智能体，请先移除已选子智能体
 worktree_remove: 删除 worktree
 worktree_remove_preview: 移除示例记录
 worktree_remove_description: 移除后切回主 worktree
@@ -2175,7 +2175,7 @@ provider_tokens_k: "%{count}K"
 provider_tokens_m: "%{count}M"
 
 files_move: 移动
-session_delete_named: 删除“%{name}”及其子代理，无法恢复
+session_delete_named: 删除“%{name}”及其子智能体，无法恢复
 project_remove_named: "确认移除项目“%{name}”？将关闭其终端，文件和会话会保留"
 project_remove_sample: 确认移除示例项目“%{name}”
 worktree_remove_named: 确认删除 worktree“%{name}”？Git 分支会保留
@@ -2369,9 +2369,9 @@ background_recent_output: 仅显示近期输出
 background_unavailable: 暂时无法读取后台终端
 background_stop_failed: 停止失败，请重试
 background_stop_unknown: 停止结果未确认，请查看命令状态
-subagent_stop: 停止子代理
+subagent_stop: 停止子智能体
 subagent_stop_failed: 停止失败，请重试
-subagent_stop_unknown: 停止结果未确认，请查看子代理状态
+subagent_stop_unknown: 停止结果未确认，请查看子智能体状态
 background_started: 已在后台运行
 background_read: 查看后台命令
 
@@ -2841,7 +2841,7 @@ git_diff_side_by_side: 并排
 git_diff_inline: 内联
 git_diff_needs_width: 宽度不足，无法并排
 session_delete_private_files: 其私有工作区中的文件也会一并删除
-session_delete_private_named: 删除“%{name}”、其子代理和私有工作区文件，无法恢复
+session_delete_private_named: 删除“%{name}”、其子智能体和私有工作区文件，无法恢复
 port_count: "%{count} 个端口"
 queue_messages_one: 1 条消息排队
 queue_messages_count: "%{count} 条消息排队"

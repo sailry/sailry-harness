@@ -150,17 +150,17 @@ chat_interrupted: 已中断
 turn_failed: 处理失败
 turn_generating: 正在回复
 turn_awaiting_response: 正在思考
-turn_waiting_child: 等待 1 个子代理
-turn_waiting_children: 等待 %{count} 个子代理
+turn_waiting_child: 等待 1 个子智能体
+turn_waiting_children: 等待 %{count} 个子智能体
 turn_waiting_controller: 等待控制端更新登录
 approval_rejected: 已拒绝
 approval_reject: 拒绝
 approval_allow_once: 允许
 approval_allow_session: 本会话允许
 approval_live_count: 待审批 %{count} 项
-subagent_count: '%{completed}/%{total} 子代理'
-tool_list_subagents: 查看子代理
-chat_child: 子代理
+subagent_count: '%{completed}/%{total} 子智能体'
+tool_list_subagents: 查看子智能体
+chat_child: 子智能体
 question_reply: 等待回答
 question_other: 其他
 question_decline: 拒绝回答
@@ -241,9 +241,9 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 张
 workspace_archive: 归档会话
 session_delete: 删除会话
-session_delete_named: 删除“%{name}”及其子代理，无法恢复
+session_delete_named: 删除“%{name}”及其子智能体，无法恢复
 session_delete_private_files: 其私有工作区中的文件也会一并删除
-session_delete_private_named: 删除“%{name}”、其子代理和私有工作区文件，无法恢复
+session_delete_private_named: 删除“%{name}”、其子智能体和私有工作区文件，无法恢复
 workspace_rename: 重命名
 session_title_required: 请输入名称
 session_mark_read: 标记为已读
@@ -703,7 +703,7 @@ files_upload_sending: 正在上传
 files_upload_publishing: 正在保存文件
 reference_title: 添加引用
 reference_files: 文件
-reference_agents: 子代理
+reference_agents: 子智能体
 reference_sessions: 会话
 reference_context: 工作区上下文
 reference_databases: 数据库
@@ -712,7 +712,7 @@ reference_empty: 没有匹配的引用
 reference_host: 主机
 reference_project: 项目
 reference_worktree: 工作树
-reference_one_agent: 一条消息只能引用一个子代理，请先移除已选子代理
+reference_one_agent: 一条消息只能引用一个子智能体，请先移除已选子智能体
 composer_commands: 指令
 composer_command_review: 审查变更
 composer_command_test: 运行测试
@@ -752,7 +752,7 @@ provider_anthropic: Anthropic
 provider_gemini: Gemini
 provider_other: 其他
 reference_files_description: 当前 worktree 的示例文件
-reference_agents_description: 引用已配置的子代理
+reference_agents_description: 引用已配置的子智能体
 reference_sessions_description: 可用会话
 reference_context_description: 主机、项目和 worktree
 appearance_import: 导入主题
@@ -771,7 +771,7 @@ backup_conflict: 备份设置或目标已变化，请重新加载后检查
 backup_delete: 删除
 backup_delete_all: 删除所有会话
 backup_delete_all_action: 全部删除
-backup_delete_all_consequence: 删除所有会话（含归档）、子代理及私有文件，无法恢复；项目文件和设置保留
+backup_delete_all_consequence: 删除所有会话（含归档）、子智能体及私有文件，无法恢复；项目文件和设置保留
 backup_destination: 备份存储
 backup_endpoint: 服务地址
 backup_export: 导出
@@ -1012,7 +1012,7 @@ settings_seconds: '%{count} 秒'
 settings_shortcuts_description: 查看应用全局命令与键盘快捷键
 settings_sidebar_metrics: 性能指示器
 settings_skills_description: 管理可供会话使用的技能
-settings_teams_description: 子代理的角色和团队
+settings_teams_description: 子智能体的角色和团队
 settings_terminal_description: 终端环境与显示偏好
 settings_terminal_display: 显示与输入
 settings_toast_description: 应用内提示消息保持显示的时间
@@ -1326,7 +1326,7 @@ role_prompt_frontend: 结合现有设计系统梳理使用流程，设计布局�
 role_preset_troubleshoot: 难题攻坚
 role_troubleshoot_description: 解决复杂实现，接手多次尝试仍未解决的问题
 role_prompt_troubleshoot: 承接复杂实现，或接手已尝试两三次仍未解决的问题。先核对已有证据和尝试，验证关键假设，完成必要的实现或修复，再按原始条件验证。报告改动、验证结果和剩余限制。
-role_model_hint_review: 跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子代理是否停止。
+role_model_hint_review: 跨模块审查可选强推理模型（如 Opus），例如检查父会话取消后子智能体是否停止。
 role_model_hint_implement: 范围明确的改动可选均衡型编程模型（如 Sonnet），例如新增设置项并保存配置。
 role_model_hint_test: 运行定向回归测试可选快速模型（如 Haiku）；排查时序相关的测试可选强推理模型。
 role_model_hint_plan: 涉及设计取舍可选强推理模型（如 Opus），例如规划保留既有会话的历史数据迁移。
@@ -1334,8 +1334,8 @@ role_model_hint_frontend: 界面开发可选均衡型编程模型（如 Sonnet�
 role_model_hint_troubleshoot: 难复现的问题可选强推理模型（如 Opus），例如定位滚动长会话时的内存峰值。
 team_role_one: 1 个角色
 team_role_count: '%{count} 个角色'
-teams_concurrency: 子代理并发数
-teams_concurrency_description: 每个会话同时运行的子代理上限
+teams_concurrency: 子智能体并发数
+teams_concurrency_description: 每个会话同时运行的子智能体上限
 teams_roles: 角色
 team_new: 新建团队
 role_new: 新建角色
@@ -1717,8 +1717,8 @@ reference_group_plugins: 插件
 reference_group_attach: 附件
 appearance_blur: 模糊
 composer_todo_count: '%{completed}/%{total} 项任务'
-composer_subagent_one: 1 个子代理
-composer_subagent_count: '%{count} 个子代理'
+composer_subagent_one: 1 个子智能体
+composer_subagent_count: '%{count} 个子智能体'
 background_one: 1 个终端
 background_count: '%{count} 个终端'
 background_end: 结束
@@ -1795,9 +1795,9 @@ workspace_restore_confirm: 恢复此轮操作前的文件版本
 artifact_edit_prompt: 修改要求：
 background_stop_failed: 停止失败，请重试
 background_stop_unknown: 停止结果未确认，请查看命令状态
-subagent_stop: 停止子代理
+subagent_stop: 停止子智能体
 subagent_stop_failed: 停止失败，请重试
-subagent_stop_unknown: 停止结果未确认，请查看子代理状态
+subagent_stop_unknown: 停止结果未确认，请查看子智能体状态
 background_unavailable: 暂时无法读取后台终端
 files_cancel_remaining: 取消剩余项目
 files_check_result: 检查结果
@@ -1889,7 +1889,7 @@ hooks_scope_windows: 脚本使用当前 Windows 命令策略
 teams_role_conflict: 角色已变更，请重新打开
 team_conflict: 团队已变更，请重新打开
 role_model_unavailable: 所选模型或供应商不可用
-role_capacity: 子代理数量已达上限
+role_capacity: 子智能体数量已达上限
 role_unknown: 结果未确认，请重试原请求
 role_failed: 操作失败，请重试
 chat_child_unavailable: 子会话尚不可用，请重试
@@ -1994,7 +1994,7 @@ market_permission_databases_manage: 管理数据库连接
 market_permission_ssh_read: 读取 SSH 连接
 market_permission_ssh_control: 使用 SSH 会话
 market_permission_ssh_manage: 管理 SSH 连接
-market_permission_agents_delegate: 派发子代理
+market_permission_agents_delegate: 派发子智能体
 market_permission_roles_read: 读取角色
 market_permission_teams_read: 读取团队
 market_permission_roles_write: 修改角色

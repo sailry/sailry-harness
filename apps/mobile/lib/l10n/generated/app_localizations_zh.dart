@@ -171,11 +171,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationWaiting => '等待确认';
 
   @override
-  String get conversationWaitingChild => '等待 1 个子代理';
+  String get conversationWaitingChild => '等待 1 个子智能体';
 
   @override
   String conversationWaitingChildren(String count) {
-    return '等待 $count 个子代理';
+    return '等待 $count 个子智能体';
   }
 
   @override
@@ -685,7 +685,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get tool_update_goal => '更新目标';
 
   @override
-  String get tool_spawn_agent => '子代理';
+  String get tool_spawn_agent => '子智能体';
 
   @override
   String get tool_browser_tabs => '浏览器标签页';
@@ -2432,11 +2432,11 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get conversationWaiting => '等待確認';
 
   @override
-  String get conversationWaitingChild => '等待 1 個子代理';
+  String get conversationWaitingChild => '等待 1 個子智能體';
 
   @override
   String conversationWaitingChildren(String count) {
-    return '等待 $count 個子代理';
+    return '等待 $count 個子智能體';
   }
 
   @override
@@ -2946,7 +2946,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get tool_update_goal => '更新目標';
 
   @override
-  String get tool_spawn_agent => '子代理';
+  String get tool_spawn_agent => '子智能體';
 
   @override
   String get tool_browser_tabs => '瀏覽器標籤頁';

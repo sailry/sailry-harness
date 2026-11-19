@@ -166,7 +166,7 @@ func loadingSheet(t *testing.T) {
 					for _, phase := range []struct {
 						st    Thinking
 						label string
-					}{{Searching, "正在思考"}, {Composing, "正在回复"}, {Working, "等待 2 个子代理"}, {Waiting, "等待处理"}} {
+					}{{Searching, "正在思考"}, {Composing, "正在回复"}, {Working, "等待 2 个子智能体"}, {Waiting, "等待处理"}} {
 						ui.Row(c.Key(phase.label)).Gap(8).Height(24).Children(func() {
 							Indicator(c, phase.st, 16)
 							Level(c, ui.Text(c, phase.label).FontSize(14).SingleLine().TextColor(p.MutedForeground), 14, phase.label)

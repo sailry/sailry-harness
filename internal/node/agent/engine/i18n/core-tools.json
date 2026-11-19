@@ -1,8 +1,8 @@
 {
   "tool_spawn_agent": {
     "en": "Subagent",
-    "zh-CN": "子代理",
-    "zh-TW": "子代理",
+    "zh-CN": "子智能体",
+    "zh-TW": "子智能體",
     "ja": "サブエージェント",
     "ko": "하위 에이전트",
     "fr": "Sous-agent",
@@ -13,8 +13,8 @@
   },
   "tool_guide_agent": {
     "en": "Guide subagent",
-    "zh-CN": "引导子代理",
-    "zh-TW": "引導子代理",
+    "zh-CN": "引导子智能体",
+    "zh-TW": "引導子智能體",
     "ja": "サブエージェントを指示",
     "ko": "하위 에이전트 지시",
     "fr": "Guider le sous-agent",
@@ -25,8 +25,8 @@
   },
   "tool_wait_agent": {
     "en": "Wait for subagent",
-    "zh-CN": "等待子代理",
-    "zh-TW": "等待子代理",
+    "zh-CN": "等待子智能体",
+    "zh-TW": "等待子智能體",
     "ja": "サブエージェントを待機",
     "ko": "하위 에이전트 대기",
     "fr": "Attendre le sous-agent",
@@ -37,8 +37,8 @@
   },
   "tool_list_subagents": {
     "en": "List subagents",
-    "zh-CN": "查看子代理",
-    "zh-TW": "檢視子代理",
+    "zh-CN": "查看子智能体",
+    "zh-TW": "檢視子智能體",
     "ja": "サブエージェントを一覧表示",
     "ko": "하위 에이전트 목록",
     "fr": "Lister les sous-agents",

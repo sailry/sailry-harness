@@ -82,7 +82,7 @@ func (r *Runtime) delegationTools(x *execution) []Tool {
 		return ToolResult{Value: page}
 	})
 	list.Deferred = deferred
-	list.SearchLabels = []string{"子代理", "查看", "续接", "恢复"}
+	list.SearchLabels = []string{"子智能体", "子智能體", "子代理", "查看", "续接", "恢复"}
 	return append(values, list)
 }
 

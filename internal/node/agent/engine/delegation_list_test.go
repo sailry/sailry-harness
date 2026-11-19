@@ -18,7 +18,7 @@ func TestSubagentListingTool(t *testing.T) {
 	if tool == nil || !tool.ReadOnly || !tool.Concurrent || !tool.Deferred || tool.Approval || tool.ExecutePrepared != nil {
 		t.Fatal("listing must remain a deferred read-only native tool in Standard mode")
 	}
-	for _, query := range []string{"子代理", "查看", "续接", "恢复", "中断后查看子代理状态", "select:list_subagents"} {
+	for _, query := range []string{"子智能体", "子智能體", "子代理", "查看", "续接", "恢复", "中断后查看子智能体状态", "select:list_subagents"} {
 		match := builtinMatches(x.tools, query, 1)
 		if len(match) != 1 || match[0].Definition.Name != "list_subagents" {
 			t.Fatalf("query %q did not find the subagent list", query)
@@ -41,7 +41,7 @@ func TestSubagentListingTool(t *testing.T) {
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &call}), f.r.clock.Now())
 	f.r.captureCorePresentation(&record)
 	presentation := record.Metadata.Presentation
-	if presentation == nil || presentation.Tools[call.Name] != protocol.ToolPresentationSummary || presentation.Displays[call.Name].Locales["zh-CN"] != "查看子代理" || len(presentation.Delegations) != 0 {
+	if presentation == nil || presentation.Tools[call.Name] != protocol.ToolPresentationSummary || presentation.Displays[call.Name].Locales["zh-CN"] != "查看子智能体" || len(presentation.Delegations) != 0 {
 		t.Fatalf("subagent list presentation was missing or treated as spawning: %+v", presentation)
 	}
 

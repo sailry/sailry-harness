@@ -150,17 +150,17 @@ chat_interrupted: 已中斷
 turn_failed: 處理失敗
 turn_generating: 正在回覆
 turn_awaiting_response: 正在思考
-turn_waiting_child: 等待 1 個子代理
-turn_waiting_children: 等待 %{count} 個子代理
+turn_waiting_child: 等待 1 個子智能體
+turn_waiting_children: 等待 %{count} 個子智能體
 turn_waiting_controller: 等待控制端更新登入
 approval_rejected: 已拒絕
 approval_reject: 拒絕
 approval_allow_once: 允許
 approval_allow_session: 本會話允許
 approval_live_count: 待審批 %{count} 項
-subagent_count: '%{completed}/%{total} 子代理'
-tool_list_subagents: 檢視子代理
-chat_child: 子代理
+subagent_count: '%{completed}/%{total} 子智能體'
+tool_list_subagents: 檢視子智能體
+chat_child: 子智能體
 question_reply: 等待回答
 question_other: 其他
 question_decline: 拒絕回答
@@ -241,9 +241,9 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 張
 workspace_archive: 歸檔會話
 session_delete: 刪除會話
-session_delete_named: 確認刪除會話“%{name}”及其子代理？無法恢復
+session_delete_named: 確認刪除會話“%{name}”及其子智能體？無法恢復
 session_delete_private_files: 其私有工作區中的檔案也會一併刪除
-session_delete_private_named: 刪除「%{name}」、其子代理和私有工作區檔案，無法復原
+session_delete_private_named: 刪除「%{name}」、其子智能體和私有工作區檔案，無法復原
 workspace_rename: 重新命名
 session_title_required: 請輸入名稱
 session_mark_read: 標記為已讀
@@ -703,7 +703,7 @@ files_upload_sending: 正在上傳
 files_upload_publishing: 正在儲存檔案
 reference_title: 新增引用
 reference_files: 檔案
-reference_agents: 子代理
+reference_agents: 子智能體
 reference_sessions: 會話
 reference_context: 工作區上下文
 reference_databases: 資料庫
@@ -712,7 +712,7 @@ reference_empty: 沒有匹配的引用
 reference_host: 主機
 reference_project: 專案
 reference_worktree: 工作樹
-reference_one_agent: 一條訊息只能引用一個子代理，請先移除已選子代理
+reference_one_agent: 一條訊息只能引用一個子智能體，請先移除已選子智能體
 composer_commands: 指令
 composer_command_review: 審查變更
 composer_command_test: 執行測試
@@ -752,7 +752,7 @@ provider_anthropic: Anthropic
 provider_gemini: Gemini
 provider_other: 其他
 reference_files_description: 當前工作樹的示例檔案
-reference_agents_description: 引用已配置的子代理
+reference_agents_description: 引用已配置的子智能體
 reference_sessions_description: 可用會話
 reference_context_description: 主機、專案和工作樹
 appearance_import: 匯入主題
@@ -1012,7 +1012,7 @@ settings_seconds: '%{count} 秒'
 settings_shortcuts_description: 檢視應用全域性命令與鍵盤快捷鍵
 settings_sidebar_metrics: 效能指示器
 settings_skills_description: 管理可供會話使用的技能
-settings_teams_description: 子代理的角色和團隊
+settings_teams_description: 子智能體的角色和團隊
 settings_terminal_description: 終端環境與顯示偏好
 settings_terminal_display: 顯示與輸入
 settings_toast_description: 應用內提示訊息保持顯示的時間
@@ -1326,7 +1326,7 @@ role_prompt_frontend: 依現有設計系統梳理操作流程，設計並實作�
 role_preset_troubleshoot: 難題攻堅
 role_troubleshoot_description: 解決複雜實作，接手多次嘗試仍未解決的問題
 role_prompt_troubleshoot: 負責複雜實作，或接手已嘗試兩三次仍未解決的問題。檢視先前的證據與嘗試，驗證關鍵假設，完成必要的實作或修正，並依原始條件驗證。回報修改內容、驗證結果與剩餘限制。
-role_model_hint_review: 跨模組審查可選推理能力強的模型（例如 Opus），例如檢查父工作階段取消後子代理是否停止。
+role_model_hint_review: 跨模組審查可選推理能力強的模型（例如 Opus），例如檢查父工作階段取消後子智能體是否停止。
 role_model_hint_implement: 範圍明確的修改可選均衡型程式設計模型（例如 Sonnet），例如新增設定欄位並儲存設定。
 role_model_hint_test: 執行特定回歸測試可選快速模型（例如 Haiku）；排查涉及時序的測試可選推理能力強的模型。
 role_model_hint_plan: 涉及設計取捨可選推理能力強的模型（例如 Opus），例如規劃保留既有工作階段的歷程資料遷移。
@@ -1334,8 +1334,8 @@ role_model_hint_frontend: 介面開發可選均衡型程式設計模型（例如
 role_model_hint_troubleshoot: 難以重現的問題可選推理能力強的模型（例如 Opus），例如找出捲動長對話時記憶體用量激增的原因。
 team_role_one: 1 個角色
 team_role_count: '%{count} 個角色'
-teams_concurrency: 子代理並行數
-teams_concurrency_description: 每個對話同時執行的子代理上限
+teams_concurrency: 子智能體並行數
+teams_concurrency_description: 每個對話同時執行的子智能體上限
 teams_roles: 角色
 team_new: 新增團隊
 role_new: 新增角色
@@ -1717,8 +1717,8 @@ reference_group_plugins: 外掛
 reference_group_attach: 附件
 appearance_blur: 模糊
 composer_todo_count: '%{completed}/%{total} 項任務'
-composer_subagent_one: 1 個子代理
-composer_subagent_count: '%{count} 個子代理'
+composer_subagent_one: 1 個子智能體
+composer_subagent_count: '%{count} 個子智能體'
 background_one: 1 個終端
 background_count: '%{count} 個終端'
 background_end: 結束
@@ -1795,9 +1795,9 @@ workspace_restore_confirm: 還原此輪操作前的檔案版本
 artifact_edit_prompt: 修改要求：
 background_stop_failed: 停止失敗，請重試
 background_stop_unknown: 停止結果未確認，請檢視命令狀態
-subagent_stop: 停止子代理
+subagent_stop: 停止子智能體
 subagent_stop_failed: 停止失敗，請重試
-subagent_stop_unknown: 停止結果未確認，請查看子代理狀態
+subagent_stop_unknown: 停止結果未確認，請查看子智能體狀態
 background_unavailable: 暫時無法讀取後臺終端
 files_cancel_remaining: 取消其餘項目
 files_check_result: 檢查結果
@@ -1889,7 +1889,7 @@ hooks_scope_windows: 指令碼使用目前 Windows 命令原則
 teams_role_conflict: 角色已變更，請重新開啟
 team_conflict: 團隊已變更，請重新開啟
 role_model_unavailable: 所選模型或供應商不可用
-role_capacity: 子代理數量已達上限
+role_capacity: 子智能體數量已達上限
 role_unknown: 結果未確認，請重試原請求
 role_failed: 操作失敗，請重試
 chat_child_unavailable: 子會話尚不可用，請重試
@@ -1994,7 +1994,7 @@ market_permission_databases_manage: 管理資料庫連線
 market_permission_ssh_read: 讀取 SSH 連線
 market_permission_ssh_control: 使用 SSH 會話
 market_permission_ssh_manage: 管理 SSH 連線
-market_permission_agents_delegate: 派發子代理
+market_permission_agents_delegate: 派發子智能體
 market_permission_roles_read: 讀取角色
 market_permission_teams_read: 讀取團隊
 market_permission_roles_write: 修改角色
@@ -2252,7 +2252,7 @@ tool_read_skill_resource: 讀取技能資源
 tool_session_title: 設定會話標題
 queue_read: 查看
 chat_assets_title: 活動
-chat_assets_activity: 子智慧體
+chat_assets_activity: 子智能體
 chat_assets_changes: 變更
 chat_assets_waiting: 暫無進度或變更
 chat_assets_fold: 收合
@@ -2260,7 +2260,7 @@ chat_assets_unfold: 展開
 chat_assets_progress: 進度
 chat_assets_output: 輸出
 chat_assets_sources: 來源
-chat_assets_no_activity: 無子智慧體
+chat_assets_no_activity: 無子智能體
 chat_assets_no_progress: 無任務
 chat_assets_no_output: 無輸出
 chat_assets_no_sources: 無來源
@@ -2371,7 +2371,7 @@ meter_assistant: 助理歷史
 meter_results: 工具結果
 meter_reply: 回覆
 meter_tool_calls: 工具呼叫
-meter_child_usage: 子代理用量
+meter_child_usage: 子智能體用量
 meter_wait: 等待
 meter_tools_time: 工具
 meter_other: 其他
@@ -2400,7 +2400,7 @@ meter_reasoning: Reasoning
 meter_speed_unit: tok/s
 meter_duration_ms: '%{value} ms'
 meter_duration_s: '%{value} s'
-meter_subagents: 子智慧體
+meter_subagents: 子智能體
 meter_compacting: Compacting context
 meter_state_plenty: 空間充裕
 meter_state_filling: 逐漸佔滿
