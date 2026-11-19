@@ -119,10 +119,12 @@ type Runtime struct {
 func DefaultRuntime() Runtime { return Runtime{UserVisible: true, AgentVisible: true} }
 
 type OperationNotes struct {
-	EmptyResponse      bool           `json:"empty_response,omitempty"`
-	DeliveredSubagent  *string        `json:"delivered_subagent,omitempty"`
-	CancelledSubagents []string       `json:"cancelled_subagents,omitempty"`
-	Context            *PromptContext `json:"context,omitempty"`
+	EmptyResponse      bool     `json:"empty_response,omitempty"`
+	DeliveredSubagent  *string  `json:"delivered_subagent,omitempty"`
+	CancelledSubagents []string `json:"cancelled_subagents,omitempty"`
+	// TurnLimit marks a child turn ended by its role's action limit.
+	TurnLimit bool           `json:"turn_limit,omitempty"`
+	Context   *PromptContext `json:"context,omitempty"`
 }
 type PromptContext struct {
 	State    string            `json:"state"`

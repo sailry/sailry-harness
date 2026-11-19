@@ -132,6 +132,26 @@ func TestStopAgentStopsAndCollectsChild(t *testing.T) {
 	}
 }
 
+func TestChildTurnLimitIsRuntimeNote(t *testing.T) {
+	f, x := delegationFixture(t)
+	x.childRole = &protocol.RoleProfile{MaxTurns: new(uint32(0))}
+	limited, err := f.r.childTurnLimit(x, f.state())
+	if err != nil || !limited {
+		t.Fatal(limited, err)
+	}
+	state := f.state()
+	last := state.Records[len(state.Records)-1]
+	if last.Kind != "operation" || last.Provenance.Author != "system" || last.Metadata.Runtime == nil || last.Metadata.Runtime.Notes == nil || !last.Metadata.Runtime.Notes.TurnLimit {
+		t.Fatalf("turn limit record = %+v", last)
+	}
+	if message := lastMessage(state.Records); message != nil && message.Role == canonical.Assistant {
+		t.Fatal("the turn limit became an assistant reply")
+	}
+	if f.readQuery("SELECT count(*) FROM agent_events WHERE json_extract(body,'$.metadata.runtime.notes.turn_limit')=1") != 1 {
+		t.Fatal("the turn limit note was not stored")
+	}
+}
+
 func TestWaitAgent(t *testing.T) {
 	for _, guidance := range []bool{false, true} {
 		name := "bounded observation keeps queued child"

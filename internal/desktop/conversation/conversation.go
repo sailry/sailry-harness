@@ -675,7 +675,12 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing, t
 			case CompactionBlock:
 				s.compaction(c, &Turn{ID: turn + "-" + b.Label, Compaction: &Compaction{State: Compacted, Summary: b.Text}})
 			case LimitBlock:
-				plain(c, "limit-"+key, Call{Label: i18n.T(c, "chat_output_limit"), Icon: "triangle-alert", Warning: true})
+				// Label names another runtime limit; none is the output limit.
+				label := "chat_output_limit"
+				if b.Label != "" {
+					label = b.Label
+				}
+				plain(c, "limit-"+key, Call{Label: i18n.T(c, label), Icon: "triangle-alert", Warning: true})
 			case ErrorBlock:
 				s.diagnostic(c, &Diagnostic{Title: b.Label, Fields: b.Fields, Detail: b.Text})
 			}

@@ -386,7 +386,11 @@ func (r *Runtime) waitChild(x *execution, call canonical.ToolRequest) ToolResult
 			return toolFault(err)
 		}
 		if !childPending(state.Run) {
-			return ToolResult{Value: map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status, "response": state.Response, "error": state.Run.Error}, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
+			value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status, "response": state.Response, "error": state.Run.Error}
+			if state.TurnLimit {
+				value["turn_limit"] = childTurnLimitSummary
+			}
+			return ToolResult{Value: value, Collect: &collectedChild{session: args.Session, turn: state.Run.Turn}}
 		}
 		value := map[string]any{"session": state.Run.Session, "turn": state.Run.Turn, "status": state.Run.Status}
 		if state.Paused && state.Run.Status == protocol.ConversationStatusQueued {

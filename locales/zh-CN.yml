@@ -2818,6 +2818,7 @@ queue_guidance_outlived: 回复已结束，已排队为新消息
 queue_halt_interrupted: 回复已中断，排队消息已保留
 queue_halt_unsent: 消息未发送，已保留在队列中
 chat_output_limit: 回复已达输出上限
+chat_turn_limit: "已达操作次数上限，已停止"
 knowledge_collections: 集合
 knowledge_collection_pending: 等待索引
 knowledge_collection_unavailable: 存储主机不可用

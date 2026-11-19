@@ -105,10 +105,18 @@ func (r *Runtime) childTurnLimit(x *execution, state store.AgentState) (bool, er
 	if x.childRole == nil || x.childRole.MaxTurns == nil || usedChildTurns(x, state) < *x.childRole.MaxTurns {
 		return false, nil
 	}
-	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Text(0, "I've reached the maximum number of actions I can do without user input. Would you like me to continue?")), r.clock.Now())
-	record.Provenance.Author = "assistant"
+	// The runtime ended the turn, so it says so as a note clients localize,
+	// not as an assistant reply in the child's model history.
+	value := &canonical.Note{Note: canonical.OperationNote{Kind: "turn_limit"}}
+	record := canonical.NewRecord(x.inv.Run.Turn, "operation", &canonical.Operation{Kind: "note", Data: value}, r.clock.Now())
+	record.Provenance.Author = "system"
+	record.Metadata.Runtime = &canonical.Runtime{UserVisible: true, Notes: &canonical.OperationNotes{TurnLimit: true}}
 	return true, r.save(x.ctx, x.inv.Session.ID, record)
 }
+
+// childTurnLimitSummary tells the parent that a child stopped at its role's
+// action limit rather than finishing; its last reply may be partial.
+const childTurnLimitSummary = "Stopped at its action limit before finishing; guide_agent can continue it."
 
 func childBudgetContext(x *execution, state store.AgentState) string {
 	if x.childRole == nil || x.childRole.MaxTurns == nil {

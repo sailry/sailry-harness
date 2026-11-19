@@ -18,6 +18,8 @@ type ChildState struct {
 	Recipient *protocol.TurnID
 	Paused    bool
 	Ready     bool
+	// TurnLimit reports that the child's role action limit ended the run.
+	TurnLimit bool
 }
 
 func ReleaseChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, children []protocol.TurnID) ([]protocol.Event, error) {
@@ -274,6 +276,9 @@ func ReadChildState(ctx context.Context, db *sql.Conn, parent protocol.TurnID, c
 	if state.Run.Status == protocol.ConversationStatusCompleted {
 		state.Response, err = childResponse(ctx, db, state.Run.Turn)
 		if err != nil {
+			return state, err
+		}
+		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_events WHERE turn=?1 AND json_extract(body,'$.metadata.runtime.notes.turn_limit')=1)", state.Run.Turn.String()).Scan(&state.TurnLimit); err != nil {
 			return state, err
 		}
 	}

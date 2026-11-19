@@ -2306,6 +2306,7 @@ queue_halt_interrupted: 返信が中断されました。キューのメッセ�
 queue_halt_unsent: メッセージは送信されず、キューに保持されています
 usage_read_failed: 使用状況を読み込めませんでした。もう一度試してください
 chat_output_limit: 出力上限で返信が途切れました
+chat_turn_limit: 操作回数の上限で停止しました
 start_failed: Sailry を起動できませんでした
 start_profile_in_use: Sailry はこのデータフォルダで既に実行中です
 backup_keep: 保持するバックアップ

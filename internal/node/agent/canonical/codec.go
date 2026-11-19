@@ -16,7 +16,7 @@ var blockVariants = map[string]func() any{
 }
 var noticeVariants = map[string]func() any{"elicitation": func() any { return new(Elicitation) }, "elicitation_result": func() any { return new(ElicitationResult) }, "plan_review": func() any { return new(PlanReview) }, "plan_result": func() any { return new(PlanResult) }}
 var operationVariants = map[string]func() any{"visibility": func() any { return new(Visibility) }, "tool_meta": func() any { return new(ToolMeta) }, "note": func() any { return new(Note) }}
-var noteVariants = map[string]func() any{"empty_response": nil, "subagent_delivered": func() any { return new(SubagentDelivered) }, "subagents_cancelled": func() any { return new(SubagentsCancelled) }}
+var noteVariants = map[string]func() any{"empty_response": nil, "turn_limit": nil, "subagent_delivered": func() any { return new(SubagentDelivered) }, "subagents_cancelled": func() any { return new(SubagentsCancelled) }}
 
 // joinObjects preserves serde's struct field order across flattened variants.
 func joinObjects(left, right []byte) ([]byte, error) {

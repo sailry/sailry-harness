@@ -2306,6 +2306,7 @@ queue_halt_interrupted: Ответ прерван; сообщения в оче�
 queue_halt_unsent: Сообщение не отправлено; оставлено в очереди
 usage_read_failed: Не удалось загрузить использование, попробуйте еще раз
 chat_output_limit: Ответ обрезан по лимиту вывода
+chat_turn_limit: Остановлено на лимите действий
 start_failed: Не удалось запустить Sailry
 start_profile_in_use: Sailry уже запущен с этой папкой данных
 backup_keep: Хранить копий

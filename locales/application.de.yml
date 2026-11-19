@@ -2826,6 +2826,7 @@ queue_guidance_outlived: Antwort war bereits beendet; als neue Nachricht eingere
 queue_halt_interrupted: Antwort unterbrochen; eingereihte Nachrichten bleiben erhalten
 queue_halt_unsent: Nachricht nicht gesendet; bleibt in der Warteschlange
 chat_output_limit: Antwort an der Ausgabegrenze abgeschnitten
+chat_turn_limit: "Am Aktionslimit angehalten"
 start_failed: Sailry konnte nicht starten
 start_profile_in_use: Sailry läuft bereits mit diesem Datenordner
 backup_keep: Aufzubewahrende Sicherungen

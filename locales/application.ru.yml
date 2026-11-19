@@ -2826,6 +2826,7 @@ queue_guidance_outlived: Ответ завершился раньше; пост�
 queue_halt_interrupted: Ответ прерван; сообщения в очереди сохранены
 queue_halt_unsent: Сообщение не отправлено; оставлено в очереди
 chat_output_limit: Ответ обрезан по лимиту вывода
+chat_turn_limit: "Остановлено на лимите действий"
 start_failed: Не удалось запустить Sailry
 start_profile_in_use: Sailry уже запущен с этой папкой данных
 backup_keep: Хранить копий

@@ -2826,6 +2826,7 @@ queue_guidance_outlived: A resposta terminou antes; na fila como nova mensagem
 queue_halt_interrupted: Resposta interrompida; mensagens na fila mantidas
 queue_halt_unsent: Mensagem não enviada; mantida na fila
 chat_output_limit: Resposta cortada no limite de saída
+chat_turn_limit: "Parado no limite de ações"
 start_failed: Não foi possível iniciar o Sailry
 start_profile_in_use: O Sailry já está em execução com esta pasta de dados
 backup_keep: Backups a manter

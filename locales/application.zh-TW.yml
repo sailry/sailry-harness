@@ -2826,6 +2826,7 @@ queue_guidance_outlived: 回覆已先結束，已排入新訊息
 queue_halt_interrupted: 回覆已中斷，佇列中的訊息已保留
 queue_halt_unsent: 訊息未送出，已保留在佇列中
 chat_output_limit: 回覆已達輸出上限
+chat_turn_limit: "已達操作次數上限，已停止"
 start_failed: Sailry 無法啟動
 start_profile_in_use: Sailry 已在使用此資料資料夾執行
 backup_keep: 保留的備份

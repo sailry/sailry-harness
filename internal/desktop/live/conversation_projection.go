@@ -1287,6 +1287,8 @@ func projectResource(reply *conversation.Reply, data any, compacting *time.Time)
 		}
 	case "output_limit":
 		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock})
+	case "turn_limit":
+		reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.LimitBlock, Label: "chat_turn_limit"})
 	case "compaction_failure":
 		var v struct {
 			Failure protocol.ConversationCompactionFailure `json:"failure"`

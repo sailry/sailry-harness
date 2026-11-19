@@ -218,7 +218,7 @@ func workPart(part protocol.ConversationPart) bool {
 		if e == nil {
 			var kind string
 			_ = json.Unmarshal(v["type"], &kind)
-			return kind != "tool_started" && kind != "provider_context" && kind != "output_limit"
+			return kind != "tool_started" && kind != "provider_context" && kind != "output_limit" && kind != "turn_limit"
 		}
 	}
 	return true

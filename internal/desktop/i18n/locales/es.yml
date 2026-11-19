@@ -2306,6 +2306,7 @@ queue_halt_interrupted: Respuesta interrumpida; se conservan los mensajes en col
 queue_halt_unsent: Mensaje no enviado; se conserva en la cola
 usage_read_failed: No se pudo cargar el uso, inténtelo de nuevo
 chat_output_limit: Respuesta cortada por el límite de salida
+chat_turn_limit: Detenido en el límite de acciones
 start_failed: Sailry no pudo iniciarse
 start_profile_in_use: Sailry ya se está ejecutando con esta carpeta de datos
 backup_keep: Copias a conservar

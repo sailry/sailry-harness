@@ -205,6 +205,9 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 		value.Citations = projectSources(message)
 		value.SearchSuggestions = message.Sources.SearchSuggestions
 	}
+	if runtime := record.Metadata.Runtime; runtime != nil && runtime.Notes != nil && runtime.Notes.TurnLimit {
+		value.Parts = append(value.Parts, resourcePart(map[string]any{"type": "turn_limit"}))
+	}
 	if record.Kind == "compaction" {
 		if c, ok := record.Data.(*canonical.Compaction); ok {
 			text := []string{}

@@ -2306,6 +2306,7 @@ queue_halt_interrupted: 응답이 중단됨. 대기 중인 메시지는 유지�
 queue_halt_unsent: 메시지가 전송되지 않아 대기열에 유지됨
 usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
 chat_output_limit: 출력 한도에 도달하여 응답이 잘림
+chat_turn_limit: 작업 한도에 도달하여 중지됨
 start_failed: Sailry를 시작할 수 없음
 start_profile_in_use: Sailry가 이미 이 데이터 폴더로 실행 중입니다
 backup_keep: 보관할 백업
