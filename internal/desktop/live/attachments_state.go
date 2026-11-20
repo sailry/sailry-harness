@@ -49,41 +49,52 @@ type attachmentImageState struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	images  map[string]*attachmentThumbnail
+	sources map[string]attachmentDescriptor
+	facts   map[string]attachmentImageFacts
 	visible map[string]bool
-	// loading cancels each thumbnail read under way; one whose row is no
-	// longer built is cancelled before it reads or decodes.
+	// loading cancels thumbnail reads when no visible placement needs them.
 	loading map[string]context.CancelFunc
 	failed  map[string]bool // transient reads wait for a refresh or a reconnected Node
 	missing map[string]bool // pictures that cannot show: gone or past the limits
 	viewer  *attachmentViewerImage
 }
+
+type attachmentImageFacts struct {
+	width, height int
+	revision      string
+}
 type attachmentState struct {
-	ctx                context.Context
-	cancel             context.CancelFunc
-	native             NativeFileActions
-	items              map[*composer.Attachment]*attachmentRecord
-	files              map[string]attachmentDescriptor
-	publications       map[string]*attachmentPublication
-	previews           map[string]attachmentDescriptor
-	previewGeneration  map[string]uint64
-	previewContent     map[string]protocol.ArtifactContent
-	previewDocuments   map[string]*documentPreview
-	documents          map[string]*attachmentDocumentImage
-	slots              chan struct{}
-	download           *transfers.Download
-	downloadCancel     context.CancelFunc
-	downloadGeneration uint64
-	imageSessions      map[string]*attachmentImageState
-	imageConnected     bool
-	imageSlots         chan struct{}
-	mu                 sync.Mutex
-	closed             bool
-	temporary          map[string]func()
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	native                 NativeFileActions
+	items                  map[*composer.Attachment]*attachmentRecord
+	files                  map[string]attachmentDescriptor
+	publications           map[string]*attachmentPublication
+	previews               map[string]attachmentDescriptor
+	previewGeneration      map[string]uint64
+	previewContent         map[string]protocol.ArtifactContent
+	previewDocuments       map[string]*documentPreview
+	documents              map[string]*attachmentDocumentImage
+	slots                  chan struct{}
+	download               *transfers.Download
+	downloadCancel         context.CancelFunc
+	downloadGeneration     uint64
+	imageSessions          map[string]*attachmentImageState
+	imageConnected         bool
+	imageSlots             chan struct{}
+	thumbnailPixels        int
+	thumbnailBudgetBlocked bool
+	mu                     sync.Mutex
+	closed                 bool
+	temporary              map[string]func()
 }
 
 func (r *Runtime) initAttachments() {
 	ctx, cancel := context.WithCancel(r.ctx)
 	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewGeneration: map[string]uint64{}, previewContent: map[string]protocol.ArtifactContent{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
+	if r.parent != nil && r.parent.attachments != nil {
+		r.attachments.imageSlots = r.parent.attachments.imageSlots
+	}
 	if r.App != nil && r.App.Panel != nil {
 		r.bindArtifactCallbacks()
 	}
@@ -94,6 +105,14 @@ func (r *Runtime) closeAttachments() {
 		return
 	}
 	state.cancel()
+	for _, cache := range state.imageSessions {
+		state.releaseImageSession(cache)
+	}
+	clear(state.imageSessions)
+	for _, document := range state.documents {
+		state.releaseThumbnail(document.thumbnail)
+	}
+	clear(state.documents)
 	state.mu.Lock()
 	state.closed = true
 	release := state.temporary

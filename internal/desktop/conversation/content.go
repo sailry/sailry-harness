@@ -175,11 +175,14 @@ func (s *State) files(c *ui.Context, key string, list []File, actions Actions) {
 // are equal squares, cropped to cover, so mixed sizes form an even grid.
 func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	// A picture that cannot show is a line of text, not an empty frame.
+	resolve, session := s.resolveImage, s.renderSession
 	shown := make([]Image, 0, len(list))
 	missing := 0
 	for _, im := range list {
-		if s.resolveImage != nil {
-			im = s.resolveImage(s.renderSession, im)
+		if resolve != nil {
+			im.thumbnailFactsOnly = true
+			im = resolve(session, im)
+			im.thumbnailFactsOnly = false
 		}
 		if im.Missing && im.Source == nil {
 			missing++
@@ -199,16 +202,23 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 		case len(shown) > 2:
 			tile = 112
 		}
-		kit.ImageGroup(c, row, s.viewOf(s.renderSession), shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+		kit.ImageGroup(c, row, s.viewOf(session), shown, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+			props := kit.ImageProps{Alt: im.Name}
+			if resolve != nil && im.Source == nil {
+				props.SourceInView = func() ui.ImageSource { return resolve(session, im).Source }
+				props.OpenWhileLoading = im.OriginalRevision != ""
+			}
 			if tile > 0 {
-				return im.Source, kit.ImageProps{Size: tile, Alt: im.Name}
+				props.Size = tile
+				return im.Source, props
 			}
 			w, h := float32(im.Width), float32(im.Height)
 			if w <= 0 || h <= 0 {
 				w, h = thumbMax, thumbMax
 			}
 			k := min(1, thumbMax/max(w, h))
-			return im.Source, kit.ImageProps{Width: w * k, Height: h * k, Alt: im.Name}
+			props.Width, props.Height = w*k, h*k
+			return im.Source, props
 		})
 	}
 	for i := range missing {

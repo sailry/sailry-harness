@@ -7211,8 +7211,9 @@ func (value CommandEditNotebookPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandDownloadFilePayload struct {
-	Worktree WorktreeID `json:"worktree"`
-	Path     string     `json:"path"`
+	Worktree      WorktreeID `json:"worktree"`
+	Path          string     `json:"path"`
+	ThumbnailEdge uint32     `json:"thumbnail_edge,omitempty"`
 }
 
 func DefaultCommandDownloadFilePayload() CommandDownloadFilePayload {
@@ -7291,8 +7292,9 @@ func (value CommandReadAttachmentPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandDownloadAttachmentPayload struct {
-	Worktree   WorktreeID   `json:"worktree"`
-	Attachment AttachmentID `json:"attachment"`
+	Worktree      WorktreeID   `json:"worktree"`
+	Attachment    AttachmentID `json:"attachment"`
+	ThumbnailEdge uint32       `json:"thumbnail_edge,omitempty"`
 }
 
 func DefaultCommandDownloadAttachmentPayload() CommandDownloadAttachmentPayload {
@@ -7302,11 +7304,15 @@ func DefaultCommandDownloadAttachmentPayload() CommandDownloadAttachmentPayload 
 	}
 }
 func (value *CommandDownloadAttachmentPayload) UnmarshalJSON(data []byte) error {
-	var decoded attachmentLocation
+	var decoded struct {
+		Worktree      attachmentWorktreeID `json:"worktree"`
+		Attachment    AttachmentID         `json:"attachment"`
+		ThumbnailEdge uint32               `json:"thumbnail_edge"`
+	}
 	if err := DecodeObject(data, &decoded, []string{"worktree", "attachment"}, false); err != nil {
 		return err
 	}
-	*value = CommandDownloadAttachmentPayload{Worktree: WorktreeID(decoded.Worktree), Attachment: decoded.Attachment}
+	*value = CommandDownloadAttachmentPayload{Worktree: WorktreeID(decoded.Worktree), Attachment: decoded.Attachment, ThumbnailEdge: decoded.ThumbnailEdge}
 	return nil
 }
 func (value CommandDownloadAttachmentPayload) MarshalJSON() ([]byte, error) {
@@ -7316,8 +7322,9 @@ func (value CommandDownloadAttachmentPayload) MarshalJSON() ([]byte, error) {
 }
 
 type CommandDownloadImagePayload struct {
-	Session SessionID         `json:"session"`
-	Image   ConversationImage `json:"image"`
+	Session       SessionID         `json:"session"`
+	Image         ConversationImage `json:"image"`
+	ThumbnailEdge uint32            `json:"thumbnail_edge,omitempty"`
 }
 
 func DefaultCommandDownloadImagePayload() CommandDownloadImagePayload {

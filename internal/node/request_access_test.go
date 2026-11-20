@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,27 +161,41 @@ func TestCapturedCallbackSurvivesDeviceRevocation(t *testing.T) {
 }
 
 func TestTransferRetainsDeletedWorktreeScope(t *testing.T) {
-	node := nodeFixture(t)
-	draft := protocol.DefaultProjectsDraft()
-	draft.Name, draft.Path, draft.Source = "Stream project", t.TempDir(), protocol.ProjectsSource{Kind: "local"}
-	commandFixture(t, node, protocol.Command{Kind: "create_project", Data: draft})
-	worktree := snapshotFixture(t, node).Worktrees[0]
-	if err := os.WriteFile(filepath.Join(worktree.Path, "data.txt"), []byte("private data"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	download := commandFixture(t, node, protocol.Command{Kind: "download_file", Data: protocol.CommandDownloadFilePayload{Worktree: worktree.ID, Path: "data.txt"}}).Data.(protocol.FileDownload)
-	stream, err := node.Open(t.Context(), node.ID(), download.Stream)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer stream.Close()
-	if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
-		_, err := db.ExecContext(t.Context(), "DELETE FROM worktrees WHERE id=?1", worktree.ID.String())
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := stream.Read(make([]byte, 1)); err == nil {
-		t.Fatal("deleted workspace transfer became an unscoped device stream")
+	for _, tc := range []struct {
+		name string
+		edge uint32
+	}{{"original", 0}, {"thumbnail", 64}} {
+		t.Run(tc.name, func(t *testing.T) {
+			node := nodeFixture(t)
+			draft := protocol.DefaultProjectsDraft()
+			draft.Name, draft.Path, draft.Source = "Stream project", t.TempDir(), protocol.ProjectsSource{Kind: "local"}
+			commandFixture(t, node, protocol.Command{Kind: "create_project", Data: draft})
+			worktree := snapshotFixture(t, node).Worktrees[0]
+			var source bytes.Buffer
+			if err := png.Encode(&source, image.NewRGBA(image.Rect(0, 0, 200, 100))); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(worktree.Path, "data.png"), source.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+			download := commandFixture(t, node, protocol.Command{Kind: "download_file", Data: protocol.CommandDownloadFilePayload{Worktree: worktree.ID, Path: "data.png", ThumbnailEdge: tc.edge}}).Data.(protocol.FileDownload)
+			if (download.Thumbnail != nil) != (tc.edge != 0) {
+				t.Fatalf("download mode changed: %+v", download)
+			}
+			stream, err := node.Open(t.Context(), node.ID(), download.Stream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer stream.Close()
+			if err := node.profile.Store.Node.Write(t.Context(), func(db *sql.Conn) error {
+				_, err := db.ExecContext(t.Context(), "DELETE FROM worktrees WHERE id=?1", worktree.ID.String())
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := stream.Read(make([]byte, 1)); err == nil {
+				t.Fatal("deleted workspace transfer became an unscoped device stream")
+			}
+		})
 	}
 }

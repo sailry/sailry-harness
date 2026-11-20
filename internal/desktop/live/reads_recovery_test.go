@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -23,10 +24,13 @@ import (
 
 type readRecoveryTransport struct {
 	conversationTestTransport
-	reject  bool
-	counts  map[string]int
-	streams map[string]*readRecoverySubscription
-	image   []byte
+	reject    bool
+	counts    map[string]int
+	streams   map[string]*readRecoverySubscription
+	image     []byte
+	images    map[protocol.StreamID][]byte
+	opens     map[protocol.StreamID]int
+	openImage func(context.Context, protocol.StreamID) (link.Stream, error)
 }
 
 type readRecoverySubscription struct {
@@ -80,8 +84,20 @@ func (stream *readRecoveryImageStream) Write(data []byte) (int, error) { return 
 func (*readRecoveryImageStream) Close() error                          { return nil }
 func (*readRecoveryImageStream) CloseWrite() error                     { return nil }
 
-func (source *readRecoveryTransport) Open(context.Context, protocol.StreamID) (link.Stream, error) {
-	return &readRecoveryImageStream{Reader: bytes.NewReader(source.image)}, nil
+func (source *readRecoveryTransport) Open(ctx context.Context, id protocol.StreamID) (link.Stream, error) {
+	if source.openImage != nil {
+		return source.openImage(ctx, id)
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.opens != nil {
+		source.opens[id]++
+	}
+	data := source.image
+	if source.images != nil {
+		data = source.images[id]
+	}
+	return &readRecoveryImageStream{Reader: bytes.NewReader(data)}, nil
 }
 
 func readRecoveryFixture(t *testing.T) (*Runtime, *readRecoveryTransport, func()) {
@@ -223,13 +239,13 @@ func TestReadRecovery(t *testing.T) {
 			r.registerConversationAttachment(session, attachment)
 			key := attachmentKey(session, attachment.ID.String())
 			cache := r.attachmentImages(session)
-			r.projectAttachmentImage(cache, key)
+			r.resolveAttachmentImage(cache, key, true)
 			settle()
 			if reads != 1 || !cache.failed[key] || cache.loading[key] != nil || cache.missing[key] {
 				t.Fatal("a transient picture failure was left loading or marked missing")
 			}
 			for range 10 {
-				r.projectAttachmentImage(cache, key)
+				r.resolveAttachmentImage(cache, key, true)
 			}
 			settle()
 			if reads != 1 {
@@ -238,7 +254,7 @@ func TestReadRecovery(t *testing.T) {
 			failure = ""
 			r.Refresh()
 			settle()
-			r.projectAttachmentImage(cache, key)
+			r.resolveAttachmentImage(cache, key, true)
 			settle()
 			if reads != 2 || cache.images[key] == nil {
 				t.Fatal("refresh did not recover the picture")
@@ -246,12 +262,12 @@ func TestReadRecovery(t *testing.T) {
 			failure = protocol.ErrorCodeNotFound
 			missing := attachmentKey(session, "missing")
 			r.attachments.files[missing] = r.attachments.files[key]
-			r.projectAttachmentImage(cache, missing)
+			r.resolveAttachmentImage(cache, missing, true)
 			settle()
 			r.Refresh()
 			settle()
-			r.projectAttachmentImage(cache, missing)
-			r.projectAttachmentImage(cache, key)
+			r.resolveAttachmentImage(cache, missing, true)
+			r.resolveAttachmentImage(cache, key, true)
 			settle()
 			if reads != 3 || !cache.missing[missing] || cache.images[key] == nil {
 				t.Fatal("refresh repeated a permanently missing or already loaded picture")
@@ -309,7 +325,8 @@ func TestAttachmentViewerLoadsSelectedOriginal(t *testing.T) {
 		source.image = encoded.Bytes()
 		digest := blake3.Sum256(source.image)
 		revision := hex.EncodeToString(digest[:])
-		session, worktree := protocol.SessionID{1}, protocol.WorktreeID{1}
+		session, worktree, stream := protocol.SessionID{1}, protocol.WorktreeID{1}, protocol.StreamID{1}
+		source.opens = map[protocol.StreamID]int{}
 		const path = "picture.png"
 		reads := 0
 		respond := source.handle
@@ -319,7 +336,7 @@ func TestAttachmentViewerLoadsSelectedOriginal(t *testing.T) {
 			}
 			reads++
 			return link.Response{Output: protocol.Output{Kind: "file_download", Data: protocol.FileDownload{
-				Stream: protocol.StreamID{1}, Worktree: worktree, Path: path, Size: uint64(len(source.image)), Revision: revision,
+				Stream: stream, Worktree: worktree, Path: path, Size: uint64(len(source.image)), Revision: revision,
 			}}}, true
 		}
 		r.conversationSeen = map[protocol.SessionID]bool{session: true}
@@ -331,7 +348,7 @@ func TestAttachmentViewerLoadsSelectedOriginal(t *testing.T) {
 		}
 		settle()
 		first, second = r.resolveConversationImage(id, first), r.resolveConversationImage(id, second)
-		if first.Width != 1024 || first.Height != 160 || first.OriginalRevision != revision || reads != 2 {
+		if first.Width != 480 || first.Height != 75 || first.OriginalRevision != revision || reads != 2 {
 			t.Fatalf("bounded thumbnail: %+v, reads=%d", first, reads)
 		}
 		if got := r.resolveConversationViewerImage(id, first); got != first.Source {
@@ -346,13 +363,24 @@ func TestAttachmentViewerLoadsSelectedOriginal(t *testing.T) {
 		selected := cache.viewer
 		// The workspace path now serves a different revision. Navigating to
 		// its other card still shows that card's captured thumbnail.
-		revision = "changed"
+		source.image = cardPNG(t, 32, 24)
+		revision = fmt.Sprintf("%x", blake3.Sum256(source.image))
 		if got := r.resolveConversationViewerImage(id, second); got != second.Source || selected.ctx.Err() == nil {
 			t.Fatal("navigating retained the previous gallery selection")
 		}
 		settle()
-		if got := r.resolveConversationViewerImage(id, second); got != second.Source || reads != 4 {
-			t.Fatal("the viewer accepted or repeatedly fetched a different revision")
+		if got := r.resolveConversationViewerImage(id, second); got != second.Source || reads != 4 || source.opens[stream] != 3 {
+			t.Fatalf("the viewer did not keep the captured revision: reads=%d, opens=%d", reads, source.opens[stream])
+		}
+		copied := false
+		r.attachments.native.CopyImage = func([]byte, string) { copied = true }
+		r.enqueue(func(c *ui.Context) {
+			x := &conversationActions{r: r, c: c, cv: &viewmodel.Conversation{ID: id}}
+			r.attachmentImageAction(x, kit.ImageCopy, second)
+		})
+		settle()
+		if copied || reads != 5 || source.opens[stream] != 3 {
+			t.Fatalf("copy did not keep the captured revision: copied=%t, reads=%d, opens=%d", copied, reads, source.opens[stream])
 		}
 		selected = cache.viewer
 		r.pruneAttachmentImages()

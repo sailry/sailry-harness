@@ -16,15 +16,6 @@ import (
 	_ "golang.org/x/image/tiff"
 )
 
-// A thumbnail also fills the viewer's fitted area while the original loads.
-// Kit fits images within 960 by 640 DIPs.
-const attachmentThumbnailEdge = 1024
-
-type attachmentThumbnail struct {
-	bitmap           *ui.Bitmap
-	originalRevision string
-}
-
 func (r *Runtime) attachmentDescriptor(session, id string) (attachmentDescriptor, bool) {
 	if r.attachments == nil {
 		return attachmentDescriptor{}, false
@@ -136,43 +127,70 @@ func (r *Runtime) openAttachmentFile(x *conversationActions, file conversation.F
 	r.openCapturedFilePreview(x.cv.ID, file, descriptor)
 }
 func (r *Runtime) prepareAttachmentDownload(ctx context.Context, descriptor attachmentDescriptor) (protocol.StreamID, uint64, string, error) {
+	download, err := r.prepareAttachmentTransfer(ctx, descriptor, 0)
+	return download.stream, download.size, download.digest, err
+}
+
+type attachmentDownloadStream struct {
+	stream           protocol.StreamID
+	size             uint64
+	digest           string
+	originalRevision string
+	derived          bool
+}
+
+func (r *Runtime) prepareAttachmentTransfer(ctx context.Context, descriptor attachmentDescriptor, thumbnailEdge uint32) (attachmentDownloadStream, error) {
 	var command protocol.Command
 	if descriptor.image != nil {
-		command = protocol.Command{Kind: "download_image", Data: &protocol.CommandDownloadImagePayload{Session: descriptor.session, Image: *descriptor.image}}
+		command = protocol.Command{Kind: "download_image", Data: &protocol.CommandDownloadImagePayload{Session: descriptor.session, Image: *descriptor.image, ThumbnailEdge: thumbnailEdge}}
 	} else if descriptor.attachment != nil {
-		command = protocol.Command{Kind: "download_attachment", Data: &protocol.CommandDownloadAttachmentPayload{Worktree: descriptor.attachment.Spec.Worktree, Attachment: descriptor.attachment.ID}}
+		command = protocol.Command{Kind: "download_attachment", Data: &protocol.CommandDownloadAttachmentPayload{Worktree: descriptor.attachment.Spec.Worktree, Attachment: descriptor.attachment.ID, ThumbnailEdge: thumbnailEdge}}
 	} else {
-		command = protocol.Command{Kind: "download_file", Data: &protocol.CommandDownloadFilePayload{Worktree: descriptor.worktree, Path: descriptor.path}}
+		command = protocol.Command{Kind: "download_file", Data: &protocol.CommandDownloadFilePayload{Worktree: descriptor.worktree, Path: descriptor.path, ThumbnailEdge: thumbnailEdge}}
 	}
 	output, err := r.controller.Do(ctx, command)
 	if err != nil {
-		return protocol.StreamID{}, 0, "", err
+		return attachmentDownloadStream{}, err
 	}
-	invalid := func(stream protocol.StreamID) (protocol.StreamID, uint64, string, error) {
-		r.cancelAttachmentStream(stream)
-		return protocol.StreamID{}, 0, "", fileActionFault(protocol.ErrorCodeRevisionConflict, "download source changed")
+	invalid := func(stream protocol.StreamID, code protocol.ErrorCode, message string) (attachmentDownloadStream, error) {
+		if stream != (protocol.StreamID{}) {
+			r.cancelAttachmentStream(stream)
+		}
+		return attachmentDownloadStream{}, fileActionFault(code, message)
 	}
+	var download attachmentDownloadStream
+	var thumbnail *protocol.ThumbnailTransfer
 	if descriptor.attachment != nil {
 		value, ok := detail[protocol.AttachmentDownload](output.Data)
 		if output.Kind != "attachment_download" || !ok {
-			return protocol.StreamID{}, 0, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "download descriptor is invalid")
+			return invalid(value.Stream, protocol.ErrorCodeInvalidRequest, "download descriptor is invalid")
 		}
 		if value.Attachment != *descriptor.attachment || value.Attachment.Spec.Size > math.MaxInt64 {
-			return invalid(value.Stream)
+			return invalid(value.Stream, protocol.ErrorCodeRevisionConflict, "download source changed")
 		}
-		return value.Stream, value.Attachment.Spec.Size, value.Attachment.Spec.Revision, nil
+		download.stream, download.size, download.originalRevision = value.Stream, value.Attachment.Spec.Size, value.Attachment.Spec.Revision
+		thumbnail = value.Thumbnail
+	} else {
+		value, ok := detail[protocol.FileDownload](output.Data)
+		if output.Kind != "file_download" || !ok {
+			return invalid(value.Stream, protocol.ErrorCodeInvalidRequest, "download descriptor is invalid")
+		}
+		// A card records either the content revision or the source stamp.
+		if value.Worktree != descriptor.worktree || value.Path != descriptor.path || value.Size > math.MaxInt64 ||
+			descriptor.revision != nil && value.Revision != *descriptor.revision && value.Stamp != *descriptor.revision {
+			return invalid(value.Stream, protocol.ErrorCodeRevisionConflict, "download source changed")
+		}
+		download.stream, download.size, download.originalRevision = value.Stream, value.Size, value.Revision
+		thumbnail = value.Thumbnail
 	}
-	value, ok := detail[protocol.FileDownload](output.Data)
-	if output.Kind != "file_download" || !ok {
-		return protocol.StreamID{}, 0, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "download descriptor is invalid")
+	download.digest = download.originalRevision
+	if thumbnail != nil {
+		if thumbnailEdge == 0 || thumbnail.Size == 0 || thumbnail.Size > protocol.MaxThumbnailBytes || download.originalRevision == "" {
+			return invalid(download.stream, protocol.ErrorCodeInvalidRequest, "download thumbnail descriptor is invalid")
+		}
+		download.size, download.digest, download.derived = thumbnail.Size, thumbnail.Revision, true
 	}
-	// A card records the content revision or, as present_files does, the
-	// source stamp; either identifies the version it presented.
-	if value.Worktree != descriptor.worktree || value.Path != descriptor.path || value.Size > math.MaxInt64 ||
-		descriptor.revision != nil && value.Revision != *descriptor.revision && value.Stamp != *descriptor.revision {
-		return invalid(value.Stream)
-	}
-	return value.Stream, value.Size, value.Revision, nil
+	return download, nil
 }
 
 type imageDownloadSink struct {
@@ -189,25 +207,56 @@ func (s *imageDownloadSink) Write(data []byte) (int, error) {
 }
 func (*imageDownloadSink) Close() error { return nil }
 func (r *Runtime) readAttachmentImage(ctx context.Context, descriptor attachmentDescriptor) ([]byte, string, error) {
-	stream, size, digest, err := r.prepareAttachmentDownload(ctx, descriptor)
+	download, err := r.prepareAttachmentTransfer(ctx, descriptor, 0)
 	if err != nil {
 		return nil, "", err
 	}
-	if size > attachmentMaximum {
-		r.cancelAttachmentStream(stream)
-		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "image exceeds its transfer limit")
+	data, err := r.receiveAttachmentImage(ctx, download)
+	return data, download.originalRevision, err
+}
+
+func (r *Runtime) readAttachmentThumbnail(ctx context.Context, descriptor attachmentDescriptor) (*attachmentThumbnail, error) {
+	download, err := r.prepareAttachmentTransfer(ctx, descriptor, attachmentThumbnailEdge)
+	if err != nil {
+		return nil, err
 	}
-	sink := &imageDownloadSink{limit: size}
-	if err = r.controller.Download(ctx, stream, size, digest, sink, nil); err != nil {
-		return nil, "", err
+	data, err := r.receiveAttachmentImage(ctx, download)
+	if err != nil {
+		return nil, err
 	}
-	return sink.data, digest, nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return decodeAttachmentThumbnail(data, download.originalRevision, download.derived)
+}
+
+func (r *Runtime) receiveAttachmentImage(ctx context.Context, download attachmentDownloadStream) ([]byte, error) {
+	// Old Nodes ignore thumbnail_edge and describe an original stream.
+	// That compatibility path is bounded by the existing original limits.
+	if download.size > attachmentMaximum {
+		r.cancelAttachmentStream(download.stream)
+		return nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "image exceeds its transfer limit")
+	}
+	sink := &imageDownloadSink{limit: download.size}
+	if err := r.controller.Download(ctx, download.stream, download.size, download.digest, sink, nil); err != nil {
+		return nil, err
+	}
+	return sink.data, nil
 }
 func (r *Runtime) attachmentImageAction(x *conversationActions, action kit.ImageAction, image conversation.Image) {
 	descriptor, ok := r.attachmentDescriptor(x.cv.ID, image.ID)
 	if !ok {
 		r.report(x.c, fileActionFault(protocol.ErrorCodeNotFound, "image source is unavailable"), "workspace_changed")
 		return
+	}
+	if image.OriginalRevision != "" {
+		if descriptor.attachment != nil && descriptor.attachment.Spec.Revision != image.OriginalRevision {
+			r.downloadOutcome(x.c, fileActionFault(protocol.ErrorCodeRevisionConflict, "image source changed"))
+			return
+		}
+		if descriptor.path != "" && descriptor.revision == nil {
+			descriptor.revision = &image.OriginalRevision
+		}
 	}
 	r.attachmentImageDescriptorAction(x.c, action, descriptor)
 }
@@ -255,8 +304,7 @@ func (r *Runtime) draftImageAction(x *conversationActions, action kit.ImageActio
 	r.report(x.c, fileActionFault(protocol.ErrorCodeBusy, "image upload is still preparing"), "workspace_changed")
 }
 
-// The transcript resolves only image rows it actually builds. History keeps
-// attachment references, while the session cache owns visible decoded bitmaps.
+// Transcript layout reads facts; an actual tile in view requests pixels.
 func (r *Runtime) resolveConversationImage(session string, image conversation.Image) conversation.Image {
 	if image.Source != nil || image.Missing || image.ID == "" {
 		return image
@@ -266,15 +314,19 @@ func (r *Runtime) resolveConversationImage(session string, image conversation.Im
 	}
 	cache := r.attachmentImages(session)
 	key := attachmentKey(session, image.ID)
-	if descriptor := r.attachments.files[key]; descriptor.artifact != nil {
+	descriptor := r.attachments.files[key]
+	if descriptor.artifact != nil {
 		if thumbnail := r.projectDocumentThumbnail(session, image.ID, descriptor); thumbnail != nil {
 			image.Source, image.Width, image.Height = thumbnail.Source, thumbnail.Width, thumbnail.Height
 		}
 		return image
 	}
-	if thumbnail := r.projectAttachmentImage(cache, key); thumbnail != nil {
-		image.Source, image.OriginalRevision = thumbnail.bitmap, thumbnail.originalRevision
-		image.Width, image.Height = thumbnail.bitmap.Size()
+	factsOnly := image.ThumbnailFactsOnly()
+	if thumbnail := r.resolveAttachmentImage(cache, key, !factsOnly); thumbnail != nil && !factsOnly {
+		image.Source = thumbnail.bitmap
+	}
+	if known, ok := cache.facts[key]; ok {
+		image.Width, image.Height, image.OriginalRevision = known.width, known.height, known.revision
 	}
 	image.Missing = cache.missing[key]
 	return image
@@ -303,62 +355,82 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 	cache := state.imageSessions[session]
 	if cache == nil {
 		ctx, cancel := context.WithCancel(state.ctx)
-		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*attachmentThumbnail{}, loading: map[string]context.CancelFunc{}, failed: map[string]bool{}, missing: map[string]bool{}}
+		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*attachmentThumbnail{}, sources: map[string]attachmentDescriptor{}, facts: map[string]attachmentImageFacts{}, loading: map[string]context.CancelFunc{}, failed: map[string]bool{}, missing: map[string]bool{}}
 		state.imageSessions[session] = cache
 	}
 	return cache
 }
-func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string) *attachmentThumbnail {
-	if cache.visible == nil {
-		cache.visible = map[string]bool{}
-	}
-	cache.visible[key] = true
-	if source := cache.images[key]; source != nil {
-		return source
+func (r *Runtime) resolveAttachmentImage(cache *attachmentImageState, key string, visible bool) *attachmentThumbnail {
+	if visible {
+		if cache.visible == nil {
+			cache.visible = map[string]bool{}
+		}
+		cache.visible[key] = true
 	}
 	state := r.attachments
 	descriptor, ok := state.files[key]
-	if !ok || cache.loading[key] != nil || cache.failed[key] || cache.missing[key] || !state.imageConnected {
+	if previous, tracked := cache.sources[key]; tracked && (!ok || !previous.sameImageSource(descriptor)) {
+		state.releaseThumbnail(cache.images[key])
+		delete(cache.images, key)
+		if cancel := cache.loading[key]; cancel != nil {
+			cancel()
+			delete(cache.loading, key)
+		}
+		delete(cache.sources, key)
+		delete(cache.facts, key)
+		delete(cache.failed, key)
+		delete(cache.missing, key)
+	}
+	if source := cache.images[key]; source != nil {
+		return source
+	}
+	if !visible || !ok || cache.loading[key] != nil || cache.failed[key] || cache.missing[key] || !state.imageConnected {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(cache.ctx)
-	cache.loading[key] = cancel
-	r.async(func() {
-		if !state.takeImageSlot(ctx) {
-			return
-		}
-		defer func() { <-state.imageSlots }()
-		data, revision, err := r.readAttachmentImage(ctx, descriptor)
+	if r.loadAttachmentThumbnail(ctx, attachmentThumbnailEdge, func(finish attachmentThumbnailResult) {
+		finish(r.readAttachmentThumbnail(ctx, descriptor))
+	}, func(thumbnail *attachmentThumbnail, err error) bool {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
-		var thumbnail *attachmentThumbnail
-		undecodable := false
+		delete(cache.loading, key)
+		cancel()
+		if current, ok := state.files[key]; !ok || !descriptor.sameImageSource(current) {
+			// Leave the old source associated with its facts so the next
+			// lookup invalidates them before projecting the new source.
+			return false
+		}
 		if err == nil {
-			thumbnail, err = decodeAttachmentThumbnail(data, revision)
-			undecodable = err != nil
+			width, height := thumbnail.bitmap.Size()
+			cache.facts[key] = attachmentImageFacts{width, height, thumbnail.originalRevision}
+			cache.images[key] = thumbnail
+			return true
 		}
-		r.enqueue(func(*ui.Context) {
-			if ctx.Err() != nil {
-				return
-			}
-			delete(cache.loading, key)
-			cancel()
-			if err == nil {
-				cache.images[key] = thumbnail
-				return
-			}
-			// A picture that is gone or past the transfer and decoding limits
-			// never shows. Other failed reads wait for an explicit refresh or
-			// a reconnected Node instead of retrying on every frame.
-			if code := faultCode(err); undecodable || code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest {
-				cache.missing[key] = true
-			} else {
-				cache.failed[key] = true
-			}
-		})
-	})
+		// Other failed reads wait for a refresh or reconnect, not another frame.
+		if code := faultCode(err); code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest {
+			delete(cache.facts, key)
+			cache.missing[key] = true
+		} else {
+			cache.failed[key] = true
+		}
+		return false
+	}) {
+		cache.sources[key] = descriptor
+		cache.loading[key] = cancel
+	} else {
+		cancel()
+	}
 	return nil
+}
+
+func (d attachmentDescriptor) sameImageSource(other attachmentDescriptor) bool {
+	return d.session == other.session && d.worktree == other.worktree && d.path == other.path &&
+		sameAttachmentFact(d.revision, other.revision) && sameAttachmentFact(d.attachment, other.attachment) && sameAttachmentFact(d.image, other.image)
+}
+
+func sameAttachmentFact[T comparable](a, b *T) bool {
+	return a == b || a != nil && b != nil && *a == *b
 }
 
 func (state *attachmentState) takeImageSlot(ctx context.Context) bool {
@@ -378,23 +450,20 @@ func attachmentImageConfig(data []byte) (image.Config, error) {
 	if err != nil {
 		return image.Config{}, err
 	}
-	if config.Width <= 0 || config.Height <= 0 || uint64(config.Width)*uint64(config.Height) > 256*1024*1024/4 {
+	if config.Width <= 0 || config.Height <= 0 || config.Width > (64<<20)/config.Height {
 		return image.Config{}, fileActionFault(protocol.ErrorCodeInvalidRequest, "image dimensions exceed the decoding limit")
 	}
 	return config, nil
 }
 
-func decodeAttachmentThumbnail(data []byte, revision string) (*attachmentThumbnail, error) {
+func decodeAttachmentThumbnail(data []byte, revision string, derived bool) (*attachmentThumbnail, error) {
 	config, err := attachmentImageConfig(data)
-	if err != nil {
-		return nil, err
+	if err != nil || derived && max(config.Width, config.Height) > attachmentThumbnailEdge {
+		return nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "image thumbnail dimensions are invalid")
 	}
 	bitmap, err := ui.DecodeBitmapScaled(data, attachmentThumbnailEdge)
 	if err != nil {
-		return nil, err
-	}
-	if max(config.Width, config.Height) <= attachmentThumbnailEdge {
-		revision = ""
+		return nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "image could not be decoded")
 	}
 	return &attachmentThumbnail{bitmap: bitmap, originalRevision: revision}, nil
 }
@@ -411,10 +480,11 @@ func decodeAttachmentBitmap(data []byte, maximumEdge ...int) (*ui.Bitmap, error)
 func (r *Runtime) projectDraftAttachmentImages(x *conversationActions) {
 	cache := r.attachmentImages(x.cv.ID)
 	for _, attachment := range x.comp.Attachments {
-		if attachment.Image != nil || attachment.Status != composer.Ready || !strings.HasPrefix(attachment.Mime, "image/") {
+		if attachment.Image != nil && attachment.ImageRevision == "" || attachment.Status != composer.Ready || !strings.HasPrefix(attachment.Mime, "image/") {
 			continue
 		}
-		if thumbnail := r.projectAttachmentImage(cache, attachmentKey(x.cv.ID, attachment.ID)); thumbnail != nil {
+		attachment.Image, attachment.ImageRevision = nil, ""
+		if thumbnail := r.resolveAttachmentImage(cache, attachmentKey(x.cv.ID, attachment.ID), true); thumbnail != nil {
 			attachment.Image, attachment.ImageRevision = thumbnail.bitmap, thumbnail.originalRevision
 		}
 	}
@@ -422,10 +492,12 @@ func (r *Runtime) projectDraftAttachmentImages(x *conversationActions) {
 
 // pruneAttachmentImages runs after all panes have recorded their conversations.
 func (r *Runtime) pruneAttachmentImages() {
-	if r.attachments == nil {
+	state := r.attachments
+	if state == nil {
 		return
 	}
-	for key, document := range r.attachments.documents {
+	before := state.thumbnailPixels
+	for key, document := range state.documents {
 		if document.visible {
 			document.visible = false
 			continue
@@ -433,21 +505,23 @@ func (r *Runtime) pruneAttachmentImages() {
 		if document.cancel != nil {
 			document.cancel()
 		}
-		delete(r.attachments.documents, key)
+		state.releaseThumbnail(document.thumbnail)
+		delete(state.documents, key)
 	}
-	for session, cache := range r.attachments.imageSessions {
+	for session, cache := range state.imageSessions {
 		id, err := protocol.ParseSessionID(session)
 		if err == nil && r.conversationSeen[id] || r.localRuntime().draftsShown[session] {
 			if viewer := cache.viewer; viewer != nil {
 				if viewer.visible {
 					viewer.visible = false
 				} else {
-					viewer.cancel()
+					viewer.release()
 					cache.viewer = nil
 				}
 			}
-			for key := range cache.images {
+			for key, thumbnail := range cache.images {
 				if !cache.visible[key] {
+					state.releaseThumbnail(thumbnail)
 					delete(cache.images, key)
 				}
 			}
@@ -459,18 +533,39 @@ func (r *Runtime) pruneAttachmentImages() {
 					delete(cache.loading, key)
 				}
 			}
+			for key := range cache.sources {
+				if _, known := cache.facts[key]; !known && cache.images[key] == nil && cache.loading[key] == nil && !cache.failed[key] && !cache.missing[key] {
+					delete(cache.sources, key)
+				}
+			}
 			clear(cache.visible)
 			continue
 		}
-		cache.cancel()
-		cache.viewer = nil
-		delete(r.attachments.imageSessions, session)
-		for key, publication := range r.attachments.publications {
+		state.releaseImageSession(cache)
+		delete(state.imageSessions, session)
+		for key, publication := range state.publications {
 			if publication.session.String() == session {
-				delete(r.attachments.publications, key)
+				delete(state.publications, key)
 			}
 		}
 	}
+	root := r.localRuntime()
+	if state.thumbnailPixels < before && root.attachments != nil && root.attachments.thumbnailBudgetBlocked {
+		root.attachments.thumbnailBudgetBlocked = false
+		root.wake()
+	}
+}
+
+func (state *attachmentState) releaseImageSession(cache *attachmentImageState) {
+	cache.cancel()
+	if cache.viewer != nil {
+		cache.viewer.release()
+		cache.viewer = nil
+	}
+	for _, thumbnail := range cache.images {
+		state.releaseThumbnail(thumbnail)
+	}
+	clear(cache.images)
 }
 
 func (r *Runtime) attachmentConversationVisible(session string) bool {

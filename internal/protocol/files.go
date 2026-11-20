@@ -65,13 +65,36 @@ func (value FileUpload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
+const (
+	MaxThumbnailEdge  = 512
+	MaxThumbnailBytes = 2 << 20
+)
+
+// ThumbnailTransfer describes the stream bytes without changing source facts.
+// It is present only in response to a download with a nonzero thumbnail_edge.
+type ThumbnailTransfer struct {
+	Size     uint64 `json:"size"`
+	Revision string `json:"revision"`
+}
+
+func (value *ThumbnailTransfer) UnmarshalJSON(data []byte) error {
+	type plain ThumbnailTransfer
+	var decoded plain
+	if err := DecodeObject(data, &decoded, []string{"size", "revision"}, false); err != nil {
+		return err
+	}
+	*value = ThumbnailTransfer(decoded)
+	return nil
+}
+
 type FileDownload struct {
-	Stream   StreamID   `json:"stream"`
-	Worktree WorktreeID `json:"worktree"`
-	Path     string     `json:"path"`
-	Size     uint64     `json:"size"`
-	Revision string     `json:"revision"`
-	Stamp    string     `json:"stamp"`
+	Stream    StreamID           `json:"stream"`
+	Worktree  WorktreeID         `json:"worktree"`
+	Path      string             `json:"path"`
+	Size      uint64             `json:"size"`
+	Revision  string             `json:"revision"`
+	Stamp     string             `json:"stamp"`
+	Thumbnail *ThumbnailTransfer `json:"thumbnail,omitempty"`
 }
 
 func DefaultFileDownload() FileDownload {

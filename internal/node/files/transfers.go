@@ -49,6 +49,8 @@ type transferEntry struct {
 	stamp      string
 	cancel     context.CancelFunc
 	service    link.Stream
+
+	thumbnailReservation chan struct{}
 }
 
 func (e *transferEntry) ownedBy(caller protocol.NodeID, user protocol.UserID) bool {
@@ -66,6 +68,7 @@ type Transfers struct {
 	now         func() time.Time
 	afterFunc   func(time.Duration, func()) func() bool
 	withTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
+	thumbnails  thumbnailTransfers
 }
 
 // transferPrefix names every staging file in the profile's tmp directory.
@@ -83,7 +86,7 @@ func NewTransfers(profile string) *Transfers {
 			}
 		}
 	}
-	return &Transfers{profile: profile, entries: map[protocol.StreamID]*transferEntry{}, now: time.Now, afterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }, withTimeout: context.WithTimeout}
+	return &Transfers{profile: profile, entries: map[protocol.StreamID]*transferEntry{}, now: time.Now, afterFunc: func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }, withTimeout: context.WithTimeout, thumbnails: newThumbnailTransfers()}
 }
 func transferMissing() error {
 	return &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "file transfer is unavailable"}
@@ -156,7 +159,9 @@ func cleanupTransfer(e *transferEntry) {
 	if e.files != nil {
 		_ = e.files.Close()
 	}
-
+	if e.thumbnailReservation != nil {
+		<-e.thumbnailReservation
+	}
 }
 func (t *Transfers) temporary() (*os.File, *os.Root, string, error) {
 	if t.profile == "" {
@@ -634,6 +639,9 @@ func (t *Transfers) Remove(root string) {
 func (t *Transfers) Close() error {
 	t.mu.Lock()
 	t.closed = true
+	for key := range t.thumbnails.cache {
+		t.dropThumbnailLocked(key)
+	}
 	var removed []*transferEntry
 	for id, e := range t.entries {
 		if e.state == "finishing" {
@@ -655,16 +663,30 @@ func (t *Transfers) Close() error {
 }
 
 // DownloadBytes serves a captured canonical image without exposing blob storage.
-func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, root string, attachment protocol.Attachment, data []byte) (protocol.AttachmentDownload, error) {
+func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, root string, attachment protocol.Attachment, data []byte, thumbnailEdge uint32) (protocol.AttachmentDownload, error) {
 	out := protocol.AttachmentDownload{Attachment: attachment}
 	if uint64(len(data)) != attachment.Spec.Size || revision(data) != attachment.Spec.Revision {
 		return out, conflict("image content changed")
 	}
+	if thumbnailEdge != 0 {
+		return t.stageAttachmentThumbnail(ctx, caller, protocol.UserID{}, root, attachment, data, thumbnailEdge)
+	}
 	entry := &transferEntry{download: true, attachment: &attachment, size: attachment.Spec.Size, revision: attachment.Spec.Revision}
+	stream, err := t.stageDownloadBytes(ctx, caller, root, entry, data)
+	out.Stream = stream
+	return out, err
+}
+
+func (t *Transfers) stageDownloadBytes(ctx context.Context, caller protocol.NodeID, root string, entry *transferEntry, data []byte) (protocol.StreamID, error) {
+	if err := ctx.Err(); err != nil {
+		cleanupTransfer(entry)
+		return protocol.StreamID{}, err
+	}
 	var err error
 	entry.file, entry.tempRoot, entry.temporary, err = t.temporary()
 	if err != nil {
-		return out, err
+		cleanupTransfer(entry)
+		return protocol.StreamID{}, err
 	}
 	if err = ctx.Err(); err == nil {
 		err = writeBytes(entry.file, data)
@@ -672,15 +694,18 @@ func (t *Transfers) DownloadBytes(ctx context.Context, caller protocol.NodeID, r
 	if err == nil {
 		_, err = entry.file.Seek(0, io.SeekStart)
 	}
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		cleanupTransfer(entry)
-		return out, err
+		return protocol.StreamID{}, err
 	}
-	out.Stream, err = t.reserve(caller, root, entry)
+	stream, err := t.reserve(caller, root, entry)
 	if err != nil {
 		cleanupTransfer(entry)
 	}
-	return out, err
+	return stream, err
 }
 
 type StreamScope struct {

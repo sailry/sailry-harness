@@ -95,13 +95,10 @@ func (r *Runtime) chatEmbed(cv *viewmodel.Conversation, dest string, image bool)
 	if kind == conversation.ImageFile && r.attachmentConversationVisible(session) {
 		cache := r.attachmentImages(session)
 		key := attachmentKey(session, id)
-		picture := conversation.Image{ID: id, Name: path.Base(target.path)}
-		if thumbnail := r.projectAttachmentImage(cache, key); thumbnail != nil {
-			picture.Source, picture.OriginalRevision = thumbnail.bitmap, thumbnail.originalRevision
-			picture.Width, picture.Height = thumbnail.bitmap.Size()
-		}
+		r.resolveAttachmentImage(cache, key, false)
 		// A picture that cannot show falls back to its file's card.
 		if !cache.missing[key] {
+			picture := conversation.Image{ID: id, Name: path.Base(target.path)}
 			return conversation.Embed{Image: &picture}, true
 		}
 	}

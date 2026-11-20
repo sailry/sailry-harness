@@ -190,7 +190,13 @@ type Image struct {
 	// Reference is how a reply's Markdown names a tool result's picture
 	// (sailry-image:<Reference>): the result's ID and the picture's index.
 	Reference string
+
+	thumbnailFactsOnly bool
 }
+
+// ThumbnailFactsOnly asks the resolver for layout facts without retaining or
+// requesting pixels. The tile resolves its source separately once in view.
+func (i Image) ThumbnailFactsOnly() bool { return i.thumbnailFactsOnly }
 
 // Embed is what an image standing alone in a reply's Markdown shows as:
 // a picture, its file fallback, or the line that its picture is gone.

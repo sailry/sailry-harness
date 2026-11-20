@@ -16,8 +16,14 @@ type attachmentViewerImage struct {
 	bitmap   *ui.Bitmap
 }
 
+func (view *attachmentViewerImage) release() {
+	view.cancel()
+	releaseAttachmentBitmap(view.bitmap)
+	view.bitmap = nil
+}
+
 func (r *Runtime) resolveConversationViewerImage(session string, image conversation.Image) ui.ImageSource {
-	if image.Source == nil {
+	if image.Source == nil && image.OriginalRevision == "" {
 		image = r.resolveConversationImage(session, image)
 	}
 	if image.OriginalRevision != "" {
@@ -35,6 +41,15 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 	}
 	cache := r.attachmentImages(session)
 	key := attachmentKey(session, id)
+	if ready := cache.images[key]; ready != nil && ready.originalRevision == revision {
+		if cache.visible == nil {
+			cache.visible = map[string]bool{}
+		}
+		cache.visible[key] = true
+		thumbnail = ready.bitmap
+	} else if w, h := ui.ImageSize(thumbnail); w == 0 || h == 0 {
+		thumbnail = nil
+	}
 	if current := cache.viewer; current != nil {
 		if current.key == key && current.revision == revision && (current.bitmap != nil || current.ctx.Err() == nil) {
 			current.visible = true
@@ -43,7 +58,7 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 			}
 			return thumbnail
 		}
-		current.cancel()
+		current.release()
 		cache.viewer = nil
 	}
 	descriptor, ok := state.files[key]
@@ -61,16 +76,19 @@ func (r *Runtime) attachmentViewerSource(session, id, revision string, thumbnail
 		if !state.takeImageSlot(ctx) {
 			return
 		}
-		defer func() { <-state.imageSlots }()
+		release := state.finishImageSlotOnClose()
 		data, _, err := r.readAttachmentImage(ctx, descriptor)
 		if err != nil || ctx.Err() != nil {
+			release()
 			return
 		}
 		bitmap, err := decodeAttachmentBitmap(data)
 		if err != nil || ctx.Err() != nil {
+			release()
 			return
 		}
 		r.enqueue(func(*ui.Context) {
+			defer release()
 			if ctx.Err() == nil && cache.viewer == view {
 				view.bitmap = bitmap
 			}

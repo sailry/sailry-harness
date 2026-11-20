@@ -65,6 +65,10 @@ type ImageProps struct {
 	Radius  float32
 	// Loading shows a Skeleton in the box, as a nil source does.
 	Loading bool
+	// SourceInView resolves pixels for a sized tile only when it is in view.
+	SourceInView func() ui.ImageSource
+	// OpenWhileLoading keeps a known image actionable if its pixels are gone.
+	OpenWhileLoading bool
 	// Failed shows the placeholder picture, as when it could not load.
 	Failed bool
 	// Alt names the picture for assistive technology.
@@ -93,7 +97,7 @@ func Image(c *ui.Context, src ui.ImageSource, p ImageProps) ui.Element {
 	if radius == 0 {
 		radius = pal.RadiusLg
 	}
-	if (p.Loading || src == nil) && !p.Failed {
+	if p.SourceInView == nil && (p.Loading || src == nil) && !p.Failed {
 		s := Skeleton(c, SkeletonProps{Width: w, Height: h, Radius: radius})
 		if p.Fill {
 			s.Fill()
@@ -103,7 +107,7 @@ func Image(c *ui.Context, src ui.ImageSource, p ImageProps) ui.Element {
 		}
 		return s
 	}
-	open := p.OnOpen != nil && !p.Failed
+	open := p.OnOpen != nil && !p.Failed && (p.SourceInView == nil || p.OpenWhileLoading)
 	var root ui.Element
 	if open {
 		root = ui.ButtonBase(c).Column().Cursor(ui.CursorPointer).OnClick(p.OnOpen)
@@ -124,15 +128,33 @@ func Image(c *ui.Context, src ui.ImageSource, p ImageProps) ui.Element {
 	if !sized {
 		root.MaxWidthPercent(100)
 	}
-	switch p.Variant {
-	case ImageOutlined:
-		root.Border(1, pal.Border).Background(pal.Background)
-	case ImageBorderless:
-	default:
-		root.Border(1, pal.Border).Background(pal.Muted)
+	if p.SourceInView != nil && !p.Failed {
+		inView := root.InViewMargin()
+		wasInView := ui.Local(root, "kit-image-in-view", func() bool { return false })
+		if *wasInView != inView {
+			// List rows can build after the owner's frame cleanup. Give it
+			// one more frame to reconcile visible tiles with its pixel budget.
+			c.Invalidate()
+		}
+		*wasInView = inView
+		if inView {
+			src = p.SourceInView()
+		}
+	}
+	loading := (p.Loading || src == nil) && !p.Failed
+	if !loading || p.OpenWhileLoading {
+		switch p.Variant {
+		case ImageOutlined:
+			root.Border(1, pal.Border).Background(pal.Background)
+		case ImageBorderless:
+		default:
+			root.Border(1, pal.Border).Background(pal.Muted)
+		}
 	}
 	root.Children(func() {
-		if p.Failed {
+		if loading {
+			Skeleton(c, SkeletonProps{Radius: radius}).Fill()
+		} else if p.Failed {
 			imageFallback(c, pal, w, h, sized)
 		} else {
 			img := ui.Image(c, src).Fit(ui.Cover)

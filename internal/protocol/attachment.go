@@ -144,8 +144,9 @@ func (value AttachmentUpload) MarshalJSON() ([]byte, error) {
 }
 
 type AttachmentDownload struct {
-	Stream     StreamID   `json:"stream"`
-	Attachment Attachment `json:"attachment"`
+	Stream     StreamID           `json:"stream"`
+	Attachment Attachment         `json:"attachment"`
+	Thumbnail  *ThumbnailTransfer `json:"thumbnail,omitempty"`
 }
 
 func DefaultAttachmentDownload() AttachmentDownload {

@@ -295,6 +295,23 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		}
 		return files.MutateEntries(ctx, source, root, command, access)
 	}
+	var thumbnailEdge uint32
+	switch input := command.Data.(type) {
+	case *protocol.CommandDownloadFilePayload:
+		thumbnailEdge = input.ThumbnailEdge
+	case *protocol.CommandDownloadAttachmentPayload:
+		thumbnailEdge = input.ThumbnailEdge
+	case *protocol.CommandDownloadImagePayload:
+		thumbnailEdge = input.ThumbnailEdge
+	}
+	if thumbnailEdge != 0 {
+		var done func()
+		ctx, done, err = node.transfers.BeginThumbnail(ctx, thumbnailEdge)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		defer done()
+	}
 	switch command.Kind {
 	case "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_search_settings", "save_search_settings":
 		return node.workspaceWebIO(ctx, caller, request, effect)
@@ -318,27 +335,50 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		return protocol.Output{Kind: "file_upload", Data: value}, err
 	case "download_file":
 		input := command.Data.(*protocol.CommandDownloadFilePayload)
-		value, err := node.transfers.DownloadFile(ctx, caller, root, input.Worktree, input.Path, access)
+		var value protocol.FileDownload
+		if thumbnailEdge != 0 {
+			value, err = node.transfers.DownloadFileThumbnail(ctx, caller, root, input.Worktree, input.Path, access, thumbnailEdge)
+		} else {
+			value, err = node.transfers.DownloadFile(ctx, caller, root, input.Worktree, input.Path, access)
+		}
 		if err == nil {
 			err = node.recheckWorkspaceStream(ctx, input.Worktree, root, caller, value.Stream)
 		}
 		return protocol.Output{Kind: "file_download", Data: value}, err
 	case "download_attachment":
 		input := command.Data.(*protocol.CommandDownloadAttachmentPayload)
-		var attachment protocol.Attachment
-		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
-			var err error
-			if draft {
-				attachment, err = store.ReadDraftAttachment(ctx, db, caller, input.Attachment)
-			} else {
-				attachment, err = store.ReadAttachment(ctx, db, input.Worktree, input.Attachment)
-			}
-			return err
-		})
+		read := func() (attachment protocol.Attachment, err error) {
+			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+				var e error
+				if draft {
+					attachment, e = store.ReadDraftAttachment(ctx, db, caller, input.Attachment)
+				} else {
+					attachment, e = store.ReadAttachment(ctx, db, input.Worktree, input.Attachment)
+				}
+				return e
+			})
+			return
+		}
+		attachment, err := read()
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		value, err := node.transfers.DownloadAttachment(ctx, caller, transferUser, root, attachment)
+		var value protocol.AttachmentDownload
+		if thumbnailEdge == 0 {
+			value, err = node.transfers.DownloadAttachment(ctx, caller, transferUser, root, attachment)
+		} else {
+			value, err = node.transfers.DownloadAttachmentThumbnail(ctx, caller, transferUser, root, attachment, thumbnailEdge)
+			if err == nil {
+				var current protocol.Attachment
+				current, err = read()
+				if err == nil && current != attachment {
+					err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "attachment content changed"}
+				}
+				if err != nil {
+					_ = node.transfers.Cancel(caller, transferUser, value.Stream)
+				}
+			}
+		}
 		if err == nil && !draft {
 			err = node.recheckWorkspaceStream(ctx, input.Worktree, root, caller, value.Stream)
 		}
@@ -358,7 +398,7 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		value, err := node.transfers.DownloadBytes(ctx, caller, root, input.Image.Attachment, data)
+		value, err := node.transfers.DownloadBytes(ctx, caller, root, input.Image.Attachment, data, thumbnailEdge)
 		if err == nil {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 				_, err := store.ReadCanonicalImage(ctx, db, input.Session, input.Image)

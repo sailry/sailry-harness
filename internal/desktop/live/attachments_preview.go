@@ -23,6 +23,7 @@ const attachmentPreviewMaximum = 2 << 20
 
 type attachmentDocumentImage struct {
 	image                    *conversation.Image
+	thumbnail                *attachmentThumbnail
 	cancel                   context.CancelFunc
 	visible, loading, failed bool
 }
@@ -368,61 +369,79 @@ func (r *Runtime) openExternalArtifact(descriptor attachmentDescriptor, mount do
 }
 func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attachmentDescriptor) *conversation.Image {
 	artifact := descriptor.artifact
-	native := r.attachments.native
+	state := r.attachments
+	native := state.native
 	if artifact == nil || artifact.Kind != protocol.ArtifactKindPreview || native.RenderDocument == nil {
 		return nil
 	}
 	key := fmt.Sprintf("%s/%s/%d", session, artifact.ID, artifact.Revision)
-	image := r.attachments.documents[key]
+	image := state.documents[key]
 	if image == nil {
-		if len(r.attachments.documents) >= 48 {
+		if len(state.documents) >= 48 {
 			return nil
 		}
 		image = &attachmentDocumentImage{}
-		r.attachments.documents[key] = image
+		state.documents[key] = image
 	}
 	image.visible = true
 	if image.image != nil || image.loading || image.failed || !r.controller.Connected() {
 		return image.image
 	}
 	ctx, cancel := context.WithCancel(r.attachmentImages(session).ctx)
-	image.loading, image.cancel = true, cancel
-	r.async(func() {
+	if r.loadAttachmentThumbnail(ctx, documentThumbnailEdge, func(finish attachmentThumbnailResult) {
 		content, err := r.readPublishedArtifact(ctx, descriptor)
+		if err != nil {
+			finish(nil, err)
+			return
+		}
 		r.enqueue(func(*ui.Context) {
-			if ctx.Err() != nil {
-				return
-			}
-			if err != nil {
-				image.loading, image.failed = false, true
+			if err := ctx.Err(); err != nil {
+				finish(nil, err)
 				return
 			}
 			native.RenderDocument(ctx, *artifact, content.Html, func(data []byte, err error) {
-				r.async(func() {
-					if ctx.Err() != nil {
+				if err != nil {
+					finish(nil, err)
+					return
+				}
+				if err := ctx.Err(); err != nil {
+					finish(nil, err)
+					return
+				}
+				if len(data) > 8<<20 {
+					finish(nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "document thumbnail exceeds its byte limit"))
+					return
+				}
+				if !r.async(func() {
+					if err := ctx.Err(); err != nil {
+						finish(nil, err)
 						return
 					}
-					var bitmap *ui.Bitmap
-					if err == nil && len(data) > 8*1024*1024 {
-						err = fileActionFault(protocol.ErrorCodeInvalidRequest, "document thumbnail exceeds its byte limit")
-					}
-					if err == nil {
-						bitmap, err = decodeAttachmentBitmap(data, attachmentThumbnailEdge)
-					}
-					r.enqueue(func(*ui.Context) {
-						if ctx.Err() != nil || r.attachments.documents[key] != image {
-							return
-						}
-						image.loading, image.failed = false, err != nil
-						if err == nil {
-							width, height := bitmap.Size()
-							image.image = &conversation.Image{ID: id, Name: descriptor.name, Width: width, Height: height, Source: bitmap}
-						}
-					})
-				})
+					bitmap, err := decodeAttachmentBitmap(data, documentThumbnailEdge)
+					finish(&attachmentThumbnail{bitmap: bitmap}, err)
+				}) {
+					finish(nil, context.Canceled)
+				}
 			})
 		})
-	})
+	}, func(thumbnail *attachmentThumbnail, err error) bool {
+		if ctx.Err() != nil || state.documents[key] != image {
+			return false
+		}
+		cancel()
+		image.loading, image.failed, image.cancel = false, err != nil, nil
+		if err != nil {
+			return false
+		}
+		width, height := thumbnail.bitmap.Size()
+		image.thumbnail = thumbnail
+		image.image = &conversation.Image{ID: id, Name: descriptor.name, Width: width, Height: height, Source: thumbnail.bitmap}
+		return true
+	}) {
+		image.loading, image.cancel = true, cancel
+	} else {
+		cancel()
+	}
 	return nil
 }
 
