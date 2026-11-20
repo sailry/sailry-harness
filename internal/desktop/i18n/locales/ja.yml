@@ -814,6 +814,26 @@ backup_sessions_failed: セッションを更新できませんでした
 backup_sessions_unknown: セッションの更新は未確認です。再試行して結果を確認してください
 backup_target: 新しいプロファイルの絶対パス
 backup_unarchived: セッションのアーカイブを解除しました
+configuration_export: 設定をエクスポート
+configuration_export_description: API キーを含みます。安全に保管してください
+configuration_import: 設定をインポート
+configuration_import_action: インポート
+configuration_preview: インポートのプレビュー
+configuration_added: 追加
+configuration_updated: 上書き
+configuration_skipped: スキップ
+configuration_empty: インポートする項目はありません
+configuration_exported: 設定をエクスポートしました
+configuration_imported: 設定をインポートしました
+configuration_export_failed: 設定をエクスポートできませんでした
+configuration_failed: 設定をインポートできませんでした
+configuration_conflict: 設定が変更されました。もう一度プレビューしてください
+configuration_unknown: インポート結果は未確認です。再試行して確認してください
+configuration_invalid: 有効な設定ファイルではありません
+configuration_too_large: ファイルが 8 MiB を超えています
+configuration_read_failed: ファイルを読み取れません
+configuration_area_search: ウェブ検索
+configuration_area_compaction: コンテキスト圧縮
 files_upload_picker: ファイル選択ツールを開けませんでした
 connection_route_p2p: P2P
 connection_route_relay: Relay

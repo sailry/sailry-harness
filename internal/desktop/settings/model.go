@@ -372,6 +372,10 @@ type Model struct {
 	backups  backupDialogs
 	// BackupActions are the live backup page's; the preview has none.
 	BackupActions *BackupActions
+	configuration configurationImport
+	// ConfigurationActions copy the live Node's configuration through a
+	// file; the preview has none.
+	ConfigurationActions *ConfigurationActions
 
 	// About.
 	Version string

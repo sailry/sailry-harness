@@ -116,11 +116,13 @@ func backup(c *ui.Context, m *Model) {
 		kit.Card(c, func() {
 			if a == nil || a.Status == "" {
 				backupStorageRows(c, m)
+				configurationRows(c, m)
 			}
 			backupArchiveRows(c, m)
 		})
 	})
 	storageDialog(c, m)
+	configurationDialog(c, m)
 	archivesDialog(c, m)
 	if d.deleting {
 		// Destructive: named and its consequence said once.

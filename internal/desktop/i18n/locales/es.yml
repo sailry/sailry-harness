@@ -814,6 +814,26 @@ backup_sessions_failed: Error al actualizar las sesiones
 backup_sessions_unknown: Actualización de sesión sin confirmar; reintenta para consultar el resultado
 backup_target: Nueva ruta absoluta del perfil
 backup_unarchived: Sesión desarchivada
+configuration_export: Exportar configuración
+configuration_export_description: Incluye claves de API; guárdala con cuidado
+configuration_import: Importar configuración
+configuration_import_action: Importar
+configuration_preview: Vista previa de importación
+configuration_added: Nuevo
+configuration_updated: Sobrescribir
+configuration_skipped: Omitir
+configuration_empty: Nada que importar
+configuration_exported: Configuración exportada
+configuration_imported: Configuración importada
+configuration_export_failed: No se pudo exportar la configuración
+configuration_failed: No se pudo importar la configuración
+configuration_conflict: La configuración cambió; vuelve a previsualizar
+configuration_unknown: Resultado sin confirmar; reintenta para comprobarlo
+configuration_invalid: No es un archivo de configuración válido
+configuration_too_large: El archivo supera 8 MiB
+configuration_read_failed: No se pudo leer el archivo
+configuration_area_search: Búsqueda web
+configuration_area_compaction: Compactación de contexto
 files_upload_picker: No se pudo abrir el selector de archivos
 connection_route_p2p: P2P
 connection_route_relay: Relay

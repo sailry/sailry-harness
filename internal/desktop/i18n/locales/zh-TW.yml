@@ -814,6 +814,26 @@ backup_sessions_failed: 會話更新失敗
 backup_sessions_unknown: 會話更新尚未確認，請重試以查詢結果
 backup_target: 新的資料絕對路徑
 backup_unarchived: 會話已取消歸檔
+configuration_export: 匯出設定
+configuration_export_description: 包含 API 金鑰，請妥善保管
+configuration_import: 匯入設定
+configuration_import_action: 匯入
+configuration_preview: 匯入預覽
+configuration_added: 新增
+configuration_updated: 覆寫
+configuration_skipped: 略過
+configuration_empty: 沒有可匯入的內容
+configuration_exported: 設定已匯出
+configuration_imported: 設定已匯入
+configuration_export_failed: 設定匯出失敗
+configuration_failed: 設定匯入失敗
+configuration_conflict: 設定已變更，請重新預覽
+configuration_unknown: 匯入結果尚未確認，請重試以查詢結果
+configuration_invalid: 檔案不是有效的設定
+configuration_too_large: 檔案超過 8 MiB
+configuration_read_failed: 無法讀取檔案
+configuration_area_search: 網頁搜尋
+configuration_area_compaction: 上下文壓縮
 files_upload_picker: 無法開啟檔案選擇視窗
 connection_route_p2p: P2P
 connection_route_relay: 中繼

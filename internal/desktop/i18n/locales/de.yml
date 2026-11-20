@@ -814,6 +814,26 @@ backup_sessions_failed: Sitzungsänderung fehlgeschlagen
 backup_sessions_unknown: Sitzungsänderung unbestätigt; erneut versuchen, um das Ergebnis abzurufen
 backup_target: Neuer absoluter Profilpfad
 backup_unarchived: Sitzung wiederhergestellt
+configuration_export: Konfiguration exportieren
+configuration_export_description: Enthält API-Schlüssel; sicher aufbewahren
+configuration_import: Konfiguration importieren
+configuration_import_action: Importieren
+configuration_preview: Importvorschau
+configuration_added: Neu
+configuration_updated: Überschreiben
+configuration_skipped: Überspringen
+configuration_empty: Nichts zu importieren
+configuration_exported: Konfiguration exportiert
+configuration_imported: Konfiguration importiert
+configuration_export_failed: Konfiguration konnte nicht exportiert werden
+configuration_failed: Konfiguration konnte nicht importiert werden
+configuration_conflict: Einstellungen wurden geändert; erneut prüfen
+configuration_unknown: Importergebnis unbestätigt; erneut versuchen, um es zu prüfen
+configuration_invalid: Keine gültige Konfigurationsdatei
+configuration_too_large: Datei größer als 8 MiB
+configuration_read_failed: Datei konnte nicht gelesen werden
+configuration_area_search: Websuche
+configuration_area_compaction: Kontextkomprimierung
 files_upload_picker: Die Dateiauswahl konnte nicht geöffnet werden
 connection_route_p2p: P2P
 connection_route_relay: Relay

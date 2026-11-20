@@ -46,6 +46,9 @@ type backupSettingsState struct {
 	// restores retain their original command and staging stream while the
 	// outcome is pending on this Node.
 	restores map[settings.BackupRestore]protocol.Command
+	// imported is the configuration import whose outcome is unknown, which
+	// its dialog's Retry sends again.
+	imported *protocol.Command
 
 	records []settings.BackupRecord
 	partial bool
@@ -59,6 +62,7 @@ type backupSettingsState struct {
 	visible                 bool
 	binding                 uint64
 	actions                 *settings.BackupActions
+	configuration           *settings.ConfigurationActions
 	shownWork, shownArchive string
 	// restart is the Desktop's switch to a restored profile; nil without one.
 	restart func(restored string, refused func(error))
@@ -92,10 +96,15 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 		state.actions = root.backupActions()
 	}
 	m.BackupActions = state.actions
+	if state.configuration == nil {
+		state.configuration = root.configurationActions()
+	}
+	m.ConfigurationActions = state.configuration
 	if turned {
 		if previous := state.shown; previous != nil {
 			previous.backupSettings.model = m.Backup
 			previous.forgetBackupStorage()
+			previous.forgetConfigurationImport()
 		}
 		state.shown = owner
 		state.binding++
@@ -109,6 +118,7 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 	if owner != nil && status != state.actions.Status {
 		if status != "" {
 			owner.forgetBackupStorage()
+			owner.forgetConfigurationImport()
 			state.binding++
 			m.CloseBackupDialogs()
 		} else {

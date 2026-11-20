@@ -814,6 +814,26 @@ backup_sessions_failed: Session update failed
 backup_sessions_unknown: Session update is unconfirmed; retry to check the result
 backup_target: New absolute profile path
 backup_unarchived: Session unarchived
+configuration_export: Export configuration
+configuration_export_description: Includes API keys; keep it safe
+configuration_import: Import configuration
+configuration_import_action: Import
+configuration_preview: Import preview
+configuration_added: New
+configuration_updated: Overwrite
+configuration_skipped: Skip
+configuration_empty: Nothing to import
+configuration_exported: Configuration exported
+configuration_imported: Configuration imported
+configuration_export_failed: Could not export configuration
+configuration_failed: Could not import configuration
+configuration_conflict: Settings changed meanwhile; preview again
+configuration_unknown: Import result is unconfirmed; retry to check
+configuration_invalid: Not a valid configuration file
+configuration_too_large: File exceeds 8 MiB
+configuration_read_failed: Could not read the file
+configuration_area_search: Web search
+configuration_area_compaction: Context compaction
 files_upload_picker: Could not open the file picker
 connection_route_p2p: P2P
 connection_route_relay: Relay

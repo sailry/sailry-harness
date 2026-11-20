@@ -82,7 +82,9 @@ func (a *BackupActions) confirmOnHost(c *ui.Context, message string) string {
 
 // CloseBackupDialogs drops the page's dialogs and their drafts, typed
 // secrets included, when the page turns to another host.
-func (m *Model) CloseBackupDialogs() { m.backups = backupDialogs{} }
+func (m *Model) CloseBackupDialogs() {
+	m.backups, m.configuration = backupDialogs{}, configurationImport{}
+}
 
 // BackupEditing reports whether a backup dialog holds a draft.
 func (m *Model) BackupEditing() bool { return m.backups.editing || m.backups.restoring }
