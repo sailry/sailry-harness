@@ -65,7 +65,7 @@ type attachmentState struct {
 	previews           map[string]attachmentDescriptor
 	previewGeneration  map[string]uint64
 	previewContent     map[string]protocol.ArtifactContent
-	previewDocuments   map[string]*documentImages
+	previewDocuments   map[string]*documentPreview
 	documents          map[string]*attachmentDocumentImage
 	slots              chan struct{}
 	download           *transfers.Download
@@ -92,9 +92,6 @@ func (r *Runtime) closeAttachments() {
 		return
 	}
 	state.cancel()
-	for _, images := range state.previewDocuments {
-		images.cancel()
-	}
 	state.mu.Lock()
 	state.closed = true
 	release := state.temporary

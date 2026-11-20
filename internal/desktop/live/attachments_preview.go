@@ -27,6 +27,10 @@ type attachmentDocumentImage struct {
 	visible, loading, failed bool
 }
 
+type documentPreview struct {
+	shown, loading *documentImages
+}
+
 func (r *Runtime) openCapturedFilePreview(session string, file conversation.File, descriptor attachmentDescriptor) {
 	if descriptor.artifact == nil {
 		file.Kind = attachmentFileKind(file.Path, descriptor.mime)
@@ -42,22 +46,27 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 // showCapturedPreview loads a captured file into its preview, as it opens or
 // as its document shows another version.
 func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachmentDescriptor) {
-	r.attachments.previews[file.ID] = descriptor
 	r.attachments.previewGeneration[file.ID]++
 	generation := r.attachments.previewGeneration[file.ID]
 	file.State = conversation.PreviewLoading
 	ctx := r.attachments.ctx
 	var preview *filePreview
+	var tab *documentPreview
 	var document *documentImages
 	if file.Kind == conversation.ImageFile {
+		r.attachments.previews[file.ID] = descriptor
 		preview, ctx = r.beginFilePreview(file, fileview.Callbacks{Image: r.localRuntime().ArtifactImageAction})
 		preview.worktree = descriptor.worktree
 	} else {
-		if old := r.attachments.previewDocuments[file.ID]; old != nil {
-			old.cancel()
-		}
 		if r.attachments.previewDocuments == nil {
-			r.attachments.previewDocuments = map[string]*documentImages{}
+			r.attachments.previewDocuments = map[string]*documentPreview{}
+		}
+		tab = r.attachments.previewDocuments[file.ID]
+		if tab == nil {
+			tab = &documentPreview{}
+			r.attachments.previewDocuments[file.ID] = tab
+		} else if tab.loading != nil {
+			tab.loading.cancel()
 		}
 		version := fmt.Sprint(generation)
 		if descriptor.revision != nil {
@@ -68,10 +77,15 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 			version = descriptor.attachment.Spec.Revision
 		}
 		document = newDocumentImages(ctx, r, descriptor, version)
-		r.attachments.previewDocuments[file.ID] = document
+		tab.loading = document
 		ctx = document.ctx
 		r.App.RevealConversationPanel()
-		r.App.Panel.ShowArtifact(file)
+		if tab.shown == nil {
+			r.attachments.previews[file.ID] = descriptor
+			r.App.Panel.ShowArtifact(file)
+		} else {
+			r.App.Panel.Show(panel.Tab{Kind: panel.Artifact, ID: file.ID})
+		}
 	}
 	r.async(func() {
 		loaded, content, err := r.readAttachmentPreview(ctx, descriptor, file)
@@ -82,46 +96,51 @@ func (r *Runtime) showCapturedPreview(file conversation.File, descriptor attachm
 			if r.attachments.previewGeneration[file.ID] != generation || ctx.Err() != nil {
 				return
 			}
-			if preview != nil && (r.localRuntime().filePreview != preview || !preview.open) {
+			if preview != nil {
+				root := r.localRuntime()
+				if root.filePreview != preview || !preview.open {
+					return
+				}
+				if err != nil {
+					r.downloadOutcome(c, err)
+					preview.cancel()
+					preview.open = false
+					root.filePreview = nil
+				} else {
+					preview.file = loaded
+				}
 				return
 			}
-			if err != nil {
-				// A preview that cannot load says why in a toast and leaves
-				// no empty tab or dialog behind.
-				r.downloadOutcome(c, err)
-				if preview != nil {
-					if r.localRuntime().filePreview == preview {
-						preview.cancel()
-						preview.open = false
-						r.localRuntime().filePreview = nil
-					}
+			tab.loading = nil
+			if err != nil || loaded.State == conversation.PreviewLarge {
+				if err != nil {
+					r.downloadOutcome(c, err)
 				} else {
+					kit.Toast(c, kit.Failed, i18n.T(c, "artifact_preview_large"))
+				}
+				document.cancel()
+				if tab.shown == nil {
 					r.forgetDocumentPreview(file.ID)
 				}
 				return
 			}
-			if loaded.State == conversation.PreviewLarge && preview == nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "artifact_preview_large"))
-				r.forgetDocumentPreview(file.ID)
-				return
+			if tab.shown != nil {
+				tab.shown.cancel()
 			}
+			tab.shown = document
 			if content != nil {
 				r.attachments.previewContent[file.ID] = *content
 				if descriptor.artifact != nil {
 					// The version read is the one the preview's actions use.
 					descriptor.artifact = &content.Artifact
-					r.attachments.previews[file.ID] = descriptor
 				}
-			}
-			if document := r.attachments.previewDocuments[file.ID]; document != nil && err == nil && content == nil {
+			} else {
+				delete(r.attachments.previewContent, file.ID)
 				version := fmt.Sprintf("%x", blake3.Sum256([]byte(loaded.Text)))
 				document.version, document.origin.version = version, version
 			}
-			if preview != nil {
-				preview.file = loaded
-			} else {
-				r.App.Panel.UpdateArtifact(loaded)
-			}
+			r.attachments.previews[file.ID] = descriptor
+			r.App.Panel.UpdateArtifact(loaded)
 		})
 	})
 }
@@ -131,8 +150,8 @@ func (r *Runtime) artifactMarkdown(file conversation.File) *markdown.Options {
 	if owner == nil || owner.attachments == nil {
 		return nil
 	}
-	if document := owner.attachments.previewDocuments[file.ID]; document != nil {
-		return document.options()
+	if tab := owner.attachments.previewDocuments[file.ID]; tab != nil && tab.shown != nil {
+		return tab.shown.options()
 	}
 	return nil
 }
@@ -156,8 +175,13 @@ func (r *Runtime) pruneDocumentPreviews() {
 }
 
 func (r *Runtime) forgetDocumentPreview(id string) {
-	if document := r.attachments.previewDocuments[id]; document != nil {
-		document.cancel()
+	if tab := r.attachments.previewDocuments[id]; tab != nil {
+		if tab.loading != nil {
+			tab.loading.cancel()
+		}
+		if tab.shown != nil {
+			tab.shown.cancel()
+		}
 	}
 	delete(r.attachments.previewDocuments, id)
 	delete(r.attachments.previewContent, id)
