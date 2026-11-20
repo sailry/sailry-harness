@@ -74,7 +74,10 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 				project := root.workspaceFor(fixture.main)
 				project.initialized, project.release = true, func() {}
 				root.workspace.selected = fixture.main.ID
-				directory := t.TempDir()
+				directory, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
 				const relative = "plans/host-owned-accounts.md"
 				if err := os.Mkdir(filepath.Join(directory, "plans"), 0o700); err != nil {
 					t.Fatal(err)
@@ -117,7 +120,7 @@ func TestWorkspaceMissingOpenFileWatch(t *testing.T) {
 				settle()
 				original := project.files[relative]
 				if original.Revision == nil || original.Text != "original\n" {
-					t.Fatal("manual file entry did not load the ignored file")
+					t.Fatalf("manual file entry did not load the ignored file: content=%#v failed_reads=%v commands=%v", original, project.failedReads, fixture.source.commandKinds())
 				}
 				if dirty {
 					project.panel.FileChanged(relative, "my draft")
@@ -390,6 +393,8 @@ func TestWorkspaceTrashRetiresReads(t *testing.T) {
 						}
 						return workspaceFilesAdmission(request, protocol.Output{Kind: "directory", Data: protocol.Directory{Path: input.Path, Entries: entries}}, nil)
 					case "trash_entry":
+					case "inspect_git":
+						return workspaceFilesAdmission(request, protocol.Output{Kind: "git_status", Data: protocol.GitStatus{Kind: protocol.RepositoryKindDirectory}}, nil)
 					default:
 						return link.Admission{}, errors.New("unexpected file command")
 					}
@@ -497,6 +502,9 @@ func TestWorkspaceTrashFailureAndRecovery(t *testing.T) {
 						}
 						return workspaceFilesAdmission(request, protocol.Output{Kind: "directory", Data: protocol.Directory{Path: input.Path, Entries: entries}}, nil)
 					}
+					if request.Command.Kind == "inspect_git" {
+						return workspaceFilesAdmission(request, protocol.Output{Kind: "git_status", Data: protocol.GitStatus{Kind: protocol.RepositoryKindDirectory}}, nil)
+					}
 					if request.Command.Kind != "trash_entry" {
 						return link.Admission{}, errors.New("unexpected file command")
 					}
@@ -538,15 +546,28 @@ func TestWorkspaceTrashFailureAndRecovery(t *testing.T) {
 					settle()
 					return
 				}
-				if len(requests) != 2 || requests[1].Buttons[1] != i18n.In("en", "files_check_result") {
+				if len(requests) != 2 || len(requests[1].Buttons) != 2 || requests[1].Buttons[1] != i18n.In("en", "files_check_result") {
 					t.Fatal("uncertain trash did not offer inspection of the original request")
+				}
+				for index, failedLookup := range []bool{false, true} {
+					if failedLookup {
+						fixture.source.pending = make(chan link.Response, 1)
+						fixture.source.pending <- link.Response{Fault: &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture inspection unavailable"}}
+					}
+					answer(1)
+					settle()
+					fixture.source.pending = nil
+					kinds := fixture.source.commandKinds()
+					if countText(kinds, "trash_entry") != 1 || len(root.uncertain) != 1 || len(project.uncertainOperations) != 1 || len(requests) != index+3 || len(requests[len(requests)-1].Buttons) != 2 || requests[len(requests)-1].Buttons[1] != i18n.In("en", "files_check_result") || project.entryIsMissing(relative) || !slices.Contains(project.panel.Files.Open(), relative) {
+						t.Fatalf("pending or unavailable inspection replayed trash or lost its original recovery: failed_lookup=%t commands=%v", failedLookup, kinds)
+					}
 				}
 				fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "entry_trashed", Data: protocol.OutputEntryTrashedPayload{Path: relative}})
 				deleted = true
 				answer(1)
 				settle()
 				kinds := fixture.source.commandKinds()
-				if countText(kinds, "trash_entry") != 1 || countText(kinds, "inspect_request") < 2 || !project.entryIsMissing(relative) || slices.Contains(project.panel.Files.Open(), relative) || !window.HasText(i18n.In("en", "workspace_completed")) {
+				if countText(kinds, "trash_entry") != 1 || countText(kinds, "inspect_request") != 4 || len(root.uncertain) != 0 || len(project.uncertainOperations) != 0 || !project.entryIsMissing(relative) || slices.Contains(project.panel.Files.Open(), relative) || !window.HasText(i18n.In("en", "workspace_completed")) {
 					t.Fatalf("result inspection replayed trash or failed to retire its confirmed editor: %v", kinds)
 				}
 			})

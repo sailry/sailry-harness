@@ -243,9 +243,10 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 	encoded, _ := json.Marshal(command)
 	key := string(encoded)
 	scope := "workspace-action/" + p.owner.ID.String()
+	busyKey := scope + "\x00" + key
 	trash, trashEntry := detail[protocol.CommandTrashEntryPayload](command.Data)
 	trashEntry = trashEntry && command.Kind == "trash_entry"
-	if trashEntry && !p.runtime.busy[scope+"\x00"+key] {
+	if trashEntry && !p.runtime.busy[busyKey] {
 		p.beginTrash(trash.Path)
 	}
 	// A Git action that is sent, not one already in flight, counts as running.
@@ -253,7 +254,7 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 	if git {
 		p.gitRunning++
 	}
-	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
+	complete := func(c *ui.Context, out protocol.Output, err error, unknown bool) {
 		if trashEntry {
 			delete(p.trashing, trash.Path)
 			p.pendingFiles = true
@@ -264,8 +265,6 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 		if git {
 			p.gitRunning--
 		}
-		// Only a request the Runtime kept can be checked again.
-		unknown := client.Retained(err)
 		p.panel.SetPromptUncertain(unknown)
 		if unknown {
 			if p.uncertainOperations == nil {
@@ -298,6 +297,33 @@ func (p *workspaceProject) mutateNamed(kind string, command protocol.Command, do
 		} else {
 			kit.Toast(c, kit.Done, i18n.T(c, "workspace_completed"))
 		}
+	}
+	// The trash prompt offers to check the original result, not dispatch the
+	// mutation again. Other scoped operations keep their exact-replay contract.
+	if request, retained := p.runtime.uncertain[busyKey]; trashEntry && retained {
+		if p.runtime.busy[busyKey] {
+			return
+		}
+		p.runtime.busy[busyKey] = true
+		p.runtime.async(func() {
+			resolution, err := p.runtime.controller.Resolve(p.runtime.ctx, request)
+			unknown := err != nil || resolution.State == client.RequestPending || resolution.State == client.RequestReplayable
+			var out protocol.Output
+			if err == nil {
+				out, err = resolution.Result()
+			}
+			p.runtime.enqueue(func(c *ui.Context) {
+				delete(p.runtime.busy, busyKey)
+				if !unknown {
+					delete(p.runtime.uncertain, busyKey)
+				}
+				complete(c, out, err, unknown)
+			})
+		})
+		return
+	}
+	p.runtime.executeScoped(scope, command, func(c *ui.Context, out protocol.Output, err error) {
+		complete(c, out, err, client.Retained(err))
 	})
 }
 
