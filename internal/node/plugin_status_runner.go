@@ -87,6 +87,10 @@ func (service *pluginStatusService) run(watcher *pluginStatusWatcher, events lin
 		repositories: make(chan pluginStatusRepositoryUpdate, 1), completed: make(chan pluginStatusCompleted, 4),
 	}
 	defer runner.close()
+	if err := runner.refresh(""); err != nil {
+		runner.finish(err)
+		return
+	}
 	runner.workers.Add(1)
 	go func() {
 		defer runner.workers.Done()
@@ -102,10 +106,6 @@ func (service *pluginStatusService) run(watcher *pluginStatusWatcher, events lin
 			}
 		}
 	}()
-	if err := runner.refresh(""); err != nil {
-		runner.finish(err)
-		return
-	}
 	for watcher.ctx.Err() == nil {
 		runner.launch()
 		var timer clockwork.Timer
@@ -213,8 +213,6 @@ func (runner *pluginStatusRunner) refresh(changed string) error {
 
 func (runner *pluginStatusRunner) update(update protocol.Update) error {
 	switch update.Kind {
-	case "snapshot":
-		return nil
 	case "reset_required":
 		if err := runner.refresh(""); err != nil {
 			return err

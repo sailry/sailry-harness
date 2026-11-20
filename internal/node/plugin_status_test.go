@@ -2,13 +2,90 @@ package node
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// Over 1 s: the Node start installs and verifies the bundled packages.
+func TestPluginStatusStartsFromPinnedEventCursor(t *testing.T) {
+	node := nodeFixture(t)
+	ctx := t.Context()
+	caller := protocol.NodeID{31}
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		return store.PairLinkPeer(ctx, db, caller, link.DirectionController)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	send := func(command protocol.Command) protocol.Output {
+		t.Helper()
+		result := dispatchFixture(t, node, caller, protocol.NewRequest(node.ID(), command))
+		if result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+		return result.Output
+	}
+	config := sessionConfigFixtureFor(t, node, caller)
+	create := protocol.Command{Kind: "create_session", Data: protocol.CommandCreateSessionPayload{Config: &config}}
+	session := send(create).Data.(protocol.Session)
+	unrelated := send(create).Data.(protocol.Session)
+	if err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		_, err := db.ExecContext(ctx, "UPDATE session_revisions SET config=?1 WHERE session=?2 AND revision=?3", []byte("{"), unrelated.ID.String(), unrelated.Revision)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if full, err := node.Subscribe(ctx, caller, protocol.Topic{Kind: "node"}); err == nil {
+		_ = full.Close()
+		t.Fatal("the full snapshot did not encounter the malformed unrelated session")
+	} else if !pluginMessageFault(err, protocol.ErrorCodeInternal) {
+		t.Fatalf("full snapshot failed for an unexpected reason: %v", err)
+	}
+
+	scope := protocol.PluginUiStatusScope{Session: &session.ID}
+	status, err := node.Subscribe(ctx, caller, protocol.Topic{Kind: "status", Data: scope})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer status.Close()
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	nextStatus := func() protocol.PluginUiStatusSnapshot {
+		t.Helper()
+		update, err := status.Next(wait)
+		snapshot, ok := update.Data.(protocol.PluginUiStatusSnapshot)
+		if err != nil || update.Kind != "status" || !ok || snapshot.Node != node.ID() || !reflect.DeepEqual(snapshot.Scope, scope) {
+			t.Fatalf("scoped Status update = %#v, %v", update, err)
+		}
+		return snapshot
+	}
+	nextStatus()
+	// Start the status event source without a reader, then commit before its first Next.
+	source, err := node.subscribePluginStatusEvents(ctx, caller)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	send(protocol.Command{Kind: "remove_session", Data: protocol.CommandRemoveSessionPayload{Session: session.ID, ExpectedRevision: session.Revision}})
+	update, err := source.Next(wait)
+	envelope, ok := update.Data.(protocol.EventEnvelope)
+	removed, _ := envelope.Event.Data.([]protocol.SessionID)
+	if err != nil || update.Kind != "event" || !ok || envelope.Event.Kind != "sessions_removed" || len(removed) != 1 || removed[0] != session.ID {
+		t.Fatalf("first event after reserving the Status source = %#v, %v", update, err)
+	}
+	if final := nextStatus(); len(final.Entries) != 0 {
+		t.Fatalf("removed session retained Status entries: %#v", final.Entries)
+	}
+	if _, err := status.Next(wait); !pluginMessageFault(err, protocol.ErrorCodeNotFound) {
+		t.Fatalf("removed session did not terminate Status: %v", err)
+	}
+}
 
 func testPluginStatusScheduling(t *testing.T) {
 	clock := clockwork.NewFakeClockAt(time.Unix(1000, 0))

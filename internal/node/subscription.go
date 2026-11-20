@@ -61,25 +61,47 @@ func (node *Node) subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	if topic.Kind != "node" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "subscription is unavailable"}
 	}
+	return node.subscribeNodeEvents(ctx, true)
+}
+
+func (node *Node) subscribeNodeEvents(ctx context.Context, withSnapshot bool) (link.Subscription, error) {
 	value := &events{user: userFromContext(ctx), node: node, wake: make(chan struct{}, 1), closed: make(chan struct{})}
 	node.mu.Lock()
 	if node.stopped {
 		node.mu.Unlock()
 		return nil, unavailable()
 	}
-	// Register before the pinned snapshot so every concurrent commit is observed.
+	// Register before pinning the starting read so every concurrent commit is observed.
 	node.subscribersMu.Lock()
 	node.subscribers[value] = struct{}{}
 	node.subscribersMu.Unlock()
 	node.mu.Unlock()
-	snapshot, err := node.Snapshot(ctx)
-	if err != nil {
+	if err := value.pinStart(ctx, withSnapshot); err != nil {
 		_ = value.Close()
 		return nil, err
 	}
-	value.initial = &snapshot
-	value.cursor = snapshot.Cursor
 	return value, nil
+}
+
+func (stream *events) pinStart(ctx context.Context, withSnapshot bool) error {
+	if withSnapshot {
+		snapshot, err := stream.node.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		stream.initial = &snapshot
+		stream.cursor = snapshot.Cursor
+		return nil
+	}
+	if err := stream.node.begin(); err != nil {
+		return err
+	}
+	defer stream.node.work.Done()
+	return nodeFault(stream.node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		stream.cursor, err = store.EventCursor(ctx, db)
+		return err
+	}))
 }
 
 func (stream *events) Close() error {

@@ -114,12 +114,16 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	if err != nil {
 		return nil, err
 	}
+	return node.trackSubscription(verified, caller, topic, source), nil
+}
+
+func (node *Node) trackSubscription(verified context.Context, caller protocol.NodeID, topic protocol.Topic, source link.Subscription) link.Subscription {
 	user := userFromContext(verified)
 	check := func(next context.Context) error {
 		_, err := node.authorizeTopic(store.WithUser(next, user), caller, topic)
 		return err
 	}
-	return &authorizedSubscription{accessObservation: node.observeAccess(check, source.Close), source: source}, nil
+	return &authorizedSubscription{accessObservation: node.observeAccess(check, source.Close), source: source}
 }
 func (value *authorizedSubscription) Next(ctx context.Context) (protocol.Update, error) {
 	value.next.Lock()

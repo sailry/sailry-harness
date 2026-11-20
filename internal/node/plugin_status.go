@@ -114,7 +114,7 @@ func (node *Node) subscribePluginStatus(ctx context.Context, caller protocol.Nod
 		return nil, nodeFault(err)
 	}
 	ctx = store.WithUser(ctx, user)
-	events, err := node.Subscribe(ctx, caller, protocol.Topic{Kind: "node"})
+	events, err := node.subscribePluginStatusEvents(ctx, caller)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +146,19 @@ func (node *Node) subscribePluginStatus(ctx context.Context, caller protocol.Nod
 	service.mu.Unlock()
 	go service.run(watcher, events)
 	return &pluginStatusFeed{watcher: watcher, closed: make(chan struct{})}, nil
+}
+
+func (node *Node) subscribePluginStatusEvents(ctx context.Context, caller protocol.NodeID) (link.Subscription, error) {
+	topic := protocol.Topic{Kind: "node"}
+	verified, err := node.authorizeTopic(ctx, caller, topic)
+	if err != nil {
+		return nil, err
+	}
+	source, err := node.subscribeNodeEvents(verified, false)
+	if err != nil {
+		return nil, err
+	}
+	return node.trackSubscription(verified, caller, topic, source), nil
 }
 
 func (node *Node) invalidatePluginStatus(name string) {
