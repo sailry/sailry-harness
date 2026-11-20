@@ -268,7 +268,12 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 				}
 			}
 			value := node.workspaceToolValue(inv.Session, request, output)
-			if !packaged {
+			// A written artifact is delivered as its card, whichever package's
+			// tool wrote it: the Node stamps the summary it committed.
+			if written, ok := output.Data.(protocol.OutputArtifactWrittenPayload); ok && output.Kind == "artifact_written" {
+				value = map[string]any{"kind": output.Kind, "data": output.Data, "sailry_content": protocol.ToolContent{Version: 1,
+					Blocks: []protocol.ToolContentBlock{{Kind: "artifact", Data: protocol.ToolContentBlockArtifactPayload{Artifact: written.Artifact}}}}}
+			} else if !packaged {
 				if content := operations.CommandContent(output); content != nil {
 					shaped, ok := value.(map[string]any)
 					if !ok {
