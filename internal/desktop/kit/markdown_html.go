@@ -32,15 +32,18 @@ var (
 
 // htmlBlock builds an HTML block of the document o shows.
 func htmlBlock(o *markdown.Options) func(c *ui.Context, source string) {
-	inner := &markdown.Options{}
+	inner, centred := &markdown.Options{}, &markdown.Options{}
 	inner.Block = documentImageBlock(inner)
+	centred.Block = alignedDocumentImageBlock(centred, ui.Center)
 	return func(c *ui.Context, source string) {
 		copyNestedOptions(c, inner, o)
+		copyNestedOptions(c, centred, o)
 		ui.Column(c).FillWidth().Children(func() {
 			for i, chunk := range chunksOf(source) {
-				view := markdown.View(c.Key(i), chunk.markdown, inner)
 				if chunk.centred {
-					view.AlignSelf(ui.Center)
+					markdown.View(c.Key(i), chunk.markdown, centred).AlignSelf(ui.Center)
+				} else {
+					markdown.View(c.Key(i), chunk.markdown, inner)
 				}
 			}
 		})

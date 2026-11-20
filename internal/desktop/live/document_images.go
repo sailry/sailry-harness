@@ -5,19 +5,30 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/fileview"
+	"github.com/sailry/sailry-harness/internal/node/web"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
+)
+
+const (
+	documentImageFetchTimeout   = 20 * time.Second
+	documentImageFetchRedirects = 4
+	documentImageFetchBytes     = 4 << 20
+	documentImageFetchEdge      = 8192
+	documentImageFetchPixels    = 8 << 20
 )
 
 type documentImageOrigin struct {
@@ -48,6 +59,7 @@ type documentImages struct {
 	cancel     context.CancelFunc
 	owner      *Runtime
 	controller *client.Client
+	https      *http.Client
 	origin     documentImageOrigin
 	version    string
 	markdown   *markdown.Options
@@ -60,11 +72,23 @@ type documentImages struct {
 
 func newDocumentImages(ctx context.Context, owner *Runtime, descriptor attachmentDescriptor, version string) *documentImages {
 	ctx, cancel := context.WithCancel(ctx)
+	https := newDocumentImageHTTPClient()
+	context.AfterFunc(ctx, https.CloseIdleConnections)
 	return &documentImages{
-		ctx: ctx, cancel: cancel, owner: owner, controller: owner.controller, version: version,
+		ctx: ctx, cancel: cancel, owner: owner, controller: owner.controller, https: https, version: version,
 		origin: documentImageOrigin{entry: owner.localRuntime().controller.Target(), node: owner.controller.Target(), worktree: descriptor.worktree, path: descriptor.path, version: version},
 		images: make(map[documentImageKey]*documentImage), slots: make(chan struct{}, 2),
 	}
+}
+
+func newDocumentImageHTTPClient() *http.Client {
+	client := web.NewPublicHTTPSClient(documentImageFetchTimeout, documentImageFetchRedirects)
+	checkRedirect := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		request.Header.Del("Referer")
+		return checkRedirect(request, via)
+	}
+	return client
 }
 
 // options is called on the UI owner. A reconnect retries failed placeholders
@@ -90,19 +114,28 @@ func (d *documentImages) options() *markdown.Options {
 }
 
 func (d *documentImages) load(reference string) (ui.ImageSource, error) {
-	image := d.image(reference)
+	if address, err := url.Parse(reference); err == nil && address.Scheme == "https" && address.Hostname() != "" && address.User == nil {
+		address.Fragment, address.RawFragment = "", ""
+		image := d.image(address.String(), true)
+		return image.source, image.err
+	}
+	image := d.localImage(reference)
 	return image.source, image.err
 }
 
-func (d *documentImages) image(reference string) *documentImage {
-	key := documentImageKey{origin: d.origin, path: reference}
+func (d *documentImages) localImage(reference string) *documentImage {
 	if !strings.HasPrefix(reference, "data:") {
 		resolved, ok := fileview.ResolveImagePath(d.origin.path, reference)
 		if !ok || d.origin.worktree == (protocol.WorktreeID{}) {
 			return &documentImage{err: fileActionFault(protocol.ErrorCodeInvalidRequest, "document image has no worktree-relative source")}
 		}
-		key.path = resolved
+		reference = resolved
 	}
+	return d.image(reference, false)
+}
+
+func (d *documentImages) image(location string, remote bool) *documentImage {
+	key := documentImageKey{origin: d.origin, path: location}
 	d.mu.Lock()
 	image := d.images[key]
 	if image != nil {
@@ -132,23 +165,35 @@ func (d *documentImages) image(reference string) *documentImage {
 		image.err = d.ctx.Err()
 		return image
 	}
-	if strings.HasPrefix(reference, "data:") {
-		image.data, image.mime, image.err = documentImageData(reference)
+	switch {
+	case remote:
+		image.data, image.mime, image.err = d.readHTTPS(location)
+	case strings.HasPrefix(location, "data:"):
+		image.data, image.mime, image.err = documentImageData(location)
 		if image.err == nil {
 			sum := blake3.Sum256(image.data)
 			image.revision = hex.EncodeToString(sum[:])
 		}
-	} else {
-		image.data, image.revision, image.err = d.read(key.path)
-		image.mime = mime.TypeByExtension(strings.ToLower(path.Ext(key.path)))
+	default:
+		image.data, image.revision, image.err = d.read(location)
+		image.mime = mime.TypeByExtension(strings.ToLower(path.Ext(location)))
 	}
 	if image.err == nil {
 		if image.mime == "" {
 			image.mime = http.DetectContentType(image.data)
 		}
-		if strings.EqualFold(strings.Split(image.mime, ";")[0], "image/svg+xml") || strings.EqualFold(path.Ext(key.path), ".svg") {
+		if strings.EqualFold(strings.Split(image.mime, ";")[0], "image/svg+xml") || !remote && strings.EqualFold(path.Ext(location), ".svg") {
 			image.mime = "image/svg+xml"
-			image.source, image.err = ui.ParseSVG(image.data)
+			svg, err := ui.ParseSVG(image.data)
+			if remote && err == nil {
+				w, h := svg.Size()
+				if !(w >= 1 && h >= 1 && w <= documentImageFetchEdge && h <= documentImageFetchEdge && w*h <= documentImageFetchPixels) {
+					err = fileActionFault(protocol.ErrorCodeInvalidRequest, "document image dimensions exceed the fetch limit")
+				}
+			}
+			image.source, image.err = svg, err
+		} else if remote {
+			image.source, image.err = decodeRemoteDocumentBitmap(image.data)
 		} else {
 			image.source, image.err = decodeAttachmentBitmap(image.data)
 		}
@@ -172,6 +217,53 @@ func (d *documentImages) image(reference string) *documentImage {
 		d.bytes += cost
 	}
 	return image
+}
+
+func (d *documentImages) readHTTPS(address string) ([]byte, string, error) {
+	request, err := http.NewRequestWithContext(d.ctx, http.MethodGet, address, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	response, err := d.https.Do(request)
+	if err != nil {
+		return nil, "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, "", fileActionFault(protocol.ErrorCodeUnavailable, "document image is unavailable")
+	}
+	if response.ContentLength > documentImageFetchBytes {
+		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "document image exceeds its fetch limit")
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, documentImageFetchBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) > documentImageFetchBytes {
+		return nil, "", fileActionFault(protocol.ErrorCodeInvalidRequest, "document image exceeds its fetch limit")
+	}
+	media, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if !strings.HasPrefix(media, "image/") {
+		target := request.URL
+		if response.Request != nil {
+			target = response.Request.URL
+		}
+		if strings.EqualFold(path.Ext(target.Path), ".svg") {
+			media = "image/svg+xml"
+		}
+	}
+	return data, media, nil
+}
+
+func decodeRemoteDocumentBitmap(data []byte) (*ui.Bitmap, error) {
+	config, err := attachmentImageConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	if config.Width > documentImageFetchEdge || config.Height > documentImageFetchEdge || config.Width > documentImageFetchPixels/config.Height {
+		return nil, fileActionFault(protocol.ErrorCodeInvalidRequest, "document image dimensions exceed the fetch limit")
+	}
+	return ui.DecodeBitmap(data)
 }
 
 func (d *documentImages) read(relative string) ([]byte, string, error) {

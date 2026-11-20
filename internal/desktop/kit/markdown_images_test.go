@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"math"
 	"slices"
 	"strings"
 	"testing"
@@ -101,7 +102,7 @@ func TestDocumentLinkedImages(t *testing.T) {
 	for _, tc := range []struct{ name, source string }{
 		{"Markdown", "[![Badge](badge.svg)](" + target + ")"},
 		{"inline HTML", `Before <a href="` + target + `"><img src="badge.svg" alt="Badge"></a> after.`},
-		{"HTML block", `<p align="center"><a href="` + target + `"><img src="badge.svg" alt="Badge"></a></p>`},
+		{"HTML block", `<p align="center"><a href="` + target + `"><img src="https://badges.example.test/status?style=flat-square&amp;color=blue" alt="Badge"></a></p>`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var opened []string
@@ -137,6 +138,65 @@ func TestDocumentLinkedImages(t *testing.T) {
 			}
 			if menuTarget != target {
 				t.Fatalf("image context menu target %q, want %q", menuTarget, target)
+			}
+		})
+	}
+}
+
+func TestDocumentBadgeLayout(t *testing.T) {
+	const first = "[![Build badge](https://badges.example.test/build)](#build)"
+	const second = "[![Tests badge](https://badges.example.test/tests)](#tests)"
+	for _, tc := range []struct {
+		name, source   string
+		centred, mixed bool
+	}{
+		{name: "Markdown", source: first + "\n" + second},
+		{name: "centred HTML", centred: true, source: `<p align="center">
+  <a href="#build"><img src="https://badges.example.test/build" alt="Build badge"></a>
+  <a href="#tests"><img src="https://badges.example.test/tests" alt="Tests badge"></a>
+</p>`},
+		{name: "mixed text", source: first + " between badges " + second, mixed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const width = 500
+			options := markdown.Options{LoadImage: func(string) (ui.ImageSource, error) { return nil, nil }}
+			tester := ui.NewTester(func(c *ui.Context) {
+				theme.Apply(c, "", theme.Light)
+				Markdown(c, tc.source, MarkdownProps{Options: &options})
+			}, width, 300)
+			bounds := func(name string) ui.Rect {
+				t.Helper()
+				link, ok := tester.AccessByRole(ui.RoleLink, name)
+				if !ok || !link.Focusable || link.Bounds.W <= 0 || link.Bounds.H <= 0 {
+					t.Fatalf("badge %q is not a laid-out link: %+v", name, link)
+				}
+				return link.Bounds
+			}
+			build, tests := bounds("Build badge"), bounds("Tests badge")
+			if tc.mixed {
+				if tests.Y <= build.Y || !tester.HasText("between badges") {
+					t.Fatalf("mixed paragraph lost its vertical runs: build=%+v tests=%+v", build, tests)
+				}
+				return
+			}
+			if tests.X < build.X+build.W || tests.Y != build.Y {
+				t.Fatalf("adjacent badges did not share a row: build=%+v tests=%+v", build, tests)
+			}
+			if tc.centred && math.Abs(float64(build.X+tests.X+tests.W-width)) > 2 {
+				t.Fatalf("wide badge row is not centered: build=%+v tests=%+v", build, tests)
+			}
+			narrow := int(max(build.W, tests.W) + min(build.W, tests.W)/2)
+			tester.SetSize(narrow, 300)
+			build, tests = bounds("Build badge"), bounds("Tests badge")
+			if tests.Y < build.Y+build.H {
+				t.Fatalf("badges did not wrap at %d: build=%+v tests=%+v", narrow, build, tests)
+			}
+			if tc.centred && (math.Abs(float64(2*build.X+build.W-float32(narrow))) > 2 || math.Abs(float64(2*tests.X+tests.W-float32(narrow))) > 2) {
+				t.Fatalf("wrapped badges are not centered: build=%+v tests=%+v", build, tests)
+			}
+			tester.ClickAt(tests.X+tests.W/2, tests.Y+tests.H/2)
+			if options.Anchor != "#tests" {
+				t.Fatalf("wrapped badge link activated %q, want #tests", options.Anchor)
 			}
 		})
 	}

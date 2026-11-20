@@ -2,6 +2,7 @@ package kit
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 
 	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
@@ -15,6 +16,7 @@ import (
 type documentImageRun struct {
 	markdown string
 	link     string
+	image    bool
 }
 
 // Pinned MyGo only loads images in paragraphs containing images alone; raw
@@ -22,6 +24,10 @@ type documentImageRun struct {
 // document paragraphs into native Markdown runs. The outer view retains the
 // original source, and nested views share its selection and image loader.
 func documentImageBlock(o *markdown.Options) func(*ui.Context, *parser.Document, int) bool {
+	return alignedDocumentImageBlock(o, ui.Start)
+}
+
+func alignedDocumentImageBlock(o *markdown.Options, justify ui.Align) func(*ui.Context, *parser.Document, int) bool {
 	inner := &markdown.Options{}
 	var source string
 	cache := map[int][]documentImageRun{}
@@ -42,21 +48,27 @@ func documentImageBlock(o *markdown.Options) func(*ui.Context, *parser.Document,
 			return false
 		}
 		copyNestedOptions(c, inner, o)
-		ui.Column(c).Gap(8).Children(func() {
+		var layout ui.Element
+		if len(runs) > 1 && !slices.ContainsFunc(runs, func(run documentImageRun) bool { return !run.image }) {
+			layout = ui.Row(c).Wrap().Justify(justify).AlignItems(ui.Center)
+		} else {
+			layout = ui.Column(c)
+		}
+		layout.Gap(8).Children(func() {
 			for k, run := range runs {
 				if run.link == "" {
-					markdown.View(c.Key(k), run.markdown, inner)
+					markdown.View(c.Key(k), run.markdown, inner).MaxWidthPercent(100)
 					continue
 				}
 				// MyGo links are text-only; an image view needs a container with link semantics.
-				link := ui.ButtonBase(c.Key(k)).Role(ui.RoleLink).Cursor(ui.CursorPointer).Tooltip(run.link)
+				link := ui.ButtonBase(c.Key(k)).Role(ui.RoleLink).Cursor(ui.CursorPointer).Tooltip(run.link).MaxWidthPercent(100)
 				if link.Clicked() {
 					openDocumentLink(c, o, run.link)
 				}
 				if o.LinkMenu != nil {
 					link.ContextMenu(func(m *ui.Menu) { o.LinkMenu(m, run.link) })
 				}
-				link.Children(func() { markdown.View(c, run.markdown, inner) })
+				link.Children(func() { markdown.View(c, run.markdown, inner).MaxWidthPercent(100) })
 				if o.Preview != nil {
 					if fill := o.Preview(c, run.link); fill != nil {
 						ui.TooltipBase(c, link, fill)
@@ -195,7 +207,7 @@ func splitDocumentImages(source string) []documentImageRun {
 			if err != nil || strings.TrimSpace(string(md)) == "" {
 				return
 			}
-			run := documentImageRun{markdown: string(md)}
+			run := documentImageRun{markdown: string(md), image: true}
 			for _, parent := range ancestors {
 				if parent.DataAtom == atom.A {
 					for _, attr := range parent.Attr {

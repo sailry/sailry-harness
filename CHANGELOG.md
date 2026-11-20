@@ -27,9 +27,10 @@ released only after its entry is here.
 - Refresh missing workspace files without repeated stale reads, preserve unsaved
   drafts, and inspect uncertain trash results without dispatching the mutation again.
   Distinguish unsupported attachment directories and special files from I/O failures.
-- Fix linked-image Markdown layout crashes while keeping Mermaid rendering. Recover
-  eligible missing-usage and HTTP/2 stream failures within the existing replay
-  budget, without rerunning completed tools or inventing token usage.
+- Render public HTTPS images and linked badges in Markdown documents without
+  changing the HTML sandbox or Mermaid rendering. Fix linked-image layout crashes.
+- Recover eligible missing-usage and HTTP/2 stream failures within the existing
+  replay budget, without rerunning completed tools or inventing token usage.
 
 ## [0.2.5](https://github.com/sailry/sailry-harness/releases/tag/v0.2.5) — 2026-11-20
 
