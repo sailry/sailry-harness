@@ -22,6 +22,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 type startupOptions struct {
@@ -32,8 +33,7 @@ type startupOptions struct {
 	AcceptanceSocket    string
 	AcceptanceMode      string
 	AcceptanceReplay    string
-	// Relays are the --relay URLs, in the order given.
-	Relays []string
+	Relays              []string
 }
 
 func parseOptions(args []string) (startupOptions, error) {
@@ -47,7 +47,7 @@ func parseOptions(args []string) (startupOptions, error) {
 	flags.StringVar(&options.AcceptanceSocket, "acceptance-socket", "", "Attach live acceptance to this private Node control directory")
 	flags.StringVar(&options.AcceptanceMode, "acceptance-mode", "", "Choose the headless acceptance scope")
 	flags.StringVar(&options.AcceptanceReplay, "acceptance-replay", "", "Replay recorded acceptance output without a Node")
-	flags.Func("relay", "Start on this relay instead of the public ones; repeat for more", func(value string) error {
+	flags.Func("relay", "Start with this libp2p relay multiaddr; repeat for a second relay", func(value string) error {
 		options.Relays = append(options.Relays, value)
 		return nil
 	})
@@ -83,6 +83,15 @@ func parseOptions(args []string) (startupOptions, error) {
 		}
 	} else if options.AcceptanceDirectory != "" || options.AcceptanceSocket != "" || options.AcceptanceMode != "" || options.AcceptanceReplay != "" {
 		return options, errors.New("acceptance options require --acceptance-ui")
+	}
+	if len(options.Relays) > 0 {
+		relays, err := link.NetworkRelayURLs(context.Background(), protocol.NetworkSelection{
+			Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: options.Relays},
+		})
+		if err != nil {
+			return options, fmt.Errorf("--relay: %w", err)
+		}
+		options.Relays = relays
 	}
 	return options, nil
 }
@@ -125,7 +134,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		MCP:         &mcp.Options{Warm: true},
-		Network:     startupScope(options.Relays, backend.Preferences.Data.IrohRelays),
+		Network:     startupScope(options.Relays),
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 	})
 	if err != nil {
@@ -141,15 +150,9 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	return backend, nil
 }
 
-// startupScope is the network the Node starts on while it has no saved
-// selection of its own: the --relay URLs, else the relays the desktop's
-// preferences pin (iroh_relays), else the public relays. A selection saved
-// on the Node replaces it when the Node binds.
-func startupScope(explicit []string, stored *[]string) *link.NetworkScope {
-	relays := explicit
-	if len(relays) == 0 && stored != nil {
-		relays = *stored
-	}
+// startupScope listens directly unless --relay was given. A supported
+// selection saved on the Node takes precedence.
+func startupScope(relays []string) *link.NetworkScope {
 	if len(relays) == 0 {
 		return &link.NetworkScope{Internet: true}
 	}

@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
-	"os"
+	"net/url"
 	"slices"
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -29,6 +28,7 @@ type input struct {
 	Kind       string   `json:"kind"`
 	Path       string   `json:"path"`
 	Internet   bool     `json:"internet"`
+	Bind       string   `json:"bind"`
 	Relays     []string `json:"relays"`
 	Name       string   `json:"name"`
 	Ticket     string   `json:"ticket"`
@@ -48,7 +48,29 @@ type input struct {
 	RemotePort uint16   `json:"remote_port"`
 	Upload     string   `json:"upload"`
 	Download   string   `json:"download"`
-	Iroh       string   `json:"iroh"`
+}
+
+func (values input) networkScope() link.NetworkScope {
+	scope := link.NetworkScope{Internet: values.Internet, Bind: values.Bind}
+	for _, relay := range values.Relays {
+		// Older callers used this field for HTTPS Iroh relay URLs.
+		if legacy, err := url.Parse(relay); err == nil && legacy.Scheme == "https" && legacy.Hostname() != "" {
+			continue
+		}
+		scope.Relays = append(scope.Relays, relay)
+	}
+	if len(scope.Relays) != 0 {
+		scope.Internet = false
+	}
+	if scope.Bind == "" {
+		scope.Bind = "127.0.0.1:0"
+		if scope.Internet || len(scope.Relays) != 0 {
+			// Android and iOS keep ephemeral listeners on both address families
+			// as Wi-Fi or cellular interfaces change.
+			scope.Bind = ":0"
+		}
+	}
+	return scope
 }
 
 func (runtime *Runtime) create(ctx context.Context, method string, data json.RawMessage) (any, error) {
@@ -58,21 +80,11 @@ func (runtime *Runtime) create(ctx context.Context, method string, data json.Raw
 	}
 	switch method {
 	case "initialize":
-		path := os.Getenv("SAILRY_IROH_LIB")
-		if path == "" {
-			path = values.Iroh
-		}
-		if path == "" {
-			return nil, invalid("iroh library path is required")
-		}
-		return nil, iroh.Load(path)
+		// Older Dart bridges initialize explicitly before opening a controller.
+		return nil, nil
 	case "open":
-		scope := link.NetworkScope{Internet: values.Internet, Relays: values.Relays}
-		if len(values.Relays) != 0 {
-			scope.Internet = false
-		}
 		lifetime, cancel, detach := runtime.lifetime(ctx, 0)
-		endpoint, err := link.OpenController(lifetime, values.Path, scope)
+		endpoint, err := link.OpenController(lifetime, values.Path, values.networkScope())
 		detach()
 		if err != nil {
 			cancel()

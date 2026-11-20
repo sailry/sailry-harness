@@ -15,29 +15,33 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 )
 
-// TestStartupScope covers the network a Node without a saved selection
-// starts on: --relay, else the preferences' pinned relays, else public.
+const startupRelay = "/ip4/127.0.0.1/tcp/30001/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
+
 func TestStartupScope(t *testing.T) {
 	t.Parallel()
-	options, err := parseOptions([]string{"--relay", "https://one.example.test", "--data-dir", "/profile", "--relay", "https://two.example.test"})
-	if err != nil || !reflect.DeepEqual(options.Relays, []string{"https://one.example.test", "https://two.example.test"}) || options.DataDir != "/profile" {
+	const secondRelay = "/ip4/127.0.0.1/udp/30002/quic-v1/p2p/12D3KooWDwTirQce1RRKnasT5fPVFgzXCy6SiRgSwrwPGLC7zE91"
+	options, err := parseOptions([]string{"--relay", startupRelay, "--data-dir", "/profile", "--relay", secondRelay})
+	if err != nil || !reflect.DeepEqual(options.Relays, []string{startupRelay, secondRelay}) || options.DataDir != "/profile" {
 		t.Fatalf("repeated --relay parsed as %+v, %v", options, err)
 	}
-	if _, err := parseOptions([]string{"--relay"}); err == nil {
-		t.Fatal("--relay without a URL was accepted")
-	}
-	stored := []string{"https://stored.example.test"}
-	for _, current := range []struct {
-		name     string
-		explicit []string
-		stored   *[]string
-		want     link.NetworkScope
-	}{
-		{"public relays by default", nil, nil, link.NetworkScope{Internet: true}},
-		{"the preferences' relays", nil, &stored, link.NetworkScope{Relays: stored}},
-		{"--relay over the preferences", options.Relays, &stored, link.NetworkScope{Relays: options.Relays}},
+	for _, args := range [][]string{
+		{"--relay"},
+		{"--relay", "https://old-relay.example.test"},
+		{"--relay", "/ip4/127.0.0.1/tcp/30001"},
 	} {
-		if got := startupScope(current.explicit, current.stored); !reflect.DeepEqual(*got, current.want) {
+		if _, err := parseOptions(args); err == nil {
+			t.Errorf("accepted invalid relay arguments %v", args)
+		}
+	}
+	for _, current := range []struct {
+		name   string
+		relays []string
+		want   link.NetworkScope
+	}{
+		{"direct by default", nil, link.NetworkScope{Internet: true}},
+		{"explicit relays", options.Relays, link.NetworkScope{Relays: options.Relays}},
+	} {
+		if got := startupScope(current.relays); !reflect.DeepEqual(*got, current.want) {
 			t.Errorf("%s: %+v, want %+v", current.name, *got, current.want)
 		}
 	}
@@ -114,7 +118,7 @@ func TestAcceptanceStartupIsolation(t *testing.T) {
 		{"--acceptance-socket", "/control"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--data-dir", "/profile"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--preview"},
-		{"--acceptance-ui", "--acceptance-dir", "/test", "--relay", "https://relay.example.test"},
+		{"--acceptance-ui", "--acceptance-dir", "/test", "--relay", startupRelay},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "ui", "--acceptance-socket", "/control"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "replay"},
 		{"--acceptance-ui", "--acceptance-dir", "/test", "--acceptance-mode", "replay", "--acceptance-replay", "/recordings", "--acceptance-socket", "/control"},

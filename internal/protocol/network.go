@@ -35,7 +35,8 @@ func (value NetworkSelectionCustomPayload) MarshalJSON() ([]byte, error) {
 	return json.Marshal(encoded)
 }
 
-var networkSelectionVariants = variantFactories{"iroh": nil,
+// The old iroh discriminator remains readable in stored selections.
+var networkSelectionVariants = variantFactories{"direct": nil, "iroh": nil,
 	"custom": func() any { return new(NetworkSelectionCustomPayload) }}
 
 func (value NetworkSelection) MarshalJSON() ([]byte, error) {

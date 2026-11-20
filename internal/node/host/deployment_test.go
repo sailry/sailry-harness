@@ -16,6 +16,11 @@ import (
 	cryptossh "golang.org/x/crypto/ssh"
 )
 
+const (
+	deploymentTestTCPRelay  = "/dns4/relay.example/tcp/443/p2p/12D3KooWJ5YQU5o2fLkQpa6XuHBjdkxKyHtAGYvK1Aq8JAJ9uPfL"
+	deploymentTestQUICRelay = "/ip4/127.0.0.1/udp/30002/quic-v1/p2p/12D3KooWQK1wnefoLrcVHbbnf5tLzbopUd3K3bFAoJpA7YJgL5pV"
+)
+
 func TestSSHInstallationContracts(t *testing.T) {
 	t.Parallel()
 	for _, row := range []struct {
@@ -114,15 +119,22 @@ func TestSSHInstallationContracts(t *testing.T) {
 		}
 	}
 	paths := DeploymentOptions{ProgramRoot: "/program", Profile: "/profile", ServicePath: "/service", CommandPath: "/command"}
-	selected := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://relay.example/a'\"$x"}}}
-	script, err := deploymentScript("/tmp/sailry-bootstrap-fixture",
-		&artifact{name: "sailry-host", digest: strings.Repeat("a", 64)},
-		&artifact{name: "libsailry_iroh.so", digest: strings.Repeat("b", 64)},
-		&artifact{name: "libturso_sync_sdk_kit.so", digest: strings.Repeat("c", 64)},
-		&artifact{name: "native-seal.json", digest: strings.Repeat("d", 64)},
-		paths, "", &selected)
-	if err != nil || !strings.Contains(script, "set -- '--relay' 'https://relay.example/a'\"'\"'\"$x'") || strings.Contains(script, "curl ") || strings.Contains(script, "releases/latest") {
-		t.Fatal("local deployment changed network arguments or fetched a mutable release")
+	for _, row := range []struct {
+		selection protocol.NetworkSelection
+		arguments string
+	}{
+		{protocol.NetworkSelection{Kind: "direct"}, "'--internet'"},
+		{protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{deploymentTestTCPRelay, deploymentTestQUICRelay}}},
+			"'--relay' '" + deploymentTestTCPRelay + "' '--relay' '" + deploymentTestQUICRelay + "'"},
+	} {
+		script, err := deploymentScript("/tmp/sailry-bootstrap-fixture",
+			&artifact{name: "sailry-host", digest: strings.Repeat("a", 64)},
+			&artifact{name: "libturso_sync_sdk_kit.so", digest: strings.Repeat("b", 64)},
+			&artifact{name: "native-seal.json", digest: strings.Repeat("c", 64)},
+			paths, "", &row.selection)
+		if err != nil || !strings.Contains(script, "\nset -- "+row.arguments+"\n") || strings.Contains(script, "curl ") || strings.Contains(script, "releases/latest") {
+			t.Fatalf("local deployment changed %s network arguments or fetched a mutable release: %v", row.selection.Kind, err)
+		}
 	}
 	// The release feed installs only into the installer's own managed paths.
 	if err := NewInstallations(paths).installRelease(context.Background(), nil, node, request.ID, nil, nil); err == nil {

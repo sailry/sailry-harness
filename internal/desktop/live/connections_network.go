@@ -126,17 +126,39 @@ func (r *Runtime) saveConnectionNetwork(model *settings.NetworkEditor) {
 		r.loadConnectionNetwork(editor)
 		return
 	}
-	selected, err := editor.picker.selection(model.Relay, model.Address)
+	if editor.change != nil {
+		r.commitConnectionNetwork(editor, true)
+		return
+	}
+	selected, err := editor.picker.draftSelection(model.Relay, model.Address)
 	if err != nil {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "pairing_relay_invalid")) })
 		return
 	}
-	inspect := editor.change != nil
-	if editor.change == nil {
+	model.Pending, model.Locked = true, true
+	r.useConnectionSelection(editor.picker, selected, true, func(selected protocol.NetworkSelection, err error) {
+		if editor.ctx.Err() != nil || r.App.Settings.NetworkEditor != model {
+			return
+		}
+		if err != nil {
+			model.Pending, model.Locked = false, false
+			if !errors.Is(err, context.Canceled) {
+				r.enqueue(func(c *ui.Context) {
+					if r.App.Settings.NetworkEditor == model {
+						r.reportConnection(c, err, connectionRelayFailureKey(err))
+					}
+				})
+			}
+			return
+		}
 		command := protocol.Command{Kind: "save_network_settings", Data: protocol.CommandSaveNetworkSettingsPayload{ExpectedRevision: editor.saved.Revision, Selection: selected}}
 		editor.change = &connectionNetworkChange{controller: editor.controller, previous: *editor.saved, selected: selected, request: editor.controller.Prepare(command)}
-	}
-	change := editor.change
+		r.commitConnectionNetwork(editor, false)
+	})
+}
+
+func (r *Runtime) commitConnectionNetwork(editor *connectionNetworkEditor, inspect bool) {
+	model, change := editor.model, editor.change
 	model.Pending, model.Locked = true, true
 	r.async(func() {
 		actual, err := r.applyConnectionNetwork(editor.ctx, change, inspect)

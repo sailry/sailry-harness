@@ -32,6 +32,11 @@ func (node *Node) readNetwork(ctx context.Context) (protocol.NetworkSettings, er
 		return settings, err
 	}
 	settings.Effective = node.network.NetworkSelection()
+	if settings.Selection != nil {
+		if _, err := link.NetworkRelayURLs(ctx, *settings.Selection); err != nil {
+			settings.Selection = nil
+		}
+	}
 	if settings.Selection == nil {
 		settings.Selection = settings.Effective
 	}

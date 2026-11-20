@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
@@ -113,7 +113,7 @@ func (link *Link) currentAddress(address EndpointAddress) EndpointAddress {
 	return mergeAddress(address, remembered)
 }
 
-func (link *Link) connection(ctx context.Context, address EndpointAddress, execution bool) (*iroh.Connection, bool, error) {
+func (link *Link) connection(ctx context.Context, address EndpointAddress, execution bool) (peertransport.Connection, bool, error) {
 	if !link.isTrusted(address.ID) || execution && !link.Direction(address.ID).AllowsOutbound() {
 		return nil, false, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not paired"}
 	}
@@ -140,6 +140,10 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 	stopSlot := context.AfterFunc(slot.ctx, release)
 	defer func() { stopSlot(); release() }()
 	target := link.currentAddress(address)
+	dialAddress, err := libp2pDialAddress(target)
+	if err != nil {
+		return nil, false, err
+	}
 	slot.mu.Lock()
 	cached, cachedAddress, cachedInfo := slot.connection, slot.address, slot.info
 	slot.mu.Unlock()
@@ -157,11 +161,7 @@ func (link *Link) connection(ctx context.Context, address EndpointAddress, execu
 		}
 	}
 	scoped, cancel := link.operation(slotContext, true)
-	if err := link.insertAddressRelays(scoped, target); err != nil {
-		cancel()
-		return nil, false, err
-	}
-	connection, err := link.endpoint.Connect(scoped, target, wire.NodeALPN)
+	connection, err := link.endpoint.Connect(scoped, dialAddress, wire.NodeALPN)
 	cancel()
 	if err != nil {
 		return nil, false, linkNetwork(err)
@@ -213,6 +213,10 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	if !link.isTrusted(address.ID) {
 		return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "peer is not paired"}
 	}
+	dialAddress, err := libp2pDialAddress(address)
+	if err != nil {
+		return err
+	}
 	slot, err := link.slot(ctx, address.ID)
 	if err != nil {
 		return err
@@ -237,11 +241,7 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	stopSlot := context.AfterFunc(slot.ctx, cancel)
 	defer func() { stopSlot(); cancel() }()
 	dialing, expire := link.timeoutContext(scoped, ioTimeout)
-	if err := link.insertAddressRelays(dialing, address); err != nil {
-		expire()
-		return err
-	}
-	connection, err := link.endpoint.Connect(dialing, address, wire.NodeALPN)
+	connection, err := link.endpoint.Connect(dialing, dialAddress, wire.NodeALPN)
 	expire()
 	if err != nil {
 		return linkNetwork(err)
@@ -297,7 +297,7 @@ func (link *Link) UpdatePeer(ctx context.Context, address EndpointAddress) error
 	return nil
 }
 
-func (link *Link) publishConnection(slot *outgoingSlot, address EndpointAddress, connection *iroh.Connection, info PeerInfo, certified iroh.ConnectionInfo) {
+func (link *Link) publishConnection(slot *outgoingSlot, address EndpointAddress, connection peertransport.Connection, info PeerInfo, certified peertransport.ConnectionInfo) {
 	ticks := link.ticks
 	if ticks == nil {
 		ticks = connectionTicks
@@ -321,7 +321,7 @@ func (link *Link) compatible(info PeerInfo) error {
 	return checkCompatibility(&local, &link.softwareVersion, info.Protocol, info.SoftwareVersion)
 }
 
-func (link *Link) inspectConnection(ctx context.Context, connection *iroh.Connection) (PeerInfo, error) {
+func (link *Link) inspectConnection(ctx context.Context, connection peertransport.Connection) (PeerInfo, error) {
 	started := time.Now()
 	scoped, cancel := link.operation(ctx, true)
 	stream, err := connection.OpenBi(scoped)

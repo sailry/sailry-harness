@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"slices"
@@ -13,12 +14,30 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
+
+type fixtureConnection struct {
+	peertransport.Connection
+	info    peertransport.ConnectionInfo
+	stream  peertransport.Stream
+	openErr error
+}
+
+func (conn *fixtureConnection) Info(context.Context) (peertransport.ConnectionInfo, error) {
+	return conn.info, nil
+}
+
+func (conn *fixtureConnection) OpenBi(context.Context) (peertransport.Stream, error) {
+	return conn.stream, conn.openErr
+}
+
+func (conn *fixtureConnection) Close(uint64, string) error { return nil }
 
 type fixtureContextStream struct {
 	mu          sync.Mutex
@@ -752,76 +771,124 @@ func TestServerPreservesTransientRejection(t *testing.T) {
 	})
 }
 
+const (
+	fixtureRelayTCP  = "/ip4/127.0.0.1/tcp/4001/p2p/QmS3zcG7LhYZYSJMhyRZvTddvbNUqtt8BJpaSs6mi1K5Va"
+	fixtureRelayQUIC = "/ip4/127.0.0.1/udp/4002/quic-v1/p2p/QmSoLV4Bbm51jM9C4gDYZQ9Cy3U6aXMJDAbzgu2fzaDs64"
+)
+
+func fixtureRelaySelection(relay string) protocol.NetworkSelection {
+	return protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{relay}}}
+}
+
 func TestAddressMergeRetainsSupportedVariants(t *testing.T) {
 	t.Parallel()
-	first := EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{json.RawMessage(`{"Ip":"127.0.0.1:1"}`)}}
+	first := EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{json.RawMessage(`{"Libp2p":"/ip4/127.0.0.1/tcp/4003"}`)}}
 	second := EndpointAddress{ID: first.ID, Addrs: []json.RawMessage{
+		json.RawMessage(`{"Libp2p":"` + fixtureRelayQUIC + `/p2p-circuit"}`),
 		json.RawMessage(`{"Relay":"https://relay.example/"}`),
-		json.RawMessage(`{ "Ip": "127.0.0.1:1" }`),
+		json.RawMessage(`{ "Libp2p": "/ip4/127.0.0.1/tcp/4003" }`),
 		json.RawMessage(`{"Future":"retained"}`),
 	}}
 	merged := mergeAddress(first, second)
-	if len(merged.Addrs) != 3 || !addressIncludes(merged, first) || addressIncludes(first, merged) {
+	if len(merged.Addrs) != 4 || !addressIncludes(merged, first) || addressIncludes(first, merged) {
 		t.Fatalf("address union changed: %#v", merged)
 	}
-	selection := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://SELECTED.example:443"}}}
+	selection := fixtureRelaySelection(fixtureRelayTCP)
 	candidate, err := CandidateAddress(merged, selection)
-	if err != nil || !addressIncludes(candidate, merged) || len(candidate.Addrs) != 4 {
+	if err != nil || !addressIncludes(candidate, merged) || len(candidate.Addrs) != 5 {
 		t.Fatalf("uncertain network candidate dropped old hints: %#v, %v", candidate, err)
 	}
-	selected := []string{"https://selected.example/"}
-	filtered, err := pairingAddressOnNetwork(candidate, selected)
-	if err != nil || len(filtered.Addrs) != 2 || !addressIncludes(filtered, first) {
+	selected := []string{fixtureRelayTCP}
+	specs, err := parseLibp2pRelays(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := pairingAddressOnNetwork(candidate, specs)
+	if err != nil || filtered.ID != first.ID || len(filtered.Addrs) != 1 || string(filtered.Addrs[0]) != `{"Libp2p":"`+fixtureRelayTCP+`/p2p-circuit"}` {
 		t.Fatalf("selected pairing hints: %#v, %v", filtered, err)
 	}
-	if _, err := pairingAddressOnNetwork(second, selected); err == nil {
-		t.Fatal("pairing on another relay network was accepted")
+	if _, err := pairingAddressOnNetwork(second, specs); err == nil {
+		t.Fatal("selected relay pairing fell back to another relay or a direct address")
+	}
+	filtered, err = pairingAddressOnNetwork(candidate, nil)
+	if err != nil || len(filtered.Addrs) != 1 || !addressIncludes(filtered, first) {
+		t.Fatalf("direct pairing retained a relay: %#v, %v", filtered, err)
+	}
+}
+
+func TestNetworkRelayURLsValidatesActiveSelection(t *testing.T) {
+	ctx := t.Context()
+	direct, err := NetworkRelayURLs(ctx, protocol.NetworkSelection{Kind: "direct"})
+	if err != nil || direct == nil || len(direct) != 0 {
+		t.Fatalf("direct selection = %#v, %v", direct, err)
+	}
+	if _, err := NetworkRelayURLs(ctx, protocol.NetworkSelection{Kind: "iroh"}); faultValue(err).Code != protocol.ErrorCodeInvalidRequest {
+		t.Fatalf("active Iroh selection = %v", err)
+	}
+	want := []string{fixtureRelayTCP, fixtureRelayQUIC}
+	got, err := NetworkRelayURLs(ctx, protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{want[1], want[0]}}})
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("custom selection = %#v, %v", got, err)
 	}
 	for _, relays := range [][]string{
 		{}, {"http://relay.example"}, {"https://user:secret@relay.example"},
 		{"https://relay.example/?token=x"}, {"https://relay.example/#secret"},
-		{"https://relay.example:65536"},
+		{"/ip4/127.0.0.1/tcp/65536"}, {"/ip4/127.0.0.1/tcp/4001"},
+		{fixtureRelayTCP + "/p2p-circuit"}, {fixtureRelayTCP, fixtureRelayTCP},
 	} {
 		invalid := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: relays}}
-		if _, err := NetworkRelayURLs(t.Context(), invalid); err == nil {
+		if _, err := NetworkRelayURLs(ctx, invalid); err == nil {
 			t.Fatalf("invalid relay selection accepted: %#v", relays)
 		}
 	}
-	for _, test := range []struct {
-		name     string
-		statuses []iroh.RelayStatus
-		address  EndpointAddress
-		ready    bool
-		denied   bool
-	}{
-		{"ready", []iroh.RelayStatus{{URL: selected[0], Connected: true}}, filtered, true, false},
-		{"waiting", []iroh.RelayStatus{{URL: selected[0]}}, filtered, false, false},
-		{"old_advertisement", []iroh.RelayStatus{{URL: selected[0], Connected: true}}, candidate, false, false},
-		{"authentication_denied", []iroh.RelayStatus{{URL: selected[0], AuthDeniedReason: "denied"}}, filtered, false, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ready, denied := selectedRelayReady(test.statuses, test.address, selected)
-			if ready != test.ready || denied != test.denied {
-				t.Fatalf("relay readiness: %v %v", ready, denied)
-			}
-		})
+}
+
+func TestCandidateCircuitRemainsDialableWithFullAddress(t *testing.T) {
+	address := EndpointAddress{ID: protocol.NodeID{1}}
+	for index := range libp2pMaxHints {
+		address.Addrs = append(address.Addrs, json.RawMessage(fmt.Sprintf(`{"Libp2p":"/ip4/127.0.0.1/tcp/%d"}`, 4000+index)))
+	}
+	candidate, err := CandidateAddress(address, fixtureRelaySelection(fixtureRelayQUIC))
+	if err != nil || !addressIncludes(candidate, address) {
+		t.Fatalf("candidate lost original routes: %#v, %v", candidate, err)
+	}
+	dial, err := libp2pDialAddress(candidate)
+	if err != nil || len(dial.Addrs) != libp2pMaxHints || string(dial.Addrs[0]) != `{"Libp2p":"`+fixtureRelayQUIC+`/p2p-circuit"}` {
+		t.Fatalf("full address displaced the recovery circuit: %#v, %v", dial, err)
 	}
 }
 
-func TestAddressRelayURLsForPeerRouting(t *testing.T) {
-	address := EndpointAddress{ID: protocol.NodeID{1}, Addrs: []json.RawMessage{
-		json.RawMessage(`{"Relay":"https://N0.example:443"}`),
-		json.RawMessage(`{"Ip":"127.0.0.1:1234"}`),
-		json.RawMessage(`{"Relay":"https://relay.example/"}`),
-		json.RawMessage(`{"Relay":"https://n0.example/"}`),
-		json.RawMessage(`{"Relay":"http://insecure.example"}`),
-		json.RawMessage(`{"Relay":"https://user:secret@example.com"}`),
-		json.RawMessage(`{"Future":"retained"}`),
+type fixtureRelayEndpoint struct {
+	peertransport.Endpoint
+	set func(context.Context, []string) error
+}
+
+func (endpoint *fixtureRelayEndpoint) SetRelays(ctx context.Context, relays []string) error {
+	return endpoint.set(ctx, relays)
+}
+
+func TestNetworkSelectionPublishesOnlyAfterReservation(t *testing.T) {
+	link := newFixtureLink(t)
+	custom := fixtureRelaySelection(fixtureRelayTCP)
+	if err := link.SelectNetwork(t.Context(), custom); faultValue(err).Code != protocol.ErrorCodeInvalidRequest || link.NetworkSelection() != nil {
+		t.Fatalf("local-only endpoint accepted a managed network: %v", err)
+	}
+	direct := protocol.NetworkSelection{Kind: "direct"}
+	link.selection = &direct
+	denied := &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "fixture denied reservation"}
+	var outcome error = denied
+	link.endpoint = &fixtureRelayEndpoint{set: func(_ context.Context, relays []string) error {
+		if !slices.Equal(relays, []string{fixtureRelayTCP}) || link.NetworkSelection().Kind != "direct" {
+			t.Fatalf("network changed before reservation: %v", relays)
+		}
+		return outcome
 	}}
-	got := addressRelayURLs(address)
-	want := []string{"https://n0.example/", "https://relay.example/"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("peer relay routes = %#v, want %#v", got, want)
+	if err := link.SelectNetwork(t.Context(), custom); !errors.Is(err, denied) || link.NetworkSelection().Kind != "direct" {
+		t.Fatalf("failed reservation replaced the effective selection: %v", err)
+	}
+	outcome = nil
+	if err := link.SelectNetwork(t.Context(), custom); err != nil || link.NetworkSelection().Kind != "custom" {
+		t.Fatalf("verified reservation did not replace the effective selection: %v", err)
 	}
 }
 
@@ -830,10 +897,10 @@ func TestConnectionTelemetrySharesSampler(t *testing.T) {
 	ticks, started, stopped := make(chan time.Time), make(chan struct{}), make(chan struct{})
 	var samples atomic.Int32
 	rtt := uint64(9)
-	initial := iroh.ConnectionInfo{Route: "p2p", RTTMS: &rtt}
-	state := newConnectionTelemetry(t.Context(), selectedConnectionInfo(initial), func(context.Context) (iroh.ConnectionInfo, error) {
+	initial := peertransport.ConnectionInfo{Route: "p2p", RTTMS: &rtt}
+	state := newConnectionTelemetry(t.Context(), selectedConnectionInfo(initial), func(context.Context) (peertransport.ConnectionInfo, error) {
 		samples.Add(1)
-		return iroh.ConnectionInfo{Route: "relay", RTTMS: &rtt}, nil
+		return peertransport.ConnectionInfo{Route: "relay", RTTMS: &rtt}, nil
 	}, nil, func() (<-chan time.Time, func()) {
 		close(started)
 		return ticks, func() { close(stopped) }
@@ -928,6 +995,20 @@ func (stream silentStream) ReadContext(ctx context.Context, _ []byte) (int, erro
 	return 0, ctx.Err()
 }
 
+type fixtureRebindingEndpoint struct{ peertransport.Endpoint }
+
+func (fixtureRebindingEndpoint) NetworkChange(context.Context) error { return nil }
+
+type fixtureDiscardConnection struct {
+	*fixtureConnection
+	discarded int
+}
+
+func (connection *fixtureDiscardConnection) DiscardPaths() error {
+	connection.discarded++
+	return nil
+}
+
 func TestLivenessCheckBoundsOneInspection(t *testing.T) {
 	link := newFixtureLink(t)
 	var bounded atomic.Int32
@@ -953,10 +1034,10 @@ func TestLivenessCheckBoundsOneInspection(t *testing.T) {
 	}
 	silent := silentStream{newFixtureStream(nil)}
 	err := link.answers(t.Context(), func(context.Context) (contextStream, error) { return silent, nil })
-	if faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
+	if !errors.Is(err, context.DeadlineExceeded) || faultValue(err).Code != protocol.ErrorCodeUnavailable || !silent.closed {
 		t.Fatalf("silent peer = %v, closed %v", err, silent.closed)
 	}
-	unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, iroh.ErrClosed })
+	unreachable := link.answers(t.Context(), func(context.Context) (contextStream, error) { return nil, peertransport.ErrClosed })
 	if faultValue(unreachable).Code != protocol.ErrorCodeUnavailable {
 		t.Fatalf("closed connection = %v", unreachable)
 	}
@@ -965,18 +1046,54 @@ func TestLivenessCheckBoundsOneInspection(t *testing.T) {
 	}
 }
 
+func TestNetworkChangedDiscardsOnlyTimedOutPaths(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		link := newFixtureLink(t)
+		link.endpoint = fixtureRebindingEndpoint{}
+		link.timeout = func(ctx context.Context, duration time.Duration) (context.Context, context.CancelFunc) {
+			if duration == livenessTimeout {
+				return context.WithTimeout(ctx, time.Millisecond)
+			}
+			return context.WithCancel(ctx)
+		}
+		silent := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{stream: silentStream{newFixtureStream(nil)}}}
+		closed := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{openErr: peertransport.ErrClosed}}
+		for id, connection := range []*fixtureDiscardConnection{silent, closed} {
+			peer := protocol.NodeID{byte(id + 1)}
+			slot, err := link.slot(t.Context(), peer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			slot.connection = connection
+			link.releaseSlot(slot)
+		}
+		if err := link.NetworkChanged(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if silent.discarded != 1 || closed.discarded != 0 {
+			t.Fatalf("discarded paths: timeout %d, already closed %d", silent.discarded, closed.discarded)
+		}
+		for _, slot := range link.outgoing {
+			if slot.connection != nil {
+				t.Fatal("failed check retained the logical connection")
+			}
+		}
+	})
+}
+
 func TestFailedLivenessCheckKeepsReplacementConnection(t *testing.T) {
 	link := newFixtureLink(t)
 	peer := protocol.NodeID{9}
 	ctx, cancel := context.WithCancel(link.ctx)
 	defer cancel()
 	// The peer redialed while the check of its previous connection ran.
-	checked, replacement := &iroh.Connection{}, &iroh.Connection{}
+	checked := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{}}
+	replacement := &fixtureDiscardConnection{fixtureConnection: &fixtureConnection{}}
 	telemetry := &connectionTelemetry{changed: make(chan struct{}), done: make(chan struct{}), cancel: func() {}}
 	slot := &outgoingSlot{ctx: ctx, cancel: cancel, dial: make(chan struct{}, 1), connection: replacement, telemetry: telemetry}
 	link.outgoing[peer] = slot
-	link.drop(peer, checked, "peer did not answer")
-	if slot.connection != replacement || slot.telemetry != telemetry {
+	link.drop(peer, checked, "peer did not answer", true)
+	if slot.connection != replacement || slot.telemetry != telemetry || checked.discarded != 0 || replacement.discarded != 0 {
 		t.Fatal("a failed check dropped the connection that replaced the checked one")
 	}
 }

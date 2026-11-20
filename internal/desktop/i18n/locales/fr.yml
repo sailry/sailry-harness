@@ -917,10 +917,10 @@ pairing_connect: Connecter un appareil
 pairing_local_code: Code d'appairage local
 pairing_pin_hint: Entrez le code d'appairage à 6 chiffres
 pairing_preview_disabled: L'aperçu de l'interface utilisateur ne connecte pas les périphériques réels; commencez avec --data-dir pour coupler
-pairing_relay_address: Adresse de iroh
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: Adresse du relais
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: Personnalisé
-pairing_relay_iroh: Réseau public
+pairing_relay_direct: Connexion directe uniquement
 pairing_relay_server: Serveur de connexion
 pairing_share: Partager cet appareil
 pairing_share_hint: Entrez ce code dans Connexions à distance sur un autre appareil
@@ -1933,7 +1933,7 @@ pairing_preparing: Préparation de la connexion
 pairing_refresh_hint: Valide pendant 60 secondes; se rafraîchit à l'expiration
 pairing_relay_checking: Vérification du relais
 pairing_relay_failed: Impossible de se connecter au relais; vérifiez l'URL et réessayez
-pairing_relay_invalid: Entrez une URL de relais HTTPS valide
+pairing_relay_invalid: Saisissez une adresse de relais valide
 pairing_relay_ready: Relais connecté
 pairing_relay_selected: Réseau sélectionné
 pairing_retrying: Service d'appairage indisponible; réessai

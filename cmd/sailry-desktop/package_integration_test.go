@@ -9,18 +9,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/core"
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels/decision"
 	"github.com/sailry/sailry-harness/internal/localmodels/onnx"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/python"
+	"github.com/sailry/sailry-harness/internal/shipped"
 	"github.com/sailry/sailry-harness/internal/speech"
 	"github.com/sailry/sailry-harness/internal/speech/capture"
 	"github.com/sailry/sailry-harness/internal/turso"
@@ -31,14 +33,22 @@ func TestPackagedColdStartup(t *testing.T) {
 		t.Skip("set SAILRY_PACKAGE_PROBE=1 and run beside the packaged executable")
 	}
 	profile := filepath.Join(t.TempDir(), "profile")
-	options := node.Options{MCP: &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
-		return nil, errors.New("fixture MCP servers are unavailable")
-	}}}
+	options := node.Options{
+		Network: &link.NetworkScope{Bind: "127.0.0.1:0"},
+		MCP: &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+			return nil, errors.New("fixture MCP servers are unavailable")
+		}},
+	}
 	for _, phase := range []string{"first launch", "reopen"} {
 		t.Run(phase, func(t *testing.T) {
 			owner, err := node.StartWithOptions(t.Context(), profile, options)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if endpoint := owner.Link(); endpoint == nil {
+				t.Error("packaged startup has no Link endpoint")
+			} else if address, err := endpoint.Address(t.Context()); err != nil || address.ID != owner.ID() || len(address.Addrs) == 0 {
+				t.Errorf("packaged Link endpoint = %v, %v", address, err)
 			}
 			if err := owner.Stop(t.Context()); err != nil {
 				t.Fatal(err)
@@ -61,8 +71,22 @@ func TestPackagedNativeLayout(t *testing.T) {
 	}
 	t.Logf("native directory: %s", directory)
 	// A probe linked like a release (-X …/internal/core.Default) takes the
-	// packaged-only path: sealed libraries, no SAILRY_IROH_LIB.
+	// packaged-only path for loading native libraries against the seal.
 	t.Logf("release build: %v", core.Release())
+	t.Run("Native seal excludes old Link libraries", func(t *testing.T) {
+		seal, err := shipped.Read(directory, runtime.GOOS+"/"+runtime.GOARCH)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"libsailry_iroh.dylib", "libsailry_iroh.so", "sailry_iroh.dll"} {
+			if _, err := os.Lstat(filepath.Join(directory, name)); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("expected %s to be absent from the package: %v", name, err)
+			}
+			if _, ok := seal.File(name); ok {
+				t.Errorf("old Link library %s is in the seal", name)
+			}
+		}
+	})
 	t.Run("Turso FTS", func(t *testing.T) {
 		if core.Release() {
 			t.Setenv("SAILRY_TURSO_LIB", filepath.Join(t.TempDir(), "ignored"))
@@ -99,12 +123,6 @@ func TestPackagedNativeLayout(t *testing.T) {
 	}
 	if err := decision.Available(); err != nil {
 		t.Errorf("llama.cpp runtime: %v", err)
-	}
-	if core.Release() {
-		t.Setenv("SAILRY_IROH_LIB", filepath.Join(t.TempDir(), "ignored"))
-	}
-	if err := iroh.LoadDefault(!core.Release()); err != nil {
-		t.Errorf("iroh: %v", err)
 	}
 	if helper, err := computer.Executable(); err != nil {
 		t.Errorf("computer helper: %v", err)

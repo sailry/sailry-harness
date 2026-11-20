@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 )
 
 type connectionTelemetry struct {
@@ -22,7 +22,7 @@ func connectionTicks() (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
-func newConnectionTelemetry(ctx context.Context, initial ConnectionInfo, sample func(context.Context) (iroh.ConnectionInfo, error), waitPath func(context.Context) error, ticks func() (<-chan time.Time, func())) *connectionTelemetry {
+func newConnectionTelemetry(ctx context.Context, initial ConnectionInfo, sample func(context.Context) (peertransport.ConnectionInfo, error), waitPath func(context.Context) error, ticks func() (<-chan time.Time, func())) *connectionTelemetry {
 	lifetime, cancel := context.WithCancel(ctx)
 	state := &connectionTelemetry{
 		value: copyConnectionInfo(initial), changed: make(chan struct{}), done: make(chan struct{}), cancel: cancel,
@@ -71,7 +71,7 @@ func newConnectionTelemetry(ctx context.Context, initial ConnectionInfo, sample 
 	return state
 }
 
-func selectedConnectionInfo(info iroh.ConnectionInfo) ConnectionInfo {
+func selectedConnectionInfo(info peertransport.ConnectionInfo) ConnectionInfo {
 	if info.Closed != nil || info.Route != "p2p" && info.Route != "relay" {
 		return ConnectionInfo{}
 	}

@@ -13,10 +13,10 @@ and the native and application lockfiles.
 ```text
 Desktop A / MyGo ── Client ── Node A (controller and resource entry)
                                   ├── local resources and execution
-                                  ├── Link / iroh ── Node B
-                                  └── Link / iroh ── Node C
+                                  ├── Link / libp2p ── Node B
+                                  └── Link / libp2p ── Node C
 
-Mobile / Flutter ── Dart FFI ── Client ── Link / iroh ── Node A
+Mobile / Flutter ── Dart FFI ── Client ── Link / libp2p ── Node A
 
 Host service ── Node + Link endpoint
 Node ── agent loop + resource services ── models / files / Git / PTY / SSH / databases
@@ -52,7 +52,7 @@ The Go module is `github.com/sailry/sailry-harness`.
 | `internal/protocol` | Commands, events, IDs, snapshots, faults, capabilities and JSON decoding |
 | `internal/protocol/wire` | Envelopes, framing, compression and snapshot paging |
 | `internal/link` | Identity, pairing, authenticated transport, receipt, reconnect and local transport |
-| `native/iroh`, `internal/link/iroh` | Native iroh C ABI and its purego binding |
+| `internal/link/peerrelay`, `cmd/sailry-libp2p-relay` | Standalone Circuit Relay v2 with private device allowlists or bounded public access |
 | `internal/client` | Typed commands, projections, ordering, deduplication, request and snapshot recovery |
 | `internal/node` | Startup, admission, configuration, execution and resource-service composition |
 | `internal/node/agent` | Turn engine, canonical records, prompt, model adapters, tools and streaming feed |
@@ -1137,11 +1137,35 @@ from a shell without merging users. Existing direct relationships are preserved;
 historical directory imports do not become direct trust. The connection menu
 exposes host-only/controller-only choices and marks bidirectional access.
 
-Link uses iroh endpoint identity for authenticated transport. The pairing service
-exchanges a six-digit, one-minute code for an opaque invitation ticket; Link
-authenticates the endpoint and persists trust. Reconnect reuses that trust. An
-iroh data relay carries encrypted traffic when direct transport is unavailable;
-the pairing service and data relay are distinct services.
+Link authenticates each peer with its existing Ed25519 Node identity over
+libp2p. TCP and QUIC can connect directly; DCUtR attempts an upgrade from an
+authenticated Circuit Relay v2 path when suitable observed addresses exist. New
+streams prefer a direct path. Streams already on a relay are not replayed by the
+transport. No public data relay is selected automatically. The network directory
+loads bundled presets before refreshing from the remote catalog. Controllers
+resolve new shorthand relay inputs before saving them; Node settings and Link
+continue to use peer-addressed multiaddrs.
+
+The standalone `sailry-relay` runs the same Circuit Relay v2 service in `start`
+and legacy `serve`. `start` validates TCP/TOML configuration before opening the
+relay identity; `serve` does not read TOML. Relay admission is bounded public
+access or a private PeerID allowlist, not token-based admission. This does not
+change trust or credentials on the Nodes whose traffic it carries.
+
+One supervisor owns the relay process. An external manager can run `start`
+directly, or the Linux installer can enable a single non-root systemd unit at
+boot and configure it to restart after exit. Managed configuration and program
+files are administrator-owned; the dedicated service account owns its private
+identity directory. Applying an explicit update replaces only the executable,
+restarts the service or starts it if stopped, and authenticates the existing
+PeerID. If activation fails, the updater restores the previous binary and
+attempts to return the service to its prior running or stopped state.
+
+The pairing service only exchanges a six-digit, one-minute code for an opaque
+invitation. It does not carry application traffic. The device key, trust and
+request recovery remain independent of addresses. Existing Iroh address hints
+and relay URLs are retained in storage but cannot dial libp2p peers; pair again
+or update the peer address after both endpoints have upgraded.
 
 A pairing code connects to an already-running Node and follows the relay address
 in its invitation; the claiming device does not choose or change its own relay

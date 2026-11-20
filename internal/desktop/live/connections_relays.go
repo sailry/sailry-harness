@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -22,21 +23,29 @@ type connectionChoice struct {
 }
 
 type connectionPicker struct {
-	controller   *client.Client
-	editor       *settings.NetworkEditor
-	ctx          context.Context
-	cancel       context.CancelFunc
-	choices      []connectionChoice
-	saved        *protocol.NetworkSelection
-	customKey    string
-	customCancel context.CancelFunc
+	controller *client.Client
+	editor     *settings.NetworkEditor
+	ctx        context.Context
+	cancel     context.CancelFunc
+	choices    []connectionChoice
+	presets    []protocol.NetworkPreset
+	saved      *protocol.NetworkSelection
+	lookup     *connectionRelayLookup
 }
+
+type connectionRelayLookup struct {
+	key    string
+	cancel context.CancelFunc
+	ready  bool
+	result protocol.NetworkSelection
+	err    error
+	uses   []func(protocol.NetworkSelection, error)
+}
+
+const connectionRelayDebounce = 650 * time.Millisecond
 
 func (picker *connectionPicker) close() {
 	picker.cancel()
-	if picker.customCancel != nil {
-		picker.customCancel()
-	}
 }
 
 func (r *Runtime) newConnectionPicker(controller *client.Client, editor *settings.NetworkEditor, selected *protocol.NetworkSelection) *connectionPicker {
@@ -46,7 +55,7 @@ func (r *Runtime) newConnectionPicker(controller *client.Client, editor *setting
 	}
 	ctx, cancel := context.WithCancel(parent)
 	if selected == nil {
-		value := protocol.NetworkSelection{Kind: "iroh"}
+		value := protocol.NetworkSelection{Kind: "direct"}
 		selected = &value
 	}
 	picker := &connectionPicker{
@@ -81,7 +90,7 @@ func (picker *connectionPicker) custom(index int) bool {
 	return index >= 0 && index < len(picker.choices) && picker.choices[index].id == "custom"
 }
 
-func (picker *connectionPicker) selection(index int, address string) (protocol.NetworkSelection, error) {
+func (picker *connectionPicker) draftSelection(index int, address string) (protocol.NetworkSelection, error) {
 	if index < 0 || index >= len(picker.choices) {
 		return protocol.NetworkSelection{}, connectionFault(protocol.ErrorCodeInvalidRequest, "relay network is required")
 	}
@@ -101,17 +110,24 @@ func (picker *connectionPicker) selection(index int, address string) (protocol.N
 }
 
 func (r *Runtime) connectionPickerActive(picker *connectionPicker) bool {
-	if picker.ctx.Err() != nil || r.connections == nil {
+	if picker.ctx.Err() != nil || r.connections == nil || !r.connectionsOpen() {
 		return false
 	}
 	if picker.editor == nil {
-		return r.connections.picker == picker
+		model := r.App.Settings.Model
+		return r.connections.picker == picker && (model.Sharing() || model.Adding() && model.ConnectionDraft().Method != settings.ByPairing)
 	}
 	return r.connections.editor != nil && r.connections.editor.picker == picker && r.App.Settings.NetworkEditor == picker.editor
 }
 
 func (r *Runtime) connectionPickerFrame(c *ui.Context, picker *connectionPicker) {
 	model := r.App.Settings.Model
+	index, address := picker.draft(model)
+	if selected, err := picker.draftSelection(index, address); picker.custom(index) && err == nil {
+		r.startConnectionRelayLookup(picker, selected, connectionRelayDebounce, false)
+	} else {
+		picker.cancelLookup()
+	}
 	choices := make([]settings.RelayChoice, 0, len(picker.choices))
 	for _, choice := range picker.choices {
 		value := settings.RelayChoice{Label: choice.label.Label, Pending: choice.pending, Millis: choice.millis, Custom: choice.id == "custom"}
@@ -119,8 +135,8 @@ func (r *Runtime) connectionPickerFrame(c *ui.Context, picker *connectionPicker)
 			value.LabelKey = "pairing_relay_selected"
 			if choice.id == "custom" {
 				value.LabelKey = "pairing_relay_custom"
-			} else if choice.selection != nil && choice.selection.Kind == "iroh" {
-				value.LabelKey = "pairing_relay_iroh"
+			} else if choice.selection != nil && choice.selection.Kind == "direct" {
+				value.LabelKey = "pairing_relay_direct"
 			}
 		} else if translated := choice.label.Locales[i18n.Match(c.Locale())]; translated != "" {
 			value.Label = translated
@@ -132,45 +148,117 @@ func (r *Runtime) connectionPickerFrame(c *ui.Context, picker *connectionPicker)
 	} else {
 		model.ConnectionRelays = choices
 	}
-	index, address := picker.draft(model)
-	key := ""
-	if picker.custom(index) {
-		key = strings.TrimSpace(address)
+}
+
+func (picker *connectionPicker) cancelLookup() {
+	if picker.lookup != nil {
+		picker.lookup.cancel()
+		picker.lookup = nil
+		custom := &picker.choices[len(picker.choices)-1]
+		custom.pending, custom.millis = false, nil
 	}
-	if key == picker.customKey {
+}
+
+// useConnectionSelection supplies the pin shared with the custom probe, without
+// waiting for the probe itself. Named selections and complete multiaddrs only
+// need pure validation.
+func (r *Runtime) useConnectionSelection(picker *connectionPicker, selected protocol.NetworkSelection, retry bool, use func(protocol.NetworkSelection, error)) {
+	_, err := link.NetworkRelayURLs(r.ctx, selected)
+	if err == nil {
+		use(selected, nil)
 		return
 	}
-	picker.customKey = key
-	if picker.customCancel != nil {
-		picker.customCancel()
-		picker.customCancel = nil
-	}
-	custom := &picker.choices[len(picker.choices)-1]
-	custom.pending, custom.millis = false, nil
-	presented := &choices[len(choices)-1]
-	presented.Pending, presented.Millis = false, nil
-	if key == "" {
+	if picker == nil || selected.Kind != "custom" {
+		use(protocol.NetworkSelection{}, err)
 		return
 	}
-	selected, err := picker.selection(index, address)
-	if err != nil {
+	index, address := picker.draft(r.App.Settings.Model)
+	if !picker.custom(index) {
+		use(protocol.NetworkSelection{}, err)
 		return
 	}
-	custom.pending = true
-	presented.Pending = true
+	if current, err := picker.draftSelection(index, address); err != nil || !r.connectionPickerActive(picker) || !sameConnectionNetwork(&current, &selected) {
+		use(protocol.NetworkSelection{}, context.Canceled)
+		return
+	}
+	lookup := r.startConnectionRelayLookup(picker, selected, 0, retry)
+	if lookup.ready {
+		use(lookup.result, lookup.err)
+	} else {
+		lookup.uses = append(lookup.uses, use)
+	}
+}
+
+func connectionRelayFailureKey(err error) string {
+	if faultCode(err) == protocol.ErrorCodeInvalidRequest {
+		return "pairing_relay_invalid"
+	}
+	return "pairing_relay_failed"
+}
+
+func (r *Runtime) connectionRelayLookupActive(picker *connectionPicker, lookup *connectionRelayLookup) bool {
+	if !r.connectionPickerActive(picker) || picker.lookup != lookup {
+		return false
+	}
+	index, address := picker.draft(r.App.Settings.Model)
+	selected, err := picker.draftSelection(index, address)
+	return picker.custom(index) && err == nil && lookup.key == encoded(selected)
+}
+
+func (r *Runtime) startConnectionRelayLookup(picker *connectionPicker, input protocol.NetworkSelection, delay time.Duration, retry bool) *connectionRelayLookup {
+	key := encoded(input)
+	if current := picker.lookup; current != nil && current.key == key && (!retry || current.err == nil) {
+		return current
+	}
+	picker.cancelLookup()
 	ctx, cancel := context.WithCancel(picker.ctx)
-	picker.customCancel = cancel
+	lookup := &connectionRelayLookup{key: key, cancel: cancel}
+	picker.lookup = lookup
+	picker.choices[len(picker.choices)-1].pending = true
+	presets := picker.presets
 	r.async(func() {
-		timer := time.NewTimer(650 * time.Millisecond)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			select {
+			case <-ctx.Done():
+			case <-timer.C:
+			}
+		}
+		var selected protocol.NetworkSelection
+		err := ctx.Err()
+		if err == nil {
+			selected, err = link.ResolveNetworkSelection(ctx, input, presets)
+		}
+		r.enqueue(func(*ui.Context) {
+			if !r.connectionRelayLookupActive(picker, lookup) || ctx.Err() != nil {
+				lookup.err = context.Canceled
+			} else {
+				lookup.result, lookup.err = selected, err
+				if err != nil {
+					picker.choices[len(picker.choices)-1].pending = false
+				} else {
+					r.probeConnectionRelayLookup(ctx, picker, lookup, selected)
+				}
+			}
+			lookup.ready = true
+			for _, use := range lookup.uses {
+				use(lookup.result, lookup.err)
+			}
+			lookup.uses = nil
+		})
+	})
+	return lookup
+}
+
+func (r *Runtime) probeConnectionRelayLookup(ctx context.Context, picker *connectionPicker, lookup *connectionRelayLookup, selected protocol.NetworkSelection) {
+	r.async(func() {
+		if ctx.Err() != nil {
 			return
-		case <-timer.C:
 		}
 		millis := connectionProbe(ctx, picker.controller, selected)
 		r.enqueue(func(*ui.Context) {
-			if r.connectionPickerActive(picker) && ctx.Err() == nil && picker.customKey == key {
+			if r.connectionRelayLookupActive(picker, lookup) && ctx.Err() == nil {
 				custom := &picker.choices[len(picker.choices)-1]
 				custom.pending, custom.millis = false, millis
 			}
@@ -180,12 +268,15 @@ func (r *Runtime) connectionPickerFrame(c *ui.Context, picker *connectionPicker)
 
 func (r *Runtime) startConnectionCatalog(picker *connectionPicker) {
 	index, address := picker.draft(r.App.Settings.Model)
-	selected, selectedErr := picker.selection(index, address)
+	selected, selectedErr := picker.draftSelection(index, address)
 	r.async(func() {
 		var pending sync.WaitGroup
 		limit := make(chan struct{}, 4)
 		seen := map[string]bool{}
 		probe := func(selected protocol.NetworkSelection) {
+			if selected.Kind == "direct" {
+				return
+			}
 			key := encoded(selected)
 			if seen[key] {
 				return
@@ -216,6 +307,7 @@ func (r *Runtime) startConnectionCatalog(picker *connectionPicker) {
 		accept := func(listing protocol.NetworkListing) {
 			r.enqueue(func(*ui.Context) {
 				if r.connectionPickerActive(picker) {
+					picker.presets = listing.Presets
 					r.acceptConnectionCatalog(picker, listing.Presets)
 				}
 			})
@@ -245,6 +337,9 @@ func connectionCatalog(ctx context.Context, controller *client.Client, refresh b
 }
 
 func connectionProbe(ctx context.Context, controller *client.Client, selected protocol.NetworkSelection) *uint64 {
+	if _, err := link.NetworkRelayURLs(ctx, selected); err != nil {
+		return nil
+	}
 	output, err := controller.Do(ctx, protocol.Command{Kind: "probe_network", Data: protocol.CommandProbeNetworkPayload{Selection: selected}})
 	if err != nil || output.Kind != "network_latency" {
 		return nil

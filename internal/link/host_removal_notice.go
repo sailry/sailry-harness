@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
@@ -16,7 +16,7 @@ import (
 type HostRemovalNotice struct {
 	link       *Link
 	attempt    HostRemovalAttempt
-	connection *iroh.Connection
+	connection peertransport.Connection
 	compressed bool
 	open       func(context.Context) (contextStream, error)
 	close      func()
@@ -50,7 +50,7 @@ func (link *Link) reserveHostRemovalNotice(ctx context.Context, attempt HostRemo
 	if previous := link.removalNotices[host]; previous != nil {
 		return attempt, nil, &protocol.Fault{Code: protocol.ErrorCodeBusy, Message: "host removal is already pending"}
 	}
-	var connection *iroh.Connection
+	var connection peertransport.Connection
 	var compressed bool
 	if slot := link.outgoing[host]; slot != nil && link.trusted[host] && link.directions[host].AllowsOutbound() {
 		slot.mu.Lock()
@@ -73,7 +73,7 @@ func (link *Link) reserveHostRemovalNotice(ctx context.Context, attempt HostRemo
 		return attempt, nil, err
 	}
 	notice := &HostRemovalNotice{link: link, attempt: attempt, connection: connection, compressed: compressed}
-	notice.open = func(ctx context.Context) (contextStream, error) { return connection.OpenBi(ctx) }
+	notice.open = connection.OpenBi
 	notice.close = func() { _ = connection.Close(1, "peer removed") }
 	if link.removalNotices == nil {
 		link.removalNotices = map[protocol.NodeID]*HostRemovalNotice{}
@@ -130,7 +130,7 @@ func (notice *HostRemovalNotice) Close() {
 	}
 }
 
-func (link *Link) retainRemovalConnection(peer protocol.NodeID, connection *iroh.Connection) bool {
+func (link *Link) retainRemovalConnection(peer protocol.NodeID, connection peertransport.Connection) bool {
 	link.mu.Lock()
 	defer link.mu.Unlock()
 	notice := link.removalNotices[peer]

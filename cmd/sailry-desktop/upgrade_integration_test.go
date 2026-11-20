@@ -16,7 +16,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -464,18 +463,10 @@ func startDesktop(t *testing.T, profile string) (*desktopBackend, error) {
 	t.Helper()
 	backend := &desktopBackend{Path: profile, Preferences: preferences.ForStartup(profile)}
 	backend.logs, _ = logging.Install(profile, "desktop")
-	options := node.Options{LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()}}
-	library := "libsailry_iroh.so"
-	if runtime.GOOS == "darwin" {
-		library = "libsailry_iroh.dylib"
+	options := node.Options{
+		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
+		Network:     &link.NetworkScope{Bind: "127.0.0.1:0"},
 	}
-	if path, err := filepath.Abs(filepath.Join("..", "..", ".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH, library)); err == nil {
-		if _, err := os.Stat(path); err == nil {
-			t.Setenv("SAILRY_IROH_LIB", path)
-			options.Network = &link.NetworkScope{}
-		}
-	}
-	t.Logf("network: %v", options.Network != nil)
 	var err error
 	backend.Node, err = node.StartWithOptions(context.Background(), profile, options)
 	if err != nil {
@@ -532,6 +523,11 @@ func TestRustProfileUpgradeInPlace(t *testing.T) {
 			public := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 			if identity := backend.Node.ID(); hex.EncodeToString(identity[:]) != hex.EncodeToString(public) {
 				t.Errorf("Node identity %x does not come from the Rust link.key", identity)
+			}
+			if endpoint := backend.Node.Link(); endpoint == nil {
+				t.Error("upgraded profile has no Link endpoint")
+			} else if address, err := endpoint.Address(t.Context()); err != nil || address.ID != backend.Node.ID() || len(address.Addrs) == 0 {
+				t.Errorf("upgraded Link endpoint = %v, %v", address, err)
 			}
 			stored := backend.Preferences
 			if !stored.Readable || stored.Err != nil {

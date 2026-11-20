@@ -2,25 +2,34 @@ package link
 
 import (
 	"context"
+	"errors"
 	"io"
 
+	"github.com/sailry/sailry-harness/internal/link/peertransport"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
-type contextStream interface {
-	Stream
-	ReadContext(context.Context, []byte) (int, error)
-	WriteContext(context.Context, []byte) (int, error)
-	WaitStopped(context.Context) (*uint64, error)
-}
+type contextStream = peertransport.Stream
 
 type scopedReader struct {
 	ctx    context.Context
 	stream contextStream
+	err    error
 }
 
-func (reader scopedReader) Read(bytes []byte) (int, error) {
-	return reader.stream.ReadContext(reader.ctx, bytes)
+func (reader *scopedReader) Read(bytes []byte) (int, error) {
+	count, err := reader.stream.ReadContext(reader.ctx, bytes)
+	reader.err = err
+	return count, err
+}
+
+// The wire decoder reports a generic fault for transport reads. Preserve the
+// peer's authenticated denial, not arbitrary transport details.
+func (reader *scopedReader) result(err error) error {
+	if err != nil && errors.Is(reader.err, libp2pRevokedByPeer) {
+		return linkNetwork(reader.err)
+	}
+	return err
 }
 
 type scopedWriter struct {
@@ -41,7 +50,8 @@ func (link *Link) writeCall(ctx context.Context, stream contextStream, call wire
 func (link *Link) readFrame(ctx context.Context, stream contextStream, value any, compressed bool) error {
 	scoped, cancel := link.operation(ctx, true)
 	defer cancel()
-	return wire.Read(scopedReader{scoped, stream}, value, compressed)
+	reader := &scopedReader{ctx: scoped, stream: stream}
+	return reader.result(wire.Read(reader, value, compressed))
 }
 
 func (link *Link) writeFrame(ctx context.Context, stream contextStream, value any) error {

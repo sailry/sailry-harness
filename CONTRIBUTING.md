@@ -88,7 +88,7 @@ go run ./cmd/sailry-desktop --data-dir .runtime/profiles/desktop
 The helper directory points source runs at the staged computer-use helper
 because `go run` places its executable in a temporary directory. Store tests
 and source runs need the FTS-enabled Turso library. `just native` prepares
-missing iroh and Turso libraries using the pinned Rust toolchains. Source builds
+the Turso library using its pinned Rust toolchain. Source builds
 check `.runtime/native/<goos>-<goarch>/` from the working directory and the
 source executable's ancestor directories. `SAILRY_TURSO_LIB` selects an
 explicit source-build library and skips its build in `just native`.
@@ -108,8 +108,8 @@ application version. Close another instance using that profile before starting.
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
 backend startup before opening any profile, including an explicit `--data-dir`.
-A Node without a saved network selection starts on the repeated `--relay` URLs,
-else on the `iroh_relays` of its desktop preferences, else on the public relays.
+A Node without a supported saved network selection uses any explicit `--relay`
+multiaddrs, or listens for direct connections when none are configured.
 Additional live windows share the process backend, remote Clients and profile
 preference authority. Each window closes its own observations and forwards;
 application shutdown closes Network before the local Client and Node. MyGo keeps
@@ -144,7 +144,7 @@ do not use them for routine automated checks. Tests use `t.TempDir()`.
 | `internal/{protocol,link,client,core,node,...}` | Backend packages ([ARCHITECTURE.md](ARCHITECTURE.md#components-and-dependencies)) |
 | `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries |
 | `native/` | Pinned native libraries and their build inputs |
-| `services/pairing-relay` | Short-code rendezvous service, separate from the encrypted iroh data relay |
+| `services/pairing-relay` | Short-code rendezvous service, separate from the encrypted libp2p data relay |
 | `.runtime/` | Ignored fixed-purpose experiments, libraries and test profiles |
 
 ## Checks
@@ -184,16 +184,12 @@ under `.runtime/native/<goos>-<goarch>/`, never in commits. Native Rust builds
 use their committed lockfiles and keep toolchain and target settings stable.
 Reuse those artifacts for Go development. Cargo runs again only when the native
 source, C ABI, dependency pins or target changes.
-`sh native/iroh/build.sh` builds the local Host/Desktop library into that
-directory. Use the pinned Rust toolchain in `PATH`; do not substitute another
-Cargo implementation.
 
 The Flutter build runs the Mobile adapter build itself: Gradle's
 `prepareSailryNative` task and the Xcode `Build Sailry Native` phase call
-`cmd/sailry-mobile/build.sh`, which builds the Go C ABI and iroh for each
-target slice into `.runtime/native/`. It needs Flutter at the version in
-`apps/mobile/.flutter-version`, the Rust targets of the slices, and the
-Android NDK (`ANDROID_NDK_HOME`) or Xcode. The same script builds one slice:
+`cmd/sailry-mobile/build.sh`, which builds the Go C ABI for each target slice
+into `.runtime/native/`. It needs Flutter at the version in
+`apps/mobile/.flutter-version` and the Android NDK (`ANDROID_NDK_HOME`) or Xcode. The same script builds one slice:
 
 ```sh
 cd apps/mobile && flutter pub get --enforce-lockfile
@@ -245,7 +241,7 @@ and full indexing.
   clocks, local fakes and `net/http/httptest`. User profiles, real provider accounts
   and external services are not default test fixtures.
 - Use `t.Parallel()` when a test touches no shared state.
-- Real processes, providers, models, iroh, remote storage and OS permission prompts
+- Real processes, providers, models, libp2p peers, remote storage and OS permission prompts
   belong behind `//go:build integration`. Other-OS spike programs are run on the
   named system by the user or CI; unrun checks are reported as unrun.
 - Keep UI tests headless and few. Preserve accepted interaction tests; do not add
@@ -285,24 +281,15 @@ pull requests, on `main`, manually, and when `release.yml` calls it:
   requests do not save it. Mobile jobs install the Flutter version named in
   `apps/mobile/.flutter-version` and the Android toolchain through local
   actions.
-- `native`: build `native/iroh` and `native/capture` with their `build.sh` for
-  Linux and macOS on both architectures and for Windows x64 (Git Bash, MSVC)
-  when either changes, and upload `native-<goos>-<goarch>` artifacts: the two
-  libraries and their `SHA256SUMS`, the directory `native/fetch -artifacts`
-  reads. Release and manual runs always produce them. A cache keyed by the
-  two source trees and the build tool versions supplies unchanged libraries
-  without compiling; the Turso runtime, the Windows C++ runtime and the
-  checks below still run on every leg. The Linux legs set
-  `SAILRY_GLIBC=2.34`, so `native/iroh/build.sh` links the iroh library against
-  that GNU libc through cargo-zigbuild, then check that the library needs
-  nothing newer and that `internal/node/wsl/preflight.sh` names the same
-  version.
-- `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds for Mobile, shared Client/Link/Protocol, native iroh or build-input changes; CI uses a disposable APK signer and disables iOS signing.
+- `native`: stage the pinned Turso and capture libraries for supported targets,
+  plus the app-local C++ runtime on Windows. The `native-<goos>-<goarch>`
+  artifact includes `SHA256SUMS` and is read by `native/fetch -artifacts`.
+- `apps/mobile`: Flutter analysis, tests and ARM64 Android/iOS release builds for Mobile, shared Client/Link/Protocol or build-input changes; CI uses a disposable APK signer and disables iOS signing.
 - `integration`: never on pull requests or main. Manually with the
   `integration` input it tests `integration_packages`; left empty, and in a
   release, it tests the release set named in the workflow: packages that need
-  no downloaded model and no external service. Each leg first verifies that
-  run's native artifact and loads its iroh library.
+  no downloaded model and no external service. Each leg verifies its native
+  artifact and runs the Link tests against local peers and a private relay.
 
 New commits cancel obsolete pull-request and branch-push CI runs. Manual
 integration checks and tag releases keep their own runs.
@@ -364,9 +351,9 @@ Signing credentials, profiles, binaries and native artifacts never enter Git.
 `go run ./native/fetch` stages one target's pinned native artifacts in
 `.runtime/native/<goos>-<goarch>/` after checking each download against the
 lock files (`native/*.lock.json` and
-`internal/localmodels/decision/llama-runtime.lock.json`). The iroh and capture
-libraries come from `native/*/build.sh` on the target, or from the CI native
-job with `-artifacts <dir>`; `-bundle <dir>` copies the shipped set and `-host`
+`internal/localmodels/decision/llama-runtime.lock.json`). Turso and capture
+come from their native build on the target or the CI native job with
+`-artifacts <dir>`; `-bundle <dir>` copies the shipped set and `-host`
 leaves out the speech and capture libraries.
 
 The Desktop package is described by `cmd/sailry-desktop/mygo.json`; its version
@@ -377,9 +364,8 @@ A release build is one linked with
 `-X github.com/sailry/sailry-harness/internal/core.Default=~/.sailry`
 (`MYGO_LDFLAGS` for `cmd/sailry-desktop`, `go build -ldflags` for
 `cmd/sailry-host`). It opens the release profile `~/.sailry` by default and
-loads the iroh and capture libraries only from its package, against the
-package seal: `SAILRY_IROH_LIB` and `.runtime/native` are read by source
-builds only. Source builds keep `~/.sailry-go`.
+loads its native libraries from its package and checks the package seal.
+Source builds can load the staged native libraries from `.runtime/native`. Source builds keep `~/.sailry-go`.
 
 `cmd/sailry-desktop/macos/package.sh` packages the macOS Desktop on the target
 architecture: it stages the natives, the dependency notices (`licenses/`) and
@@ -411,15 +397,15 @@ go run ./native/fetch -seal .runtime/package/out/darwin-arm64/Sailry.app   # the
 `go run ./native/fetch -seal <path> [-sign <identity>] [-host]` is the step
 after signing. Signing a macOS application rewrites its libraries, so the
 upstream pins no longer describe them. The step writes `native-seal.json` (size
-and SHA-256 of the ONNX Runtime, sherpa-onnx, capture and iroh libraries as
+and SHA-256 of the ONNX Runtime, sherpa-onnx, Turso and capture libraries as
 shipped), rewrites `llama-runtime.json` and the file list of
 `python/python-runtime.json` from the signed files, and signs the bundle again
 without `--deep` so the code signature covers these records. The loaders use
 the seal in place of the upstream pins only in `Contents/Resources` of the
 running bundle; an invalid seal there is an error. Unsigned and source builds
 keep the upstream pins. For a plain directory (the Host archive, Linux,
-Windows) the step only writes `native-seal.json` for the iroh and capture
-libraries, which have no upstream pin. The loaders compare hashes; the code
+Windows) the step writes `native-seal.json` for the locally built libraries
+and the packaged Windows runtime as applicable. The loaders compare hashes; the code
 signature itself is enforced by macOS, not by Sailry.
 `cmd/sailry-desktop/package_integration_test.go` checks a built package's
 loaders from inside it: compile it with the release `-ldflags`, copy it beside
@@ -465,11 +451,11 @@ The updater has no Windows installer, so the feed covers macOS only.
 Host archive of the machine it runs on. Each archive
 `sailry-host-<triple>.tar.gz` (`x86_64-unknown-linux-gnu`,
 `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-apple-darwin`)
-holds `sailry-host`, the iroh library, the pinned runtimes of
+holds `sailry-host`, the pinned runtimes of
 `native/fetch -host`, the files of `internal/node/host/deployment/package/`,
 `build.json`, the dependency lock files and `licenses/` from
 `internal/node/host/deployment/licenses.sh`, whose optional fourth argument
-names the command package. On macOS `sailry-host`, the iroh library and the Turso library
+names the command package. On macOS `sailry-host` and the Turso library
 are signed: the pinned runtimes keep the bytes their locks record, so the
 archive is not notarized. The release carries `install-host.sh`,
 `SHA256SUMS-installer`, the archives and one `SHA256SUMS-<triple>` each. SSH
@@ -623,12 +609,104 @@ go build -o .runtime/sailry-host ./cmd/sailry-host
 .runtime/sailry-host --data-dir /absolute/path/to/isolated/profile --internet
 ```
 
-The running binary loads its target's iroh library through the shared loader.
-`sailry link --data-dir <profile>` interactively selects one of the running Node's
-network presets or a custom HTTPS relay, saves that selection with a revision
-check, then asks the existing owner to publish a private six-digit pairing code.
-Press Enter to confirm each selection. The scriptable form is
-`sailry link --data-dir <profile> --relay <preset-id|iroh|custom> [--address <HTTPS URL>] [--pairing-service <HTTPS origin>]`.
+`--internet` listens for direct TCP and QUIC connections. To use a data relay,
+pass `--relay` with the authenticated multiaddr printed by a Circuit Relay v2
+server. A TCP and a QUIC relay can be configured together using
+distinct relay identities. The updater retains an existing service's arguments;
+replace a retired HTTPS `--relay` argument with a libp2p multiaddr or `--internet`
+before upgrading. Old peer addresses need refreshing after both ends upgrade.
+
+Build the standalone relay with `just relay-build linux amd64` (or `arm64`).
+The recipe writes `.runtime/relay-build/<goos>-<goarch>/sailry-libp2p-relay`.
+To build a Linux release package locally, run
+`bash cmd/sailry-libp2p-relay/package-linux.sh amd64` (or `arm64`) from the
+repository root. It writes `sailry-relay-linux-<arch>.tar.gz` and
+`SHA256SUMS-relay-linux-<arch>` under `.runtime/relay/linux-<arch>/`. The archive
+contains `sailry-relay`, `LICENSE`, `NOTICE` and the linked Go notices in
+`licenses/`. No official GitHub Release containing these relay assets has been
+published yet; use a local build until they are published.
+
+`sailry-relay start` runs in the foreground. It reads the file passed with
+`--config`, or `./relay.toml` if no path is passed. For a public TCP relay, use
+this configuration and replace the example `announce_ip` with the server's
+reachable IP address. A wildcard `listen_ip` requires a non-loopback announce IP:
+
+```toml
+mode = "public"
+listen_ip = "0.0.0.0"
+port = 4001
+announce_ip = "203.0.113.10"
+data_dir = "/var/lib/sailry-libp2p-relay"
+```
+
+Keep the absolute private `data_dir` across restarts and upgrades. The default
+TCP listener is `127.0.0.1:4001`. With TOML, `--port` is the only override: it
+sets both TCP ports for that run without changing the file. Without a TOML file,
+pass an absolute `--data-dir` and either `--public` or one or more
+`--allow <PeerID>` flags. Full TCP or QUIC-v1 `--listen` and `--announce`
+multiaddrs are supported without TOML; `--listen` cannot be combined with
+`--port`. Existing `serve` commands keep their flags and do not read TOML.
+
+Public mode accepts standard libp2p peers without enrollment. Private mode uses
+`mode = "private"` with `allowed_peers = ["<PeerID>", ...]` (or repeated `--allow`
+without a config file); both ends of a relayed circuit must be allowed. Neither
+mode changes the Host's PIN pairing or authorization. Token-based and multi-token
+relay admission are not implemented. Circuit Relay v2 bounds reservations per IP
+and globally, and each circuit's duration and traffic. `id --data-dir <directory>`
+prints the existing relay's public PeerID.
+
+On BaoTa, set one Go project's executable to the full path of the extracted
+`sailry-relay` and pass `start --config <absolute-config-path>` as arguments.
+Use the project's private, persistent state directory and let BaoTa supervise
+restarts and boot startup. Do not also install the relay's systemd unit. Make
+the TCP port reachable through any firewall or NAT in front of the relay; no
+relay command opens ports for you.
+
+On Linux with systemd and no other manager, run `sudo ./sailry-relay daemon
+install --config ./relay.toml` from the extracted package. Without `--config`,
+the installer uses `/etc/sailry-relay/relay.toml` if present, otherwise
+`./relay.toml`. It installs `/usr/local/bin/sailry-relay` and
+`/etc/systemd/system/sailry-relay.service` without taking over an existing
+service or replacing an existing managed config. The unit runs as `sailry-relay`,
+starts at boot, and restarts after an exit with a five-second delay.
+
+For a managed relay, choose an absolute `data_dir` such as
+`/var/lib/sailry-libp2p-relay`, not a managed file or its containing directory.
+The parent directories must already exist, be root-owned and be neither
+symlinks nor writable by group or other users. The installer creates the state
+directory if absent. A directory it reuses must be owned by the dedicated
+`sailry-relay` user and group with mode `0700`, and must be empty or contain
+only the existing private `link.key`.
+
+To change the managed configuration, edit `/etc/sailry-relay/relay.toml` in
+place and run `sudo /usr/local/bin/sailry-relay daemon restart`. The service
+reads the installed file, not a separate source copy supplied at install time.
+`daemon start`, `stop`, `restart` and `status` operate on the installed unit;
+only `status` can run without root. `stop` does not disable the service at the
+next boot.
+
+Once the assets are published, `sudo /usr/local/bin/sailry-relay daemon update`
+checks the public GitHub Release for a newer stable version and verifies its
+Linux architecture archive against the published SHA-256. It does not use
+GitHub tokens or support multi-token fallback. For an offline update, use
+`sudo sailry-relay daemon update <binary> --sha256 <digest>` with the SHA-256
+of the extracted executable, not the archive. If the online check finds no
+newer release, it leaves the service unchanged. Applying either update restarts
+a running relay or starts a stopped one, then authenticates its existing PeerID
+with a libp2p probe. If activation fails, the updater restores the previous
+binary and attempts to return the service to its prior running or stopped
+state. The update does not write the managed `relay.toml` or the relay's
+`link.key`.
+
+`sailry link --data-dir <profile>` selects direct connections or a relay, saves
+the selection with a revision check, and publishes a private six-digit pairing
+code. The scriptable form is `sailry link --data-dir <profile> --relay
+<preset-id|direct|custom> [--address <relay address>] [--pairing-service <HTTPS origin>]`.
+For a custom relay, enter a hostname or known relay IP, optionally with its port
+(e.g. `relay.example.com:4001`). Third-party hostnames not in the directory can
+publish `dnsaddr=<peer-addressed multiaddr>` at `_dnsaddr.<hostname>`; the input
+must select one address. An explicit libp2p multiaddr still works. An optional
+`https://` prefix is only an input convenience, not the relay transport.
 `sailry share --data-dir <profile>` remains an alias that publishes a code using
 the current network selection. The code display refreshes in place with its
 remaining lifetime. Pairing from a controller uses the relay route in the Host's
@@ -663,7 +741,8 @@ and 130 for cancelled observation.
 Add Host installs the published release of `link.ProductVersion` on the remote
 machine: the bootstrap downloads `install-host.sh` and the target's archive from
 the release feed and verifies both against their checksum files. To install a
-locally built Host instead, place `sailry-host` and its iroh library under
+locally built Host instead, place `sailry-host` and its staged Turso library
+and native seal under
 `host-artifacts/<goos>-<goarch>/` beside the controller executable, or set
 `internal/node/host.ArtifactRoot` at build time; when that directory holds
 `sailry-host` the execution Node verifies and uploads those artifacts through

@@ -32,8 +32,8 @@ output layout. The pinned toolchain produces one file in
 | Linux | `libturso_sync_sdk_kit.so` |
 | Windows | `turso_sync_sdk_kit.dll` |
 
-Linux release builds set `SAILRY_GLIBC` to the Host installer's supported floor,
-as for iroh. The native CI job supplies this file and its `SHA256SUMS` to
+Linux release builds set `SAILRY_GLIBC` to the Host installer's supported floor.
+The native CI job supplies this file and its `SHA256SUMS` to
 `go run ./native/fetch -artifacts <dir>`. The fetcher includes it in both Host
 and Desktop bundles. Seal the completed package after signing with
 `go run ./native/fetch -seal <path>` (and `-host` for Host).

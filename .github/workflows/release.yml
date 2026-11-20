@@ -100,8 +100,9 @@ jobs:
             ($integration | length) == 3 and all($integration[]; .conclusion == "success") and
             ($hosts | length) == 2 and all($hosts[]; .conclusion == "success")
           ' "$jobs" >/dev/null
-          for name in version windows android ios; do
-            jq -e --arg name "$name" 'any(.[]; .name == $name and .conclusion == "success")' "$jobs" >/dev/null
+          for name in version windows android ios 'relay-linux (amd64)' 'relay-linux (arm64)'; do
+            jq -e --arg name "$name" 'any(.[]; .name == $name and .conclusion == "success")' "$jobs" >/dev/null ||
+              { echo "Cannot reuse release without a successful $name job" >&2; exit 1; }
           done
           source=$(jq -r .head_sha "$prior")
           gh api "repos/$GH_REPO/compare/$source...$GITHUB_SHA" > "$comparison"
@@ -113,6 +114,11 @@ jobs:
               *) echo "Cannot reuse release inputs after changing $path" >&2; exit 1 ;;
             esac
           done < <(jq -r '.files[] | .filename, (.previous_filename // empty)' "$comparison")
+          gh api --paginate "repos/$GH_REPO/actions/runs/$REUSE_RUN/artifacts?per_page=100" --jq '.artifacts[]' |
+            jq -se --arg tag "$GITHUB_REF_NAME" '
+              [.[] | select(.expired == false and (.name | startswith("release-relay-linux-"))) | .name] |
+              sort == ["release-relay-linux-amd64-\($tag)", "release-relay-linux-arm64-\($tag)"]
+            ' >/dev/null || { echo 'Cannot reuse release without both Linux relay packages for this tag' >&2; exit 1; }
           printf 'Reusing checks and non-macOS packages from run %s at %s\n' "$REUSE_RUN" "$source"
           printf 'run=%s\n' "$REUSE_RUN" >> "$GITHUB_OUTPUT"
 
@@ -156,7 +162,7 @@ jobs:
           go-version-file: go.mod
       # The license collection reads the crate metadata with the pinned cargo.
       - name: Pinned Rust toolchain
-        working-directory: native/iroh
+        working-directory: native/turso
         run: rustup toolchain install
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -239,7 +245,7 @@ jobs:
           go-version-file: go.mod
       - name: Pinned Rust toolchain and NSIS
         run: |
-          (cd native/iroh && rustup toolchain install)
+          (cd native/turso && rustup toolchain install)
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes nsis
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -260,7 +266,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  # The Linux Host archive of each architecture, around the iroh library the
+  # The Linux Host archive of each architecture, around the Turso library the
   # native leg linked against GNU libc 2.34.
   host-linux:
     needs: checks
@@ -282,7 +288,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Pinned Rust toolchain
-        working-directory: native/iroh
+        working-directory: native/turso
         run: rustup toolchain install
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -303,8 +309,33 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  # The signed ARM64 APK. Gradle builds the Go mobile library and the iroh
-  # library through cmd/sailry-mobile/build.sh.
+  relay-linux:
+    name: relay-linux (${{ matrix.arch }})
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Relay
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bash cmd/sailry-libp2p-relay/package-linux.sh "$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-relay-linux-${{ matrix.arch }}-${{ github.ref_name }}
+          path: .runtime/relay/linux-${{ matrix.arch }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 0
+
+  # The signed ARM64 APK. Gradle builds the Go mobile library through
+  # cmd/sailry-mobile/build.sh.
   android:
     needs: [version, checks]
     runs-on: ubuntu-24.04
@@ -375,8 +406,7 @@ jobs:
         run: rm -rf -- "$RUNNER_TEMP/sailry-android"
 
   # The App Store IPA, kept as a workflow artifact and uploaded to TestFlight.
-  # Xcode builds the Go mobile library and the iroh framework through
-  # cmd/sailry-mobile/build.sh.
+  # Xcode builds the Go mobile library through cmd/sailry-mobile/build.sh.
   ios:
     needs: [version, checks]
     runs-on: macos-15
@@ -393,12 +423,9 @@ jobs:
           go-version-file: go.mod
       - uses: ./.github/actions/flutter
       - name: Native prerequisites
-        working-directory: native/iroh
         run: |
           printf 'SIGNING=%s/sailry-ios\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           xcodebuild -version
-          rustup toolchain install
-          rustup target add aarch64-apple-ios
       - name: Configure
         working-directory: apps/mobile
         run: |
@@ -519,8 +546,8 @@ jobs:
   # signed update feed and the checksum files, then uploads what the tag's
   # draft release does not hold yet. An existing asset is never replaced.
   publish:
-    needs: [version, macos, windows, host-linux, android, ios]
-    if: ${{ !cancelled() && needs.version.result == 'success' && needs.macos.result == 'success' && (needs.version.outputs.reuse_run != '' || (needs.windows.result == 'success' && needs['host-linux'].result == 'success' && needs.android.result == 'success' && needs.ios.result == 'success')) }}
+    needs: [version, macos, windows, host-linux, relay-linux, android, ios]
+    if: ${{ !cancelled() && needs.version.result == 'success' && needs.macos.result == 'success' && (needs.version.outputs.reuse_run != '' || (needs.windows.result == 'success' && needs['host-linux'].result == 'success' && needs['relay-linux'].result == 'success' && needs.android.result == 'success' && needs.ios.result == 'success')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -571,6 +598,9 @@ jobs:
           sha256sum Sailry-x86_64-pc-windows-msvc-setup.exe Sailry-x86_64-pc-windows-msvc.zip > SHA256SUMS-desktop-x86_64-pc-windows-msvc
           sha256sum --check SHA256SUMS-aarch64-apple-darwin SHA256SUMS-x86_64-apple-darwin \
             SHA256SUMS-aarch64-unknown-linux-gnu SHA256SUMS-x86_64-unknown-linux-gnu Sailry-android-arm64.sha256
+          for arch in amd64 arm64; do
+            sha256sum "sailry-relay-linux-$arch.tar.gz" | cmp - "SHA256SUMS-relay-linux-$arch"
+          done
           ls -l
       - name: Draft release
         working-directory: ${{ runner.temp }}/assets

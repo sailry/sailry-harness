@@ -10,9 +10,9 @@ while test "$#" -gt 0; do
   case "$1" in
     --version) test "$#" -ge 2; test -z "$task_version"; task_version="${2#v}"; shift 2 ;;
     --update) task_update=1; shift ;;
-    --internet) test -z "$task_network_mode"; task_network_mode=iroh; task_network=(--internet); shift ;;
-    --relay) test "$#" -ge 2; test "$task_network_mode" != iroh; task_network_mode=custom; task_network+=(--relay "$2"); shift 2 ;;
-    *) echo 'Usage: install-host.sh [--version <version>] [--update] [--internet | --relay <HTTPS URL> ...]' >&2; exit 1 ;;
+    --internet) test -z "$task_network_mode"; task_network_mode=internet; task_network=(--internet); shift ;;
+    --relay) test "$#" -ge 2; test "$task_network_mode" != internet; task_network_mode=custom; task_network+=(--relay "$2"); shift 2 ;;
+    *) echo 'Usage: install-host.sh [--version <version>] [--update] [--internet | --relay <multiaddr> ...]' >&2; exit 1 ;;
   esac
 done
 if test "$task_update" = 1 && test -n "$task_network_mode"; then

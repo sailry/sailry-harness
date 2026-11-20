@@ -165,7 +165,7 @@ func ReleaseScript(version string, update bool, network *protocol.NetworkSelecti
 	arguments := []string{}
 	if network != nil {
 		switch network.Kind {
-		case "iroh":
+		case "direct":
 			arguments = append(arguments, "'--internet'")
 		case "custom":
 			var relays []string
@@ -179,7 +179,7 @@ func ReleaseScript(version string, update bool, network *protocol.NetworkSelecti
 			}
 			for _, relay := range relays {
 				if strings.ContainsRune(relay, '\x00') {
-					return "", invalid("relay URL contains a null byte")
+					return "", invalid("relay address contains a null byte")
 				}
 				arguments = append(arguments, "'--relay'", "'"+strings.ReplaceAll(relay, "'", "'\"'\"'")+"'")
 			}

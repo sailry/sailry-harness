@@ -14,17 +14,18 @@ import (
 
 func TestSSHLocalArtifactsRequireTursoSeal(t *testing.T) {
 	t.Parallel()
+	const turso = "libturso_sync_sdk_kit.so"
 	for _, test := range []struct {
 		name   string
 		change func(*testing.T, string, *shipped.Seal)
 	}{
 		{"missing Turso", func(t *testing.T, root string, seal *shipped.Seal) {
-			if err := os.Remove(filepath.Join(root, "libturso_sync_sdk_kit.so")); err != nil {
+			if err := os.Remove(filepath.Join(root, turso)); err != nil {
 				t.Fatal(err)
 			}
 		}},
 		{"empty Turso", func(t *testing.T, root string, seal *shipped.Seal) {
-			if err := os.WriteFile(filepath.Join(root, "libturso_sync_sdk_kit.so"), nil, 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(root, turso), nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -42,25 +43,20 @@ func TestSSHLocalArtifactsRequireTursoSeal(t *testing.T) {
 			writeHostSeal(t, root, *seal)
 		}},
 		{"changed Turso", func(t *testing.T, root string, seal *shipped.Seal) {
-			if err := os.WriteFile(filepath.Join(root, "libturso_sync_sdk_kit.so"), []byte("changed engine"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}},
-		{"changed transport", func(t *testing.T, root string, seal *shipped.Seal) {
-			if err := os.WriteFile(filepath.Join(root, "libsailry_iroh.so"), []byte("changed transport"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(root, turso), []byte("other!"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			for name, body := range map[string]string{"sailry-host": "Host", "libsailry_iroh.so": "transport", "libturso_sync_sdk_kit.so": "engine"} {
+			for name, body := range map[string]string{"sailry-host": "Host", "libonnxruntime.so": "inference", turso: "engine"} {
 				if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			seal := shipped.Seal{Version: 1, Target: "linux/amd64"}
-			for _, name := range []string{"libsailry_iroh.so", "libturso_sync_sdk_kit.so"} {
+			for _, name := range []string{"libonnxruntime.so", turso} {
 				entry, err := shipped.Record(root, name)
 				if err != nil {
 					t.Fatal(err)
@@ -70,7 +66,7 @@ func TestSSHLocalArtifactsRequireTursoSeal(t *testing.T) {
 			writeHostSeal(t, root, seal)
 			test.change(t, root, &seal)
 			// Invalid artifacts must fail before any SSH staging or remote write.
-			err := NewInstallations(DeploymentOptions{}).installLocal(context.Background(), nil, protocol.NodeID{1}, protocol.RequestID{2}, root, "linux-amd64", "libsailry_iroh.so", DeploymentOptions{}, nil, nil)
+			err := NewInstallations(DeploymentOptions{}).installLocal(context.Background(), nil, protocol.NodeID{1}, protocol.RequestID{2}, root, "linux-amd64", turso, DeploymentOptions{}, nil, nil)
 			var fault *protocol.Fault
 			if !errors.As(err, &fault) || fault.Code != protocol.ErrorCodeUnavailable {
 				t.Fatalf("invalid native package did not fail before SSH: %v", err)

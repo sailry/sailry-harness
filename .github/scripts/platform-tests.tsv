@@ -4,7 +4,6 @@ internal/core	all
 internal/desktop/updater	all
 internal/hostctl	all
 internal/link	all
-internal/link/iroh	all
 internal/shipped	^TestSeal$
 internal/node/host	all
 internal/node/logging	all

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Collect declared licenses and source notices without choosing a product license.
-task_platform="${1:?Usage: licenses.sh <goos/goarch> <Rust target> <new-output-directory> [command package]}"
-task_target="${2:?Missing Rust target}"
+task_platform="${1:?Usage: licenses.sh <goos/goarch> <Rust target|--go-only> <new-output-directory> [command package]}"
+task_target="${2:?Missing Rust target or --go-only}"
 task_output="${3:?Missing output directory}"
 task_command="${4:-./cmd/sailry-host}"
 task_root="$(cd "$(dirname "$0")/../../../.." && pwd)"
@@ -38,15 +38,19 @@ done < "$task_scratch/modules.tsv" > "$task_scratch/collected.tsv"
 jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name:.[0],version:.[1],notices:(.[2] == "true")})' \
   "$task_scratch/collected.tsv" > "$task_output/go-modules.json"
 
-# Rust crates linked into the native libraries, read with their pinned toolchains.
-for task_native in iroh turso; do
-  (cd "$task_root/native/$task_native" && cargo metadata --locked --format-version 1 --filter-platform "$task_target") \
-    > "$task_scratch/$task_native-metadata.json"
-  jq --arg package "sailry-$task_native" -f "$task_root/internal/node/host/deployment/dependencies.jq" \
-    "$task_scratch/$task_native-metadata.json" > "$task_scratch/$task_native-packages.json"
-done
-jq -s 'add | unique_by(.id) | sort_by(.name, .version)' \
-  "$task_scratch/iroh-packages.json" "$task_scratch/turso-packages.json" > "$task_scratch/packages.json"
+if test "$task_target" = --go-only; then
+  task_goroot="$(go -C "$task_root" env GOROOT)"
+  cp "$task_goroot/LICENSE" "$task_output/go-LICENSE"
+  printf 'Collected %s module declarations for %s\n' \
+    "$(jq length "$task_output/go-modules.json")" "${task_command##*/}"
+  exit 0
+fi
+
+# Rust crates linked into Turso, read with its pinned toolchain.
+(cd "$task_root/native/turso" && cargo metadata --locked --format-version 1 --filter-platform "$task_target") \
+  > "$task_scratch/turso-metadata.json"
+jq --arg package sailry-turso -f "$task_root/internal/node/host/deployment/dependencies.jq" \
+  "$task_scratch/turso-metadata.json" > "$task_scratch/packages.json"
 jq --arg root "$task_root/" 'map({name,version,license,repository,
   source:(.source // (.manifest_path | ltrimstr($root) | sub("/Cargo.toml$";"")))})' \
   "$task_scratch/packages.json" > "$task_output/dependencies.json"

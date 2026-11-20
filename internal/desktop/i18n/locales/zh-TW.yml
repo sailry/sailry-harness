@@ -917,10 +917,10 @@ pairing_connect: 連線裝置
 pairing_local_code: 本機配對碼
 pairing_pin_hint: 輸入 6 位配對碼
 pairing_preview_disabled: UI 預覽不連線真實裝置。使用 --data-dir 啟動服務模式後可配對。
-pairing_relay_address: iroh 地址
-pairing_relay_address_hint: https://relay.example.com
+pairing_relay_address: 中繼位址
+pairing_relay_address_hint: relay.example.com:4001
 pairing_relay_custom: 自定義
-pairing_relay_iroh: 公共網路
+pairing_relay_direct: 僅直接連線
 pairing_relay_server: 連線伺服器
 pairing_share: 分享本機
 pairing_share_hint: 在另一臺裝置的「遠端連線」中輸入配對碼
@@ -1933,7 +1933,7 @@ pairing_preparing: 正在準備連線…
 pairing_refresh_hint: 60 秒內有效，到期自動更新
 pairing_relay_checking: 正在探測
 pairing_relay_failed: 無法連線中繼，請檢查 URL 後重試
-pairing_relay_invalid: 請輸入有效的 HTTPS 中繼 URL
+pairing_relay_invalid: 請輸入有效的中繼位址
 pairing_relay_ready: 中繼已連線
 pairing_relay_selected: 目前選取的網路
 pairing_retrying: 配對服務暫不可用，正在重試…

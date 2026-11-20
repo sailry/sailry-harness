@@ -12,7 +12,6 @@ unexport GOROOT
 goos := if os() == "macos" { "darwin" } else { os() }
 goarch := if arch() == "aarch64" { "arm64" } else if arch() == "x86_64" { "amd64" } else { arch() }
 native := justfile_directory() / ".runtime/native" / goos + "-" + goarch
-iroh := if os() == "macos" { "libsailry_iroh.dylib" } else if os() == "windows" { "sailry_iroh.dll" } else { "libsailry_iroh.so" }
 turso := if os() == "macos" { "libturso_sync_sdk_kit.dylib" } else if os() == "windows" { "turso_sync_sdk_kit.dll" } else { "libturso_sync_sdk_kit.so" }
 profiles := justfile_directory() / ".runtime/profiles"
 
@@ -36,6 +35,10 @@ desktop name="": native
 host name="host" *options: native
     go build -o .runtime/sailry-host ./cmd/sailry-host
     .runtime/sailry-host --data-dir {{ quote(profiles / name) }} {{ options }}
+
+# Build the standalone data relay for the local or supplied Go target.
+relay-build target_os=goos target_arch=goarch:
+    GOOS={{ quote(target_os) }} GOARCH={{ quote(target_arch) }} go build -trimpath -o {{ quote(".runtime/relay-build/" + target_os + "-" + target_arch + "/sailry-libp2p-relay" + if target_os == "windows" { ".exe" } else { "" }) }} ./cmd/sailry-libp2p-relay
 
 # Test a dedicated profile; --start=false attaches to its running Host.
 [positional-arguments]
@@ -63,14 +66,13 @@ acceptance-ui: native
     go build -o {{ quote(native / "sailry-host") }} ./cmd/sailry-host
     {{ quote(native / "sailry-host") }} acceptance --data-dir {{ quote(profiles / "acceptance-ui") }} --suite ui --desktop {{ quote(native / "sailry-desktop") }} --open-report
 
-# Build missing iroh and Turso libraries with their pinned Rust toolchains.
+# Build the missing Turso library with its pinned Rust toolchain.
 native:
-    test -f {{ quote(native / iroh) }} || sh native/iroh/build.sh
     test -n "${SAILRY_TURSO_LIB:-}" || test -f {{ quote(native / turso) }} || sh native/turso/build.sh
 
-# Rebuild the local iroh library after its source, C ABI, pins or target changed.
+# Rebuild the local Turso library after its source, C ABI, pins or target changed.
 native-build:
-    sh native/iroh/build.sh
+    sh native/turso/build.sh
 
 # Stage this machine's pinned native runtimes in .runtime/native after checking them against the lock files.
 native-fetch:
@@ -79,7 +81,7 @@ native-fetch:
 # Print the local tools beside the versions this repository pins.
 tools:
     @echo "Go: go1.27.3 pinned"; go version
-    @echo "Rust: 1.98.0 pinned in native/iroh/rust-toolchain.toml"; cd native/iroh && (rustc --version || echo "rustc is not installed")
+    @echo "Rust: 1.98.0 pinned in native/turso/rust-toolchain.toml"; cd native/turso && (rustc --version || echo "rustc is not installed")
     @echo "Flutter: $(cat apps/mobile/.flutter-version) pinned in apps/mobile/.flutter-version"; flutter --version || echo "flutter is not installed"
     @echo "Node.js: 22.13.0 or newer for services/pairing-relay and plugin tests"; node --version || echo "node is not installed"
     @just --version

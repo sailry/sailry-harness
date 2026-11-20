@@ -43,11 +43,11 @@ single owning package, and this index lists every location.
 | html2canvas, ECharts, MathJax and Mermaid export assets | `internal/desktop/exporter/assets/*-LICENSE`, `echarts-NOTICE` and `provenance.json` in the same directory |
 | llama.cpp, ONNX Runtime and agent-desktop runtimes | `native/llama-LICENSE`, `native/onnxruntime-LICENSE`, `native/agent-desktop-LICENSE` and the lock files beside them |
 | miniaudio capture header | `native/capture/SOURCE` |
-| iroh transport and its Rust crates | `native/iroh/SOURCE`, `native/iroh/Cargo.lock` |
+| Historical Iroh interoperation fixtures (not shipped) | `native/iroh/SOURCE`, `native/iroh/Cargo.lock` |
 | Mobile icons, visuals and project monsters | `apps/mobile/assets/icons/`, `apps/mobile/assets/visuals/licenses/`, `apps/mobile/third_party_licenses/` |
 | Pairing service | `services/pairing-relay/LICENSE`, `services/pairing-relay/NOTICE` |
 | Official plugins and themes | Each package under `plugins/` and `themes/` |
 
 Release packaging collects the license files of the linked Go modules and of the
-Rust crates in the iroh library into the package; see
+Rust crates in the Turso library into the package; see
 `internal/node/host/deployment/licenses.sh`.

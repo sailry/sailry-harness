@@ -2,24 +2,24 @@
   "version": 1,
   "presets": [
     {
-      "id": "global",
+      "id": "direct",
       "label": {
-        "label": "Public network",
+        "label": "Direct only",
         "locales": {
-          "en": "Public network",
-          "zh": "公共网络",
-          "zh-CN": "公共网络",
-          "zh-TW": "公共網路",
-          "de": "Öffentliches Netzwerk",
-          "es": "Red pública",
-          "fr": "Réseau public",
-          "ja": "パブリックネットワーク",
-          "ko": "공용 네트워크",
-          "pt-BR": "Rede pública",
-          "ru": "Общедоступная сеть"
+          "en": "Direct only",
+          "zh": "仅直连",
+          "zh-CN": "仅直连",
+          "zh-TW": "僅直接連線",
+          "de": "Nur Direktverbindung",
+          "es": "Solo conexión directa",
+          "fr": "Connexion directe uniquement",
+          "ja": "直接接続のみ",
+          "ko": "직접 연결만",
+          "pt-BR": "Somente conexão direta",
+          "ru": "Только прямое соединение"
         }
       },
-      "selection": { "kind": "iroh" }
+      "selection": { "kind": "direct" }
     },
     {
       "id": "china-tencent",
@@ -41,30 +41,7 @@
       },
       "selection": {
         "kind": "custom",
-        "relays": ["https://iroh-service.dux.plus"]
-      }
-    },
-    {
-      "id": "china-aliyun",
-      "label": {
-        "label": "China (Alibaba Cloud)",
-        "locales": {
-          "en": "China (Alibaba Cloud)",
-          "zh": "中国（阿里云）",
-          "zh-CN": "中国（阿里云）",
-          "zh-TW": "中國（阿里雲）",
-          "de": "China (Alibaba Cloud)",
-          "es": "China (Alibaba Cloud)",
-          "fr": "Chine (Alibaba Cloud)",
-          "ja": "中国（Alibaba Cloud）",
-          "ko": "중국 (Alibaba Cloud)",
-          "pt-BR": "China (Alibaba Cloud)",
-          "ru": "Китай (Alibaba Cloud)"
-        }
-      },
-      "selection": {
-        "kind": "custom",
-        "relays": ["https://aliyun-1.iroh.jujiang.me"]
+        "relays": ["/dns4/cn1.link.sailry.dux.plus/tcp/4001/p2p/12D3KooWJJnnLjPYHmQ4p7TduxDkuqYkPEjmGNGsiX9QPTf27nap"]
       }
     }
   ]

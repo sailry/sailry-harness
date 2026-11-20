@@ -8,15 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/protocol/wire"
 )
 
 func TestPairingResumesAfterLocalSaveFailure(t *testing.T) {
-	if err := iroh.LoadDefault(true); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	open := func(store *fixturePeerStore) *Link {
@@ -66,11 +62,7 @@ func TestPairingResumesAfterLocalSaveFailure(t *testing.T) {
 }
 
 // TestSilentPairingConnectionsLeaveAcceptWorkers binds real loopback endpoints.
-// Run it with SAILRY_IROH_LIB naming the built iroh library.
 func TestSilentPairingConnectionsLeaveAcceptWorkers(t *testing.T) {
-	if err := iroh.LoadDefault(true); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	identity := func() Identity {
@@ -116,14 +108,20 @@ func TestSilentPairingConnectionsLeaveAcceptWorkers(t *testing.T) {
 			if _, err := rand.Read(seed[:]); err != nil {
 				t.Fatal(err)
 			}
-			stranger, err := iroh.NewEndpoint(ctx, iroh.Config{SecretKey: seed, Mode: "direct", Bind: "127.0.0.1:0"})
+			stranger, err := newLibp2pEndpoint(ctx, seed, "127.0.0.1:0", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = stranger.Close() })
-			go func() { _, _ = stranger.Connect(ctx, address, wire.PairALPN) }()
+			conn, err := stranger.Connect(ctx, address, wire.PairALPN)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Negotiate the pairing stream without sending a claim.
+			if stream, err := conn.OpenBi(ctx); err == nil {
+				t.Cleanup(func() { _ = stream.Close() })
+			}
 		}
-		time.Sleep(2 * time.Second)
 	}
 	// Every inspection dials again, so each one needs a free accept worker.
 	inspect := func(scenario string) {

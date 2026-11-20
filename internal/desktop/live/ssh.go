@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strconv"
@@ -16,24 +17,25 @@ import (
 )
 
 type sshInstallation struct {
-	state      *liveHost
-	draft      settings.ConnectionDraft
-	profile    *protocol.SshProfile
-	expected   *protocol.NodeID
-	network    *protocol.NetworkSelection
-	request    *protocol.Request
-	retry      protocol.Command
-	completed  func(bool)
-	active     bool
-	running    bool
-	uncertain  bool
-	partial    bool
-	trusting   bool
-	prompt     *settings.HostTrust
-	stage      string
-	polling    bool
-	nextPoll   time.Time
-	networkFix *protocol.SshOutcomeHostNetworkUnconfirmedPayload
+	state        *liveHost
+	draft        settings.ConnectionDraft
+	profile      *protocol.SshProfile
+	expected     *protocol.NodeID
+	network      *protocol.NetworkSelection
+	networkDraft protocol.NetworkSelection
+	request      *protocol.Request
+	retry        protocol.Command
+	completed    func(bool)
+	active       bool
+	running      bool
+	uncertain    bool
+	partial      bool
+	trusting     bool
+	prompt       *settings.HostTrust
+	stage        string
+	polling      bool
+	nextPoll     time.Time
+	networkFix   *protocol.SshOutcomeHostNetworkUnconfirmedPayload
 }
 
 func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool)) {
@@ -46,7 +48,7 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 	if completed == nil {
 		completed = func(bool) {}
 	}
-	if operation := local.install; operation != nil && (operation.active || operation.running) {
+	if operation := local.install; root.App.Settings.ConnectionPending || operation != nil && (operation.active || operation.running) {
 		// A step cancelled here may still run on the Node; the next waits for it.
 		root.enqueue(func(c *ui.Context) {
 			kit.Toast(c, kit.Failed, i18n.T(c, "ssh_busy"))
@@ -54,7 +56,20 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 		})
 		return
 	}
-	selection, err := root.connectionSelection(draft)
+	input, err := root.connectionDraftSelection(draft)
+	if operation := local.install; operation != nil && sshRecoverable(operation) {
+		if err != nil || !sameSSHHostDraft(operation.draft, draft) || !sameConnectionNetwork(&operation.networkDraft, &input) {
+			root.enqueue(func(c *ui.Context) {
+				root.reportSSH(c, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "The original Host installation must be checked before changing its target"}, false)
+				completed(false)
+			})
+			return
+		}
+		operation.completed, operation.active = completed, true
+		root.App.Settings.ConnectionPending = true
+		root.recoverSSH(operation)
+		return
+	}
 	if err != nil {
 		root.enqueue(func(c *ui.Context) {
 			root.reportConnection(c, err, "pairing_relay_invalid")
@@ -62,50 +77,62 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 		})
 		return
 	}
+	var picker *connectionPicker
+	if state := root.connections; state != nil {
+		picker = state.picker
+	}
+	root.App.Settings.ConnectionPending = true
+	root.useConnectionSelection(picker, input, true, func(selection protocol.NetworkSelection, err error) {
+		if picker != nil && !root.App.Settings.Adding() || errors.Is(err, context.Canceled) {
+			root.App.Settings.ConnectionPending = false
+			completed(false)
+			return
+		}
+		if err != nil {
+			root.App.Settings.ConnectionPending = false
+			root.enqueue(func(c *ui.Context) {
+				root.reportConnection(c, err, connectionRelayFailureKey(err))
+				completed(false)
+			})
+			return
+		}
+		root.installSSHHost(local, draft, input, selection, completed)
+	})
+}
+
+func (r *Runtime) installSSHHost(local *liveHost, draft settings.ConnectionDraft, input, selection protocol.NetworkSelection, completed func(bool)) {
 	// A changed draft updates the connection this dialog already saved
 	// instead of saving another.
 	var saved *protocol.SshProfile
 	if operation := local.install; operation != nil {
 		saved = operation.profile
 		sameTarget := sameSSHHostDraft(operation.draft, draft) && sameConnectionNetwork(operation.network, &selection)
-		if sshRecoverable(operation) {
-			if !sameTarget {
-				root.enqueue(func(c *ui.Context) {
-					root.reportSSH(c, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "The original Host installation must be checked before changing its target"}, false)
-					completed(false)
-				})
-				return
-			}
-			operation.completed, operation.active = completed, true
-			root.App.Settings.ConnectionPending = true
-			root.recoverSSH(operation)
-			return
-		}
 		if sameTarget && operation.retry.Kind != "" {
 			operation.completed, operation.active = completed, true
-			root.App.Settings.ConnectionPending = true
-			root.executeSSH(operation, operation.retry)
+			operation.networkDraft = input
+			r.executeSSH(operation, operation.retry)
 			return
 		}
 	}
 	// WSL installs in one step on this computer; SSH saves its connection first.
 	command := protocol.Command{Kind: "install_wsl_host", Data: protocol.CommandInstallWslHostPayload{Distribution: draft.Distribution, Network: &selection}}
+	var err error
 	if draft.Method == settings.ByWSL {
 		saved = nil
 	} else {
 		command, err = sshSaveCommand(draft, saved)
 	}
 	if err != nil {
-		root.enqueue(func(c *ui.Context) {
-			root.reportSSH(c, err, false)
+		r.App.Settings.ConnectionPending = false
+		r.enqueue(func(c *ui.Context) {
+			r.reportSSH(c, err, false)
 			completed(false)
 		})
 		return
 	}
-	operation := &sshInstallation{state: local, draft: draft, profile: saved, network: &selection, completed: completed, active: true, stage: "connecting"}
+	operation := &sshInstallation{state: local, draft: draft, profile: saved, network: &selection, networkDraft: input, completed: completed, active: true, stage: "connecting"}
 	local.install = operation
-	root.App.Settings.ConnectionPending = true
-	root.executeSSH(operation, command)
+	r.executeSSH(operation, command)
 }
 
 // checkSSHHost asks what became of the installation whose outcome is

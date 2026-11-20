@@ -3,11 +3,10 @@ package node
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"os"
 
-	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/link"
-	"github.com/sailry/sailry-harness/internal/link/iroh"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -159,20 +158,22 @@ func (peers nodePeerStore) RememberPeerName(ctx context.Context, peer protocol.N
 func (node *Node) Link() *link.Link { return node.network }
 
 func (node *Node) bindNetwork(ctx context.Context, scope link.NetworkScope) error {
-	if err := iroh.LoadDefault(!core.Release()); err != nil {
-		return err
-	}
 	if scope.Internet || len(scope.Relays) != 0 {
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			_, selected, err := store.ReadNetworkSelection(ctx, db)
 			if err != nil || selected == nil {
 				return err
 			}
-			scope.Internet = selected.Kind == "iroh"
-			scope.Relays = nil
-			if selected.Kind == "custom" {
-				scope.Relays = append([]string{}, selected.Data.(*protocol.NetworkSelectionCustomPayload).Relays...)
+			if selected.Kind == "direct" {
+				scope.Internet, scope.Relays = true, nil
+				return nil
 			}
+			relays, err := link.NetworkRelayURLs(ctx, *selected)
+			if err != nil {
+				slog.Warn("Saved relay selection is unavailable; using startup network")
+				return nil
+			}
+			scope.Internet, scope.Relays = false, relays
 			return nil
 		})
 		if err != nil {

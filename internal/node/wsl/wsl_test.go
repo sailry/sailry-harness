@@ -191,7 +191,7 @@ func TestWSLDiscovery(t *testing.T) {
 		if err != nil || script != prefix+normalize(releaseSource) {
 			t.Fatalf("custom script %q, error %v", script, err)
 		}
-		script, err = ReleaseScript("0.1.0", false, &protocol.NetworkSelection{Kind: "iroh"})
+		script, err = ReleaseScript("0.1.0", false, &protocol.NetworkSelection{Kind: "direct"})
 		if err != nil || !strings.HasPrefix(script, "install_version='0.1.0'\ninstall_update=0\nset -- '--internet'\n") {
 			t.Fatalf("iroh script %q, error %v", script, err)
 		}

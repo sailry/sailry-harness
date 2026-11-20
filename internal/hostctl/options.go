@@ -1,7 +1,9 @@
 package hostctl
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -17,7 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-const ServiceUsage = "Usage: sailry serve [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <HTTPS URL> ...] [--pairing-service <HTTPS origin> | --bootstrap] [--telemetry on|off]\nDefaults to ~/.sailry-go and loopback. No interactive Agent. Pairing is opt-in."
+const ServiceUsage = "Usage: sailry serve [--data-dir <absolute private directory>] [--bind <IP:port> | --internet | --relay <libp2p multiaddr> ...] [--pairing-service <HTTPS origin> | --bootstrap] [--telemetry on|off]\nDefaults to ~/.sailry-go and loopback. Without a saved selection, --internet listens directly. No interactive Agent. Pairing is opt-in."
 
 const TaskUsage = "Usage: sailry-host submit (--session <id> | --worktree <id>) (--prompt <text> | --prompt-file <path> | --stdin) [--request-id <id>] [--expected-revision <number>] [--config <JSON file>] [--execution model|team] [--team <id>] [--team-revision <number>] [--association <JSON file>] [--title <text>] [--no-wait] [--timeout <seconds>] [--data-dir <profile>]\n       sailry-host wait --session <id> --turn <id> [--timeout <seconds>] [--data-dir <profile>]\nWrites one JSON result. Exit codes: 0 admitted/completed, 1 failed/stopped, 3 approval/input/paused, 4 uncertain, 124 timeout, 130 observation cancelled. Waiting never grants approvals or stops execution."
 
@@ -77,9 +79,6 @@ func ParseService(args []string) (ServiceOptions, bool, error) {
 				}
 				options.Network.Bind = value
 			case "--relay":
-				if err := validateRelay(value); err != nil {
-					return options, false, err
-				}
 				options.Network.Relays = append(options.Network.Relays, value)
 			case "--pairing-service":
 				if err := validateOrigin(value); err != nil {
@@ -102,6 +101,15 @@ func ParseService(args []string) (ServiceOptions, bool, error) {
 	}
 	if options.Bootstrap && options.PairingService != "" {
 		return options, false, errors.New("choose bootstrap or pairing service")
+	}
+	if len(options.Network.Relays) > 0 {
+		relays, err := link.NetworkRelayURLs(context.Background(), protocol.NetworkSelection{
+			Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: options.Network.Relays},
+		})
+		if err != nil {
+			return options, false, fmt.Errorf("--relay: %w", err)
+		}
+		options.Network.Relays = relays
 	}
 	if options.Network.Internet || len(options.Network.Relays) > 0 {
 		options.Network.Bind = ""
@@ -132,16 +140,6 @@ func validateOrigin(origin string) error {
 		}
 	}
 	return errors.New("pairing service requires HTTPS or loopback HTTP")
-}
-
-func validateRelay(value string) error {
-	parsed, err := url.Parse(value)
-	// The Link refuses the same forms when the endpoint binds.
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Opaque != "" ||
-		parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") {
-		return errors.New("relay requires an HTTPS URL")
-	}
-	return nil
 }
 
 type TaskOptions struct {

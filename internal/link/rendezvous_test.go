@@ -104,7 +104,7 @@ func TestPairingExchangeContract(t *testing.T) {
 		defer server.Close()
 		link := newFixtureLink(t)
 		var claim PairingClaim
-		selection := protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://selected.example"}}}
+		selection := fixtureRelaySelection(fixtureRelayTCP)
 		var previous string
 		for index, pin := range []string{"001234", "001234", "001234", "654321"} {
 			var err error
@@ -112,7 +112,7 @@ func TestPairingExchangeContract(t *testing.T) {
 				_, err = link.PairPIN(t.Context(), " "+server.URL+"/ ", pin, &claim)
 			} else {
 				_, err = link.PairPINOnNetwork(t.Context(), server.URL, pin, selection, &claim)
-				selection = protocol.NetworkSelection{Kind: "custom", Data: protocol.NetworkSelectionCustomPayload{Relays: []string{"https://other.example"}}}
+				selection = fixtureRelaySelection(fixtureRelayQUIC)
 			}
 			if err == nil || faultValue(err).Code != protocol.ErrorCodeUnavailable {
 				t.Fatalf("redemption failure: %v", err)
